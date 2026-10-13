@@ -372,6 +372,20 @@ def checkArtifact (root out : FilePath) (g : Generated) (tag : TagState)
 def releasePackage (root : FilePath) (v : ReleaseVersion) : FilePath :=
   root / "tmp/site-release" / releaseAsset v
 
+/-- Invalidate the artifact that a build into `out` writes, before anything that can fail: remove
+the directory `out`, and for a build labelled with a release, that release's asset
+(`releasePackage`), so neither an earlier artifact nor an earlier asset remains where it could be
+served or uploaded. It is what `build` runs first, and what a refused build runs in its place
+(`refuseSiteBuild`). A relative `out` is taken from the real path of the working directory, and a
+link, `.` or `..` among its components stops it before it removes anything
+(`Regula.Filesystem.ownPath`). Returns the absolute `out`. -/
+def invalidateArtifact (out : FilePath) : IO FilePath := do
+  let out ← Regula.Filesystem.ownPath out
+  Regula.Filesystem.removeOwn .directory out
+  if let .release v := installed then
+    Regula.Filesystem.removeOwn .file (releasePackage (← rootDirectory) v)
+  return out
+
 /-- Complete build: refuse a release label whose tag names another commit, decide each release
 edition's source, admit evidence, generate, render, collect the release editions, assemble and
 check. A clean build that rendered its release's edition, the release commit's before its
@@ -379,11 +393,10 @@ release is published, also writes that edition as the release asset. An unreleas
 previews a release not yet published, the release pull request's, writes no asset and says that
 its artifact is not publishable. A relative `out` is taken from the real path of the working
 directory, and a link, `.` or `..` among its components stops the build before it makes or removes
-anything (`Regula.Filesystem.ownPath`). -/
+anything (`invalidateArtifact`). -/
 def build (evidencePaths : List FilePath) (out : FilePath) : IO Unit := do
   -- Invalidate an earlier artifact before any step can fail.
-  let out ← Regula.Filesystem.ownPath out
-  Regula.Filesystem.removeOwn .directory out
+  let out ← invalidateArtifact out
   let root ← rootDirectory
   let ident ← identity root
   let tags ← remoteTags root

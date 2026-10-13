@@ -445,17 +445,34 @@ def checkAll : IO Unit := do
   withScratch root "native-controls" fun scratch => do
     discard <| checkAt root scratch (← Launcher.create)
 
+/-- Where the paired launcher diagnostic writes its report (`paired`), below the package root. -/
+def reportPath (root : FilePath) : FilePath :=
+  root / "tmp/native-launcher-diagnostic.json"
+
+/-- The report of a diagnostic that has not completed: outcome `INCOMPLETE`, not equivalent, with
+`reason` when one is given. -/
+def incompleteReport (reason : Option String) : Json :=
+  Json.mkObj ([("outcome", .str "INCOMPLETE"), ("equivalent", .bool false)] ++
+    (reason.map fun text => [("reason", Json.str text)]).getD [])
+
+/-- Replace the report of the paired launcher diagnostic with an incomplete one
+(`incompleteReport`): the writer that `paired` runs before anything else, and that a refused
+`qualify native-launcher` runs in its place, with its reason. -/
+def beginReport (reason : Option String := none) : IO Unit := do
+  let root ← rootDirectory
+  IO.FS.createDirAll (root / "tmp")
+  writeJson (reportPath root) (incompleteReport reason)
+
 /-- Paired baseline-first diagnostic with the same scratch path, source, argv, observed
 outputs, environment and executable. Measurements describe only these actual runs. Each run's
 `controls` and `controlMillis` entries are its compiler launches, the compile of the forged prelude
 included. -/
 def paired : IO Unit := do
   let root ← rootDirectory
-  let output := root / "tmp/native-launcher-diagnostic.json"
-  IO.FS.createDirAll (root / "tmp")
-  if ← output.pathExists then Regula.Filesystem.removePath .file output
+  let output := reportPath root
+  beginReport
   let started ← IO.monoMsNow
-  let report ← IO.mkRef (Json.mkObj [("outcome", .str "INCOMPLETE"), ("equivalent", .bool false)])
+  let report ← IO.mkRef (incompleteReport none)
   try
     withScratch root "launcher-pair" fun scratch => do
       let controls := scratch / "controls"

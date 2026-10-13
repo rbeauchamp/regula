@@ -231,12 +231,12 @@ private def runsIn {shards : Nat} (shard : Option (Fin shards)) (assigned : Fin 
 
 /-- The shard of `structuralSelfHostedPositive`, which holds no other control: its one accepting
 fresh gate builds `RegulaPolicy` from empty output in a copy of the repository, and no cut divides
-it, so it has the processors to itself. -/
-private def selfHostedShard : Fin structuralShards := structuralShard 0
+it, so it has the processors to itself (`SelfHosted.shard`). -/
+private def selfHostedShard : Fin structuralShards := SelfHosted.positive.shard
 
 /-- The shard of `structuralSelfHosted`, whose restored copy's fresh input a sharded run compares
-with the positive's through their digests (`selfHostedDigest`). -/
-private def selfHostedRestoredShard : Fin structuralShards := structuralShard 4
+with the positive's through their digests (`selfHostedDigest`, `SelfHosted.shard`). -/
+private def selfHostedRestoredShard : Fin structuralShards := SelfHosted.restored.shard
 
 /-- The shard of the source-attribution controls of the complete CLI sweep: the last. It also runs
 the control of a process without Lean's task manager (`taskManagerControl`). -/
@@ -1761,6 +1761,12 @@ private structure SelfHostedInputs where
 private def SelfHostedInputs.new : IO SelfHostedInputs :=
   return { restored := ← IO.mkRef none, positive := ← IO.mkRef none }
 
+/-- The recorded fresh input of `input`. -/
+private def SelfHostedInputs.of (inputs : SelfHostedInputs) :
+    SelfHosted → IO.Ref (Option (Array (String × Option ByteArray)))
+  | .positive => inputs.positive
+  | .restored => inputs.restored
+
 /-- The comparison that replaces an accepting fresh gate on the restored copy, run by an
 unsharded run after the queue has finished both self-hosted clusters: the restored copy's fresh
 input must be that of the copy the positive's fresh gate accepted, path by path and byte by
@@ -1798,19 +1804,28 @@ private def writeFreshInput (path : FilePath) (input : Array (String × Option B
 (`positive` or `restored`): below the repository's `tmp/`, the place from which the `campaign`
 job uploads it and to which the `diagnostics` job of `.github/workflows/diagnostics.yml`
 downloads it for `Regula.DiagnosticsGate.digestPath`. -/
-private def selfHostedDigestPath (repo : FilePath) (name : String) : FilePath :=
-  repo / "tmp" / "self-hosted-digest" / s!"{name}.sha256"
+private def selfHostedDigestPath (repo : FilePath) (input : SelfHosted) : FilePath :=
+  repo / "tmp" / "self-hosted-digest" / s!"{input.name}.sha256"
+
+/-- Remove the digest of `input` at `selfHostedDigestPath`, so that the `diagnostics` gate refuses
+it as missing until a run writes it again: the writer that a run of its shard runs when it starts
+(`markIncomplete`) and before it writes the digest (`selfHostedDigest`), and that a refusal runs
+in its place. -/
+def clearSelfHostedDigest (repo : FilePath) (input : SelfHosted) : IO Unit := do
+  let evidence := selfHostedDigestPath repo input
+  if ← evidence.pathExists then Regula.Filesystem.removePath .file evidence
 
 /-- What a sharded run does in place of `selfHostedIdentity`, after its queue, in the shard of
-the self-hosted cluster that recorded `input`: remove any earlier digest at
-`selfHostedDigestPath`, then write the SHA-256 digest of the canonical serialization of the
-recorded input (`writeFreshInput`). The `diagnostics` gate compares the two shards' digests.
+`input` (`SelfHosted.shard`): remove any earlier digest (`clearSelfHostedDigest`), then write
+the SHA-256 digest of the canonical serialization of the fresh input that its cluster recorded in
+`recorded` (`writeFreshInput`). The `diagnostics` gate compares the two shards' digests.
 A missing input fails the shard and writes no digest. -/
-private def selfHostedDigest (repo scratch : FilePath) (name : String)
-    (input : IO.Ref (Option (Array (String × Option ByteArray)))) : IO (Array String) := do
-  let evidence := selfHostedDigestPath repo name
-  if ← evidence.pathExists then Regula.Filesystem.removePath .file evidence
-  let some recorded ← input.get
+private def selfHostedDigest (repo scratch : FilePath) (input : SelfHosted)
+    (recorded : IO.Ref (Option (Array (String × Option ByteArray)))) : IO (Array String) := do
+  let name := input.name
+  let evidence := selfHostedDigestPath repo input
+  clearSelfHostedDigest repo input
+  let some recorded ← recorded.get
     | return #[s!"structural/self-hosted/{name}: no fresh input was recorded, because its \
         cluster stopped or the positive was refused, so no digest was written"]
   let serialized := scratch / s!"self-hosted-input-{name}.bin"
@@ -3840,12 +3855,11 @@ private unsafe def runStructural (layout : SourceLayout) (repo : FilePath) (jobs
           match shard with
           | none => [(selfHostedShard, StructuralGroup.clusters, "structural self-hosted identity",
               selfHostedIdentity inputs)]
-          | some _ =>
-            [(selfHostedShard, StructuralGroup.clusters, "structural self-hosted positive digest",
-                selfHostedDigest repo scratch "positive" inputs.positive),
-              (selfHostedRestoredShard, StructuralGroup.clusters,
-                "structural self-hosted restored digest",
-                selfHostedDigest repo scratch "restored" inputs.restored)]
+          -- Each digest in the shard that the selection names as its destination
+          -- (`Selection.destinations`).
+          | some _ => SelfHosted.all.map fun input =>
+            (input.shard, StructuralGroup.clusters, s!"structural self-hosted {input.name} digest",
+              selfHostedDigest repo scratch input (inputs.of input))
         for (group, label, run) in (inShard shard afterQueue).map (·.2) do
           results := results.push (group, label, ← loggedPhase label run)
         return results
@@ -3876,8 +3890,8 @@ private unsafe def runStructural (layout : SourceLayout) (repo : FilePath) (jobs
           ((results.filter (·.1 == StructuralGroup.clusters)).map (·.2.1)) ++
           (if selected == selfHostedShard || selected == selfHostedRestoredShard then
             s!". The self-hosted identity is decided only where both digests are compared: the \
-              CI diagnostics gate compares {selfHostedDigestPath repo "positive"} and \
-              {selfHostedDigestPath repo "restored"}, so a local claim needs the unsharded \
+              CI diagnostics gate compares {selfHostedDigestPath repo .positive} and \
+              {selfHostedDigestPath repo .restored}, so a local claim needs the unsharded \
               structural run or a comparison of those two files."
           else "")
   if ran .cycle then
@@ -3968,13 +3982,24 @@ private structure Seeded where
   seed : IO Unit
   /-- Whether the reader of the format admits the document there as a completed one. -/
   completed : IO Bool
-  /-- The member of the marked document that must hold the reason: `unresolved`, a list, or
-  `reason`, a string. -/
-  member : String
+  /-- Whether the destination holds what the refusal must leave there: a document marked
+  incomplete with the reason (`markedWith`), or nothing for a digest. -/
+  marked : IO Bool
+
+/-- Whether the document at `path` holds `incomplete` in `status`, and `reason` in `member`:
+`unresolved`, a list, or `reason`, a string. -/
+private def markedWith (path : FilePath) (member reason : String)
+    (status : String × String := ("status", "incomplete")) : IO Bool := do
+  let some marked ← parsedAt path | return false
+  let stated := match member with
+    | "unresolved" => (marked.getObjValAs? (Array String) member).toOption == some #[reason]
+    | _ => (marked.getObjValAs? String member).toOption == some reason
+  return stated && (marked.getObjValAs? String status.1).toOption == some status.2
 
 /-- The control of a process without Lean's task manager (issue 393), one refused run for each
 shape of program. Each of the actual `axiomGate`, `lint`, `docFenceAudit`, `qualify` and this
-self-test, run with `LEAN_NUM_THREADS=0` and without `REGULA_TIMING`, must refuse before its run
+self-test, run with `LEAN_NUM_THREADS=0` and without `REGULA_TIMING`, `REGULA_RECEIPT_TIMER`
+and `REGULA_QUALIFICATION_WRAPPER`, which only the run of the proxy sets, must refuse before its run
 starts (`Regula.TaskManager.guard`): its standard error must hold the guard's reason line, its exit
 code must be the one of its incomplete run, and it must print nothing to standard output, so no
 result line. Each destination that the run names starts with a completed document of its own
@@ -3984,16 +4009,18 @@ format, which the format's reader admits as completed: a result of the gate's ow
 `REGULA_QUALIFICATION_WRAPPER=acceptance`
 (`ResultProtocol.readDocument`), an accepted acceptance link with its identity
 (`AcceptanceLink.require`), a worker packet for the gate's `--frontend-worker` and the self-test's
-`--transcript-worker` (`readWorkerPacket`), and the export of `qualify producers --evidence`. The
-refused run must replace it with a document marked incomplete with the reason, which that reader
-no longer admits as completed. `docFenceAudit` names no destination. Every run also observes that
-the initializers of the modules the program links completed before its refusal. The processes and
-Lean's runtime are its subject, an external boundary: it observes this build's programs and
-proves nothing. -/
+`--transcript-worker` (`readWorkerPacket`), the export of `qualify producers --evidence`, the
+passing report of `qualify native-launcher`, and a digest of the self-hosted positive for the
+self-test's first structural shard. The last two run in a
+planted project root, where their fixed paths lie. The refused run must replace each document with
+one marked incomplete with the reason, or remove the digest, so that the reader no longer admits it
+as completed. `docFenceAudit` names no destination. The processes and Lean's runtime are its
+subject, an external boundary: it observes this build's programs and proves nothing. -/
 private def taskManagerControl (repo : FilePath) : IO (Option String) :=
   withScratch repo "checker-task-manager" fun scratch => do
     let reason := Regula.Probe.taskManagerMissingReason
     let gate := (← toolPath repo "axiomGate").toString
+    let qualify := (← toolPath repo "qualify").toString
     -- A completed result of the gate's own run, the seed of each result destination.
     let completed := scratch / "completed.json"
     let fixture := repo / "lean" / "Fixtures" / "Positive" / "KernelOnly.lean"
@@ -4004,61 +4031,93 @@ private def taskManagerControl (repo : FilePath) : IO (Option String) :=
         (exit {seeded.exitCode}):\n{seeded.output}"
     let result (name : String) : Seeded :=
       { path := scratch / name, seed := copyDocument completed (scratch / name),
-        completed := completedResult (scratch / name), member := "unresolved" }
+        completed := completedResult (scratch / name),
+        marked := markedWith (scratch / name) "unresolved" reason }
     let digest := String.ofList (List.replicate 64 'a')
     let link : Seeded :=
-      { path := scratch / "link.json", member := "reason",
+      { path := scratch / "link.json", marked := markedWith (scratch / "link.json") "reason" reason,
         seed := writeJson (scratch / "link.json") (Json.mkObj [("schemaVersion", toJson (1 : Nat)),
           ("status", .str "accepted"), ("identity", .str digest),
           ("acceptedJobs", toJson (#[] : Array Json)), ("origin", .str "isolatedCopy")]),
         completed := linkAccepted (scratch / "link.json") digest }
     let request := Json.mkObj [("control", .str "task manager")]
     let packet (name : String) : Seeded :=
-      { path := scratch / name, member := "reason",
+      { path := scratch / name, marked := markedWith (scratch / name) "reason" reason,
         seed := writeJson (scratch / name) (workerPacket request (.str "seed")),
         completed := packetAdmitted request (scratch / name) }
     let evidence : Seeded :=
-      { path := scratch / "producers.json", member := "reason",
+      { path := scratch / "producers.json",
+        marked := markedWith (scratch / "producers.json") "reason" reason,
         seed := writeJson (scratch / "producers.json") (Json.mkObj
           [("schemaVersion", toJson (1 : Nat)), ("examples", toJson (#[] : Array Json))]),
         completed := exportCompleted (scratch / "producers.json") }
+    -- A planted project root, where the fixed paths of the launcher's report and the digests lie.
+    let project := scratch / "project"
+    IO.FS.createDirAll project
+    IO.FS.writeFile (project / "lakefile.lean") ""
+    IO.FS.writeFile (project / "lean-toolchain") (← IO.FS.readFile (repo / "lean-toolchain"))
+    let project ← IO.FS.realPath project
+    let report := project / "tmp" / "native-launcher-diagnostic.json"
+    let launcher : Seeded :=
+      { path := report, marked := markedWith report "reason" reason ("outcome", "INCOMPLETE"),
+        seed := do
+          IO.FS.createDirAll (project / "tmp")
+          writeJson report (Json.mkObj [("outcome", .str "PASS"), ("equivalent", .bool true)]),
+        completed := return (← parsedAt report).any fun value =>
+          (value.getObjValAs? String "outcome").toOption == some "PASS" }
+    let positive := selfHostedDigestPath project .positive
+    let selfHosted : Seeded :=
+      { path := positive, marked := return !(← positive.pathExists),
+        seed := do
+          if let some parent := positive.parent then IO.FS.createDirAll parent
+          IO.FS.writeFile positive (digest ++ "\n"),
+        completed := do
+          unless ← positive.pathExists do return false
+          return (← IO.FS.readFile positive) == digest ++ "\n" }
     IO.FS.writeFile (scratch / "request.json") request.compress
     let issue := repo / "lean" / "Fixtures" / "Positive" / "HeartbeatCorrespondence.lean"
     let gateArgs (out : FilePath) : Array String :=
       #["--file", issue.toString, "--claim", "choice-free", "--execution", "checked", "--json-out",
         out.toString]
-    let without : Array (String × Option String) :=
-      #[("LEAN_NUM_THREADS", some "0"), ("REGULA_TIMING", none)]
+    -- No variable of the caller selects a mode: only the proxy run sets the wrapper's.
+    let wrapper (mode : Option String) : Array (String × Option String) :=
+      #[("LEAN_NUM_THREADS", some "0"), ("REGULA_TIMING", none),
+        ("REGULA_QUALIFICATION_WRAPPER", mode), ("REGULA_RECEIPT_TIMER", none)]
+    let without := wrapper none
     let proxy := result "proxy.json"
-    -- Each refused run: the program's name in the guard's line, its path, arguments and
-    -- environment, its exit code and each destination it names.
-    let runs : List (String × String × Array String × Array (String × Option String) × UInt32 ×
-        List Seeded) := [
-      ("axiomGate", gate, gateArgs (scratch / "gate.json"), without,
+    -- Each refused run: the program's name in the guard's line, its path, working directory,
+    -- arguments and environment, its exit code and each destination it names.
+    let runs : List (String × String × FilePath × Array String ×
+        Array (String × Option String) × UInt32 × List Seeded) := [
+      ("axiomGate", gate, repo, gateArgs (scratch / "gate.json"), without,
         Lint.Outcome.incomplete.exitCode, [result "gate.json"]),
-      ("axiomGate", gate, #["--acceptance-link", link.path.toString], without,
+      ("axiomGate", gate, repo, #["--acceptance-link", link.path.toString], without,
         Lint.Outcome.incomplete.exitCode, [link]),
-      ("axiomGate", gate, #["--frontend-worker", (scratch / "request.json").toString,
+      ("axiomGate", gate, repo, #["--frontend-worker", (scratch / "request.json").toString,
         (scratch / "frontend.json").toString], without, Lint.Outcome.incomplete.exitCode,
         [packet "frontend.json"]),
-      ("lint", (← toolPath repo "lint").toString, #["--json-out", (scratch / "lint.json").toString],
-        without, Lint.Outcome.incomplete.exitCode, [result "lint.json"]),
-      ("docFenceAudit", (← toolPath repo "docFenceAudit").toString, #[], without, 1, []),
-      ("checkerSelftest", (← IO.appPath).toString, #["--transcript-worker", "\"Planted\"",
+      ("lint", (← toolPath repo "lint").toString, repo,
+        #["--json-out", (scratch / "lint.json").toString], without,
+        Lint.Outcome.incomplete.exitCode, [result "lint.json"]),
+      ("docFenceAudit", (← toolPath repo "docFenceAudit").toString, repo, #[], without, 1, []),
+      ("checkerSelftest", (← IO.appPath).toString, repo, #["--transcript-worker", "\"Planted\"",
         issue.toString, "true", (scratch / "transcript.json").toString], without, 1,
         [packet "transcript.json"]),
-      ("qualify", (← toolPath repo "qualify").toString, #["producers", "--evidence",
-        evidence.path.toString], without, 1, [evidence]),
-      ("qualify", (← toolPath repo "qualify").toString, gateArgs proxy.path,
-        without.push ("REGULA_QUALIFICATION_WRAPPER", some "acceptance"),
+      ("checkerSelftest", (← IO.appPath).toString, project,
+        #["--build-bound", "--partition", "structural", "--shard", "1/5"], without, 1,
+        [selfHosted]),
+      ("qualify", qualify, repo, #["producers", "--evidence", evidence.path.toString], without, 1,
+        [evidence]),
+      ("qualify", qualify, project, #["native-launcher"], without, 1, [launcher]),
+      ("qualify", qualify, repo, gateArgs proxy.path, wrapper (some "acceptance"),
         Lint.Outcome.incomplete.exitCode, [proxy])]
-    for (program, path, args, env, code, destinations) in runs do
+    for (program, path, cwd, args, env, code, destinations) in runs do
       for destination in destinations do
         destination.seed
         unless ← destination.completed do
           return some s!"task manager: the seed of {destination.path} is not a completed \
             document of its format"
-      let result ← runProcess repo path args (env := env)
+      let result ← runProcess cwd path args (env := env)
       let line := Regula.TaskManager.refusalLine program reason
       if result.exitCode != code || !result.stdout.isEmpty ||
           !(result.stderr.splitOn "\n").contains line then
@@ -4066,15 +4125,12 @@ private def taskManagerControl (repo : FilePath) : IO (Option String) :=
           exit {code}, the line {repr line} and no standard output (exit {result.exitCode}):\n\
           {result.output}"
       for destination in destinations do
-        let marked ← IO.ofExcept <| PolicyCodec.parse (← IO.FS.readFile destination.path)
-        let stated := match destination.member with
-          | "reason" => (marked.getObjValAs? String "reason").toOption == some reason
-          | member => (marked.getObjValAs? (Array String) member).toOption == some #[reason]
-        unless (marked.getObjValAs? String "status").toOption == some "incomplete" && stated &&
-            !(← destination.completed) do
+        unless (← destination.marked) && !(← destination.completed) do
+          let held ← if ← destination.path.pathExists then IO.FS.readFile destination.path
+            else pure "nothing"
           return some s!"task manager: {program} {args} with LEAN_NUM_THREADS=0 left \
-            {destination.path} without the incomplete status and the reason, or admitted as \
-            completed: {marked.compress}"
+            {destination.path} without the incomplete mark and the reason, or admitted as \
+            completed; it holds {held}"
     return none
 
 /-- Public CLI fixtures: the complete sweep for qualification, or the unchanged smoke subset for
@@ -4101,10 +4157,11 @@ private def runCli (repo : FilePath) (jobs : Nat) (fullCli : Bool)
     appendFailure failures refused
     IO.println <| "self-test task manager: " ++ (if refused.isNone then "PASS" else "FAIL") ++
       " (axiomGate, lint, docFenceAudit, qualify and the self-test with LEAN_NUM_THREADS=0 refuse \
-        before their runs, after their initializers, with the incomplete exit code, the guard's \
-        reason line and no result line; each destination they name, a result, an acceptance link, \
-        a worker packet or an evidence export that held a completed document of its format, ends \
-        marked incomplete with the reason, including the proxy of axiomGate and the workers)"
+        before their runs, with the incomplete exit code, the guard's reason line and no result \
+        line; each destination they name, a result, an acceptance link, a worker packet, an \
+        evidence export or the launcher's report that held a completed document of its format, \
+        ends marked incomplete with the reason, including the proxy of axiomGate and the workers, \
+        and a self-hosted digest ends removed)"
   if fullCli && runsIn shard cliAttributionShard then
     let attribution ← loggedPhase "source attribution" <|
       withScratch repo "checker-source-attribution" fun scratch =>
@@ -4395,20 +4452,25 @@ private unsafe def runTranscriptWorker (moduleWire source rejectWarnings out : S
           (toJson transcript))
   return 0
 
-/-- Mark the file that `selection` writes (`Selection.output`) incomplete with `reason`
-(`invalidateOutput`), printing a line when it cannot be marked; a selection that writes none marks
-nothing. -/
+/-- Mark each file that `selection` writes for a later reader (`Selection.destinations`)
+incomplete: a worker's packet with `reason` (`invalidateOutput`), and a self-hosted digest by its
+removal (`clearSelfHostedDigest`), which the `diagnostics` gate refuses as missing. Prints a line
+for each file that cannot be marked; a selection that writes none marks nothing. -/
 def markIncomplete (selection : Selection) (reason : String) : IO Unit := do
-  if let some out := selection.output then
-    try invalidateOutput out reason
+  for destination in selection.destinations do
+    let (shown, mark) : String × IO Unit := match destination with
+      | .packet out => (out, invalidateOutput out reason)
+      | .selfHostedDigest input =>
+        (s!"the {input.name} self-hosted digest", do clearSelfHostedDigest (← repoRoot) input)
+    try mark
     catch error =>
-      IO.eprintln s!"checkerSelftest: could not mark the destination {out} incomplete: {error}"
+      IO.eprintln s!"checkerSelftest: could not mark the destination {shown} incomplete: {error}"
 
 /-- Runs the qualification suite: one of the focused `--…-only` controls or the internal
 transcript worker when the arguments name it (`Selection.parse`), otherwise the baseline build and
-then the selected tiers or partition. It first marks the file that the selection writes incomplete
-(`markIncomplete`), so a worker that stops before its write leaves no earlier packet there. Prints
-each failure and returns `1` when any control fails, `0` otherwise. -/
+then the selected tiers or partition. It first marks the files that the selection writes
+incomplete (`markIncomplete`), so a run that stops before its write leaves no earlier packet or
+digest there. Prints each failure and returns `1` when any control fails, `0` otherwise. -/
 unsafe def run (args : List String) : IO UInt32 := do
   let selection ← IO.ofExcept ((Selection.parse args).mapError IO.userError)
   markIncomplete selection "the job has not completed"
@@ -4513,8 +4575,8 @@ unsafe def checkerSelftestMain (args : List String) : IO UInt32 := do
 
 /-- The refusal of the self-test in a process without Lean's task manager
 (`Regula.TaskManager.guard`): it reads the arguments as `run` does (`Selection.parse`), marks the
-file of that selection incomplete with `reason` (`markIncomplete`), the transcript worker's output
-and none for any other selection, and returns 1. -/
+files of that selection incomplete with `reason` (`markIncomplete`): the transcript worker's output
+and the digest of a shard of the structural partition that writes one. It returns 1. -/
 def refuseCheckerSelftest (reason : String) (args : List String) : IO UInt32 := do
   if let .ok selection := Regula.Checker.SelftestArguments.Selection.parse args then
     Regula.Checker.CheckerSelftest.markIncomplete selection reason

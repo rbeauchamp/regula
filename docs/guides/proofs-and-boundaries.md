@@ -666,9 +666,9 @@ of the option `--url`, thus a URL that starts with `-` is not an option.
 A compiled Lean program starts the task manager of Lean after the initializers of its modules. The
 variable `LEAN_NUM_THREADS` gives the number of its threads, and the value `0` gives no task
 manager. Without a task manager, Lean runs each task on the thread that starts it. A call of
-`IO.Promise.new` then stops the process with a panic and exit code 1. Thus an audit could end with
-the exit code of a violation, but no audit completed
-([issue 393](https://github.com/rbeauchamp/regula/issues/393)).
+`IO.Promise.new` then stops the process with a panic: exit code 1, or an abort if
+`LEAN_ABORT_ON_PANIC` is set. Thus an audit could end with the exit code of a violation, but no
+audit completed ([issue 393](https://github.com/rbeauchamp/regula/issues/393)).
 
 The function `Regula.TaskManager.guard` prevents this result. Before the program starts, the
 function `Regula.Probe.taskManagerMissing` operates one task of priority
@@ -679,12 +679,18 @@ lines of the Lean runtime that this observation uses.
 
 The refusal of a program reads its arguments with the parser of the program. For `axiomGate`, that
 parser also reads the internal worker forms. For `qualify`, it also reads the modes that an
-environment variable selects, such as the proxy of `axiomGate`. The refusal then marks each file of
-that reading incomplete, with the reason. It uses the writer that the program uses when a run stops
-early. Thus a result of an earlier run does not stay in place.
+environment variable selects, such as the proxy of `axiomGate`. The reading also gives the files
+at fixed paths that a selection writes. Examples are the report of `qualify native-launcher` and
+the digest of a structural shard of the self-test.
 
-The refusal then gives the exit code of an incomplete run. For `axiomGate` and `lint`, that code is
-3. A program that writes no result file, such as a site renderer, marks no file.
+The refusal then marks each file of that reading incomplete, with the reason. It uses the writer
+that a run of the program operates first. Thus a result of an earlier run does not stay in place.
+A self-hosted digest has no incomplete form, thus the refusal removes it, as the run does first.
+The `diagnostics` gate then refuses it as missing. The refusal of `site build` removes the output
+directory and the asset of a release, as the build does first.
+
+The refusal then gives the exit code of an incomplete run. For `axiomGate` and `lint`, that
+code is 3. A program that writes no result file marks no file.
 
 The check `Regula.TaskManagerCheck.checkProgram` operates at the end of the root module of each
 executable. It examines `main` if the compiled code of `main` calls a function of the runtime that
@@ -698,18 +704,11 @@ asynchronous input and output (`symbols`, `uvPrefix`). For example, `IO.Process.
 task. The compiled code of `auditApp` calls none of these functions, thus that program has no
 guard.
 
-Initializers operate before the task manager starts, in each run, thus no guard can help them. The
-check also follows the initializers of the modules that a program links
-(`Regula.Removal.initializersOf`). It refuses the program if one of them calls a function of the
-runtime that stops the process without a task manager. Such a function creates a promise or reads
-the task manager directly (`stopSymbols`).
-
-The check follows the code of an initializer up to a function of the Lean toolchain, but not into
-it. Thus it does not see an initializer that calls `IO.CancelToken.new`, which creates a promise.
-Through the toolchain, the initializers of each program reach `IO.Promise.resolve`, from the
-attributes that their modules register. Thus a check through the toolchain would refuse each
-program. In this build, the self-test observes that the initializers of five programs complete
-without a task manager. The docstring of `initializerReach` states this limit as an assumption.
+A compiled program operates all its initializers before it starts the task manager, in each run. The
+value of `LEAN_NUM_THREADS` does not change that order. Thus an initializer that uses the task
+manager stops each run of its program, and no guard can help. That is a defect of the program in
+each environment, outside the runs that the guard refuses. The docstring of the guard states this as
+an assumption, with the lines of the Lean compiler.
 
 The command `lake exe qualify observers` also refuses an executable of the root package if no
 module records this check. The executables of the packages `website` and `markdown` do the check
@@ -717,13 +716,15 @@ in their root modules, but that command does not read those packages. A program 
 operates with `lean --run` does not start through the guard. The `lean` executable starts its task
 manager before it reads the file, and the variable `LEAN_NUM_THREADS` does not change it.
 
-The module `Regula.ProgramCheck.Controls` has controls of the check, with an initializer that
-creates a promise. The last cli shard of the self-test operates `axiomGate`, `lint`,
-`docFenceAudit`, `qualify` and the self-test with `LEAN_NUM_THREADS=0`. It operates one run for
-each kind of destination: a result, an acceptance link, a worker packet, an evidence file and the
-proxy of `axiomGate`. Before each run, each destination holds a completed document of its format,
-and its reader accepts it. After the run, each destination must be marked incomplete, with the
-reason. Its reader must then refuse it as a completed document.
+The module `Regula.ProgramCheck.Controls` has controls of the check. The last cli shard of the
+self-test operates `axiomGate`, `lint`, `docFenceAudit`, `qualify` and the self-test with
+`LEAN_NUM_THREADS=0`. It operates one run for each kind of destination. The kinds are a result,
+an acceptance link, a worker packet, an evidence file and the proxy of `axiomGate`. They also
+include the report of the launcher and a self-hosted digest.
+
+Before each run, each destination holds a completed document of its format, and its reader
+accepts it. After the run, each destination must be marked incomplete, with the
+reason, or removed for a digest. Its reader must then refuse it as a completed document.
 
 The driver moves the pending record to `tmp/acceptance-link.json` only if
 `RegulaVerification.passed` accepts the exit status of each command. The driver does that move

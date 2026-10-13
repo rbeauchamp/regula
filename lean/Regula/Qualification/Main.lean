@@ -107,6 +107,7 @@ private def markEvidence (args : List String) (attempt : String) (reason : Optio
   | some (.ruleExamples path) =>
     Regula.Qualification.RuleExamples.beginAttempt ⟨path⟩ attempt reason
   | some (.producers path) => Regula.Qualification.Producer.beginAttempt ⟨path⟩ attempt reason
+  | some .launcherReport => Regula.Qualification.NativeLinter.beginReport reason
   | none => pure ()
 
 /-- The form of one `qualify` invocation, read from its arguments and the two variables of its
@@ -160,17 +161,21 @@ executable runs (`Regula.TaskManager.guard`). It reads the invocation as `qualif
 (`Invocation.of`) and marks its destinations incomplete with `reason` through the writers that a
 run uses. The proxy of `axiomGate` is refused as the gate refuses, with the gate's exit code
 (`AxiomGate.refuseWithoutTaskManager`). A command marks its evidence document (`markEvidence`),
-for the attempt that the wrapper's arguments give or otherwise for a fresh one, and returns 1, as
-do the receipt boundary's worker and an unknown wrapper mode, which write no file. No command
+for the attempt that the wrapper's arguments give or otherwise for a fresh one, printing a line
+when it cannot, and returns 1, as do the receipt boundary's worker and an unknown wrapper mode,
+which write no file. No command
 runs. -/
 private def refuseQualification (reason : String) (args : List String) : IO UInt32 := do
+  let mark (rest : List String) (attempt : Option String) : IO Unit := do
+    try markEvidence rest (← attempt.getDM Regula.Qualification.freshAttempt) reason
+    catch error =>
+      IO.eprintln s!"qualify: could not mark the evidence of {rest} incomplete: {error}"
   match ← Invocation.of args with
   | .acceptanceProxy =>
     return ← Regula.Checker.AxiomGate.refuseWithoutTaskManager reason args
   | .receiptTimer | .unknownWrapper => pure ()
-  | .underDeadline (some attempt) rest => markEvidence rest attempt reason
-  | .underDeadline none rest | .bounded rest =>
-    markEvidence rest (← Regula.Qualification.freshAttempt) reason
+  | .underDeadline attempt rest => mark rest attempt
+  | .bounded rest => mark rest none
   return 1
 
 /-- The `qualify` executable: `qualifyMain` on the command-line arguments. A process without

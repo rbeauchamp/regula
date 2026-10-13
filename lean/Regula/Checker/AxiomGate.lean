@@ -1721,10 +1721,10 @@ private def markIncomplete (plan : Plan) (reason : Option String := none) : IO (
   return failed
 
 /-- The job that the arguments of one `axiomGate` invocation name, read once from their whole
-shape (`Invocation.of`): one of the internal forms, each with the file that it writes where it
-writes one, or an audit with its plan (`Plan.of`). `run` does the job, and the refusal without a
-task manager marks the files of the same reading (`Invocation.markIncomplete`), so the two take
-their destinations from one parser. -/
+shape (`Invocation.of`): one of the internal forms, each with what names the files that
+it writes (`Invocation.outputs`), or an audit with its plan (`Plan.of`). `run` does the job, and
+the refusal without a task manager marks the files of the same reading
+(`Invocation.markIncomplete`), so the two take their destinations from one parser. -/
 inductive Invocation where
   /-- `--validate-site REGISTRY ARTIFACT`: writes nothing. -/
   | validateSite (registry artifact : String)
@@ -1734,8 +1734,11 @@ inductive Invocation where
   | validateRegistry (input : String)
   /-- `--module-graph-worker INPUT OUT`. -/
   | moduleGraphWorker (input out : String)
-  /-- `--declaration-report-worker INPUT OUT`. -/
+  /-- `--declaration-report-worker INPUT OUT`, with the request that `INPUT` holds, decoded once
+  (`ReportWorkerRequest`): besides `OUT`, its member `publish` names the file where the worker
+  publishes its completed admission. -/
   | declarationReportWorker (input out : String)
+      (request : Except String (Json × ReportWorkerRequest))
   /-- `--frontend-worker INPUT OUT`. -/
   | frontendWorker (input out : String)
   /-- `--compile-batch-worker INPUT OUT`. -/
@@ -1756,7 +1759,12 @@ def Invocation.of (args : List String) : BaseIO Invocation :=
   | ["--registry-out", output] => pure (.registryOut output)
   | ["--validate-registry", input] => pure (.validateRegistry input)
   | ["--module-graph-worker", input, out] => pure (.moduleGraphWorker input out)
-  | ["--declaration-report-worker", input, out] => pure (.declarationReportWorker input out)
+  | ["--declaration-report-worker", input, out] => do
+    let decoded ← (do
+      let json ← IO.ofExcept <| Regula.Checker.PolicyCodec.parse (← IO.FS.readFile input)
+      let request : ReportWorkerRequest ← IO.ofExcept (fromJson? json)
+      return (json, request) : IO (Json × ReportWorkerRequest)).toBaseIO
+    return .declarationReportWorker input out (decoded.mapError toString)
   | ["--frontend-worker", input, out] => pure (.frontendWorker input out)
   | ["--compile-batch-worker", input, out] => pure (.compileBatchWorker input out)
   | ["--inspection-group-worker", input, out] => pure (.inspectionGroupWorker input out)
@@ -1766,29 +1774,32 @@ def Invocation.of (args : List String) : BaseIO Invocation :=
     pure (.replacementHistoryWorker moduleWire source out)
   | _ => .audit <$> Plan.of args
 
-/-- The file that an internal form writes, or `none` for a form that writes none and for an audit,
-whose destinations its plan gives. -/
-def Invocation.output : Invocation → Option String
-  | .validateSite .. | .validateRegistry _ | .audit _ => none
-  | .registryOut output => some output
-  | .moduleGraphWorker _ out | .declarationReportWorker _ out | .frontendWorker _ out
-  | .compileBatchWorker _ out | .inspectionGroupWorker _ out | .diagnosticWorker _ _ out
-  | .replacementHistoryWorker _ _ out => some out
+/-- The files that an internal form writes: its output, and for the declaration-report worker the
+file `publish` of its decoded request too. A form that writes none and an audit, whose destinations
+its plan gives, give none. -/
+def Invocation.outputs : Invocation → List String
+  | .validateSite .. | .validateRegistry _ | .audit _ => []
+  | .registryOut output => [output]
+  | .declarationReportWorker _ out request =>
+    out :: match request with
+      | .ok (_, request) => [request.publish]
+      | .error _ => []
+  | .moduleGraphWorker _ out | .frontendWorker _ out | .compileBatchWorker _ out
+  | .inspectionGroupWorker _ out | .diagnosticWorker _ _ out | .replacementHistoryWorker _ _ out =>
+    [out]
 
 /-- Mark each file that `invocation` writes incomplete, each on its own, and return a line for each
 that could not be marked: an audit's destinations (`markIncomplete`), with `reason` when given,
-and an internal form's output (`invalidateOutput`), with `reason` or else the reason that the job
-has not completed. -/
+and each file of an internal form (`outputs`, `invalidateOutput`), with `reason` or else the reason
+that the job has not completed. -/
 def Invocation.markIncomplete (invocation : Invocation) (reason : Option String) :
     IO (List String) :=
   match invocation with
   | .audit plan => Regula.Checker.AxiomGate.markIncomplete plan reason
-  | other => match other.output with
-    | none => pure []
-    | some out => do
-      match ← (invalidateOutput out (reason.getD "the job has not completed")).toBaseIO with
-      | .ok () => pure []
-      | .error error => pure [s!"{out}: {error}"]
+  | other => other.outputs.filterMapM fun (out : String) => do
+    match ← (invalidateOutput ⟨out⟩ (reason.getD "the job has not completed")).toBaseIO with
+    | .ok () => pure none
+    | .error error => pure (some s!"{out}: {error}")
 
 /-- The refusal of an invocation in a process without Lean's task manager, which the guard of the
 executable runs (`Regula.TaskManager.guard`): it reads the arguments once (`Invocation.of`), as
@@ -1960,9 +1971,8 @@ unsafe def run (args : List String) : IO UInt32 := do
     let graph ← IO.ofExcept <| guarded.mapError (·.detail)
     writeJson out (workerPacket json (toJson graph))
     return 0
-  | .declarationReportWorker input out =>
-    let json ← IO.ofExcept <| Regula.Checker.PolicyCodec.parse (← IO.FS.readFile input)
-    let request : ReportWorkerRequest ← IO.ofExcept (fromJson? json)
+  | .declarationReportWorker _ out decoded =>
+    let (json, request) ← IO.ofExcept decoded
     let guarded ← SourceBinding.withUnchanged
         (α := Except ProducerReport.Refusal ProducerReport.Environment)
         request.sourceBindings #[] do

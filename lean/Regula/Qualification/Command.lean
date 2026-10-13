@@ -226,7 +226,8 @@ theorem Command.parse_sound {args : List String} {command : Command}
 
 
 /-- The evidence document that a selection writes, by its format: the path that `--evidence`
-names, with the group of an acceptance fault campaign as its arguments spell it. -/
+names, with the group of an acceptance fault campaign as its arguments spell it, or the fixed
+report of the paired launcher diagnostic. -/
 inductive Evidence where
   /-- The rule-example corpus's evidence. -/
   | ruleExamples (path : String)
@@ -236,6 +237,9 @@ inductive Evidence where
   | environments (path : String)
   /-- The evidence of the acceptance fault campaign of `group`. -/
   | acceptance (group path : String)
+  /-- The report of the paired launcher diagnostic, `tmp/native-launcher-diagnostic.json` below
+  the package root. -/
+  | launcherReport
   deriving DecidableEq, Repr
 
 /-- The evidence document that each selection writes, and none for a selection that writes none.
@@ -246,7 +250,8 @@ def Command.evidence : Command → Option Evidence
   | .producersExport path => some (.producers path)
   | .environments path => some (.environments path)
   | .acceptance group path => some (.acceptance group.spelling path)
-  | .registry | .native | .combined | .uniqueConstants | .nativeLauncher | .producers
+  | .nativeLauncher => some .launcherReport
+  | .registry | .native | .combined | .uniqueConstants | .producers
   | .producersCombined | .history | .selfAudit | .selfAuditShard _ | .selfAuditModule _ _
   | .selfAuditJsonModule _ | .acceptanceSnapshots _ | .prepMeasure | .documentationDependencies
   | .inputInventory | .receiptBoundaries | .observers | .closureEvidence | .configurationCapture
@@ -254,12 +259,13 @@ def Command.evidence : Command → Option Evidence
 
 /-- The evidence document that an argument list names from its leading arguments, so that one the
 parser refuses for a later argument still has its document recognized: a selection's name, then
-`--evidence` and a path, with the group between them for `acceptance`. -/
+`--evidence` and a path, with the group between them for `acceptance`, or `native-launcher`. -/
 def Evidence.named : List String → Option Evidence
   | "rule-examples" :: "--evidence" :: path :: _ => some (.ruleExamples path)
   | "producers" :: "--evidence" :: path :: _ => some (.producers path)
   | "environments" :: "--evidence" :: path :: _ => some (.environments path)
   | "acceptance" :: group :: "--evidence" :: path :: _ => some (.acceptance group path)
+  | "native-launcher" :: _ => some .launcherReport
   | _ => none
 
 /-- On an argument list that the parser accepts, the evidence named by its leading arguments is
