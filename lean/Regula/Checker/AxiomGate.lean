@@ -1659,12 +1659,14 @@ def admit (read : List (Lint.Arg Setting)) : Except String Options :=
       | none => .ok options
 
 /-- Mark the result document at `path` incomplete, so an earlier completed result there cannot be
-mistaken for the current attempt's. -/
-def invalidateResult (path : FilePath) : IO Unit :=
+mistaken for the current attempt's. Its unresolved reason is `reason`, by default that the
+configuration has not been validated yet. -/
+def invalidateResult (path : FilePath) (reason : String := "configuration has not been validated") :
+    IO Unit :=
   ResultProtocol.writeDocument path (Json.mkObj (ResultProtocol.identityFields ++ [
     ("scope", Json.null), ("mode", Json.null), ("status", .str "incomplete"),
     ("diagnostics", toJson (#[] : Array Json)),
-    ("unresolved", toJson #["configuration has not been validated"]),
+    ("unresolved", toJson #[reason]),
     ResultProtocol.sourceTextsField] ++
     ResultProtocol.guidanceFields false ResultProtocol.allStages [] []))
 
@@ -1704,16 +1706,29 @@ def Plan.target (plan : Plan) (kind : Destination) : Option (Except IO.Error Fil
 
 /-- Mark each resolved destination of `plan` incomplete, each on its own, whether or not the
 invocation is admitted, so an earlier completed result cannot be mistaken for this attempt's;
-return a line for each that could not be marked. -/
-private def markIncomplete (plan : Plan) : IO (List String) := do
+return a line for each that could not be marked. With `reason`, each records it as the reason that
+the run stops there. -/
+private def markIncomplete (plan : Plan) (reason : Option String := none) : IO (List String) := do
   let mut failed := []
   for (kind, path, target) in plan.targets do
     let result ← match target with
-      | .ok target => (if kind == .acceptanceLink then AcceptanceLink.invalidate target
-          else invalidateResult target).toBaseIO
+      | .ok target => (if kind == .acceptanceLink then AcceptanceLink.invalidate target reason
+          else match reason with
+            | some reason => invalidateResult target reason
+            | none => invalidateResult target).toBaseIO
       | .error error => pure (.error error)
     if let .error error := result then failed := failed ++ [s!"{path}: {error}"]
   return failed
+
+/-- The refusal of an invocation in a process without Lean's task manager, which the guard of the
+executable runs (`Regula.TaskManager.guard`): it reads the arguments once into their plan
+(`Plan.of`), as `run` does, marks each destination that they name incomplete with `reason`,
+whether or not the invocation is admitted, and returns the exit code of an incomplete audit. No
+audit runs. -/
+def refuseWithoutTaskManager (reason : String) (args : List String) : IO UInt32 := do
+  for line in ← markIncomplete (← Plan.of args) reason do
+    IO.eprintln s!"axiom gate: could not mark the destination {line} incomplete"
+  return Lint.Outcome.incomplete.exitCode
 
 /-- Refuse an invalid invocation: the usage text and the problem, and the invalid-configuration
 exit code, since no audit ran and no result was recorded. -/

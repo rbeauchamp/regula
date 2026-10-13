@@ -90,6 +90,20 @@ private unsafe def dispatch (args : List String) (attempt : Option String := non
     configuration-capture|fence-evidence|frozen-exits|documentation-source [--source-read-only]|\
     rule-examples --evidence PATH [--rules RULE ... | --shard K/N]"
 
+/-- Mark the evidence destination that `args` names incomplete for the attempt `attempt`, before
+anything else of the command runs; with `reason`, the evidence records why the attempt stops
+there. Arguments that name no evidence destination mark nothing. -/
+private def markEvidence (args : List String) (attempt : String) (reason : Option String := none) :
+    IO Unit := do
+  match args with
+  | "acceptance" :: group :: "--evidence" :: path :: _ =>
+    let _ ← Regula.Qualification.Acceptance.beginAttempt group ⟨path⟩ attempt reason
+  | "environments" :: "--evidence" :: path :: _ =>
+    Regula.Qualification.EnvironmentCensus.beginAttempt ⟨path⟩ attempt reason
+  | "rule-examples" :: "--evidence" :: path :: _ =>
+    Regula.Qualification.RuleExamples.beginAttempt ⟨path⟩ attempt reason
+  | _ => pure ()
+
 /-- Standalone commands get one group-wide 420-second bound. The private protocol flag
 is supplied by this wrapper or the already timed acceptance driver, never documented
 as a bounded standalone command. Nested commands do not create escaping groups. -/
@@ -107,28 +121,35 @@ unsafe def qualifyMain (args : List String) : IO UInt32 := do
     -- Recognize evidence destinations even when later argument validation refuses.
     -- This must precede timeout selection and spawning, both of which can fail.
     let attempt ← Regula.Qualification.freshAttempt
-    match args with
-    | "acceptance" :: group :: "--evidence" :: path :: _ =>
-      let _ ← Regula.Qualification.Acceptance.beginAttempt group ⟨path⟩ attempt
-    | "environments" :: "--evidence" :: path :: _ =>
-      Regula.Qualification.EnvironmentCensus.beginAttempt ⟨path⟩ attempt
-    | "rule-examples" :: "--evidence" :: path :: _ =>
-      Regula.Qualification.RuleExamples.beginAttempt ⟨path⟩ attempt
-    | _ => pure ()
+    markEvidence args attempt
     Regula.Qualification.runBounded (← IO.currentDir) 420 (← IO.appPath).toString
       (#["--under-deadline", "--attempt", attempt] ++ args.toArray)
 
+/-- The refusal of a command in a process without Lean's task manager, which the guard of the
+executable runs (`Regula.TaskManager.guard`): it marks the evidence destination that the
+arguments name incomplete, with `reason`, as `qualifyMain` marks it before the command: for the
+attempt that the wrapper's arguments give, or otherwise for a fresh one. It returns 1. No command
+runs. -/
+private def refuseQualification (reason : String) (args : List String) : IO UInt32 := do
+  match args with
+  | "--under-deadline" :: "--attempt" :: attempt :: rest => markEvidence rest attempt reason
+  | "--under-deadline" :: rest | rest =>
+    markEvidence rest (← Regula.Qualification.freshAttempt) reason
+  return 1
+
 /-- The `qualify` executable: `qualifyMain` on the command-line arguments. A process without
-Lean's task manager is refused before any command starts, with exit code 1
-(`Regula.TaskManager.guard`). -/
+Lean's task manager is refused before any command starts: the evidence destination that the
+arguments name is marked incomplete with the reason, and the exit code is 1
+(`Regula.TaskManager.guard`, `refuseQualification`). -/
 unsafe def main : List String → IO UInt32 :=
-  Regula.TaskManager.guard "qualify" 1 qualifyMain
+  Regula.TaskManager.guard "qualify" refuseQualification qualifyMain
 
 -- The removals that the compiled code of `main`, and of the initializers of the modules it links,
 -- reaches are the filesystem observer's and those that `Regula.Removal.libraryRemovals` lists: the
 -- build of this module fails otherwise (`Regula.Removal.checkProgram`).
 run_cmd Regula.Removal.checkProgram
 
--- A program that needs Lean's task manager starts through its guard (`Regula.TaskManager.guard`):
--- the build of this module fails otherwise (`Regula.TaskManagerCheck.checkProgram`).
+-- A program that needs Lean's task manager starts through its guard (`Regula.TaskManager.guard`),
+-- and its refusal needs none: the build of this module fails otherwise
+-- (`Regula.TaskManagerCheck.checkProgram`).
 run_cmd Regula.TaskManagerCheck.checkProgram

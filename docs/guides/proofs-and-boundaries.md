@@ -671,16 +671,24 @@ the exit code of a violation, but no audit completed
 ([issue 393](https://github.com/rbeauchamp/regula/issues/393)).
 
 The function `Regula.TaskManager.guard` prevents this result. Before the program starts, the
-function `RegulaPolicy.TaskManager.missing` operates one task of priority
-`Task.Priority.dedicated`. If the task operated on the thread of its caller, Lean has no task manager. The guard then writes one
-line with the reason to the standard error, and it gives the exit code of an incomplete run. For
-`axiomGate` and `lint`, that code is 3. The docstring of `missing` gives the lines of the Lean
-runtime that this observation uses.
+function `Regula.Probe.taskManagerMissing` operates one task of priority
+`Task.Priority.dedicated`. If the task operated on the thread of its caller, Lean has no task
+manager. The guard then writes one line with the reason to the standard error. Then it operates
+the refusal of the program and gives its result. The docstring of `taskManagerMissing` gives the
+lines of the Lean runtime that this observation uses.
+
+The refusal of a program marks each result file that its arguments name as incomplete, with the
+reason. It uses the marks of the program, for example the `--json-out` result and the
+`--acceptance-link` record of `axiomGate`. Thus a result of an earlier run does not stay in place.
+The refusal then gives the exit code of an incomplete run. For `axiomGate` and `lint`, that code is
+3. A program that writes no result file, such as a site renderer, marks no file.
 
 The check `Regula.TaskManagerCheck.checkProgram` operates at the end of the root module of each
-executable. It follows the compiled code from `main`. If that code calls a function of the runtime
-that uses the task manager, `main` must be an application of the guard. If not, the build of the
-module fails.
+executable. It examines `main` if the compiled code of `main` calls a function of the runtime that
+uses the task manager. Then `main` must be the guard applied to a string, the refusal and the
+program, with constants for the last two. Lean calculates the arguments of a function before it
+calls it, and these arguments operate no code. Also, the compiled code of the refusal must not call
+a function that uses the task manager. If a condition is false, the build of the module fails.
 
 The functions of the runtime that use the task manager are those of tasks, of promises and of the
 asynchronous input and output (`symbols`, `uvPrefix`). For example, `IO.Process.output` operates a
@@ -691,9 +699,12 @@ The command `lake exe qualify observers` also refuses an executable of the root 
 module records this check. The executables of the packages `website` and `markdown` do the check
 in their root modules, but that command does not read those packages. A program that a script
 operates with `lean --run` does not start through the guard. The `lean` executable starts its task
-manager before it reads the file, and the variable `LEAN_NUM_THREADS` does not change it. The module
-`Regula.ProgramCheck.Controls` has controls of the check. The cli partition of the self-test
-operates `axiomGate` with `LEAN_NUM_THREADS=0`, and the gate must refuse with exit code 3.
+manager before it reads the file, and the variable `LEAN_NUM_THREADS` does not change it.
+
+The module `Regula.ProgramCheck.Controls` has controls of the check. The cli partition of the
+self-test operates `axiomGate`, `lint` and `freshChecker` with `LEAN_NUM_THREADS=0`, and each must
+refuse. Before each run, its result files hold a completed result. After the run, each file must
+be marked incomplete, with the reason.
 
 The driver moves the pending record to `tmp/acceptance-link.json` only if
 `RegulaVerification.passed` accepts the exit status of each command. The driver does that move

@@ -6,12 +6,17 @@ import Regula.TaskManager
 
 A compiled program starts Lean's task manager only after the initializers of its modules, and with
 no thread when `LEAN_NUM_THREADS` is `0` (`Regula.TaskManager`). `checkProgram` follows the
-compiled code of the program whose `main` the environment declares, and refuses it when that code
-reaches a function of the runtime that needs the task manager (`symbols`, `uvPrefix`) and `main`
-is not an application of `Regula.TaskManager.guard` (`guarded`). The program then refuses to start
-without a task manager, with its exit code of a run that established no result, instead of running
-its tasks on one thread, ending with a panic or reading no task manager. A program whose compiled
-code reaches none of those functions passes without the guard, as `auditApp` does.
+compiled code of the program whose `main` the environment declares. When that code reaches a
+function of the runtime that needs the task manager (`symbols`, `uvPrefix`), it requires `main` to
+have the closed form of the guard (`closedForm`): `Regula.TaskManager.guard` applied to a string
+literal, the program's refusal and the program itself, each of the two a constant. Lean evaluates
+the arguments of an application before the call, and none of these three runs code of the program
+when it is evaluated. The refusal, which the guard runs in a process without a task manager, must
+reach none of those functions. The program then refuses to start without a task manager, with its
+exit code of a run that established no result and its result destinations marked incomplete,
+instead of running its tasks on one thread, ending with a panic or reading no task manager. A
+program whose compiled code reaches none of those functions passes without the guard, as
+`auditApp` does.
 
 Each compiled program of the package runs this check at the end of its root module, which fails to
 build when the check refuses, and the module records the program (`checked`). `lake exe qualify
@@ -128,46 +133,91 @@ def reached? (env : Environment) (roots : Array Name) : Option Reached := Id.run
     | none => return some (.unknown name)
   return work.back?.map .unknown
 
-/-- `value` without its leading binders and metadata: the body of `main` applied to its
-arguments. -/
-def body : Lean.Expr → Lean.Expr
-  | .lam _ _ value _ => body value
-  | .mdata _ value => body value
+/-- `value` without its metadata. -/
+def stripData : Lean.Expr → Lean.Expr
+  | .mdata _ value => stripData value
   | value => value
 
-/-- Whether the definition of `main` in `env` is an application of `Regula.TaskManager.guard`,
-after its leading binders: the program then refuses to start without a task manager. -/
-def guarded (env : Environment) : Bool :=
-  match env.find? `main |>.bind (·.value? (allowOpaque := true)) with
-  | some value => (body value).isAppOf ``Regula.TaskManager.guard
-  | none => false
+/-- The refusal and the program of an application of the guard to a string literal and two
+constants: `Regula.TaskManager.guard "name" refuse run`. -/
+def guardOf (value : Lean.Expr) : Option (Name × Name) :=
+  match value.getAppFn, value.getAppArgs.map stripData with
+  | .const ``Regula.TaskManager.guard _, #[.lit (.strVal _), .const refuse _, .const run _] =>
+    some (refuse, run)
+  | _, _ => none
+
+/-- The refusal and the program of the definition `value` of `main` when it has the closed form of
+the guard: `Regula.TaskManager.guard "name" refuse run`, or that application to the one argument
+of `fun args => …` (`guardOf`); `none` otherwise. The guard is then the first code of `main` that
+runs.
+
+Assumes: in compiled Lean 4.34.1 code, evaluating a string literal or a constant of function type
+runs no code of the program: it gives the literal, a closure of the constant, or the value that the
+constant's initializer computed before `main`. The compiler gives a definition of function type a
+parameter for each argument of its type, so it does not evaluate the definition when it initializes
+its module (observed for `def run : List String → IO UInt32 := other`). Initializers are outside
+this check. -/
+def closedForm (value : Lean.Expr) : Option (Name × Name) :=
+  match stripData value with
+  | .lam _ _ body _ =>
+    match stripData body with
+    | .app function argument =>
+      if stripData argument == .bvar 0 then guardOf (stripData function) else none
+    | _ => none
+  | value => guardOf value
+
+/-- The refusal and the program of `main` in `env` when its definition has the closed form of the
+guard (`closedForm`). -/
+def guarded (env : Environment) : Option (Name × Name) :=
+  (env.find? `main |>.bind (·.value? (allowOpaque := true))).bind closedForm
 
 /-- Why the check refuses the program whose `main` the environment `env` declares in the module
-`root`: its compiled code from `main` reaches a function that needs the task manager, or a
-declaration whose compiled code is unknown (`reached?`), and `main` is not `guarded`; `none`
-otherwise. -/
+`root`; `none` otherwise. When `main` has the closed form of the guard (`guarded`), the check
+refuses a refusal whose compiled code reaches a function that needs the task manager or a
+declaration whose compiled code is unknown (`reached?`). Otherwise it refuses the program when the
+compiled code of `main` reaches one of them. -/
 def refusal (env : Environment) (root : Name) : Option String :=
-  if guarded env then none
-  else match reached? env #[`main] with
+  match guarded env with
+  | some (refuse, _) =>
+    match reached? env #[refuse] with
+    | none => none
+    | some (.primitive caller primitive) =>
+      some s!"the refusal {refuse} of the program of {root} needs Lean's task manager \
+        ({caller} calls {primitive}), and the guard runs it in a process without one"
+    | some (.unknown name) =>
+      some s!"the refusal {refuse} of the program of {root} reaches {name}, whose compiled code \
+        is not available, so whether it needs Lean's task manager is unknown"
+  | none => match reached? env #[`main] with
     | none => none
     | some (.primitive caller primitive) =>
       some s!"the program of {root} needs Lean's task manager ({caller} calls {primitive}), and \
-        its `main` is not an application of `Regula.TaskManager.guard`, which refuses to start \
-        without one"
+        its `main` is not `Regula.TaskManager.guard` applied to a string literal, its refusal and \
+        its program, each a constant"
     | some (.unknown name) =>
       some s!"the program of {root} reaches {name}, whose compiled code is not available, so \
-        whether it needs Lean's task manager is unknown, and its `main` is not an application of \
-        `Regula.TaskManager.guard`"
+        whether it needs Lean's task manager is unknown, and its `main` is not \
+        `Regula.TaskManager.guard` applied to a string literal, its refusal and its program, each \
+        a constant"
 
-/-- The check accepts a program exactly when its `main` is an application of the guard, or its
-compiled code from `main` reaches neither a function that needs the task manager nor a declaration
-whose compiled code is unknown. -/
+/-- The check accepts a program exactly when its `main` has the closed form of the guard with a
+refusal whose compiled code reaches neither a function that needs the task manager nor a
+declaration whose compiled code is unknown, or when its `main` has another form and its compiled
+code reaches neither. -/
 theorem refusal_eq_none_iff (env : Environment) (root : Name) :
-    refusal env root = none ↔ guarded env = true ∨ reached? env #[`main] = none := by
+    refusal env root = none ↔
+      (∃ refuse run, guarded env = some (refuse, run) ∧ reached? env #[refuse] = none) ∨
+      (guarded env = none ∧ reached? env #[`main] = none) := by
   unfold refusal
-  cases hGuarded : guarded env <;> cases hReached : reached? env #[`main] with
-  | none => simp
-  | some found => cases found <;> simp
+  cases hGuarded : guarded env with
+  | none =>
+    cases hReached : reached? env #[`main] with
+    | none => simp
+    | some found => cases found <;> simp
+  | some pair =>
+    obtain ⟨refuse, run⟩ := pair
+    cases hReached : reached? env #[refuse] with
+    | none => simp [hReached]
+    | some found => cases found <;> simp [hReached]
 
 /-- The prefix of the marker that `checkProgram` adds for each program that it checked: the
 definition `checked ++ root` of type `Unit`, where `root` is the program's root module. `lake exe

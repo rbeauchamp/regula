@@ -22,29 +22,39 @@ def inProject (command : String) (action : System.FilePath → IO UInt32) : IO U
     IO.eprintln s!"regula {command}: {error}"
     return 1
 
-/-- The `regula` executable: run the invocation `parseInvocation` admits, or print the usage and
-the parse error to standard error and exit 2. `init` and `doctor` exit 0 when the setup is
-complete and 1 otherwise. A process without Lean's task manager is refused before the invocation
-runs, with exit code 1 (`Regula.TaskManager.guard`). -/
+/-- Run the invocation `parseInvocation` admits, or print the usage and the parse error to standard
+error and return 2. `init` and `doctor` return 0 when the setup is complete and 1 otherwise. -/
+def regulaMain (args : List String) : IO UInt32 := do
+  match Regula.Guidance.parseInvocation args with
+  | .ok (.print command) =>
+      IO.print (Regula.Guidance.output command)
+      if command == .help then IO.println ""
+      return 0
+  | .ok (.init guidance) => inProject "init" (Regula.Cli.Setup.init guidance)
+  | .ok .doctor => inProject "doctor" Regula.Cli.Setup.doctor
+  | .error message =>
+      IO.eprintln Regula.Guidance.usage
+      IO.eprintln s!"regula: {message}"
+      return 2
+
+/-- The refusal of an invocation in a process without Lean's task manager
+(`Regula.TaskManager.guard`): its arguments name no result destination, so it marks none, and it
+returns 1. -/
+def refuseRegula (_reason : String) (_args : List String) : IO UInt32 :=
+  pure 1
+
+/-- The `regula` executable: `regulaMain` on the command-line arguments. A process without Lean's
+task manager is refused before the invocation runs, with exit code 1
+(`Regula.TaskManager.guard`). -/
 def main : List String → IO UInt32 :=
-  Regula.TaskManager.guard "regula" 1 fun args => do
-    match Regula.Guidance.parseInvocation args with
-    | .ok (.print command) =>
-        IO.print (Regula.Guidance.output command)
-        if command == .help then IO.println ""
-        return 0
-    | .ok (.init guidance) => inProject "init" (Regula.Cli.Setup.init guidance)
-    | .ok .doctor => inProject "doctor" Regula.Cli.Setup.doctor
-    | .error message =>
-        IO.eprintln Regula.Guidance.usage
-        IO.eprintln s!"regula: {message}"
-        return 2
+  Regula.TaskManager.guard "regula" refuseRegula regulaMain
 
 -- The removals that the compiled code of `main`, and of the initializers of the modules it links,
 -- reaches are the filesystem observer's and those that `Regula.Removal.libraryRemovals` lists: the
 -- build of this module fails otherwise (`Regula.Removal.checkProgram`).
 run_cmd Regula.Removal.checkProgram
 
--- A program that needs Lean's task manager starts through its guard (`Regula.TaskManager.guard`):
--- the build of this module fails otherwise (`Regula.TaskManagerCheck.checkProgram`).
+-- A program that needs Lean's task manager starts through its guard (`Regula.TaskManager.guard`),
+-- and its refusal needs none: the build of this module fails otherwise
+-- (`Regula.TaskManagerCheck.checkProgram`).
 run_cmd Regula.TaskManagerCheck.checkProgram

@@ -117,11 +117,14 @@ private def save (path : FilePath) (value : Json) : IO Unit := do
   IO.FS.writeFile temporary (value.compress ++ "\n")
   Regula.Filesystem.replacePath temporary path
 
-/-- Invalidate the previous verdict before any campaign setup or timer acquisition. -/
-def beginAttempt (evidence : FilePath) (attempt : String) : IO Unit := do
+/-- Invalidate the previous verdict before any campaign setup or timer acquisition. With `reason`,
+the evidence records why the attempt stops there. -/
+def beginAttempt (evidence : FilePath) (attempt : String) (reason : Option String := none) :
+    IO Unit := do
   if let some parent := evidence.parent then IO.FS.createDirAll parent
-  save evidence (Json.mkObj [("outcome", .str "INCOMPLETE"), ("attempt", .str attempt),
-    ("rawDirectory", .str (evidence.toString ++ ".raw/" ++ attempt))])
+  save evidence (Json.mkObj ([("outcome", .str "INCOMPLETE"), ("attempt", .str attempt),
+    ("rawDirectory", .str (evidence.toString ++ ".raw/" ++ attempt))] ++
+      (reason.map fun reason => [("reason", .str reason)]).getD []))
 
 private def digest (root path : FilePath) : IO Json := do
   let result ← run root "shasum" #["-a", "256", path.toString]

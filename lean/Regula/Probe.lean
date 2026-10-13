@@ -1,6 +1,5 @@
 import Std.Data.DHashMap.Lemmas
 import Regula.Collect
-import RegulaPolicy.TaskManager
 import Regula.StructuralName
 import Lean.Elab.Command
 import Lean.Compiler.Old
@@ -434,13 +433,43 @@ def runCheck (env : Environment) (cached : Std.HashMap Name (Array Name))
     return { thread, memoryExhausted := ← memoryExhausted.get, result : CheckRun }
   IO.ofExcept (← IO.wait task)
 
+/-- The reason that `taskManagerMissing` gives for a process without Lean's task manager. -/
+def taskManagerMissingReason : String :=
+  "Lean's task manager is not running in this process: a task of priority \
+    `Task.Priority.dedicated` ran on the thread that started it (Lean starts none when \
+    LEAN_NUM_THREADS is 0)"
+
+/-- Why this process has no Lean task manager, or `none` when it has one. It runs one task of
+priority `Task.Priority.dedicated` and compares the thread the task ran on with the thread of the
+caller: the same thread means that Lean has no task manager. It observes Lean's own scheduling of a
+task, not the value of `LEAN_NUM_THREADS`, and it needs no task manager itself. The check of a
+report (`requireDedicatedThreads`) and the guard of each program of the package
+(`Regula.TaskManager.guard`) use it. The observation of the process is a trusted boundary, and
+nothing here proves it.
+
+Assumes: Lean 4.34.1 gives `Task.Priority.dedicated` the value 9 (`src/Init/Core.lean:677`), above
+`LEAN_MAX_PRIO`, 8, and below `LEAN_SYNC_PRIO`, the largest `unsigned`
+(`src/runtime/object.cpp:71-72`); the task manager runs a task of such a priority on a new thread
+that it starts for that task (`enqueue_core` and `spawn_dedicated_worker`,
+`src/runtime/object.cpp:808-811` and `884-893`), while `LEAN_SYNC_PRIO` would run it on the
+caller's thread (`804-807`). Without a task manager, Lean runs the task on the caller's thread
+before it returns (`lean_task_spawn_core`, `src/runtime/object.cpp:1200-1206`), which `IO.asTask`
+calls (`lean_io_as_task`, `src/runtime/io.cpp:1553-1556`). Assumes: two threads that run at once
+have different identifiers (`lean_io_get_tid`, `src/runtime/process.cpp:340-352`,
+`pthread_threadid_np` on macOS and `gettid` on Linux); the caller's thread runs until the task has
+ended, because it waits for it. -/
+def taskManagerMissing : IO (Option String) := do
+  let caller ← IO.getTID
+  let thread ← IO.ofExcept (← IO.wait (← IO.asTask (prio := .dedicated) IO.getTID))
+  return if thread == caller then some taskManagerMissingReason else none
+
 /-- Refuse, before any correspondence check, a process in which a task of priority
-`Task.Priority.dedicated` runs on the caller's thread (`RegulaPolicy.TaskManager.missing`): Lean
+`Task.Priority.dedicated` runs on the caller's thread (`taskManagerMissing`): Lean
 then has no task manager, and a check's heartbeat count would not start at zero (`runCheck`). The
 report then ends with this error. A program that starts through `Regula.TaskManager.guard` is
 refused before it reaches a report, so this refusal holds for a report that another program runs. -/
 def requireDedicatedThreads : IO Unit := do
-  if let some reason ← RegulaPolicy.TaskManager.missing then
+  if let some reason ← taskManagerMissing then
     throw <| IO.userError s!"{reason}, so no correspondence check can count its heartbeats from \
       zero"
 

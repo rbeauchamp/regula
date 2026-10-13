@@ -35,11 +35,18 @@ def renderStandard (args : List String) : IO UInt32 := do
   manualMain (%doc RegulaStandard) (options := args) (config := {
     emitTeX := false, emitHtmlSingle := .no, emitHtmlMulti := .immediately, htmlDepth := 1 })
 
+/-- The refusal of the renderer in a process without Lean's task manager
+(`Regula.TaskManager.guard`): it writes a rendered standard, not a result, so it marks nothing, and
+it returns 1. -/
+def refuseStandard (_reason : String) (_args : List String) : IO UInt32 :=
+  pure 1
+
 /-- `renderStandard` on the command-line arguments; a process without Lean's task manager is
 refused before rendering starts, with exit code 1 (`Regula.TaskManager.guard`). -/
 def main : List String → IO UInt32 :=
-  Regula.TaskManager.guard "regula-standard" 1 renderStandard
+  Regula.TaskManager.guard "regula-standard" refuseStandard renderStandard
 
--- A program that needs Lean's task manager starts through its guard (`Regula.TaskManager.guard`):
--- the build of this module fails otherwise (`Regula.TaskManagerCheck.checkProgram`).
+-- A program that needs Lean's task manager starts through its guard (`Regula.TaskManager.guard`),
+-- and its refusal needs none: the build of this module fails otherwise
+-- (`Regula.TaskManagerCheck.checkProgram`).
 run_cmd Regula.TaskManagerCheck.checkProgram

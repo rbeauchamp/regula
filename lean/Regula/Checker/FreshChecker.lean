@@ -310,6 +310,36 @@ private def finishGraph (frozen : FrozenGraph) (build : Lake.CheckedBuild) (chec
     (fun failure => s!"graph acceptance refused: {repr failure}")
   return ⟨frozen.census, frozen.plan, frozen.roles, inputs.toList, result⟩
 
+/-- Each `--json-out` destination of the reading `read`, without repeats, resolved against the
+reading's root `root` when relative. -/
+private def targetsOf (read : List (Lint.Arg Setting)) (root : Except IO.Error FilePath) :
+    List (FilePath × Except IO.Error FilePath) :=
+  (destinations read).eraseDups.map fun path =>
+    (path, if path.isAbsolute then .ok path else root.map (resolve · path))
+
+/-- Mark each target incomplete with the unresolved reason `reason`, each on its own, so one
+failure leaves no other unmarked; return a line for each that could not be marked. -/
+private def markIncomplete (targets : List (FilePath × Except IO.Error FilePath))
+    (reason : String) : IO (Array String) := do
+  let mut failed := #[]
+  for (path, target) in targets do
+    let result ← match target with
+      | .ok target => (writeJson target (Json.mkObj [("mode", .str "serializedGraph"),
+          ("status", .str "incomplete"), ("unresolved", toJson #[reason])])).toBaseIO
+      | .error error => pure (.error error)
+    if let .error error := result then failed := failed.push s!"{path}: {error}"
+  return failed
+
+/-- The refusal of a run in a process without Lean's task manager, which the guard of the
+executable runs (`Regula.TaskManager.guard`): it reads the arguments once and finds their root
+once, as `run` does, marks every `--json-out` destination of that reading incomplete with
+`reason`, and returns `1`. No check runs. -/
+def refuseWithoutTaskManager (reason : String) (args : List String) : IO UInt32 := do
+  let read := arguments args
+  for line in ← markIncomplete (targetsOf read (← (rootOf read).toBaseIO)) reason do
+    IO.eprintln s!"freshChecker: could not mark {line} incomplete"
+  return 1
+
 /-- Runs the serialized-graph qualification: reads its arguments once, marks every `--json-out`
 destination of that reading incomplete, each on its own, and then refuses arguments that do not
 parse; otherwise it builds the plan, and unless `--plan-only` builds the positive targets, runs
@@ -324,20 +354,10 @@ unsafe def run (args : List String) : IO UInt32 := do
   let read := arguments args
   let parsed := parseArgs read {}
   let root ← (rootOf read).toBaseIO
-  -- Each destination of the one reading, resolved against the one root.
-  let targets := (destinations read).eraseDups.map fun path =>
-    (path, if path.isAbsolute then .ok path else root.map (resolve · path))
-  let invalidate (path : FilePath) :=
-    writeJson path (Json.mkObj [("mode", .str "serializedGraph"),
-      ("status", .str "incomplete"), ("unresolved", toJson #["graph audit has not completed"])])
-  -- An absolute destination does not need project discovery; a relative one keeps the public
-  -- repo-root meaning. Each is marked on its own, so one failure leaves no other unmarked.
-  let mut failed := #[]
-  for (path, target) in targets do
-    let result ← match target with
-      | .ok target => (invalidate target).toBaseIO
-      | .error error => pure (.error error)
-    if let .error error := result then failed := failed.push s!"{path}: {error}"
+  -- Each destination of the one reading, resolved against the one root. An absolute destination
+  -- does not need project discovery; a relative one keeps the public repo-root meaning.
+  let targets := targetsOf read root
+  let failed ← markIncomplete targets "graph audit has not completed"
   let options ← IO.ofExcept (parsed.mapError IO.userError)
   unless failed.isEmpty do
     throw <| IO.userError s!"could not mark incomplete: {"; ".intercalate failed.toList}"
@@ -411,24 +431,30 @@ unsafe def run (args : List String) : IO UInt32 := do
 
 end Regula.Checker.FreshChecker
 
-/-- The `freshChecker` executable: initializes Lean's search path and runs
-`Regula.Checker.FreshChecker.run`, printing any exception as `FAIL:` and returning `1`. A process
-without Lean's task manager is refused before the check starts, with exit code 1
-(`Regula.TaskManager.guard`). -/
+/-- Initializes Lean's search path and runs `Regula.Checker.FreshChecker.run`, printing any
+exception as `FAIL:` and returning `1`. -/
+unsafe def freshCheckerMain (args : List String) : IO UInt32 := do
+  try
+    Regula.Checker.initializeLeanSearchPath
+    Regula.Checker.FreshChecker.run args
+  catch error =>
+    IO.eprintln s!"FAIL: {error}"
+    return 1
+
+/-- The `freshChecker` executable: `freshCheckerMain` on the command-line arguments. A process
+without Lean's task manager is refused before the check starts: each `--json-out` destination is
+marked incomplete with the reason, and the exit code is 1 (`Regula.TaskManager.guard`,
+`FreshChecker.refuseWithoutTaskManager`). -/
 unsafe def main : List String → IO UInt32 :=
-  Regula.TaskManager.guard "freshChecker" 1 fun args => do
-    try
-      Regula.Checker.initializeLeanSearchPath
-      Regula.Checker.FreshChecker.run args
-    catch error =>
-      IO.eprintln s!"FAIL: {error}"
-      return 1
+  Regula.TaskManager.guard "freshChecker" Regula.Checker.FreshChecker.refuseWithoutTaskManager
+    freshCheckerMain
 
 -- The removals that the compiled code of `main`, and of the initializers of the modules it links,
 -- reaches are the filesystem observer's and those that `Regula.Removal.libraryRemovals` lists: the
 -- build of this module fails otherwise (`Regula.Removal.checkProgram`).
 run_cmd Regula.Removal.checkProgram
 
--- A program that needs Lean's task manager starts through its guard (`Regula.TaskManager.guard`):
--- the build of this module fails otherwise (`Regula.TaskManagerCheck.checkProgram`).
+-- A program that needs Lean's task manager starts through its guard (`Regula.TaskManager.guard`),
+-- and its refusal needs none: the build of this module fails otherwise
+-- (`Regula.TaskManagerCheck.checkProgram`).
 run_cmd Regula.TaskManagerCheck.checkProgram

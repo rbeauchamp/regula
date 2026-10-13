@@ -316,23 +316,34 @@ unsafe def run (args : List String) : IO UInt32 := do
 
 end Regula.Checker.DocFenceAudit
 
-/-- The `docFenceAudit` executable: initialize the Lean search path, then `run`, reporting
-any escaping error as `FAIL` with exit code 1. A process without Lean's task manager is refused
-before the audit starts, with exit code 1 (`Regula.TaskManager.guard`). -/
+/-- Initialize the Lean search path, then `run`, reporting any escaping error as `FAIL` with exit
+code 1. -/
+unsafe def docFenceAuditMain (args : List String) : IO UInt32 := do
+  try
+    Regula.Checker.initializeLeanSearchPath
+    Regula.Checker.DocFenceAudit.run args
+  catch error =>
+    IO.eprintln s!"FAIL: {error}"
+    return 1
+
+/-- The refusal of the audit in a process without Lean's task manager
+(`Regula.TaskManager.guard`): its arguments name no result destination, so it marks none, and it
+returns 1. -/
+def refuseDocFenceAudit (_reason : String) (_args : List String) : IO UInt32 :=
+  pure 1
+
+/-- The `docFenceAudit` executable: `docFenceAuditMain` on the command-line arguments. A process
+without Lean's task manager is refused before the audit starts, with exit code 1
+(`Regula.TaskManager.guard`). -/
 unsafe def main : List String → IO UInt32 :=
-  Regula.TaskManager.guard "docFenceAudit" 1 fun args => do
-    try
-      Regula.Checker.initializeLeanSearchPath
-      Regula.Checker.DocFenceAudit.run args
-    catch error =>
-      IO.eprintln s!"FAIL: {error}"
-      return 1
+  Regula.TaskManager.guard "docFenceAudit" refuseDocFenceAudit docFenceAuditMain
 
 -- The removals that the compiled code of `main`, and of the initializers of the modules it links,
 -- reaches are the filesystem observer's and those that `Regula.Removal.libraryRemovals` lists: the
 -- build of this module fails otherwise (`Regula.Removal.checkProgram`).
 run_cmd Regula.Removal.checkProgram
 
--- A program that needs Lean's task manager starts through its guard (`Regula.TaskManager.guard`):
--- the build of this module fails otherwise (`Regula.TaskManagerCheck.checkProgram`).
+-- A program that needs Lean's task manager starts through its guard (`Regula.TaskManager.guard`),
+-- and its refusal needs none: the build of this module fails otherwise
+-- (`Regula.TaskManagerCheck.checkProgram`).
 run_cmd Regula.TaskManagerCheck.checkProgram

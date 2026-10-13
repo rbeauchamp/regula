@@ -71,9 +71,12 @@ def identity (scratch projectRoot docsRoot : FilePath)
     (identityJson projectRoot docsRoot sources configuration dependencies documents).compress
   try sha256File scratch path finally Regula.Filesystem.removePath .file path
 
-/-- Replace any earlier record before the ordinary audit starts. -/
-def invalidate (path : FilePath) : IO Unit :=
-  writeJson path (Json.mkObj [("schemaVersion", toJson (1 : Nat)), ("status", .str "incomplete")])
+/-- Replace any earlier record before the ordinary audit starts. A run that stops before its audit
+records why as `reason` (`AxiomGate.refuseWithoutTaskManager`). -/
+def invalidate (path : FilePath) (reason : Option String := none) : IO Unit :=
+  writeJson path <| Json.mkObj <|
+    [("schemaVersion", toJson (1 : Nat)), ("status", .str "incomplete")] ++
+      (reason.map fun reason => [("reason", Json.str reason)]).getD []
 
 /-- The identity of one accepted run's captured inputs, computed before its success line
 and held, unrecorded, until the run's outer freshness recheck has passed. -/

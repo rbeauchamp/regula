@@ -21,15 +21,18 @@ private def atomicWrite (path : FilePath) (value : Json) : IO Unit := do
   Regula.Filesystem.replacePath temporary path
 
 private def save (attempt : String) (path : FilePath) (packets records : Array Json)
-    (status : String) : IO Unit :=
-  atomicWrite path <| Json.mkObj [
+    (status : String) (reason : Option String := none) : IO Unit :=
+  atomicWrite path <| Json.mkObj <| [
     ("attemptId", toJson attempt), ("schemaVersion", toJson (1 : Nat)), ("status", toJson status),
-    ("packets", toJson packets), ("controls", toJson records)]
+    ("packets", toJson packets), ("controls", toJson records)] ++
+      (reason.map fun reason => [("reason", toJson reason)]).getD []
 
-/-- Invalidate the destination before timeout discovery or process launch. -/
-def beginAttempt (path : FilePath) (attempt : String) : IO Unit := do
+/-- Invalidate the destination before timeout discovery or process launch. With `reason`, the
+destination records why the attempt stops there. -/
+def beginAttempt (path : FilePath) (attempt : String) (reason : Option String := none) :
+    IO Unit := do
   if let some parent := path.parent then IO.FS.createDirAll parent
-  save attempt path #[] #[] "incomplete"
+  save attempt path #[] #[] "incomplete" reason
 
 /-- Exercise actual native acquisition and the public freeze/finalization adapters.
 Every report comes from the project audit's own acquisition (`Inspection.inspect`): one

@@ -14,11 +14,13 @@ A planted program whose `main` starts a task, creates a promise or captures a pr
 fails the check that a compiled program needing Lean's task manager starts through the guard
 (`Regula.TaskManagerCheck.checkProgram`), and so do one that runs the guard and then starts a task
 and one that calls a declaration of another name bound to a C function that needs the task
-manager. The same task started through `Regula.TaskManager.guard` passes it, and so does a program
-that needs no task manager. Each planted declaration is added for its control alone and
-removed after it, so this module declares no `main` and records no program. The self-audit builds
-this module with the whole `Regula` library, and that build fails when a control does not give the
-expected result. -/
+manager. So do a guard with an argument that starts a task before the call, a guard whose program
+is not a constant and a guard whose refusal starts a task. The same task started through the
+closed form of `Regula.TaskManager.guard` passes it, applied to `main`'s argument or not, and so
+does a program that needs no task manager. Each planted declaration is added for its control
+alone and removed after it, so this module declares no `main` and records no program. The
+self-audit builds this module with the whole `Regula` library, and that build fails when a control
+does not give the expected result. -/
 
 namespace Regula.ProgramCheck.Controls
 
@@ -80,13 +82,25 @@ def taskRefusal (program : CommandElabM Unit) : CommandElabM (Option String) :=
     catch error => return some (← error.toMessageData.toString)
 
 -- A `main` that starts a task, creates a promise or captures a process's output, which starts a
--- task, fails the task-manager check, and so does one that runs the guard and then starts a task;
--- the same task started through the guard passes it, and so does a `main` that needs no task
--- manager.
+-- task, fails the task-manager check, and so does one that runs the guard and then starts a task.
+-- The guard in its closed form, applied to a string literal, a refusal and a program, each of the
+-- two a constant, passes it, applied to `main`'s argument or not, and so does a `main` that needs
+-- no task manager. A guard with an argument that Lean evaluates before the call and that starts a
+-- task, with a program that is not a constant, or with a refusal that starts a task fails it.
 run_cmd do
   let main := mkIdent `_root_.main
+  let run := mkIdent `plantedRun
+  let refuse := mkIdent `plantedRefuse
+  let program : CommandElabM Unit := do
+    elabCommand (← `(command|
+      def $run (_ : List String) : IO UInt32 := do
+        let _ ← IO.asTask (pure ())
+        return 0))
+    elabCommand (← `(command|
+      def $refuse (_ : String) (_ : List String) : IO UInt32 := pure 3))
   let needs (refused : Option String) (call : String) : Bool :=
-    refused.any (·.contains s!"calls {call}), and its `main` is not an application")
+    refused.any (·.contains s!"calls {call}), and its `main` is not `Regula.TaskManager.guard` \
+      applied")
   let task ← taskRefusal (elabCommand (← `(command|
     def $main (_ : List String) : IO UInt32 := do
       let _ ← IO.asTask (pure ())
@@ -106,24 +120,65 @@ run_cmd do
   unless needs output "BaseIO.asTask" do
     throwError "the task-manager check accepted a program that captures a process's output: \
       {output}"
-  let after ← taskRefusal (elabCommand (← `(command|
-    def $main (args : List String) : IO UInt32 := do
-      let code ← Regula.TaskManager.guard "planted" 3 (fun _ => pure 0) args
-      let _ ← IO.asTask (pure ())
-      return code)))
+  let after ← taskRefusal do
+    program
+    elabCommand (← `(command|
+      def $main (args : List String) : IO UInt32 := do
+        let code ← Regula.TaskManager.guard "planted" $refuse (fun _ => pure 0) args
+        let _ ← IO.asTask (pure ())
+        return code))
   unless needs after "BaseIO.asTask" do
     throwError "the task-manager check accepted a program that starts a task after the guard: \
       {after}"
-  if let some refused ← taskRefusal (elabCommand (← `(command|
-      def $main : List String → IO UInt32 := Regula.TaskManager.guard "planted" 3 fun _ => do
-        let _ ← IO.asTask (pure ())
-        return 0))) then
+  if let some refused ← taskRefusal do
+      program
+      elabCommand (← `(command|
+        def $main : List String → IO UInt32 := Regula.TaskManager.guard "planted" $refuse $run))
+    then
     throwError "the task-manager check refused a program that starts through the guard: {refused}"
+  if let some refused ← taskRefusal do
+      program
+      elabCommand (← `(command|
+        def $main (args : List String) : IO UInt32 :=
+          Regula.TaskManager.guard "planted" $refuse $run args))
+    then
+    throwError "the task-manager check refused a program whose main applies the guard to its \
+      argument: {refused}"
   if let some refused ← taskRefusal (elabCommand (← `(command|
       def $main (_ : List String) : IO UInt32 := do
         IO.println "planted"
         return 0))) then
     throwError "the task-manager check refused a program that needs no task manager: {refused}"
+  -- Lean evaluates the program name before it calls the guard, so this task starts first.
+  let eager ← taskRefusal do
+    program
+    elabCommand (← `(command|
+      def $main (args : List String) : IO UInt32 :=
+        Regula.TaskManager.guard (Task.spawn fun _ => String.intercalate "," args).get $refuse
+          $run args))
+  unless needs eager "Task.spawn" do
+    throwError "the task-manager check accepted a guard with an argument that starts a task \
+      before the call: {eager}"
+  let lambda ← taskRefusal do
+    program
+    elabCommand (← `(command|
+      def $main : List String → IO UInt32 :=
+        Regula.TaskManager.guard "planted" $refuse fun args => $run ("planted" :: args)))
+  unless needs lambda "BaseIO.asTask" do
+    throwError "the task-manager check accepted a guard whose program is not a constant: {lambda}"
+  let refusing ← taskRefusal do
+    program
+    let refuseTask := mkIdent `plantedRefuseTask
+    elabCommand (← `(command|
+      def $refuseTask (_ : String) (_ : List String) : IO UInt32 := do
+        let _ ← IO.asTask (pure ())
+        return 3))
+    elabCommand (← `(command|
+      def $main : List String → IO UInt32 := Regula.TaskManager.guard "planted" $refuseTask $run))
+  unless refusing.any (·.contains "plantedRefuseTask of the program of") &&
+      refusing.any (·.contains "calls BaseIO.asTask), and the guard runs it in a process without \
+        one") do
+    throwError "the task-manager check accepted a refusal that starts a task: {refusing}"
 
 -- A declaration of another name bound to a C function that needs the task manager is found by
 -- its binding, not by its name.

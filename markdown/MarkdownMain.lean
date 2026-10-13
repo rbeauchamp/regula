@@ -1354,11 +1354,18 @@ def markdownMain (args : List String) : IO UInt32 := do
     | some path => list options path
     | none => if options.write then writeBaseline options else check options
 
+/-- The refusal of the check in a process without Lean's task manager
+(`Regula.TaskManager.guard`): its arguments name no result destination, so it marks none, and it
+returns 1. -/
+def refuseMarkdown (_reason : String) (_args : List String) : IO UInt32 :=
+  pure 1
+
 /-- `markdownMain` on the command-line arguments; a process without Lean's task manager is refused
 before any check starts, with exit code 1 (`Regula.TaskManager.guard`). -/
 def main : List String → IO UInt32 :=
-  Regula.TaskManager.guard "regula-markdown" 1 markdownMain
+  Regula.TaskManager.guard "regula-markdown" refuseMarkdown markdownMain
 
--- A program that needs Lean's task manager starts through its guard (`Regula.TaskManager.guard`):
--- the build of this module fails otherwise (`Regula.TaskManagerCheck.checkProgram`).
+-- A program that needs Lean's task manager starts through its guard (`Regula.TaskManager.guard`),
+-- and its refusal needs none: the build of this module fails otherwise
+-- (`Regula.TaskManagerCheck.checkProgram`).
 run_cmd Regula.TaskManagerCheck.checkProgram

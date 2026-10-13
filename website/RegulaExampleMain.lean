@@ -78,11 +78,18 @@ unsafe def exampleMain : List String → IO UInt32
   | [path] => try run path catch e => do IO.eprintln s!"regula-example: {e}"; return 2
   | _ => do IO.eprintln "usage: regula-example FILE"; return 1
 
+/-- The refusal of the example's elaboration in a process without Lean's task manager
+(`Regula.TaskManager.guard`): its arguments name no result destination, so it marks none, and it
+returns 2, the exit code of an elaboration that did not complete. -/
+def refuseExample (_reason : String) (_args : List String) : IO UInt32 :=
+  pure 2
+
 /-- `exampleMain` on the command-line arguments; a process without Lean's task manager is refused
 before elaboration starts, with exit code 2 (`Regula.TaskManager.guard`). -/
 unsafe def main : List String → IO UInt32 :=
-  Regula.TaskManager.guard "regula-example" 2 exampleMain
+  Regula.TaskManager.guard "regula-example" refuseExample exampleMain
 
--- A program that needs Lean's task manager starts through its guard (`Regula.TaskManager.guard`):
--- the build of this module fails otherwise (`Regula.TaskManagerCheck.checkProgram`).
+-- A program that needs Lean's task manager starts through its guard (`Regula.TaskManager.guard`),
+-- and its refusal needs none: the build of this module fails otherwise
+-- (`Regula.TaskManagerCheck.checkProgram`).
 run_cmd Regula.TaskManagerCheck.checkProgram
