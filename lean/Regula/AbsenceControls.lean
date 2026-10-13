@@ -45,8 +45,15 @@ file system calls, and they prove nothing.
   loaders of `Checker.Workspace` observe the root package's configuration candidates
   (`requireConfigCandidates`) in `configured`, whose `lakefile.lean` is a link to a file below the
   path and whose `lakefile.toml` can be read: Lake would pass over the first for the second.
-  Each other changed site binds an observer's result in `IO` in the same way, so the error
+  `withRootWorkspace` also loads `withdep`, whose root can be read and whose dependency `dep` has
+  the shape of `configured`. Lake loads `dep` from its `lakefile.toml` and records that choice
+  in the manifest, and the check of each loaded package (`requireConfigChoice`) must fail at the
+  link. Each other changed site binds an observer's result in `IO` in the same way, so the error
   propagates there too, unless a caller catches it; this control does not run them.
+- The loaders once the path can be read again (`loaderControls`): `withRootWorkspace` must refuse
+  `withdep`, whose manifest records the choice of `lakefile.toml` for `dep`, naming the package
+  and `lake update`. With the links removed, both loaders must load `configured`, and
+  `withRootWorkspace` must load `withdep` with its dependency.
 - `Removal.observe` at operations (`resolving`) whose entry reads each give a directory and whose
   resolution of the path alone fails (`resolutionFailure`), which no control on the unreadable path
   can make: it must fail with that same error, not observe a directory at another place. At the same
@@ -118,6 +125,8 @@ def callers (base path : FilePath) : List (String × IO Unit) := [
     Regula.Checker.Workspace.withRootWorkspace (base / "configured") fun _ => pure ()),
   ("Regula.Checker.Workspace.withRootPackage",
     Regula.Checker.Workspace.withRootPackage (base / "configured") fun _ => pure ()),
+  ("Regula.Checker.Workspace.withRootWorkspace with a dependency's candidate",
+    Regula.Checker.Workspace.withRootWorkspace (base / "withdep") fun _ => pure ()),
   ("Regula.Qualification.Slot.contained", discard <| Regula.Qualification.Slot.contained base path),
   ("Regula.Checker.findRepoRoot?", discard <| Regula.Checker.findRepoRoot? path)]
 
@@ -150,6 +159,47 @@ def observeResolution : IO (List (String × Bool)) := do
   return [("Regula.Removal.observe with a resolution of the path alone that fails", failed),
     ("Regula.Removal.observe with no failure", observed ==
       { place := .present .directory, sameLocation := true, parentOwn := true })]
+
+/-- Make a symbolic link at `place` to `target`, or fail. -/
+def makeLink (target place : FilePath) : IO Unit := do
+  let made ← IO.Process.output { cmd := "ln", args := #["-s", target.toString, place.toString] }
+  unless made.exitCode == 0 do
+    throw <| IO.userError s!"the control could not make the link {place}: {made.stderr}"
+
+/-- The loaders of `Checker.Workspace` once the path can be read again, each with whether it gave
+the expected result. The refused load of `withdep` wrote its manifest with the configuration file
+that Lake chose for `dep` while the link `dep/lakefile.lean` could not be resolved,
+`lakefile.toml`, so the next load must refuse that recorded choice, naming the package and
+`lake update`. With the two links removed, both loaders must load `configured`, and
+`withRootWorkspace` must load `withdep` with its dependency. A `lakefile.lean` cannot stay for
+these loads: Lake elaborates it, which needs the native initialization of Lake that the
+elaboration of this module does not have. -/
+def loaderControls (base : FilePath) : IO (List (String × Bool)) := do
+  let configured := base / "configured"
+  let withdep := base / "withdep"
+  let recorded := match ← (Regula.Checker.Workspace.withRootWorkspace withdep fun _ =>
+      pure ()).toBaseIO with
+    | .error error =>
+        let text := toString error
+        (text.splitOn "Lake loaded package 'dep' from lakefile.toml").length > 1 &&
+          (text.splitOn "lake update").length > 1
+    | .ok () => false
+  Regula.Filesystem.removePath .link (withdep / "dep" / "lakefile.lean")
+  Regula.Filesystem.removePath .link (configured / "lakefile.lean")
+  let loads (load : IO Nat) (count : Nat) : IO Bool := do
+    return match ← load.toBaseIO with
+      | .ok loaded => loaded == count
+      | .error _ => false
+  let size (ws : _root_.Lake.Workspace) : IO Nat := pure ws.packages.size
+  return [
+    ("Regula.Checker.Workspace.withRootWorkspace with a recorded choice of lakefile.toml",
+      recorded),
+    ("Regula.Checker.Workspace.withRootWorkspace with one configuration",
+      ← loads (Regula.Checker.Workspace.withRootWorkspace configured size) 1),
+    ("Regula.Checker.Workspace.withRootPackage with one configuration",
+      ← loads (Regula.Checker.Workspace.withRootPackage configured size) 1),
+    ("Regula.Checker.Workspace.withRootWorkspace with a dependency",
+      ← loads (Regula.Checker.Workspace.withRootWorkspace withdep size) 2)]
 
 /-- `Slot.sharedIdentity` of `root`, which holds a symbolic link to the path `path`, run while
 `path` cannot be read: whether it failed with the error of the resolution. -/
@@ -229,22 +279,22 @@ def check : IO Unit :=
     IO.FS.writeFile (path / "AGENTS.md") "control"
     let shared := base / "shared"
     IO.FS.createDirAll shared
-    let linked ← IO.Process.output
-      { cmd := "ln", args := #["-s", path.toString, (shared / "link").toString] }
-    unless linked.exitCode == 0 do
-      fail s!"the control could not make the link {shared / "link"}: {linked.stderr}"
+    makeLink path (shared / "link")
     -- A project whose `lakefile.lean` is a link to a file below the path, beside a
-    -- `lakefile.toml` that can be read.
+    -- `lakefile.toml` that can be read, and a project with a dependency of that shape. Lake
+    -- never reads the linked file's text: each load either fails at the link or takes the
+    -- recorded `lakefile.toml`, and the link is removed before the loads that succeed.
+    IO.FS.writeFile (path / "lakefile.lean") "-- the control's configuration\n"
     let configured := base / "configured"
     IO.FS.createDirAll configured
-    IO.FS.writeFile (path / "lakefile.lean") "-- the control's configuration\n"
     IO.FS.writeFile (configured / "lakefile.toml") "name = \"control\"\n"
-    let configLinked ← IO.Process.output {
-      cmd := "ln"
-      args := #["-s", (path / "lakefile.lean").toString, (configured / "lakefile.lean").toString] }
-    unless configLinked.exitCode == 0 do
-      fail s!"the control could not make the link {configured / "lakefile.lean"}: \
-        {configLinked.stderr}"
+    makeLink (path / "lakefile.lean") (configured / "lakefile.lean")
+    let withdep := base / "withdep"
+    IO.FS.createDirAll (withdep / "dep")
+    IO.FS.writeFile (withdep / "lakefile.toml")
+      "name = \"withdep\"\n\n[[require]]\nname = \"dep\"\npath = \"dep\"\n"
+    IO.FS.writeFile (withdep / "dep" / "lakefile.toml") "name = \"dep\"\n"
+    makeLink (path / "lakefile.lean") (withdep / "dep" / "lakefile.lean")
     let source := base / "Refused.lean"
     IO.FS.writeFile source refusedSource
     let mut failed : Array String := #[]
@@ -277,7 +327,7 @@ def check : IO Unit :=
         matches .ok () do
       failed := failed.push "Regula.Checker.Workspace.requireConfigCandidates did not accept the \
         candidates once they could be read"
-    for (name, held) in ← observeResolution do
+    for (name, held) in (← observeResolution) ++ (← loaderControls base) do
       unless held do failed := failed.push s!"{name} did not give the expected result"
     for (name, kept) in ← provisioning base do
       unless kept do

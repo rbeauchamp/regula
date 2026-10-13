@@ -110,8 +110,13 @@ dispatch builds only the driver, so the driver builds this sibling target before
 in the workspace `lake lint` was dispatched from (`repoRoot`), which is also the audited project.
 That workspace built the running driver, whether `regula` is a path dependency, a git dependency
 under `.lake/packages`, any custom `packagesDir` or the root, so it resolves `regula` to the
-same package, dependencies and toolchain, and its `regula/axiomGate` is `workerBinary`. -/
-def workerTarget : String := "regula/axiomGate"
+same package, dependencies and toolchain, and its `regula/axiomGate` is `workerBinary`.
+
+The spelling starts with `@`, which Lake reads as a package and a target and never as a path
+(`Lake/CLI/Build.lean:175-177`). A spelling without it is first resolved as a path in the
+workspace (`:184-192`): there a resolved path that is a module's source names that module, and a
+failure of `realPath` gives the target by name. -/
+def workerTarget : String := "@regula/axiomGate"
 
 /-- What the driver reads before it decides (`Observed`), from the working directory's project
 root `dispatching`. It loads only that root's configuration (`resolveDependencies := false`), so it
