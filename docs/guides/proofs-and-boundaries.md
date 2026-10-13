@@ -850,7 +850,7 @@ The project audit and the `--explain-config` path of `lake lint` print the `regu
 `lake lint` runs the project audit in the same process.
 The report names each replaced root declaration and its package, with that consequence and remedy.
 Only `--explain-config` also prints the count of loaded library facet declarations and replaced root declarations.
-The report is advisory and changes no audit exit class.
+The report is advisory and changes no audit exit class, but a failed read of the loaded declarations fails the inventory.
 It does not restore the overridden configuration.
 
 A process prints the report one time, from the one inventory that requests it (`FacetReport.Output`).
@@ -872,6 +872,7 @@ The facet observer itself does not authenticate source or establish the behavior
 The inventory reads the modules and sources of each package (`Lake.packageModules`) and applies the source guard (`Lake.checkReservedModules`).
 The source guard gives the keys of packages that provide `Regula.Checker.Lake` with the running checker's source text.
 If the inventory of a package fails, that package gives no key, and the inventory raises that failure after the report.
+
 The report receives the keys when the provider guard (`Lake.checkOneProvider`) passes over the inventories that completed.
 It uses all those keys, since the provider guard permits duplicate providers among trusted packages.
 This includes a dependency at a different directory or with a different assigned name.
