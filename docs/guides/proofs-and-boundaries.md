@@ -809,16 +809,18 @@ run when the standard does not contain a section that the rules cite. Each of th
 the function `RegulaRender.refuse`. A run that Verso starts keeps the write behaviour of Verso, and
 Regula removes nothing before it.
 
-The refusal of each program reads its options with the parser of Verso, `manualMain.opts`. That parser is private to
-its module, and the module `RegulaRender.Options` gets it with `import all`. The destinations of
-the options are the output directory, the saved state of each delayed mode and the word count.
+The refusal of each program reads its options with the parser of Verso, `manualMain.opts`. That
+parser is private to its module, and the module `RegulaRender.Options` gets it with `import all`.
+The destinations of the options are the output directory, the saved state of each delayed mode and
+the word count.
 
 For each destination where something is, the function `Regula.Filesystem.moveAside` makes a new
 directory beside it and moves the destination into it, under its own name. It takes the directory
 and the names from the path of the destination, and each name is the name of one entry. It makes
 the directory with `mkdir`, which fails if anything is at that path. It moves the destination with
 `rename`, which moves a symbolic link itself and not its target. Thus the refusal removes nothing,
-and it changes only the paths that the options name as destinations.
+and it changes only the paths that the options name as destinations, with the entries below them.
+A saved state that a resumed render reads also moves if it is below the output directory.
 
 A later render finds nothing at these paths, and a resumed render stops. If a move fails, for
 example at a mount point, the refusal reports the destination and the error and returns 1. The

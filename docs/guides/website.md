@@ -155,9 +155,9 @@ of [issue 424](https://github.com/rbeauchamp/regula/issues/424). This command bu
 and `regula-standard`, and a delayed render of the standard and a resumed render must succeed.
 After a refused run with the same options, a resumed render must stop. The refusals of the two
 programs must move the saved state, the word count and the output directory aside, into new
-directories beside them. A refusal must keep the saved state that a resumed render reads, and move
-a symbolic link itself. It must report an output directory `.` or empty, and a destination that it
-cannot move.
+directories beside them. A refusal must keep the saved state that a resumed render reads when that
+state is outside the output directory. It must move a symbolic link itself, and report an output
+directory `.` or empty and a destination that it cannot move.
 
 The control examines the refusals that `Regula.TaskManager.guard` gives in a process without the
 task manager of Lean. `regula-standard` also refuses a run when the standard does not contain a

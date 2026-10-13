@@ -128,7 +128,7 @@ private def reproduction (website program scratch : FilePath)
   whole, the files with their bytes, with the pages of a mode that the options do not select
   (`tex`);
 - a refused resumed render moves its output directory aside and keeps the saved state that it
-  reads, which its options name as no destination;
+  reads outside that directory, which its options name as no destination;
 - a word count that is a symbolic link is moved itself, and its target stays;
 - a saved state in the output directory moves with it;
 - an output directory `.` or an empty one is reported and stays, and the word count is still moved;

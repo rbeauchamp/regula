@@ -15,13 +15,13 @@ earlier saved state.
 
 Regula invalidates the destinations of the runs it refuses itself, the guard's refusals and the
 missing-sections refusal; a run Verso starts keeps Verso's write behaviour. The refusal (`refuse`)
-reads the options with Verso's own parser (`versoOptions`),
-takes the destinations of that reading (`destinations`), and moves each where something is into a
-new directory beside it (`invalidate`, `Regula.Filesystem.moveAside`). It removes nothing, it moves
-only the paths that the options name as destinations, and the copies that it moves aside stay
-there: a refusal after each later run adds one more beside the destination, and the renderers
-delete none. A refused run reads nothing, so no file that a render reads is at stake, except one
-that the options also name as a destination, which is moved aside whole. -/
+reads the options with Verso's own parser (`versoOptions`), takes the destinations of that reading
+(`destinations`), and moves each where something is into a new directory beside it (`invalidate`,
+`Regula.Filesystem.moveAside`). It removes nothing, it moves only the paths that the options name
+as destinations, with what is below them, and the copies that it moves aside stay there: a refusal
+after each later run adds one more beside the destination, and the renderers delete none. A refused
+run reads nothing, so no file that a render reads is at stake, except one at or below a
+destination, which is moved aside with it. -/
 
 namespace RegulaRender
 
