@@ -254,7 +254,7 @@ lake exe axiomGate --with-docs --json-out tmp/result.json
 ```
 
 Each export is versioned on its own: the surface manifest is schema 2, the registry schema 4, the
-result schema 19, the worker packet schema 1, the rule-example corpus export schema 1, the
+result schema 20, the worker packet schema 1, the rule-example corpus export schema 1, the
 acceptance link schema 1 and the site's `build.json` schema 2. Registry and result envelopes carry
 `schemaVersion`, `producerVersion`, `toolchain` and `sourceRevision` from
 `Regula.Checker.Producer.identity`: `producerVersion` is the installed release's spelling
@@ -270,7 +270,7 @@ metadata, not authenticated binary identity.
   stale lifecycle data and an object tree that is not a search tree.
   Registry admission rejects duplicate external IDs, missing clauses, pages or examples, unknown
   JSON fields or versions, and invalid lifecycle references.
-- **Result, schema 19:** `scope`, `mode`, `status`, `stages` (the stages
+- **Result, schema 20:** `scope`, `mode`, `status`, `stages` (the stages
   `RegulaPolicy.requiredStages` requires for the mode, plus the documentation stages of a
   `--with-docs` run), `stagesCompleted`, `complete`, `stagesNotRun`, `diagnostics` (each with its
   `remedy`, in run order), `rules` (the guidance of every rule that fired, once each, in registry
@@ -306,7 +306,7 @@ metadata, not authenticated binary identity.
   about byte counts, and it bounds source text only: a string elsewhere in the document is
   written where it occurs. Project configuration text stays inline in `request`, `effective` and
   `scope.configuration`.
-- **Copy configuration, since schema 19:** `request.copyConfiguration` freezes the loaded source selections used for relocation, or is `null` for a different route. `effective.configuration` records each observed field of the workspace used. `effective.configurationOrigins` separates the original `captured` fields from Regula's `generated` overrides. The copier and the expected account use the same relocation and serialization definitions. Qualification compares each observed filename, presence value and text with that expectation.
+- **Copy configuration, since schema 20:** `request.copyConfiguration` freezes the loaded source selections used for relocation, or is `null` for a different route. `effective.configuration` records each observed field of the workspace used. `effective.configurationOrigins` separates the original `captured` fields from Regula's `generated` overrides. The copier and the expected account use the same relocation and serialization definitions. Qualification compares each observed filename, presence value and text with that expectation.
 - **Execution accounts:** since schema 8 a result file can hold each environment report's
   `execution` in a shared form: `names` (every name its roots reach, in the order of
   `canonicalNames`), `modules` and `nameModules` (each name's module), the seven edge channels

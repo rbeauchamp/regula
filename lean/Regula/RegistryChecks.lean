@@ -1,5 +1,6 @@
 import Regula.DiagnosticCodec
 import Regula.Checker.ResultProtocol
+import Regula.Checker.RuleExampleQualification
 import Regula.Checker.SourceAudit
 import Regula.Checker.Workspace
 import Regula.Website
@@ -148,6 +149,69 @@ private def require (ok : Bool) (claim : String) : IO Unit :=
 private def succeeded {ε : Type u} {α : Type v} : Except ε α → Bool
   | .ok _ => true | .error _ => false
 
+/-- Observe legacy result transport and current version, request and configuration admission
+through the production codecs. These controls do not establish a conforming audit. -/
+def resultSchemaChecks : IO Unit := do
+  let request : Website.ExampleRequest :=
+    ⟨"file", "/control", "/control/Example.lean", some "kernel-only", some "report", #[], none⟩
+  let snapshot ← IO.ofExcept <| RegulaPolicy.admitSnapshot {
+    sources := #[], configuration := ⟨request.project, (toJson request.configuration).compress⟩
+    toolchain := {
+      leanVersion := Lean.versionString
+      compilerCommit := Lean.githash
+      producerRevision := "schema-control" }
+    dependencies := #[] }
+  let bound : Website.ExampleBinding := ⟨snapshot, .freshFile, request⟩
+  let oldRequest := Json.mkObj [
+    ("kind", toJson request.kind), ("project", toJson request.project),
+    ("subject", toJson request.subject), ("claim", toJson request.claim),
+    ("execution", toJson request.execution), ("configuration", toJson request.configuration)]
+  let oldEffective := Json.mkObj [
+    ("root", toJson request.project), ("configuration", toJson request.configuration)]
+  let scope := Json.mkObj [
+    ("file", toJson request.subject), ("claim", toJson request.claim),
+    ("execution", toJson request.execution), ("configurationRoot", toJson request.project),
+    ("configuration", toJson request.configuration)]
+  let stages := Checker.ResultProtocol.stagesOf .freshFile
+  let envelope := Checker.ResultProtocol.resultJson scope .freshFile .classified #[] stages stages #[]
+  let legacy := ((envelope.setObjVal! "schemaVersion" (toJson (19 : Nat))).setObjVal!
+    "request" oldRequest).setObjVal! "effective" oldEffective
+  let decode (document : Json) : IO Json := do
+    let text ← IO.ofExcept (Checker.ResultProtocol.encodeDocument document)
+    let written ← IO.ofExcept (Checker.PolicyCodec.parse text)
+    IO.ofExcept (Checker.ResultProtocol.admitDocument written)
+  let legacy ← decode legacy
+  require (legacy.getObjValD "schemaVersion" == toJson (19 : Nat) &&
+      !succeeded ((legacy.getObjValD "request").getObjVal? "copyConfiguration") &&
+      !succeeded ((legacy.getObjValD "effective").getObjVal? "configurationOrigins"))
+    "schema 19 decodes without schema 20 configuration fields"
+  require (match Checker.ResultProtocol.readSchema legacy with
+    | .error problem => problem == "unsupported result schema"
+    | .ok _ => false)
+    "schema 19 is not admitted as the current result schema"
+  let origins ← IO.ofExcept (Checker.Lake.configurationOrigins request.project
+    request.configuration request.copyConfiguration (System.FilePath.mk request.project))
+  let current ← decode ((envelope.setObjVal! "request"
+    (Checker.ResultProtocol.requestJson request.kind request.project request.subject
+      request.claim request.execution #[])).setObjVal! "effective"
+        (oldEffective.setObjVal! "configurationOrigins" origins))
+  require (current.getObjValD "schemaVersion" == toJson (20 : Nat) &&
+      succeeded (Checker.ResultProtocol.admitGuidance current) &&
+      succeeded (Checker.RuleExampleQualification.requestAccount current bound))
+    "schema 20 producer and canonical request/configuration readers agree"
+  require (match Checker.RuleExampleQualification.requestAccount
+      (current.setObjVal! "request" oldRequest) bound with
+    | .error problem => problem == "invalid example request account"
+    | .ok _ => false)
+    "schema 20 requires request.copyConfiguration, including when null"
+  require (match Checker.RuleExampleQualification.requestAccount
+      (current.setObjVal! "effective" oldEffective) bound with
+    | .error problem => problem == "property not found: configurationOrigins"
+    | .ok _ => false)
+    "schema 20 requires effective.configurationOrigins"
+  require (succeeded (Checker.RuleExampleQualification.requestAccount current bound))
+    "restored schema 20 configuration account is admitted"
+
 /-- The registry transport qualification that acceptance runs with `lean --run`: it checks
 every rule's descriptor codec, the embedded example pairs against their corpus files, the
 committed agent skill, the encoder of Regula's `lakefile.lean` (`lakefileEncoderCheck`), and
@@ -156,6 +220,7 @@ admission, throwing on the first failed check and printing `PASS` otherwise. The
 observations, not proofs of the laws. -/
 def main : IO Unit := do
   lakefileEncoderCheck
+  resultSchemaChecks
   let producer := Regula.Checker.ResultProtocol.producer
   let manifest := registryJson producer
   -- Where no classification line is printed (the editor, the self-audit and a documentation
