@@ -35,8 +35,8 @@ planted initializer never runs. The planted removals below are the calls of a re
   `requireOwnDirectory` refuses each, and accepts a directory at its own place and an absent path.
   `requireNoLinkedEntries` refuses a directory with a symbolic link among its entries.
 - A directory and a symbolic link moved aside: `moveAside` moves each into a new directory beside
-  it, the link itself and not its target, and moves nothing when something is already where the
-  new directory is made.
+  it, the link itself and not its target. It moves nothing at an absent path or a last component
+  `..`, and stops with the entry in place when the new directory's name is longer than `NAME_MAX`.
 - A URL of `Regula.Site.Deployment.fetch` that starts with `-`: curl does not read it as an
   option.
 
@@ -121,31 +121,43 @@ run_cmd do
     Regula.Filesystem.removeOwn .directory (base / "target" / "out")
     if ← (base / "target" / "out").pathExists then
       throwError "removeOwn kept a directory at its own place"
-    -- Moves aside: a directory and a symbolic link, each into a new directory beside it; none
-    -- when something is where the new directory is made.
+    -- Moves aside: a directory and a symbolic link, each into a new directory beside it; nothing
+    -- for an absent entry, a last component `..` and an entry whose new directory's name is longer
+    -- than the file system's limit.
     IO.FS.createDirAll (base / "pages")
     IO.FS.writeFile (base / "pages" / "index") "index"
-    Regula.Filesystem.moveAside { path := base / "pages", aside := base / "pages.aside",
-                                  name := "pages" }
-    unless (← (base / "pages.aside" / "pages" / "index").pathExists) &&
-        !(← (base / "pages").pathExists) do
-      throwError "moveAside did not move a directory into a new directory"
+    let some pages ← Regula.Filesystem.moveAside (base / "pages")
+      | throwError "moveAside did not move a directory"
+    unless (← (pages / "index").pathExists) && !(← (base / "pages").pathExists) &&
+        pages.fileName == some "pages" &&
+        (pages.parent.bind (·.parent)) == some base &&
+        ((pages.parent.bind (·.fileName)).map (·.startsWith "pages.regula-refused-")) ==
+          some true do
+      throwError "moveAside did not move a directory into a new directory beside it: {pages}"
     let aliased ← IO.Process.output
       { cmd := "ln", args := #["-s", (base / "target").toString, (base / "alias").toString] }
     unless aliased.exitCode == 0 do throwError "ln -s failed: {aliased.stderr}"
-    Regula.Filesystem.moveAside { path := base / "alias", aside := base / "alias.aside",
-                                  name := "alias" }
-    unless (← (base / "alias.aside" / "alias").symlinkMetadata).type == .symlink &&
+    let some alias ← Regula.Filesystem.moveAside (base / "alias")
+      | throwError "moveAside did not move a symbolic link"
+    unless (← alias.symlinkMetadata).type == .symlink &&
         (← (base / "target").isDir) && !(← (base / "alias").pathExists) do
       throwError "moveAside did not move a symbolic link itself"
-    IO.FS.writeFile (base / "staying") "staying"
-    IO.FS.createDir (base / "staying.aside")
-    let staying : Regula.Filesystem.AsideMove :=
-      { path := base / "staying", aside := base / "staying.aside", name := "staying" }
-    unless (← (Regula.Filesystem.moveAside staying).toBaseIO) matches .error _ do
-      throwError "moveAside moved an entry into a directory that was already there"
-    unless (← IO.FS.readFile (base / "staying")) == "staying" do
-      throwError "a refused move aside changed its entry"
+    if (← Regula.Filesystem.moveAside (base / "absent")).isSome then
+      throwError "moveAside moved an absent entry"
+    unless (← (Regula.Filesystem.moveAside (base / "target" / "..")).toBaseIO) matches .error _ do
+      throwError "moveAside accepted a path whose last component is `..`"
+    -- `mkdir(2)` fails with `ENAMETOOLONG` on a component longer than `NAME_MAX`, which
+    -- `getconf NAME_MAX` gives for the file system of `base`, whatever the privileges of the
+    -- process.
+    let limit ← IO.Process.output { cmd := "getconf", args := #["NAME_MAX", base.toString] }
+    let some longest := (limit.stdout.splitOn "\n").head?.bind String.toNat?
+      | throwError "getconf NAME_MAX {base} gave no number: {limit.stdout}{limit.stderr}"
+    let long := base / String.ofList (List.replicate longest 'n')
+    IO.FS.writeFile long "long"
+    unless (← (Regula.Filesystem.moveAside long).toBaseIO) matches .error _ do
+      throwError "moveAside moved an entry whose new directory's name is longer than NAME_MAX"
+    unless (← IO.FS.readFile long) == "long" do
+      throwError "a failed move aside changed its entry"
   finally
     Regula.Filesystem.removeOwn .directory base
 

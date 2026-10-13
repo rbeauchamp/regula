@@ -159,6 +159,9 @@ directories beside them. A refusal must keep the saved state that a resumed rend
 a symbolic link itself. It must report an output directory `.` or empty, and a destination that it
 cannot move.
 
+A refused run leaves its copies beside the destinations, and the renderers do not delete them.
+Delete them by hand when they are not necessary.
+
 The website package requires the root `regula` package and the `audit/` package by relative
 path, because the standard's examples import modules of both. Neither requires Mathlib, and no
 example imports it, so building the standard and the site needs only the pinned Verso. The

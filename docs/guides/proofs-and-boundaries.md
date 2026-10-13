@@ -800,13 +800,17 @@ program reads its options with the parser of Verso, `manualMain.opts`. That pars
 its module, and the module `RegulaRender.Options` gets it with `import all`. The destinations of
 the options are the output directory, the saved state of each delayed mode and the word count.
 
-For each destination where something is, `RegulaRender.invalidate` makes a new directory beside it
-and moves the destination into it, under its own name. It makes the directory with `mkdir`, which
-fails if anything is at that path. It moves the destination with `rename`, which moves a symbolic
-link itself and not its target. Thus the refusal removes nothing, and it changes only the paths
-that the options name as destinations. A later render finds nothing at these paths, and a resumed
-render stops. If a move fails, for example at a mount point, the refusal reports the destination
-and the error and returns 1.
+For each destination where something is, the function `Regula.Filesystem.moveAside` makes a new
+directory beside it and moves the destination into it, under its own name. It takes the directory
+and the names from the path of the destination, and each name is the name of one entry. It makes
+the directory with `mkdir`, which fails if anything is at that path. It moves the destination with
+`rename`, which moves a symbolic link itself and not its target. Thus the refusal removes nothing,
+and it changes only the paths that the options name as destinations.
+
+A later render finds nothing at these paths, and a resumed render stops. If a move fails, for
+example at a mount point, the refusal reports the destination and the error and returns 1. The
+copies stay beside their destinations, and each later refusal adds one copy for each destination
+that a run made again. The renderers of Regula do not delete these copies.
 
 The theorem `RegulaRender.moves_operations` is about the moves that the refusal operates. Their
 operations are one `mkdir` and one `rename` for each destination where something is, and they

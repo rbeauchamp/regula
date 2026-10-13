@@ -57,24 +57,29 @@ private def asides (path : FilePath) : IO (List FilePath) := do
 
 /-- Require that the refused run `output` moved `path` aside whole, and give where it is now:
 nothing is at `path`, one new directory is beside it, and the entry is in that directory under its
-own name, with each path of `inside` below it. -/
+own name, with each path of `inside` below it and, when `bytes` is given, those bytes in it. -/
 private def requireMoved (output : IO.Process.Output) (path : FilePath)
-    (inside : List FilePath := []) : IO FilePath := do
+    (inside : List FilePath := []) (bytes : Option ByteArray := none) : IO FilePath := do
   let moved ← match ← asides path, path.fileName with
     | [aside], some name => pure (aside / name)
     | found, _ => throw (IO.userError s!"a refused run did not move {path} into one new directory \
         beside it, but made {found} {shown output}")
   let whole ← inside.allM fun entry => present (moved / entry)
-  requireChecks [⟨s!"a refused run did not move {path} aside whole to {moved} {shown output}",
-    !(← present path) && (← present moved) && whole⟩]
+  let same ← match bytes with
+    | some before => do
+      if ← present moved then pure ((← IO.FS.readBinFile moved).data == before.data)
+      else pure false
+    | none => pure true
+  requireChecks [⟨s!"a refused run did not move {path} aside whole, with its bytes, to {moved} \
+    {shown output}", !(← present path) && (← present moved) && whole && same⟩]
   return moved
 
 /-- The issue's reproduction with `regula-standard` at `program`, in the directory `scratch`: a
 delayed render writes its saved state and keeps a file that was in its output directory, since a
 run that Verso starts does no more than Verso writes. A resumed render renders from the saved state.
 Then a refused run with the same options and a word count moves the saved state, the word count
-and the output directory aside whole, and a resumed render stops, with no pages, instead of
-rendering from an earlier state. -/
+and the output directory aside whole, the files with the bytes that they had, and a resumed render
+stops, with no pages, instead of rendering from an earlier state. -/
 private def reproduction (website program scratch : FilePath)
     (env refusing : Array (String × Option String)) : IO Unit := do
   let out := scratch / "standard"
@@ -93,11 +98,13 @@ private def reproduction (website program scratch : FilePath)
   requireChecks [⟨s!"a resumed render of regula-standard did not render from the saved state \
     {shown resumed}", resumed.exitCode == 0 && (← present (pages / "index.html"))⟩]
   seed count
+  let stateBytes ← IO.FS.readBinFile state
+  let countBytes ← IO.FS.readBinFile count
   let refused ← run website program.toString (delay ++ #["--with-word-count", count.toString])
     refusing
   requireRefused "regula-standard" refused
-  discard (requireMoved refused state)
-  discard (requireMoved refused count)
+  discard (requireMoved refused state (bytes := some stateBytes))
+  discard (requireMoved refused count (bytes := some countBytes))
   discard (requireMoved refused out ["kept.txt", ("html-multi" : FilePath) / "index.html"])
   let stale ← run website program.toString resume env
   requireChecks [⟨s!"a resumed render of regula-standard after a refused run rendered from an \
@@ -107,13 +114,15 @@ private def reproduction (website program scratch : FilePath)
 /-- The refusals of the program `name` at `program`, in the directory `scratch`, without a render:
 
 - a refused delayed render moves its saved state, its word count and its output directory aside
-  whole, with the pages of a mode that the options do not select (`tex`);
+  whole, the files with their bytes, with the pages of a mode that the options do not select
+  (`tex`);
 - a refused resumed render moves its output directory aside and keeps the saved state that it
   reads, which its options name as no destination;
 - a word count that is a symbolic link is moved itself, and its target stays;
 - a saved state in the output directory moves with it;
 - an output directory `.` or an empty one is reported and stays, and the word count is still moved;
-- a word count in a directory where the refusal can make nothing is reported and stays;
+- a word count whose new directory would have a name longer than the file system's limit
+  (`NAME_MAX`) is reported and stays, whatever the privileges of the process;
 - options that Verso's parser refuses move nothing. -/
 private def refusals (program scratch : FilePath) (name : String)
     (refusing : Array (String × Option String)) : IO Unit := do
@@ -125,14 +134,14 @@ private def refusals (program scratch : FilePath) (name : String)
   let out := base / "delay"
   let state := base / "state.json"
   let count := base / "count.txt"
-  seed state
-  seed count
+  seed state "state"
+  seed count "count"
   seed (out / "html-multi" / "index.html")
   seed (out / "tex" / "main.tex")
   let refused ← refuse base #["--output", out.toString, "--delay-html-multi", state.toString,
     "--with-word-count", count.toString]
-  discard (requireMoved refused state)
-  discard (requireMoved refused count)
+  discard (requireMoved refused state (bytes := some "state".toUTF8))
+  discard (requireMoved refused count (bytes := some "count".toUTF8))
   discard (requireMoved refused out
     [("html-multi" : FilePath) / "index.html", ("tex" : FilePath) / "main.tex"])
   let out := base / "resume"
@@ -175,19 +184,23 @@ private def refusals (program scratch : FilePath) (name : String)
     {shown refused}",
     reports refused "was not moved aside: it is an empty path" &&
       (← present (dot / "kept.txt"))⟩]
-  let locked := base / "locked"
-  seed (locked / "count.txt")
-  let lock ← run base "chmod" #["a-w", locked.toString]
-  requireChecks [⟨s!"chmod a-w {locked} {shown lock}", lock.exitCode == 0⟩]
-  try
-    let refused ← refuse base #["--output", (base / "unmade").toString, "--with-word-count",
-      (locked / "count.txt").toString]
-    requireChecks [⟨s!"a refused run of {name} whose word count is in a directory where nothing \
-      can be made did not report it, or moved it {shown refused}",
-      reports refused s!"{locked / "count.txt"} was not moved aside: " &&
-        (← present (locked / "count.txt")) && (← asides (locked / "count.txt")).isEmpty⟩]
-  finally
-    discard (run base "chmod" #["u+w", locked.toString])
+  -- `mkdir(2)` fails with `ENAMETOOLONG` on a component longer than `NAME_MAX` (POSIX.1-2024,
+  -- https://pubs.opengroup.org/onlinepubs/9799919799/functions/mkdir.html), which
+  -- `getconf NAME_MAX DIR` gives for the file system of `DIR`
+  -- (https://pubs.opengroup.org/onlinepubs/9799919799/utilities/getconf.html), whatever the
+  -- privileges of the process. A word count whose name is that long has a new directory whose name
+  -- is longer.
+  let limit ← run base "getconf" #["NAME_MAX", base.toString]
+  let some longest := (limit.stdout.splitOn "\n").head?.bind String.toNat?
+    | throw (IO.userError s!"getconf NAME_MAX {base} gave no number {shown limit}")
+  let long := base / String.ofList (List.replicate longest 'n')
+  seed long "long"
+  let refused ← refuse base #["--output", (base / "unmade").toString, "--with-word-count",
+    long.toString]
+  requireChecks [⟨s!"a refused run of {name} whose word count's new directory would have a name \
+    longer than NAME_MAX did not report it, or moved or changed it {shown refused}",
+    reports refused s!"{long} was not moved aside: " && (← IO.FS.readFile long) == "long" &&
+      (← asides long).isEmpty⟩]
   let out := base / "unparsed"
   seed (out / "index.html")
   let refused ← refuse base #["--output", out.toString, "--unknown-option"]
@@ -196,21 +209,29 @@ private def refusals (program scratch : FilePath) (name : String)
     reports refused "nothing was moved aside: Verso's parser refused the options" &&
       (← present (out / "index.html")) && (← asides out).isEmpty⟩]
 
-/-- Build `regula-site` and `regula-standard` in the website package of the repository at
-`root`, then run the issue's reproduction with `regula-standard` (`reproduction`) and the refusals
-of both programs (`refusals`), in a fresh scratch directory. The first failure stops it. It runs
-after `lake exe site build`, which builds the website package and generates the sources of
-`regula-site`. -/
+/-- Build `regula-site` and `regula-standard` in the website package of the repository at `root`
+and find their executables with `lake query`, then run the issue's reproduction with
+`regula-standard` (`reproduction`) and the refusals of both programs (`refusals`), in a fresh
+scratch directory. The first failure stops it. It runs after `lake exe site build`, which builds
+the website package and generates the sources of `regula-site`.
+
+Assumes: Lake 4.34.1 builds the executable of a `lean_exe` target at `LeanExe.file`, the package's
+`binDir` with the executable's file name, and gives that path as the target's result
+(`src/lake/Lake/Build/Executable.lean:22-31, 38-40`, `src/lake/Lake/Config/LeanExe.lean:72-73`).
+`lake query` prints the result of each target that it names, on one line each and in that order
+(`src/lake/Lake/Config/OutFormat.lean:26, 46`). -/
 def control (root : FilePath) : IO Unit := do
   let website := root / "website"
-  let built ← run website "lake" #["build", "regula-site", "regula-standard"] cleanEnv
-  requireChecks [⟨s!"build of regula-site and regula-standard {shown built}",
-    built.exitCode == 0⟩]
+  let built ← run website "lake" #["query", "regula-site", "regula-standard"] cleanEnv
+  let found := (built.stdout.splitOn "\n").filter (!·.isEmpty)
+  let (site, standard) ← match built.exitCode, found with
+    | 0, [site, standard] => pure (website / site, website / standard)
+    | _, _ => throw (IO.userError s!"lake query of regula-site and regula-standard did not give \
+        their two executables {shown built}")
   let refusing := cleanEnv.push ("LEAN_NUM_THREADS", some "0")
-  let program (name : String) := website / ".lake" / "build" / "bin" / name
   Regula.Checker.withScratch root "site-renderer-refusal" fun scratch => do
-    reproduction website (program "regula-standard") scratch cleanEnv refusing
-    for name in ["regula-standard", "regula-site"] do
-      refusals (program name) scratch name refusing
+    reproduction website standard scratch cleanEnv refusing
+    for (name, program) in [("regula-standard", standard), ("regula-site", site)] do
+      refusals program scratch name refusing
 
 end Regula.Site.RendererRefusal
