@@ -1,5 +1,6 @@
 import Lake
 import Lake.Load
+import Regula.LakeBuildConfig
 import Regula.Checker.Common
 import Regula.ToolchainProgram
 import Regula.Filesystem
@@ -16,6 +17,14 @@ source-format guesses participate. Load failures fail closed.
 namespace Regula.Checker.Workspace
 
 open Lean System
+
+namespace Selection
+run_cmd do
+  let input := Lean.Parser.mkInputContext (include_str "../RendererSelection.inc")
+    "Regula/RendererSelection.inc"
+  let result ← Lean.Elab.IO.processCommands input {} (← get)
+  set result.commandState
+end Selection
 
 /-- The Lake environment of the toolchain's identity-checked installation
 (`Regula.Toolchain.sysroot`), with the Lake installed beside its Lean (`LakeInstall.ofLean`), as
@@ -36,8 +45,8 @@ private def detectEnvironment : IO _root_.Lake.Env := do
 
 /-- The configuration with which the workspace rooted at `repo` is loaded. With
 `scrubSearchPath`, the inherited `LEAN_PATH` and `LEAN_SRC_PATH` are ignored, as for
-`scrubbedLeanPathEnv`. -/
-private def loadConfig (repo : FilePath) (scrubSearchPath : Bool) : IO _root_.Lake.LoadConfig := do
+`scrubbedLeanPathEnv`. This is a fresh load configuration, not a prior build's selector inputs. -/
+def loadConfig (repo : FilePath) (scrubSearchPath : Bool) : IO _root_.Lake.LoadConfig := do
   let lakeEnv ← detectEnvironment
   let lakeEnv := if scrubSearchPath then { lakeEnv with initLeanPath := [], initLeanSrcPath := [] }
     else lakeEnv
@@ -73,23 +82,17 @@ def withRootWorkspace {α : Type} (repo : FilePath) (action : _root_.Lake.Worksp
 /-- Resolve the supplied committed manifest through Lake, refusing selector overrides for each
 dependency whose effects receive a sourced exemption. Root configuration, module naming and
 artifact loading remain trusted; this is a closed build case, not artifact authentication.
+The caller supplies the configuration that selected those dependencies.
 Assumes: Lake v4.34.1 `Load/Workspace.lean:62-67` and `Load/Resolve.lean:598-625` select locked
 entries, workspace overrides and LoadConfig overrides; `Load/Manifest.lean:300-305` decodes the
 override file and `Load/Materialize.lean:260-263` uses the environment's package URL map.
 The committed manifest/configuration and selector inputs stay stable during resolution. -/
-def withManifestWorkspace {α : Type} (repo : FilePath) (manifest : _root_.Lake.Manifest)
+def withManifestWorkspace {α : Type} (config : _root_.Lake.LoadConfig) (manifest : _root_.Lake.Manifest)
     (exempted : Array Name) (action : _root_.Lake.Workspace → IO α) : IO α := do
-  let config ← loadConfig repo false
   let load : _root_.Lake.LoggerIO _root_.Lake.Workspace := _root_.Lake.loadWorkspaceRoot config
   let (root?, rootLog) ← load.captureLog
   withLoaded root? rootLog fun root => do
-    let overrides ← _root_.Lake.Manifest.tryLoadEntries root.packageOverridesFile
-    for name in exempted do
-      unless manifest.packages.any (·.name == name) do
-        throw <| IO.userError s!"observer reach check incomplete: exempted dependency {name} is absent from the committed manifest"
-      if overrides.any (·.name == name) || config.packageOverrides.any (·.name == name) ||
-          (root.lakeEnv.pkgUrlMap.find? name).isSome then
-        throw <| IO.userError s!"observer reach check incomplete: exempted dependency {name} has an overridden selection; the committed manifest is required"
+    Selection.requireSelectors config root manifest exempted
     let (resolved?, log) ← (root.materializeDeps manifest config.leanOpts config.reconfigure
       config.packageOverrides).captureLog
     withLoaded resolved? log fun resolved => do

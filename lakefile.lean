@@ -121,6 +121,15 @@ input_file processSource where
   path := "lean/Regula/ProcessSource.inc"
   text := true
 
+-- The cold website build and compiled renderer include one selector admission implementation.
+input_file rendererSelectionSource where
+  path := "lean/Regula/RendererSelection.inc"
+  text := true
+
+input_file lakeBuildConfigSource where
+  path := "lean/Regula/LakeBuildConfig.inc"
+  text := true
+
 -- External-boundary controls are committed Lean sources, embedded without generated layout.
 input_dir processFixtureSources where
   path := "examples/process-controls"
@@ -137,7 +146,8 @@ lean_lib «Regula» where
   -- Lean-only checker implementation. Operational checker modules are
   -- separately qualified; they are not part of the conforming proof surface.
   globs := #[.submodules `Regula]
-  needs := #[`@/compilerObservationSource, `@/processSource, `@/processFixtureSources]
+  needs := #[`@/compilerObservationSource, `@/processSource, `@/processFixtureSources,
+    `@/rendererSelectionSource, `@/lakeBuildConfigSource]
 
 lean_exe «axiomGate» where
   root := `Regula.Checker.AxiomGateMain

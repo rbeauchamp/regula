@@ -52,6 +52,12 @@ def nativeFallback : String := include_str "../../../examples/process-controls/N
 /-- The local manifest-selection workspace; paths are fixed fixture-relative names. -/
 def selection : String := include_str "../../../examples/process-controls/Selection.lean"
 
+/-- The exact shared selector source, used by the owned fixture's cold Lake configuration. -/
+def rendererSelection : String := include_str "../RendererSelection.inc"
+
+/-- The same pinned-parser adapter the native module and cold configurations elaborate. -/
+def lakeBuildConfig : String := include_str "../LakeBuildConfig.inc"
+
 /-- Each tiny local dependency declares only its package, not a private Verso copy. -/
 def selectedDependency : String := include_str "../../../examples/process-controls/SelectedDependency.lean"
 
@@ -65,7 +71,8 @@ def writePreflight (directory : FilePath) : IO Unit := do
       ("Setup.lean", setup), ("Driver.lean", driver), ("Solver.lean", solver),
       ("Baseline.lean", baseline), ("Regula/ProjectCaller.lean", projectCaller),
       ("NativeFallback.lean", nativeFallback), ("Selection.lean", selection),
-      ("SelectedDependency.lean", selectedDependency)] do
+      ("SelectedDependency.lean", selectedDependency), ("LakeBuildConfig.inc", lakeBuildConfig),
+      ("RendererSelection.inc", rendererSelection)] do
     IO.FS.writeFile (directory / name) source
 
 end Sources
@@ -111,11 +118,16 @@ route must name the overridden dependency and never enter its action. The positi
 inspects the package Lake actually resolved. This observes an external loader, not artifact
 authentication or a proof of arbitrary package contents. Assumes: Lake v4.34.1
 `Load/Resolve.lean:603-607` overlays Manifest entries with the workspace override file, and
-`Load/Manifest.lean:300-317` supplies that file's decoder and encoder. No dependency is copied. -/
+`Load/Manifest.lean:300-317` supplies that file's decoder and encoder. Actual CLI builds also
+exercise --packages before/after the command; each baseline writes its actually resolved path,
+then the shared admission must name the overridden selection and never write its action marker.
+No dependency is copied. -/
 private def manifestSelectionControl (directory : FilePath) : IO Unit := do
   IO.FS.createDirAll directory
   IO.FS.writeFile (directory / "lean-toolchain") s!"leanprover/lean4:v{Lean.versionString}\n"
   IO.FS.writeFile (directory / "lakefile.lean") Sources.selection
+  IO.FS.writeFile (directory / "RendererSelection.inc") Sources.rendererSelection
+  IO.FS.writeFile (directory / "LakeBuildConfig.inc") Sources.lakeBuildConfig
   for name in ["committed", "overridden"] do
     let dependency := directory / name
     IO.FS.createDirAll dependency
@@ -128,6 +140,7 @@ private def manifestSelectionControl (directory : FilePath) : IO Unit := do
   let manifestFile := directory / _root_.Lake.defaultManifestFile
   discard <| manifest.save manifestFile
   let before ← IO.FS.readFile manifestFile
+  let config ← Regula.Checker.Workspace.loadConfig directory false
   let selectedPath (workspace : _root_.Lake.Workspace) : IO FilePath := do
     let some package := workspace.findPackageByName? `verso
       | throw <| IO.userError "selection control: actual resolver omitted verso"
@@ -142,7 +155,7 @@ private def manifestSelectionControl (directory : FilePath) : IO Unit := do
     requireChecks [⟨s!"{label}: Lake's override baseline actually resolved its package",
       selected == (← IO.FS.realPath (directory / expected))⟩]
     let entered ← IO.mkRef false
-    let refused ← (Regula.ProgramCheck.Renderer.requireCommittedSelection directory
+    let refused ← (Regula.ProgramCheck.Renderer.requireCommittedSelection config
       (fun _ => entered.set true)).toBaseIO
     requireChecks [⟨s!"{label}: intended selector refusal", match refused with
       | .error error => (toString error).contains "observer reach check incomplete: exempted dependency verso has an overridden selection"
@@ -151,11 +164,45 @@ private def manifestSelectionControl (directory : FilePath) : IO Unit := do
       ⟨s!"{label}: committed manifest remained unchanged", (← IO.FS.readFile manifestFile) == before⟩]
     Regula.Filesystem.removePath .file overridesFile
   let entered ← IO.mkRef false
-  Regula.ProgramCheck.Renderer.requireCommittedSelection directory fun workspace => do
+  Regula.ProgramCheck.Renderer.requireCommittedSelection config fun workspace => do
     requireChecks [⟨"committed selection: actual dependency resolved",
       (← selectedPath workspace) == (← IO.FS.realPath (directory / "committed"))⟩]
     entered.set true
   requireChecks [⟨"committed selection: guarded positive action really entered", ← entered.get⟩]
+  let missing ← Regula.Checker.Workspace.withRootWorkspace directory fun workspace =>
+    (Regula.LakeBuildConfig.buildConfig workspace).toBaseIO
+  requireChecks [⟨"non-CLI build: actual configuration unavailable refusal", match missing with
+    | .error error => (toString error).contains "actual Lake build configuration is unavailable"
+    | .ok _ => false⟩]
+  let lake := (← Regula.Process.toolPath .lake).toString
+  let invoke (args : Array String) := Regula.Process.output (.toolchain .lake) {
+    cmd := lake, args, cwd := some directory }
+  let cliOverrides := directory / "cli-overrides.json"
+  for (label, entry, expected) in [
+      ("changed entry", { committed with src := .path "overridden" }, "overridden"),
+      ("identical entry", committed, "committed")] do
+    discard <| _root_.Lake.Manifest.saveEntries cliOverrides #[entry]
+    for (position, baseline, guarded) in [
+        ("before command", #["--packages=cli-overrides.json", "build", "selectionBaseline"],
+          #["--packages=cli-overrides.json", "build", "selectionGuard"]),
+        ("after command", #["build", "--packages", "cli-overrides.json", "selectionBaseline"],
+          #["build", "--packages", "cli-overrides.json", "selectionGuard"])] do
+      let marker := directory / "selected-package"
+      if ← marker.pathExists then Regula.Filesystem.removePath .file marker
+      let observed ← invoke baseline
+      requireChecks [⟨s!"--packages {position}, {label}: Lake's baseline action really resolved the package",
+        observed.exitCode == 0 && (← IO.FS.readFile marker) ==
+          (← IO.FS.realPath (directory / expected)).toString⟩]
+      let refused ← invoke guarded
+      requireChecks [⟨s!"--packages {position}, {label}: intended actual-build selector refusal",
+        refused.exitCode != 0 && (refused.stdout ++ refused.stderr).contains
+          "observer reach check incomplete: exempted dependency verso has an overridden selection"⟩,
+        ⟨s!"--packages {position}, {label}: guarded action was not entered",
+          !(← (directory / "guard-entered").pathExists)⟩]
+  let admitted ← invoke #["build", "selectionGuard"]
+  requireChecks [⟨"actual CLI build: committed selection enters guarded action",
+    admitted.exitCode == 0 && (← IO.FS.readFile (directory / "guard-entered")) == "guard entered"⟩,
+    ⟨"actual CLI build: committed manifest remained unchanged", (← IO.FS.readFile manifestFile) == before⟩]
 
 /-- The native shadow's early entry, before any command parsing or deadline dispatch.
 Only the control supplies its marker path; it changes no project file. -/
