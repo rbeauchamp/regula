@@ -2088,8 +2088,8 @@ these items:
   Regula read, the comparison runs `conforms` with that value first, or decides `Conforms`. A
   comparison with a constant `null`, Boolean or string matches its constructor or compares its
   text. The self-audit diagnostic refuses a declaration that names the equality of `Json` or
-  compares texts of `compress`, in each library except `Fixtures`. The module `RegulaCore.JsonAgreement` is
-  exempt, and so is an allowlist of comparisons of two values that Regula built, each with its reason. Only
+  compares texts of `compress`, in each library except `Fixtures`. An allowlist of comparisons of two values that Regula built is
+  exempt, each with its reason. Only
   the theorems in the table above say what one of these comparisons accepts.
 
 **The callers.** These paths give a value to the diagnostic decoder. They are read from the code
