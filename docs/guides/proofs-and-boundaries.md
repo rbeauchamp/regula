@@ -367,16 +367,20 @@ forged facet outside the evidence of the incremental gate.
 A target of the plain shape may name one plugin only, Regula's elaboration observer, as
 `isObserverPlugin` decides. That plugin is `@regula/RegulaObserver:shared`, or `@/RegulaObserver:shared`
 in the `lakefile.lean` of Regula that the driver admits by identity. Lake's own `presetup` facet
-builds that shared library and adds it to the plugins that Lean loads. It also mixes the trace of
-the library into the module's trace. The observer imports only Lean, prints nothing and reads no
+builds that shared library and adds it to the plugins that Lean loads. Unless the target sets
+`platformIndependent := true`, it also mixes the trace of the library into the module's trace. The
+observer imports only Lean, prints nothing and reads no
 option that the marker sets. So a build with the marker and a build without it write the same
 record.
 
 A `needs` entry of a target of the plain shape may also name that shared library, as
-`isObserverNeed` decides. Each target that loads the observer lists it there, so that Lake builds
-it before the modules of the target fetch their plugins. Without it, Lake v4.34.1 can build the
-library several times at the same time in a fresh build. Those builds write the same files.
-The entry builds the library that the plugin entry names, and nothing else.
+`isObserverNeed` decides. [RG2006] requires each target that loads the observer to list it there.
+Lake then builds it before the modules of the target fetch their plugins. Without it, Lake v4.34.1
+can build the library several times at the same time in a fresh build. Those builds write the same
+files. Lake also mixes the trace of the target's `needs` into each module's trace, whatever the
+target's `platformIndependent` (`Lake/Build/Module.lean` lines 591 and 600 to 603). So a module
+that Lake replays was elaborated with the observer that the build has. The entry builds the
+library that the plugin entry names, and nothing else.
 
 Regula declares no `presetup` facet. The audit's own builds run the facet that the workspace
 configures, without a change, through `Observer.recordingPresetup`. That wrapper keeps the
@@ -1509,9 +1513,13 @@ do not name `@regula/RegulaObserver:shared`, the target fails with `Failure.obse
 (`observer_unloaded_fails`). The finding names the line to add. The adapter reads the plugins
 that Lake resolves for the target with `Observer.observerKey`: the package's, then the target's.
 
-The decision does not require the same key in the target's `needs`. A fresh build of a target
-without it can build the observer several times at the same time. So `doctor` names that entry in
-the finding of such a target (`Observer.unpaired`, `Setup.unpairedText`).
+The decision also requires the same key in the target's `needs`. A target whose plugins name the
+observer and whose `needs` do not fails with `Failure.observerNeed` (`observer_unneeded_fails`),
+and the finding names the entry to add. The adapter reads the target's own `needs` with
+`Observer.observerKey`; Lake has no `needs` setting for a package. Lake mixes the trace of the
+`needs` into the trace of each module of the target, whatever its `platformIndependent`, so a
+module that Lake replays was elaborated with the observer that the build has. A fresh build of a
+target without the entry can also build the observer several times at the same time.
 
 [RG2006] also decides the options that each claimed module's source sets, as Regula's elaboration
 observer recorded them, with `RegulaPolicy.Community.sourceFailures` (`sourceFailures_eq_nil_iff`,

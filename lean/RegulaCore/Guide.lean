@@ -1715,12 +1715,17 @@ def guide : RuleId → Guide
           whose resolved plugins name no such target, and the finding names the line to add. \
           `doctor` reports that finding; an audit of such a target stops first at RG2003, \
           whose line for each module that Lean elaborated without the observer names the same \
-          entry. `doctor` also names the `needs` entry when a target lists the observer in \
-          `plugins` alone, which the decision does not require. Lake v4.34.1 builds a target's \
-          `needs` before its modules fetch their plugins. Without the entry, a fresh build can \
-          build the observer several times at the same time and corrupt its files. \
-          The observer records the options the source sets, which the rule reads below, and the \
-          messages that RG2003 decides.",
+          entry. The target must also list the same key in its `needs`: \
+          ``needs := #[`@regula/RegulaObserver:shared]`` in `lakefile.lean`, or \
+          `needs = [\"@regula/RegulaObserver:shared\"]` in `lakefile.toml`. The decision rejects \
+          a target that loads the observer through `plugins` without the same key in `needs`, \
+          and the finding names the entry to add. Lake v4.34.1 builds a target's `needs` before \
+          its modules fetch their plugins, so a fresh build builds the observer once, and mixes \
+          the trace of the `needs` into each module's trace whatever the target's \
+          `platformIndependent`. So Lake replays a module only when the build has the observer \
+          that elaborated it; under `platformIndependent := true` the plugins' own trace is not \
+          in the module's trace. The observer records the options the source sets, which the \
+          rule reads below, and the messages that RG2003 decides.",
         "The accepted set holds the required options at the values the rule admits; the §6.7 \
           exclusions `linter.style.header`, `linter.hashCommand` and `linter.style.longFile` at \
           `false`, `false` and `0`; `linter.style.header.license` at a nonempty string, which \
@@ -1774,8 +1779,8 @@ def guide : RuleId → Guide
           wrote it, so a project may write it too; for `match.ignoreUnusedAlts true`, which \
           hides Lean's \"Redundant alternative\" error, that is an open limit (issue #422). \
           So the source cannot turn one of Lean's default warnings off, set \
-          `linter.all` or `autoImplicit`, or set a `debug.` option or a `trace.` option outside \
-          that set, and an option whose value is not a literal is rejected. Code of the project \
+          `linter.all` to `false` or `autoImplicit` to `true`, or set a `debug.` option or a \
+          `trace.` option outside that set, and an option whose value is not a literal is rejected. Code of the project \
           that Lean runs while it elaborates the module, such as `run_cmd`, `run_elab`, a \
           `try_suggestion` generator or a simproc, gets the same decision as the source text. \
           The finding names each option with its \
@@ -1875,8 +1880,9 @@ def guide : RuleId → Guide
         `docVersoSuggestions_option_fails`, `unlisted_linter_option_fails`, \
         `analyzeTactics_option_fails`, `ppUnicode_option_fails`, `ppOneline_option_fails`, \
         `accepted_families_pass`, \
-        `undeclared_weak_argument_fails`, `acceptedRelease_eq`, `optionOf_eq_replacePrefix` and \
-        `missingDocs_unset_fails`. Reading Lake's target configuration is operational."
+        `undeclared_weak_argument_fails`, `acceptedRelease_eq`, `optionOf_eq_replacePrefix`, \
+        `missingDocs_unset_fails`, `observer_unloaded_fails` and `observer_unneeded_fails`. \
+        Reading Lake's target configuration is operational."
       sources := ["lean/RegulaPolicy/Community.lean", "lean/Regula/Checker/Lake.lean",
         "lean/Regula/Checker/AxiomGate.lean", "website/RegulaStandard/CodeOrganization.lean"] }
   | .executionUnresolved => {

@@ -104,9 +104,13 @@ lean_lib MyProject where
 A `plugins` entry of the package also loads the plugin into each of its targets. Lake has no
 `needs` setting for a package, so each target lists the key in its own `needs`.
 
-The `needs` entry makes Lake build the plugin before the modules of the target fetch it. Without
-it, a fresh build with Lake v4.34.1 can start several builds of the plugin at the same time. They
-write the same files, so the build can fail with a corrupted file.
+[RG2006] requires both entries. The `needs` entry makes Lake build the plugin before the modules
+of the target fetch it. Without it, a fresh build with Lake v4.34.1 can start several builds of the
+plugin at the same time. They write the same files, so the build can fail with a corrupted file.
+Lake also puts the trace of the `needs` into the trace of each module, whatever the target's
+`platformIndependent` setting. So Lake replays a module only when the build has the plugin that
+elaborated it. With `platformIndependent := true`, the trace of the `plugins` entry alone is not in
+the module's trace.
 
 Lake fetches a module's plugins on a worker thread, and its record of started jobs is a read and
 then a write
@@ -200,8 +204,8 @@ setup, and that runtime check confirms the files as written match it. `init` end
 `doctor`.
 
 `init` does not write the elaboration observer's `plugins` and `needs` entries. Add them as
-[step 1](#load-the-elaboration-observer) shows. `doctor` reports a claimed target without them in
-its [RG2006] finding.
+[step 1](#load-the-elaboration-observer) shows. `doctor` and the audit report a claimed target
+without them in its [RG2006] finding.
 [Issue 425](https://github.com/rbeauchamp/regula/issues/425) tracks writing them from `init`.
 
 `lake exe regula doctor` changes nothing. It prints each missing or wrong piece in the linter's

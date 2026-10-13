@@ -497,7 +497,8 @@ def observerPluginOwn : String := "  plugins := #[`@/RegulaObserver:shared]\n"
 
 /-- The `lakefile.toml` key of a `[[lean_lib]]` or `[[lean_exe]]` table with which the target builds
 Regula's elaboration observer before its modules fetch their plugins, so that Lake builds the
-observer once (`Lake.isObserverNeed`). Each target that loads the observer lists it. -/
+observer once (`Lake.isObserverNeed`). RG2006 requires it of each target that loads the observer
+(`RegulaPolicy.Community.BuildOptions.observerNeed`). -/
 def observerNeedToml : String := "needs = [\"@regula/RegulaObserver:shared\"]\n"
 
 /-- `observerNeedToml` as a field of a `lakefile.lean` `lean_lib` or `lean_exe` declaration. -/

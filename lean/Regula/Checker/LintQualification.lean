@@ -760,8 +760,9 @@ decided like `set_option`, and the documentation role `{option}` and a `simp` us
 set no option of the scope, give no finding. The restored module is accepted. Without the
 library's `plugins` entry for the observer, RG2003 refuses the claimed modules as not observed and
 names the entry, as `doctor`'s RG2006 finding does. Without its `needs` entry, that finding names
-the `needs` entry. A dependency's `presetup` facet that Lake does not store
-(`memoize := false`) is accepted, required before `regula` and after it, and one that drops the
+the `needs` entry, which RG2006 requires. With both entries and `platformIndependent := true`,
+under which Lake leaves the plugins' trace out of each module's trace, the run is accepted. A
+dependency's `presetup` facet that Lake does not store (`memoize := false`) is accepted, required before `regula` and after it, and one that drops the
 plugins is refused under RG2003. The file audit (`axiomGate --file`) decides its compilation's
 record with the same function (`Observer.decideRecord`): a `#guard_msgs` that drops a warning
 fails with the same `FAIL[elaboration-hidden]`, and `set_option linter.unusedVariables false` is
@@ -901,9 +902,10 @@ private def observerEscapes (repo adopter : FilePath) : IO (Array String) := do
         "plugins := #[`@regula/RegulaObserver:shared]"],
       excludes := #["regula doctor: the setup is complete"] }
     (← runProcess adopter "lake" #["exe", "regula", "doctor"] scrubbedLeanPathEnv))
-  -- With the `plugins` entry but without the same key in `needs`, `doctor` names the `needs` entry
-  -- in its RG2006 finding (`Setup.unpairedText`), which the audit does not decide. Only `doctor`
-  -- runs: a fresh build of the claimed library could then build the observer several times at once.
+  -- With the `plugins` entry but without the same key in `needs`, RG2006 refuses the target and
+  -- its finding names the `needs` entry (`RegulaPolicy.Community.Failure.observerNeed`), which
+  -- `doctor` decides as the audit does. Only `doctor` runs: a fresh build of the claimed library
+  -- could then build the observer several times at once.
   IO.FS.writeFile lakefile lakefileText
   mutate lakefile observerNeedLean ""
   failures := failures ++ (← assess {
@@ -913,6 +915,15 @@ private def observerEscapes (repo adopter : FilePath) : IO (Array String) := do
       excludes := #["does not load Regula's elaboration observer",
         "regula doctor: the setup is complete"] }
     (← runProcess adopter "lake" #["exe", "regula", "doctor"] scrubbedLeanPathEnv))
+  -- With `platformIndependent := true` Lake leaves the plugins' trace out of each module's trace;
+  -- the observer's trace enters it through `needs`, so the target with both entries is accepted.
+  IO.FS.writeFile lakefile lakefileText
+  mutate lakefile "globs := #[.andSubmodules `Widget]"
+    "globs := #[.andSubmodules `Widget]\n  platformIndependent := true"
+  failures := failures ++ (← expect adopter {
+      label := "observer/platform-independent", exitCode := 0,
+      contains := #[s!"regula lint: {acceptanceLabel}"],
+      excludes := #["RG2006", "FAIL[elaboration-hidden]"] })
   IO.FS.writeFile lakefile lakefileText
   restore adopter originals
   -- A dependency's `presetup` facet, which replaces Lake's own in the workspace whatever the order

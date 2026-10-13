@@ -14,11 +14,16 @@ and turns it into the inputs of the RG2003 and RG2006 decisions
 
 A target loads the observer through Lake's own `plugins` setting, which names the observer's shared
 library: `@regula/RegulaObserver:shared`, or `@/RegulaObserver:shared` in Regula's own
-`lakefile.lean`, and lists the same key in `needs`, so that a fresh build builds the observer once
-(`unpaired`). Lake's `presetup` facet fetches a module's plugins, mixes their trace into the
-module's trace, which Lake compares to decide whether to replay the module, and hands them to Lean
-(`Lake/Build/Module.lean` lines 545 to 624, 1008 and 1062, `ModulePreSetup.plugins`). A module
-replayed under that trace was elaborated with them. Regula declares no `presetup` facet. The
+`lakefile.lean`, and RG2006 requires the same key in its `needs`
+(`RegulaPolicy.Community.BuildOptions.observerNeed`). Lake's `presetup` facet hands a module's
+plugins to Lean (`Lake/Build/Module.lean` lines 545 to 624, 1008 and 1062,
+`ModulePreSetup.plugins`). It first awaits the job of the target's `needs`
+(`LeanLib.recBuildExtraDepTargets`, `Lake/Build/Library.lean` lines 162 to 169), so a fresh build
+builds the observer once, and mixes that job's trace into the module's trace, which Lake compares
+to decide whether to replay the module, whatever the target's `platformIndependent`
+(`Lake/Build/Module.lean` lines 591 and 600 to 603). A module replayed under that trace was
+elaborated with the observer the build has; the trace of the plugins alone is left out when
+`platformIndependent` is `true`. Regula declares no `presetup` facet. The
 audit's builds run the facet that the workspace configures unchanged and keep each completed
 result (`recordingPresetup`), from which the audit reads whether a claimed module's elaboration
 loaded the running Regula's observer (`pluginLoaded`). A claimed module whose completed `presetup`
@@ -49,14 +54,6 @@ def observerKey (declaring : Name) : _root_.Lake.PartialBuildKey → Bool
     library == observerLibrary &&
       (if owner.isAnonymous then declaring else owner) == Name.mkSimple regulaPackage
   | _ => false
-
-/-- Whether a library or an executable of the package `declaring` loads the observer through one
-of its `plugins` (`observerKey`) but lists no observer key among its `needs`. Lake v4.34.1 can
-then build the observer several times at the same time in a fresh build and corrupt its files
-(`Lake.isObserverNeed` gives Lake's source), so `doctor` reports such a target in its RG2006
-finding. RG2006 itself requires only the `plugins` entry. -/
-def unpaired (declaring : Name) (plugins needs : Array _root_.Lake.PartialBuildKey) : Bool :=
-  plugins.any (observerKey declaring) && !needs.any (observerKey declaring)
 
 /-- The directory of the package whose build directory holds the running executable,
 `<package>/.lake/build/bin/<executable>`, or none when the path is shorter. -/
@@ -302,9 +299,9 @@ def settings (record : RegulaObserver.Record) : List RegulaPolicy.Community.Sour
 
 /-- One RG2003 failure of a module's record, as a line of the build's report that names the module
 `module`: its name, or the file that a standalone compilation compiled. The line of an observer
-that Lean did not load names the `plugins` entry that loads it, which RG2006 requires, and the
-`needs` entry that builds it first (`unpaired`); an audit stops at this refusal before its RG2006
-stage. -/
+that Lean did not load names the `plugins` entry that loads it and the `needs` entry beside it,
+which RG2006 requires (`RegulaPolicy.Community.BuildOptions.observerNeed`); an audit stops at this
+refusal before its RG2006 stage. -/
 def failureLine (module : String) : RegulaPolicy.Elaboration.Failure → String
   | .unloaded => s!"not observed: Regula's elaboration observer was not among the plugins Lean \
       loaded to elaborate {module}; its target loads it with \

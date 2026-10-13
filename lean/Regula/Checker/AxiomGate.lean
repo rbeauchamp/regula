@@ -1532,7 +1532,8 @@ private unsafe def auditFile (repo path : FilePath) (claim : Option Profile)
             -- observer itself, with `--plugin`.
             if let some verdict := verdict then
               let mathlib := inspected.report.modules.any (·.getRoot == `Mathlib)
-              if let some detail := verdict.sourceDetail path.toString ⟨[], [], true⟩ mathlib then
+              if let some detail :=
+                  verdict.sourceDetail path.toString ⟨[], [], true, true⟩ mathlib then
                 let finding ← IO.ofExcept <| Regula.makeDiagnostic .communityConfiguration
                   ⟨path.toString, detail⟩ (.project path.toString) .freshFile
                   (claim.map Profile.toString) .violation

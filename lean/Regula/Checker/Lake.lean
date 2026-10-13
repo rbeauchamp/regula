@@ -172,27 +172,28 @@ private def checkSource (repo : FilePath) (what : String)
 /-- The options Lake builds a target's modules with, exactly as Lake resolves them for the
 target (`leanOptions`: build type, package, then target), the extra `lean` arguments it passes
 (`weakLeanArgs`, then `leanArgs`, the order of Lake's module build), and whether one of its
-plugins `plugins`, which the package `declaring` declares, is Regula's elaboration observer
-(`Observer.observerKey`). -/
+plugins `plugins`, and one of its `needs`, which the package `declaring` declares, is Regula's
+elaboration observer (`Observer.observerKey`). -/
 def buildOptions (options : Lean.LeanOptions) (weakArgs args : Array String)
-    (declaring : Name) (plugins : Array _root_.Lake.PartialBuildKey) :
+    (declaring : Name) (plugins needs : Array _root_.Lake.PartialBuildKey) :
     RegulaPolicy.Community.BuildOptions where
   options := options.values.toList.map fun (name, value) => (name, match value with
     | .ofString s => .string s | .ofBool b => .bool b | .ofNat n => .nat n)
   arguments := (weakArgs ++ args).toList
   observer := plugins.any (Observer.observerKey declaring)
+  observerNeed := needs.any (Observer.observerKey declaring)
 
 /-- The options and extra `lean` arguments Lake builds the modules of library `lib` with, and
-whether its plugins load Regula's elaboration observer. -/
+whether its plugins and its `needs` name Regula's elaboration observer. -/
 def libraryOptions (lib : _root_.Lake.LeanLib) : RegulaPolicy.Community.BuildOptions :=
   buildOptions lib.leanOptions lib.weakLeanArgs lib.leanArgs lib.pkg.baseName
-    (lib.plugins.map (·.key))
+    (lib.plugins.map (·.key)) lib.config.needs
 
 /-- The options and extra `lean` arguments Lake builds the root of executable `exe` with, and
-whether its plugins load Regula's elaboration observer. -/
+whether its plugins and its `needs` name Regula's elaboration observer. -/
 def executableOptions (exe : _root_.Lake.LeanExe) : RegulaPolicy.Community.BuildOptions :=
   buildOptions exe.root.leanOptions exe.root.weakLeanArgs exe.root.leanArgs exe.pkg.baseName
-    (exe.root.plugins.map (·.key))
+    (exe.root.plugins.map (·.key)) exe.config.needs
 
 /-- The modules Lake can build as part of `library`, found in its source directory with Lake's
 glob reader: those its globs match, and the submodules of each root that a glob matches, which
@@ -1671,7 +1672,9 @@ as the working directory, as a `lake build` run there does. Lake's loader sets t
 path (`Lean.searchPathRef`), which the checker's workers inherit. The run restores both, so like a
 child `lake build` it leaves the checker's own state as it was. Both are process-wide, so no other
 task of the process may build or read them while it runs; the checker runs its builds one at a
-time. A module loads Regula's elaboration observer through its target's `plugins` (RG2006); the
+time. A module loads Regula's elaboration observer through its target's `plugins`, and its target
+lists the same key in `needs`, whose job's trace Lake mixes into the module's trace whatever the
+target's `platformIndependent` (RG2006, `RegulaPolicy.Community.BuildOptions.observerNeed`); the
 build runs the `presetup` facet that the workspace configures unchanged and keeps each completed
 result (`Observer.recordingPresetup`). Every build then reads, for each claimed module, whether
 its completed `presetup` loaded the running Regula's observer (`Observer.pluginLoaded`) and, when
@@ -1723,10 +1726,12 @@ def Build.runObserved (build : Build) (repo : FilePath) (targets : Array Target)
             pure (ws.addLibraryFacetConfig (weakArgsExtraDep existing),
               ({} : NameMap LeanOptions).insert ws.root.baseName options)
           | none => pure (ws, {})
-        -- A claimed module loads Regula's elaboration observer through its target's own `plugins`
-        -- (RG2006). The build runs the `presetup` facet that the workspace configures unchanged,
-        -- so each module's trace is that of an ordinary build and Lake replays it, a dependency's
-        -- module included, and only records each completed result.
+        -- A claimed module loads Regula's elaboration observer through its target's own `plugins`,
+        -- and the target's `needs` lists the same key, which puts the observer's trace into the
+        -- module's trace, so a module Lake replays was elaborated with the observer this build
+        -- has (RG2006). The build runs the `presetup` facet that the workspace configures
+        -- unchanged, so each module's trace is that of an ordinary build and Lake replays it, a
+        -- dependency's module included, and only records each completed result.
         let existing := (ws.findModuleFacetConfig? _root_.Lake.Module.presetupFacet).getD
           _root_.Lake.Module.presetupFacetConfig
         let presetups ← Observer.Presetups.new

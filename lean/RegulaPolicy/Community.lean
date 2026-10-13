@@ -17,7 +17,9 @@ accepted set (`Accepted`) at an accepted value; any other option, at any value, 
 Lean declares it or not. So no target-wide option can stop a warning that Lean reports by default,
 except a raised `exponentiation.threshold`, unless one of the arguments for the accepted set below
 is wrong. The target must also load Regula's elaboration observer through Lake's `plugins`
-(`BuildOptions.observer`), which records the options its modules' source sets (`sourceFailures`).
+(`BuildOptions.observer`), which records the options its modules' source sets (`sourceFailures`),
+and list the same key in its `needs` (`BuildOptions.observerNeed`), so that each module Lake
+replays was elaborated with the observer the build has.
 
 ## Main declarations
 
@@ -55,6 +57,8 @@ is wrong. The target must also load Regula's elaboration observer through Lake's
   `linter.missingDocs`.
 - `observer_unloaded_fails`: a core-only target with exactly the required options that does not
   load Regula's elaboration observer (`BuildOptions.observer`) fails with exactly that failure.
+- `observer_unneeded_fails`: one that loads the observer without the same key in its `needs`
+  (`BuildOptions.observerNeed`) fails with exactly that failure.
 - `mem_argumentTexts_iff`: the `-D` reading holds exactly the settings of `Defines`, stated over
   the characters of the arguments.
 - `leanArgument_mem_failures_iff`, `unaccepted_mem_failures_iff`: a `-D` argument fails exactly
@@ -129,8 +133,9 @@ from its source (`Mathlib/Tactic/Linter/Header.lean`) and assumed. The options a
 module's source sets are decided by `sourceFailures`, from the record of Regula's elaboration
 observer; the decision does not read options given to `lake` on its command line. A
 project that wants a resource limit fixed checks it itself. Which targets are claimed,
-whether a target imports Mathlib and whether its plugins name the observer's shared library
-(`BuildOptions.observer`) are supplied by the operational adapter. That
+whether a target imports Mathlib and whether its plugins and its `needs` name the observer's shared
+library (`BuildOptions.observer`, `BuildOptions.observerNeed`) are supplied by the operational
+adapter. That
 `linter.missingDocs` is on establishes only that Lean runs the linter; its reports are build
 warnings, which RG2003 rejects. -/
 
@@ -183,6 +188,15 @@ structure BuildOptions where
   modules: the plugins Lake resolves for the target, the package's then the target's own, name
   the observer's shared library. -/
   observer : Bool
+  /-- Whether the target's `needs` name the observer's shared library. Lake builds a library's
+  `needs`, and an executable's through the library of its root, before the modules
+  (`LeanLib.recBuildExtraDepTargets`, `Lake/Build/Library.lean` lines 162 to 169) and mixes that
+  job's trace into the trace of each module whatever the target's `platformIndependent`
+  (`Lake/Build/Module.lean` lines 591 and 600 to 603), so a module Lake replays was elaborated with
+  the observer the build has. The trace of the plugins alone is left out of a module's trace when
+  `platformIndependent` is `true`. The entry also keeps a fresh build from building the observer
+  several times at once. -/
+  observerNeed : Bool
   deriving DecidableEq, Repr
 
 /-- The option a `leanOptions` key sets: the key without a leading `weak.` component, removed by
@@ -872,8 +886,11 @@ def checkSwitches : List Name := [`warningAsError, `debugAssertions]
 type-class answer that it would otherwise discard and fail without (`synthInstance.maxSize`,
 `Lean/Meta/SynthInstance.lean` lines 25 and 467), or skip with a warning
 (`exponentiation.threshold`, whose warning reports a power it did not evaluate, so raising it
-stops that warning while Lean evaluates the power). Lowering a positive limit only stops that work
-sooner; `0` means no limit for `maxHeartbeats` and `synthInstance.maxHeartbeats`
+stops that warning while Lean evaluates the power). Lowering a positive limit stops that work
+sooner, with an error where Lean stops it; lowering `synthInstance.maxSize` instead makes the search
+drop each larger answer with only a trace message (`addAnswer`, `Lean/Meta/SynthInstance.lean`),
+which can change the instance it finds, but stops no warning, which is what RG2006 needs of an
+accepted value. `0` means no limit for `maxHeartbeats` and `synthInstance.maxHeartbeats`
 (`Lean/CoreM.lean:487`) and for `maxRecDepth` (`Lean/Exception.lean:248`), so Lean does all the
 work and hides no warning. -/
 def resourceLimits : List Name :=
@@ -999,11 +1016,15 @@ inductive Failure where
   /-- The target does not load Regula's elaboration observer, so the build records no option the
   source of its modules sets. -/
   | observer
+  /-- The target loads the observer through `plugins` without the same key in its `needs`
+  (`BuildOptions.observerNeed`). -/
+  | observerNeed
   deriving DecidableEq, Repr
 
 /-- Every failure of one target's build options: required options in the order of `required`,
 then each option outside the accepted set in option order, then each contradicting `-D` in
-argument order, then a target that does not load Regula's elaboration observer. -/
+argument order, then a target that does not load Regula's elaboration observer or that loads it
+without the same key in its `needs`. -/
 @[regula_decision]
 def failures (o : BuildOptions) (mathlib : Bool) : List Failure :=
   (required mathlib).filterMap (fun r =>
@@ -1014,7 +1035,7 @@ def failures (o : BuildOptions) (mathlib : Bool) : List Failure :=
       else none) ++
     (argumentSettings o.arguments).filterMap (fun s =>
       if contradicts o mathlib s.1 s.2 then some (.leanArgument s.1 s.2) else none) ++
-    if o.observer then [] else [.observer]
+    if !o.observer then [.observer] else if o.observerNeed then [] else [.observerNeed]
 
 /-- An option value as written in `lakefile.lean`. -/
 def OptionValue.text : OptionValue → String
@@ -1045,6 +1066,12 @@ def Failure.text : Failure → String
       sets are unknown; add plugins := #[`@regula/RegulaObserver:shared] to the target in \
       lakefile.lean, or plugins = [\"@regula/RegulaObserver:shared\"] to its lakefile.toml table, \
       with the same key in its needs"
+  | .observerNeed =>
+    "the target loads Regula's elaboration observer through plugins without the same key in \
+      needs, so Lake can replay a module that another observer elaborated, and a fresh build can \
+      build the observer several times at the same time; add \
+      needs := #[`@regula/RegulaObserver:shared] beside the plugins entry in lakefile.lean, or \
+      needs = [\"@regula/RegulaObserver:shared\"] in lakefile.toml"
 
 /-- The finding detail of a target's failures. -/
 def detail (failures : List Failure) : String :=
@@ -1056,7 +1083,7 @@ required value, and for Mathlib's header linter also `true` when the target conf
 line (`Licensed`); every other option the options set is `Accepted`; and each `-D` among the extra
 `lean` arguments gives a required option only a value the requirement admits and sets any other
 option only as `Accepted` allows; and the target loads Regula's elaboration observer
-(`BuildOptions.observer`). -/
+(`BuildOptions.observer`) with the same key in its `needs` (`BuildOptions.observerNeed`). -/
 def Conforming (o : BuildOptions) (mathlib : Bool) : Prop :=
   (∀ r ∈ required mathlib, valuesOf o r.1 ≠ [] ∧ ∀ v ∈ valuesOf o r.1,
     v.ReadsAs r.2 ∨ (r.1 = headerLinter ∧ v.ReadsAs (.bool true) ∧ Licensed o)) ∧
@@ -1066,7 +1093,7 @@ def Conforming (o : BuildOptions) (mathlib : Bool) : Prop :=
     (∀ r ∈ required mathlib, optionOf s.1 = r.1 → s.2.ReadsAs r.2 ∨
       (r.1 = headerLinter ∧ s.2.ReadsAs (.bool true) ∧ Licensed o)) ∧
     ((∀ r ∈ required mathlib, r.1 ≠ optionOf s.1) → Accepted (optionOf s.1) s.2)) ∧
-  o.observer = true
+  o.observer = true ∧ o.observerNeed = true
 
 /-- `meets` decides exactly the first conjunct's condition for one option. -/
 theorem meets_iff (o : BuildOptions) (r : Name × OptionValue) :
@@ -1096,7 +1123,7 @@ theorem failures_eq_nil_iff (o : BuildOptions) (mathlib : Bool) :
     cases unaccepted mathlib (optionOf e.1) e.2 <;> simp
   · rw [← contradicts_eq_false_iff]
     cases contradicts o mathlib s.1 s.2 <;> simp
-  · cases o.observer <;> simp
+  · cases o.observer <;> cases o.observerNeed <;> simp
 
 /-- Each value the Mathlib requirement admits for one of Mathlib's options is `Accepted` without
 it. -/
@@ -1191,14 +1218,22 @@ theorem conforming_missingDocs (o : BuildOptions) (mathlib : Bool) (h : Conformi
 option and has no extra `lean` arguments fails with exactly one failure: `linter.missingDocs` is
 not set. -/
 theorem missingDocs_unset_fails :
-    failures ⟨[(`autoImplicit, .bool false), (`relaxedAutoImplicit, .bool false)], [], true⟩
+    failures ⟨[(`autoImplicit, .bool false), (`relaxedAutoImplicit, .bool false)], [], true, true⟩
         false =
       [.option `linter.missingDocs (.bool true) []] := by
   decide
 
 /-- A core-only target whose options are exactly the required ones but that does not load Regula's
 elaboration observer fails with exactly that failure. -/
-theorem observer_unloaded_fails : failures ⟨required false, [], false⟩ false = [.observer] := by
+theorem observer_unloaded_fails :
+    failures ⟨required false, [], false, false⟩ false = [.observer] := by
+  decide
+
+/-- A core-only target whose options are exactly the required ones and that loads Regula's
+elaboration observer through `plugins` without the same key in its `needs` fails with exactly that
+failure. -/
+theorem observer_unneeded_fails :
+    failures ⟨required false, [], true, false⟩ false = [.observerNeed] := by
   decide
 
 /-- A `-D` string value contradicts the requirement exactly when it is a value the requirement does
@@ -1328,7 +1363,7 @@ theorem accepted_families_pass :
       (`linter.extra.dupNamespace.consecutiveOnly, .bool true), (`linter.haveLet, .nat 2),
       (`warn.sorry, .bool true), (`warningAsError, .bool true), (`debugAssertions, .bool true),
       (`maxHeartbeats, .nat 0), (`exponentiation.threshold, .nat 512),
-      (`pp.unicode, .bool true)], [], true⟩ false = [] := by
+      (`pp.unicode, .bool true)], [], true, true⟩ false = [] := by
   decide
 
 /-! The cases below fix the extra `lean` arguments and hold for every `leanOptions`. Lean's
@@ -1339,7 +1374,7 @@ argument names an option or gives a number takes what `lean` reads as a hypothes
 theorem autoImplicit_argument_fails (options : List (Name × OptionValue)) (mathlib : Bool)
     (h : "autoImplicit".toName = `autoImplicit) :
     Failure.leanArgument `autoImplicit (.string "true") ∈
-      failures ⟨options, ["-DautoImplicit=true"], true⟩ mathlib := by
+      failures ⟨options, ["-DautoImplicit=true"], true, true⟩ mathlib := by
   rw [leanArgument_mem_failures_iff]
   refine ⟨"autoImplicit", "true", (mem_argumentTexts_iff ["-DautoImplicit=true"] _ _).1 (by decide),
     h.symm, rfl,
@@ -1352,7 +1387,7 @@ theorem unaccepted_argument_fails (options : List (Name × OptionValue)) (mathli
     (argument name value : String) (n : Name) (hd : Defines [argument] name value)
     (h : name.toName = n) (hu : unaccepted mathlib (optionOf n) (.string value) = true) :
     Failure.leanArgument n (.string value) ∈
-      failures ⟨options, [argument], true⟩ mathlib := by
+      failures ⟨options, [argument], true, true⟩ mathlib := by
   rw [leanArgument_mem_failures_iff]
   exact ⟨name, value, hd, h.symm, rfl, .inr ((unaccepted_iff _ _ _).1 hu)⟩
 
@@ -1361,7 +1396,7 @@ accepted set, so the target fails. -/
 theorem linter_argument_fails (options : List (Name × OptionValue)) (mathlib : Bool)
     (h : "weak.linter.unusedVariables".toName = `weak.linter.unusedVariables) :
     Failure.leanArgument `weak.linter.unusedVariables (.string "false") ∈
-      failures ⟨options, ["-qD", "weak.linter.unusedVariables=false"], true⟩ mathlib := by
+      failures ⟨options, ["-qD", "weak.linter.unusedVariables=false"], true, true⟩ mathlib := by
   rw [leanArgument_mem_failures_iff]
   exact ⟨"weak.linter.unusedVariables", "false",
     (mem_argumentTexts_iff ["-qD", "weak.linter.unusedVariables=false"] _ _).1 (by decide),
@@ -1372,7 +1407,7 @@ target fails. -/
 theorem warn_argument_fails (options : List (Name × OptionValue)) (mathlib : Bool)
     (h : "warn.sorry".toName = `warn.sorry) :
     Failure.leanArgument `warn.sorry (.string "false") ∈
-      failures ⟨options, ["-Dwarn.sorry=false"], true⟩ mathlib :=
+      failures ⟨options, ["-Dwarn.sorry=false"], true, true⟩ mathlib :=
   unaccepted_argument_fails options mathlib _ "warn.sorry" "false" _
     ((mem_argumentTexts_iff ["-Dwarn.sorry=false"] _ _).1 (by decide)) h
     (by cases mathlib <;> decide)
@@ -1382,7 +1417,7 @@ ignores the setting: a `weak.` entry is classified by its name alone. -/
 theorem undeclared_weak_argument_fails (options : List (Name × OptionValue)) (mathlib : Bool)
     (h : "weak.warn.example".toName = `weak.warn.example) :
     Failure.leanArgument `weak.warn.example (.string "false") ∈
-      failures ⟨options, ["-Dweak.warn.example=false"], true⟩ mathlib :=
+      failures ⟨options, ["-Dweak.warn.example=false"], true, true⟩ mathlib :=
   unaccepted_argument_fails options mathlib _ "weak.warn.example" "false" _
     ((mem_argumentTexts_iff ["-Dweak.warn.example=false"] _ _).1 (by decide)) h
     (by cases mathlib <;> decide)
@@ -1393,7 +1428,7 @@ theorem maxHeartbeats_argument_passes (options : List (Name × OptionValue)) (ma
     (h : "maxHeartbeats".toName = `maxHeartbeats) (hn : "400000".toNat? = some 400000)
     (n : Name) (v : OptionValue) :
     Failure.leanArgument n v ∉
-      failures ⟨options, ["-DmaxHeartbeats=400000"], true⟩ mathlib := by
+      failures ⟨options, ["-DmaxHeartbeats=400000"], true, true⟩ mathlib := by
   rw [leanArgument_mem_failures_iff]
   rintro ⟨name, value, hd, rfl, rfl, hc⟩
   have ht : argumentTexts ["-DmaxHeartbeats=400000"] = [("maxHeartbeats", "400000")] := by
@@ -1412,7 +1447,7 @@ theorem excluded_linter_argument_passes (options : List (Name × OptionValue))
     (h : "weak.linter.hashCommand".toName = `weak.linter.hashCommand) (n : Name)
     (v : OptionValue) :
     Failure.leanArgument n v ∉
-      failures ⟨options, ["-Dweak.linter.hashCommand=false"], true⟩ true := by
+      failures ⟨options, ["-Dweak.linter.hashCommand=false"], true, true⟩ true := by
   rw [leanArgument_mem_failures_iff]
   rintro ⟨name, value, hd, rfl, rfl, hc⟩
   have ht : argumentTexts ["-Dweak.linter.hashCommand=false"] =
@@ -1429,7 +1464,7 @@ theorem excluded_linter_argument_passes (options : List (Name × OptionValue))
 theorem plugin_argument_passes (options : List (Name × OptionValue)) (mathlib : Bool) (n : Name)
     (v : OptionValue) :
     Failure.leanArgument n v ∉
-      failures ⟨options, ["--plugin=libDemo.dylib", "--tstack=100000"], true⟩ mathlib := by
+      failures ⟨options, ["--plugin=libDemo.dylib", "--tstack=100000"], true, true⟩ mathlib := by
   rw [leanArgument_mem_failures_iff]
   rintro ⟨name, value, hd, -⟩
   have ht : argumentTexts ["--plugin=libDemo.dylib", "--tstack=100000"] = [] := by decide
@@ -1498,7 +1533,7 @@ theorem licensed_header_passes :
       (`linter.style.header, .bool true),
       (`linter.style.header.license,
         .string "Released under the MIT license as described in the repository LICENSE."),
-      (`linter.hashCommand, .bool false), (`linter.style.longFile, .nat 0)], [], true⟩ true =
+      (`linter.hashCommand, .bool false), (`linter.style.longFile, .nat 0)], [], true, true⟩ true =
       [] := by
   decide
 
@@ -1508,7 +1543,7 @@ theorem unlicensed_header_fails :
     failures ⟨[(`autoImplicit, .bool false), (`relaxedAutoImplicit, .bool false),
       (`linter.missingDocs, .bool true), (`linter.mathlibStandardSet, .bool true),
       (`linter.style.header, .bool true),
-      (`linter.hashCommand, .bool false), (`linter.style.longFile, .nat 0)], [], true⟩ true =
+      (`linter.hashCommand, .bool false), (`linter.style.longFile, .nat 0)], [], true, true⟩ true =
       [.option `linter.style.header (.bool false) [.bool true]] := by
   decide
 
@@ -1520,8 +1555,8 @@ Lean's `set_option` elaborator, with the value and form of its `set_option` synt
 the one permission that standard §6.2 gives: a community linter turned off for one declaration by
 `set_option linter.NAME false in` before a declaration command (`declarationKind`). Lean's default
 warnings, the `linter.` and `warn.` options Lean registers (`leanWarningSettings`) whose registered
-default is not `false`, are never community linters, and neither are `linter.all` and
-`linter.mathlibStandardSet`, which switch many linters at once. The decision reads the setting
+default is not `false`, are never community linters, and neither are the options that switch
+many linters at once (`linterSwitches`). The decision reads the setting
 alone, never who wrote it. A setting that the pinned Lean's own generated code writes as
 `set_option` syntax (`generatedSettings`), such as `match.ignoreUnusedAlts true` in `deriving BEq`,
 passes wherever it occurs, so a project may write it too. Of those, `match.ignoreUnusedAlts true`
@@ -1576,8 +1611,14 @@ def declarationKind : Name := `Lean.Parser.Command.declaration
 
 /-- The linter options that switch many linters at once: `linter.all` sets the default of every
 linter Lean reads through `Lean.Linter.getLinterValue` (`Lean/Linter/Init.lean:130`), Lean's
-default warnings among them, and `linter.mathlibStandardSet` turns Mathlib's standard set on. -/
-def linterSwitches : List Name := [`linter.all, `linter.mathlibStandardSet]
+default warnings among them; `linter.extra` turns on Lean's extra linters, each of which returns
+early unless it is `true`, and `linter.coreInternal` the core-internal ones (`Lean/Linter/Init.lean`
+lines 101, 106 and 112 register the three); and Mathlib's linter sets `linter.mathlibStandardSet`,
+`linter.nightlyRegressionSet` and `linter.weeklyLintSet` (`Mathlib/Init.lean` lines 85, 119 and 127
+at the pinned revision) turn the linters of each set on. -/
+def linterSwitches : List Name :=
+  [`linter.all, `linter.extra, `linter.coreInternal, `linter.mathlibStandardSet,
+    `linter.nightlyRegressionSet, `linter.weeklyLintSet]
 
 /-- A default warning of Lean: a `linter.` or `warn.` option that Lean registers
 (`leanWarningSettings`), unless its registered default is known to be `false`. -/

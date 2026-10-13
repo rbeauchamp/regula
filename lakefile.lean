@@ -68,8 +68,10 @@ package «regula» where
 -- same key in `needs`: Lake v4.34.1 can build a `plugins` key several times at once in a fresh
 -- build (`Lake/Build/Target/Fetch.lean` lines 54 to 66), and it builds a target's `needs` before
 -- its modules fetch their plugins (`Lake/Build/Module.lean` lines 546 to 557, lean4#13598), so the
--- observer is built once. An adopter's claimed targets load the observer the same way, as
--- `@regula/RegulaObserver:shared` in both settings; RG2006 requires the `plugins` entry.
+-- observer is built once, and mixes the trace of the `needs` into each module's trace whatever the
+-- target's `platformIndependent`, so a replayed module was elaborated with the observer the build
+-- has. An adopter's claimed targets load the observer the same way, as
+-- `@regula/RegulaObserver:shared` in both settings; RG2006 requires both entries.
 @[default_target]
 lean_lib «AuditApp» where
   plugins := #[`@/RegulaObserver:shared]
