@@ -479,6 +479,19 @@ def CopyFilter.firstOmission (filter : CopyFilter) (path : List String) :
   (List.range' filter.source.length (path.length + 1 - filter.source.length)).findSome?
     fun length => (filter.omission (path.take length)).map (path.take length, ·)
 
+/-- The entries that a relative path names below the directory it is joined to: its components
+without `.`, when there is one and each names one entry (`Relative`). An absolute path, an empty
+component and `..` give `none`. -/
+def packageEntries (path : List String) : Option (List String) :=
+  let entries := path.filter (· != ".")
+  if !entries.isEmpty && decide (Relative entries) then some entries else none
+
+/-- The first of `reads` whose path has no regular-file instruction in `items`, so that a tree
+constructed from `items` holds no regular file there (`firstUnwritten_eq_none`). -/
+def firstUnwritten {α : Type} (items : List Item) (reads : List (α × List String)) :
+    Option (α × List String) :=
+  reads.find? fun read => !covers [read.2] items
+
 /-- Observe Git's repository-local environment names, then remove them for a child in another
 repository. System/global configuration is disabled and namespaces are also removed. The query
 itself removes command-configuration injection and performs no repository setup or repository

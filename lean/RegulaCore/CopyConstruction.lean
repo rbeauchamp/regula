@@ -98,7 +98,7 @@ theorem CopyFilter.omission_other (filter : CopyFilter) (path : List String)
   | none => simp [packageSource_other filter.source filter.dependencies path other]
 
 /-- A pass leaves out no entry on the way from its root to `path`, `path` included, exactly when
-`firstOmission` finds none. A copy refuses each file of its domain for which it finds one. -/
+`firstOmission` finds none. A copy's refusal names the entry and omission that it finds. -/
 theorem CopyFilter.firstOmission_eq_none (filter : CopyFilter) (path : List String) :
     filter.firstOmission path = none ↔ ∀ length, filter.source.length ≤ length →
       length ≤ path.length → filter.omission (path.take length) = none := by
@@ -106,6 +106,36 @@ theorem CopyFilter.firstOmission_eq_none (filter : CopyFilter) (path : List Stri
     Option.map_eq_none_iff]
   exact ⟨fun selected length lower upper => selected length ⟨lower, by omega⟩,
     fun selected length bounds => selected length bounds.1 (by omega)⟩
+
+/-- `packageEntries` gives the components of `path` other than `.`, exactly when there is one and
+each of them names one entry. -/
+theorem packageEntries_eq_some (path entries : List String) :
+    packageEntries path = some entries ↔
+      entries = path.filter (· != ".") ∧ entries ≠ [] ∧ Relative entries := by
+  unfold packageEntries
+  by_cases admitted : (path.filter (· != ".")).isEmpty = false ∧ Relative (path.filter (· != "."))
+  · have : (!(path.filter (· != ".")).isEmpty && decide (Relative (path.filter (· != ".")))) =
+        true := by simp [admitted.1, admitted.2]
+    simp only [this, ↓reduceIte, Option.some.injEq]
+    exact ⟨fun h => ⟨h.symm, by subst h; simpa using admitted.1, h ▸ admitted.2⟩,
+      fun h => h.1.symm⟩
+  · have : (!(path.filter (· != ".")).isEmpty && decide (Relative (path.filter (· != ".")))) =
+        false := by
+      simp only [Bool.and_eq_false_iff, Bool.not_eq_false', decide_eq_false_iff_not]
+      by_cases empty : (path.filter (· != ".")).isEmpty = true
+      · exact Or.inl empty
+      · exact Or.inr fun relative => admitted ⟨by simpa using empty, relative⟩
+    simp only [this, Bool.false_eq_true, ↓reduceIte, reduceCtorEq, false_iff]
+    rintro ⟨rfl, nonempty, relative⟩
+    exact admitted ⟨by simpa using nonempty, relative⟩
+
+/-- `firstUnwritten` finds no read exactly when each read's path has a regular-file instruction
+among `items` (`Covers`). A copy refuses the read it finds, before it writes anything. -/
+theorem firstUnwritten_eq_none {α : Type} (items : List Item) (reads : List (α × List String)) :
+    firstUnwritten items reads = none ↔ Covers (reads.map (·.2)) items := by
+  simp only [firstUnwritten, List.find?_eq_none, Bool.not_eq_true', Bool.not_eq_false, covers,
+    decide_eq_true_eq, Covers, List.mem_map, List.mem_singleton, forall_eq,
+    forall_exists_index, and_imp, forall_apply_eq_imp_iff₂]
 
 /-- File filtering retains every directory and exactly the selected regular files, without
 altering any instruction's path or payload. The statement covers every name and entry kind. -/

@@ -1,5 +1,6 @@
 # The configuration of the package `cdep` of the `cache-config` project of the
-# `qualify copy-relocation` control, which the control places in `cdep/.cache`.
+# `qualify copy-relocation` control. The control places it in `cdep/.cache`, and then in `cdep`
+# with a link to it at `cdep/.cache/package.toml`.
 name = "cdep"
 
 [[lean_lib]]

@@ -662,11 +662,15 @@ Assumes: Lake `v4.34.1` tests cleanliness with `git diff --exit-code HEAD` (`Uti
 
 Package-directory pruning leaves out exactly the directory of each dependency package that Lake's loaded workspace records in the packages directory, at its stored spelling. `Construction.CopyFilter.omission_pruned` proves that a capture pass prunes no other entry, and `Construction.CopyFilter.omission_other` that the same exclusions decide every other entry there. `Construction.packageSource_owned` proves that a capture root, such as an owned package's in that directory, survives its own pass.
 
-The copy keeps the exclusions of names such as `.lake` and `.cache`, and checks one domain against them instead. That domain is every file that Lake's load reads for the root package and each owned dependency. These files are the source of each module that Lake can build, the loaded configuration file and an owned dependency's recorded manifest when present. Before it writes anything, the copy refuses the first such file that its capture pass leaves out, and names the file and the exclusion. `Construction.CopyFilter.firstOmission_eq_none` proves that a file passes exactly when the pass selects it and each directory on the way to it.
+The copy keeps the exclusions of names such as `.lake` and `.cache`, and checks one domain against the files it writes instead. That domain is every file that Lake's load reads for the root package and each owned dependency. These files are the source of each module that Lake can build, the loaded configuration file and an owned dependency's recorded manifest when present. Lake's load of the copy reads each at the path it joins to the package's directory, such as the recorded `relConfigFile`. Before it writes anything, the copy refuses the first such path that is not among the files it would write. It names the file and what left it out, such as an excluded directory or a compiled-module file name.
+
+`Construction.firstUnwritten_eq_none` proves that the copy refuses none exactly when the files it would write cover each such path (`Construction.Covers`). The constructor's own guard requires the same paths, so `Construction.constructSelected_io` states that a successful construction holds a regular file at each. `Construction.packageEntries_eq_some` states the path: the recorded components without `.`.
 
 Assumes: Lake `v4.34.1`, `Load/Resolve.lean:590-627`, applies overrides during ordinary materialization. `Load/Resolve.lean:201-235` traverses dependencies transitively. Path entries do not clone packages (`Load/Materialize.lean:239-277`).
 
-Assumes: Lake `v4.34.1` materializes a Git entry at its directory name in the packages directory (`Load/Materialize.lean:246`). It loads a package's configuration file and the manifest that its entry records at their recorded paths (`Load/Package.lean:96-105`, `Load/Materialize.lean:272-277`).
+Assumes: Lake `v4.34.1` materializes a Git entry at its directory name in the packages directory (`Load/Materialize.lean:246`). It loads a package's configuration file and the manifest that its entry records at their recorded paths, joined to the package's directory (`Load/Package.lean:96-117`, `Load/Materialize.lean:272-277`).
+
+Assumes: POSIX path resolution, under which a `.` component names the directory before it. The copy holds no link, since the constructor creates none.
 
 Assumes: Lake `v4.34.1` can build each module that `LeanLibConfig.isBuildableModule` admits (`Config/LeanLibConfig.lean:128-130`), which `Lake.packageModules` lists. It reads the module's source below its library's `srcDir` (`Config/Module.lean:83-90`, `Config/LeanLib.lean:34-35`). A build reaches only the modules that a glob selects and their imports (`Build/Library.lean:36-60`, `:67-72`), so the copy's domain can exceed what a build reads.
 
@@ -5112,7 +5116,9 @@ The `qualify` campaigns and what they observe:
     searches for no repository above the control's scratch directory.
   - A copy of a project whose library has its source directory below `.lake` refuses before it
     writes anything. The refusal names the module and the `.lake` directory. A copy of a project
-    whose owned dependency has its configuration below `.cache` refuses that file by name.
+    whose owned dependency has its configuration below `.cache` refuses that file by name. It
+    refuses it too when that configuration is a link to a file outside `.cache`. A copy whose owned
+    dependency records the manifest `pins.olean` refuses it by its compiled-module name.
   - The Git project's steps run in a process that inherits a `GIT_DIR` and an absolute
     `GIT_INDEX_FILE` outside the scratch directory. The control's Git commands and its workers run
     without them, and both stay untouched.

@@ -8,8 +8,8 @@ and without the checkout of each dependency in its packages directory, but with 
 there. It gives the copy an override for each dependency, to the directory and through the files
 that Lake's load of the project takes (`Lake.relocateDependencies`). Lake's load of the copy must
 then select what its load of the project selects (`Lake.checkCopiedWorkspace`). The copy refuses a
-file that Lake's load reads for a copied package when it leaves that file out. The control copies
-`examples/fixtures/copy-relocation`, with four projects:
+file that Lake's load reads for a copied package when the copy writes no file where Lake's load of
+the copy reads it. The control copies `examples/fixtures/copy-relocation`, with five projects:
 - `project` requires the package `dep` by path. Its manifest has two entries for `dep`: the first
   names the configuration file `a.toml`, and the last names `b.toml`.
 - `git-project` keeps its dependencies' checkouts in `vendor` and requires `gdep` by Git. The
@@ -19,6 +19,8 @@ file that Lake's load reads for a copied package when it leaves that file out. T
   packages directory, where the control places its module from `placed`.
 - `cache-config` requires the package `cdep` by path, in its own directory. The manifest entry for
   `cdep` names the configuration `.cache/package.toml`, which the control places from `placed`.
+- `olean-manifest` requires the package `odep` by path, in its own directory. The manifest entry for
+  `odep` names the manifest `pins.olean`, which the control places from `placed/pins.json`.
 
 The control's Git commands and its workers run without the Git repository variables that their
 process inherits (`Construction.gitEnvironment`).
@@ -217,7 +219,10 @@ private def snapshot (dir : FilePath) : IO (List (List String × Option (List UI
 - A copy of `lake-source`, whose module `Example` lies below `.lake`, refuses that module by name
   and by the excluded directory, and writes nothing.
 - A copy of `cache-config`, whose owned package `cdep` has its configuration below `.cache`,
-  refuses that configuration file by name and by the excluded directory, and writes nothing.
+  refuses that configuration file by name and by the excluded directory, and writes nothing. It
+  refuses it too when `.cache/package.toml` is a link to `cdep/package.toml`.
+- A copy of `olean-manifest`, whose owned package `odep` records the manifest `pins.olean`,
+  refuses that manifest by name and by its compiled-module name, and writes nothing.
 - The steps that run Git and Lake (`gitSteps`) run in a process that inherits a `GIT_DIR` of a
   repository and an absolute `GIT_INDEX_FILE`, both in a temporary directory outside the scratch
   directory. The steps must pass, and that directory must hold the same entries and bytes after
@@ -276,6 +281,33 @@ def check : IO Unit := do
             message.contains "as a directory named .cache"⟩,
       ⟨"the refused copy of cache-config writes nothing", !written⟩]
     IO.println "copy relocation configuration below an excluded directory refused: PASS"
+    -- Lake resolves the link to `cdep/package.toml` and keeps `.cache/package.toml` as the
+    -- recorded path, which Lake's load of the copy reads.
+    Regula.Filesystem.removePath .file (cacheConfig / "cdep" / ".cache" / "package.toml")
+    Regula.Filesystem.Construction.copyFile (source / "placed" / "package.toml")
+      (cacheConfig / "cdep" / "package.toml")
+    succeeded "link of the configuration of cdep" (← run (cacheConfig / "cdep" / ".cache") "ln"
+      #["-s", "../package.toml", "package.toml"])
+    let (refusal, written) ← refusedCopy cacheConfig copies "cache-link"
+    requireChecks [
+      ⟨s!"a copy refuses the configuration of cdep through a link below .cache by name: {refusal}",
+        refusal.any fun message =>
+          message.contains "the configuration file of package 'cdep'" &&
+            message.contains "as a directory named .cache"⟩,
+      ⟨"the refused copy of cache-config with a link writes nothing", !written⟩]
+    IO.println "copy relocation configuration linked below an excluded directory refused: PASS"
+    let oleanManifest := source / "olean-manifest"
+    Regula.Filesystem.Construction.copyFile (source / "placed" / "pins.json")
+      (oleanManifest / "odep" / "pins.olean")
+    succeeded "git init of olean-manifest" (← run oleanManifest "git" #["init", "-q"])
+    let (refusal, written) ← refusedCopy oleanManifest copies "olean-manifest"
+    requireChecks [
+      ⟨s!"a copy refuses the manifest pins.olean of odep by name: {refusal}",
+        refusal.any fun message =>
+          message.contains "the manifest of package 'odep'" &&
+            message.contains "a compiled-module file name"⟩,
+      ⟨"the refused copy of olean-manifest writes nothing", !written⟩]
+    IO.println "copy relocation manifest with a compiled-module name refused: PASS"
     Regula.Filesystem.withOwnTempDir fun outside => do
       succeeded "git init of the inherited repository"
         (← run outside "git" #["init", "-q", "inherited"])

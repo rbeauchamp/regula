@@ -682,13 +682,17 @@ captured regular files. The final instructions must contain every selected file 
 Package pruning leaves out exactly the directory of each dependency package that Lake's loaded
 workspace records in the packages directory, and keeps every other entry there
 (`Construction.CopyFilter.omission_pruned`, `Construction.CopyFilter.omission_other`). An owned
-package there keeps its own capture pass (`Construction.packageSource_owned`). Before anything is
-written, the copy refuses a file that Lake's load reads for the root package or an owned dependency
-when its capture pass leaves that file out, and names the file and the exclusion
-(`Construction.CopyFilter.firstOmission`). These files are the source of each module that Lake can
-build (`packageModules`), the loaded configuration file and an owned dependency's recorded manifest
-when present. Paths relative to their
-common ancestor are retained. The captured loaded manifest is installed at its loaded path, and
+package there keeps its own capture pass (`Construction.packageSource_owned`). The copy's domain is
+each file that Lake's load reads for the root package or an owned dependency: the source of each
+module that Lake can build (`packageModules`), the loaded configuration file and an owned
+dependency's recorded manifest when present. Lake's load of the copy reads each at the path that it
+joins to the package's directory there: the recorded `relConfigFile` or `relManifestFile`, or the
+module's source below the package's directory, each without `.` components
+(`Construction.packageEntries_eq_some`). After the copy's whole file selection is computed and
+before anything is written, the copy refuses the first of these paths that has no regular-file
+instruction, and names the file and what left it out (`Construction.firstUnwritten_eq_none`). The
+constructor's guard requires the same paths (`Construction.constructSelected_io`). Paths relative
+to their common ancestor are retained. The captured loaded manifest is installed at its loaded path, and
 every resolved dependency gets a typed path override: an owned package in the copy, a trusted
 package at its original root. There is no packages link. This copy is for ordinary loads only;
 a full update is outside this adapter's domain (`relocateDependencies`). That load of the project
@@ -699,15 +703,20 @@ destination writer. Lake's loaded workspace and manifest stay fixed while captur
 
 Assumes: Lake v4.34.1 materializes a Git entry at its name in the packages directory
 (`Lake/Load/Materialize.lean:246`). It loads a package's configuration file and the manifest that
-its entry records at their recorded paths (`Lake/Load/Package.lean:96-105`,
-`Lake/Load/Materialize.lean:272-277`). A library's module is one that Lake can build when
-`isBuildableModule` admits it (`Lake/Config/LeanLibConfig.lean:128-130`), which `buildableModules`
+its entry records at their recorded paths, joined to the package's directory
+(`Lake/Load/Package.lean:96-117`, `Lake/Load/Materialize.lean:272-277`), and the override that
+`relocateDependencies` writes records the loaded `relConfigFile` and `relManifestFile`. A library's
+module is one that Lake can build when `isBuildableModule` admits it (`Lake/Config/LeanLibConfig.lean:128-130`), which `buildableModules`
 enumerates. Lake builds only the modules that a glob selects and their imports
 (`Lake/Build/Library.lean:36-60`, `:67-72`), a subset of these. It reads a module's Lean source at
 `Lean.modToFilePath` of its library's `srcDir` (`Lake/Config/Module.lean:83-90`). That `srcDir` is
 the package's joined with the library's (`Lake/Config/LeanLib.lean:34-35`,
 `Lake/Config/Package.lean:352-353`), and an executable's root module has the executable's own
-(`Lake/Config/LeanExe.lean:45-51`). -/
+(`Lake/Config/LeanExe.lean:45-51`).
+
+Assumes: POSIX path resolution, under which a `.` component names the directory before it. The copy
+holds no link, since the constructor creates none, so a read below a package's directory in the copy
+reaches the instruction at its entries. -/
 def copyProject (repo target exclude : FilePath)
     (facets : FacetReport.Output := .silent) (policy : Option FilePath := none)
     (selectedFiles : List FilePath := []) : IO ProjectCopy :=
@@ -769,31 +778,40 @@ def copyProject (repo target exclude : FilePath)
     -- Lake's load of the copy reads, for the root package and each owned dependency, the source of
     -- each module that Lake can build (`packageModules`), the loaded configuration file and an
     -- owned dependency's recorded manifest when present. The root's manifest is installed from its
-    -- own capture. The pass of the innermost capture root that holds such a file must select it
-    -- and each directory on the way to it (`Construction.CopyFilter.firstOmission_eq_none`).
+    -- own capture. Each is read at the path that Lake joins to the package's directory in the copy:
+    -- its recorded `relConfigFile` or `relManifestFile`, or the module's source path below the
+    -- package's directory. A read is in the domain when the original has a file there.
     let ownedPackages := ws.packages.filter fun package => package.isRoot ||
       original.dependencies.any fun dependency =>
         dependency.owned && dependency.package == package.baseName.toString
+    let mut reads : List (String × List String) := []
     for package in ownedPackages do
+      let some dir := if package.isRoot then some root else
+          (original.dependencies.find? (·.package == package.baseName.toString)).map (·.root)
+        | throw <| IO.userError s!"copy refused: package '{package.baseName}' has no inventory"
       let (_, modules) ← packageModules package
-      let reads := modules.toList.map (fun (name, file) => (s!"the source of module {name}", file)) ++
-        [("the configuration file", package.configFile)] ++
-        (if package.isRoot then [] else [("the manifest", package.dir / package.relManifestFile)])
-      for (what, file) in reads do
-        let path? ← try
-            pure (some (← Regula.Filesystem.observeRealPath file).normalize.components)
+      let below := fun (file : FilePath) =>
+        let components := file.normalize.components
+        let start := package.dir.normalize.components
+        if start.isPrefixOf components then components.drop start.length else components
+      let packageReads := modules.toList.map (fun (name, file) =>
+          (s!"the source of module {name}", file, below file)) ++
+        [("the configuration file", package.configFile, package.relConfigFile.normalize.components)] ++
+        (if package.isRoot then [] else
+          [("the manifest", package.manifestFile, package.relManifestFile.normalize.components)])
+      for (what, file, access) in packageReads do
+        let present ← try
+            discard <| Regula.Filesystem.observeRealPath file
+            pure true
           catch
-            | .noFileOrDirectory .. => pure none
+            | .noFileOrDirectory .. => pure false
             | error => throw error
-        let some path := path? | continue
+        unless present do continue
         let refusal := s!"copy refused: {what} of package '{package.baseName}' at {file}"
-        let some top := (directories.filter (·.normalize.components.isPrefixOf path)).foldl
-            (fun best dir => if best.all (·.normalize.components.length <
-              dir.normalize.components.length) then some dir else best) (none : Option FilePath)
-          | throw <| IO.userError s!"{refusal} lies outside each directory that the copy captures"
-        if let some (entry, omission) := (filterOf top).firstOmission path then
-          throw <| IO.userError s!"{refusal} is in {"/".intercalate entry}, which a copy of the \
-            project leaves out as {omission.describe}"
+        let some entries := Regula.Filesystem.Construction.packageEntries access
+          | throw <| IO.userError s!"{refusal}: Lake's load of the copy reads it at \
+              {"/".intercalate access}, which names no entries below the package's directory"
+        reads := reads ++ [(refusal, relative dir ++ entries)]
     let mut instructions := []
     for top in directories do
       let filter := filterOf top
@@ -819,9 +837,27 @@ def copyProject (repo target exclude : FilePath)
         throw <| IO.userError "Lake package overrides file is outside its project"
       instructions := instructions ++ [⟨relative root ++ overrideRelative,
         .file text.toUTF8⟩]
+    -- The tree that the copy writes. Before anything is written, each read must have a
+    -- regular-file instruction at its path there (`Construction.firstUnwritten_eq_none`), which the
+    -- constructor's own guard requires too (`Construction.constructSelected_io`).
+    let items := Regula.Filesystem.Construction.layout instructions
+    if let some (refusal, path) := Regula.Filesystem.Construction.firstUnwritten items reads then
+      let source := base ++ path
+      let top := (directories.filter (·.normalize.components.isPrefixOf source)).foldl
+        (fun best dir => if best.all (·.normalize.components.length <
+          dir.normalize.components.length) then some dir else best) (none : Option FilePath)
+      let reason := match top.map fun top => (filterOf top).firstOmission source with
+        | none => "that path lies outside each directory that the copy captures"
+        | some (some (entry, omission)) => s!"{"/".intercalate entry} is an entry that a copy of \
+            the project leaves out as {omission.describe}"
+        | some none => if isModulePart (path.getLast?.getD "") then
+            "its name is a compiled-module file name, which a copy of the project leaves out"
+          else "the copy captures no regular file at that path"
+      throw <| IO.userError s!"{refusal}: Lake's load of the copy reads it at \
+        {"/".intercalate path} below the copy, where the copy writes no file, since {reason}"
     Regula.Filesystem.Construction.constructSelectedWith
-      Regula.Filesystem.Construction.observer target (stored.map (relative root ++ ·))
-      (Regula.Filesystem.Construction.layout instructions)
+      Regula.Filesystem.Construction.observer target
+      (stored.map (relative root ++ ·) ++ reads.map (·.2)) items
     let copiedRoot ← IO.FS.realPath target
     return {
       project
