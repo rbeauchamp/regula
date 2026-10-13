@@ -65,13 +65,26 @@ def transcriptsMatch (sources : Array ProducerReport.SourceBinding)
         source.path == transcript.source && source.content == transcript.sourceContent) do
       throw ⟨"producer-source: frontend differs from requested source snapshot"⟩
 
-/-- Configuration absence is also part of the snapshot. This is observation binding,
-not a new configuration resolution rule or an authentication of dependencies. -/
-def configuration (repo manifest : FilePath) : IO (Array (FilePath × Option String)) :=
+/-- The configuration files of the project at `repo` whose presence and text a snapshot binds:
+the selected policy manifest `manifest` first, then the root package's Lake configuration files,
+toolchain file, Lake manifest and Lake's package-override file. A request records `manifest`
+itself as its selection (`ResultProtocol.requestJson`), never a file name reconstructed from this
+list (`configurationPaths_policy`). -/
+def configurationPaths (repo manifest : FilePath) : Array FilePath :=
   #[manifest, repo / "lakefile.lean", repo / "lakefile.toml", repo / "lean-toolchain",
-    repo / "lake-manifest.json", repo / ".lake" / "package-overrides.json"].mapM fun path => do
-      let content ← if ← path.pathExists then some <$> IO.FS.readFile path else pure none
-      return (path, content)
+    repo / "lake-manifest.json", repo / ".lake" / "package-overrides.json"]
+
+/-- The selected policy manifest is the first configuration path. -/
+theorem configurationPaths_policy (repo manifest : FilePath) :
+    (configurationPaths repo manifest)[0]? = some manifest := rfl
+
+/-- Configuration absence is also part of the snapshot: each of `configurationPaths`, in order,
+with its text, `none` when it does not exist. This is observation binding, not a new
+configuration resolution rule or an authentication of dependencies. -/
+def configuration (repo manifest : FilePath) : IO (Array (FilePath × Option String)) :=
+  (configurationPaths repo manifest).mapM fun path => do
+    let content ← if ← path.pathExists then some <$> IO.FS.readFile path else pure none
+    return (path, content)
 
 /-- Refuse a change in any captured configuration file's presence or exact text. -/
 def checkConfiguration (snapshot : Array (FilePath × Option String)) : IO

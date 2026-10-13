@@ -261,7 +261,7 @@ checker behavior:
 | `environment-census` | This repository's claimed environments and their mutations (`qualify environments`). |
 | `snapshot-history` | Fresh, incremental and build-lint history refusal and restoration over the dependency snapshot (`qualify acceptance-snapshots history`). |
 | `acceptance-controls` | Fence-compilation packet mutations with positive restoration, and the `dependencies` and `git-status` snapshot groups. Also timeout-selection and spawn failures, and the preparation of a shared producer slot. The commands are `qualify acceptance fences`, `acceptance-snapshots dependencies` and `git-status`, `receipt-boundaries` and `prep-measure`. |
-| `documentation-controls` | The two documentation commands keep their pre-build dependency observations. An initial configuration IO failure goes through the project and file result protocols. The commands are `qualify documentation-dependencies` and `configuration-capture`. |
+| `documentation-controls` | The two documentation commands keep their pre-build dependency observations. An initial configuration IO failure goes through the project and file result protocols. A fresh audit with the policy manifest `policy.json` passes the project-surface comparison, which refuses an absent or an ambiguous selection. The commands are `qualify documentation-dependencies` and `configuration-capture`. |
 | `focused-controls` | The self-test's focused native-adopter, combined-snapshot and policy-transport controls (`checkerSelftest --native-adopter-only`, `--combined-snapshot-only`, `--policy-transport-only`). |
 | `policy-domain` | The self-test's focused policy-domain controls, the policy transport and the public paths (`checkerSelftest --policy-domain-only`). |
 

@@ -49,7 +49,11 @@ def sources (j : Json) : Except String (Array RegulaPolicy.SourceSnapshot) := do
     PolicyCodec.exactFields source ["uri", "source"]
     return ⟨← string source "uri", ← string source "source"⟩
 
-private def parseRequest (json : Json) : Except String ExampleRequest := do
+/-- Decode a request as the qualifier reads every request: by `fromJson?`, with a known `kind`, and
+conforming to its own re-encoding (`JsonAgreement.conforms`), so a request that lacks a member,
+such as `policy`, or has an extra one is refused. `parseRequest_sound` states what an admitted
+request decodes to. -/
+def parseRequest (json : Json) : Except String ExampleRequest := do
   let request : ExampleRequest ← fromJson? json
   unless ["file", "project", "documentation", "policyNegative"].contains request.kind do
     throw "unsupported example request kind"
@@ -136,13 +140,68 @@ def sourceAccount (result : Json) (bound : ExampleBinding) (displayed : String) 
 
 private abbrev configurationAccount := Lake.configurationAccount
 
+/-- The surfaces of a project scope agree, in order and in number, with the `surfaces` of the
+policy manifest `manifest`: each has the manifest surface's library and claim, and its execution,
+`report` when the manifest surface gives none. -/
+def surfaceAccount (scope manifest : Json) : Except String Unit := do
+  let surfaces ← (← field manifest "surfaces").getArr?
+  let actual ← (← field scope "surfaces").getArr?
+  unless actual.size == surfaces.size do
+      throw "effective surface coverage differs from request"
+  for (expected, actual) in surfaces.zip actual do
+    unless JsonAgreement.conforms (← field actual "library") (← field expected "library") &&
+        JsonAgreement.conforms (← field actual "claim") (← field expected "claim") &&
+        JsonAgreement.conforms (← field actual "execution")
+          ((field expected "execution").toOption.getD (.str "report")) do
+      throw "effective surface claim or execution differs from request"
+
+/-- A project scope names the requested project, and its surfaces agree (`surfaceAccount`) with
+the policy manifest the request selected (`ExampleRequest.selectedPolicy`), parsed. The manifest
+is found by the request's `policy` path alone, never by a file name. -/
+def projectAccount (scope : Json) (admitted : ExampleRequest) : Except String Unit := do
+  unless (← string scope "project") == admitted.subject do throw "wrong effective project"
+  let text ← admitted.selectedPolicy
+  surfaceAccount scope (← PolicyCodec.parse text)
+
+open RegulaPolicy.Guards in
+/-- `projectAccount` admits a scope exactly when it names the requested project and its surfaces
+agree with the parse of the policy manifest text the request selects (`SelectsPolicy`): the
+decision reads the request only through its subject and that selection. -/
+theorem projectAccount_eq_ok_iff (scope : Json) (admitted : ExampleRequest) :
+    projectAccount scope admitted = .ok () ↔
+      string scope "project" = .ok admitted.subject ∧
+        ∃ text manifest, admitted.SelectsPolicy text ∧ PolicyCodec.parse text = .ok manifest ∧
+          surfaceAccount scope manifest = .ok () := by
+  simp only [← ExampleRequest.selectedPolicy_eq_ok_iff]
+  unfold projectAccount
+  simp only [bind_eq_ok]
+  constructor
+  · rintro ⟨project, hproject, h⟩
+    split at h
+    next hsame =>
+      simp only [beq_iff_eq] at hsame
+      simp only [bind_eq_ok] at h
+      obtain ⟨text, htext, manifest, hmanifest, hsurfaces⟩ := h
+      exact ⟨hsame ▸ hproject, text, manifest, htext, hmanifest, hsurfaces⟩
+    next => simp only [throw_bind] at h; cases h
+  · rintro ⟨hproject, text, manifest, htext, hmanifest, hsurfaces⟩
+    refine ⟨_, hproject, ?_⟩
+    simp only [beq_self_eq_true, ite_true, bind_eq_ok]
+    exact ⟨text, htext, manifest, hmanifest, hsurfaces⟩
+
 /-- The complete observed configuration equals the expectation derived from the admitted
 request's exact captured bytes and frozen loaded selections. Constructed copies use
 `Lake.expectedConfiguration` and the same `relocateDependencies`/`generatedConfiguration` that
 the copier runs; other routes retain literal equality. Missing, extra or changed override entries
 refuse. `configurationOrigins` separately records captured source bytes and generated files and
-must equal that same derivation. Scope and effective observations must agree byte-exactly. -/
+must equal that same derivation. Scope and effective observations must agree byte-exactly. For a
+project request, the scope's surfaces agree with the policy manifest the request selected
+(`projectAccount`, `effectiveAccount_project`). A project request whose selection is missing,
+absent or ambiguous (`ExampleRequest.selectedPolicy`) is refused first, before any observation is
+compared. -/
 def effectiveAccount (result : Json) (admitted : ExampleRequest) : Except String Unit := do
+  if admitted.kind == "project" then
+    let _ ← admitted.selectedPolicy
   let requested ← configurationAccount admitted.project admitted.configuration
   let effectiveAccount ← field result "effective"
   let expected ← if effectiveAccount matches .null then pure requested else do
@@ -186,22 +245,33 @@ def effectiveAccount (result : Json) (admitted : ExampleRequest) : Except String
             JsonAgreement.conforms (← field scope "diagnosticOnly") (toJson true) do
           throw "wrong diagnostic-only effective request"
     | "documentation" => pure ()
-    | "project" =>
-        unless (← string scope "project") == admitted.subject do throw "wrong effective project"
-        let some (_, some text) := requested.find? (·.1 == "foundation_manifest.json")
-          | throw "missing requested manifest"
-        let manifest ← PolicyCodec.parse text
-        let surfaces ← (← field manifest "surfaces").getArr?
-        let actual ← (← field scope "surfaces").getArr?
-        unless actual.size == surfaces.size do
-            throw "effective surface coverage differs from request"
-        for (expected, actual) in surfaces.zip actual do
-          unless JsonAgreement.conforms (← field actual "library") (← field expected "library") &&
-              JsonAgreement.conforms (← field actual "claim") (← field expected "claim") &&
-              JsonAgreement.conforms (← field actual "execution")
-                ((field expected "execution").toOption.getD (.str "report")) do
-            throw "effective surface claim or execution differs from request"
+    | "project" => projectAccount scope admitted
     | _ => throw "unknown example request kind"
+
+open RegulaPolicy.Guards in
+/-- For a project request, `effectiveAccount` admits a result whose `scope` is an object only
+when `projectAccount` admits that scope: the surfaces it compares are those of the policy manifest
+the request selects (`projectAccount_eq_ok_iff`), found by its `policy` path. -/
+theorem effectiveAccount_project {result scope : Json} {admitted : ExampleRequest}
+    (h : effectiveAccount result admitted = .ok ()) (hkind : admitted.kind = "project")
+    (hscope : field result "scope" = .ok scope) (hobject : scope.getObj?.isOk = true) :
+    projectAccount scope admitted = .ok () := by
+  obtain ⟨fields, hfields⟩ : ∃ fields, scope.getObj? = .ok fields := by
+    cases hs : scope.getObj? with
+    | ok fields => exact ⟨fields, rfl⟩
+    | error _ => simp [hs, Except.isOk, Except.toBool] at hobject
+  have okBind : ∀ {α β : Type} (a : α) (f : α → Except String β), (Except.ok a >>= f) = f a :=
+    fun _ _ => rfl
+  unfold effectiveAccount at h
+  simp only [bind_eq_ok, hkind, hscope, okBind, hfields, beq_self_eq_true, ite_true] at h
+  obtain ⟨_, -, requested, -, account, -, h⟩ := h
+  split at h <;> split at h
+  · cases h
+  · contradiction
+  · contradiction
+  · simp only [bind_eq_ok, throw_bind, ite_throw_eq_ok] at h
+    obtain ⟨_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, hp⟩ := h
+    exact hp
 
 /-- The result's request, admitted as equal to the bound request, with its effective
 configuration and scope checked by `effectiveAccount`. -/
@@ -407,15 +477,16 @@ theorem binding_sound {record : Json} {mode : EvidenceMode} {bound : ExampleBind
 
 theorem requestAccount_sound {result : Json} {bound : ExampleBinding} {req : ExampleRequest}
     (h : requestAccount result bound = .ok req) :
-    req = bound.request ∧ ∃ requestJson, field result "request" = .ok requestJson ∧
-      (fromJson? requestJson : Except String ExampleRequest) = .ok req := by
+    req = bound.request ∧ (∃ requestJson, field result "request" = .ok requestJson ∧
+      (fromJson? requestJson : Except String ExampleRequest) = .ok req) ∧
+    effectiveAccount result req = .ok () := by
   unfold requestAccount at h
   simp only [bind_eq_ok] at h
-  obtain ⟨rj, hrj, observed, hobs, admitted, hadm, ⟨⟩, _, h⟩ := h
+  obtain ⟨rj, hrj, observed, hobs, admitted, hadm, ⟨⟩, heffective, h⟩ := h
   simp only [pure_eq_ok] at h
   subst h
   have hsound := admitted.property
-  refine ⟨hsound.2, rj, hrj, ?_⟩
+  refine ⟨hsound.2, ⟨rj, hrj, ?_⟩, heffective⟩
   rw [hsound.1]
   exact parseRequest_sound hobs
 
@@ -518,14 +589,17 @@ def RecordAdmissible (record : Json) : Prop :=
     (kind = "positive" ∨ kind = "policyRejection" ∨ kind = "diagnosticDemonstration") ∧
     (kind = "diagnosticDemonstration" → ∃ rule,
       (field record "rule" >>= RegistryCodec.parseRule) = .ok rule ∧
-      DemonstrationOK ⟨bound, rule, actual⟩ ⟨bound, .completed, .checked actual false⟩)
+      DemonstrationOK ⟨bound, rule, actual⟩ ⟨bound, .completed, .checked actual false⟩) ∧
+    (bound.request.kind = "project" → ∀ scope, field result "scope" = .ok scope →
+      scope.getObj?.isOk = true → ∃ text manifest, bound.request.SelectsPolicy text ∧
+        PolicyCodec.parse text = .ok manifest ∧ surfaceAccount scope manifest = .ok ())
 
 theorem qualify_sound (record : Json) (h : qualify record = .ok ()) : RecordAdmissible record := by
   obtain ⟨result, mode, bound, req, code, actual, status, kind, displayed, hr, hadm, hid, hmode,
       hrm, hb, hreq,
     _, hcode, hle, hfind, _, hk, hsrc, hsa, hq⟩ := qualify_parts record h
   obtain ⟨before, after, hbefore, hafter, hregular, hstable, _, rj, hrj, hbreq⟩ := binding_sound hb
-  obtain ⟨rfl, oj, hoj, horeq⟩ := requestAccount_sound hreq
+  obtain ⟨rfl, ⟨oj, hoj, horeq⟩, heffective⟩ := requestAccount_sound hreq
   obtain ⟨hsources, hpresent⟩ := sourceAccount_sound hsa
   obtain ⟨hkind, hdemo⟩ := qualifyKind_sound hq
   refine ⟨result, mode, bound, code, displayed, kind, actual, hr,
@@ -533,8 +607,10 @@ theorem qualify_sound (record : Json) (h : qualify record = .ok ()) : RecordAdmi
                                                                                (hid e he),
     hmode, hrm, ⟨before, after, hbefore, hafter, hregular, hstable⟩, hb, ⟨rj, hrj, hbreq⟩,
     ⟨oj, hoj, horeq⟩,
-    hcode, hle, hsrc, hsources, hpresent, checkFindings_sound hfind, hk, hkind, ?_⟩
-  simpa using hdemo
+    hcode, hle, hsrc, hsources, hpresent, checkFindings_sound hfind, hk, hkind, by simpa using hdemo,
+    fun hproject scope hscope hobject =>
+      ((projectAccount_eq_ok_iff scope _).mp
+        (effectiveAccount_project heffective hproject hscope hobject)).2⟩
 
 /-- Full-corpus coverage derives from the sole closed registry; every selected rule has
 one fixed and one intended diagnostic record, each produced in its own fresh workspace
@@ -568,12 +644,16 @@ def qualifyCorpus (json : Json) : Except String Unit := do
 
 end Regula.Checker.RuleExampleQualification
 
--- Exact dependency ceiling for the record-admission guarantee: Standard-Logical.
+-- Exact dependency ceiling for the record-admission and selected-policy guarantees:
+-- Standard-Logical.
 run_cmd do
-  let names := #[``Regula.Checker.RuleExampleQualification.qualify_sound]
+  let names := #[``Regula.Checker.RuleExampleQualification.qualify_sound,
+      ``Regula.Checker.RuleExampleQualification.projectAccount_eq_ok_iff,
+      ``Regula.Checker.RuleExampleQualification.effectiveAccount_project,
+      ``Regula.Website.ExampleRequest.selectedPolicy_eq_ok_iff]
   let some table := RegulaPolicy.KernelAxioms.reachedAxiomTable (← Lean.getEnv) names
     | throwError "the axiom search ran out of fuel"
   for name in names do
     let some axioms := table[name]? | throwError "the axiom search did not reach {name}"
     unless axioms.all RegulaPolicy.standardLogicalAxiom do
-      throwError "record-admission theorem {name} exceeds Standard-Logical: {axioms}"
+      throwError "qualification theorem {name} exceeds Standard-Logical: {axioms}"
