@@ -1,165 +1,149 @@
 import VersoManual
+import RegulaRender.Options
 import Regula.Filesystem
 
 /-! # The destinations of a render through Verso's `manualMain` (issue 424)
 
 `regula-site` and `regula-standard` render through Verso's `manualMain`, which writes the places
-that its options name: the pages below the output directory (`--output DIR`), the saved state of a
-delayed render (`--delay-html-multi FILE`, `--delay-html-single FILE`) and the word count
-(`--with-word-count FILE`). A run that stops before Verso writes them leaves an earlier run's files
-in place, and a later reader accepts them: `--resume-html-multi FILE` renders from an earlier saved
-state.
+that its options name: the directories of pages below the output directory (`--output DIR`), the
+saved state of a delayed render (`--delay-html-multi FILE`, `--delay-html-single FILE`) and the word
+count (`--with-word-count FILE`). A run that stops before Verso writes them leaves an earlier run's
+files in place, and a later reader accepts them: `--resume-html-multi FILE` renders from an earlier
+saved state.
 
-`begin` reads the options (`parse`) and invalidates each destination of that reading
-(`destinations`) through Regula's filesystem observer (`Regula.Filesystem`). A run calls it before
-anything that can fail and renders with the configuration that it returns, and the refusal of a
-process without Lean's task manager (`refuse`) calls it in the run's place. So both take their
-destinations from one reading and leave the same state: no saved state, no word count, and no pages
-that the run writes.
-
-Verso's own parser, `manualMain.opts`, is private to the module `VersoManual` at the revision that
-`website/lake-manifest.json` pins (`cad4b633`): it is an auxiliary definition of `manualMain`
-(`src/verso-manual/VersoManual.lean:994-1036`), and the module system makes it private, so code
-outside that module cannot call it. `parse` is a copy of it, and the build of this module checks
-the copy against Verso's parser on every short argument list (`checkParser`). -/
+`begin` reads the options with Verso's own parser (`versoOptions`) and invalidates the destinations
+of that reading (`Plan`) through Regula's filesystem observer (`Regula.Filesystem`). A run calls it
+before anything that can fail and renders with the configuration that it returns, and the refusal
+of a process without Lean's task manager (`refuse`) calls it in the run's place. So both take their
+destinations from one parser and leave the same state: no saved state, no word count, and no
+directory of pages, except the cross-reference table that a resumed render reads. -/
 
 namespace RegulaRender
 
 open System Verso.Genre.Manual
 
-/-- The error of Verso's parser for an option `option` that needs a file name and has none. -/
-private def missingFile (option : String) : IO.Error :=
-  IO.userError s!"Missing filename for {option}"
+/-- The directories below the output directory where Verso writes TeX and pages.
 
-/-- The error of Verso's parser for an option `option` whose file name `file` starts with `-`. -/
-private def optionAsFile (option file : String) : IO.Error :=
-  IO.userError s!"Expected filename after {option}, got option {file}"
+Assumes: Verso `cad4b633`, `src/verso-manual/VersoManual.lean`: TeX is written in `tex` (426) and
+the pages in `html-single` (748) and `html-multi` (840), and `emitHtml` names the same two
+directories of pages (1062-1064). -/
+def formatDirectories : List String := ["tex", "html-single", "html-multi"]
 
-/-- The configuration that the command-line options `args` give from `config`: a copy of Verso's
-private parser `manualMain.opts`, clause for clause, which the build checks against it
-(`checkParser`). An option that needs a file name refuses a missing one and one that starts with
-`-`, and any other argument it does not know is refused.
+/-- The name of the cross-reference table in a directory of pages, which a resumed render reads.
 
-Assumes: Verso `cad4b633`, `src/verso-manual/VersoManual.lean:994-1036` (`manualMain.opts`) and
-`src/verso/Verso/CLI.lean:39-46` (`requireFilename`). -/
-def parse (config : RenderConfig) : List String → IO RenderConfig
-  | "--output" :: dir :: more => parse { config with destination := dir } more
-  | "--depth" :: n :: more => parse { config with htmlDepth := n.toNat! } more
-  | "--with-tex" :: more => parse { config with emitTeX := true } more
-  | "--without-tex" :: more => parse { config with emitTeX := false } more
-  | "--with-html-single" :: more => parse { config with emitHtmlSingle := .immediately } more
-  | "--delay-html-single" :: [] => throw (missingFile "--delay-html-single")
-  | "--delay-html-single" :: f :: more =>
-    if f.startsWith "-" then throw (optionAsFile "--delay-html-single" f)
-    else parse { config with emitHtmlSingle := .delay f } more
-  | "--resume-html-single" :: [] => throw (missingFile "--resume-html-single")
-  | "--resume-html-single" :: f :: more =>
-    if f.startsWith "-" then throw (optionAsFile "--resume-html-single" f)
-    else parse { config with emitHtmlSingle := .resumeFrom f } more
-  | "--without-html-single" :: more => parse { config with emitHtmlSingle := .no } more
-  | "--with-html-multi" :: more => parse { config with emitHtmlMulti := .immediately } more
-  | "--delay-html-multi" :: [] => throw (missingFile "--delay-html-multi")
-  | "--delay-html-multi" :: f :: more =>
-    if f.startsWith "-" then throw (optionAsFile "--delay-html-multi" f)
-    else parse { config with emitHtmlMulti := .delay f } more
-  | "--resume-html-multi" :: [] => throw (missingFile "--resume-html-multi")
-  | "--resume-html-multi" :: f :: more =>
-    if f.startsWith "-" then throw (optionAsFile "--resume-html-multi" f)
-    else parse { config with emitHtmlMulti := .resumeFrom f } more
-  | "--without-html-multi" :: more => parse { config with emitHtmlMulti := .no } more
-  | "--with-word-count" :: [] => throw (missingFile "--with-word-count")
-  | "--with-word-count" :: file :: more =>
-    if file.startsWith "-" then throw (optionAsFile "--with-word-count" file)
-    else parse { config with wordCount := some file } more
-  | "--without-word-count" :: more => parse { config with wordCount := none } more
-  | "--draft" :: more => parse { config with draft := true } more
-  | "--twoside" :: more => parse { config with twoside := true } more
-  | "--verbose" :: more => parse { config with verbose := true } more
-  | "--remote-config" :: [] => throw (missingFile "--remote-config")
-  | "--remote-config" :: file :: more =>
-    if file.startsWith "-" then throw (optionAsFile "--remote-config" file)
-    else parse { config with remoteConfigFile := some file } more
-  | other :: _ => throw (IO.userError s!"Unknown option {other}")
-  | [] => pure config
+Assumes: Verso `cad4b633`, `src/verso-manual/VersoManual.lean`: a render that is not resumed writes
+`xref.json` into the directory of its pages before it writes them (1071, 1077, through
+`emitXrefsJson`, 568-572), and the pages of every render read it there (795, 880), so a resumed
+render reads the table that the delayed render left. -/
+def crossReferences : String := "xref.json"
 
-/-- A place that a render writes. -/
-inductive Destination where
-  /-- A file that the render writes whole: the saved state of a delayed render or the word
+/-- What a render with a configuration writes and reads, besides the directories of pages. -/
+structure Plan where
+  /-- The output directory. -/
+  root : FilePath
+  /-- The files that the render writes whole: the saved states of delayed renders and the word
   count. -/
-  | file (path : FilePath)
-  /-- A directory of pages below the output directory, with the paths that the render reads from
-  it: the cross-reference table and the saved state of a delayed render that it resumes. -/
-  | pages (path : FilePath) (reads : List FilePath)
+  files : List FilePath
+  /-- The saved states that resumed renders read. -/
+  inputs : List FilePath
+  /-- The directories of pages, among `formatDirectories`, that resumed renders write and whose
+  cross-reference table they read. -/
+  resumed : List String
 
-/-- The places that a render with `config` writes, as Verso's `manualMain` writes them at the
-revision that `website/lake-manifest.json` pins (`cad4b633`). Each mode of pages that is not `.no`
-writes its own directory below `destination`; a delayed render also writes its saved state, and a
-resumed one reads that state and the cross-reference table in its directory. With TeX, the render
-writes the directory `tex`, and with a word count, that file.
+/-- What a render with `config` writes and reads, as Verso's `manualMain` does at the revision that
+`website/lake-manifest.json` pins (`cad4b633`). A delayed mode of pages writes its saved state, a
+resumed one reads its saved state and the cross-reference table of its directory, and a word count
+is written to its file.
 
 The match on `OutputConfig` names each of its fields, and the match on `EmitHtml` each of its
 constructors, so a revision of Verso that adds one fails the build of this module.
 
-Assumes: Verso `cad4b633`, `src/verso-manual/VersoManual.lean`, at these lines.
-- The pages of a mode are written below `destination` in `tex` (426), `html-single` (748) and
-  `html-multi` (840), and `emitHtml` names the same two directories of pages (1062-1064).
-- `.immediately` and `.delay` write the cross-reference table `xref.json` into that directory first
-  (1071, 1077, through `emitXrefsJson`, 568-572); `.delay f` then writes its saved state to `f`
-  (1078, through `SavedState.save`, 954-955).
-- `.resumeFrom f` reads its saved state from `f` (1080, through `SavedState.load`, 957-958), and its
-  pages read `xref.json` from their directory (795, 880) before they write it again.
-- The word count is written to its file (1053-1056, through `wordCount`, 728).
-- Every other file of a render is written below one of these directories: the extra files (874,
-  876), the search index and the assets of the pages. The cache of remote cross-references
-  (`src/multi-verso/MultiVerso.lean:580-597`) is written only when `--remote-config` or a
-  `verso-sources.json` names one; it holds the data of other sites, which its own manifest dates,
-  not a result of the render. -/
-def destinations (config : RenderConfig) : List Destination :=
+Assumes: Verso `cad4b633`, `src/verso-manual/VersoManual.lean`: `.delay f` writes its saved state to
+`f` (1078, through `SavedState.save`, 954-955), `.resumeFrom f` reads it from `f` (1080, through
+`SavedState.load`, 957-958), and the word count is written to its file (1053-1056, through
+`wordCount`, 728). -/
+def plan (config : RenderConfig) : Plan :=
   match config.toOutputConfig with
-  | ⟨root, tex, single, multi, wordCount, _draft, _verbose⟩ =>
-    let pages (how : EmitHtml) (dir : String) : List Destination :=
+  | ⟨root, _tex, single, multi, wordCount, _draft, _verbose⟩ =>
+    let mode (how : EmitHtml) (dir : String) : List FilePath × List FilePath × List String :=
       match how with
-      | .no => []
-      | .immediately => [.pages (root / dir) []]
-      | .delay state => [.file state, .pages (root / dir) []]
-      | .resumeFrom state => [.pages (root / dir) [root / dir / "xref.json", state]]
-    (if tex then [.pages (root / "tex") []] else []) ++ pages single "html-single" ++
-      pages multi "html-multi" ++ wordCount.toList.map .file
+      | .no | .immediately => ([], [], [])
+      | .delay state => ([state], [], [])
+      | .resumeFrom state => ([], [state], [dir])
+    let (singleFiles, singleInputs, singleResumed) := mode single "html-single"
+    let (multiFiles, multiInputs, multiResumed) := mode multi "html-multi"
+    { root, files := singleFiles ++ multiFiles ++ wordCount.toList,
+      inputs := singleInputs ++ multiInputs, resumed := singleResumed ++ multiResumed }
 
-/-- Invalidate `destination` through Regula's filesystem observer: remove the file, and remove the
-directory of pages or, when the render reads paths from it, each of its entries that is not one of
-them and holds none of them. A relative path is taken below the real working directory, and a `.`
-or `..` component or a symbolic link among the components of a path that it removes stops it
-before it removes anything (`Regula.Filesystem.ownPath`). Each removal acts only on an entry at its
-own place (`Regula.Filesystem.observer_removeOwn`, `observer_removeFound`), so it never follows a
-link out of the path that the options name. A path that the render reads is compared as
-`Regula.Filesystem.ownPath` gives it, or as written where that refuses it; a saved state in the
-directory that the comparison does not find there is removed, and the resumed render then stops. -/
-def Destination.invalidate : Destination → IO Unit
-  | .file path => Regula.Filesystem.removePath .file path
-  | .pages path [] => Regula.Filesystem.removePath .directory path
-  | .pages path reads => do
-    let path ← Regula.Filesystem.ownPath path
-    Regula.Filesystem.requireOwnDirectory path
-    unless ← path.isDir do return
-    let reads ← reads.mapM fun read => do
-      try return (← Regula.Filesystem.ownPath read).components catch _ => return read.components
-    for entry in ← path.readDir do
-      unless reads.any ((path / entry.fileName).components.isPrefixOf ·) do
-        Regula.Filesystem.removeFound entry.path
+/-- Stop, with the reason, unless each file that a render with `config` writes outside the
+directories of pages is outside its output directory, and each extra file that it copies is below
+them. A saved state or a word count in the output directory, and a saved state that a resumed render
+reads there, are refused: the render removes the directories of pages there before it renders, so
+such a file could be removed, or kept with stale pages beside it. An extra file whose destination is
+absolute or has a `..` component is refused, since Verso joins it to a directory of pages
+(`System.FilePath.join` keeps an absolute path as it is). A path is compared as
+`Regula.Filesystem.ownPath` gives it, so a path with a `.` or `..` component or a symbolic link
+among its components also stops it.
+
+Assumes: Verso `cad4b633`, `src/verso-manual/VersoManual.lean`: the extra files are copied to
+`dir.join dest` below a directory of pages (450 and 452 for TeX, 805 and 807 for single-page HTML,
+874 and 876 for multi-page HTML). Every other file of a render is written below a directory of
+pages: the search index, the files of the document's blocks for TeX (454), and the assets of its
+blocks and of Verso's features (`-verso-data`, `HtmlAssets.writeFiles` in
+`src/verso-manual/VersoManual/Html/Features.lean:348-354`). The document's blocks and Verso's
+features give those names, which are trusted to be relative. The cache of remote cross-references (`src/multi-verso/MultiVerso.lean:580-597`) is
+written only when `--remote-config` or a `verso-sources.json` names one; it holds the data of other
+sites, which its own manifest dates, not a result of the render. Regula's configurations name one
+extra file, `regula.css` (`siteConfig` in `website/Main.lean`), and no remote configuration. -/
+def requireConfined (config : RenderConfig) : IO Unit := do
+  let p := plan config
+  let root := (← Regula.Filesystem.ownPath p.root).components
+  for path in p.files ++ p.inputs do
+    if root.isPrefixOf (← Regula.Filesystem.ownPath path).components then
+      throw <| IO.userError s!"{path} is in the output directory {p.root}: a saved state or a word \
+        count there is refused, since the render removes the directories of pages there first"
+  for (_, destination) in config.extraFiles ++ config.extraFilesHtml ++ config.extraFilesTeX do
+    let destination := FilePath.mk destination
+    if destination.isAbsolute || destination.components.contains ".." then
+      throw <| IO.userError s!"the extra file {destination} is absolute or has a `..` component, so \
+        Verso would write it outside the directories of pages"
+
+/-- Remove the directory of pages `dir` below the output directory `root` through Regula's
+filesystem observer, or, when a resumed render writes it (`resumed`), each of its entries but the
+cross-reference table that the render reads (`crossReferences`). A relative path is taken below the
+real working directory, and a `.` or `..` component or a symbolic link among the components of the
+path stops it before it removes anything (`Regula.Filesystem.ownPath`). Each removal acts only on
+an entry at its own place (`Regula.Filesystem.observer_removeOwn`, `observer_removeFound`), so it
+never follows a link out of the output directory. -/
+def invalidatePages (root : FilePath) (resumed : List String) (dir : String) : IO Unit := do
+  unless resumed.contains dir do
+    return ← Regula.Filesystem.removePath .directory (root / dir)
+  let path ← Regula.Filesystem.ownPath (root / dir)
+  Regula.Filesystem.requireOwnDirectory path
+  unless ← path.isDir do return
+  for entry in ← path.readDir do
+    unless entry.fileName == crossReferences do
+      Regula.Filesystem.removeFound entry.path
 
 /-- The configuration of a render of a program whose own configuration is `config`, on its
-command-line options `args` (`parse`), after each destination of that configuration is
-invalidated (`destinations`, `Destination.invalidate`). A run calls it before anything that can
-fail and passes the result to `manualMain` with no options, which renders with exactly this
-configuration. Options that `parse` refuses name no destination: it then throws before it removes
-anything.
+command-line options `args`, read with Verso's own parser (`versoOptions`), after the destinations of
+that configuration are invalidated: each of its `formatDirectories` below the output directory,
+whichever modes the options select (`invalidatePages`), and each file that it writes whole
+(`Plan.files`). It first requires them to be confined (`requireConfined`), so it removes nothing
+when it refuses them. A run calls it before anything that can fail and passes the result to
+`manualMain` with no options, which renders with exactly this configuration. Options that Verso's
+parser refuses name no destination that the parser gives, and `manualMain` writes nothing for them:
+it parses them before it writes anything.
 
-Assumes: Verso `cad4b633`, `src/verso-manual/VersoManual.lean`: `manualMain` renders with
-`opts config options` (1043), and `opts` returns its configuration unchanged on no options (1036). -/
+Assumes: Verso `cad4b633`, `src/verso-manual/VersoManual.lean`: `manualMain` parses its options
+(1043) before it writes anything, and its parser returns its configuration unchanged on no options
+(1036). -/
 def begin (config : RenderConfig) (args : List String) : IO RenderConfig := do
-  let config ← parse config args
-  for destination in destinations config do destination.invalidate
+  let config ← versoOptions config args
+  requireConfined config
+  let p := plan config
+  for dir in formatDirectories do invalidatePages p.root p.resumed dir
+  for file in p.files do Regula.Filesystem.removePath .file file
   return config
 
 /-- The refusal of the program `program`, whose configuration is `config`, in a process without
@@ -169,93 +153,5 @@ def refuse (program : String) (config : RenderConfig) (args : List String) : IO 
   try discard <| begin config args
   catch error => IO.eprintln s!"{program}: could not invalidate the destinations of {args}: {error}"
   return 1
-
-section Check
-
-open Lean Elab Command
-
-/-- The string literals in `e`. -/
-private partial def stringLiterals : Expr → Array String
-  | .lit (.strVal s) => #[s]
-  | .app f a => stringLiterals f ++ stringLiterals a
-  | .lam _ t b _ | .forallE _ t b _ => stringLiterals t ++ stringLiterals b
-  | .letE _ t v b _ => stringLiterals t ++ stringLiterals v ++ stringLiterals b
-  | .mdata _ e | .proj _ _ e => stringLiterals e
-  | _ => #[]
-
-/-- What a parser gives on `args` from `config`: the configuration, as `Config`'s JSON encoding,
-or the text of the error that it throws. -/
-private def outcome (parser : RenderConfig → List String → IO RenderConfig)
-    (config : RenderConfig) (args : List String) : IO (Except String Json) := do
-  try return .ok (toJson (← parser config args).toConfig)
-  catch error => return .error (toString error)
-
-/-- An outcome of `outcome`, as text. -/
-private def describe : Except String Json → String
-  | .ok config => config.compress
-  | .error error => s!"the error {repr error}"
-
-/-- A configuration that differs from the default one in every field that an option sets. -/
-private def changedConfig : RenderConfig :=
-  { destination := "start", htmlDepth := 7, emitTeX := true, emitHtmlSingle := .delay "single",
-    emitHtmlMulti := .no, wordCount := some "count", draft := true, twoside := true,
-    verbose := true, remoteConfigFile := some "remote" }
-
-/-- Every list of at most `n` elements of `tokens`. -/
-private def lists (tokens : List String) : Nat → List (List String)
-  | 0 => [[]]
-  | n + 1 => [] :: tokens.flatMap fun t => (lists tokens n).map (t :: ·)
-
-/-- The check of `parse` against Verso's parser `manualMain.opts`, which the build of this module
-runs: both must give the same configuration, or throw the same error, on every argument list of at
-most three tokens, from the default configuration and from one that differs from it in every field
-that an option sets. The tokens are each option of Verso's parser, the string literals that start
-with `--` in its definition and the auxiliary definitions it uses, and two other arguments: `1`,
-which is a file name and a number, and `-1`, which starts with `-`. A list in which `--depth` is
-followed by an argument that is not a number is left out, since both parsers then stop with a panic
-of `String.toNat!`. Verso's parser is found under its private name and run by Lean's evaluator.
-
-It is a bounded check: it covers each option on its own, followed by every token, and every pair of
-consecutive options with their arguments, not every longer list. -/
-def checkParser : CommandElabM Unit := do
-  let env ← getEnv
-  let verso := mkPrivateNameCore `VersoManual ``manualMain ++ `opts
-  let some info := env.find? verso
-    | throwError "Verso's parser {verso} is not in the environment"
-  let mut seen : NameSet := {}
-  let mut pending := #[verso]
-  let mut literals : Array String := #[]
-  while h : pending.size > 0 do
-    let name := pending.back
-    pending := pending.pop
-    if seen.contains name then continue
-    seen := seen.insert name
-    let some value := (env.find? name).bind (·.value?) | continue
-    literals := literals ++ stringLiterals value
-    pending := pending ++ value.getUsedConstants.filter (verso.isPrefixOf ·)
-  let options := (literals.filter (·.startsWith "--")).toList.eraseDups
-  if options.isEmpty then throwError "no option of Verso's parser {verso} was found"
-  let versoParse ← liftTermElabM <|
-    unsafe evalConst (RenderConfig → List String → IO RenderConfig) info.name
-  let numeral (s : String) : Bool := !s.isEmpty && s.all Char.isDigit
-  let mut count := 0
-  for args in lists (options ++ ["1", "-1"]) 3 do
-    if (args.zip args.tail).any fun (a, b) => a == "--depth" && !numeral b then continue
-    for config in [({} : RenderConfig), changedConfig] do
-      let ours ← outcome parse config args
-      let theirs ← outcome versoParse config args
-      let same := match ours, theirs with
-        | .ok ours, .ok theirs => ours == theirs
-        | .error ours, .error theirs => ours == theirs
-        | _, _ => false
-      unless same do
-        throwError "RegulaRender.parse disagrees with Verso's parser on {args}: it gives \
-          {describe ours}, and Verso's parser gives {describe theirs}"
-      count := count + 1
-  if count == 0 then throwError "the check of RegulaRender.parse compared no argument list"
-
-end Check
-
-run_cmd checkParser
 
 end RegulaRender

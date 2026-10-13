@@ -72,38 +72,52 @@ private def reproduction (website program scratch : FilePath)
   requireChecks [⟨s!"a resumed render of regula-standard after a refused run rendered from an \
     earlier saved state {shown stale}", stale.exitCode != 0 && !(← present (pages / "index.html"))⟩]
 
-/-- The refusals of the program `name` at `program`, in the directory `scratch`, without a render:
-a refused delayed render removes the saved state, the word count and the pages that earlier runs
-left, and a refused resumed render removes each page but the two files that the render reads in its
-directory, the cross-reference table and a saved state kept there. -/
+/-- The refusals of the program `name` at `program`, in the directory `scratch`, without a render.
+A refused delayed render removes the saved state, the word count and each directory of pages that
+earlier runs left, also one of a mode that the options do not select (`tex`). A refused resumed
+render removes each directory of pages, and each entry of its own but the cross-reference table that
+it reads, and keeps its saved state, outside the output directory. A run whose saved state is in its
+output directory stops before it removes or renders anything. -/
 private def refusals (website program scratch : FilePath) (name : String)
-    (refusing : Array (String × Option String)) : IO Unit := do
+    (env refusing : Array (String × Option String)) : IO Unit := do
   let out := scratch / s!"{name}-delay"
   let state := scratch / s!"{name}-state.json"
   let count := scratch / s!"{name}-count.txt"
   seed state
   seed count
   seed (out / "html-multi" / "index.html")
+  seed (out / "tex" / "main.tex")
   let refused ← run website program.toString #["--output", out.toString, "--delay-html-multi",
     state.toString, "--with-word-count", count.toString] refusing
   requireRefused name refused
   requireChecks [⟨s!"a refused delayed render of {name} left its saved state, its word count or \
-    its pages in place {shown refused}",
-    !(← present state) && !(← present count) && !(← present (out / "html-multi"))⟩]
+    a directory of pages in place {shown refused}",
+    !(← present state) && !(← present count) && !(← present (out / "html-multi")) &&
+      !(← present (out / "tex"))⟩]
   let out := scratch / s!"{name}-resume"
   let pages := out / "html-multi"
-  let state := pages / "saved" / "state.json"
-  seed (pages / "xref.json") "{}"
+  let state := scratch / s!"{name}-resumed.json"
   seed state
+  seed (pages / "xref.json") "{}"
   seed (pages / "index.html")
   seed (pages / "page" / "index.html")
+  seed (out / "html-single" / "index.html")
   let refused ← run website program.toString #["--output", out.toString, "--resume-html-multi",
     state.toString] refusing
   requireRefused name refused
   requireChecks [⟨s!"a refused resumed render of {name} removed what it reads, the \
     cross-reference table or the saved state, or left a page in place {shown refused}",
     (← present (pages / "xref.json")) && (← present state) &&
-      !(← present (pages / "index.html")) && !(← present (pages / "page"))⟩]
+      !(← present (pages / "index.html")) && !(← present (pages / "page")) &&
+      !(← present (out / "html-single"))⟩]
+  let inside := out / "state.json"
+  seed (pages / "index.html")
+  let confined ← run website program.toString #["--output", out.toString, "--delay-html-multi",
+    inside.toString] env
+  requireChecks [⟨s!"a run of {name} with its saved state in its output directory did not stop \
+    with the reason before it removed or rendered anything {shown confined}",
+    confined.exitCode != 0 && (confined.stderr.splitOn "is in the output directory").length > 1 &&
+      (← present (pages / "index.html")) && !(← present inside)⟩]
 
 /-- Build `regula-site` and `regula-standard` in the website package of the repository at
 `root`, then run the issue's reproduction with `regula-standard` (`reproduction`) and the refusals
@@ -120,6 +134,6 @@ def control (root : FilePath) : IO Unit := do
   Regula.Checker.withScratch root "site-renderer-refusal" fun scratch => do
     reproduction website (program "regula-standard") scratch cleanEnv refusing
     for name in ["regula-standard", "regula-site"] do
-      refusals website (program name) scratch name refusing
+      refusals website (program name) scratch name cleanEnv refusing
 
 end Regula.Site.RendererRefusal

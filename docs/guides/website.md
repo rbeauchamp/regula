@@ -150,11 +150,12 @@ lean --run lean/RegulaProvision.lean verso          # Verso setup
 ./scripts/verify.sh site                             # build and check _site/
 ```
 
-After the build, `./scripts/verify.sh site` operates `lake exe site renderer-refusal`. This
-command builds `regula-site` and `regula-standard` and examines the files that they leave. A
-delayed render of the standard and a resumed render must succeed. After a refused run with the same
-options, a resumed render must stop. The refusals of the two programs must also remove the saved
-state, the word count and the pages ([issue 424](https://github.com/rbeauchamp/regula/issues/424)).
+After the build, `./scripts/verify.sh site` operates `lake exe site renderer-refusal`, the control
+of [issue 424](https://github.com/rbeauchamp/regula/issues/424). This command builds `regula-site`
+and `regula-standard` and examines the files that they leave. A delayed render of the standard and
+a resumed render must succeed. After a refused run with the same options, a resumed render must
+stop. The refusals of the two programs must also remove the saved state, the word count and the
+pages. A run with its saved state in its output directory must stop before it removes anything.
 
 The website package requires the root `regula` package and the `audit/` package by relative
 path, because the standard's examples import modules of both. Neither requires Mathlib, and no
