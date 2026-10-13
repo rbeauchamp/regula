@@ -603,6 +603,29 @@ private theorem reach_forward {next back : Name → Array Name}
   | refl => exact .refl _
   | step hm _ ih => exact ih.tail (after _ _ hm)
 
+/-- **Along the edges a completed `searchEdges` recorded, read backward (`predecessors`), a name
+`a` reaches a name `x` the search reached exactly when `x` reaches `a` along `next`.** -/
+theorem reach_predecessors_iff {next : Name → Array Name} {fuel : Nat} {start : List Name}
+    {seen : Std.HashSet Name} {edges : List (Name × Array Name)}
+    (hs : searchEdges next fuel start = some (seen, edges)) {x a : Name} (hx : x ∈ seen) :
+    Reach (fun y => ((predecessors edges).getD y []).toArray) a x ↔ Reach next x a := by
+  obtain ⟨complete, sound, hasEdge, edgeOK⟩ := searchEdges_some hs
+  have after : ∀ x y, x ∈ ((predecessors edges).getD y []).toArray → y ∈ next x := by
+    intro x y hx
+    simp only [List.mem_toArray, mem_predecessors] at hx
+    obtain ⟨e, he, rfl, hy⟩ := hx
+    rwa [edgeOK e he] at hy
+  have before : ∀ x ∈ seen, ∀ y ∈ next x, x ∈ ((predecessors edges).getD y []).toArray := by
+    intro x hx y hy
+    obtain ⟨e, he, rfl⟩ := hasEdge x hx
+    simp only [List.mem_toArray, mem_predecessors]
+    exact ⟨e, he, rfl, (edgeOK e he) ▸ hy⟩
+  have closed : ∀ x ∈ seen, ∀ y ∈ next x, y ∈ seen := by
+    intro x hx y hy
+    obtain ⟨s, hs, hr⟩ := sound x hx
+    exact complete s hs y (hr.tail hy)
+  exact ⟨reach_forward after, reach_back closed before hx⟩
+
 /-- **`leafTable` of the forward search from `roots` along `next` holds each name of `roots`, and
 gives each name it holds exactly the leaves that name reaches along `next`.** -/
 theorem leafTable_some {next : Name → Array Name} {leaf : Name → Bool} {fuel : Nat}

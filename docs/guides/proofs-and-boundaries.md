@@ -3027,13 +3027,17 @@ inferred from any pure proof.
 
   `Admission.linksOf` reads the references of the constants of the region only. Each search
   backward from a name reads these references, for example the search for the names that reach
-  `n`. `Admission.nativeFree` searches forward from `n` and from the names that reach `n`, through
-  the copies of each name in all the loaded modules. The searches run only for a differing name
-  that only owned modules declare and that has the shape of a renamed copy. `Admission.regionOf`
-  and `linksOf` run only if such a name exists, and a maximum of one time in each call of
-  `Admission.agreeing`. `Admission.candidates` and `Admission.validate` each call `agreeing` through
-  `Admission.agreeingIn`, thus `regionOf` and `linksOf` run a maximum of two times in each
-  environment.
+  `n`. `Admission.nativeReaching` makes one search forward from the names that pass the tests over
+  the region and from the names that reach them. It reads the copies of each name that it meets, in
+  all the loaded modules. Thus the dependency cone of these names bounds this search, not the
+  region. It indexes the constants of a module by name only when it first reads a copy there.
+
+  Each call of `Admission.agreeing` runs `Admission.regionOf`, `linksOf` and the search forward a
+  maximum of one time. They run only if a differing name that only owned modules declare has the
+  shape of a renamed copy. The searches backward run for each such name. A name that the tests
+  over the region refuse adds no name to the starts of the search forward. `Admission.candidates`
+  and `Admission.validate` each call `agreeing` through `Admission.agreeingIn`. Thus `regionOf`,
+  `linksOf` and the search forward run a maximum of two times in each environment.
 
   `Admission.ImportScoped` states a fact about the modules outside the owned modules. Each constant
   of such a module refers only to names that its module or a module of its import closure
@@ -3268,10 +3272,10 @@ inferred from any pure proof.
   accepts exactly the inputs that its proposition admits. `Admission.mem_regionOf` and
   `Admission.mem_blockOf` show that `Admission.regionOf` gives exactly the region and the search
   over the references gives exactly the block. `Admission.mem_aboveIn` shows the same for the names
-  that reach `n`. `Admission.nativeFree_iff` shows that `Admission.nativeFree` accepts exactly when
-  no name that reaches `n` reaches the two primitives. `Admission.mem_closure`,
-  `Admission.nativeFree_iff` and `KernelAxioms.search_isSome` show that each such search has
-  sufficient fuel.
+  that reach `n`. `Admission.nativeFree_iff` shows that `Admission.nativeFree`, over the one search
+  of `Admission.nativeReaching`, accepts exactly when no name that reaches `n` reaches the two
+  primitives. `Admission.mem_closure`, `Admission.nativeFree_iff` and `KernelAxioms.search_isSome`
+  show that each such search has sufficient fuel.
 
   `Admission.copiesAgree_iff`, `Admission.referencesWithin_iff` and `Admission.ownedAgrees_iff`
   show the same for each decision of reuse. `Admission.mem_reusedModules_iff` shows that a module
