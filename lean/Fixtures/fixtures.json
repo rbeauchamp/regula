@@ -1124,6 +1124,16 @@
    "fixtures_read_counter reaches fixtures_initialized_counter (initialized-value)"
   ]
  },
+ "Fixtures.Mutations.InitializedReplacement": {
+  "expect": "fail",
+  "claim": "standard-logical",
+  "execution": "checked",
+  "reason": "execution-trusted-boundary",
+  "output": [
+   "fixtures_replaced_counter [runtime-replacement] correspondence=trusted replacement=fixtures_counter_replacement",
+   "fixtures_read_replaced_counter reaches fixtures_replaced_counter (runtime-replacement)"
+  ]
+ },
  "Fixtures.Mutations.ExternExportSignatureMismatch": {
   "expect": "fail",
   "claim": "standard-logical",

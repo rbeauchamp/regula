@@ -603,8 +603,9 @@ inductive Lowering where
 
 /-- The classification of a constant from what Lean records of it: whether it is an `extern`
 (`isExtern`), whether it has an `implemented_by` target (`implemented`), and its initializer
-(`initializer`). A constant with an `implemented_by` target that is not an `extern` has no
-compiled code, so its initializer never runs (`lowering_initialized_iff`). -/
+(`initializer`). A call of a constant with an `implemented_by` target that is not an `extern`,
+compiled after the target was added, calls the target and never reads the value of the
+constant's initializer (`lowering_initialized_iff`). -/
 def lowering (isExtern implemented : Bool) (initializer : Option Name) : Lowering :=
   if isExtern then .extern
   else if implemented then .ordinary
@@ -661,14 +662,15 @@ Assumes:
   sets the constant to the value its initializer returned (`emitDeclInit`,
   `src/Lean/Compiler/LCNF/EmitC.lean:986-1004`), and the initializer is a retained call of the
   constant's IR (`collectDecl`, `src/Lean/Compiler/IR/EmitUtil.lean:52-60`).
-- Lean 4.34.1 generates code for every `extern`, and for no other constant with an
-  `implemented_by` target (`shouldGenerateCode`, `src/lean/Lean/Compiler/LCNF/Main.lean:34`,
-  `:40`), so such a constant has no IR and the module's initialization, which runs the
-  initializers of the module's IR declarations alone (`emitInitFn`,
-  `src/lean/Lean/Compiler/LCNF/EmitC.lean:1047-1049`), runs none of it. Its simplifier replaces a
-  call of any constant with an `implemented_by` target, an `extern` included, by a call of the
-  target (`applyImplementedBy?`, `src/lean/Lean/Compiler/LCNF/Simp/SimpValue.lean:55-59`, enabled
-  at `src/lean/Lean/Compiler/LCNF/Passes.lean:107`). -/
+- Lean 4.34.1 generates code for every `extern`, and for no other constant that has an
+  `implemented_by` target when it is compiled (`shouldGenerateCode`,
+  `src/lean/Lean/Compiler/LCNF/Main.lean:34`, `:40`); a target added after the constant was
+  compiled, as `attribute [implemented_by]` after `initialize` adds one, leaves its IR and
+  initializer in place. Its simplifier replaces a call of any constant with an `implemented_by`
+  target, an `extern` included, by a call of the target (`applyImplementedBy?`,
+  `src/lean/Lean/Compiler/LCNF/Simp/SimpValue.lean:55-59`, enabled at
+  `src/lean/Lean/Compiler/LCNF/Passes.lean:107`), so a call compiled after the target was added
+  never reads the constant's value. -/
 private def observeNode (env : Environment) (ownedModules : List Name)
     (toolchainModules : NameMap RegulaPolicy.ToolchainOrigin)
     (cached : Std.HashMap Name (Array Name))
