@@ -1,14 +1,14 @@
 import RegulaVerification
 import Regula.Removal
 
-/-! # The removal check of the verification driver
+/-! # The observer reach check of the verification driver
 
 `scripts/verify.sh` runs the verification driver with `lean --run` before the package is built, so
-it imports only Lean's library: it cannot import the filesystem observer, and it does not run the
-check itself. This module imports it, and its build fails when the compiled code of the driver
-reaches a removal outside the observer, except the driver's own removals that it names, each as
-the pair of the declaration that makes it and the primitive that it calls
-(`Regula.Removal.checkProgram`):
+it imports only the toolchain: it cannot import the observers, and it does not run the check
+itself. This module imports it, and its build fails when the compiled code of the driver reaches a
+primitive that the check refuses (`Regula.Removal.checkProgram`). It admits the bootstrap pairs of
+the driver's process source (`Regula.Removal.bootstrap`) and the driver's own removals that it
+names, each as the pair of the declaration that makes it and the primitive that it calls:
 
 - the removals of a directory, in `RegulaVerification.removeOwn` and in the loop of
   `RegulaVerification.reclaim`, each of which `RegulaVerification.removal` decides, the decision

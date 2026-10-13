@@ -22,7 +22,8 @@ checker's controls, which no script runs and the acceptance build does not build
 A root module outside every library, which no library module can import (`auditApp`'s `Main`), is
 checked here: its environment is imported and checked as each `checkProgram` checks it
 (`Regula.Removal.rawRemovals`, `Regula.Removal.programRefusal`,
-`Regula.TaskManagerCheck.refusal`). -/
+`Regula.TaskManagerCheck.refusal`). The campaign then runs the live controls of the process and
+bootstrap boundaries (`Regula.Qualification.Process.check`). -/
 
 namespace Regula.Qualification.Observers
 

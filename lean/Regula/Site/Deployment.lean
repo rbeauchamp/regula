@@ -3,8 +3,9 @@ import Lean
 
 /-! # Deployment gate and deployed rule-reference verification
 
-Gates and verifies publication of the artifact the CI `site` job validated. It imports only
-Lean's core so the deployment jobs can run it with the pinned toolchain alone:
+Gates and verifies publication of the artifact the CI `site` job validated. It imports only the
+toolchain's Lean and Lake libraries so the deployment jobs can run it with the pinned toolchain
+alone:
 
 ```text
 lean --run lean/Regula/Site/Deployment.lean gate ARTIFACT_DIR    # before uploading for Pages
@@ -35,7 +36,7 @@ network are external. Requests carry a per-attempt query string so that a cached
 unlikely to satisfy the comparison; whether the CDN keys on it is not established.
 
 `verify` reads each fetched page from `curl`'s standard output, so it writes and removes no
-file, under the assumption that `fetch` states. This program imports only Lean's core, so it
+file, under the assumption that `fetch` states. This program imports only the toolchain, so it
 cannot use the filesystem observer (`Regula.Filesystem`) or its removal decision
 (`Regula.Removal.removal`); with no removal it has nothing to decide, and
 `Regula.ProgramCheck.SiteDeployment` checks that its compiled code reaches none.

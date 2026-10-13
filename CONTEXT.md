@@ -7,15 +7,15 @@ Standard: ASD-STE100 Issue 9
 
 | Term | Category | Definition | Replaces | Source |
 | --- | --- | --- | --- | --- |
-| contract | 7 | A precondition and a postcondition of a function. | - | `lean/RegulaCore/StateTriple.lean` (`Regula.StateTriple.triple_iff`) |
+| contract | 7 | A precondition and a postcondition of a function. | - | `lean/RegulaPolicy/StateTriple.lean` (`Regula.StateTriple.triple_iff`) |
 | declaration | 19 | An item with a name in a Lean module, for example a definition or a theorem. | - | `website/RegulaStandard/CodeOrganization.lean` |
 | definition | 7 | A declaration that gives a name to a value or to a function. | - | `website/RegulaStandard/CorePrinciples.lean` |
 | docstring | 19 | A comment that Lean attaches to a declaration or to a module. | doc comment | `website/RegulaStandard/DocumentationStandards.lean` |
 | Lake | 19 | The program that builds Lean projects. | - | `lakefile.lean` |
 | Lean | 19 | The Lean 4 language and its programs. | Lean4 | `lean-toolchain` |
 | module | 19 | One Lean source file that a different source file can import. | - | `website/RegulaStandard/CodeOrganization.lean` |
-| postcondition | 7 | The part of a contract that must be true after a function operates. | - | `lean/RegulaCore/StateTriple.lean` (`Regula.StateTriple.triple_iff`) |
-| precondition | 7 | The part of a contract that must be true before a function operates. | - | `lean/RegulaCore/StateTriple.lean` (`Regula.StateTriple.triple_iff`) |
+| postcondition | 7 | The part of a contract that must be true after a function operates. | - | `lean/RegulaPolicy/StateTriple.lean` (`Regula.StateTriple.triple_iff`) |
+| precondition | 7 | The part of a contract that must be true before a function operates. | - | `lean/RegulaPolicy/StateTriple.lean` (`Regula.StateTriple.triple_iff`) |
 | proof | 7 | A Lean expression that Lean accepts and that shows that a statement is correct. | - | `website/RegulaStandard/PreciseClaims.lean` |
 | specification | 7 | A statement of the result that a function or a program must give. | - | `lean/Regula/Contract.lean` (`Regula.ExecutableContract`) |
 | theorem | 7 | A declaration that gives a name to a statement and to its proof. | - | `website/RegulaStandard/PreciseClaims.lean` |

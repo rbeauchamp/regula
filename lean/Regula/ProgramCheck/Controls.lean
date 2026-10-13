@@ -11,6 +11,15 @@ observer passes it. A planted declaration of this module with the filesystem obs
 admits nothing, and the check refuses a program while one is declared outside `Regula.Filesystem`
 (`Regula.Removal.foreignObservers`).
 
+A planted program whose `main` starts a process or reads the environment outside `Regula.Process`
+fails the same check: through `IO.Process.spawn`, a wrapper of `IO.Process.output`,
+`IO.Process.run`, the PATH fallback of `Lean.findSysroot`, `IO.getEnv`, a public launcher of Lake
+or Lean, a timezone read of `Std`, or an `extern` of another name bound to the runtime's process
+start. So do such a read in a local module whose name starts with `Lake`, and a process
+observer's role given in this module.
+The same start through `Regula.Process.output` passes it. These controls compile each program and
+start no process.
+
 A planted program whose `main` starts a task, creates a promise or captures a process's output
 fails the check that a compiled program needing Lean's task manager starts through the guard
 (`Regula.TaskManagerCheck.checkProgram`), and so do one that runs the guard and then starts a task

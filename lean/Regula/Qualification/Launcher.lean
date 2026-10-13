@@ -26,8 +26,8 @@ structure State where
   timings : IO.Ref (Array Nat)
   /-- Total milliseconds spent obtaining environments, cache hits included. -/
   captureMillis : IO.Ref Nat
-  /-- Baseline mode: launch every compile through `lake env lean` instead of the captured
-  environment and executable. -/
+  /-- Baseline mode: launch every compile through `lake env` with the checked installation's
+  `lean`, instead of the captured environment. -/
   legacy : Bool := false
 
 /-- Allocate an empty launcher; it cannot reuse artifacts or verdicts. -/

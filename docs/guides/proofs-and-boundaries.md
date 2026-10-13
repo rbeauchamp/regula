@@ -591,8 +591,8 @@ The calls of Lake on that list are trusted exceptions. Lake makes them itself in
 of a program that loads a workspace or builds. Each acts on that workspace, as `lake build` or
 `lake update` would there. Thus its safety rests on the content of the workspace: its configuration,
 the clones of its dependencies and the release archives that it fetches. The adopter trusts that
-content as Lake does. The other entries rest on an assumption, and `libraryRemovals` gives each
-entry with a source line.
+content as Lake does. The entries of `bv_decide` are also trusted, because configuration source
+can use that tactic, and `libraryRemovals` gives each entry with a source line.
 
 A program can also operate Lake in a copy of a project that it made, as
 `Regula.Checker.Lake.copyProject` and the verification driver do. Lake acts on the copy as it would
@@ -656,7 +656,7 @@ through the observer, and the check accepts it. It declares an observer in a dif
 
 Each shard of the self-audit builds the library `Regula`, thus the two modules.
 
-The deployment program `lean/Regula/Site/Deployment.lean` imports only the Lean core, thus it
+The deployment program `lean/Regula/Site/Deployment.lean` imports only the toolchain, thus it
 cannot use the observer. It reads each page from the output of `curl` and writes no file. The
 check of `Regula.ProgramCheck.SiteDeployment` finds no removal in it. It passes to `curl` only
 `PATH` and the proxy and certificate variables that `fetch` lists, none of which makes `curl`
@@ -4491,17 +4491,18 @@ a Git repository with and without a root `AGENTS.md`) are bounded observations, 
 historical version-string guard's refusal of Lean 4.33.0 and 4.34.1 through the `lake` command
 line and when a checker executable loaded the workspace. Those historical observations do not
 qualify the new exact-identity guard. Its retained control, in the `lint-driver` partition,
-loads a fresh copy of the lakefile and policy source through `lake`: an inherited
-`LEAN_SYSROOT` whose `lean` fails on the policy source is refused, one whose `lean` exits
-successfully without printing the running compiler's identity is refused by the identity
-comparison, and the same package then loads with the inherited environment. Neither child is
-a compiler. A compiler the policy refuses, an in-process load by a checker executable and
-`doctor`'s resolution of a pin need a second installed compiler or current observations and
-have no retained control. The `lint-driver` partition also keeps a control of `init` on the
-templates of Lake. A project from `lake new` in each format gets the glob of its library and a
-complete setup. The `lean_lib` of the `lakefile.lean` project has an empty `where` block. A
-second `init` writes nothing. In the `lakefile.toml` project, `lake lint` then reports only the
-docstrings that the template does not have. It accepts the project when they are written.
+loads a fresh copy of the lakefile, the process source and the policy source through `lake`. An
+inherited `LEAN_SYSROOT` with a `lean` that fails is refused by the identity check of the process
+source, before the policy source runs. So is one with a `lean` that exits with code 0 and does
+not print the running compiler's identity. Each child first writes a marker that shows that it
+ran. The same package then loads with the inherited environment. Neither child is a compiler. A
+compiler the policy refuses, an in-process load by a checker executable and `doctor`'s resolution
+of a pin need a second installed compiler or current observations and have no retained control.
+The `lint-driver` partition also keeps a control of `init` on the templates of Lake. A project
+from `lake new` in each format gets the glob of its library and a complete setup. The `lean_lib`
+of the `lakefile.lean` project has an empty `where` block. A second `init` writes nothing. In the
+`lakefile.toml` project, `lake lint` then reports only the docstrings that the template does not
+have. It accepts the project when they are written.
 
 **Releases** ([procedure](contributing.md#release)): **Proved** in `lean/Regula/Release.lean`,
 and checked by the kernel each time a step elaborates it: `tagAction`, the decision of the
@@ -4794,9 +4795,10 @@ The `qualify` campaigns and what they observe:
   observations, and the combined project/documentation positive remains distinct.
 - `receipt-boundaries`: timeout-selection and spawn failures (see
   [Operational assumptions](#operational-assumptions)).
-- `observers`: the record of the removal check of each program of the package, and the check of
-  `Main`, the root of `auditApp`. It also refuses an executable with no record of the task-manager
-  check.
+- `observers`: the record of the observer reach check of each program of the package, and the
+  check of `Main`, the root of `auditApp`. It also refuses an executable with no record of the
+  task-manager check. Then it runs the live process controls of
+  [the compiled observer boundary](#the-compiled-observer-boundary).
 - `acceptance fences`: fence-compilation packet mutations with positive restoration.
 - `acceptance-snapshots`: `dependencies` (ignored Git and non-Git dependency input coverage and
   mutation), `history` ([RG3001] fresh, incremental and build-lint history refusal and restoration)

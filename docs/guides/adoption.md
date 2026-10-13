@@ -114,6 +114,8 @@ selects, whichever compiler an override runs. For a Lean too old to run its iden
 instead reports that the pin selects no installed compiler that reports its identity, with the
 probe's error.
 
+The guard also stops when an inherited `LEAN_CC` or `LEAN_AR` is not an absolute path. Set it to an absolute path, or remove it. If the installation has no bundled `clang` or `llvm-ar`, set `LEAN_CC` or `CC`, or `LEAN_AR` or `AR`, to an absolute path for that tool. Regula's executables do the same check before they start a program of the toolchain or load a workspace.
+
 When no other dependency pins a
 toolchain, `lake update` itself moves an older `lean-toolchain` to Regula's release and restarts.
 When Mathlib pins another one, `lake update` prints `toolchain not updated; multiple toolchain
