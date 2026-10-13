@@ -395,7 +395,7 @@ campaign that does not run. For a reason that names part of them, its text names
 | `./scripts/verify.sh diagnostics snapshot-history` | Too long for a job. Its check took 104 s, and a check of more than 85 s does not leave a quarter of the 420-second deadline. [Issue 391](https://github.com/rbeauchamp/regula/issues/391) is the work to divide it into shards. |
 | `./scripts/verify.sh diagnostics policy-domain` | Too long for a job. Its check took 158 s, and a check of more than 85 s does not leave a quarter of the 420-second deadline. [Issue 391](https://github.com/rbeauchamp/regula/issues/391) is the work to divide it into shards. |
 | `lake exe qualify registry` | Its controls run in `lake exe qualify combined`: `combined` runs `registry` first. |
-| `lake exe qualify native` | Its controls run in `lake exe qualify combined`: `combined` runs `native` second. |
+| `lake exe qualify native` | Its controls run in `lake exe qualify combined`: `combined` includes the `native` controls. |
 | `lake exe qualify unique-constants` | Its controls run in `lake exe qualify combined`: `combined` runs `unique-constants` beside `native`. |
 | `lake exe qualify native-launcher` | Too long for a job. Its check took 92 s, and a check of more than 85 s does not leave a quarter of the 420-second deadline. [Issue 391](https://github.com/rbeauchamp/regula/issues/391) is the work to divide it into shards. |
 | `lake exe qualify rule-examples --evidence PATH` | Its controls run in `lake exe qualify rule-examples --evidence PATH --shard K/N`: the shards together run the whole corpus. |
