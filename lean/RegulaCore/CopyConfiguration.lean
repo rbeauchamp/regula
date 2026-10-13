@@ -33,15 +33,15 @@ abbrev Files := Array (String × Option String)
 
 /-- Compare the complete derived expectation with the observed configuration. No field or
 override entry is skipped; equality includes order, filenames, presence and exact text. -/
-@[regula_decision] def check (expected observed : Files) : Except String Unit :=
-  if observed = expected then .ok () else .error "effective configuration differs from request"
+@[regula_decision] def check (pair : Files × Files) : Except String Unit :=
+  if pair.2 = pair.1 then .ok () else .error "effective configuration differs from request"
 
 /-- Configuration admission succeeds exactly when all expected and observed fields agree. -/
-theorem check_iff (expected observed : Files) : check expected observed = .ok () ↔ observed = expected := by
+theorem check_iff (expected observed : Files) : check (expected, observed) = .ok () ↔ observed = expected := by
   simp [check]
 
 /-- The actual configuration comparison decides complete equality, with both outcomes. -/
-theorem checked_check : Regula.ExecutableContract (Function.uncurry check)
+theorem checked_check : Regula.ExecutableContract check
     (Regula.Decides (· = .ok ()) (fun pair => pair.2 = pair.1)) :=
   ⟨.of_iff (fun pair => check_iff pair.1 pair.2) ⟨(#[], #[]), rfl⟩
     ⟨(#[], #[("unexpected", none)]), by

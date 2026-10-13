@@ -306,7 +306,7 @@ metadata, not authenticated binary identity.
   about byte counts, and it bounds source text only: a string elsewhere in the document is
   written where it occurs. Project configuration text stays inline in `request`, `effective` and
   `scope.configuration`.
-- **Copy configuration, since schema 19:** `request.copyConfiguration` freezes the loaded source selections used for relocation, or is `null` for another route. `effective.configuration` records every observed field of the workspace used. `effective.configurationOrigins` separates the original `captured` fields from Regula's `generated` overrides. The copier and the expected account use the same relocation and serialization definitions; qualification compares every observed filename, presence value and text with that expectation.
+- **Copy configuration, since schema 19:** `request.copyConfiguration` freezes the loaded source selections used for relocation, or is `null` for a different route. `effective.configuration` records each observed field of the workspace used. `effective.configurationOrigins` separates the original `captured` fields from Regula's `generated` overrides. The copier and the expected account use the same relocation and serialization definitions. Qualification compares each observed filename, presence value and text with that expectation.
 - **Execution accounts:** since schema 8 a result file can hold each environment report's
   `execution` in a shared form: `names` (every name its roots reach, in the order of
   `canonicalNames`), `modules` and `nameModules` (each name's module), the seven edge channels

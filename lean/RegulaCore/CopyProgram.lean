@@ -289,15 +289,160 @@ instance (relative : List String) : Decidable (ProjectRelative relative) :=
 /-- Decide exactly the cold project's source domain. -/
 def projectRelative (relative : List String) : Bool := decide (ProjectRelative relative)
 
+/-- The supported Git index modes. A tracked link has a regular-file representation, never
+a link instruction. Its bytes are obtained from the index's Git blob without following it. -/
+inductive GitMode where
+  /-- Index mode 100644. -/
+  | regular
+  /-- Index mode 100755. -/
+  | executable
+  /-- Index mode 120000, represented by its target-text blob. -/
+  | link (text : ByteArray)
+
+/-- One resolved index entry, with a relative path and a supported typed mode. -/
+structure GitEntry where
+  /-- The index's path components. -/
+  relative : List String
+  /-- The index's regular, executable or target-text mode. -/
+  mode : GitMode
+
+/-- Derive one regular-file instruction from an index entry. Ordinary file bytes come from
+the no-follow source receipt. A tracked link uses the index blob, not a filesystem target. -/
+def gitItem (captured : List Item) (entry : GitEntry) : Except IO.Error Item := do
+  match entry.mode with
+  | .link text => return ⟨entry.relative, .file text⟩
+  | mode =>
+    let some item := captured.find? (fun item => item.relative == entry.relative)
+      | throw <| IO.userError s!"Git index file is absent from source: {entry.relative}"
+    let .file bytes _ := item.payload
+      | throw <| IO.userError s!"Git index file is not regular: {entry.relative}"
+    let rights := match mode with | .executable => 493 | _ => 420
+    return ⟨entry.relative, .file bytes rights⟩
+
+/-- Derive every indexed file instruction, preserving the complete index order. -/
+def gitFiles (captured : List Item) : List GitEntry → Except IO.Error (List Item)
+  | [] => return []
+  | entry :: rest => do
+    let item ← gitItem captured entry
+    return item :: (← gitFiles captured rest)
+
+/-- A final local core section selects Git's target-text representation for every tracked link.
+Two leading newlines also terminate a trailing config continuation before the new section. -/
+def gitConfigBytes (bytes : ByteArray) : ByteArray :=
+  bytes ++ "\n\n[core]\n\tsymlinks = false\n".toUTF8
+
+/-- Generate the clone metadata, changing only its regular .git/config instruction. -/
+def gitMetadata (metadata : List Item) : List Item := metadata.map fun item =>
+  if item.relative == [".git", "config"] then match item.payload with
+    | .file bytes rights => {item with payload := .file (gitConfigBytes bytes) rights}
+    | .directory => item
+  else item
+
+/-- The clone account is the captured Git metadata and precisely the indexed worktree.
+Untracked regular files are admitted as sources but are not emitted. Untracked links refuse
+before this function runs. A missing regular Git configuration refuses rather than omit the
+target-text setting. -/
+def prepareGit (metadata captured : List Item) (entries : List GitEntry) :
+    Except IO.Error (List Item) := do
+  let some config := metadata.find? (fun item => item.relative == [".git", "config"])
+    | throw <| IO.userError "Git source has no configuration"
+  let .file .. := config.payload
+    | throw <| IO.userError "Git source configuration is not regular"
+  let files ← gitFiles captured entries
+  return layout (gitMetadata metadata ++ files)
+
+/-- The Git adapter's executed writer, over the same operations as all other copies.
+It derives its complete indexed account before creating any destination entry, then uses only
+the shared constructor. `gitConstruct_io` states its exact plain-tree contract. -/
+def gitConstructWith {m : Type → Type} [Monad m] [MonadExceptOf IO.Error m] (ops : Ops m)
+    (target : FilePath) (metadata captured : List Item) (entries : List GitEntry) : m (List Item) := do
+  match prepareGit metadata captured entries with
+  | .error error => throw error
+  | .ok items =>
+    constructWith ops target items
+    return items
+
+/-- Read an index blob as bytes. The command identifies an object, not a filesystem link path.
+Neither filters nor textconv nor follow-symlinks is requested.
+
+Assumes: installed Git 2.54.0 git-cat-file(1), SYNOPSIS and DESCRIPTION, returns the exact blob
+contents for `cat-file blob OBJECT`. Lean v4.34.1 `Init/System/IO.lean:1002-1003,1544-1557`
+reads binary stdout, drains stderr and waits for the process. Process execution and Git object
+fidelity are trusted. Git 2.54.0 git(1), --no-lazy-fetch, --no-optional-locks and
+--no-replace-objects, prevents lazy fetching, optional lock-taking writes and replacement
+object lookup. Source Git metadata has no writer during this observation. -/
+def readGitBlob (source : FilePath) (object : String) : IO ByteArray := do
+  unless !object.isEmpty && object.toList.all Char.isHexDigit do
+    throw <| IO.userError "Git index object is not a hexadecimal identifier"
+  let child ← IO.Process.spawn {
+    cmd := "git", cwd := some source,
+    args := #["--no-lazy-fetch", "--no-optional-locks", "--no-replace-objects", "cat-file", "blob", object]
+    stdin := .null, stdout := .piped, stderr := .piped }
+  let stdout ← IO.asTask child.stdout.readBinToEnd Task.Priority.dedicated
+  let stderr ← child.stderr.readToEnd
+  let exitCode ← child.wait
+  let bytes ← IO.ofExcept stdout.get
+  unless exitCode == 0 do throw <| IO.userError s!"Git index blob read failed: {stderr}"
+  return bytes
+
+/-- Observe a complete supported index after no-follow admission of its Git metadata.
+Tracked links are represented by Git's own blobs. Every other source entry is admitted through
+the general capture, so an untracked link or special entry is still refused before construction.
+Only indexed worktree files and captured Git metadata are emitted.
+
+Assumes: installed Git 2.54.0 git-ls-files(1), --format, -z and FIELD NAMES, reports the complete
+index with unquoted paths, object identifiers and modes. The source has no index or worktree
+writer. git-cat-file(1) supplies index link blobs without following a source link. git-config(1),
+core.symlinks, specifies target-text regular files when false and retained index link types.
+The source .git is a plain metadata directory. Git configuration and status interpretation remain
+trusted, including the generated final core section. Lean/Lake v4.34.1
+`Lake/Util/Git.lean:198-203` tests cleanliness with `git diff --exit-code HEAD`;
+`Lake/Load/Materialize.lean:255-258` warns if a matching-revision checkout has that diff. -/
+def copyGit (source target : FilePath) : IO (List Item) := do
+  let metadata ← capture (source / ".git") [".git"]
+  let ⟨_, .directory⟩ :: _ := metadata
+    | throw <| IO.userError "Git source metadata is not a plain directory"
+  let index ← IO.Process.output {
+    cmd := "git", cwd := some source
+    args := #["--no-lazy-fetch", "--no-optional-locks", "--no-replace-objects", "ls-files", "-z",
+      "--format=%(objectmode)%x09%(stage)%x09%(objectname)%x09%(path)"] }
+  unless index.exitCode == 0 do throw <| IO.userError s!"copy Git index failed: {index.stderr}"
+  unless index.stdout.isEmpty || index.stdout.endsWith "\x00" do
+    throw <| IO.userError "copy Git index output is not NUL-terminated"
+  let mut entries : List GitEntry := []
+  for record in index.stdout.splitOn "\x00" do
+    if record.isEmpty then continue
+    let mode :: stage :: object :: pathParts := record.splitOn "\t"
+      | throw <| IO.userError "copy Git index record is malformed"
+    unless stage == "0" do throw <| IO.userError "copy Git index has unresolved entries"
+    let relative := ("\t".intercalate pathParts).splitOn "/"
+    unless Relative relative && relative.head? != some ".git" do
+      throw <| IO.userError "copy Git index path is not a worktree-relative path"
+    let mode ← match mode with
+      | "100644" => pure GitMode.regular
+      | "100755" => pure GitMode.executable
+      | "120000" =>
+        let kind := (← observeMetadata (location source relative)).type
+        unless kind == .symlink || kind == .file do
+          throw <| IO.userError "tracked Git link source is neither a link nor its regular representation"
+        pure <| GitMode.link (← readGitBlob source object)
+      | _ => throw <| IO.userError s!"copy Git index mode is unsupported: {mode}"
+    entries := entries ++ [⟨relative, mode⟩]
+  let base := source.components.length
+  let selected := fun (path : FilePath) =>
+    let relative := path.components.drop base
+    relative.head? != some ".git" && !entries.any (fun entry =>
+      entry.relative == relative && match entry.mode with | .link _ => true | _ => false)
+  let captured ← capture source [] selected
+  gitConstructWith observer target metadata captured entries
+
 /-- The cold drivers' source entrypoint. `project` prunes VCS/build/scratch directories; `all`
-copies every entry. `git` additionally chooses executable rights from the source Git index.
+copies every entry. `git` uses `copyGit`'s indexed regular-file representation and metadata.
 It prints the regular-file receipt as a JSON array. Lean interprets this
 same source before package artifacts exist; it does not use another copy implementation.
 
-Assumes: trusted Git's ls-files --format and -z reports complete index modes and unquoted paths.
-Git is not pinned; the installed Git 2.54.0 git-ls-files(1) documents --format and -z, and
-FIELD NAMES objectmode, stage and path. Git parses the index; the adapter admits only stage-zero
-regular files and selects their explicit construction rights. The source index has no writer. -/
+Assumes: `copyGit` names the installed Git 2.54.0 index/blob/config facts, its source stability
+and the pinned Lake cleanliness observation. Git parsing and object fidelity remain trusted. -/
 def sourceMain (args : List String) : IO UInt32 := do
   let [domain, source, target] := args
     | throw <| IO.userError "construction requires DOMAIN SOURCE TARGET"
@@ -320,38 +465,20 @@ def sourceMain (args : List String) : IO UInt32 := do
     construct target (layout items)
     IO.println "[]"
     return 0
-  unless domain == "all" || domain == "project" || domain == "git" do
+  if domain == "git" then
+    let items ← copyGit source target
+    let files := items.filterMap fun item => match item.payload with
+      | .directory => none
+      | .file .. => some ("/".intercalate item.relative)
+    IO.println (Lean.toJson files).compress
+    return 0
+  unless domain == "all" || domain == "project" do
     throw <| IO.userError s!"unknown construction domain: {domain}"
   let source := FilePath.mk source
   let base := source.components.length
   let selected := fun (path : FilePath) => domain != "project" ||
     projectRelative (path.components.drop base)
-  let mut items ← capture source [] selected
-  if domain == "git" then
-    -- Observe the index only after no-follow capture has admitted the complete source tree.
-    let index ← IO.Process.output {
-      cmd := "git", cwd := some source
-      args := #["ls-files", "-z", "--format=%(objectmode)%x09%(stage)%x09%(path)"]}
-    unless index.exitCode == 0 do throw <| IO.userError s!"copy Git index failed: {index.stderr}"
-    unless index.stdout.isEmpty || index.stdout.endsWith "\x00" do
-      throw <| IO.userError "copy Git index output is not NUL-terminated"
-    for record in index.stdout.splitOn "\x00" do
-      if record.isEmpty then continue
-      let mode :: stage :: pathParts := record.splitOn "\t"
-        | throw <| IO.userError "copy Git index record is malformed"
-      unless stage == "0" && (mode == "100644" || mode == "100755") do
-        throw <| IO.userError s!"copy Git index entry is not a resolved regular file: {record}"
-      let relative := ("\t".intercalate pathParts).splitOn "/"
-      unless Relative relative do throw <| IO.userError "copy Git index path is not relative"
-      if mode == "100755" then
-        unless items.any (fun item => item.relative == relative && match item.payload with
-            | .file .. => true | .directory => false) do
-          throw <| IO.userError s!"copy Git executable was not captured: {relative}"
-        items := items.map fun item =>
-          if item.relative == relative then match item.payload with
-            | .file bytes _ => {item with payload := .file bytes 493}
-            | .directory => item
-          else item
+  let items ← capture source [] selected
   -- Reserve the exact Lake state spelling by exclusive creation. A case-folded source spelling
   -- cannot silently carry old state into an ordinary load: its creation collides and fails.
   let generated := if domain == "project" then [⟨[".lake"], .directory⟩] else []

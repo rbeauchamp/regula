@@ -407,7 +407,9 @@ that copy. The driver of that command, `lean/RegulaVerification.lean`, makes the
 starts a Lake command. The function `RegulaVerification.makeCopy` makes it. The copy is a new
 directory in `.lake/regula-scratch/` of the checkout.
 
-The copy selects source files through `Construction.projectRelative` (`checked_projectRelative`). It excludes root `tmp` and, outside `docs`, VCS, build, cache and scratch directories. Documentation includes cache-named subdirectories. An empty root `.lake` excludes the original root's default build state. Other selected files, including artifacts under `docs`, can enter. The builds compile each module.
+The copy selects source files through `Construction.projectRelative` (`checked_projectRelative`).
+
+It excludes root `tmp` and, outside `docs`, VCS, build, cache and scratch directories. Documentation includes cache-named subdirectories. An empty root `.lake` excludes the original root's default build state. Other selected files, including artifacts under `docs`, can enter. The builds compile each module.
 
 The step has four commands, which the function `RegulaVerification.commands` gives. The build,
 the registry checks and the qualification controls operate in the copy. The last command is the
@@ -596,7 +598,7 @@ A program can also operate Lake in a copy of a project that it made, as
 `Regula.Checker.Lake.copyProject` and the verification driver do. Lake acts on the copy as it would
 act on the workspace that it was given, thus the same reason holds.
 
-Regula constructs its copies through `Regula.Filesystem`. It refuses source links and special entries through metadata reads that follow no final link. It creates directories and regular files exclusively at their exact destinations. It places no packages link. This construction removes the limit about links preserved or placed by Regula's copies.
+Regula constructs its copies through `Regula.Filesystem`. The general routine refuses selected source links and special entries through metadata reads that follow no final link. It creates directories and regular files exclusively at their exact destinations. It places no packages link. This construction removes the limit about links preserved or placed by Regula's copies.
 
 `observer_copy` states the complete selected source receipt and the exact destination tree over the observer's filesystem model. `observer_construct` states the exact tree of generated instructions. `Construction.capture_io` connects captured subtrees to that model.
 
@@ -612,7 +614,19 @@ Assumes: Exclusive creation fails for any occupied final destination and follows
 
 Filesystem modes are not preserved. Copied files receive 0644 and directories receive 0755. Provisioning's Git adapter gives indexed executable files 0755. Other sites that execute a copied program explicitly request 0755, with the reason where they copy it. Lake sets modes on the programs it builds. No filesystem-permission-reading program participates in construction.
 
-Assumes: Trusted Git reports the source index's modes and paths with `ls-files --format/-z`. The adapter accepts stage-zero regular files and gives mode `100755` executable rights. Git is not pinned; installed Git `2.54.0` documents these fields and unquoted NUL-separated paths in `git-ls-files(1)`, under `--format`, `-z` and `FIELD NAMES`. The source index has no writer.
+The Git clone adapter emits the indexed worktree and its captured `.git` metadata. Mode `100755` files receive executable rights. Mode `120000` entries become regular files with their target text. Generated Git configuration sets `core.symlinks=false`. Untracked links, special entries and other index modes refuse before writing. Untracked regular files are admitted but are not emitted.
+
+`Construction.gitFiles_sound` relates each index entry to its regular-file instruction. `Construction.gitConstruct_io` states the exact plain tree of the executed writer. The tree has those indexed files, their directories and captured Git metadata. It contains no link. Destination byte fidelity remains trusted.
+
+Assumes: Trusted Git reports complete index modes, paths and object identifiers with `ls-files --format/-z`. Installed Git `2.54.0` documents this protocol in `git-ls-files(1)`. See `--format`, `-z` and `FIELD NAMES`. The source index and worktree have no writer. The adapter admits `.git` through no-follow capture before Git reads it.
+
+Assumes: Git `2.54.0`, `git-cat-file(1)`, returns blob contents for `cat-file blob OBJECT`. The adapter reads target-text blobs as binary output. It follows no source link. Git object fidelity and process execution remain trusted.
+
+Assumes: Git `2.54.0`, `git(1)`, defines `--no-lazy-fetch`, `--no-optional-locks` and `--no-replace-objects`. The observations select these options. They disable lazy fetching, optional lock-taking writes and replacement-object lookup.
+
+Assumes: Git `2.54.0`, `git-config(1)`, `core.symlinks`, defines target-text regular files when false. Git retains their index link type. Git interprets the generated final core section and checkout status.
+
+Assumes: Lake `v4.34.1` tests cleanliness with `git diff --exit-code HEAD` (`Util/Git.lean:198-203`). Matching-revision dependencies with changes get a warning (`Load/Materialize.lean:255-258`).
 
 `copyProject` captures the manifest at Lake's loaded `ws.manifestFile`. Its packages fallback is `ws.relPkgsDir`. Each resolved dependency receives a typed path override, including inherited and transitive dependencies. Owned dependencies point into the copy, and trusted dependencies point to their original roots. The copy always retains the captured manifest and runs ordinary loads.
 
@@ -622,7 +636,7 @@ Assumes: A full update or a missing manifest bypasses overrides (`Load/Workspace
 
 The request freezes loaded relocation selections before a producer starts. The copier and `effectiveAccount` use the same `relocateDependencies` and `generatedConfiguration` definitions. The latter also derives the expected overrides from the request's captured manifest and the copied project root. `CopyConfiguration.check_iff` proves that the executed comparison accepts exactly complete configuration equality.
 
-Result schema 19 records captured source fields and generated overrides separately in `effective.configurationOrigins`. Every other configuration value remains the exact captured text. Missing, extra or changed override entries refuse; qualification skips no overrides field. Loading the frozen selections through Lake remains a trusted observation.
+Result schema 19 records captured source fields and generated overrides separately in `effective.configurationOrigins`. Each other configuration value remains the exact captured text. Missing, extra or changed override entries refuse. Qualification skips no overrides field. Loading the frozen selections through Lake remains a trusted observation.
 
 The cold drivers embed the shared constructor's source with Lean's `include_str` and interpret that source before package artifacts exist. Assumes: Lean `v4.34.1`, `Lean/Elab/BuiltinTerm.lean:437-445`, `elabIncludeStr`, reads those bytes during elaboration. The compiler and interpreter remain trusted. The constructor has one source implementation, with checked correspondence to its filesystem model.
 

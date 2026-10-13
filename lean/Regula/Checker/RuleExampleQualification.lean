@@ -155,7 +155,7 @@ def effectiveAccount (result : Json) (admitted : ExampleRequest) : Except String
   unless effectiveAccount matches .null do
     let effective ← configurationAccount (← string effectiveAccount "root")
       (← fromJson? (α := Array (String × Option String)) (← field effectiveAccount "configuration"))
-    Regula.CopyConfiguration.check expected effective
+    Regula.CopyConfiguration.check (expected, effective)
     let origins ← Lake.configurationOrigins admitted.project admitted.configuration
       admitted.copyConfiguration (System.FilePath.mk (← string effectiveAccount "root"))
     unless JsonAgreement.conforms (← field effectiveAccount "configurationOrigins") origins do

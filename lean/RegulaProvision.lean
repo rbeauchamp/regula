@@ -436,10 +436,13 @@ private def runConstruction (parent : FilePath) (domain source : String) (target
       throw <| IO.userError s!"provisioning construction failed: {result.stdout}{result.stderr}"
   finally IO.FS.removeFile wrapper
 
-/-- Install an independently writable directory/file copy through the shared constructor.
-Links and special source entries fail before a clone can be installed. Modes are fixed at 0644
-for files, except Git-index mode 100755 files use 0755; directories use 0755. Index modes come
-from Git's own ls-files protocol in the shared cold adapter. This does not place
+/-- Install an independently writable indexed worktree and its plain Git metadata through the
+shared constructor. Untracked links and special source entries fail before installation. Tracked
+index mode 120000 entries become target-text regular files, and the generated Git config sets
+core.symlinks=false. Files use 0644 except indexed 100755 files use 0755; directories use 0755.
+Index modes and target text come from Git's ls-files and blob protocols, never a followed link.
+`Construction.gitConstruct_io` describes the executed indexed account's exact plain tree.
+This does not place
 a packages link. `installLink` is the separate shared-cache registration mechanism, outside this
 copy operation; its temporary-link creation race is tracked separately. -/
 private def installClone (path source : FilePath) : IO Unit := do

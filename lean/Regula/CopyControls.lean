@@ -89,6 +89,35 @@ run_cmd do
         unless result matches .error _ do
           throw <| IO.userError "case-folded destination alias was not refused exclusively"
 
+-- Git's external index/blob/config boundary: the copy has the complete indexed worktree,
+-- and every tracked link is the native Git target-text regular-file representation.
+run_cmd do
+  unless System.Platform.isWindows do
+    withOwnTempDir fun base => do
+      IO.eprintln "construction controls: Git target-text representation"
+      let source := base / "git-source"
+      construct source [⟨["plain"], .file "tracked file\n".toUTF8⟩]
+      fixture "git" #["-C", source.toString, "init", "--quiet"]
+      fixture "ln" #["-s", "plain", (source / "tracked-link").toString]
+      fixture "git" #["-C", source.toString, "-c", "core.symlinks=true", "add", "plain", "tracked-link"]
+      fixture "git" #["-C", source.toString, "-c", "user.name=Construction Control",
+        "-c", "user.email=construction@example.invalid", "-c", "commit.gpgsign=false",
+        "commit", "--quiet", "-m", "controlled index"]
+      let target := base / "git-target"
+      discard <| Construction.copyGit source target
+      unless (← observeMetadata (target / "tracked-link")).type == .file &&
+          (← readBytes (target / "tracked-link")) == "plain".toUTF8 do
+        throw <| IO.userError "tracked Git link was not its target-text regular representation"
+      let status ← IO.Process.output {
+        cmd := "git", cwd := some target
+        args := #["-c", "core.fileMode=true", "status", "--porcelain", "--untracked-files=all"]}
+      unless status.exitCode == 0 && status.stdout.isEmpty do
+        throw <| IO.userError s!"target-text Git checkout is not clean: {status.stdout}{status.stderr}"
+      fixture "ln" #["-s", "plain", (source / "untracked-link").toString]
+      refused "untracked Git source link" "not a directory or" <|
+        discard <| Construction.copyGit source (base / "untracked-output")
+      IO.eprintln "construction controls: tracked Git link regular and clean; untracked link refused"
+
 /-- Loaded-workspace control: the lakefile sets packagesDir, while its loaded default manifest
 omits that field. The source vendor entry is build state, not a directory to copy or link into.
 Run in the native qualification executable because Lake's loader needs its initialized native

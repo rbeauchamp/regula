@@ -754,6 +754,140 @@ theorem construct_io {ops : Ops IO} {C : CopyModel} {view : Void IO.RealWorld �
     cases result
     exact construct_sound C readsEntry readsReal names directories files target items (view w) state ran
 
+/-- The indexed regular-file representation, stated without the adapter's search or Boolean
+tests. Ordinary bytes belong to the captured source receipt. A tracked link's supplied blob
+becomes one regular-file instruction containing exactly that target text. -/
+inductive GitRepresentation (captured : List Item) : GitEntry → Item → Prop where
+  /-- Index mode 100644 uses captured file bytes and rights 0644. -/
+  | regular {relative bytes rights} : ⟨relative, .file bytes rights⟩ ∈ captured →
+      GitRepresentation captured ⟨relative, .regular⟩ ⟨relative, .file bytes 420⟩
+  /-- Index mode 100755 uses captured file bytes and rights 0755. -/
+  | executable {relative bytes rights} : ⟨relative, .file bytes rights⟩ ∈ captured →
+      GitRepresentation captured ⟨relative, .executable⟩ ⟨relative, .file bytes 493⟩
+  /-- Index mode 120000 is a target-text regular file, with no link instruction. -/
+  | link {relative text} :
+      GitRepresentation captured ⟨relative, .link text⟩ ⟨relative, .file text 420⟩
+
+/-- Every index entry and precisely its one representation, in order. -/
+inductive GitRepresentations (captured : List Item) : List GitEntry → List Item → Prop where
+  /-- No index entries produce no worktree files. -/
+  | nil : GitRepresentations captured [] []
+  /-- One represented index entry and all remaining entries. -/
+  | cons {entry item entries items} : GitRepresentation captured entry item →
+      GitRepresentations captured entries items →
+      GitRepresentations captured (entry :: entries) (item :: items)
+
+/-- Every successful indexed file instruction has precisely its independent representation. -/
+theorem gitItem_sound (captured : List Item) (entry : GitEntry) (item : Item)
+    (ran : gitItem captured entry = .ok item) : GitRepresentation captured entry item := by
+  rcases entry with ⟨relative, mode⟩
+  cases mode with
+  | link text =>
+    change Except.ok ⟨relative, .file text⟩ = .ok item at ran
+    cases ran
+    exact .link
+  | regular | executable =>
+    cases found : captured.find? (fun item => item.relative == relative) with
+    | none => simp [gitItem, found] at ran
+    | some original =>
+      have member := List.mem_of_find?_eq_some found
+      have same : original.relative = relative := by
+        simpa using List.find?_some found
+      rcases original with ⟨path, payload⟩
+      cases payload with
+      | directory => simp [gitItem, found] at ran
+      | file bytes rights =>
+        simp [gitItem, found] at ran
+        change Except.ok _ = .ok item at ran
+        cases ran
+        simp only at same
+        subst path
+        first | exact .regular member | exact .executable member
+
+/-- Indexed instruction derivation accounts for every entry, in order, with no extra files. -/
+theorem gitFiles_sound (captured : List Item) (entries : List GitEntry) (items : List Item)
+    (ran : gitFiles captured entries = .ok items) :
+    GitRepresentations captured entries items := by
+  induction entries generalizing items with
+  | nil =>
+    change Except.ok [] = .ok items at ran
+    cases ran
+    exact .nil
+  | cons entry rest ih =>
+    cases first : gitItem captured entry with
+    | error error =>
+      simp [gitFiles, first] at ran
+      change Except.error error = .ok items at ran
+      cases ran
+    | ok item =>
+      cases remaining : gitFiles captured rest with
+      | error error =>
+        simp [gitFiles, first, remaining] at ran
+        change Except.error error = .ok items at ran
+        cases ran
+      | ok tail =>
+        simp [gitFiles, first, remaining] at ran
+        change Except.ok (item :: tail) = .ok items at ran
+        cases ran
+        exact .cons (gitItem_sound captured entry item first) (ih tail remaining)
+
+/-- A successful preparation consists of exactly the indexed worktree and its captured Git
+metadata, whose config instruction receives the target-text setting. Directory layout adds
+only the parents of those instructions. Git's snapshot/blob fidelity is an external boundary. -/
+theorem prepareGit_sound (metadata captured : List Item) (entries : List GitEntry)
+    (items : List Item) (ran : prepareGit metadata captured entries = .ok items) :
+    ∃ files, GitRepresentations captured entries files ∧
+      items = layout (gitMetadata metadata ++ files) := by
+  cases found : metadata.find? (fun item => item.relative == [".git", "config"]) with
+  | none => simp [prepareGit, found] at ran
+  | some config =>
+    rcases config with ⟨relative, payload⟩
+    cases payload with
+    | directory => simp [prepareGit, found] at ran
+    | file bytes rights =>
+      cases prepared : gitFiles captured entries with
+      | error error =>
+        simp [prepareGit, found, prepared] at ran
+        change Except.error error = .ok items at ran
+        cases ran
+      | ok files =>
+        simp [prepareGit, found, prepared] at ran
+        change Except.ok (layout (gitMetadata metadata ++ files)) = .ok items at ran
+        cases ran
+        exact ⟨files, gitFiles_sound captured entries files prepared, rfl⟩
+
+/-- The Git writer the cold clone adapter actually runs constructs exactly the indexed account
+and required Git metadata. Each indexed link has a target-text regular-file instruction. The
+filesystem-model guarantee establishes kinds and placement, including absence of all links.
+Destination byte fidelity and Git index/blob completeness remain trusted observations, not
+consequences of this entry-kind model. No hypothesis asserts that a completed copy is safe. -/
+theorem gitConstruct_io {ops : Ops IO} {C : CopyModel}
+    {view : Void IO.RealWorld → C.filesystem.World}
+    (corresponds : CopyCorresponds ops C view) (readsEntry : ReadsEntry C.filesystem)
+    (readsReal : ReadsReal C.filesystem) (names : ReadsNames C)
+    (directories : CreatesDirectories C) (files : CreatesFiles C) (target : FilePath)
+    (metadata captured : List Item) (entries : List GitEntry) (w : Void IO.RealWorld) :
+    RunsTo view (gitConstructWith ops target metadata captured entries w)
+      (fun items after =>
+        (∃ indexed, GitRepresentations captured entries indexed ∧
+          items = layout (gitMetadata metadata ++ indexed)) ∧
+        Holds C.filesystem target items after) (fun _ _ => True) := by
+  cases prepared : prepareGit metadata captured entries with
+  | error error =>
+    simp [gitConstructWith, prepared, eio_throw, RunsTo]
+  | ok items =>
+    have represented := prepareGit_sound metadata captured entries items prepared
+    have built := construct_io corresponds readsEntry readsReal names directories files target items w
+    simp only [gitConstructWith, prepared]
+    cases ran : constructWith ops target items w with
+    | error error after =>
+      rw [eio_bind_error ran]
+      trivial
+    | ok result after =>
+      rw [eio_bind_ok ran, eio_pure]
+      rw [ran] at built
+      exact ⟨represented, built⟩
+
 /-- The shared source capture preserves the observed world and gives its complete selected
 source receipt. This applies when a caller combines captured subtrees and generated instructions
 before running `constructWith`, as project relocation does. -/
