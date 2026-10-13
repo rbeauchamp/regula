@@ -407,4 +407,3 @@ def decideRecord (subject : String) (loaded : Bool) (olean : FilePath) : IO Verd
     (record.map settings).getD []⟩
 
 end Regula.Checker.Observer
-

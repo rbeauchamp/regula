@@ -375,12 +375,14 @@ record.
 
 A `needs` entry of a target of the plain shape may also name that shared library, as
 `isObserverNeed` decides. [RG2006] requires each target that loads the observer to list it there.
-Lake then builds it before the modules of the target fetch their plugins. Without it, Lake v4.34.1
-can build the library several times at the same time in a fresh build. Those builds write the same
-files. Lake also mixes the trace of the target's `needs` into each module's trace, whatever the
-target's `platformIndependent` (`Lake/Build/Module.lean` lines 591 and 600 to 603). So a module
-that Lake replays was elaborated with the observer that the build has. The entry builds the
-library that the plugin entry names, and nothing else.
+The entry builds the library that the plugin entry names, and nothing else. Without it, Lake
+v4.34.1 can build the library several times at the same time in a fresh build. Those builds write
+the same files.
+
+With the entry, Lake builds the library before the modules of the target fetch their plugins. Lake
+also mixes the trace of the target's `needs` into each module's trace, whatever the target's
+`platformIndependent` (`Lake/Build/Module.lean` lines 591 and 600 to 603). So a module that Lake
+replays was elaborated with the observer that the build has.
 
 Regula declares no `presetup` facet. The audit's own builds run the facet that the workspace
 configures, without a change, through `Observer.recordingPresetup`. That wrapper keeps the
@@ -389,15 +391,17 @@ configures, without a change, through `Observer.recordingPresetup`. That wrapper
 module from there. The build store of Lake does not keep the job of a facet with
 `memoize := false`, so the audit does not read them from that store.
 
-A claimed module counts as observed only when its completed `presetup` loaded the observer of the
-running Regula, as `Observer.pluginLoaded` decides, and its target lists the observer's key in
-`needs`. The audit reads the record of the module only then. The record is read with an unchecked
-cast to the running observer's type (`Observer.recordEntries`). With the key in `needs` the
-observer's trace is in the module's trace, so an `.olean` that Lake replays was written under the
-library whose bytes `matchingPlugins` matched. Without it, Lake can replay one that another observer
-wrote, so the audit reads no record. A dependency's facet that drops the plugin, or a target
-without the `needs` entry, leaves the module refused under [RG2003]. [RG2006] requires both entries
-in the configuration of each claimed target.
+A claimed module counts as observed only when two conditions hold. Its completed `presetup` loaded
+the observer of the running Regula, as `Observer.pluginLoaded` decides. Its target also lists the
+observer's key in `needs`. The audit reads the record of the module only then. The record is read
+with an unchecked cast to the running observer's type (`Observer.recordEntries`).
+
+With the key in `needs`, the observer's trace is in the module's trace. So an `.olean` that Lake
+replays was written under the library with the bytes that `matchingPlugins` matched. Without the
+key, Lake can replay an `.olean` that a different observer wrote, so the audit reads no record. A
+dependency's facet that drops the plugin, or a target without the `needs` entry, leaves the module
+refused under [RG2003]. [RG2006] requires the two entries in the configuration of each claimed
+target.
 
 Each Regula process reads the bytes of its own observer library one time, `Observer.running`. It
 does so when it starts, before it loads a workspace, copies a project or runs a build. A loaded
@@ -1518,13 +1522,15 @@ do not name `@regula/RegulaObserver:shared`, the target fails with `Failure.obse
 (`observer_unloaded_fails`). The finding names the line to add. The adapter reads the plugins
 that Lake resolves for the target with `Observer.observerKey`: the package's, then the target's.
 
-The decision also requires the same key in the target's `needs`. A target whose plugins name the
-observer and whose `needs` do not fails with `Failure.observerNeed` (`observer_unneeded_fails`),
-and the finding names the entry to add. The adapter reads the target's own `needs` with
-`Observer.observerKey`. Lake has no `needs` setting for a package. Lake mixes the trace of the
-`needs` into the trace of each module of the target, whatever its `platformIndependent`, so a
-module that Lake replays was elaborated with the observer that the build has. A fresh build of a
-target without the entry can also build the observer several times at the same time.
+The decision also requires the same key in the target's `needs`. If the plugins of a target name
+the observer and its `needs` do not, the target fails with `Failure.observerNeed`
+(`observer_unneeded_fails`). The finding names the entry to add. The adapter reads the target's own
+`needs` with `Observer.observerKey`. Lake has no `needs` setting for a package.
+
+Lake mixes the trace of the `needs` into the trace of each module of the target, whatever its
+`platformIndependent`. So a module that Lake replays was elaborated with the observer that the
+build has. A fresh build of a target without the entry can also build the observer several times
+at the same time.
 
 [RG2006] also decides the options that each claimed module's source sets, as Regula's elaboration
 observer recorded them, with `RegulaPolicy.Community.sourceFailures` (`sourceFailures_eq_nil_iff`,
@@ -1534,7 +1540,7 @@ The first admission is a community linter turned off by `set_option linter.NAME 
 one declaration. The observer records the kinds of the commands that Lean elaborates for the wrapped
 command when all macros have expanded it. `oneDeclaration` admits the setting only if exactly one
 kind is a declaration and the others are `namespace`, `end` or `end_local_scope`. So a declaration
-whose name has a namespace passes, but a `section` of several declarations fails. A macro that
+with a namespace in its name passes, but a `section` of several declarations fails. A macro that
 expands to two declarations fails, and so does a command with an elaborator of its own. The
 theorems `oneDeclaration_iff`, `communityDisable_iff`, `missingDocs_in_namespaced_passes` and
 `missingDocs_in_two_declarations_fails` state this.
