@@ -4234,11 +4234,10 @@ private def parsedAt (path : FilePath) : IO (Option Json) := do
 private def packetAdmitted (request : Json) (path : FilePath) : IO Bool := do
   return (← parsedAt path).any fun value => (readWorkerPacket request value).isOk
 
-/-- Whether the document at `path` is the producer campaign's export: one whose member `examples`
-is an array (`Regula.Qualification.Producer.check`). Its mark holds `examples` with the value
-`null` (`Regula.Destination.Kind.mark`), so it is not such a document. -/
+/-- Whether the document at `path` is the producer campaign's export: one with the member
+`examples` (`Regula.Qualification.Producer.check`). -/
 private def exportCompleted (path : FilePath) : IO Bool := do
-  return (← parsedAt path).any fun value => (value.getObjValAs? (Array Json) "examples").isOk
+  return (← parsedAt path).any fun value => (value.getObjVal? "examples").isOk
 
 /-- A destination of a run in the task-manager control (`taskManagerControl`) or in the control of
 an early stop (`earlyStopControl`): the completed document of its own format that it starts with,
@@ -4497,25 +4496,26 @@ the text of `foundation_manifest.json` changed. Its attempt must stop with Bash'
 the driver runs, and leave that export, which the site's reader (`Site.Build.admitShard`) must then
 refuse.
 
-A run whose destination holds a file that is not a document of Regula of the destination's kind is
-refused, and its mark writes nothing there (`Regula.Destination.Target.mark`,
-`Regula.Destination.refusal`), so the guard's mark replaces no file that the run reads: the
-declaration-report worker of `axiomGate` with its request as its output, the frontend worker with
-a Lean source as its output, the audit of `axiomGate --file` with its source as its `--json-out`,
-and a symbolic link to a completed result as that `--json-out`; `freshChecker` with a hard link to
-its `--manifest`, or the configuration of a dependency, as its `--json-out`; `qualify producers
---evidence`, bounded and under the deadline, with a Lean source as its export; `ruleExamples
---injected-git-facts` with its facts as the audit's `--json-out`, `ruleExamples --policy-negative`
-with its source as its result, named through a directory and `..`, and `ruleExamples
---documentation` with a Markdown document as its result. Each must exit with its refusal's code
-and the reason, and each file must keep its bytes, or stay absent. The published admission that the
-report worker's request names must then hold a mark that the reader of an admission refuses. The
-gate with two destinations whose names differ only in case, the first holding a completed result,
-must mark them and refuse.
+A run whose destination holds a file that is not a document of Regula is refused, and its mark
+writes nothing there (`Regula.Destination.write`, `Regula.Destination.refusal`), so the guard's mark
+replaces no file that the run reads: the declaration-report worker of `axiomGate` with its request
+as its output, the frontend worker with a Lean source as its output, the audit of `axiomGate --file`
+with its source as its `--json-out`, and a symbolic link to a completed result as that `--json-out`;
+`axiomGate --registry-out` with a JSON document that holds only the member `rules`; `freshChecker`
+with a hard link to its `--manifest`, or the configuration of a dependency, as its `--json-out`;
+`qualify producers --evidence`, bounded and under the deadline, with a Lean source as its export;
+`ruleExamples --injected-git-facts` with its facts as the audit's `--json-out`, `ruleExamples
+--policy-negative` with its source as its result, named through a directory and `..`, and
+`ruleExamples --documentation` with a Markdown document as its result. Each must exit with its
+refusal's code and the reason, and each file must keep its bytes, or stay absent. The published
+admission that the report worker's request names must then hold a mark that the reader of an
+admission refuses. The gate with two destinations whose names differ only in case, the first holding
+a completed result, must mark them and refuse.
 `site build --out` a directory that holds a Markdown document must refuse and keep it
-(`Regula.Site.Build.artifactRefusal`). An empty file, a hard link to a completed result, and a
-completed result at a name of 250 bytes are each replaced by the guard's mark when the gate stops
-early, and the other name of the linked result keeps its bytes.
+(`Regula.Site.Build.artifactRefusal`). An empty file, a hard link to a completed result, a completed
+result at a name of 255 bytes, and a mark that an earlier version of Regula wrote at a worker's
+output are each replaced by the guard's mark when the gate stops early. The other name of the
+linked result keeps its bytes.
 
 The processes and Lean's runtime are its subject, an external boundary: it observes
 this build's programs and proves nothing.
@@ -4745,9 +4745,9 @@ private def earlyStopControl (repo : FilePath) : IO (Option String) :=
     if ← shardAdmitted shard then
       return some s!"early stop: right after scripts/verify.sh stopped without lean, the site's \
         reader admitted a shard export recorded before {manifestPath} changed"
-    -- Each run whose destination holds a file that is not a document of Regula of the
-    -- destination's kind, such as a file that the run reads, is refused, and its mark writes
-    -- nothing there (`Regula.Destination.Target.mark`, `Regula.Destination.refusal`): it must exit
+    -- Each run whose destination holds a file that is not a document of Regula, such as a file
+    -- that the run reads, is refused, and its mark writes nothing there
+    -- (`Regula.Destination.write`, `Regula.Destination.refusal`): it must exit
     -- with its refusal's code and the reason, and each file must keep its bytes, or stay absent.
     let request := scratch / "alias-request.json"
     let publish := scratch / "alias-publish.json"
@@ -4778,34 +4778,38 @@ private def earlyStopControl (repo : FilePath) : IO (Option String) :=
     IO.FS.writeFile dependency "name = \"vendor\"\n"
     let documentation := scratch / "Documentation.md"
     IO.FS.writeFile documentation "# Documentation\n"
+    -- A JSON document with the member `rules` of a registry export and none of its identity
+    -- members, which no reader of Regula identifies as Regula's
+    -- (`Regula.Destination.regulaDocument`).
+    let rulesOnly := scratch / "rules-only.json"
+    IO.FS.writeFile rulesOnly "{\"rules\":[]}\n"
     IO.FS.createDirAll (scratch / "through")
     let configuration := Lint.Outcome.configuration.exitCode
-    let notResult := "not a result document that Regula wrote"
-    let notOutput := "not a worker packet that Regula wrote"
-    let notGraph := "not a serialized-graph result that Regula wrote"
-    let notExport := "not a producer export that Regula wrote"
+    let notRegula := "not a document that Regula wrote"
     let aliases : List (String × String × Array String × UInt32 × String × List FilePath) := [
       ("axiomGate", gate, #["--declaration-report-worker", request.toString, request.toString],
-        configuration, notOutput, [request]),
+        configuration, notRegula, [request]),
       ("axiomGate", gate, #["--frontend-worker", request.toString, source.toString],
-        configuration, notOutput, [request, source]),
-      ("axiomGate", gate, fileArgs source, configuration, notResult, [source]),
+        configuration, notRegula, [request, source]),
+      ("axiomGate", gate, fileArgs source, configuration, notRegula, [source]),
+      ("axiomGate", gate, #["--registry-out", rulesOnly.toString], configuration, notRegula,
+        [rulesOnly]),
       ("axiomGate", gate, fileArgs symbolic, configuration, "is a symbolic link",
         [symbolic, completed]),
       ("freshChecker", (← toolPath repo "freshChecker").toString,
-        #["--manifest", manifest.toString, "--json-out", hardLink.toString], 1, notGraph,
+        #["--manifest", manifest.toString, "--json-out", hardLink.toString], 1, notRegula,
         [manifest, hardLink]),
       ("freshChecker", (← toolPath repo "freshChecker").toString,
-        #["--json-out", dependency.toString], 1, notGraph, [dependency]),
+        #["--json-out", dependency.toString], 1, notRegula, [dependency]),
       ("qualify", qualify, #["--under-deadline", "producers", "--evidence", source.toString], 1,
-        notExport, [source]),
-      ("qualify", qualify, #["producers", "--evidence", source.toString], 1, notExport, [source]),
+        notRegula, [source]),
+      ("qualify", qualify, #["producers", "--evidence", source.toString], 1, notRegula, [source]),
       ("ruleExamples", ruleExamples, #["--injected-git-facts", facts.toString, "axiomGate"] ++
-        fileArgs facts, configuration, notResult, [facts]),
+        fileArgs facts, configuration, notRegula, [facts]),
       ("ruleExamples", ruleExamples, #["--policy-negative", repo.toString, source.toString,
-        (scratch / "through" / ".." / "AliasSource.lean").toString], 4, notResult, [source]),
+        (scratch / "through" / ".." / "AliasSource.lean").toString], 4, notRegula, [source]),
       ("ruleExamples", ruleExamples, #["--documentation", repo.toString, (repo / "docs").toString,
-        documentation.toString], 4, notResult, [documentation])]
+        documentation.toString], 4, notRegula, [documentation])]
     -- The report worker's published admission, which the request names, is a destination of its
     -- own: the refused worker marks it, and the reader of an admission must refuse the mark.
     let publishRefused : IO Bool := do
@@ -4865,13 +4869,17 @@ private def earlyStopControl (repo : FilePath) : IO (Option String) :=
     let shares ← runProcess scratch "ln" #[shared.toString, sharing.toString]
     unless shares.exitCode == 0 do
       return some s!"early stop: could not link {shared} as {sharing}:\n{shares.output}"
-    -- A destination name of 250 bytes, which a file system with a 255-byte limit admits, holding a
-    -- completed result: the new file beside it has a short name of its own
+    -- A destination name of 255 bytes, the longest that a file system with a 255-byte limit admits,
+    -- holding a completed result: the new file beside it has a short name of its own
     -- (`Regula.Filesystem.writeReplacing`).
-    let long := scratch / (String.ofList (List.replicate 245 'r') ++ ".json")
+    let long := scratch / (String.ofList (List.replicate 250 'r') ++ ".json")
     copyDocument completed long
+    -- A mark that an earlier version of Regula wrote at a worker's output, a document of Regula of
+    -- a different kind from a result, with no identity member: it is replaced too.
+    let earlierMark := scratch / "earlier-mark.json"
+    IO.FS.writeFile earlierMark "{\"status\":\"incomplete\",\"reason\":\"stopped\"}\n"
     let kept ← IO.FS.readBinFile shared
-    for destination in [empty, sharing, long] do
+    for destination in [empty, sharing, long, earlierMark] do
       let result ← runProcess repo gate (fileArgs destination) (env := withoutLean)
       unless result.exitCode == Lint.Outcome.incomplete.exitCode &&
           (← markedWith destination "unresolved" started) &&
@@ -4918,10 +4926,11 @@ private def runCli (repo : FilePath) (jobs : Nat) (fullCli : Bool)
         early stop; each destination they name that held a completed document of its format ends \
         marked incomplete with the reason, the error's text for a production of ruleExamples and \
         the export of qualify producers, and a site artifact ends removed; a destination that \
-        holds a file that is not a Regula document of its kind is refused and keeps its bytes, \
+        holds a file that is not a document of Regula is refused and keeps its bytes, \
         overlapping destinations are marked and refused, and an empty file, a hard link to a \
-        result and a 250-byte name are marked; after scripts/verify.sh stops with no lean, the \
-        site's reader refuses a shard export recorded before foundation_manifest.json changed)"
+        result, a 255-byte name and an earlier version's worker mark are marked; after \
+        scripts/verify.sh stops with no lean, the site's reader refuses a shard export recorded \
+        before foundation_manifest.json changed)"
   if fullCli && runsIn shard cliAttributionShard then
     let attribution ← loggedPhase "source attribution" <|
       withScratch repo "checker-source-attribution" fun scratch =>
@@ -5210,7 +5219,7 @@ private unsafe def runTranscriptWorker (moduleWire source rejectWarnings out : S
   let moduleName ← IO.ofExcept <| Regula.RegistryCodec.parseName
       (← IO.ofExcept <| Regula.Checker.PolicyCodec.parse moduleWire)
   let transcript ← Frontend.buildCurrentSearchPath moduleName source (rejectWarnings != "false")
-  writeDestination (packetAt out)
+  writeDestination out
       (workerPacket (sourceWorkerRequest "transcript" moduleName source transcript.sourceContent)
           (toJson transcript))
   return 0
@@ -5222,7 +5231,7 @@ for each file that cannot be marked; a selection that writes none marks nothing.
 def markIncomplete (selection : Selection) (reason : String) : IO Unit := do
   for destination in selection.destinations do
     let (shown, mark) : String × IO Unit := match destination with
-      | .packet out => (out, invalidateOutput (packetAt out) reason)
+      | .packet out => (out, invalidateOutput out reason)
       | .selfHostedDigest input =>
         (s!"the {input.name} self-hosted digest", do clearSelfHostedDigest (← repoRoot) input)
     try mark
@@ -5231,12 +5240,12 @@ def markIncomplete (selection : Selection) (reason : String) : IO Unit := do
 
 /-- The reason to refuse `selection`, if the file of a worker's packet that it writes holds
 something that the run may not replace (`Regula.Destination.refusal`). The mark leaves such a file
-as it was (`Regula.Destination.Target.mark`), and the worker's write would replace it. The digest of
+as it was (`Regula.Destination.write`), and the worker's write would replace it. The digest of
 a self-hosted input is a file below the repository's `tmp/` that the mark removes
 (`clearSelfHostedDigest`). -/
 def refusalOf (selection : Selection) : IO (Option String) :=
   Regula.Destination.refusal (selection.destinations.filterMap fun
-    | .packet out => some (packetAt out)
+    | .packet out => some ⟨out⟩
     | .selfHostedDigest _ => none)
 
 /-- Runs the qualification suite: one of the focused `--…-only` controls or the internal
@@ -5352,7 +5361,7 @@ unsafe def checkerSelftestMain (args : List String) : IO UInt32 := do
 (`Regula.TaskManager.guard`): it reads the arguments as `run` does (`Selection.parse`), marks the
 files of that selection incomplete with `reason` (`markIncomplete`): the transcript worker's output
 and the digest of a shard of the structural partition that writes one. A packet file that is not
-Regula's keeps its bytes (`Regula.Destination.Target.mark`). It returns 1. -/
+Regula's keeps its bytes (`Regula.Destination.write`). It returns 1. -/
 def refuseCheckerSelftest (reason : String) (args : List String) : IO UInt32 := do
   if let .ok selection := Regula.Checker.SelftestArguments.Selection.parse args then
     Regula.Checker.CheckerSelftest.markIncomplete selection reason

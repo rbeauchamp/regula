@@ -317,20 +317,17 @@ private def targetsOf (read : List (Lint.Arg Setting)) (root : Except IO.Error F
   (destinations read).eraseDups.map fun path =>
     (path, if path.isAbsolute then .ok path else root.map (resolve · path))
 
-/-- The serialized-graph result at `path`, the destination of `--json-out`. -/
-private def graphAt (path : FilePath) : Regula.Destination.Target :=
-  Regula.Destination.target .graph path
-
 /-- Mark each target incomplete with the unresolved reason `reason`, each on its own, so one
 failure leaves no other unmarked; return a line for each that could not be marked, such as a
-file that is not a serialized-graph result or empty (`Regula.Destination.Target.mark`). -/
+file that is not empty or a document of Regula (`Regula.Destination.writeJson`). -/
 private def markIncomplete (targets : List (FilePath × Except IO.Error FilePath))
     (reason : String) : IO (Array String) := do
   let mut failed := #[]
   for (path, target) in targets do
     let result ← match target with
-      | .ok target => ((graphAt target).mark [("mode", .str "serializedGraph"),
-          ("status", .str "incomplete"), ("unresolved", toJson #[reason])]).toBaseIO
+      | .ok target => (Regula.Destination.writeJson target (Json.mkObj
+          [("mode", .str "serializedGraph"), ("status", .str "incomplete"),
+            ("unresolved", toJson #[reason])])).toBaseIO
       | .error error => pure (.error error)
     if let .error error := result then failed := failed.push s!"{path}: {error}"
   return failed
@@ -338,12 +335,11 @@ private def markIncomplete (targets : List (FilePath × Except IO.Error FilePath
 /-- The reason to refuse the reading `read` with its root `root`, if a `--json-out` destination
 holds something that the run may not replace, or two of them may be one entry
 (`Regula.Destination.refusal`). The guard marks each destination before the run reads its inputs
-(`Regula.TaskManager.guard`), and the mark replaces only an empty file or a serialized-graph result
+(`Regula.TaskManager.guard`), and the mark replaces only an empty file or a document of Regula
 (`markIncomplete`), so a file that the run reads is never replaced otherwise. -/
 private def refusalOf (read : List (Lint.Arg Setting)) (root : Except IO.Error FilePath) :
     IO (Option String) :=
-  Regula.Destination.refusal ((targetsOf read root).filterMap fun (_, target) =>
-    target.toOption.map graphAt)
+  Regula.Destination.refusal ((targetsOf read root).filterMap fun (_, target) => target.toOption)
 
 /-- The refusal of a run in a process without Lean's task manager, which the guard of the
 executable runs (`Regula.TaskManager.guard`): it reads the arguments once and finds their root
@@ -429,7 +425,7 @@ unsafe def run (args : List String) : IO UInt32 := do
           value.setObjVal! "status" (.str (if options.planOnly then "planned" else "incomplete"))
     -- The last destination of the reading, as `parseArgs` keeps it, where it was marked.
     match targets.find? (·.1 == path) with
-    | some (_, target) => writeDestination (graphAt (← IO.ofExcept target)) value
+    | some (_, target) => writeDestination (← IO.ofExcept target) value
     | none => throw <| IO.userError s!"{path} was not marked incomplete"
   IO.println
       s!"Lake modules: {plan.modules.size}   fresh roots: {", ".intercalate plan.roots.toList}"

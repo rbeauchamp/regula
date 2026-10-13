@@ -1853,33 +1853,19 @@ def Invocation.outputs : Invocation → List String
   | .inspectionGroupWorker _ out | .diagnosticWorker _ _ out | .replacementHistoryWorker _ _ out =>
     [out]
 
-/-- The registry export at `output`, the destination of `--registry-out`. -/
-private def registryAt (output : String) : Regula.Destination.Target :=
-  Regula.Destination.target .registry ⟨output⟩
-
-/-- Each file that `invocation` marks and writes, as the run resolves it, with the kind of document
-that it writes there: the registry export, a worker's packet, the admission that the
-declaration-report worker publishes, or each destination of an audit's plan that resolves
-(`Plan.targets`). -/
-def Invocation.destinations : Invocation → List Regula.Destination.Target
-  | .audit plan => plan.targets.filterMap fun (kind, _, target) =>
-    target.toOption.map <| Regula.Destination.target <|
-      if kind == .acceptanceLink then .acceptanceLink else .result
-  | .registryOut output => [registryAt output]
-  | .declarationReportWorker _ out request =>
-    packetAt out :: match request with
-      | .ok (_, request) => [Regula.Destination.target .admission ⟨request.publish⟩]
-      | .error _ => []
+/-- Each file that `invocation` marks and writes, as the run resolves it: the files of an internal
+form (`outputs`), or each destination of an audit's plan that resolves (`Plan.targets`). -/
+def Invocation.destinations : Invocation → List FilePath
+  | .audit plan => plan.targets.filterMap fun (_, _, target) => target.toOption
   | .refused _ invocation => invocation.destinations
-  | other => other.outputs.map packetAt
-
+  | other => other.outputs.map (⟨·⟩)
 
 /-- The invocation that `args` name, read once (`Invocation.read`), or that invocation `refused`
-when one of the files that it writes holds something that it may not replace, or two of them may be
-one entry (`Regula.Destination.refusal`). The guard marks the files of this reading before the run
-reads an input (`Regula.TaskManager.guard`), and each mark replaces only a file that the run may
-replace (`Regula.Destination.Target.mark`), so a file that the run reads is never replaced unless it
-is empty or a document of the kind that the run writes there. -/
+when one of the files that it writes holds something that it may not replace, or two of them may
+be one entry (`Regula.Destination.refusal`). The guard marks the files of this reading before the
+run reads an input (`Regula.TaskManager.guard`), and each mark replaces only a file that the run
+may replace (`Regula.Destination.write`), so a file that the run reads is never replaced unless it
+is empty or a document of Regula (`Regula.Destination.regulaDocument`). -/
 def Invocation.of (args : List String) : IO Invocation := do
   let invocation ← Invocation.read args
   if let some reason ← Regula.Destination.refusal invocation.destinations then
@@ -1891,16 +1877,16 @@ that could not be marked: an audit's destinations (`markIncomplete`), with `reas
 and each file of an internal form (`destinations`, `invalidateOutput`), with `reason` or else the
 reason that the job has not completed. A refused invocation marks the files of the invocation that
 it refuses. Each mark stops, and its line says why, at a file that the run may not replace
-(`Regula.Destination.Target.ownershipRefusal`). -/
+(`Regula.Destination.write`). -/
 def Invocation.markIncomplete (invocation : Invocation) (reason : Option String) :
     IO (List String) :=
   match invocation with
   | .audit plan => Regula.Checker.AxiomGate.markIncomplete plan reason
   | .refused _ invocation => invocation.markIncomplete reason
-  | other => other.destinations.filterMapM fun target => do
-    match ← (invalidateOutput target (reason.getD "the job has not completed")).toBaseIO with
+  | other => other.destinations.filterMapM fun out => do
+    match ← (invalidateOutput out (reason.getD "the job has not completed")).toBaseIO with
     | .ok () => pure none
-    | .error error => pure (some s!"{target}: {error}")
+    | .error error => pure (some s!"{out}: {error}")
 
 /-- The refusal of an invocation, which the guard of the executable runs before each run and, in a
 process without Lean's task manager, in the run's place (`Regula.TaskManager.guard`): it reads the
@@ -2052,14 +2038,12 @@ private unsafe def audit (plan : Plan) (failed : List String) : IO UInt32 := do
 /-- Run one `axiomGate` invocation and return its exit code. It reads its arguments once
 (`Invocation.of`) and marks each file of that reading incomplete, whether or not the invocation is
 admitted (`Invocation.markIncomplete`), so a run that stops before its write leaves no earlier
-completed output there. The internal forms then do only their job; any other invocation is an audit
-of its plan (`audit`), which refuses an invalid invocation whatever marking failed. An invocation
-that `Invocation.of` refuses marks the files that it may replace and returns the exit code of an
-invalid configuration, 2. A mark writes nothing at a file that is not Regula's
-(`Regula.Destination.Target.mark`), and each internal form writes its output only through its
-destination (`Invocation.destinations`, `writeDestination`). An audit returns the exit code of the
-result it recorded (`Lint.gateExitCode`), and `--help` and the internal forms 0 when they
-succeed. -/
+completed output there. The internal forms then do only their job; any other invocation is an
+audit of its plan (`audit`), which refuses an invalid invocation whatever marking failed. An
+invocation that `Invocation.of` refuses marks the files that it may replace and returns the exit
+code of an invalid configuration, 2. A mark writes nothing at a file that is not Regula's
+(`Regula.Destination.write`). An audit returns the exit code of the result it recorded
+(`Lint.gateExitCode`), and `--help` and the internal forms 0 when they succeed. -/
 unsafe def run (args : List String) : IO UInt32 := do
   terminalObservation.set none
   auditedTarget.set none
@@ -2077,8 +2061,7 @@ unsafe def run (args : List String) : IO UInt32 := do
     IO.ofExcept <| Regula.Website.validateArtifact ResultProtocol.producer registry artifact
     return 0
   | .registryOut output =>
-    writeDestination (registryAt output)
-      (Regula.RegistryCodec.registryJson ResultProtocol.producer)
+    writeDestination output (Regula.RegistryCodec.registryJson ResultProtocol.producer)
     return 0
   | .validateRegistry input =>
     let value ← IO.ofExcept <| Regula.Checker.PolicyCodec.parse (← IO.FS.readFile input)
@@ -2090,7 +2073,7 @@ unsafe def run (args : List String) : IO UInt32 := do
     let guarded ← SourceBinding.withUnchanged request.sourceBindings #[] <|
       Environment.loadModuleGraph request.modules (request.searchRoots.map FilePath.mk)
     let graph ← IO.ofExcept <| guarded.mapError (·.detail)
-    writeDestination (packetAt out) (workerPacket json (toJson graph))
+    writeDestination out (workerPacket json (toJson graph))
     return 0
   | .declarationReportWorker _ out decoded =>
     let (json, request) ← IO.ofExcept decoded
@@ -2107,27 +2090,26 @@ unsafe def run (args : List String) : IO UInt32 := do
         if let .error failure := SourceBinding.validateAgainst request.sourceBindings report then
           return .error (.admission failure)
       return outcome
-    writeDestination (packetAt out) <| workerPacket json <| toJson <|
-      ProducerReport.Outcome.ofExcept ((guarded.mapError ProducerReport.Refusal.admission).bind id)
+    writeDestination out (workerPacket json (toJson (ProducerReport.Outcome.ofExcept
+      ((guarded.mapError ProducerReport.Refusal.admission).bind id))))
     return 0
   | .frontendWorker input out =>
     let json ← IO.ofExcept <| Regula.Checker.PolicyCodec.parse (← IO.FS.readFile input)
     let request : Frontend.WorkerRequest ← IO.ofExcept (fromJson? json)
     let transcript ← Frontend.build request.moduleName request.source
       (request.searchRoots.map FilePath.mk)
-    writeDestination (packetAt out) (workerPacket json (toJson transcript))
+    writeDestination out (workerPacket json (toJson transcript))
     return 0
   | .compileBatchWorker input out =>
     let json ← IO.ofExcept <| Regula.Checker.PolicyCodec.parse (← IO.FS.readFile input)
     let request ← IO.ofExcept (fromJson? json)
-    writeDestination (packetAt out)
+    writeDestination out
         (workerPacket json (indexedWorkerPayload (← SourceAudit.compileBatchWorker request)))
     return 0
   | .inspectionGroupWorker input out =>
     let json ← IO.ofExcept <| Regula.Checker.PolicyCodec.parse (← IO.FS.readFile input)
     let request ← IO.ofExcept (fromJson? json)
-    writeDestination (packetAt out)
-      (workerPacket json (toJson (← SourceAudit.inspectGroupWorker request)))
+    writeDestination out (workerPacket json (toJson (← SourceAudit.inspectGroupWorker request)))
     return 0
   | .diagnosticWorker moduleWire source out =>
     let moduleName ← IO.ofExcept <| Regula.RegistryCodec.parseName
@@ -2135,7 +2117,7 @@ unsafe def run (args : List String) : IO UInt32 := do
     let before ← IO.FS.readFile source
     let errors ← Diagnostics.errors moduleName source
     unless (← IO.FS.readFile source) == before do throw <| IO.userError "diagnostic source changed"
-    writeDestination (packetAt out)
+    writeDestination out
         (workerPacket (sourceWorkerRequest "diagnostic" moduleName source before) (toJson errors))
     return 0
   | .replacementHistoryWorker moduleWire source out =>
@@ -2146,7 +2128,7 @@ unsafe def run (args : List String) : IO UInt32 := do
       throw <|
           IO.userError s!"unsupported replacement-history \
             evaluators: {transcript.replacementHistoryUnsupported}"
-    writeDestination (packetAt out)
+    writeDestination out
         (workerPacket (sourceWorkerRequest "history" moduleName source transcript.sourceContent)
       (toJson transcript.runtimeReplacements))
     return 0

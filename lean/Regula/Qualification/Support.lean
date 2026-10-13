@@ -144,6 +144,11 @@ replaces the entry at `path` (`Regula.Filesystem.writeReplacing`). -/
 def writeJson (path : FilePath) (value : Json) : IO Unit :=
   Regula.Filesystem.writeReplacing path (value.pretty ++ "\n").toUTF8
 
+/-- Write `value` as pretty JSON at the destination `path` of an evidence document, which stops with
+nothing written at a file that the run may not replace (`Regula.Destination.writeJson`). -/
+def writeEvidence (path : FilePath) (value : Json) : IO Unit :=
+  Regula.Destination.writeJson path value (render := fun value => value.pretty ++ "\n")
+
 /-- Root-relative entrypoints must be run in the package root, never inferred from
 source-file text or another checkout's executable location. -/
 def rootDirectory : IO FilePath := do

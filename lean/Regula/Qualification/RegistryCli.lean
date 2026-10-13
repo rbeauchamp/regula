@@ -80,7 +80,7 @@ def check : IO Unit := do
     let output := scratch / "result.json"
     for arguments in cases root scratch output do
       -- A completed result of an earlier version, which the run may replace
-      -- (`Regula.Destination.Kind.identifies`).
+      -- (`Regula.Destination.regulaDocument`).
       let earlier ← IO.ofExcept (Json.parse Regula.Destination.earlierResult)
       writeJson output (earlier.setObjVal! "old" (.bool true))
       let result ← run root (root / ".lake/build/bin/axiomGate").toString

@@ -628,15 +628,15 @@ private def leanArguments (probes : Std.Mutex Unit) (repo adopter : FilePath) :
     failures := failures.push s!"lake-lint/lean/each-destination-marked: stale.json has status \
       {stale.compress}"
   Regula.Filesystem.removePath .file (adopter / "stale.json")
-  -- A destination that holds a file other than a result of Regula, such as an input of the
-  -- audit, is not marked and keeps its bytes (`Regula.Destination.Target.mark`), so the run
+  -- A destination that holds a file other than a document of Regula, such as an input of the
+  -- audit, is not marked and keeps its bytes (`Regula.Destination.write`), so the run
   -- stops incomplete before the audit.
   IO.FS.writeFile lakefile plain
   let foreign := "{\"status\":\"completed\"}\n"
   IO.FS.writeFile (adopter / "stale.json") foreign
   failures := failures ++ (← expect adopter {
       label := "lean/foreign-destination-refused", exitCode := 3,
-      contains := #["is a JSON document, not a result document that Regula wrote",
+      contains := #["is a JSON document, not a document that Regula wrote",
         "could not mark the result destination stale.json",
         "regula lint: INCOMPLETE: a result destination could not be marked incomplete"],
       excludes := #[s!"regula lint: {acceptanceLabel}"] } #["--", "--json-out", "stale.json"])

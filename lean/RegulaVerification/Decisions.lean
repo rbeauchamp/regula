@@ -10,10 +10,10 @@ The decision kind of each pure decision `RegulaVerification` registers with `@[r
 and the theorems that relate the driver's copy of the destination rules to `RegulaCore.Destination`.
 The driver imports only the toolchain, because `scripts/verify.sh` runs it with `lean --run` before
 the package is built. This second module of its library imports it together with the two checker
-interfaces, the removal decision of the filesystem observer (`RegulaCore.Removal`) and the kinds of
-destination (`RegulaCore.Destination`), and nothing the driver runs imports this module. Each kind
-restates theorems of the driver about the same definition and adds the witnesses a kind requires.
--/
+interfaces, the removal decision of the filesystem observer (`RegulaCore.Removal`) and the
+identification of a document of Regula (`RegulaCore.Destination`), and nothing the driver runs
+imports this module. Each kind restates theorems of the driver about the same definition and adds
+the witnesses a kind requires. -/
 
 namespace RegulaVerification
 
@@ -105,30 +105,13 @@ theorem checked_prebuildCovers : Regula.ExecutableContract prebuildCovers
     ⟨Lean.Json.mkObj [("surfaces", Lean.Json.arr #[])], by decide +kernel⟩
     ⟨Lean.Json.null, by decide +kernel⟩⟩
 
-/-- A signature of the driver whose members are the names of the members that a kind of
-destination requires and forbids identifies what that kind identifies. -/
-private theorem identifies_of (kind : Regula.Destination.Kind) (signature : Signature)
-    (required : signature.required = kind.required.map Regula.Destination.Member.name)
-    (forbidden : signature.forbidden = kind.forbidden.map Regula.Destination.Member.name)
-    (value : Lean.Json) : signature.identifies value = kind.identifies value := by
-  simp only [Signature.identifies, Regula.Destination.Kind.identifies, required, forbidden,
-    List.all_map]
+/-- The driver identifies a document of Regula (`regulaDocument`) exactly as the package's
+programs do (`Regula.Destination.regulaDocument`), for every JSON value. The driver cannot import
+that identification, because `scripts/verify.sh` runs it with `lean --run` before the package is
+built, so it is written twice, and this theorem relates the two. -/
+theorem regulaDocument_shared (value : Lean.Json) :
+    regulaDocument value = Regula.Destination.regulaDocument value :=
   rfl
-
-/-- The driver identifies an acceptance link (`linkSignature`) exactly as the package's programs
-identify a document of the kind `Regula.Destination.Kind.acceptanceLink`, for every JSON value. The
-driver cannot import that identification, because `scripts/verify.sh` runs it with `lean --run`
-before the package is built, so it is written twice, and this theorem relates the two. -/
-theorem identifies_link (value : Lean.Json) :
-    linkSignature.identifies value =
-      Regula.Destination.Kind.identifies .acceptanceLink value :=
-  identifies_of .acceptanceLink linkSignature rfl rfl value
-
-/-- The driver identifies rule-example evidence (`corpusSignature`) exactly as the package's
-programs identify a document of the kind `Regula.Destination.Kind.corpus`, for every JSON value. -/
-theorem identifies_corpus (value : Lean.Json) :
-    corpusSignature.identifies value = Regula.Destination.Kind.identifies .corpus value :=
-  identifies_of .corpus corpusSignature rfl rfl value
 
 /-- The driver identifies the `build.json` of a site artifact (`identifiesSiteBuild`) exactly as
 the site's build does (`Regula.Destination.identifiesSiteBuild`), for every JSON value. -/

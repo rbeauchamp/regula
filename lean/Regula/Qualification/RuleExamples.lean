@@ -113,27 +113,18 @@ private def configuration (paths : Array FilePath) : IO Json := do
     pure (path.toString, value))
 
 /-- Write a raw observation of the attempt at `path`, below its raw directory, which is not a
-destination: the evidence itself is written through its `Regula.Destination.Target`. -/
+destination: the evidence itself is written by `Regula.Destination.writeJson`. -/
 private def save (path : FilePath) (value : Json) : IO Unit :=
   Regula.Filesystem.writeReplacing path (value.compress ++ "\n").toUTF8
 
-/-- The destination of the evidence that `path` names: rule-example evidence
-(`Regula.Destination.Kind.corpus`), which the campaign writes only through it. -/
-def destination (path : FilePath) : Regula.Destination.Target :=
-  Regula.Destination.target .corpus path
-
-/-- The raw directory of the attempt `attempt` beside the evidence `evidence`. -/
-private def rawDirectoryOf (evidence : Regula.Destination.Target) (attempt : String) : FilePath :=
-  evidence.beside s!".raw/{attempt}"
-
 /-- Invalidate the previous verdict before any campaign setup or timer acquisition. With `reason`,
-the evidence records why the attempt stops there. -/
-def beginAttempt (evidence : Regula.Destination.Target) (attempt : String)
-    (reason : Option String := none) : IO Unit := do
-  IO.FS.createDirAll evidence.directory
-  evidence.mark ([("outcome", .str "INCOMPLETE"), ("attempt", .str attempt),
-    ("rawDirectory", .str (rawDirectoryOf evidence attempt).toString)] ++
-      (reason.map fun reason => [("reason", .str reason)]).getD [])
+the evidence records why the attempt stops there. It stops with nothing written at a file that the
+run may not replace (`Regula.Destination.write`). -/
+def beginAttempt (evidence : FilePath) (attempt : String) (reason : Option String := none) :
+    IO Unit := do
+  Regula.Destination.writeJson evidence (Json.mkObj ([("outcome", .str "INCOMPLETE"),
+    ("attempt", .str attempt), ("rawDirectory", .str (evidence.toString ++ ".raw/" ++ attempt))] ++
+      (reason.map fun reason => [("reason", .str reason)]).getD []))
 
 private def digest (root path : FilePath) : IO Json := do
   let result ← run root "shasum" #["-a", "256", path.toString]
@@ -576,9 +567,9 @@ cleanup witness of the campaign's own scratch, which exists only after every pro
 join, the terminal admission, the shared-identity check, slot deletion and scratch
 removal have returned. It records what finished, not a run verdict: the run's verdict
 is its exit status, and a deadline kill after this save still fails the run. -/
-private def saveCompleted (evidence : Regula.Destination.Target) (fields : List (String × Json))
+private def saveCompleted (evidence : FilePath) (fields : List (String × Json))
     (records : Array Json) (_cleaned : Cleaned) : IO Unit :=
-  evidence.writeJson (Regula.Checker.RuleExampleProjection.corpus
+  Regula.Destination.writeJson evidence (Regula.Checker.RuleExampleProjection.corpus
     (("outcome", .str "COMPLETED") :: fields) records)
 
 /-- Full corpus, explicit scoped selection, or one corpus shard; all records and admission
@@ -589,16 +580,15 @@ mutations (relabelled demonstrations, stale displayed sources, dropped source ac
 and in-process per-record mutations are replaced by `qualify_sound`, which covers every
 record rather than sampled edits. Each production runs in its own fresh
 workspace, so no restored rerun repeats an earlier production (standard §7.8). -/
-def check (evidence : Regula.Destination.Target) (selection : Option (Array String))
+def check (evidence : FilePath) (selection : Option (Array String))
     (suppliedAttempt : Option String := none) (shard : Option (Nat × Nat) := none) : IO Unit := do
   let attempt ← match suppliedAttempt with
     | some attempt => pure attempt
     | none => freshAttempt
   beginAttempt evidence attempt
   let root ← rootDirectory
-  -- The evidence at its real path, which its record and the terminal qualifier name.
-  let evidence := destination (← evidence.realPath)
-  let rawDirectory := rawDirectoryOf evidence attempt
+  let evidence ← IO.FS.realPath evidence
+  let rawDirectory := FilePath.mk (evidence.toString ++ ".raw/" ++ attempt)
   requireChecks [⟨"fresh raw observation attempt", !(← rawDirectory.pathExists)⟩]
   IO.FS.createDirAll rawDirectory
   let specs ← readJson (root / "examples/rules/corpus.json")
@@ -614,7 +604,7 @@ def check (evidence : Regula.Destination.Target) (selection : Option (Array Stri
   let checkerBefore ← snapshotCached cache checkerPaths
   let complete := selection.isNone && shard.isNone
   let shardField := toJson (shard.map fun (index, count) => s!"{index}/{count}")
-  evidence.writeJson (Json.mkObj [("outcome", .str "INCOMPLETE"),
+  Regula.Destination.writeJson evidence (Json.mkObj [("outcome", .str "INCOMPLETE"),
     ("schemaVersion", toJson (1 : Nat)), ("completeCorpus", .bool complete), ("shard", shardField),
     ("attempt", .str attempt), ("rawDirectory", .str rawDirectory.toString),
     ("selected", toJson selected), ("checkerBefore", checkerBefore)])
@@ -753,12 +743,12 @@ def check (evidence : Regula.Destination.Target) (selection : Option (Array Stri
       ("rawDirectory", .str rawDirectory.toString),
       ("selected", toJson selected), ("checkerBefore", checkerBefore),
       ("checkerAfter", ← snapshotCached cache checkerPaths), ("admissionControls", toJson controls)]
-    evidence.writeJson
+    Regula.Destination.writeJson evidence
         (Regula.Checker.RuleExampleProjection.corpus
             (("outcome", .str "INCOMPLETE") :: finalFields) records)
     -- The single admission of every canonical record: the terminal corpus qualifier.
     let checked ← run root (root / ".lake/build/bin/ruleExampleQualification").toString
-      #[toString evidence] cleanEnv
+      #[evidence.toString] cleanEnv
     requireChecks [⟨s!"corpus admission: {checked.stdout}{checked.stderr}", checked.exitCode == 0⟩]
     requireChecks
         [⟨"terminal checker sources changed",

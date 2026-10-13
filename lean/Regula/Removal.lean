@@ -69,6 +69,12 @@ def primitives : List Name :=
   [``IO.FS.removeFile, ``IO.FS.removeDir, ``IO.FS.removeDirAll, ``IO.FS.rename,
     ``Lean.writeModule, ``Lean.saveModuleData, ``Lean.saveModuleDataParts]
 
+/-- The primitives of Lean's library that write a file or make a directory. The check of a program
+that names a writer of its own finds them beside the removal primitives (`checkProgram`), as the
+check of the verification driver does (`Regula.ProgramCheck.Verification`). -/
+def writePrimitives : List Name :=
+  [``IO.FS.writeFile, ``IO.FS.writeBinFile, ``IO.FS.createDirAll]
+
 /-- The C functions of the Lean 4.34.1 runtime that remove or replace an entry, by a search of its
 sources (`src/runtime`, `src/library`) for `unlink`, `rmdir`, `rename` and `remove`. They are the
 functions that `IO.FS.removeFile`, `IO.FS.removeDir` and `IO.FS.rename` are bound to
@@ -263,15 +269,15 @@ structure Reach where
   (`foreignObservers`). -/
   foreign : Array Name := #[]
 
-/-- Each call of a removal primitive that the compiled code of `roots` reaches and that `admitted`
-does not admit, with the declaration that makes it; and each reached declaration whose compiled
-body `env` does not hold, so that what it calls is unknown. An `extern` declaration bound to a C
-function of `removalSymbols` (`boundRemoval`) is a removal primitive, whatever its name: a call of
-it is admitted or raw as a call of `primitives` is, and as a root it is raw. Every compiled
-declaration is followed, of this package, of Lean's library and of each other package; a C
-function of the runtime is not. -/
+/-- Each call of a primitive of `watched`, by default the removal primitives (`primitives`), that
+the compiled code of `roots` reaches and that `admitted` does not admit, with the declaration that
+makes it; and each reached declaration whose compiled body `env` does not hold, so that what it
+calls is unknown. An `extern` declaration bound to a C function of `removalSymbols`
+(`boundRemoval`) is a removal primitive, whatever its name: a call of it is admitted or raw as a
+call of `primitives` is, and as a root it is raw. Every compiled declaration is followed, of this
+package, of Lean's library and of each other package; a C function of the runtime is not. -/
 def rawRemovalsFrom (env : Environment) (observers : Array Name) (roots : Array Name)
-    (named : List (Name × Name) := []) : Reach :=
+    (named : List (Name × Name) := []) (watched : List Name := primitives) : Reach :=
   Id.run do
   let mut seen : Std.HashSet Name := {}
   for root in roots do seen := seen.insert root
@@ -288,7 +294,7 @@ def rawRemovalsFrom (env : Environment) (observers : Array Name) (roots : Array 
     | some decl@(.fdecl ..) =>
       for used in collectUsedDecls env [decl] do
         if used == name then continue
-        if primitives.contains used || (boundRemoval env used).isSome then
+        if watched.contains used || (boundRemoval env used).isSome then
           unless admitted env observers named name used do raw := raw.push (name, used)
         else if !seen.contains used then
           seen := seen.insert used
@@ -301,11 +307,12 @@ def rawRemovalsFrom (env : Environment) (observers : Array Name) (roots : Array 
 
 /-- `rawRemovalsFrom` for a program whose `main` is `main` in the module `root`: from `main` and
 from each initializer of the modules that it links (`linked`, `initializersOf`), with the
-filesystem observers of `env` and the removals `named`, and with the declarations of other
-modules that have the filesystem observer's role (`foreignObservers`). -/
-def rawRemovals (env : Environment) (root : Name) (named : List (Name × Name) := []) : Reach :=
+filesystem observers of `env`, the calls `named` and the primitives `watched`, and with the
+declarations of other modules that have the filesystem observer's role (`foreignObservers`). -/
+def rawRemovals (env : Environment) (root : Name) (named : List (Name × Name) := [])
+    (watched : List Name := primitives) : Reach :=
   let roots := (initializersOf env (linked env root)).push `main
-  { rawRemovalsFrom env (filesystemObservers env) roots named with
+  { rawRemovalsFrom env (filesystemObservers env) roots named watched with
     foreign := foreignObservers env }
 
 /-- The prefix of the marker that `checkProgram` adds for each program that it checked: the
@@ -319,7 +326,8 @@ reached declaration whose compiled code is unknown, and each declaration of anot
 `observerModule` with the filesystem observer's role; `none` when there is none of them. -/
 def programRefusal (root : Name) (reach : Reach) : Option String :=
   if !reach.raw.isEmpty then
-    some s!"the program of {root} removes without the observer `Regula.Filesystem`: \
+    some s!"the program of {root} removes or writes without the observer `Regula.Filesystem` \
+      and outside the places that its check names: \
       {reach.raw.toList.map fun (caller, primitive) => s!"{caller} calls {primitive}"}"
   else if !reach.unknown.isEmpty then
     some s!"the program of {root} reaches declarations whose compiled code is not available, so \
@@ -332,13 +340,18 @@ def programRefusal (root : Name) (reach : Reach) : Option String :=
 /-- Check the program whose `main` the environment declares: fail with the refusal of the
 program (`programRefusal`) when there is one, and otherwise record the program (`reached`).
 `named` admits the removals that a program which cannot import `Regula.Filesystem` names, each as
-the pair of its caller and the primitive that it calls (`admitted`). -/
-def checkProgram (named : List (Name × Name) := []) : Elab.Command.CommandElabM Unit := do
+the pair of its caller and the primitive that it calls (`admitted`). `watched` is the primitives
+that the check finds, by default the removal primitives (`primitives`); the check of a program
+that names a writer of its own adds primitives that write, so a call of one outside the places that
+`named` admits fails the build. -/
+def checkProgram (named : List (Name × Name) := []) (watched : List Name := primitives) :
+    Elab.Command.CommandElabM Unit := do
   let env ← getEnv
   unless env.contains `main do
     throwError "no `main` is declared here, so there is no program to check"
   let root := moduleOf env `main
-  if let some refused := programRefusal root (rawRemovals env root named) then throwError refused
+  if let some refused := programRefusal root (rawRemovals env root named watched) then
+    throwError refused
   Elab.Command.liftCoreM <| addDecl (.defnDecl {
     name := reached ++ root, levelParams := [], type := mkConst ``Unit,
     value := mkConst ``Unit.unit, hints := .abbrev, safety := .safe })

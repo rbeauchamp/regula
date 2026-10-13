@@ -115,20 +115,15 @@ private def standalone (root : FilePath) (fresh : String → IO FilePath) (phase
         (phase == "axiom")))
   IO.println s!"standalone executable {phase}: PASS"
 
-/-- The destination of the export that `path` names: a producer export
-(`Regula.Destination.Kind.producerExport`), which the campaign writes only through it. -/
-def destination (path : FilePath) : Regula.Destination.Target :=
-  Regula.Destination.target .producerExport path
-
 /-- Mark the export at `evidence` incomplete for the attempt `attempt`, before the campaign runs, so
-an earlier completed export there cannot be mistaken for this attempt's: the record has the status
-`incomplete` and the member `examples` with the value `null` (`Regula.Destination.Target.mark`).
-With `reason`, it records why the attempt stops there. -/
-def beginAttempt (evidence : Regula.Destination.Target) (attempt : String)
-    (reason : Option String := none) : IO Unit := do
-  IO.FS.createDirAll evidence.directory
-  evidence.mark ([("schemaVersion", toJson (1 : Nat)), ("status", .str "incomplete"),
-    ("attempt", .str attempt)] ++ (reason.map fun reason => [("reason", .str reason)]).getD [])
+an earlier completed export there cannot be mistaken for this attempt's: the record has no member
+`examples`. With `reason`, it records why the attempt stops there. It stops with nothing written at
+a file that the run may not replace (`writeEvidence`). -/
+def beginAttempt (evidence : FilePath) (attempt : String) (reason : Option String := none) :
+    IO Unit := do
+  writeEvidence evidence (Json.mkObj ([("schemaVersion", toJson (1 : Nat)),
+    ("status", .str "incomplete"), ("attempt", .str attempt)] ++
+      (reason.map fun reason => [("reason", .str reason)]).getD []))
 
 /-- Run all source-bound producer controls, optionally retaining emitted evidence. No workspace
 reads another's, so the four documented-source workspaces and the two standalone ones run on
@@ -139,8 +134,7 @@ failure, and the error it reports is the first failing worker's. A worker that f
 further item, so once `jobs` items have failed, the items still queued do not run. The
 documented-source observations are then validated in the order of one workspace after another,
 each against the theorem type of the first, as when the workspaces ran in turn. -/
-private def checkControls (evidence : Option Regula.Destination.Target) (jobs : Nat) :
-    IO Unit := do
+private def checkControls (evidence : Option FilePath) (jobs : Nat) : IO Unit := do
   let root ← rootDirectory
   let sources := (← (examples.push standaloneExample).mapM fun (relative : String) =>
     Regula.Filesystem.readFile (root / relative)).push
@@ -183,10 +177,9 @@ private def checkControls (evidence : Option Regula.Destination.Target) (jobs : 
         ("source", .str observation.source), ("result", report)])
       IO.println s!"{observation.invocation} project {observation.rule}/{observation.kind}: PASS"
     return records
-  if let some destination := evidence then
-    IO.FS.createDirAll destination.directory
-    destination.writeJson (Json.mkObj [("schemaVersion", toJson (1 : Nat)),
-      ("examples", toJson records)]) (render := fun value => value.pretty ++ "\n")
+  if let some path := evidence then
+    writeEvidence path
+      (Json.mkObj [("schemaVersion", toJson (1 : Nat)), ("examples", toJson records)])
   IO.println "producer qualification: PASS (scoped operational evidence)"
 
 /-- Run all source-bound producer controls (`checkControls`), on `jobs` workers. With `evidence`,
@@ -194,14 +187,14 @@ the export there is first marked incomplete for the attempt `attempt`, or a fres
 (`beginAttempt`), as the other campaigns begin theirs; a run that fails marks it again with the
 error's text and then fails with that error. So no earlier completed export remains after a run
 that does not complete. -/
-def check (evidence : Option Regula.Destination.Target) (attempt : Option String := none)
-    (jobs : Nat := 4) : IO Unit := do
-  let some destination := evidence | checkControls none jobs
+def check (evidence : Option FilePath) (attempt : Option String := none) (jobs : Nat := 4) :
+    IO Unit := do
+  let some path := evidence | checkControls none jobs
   let attempt ← attempt.getDM freshAttempt
-  beginAttempt destination attempt
-  try checkControls (some destination) jobs
+  beginAttempt path attempt
+  try checkControls (some path) jobs
   catch error =>
-    discard <| (beginAttempt destination attempt (some error.toString)).toBaseIO
+    discard <| (beginAttempt path attempt (some error.toString)).toBaseIO
     throw error
 
 end Regula.Qualification.Producer

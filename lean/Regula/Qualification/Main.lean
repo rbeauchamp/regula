@@ -55,18 +55,14 @@ private unsafe def runCommand (attempt : Option String) : Command → IO Unit
       IO.ofExcept (← IO.wait unique)
   | .uniqueConstants => Regula.Qualification.UniqueConstants.check
   | .nativeLauncher => Regula.Qualification.NativeLinter.paired
-  | .ruleExamples path =>
-      Regula.Qualification.RuleExamples.check (RuleExamples.destination ⟨path⟩) none attempt
+  | .ruleExamples path => Regula.Qualification.RuleExamples.check ⟨path⟩ none attempt
   | .ruleExamplesRules path rules =>
-      Regula.Qualification.RuleExamples.check (RuleExamples.destination ⟨path⟩)
-        (some rules.toArray) attempt
+      Regula.Qualification.RuleExamples.check ⟨path⟩ (some rules.toArray) attempt
   | .ruleExamplesShard path spec => do
       let shard ← IO.ofExcept ((ruleExampleShard spec).mapError IO.userError)
-      Regula.Qualification.RuleExamples.check (RuleExamples.destination ⟨path⟩) none attempt
-        (some shard)
+      Regula.Qualification.RuleExamples.check ⟨path⟩ none attempt (some shard)
   | .producers => Regula.Qualification.Producer.check none
-  | .producersExport path =>
-      Regula.Qualification.Producer.check (some (Producer.destination ⟨path⟩)) attempt
+  | .producersExport path => Regula.Qualification.Producer.check (some ⟨path⟩) attempt
   | .producersCombined => do
       Regula.Qualification.Producer.check none
       Regula.Qualification.History.check
@@ -78,10 +74,8 @@ private unsafe def runCommand (attempt : Option String) : Command → IO Unit
       Regula.Qualification.SelfAudit.check (some shard)
   | .selfAuditModule m source => Regula.Qualification.SelfAudit.worker m source
   | .selfAuditJsonModule m => Regula.Qualification.SelfAudit.jsonWorker m
-  | .environments path =>
-      Regula.Qualification.EnvironmentCensus.check (EnvironmentCensus.destination ⟨path⟩) attempt
-  | .acceptance group path =>
-      Regula.Qualification.Acceptance.check group.spelling (Acceptance.destination ⟨path⟩) attempt
+  | .environments path => Regula.Qualification.EnvironmentCensus.check ⟨path⟩ attempt
+  | .acceptance group path => Regula.Qualification.Acceptance.check group.spelling ⟨path⟩ attempt
   | .acceptanceSnapshots group => Regula.Qualification.DependencySnapshot.check group.spelling
   | .prepMeasure => Regula.Qualification.Preparation.check
   | .documentationDependencies => Regula.Qualification.Acceptance.documentationDependencies
@@ -124,18 +118,15 @@ private def commandOf (args : List String) : Except String Command :=
     documentation-source [--source-read-only]|enumeration|enumeration-failure|readers|\
     rule-examples --evidence PATH [--rules RULE ... | --shard K/N]"
 
-/-- The destination of the evidence document `evidence`, which its campaign's own `destination`
-gives, of the campaign's kind. The launcher's report is at `NativeLinter.reportDestination` of the
-package root, and a run outside that root has none here, as its mark then fails
-(`NativeLinter.beginReport`). -/
-private def evidenceDestination : Evidence → IO (Option Regula.Destination.Target)
-  | .ruleExamples path => pure (some (RuleExamples.destination ⟨path⟩))
-  | .producers path => pure (some (Producer.destination ⟨path⟩))
-  | .environments path => pure (some (EnvironmentCensus.destination ⟨path⟩))
-  | .acceptance _ path => pure (some (Acceptance.destination ⟨path⟩))
+/-- The file of the evidence document `evidence`. The launcher's report is at
+`NativeLinter.reportPath` of the package root, and a run outside that root has none here, as its
+mark then fails (`NativeLinter.beginReport`). -/
+private def evidenceDestination : Evidence → IO (Option System.FilePath)
+  | .ruleExamples path | .producers path | .environments path | .acceptance _ path =>
+    pure (some ⟨path⟩)
   | .launcherReport => do
     match ← Regula.Qualification.rootDirectory.toBaseIO with
-    | .ok root => pure (some (NativeLinter.reportDestination root))
+    | .ok root => pure (some (NativeLinter.reportPath root))
     | .error _ => pure none
 
 /-- The reason to refuse the evidence document that `args` name from their leading arguments
@@ -159,12 +150,12 @@ private def markEvidence (args : List String) (attempt : String) (reason : Optio
   if let some refusal ← evidenceRefusal args then throw <| IO.userError s!"refused: {refusal}"
   match Evidence.named args with
   | some (.acceptance group path) =>
-    let _ ← Acceptance.beginAttempt group (Acceptance.destination ⟨path⟩) attempt reason
+    let _ ← Regula.Qualification.Acceptance.beginAttempt group ⟨path⟩ attempt reason
   | some (.environments path) =>
-    EnvironmentCensus.beginAttempt (EnvironmentCensus.destination ⟨path⟩) attempt reason
+    Regula.Qualification.EnvironmentCensus.beginAttempt ⟨path⟩ attempt reason
   | some (.ruleExamples path) =>
-    RuleExamples.beginAttempt (RuleExamples.destination ⟨path⟩) attempt reason
-  | some (.producers path) => Producer.beginAttempt (Producer.destination ⟨path⟩) attempt reason
+    Regula.Qualification.RuleExamples.beginAttempt ⟨path⟩ attempt reason
+  | some (.producers path) => Regula.Qualification.Producer.beginAttempt ⟨path⟩ attempt reason
   | some .launcherReport => Regula.Qualification.NativeLinter.beginReport reason
   | none => pure ()
 

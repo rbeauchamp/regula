@@ -229,14 +229,13 @@ private unsafe def ruleExamplesEntry (production : Option Regula.Checker.RuleExa
 /-- The reason to refuse the arguments `args` of `ruleExamples`, if the result file of the
 production that they name holds something that the run may not replace
 (`Regula.Destination.refusal`). The guard marks it before the production reads its inputs
-(`Regula.TaskManager.guard`), and the mark replaces only a result document or an empty file
+(`Regula.TaskManager.guard`), and the mark replaces only a document of Regula or an empty file
 (`Production.markIncomplete`). The gate refuses such arguments of its `axiomGate` form itself
 (`AxiomGate.Invocation.of`). -/
 private def refusalOf (args : List String) : IO (Option String) := do
   let production (rest : List String) : IO (Option String) :=
     match Regula.Checker.RuleExamples.Production.parse? rest with
-    | some production =>
-      Regula.Destination.refusal [Regula.Destination.target .result ⟨production.output⟩]
+    | some production => Regula.Destination.refusal [⟨production.output⟩]
     | none => return none
   match args with
   | "--injected-git-facts" :: _ :: "axiomGate" :: _ => return none
@@ -247,10 +246,10 @@ private def refusalOf (args : List String) : IO (Option String) := do
 `reason`, and return the exit code of an incomplete production. For the `axiomGate` form it marks
 each destination of the audit's arguments, as the gate's own refusal does
 (`AxiomGate.refuseWithoutTaskManager`); for a production that the arguments name
-(`Production.parse?`) it marks its result file (`Production.markIncomplete`), which writes only
-over a result document or an empty file (`ResultProtocol.writeDocument`). No production runs. It
-is the program's refusal in a process without Lean's task manager, which the guard also runs
-before every run (`Regula.TaskManager.guard`), and a run whose injected facts cannot be loaded
+(`Production.parse?`) it marks its result file (`Production.markIncomplete`), which writes only over
+a document of Regula or an empty file (`ResultProtocol.writeDocument`). No production runs. It is
+the program's refusal in a process without Lean's task manager, which the guard also runs before
+every run (`Regula.TaskManager.guard`), and a run whose injected facts cannot be loaded
 returns it with the reason. -/
 private def refuseProduction (reason : String) (args : List String) : IO UInt32 := do
   match args with

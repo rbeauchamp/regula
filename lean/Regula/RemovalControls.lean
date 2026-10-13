@@ -27,7 +27,9 @@ planted initializer never runs. The planted removals below are the calls of a re
 - A declaration of another name bound to a C function of the runtime that removes: a call of it is
   a raw removal (`removalSymbols`).
 - A rename and the writing of a module, which replace an entry: each call is a raw removal
-  (`primitives`). A write of a file is not a removal, and the check does not refuse it.
+  (`primitives`). A write of a file is not a removal, and the check does not refuse it, unless it
+  watches the primitives that write (`writePrimitives`), as the check of the verification driver
+  does: then the write is found, and a caller that the check names admits it.
 - An absent output below a linked ancestor, and an output with a `.` or `..` component after the
   first: `ownPath` refuses each before anything is made. It drops the leading `.` of a relative
   path.
@@ -248,6 +250,21 @@ run_cmd do
       (``callsReplacements, replacement)) && reach.unknown.isEmpty do
     throwError "the planted replacements are not raw removals: {reach.raw}, unknown \
       {reach.unknown}"
+
+-- With the primitives that write watched, the write is found too, and naming its caller admits it.
+run_cmd do
+  let env ← getEnv
+  let observers := Regula.Removal.filesystemObservers env
+  let watched := Regula.Removal.primitives ++ Regula.Removal.writePrimitives
+  let write := (``callsReplacements, ``IO.FS.writeFile)
+  let reach := Regula.Removal.rawRemovalsFrom env observers #[``callsReplacements]
+    (watched := watched)
+  unless reach.raw.size == 3 && reach.raw.contains write && reach.unknown.isEmpty do
+    throwError "the planted write is not found with the primitives that write watched: \
+      {reach.raw}, unknown {reach.unknown}"
+  let named := Regula.Removal.rawRemovalsFrom env observers #[``callsReplacements] [write] watched
+  unless named.raw.size == 2 && !named.raw.contains write do
+    throwError "the planted write is not admitted by its named caller: {named.raw}"
 
 -- The planted initializer is found, and no other initializer of this module's imports removes.
 run_cmd do
