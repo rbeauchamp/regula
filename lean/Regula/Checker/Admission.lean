@@ -2382,40 +2382,44 @@ theorem uniformUpToPrivate_iff {find : Name → Option ConstantInfo}
   generalize hrenamed : List.filter (fun e => renamedUniform modules names attributed
     (duplicatesOf find attributed modules) fixedB (linksOf modules inside) e.2 e.1)
     (shaped.map fun n => (n, aboveIn (linksOf modules inside) n)) = renamed
-  have mem : ∀ e, e ∈ renamed ↔ e.1 ∈ shaped ∧ e.2 = aboveIn (linksOf modules inside) e.1 ∧
+  -- The pairs stay as variables `a b` until the projections of `(a, b)` are reduced (`dsimp only`):
+  -- unifying `(a, aboveIn _ a).2` with `aboveIn _ a` would unfold `aboveIn` before `Prod.snd`.
+  have mem : ∀ a b, (a, b) ∈ renamed ↔ a ∈ shaped ∧ b = aboveIn (linksOf modules inside) a ∧
       renamedUniform modules names attributed (duplicatesOf find attributed modules) fixedB
-        (linksOf modules inside) e.2 e.1 = true := by
-    intro e
+        (linksOf modules inside) b a = true := by
+    intro a b
     rw [← hrenamed, List.mem_filter, List.mem_map]
+    dsimp only
     constructor
-    · rintro ⟨⟨m, hm, rfl⟩, h⟩
+    · rintro ⟨⟨m, hm, he⟩, h⟩
+      obtain ⟨rfl, rfl⟩ := Prod.mk.inj he
       exact ⟨hm, rfl, h⟩
-    · rintro ⟨hm, he, h⟩
-      exact ⟨⟨e.1, hm, Prod.ext rfl he.symm⟩, h⟩
+    · rintro ⟨hm, rfl, h⟩
+      exact ⟨⟨a, hm, rfl⟩, h⟩
+  have roots : ∀ a b, (a, b) ∈ renamed → ∀ d ∈ a :: b.toList,
+      d ∈ renamed.flatMap fun e => e.1 :: e.2.toList :=
+    fun _ _ he _ hd => List.mem_flatMap.mpr ⟨_, he, hd⟩
   have native := nativeFree_iff (find := find) (attributed := attributed) hcovers habove
     (roots := renamed.flatMap fun e => e.1 :: e.2.toList)
     (fuel := (linksOf modules inside).fuel + (linksOf modules inside).declared + 2 +
       (renamed.flatMap fun e => e.1 :: e.2.toList).length)
   rw [List.mem_map]
   constructor
-  · rintro ⟨e, he, rfl⟩
+  · rintro ⟨⟨a, b⟩, he, ha⟩
     obtain ⟨he, hfree⟩ := List.mem_filter.mp he
-    obtain ⟨-, habove', hrenamed'⟩ := (mem e).mp he
-    rw [habove'] at hfree hrenamed'
-    have hroots : ∀ d ∈ e.1 :: (aboveIn (linksOf modules inside) e.1).toList,
-        d ∈ renamed.flatMap fun e => e.1 :: e.2.toList :=
-      fun d hd => List.mem_flatMap.mpr ⟨e, he, habove' ▸ hd⟩
+    dsimp only at ha hfree
+    subst ha
+    obtain ⟨-, rfl, hrenamed'⟩ := (mem _ _).mp he
     obtain ⟨hcycle, hkernel, huniform⟩ := tests.mp hrenamed'
-    have hnative := (native hroots (by rw [fuel_linksOf.1, fuel_linksOf.2]; omega)).mp hfree
+    have hnative :=
+      (native (roots _ _ he) (by rw [fuel_linksOf.1, fuel_linksOf.2]; omega)).mp hfree
     exact ⟨hcycle, fun d hd h => h.elim (hnative d hd) (hkernel d hd), huniform⟩
   · rintro ⟨hcycle, h, huniform⟩
-    have he : (n, aboveIn (linksOf modules inside) n) ∈ renamed :=
-      (mem _).mpr ⟨hshape, rfl, tests.mpr ⟨hcycle, fun d hd hk => h d hd (.inr hk), huniform⟩⟩
-    have hroots : ∀ d ∈ n :: (aboveIn (linksOf modules inside) n).toList,
-        d ∈ renamed.flatMap fun e => e.1 :: e.2.toList :=
-      fun d hd => List.mem_flatMap.mpr ⟨_, he, hd⟩
+    have he := (mem n (aboveIn (linksOf modules inside) n)).mpr
+      ⟨hshape, rfl, tests.mpr ⟨hcycle, fun d hd hk => h d hd (.inr hk), huniform⟩⟩
     refine ⟨_, List.mem_filter.mpr ⟨he, ?_⟩, rfl⟩
-    exact (native hroots (by rw [fuel_linksOf.1, fuel_linksOf.2]; omega)).mpr
+    dsimp only
+    exact (native (roots _ _ he) (by rw [fuel_linksOf.1, fuel_linksOf.2]; omega)).mpr
       fun d hd hx => h d hd (.inl hx)
 
 /-- Whether the module `n` is attributed to and each of its `others`, the other modules that
