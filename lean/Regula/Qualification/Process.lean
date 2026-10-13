@@ -190,18 +190,19 @@ def doctorWorker (directory : FilePath) : IO UInt32 := do
     IO.eprintln reason
     return 1
 
-/-- Elaborate one solver-using source in this Regula executable. The raw branch is an external
-boundary counterexample: no process policy is duplicated, only the unprotected initial options.
-The protected branches call the actual setup, fresh frontend and diagnostic source readers.
+/-- Elaborate one solver-using source in this Regula executable. The raw branch, for no `route`,
+is an external boundary counterexample: no process policy is duplicated, only the unprotected
+initial options. The protected branches, one for each `route`, call the actual setup, fresh
+frontend and diagnostic source readers.
 The caller selects this worker by its own single argument, so solver children with native SAT
 arguments inherit only the marker-worker environment mode. Assumes: Lean v4.34.1
 External.lean:147-166 supplies its solver arguments, and Init/System/IO.lean:1434-1450 inherits
 the parent's environment. Imported tactic code and its native solver remain trusted. -/
-def cadicalWorker (checked : Bool) (route : String := "setup") : IO UInt32 := do
+def cadicalWorker (route : Option String) : IO UInt32 := do
   let some file ← Regula.Process.readEnv "REGULA_CADICAL_SOURCE"
     | throw <| IO.userError "cadical control has no owned source"
   let source ← IO.FS.readFile file
-  let errors ← if checked then do
+  let errors ← if let some route := route then do
     if route == "setup" then
       let (_, errors) ← Regula.Cli.Setup.lakefileCommands file source
       pure errors

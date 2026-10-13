@@ -731,7 +731,8 @@ def announce (line : String) : BaseIO Unit := do
 /-- A command as the progress lines show it. -/
 def Command.display (command : Command) : String :=
   " ".intercalate ((command.env.map fun (name, value) => s!"{name}={value}").toList ++
-    toString command.program :: command.args.toList) ++
+    toString command.program :: (command.child.map fun child => ["env", toString child]).getD [] ++
+    command.args.toList) ++
     (if command.dir = "." then "" else s!" (in {command.dir})")
 
 /-- An end as the progress lines and the failure report show it. No end has one label for its
@@ -1455,15 +1456,18 @@ def copyControl : IO Unit := do
 
 end RegulaVerification
 
-/-- Standalone cold-start entrypoint; invoke through the timed `scripts/verify.sh`, which
-first runs it with the private `--begin-attempt` protocol flag before setup. The private
-`--copy-control` entry is for the controls of the checker self-test. -/
+/-- The private `--copy-control` entry is for the controls of the checker self-test; any other
+arguments select a mode of `run`. -/
 private def dispatch : List String → IO Unit
-  | "--begin-attempt" :: args => RegulaVerification.beginAttempt args
   | ["--copy-control"] => RegulaVerification.copyControl
   | args => RegulaVerification.run args
 
-/-- Check the selected installation before invalidation, copies, setup or verification. -/
-def main (args : List String) : IO Unit := do
-  RegulaVerification.Process.requireNativeTools (← RegulaVerification.Process.identified)
-  dispatch args
+/-- Standalone cold-start entrypoint; invoke through the timed `scripts/verify.sh`, which
+first runs it with the private `--begin-attempt` protocol flag before setup. That invalidation
+starts no process, so it runs before any check that could fail (`beginAttempt`). Every other
+entry checks the selected installation before copies, setup or verification. -/
+def main : List String → IO Unit
+  | "--begin-attempt" :: args => RegulaVerification.beginAttempt args
+  | args => do
+    RegulaVerification.Process.requireNativeTools (← RegulaVerification.Process.identified)
+    dispatch args

@@ -5910,6 +5910,8 @@ Stated selections keep their reason at each call site. They are external selecti
 | `/usr/bin/env` | The existing deployment launcher clears unlisted variables. Its environment record remains separate work. |
 | `/bin/bash`, `/bin/chmod` | The controls execute exact approved wrapper copies and set owned fixture modes. |
 | `ln`, `mkfifo` | Diagnostic controls plant symbolic-link, toolchain-alias and FIFO inputs. The reporter's read-only import overlay links artifacts to keep their real origin. Mathlib provisioning registers the read-only shared cache by a link. |
+| `readlink` | The provisioning control reads the text of a symbolic link. Lean `v4.34.1` has no operation that reads it. |
+| `getconf` | The removal and renderer-refusal controls read the file system's `NAME_MAX` through POSIX `getconf`. |
 | A resolved package or worker executable | Lake resolves the requested package executable, or the checker selects its own native worker. |
 
 ### The compiled observer boundary

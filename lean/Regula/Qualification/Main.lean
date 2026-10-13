@@ -120,10 +120,10 @@ private def markEvidence (args : List String) (attempt : String) (reason : Optio
 /-- The form of one `qualify` invocation, read from its arguments and the two variables of its
 environment that select a mode (`Invocation.of`). -/
 private inductive Invocation where
-  /-- `--process-cadical-raw`, `--process-cadical-checked` or `--process-cadical-reader ROUTE`:
-  the solver control's elaboration of its owned source, through the reader `route` when one is
-  named (`Regula.Qualification.Process.cadicalWorker`). -/
-  | processCadical (checked : Bool) (route : Option String)
+  /-- `--process-cadical-raw` or `--process-cadical-reader ROUTE`: the solver control's
+  elaboration of its owned source, raw or through the checked reader `route`
+  (`Regula.Qualification.Process.cadicalWorker`). -/
+  | processCadical (route : Option String)
   /-- `--process-native-fallback MODE DIRECTORY`: the native fallback control's worker
   (`Regula.Qualification.Process.nativeFallbackWorker`). -/
   | processNativeFallback (mode directory : String)
@@ -150,9 +150,8 @@ private inductive Invocation where
 through the process and environment observer (`Regula.Process.readEnv`). -/
 private def Invocation.of (args : List String) : BaseIO Invocation := do
   match args with
-  | ["--process-cadical-raw"] => return .processCadical false none
-  | ["--process-cadical-checked"] => return .processCadical true none
-  | ["--process-cadical-reader", route] => return .processCadical true (some route)
+  | ["--process-cadical-raw"] => return .processCadical none
+  | ["--process-cadical-reader", route] => return .processCadical (some route)
   | ["--process-native-fallback", mode, directory] =>
     return .processNativeFallback mode directory
   | ["--process-doctor", directory] => return .processDoctor directory
@@ -174,9 +173,7 @@ as a bounded standalone command. Nested commands do not create escaping groups. 
 invocation is read once (`Invocation.of`). -/
 unsafe def qualifyMain (args : List String) : IO UInt32 := do
   match ← Invocation.of args with
-  | .processCadical checked none => Regula.Qualification.Process.cadicalWorker checked
-  | .processCadical checked (some route) =>
-    Regula.Qualification.Process.cadicalWorker checked route
+  | .processCadical route => Regula.Qualification.Process.cadicalWorker route
   | .processNativeFallback mode directory =>
     Regula.Qualification.Process.nativeFallbackWorker mode directory
   | .processDoctor directory => Regula.Qualification.Process.doctorWorker directory
@@ -210,7 +207,7 @@ private def refuseQualification (reason : String) (args : List String) : IO UInt
   match ← Invocation.of args with
   | .acceptanceProxy =>
     return ← Regula.Checker.AxiomGate.refuseWithoutTaskManager reason args
-  | .processCadical _ _ | .processNativeFallback _ _ | .processDoctor _ | .receiptTimer
+  | .processCadical _ | .processNativeFallback _ _ | .processDoctor _ | .receiptTimer
     | .processShadow | .unknownWrapper => pure ()
   | .underDeadline attempt rest => mark rest attempt
   | .bounded rest => mark rest none
