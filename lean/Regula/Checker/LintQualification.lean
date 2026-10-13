@@ -863,15 +863,17 @@ private def observerEscapes (repo adopter : FilePath) : IO (Array String) := do
   -- Lean records an option's name in four places (`GeneratedSettingSearch.producers`). The
   -- documentation command `{set_option name value}` sets the option for the rest of its comment,
   -- so it is decided like `set_option`; the documentation role `{option}` refers to one and sets
-  -- none, so it gives no finding. `doc.verso`, which both need, is itself refused.
+  -- none, so it gives no finding. `doc.verso`, which both need, is itself refused. Lean resolves
+  -- the command's identifier value, so `Bool.true` sets `true`, which RG2006 accepts here.
   write "set_option doc.verso true\n\n/-- Refers to {option}`pp.all`.\n\n\
-    {set_option linter.unusedVariables false}\n-/\ndef documented : Nat := 0"
+    {set_option linter.unusedVariables false}\n{set_option linter.missingDocs Bool.true}\n-/\n\
+    def documented : Nat := 0"
   failures := failures ++ (← expect adopter {
       label := "observer/documentation-options", exitCode := 1,
       contains := #["RG2006", "Widget.Additional:9:11: set_option doc.verso true",
         "Widget.Additional:13:12: set_option linter.unusedVariables false",
         "regula lint: VIOLATION (exit 1)"],
-      excludes := #["set_option pp.all", "FAIL[elaboration-hidden]"] })
+      excludes := #["set_option pp.all", "FAIL[elaboration-hidden]", "linter.missingDocs"] })
   -- A `simp` user option sets the option in the tactic's own configuration, not in the scope.
   write "/-- A control. -/\ntheorem viaUserOption (n : Nat) : n + 0 = n := by \
     simp +user.exampleBool"

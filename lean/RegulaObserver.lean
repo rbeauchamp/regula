@@ -138,6 +138,10 @@ structure Walk where
   options : Array Found := #[]
   /-- Each command elaborated as `#guard_msgs` or `#guard_panic`. -/
   guards : Array Syntax := #[]
+  /-- Each identifier inside a documentation comment that Lean resolved to a constant, with that
+  constant, from the term information that the resolution recorded
+  (`realizeGlobalConstNoOverloadWithInfo`). -/
+  resolved : Array (Syntax × Name) := #[]
 
 /-- Walk an info tree, with `ancestors` the syntax of each command, tactic and term node above,
 innermost first, and `doc` what `Found.doc` records for a name below. Lean's documentation
@@ -153,6 +157,9 @@ partial def walk (ancestors : List Syntax) (doc : Option (Option Name)) (acc : W
       | .ofCommandInfo i => if guardKinds.contains i.stx.getKind then
           { acc with guards := acc.guards.push i.stx } else acc
       | .ofOptionInfo i => { acc with options := acc.options.push { info := i, ancestors, doc } }
+      | .ofTermInfo i => match doc, i.expr with
+        | some _, .const name _ => { acc with resolved := acc.resolved.push (i.stx, name) }
+        | _, _ => acc
       | _ => acc
     let doc := match info with
       | .ofDocInfo _ => some <| children.toList.findSome? fun
@@ -178,10 +185,13 @@ def docReference : Name := `Lean.Doc.option.getArgs
 
 /-- The value that the documentation command `{set_option name value}` sets, from the syntax `block`
 of the command and `id`, the option's name in it: its arguments must be `name` and a literal value,
-both positional, and Lean reads a numeral, a string or one of the identifiers `true` and `false`
-(`instance : FromDocArg DataValue`, `Lean/Elab/DocString.lean` lines 454 to 466, which resolves an
-identifier and refuses one that names neither constant). None for any other syntax. -/
-def docValue (id : Syntax) (block : Syntax) : Option DataValue :=
+both positional, and Lean reads a numeral, a string or an identifier that resolves to `Bool.true`
+or `Bool.false` (`instance : FromDocArg DataValue`, `Lean/Elab/DocString.lean` lines 454 to 466,
+which refuses any other constant). The identifier's constant is the one Lean resolved, read from
+`resolved` (`Walk.resolved`), so `Bool.true` and `true` give the same value. None for any other
+syntax, or for an identifier with no resolution recorded. -/
+def docValue (resolved : Array (Syntax × Name)) (id : Syntax) (block : Syntax) :
+    Option DataValue :=
   match block[2].getArgs with
   | #[name, value] =>
     if !block.isOfKind `Lean.Doc.Syntax.command || !name.isOfKind `Lean.Doc.Syntax.anon ||
@@ -190,10 +200,11 @@ def docValue (id : Syntax) (block : Syntax) : Option DataValue :=
       let arg := value[0]
       if arg.isOfKind `Lean.Doc.Syntax.arg_num then arg[0].isNatLit?.map .ofNat
       else if arg.isOfKind `Lean.Doc.Syntax.arg_str then arg[0].isStrLit?.map .ofString
-      else if arg.isOfKind `Lean.Doc.Syntax.arg_ident && arg[0].getId == `true then
-        some (.ofBool true)
-      else if arg.isOfKind `Lean.Doc.Syntax.arg_ident && arg[0].getId == `false then
-        some (.ofBool false)
+      else if arg.isOfKind `Lean.Doc.Syntax.arg_ident then
+        match (resolved.find? (sameOccurrence ·.1 arg[0])).map (·.2) with
+        | some ``Bool.true => some (.ofBool true)
+        | some ``Bool.false => some (.ofBool false)
+        | _ => none
       else none
   | _ => none
 
@@ -220,7 +231,8 @@ documentation role `{option}` (`docReference`), which sets none; and a `simp` us
 and form of that syntax (`setterOf`); the documentation command's has its value (`docValue`); any
 other has no value, so RG2006 rejects it. Who wrote the syntax is not recorded: RG2006 decides on
 the setting alone. -/
-def settingOf? (decls : OptionDecls) (fileMap : FileMap) (found : Found) : Option Setting :=
+def settingOf? (decls : OptionDecls) (fileMap : FileMap) (resolved : Array (Syntax × Name))
+    (found : Found) : Option Setting :=
   let id := found.info.stx
   let setting (value : Option DataValue) (form : Form) (wrapped : Option Name) : Setting :=
     { name := found.info.optionName
@@ -235,7 +247,7 @@ def settingOf? (decls : OptionDecls) (fileMap : FileMap) (found : Found) : Optio
     if expander == docReference then none
     else if expander == docSetter then
       some (setting ((found.ancestors.find? (·.isOfKind `Lean.Doc.Syntax.command)).bind
-        (docValue id)) .docComment none)
+        (docValue resolved id)) .docComment none)
     else some (setting none .elaborated none)
   | none, _ => if simpUserOption found then none else some (setting none .elaborated none)
 
@@ -247,7 +259,7 @@ def observe (stx : Syntax) (fold : Fold) : CommandElabM Fold := do
   let mut acc : Walk := {}
   for tree in (← getInfoTrees) do
     acc := walk [stx] none acc tree
-  let settings := acc.options.filterMap (settingOf? decls fileMap)
+  let settings := acc.options.filterMap (settingOf? decls fileMap acc.resolved)
   let mut fold := { fold with settings := fold.settings ++ settings }
   for guard in acc.guards do
     let observed : Guard := { kind := guard.getKind, position := positionOf fileMap guard }
