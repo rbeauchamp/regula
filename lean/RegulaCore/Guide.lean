@@ -1363,8 +1363,9 @@ def guide : RuleId → Guide
           one a macro produced, and every warning or error that Lean keeps out of the build's \
           output (a silent message). A claimed module that runs such a command or has such a \
           message fails the build, with its line and column. So does a claimed module that the \
-          observer did not observe: the plugin was not among those Lean loaded for it, its \
-          `.olean` holds no complete record, or a command of it was neither linted nor skipped \
+          observer did not observe: the plugin was not among those Lean loaded for it or its \
+          target does not list the plugin's key in `needs`, so the audit reads no record; its \
+          `.olean` holds no complete record; or a command of it was neither linted nor skipped \
           for `#guard_msgs`. \
           Every build of a claimed surface decides this: those of `lake lint`, `axiomGate`, the \
           build-lint `policy` target, `freshChecker` and the documentation audit's claimed \
@@ -1722,7 +1723,9 @@ def guide : RuleId → Guide
           ``needs := #[`@regula/RegulaObserver:shared]`` in `lakefile.lean`, or \
           `needs = [\"@regula/RegulaObserver:shared\"]` in `lakefile.toml`. The decision rejects \
           a target that loads the observer through `plugins` without the same key in `needs`, \
-          and the finding names the entry to add. Lake v4.34.1 builds a target's `needs` before \
+          and the finding names the entry to add. `doctor` reports that finding; an audit of \
+          such a target stops first at RG2003, whose line for each claimed module names both \
+          entries. Lake v4.34.1 builds a target's `needs` before \
           its modules fetch their plugins, so a fresh build builds the observer once, and mixes \
           the trace of the `needs` into each module's trace whatever the target's \
           `platformIndependent`. So Lake replays a module only when the build has the observer \

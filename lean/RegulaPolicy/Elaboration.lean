@@ -97,10 +97,10 @@ def failures (loaded : Bool) : Option Observed → List Failure
       (o.silent.filter (·.1 != .information)).map (fun s => .silent s.1 s.2) ++
       (o.commands.filter fun c => !o.linted.contains c && !o.skipped.contains c).map .unobserved
 
-/-- The RG2003 obligation on one module's record, stated without the executed decision: Lean
-loaded the observer for the module, there is a record, no command contains `#guard_msgs`, no
-guard was elaborated, every silent message is an information message, and the observer ran on
-every command. -/
+/-- The RG2003 obligation on one module's record, stated without the executed decision: the audit
+reads the module's record as the running observer's (`loaded`), there is a record, no command
+contains `#guard_msgs`, no guard was elaborated, every silent message is an information message,
+and the observer ran on every command. -/
 def Complete (loaded : Bool) : Option Observed → Prop
   | none => False
   | some o => loaded = true ∧ o.skipped = [] ∧ o.guards = [] ∧

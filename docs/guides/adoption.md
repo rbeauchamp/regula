@@ -124,8 +124,9 @@ built.
 Lake builds the plugin with your modules, and it rebuilds a module when the plugin changes. A
 claimed target without the plugin fails [RG2006], and `doctor` names the two lines in that
 finding. A claimed target that has the plugin but no `needs` entry for it also fails [RG2006],
-and the finding names the `needs` line. `lake lint` stops first at [RG2003], which reports each
-module of a target without the plugin as not observed and names the same lines.
+and `doctor` names the `needs` line. For a target without one of the entries, `lake lint` stops
+first at [RG2003]. It reports each module of the target as not observed, on a line that names both
+entries.
 
 ### When your Lean release has no Regula release
 
