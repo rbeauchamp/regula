@@ -3115,7 +3115,9 @@ inferred from any pure proof.
   compare it with a different name.
 
   The kernel also hashes names for its caches, which compare their keys with `Expr.eqv`, and it
-  prints names in messages. These uses do not change a result.
+  prints names in messages. These uses do not change a result. A recursor that the check reads can
+  have a name private to a module, for example the recursor of a private inductive type. But a
+  recursor is not a theorem or a definition, thus it is not a copy of `n` and not a joined name.
 
   The third fact has two exceptions. `reduce_native` runs the compiled code of the constant that
   `Lean.reduceBool` or `Lean.reduceNat` gets. The kernel makes no term with these two names. Two
@@ -3172,10 +3174,17 @@ inferred from any pure proof.
   name of the block of `c` with its renamed name and keep each different name. `τ` is a bijection,
   because no name of the block is private to `dst`.
 
-  - `τ` changes the first environment into the second, constant by constant, up to `Identical`.
-    Under `n`, it changes `r` into `c`. Under a name of the block, it changes the only copy into
-    the constant of `dst` under the renamed name, and the reverse. Condition 6 of a renamed copy
-    makes sure that each different constant refers to no joined name, thus `τ` keeps it.
+  - `τ` changes the first environment into the second, constant by constant, in each part that the
+    kernel reads. These parts are the name, the universe parameters, the type and the value, and
+    the hints and the safety of a definition. Under `n`, `τ` changes `r` into `c`. Under a name of
+    the block, it changes the only copy into the constant of `dst` under the renamed name, and the
+    reverse. Condition 6 of a renamed copy makes sure that each different constant refers to no
+    joined name, thus `τ` keeps it.
+
+    The field `all` of a theorem or a definition gives its mutual block, and it can be different.
+    `renameConstant` renames each name private to `src` in it, but `τ` changes only the names of
+    the block. The kernel does not read `all`, as `src/lean/Lean/Declaration.lean:124-130` of Lean
+    v4.34.1 states. The searches below also read only types and values.
   - If a declaration `d` does not reach `n`, the two environments hold the same constant under
     each name that its check reads. By condition 4, no name of `Admission.kernelNames` reaches `n`
     either. Thus the two checks of `d` give the same result.

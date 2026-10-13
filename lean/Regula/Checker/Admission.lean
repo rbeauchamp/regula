@@ -1124,11 +1124,15 @@ holding loaded copies are joined by such steps, one name at a time, through the 
 Let `τ` exchange each name of `B` with its name under `σ` and fix every other name: a bijection,
 since `σ` replaces one prefix by another and no name of `B` is private to `dst`.
 
-* `τ` carries the first environment onto the second, constant by constant up to `Identical`.
-  Under `n`, `r` renamed back is `c`. Under a name of `B`, its only copy (`alone`) is renamed into
-  the constant of `dst` under the new name, which renames back into it, and both refer, among the
-  names private to their modules, only to joined names. Every other constant refers to no joined
-  name (the test on `Links.before`), so `τ` fixes it.
+* `τ` carries the first environment onto the second, constant by constant, in each field the
+  kernel reads: the name, the universe parameters, the type and the value, and the hints and
+  safety of a definition. Under `n`, `r` renamed back is `c`. Under a name of `B`, its only copy
+  (`alone`) is renamed into the constant of `dst` under the new name, which renames back into it,
+  and both refer, among the names private to their modules, only to joined names. Every other
+  constant refers to no joined name (the test on `Links.before`), so `τ` fixes it. The field `all`
+  of a theorem or definition, its mutual block, can differ, since `renameConstant` renames each
+  name private to `src` there and `τ` only the names of `B`; the kernel does not read it, and the
+  searches below read only types and values (`successorsOf`).
 * The kernel reads a constant's name only to look the constant up, to compare it with another
   constant's name or a fixed name of Lean's core (none of them private), to hash it for caches
   keyed by equality, and to label diagnostics. It runs compiled code only to evaluate the constant
@@ -1172,8 +1176,16 @@ Assumes:
   a constant it read (the names `ConstantInfo.getUsedConstantsAsSet` gives, `successorsOf`), under
   a name of `kernelNames`, or as the recursor of an inductive type it read, whose rules refer only
   to recursors of that type's block and to the constants of its constructors' types. No name of
-  `kernelNames`, and no recursor, is a theorem, a name private to a module, or `Lean.reduceBool`
-  or `Lean.reduceNat`.
+  `kernelNames` is a theorem, a name private to a module, or `Lean.reduceBool` or
+  `Lean.reduceNat`. A recursor is neither primitive and can have a name private to a module (the
+  recursor of a private inductive type, `src/kernel/inductive.cpp:22-24` and `812-817`), but it
+  is neither a theorem nor a definition: it is no copy of `n`, which `sameTheorem` admits only as
+  a theorem, and no joined name, whose constant `renameConstant` renames only as a theorem or a
+  safe definition and `identical` relates only to a constant of the same kind.
+- Lean v4.34.1, `src/lean/Lean/Declaration.lean:124-130` and `144-146` (trusted): the kernel does
+  not read the field `all` of a definition or a theorem: `src/kernel/declaration.h:104-146` gives
+  `definition_val` and `theorem_val` no accessor of it, and `get_all` is read only for inductive
+  types (`inductive.cpp:1100` and `1197`).
 - Lean v4.34.1, `src/kernel/type_checker.cpp:604-605` and `1343-1344` (trusted):
   `Lean.reduceBool` and `Lean.reduceNat` are the only constants whose argument the kernel reduces
   by running compiled code, `reduce_native` at `614-633`, which `whnf` calls at `759-769` after
