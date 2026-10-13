@@ -3017,8 +3017,11 @@ inferred from any pure proof.
 
   The references of a constant are the names that `KernelAxioms.successorsOf` gives. A constant
   reaches itself, each name that it refers to and each name that those names reach.
-  `Admission.linksOf` reads the references of all the loaded constants. It does this one time, and
-  only if a differing name has the shape of a renamed copy.
+  `Admission.linksOf` reads the references of all the loaded constants. It runs a maximum of one
+  time in each call of `Admission.agreeing`. `Admission.candidates` and `Admission.validate` each
+  call `agreeing` through `Admission.agreeingIn`, thus `linksOf` runs a maximum of two times in each
+  environment. It runs only if a differing name that only owned modules declare has the shape of a
+  renamed copy.
 
   Let `c` be a copy of the name `n` in `src`. The block of `c` is a set of names private to `src`.
   It starts with the names private to `src` that `c` refers to. A reference in either direction
@@ -3051,8 +3054,9 @@ inferred from any pure proof.
   4. No name of `Admission.kernelNames` reaches `n`.
 
   The copies of a name agree if the name is uniform. They also agree if
-  `Admission.uniformUpToPrivate` accepts the name. `Admission.agrees` makes this decision. Three
-  decisions of reuse use it:
+  `Admission.uniformUpToPrivate` accepts the name and only owned modules declare it, as
+  `Admission.declaredOwned` decides. `Admission.agrees` makes this decision. Three decisions of
+  reuse use it:
 
   - `Admission.copiesAgree` is the fourth condition of reuse. For each constant of the module, the
     copies of the name must agree. A constant that is not a theorem must also be the only copy of
@@ -3064,6 +3068,17 @@ inferred from any pure proof.
     environment offers the module only if the copies of the name agree and only owned modules
     declare it. Otherwise the receipt lists the module as `shared`, through
     `Admission.AdmitRequest.pinned`.
+
+  The condition on owned modules removes no reuse that Regula had before it read renamed copies,
+  because then no differing name agreed. Agreement up to renaming is only for the reuse of an owned
+  module. `Admission.ownedAgrees` already refuses to offer a replayed module that holds a shared
+  copy of a name that a module outside the owned modules declares. Thus, in an environment that
+  loads such a module, the name gives no reuse through that offer.
+
+  A name that a module outside the owned modules declares does not start `Admission.linksOf`. A
+  name that only toolchain modules declare is such a name. In an environment that loads the module
+  outside the owned modules, an owned module that holds a renamed copy of the name is replayed. This
+  is also true if an environment that did not load that module offered the owned module.
 
   The argument below uses four facts about Lean v4.34.1 for `Identical` copies. The docstrings of
   `Admission.duplicatesIn` and `Admission.copiesAgree` give their source lines under `Assumes:`.
@@ -3219,12 +3234,13 @@ inferred from any pure proof.
   **Proved** about the executed definitions: `Admission.identical_iff`,
   `Admission.not_mem_differing_iff` and `Admission.mem_others_iff` give what the pass records.
   `Admission.renamedTo_iff`, `Admission.renameable_iff`, `Admission.renamedCopy_iff`,
-  `Admission.uniformUpToPrivate_iff`, `Admission.agrees_iff`, `Admission.fixedIn_iff` and
-  `Admission.agreesIn_iff` show that each decision of the renaming accepts exactly the inputs that
-  its proposition admits. `Admission.mem_blockOf` shows that the search over the references gives
-  exactly the block. `Admission.mem_aboveIn` and `Admission.mem_nativeIn` show the same for the
-  names that reach `n` and the names that reach the two primitives. `Admission.mem_closure` and
-  `KernelAxioms.search_isSome` show that each such search has sufficient fuel.
+  `Admission.uniformUpToPrivate_iff`, `Admission.declaredOwned_iff`, `Admission.agrees_iff`,
+  `Admission.fixedIn_iff` and `Admission.agreesIn_iff` show that each decision of the renaming
+  accepts exactly the inputs that its proposition admits. `Admission.mem_blockOf` shows that the
+  search over the references gives exactly the block. `Admission.mem_aboveIn` and
+  `Admission.mem_nativeIn` show the same for the names that reach `n` and the names that reach the
+  two primitives. `Admission.mem_closure` and `KernelAxioms.search_isSome` show that each such
+  search has sufficient fuel.
 
   `Admission.copiesAgree_iff`, `Admission.referencesWithin_iff` and `Admission.ownedAgrees_iff`
   show the same for each decision of reuse. `Admission.mem_reusedModules_iff` shows that a module
