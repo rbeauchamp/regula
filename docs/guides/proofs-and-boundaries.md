@@ -896,19 +896,36 @@ no command operated. GNU timeout gives 125, 126 or 127, and Lean gives 255 when 
 GNU timeout. The command itself ends with 0, 1, the status of a signal or 124 at the deadline. So
 for the four other statuses the program marks its evidence with the status and the standard error.
 
-The mark replaces a destination before the program reads its inputs. Thus a program refuses
-arguments that name a file that it reads as a destination, before it writes a file. A destination
-that does not exist counts as the file that a write to it creates. The program prints the reason,
-and the file keeps its bytes. No caller in this repository gives such arguments. Two names of one
-file that `IO.FS.realPath` does not make equal, such as two hard links, are not found.
+The mark replaces a destination before the program reads its inputs. So three rules of the module
+`Regula.Destination` keep a mark or a write from losing a file that is not a document of Regula.
+First, a write makes a new file in the directory of the destination and then moves it onto the
+destination. Thus a hard link at the destination keeps the file that it shares. An earlier document
+also stays whole until the move.
 
-A worker of `axiomGate` reads its request, and `ruleExamples --injected-git-facts` reads its facts.
-An audit of `axiomGate` or of `freshChecker` reads its source, its manifest and the configuration
-files of its project. A production of `ruleExamples` reads the manifest and the configuration
-files of its project, and the source of a negative example. An audit reads its module sources and
-its Markdown documents only after Lake loads the workspace. So `axiomGate` and the productions
-refuse a destination with the extension `lean` or `md`, and `freshChecker` one with `lean`. An
-audit also reads build outputs that Lake names, and the programs do not compare these.
+Second, a write stops with nothing written if the destination holds a file that the run may not
+replace. The run may replace an empty regular file or a JSON document of the kind that it writes
+there. An empty file holds no bytes to lose, so a destination that `mktemp` made stays usable. The
+function `Regula.Destination.Kind.identifies` decides a kind by the members of a document, not by
+their values. Thus a document of an earlier version of Regula stays replaceable. A symbolic link, a
+directory, a source file, a configuration file and a Markdown document keep their bytes.
+
+Third, a program refuses an invocation if two of its destinations may name one entry. The check
+compares the real path of the nearest present directory above each destination and the names below
+it, folding ASCII case. If a name below that directory is `.`, `..` or holds a character outside
+ASCII, the check compares the directories alone. A program first marks each destination that it
+may replace, and then it refuses the run if a rule refuses a destination. Thus a refused run leaves
+no earlier result at a destination, and a file that is not a document of Regula keeps its bytes.
+
+These rules take the place of lists of the files that each program reads. Such lists missed the
+build outputs that Lake names and the modules that Lake loads later. Thus no program refuses a
+destination by its extension. The rules assume that no other process changes a destination between
+the check and the move.
+
+The option `--out` of `site build` names a directory that the build removes and then writes. The
+build refuses an `--out` that holds a file, or a directory that holds something other than an
+artifact of a build. An artifact holds a `build.json` with the identity of a build. While a build
+assembles it, it holds the marker `.regula-site-assembling` instead. The build replaces an empty
+directory.
 
 The option `--write-baseline` of `regula-markdown` writes `prose-baseline.json`, but first it reads
 the earlier baseline in that file. Thus the mark of that file holds the text of the earlier
@@ -929,7 +946,7 @@ sources of the checker, and then the qualifier checks the export again. The depl
 reads the digests of the self-hosted input only from the jobs of its commit. No reader in this
 repository reads `tmp/environment-census.json` or `tmp/acceptance-fences.json`.
 
-These refusals cover each destination that the source of Regula writes, also the baseline of
+These marks and rules cover each destination that the source of Regula writes, also the baseline of
 `regula-markdown --write-baseline` ([issue 436](https://github.com/rbeauchamp/regula/issues/436)).
 A library can also write a file. The function `manualMain` of Verso writes the pages, the saved
 state of a delayed render and the word count of `regula-site` and `regula-standard`. Before
@@ -1021,10 +1038,18 @@ the reason, or removed for the site artifact. For a production of `ruleExamples`
 
 The same control operates a bounded `qualify` with GNU `env` as its only `timeout`, which ends with
 status 125 before the command operates. The mark must then hold the status and the option that
-`env` refused. It also operates each example of a file that a program reads as a destination, and
-each example of a destination with the extension `lean` or `md`. The program must refuse each one.
+`env` refused.
+
+The control also names files that are not documents of Regula as destinations. These are a request,
+a source, a hard link to a manifest, a Markdown document, a symbolic link and the configuration of a
+dependency. For `site build`, it names a directory with a Markdown document. The program must refuse
+each one, and each file must keep its bytes. Two destinations that differ in case must be marked and
+refused. An empty file and a hard link to a result must be marked, and the other name of the link
+must keep its bytes.
+
 The controls of `regula-markdown`, which the documentation step operates, also stop a run of
 `--write-baseline` without `git`. A later run must then write the baseline with the earlier entries.
+A baseline that is not UTF-8 text must be refused and keep its bytes.
 
 The driver moves the pending record to `tmp/acceptance-link.json` only if
 `RegulaVerification.passed` accepts the exit status of each command. The driver does that move

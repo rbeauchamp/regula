@@ -649,9 +649,7 @@ private def historyWorkerOutput (memo : Option FilePath) (inputs : HistoryMemo)
       if let some output ← (reuse <|> pure none) then return output
       let output ← run
       try
-        let staged := directory / s!"{key}.staged"
-        IO.FS.writeFile staged (toJson { inputs with output }).compress
-        Regula.Filesystem.replacePath staged record
+        Regula.Filesystem.writeReplacing record (toJson { inputs with output }).compress.toUTF8
       catch _ => pure ()
       return output
     finally
@@ -800,10 +798,8 @@ private unsafe def loadReportCoreAtSearchPath (modules : Array Name)
     -- still being built; the coordinator compares it with the finished report
     -- (`Inspection.inspect`). The rename makes the file appear complete or not at all.
     if let some path := publish then
-      let staged := path.addExtension "staged"
-      IO.FS.writeFile staged
-        (toJson ({ receipt := admission, origins } : Admission.Completed)).compress
-      Regula.Filesystem.replacePath staged path
+      Regula.Filesystem.writeReplacing path
+        (toJson ({ receipt := admission, origins } : Admission.Completed)).compress.toUTF8
     -- In a project audit, the modules of owned dependencies that the environment owns are
     -- inspected with the requested ones (`EnvironmentOwnership.dependencies`), each of them owned
     -- and so replayed above: their declarations, roots, documentation and sources.

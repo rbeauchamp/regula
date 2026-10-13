@@ -76,14 +76,17 @@ def identity (root : FilePath) : IO Identity := do
              producer.producerVersion,
            versoRevision := ← versoRevision root }
 
+/-- The paths of the checker, corpus and configuration sources of the checkout at `root` that a
+corpus shard export records (`RuleExamples.sourcePaths`), over the root package's module sources. -/
+def sourcePathsAt (root : FilePath) : IO (Array FilePath) := do
+  let inventory ← Regula.Checker.Lake.rootSurfaceInventory root
+  Regula.Qualification.RuleExamples.sourcePaths root (inventory.moduleSources.map Prod.snd)
+
 /-- The checker, corpus and configuration sources of the checkout at `root` as they are now, in the
 form that a corpus shard export records them (`RuleExamples.snapshot`): the current sources that
 `admitShard` compares an export with. -/
 def currentSources (root : FilePath) : IO Json := do
-  let inventory ← Regula.Checker.Lake.rootSurfaceInventory root
-  let paths ← Regula.Qualification.RuleExamples.sourcePaths root
-      (inventory.moduleSources.map Prod.snd)
-  Regula.Qualification.RuleExamples.snapshot paths
+  Regula.Qualification.RuleExamples.snapshot (← sourcePathsAt root)
 
 /-- Admit one corpus shard export: completed, admitted by the proved qualifier executable,
 and recorded against exactly the current checker, corpus and configuration sources. -/

@@ -79,7 +79,10 @@ def check : IO Unit := do
   withScratch root "registry-cli" fun scratch => do
     let output := scratch / "result.json"
     for arguments in cases root scratch output do
-      writeJson output (Json.mkObj [("status", .str "completed"), ("old", .bool true)])
+      -- A completed result of an earlier version, which the run may replace
+      -- (`Regula.Destination.Kind.identifies`).
+      let earlier ← IO.ofExcept (Json.parse Regula.Destination.earlierResult)
+      writeJson output (earlier.setObjVal! "old" (.bool true))
       let result ← run root (root / ".lake/build/bin/axiomGate").toString
         (#["--json-out", output.toString] ++ arguments)
       let report ← readJson output

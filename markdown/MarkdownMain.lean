@@ -2,6 +2,7 @@ import RegulaMarkdown
 import Regula.TaskManagerCheck
 import RegulaCore.ProseBaseline
 import Regula.Checker.Lake
+import Regula.Destination
 
 /-! Checks every Markdown document the repository tracks: for a rule ID in prose that is not a
 link to its rule page (`Regula.Markdown.documentErrors`), and for the writing rules that a text
@@ -324,15 +325,16 @@ B1 refuses it (`baselineOf`), and keep the earlier baseline `earlier` that the r
 (`earlierBaseline`) in the mark, so that the run and a later `--write-baseline` keep its entries.
 When the decoding failed, the mark holds its reason and no earlier text. It is the one writer of
 the mark: the refusal of the program (`refuseMarkdown`) calls it, which the guard also runs before
-every run (`Regula.TaskManager.guard`). -/
+every run (`Regula.TaskManager.guard`). It writes only over a baseline or its mark, or an empty
+file (`Regula.Destination.write`), and stops with the reason for any other file. -/
 def markBaseline (root : System.FilePath) (reason : String)
     (earlier : Except String (Option String)) : IO Unit :=
   let members : List (String × Lean.Json) := match earlier with
     | .ok earlier => [("reason", Lean.Json.str reason),
         ("earlier", match earlier with | some text => .str text | none => .null)]
     | .error error => [("reason", .str error)]
-  IO.FS.writeFile (root / baselineFile)
-    ((Lean.Json.mkObj (("status", .str "incomplete") :: members)).compress ++ "\n")
+  Regula.Destination.write .proseBaseline (root / baselineFile)
+    ((Lean.Json.mkObj (("status", .str "incomplete") :: members)).compress ++ "\n").toUTF8
 
 /-- What Git gives for `start`, of the checked commit `HEAD`. Git is asked only for the value
 that `baseOf` reads for that start: the merge base of `HEAD` and the revision for the run of a
@@ -712,7 +714,7 @@ def writeBaseline (options : Options) : IO UInt32 := do
   let text := String.ofList (ledgerOf entries).render
   match baselineOf baselineFile text with
   | .ok written =>
-    IO.FS.writeFile (options.root / baselineFile) text
+    Regula.Destination.write .proseBaseline (options.root / baselineFile) text.toUTF8
     IO.println s!"{baselineFile}: {written.entries.length} entries written"
     return 0
   | .error refusals =>
@@ -1304,8 +1306,8 @@ with no `git`, stops when it lists the tracked files. The file must then hold th
 (`markBaseline`), with the guard's reason (`Regula.TaskManager.startedReason`) and the earlier
 baseline, and the reader must refuse it. A run with the inherited `PATH` must then write the
 expected baseline, with the entries of the earlier baseline that the mark kept. A baseline file
-that is not UTF-8 text cannot be decoded (`earlierBaseline`): a run must then fail, and the file
-must hold the mark with the reason of the decoding and no earlier text, which the reader refuses.
+that is not UTF-8 text is not a baseline that Regula wrote (`Regula.Destination.write`): a run
+must then fail with that reason, and the file must keep its bytes.
 The program, Git and the filesystem are its subject, an external boundary: it observes them and
 proves nothing. -/
 def runWriteEarlyStopControl : IO (List String) :=
@@ -1350,14 +1352,15 @@ def runWriteEarlyStopControl : IO (List String) :=
       return [s!"--write-baseline after a run that stopped early: expected the file \
         {expected.quote}, got the exit code {rerun.exitCode}, the error output \
         {rerun.stderr.quote} and the file {← shown}"]
-    IO.FS.writeBinFile file (ByteArray.mk #[0xff, 0xfe, 0x0a])
+    let undecodable := ByteArray.mk #[0xff, 0xfe, 0x0a]
+    IO.FS.writeBinFile file undecodable
     let undecoded ← run none
-    unless undecoded.exitCode != 0 && (← held "status") == some "incomplete" &&
-        ((← held "reason").any fun reason => reason.startsWith s!"{file} cannot be read: ") &&
-        (← held "earlier").isNone && !(← admitted) do
+    unless undecoded.exitCode != 0 &&
+        undecoded.stderr.contains "not a prose baseline that Regula wrote" &&
+        (← IO.FS.readBinFile file).data == undecodable.data do
       return [s!"--write-baseline with a {baselineFile} that is not UTF-8 text: expected an exit \
-        code other than 0 and the mark with the reason of the decoding and no earlier baseline, \
-        which baselineOf refuses; got the exit code {undecoded.exitCode}, the error output \
+        code other than 0, the refusal of a file that is not a prose baseline, and the file as it \
+        was; got the exit code {undecoded.exitCode}, the error output \
         {undecoded.stderr.quote} and the file {← shown}"]
     return []
 

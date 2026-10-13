@@ -49,15 +49,8 @@ private def faults : String → Array (String × String)
           ("fence-misindexed", "unknownKey")]
   | _ => #[]
 
-private def save (path : FilePath) (receipt : Json) : IO Unit := do
-  let suffix ← IO.getRandomBytes 12
-  let temporary := FilePath.mk
-      (path.toString ++ "." ++ suffix.foldl (fun s b => s ++ s!"{b.toNat}-") "")
-  try
-    writeJson temporary receipt
-    Regula.Filesystem.replacePath temporary path
-  finally
-    removeFile temporary
+private def save (path : FilePath) (receipt : Json) : IO Unit :=
+  writeJson path receipt
 
 private def qualify (group : String) (evidence : FilePath) (receipt : IO.Ref Json) : IO Unit := do
   let root ← rootDirectory

@@ -15,10 +15,8 @@ namespace Regula.Qualification.EnvironmentCensus
 open Lean System Regula.Checker RegulaPolicy
 open scoped Regula.Report
 
-private def atomicWrite (path : FilePath) (value : Json) : IO Unit := do
-  let temporary := path.addExtension "pending"
-  IO.FS.writeFile temporary (value.compress ++ "\n")
-  Regula.Filesystem.replacePath temporary path
+private def atomicWrite (path : FilePath) (value : Json) : IO Unit :=
+  Regula.Filesystem.writeReplacing path (value.compress ++ "\n").toUTF8
 
 private def save (attempt : String) (path : FilePath) (packets records : Array Json)
     (status : String) (reason : Option String := none) : IO Unit :=

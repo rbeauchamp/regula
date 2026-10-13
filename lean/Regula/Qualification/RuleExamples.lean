@@ -112,10 +112,8 @@ private def configuration (paths : Array FilePath) : IO Json := do
                                                                     pure none
     pure (path.toString, value))
 
-private def save (path : FilePath) (value : Json) : IO Unit := do
-  let temporary := FilePath.mk (path.toString ++ ".pending")
-  IO.FS.writeFile temporary (value.compress ++ "\n")
-  Regula.Filesystem.replacePath temporary path
+private def save (path : FilePath) (value : Json) : IO Unit :=
+  Regula.Filesystem.writeReplacing path (value.compress ++ "\n").toUTF8
 
 /-- Invalidate the previous verdict before any campaign setup or timer acquisition. With `reason`,
 the evidence records why the attempt stops there. -/
@@ -489,16 +487,22 @@ private def admitRecord (ctx : Context) (record : Json) (refusal : Option String
     | none => checked.exitCode == 0
     | some reason => checked.exitCode != 0 && (checked.stdout ++ checked.stderr).contains reason⟩]
 
+/-- The configuration files of the checkout that a corpus campaign copies into its private ROOT copy
+(`Slot.prepareSlot`) and records among its sources (`sourcePaths`), each when it is present: the
+toolchain, the Lake configuration, its manifest and the foundation manifest. -/
+def rootConfigNames : Array String :=
+  #["lean-toolchain", "lakefile.lean", "lake-manifest.json", "foundation_manifest.json"]
+
 /-- The checker, corpus and configuration sources whose exact bytes a campaign records before
 and after production (`checkerBefore`, `checkerAfter`): the Lake-discovered root-package module
-sources, the toolchain, Lake configuration and manifest, and every corpus file. The site builder
-recomputes this set to require that exported evidence belongs to the current sources. -/
+sources, each present configuration file that the campaign copies (`rootConfigNames`), and every
+corpus file. The site builder recomputes this set to require that exported evidence belongs to the
+current sources (`Site.Build.currentSources`). -/
 def sourcePaths (root : FilePath) (modulePaths : Array FilePath) : IO (Array FilePath) := do
   let corpusPaths ← (← Regula.Filesystem.Construction.walkDirectory (root / "examples/rules")).filterM
     fun path => return !(← path.isDir)
-  return (modulePaths ++
-      #[root / "lean-toolchain", root / "lakefile.lean", root / "lake-manifest.json"] ++
-          corpusPaths).toList.eraseDups.toArray
+  let configPaths ← (rootConfigNames.map (root / ·)).filterM (·.pathExists)
+  return (modulePaths ++ configPaths ++ corpusPaths).toList.eraseDups.toArray
 
 /-- The rule whose corpus position decides `key`'s shard: the first rule of
 `sharedTheoremTypeRules` for the second when the first is in the corpus, otherwise `key`. -/
@@ -610,9 +614,7 @@ def check (evidence : FilePath) (selection : Option (Array String))
     -- the end equals the content before any producer started.
     let slot : Slot.ProducerSlot := ⟨scratch / "slot"⟩
     IO.FS.createDirAll slot.root
-    let configNames ← (#["lean-toolchain", "lakefile.lean", "lake-manifest.json",
-      "foundation_manifest.json"] : Array String).filterM
-        (fun (name : String) => (root / name).pathExists)
+    let configNames ← rootConfigNames.filterM fun name => (root / name).pathExists
     let rootConfigs ← configNames.mapM (fun (name : String) => do
       pure (root / name, ← Regula.Filesystem.readBytes (root / name)))
     let rootSources ← modulePaths.mapM fun path => do

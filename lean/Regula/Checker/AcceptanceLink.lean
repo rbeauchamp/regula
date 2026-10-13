@@ -127,11 +127,13 @@ def identity (scratch projectRoot copyRoot docsRoot : FilePath)
   try sha256File scratch path finally Regula.Filesystem.removePath .file path
 
 /-- Replace any earlier record before the ordinary audit starts. A run that stops before its audit
-records why as `reason` (`AxiomGate.refuseWithoutTaskManager`). -/
-def invalidate (path : FilePath) (reason : Option String := none) : IO Unit :=
-  writeJson path <| Json.mkObj <|
+records why as `reason` (`AxiomGate.refuseWithoutTaskManager`). It stops with nothing written at a
+file that is not an acceptance link or empty (`Regula.Destination.write`). -/
+def invalidate (path : FilePath) (reason : Option String := none) : IO Unit := do
+  let mark := Json.mkObj <|
     [("schemaVersion", toJson (1 : Nat)), ("status", .str "incomplete")] ++
       (reason.map fun reason => [("reason", Json.str reason)]).getD []
+  Regula.Destination.write .acceptanceLink path (mark.compress ++ "\n").toUTF8
 
 /-- The identity of one accepted run's captured inputs, computed before its success line
 and held, unrecorded, until the run's outer freshness recheck has passed. -/

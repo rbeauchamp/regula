@@ -466,6 +466,29 @@ def removePath (kind : Kind) (path : FilePath) : IO Unit := do
 def replacePath (source destination : FilePath) : IO Unit := do
   replace (← ownPath source) (← ownPath destination)
 
+/-- Write `contents` to the file `path` names by making a new file beside it and moving that file
+there (`replace`). The new file is in the real path of the directory of `path`, which `ownRoot`
+makes, and nothing was at its name: `IO.FS.Mode.writeNew` creates a file only where no entry is.
+So the write replaces the entry at `path` and never writes into the file that entry names. A file
+that is also a hard link at another path keeps its bytes there, and a reader of `path` reads the
+earlier file or the whole new one. It stops with nothing moved when a symbolic link, a directory
+or another kind of entry is at `path`, and it removes the new file when it stops after making it.
+It stops on Windows, where the observer reads no real path. -/
+def writeReplacing (path : FilePath) (contents : ByteArray) : IO Unit := do
+  let some name := path.fileName
+    | throw <| IO.userError s!"nothing was written: {path} names no file"
+  let directory ← ownRoot (path.parent.getD ⟨"."⟩)
+  let random := (← IO.getRandomBytes 8).foldl (fun value byte => value * 256 + byte.toNat) 0
+  let pending := directory / s!".{name}.{← IO.Process.getPID}-{random}.pending"
+  let handle ← IO.FS.Handle.mk pending .writeNew
+  try
+    handle.write contents
+    handle.flush
+    replace pending (directory / name)
+  catch error =>
+    discard <| (removeOwn .file pending).toBaseIO
+    throw error
+
 /-- Stop unless nothing is at `path` or a directory is there at its own place, by the observation
 that `removeOwn` makes. These are the places on which `removal .directory` does not refuse
 (`removal_remove_iff`, `removal_nothing_iff`), so a symbolic link, a file and a path through a

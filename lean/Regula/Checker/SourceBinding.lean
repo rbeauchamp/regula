@@ -75,13 +75,6 @@ def configurationPaths (repo manifest : FilePath) : Array FilePath :=
   #[manifest, repo / "lakefile.lean", repo / "lakefile.toml", repo / "lean-toolchain",
     repo / "lake-manifest.json", repo / ".lake" / "package-overrides.json"]
 
-/-- The configuration files of the project at `repo` that a snapshot captures beside its manifest
-(`configuration`): its Lake configuration in either format, its toolchain, its lock manifest and
-Lake's package overrides. -/
-def configurationFiles (repo : FilePath) : Array FilePath :=
-  #[repo / "lakefile.lean", repo / "lakefile.toml", repo / "lean-toolchain",
-    repo / "lake-manifest.json", repo / ".lake" / "package-overrides.json"]
-
 /-- The selected policy manifest is the first configuration path. -/
 theorem configurationPaths_policy (repo manifest : FilePath) :
     (configurationPaths repo manifest)[0]? = some manifest := rfl

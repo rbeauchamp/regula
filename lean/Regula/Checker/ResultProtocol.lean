@@ -894,17 +894,18 @@ def encodeDocument (document : Json) : Except String String := do
   return PolicyCodec.compress written ++ "\n"
 
 /-- Write a result document to `path`: the text `encodeDocument` gives it, creating the parent
-directories. A document `encodeDocument` refuses is an error and nothing is written. `span` names
-the write in timing output (`timingSpan`). That `IO.FS.readFile` of the file returns the text
-`IO.FS.writeFile` wrote is trusted file-system behavior, not proved. -/
+directories, by replacing the entry at `path`, and stopping with nothing written at a file that is
+not a result document or empty (`Regula.Destination.write`). A document `encodeDocument` refuses is
+an error and nothing is written. `span` names the write in timing
+output (`timingSpan`). That `IO.FS.readFile` of the file returns the text written is trusted
+file-system behavior, not proved. -/
 def writeDocument (path : System.FilePath) (document : Json) (span : String := "writeDocument") :
     IO Unit := do
-  if let some parent := path.parent then IO.FS.createDirAll parent
   let spanStart ← IO.monoMsNow
   let encoded ← IO.ofExcept (encodeDocument document)
   timingSpan s!"diagnostic span: {span} encode: {(← IO.monoMsNow) - spanStart}ms"
   let writeStart ← IO.monoMsNow
-  IO.FS.writeFile path encoded
+  Regula.Destination.write .result path encoded.toUTF8
   timingSpan s!"diagnostic span: {span} write: {(← IO.monoMsNow) - writeStart}ms"
 
 /-- Applying `g` to the members named `key` of what applying `f` to them wrote is applying `g`

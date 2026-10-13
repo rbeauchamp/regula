@@ -111,14 +111,34 @@ private unsafe def dispatch (args : List String) (attempt : Option String := non
     documentation-source [--source-read-only]|enumeration|enumeration-failure|readers|\
     rule-examples --evidence PATH [--rules RULE ... | --shard K/N]"
 
+/-- The reason to refuse the evidence document that `args` name from their leading arguments
+(`Evidence.named`), if it holds something that the command may not replace
+(`Regula.Destination.refusal`): the command marks it before it reads an input. The launcher's
+report is at `NativeLinter.reportPath` of the package root, and a run outside that root names none
+here, as its mark then fails (`NativeLinter.beginReport`). -/
+private def evidenceRefusal (args : List String) : IO (Option String) := do
+  let named : Option (Regula.Destination.Kind × System.FilePath) ← match Evidence.named args with
+    | some (.ruleExamples path) => pure (some (.corpus, ⟨path⟩))
+    | some (.producers path) => pure (some (.producerExport, ⟨path⟩))
+    | some (.environments path) => pure (some (.census, ⟨path⟩))
+    | some (.acceptance _ path) => pure (some (.acceptanceReceipt, ⟨path⟩))
+    | some .launcherReport => do
+      match ← Regula.Qualification.rootDirectory.toBaseIO with
+      | .ok root => pure (some (.launcherReport, Regula.Qualification.NativeLinter.reportPath root))
+      | .error _ => pure none
+    | none => pure none
+  Regula.Destination.refusal named.toList
+
 /-- Mark the evidence document that `args` names incomplete for the attempt `attempt`, through the
 writer that its campaign runs before it starts (`beginAttempt`), before anything else of the
 command runs; with `reason`, the evidence records why the attempt stops there. The document is the
 one that the leading arguments name (`Evidence.named`), so one that the parser refuses for a later
 argument is still marked, and for an accepted command it is the command's own
-(`Evidence.named_of_parse`). Arguments that name no evidence document mark nothing. -/
+(`Evidence.named_of_parse`). Arguments that name no evidence document mark nothing. A document
+that `evidenceRefusal` refuses is not marked: the marker stops with the reason. -/
 private def markEvidence (args : List String) (attempt : String) (reason : Option String := none) :
     IO Unit := do
+  if let some refusal ← evidenceRefusal args then throw <| IO.userError s!"refused: {refusal}"
   match Evidence.named args with
   | some (.acceptance group path) =>
     let _ ← Regula.Qualification.Acceptance.beginAttempt group ⟨path⟩ attempt reason
@@ -177,7 +197,9 @@ unsafe def qualifyMain (args : List String) : IO UInt32 := do
   | .listingStandin mode => Regula.Qualification.Enumeration.standin mode args
   | .acceptanceProxy => Regula.Qualification.Acceptance.worker args
   | .unknownWrapper => throw <| IO.userError "unknown qualification wrapper mode"
-  | .underDeadline attempt rest => dispatch rest attempt; return 0
+  | .underDeadline attempt rest =>
+    if let some reason ← evidenceRefusal rest then throw <| IO.userError s!"refused: {reason}"
+    dispatch rest attempt; return 0
   | .bounded args =>
     -- Recognize evidence destinations even when later argument validation refuses.
     -- This must precede timeout selection and spawning, both of which can fail.

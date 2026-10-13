@@ -139,9 +139,10 @@ def readFailure (path : FilePath) : IO String := do
       requireChecks [⟨"runtime read failure has a reason", !line.isEmpty⟩]
       return line
 
-/-- Pretty JSON is an output format, not a claim of byte-canonical serialization. -/
+/-- Pretty JSON is an output format, not a claim of byte-canonical serialization. The write
+replaces the entry at `path` (`Regula.Filesystem.writeReplacing`). -/
 def writeJson (path : FilePath) (value : Json) : IO Unit :=
-  IO.FS.writeFile path (value.pretty ++ "\n")
+  Regula.Filesystem.writeReplacing path (value.pretty ++ "\n").toUTF8
 
 /-- Root-relative entrypoints must be run in the package root, never inferred from
 source-file text or another checkout's executable location. -/

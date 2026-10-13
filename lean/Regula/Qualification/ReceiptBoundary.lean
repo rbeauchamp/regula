@@ -30,8 +30,12 @@ def check : IO Unit := do
         if fault == "spawn" then
           -- This native timeout stand-in is executed by path in the process-boundary control.
           Regula.Filesystem.copyFile executable (bin / "gtimeout") 493
-        writeJson evidence
-            (Json.mkObj [("status", toJson "completed"), ("attemptId", toJson "old")])
+        -- Completed evidence of an earlier attempt, with the members of a receipt and of a
+        -- census, which the run may replace (`Regula.Destination.Kind.identifies`).
+        writeJson evidence (Json.mkObj [("status", toJson "completed"),
+          ("attemptId", toJson "old"), ("group", toJson "fences"),
+          ("records", toJson (#[] : Array Json)), ("packets", toJson (#[] : Array Json)),
+          ("controls", toJson (#[] : Array Json))])
         let result ← IO.Process.output {
           cmd := executable.toString, args := route ++ #["--evidence", evidence.toString],
           env := #[("PATH", some bin.toString),

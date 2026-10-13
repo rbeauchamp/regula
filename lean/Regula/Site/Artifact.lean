@@ -235,14 +235,21 @@ exactly for an HTML page of that edition below a `stableRoots` directory (`mem_s
 def stableFiles (copy : List (String × ByteArray)) : List (String × ByteArray) :=
   (stablePages (copy.map (·.1))).map fun path => (path, (stableRedirect path).toUTF8)
 
+/-- The file that marks a directory that a build is assembling (`assemble`): the build writes it
+first, when it makes the directory, and removes it after it writes `build.json`. A build that
+stops in between thus leaves a directory that a later build may replace (`artifactRefusal`). -/
+def assemblingMarker : String := ".regula-site-assembling"
+
 /-- Write the artifact tree: the rendered edition as `dev/`, each release's published edition as
-`v/<version>/`, and the stable routes `stable` below the site root. -/
+`v/<version>/`, and the stable routes `stable` below the site root. The marker of an assembly
+(`assemblingMarker`) is in the directory from its creation until `build.json` is written. -/
 def assemble (out : FilePath) (g : Generated) (tag : TagState)
     (sources : List (ReleaseVersion × ReleaseSource)) (edition : List (String × ByteArray))
     (editions : List (ReleaseVersion × List (String × ByteArray)))
     (stable : List (String × ByteArray)) : IO Unit := do
   Regula.Filesystem.removeOwn .directory out
   IO.FS.createDirAll out
+  IO.FS.writeFile (out / assemblingMarker) ""
   writeTree (out / Edition.dev.root) edition
   for (v, files) in editions do
     writeTree (out / (Edition.release v).root) files
@@ -251,6 +258,7 @@ def assemble (out : FilePath) (g : Generated) (tag : TagState)
   IO.FS.writeFile (out / "404.html") (notFound g.ident)
   IO.FS.writeFile (out / "build.json")
     ((buildJson g tag sources (stable.map (·.1))).pretty ++ "\n")
+  Regula.Filesystem.removeOwn .file (out / assemblingMarker)
 
 private def utf8 (path : String) (bytes : ByteArray) : IO String :=
   match String.fromUTF8? bytes with
@@ -372,18 +380,54 @@ def checkArtifact (root out : FilePath) (g : Generated) (tag : TagState)
 def releasePackage (root : FilePath) (v : ReleaseVersion) : FilePath :=
   root / "tmp/site-release" / releaseAsset v
 
+/-- Whether `value` is the `build.json` of an artifact of a build: it has the members
+`schemaVersion`, `site` and `producerVersion` of a build's identity (`identityFields`), whatever
+their values. -/
+def identifiesBuild (value : Json) : Bool :=
+  ["schemaVersion", "site", "producerVersion"].all fun name =>
+    (value.getObjVal? name).toOption.isSome
+
+/-- Whether a regular file is at `path`, by a read that follows no link. -/
+private def regularFile (path : FilePath) : IO Bool := do
+  match ← (Regula.Filesystem.observeMetadata path).toBaseIO with
+  | .ok metadata => return metadata.type == .file
+  | .error _ => return false
+
+/-- The reason to refuse to replace what is at `out` with an artifact, if there is one: something
+is at `out`, by a read that follows no link, and it is not a directory that is empty, that holds
+the marker of an assembly (`assemblingMarker`), or that holds a `build.json` of an artifact
+(`identifiesBuild`), each a regular file. A directory that holds anything else, such as the
+documentation of a repository, is thus never removed. -/
+def artifactRefusal (out : FilePath) : IO (Option String) := do
+  let refuse := some s!"{out} is not empty and holds neither a build.json of a site that Regula \
+    built nor the marker {assemblingMarker} of an assembly, so the build does not replace it"
+  match ← (Regula.Filesystem.observeMetadata out).toBaseIO with
+  | .error (.noFileOrDirectory ..) => return none
+  | .error error => return some s!"{out} cannot be read without following a link ({error}), so \
+      the build does not replace it"
+  | .ok metadata =>
+    unless metadata.type == .dir do return refuse
+    if (← Regula.Filesystem.Construction.listDirectory out).isEmpty then return none
+    if ← regularFile (out / assemblingMarker) then return none
+    unless ← regularFile (out / "build.json") do return refuse
+    match Json.parse (← IO.FS.readFile (out / "build.json")) with
+    | .ok value => return if identifiesBuild value then none else refuse
+    | .error _ => return refuse
+
 /-- Invalidate the artifact that a build into `out` writes, before anything that can fail: remove
 the directory `out`, and for a build labelled with a release, that release's asset
 (`releasePackage`), so neither an earlier artifact nor an earlier asset remains where it could be
 served or uploaded. It is what `build` runs first, and what a refused build runs in its place
 (`refuseSiteBuild`). A relative `out` is taken from the real path of the working directory, and a
 link, `.` or `..` among its components stops it before it removes anything
-(`Regula.Filesystem.ownPath`). Returns the absolute `out`. -/
+(`Regula.Filesystem.ownPath`). When something at `out` is not an artifact that a build may replace
+(`artifactRefusal`), it removes the release's asset alone and stops. Returns the absolute `out`. -/
 def invalidateArtifact (out : FilePath) : IO FilePath := do
   let out ← Regula.Filesystem.ownPath out
-  Regula.Filesystem.removeOwn .directory out
   if let .release v := installed then
     Regula.Filesystem.removeOwn .file (releasePackage (← rootDirectory) v)
+  if let some reason ← artifactRefusal out then throw (IO.userError reason)
+  Regula.Filesystem.removeOwn .directory out
   return out
 
 /-- Complete build: refuse a release label whose tag names another commit, decide each release
