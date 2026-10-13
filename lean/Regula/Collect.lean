@@ -116,9 +116,14 @@ def foundationObservations (env : Environment) : IO (Array RegulaPolicy.Foundati
       let found ← files.filterMapM fun file => do
         if ← isPresent file then return some (← IO.FS.realPath file).toString else return none
       return "\n".intercalate found.toList
-    let actual ← if imported then
-        try parts (← Lean.findOLean module) catch _ => pure ""
-      else pure ""
+    -- Only the search of `findOLean` folds into an empty text (issue 441 tracks its own reads); the
+    -- reads of the files it finds pass on each error.
+    let found ← if imported then
+        try some <$> Lean.findOLean module catch _ => pure none
+      else pure none
+    let actual ← match found with
+      | some olean => parts olean
+      | none => pure ""
     return some { name := statement.name, module, actual
                   expected := ← parts (Lean.modToFilePath library module "olean")
                   isAxiom := info matches .axiomInfo _, levels := info.levelParams

@@ -45,9 +45,9 @@ def provisioning (name : Name) : Name :=
 
 open Lean in
 /-- The array function `function` of Lean's library, specialized as `spec` in the declaration
-`name` of the provisioning driver. -/
-def specialized (function : Name) (name : Name) (spec : Name) : Name :=
-  mkPrivateNameCore `Init.Data.Array.Basic function ++ `_at_ ++ provisioning name ++ spec
+`declaration` of the provisioning driver. -/
+def specialized (function : Name) (declaration : Name) (spec : Name) : Name :=
+  mkPrivateNameCore `Init.Data.Array.Basic function ++ `_at_ ++ declaration ++ spec
 
 end Regula.ProgramCheck.Provision
 
@@ -58,8 +58,8 @@ run_cmd Regula.Removal.checkProgram (named := [
   (provisioning `removeReadOnly, ``IO.FS.removeDirAll),
   (provisioning `removeShared, ``IO.FS.removeFile),
   (provisioning `removeShared, ``IO.FS.removeDir),
-  (specialized `Array.forIn'Unsafe.loop `removeShared `spec_0, ``IO.FS.removeFile),
-  (specialized `Array.forIn'Unsafe.loop `removeShared `spec_0, ``IO.FS.removeDirAll),
+  (specialized `Array.forIn'Unsafe.loop (provisioning `removeShared) `spec_0, ``IO.FS.removeFile),
+  (specialized `Array.forIn'Unsafe.loop (provisioning `removeShared) `spec_0, ``IO.FS.removeDirAll),
   (provisioning `moveLink, ``IO.FS.rename),
   (provisioning `removeLink, ``IO.FS.removeFile),
   (provisioning `removeStage, ``IO.FS.removeDir),
@@ -69,9 +69,9 @@ run_cmd Regula.Removal.checkProgram (named := [
   (provisioning `create, ``IO.FS.removeFile),
   (provisioning `create, ``IO.FS.rename),
   (provisioning `writeRegistry, ``IO.FS.rename),
-  (specialized `Array.mapMUnsafe.map `prune `spec_0, ``IO.FS.removeFile),
-  (specialized `Array.forIn'Unsafe.loop `prune `spec_2._lam_0, ``IO.FS.removeFile),
-  (specialized `Array.forIn'Unsafe.loop `prune `spec_2._lam_0, ``IO.FS.rename)])
+  (specialized `Array.mapMUnsafe.map ``RegulaProvision.prune `spec_0, ``IO.FS.removeFile),
+  (specialized `Array.forIn'Unsafe.loop ``RegulaProvision.prune `spec_2._lam_0, ``IO.FS.removeFile),
+  (specialized `Array.forIn'Unsafe.loop ``RegulaProvision.prune `spec_2._lam_0, ``IO.FS.rename)])
 
 /-- The presence read of the driver is the filesystem observer's (`Regula.Filesystem.isPresent`,
 whose match form `Regula.Filesystem.isPresent_eq_match` states). -/

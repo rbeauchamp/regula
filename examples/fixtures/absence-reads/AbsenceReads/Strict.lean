@@ -3,7 +3,8 @@
 The positive control of the self-audit's absence rule: `strictPresent` reads
 `System.FilePath.metadata` and gives absence only for `noFileOrDirectory`, as
 `Regula.Filesystem.isPresent` does, and names neither of Lean's two readers, so the rule refuses
-nothing here (`Regula.Qualification.SelfAudit.absenceFixtureFindings`). -/
+nothing here: `Regula.Qualification.SelfAudit.absenceFixtures` states this, and
+`absenceFixtureControls` checks it. -/
 
 namespace AbsenceReads
 

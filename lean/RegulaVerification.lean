@@ -940,7 +940,7 @@ inductive Place where
 structure Observed where
   /-- What is at the path. -/
   place : Place
-  /-- Whether the real path of what is there is the path itself. -/
+  /-- Whether a directory is there and its real path is the path itself (`observe`). -/
   sameLocation : Bool
   deriving DecidableEq, Repr
 
@@ -989,13 +989,17 @@ def removeDecided (path : System.FilePath) (observed : Observed)
   IO.FS.removeDirAll path
 
 /-- What the driver observes of `path` before a removal: what is there, by a read that follows
-no link at the path, and whether its real path is the path. -/
+no link at the path, and, when a directory is there, whether its real path is the path. Only
+`place` decides that nothing is there: a failure of either read is thrown, since Lean 4.34.1's
+`realPath` gives `noFileOrDirectory` for each failure of `realpath(3)`
+(https://github.com/rbeauchamp/regula/issues/430). `removal` reads `sameLocation` only for a
+directory. -/
 def observe (path : System.FilePath) : IO Observed := do
-  return {
-    place := ← place path
-    sameLocation := match ← (IO.FS.realPath path).toBaseIO with
-      | .ok real => real == path
-      | .error _ => false }
+  let place ← place path
+  let sameLocation ← match place with
+    | .directory => pure ((← IO.FS.realPath path) == path)
+    | .absent | .other => pure false
+  return { place, sameLocation }
 
 /-- Remove the directory at `path` when one is there at its own place, do nothing when nothing
 is there, and stop with nothing removed when a symbolic link or a file is there

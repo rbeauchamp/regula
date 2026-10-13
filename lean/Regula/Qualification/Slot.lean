@@ -79,15 +79,14 @@ def excluded (relative : String) : Bool :=
     || relative == ".lake/packages" || relative.startsWith ".lake/packages/"
 
 /-- True when `path` resolves inside `root` (executed normalization check).
-Unresolvable paths are refused (fail closed): there is no lexical prefix
-fallback, so unresolved `..`/absolute joins cannot pass. -/
+A path where nothing is (`Regula.Filesystem.realPathIfPresent`) is refused (fail closed): there is
+no lexical prefix fallback, so unresolved `..`/absolute joins cannot pass. A failure to read or
+resolve either path is thrown. -/
 def contained (root path : FilePath) : IO Bool := do
-  try
-    let resolved ← IO.FS.realPath path
-    let base ← IO.FS.realPath root
-    return resolved.toString == base.toString ||
-      resolved.toString.startsWith (base.toString ++ "/")
-  catch _ => return false
+  let some resolved ← Regula.Filesystem.realPathIfPresent path | return false
+  let some base ← Regula.Filesystem.realPathIfPresent root | return false
+  return resolved.toString == base.toString ||
+    resolved.toString.startsWith (base.toString ++ "/")
 
 /-- Copy one source file through the shared no-follow/exclusive constructor. -/
 def copyFile (source target : FilePath) : IO Unit :=
@@ -171,9 +170,9 @@ def checkContainment (slot : ProducerSlot) (copy : FilePath)
         let relative ← IO.ofExcept dir.getStr?
         let resolved := if FilePath.isAbsolute (FilePath.mk relative) then FilePath.mk relative
           else copy / relative
-        let sharedRoot ← try
-            pure (shared.contains (← IO.FS.realPath resolved))
-          catch _ => pure false
+        let sharedRoot := match ← Regula.Filesystem.realPathIfPresent resolved with
+          | some real => shared.contains real
+          | none => false
         unless sharedRoot || (← contained slot.root resolved) do
           throw <| IO.userError s!"slot manifest dir escapes slot: {relative}"
 
@@ -197,7 +196,8 @@ structure SharedEntry where
   bytes : Nat
   /-- `ByteArray.hash` of a regular file's contents; 0 for any other kind. -/
   digest : UInt64
-  /-- A symlink's resolved path, or `<unresolvable>`; empty for any other kind. -/
+  /-- A symlink's resolved path; empty for any other kind. A link that cannot be resolved fails
+  the walk. -/
   target : String
   deriving BEq, Inhabited
 
@@ -229,8 +229,9 @@ private def sharedWalk (enumerator : Regula.Filesystem.Construction.Enumerator)
         acc ← sharedWalk enumerator root path acc depth
       | .file => acc := acc.push ⟨relative, "file", 0, 0, ""⟩
       | .symlink =>
-        let target ← try pure (← IO.FS.realPath path).toString
-          catch _ => pure "<unresolvable>"
+        -- A link whose target cannot be resolved fails the walk, so no placeholder stands for
+        -- two different targets in the identity.
+        let target := (← IO.FS.realPath path).toString
         acc := acc.push ⟨relative, "symlink", 0, 0, target⟩
       | .other => acc := acc.push ⟨relative, "other", 0, 0, ""⟩
     return acc

@@ -1,6 +1,10 @@
 import Regula.Checker.AcceptanceLink
 import Regula.Checker.Inspection
+import Regula.Checker.SourceBinding
 import Regula.Cli.Setup
+import Regula.Qualification.RuleExamples
+import Regula.Qualification.Slot
+import RegulaProvision
 import Lean.Elab.Command
 
 /-! # Controls of the reads of whether a path is present
@@ -8,9 +12,9 @@ import Lean.Elab.Command
 A path that cannot be read, `locked/child` where `locked` is a directory without search
 permission, which Lean's `System.FilePath.pathExists` and `System.FilePath.isDir` read as absent
 (https://github.com/rbeauchamp/regula/issues/430). The first acceptance step builds this module, and
-its build fails when a control does not give the expected result. These controls are about the
-file system, a trusted boundary: they observe the reads on the toolchain's file system calls, and
-they prove nothing.
+its build fails when a control does not give the expected result, naming each such control. These
+controls are about the file system, a trusted boundary: they observe the reads on the toolchain's
+file system calls, and they prove nothing.
 
 - The setup: Lean's `System.FilePath.metadata` of the path fails with `permissionDenied`, not
   `noFileOrDirectory`. The committed fixture
@@ -19,19 +23,30 @@ they prove nothing.
   for an absent one. The fixture is outside every library of the package, so no module that the
   self-audit inspects names the two readers. A run that cannot make such a path, such as one with
   the permissions of the superuser, fails here rather than passing without observing it.
-- The observer: `Regula.Filesystem.isPresent`, `isDirectory`, `metadataIfPresent`,
-  `readFileIfPresent` and `entryIfPresent` each fail with the read's `permissionDenied`. The
-  theorems of `Regula.Filesystem` (`isPresent_error` and the others) state this for every error
-  that is not `noFileOrDirectory`; this control observes that the toolchain's read gives such an
-  error here.
-- Sites that read through the observer, one for each outcome that `false` used to give: a refusal
-  with another reason (`AcceptanceLink.require`, `Construction.markdownPaths`), an absent record
-  (`Inspection.freezeArtifact`) and a walk past the path to its parent (`Setup.guidanceDirs`). Each
-  fails with the read's `permissionDenied` instead. Each other changed site binds the observer's
-  result in `IO` in the same way, so the error propagates there too, unless a caller catches it;
-  this control does not run them.
+- The observers (`observers`): `Regula.Filesystem.isPresent`, `isDirectory`, `metadataIfPresent`,
+  `readFileIfPresent`, `entryIfPresent`, `realPathIfPresent` and `atOwnPlace` each fail with the
+  read's `permissionDenied`. The theorems of `Regula.Filesystem` (`isPresent_error` and the others)
+  and `atOwnPlace_run` state this for every error that is not `noFileOrDirectory`; this control
+  observes that the toolchain's read gives such an error here.
+- A caller of each observer (`callers`), which fails with the read's `permissionDenied` too. For
+  `isPresent`, one for each outcome that `false` used to give: a refusal with another reason
+  (`AcceptanceLink.require`), an absent record (`Inspection.freezeArtifact`) and a walk past the
+  path to its parent (`Setup.guidanceDirs`). Then `Construction.markdownPaths` (`isDirectory`),
+  `RuleExamples.configuration` (`metadataIfPresent`), `SourceBinding.configuration`
+  (`readFileIfPresent`), `Regula.Filesystem.ownPath` (the entry read of `entryIfPresent`), and
+  `Slot.contained` and `Checker.findRepoRoot?` (`realPathIfPresent`). No caller tells a failure of
+  `atOwnPlace` from a `false`: each reads the entry by the same read before or after it, and that
+  read fails in the same way. So `atOwnPlace` is controlled alone. Each other changed site binds
+  an observer's result in `IO` in the same way, so the error propagates there too, unless a caller
+  catches it; this control does not run them.
+- Provisioning's removal of a shared store that no registered copy links
+  (`RegulaProvision.prune`), the case that destroys data (`provisioning`): a store whose Mathlib
+  cannot be read, and a store whose registered copy's link cannot be resolved
+  (`RegulaProvision.links`). In each, the store and its registry are kept and the failure is
+  reported.
 
-The permissions of `locked` are given back before the temporary directory is removed. -/
+The permissions of each directory that a control takes away are given back before the temporary
+directory is removed. -/
 
 namespace Regula.AbsenceControls
 
@@ -47,7 +62,96 @@ def denied {α : Type} : Except IO.Error α → Bool
   | .error (.permissionDenied ..) => true
   | _ => false
 
-/-- Run the controls in a new temporary directory, and fail with the first control that does not
+/-- The two reads of `atOwnPlace`, by Lean's `symlinkMetadata` and `realPath` as the observer of
+`Regula.Filesystem` makes them. The control removes and moves nothing, so the other operations
+refuse. -/
+def reads : Regula.Filesystem.Ops IO where
+  symlinkMetadata path := path.symlinkMetadata
+  realPath := IO.FS.realPath
+  removeDirAll path := throw <| IO.userError s!"the control removes nothing: {path}"
+  removeFile path := throw <| IO.userError s!"the control removes nothing: {path}"
+  rename source _ := throw <| IO.userError s!"the control moves nothing: {source}"
+
+/-- Each shared read of whether a path is present, run on the path that cannot be read `path`. -/
+def observers (path : FilePath) : List (String × IO Unit) := [
+  ("Regula.Filesystem.isPresent", discard <| Regula.Filesystem.isPresent path),
+  ("Regula.Filesystem.isDirectory", discard <| Regula.Filesystem.isDirectory path),
+  ("Regula.Filesystem.metadataIfPresent", discard <| Regula.Filesystem.metadataIfPresent path),
+  ("Regula.Filesystem.readFileIfPresent", discard <| Regula.Filesystem.readFileIfPresent path),
+  ("Regula.Filesystem.entryIfPresent", discard <| Regula.Filesystem.entryIfPresent path),
+  ("Regula.Filesystem.realPathIfPresent", discard <| Regula.Filesystem.realPathIfPresent path),
+  ("Regula.Filesystem.atOwnPlace", discard <| Regula.Filesystem.atOwnPlace reads path)]
+
+/-- A caller of each shared read, run on the path that cannot be read `path` and, where it takes
+a second, the readable directory `base`. -/
+def callers (base path : FilePath) : List (String × IO Unit) := [
+  ("Regula.Checker.AcceptanceLink.require", Regula.Checker.AcceptanceLink.require path "control"),
+  ("Regula.Checker.Inspection.freezeArtifact",
+    discard <| Regula.Checker.Inspection.freezeArtifact `Control (path / "Control.olean")),
+  ("Regula.Cli.Setup.guidanceDirs", discard <| Regula.Cli.Setup.guidanceDirs path),
+  ("Regula.Filesystem.Construction.markdownPaths",
+    discard <| Regula.Filesystem.Construction.markdownPaths path),
+  ("Regula.Qualification.RuleExamples.configuration",
+    discard <| Regula.Qualification.RuleExamples.configuration #[path / "lakefile.lean"]),
+  ("Regula.Checker.SourceBinding.configuration",
+    discard <| Regula.Checker.SourceBinding.configuration path (path / "lake-manifest.json")),
+  ("Regula.Filesystem.ownPath", discard <| Regula.Filesystem.ownPath (path / "new")),
+  ("Regula.Qualification.Slot.contained", discard <| Regula.Qualification.Slot.contained base path),
+  ("Regula.Checker.findRepoRoot?", discard <| Regula.Checker.findRepoRoot? path)]
+
+/-- A shared store in `parent` as `RegulaProvision.prune` identifies one: a directory named by
+its receipt's key, holding that receipt and a Mathlib directory, with a registry beside it that
+records `copy`. Gives the store and its registry. -/
+def sharedStore (parent copy : FilePath) : IO (FilePath × FilePath) := do
+  let receipt : RegulaProvision.Receipt := {
+    schemaVersion := RegulaProvision.receiptSchema, mathlibRev := "control",
+    leanGithash := "control", leanVersion := "control", packages := #[] }
+  let store := parent / receipt.key
+  IO.FS.createDirAll (RegulaProvision.sharedPackages store / "mathlib")
+  IO.FS.writeFile (store / RegulaProvision.receiptName) (toJson receipt).compress
+  let registry := parent / s!"{receipt.key}.copies.json"
+  IO.FS.writeFile registry (toJson #[copy.toString]).compress
+  return (store, registry)
+
+/-- Run `RegulaProvision.prune` on `parent`, where no store is the current one, with the
+directory `locked` without search permission, and give whether the store and its registry are
+still there and the failure was reported. The permissions of `locked`, where it is still there,
+and of the `.lake` of each directory in `parent`, where a moved store keeps its own, are given
+back first. -/
+def pruneKeeps (parent locked store registry : FilePath) : IO Bool := do
+  IO.Prim.setAccessRights locked 0
+  let (output, ()) ← try IO.FS.withIsolatedStreams (RegulaProvision.prune parent "current" "" "")
+    finally
+      if (← Regula.Filesystem.entryIfPresent locked).isSome then
+        IO.Prim.setAccessRights locked 448
+      for entry in ← parent.readDir do
+        if (← Regula.Filesystem.entryIfPresent entry.path) == some .dir then
+          if (← Regula.Filesystem.entryIfPresent (entry.path / ".lake")) == some .dir then
+            IO.Prim.setAccessRights (entry.path / ".lake") 448
+  return (← Regula.Filesystem.isDirectory store) && (← Regula.Filesystem.isPresent registry) &&
+    (output.splitOn "could not prune").length > 1
+
+/-- Provisioning's removal of a store that no registered copy links, the case that destroys
+data, each with whether it kept the store and its registry: a store whose Mathlib cannot be
+read, and a store whose registered copy's link cannot be resolved (`RegulaProvision.links`). -/
+def provisioning (base : FilePath) : IO (List (String × Bool)) := do
+  let unreadable := base / "unreadable-mathlib"
+  let (store, registry) ← sharedStore unreadable (base / "unregistered")
+  let mathlibKept ← pruneKeeps unreadable (store / ".lake") store registry
+  let unresolved := base / "unresolved-link"
+  let locked := unresolved / "locked"
+  IO.FS.createDirAll (locked / "mathlib")
+  let copy := unresolved / "copy"
+  let made ← IO.Process.output
+    { cmd := "ln", args := #["-s", (locked / "mathlib").toString, copy.toString] }
+  unless made.exitCode == 0 do
+    throw <| IO.userError s!"the control could not make the link {copy}: {made.stderr}"
+  let (store, registry) ← sharedStore (unresolved / "shared") copy
+  let linkKept ← pruneKeeps (unresolved / "shared") locked store registry
+  return [("RegulaProvision.prune of a store whose Mathlib cannot be read", mathlibKept),
+    ("RegulaProvision.links of a registered copy whose link cannot be resolved", linkKept)]
+
+/-- Run the controls in a new temporary directory, and fail, naming each control that does not
 give the expected result. -/
 def check : IO Unit :=
   Regula.Filesystem.withOwnTempDir fun base => do
@@ -56,6 +160,9 @@ def check : IO Unit :=
     let path := locked / "child"
     IO.FS.createDirAll path
     IO.FS.writeFile (path / "AGENTS.md") "control"
+    let source := base / "Refused.lean"
+    IO.FS.writeFile source refusedSource
+    let mut failed : Array String := #[]
     IO.Prim.setAccessRights locked 0
     try
       -- The setup: the read fails with `permissionDenied`, which Lean's two readers take for
@@ -63,8 +170,6 @@ def check : IO Unit :=
       unless denied (← path.metadata.toBaseIO) do
         fail s!"the control could not make an unreadable path: reading {path} did not fail \
           with permissionDenied"
-      let source := base / "Refused.lean"
-      IO.FS.writeFile source refusedSource
       let run ← IO.Process.output {
         cmd := ((← Lean.getBuildDir) / "bin/lean").toString
         args := #["--run", source.toString, path.toString]
@@ -72,30 +177,16 @@ def check : IO Unit :=
       unless run.exitCode == 0 && run.stdout == "false false\n" do
         fail s!"Lean's pathExists and isDir did not both read the unreadable path {path} as \
           absent: exit {run.exitCode}, {run.stdout}{run.stderr}"
-      -- The observer.
-      let observed : List (String × Bool) := [
-        ("isPresent", denied (← (Regula.Filesystem.isPresent path).toBaseIO)),
-        ("isDirectory", denied (← (Regula.Filesystem.isDirectory path).toBaseIO)),
-        ("metadataIfPresent", denied (← (Regula.Filesystem.metadataIfPresent path).toBaseIO)),
-        ("readFileIfPresent", denied (← (Regula.Filesystem.readFileIfPresent path).toBaseIO)),
-        ("entryIfPresent", denied (← (Regula.Filesystem.entryIfPresent path).toBaseIO))]
-      -- Sites that read through it.
-      let sites : List (String × Bool) := [
-        ("Regula.Checker.AcceptanceLink.require",
-          denied (← (Regula.Checker.AcceptanceLink.require path "control").toBaseIO)),
-        ("Regula.Filesystem.Construction.markdownPaths",
-          denied (← (Regula.Filesystem.Construction.markdownPaths path).toBaseIO)),
-        ("Regula.Checker.Inspection.freezeArtifact",
-          denied (← (Regula.Checker.Inspection.freezeArtifact `Control
-            (path / "Control.olean")).toBaseIO)),
-        ("Regula.Cli.Setup.guidanceDirs",
-          denied (← (Regula.Cli.Setup.guidanceDirs path).toBaseIO))]
-      for (name, refused) in observed ++ sites do
-        unless refused do
-          fail s!"{name} did not fail with the read's permissionDenied for the unreadable path \
-            {path}"
+      for (name, read) in observers path ++ callers base path do
+        unless denied (← read.toBaseIO) do
+          failed := failed.push s!"{name} did not fail with the read's permissionDenied"
     finally
       IO.Prim.setAccessRights locked 448
+    for (name, kept) in ← provisioning base do
+      unless kept do
+        failed := failed.push s!"{name} did not keep the store and its registry"
+    unless failed.isEmpty do
+      fail s!"controls of the unreadable path {path} failed: {failed.toList}"
 
 run_cmd check
 

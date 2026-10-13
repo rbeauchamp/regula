@@ -105,7 +105,10 @@ def snapshotCached (cache : IO.Ref SnapshotCache) (paths : Array FilePath) : IO 
   cache.set next
   return value
 
-private def configuration (paths : Array FilePath) : IO Json := do
+/-- Each of `paths` with its text, or `null` when nothing or a directory is there
+(`Regula.Filesystem.metadataIfPresent`); a failure of a read is thrown, never recorded as
+absence. -/
+def configuration (paths : Array FilePath) : IO Json := do
   return toJson (← paths.mapM fun path => do
     let value ← match ← Regula.Filesystem.metadataIfPresent path with
       | some { type := .dir, .. } | none => pure none

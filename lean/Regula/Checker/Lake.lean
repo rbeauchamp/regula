@@ -63,10 +63,11 @@ def SurfaceInventory.ownership (inventory : SurfaceInventory) : Ownership :=
 /-- The directory of the running checker's own package: the one whose Lake build holds the
 library the running checker loads its infrastructure from (`checkerPackageLibDir`), under Lake's
 default layout (`<package>/.lake/build/lib/lean`), on real paths. It is `none` when that library
-is not found or does not lie at that place. The checker's own build is Lake's default layout. -/
+is not found or does not lie at that place (`Regula.Filesystem.realPathIfPresent`), and a failure
+to read or resolve it is thrown. The checker's own build is Lake's default layout. -/
 def checkerPackageDir : IO (Option FilePath) := do
   let some lib ← checkerPackageLibDir | return none
-  let lib ← try IO.FS.realPath lib catch _ => return none
+  let some lib ← Regula.Filesystem.realPathIfPresent lib | return none
   let components := lib.components
   let layout := [_root_.Lake.defaultLakeDir.toString, "build", "lib", "lean"]
   unless layout.isSuffixOf components do return none
@@ -1592,10 +1593,11 @@ Regula's own (`otherFacets`). Lake inserts the root's facets before those of its
 declares. It is in effect only where no dependency declares one, and a record that it writes is
 then the root configuration's own, which the incremental gate trusts as it trusts the traces Lake
 recorded (`traceRecords_ownRecord_iff`). The unmarked build counts no record otherwise
-(`Build.runObserved`). A failure to read a configuration counts as another facet. -/
+(`Build.runObserved`). A failure to read a configuration counts as another facet; a failure to
+resolve the running executable (`runningLakefile`) is thrown. -/
 def onlyRegulaFacets (ws : _root_.Lake.Workspace) : IO Bool := do
+  let running ← runningLakefile
   try
-    let running ← runningLakefile
     let dependencies := ws.packages.filter (!·.isRoot)
     return (← dependencies.mapM (otherFacets ws running)).all (· == 0)
   catch _ => return false

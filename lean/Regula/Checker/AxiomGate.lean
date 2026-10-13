@@ -499,12 +499,10 @@ So a result of this origin says that it rests on the driver (`Origin.qualificati
 private def driverCopy (repo path : FilePath) : IO Copied := do
   let refuse {α : Type} (reason : String) : IO α :=
     throw <| IO.userError s!"driver copy refused: {path} {reason}"
-  let area ← match ← (IO.FS.realPath (Regula.Scratch.directory repo)).toBaseIO with
-    | .ok area => pure area
-    | .error _ => refuse s!"is not in the scratch area of {repo}, which has none"
-  let copy ← match ← (IO.FS.realPath path).toBaseIO with
-    | .ok copy => pure copy
-    | .error _ => refuse "is not there"
+  -- Only `realPathIfPresent` decides that nothing is there; a failure to read or resolve is thrown.
+  let some area ← Regula.Filesystem.realPathIfPresent (Regula.Scratch.directory repo)
+    | refuse s!"is not in the scratch area of {repo}, which has none"
+  let some copy ← Regula.Filesystem.realPathIfPresent path | refuse "is not there"
   let some name := ScratchCopy.name? area.normalize.components copy.normalize.components
     | refuse s!"is not the directory `project` of a scratch directory of {area}"
   let marker := area / s!"{name}.{Regula.Scratch.markerExtension}"
@@ -513,9 +511,11 @@ private def driverCopy (repo path : FilePath) : IO Copied := do
     | .error error => refuse s!"has an ownership marker {marker} that cannot be read ({error})"
   unless marked do refuse s!"has no ownership marker {marker}"
   let build ← match ← (Workspace.withRootWorkspace copy fun workspace =>
-      IO.FS.realPath workspace.root.buildDir).toBaseIO with
-    | .ok build => pure build
-    | .error error => refuse s!"has no build directory that Lake gives ({error})"
+      Regula.Filesystem.realPathIfPresent workspace.root.buildDir).toBaseIO with
+    | .ok (some build) => pure build
+    | .ok none => refuse "has no build directory that Lake gives"
+    | .error error => refuse s!"has a build directory that Lake does not give or that cannot be \
+      resolved ({error})"
   let own ← IO.FS.realPath (← IO.appPath)
   unless ScratchCopy.inside build.normalize.components own.normalize.components do
     refuse s!"did not build this gate: {own} is not below {build}"

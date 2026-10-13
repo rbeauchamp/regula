@@ -895,7 +895,7 @@ private def registerCopy (parent : FilePath) (name copy : String) : IO Unit := d
 /-- Whether `copy` is a symbolic link that resolves to `target`: `false` when it is not a link or
 its target is absent (`isPresent`), and a failure to read or resolve it thrown, so that a link
 that cannot be resolved is not taken for one that links nothing. -/
-private def links (copy target : String) : IO Bool := do
+def links (copy target : String) : IO Bool := do
   unless (← kind? copy) == some .symlink do return false
   unless ← isPresent copy do return false
   return (← IO.FS.realPath copy).toString == target
@@ -907,7 +907,7 @@ where a registry records it and it still links that registry's directory (`retir
 keeps no directory; `link` is the link this run provisions. Only a symbolic link is removed from
 a copy, never a directory. Only directories that their receipt identifies are touched, and a
 failure is reported, not fatal. The caller holds the lock. -/
-private def prune (parent : FilePath) (current link retired : String) : IO Unit := do
+def prune (parent : FilePath) (current link retired : String) : IO Unit := do
   for entry in ← listDirectory parent do
     try
       if (← kind? entry.path) == some .dir then
@@ -967,7 +967,9 @@ private def requireStablePackageLink (path : FilePath) : IO Unit := do
   unless (← kind? path) == some .symlink do return
   let refusal := IO.userError s!"provisioning: preserving {path}: its link does not identify a \
     stable shared store; source-origin and unknown package links require manual disposition"
-  let target ← try IO.FS.realPath path catch _ => throw refusal
+  -- A link that cannot be resolved is preserved with the read's error, never read as absent.
+  let target ← try IO.FS.realPath path catch error =>
+    throw <| IO.userError s!"{refusal}; its target cannot be resolved: {error}"
   let store := target.parent.bind (·.parent) |>.bind (·.parent)
   let some store := store | throw refusal
   let some name := store.fileName | throw refusal

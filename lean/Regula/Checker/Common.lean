@@ -239,27 +239,35 @@ def diagnosticBlocks (output : String) (isHead : String → Bool) : Array String
   return blocks
 
 /-- The nearest ancestor of `start` (itself included) holding one Lake configuration file and
-a `lean-toolchain`. The upward walk terminates on the byte length of the path. The length
-check cannot fail: `FilePath.parent` returns a proper prefix, cut at the last separator or
-after the root directory. Its `revFind?`-based definition has no lemmas in core to prove
-that, so the check states it. -/
-def findRepoRoot (start : FilePath) : IO FilePath := do
-  let root ← IO.FS.realPath start
-  let rec loop (path : FilePath) : IO FilePath := do
+a `lean-toolchain`, or `none` when nothing is at `start` or no ancestor holds them. A failure to
+read or resolve a path is thrown, never read as `none` (`Regula.Filesystem.realPathIfPresent`,
+`Regula.Filesystem.isPresent`), and so is an ancestor with both configuration files. The upward
+walk terminates on the byte length of the path. The length check cannot fail: `FilePath.parent`
+returns a proper prefix, cut at the last separator or after the root directory. Its
+`revFind?`-based definition has no lemmas in core to prove that, so the check states it. -/
+def findRepoRoot? (start : FilePath) : IO (Option FilePath) := do
+  let some root ← Regula.Filesystem.realPathIfPresent start | return none
+  let rec loop (path : FilePath) : IO (Option FilePath) := do
     let hasLean ← Regula.Filesystem.isPresent (path / "lakefile.lean")
     let hasToml ← Regula.Filesystem.isPresent (path / "lakefile.toml")
     if hasLean && hasToml then
       throw <|
           IO.userError s!"ambiguous Lean project root {path}: both lakefile.lean and lakefile.toml"
     if (hasLean || hasToml) && (← Regula.Filesystem.isPresent (path / "lean-toolchain")) then
-      return path
+      return some path
     match path.parent with
     | some parent =>
       if parent.toString.utf8ByteSize < path.toString.utf8ByteSize then loop parent
       else throw <| IO.userError s!"parent of {path} is not a proper prefix"
-    | none => throw <| IO.userError s!"cannot find Lean project root above {root}"
+    | none => return none
   termination_by path.toString.utf8ByteSize
   loop root
+
+/-- The project root that `findRepoRoot?` finds from `start`; it throws where that gives `none`. -/
+def findRepoRoot (start : FilePath) : IO FilePath := do
+  let some root ← findRepoRoot? start
+    | throw <| IO.userError s!"cannot find Lean project root above {start}"
+  return root
 
 /-- The project root that `findRepoRoot` finds from the current working directory. -/
 def repoRoot : IO FilePath := do
@@ -288,12 +296,14 @@ def withScratch {α : Type} (repo : FilePath) (stem : String)
   return (← Regula.Scratch.withScratch repo stem action).1
 
 /-- The real path of the top level of the Git work tree that holds the directory `dir`, as
-`git rev-parse --show-toplevel` run in `dir` prints it, or `none` when that command fails, for
-example where Git finds no work tree, or when nothing is at the printed path
-(`Regula.Filesystem.realPathIfPresent`). A failure to resolve a printed path that is there is
-thrown, so a work tree that cannot be read does not count as no work tree, which would leave each
-dependency in it unowned. Git runs without `GIT_DIR` and `GIT_WORK_TREE`, so the work tree is the
-one Git finds from `dir` itself. Git and the filesystem are trusted. -/
+`git rev-parse --show-toplevel` run in `dir` prints it with the spaces at its ends removed, or
+`none` when that command cannot start or fails, or when nothing is at the printed path
+(`Regula.Filesystem.realPathIfPresent`). A failure to read or resolve the printed path is thrown.
+A failure of the command is `none` whatever its cause, so a work tree that Git cannot read counts
+as no work tree, and the removed spaces can name a different path: issue
+https://github.com/rbeauchamp/regula/issues/444 tracks the two. Git runs without `GIT_DIR` and
+`GIT_WORK_TREE`, so the work tree is the one Git finds from `dir` itself. Git and the filesystem
+are trusted. -/
 def gitWorkTree (dir : FilePath) : IO (Option FilePath) := do
   let result ← try
       runProcess dir "git" #["rev-parse", "--show-toplevel"]

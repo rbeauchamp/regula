@@ -430,15 +430,15 @@ loaded from outside the copy at `copy`, with the `.olean` it was loaded from: on
 on real paths, does not lie below `copy`. The copy is made with no compiled module
 (`copyProject`), so an owned module that resolves below it was compiled by the copy's own build;
 one that resolves elsewhere, such as an artifact of the original checkout, a configured build
-directory outside the copy or the reporter's overlay of the checker's library, was not. An
-`.olean` that cannot be resolved counts as outside. -/
+directory outside the copy or the reporter's overlay of the checker's library, was not. A failure
+to resolve an `.olean` or the copy is thrown (`pathWithin`), never counted as either place. -/
 def ModuleGraph.outsideCopy (graph : ModuleGraph) (ownership : EnvironmentOwnership)
     (copy : FilePath) : IO (Array (Name × String)) := do
   let mut outside := #[]
   for origin in graph.moduleOrigins do
     if ownership.modules.contains origin.name then
-      let inside ← try pathWithin (FilePath.mk origin.olean) copy catch _ => pure false
-      unless inside do outside := outside.push (origin.name, origin.olean)
+      unless ← pathWithin (FilePath.mk origin.olean) copy do
+        outside := outside.push (origin.name, origin.olean)
   return outside
 
 /-- The text of the refusal of an owned module that a fresh audit loaded from outside its copy
@@ -477,10 +477,11 @@ def attributeLoaded (origins : Array Regula.Report.ModuleOrigin) (ownership : Ow
   -- An artifact is placed by `modulePath?` alone, for a name that the loop below has admitted.
   let artifact (output : FilePath) (name : Name) : IO (Option FilePath) := do
     let some path := modulePath? output name "olean" | return none
-    try some <$> IO.FS.realPath path catch _ => pure none
+    -- Nothing there attributes nothing; a failure to read or resolve the path is thrown.
+    Regula.Filesystem.realPathIfPresent path
   let checker ← do
     let some lib ← checkerPackageLibDir | pure none
-    try some <$> IO.FS.realPath lib catch _ => pure none
+    Regula.Filesystem.realPathIfPresent lib
   let mut attributed := #[]
   for origin in origins do
     if (safeModuleComponents? origin.name).isNone then
