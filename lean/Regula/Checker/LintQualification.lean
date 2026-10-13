@@ -849,8 +849,11 @@ private def observerEscapes (repo adopter : FilePath) : IO (Array String) := do
   failures := failures ++ (← expect adopter (accepted "observer/grind-option"))
   restore adopter originals
   failures := failures ++ (← expect adopter (accepted "observer/restored"))
-  -- A dependency, required after `regula`, whose `presetup` facet runs Lake's own with
+  -- A dependency, required before `regula`, whose `presetup` facet runs Lake's own with
   -- `memoize := false`, so Lake stores no `presetup` job (`Lake/Build/Index.lean` lines 43 to 49).
+  -- Lake loads a package's requires from the last to the first and each loaded facet replaces one
+  -- of the same name (`Lake/Load/Resolve.lean` lines 49, 73 and 212), so this facet is the
+  -- workspace's and Regula's own is not.
   -- The audit reads each module's source file and plugins from the jobs that completed
   -- (`Observer.Presetups`), so the run is accepted. The facet writes a file as it runs, which shows
   -- that the workspace configured it. The dependency is a Git repository of its own, as `regula` is.
@@ -866,8 +869,8 @@ private def observerEscapes (repo adopter : FilePath) : IO (Array String) := do
     Module.presetupFacetConfig.run mod\n"
   let initialized ← runProcess setupDep "git" #["init", "-q"]
   unless initialized.succeeded do throw <| IO.userError initialized.output
-  IO.FS.writeFile (adopter / "lakefile.lean") <| (← IO.FS.readFile (adopter / "lakefile.lean")) ++
-    s!"\nrequire setupdep from {(toJson setupDep.toString).compress}\n"
+  mutate (adopter / "lakefile.lean") "\nrequire regula from"
+    s!"\nrequire setupdep from {(toJson setupDep.toString).compress}\nrequire regula from"
   let parsed ← readJson manifestFile
   let packages : Array Json ← IO.ofExcept <| parsed.getObjValAs? (Array Json) "packages"
   writeJson manifestFile <| parsed.setObjVal! "packages" <| toJson <| packages.push <| Json.mkObj [
