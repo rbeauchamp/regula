@@ -493,9 +493,7 @@ metadata, not authenticated binary identity.
 - **Build origin:** In `axiomGate` project results, `scope.buildOrigin` names the origin of the
   build output. It is `isolatedCopy`, `driverCopy` or `incrementalBuild`.
 - **Audited target:** In `axiomGate` project results, `scope.project` names the audited project
-  root, and `scope.manifestPath` names the manifest that the audit resolved. That manifest is
-  `--manifest` against that root, or the root's `foundation_manifest.json`. A fresh audit reads
-  the default manifest from its isolated copy, and an explicit `--manifest` at its resolved path.
+  root, and `scope.manifestPath` names the policy manifest that the audit read. The [copy contract](proofs-and-boundaries.md#the-acceptance-boundary) defines manifest relocation.
 - **Owner's assertion:** `scope.ordinaryLakefiles` is `true` only when the `lint` driver ran with
   `REGULA_ORDINARY_LAKEFILES=1` in its environment.
 - **Acceptance account:** a completed result's `acceptance.account` renders the report account:
@@ -644,13 +642,9 @@ invocation may launch subprocesses. File
 fixtures are separate from the warning-free positive library used to prepare dependencies. The
 adapters reuse `SourceBinding.withUnchanged`, typed `SourceAudit` outcomes and the documentation
 driver's frozen snapshots and serialize only after snapshot checks complete, so a typed refusal
-or process exception cannot become a qualifying example. The producer captures its own parsed
-invocation and effective configuration, including absent files and Lake package overrides;
-copied configuration paths are compared relative to their recorded roots without rewriting
-source or diagnostic identities, a changed effective package override is refused, and neither
-configuration relocation nor a combined `--with-docs` request is authorized. The qualifier also
-compares the actual effective configuration and the file or per-surface claim and execution with
-the request. The campaign applies
+or process exception cannot become a qualifying example. The producer records its request and effective configuration. The [configuration account](#output-schemas) defines how copied configurations are compared. Source and diagnostic identities remain unchanged. A combined `--with-docs` request cannot qualify.
+
+The qualifier also compares the file or per-surface claim and execution with the request. The campaign applies
 `ResultProtocol.admitGuidance` to every result it admits. The qualifier applies it again to
 the members that it reads of the result of each record.
 

@@ -992,8 +992,9 @@ observe that this driver made the copy new in this run; that statement rests on 
 
 /-- Construct the cold copy before any prebuild through the shared no-follow/exclusive routine.
 The bootstrap wrapper only supplies its main entrypoint. Its regular-file receipt identifies the
-files the same constructor emitted. Regular files use 0644; copied build output is excluded and
-the driver runs freshly built programs, whose executable modes Lake sets. -/
+files the same constructor emitted. `Construction.projectRelative` owns ordinary source selection;
+`Construction.sourceMain` also retains the original Markdown domain and reserves the root `.lake`.
+Regular files use 0644. The driver runs freshly built programs, whose executable modes Lake sets. -/
 def copyTree (root target : System.FilePath) : IO (List String) := do
   let some parent := target.parent | throw <| IO.userError "copy target has no parent"
   let wrapper := parent / "regula-copy.lean"

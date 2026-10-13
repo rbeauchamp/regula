@@ -48,9 +48,7 @@ lake -d audit build                # the standard's example library
 ```
 
 Ordinary acceptance builds its checker executables, type-checks the diagnostic
-modules and audits the root package's claimed Lean surfaces from fresh output. It also runs the
-registry and native qualification controls (`qualify combined`, which runs those of
-`qualify registry` and then those of `qualify native` beside `qualify unique-constants`).
+modules and audits the root package's claimed Lean surfaces from fresh output. It also runs `qualify combined`. The [dispatcher](../../lean/Regula/Qualification/Main.lean) defines its control sequence.
 It refuses a root lock manifest that records any dependency. It records the content
 identity of the inputs it accepted in `tmp/acceptance-link.json`. `./scripts/verify.sh docs`
 then refuses a rule ID in the prose of a tracked Markdown document that is not a link to its rule page ([rule IDs in documentation](#rule-ids-in-documentation)), refuses a link of the root `README.md` to the rule-reference site that is not a stable address ([links of the root README](#links-of-the-root-readme)), refuses a root `README.md` or adoption guide that does not open with the summary of Regula ([opening of the root README](#opening-of-the-root-readme)), refuses a root `README.md` if its example does not show its module and what Lean and `axiomGate --file` give for it ([example of the root README](#the-example-of-the-root-readme)), audits the `audit/` package's claimed surface from fresh output, checks every Lean example

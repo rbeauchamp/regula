@@ -663,9 +663,10 @@ def captureManifest (ws : _root_.Lake.Workspace) :
   return (manifest, items)
 
 /-- Copy a checked project and its owned path dependencies through the shared no-follow
-directory/file constructor. Every selected source entry must be plain. VCS, build/cache/scratch
-trees and root tmp trees are excluded before descent, except consumer-selected files, an explicitly
-selected project-contained policy, and their ancestors. Compiled-module exclusions apply only to
+directory/file constructor. Every selected source entry must be plain. Root tmp trees are excluded
+before descent. VCS and build/cache/scratch trees are excluded outside each capture root's docs tree.
+Consumer-selected files, an explicitly selected project-contained policy, and their ancestors
+survive these exclusions. Compiled-module exclusions apply only to
 captured regular files. The final instructions must contain every selected file before construction.
 Owned packages survive package-store pruning
 in their own capture pass. Paths relative to their
