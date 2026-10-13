@@ -8,15 +8,17 @@ and without the checkout of each dependency in its packages directory, but with 
 there. It gives the copy an override for each dependency, to the directory and through the files
 that Lake's load of the project takes (`Lake.relocateDependencies`). Lake's load of the copy must
 then select what its load of the project selects (`Lake.checkCopiedWorkspace`). The copy refuses a
-module whose source it leaves out. The control copies `examples/fixtures/copy-relocation`, with
-three projects:
+file that Lake's load reads for a copied package when it leaves that file out. The control copies
+`examples/fixtures/copy-relocation`, with four projects:
 - `project` requires the package `dep` by path. Its manifest has two entries for `dep`: the first
   names the configuration file `a.toml`, and the last names `b.toml`.
 - `git-project` keeps its dependencies' checkouts in `vendor` and requires `gdep` by Git. The
   control commits `gdep` to a Git repository of its own, which Lake clones without a network. Two
   of the project's libraries have owned sources in `vendor` (`ownedSources`).
 - `lake-source` has a library whose source directory `.lake/packages/src` lies in Lake's default
-  packages directory, where the control places its module from `lake-source-module`.
+  packages directory, where the control places its module from `placed`.
+- `cache-config` requires the package `cdep` by path, in its own directory. The manifest entry for
+  `cdep` names the configuration `.cache/package.toml`, which the control places from `placed`.
 
 The control's Git commands and its workers run without the Git repository variables that their
 process inherits (`Construction.gitEnvironment`).
@@ -50,6 +52,19 @@ private def copied (project copies : FilePath) (name package : String) :
   let overrides ← _root_.Lake.Manifest.tryLoadEntries
     (LakeSelection.ownRootFiles copy.project).2
   return (copy.project, dependency.configFile, overrides)
+
+/-- Copy the project at `project` into a new directory below `copies` named `name`, which the copy
+must refuse: give the refusal's text, or `none` when the copy succeeded, and whether the copy's
+tree exists afterwards. -/
+private def refusedCopy (project copies : FilePath) (name : String) :
+    IO (Option String × Bool) := do
+  let exclude := copies / name
+  IO.FS.createDirAll exclude
+  let refusal ← try
+      discard <| Lake.copyProject project (exclude / "tree") exclude
+      pure (none : Option String)
+    catch error => pure (some error.toString)
+  return (refusal, ← (exclude / "tree").pathExists)
 
 /-- Throws, labelled with `what` and the process's combined output, unless it exited with code 0. -/
 private def succeeded (what : String) (result : IO.Process.Output) : IO Unit :=
@@ -201,6 +216,8 @@ private def snapshot (dir : FilePath) : IO (List (List String × Option (List UI
   names it.
 - A copy of `lake-source`, whose module `Example` lies below `.lake`, refuses that module by name
   and by the excluded directory, and writes nothing.
+- A copy of `cache-config`, whose owned package `cdep` has its configuration below `.cache`,
+  refuses that configuration file by name and by the excluded directory, and writes nothing.
 - The steps that run Git and Lake (`gitSteps`) run in a process that inherits a `GIT_DIR` of a
   repository and an absolute `GIT_INDEX_FILE`, both in a temporary directory outside the scratch
   directory. The steps must pass, and that directory must hold the same entries and bytes after
@@ -237,20 +254,28 @@ def check : IO Unit := do
           #[(`dep, "b.toml")]⟩]
     IO.println "copy relocation restored: PASS"
     let lakeSource := source / "lake-source"
-    Regula.Filesystem.Construction.copyFile (source / "lake-source-module" / "Example.lean")
+    Regula.Filesystem.Construction.copyFile (source / "placed" / "Example.lean")
       (lakeSource / _root_.Lake.defaultLakeDir / "packages" / "src" / "Example.lean")
-    let lakeCopies := copies / "lake-source"
-    IO.FS.createDirAll lakeCopies
-    let refusal ← try
-        discard <| Lake.copyProject lakeSource (lakeCopies / "tree") lakeCopies
-        pure (none : Option String)
-      catch error => pure (some error.toString)
+    let (refusal, written) ← refusedCopy lakeSource copies "lake-source"
     requireChecks [
       ⟨s!"a copy refuses the module Example below .lake by name: {refusal}",
-        refusal.any fun message => message.contains "module Example of package 'lake_source'" &&
-          message.contains "as a directory named .lake"⟩,
-      ⟨"the refused copy writes nothing", !(← (lakeCopies / "tree").pathExists)⟩]
+        refusal.any fun message =>
+          message.contains "the source of module Example of package 'lake_source'" &&
+            message.contains "as a directory named .lake"⟩,
+      ⟨"the refused copy of lake-source writes nothing", !written⟩]
     IO.println "copy relocation module below an excluded directory refused: PASS"
+    let cacheConfig := source / "cache-config"
+    Regula.Filesystem.Construction.copyFile (source / "placed" / "package.toml")
+      (cacheConfig / "cdep" / ".cache" / "package.toml")
+    succeeded "git init of cache-config" (← run cacheConfig "git" #["init", "-q"])
+    let (refusal, written) ← refusedCopy cacheConfig copies "cache-config"
+    requireChecks [
+      ⟨s!"a copy refuses the configuration of cdep below .cache by name: {refusal}",
+        refusal.any fun message =>
+          message.contains "the configuration file of package 'cdep'" &&
+            message.contains "as a directory named .cache"⟩,
+      ⟨"the refused copy of cache-config writes nothing", !written⟩]
+    IO.println "copy relocation configuration below an excluded directory refused: PASS"
     Regula.Filesystem.withOwnTempDir fun outside => do
       succeeded "git init of the inherited repository"
         (← run outside "git" #["init", "-q", "inherited"])

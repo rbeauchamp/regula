@@ -1,6 +1,6 @@
 # A project of the `qualify copy-relocation` control whose library `LakeSource` has its source
 # directory `.lake/packages/src` in Lake's default packages directory. The control places the module
-# `Example` there from `../lake-source-module`. A copy leaves out each directory named `.lake`, so it
+# `Example` there from `../placed`. A copy leaves out each directory named `.lake`, so it
 # must refuse that module by name.
 name = "lake_source"
 

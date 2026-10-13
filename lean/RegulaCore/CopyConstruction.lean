@@ -97,6 +97,16 @@ theorem CopyFilter.omission_other (filter : CopyFilter) (path : List String)
   | some exclusion => rfl
   | none => simp [packageSource_other filter.source filter.dependencies path other]
 
+/-- A pass leaves out no entry on the way from its root to `path`, `path` included, exactly when
+`firstOmission` finds none. A copy refuses each file of its domain for which it finds one. -/
+theorem CopyFilter.firstOmission_eq_none (filter : CopyFilter) (path : List String) :
+    filter.firstOmission path = none ↔ ∀ length, filter.source.length ≤ length →
+      length ≤ path.length → filter.omission (path.take length) = none := by
+  simp only [CopyFilter.firstOmission, List.findSome?_eq_none_iff, List.mem_range'_1,
+    Option.map_eq_none_iff]
+  exact ⟨fun selected length lower upper => selected length ⟨lower, by omega⟩,
+    fun selected length bounds => selected length bounds.1 (by omega)⟩
+
 /-- File filtering retains every directory and exactly the selected regular files, without
 altering any instruction's path or payload. The statement covers every name and entry kind. -/
 theorem selectFiles_mem (selected : List String → Bool) (items : List Item) (item : Item) :

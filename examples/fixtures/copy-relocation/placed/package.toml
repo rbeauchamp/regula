@@ -1,0 +1,6 @@
+# The configuration of the package `cdep` of the `cache-config` project of the
+# `qualify copy-relocation` control, which the control places in `cdep/.cache`.
+name = "cdep"
+
+[[lean_lib]]
+name = "Cdep"

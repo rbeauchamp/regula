@@ -683,9 +683,11 @@ Package pruning leaves out exactly the directory of each dependency package that
 workspace records in the packages directory, and keeps every other entry there
 (`Construction.CopyFilter.omission_pruned`, `Construction.CopyFilter.omission_other`). An owned
 package there keeps its own capture pass (`Construction.packageSource_owned`). Before anything is
-written, the copy refuses a module that Lake would build for the root package or an owned
-dependency (`packageModules`) whose source its capture pass leaves out, and names that exclusion
-(`Construction.CopyFilter.firstOmission`). Paths relative to their
+written, the copy refuses a file that Lake's load reads for the root package or an owned dependency
+when its capture pass leaves that file out, and names the file and the exclusion
+(`Construction.CopyFilter.firstOmission`). These files are the source of each module that Lake can
+build (`packageModules`), the loaded configuration file and an owned dependency's recorded manifest
+when present. Paths relative to their
 common ancestor are retained. The captured loaded manifest is installed at its loaded path, and
 every resolved dependency gets a typed path override: an owned package in the copy, a trusted
 package at its original root. There is no packages link. This copy is for ordinary loads only;
@@ -696,10 +698,14 @@ Assumes: the shared constructor's native primitive contracts and no concurrent s
 destination writer. Lake's loaded workspace and manifest stay fixed while captured.
 
 Assumes: Lake v4.34.1 materializes a Git entry at its name in the packages directory
-(`Lake/Load/Materialize.lean:246`). It builds a library's module when `isBuildableModule` admits it
-(`Lake/Config/LeanLibConfig.lean:128-130`), which `buildableModules` enumerates. It reads the module's
-Lean source at `Lean.modToFilePath` of its library's `srcDir` (`Lake/Config/Module.lean:83-90`). That
-`srcDir` is the package's joined with the library's (`Lake/Config/LeanLib.lean:34-35`,
+(`Lake/Load/Materialize.lean:246`). It loads a package's configuration file and the manifest that
+its entry records at their recorded paths (`Lake/Load/Package.lean:96-105`,
+`Lake/Load/Materialize.lean:272-277`). A library's module is one that Lake can build when
+`isBuildableModule` admits it (`Lake/Config/LeanLibConfig.lean:128-130`), which `buildableModules`
+enumerates. Lake builds only the modules that a glob selects and their imports
+(`Lake/Build/Library.lean:36-60`, `:67-72`), a subset of these. It reads a module's Lean source at
+`Lean.modToFilePath` of its library's `srcDir` (`Lake/Config/Module.lean:83-90`). That `srcDir` is
+the package's joined with the library's (`Lake/Config/LeanLib.lean:34-35`,
 `Lake/Config/Package.lean:352-353`), and an executable's root module has the executable's own
 (`Lake/Config/LeanExe.lean:45-51`). -/
 def copyProject (repo target exclude : FilePath)
@@ -760,29 +766,33 @@ def copyProject (repo target exclude : FilePath)
       required, copies := [excluded, excludedReal]
       names := [".git", _root_.Lake.defaultLakeDir.toString, ".cache", Regula.Scratch.legacyDirName]
       dependencies := dependencyDirectories } : Regula.Filesystem.Construction.CopyFilter)
-    -- Each module that Lake would build for the root package or an owned dependency must have its
-    -- source in the copy: the pass of the innermost capture root that holds it selects that source
-    -- and each directory on the way to it.
+    -- Lake's load of the copy reads, for the root package and each owned dependency, the source of
+    -- each module that Lake can build (`packageModules`), the loaded configuration file and an
+    -- owned dependency's recorded manifest when present. The root's manifest is installed from its
+    -- own capture. The pass of the innermost capture root that holds such a file must select it
+    -- and each directory on the way to it (`Construction.CopyFilter.firstOmission_eq_none`).
     let ownedPackages := ws.packages.filter fun package => package.isRoot ||
       original.dependencies.any fun dependency =>
         dependency.owned && dependency.package == package.baseName.toString
     for package in ownedPackages do
       let (_, modules) ← packageModules package
-      for (name, file) in modules do
+      let reads := modules.toList.map (fun (name, file) => (s!"the source of module {name}", file)) ++
+        [("the configuration file", package.configFile)] ++
+        (if package.isRoot then [] else [("the manifest", package.dir / package.relManifestFile)])
+      for (what, file) in reads do
         let path? ← try
             pure (some (← Regula.Filesystem.observeRealPath file).normalize.components)
           catch
             | .noFileOrDirectory .. => pure none
             | error => throw error
         let some path := path? | continue
-        let refusal := s!"copy refused: module {name} of package '{package.baseName}' has its \
-          source at {file}"
+        let refusal := s!"copy refused: {what} of package '{package.baseName}' at {file}"
         let some top := (directories.filter (·.normalize.components.isPrefixOf path)).foldl
             (fun best dir => if best.all (·.normalize.components.length <
               dir.normalize.components.length) then some dir else best) (none : Option FilePath)
-          | throw <| IO.userError s!"{refusal}, outside each directory that the copy captures"
+          | throw <| IO.userError s!"{refusal} lies outside each directory that the copy captures"
         if let some (entry, omission) := (filterOf top).firstOmission path then
-          throw <| IO.userError s!"{refusal}, in {"/".intercalate entry}, which a copy of the \
+          throw <| IO.userError s!"{refusal} is in {"/".intercalate entry}, which a copy of the \
             project leaves out as {omission.describe}"
     let mut instructions := []
     for top in directories do

@@ -472,12 +472,12 @@ def CopyFilter.omission (filter : CopyFilter) (path : List String) : Option Omis
     else some .pruned
 
 /-- The first entry on the way from the capture root to `path`, `path` included, that the pass
-leaves out, with its omission. It is `none` exactly when the pass selects each of these entries,
-which `captureWith` requires before it reads `path`. -/
+leaves out, with its omission. It is `none` exactly when the pass selects each of these entries
+(`CopyFilter.firstOmission_eq_none`), which `captureWith` requires before it reads `path`. -/
 def CopyFilter.firstOmission (filter : CopyFilter) (path : List String) :
     Option (List String × Omission) :=
-  ((List.range (path.length + 1)).drop filter.source.length).findSome? fun length =>
-    (filter.omission (path.take length)).map (path.take length, ·)
+  (List.range' filter.source.length (path.length + 1 - filter.source.length)).findSome?
+    fun length => (filter.omission (path.take length)).map (path.take length, ·)
 
 /-- Observe Git's repository-local environment names, then remove them for a child in another
 repository. System/global configuration is disabled and namespaces are also removed. The query
