@@ -13,6 +13,7 @@ import Regula.ToolchainProgram
 import Regula.Checker.AcceptanceLink
 import Regula.Checker.ResultProtocol
 import Regula.Checker.SelftestArguments
+import Regula.Site.Build
 
 /-!
 # Checker qualification suite
@@ -247,13 +248,14 @@ private def cliAttributionShard : Fin cliShards := ⟨cliShards - 1, by decide�
 shard of the self-hosted positive (`selfHostedShard`) runs `axiomGate` alone; a run of the cli
 partition that runs its last shard (`cliAttributionShard`), sharded or not, also runs `qualify` and
 `site`, in the control of a process without Lean's task manager and in the control of a run that
-stops early, and `ruleExamples` in the latter; every other shard keeps the partition's baseline. -/
+stops early, and `ruleExamples` and `ruleExampleQualification` in the latter; every other shard
+keeps the partition's baseline. -/
 private def baselineOf (partition : Partition) (shard : Option (Nat × Nat)) : Baseline :=
   if partition = .structural ∧ (shard.bind (shardOf? structuralShards)) = some selfHostedShard
   then ⟨["axiomGate"], false, []⟩
   else if partition = .cli ∧
       (shard.isNone ∨ shard.bind (shardOf? cliShards) = some cliAttributionShard) then
-    ⟨checkerTools ++ ["qualify", "site", "ruleExamples"], true, []⟩
+    ⟨checkerTools ++ ["qualify", "site", "ruleExamples", "ruleExampleQualification"], true, []⟩
   else partitionBaseline partition
 
 /-- Every run's baseline build names `axiomGate` (`partitionBaseline_axiomGate`), a shard's
@@ -4468,25 +4470,45 @@ the program's own marks, for `ruleExamples --policy-negative` and `--documentati
 --json-out`, `freshChecker --json-out` and the self-test's `--transcript-worker`; a facts file that
 does not exist, for both forms of `ruleExamples --injected-git-facts`; a planted project root
 without the documented examples that `qualify --under-deadline producers --evidence` reads first;
-an invalid shard of `qualify --under-deadline rule-examples --evidence`; the proxy of `axiomGate`
-that `qualify` runs under `REGULA_QUALIFICATION_WRAPPER=acceptance` with no gate beside it to
-start; and `site build --out` without its evidence, which the parser refuses. Each destination
-that the run names starts with a completed document of its own format, which the format's reader
-admits as completed, as in the task-manager control (`taskManagerControl`), and for
-`freshChecker` and `qualify rule-examples` a document with the status `completed` and the outcome
-`COMPLETED`. The run must stop with the exit code of its early stop, and each destination must then
-hold a document marked incomplete with the reason, or be removed for the site artifact, so that
-the reader no longer admits it as completed. For a production of `ruleExamples` and the export of
-`qualify producers`, the reason is the error's text that the run printed (`markedWithError`). For
-the other runs, it is the reason with which the guard marks each destination before any code of
-the program runs (`Regula.TaskManager.guard`, `Regula.TaskManager.startedReason`). The processes
-and Lean's runtime are its subject, an external boundary: it observes this build's programs and
-proves nothing.
+no GNU timeout on `PATH`, which `qualify producers --evidence` selects before it starts the
+command under its deadline; an invalid shard of `qualify --under-deadline rule-examples
+--evidence`; the proxy of `axiomGate` that `qualify` runs under
+`REGULA_QUALIFICATION_WRAPPER=acceptance` with no gate beside it to start; and `site build --out`
+without its evidence, which the parser refuses. Each destination that the run names starts with a
+completed document of its own format, which the format's reader admits as completed, as in the
+task-manager control (`taskManagerControl`); for `freshChecker` a document with the status
+`completed`, and for `qualify rule-examples` an export of no rule that the site's reader admits
+(`Site.Build.admitShard`). The run must stop with the exit code of its early stop, and each
+destination must then hold a document marked incomplete with the reason, or be removed for the site
+artifact, so that the reader no longer admits it as completed. For a production of `ruleExamples`
+and the export of `qualify producers`, the reason is the error's text that the run printed
+(`markedWithError`). For the other runs, it is the reason with which the guard marks each
+destination before any code of the program runs (`Regula.TaskManager.guard`,
+`Regula.TaskManager.startedReason`).
+
+A run that names one file as an input and as a destination is refused before anything is written
+(`aliasRefusal`), so the guard's mark does not replace the input: the declaration-report worker of
+`axiomGate` with its request as its output, `ruleExamples --injected-git-facts` with its facts as
+the audit's `--json-out`, and `ruleExamples --policy-negative` with its source as its result,
+named through a directory and `..`. Each must exit with its refusal's code and the reason, and the
+file must keep its bytes.
+
+The verification wrapper `scripts/verify.sh`, with `lean` absent from its `PATH`, stops before the
+driver's begin-attempt (`RegulaVerification.beginAttempt`), once for the first acceptance step
+and once for the first corpus shard. It must exit with 127 and record both attempts in its journal
+of attempts. The next begin-attempt, of the documentation step, must then invalidate an accepted
+acceptance link (`AcceptanceLink.require`) and a shard export that the site admits, and remove
+the journal. The wrapper runs in a copy of its files, so its `tmp` is the copy's.
+
+The processes, the shell and Lean's runtime are its subject, an external boundary: it observes
+this build's programs and proves nothing.
 
 Assumes: Lean 4.34.1's `Lean.findSysroot` returns `LEAN_SYSROOT` when it is set, and otherwise runs
 `lean --print-prefix` and fails when that run fails (`src/lean/Lean/Util/Path.lean:180-187`).
-Trusted: the runtime finds a command given by a bare name, such as `lean`, only in the
-directories of `PATH`; its process code is not among the toolchain's sources. -/
+Trusted: the runtime finds a command given by a bare name, such as `lean` or `timeout`, only in
+the directories of `PATH`; its process code is not among the toolchain's sources. Trusted: Bash
+ends a script under `set -e` with the status 127 of a command that it does not find on `PATH`, and
+neither `/usr/bin` nor `/bin` holds `lean`, which the control checks. -/
 private def earlyStopControl (repo : FilePath) : IO (Option String) :=
   withScratch repo "checker-early-stop" fun scratch => do
     let started := Regula.TaskManager.startedReason
@@ -4522,20 +4544,30 @@ private def earlyStopControl (repo : FilePath) : IO (Option String) :=
           (Json.mkObj [("mode", .str "serializedGraph"), ("status", .str "completed")]),
         completed := do return (← parsedAt (scratch / "graph.json")).any fun value =>
           (value.getObjValAs? String "status").toOption == some "completed" }
-    let producerExport : Seeded :=
-      { path := scratch / "producers.json",
-        marked := markedWithError (scratch / "producers.json") "reason" "",
-        seed := writeJson (scratch / "producers.json") (Json.mkObj
+    let producerExport (name : String) : Seeded :=
+      { path := scratch / name,
+        marked := markedWithError (scratch / name) "reason" "",
+        seed := writeJson (scratch / name) (Json.mkObj
           [("schemaVersion", toJson (1 : Nat)), ("examples", toJson (#[] : Array Json))]),
-        completed := exportCompleted (scratch / "producers.json") }
+        completed := exportCompleted (scratch / name) }
+    -- A completed corpus export that the site's reader admits (`Site.Build.admitShard`, which also
+    -- runs the qualifier executable): of no rule, recorded against the sources of this checkout as
+    -- they are now (`Site.Build.currentSources`).
+    discard <| toolPath repo "ruleExampleQualification"
+    let current ← Regula.Site.Build.currentSources repo
+    let shardAdmitted (path : FilePath) : IO Bool := do
+      return (← (Regula.Site.Build.admitShard repo current path).toBaseIO) matches .ok _
+    let writeShard (path : FilePath) : IO Unit :=
+      writeJson path (Json.mkObj [("outcome", .str "COMPLETED"),
+        ("schemaVersion", toJson (1 : Nat)), ("selected", toJson (#[] : Array Json)),
+        ("completeCorpus", .bool false), ("checkerBefore", current), ("checkerAfter", current),
+        ("records", toJson (#[] : Array Json))])
     let corpus : Seeded :=
       { path := scratch / "rule-examples.json",
         marked := fun _ =>
           markedWith (scratch / "rule-examples.json") "reason" started ("outcome", "INCOMPLETE"),
-        seed := writeJson (scratch / "rule-examples.json")
-          (Json.mkObj [("outcome", .str "COMPLETED")]),
-        completed := do return (← parsedAt (scratch / "rule-examples.json")).any fun value =>
-          (value.getObjValAs? String "outcome").toOption == some "COMPLETED" }
+        seed := writeShard (scratch / "rule-examples.json"),
+        completed := shardAdmitted (scratch / "rule-examples.json") }
     let site := scratch / "site"
     let artifact : Seeded :=
       { path := site, marked := fun _ => do return !(← site.pathExists),
@@ -4587,8 +4619,11 @@ private def earlyStopControl (repo : FilePath) : IO (Option String) :=
       ("checkerSelftest", (← IO.appPath).toString, repo, #["--transcript-worker", "\"Planted\"",
         fixture.toString, "true", packet.path.toString], withoutLean, some 1, [packet]),
       ("qualify", qualify, project,
-        #["--under-deadline", "producers", "--evidence", producerExport.path.toString], plain,
-        some 1, [producerExport]),
+        #["--under-deadline", "producers", "--evidence", (scratch / "producers.json").toString],
+        plain, some 1, [producerExport "producers.json"]),
+      ("qualify", qualify, project,
+        #["producers", "--evidence", (scratch / "bounded.json").toString], withoutLean, some 1,
+        [producerExport "bounded.json"]),
       ("qualify", qualify, repo, #["--under-deadline", "rule-examples", "--evidence",
         corpus.path.toString, "--shard", "planted"], plain, some 1, [corpus]),
       ("qualify", qualify, repo, fileArgs (scratch / "proxy.json"),
@@ -4614,6 +4649,84 @@ private def earlyStopControl (repo : FilePath) : IO (Option String) :=
           return some s!"early stop: {program} {args} left {destination.path} without the \
             incomplete mark and the reason, or admitted as completed; it holds {held}\n\
             {result.output}"
+    -- Each run that names one file as an input and as a destination (`aliasRefusal`), the second
+    -- name of the policy example's source through a directory and `..`: it must be refused with the
+    -- reason and its exit code, and the file must keep its bytes.
+    let request := scratch / "alias-request.json"
+    let publish := scratch / "alias-publish.json"
+    IO.FS.writeFile request (toJson ({ modules := #[], searchRoots := #[], sourceRoots := #[],
+      sourceBindings := #[], ownership := {}, historyMemo := (scratch / "history").toString,
+      priors := #[], publish := publish.toString } : Inspection.ReportWorkerRequest)).compress
+    let facts := scratch / "alias-facts.json"
+    IO.FS.writeFile facts "[]\n"
+    let source := scratch / "AliasSource.lean"
+    IO.FS.writeFile source (← IO.FS.readFile fixture)
+    IO.FS.createDirAll (scratch / "through")
+    let aliases : List (String × String × Array String × UInt32 × FilePath) := [
+      ("axiomGate", gate, #["--declaration-report-worker", request.toString, request.toString],
+        Lint.Outcome.configuration.exitCode, request),
+      ("ruleExamples", ruleExamples, #["--injected-git-facts", facts.toString, "axiomGate"] ++
+        fileArgs facts, 4, facts),
+      ("ruleExamples", ruleExamples, #["--policy-negative", repo.toString, source.toString,
+        (scratch / "through" / ".." / "AliasSource.lean").toString], 4, source)]
+    for (program, path, args, code, input) in aliases do
+      let before ← IO.FS.readBinFile input
+      let result ← runProcess repo path args (env := plain)
+      unless result.exitCode == code &&
+          result.stderr.contains "is both an input and a destination" &&
+          (← IO.FS.readBinFile input).data == before.data && !(← publish.pathExists) do
+        return some s!"early stop: {program} {args} was not refused with exit {code} and the \
+          reason that one file is both an input and a destination, leaving {input} as it was \
+          (exit {result.exitCode}):\n{result.output}"
+    -- The verification wrapper, `scripts/verify.sh`, in a copy of its files, so that its `tmp` is
+    -- the copy's. With no `lean` on its `PATH`, an attempt stops before the driver's begin-attempt
+    -- (`RegulaVerification.beginAttempt`) and records its arguments in the journal of attempts.
+    -- The next attempt's begin-attempt must then invalidate each recorded attempt's verdicts: an
+    -- accepted acceptance link (`AcceptanceLink.require`) and a corpus shard export that the site
+    -- admits, which a later documentation step and site build read.
+    let wrapper := scratch / "wrapper"
+    IO.FS.createDirAll (wrapper / "scripts")
+    IO.FS.createDirAll (wrapper / "lean")
+    IO.FS.createDirAll (wrapper / "tmp")
+    let files := [["scripts", "verify.sh"], ["lean", "RegulaVerification.lean"], ["lean-toolchain"]]
+    for file in files do
+      let place := file.foldl (· / ·) wrapper
+      IO.FS.writeFile place (← IO.FS.readFile (file.foldl (· / ·) repo))
+    let digest := String.ofList (List.replicate 64 'a')
+    let link := wrapper / "tmp" / "acceptance-link.json"
+    writeJson link (Json.mkObj [("schemaVersion", toJson (1 : Nat)), ("status", .str "accepted"),
+      ("identity", .str digest), ("acceptedJobs", toJson (#[] : Array Json)),
+      ("origin", .str "isolatedCopy")])
+    -- The export of the first of the three corpus shards (`RegulaVerification.shardEvidence`).
+    let shard := wrapper / "tmp" / "rule-examples-1of3.json"
+    writeShard shard
+    unless (← linkAccepted link digest) && (← shardAdmitted shard) do
+      return some "early stop: the seeds of the wrapper's acceptance link and shard export are \
+        not admitted by their readers"
+    let shellPath := "/usr/bin:/bin"
+    for directory in ["/usr/bin", "/bin"] do
+      if ← (FilePath.mk directory / "lean").pathExists then
+        return some s!"early stop: {directory} holds lean, so the wrapper's PATH {shellPath} \
+          cannot leave it out"
+    for args in [#[], #["diagnostics", "rule-examples", "1/3"]] do
+      let stopped ← runProcess wrapper "/bin/bash"
+        (#[(wrapper / "scripts" / "verify.sh").toString] ++ args)
+        (env := #[("PATH", some shellPath)])
+      unless stopped.exitCode == 127 do
+        return some s!"early stop: scripts/verify.sh {args} with no lean on its PATH did not stop \
+          with exit 127 (exit {stopped.exitCode}):\n{stopped.output}"
+    let journal := wrapper / "tmp" / "verification-attempts"
+    let recorded ← do if ← journal.pathExists then IO.FS.readFile journal else pure ""
+    unless recorded == "\ndiagnostics rule-examples 1/3\n" do
+      return some s!"early stop: the wrapper's journal of attempts holds {recorded.quote}, not \
+        the two stopped attempts"
+    let began ← runProcess wrapper "lean"
+      #["--run", "lean/RegulaVerification.lean", "--begin-attempt", "docs"] scrubbedLeanPathEnv
+    unless began.exitCode == 0 && !(← linkAccepted link digest) && !(← shardAdmitted shard) &&
+        !(← journal.pathExists) do
+      return some s!"early stop: the begin-attempt after two stopped attempts of \
+        scripts/verify.sh left the acceptance link or the shard export admitted, or the journal \
+        in place (exit {began.exitCode}):\n{began.output}"
     return none
 
 /-- Public CLI fixtures: the complete sweep for qualification, or the unchanged smoke subset for
@@ -4653,7 +4766,10 @@ private def runCli (repo : FilePath) (jobs : Nat) (fullCli : Bool)
         early with Lean's task manager by an injected failure, end with the exit code of their \
         early stop; each destination they name that held a completed document of its format ends \
         marked incomplete with the reason, the error's text for a production of ruleExamples and \
-        the export of qualify producers, and a site artifact ends removed)"
+        the export of qualify producers, and a site artifact ends removed; a run that names one \
+        file as an input and as a destination is refused and leaves the file as it was; \
+        scripts/verify.sh with no lean records its attempts, and the next begin-attempt \
+        invalidates their acceptance link and shard export)"
   if fullCli && runsIn shard cliAttributionShard then
     let attribution ← loggedPhase "source attribution" <|
       withScratch repo "checker-source-attribution" fun scratch =>

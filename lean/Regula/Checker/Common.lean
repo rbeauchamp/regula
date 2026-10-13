@@ -689,6 +689,27 @@ member `payload`, so the reader of a worker packet refuses it (`readWorkerPacket
 def invalidateOutput (out : FilePath) (reason : String) : IO Unit :=
   writeJson out (Json.mkObj [("status", .str "incomplete"), ("reason", .str reason)])
 
+/-- Whether `a` and `b` name one existing file: `IO.FS.realPath` resolves both, so both exist, and
+to one path. Two names of one file that it does not resolve to one path, such as two hard links,
+are not detected. -/
+def sameExistingFile (a b : FilePath) : BaseIO Bool := do
+  match ← (IO.FS.realPath a).toBaseIO, ← (IO.FS.realPath b).toBaseIO with
+  | .ok a, .ok b => return a == b
+  | _, _ => return false
+
+/-- The reason to refuse an invocation that names one existing file as one of its input files
+`inputs` and as one of its destinations `destinations` (`sameExistingFile`), if it names one. The
+guard of a program marks each destination incomplete before the program reads its inputs
+(`Regula.TaskManager.guard`), so that mark would replace the input before the run read it. The
+caller refuses such an invocation before it writes anything. -/
+def aliasRefusal (inputs destinations : List FilePath) : BaseIO (Option String) := do
+  for input in inputs do
+    for destination in destinations do
+      if ← sameExistingFile input destination then
+        return some s!"{input} is both an input and a destination ({destination}): the \
+          destination is marked incomplete before the input is read"
+  return none
+
 /-- The payload of a worker packet whose schema is 1 and whose producer, toolchain commit and
 request are this checker's and `request`; otherwise an error naming the mismatch. The received
 producer and request must have search trees as their object trees and agree with the expected

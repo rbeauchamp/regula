@@ -1811,9 +1811,12 @@ inductive Invocation where
   | replacementHistoryWorker (moduleWire source out : String)
   /-- Any other arguments: an audit, with the plan of its arguments. -/
   | audit (plan : Plan)
+  /-- An internal form that names one file as an input and as a file that it writes, refused with
+  `reason` (`aliasRefusal`): it writes nothing. -/
+  | aliased (reason : String)
 
-/-- The invocation that `args` name, read once. -/
-def Invocation.of (args : List String) : BaseIO Invocation :=
+/-- The invocation that `args` name, read once, before the check of its files (`Invocation.of`). -/
+private def Invocation.read (args : List String) : BaseIO Invocation :=
   match args with
   | ["--validate-site", registry, artifact] => pure (.validateSite registry artifact)
   | ["--registry-out", output] => pure (.registryOut output)
@@ -1838,7 +1841,7 @@ def Invocation.of (args : List String) : BaseIO Invocation :=
 file `publish` of its decoded request too. A form that writes none and an audit, whose destinations
 its plan gives, give none. -/
 def Invocation.outputs : Invocation → List String
-  | .validateSite .. | .validateRegistry _ | .audit _ => []
+  | .validateSite .. | .validateRegistry _ | .audit _ | .aliased _ => []
   | .registryOut output => [output]
   | .declarationReportWorker _ out request =>
     out :: match request with
@@ -1847,6 +1850,34 @@ def Invocation.outputs : Invocation → List String
   | .moduleGraphWorker _ out | .frontendWorker _ out | .compileBatchWorker _ out
   | .inspectionGroupWorker _ out | .diagnosticWorker _ _ out | .replacementHistoryWorker _ _ out =>
     [out]
+
+/-- The files that an internal form reads by the names its arguments give. An audit gives none
+here: its run marks its destinations before it reads its source and its manifest, whose names the
+plan resolves. -/
+def Invocation.inputs : Invocation → List String
+  | .validateSite registry artifact => [registry, artifact]
+  | .validateRegistry input | .moduleGraphWorker input _ | .declarationReportWorker input _ _
+  | .frontendWorker input _ | .compileBatchWorker input _ | .inspectionGroupWorker input _ =>
+    [input]
+  | .diagnosticWorker _ source _ | .replacementHistoryWorker _ source _ => [source]
+  | .registryOut _ | .audit _ | .aliased _ => []
+
+/-- The invocation that `args` name, read once (`Invocation.read`), or `aliased` when one of its
+input files is also one of the files it writes (`aliasRefusal`). The guard marks the files of this
+reading before the run reads an input (`Regula.TaskManager.guard`), so such an invocation is
+refused before anything is written. No caller in this repository names one file in both
+places. -/
+def Invocation.of (args : List String) : BaseIO Invocation := do
+  let invocation ← Invocation.read args
+  match ← aliasRefusal (invocation.inputs.map FilePath.mk) (invocation.outputs.map FilePath.mk) with
+  | some reason => return .aliased reason
+  | none => return invocation
+
+/-- Each file that `invocation` marks and writes, as the run resolves it: the files of an internal
+form (`outputs`), or each destination of an audit's plan that resolves (`Plan.targets`). -/
+def Invocation.destinations : Invocation → List FilePath
+  | .audit plan => plan.targets.filterMap fun (_, _, target) => target.toOption
+  | other => other.outputs.map FilePath.mk
 
 /-- Mark each file that `invocation` writes incomplete, each on its own, and return a line for each
 that could not be marked: an audit's destinations (`markIncomplete`), with `reason` when given,
@@ -1861,11 +1892,12 @@ def Invocation.markIncomplete (invocation : Invocation) (reason : Option String)
     | .ok () => pure none
     | .error error => pure (some s!"{out}: {error}")
 
-/-- The refusal of an invocation in a process without Lean's task manager, which the guard of the
-executable runs (`Regula.TaskManager.guard`): it reads the arguments once (`Invocation.of`), as
-`run` does, marks each file of that reading incomplete with `reason`, whether or not the invocation
-is admitted (`Invocation.markIncomplete`), and returns the exit code of an incomplete audit. No
-job runs. -/
+/-- The refusal of an invocation, which the guard of the executable runs before each run and, in a
+process without Lean's task manager, in the run's place (`Regula.TaskManager.guard`): it reads the
+arguments once (`Invocation.of`), as `run` does, marks each file of that reading incomplete with
+`reason`, whether or not the invocation is admitted (`Invocation.markIncomplete`), and returns the
+exit code of an incomplete audit. An invocation that names one file as an input and as a file it
+writes (`Invocation.aliased`) has no file to mark, so the input stays as it was. No job runs. -/
 def refuseWithoutTaskManager (reason : String) (args : List String) : IO UInt32 := do
   for line in ← (← Invocation.of args).markIncomplete (some reason) do
     IO.eprintln s!"axiom gate: could not mark the destination {line} incomplete"
@@ -2104,6 +2136,7 @@ unsafe def run (args : List String) : IO UInt32 := do
       (toJson transcript.runtimeReplacements))
     return 0
   | .audit plan => audit plan failed
+  | .aliased reason => refuseInvocation reason
 
 /-- The `axiomGate` executable body: search-path initialization, then `run`, with
 any escaping error reported as `FAIL` and the incomplete exit code 3, since no result was

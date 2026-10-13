@@ -182,6 +182,12 @@ def Production.parse? : List String → Option Production
 def Production.output : Production → String
   | .policyNegative _ _ output | .documentation _ _ output => output
 
+/-- The file that a production reads by the name its arguments give: the source of a negative
+policy example. The project and the documentation are directories. -/
+def Production.inputs : Production → List String
+  | .policyNegative _ source _ => [source]
+  | .documentation .. => []
+
 /-- Mark the result file of `production` incomplete with `reason` (`AxiomGate.invalidateResult`),
 printing a line when it cannot. It is the one marker of a production's result: the refusal of
 `ruleExamples` calls it, which the guard also runs before every run (`Regula.TaskManager.guard`),
@@ -226,15 +232,39 @@ private unsafe def ruleExamplesEntry (production : Option Regula.Checker.RuleExa
     if let some production := production then production.markIncomplete (toString error)
     return productionIncomplete
 
+/-- The reason to refuse the arguments `args` of `ruleExamples` because they name one existing file
+as an input and as a destination (`aliasRefusal`), if they do: the injected facts against each file
+that the rest of the arguments write (`AxiomGate.Invocation.destinations` for the `axiomGate` form,
+the result file of a production), and the source of a production against its result file
+(`Production.inputs`). The gate refuses such a name in its own arguments
+(`AxiomGate.Invocation.of`). No caller in this repository names one file in both places. -/
+private def aliasOf (args : List String) : BaseIO (Option String) := do
+  let production (rest : List String) : List System.FilePath × List System.FilePath :=
+    match Regula.Checker.RuleExamples.Production.parse? rest with
+    | some production => (production.inputs.map System.FilePath.mk, [⟨production.output⟩])
+    | none => ([], [])
+  match args with
+  | "--injected-git-facts" :: facts :: "axiomGate" :: gateArgs =>
+    Regula.Checker.aliasRefusal [⟨facts⟩]
+      (← Regula.Checker.AxiomGate.Invocation.of gateArgs).destinations
+  | "--injected-git-facts" :: facts :: rest =>
+    let (inputs, outputs) := production rest
+    Regula.Checker.aliasRefusal (⟨facts⟩ :: inputs) outputs
+  | rest =>
+    let (inputs, outputs) := production rest
+    Regula.Checker.aliasRefusal inputs outputs
+
 /-- Mark each destination that the arguments `args` of `ruleExamples` name incomplete with
 `reason`, and return the exit code of an incomplete production. For the `axiomGate` form it marks
 each destination of the audit's arguments, as the gate's own refusal does
 (`AxiomGate.refuseWithoutTaskManager`); for a production that the arguments name
-(`Production.parse?`) it marks its result file (`Production.markIncomplete`). No production runs.
-It is the program's refusal in a process without Lean's task manager, which the guard also runs
-before every run (`Regula.TaskManager.guard`), and a run whose injected facts cannot be loaded
-returns it with the reason. -/
+(`Production.parse?`) it marks its result file (`Production.markIncomplete`). Arguments that name
+one file as an input and as a destination (`aliasOf`) mark nothing, so the input stays as it was.
+No production runs. It is the program's refusal in a process without Lean's task manager, which
+the guard also runs before every run (`Regula.TaskManager.guard`), and a run whose injected facts
+cannot be loaded returns it with the reason. -/
 private def refuseProduction (reason : String) (args : List String) : IO UInt32 := do
+  if (← aliasOf args).isSome then return productionIncomplete
   match args with
   | "--injected-git-facts" :: _ :: "axiomGate" :: gateArgs =>
     let _ ← Regula.Checker.AxiomGate.refuseWithoutTaskManager reason gateArgs
@@ -249,8 +279,13 @@ Git facts (`Snapshot.GitFacts`), then runs either the exact `axiomGate` body
 (`AxiomGate.entry`) or this binary's own modes. Facts only replace the Git part
 of a capture whose exact request they answer; every source and configuration
 byte is still read fresh, and the result is marked `"gitFacts": "injected"`. An empty table
-answers nothing. The user-facing `axiomGate` never accepts them. -/
+answers nothing. The user-facing `axiomGate` never accepts them. Arguments that name one file as an
+input and as a destination (`aliasOf`) are refused with the reason and the exit code of an
+incomplete production before anything is read or written. -/
 unsafe def ruleExamplesMain (args : List String) : IO UInt32 := do
+  if let some reason ← aliasOf args then
+    IO.eprintln s!"rule example production refused: {reason}"
+    return productionIncomplete
   match args with
   | "--injected-git-facts" :: facts :: rest =>
     let loaded ← (do

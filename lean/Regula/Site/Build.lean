@@ -76,6 +76,15 @@ def identity (root : FilePath) : IO Identity := do
              producer.producerVersion,
            versoRevision := ← versoRevision root }
 
+/-- The checker, corpus and configuration sources of the checkout at `root` as they are now, in the
+form that a corpus shard export records them (`RuleExamples.snapshot`): the current sources that
+`admitShard` compares an export with. -/
+def currentSources (root : FilePath) : IO Json := do
+  let inventory ← Regula.Checker.Lake.rootSurfaceInventory root
+  let paths ← Regula.Qualification.RuleExamples.sourcePaths root
+      (inventory.moduleSources.map Prod.snd)
+  Regula.Qualification.RuleExamples.snapshot paths
+
 /-- Admit one corpus shard export: completed, admitted by the proved qualifier executable,
 and recorded against exactly the current checker, corpus and configuration sources. -/
 def admitShard (root : FilePath) (current : Json) (path : FilePath) : IO Json := do
@@ -355,10 +364,7 @@ structure Generated where
 /-- Admit the shards and derive every rule's example. The shards must select disjoint
 rules whose union is the registry, and contain one fix and one violation record per rule. -/
 def evidence (root : FilePath) (ident : Identity) (shardPaths : List FilePath) : IO Generated := do
-  let inventory ← Regula.Checker.Lake.rootSurfaceInventory root
-  let paths ← Regula.Qualification.RuleExamples.sourcePaths root
-      (inventory.moduleSources.map Prod.snd)
-  let current ← Regula.Qualification.RuleExamples.snapshot paths
+  let current ← currentSources root
   let shards ← shardPaths.mapM (admitShard root current)
   let selected ← shards.mapM fun s => do
     return (← IO.ofExcept (fromJson? (α := List String) (← get s "selected")))

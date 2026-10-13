@@ -11,6 +11,9 @@ cd "$(dirname "$0")/.."
 # receipt only; other verdict artifacts are owned by their own drivers.
 mkdir -p tmp
 printf '{"outcome":"INCOMPLETE","phase":"setup"}\n' > tmp/rule-examples.json
+# Record this attempt's arguments before the first run of Lean, which can fail; the driver's
+# begin-attempt of this or a later attempt invalidates each recorded attempt's verdicts.
+printf '%s\n' "$*" >> tmp/verification-attempts
 # The toolchain-only driver invalidates the selected mode's earlier verdicts before setup,
 # so a failed or timed-out provisioning cannot leave an accepted one in place.
 lean --run lean/RegulaVerification.lean --begin-attempt "$@"

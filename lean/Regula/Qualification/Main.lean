@@ -168,7 +168,9 @@ private def Invocation.of (args : List String) : BaseIO Invocation := do
 /-- Standalone commands get one group-wide 420-second bound. The private protocol flag
 is supplied by this wrapper or the already timed acceptance driver, never documented
 as a bounded standalone command. Nested commands do not create escaping groups. The form of the
-invocation is read once (`Invocation.of`). -/
+invocation is read once (`Invocation.of`). A bounded command marks its evidence before the
+selection of the timeout, and again with the error's text when that selection or the spawn fails
+(`markEvidence`). -/
 unsafe def qualifyMain (args : List String) : IO UInt32 := do
   match ← Invocation.of args with
   | .receiptTimer => Regula.Qualification.ReceiptBoundary.worker args
@@ -181,8 +183,14 @@ unsafe def qualifyMain (args : List String) : IO UInt32 := do
     -- This must precede timeout selection and spawning, both of which can fail.
     let attempt ← Regula.Qualification.freshAttempt
     markEvidence args attempt
-    Regula.Qualification.runBounded (← IO.currentDir) 420 (← IO.appPath).toString
-      (#["--under-deadline", "--attempt", attempt] ++ args.toArray)
+    -- A failure of the timeout selection or of the spawn ends the attempt before the command
+    -- runs, so no record of the command's own replaces the mark: mark it with the error's text.
+    try
+      Regula.Qualification.runBounded (← IO.currentDir) 420 (← IO.appPath).toString
+        (#["--under-deadline", "--attempt", attempt] ++ args.toArray)
+    catch error =>
+      discard <| (markEvidence args attempt (some error.toString)).toBaseIO
+      throw error
 
 /-- The refusal of an invocation in a process without Lean's task manager, which the guard of the
 executable runs (`Regula.TaskManager.guard`). It reads the invocation as `qualifyMain` does

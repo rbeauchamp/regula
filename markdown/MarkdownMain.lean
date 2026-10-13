@@ -293,11 +293,46 @@ def baselineOf (file text : String) : Except (List String) Baseline :=
 
 /-- The baseline of the repository: the `prose-baseline.json` of the working tree, or `none` when
 `present` is false. A check gives if Git tracks the file (`examine`). The option
-`--write-baseline` gives if the working tree has the file (`writeBaseline`). -/
+`--write-baseline` reads the earlier baseline through `earlierBaseline` instead. -/
 def loadBaseline (root : System.FilePath) (present : Bool) :
     IO (Except (List String) (Option Baseline)) := do
   unless present do return .ok none
   return (baselineOf baselineFile (← IO.FS.readFile (root / baselineFile))).map some
+
+/-- The earlier baseline that `--write-baseline` keeps entries of, decoded from the baseline file
+of the working tree of `root` before the guard marks that file (`refuseMarkdown`): its text,
+`none` when the working tree has no such file, or the reason that it cannot be read. A mark
+(`markBaseline`) gives the earlier text that it holds, so a run that reads the file after the mark
+gets what the mark decoded, and a mark that holds no earlier text gives its reason. -/
+def earlierBaseline (root : System.FilePath) : IO (Except String (Option String)) := do
+  let path := root / baselineFile
+  unless ← path.pathExists do return .ok none
+  match ← (IO.FS.readFile path).toBaseIO with
+  | .error error => return .error s!"{path} cannot be read: {error}"
+  | .ok text =>
+    let some marked := (Lean.Json.parse text).toOption.filter fun value =>
+        (value.getObjValAs? String "status").toOption == some "incomplete"
+      | return .ok (some text)
+    match marked.getObjVal? "earlier" with
+    | .ok .null => return .ok none
+    | .ok (.str earlier) => return .ok (some earlier)
+    | _ => return .error s!"{path} is marked incomplete and holds no earlier baseline: \
+        {(marked.getObjValAs? String "reason").toOption.getD "no reason"}"
+
+/-- Mark the baseline file of the working tree of `root` incomplete with `reason`, so that check
+B1 refuses it (`baselineOf`), and keep the earlier baseline `earlier` that the run decoded
+(`earlierBaseline`) in the mark, so that the run and a later `--write-baseline` keep its entries.
+When the decoding failed, the mark holds its reason and no earlier text. It is the one writer of
+the mark: the refusal of the program (`refuseMarkdown`) calls it, which the guard also runs before
+every run (`Regula.TaskManager.guard`). -/
+def markBaseline (root : System.FilePath) (reason : String)
+    (earlier : Except String (Option String)) : IO Unit :=
+  let members : List (String × Lean.Json) := match earlier with
+    | .ok earlier => [("reason", Lean.Json.str reason),
+        ("earlier", match earlier with | some text => .str text | none => .null)]
+    | .error error => [("reason", .str error)]
+  IO.FS.writeFile (root / baselineFile)
+    ((Lean.Json.mkObj (("status", .str "incomplete") :: members)).compress ++ "\n")
 
 /-- What Git gives for `start`, of the checked commit `HEAD`. Git is asked only for the value
 that `baseOf` reads for that start: the merge base of `HEAD` and the revision for the run of a
@@ -636,7 +671,8 @@ def list (options : Options) (path : String) : IO UInt32 := do
 baseline file of the working tree that have a tracked Markdown document, also when Git does not
 track that file, and one entry of numbers for each other document with a finding. Thus it writes
 no entry for a path that is not a tracked Markdown document, which check B1 refuses. Check B2 of
-the next run still refuses a new path and a larger number. -/
+the next run still refuses a new path and a larger number. It reads the earlier baseline as the
+guard's mark of the file decoded it (`earlierBaseline`), so the mark loses no entry. -/
 def writeBaseline (options : Options) : IO UInt32 := do
   let tracked ← match ← trackedFiles options.root with
     | .ok tracked => pure tracked
@@ -649,12 +685,16 @@ def writeBaseline (options : Options) : IO UInt32 := do
     | .error refusals =>
       IO.eprintln ("\n".intercalate refusals)
       return 1
-  let present ← (options.root / baselineFile).pathExists
-  let baseline ← match ← loadBaseline options.root present with
-    | .ok baseline => pure (baseline.getD Baseline.empty)
-    | .error refusals =>
-      IO.eprintln ("\n".intercalate refusals)
+  let baseline ← match ← earlierBaseline options.root with
+    | .error reason =>
+      IO.eprintln s!"FAIL: {reason}"
       return 1
+    | .ok none => pure Baseline.empty
+    | .ok (some text) => match baselineOf baselineFile text with
+      | .ok baseline => pure baseline
+      | .error refusals =>
+        IO.eprintln ("\n".intercalate refusals)
+        return 1
   let fixed (entry : Entry) : Bool :=
     match entry.allowance with
     | .counts _ => false
@@ -1256,11 +1296,77 @@ def runWriteControl : IO (List String) :=
       file {expected.quote}, got the exit code {code}, the output {output.quote} and the file \
       {written.quote}"]
 
+/-- The result of the control of a run of `--write-baseline` that stops early (issue 423): what
+this program gave, when it is not the expected result. The repository and its baseline file are
+those of the control of `--write-baseline` (`runWriteControl`), and the reader of a baseline
+(`baselineOf`) admits that file. A run of this program with an empty directory as its `PATH`, so
+with no `git`, stops when it lists the tracked files. The file must then hold the mark of the guard
+(`markBaseline`), with the guard's reason (`Regula.TaskManager.startedReason`) and the earlier
+baseline, and the reader must refuse it. A run with the inherited `PATH` must then write the
+expected baseline, with the entries of the earlier baseline that the mark kept. A baseline file
+that is not UTF-8 text cannot be decoded (`earlierBaseline`): a run must then fail, and the file
+must hold the mark with the reason of the decoding and no earlier text, which the reader refuses.
+The program, Git and the filesystem are its subject, an external boundary: it observes them and
+proves nothing. -/
+def runWriteEarlyStopControl : IO (List String) :=
+  IO.FS.withTempDir fun directory => do
+    let repository := directory / "repository"
+    makeRepository repository [⟨"main", none, [(vocabularyFile, some controlVocabulary),
+      ("a.md", some "# A\n\nOne; two three.\n"),
+      ("made.md", some "# Made\n\nMade text; more text.\n"),
+      ("record.md", some recordText)], none⟩]
+    let earlier := controlBaseline [
+      ⟨"gone.md".toList, .generated "a program".toList⟩,
+      ⟨"lost.md".toList, .frozen sampleDigest⟩, madeEntry, semicolonEntry "old.md" 1,
+      recordEntry]
+    let expected := controlBaseline [semicolonEntry "a.md" 1, madeEntry, recordEntry]
+    let file := repository / baselineFile
+    let noGit := directory / "no-git"
+    IO.FS.createDirAll noGit
+    let program := (← IO.appPath).toString
+    let run (path : Option System.FilePath) : IO IO.Process.Output :=
+      IO.Process.output { cmd := program, args := #[repository.toString, "--write-baseline"],
+        env := (path.map fun path => #[("PATH", some path.toString)]).getD #[] }
+    let text : IO (Option String) := do return (← (IO.FS.readFile file).toBaseIO).toOption
+    let admitted : IO Bool := do
+      return (← text).any fun text => (baselineOf baselineFile text).isOk
+    let held (member : String) : IO (Option String) := do
+      return (← text).bind fun text => (Lean.Json.parse text).toOption.bind fun value =>
+        (value.getObjValAs? String member).toOption
+    let shown : IO String := do return ((← text).getD "text that is not UTF-8").quote
+    IO.FS.writeFile file earlier
+    unless ← admitted do
+      return [s!"--write-baseline that stops early: baselineOf refuses the seed {earlier.quote}"]
+    let stopped ← run (some noGit)
+    unless stopped.exitCode != 0 && (← held "status") == some "incomplete" &&
+        (← held "reason") == some Regula.TaskManager.startedReason &&
+        (← held "earlier") == some earlier && !(← admitted) do
+      return [s!"--write-baseline with no git: expected an exit code other than 0 and the mark \
+        with the guard's reason and the earlier baseline, which baselineOf refuses; got the exit \
+        code {stopped.exitCode}, the error output {stopped.stderr.quote} and the file \
+        {← shown}"]
+    let rerun ← run none
+    unless rerun.exitCode == 0 && (← text) == some expected do
+      return [s!"--write-baseline after a run that stopped early: expected the file \
+        {expected.quote}, got the exit code {rerun.exitCode}, the error output \
+        {rerun.stderr.quote} and the file {← shown}"]
+    IO.FS.writeBinFile file (ByteArray.mk #[0xff, 0xfe, 0x0a])
+    let undecoded ← run none
+    unless undecoded.exitCode != 0 && (← held "status") == some "incomplete" &&
+        ((← held "reason").any fun reason => reason.startsWith s!"{file} cannot be read: ") &&
+        (← held "earlier").isNone && !(← admitted) do
+      return [s!"--write-baseline with a {baselineFile} that is not UTF-8 text: expected an exit \
+        code other than 0 and the mark with the reason of the decoding and no earlier baseline, \
+        which baselineOf refuses; got the exit code {undecoded.exitCode}, the error output \
+        {undecoded.stderr.quote} and the file {← shown}"]
+    return []
+
 /-- Run the controls of `directory`. Exit code 0 when each control gives what `controls` expects
 and the directory holds exactly the files of the controls, when each control of the base
 revision gives what `repositoryControls` expects, when each control of an entry with no
-document gives what `entryControls` expects, and when the control of `--write-baseline` gives
-the baseline that it expects. Exit code 1 otherwise. -/
+document gives what `entryControls` expects, when the control of `--write-baseline` gives the
+baseline that it expects, and when the control of a run of it that stops early gives what
+`runWriteEarlyStopControl` expects. Exit code 1 otherwise. -/
 def runControls (directory : System.FilePath) : IO UInt32 := do
   let names := (← Regula.Filesystem.Construction.listDirectory directory).toList.map (·.fileName)
   let text (name : String) : IO String := IO.FS.readFile (directory / name)
@@ -1332,13 +1438,15 @@ def runControls (directory : System.FilePath) : IO UInt32 := do
       failures := failures ++ [s!"{name}: the directory has a file that is no control"]
   failures := failures ++ (← runRepositoryControls judge)
   failures := failures ++ (← runWriteControl)
+  failures := failures ++ (← runWriteEarlyStopControl)
   unless failures.isEmpty do
     IO.eprintln ("FAIL: controls of the checks of Markdown prose:\n" ++ "\n".intercalate failures)
     return 1
   IO.println s!"Controls of the checks of Markdown prose: {controls.length} controls in \
     {directory}, and {repositoryControls.length} controls of the base revision, \
-    {entryControls.length} controls of an entry with no document and one control of \
-    --write-baseline, in repositories that the run made with Git, gave the expected results \
+    {entryControls.length} controls of an entry with no document, one control of \
+    --write-baseline and one of a run of it that stops early, in repositories that the run made \
+    with Git, gave the expected results \
     (each refusal starts with its file, its line and its check)"
   return 0
 
@@ -1361,11 +1469,21 @@ def markdownMain (args : List String) : IO UInt32 := do
     | some path => list options path
     | none => if options.write then writeBaseline options else check options
 
-/-- The refusal of the check in a process without Lean's task manager
-(`Regula.TaskManager.guard`): its arguments name no result destination, so it marks none, and it
-returns 1. -/
-def refuseMarkdown (_reason : String) (_args : List String) : IO UInt32 :=
-  pure 1
+open Regula.Controlled.Run in
+/-- The refusal of the program, which the guard runs before each run and, in a process without
+Lean's task manager, in the run's place (`Regula.TaskManager.guard`). It reads the arguments as
+`markdownMain` does (`Options.parse`). With `--write-baseline` it decodes the earlier baseline
+(`earlierBaseline`) and marks the baseline file incomplete with `reason` (`markBaseline`), printing
+a line when it cannot. Each other form names no result destination, so it marks none. It returns
+1. -/
+def refuseMarkdown (reason : String) (args : List String) : IO UInt32 := do
+  if let some options := Options.parse (← IO.getEnv startVariable) args then
+    if options.write && options.list.isNone then
+      try markBaseline options.root reason (← earlierBaseline options.root)
+      catch error =>
+        IO.eprintln s!"regula-markdown: could not mark {options.root / baselineFile} incomplete: \
+          {error}"
+  return 1
 
 /-- `markdownMain` on the command-line arguments; a process without Lean's task manager is refused
 before any check starts, with exit code 1 (`Regula.TaskManager.guard`). -/

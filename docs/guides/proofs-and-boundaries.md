@@ -889,11 +889,34 @@ completed run read each destination with one parser and mark it with one writer.
 `ruleExamples` that fails then marks its result again, with the text of the error. The export of
 `qualify producers --evidence` gets the text of the error in the same way.
 
-These refusals cover the destinations of the inventory of issue 393. The baseline that
-`regula-markdown --write-baseline` writes is not in it, and a refusal of that program leaves the
-baseline in place ([issue 436](https://github.com/rbeauchamp/regula/issues/436)). A library can also
-write a file. The function `manualMain` of Verso writes the pages, the saved state of a delayed
-render and the word count of `regula-site` and `regula-standard`. Before
+A command of `qualify` without `--under-deadline` marks its evidence, and then it selects GNU
+timeout and starts the command under it. If that selection or that start fails, the command marks
+its evidence again with the text of the error.
+
+The mark replaces a destination before the program reads its inputs. Thus a program refuses
+arguments that name one file as an input and as a destination, before it writes a file. Examples
+are the request of a worker of `axiomGate`, the facts of `ruleExamples --injected-git-facts` and
+the source of `ruleExamples --policy-negative`. No caller in this repository gives such arguments.
+The program prints the reason, and the file keeps its bytes. Two names of one file that
+`IO.FS.realPath` does not make equal, such as two hard links, are not found.
+
+The option `--write-baseline` of `regula-markdown` writes `prose-baseline.json`, but first it reads
+the earlier baseline in that file. Thus the mark of that file holds the text of the earlier
+baseline, and check B1 refuses the mark. The run then reads the earlier baseline from the mark. If
+the program cannot read the earlier baseline, the mark holds the reason and no text, and the run
+fails.
+
+The script `scripts/verify.sh` adds its arguments as a line to `tmp/verification-attempts` before
+it operates Lean. The begin-attempt of `RegulaVerification` invalidates the verdicts of each
+attempt in that file, and then it removes the file. Thus an attempt that stops before its
+begin-attempt, for example without `lean`, does not keep its earlier verdicts. The next attempt
+invalidates them before a later step reads them. A reader that operates outside
+`scripts/verify.sh` before the next attempt can still read them.
+
+These refusals cover each destination that the source of Regula writes, also the baseline of
+`regula-markdown --write-baseline` ([issue 436](https://github.com/rbeauchamp/regula/issues/436)).
+A library can also write a file. The function `manualMain` of Verso writes the pages, the saved
+state of a delayed render and the word count of `regula-site` and `regula-standard`. Before
 [issue 424](https://github.com/rbeauchamp/regula/issues/424), a refused run left these files in
 place, and a later render with `--resume-html-multi` used the saved state of an earlier run.
 
@@ -979,6 +1002,13 @@ failure stops each run early. Examples are a `PATH` without `lean`, a facts file
 exist and `site build` without its evidence. Each destination must then be marked incomplete, with
 the reason, or removed for the site artifact. For a production of `ruleExamples` and the export of
 `qualify producers`, the reason is the text of the error.
+
+The same control operates each example of one file as an input and as a destination, and the
+program must refuse it. Then it operates `scripts/verify.sh` two times without `lean`. The next
+begin-attempt must invalidate an acceptance link and a shard export that their readers accepted
+before. The reader of the shard export is that of `site build`. The controls of `regula-markdown`,
+which the documentation step operates, also stop a run of `--write-baseline` without `git`. A
+later run must then write the baseline with the entries of the earlier baseline.
 
 The driver moves the pending record to `tmp/acceptance-link.json` only if
 `RegulaVerification.passed` accepts the exit status of each command. The driver does that move
