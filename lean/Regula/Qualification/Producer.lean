@@ -63,10 +63,14 @@ private def chain (root : FilePath) (fresh : String → IO FilePath)
   let mut observations := #[]
   for kind in chainKinds do
     let relative := examplePath rule kind
-    let bytes ← IO.FS.readBinFile (root / relative)
+    let bytes ← Regula.Filesystem.readBytes (root / relative)
     let some source := String.fromUTF8? bytes | throw <|
                                                  IO.userError "fixture must be valid UTF-8"
-    IO.FS.writeBinFile (project / "Example.lean") bytes
+    if observations.isEmpty then
+      Regula.Filesystem.copyFile (root / relative) (project / "Example.lean")
+    else
+      -- Later phases deliberately mutate the file of the constructed private workspace.
+      IO.FS.writeBinFile (project / "Example.lean") bytes
     -- Fixed runs from a cleared build; Violation keeps the prior Fixed build.
     if kind == "Fixed" then clearBuild project
     let output := project / s!"result-{first + observations.size}.json"
@@ -91,8 +95,7 @@ private def standaloneExample : String := examplePath "RG5002" "Fixed"
 private def standalone (root : FilePath) (fresh : String → IO FilePath) (phase : String) :
     IO Unit := do
   let project ← fresh s!"standalone-{phase}"
-  IO.FS.writeBinFile (project / "Example.lean")
-      (← IO.FS.readBinFile (root / standaloneExample))
+  Regula.Filesystem.copyFile (root / standaloneExample) (project / "Example.lean")
   let config := project / "lakefile.lean"
   IO.FS.writeFile config
       ((← IO.FS.readFile config) ++ "\nlean_exe sampleTool where\n  root := `SelftestMain\n")
@@ -134,7 +137,7 @@ each against the theorem type of the first, as when the workspaces ran in turn. 
 def check (evidence : Option FilePath) (jobs : Nat := 4) : IO Unit := do
   let root ← rootDirectory
   let sources := (← (examples.push standaloneExample).mapM fun (relative : String) =>
-    IO.FS.readFile (root / relative)).push
+    Regula.Filesystem.readFile (root / relative)).push
     mainSource
   requireRootImportsBuilt root sources
   let records ← withScratch root "producer-controls" fun scratch => do

@@ -1,4 +1,5 @@
 import Lean.Data.Json
+import Lean.Util.Path
 
 /-! # Dependency provisioning
 
@@ -9,7 +10,7 @@ The root package, the example library and the website require no Mathlib.
 Local Mathlib provisioning reuses one read-only store per pinned Mathlib revision and exact
 compiler commit. It fetches upstream artifacts and builds missing modules and exported native
 objects before sealing the store. The integration package links its Mathlib checkout there;
-its other dependencies are writable copy-on-write clones. CI instead fetches the published
+its other dependencies are writable independent copies. CI instead fetches the published
 artifacts into its own writable integration workspace.
 
 Creation and publication use a staging directory, an exclusive store lock and one rename.
@@ -332,9 +333,37 @@ structure Ran where
   /-- The process's standard error. -/
   stderr : String
 
-private def run (cwd : FilePath) (cmd : String) (args : Array String) : IO Ran := do
+/-- Shared constructor source embedded by Lean; the cold provisioner imports only the toolchain.
+Assumes: Lean v4.34.1 `Lean/Elab/BuiltinTerm.lean:437-445` elabIncludeStr reads this source at elaboration,
+and the pinned Lean interpreter executes it before project artifacts exist. -/
+def constructionSource : String := include_str "RegulaCore/CopyProgram.lean"
+
+/-- Obtain the shared Git environment observation before cold artifacts exist. This runs the
+same gitEnvironment definition as the copy adapter, without a second Git policy or launcher.
+The interpreter reads its source from stdin, without a temporary file or removal.
+
+Assumes: Lean v4.34.1 `IO.Process.output` supplies stdin and waits for the child
+(`Init/System/IO.lean:1544-1557`);
+`Lean/Util/Path.lean:85-86` identifies the running toolchain. `--stdin --run`
+(`Lean/Shell.lean:497-518,552-560`) faithfully executes constructionSource.
+Construction.gitEnvironment documents the Git and OS assumptions. -/
+private def gitEnvironment : IO (Array (String × Option String)) := do
   let out ← IO.Process.output {
-    cmd, args, cwd := some cwd, env := #[("GHCR_TOKEN", none)], stdin := .null }
+    cmd := ((← Lean.getBuildDir) / "bin/lean").toString
+    args := #["--stdin", "--run", "GitEnvironment.lean", "git-environment", "", ""]
+    env := #[("LEAN_PATH", none), ("LEAN_SRC_PATH", none)] }
+    (constructionSource ++ "\n/-- Cold environment entrypoint. -/\n" ++
+      "def main := Regula.Filesystem.Construction.sourceMain\n")
+  unless out.exitCode == 0 do
+    throw <| IO.userError s!"provisioning Git environment unavailable: {out.stderr}"
+  IO.ofExcept (fromJson? (← IO.ofExcept (Json.parse out.stdout)))
+
+private def run (cwd : FilePath) (cmd : String) (args : Array String) : IO Ran := do
+  let (args, env) ← if cmd == "git" then
+      pure (#["-c", "core.symlinks=false"] ++ args, ← gitEnvironment)
+    else pure (args, #[])
+  let out ← IO.Process.output {
+    cmd, args, cwd := some cwd, env := env.push ("GHCR_TOKEN", none), stdin := .null }
   return ⟨out.exitCode, out.stdout, out.stderr⟩
 
 private def require (cwd : FilePath) (cmd : String) (args : Array String) : IO String := do
@@ -347,6 +376,9 @@ private def require (cwd : FilePath) (cmd : String) (args : Array String) : IO S
 /-- Run with inherited output, for long steps whose progress the user should see. -/
 private def stream (cwd : FilePath) (cmd : String) (args : Array String)
     (env : Array (String × Option String) := #[]) : IO Unit := do
+  let (args, env) ← if cmd == "git" then
+      pure (#["-c", "core.symlinks=false"] ++ args, env ++ (← gitEnvironment))
+    else pure (args, env)
   let child ← IO.Process.spawn {
     cmd, args, env := env.push ("GHCR_TOKEN", none), cwd := some cwd,
     stdin := .null, stdout := .inherit, stderr := .inherit }
@@ -410,21 +442,48 @@ private def installLink (path : FilePath) (target : String) : IO Unit := do
     if (← kind? staged) matches some _ then IO.FS.removeFile staged
     throw error
 
-/-- Install a writable copy-on-write clone of `source` at the absent `path`. `cp -c` asks for
-APFS clones; elsewhere the plain recursive copy is the fallback. -/
+/-- Interpret the one shared constructor in a cold driver. The wrapper is this run's
+exclusive file in a private staging parent, and is removed when the interpreter ends.
+Assumes: the running Lean executable owns its installation (`Lean/Util/Path.lean:85-86`);
+Lean's interpreter executes the embedded source faithfully. -/
+private def runConstruction (parent : FilePath) (domain source : String) (target : FilePath) :
+    IO Unit := do
+  let wrapper := parent / s!".regula-copy-{← nonce}.lean"
+  let handle ← IO.FS.Handle.mk wrapper .writeNew
+  handle.putStr (constructionSource ++ "\n/-- Cold construction entrypoint. -/\n" ++
+    "def main := Regula.Filesystem.Construction.sourceMain\n")
+  handle.flush
+  try
+    let result ← IO.Process.output {
+      cmd := ((← Lean.getBuildDir) / "bin/lean").toString
+      args := #["--run", wrapper.toString, domain, source, target.toString]
+      env := #[("LEAN_PATH", none), ("LEAN_SRC_PATH", none)] }
+    unless result.exitCode == 0 do
+      throw <| IO.userError s!"provisioning construction failed: {result.stdout}{result.stderr}"
+  finally IO.FS.removeFile wrapper
+
+/-- Install an independently writable indexed worktree, its regular `.lake/build` outputs and plain Git metadata through the
+shared constructor. Untracked links and special source entries fail before installation. Tracked
+index mode 120000 entries become target-text regular files, and the generated Git config sets
+core.symlinks=false. Every provisioner Git command removes the shared observer's repository-local
+environment and disables system/global config, with command-scope core.symlinks=false. Extensions,
+includes, redirects, alternates and indexed/stored spelling differences refuse. Files use 0644
+except indexed 100755 files use 0755; directories use 0755.
+Index modes and target text come from Git's ls-files and blob protocols, never a followed link.
+`Construction.gitConstruct_io` describes the executed index/build account's exact plain tree.
+This does not place
+a packages link. `installLink` is the separate shared-cache registration mechanism, outside this
+copy operation; its temporary-link creation race is tracked separately. -/
 private def installClone (path source : FilePath) : IO Unit := do
   let some parent := path.parent | throw <| IO.userError s!"provisioning: {path} has no parent"
   let staged := parent / s!".{path.fileName.getD "clone"}.{← nonce}"
-  let cloned ← run parent "cp" #["-R", "-c", "-p", source.toString, staged.toString]
-  unless cloned.exitCode == 0 do
-    if (← kind? staged) matches some .dir then IO.FS.removeDirAll staged
-    let _ ← require parent "cp" #["-R", "-p", source.toString, staged.toString]
-  let _ ← require parent "chmod" #["-R", "u+w", staged.toString]
-  -- The clone's files are new inodes; refresh the index so Lake's `git diff` stays cheap.
-  let _ ← run staged "git" #["update-index", "-q", "--refresh"]
-  try IO.FS.rename staged path
+  try
+    runConstruction parent "git" source.toString staged
+    -- New inodes require index refresh; executable rights already agree with the index.
+    let _ ← require staged "git" #["update-index", "-q", "--refresh"]
+    IO.FS.rename staged path
   catch error =>
-    IO.FS.removeDirAll staged
+    if (← kind? staged) == some .dir then IO.FS.removeDirAll staged
     throw error
 
 /-! ## The shared directory -/
@@ -544,15 +603,26 @@ The caller holds the lock. -/
 private def create (repo parent final : FilePath) (key : String) (manifest : Json)
     (pins : Pins) : IO Unit := do
   let staging := parent / s!"{key}.staging-{← nonce}"
-  IO.FS.createDir staging
-  IO.FS.writeFile (staging / "lakefile.toml")
-    ("name = \"regula_mathlib_packages\"\n\n[[require]]\nname = \"mathlib\"\n" ++
-      s!"git = \"{pins.mathlibUrl}\"\nrev = \"{pins.mathlibRev}\"\n")
-  IO.FS.writeFile (staging / "lake-manifest.json") ((manifest
+  let lakefile := "name = \"regula_mathlib_packages\"\n\n[[require]]\nname = \"mathlib\"\n" ++
+    s!"git = \"{pins.mathlibUrl}\"\nrev = \"{pins.mathlibRev}\"\n"
+  let lock := (manifest
     |>.setObjVal! "name" (.str "regula_mathlib_packages")
     |>.setObjVal! "packagesDir" (.str ".lake/packages")
-    |>.setObjVal! "packages" (.arr (pins.git.map (·.1)))).pretty ++ "\n")
-  IO.FS.writeFile (staging / "lean-toolchain") (← IO.FS.readFile (repo / "lean-toolchain"))
+    |>.setObjVal! "packages" (.arr (pins.git.map (·.1)))).pretty ++ "\n"
+  let instructions := Json.arr #[
+    Json.mkObj [("relative", toJson (["lakefile.toml"] : List String)), ("text", toJson lakefile)],
+    Json.mkObj [("relative", toJson (["lake-manifest.json"] : List String)), ("text", toJson lock)],
+    Json.mkObj [("relative", toJson (["lean-toolchain"] : List String)),
+      ("source", toJson (repo / "lean-toolchain").toString)]]
+  let descriptor := parent / s!".regula-instructions-{← nonce}.json"
+  let handle ← IO.FS.Handle.mk descriptor .writeNew
+  handle.putStr instructions.compress
+  handle.flush
+  try runConstruction parent "generated" descriptor.toString staging
+  finally IO.FS.removeFile descriptor
+  -- This new shared-store workspace deliberately fetches the manifest's pinned Git packages.
+  -- It has a closed generated configuration, not an existing-project relocation or override
+  -- load. Lake and Git's new checkout contents remain trusted (libraryRemovals).
   try
     let githash := (← require staging "lean" #["--githash"]).trimAscii.toString
     unless githash == Lean.githash do
@@ -760,7 +830,7 @@ private def provisionPackages (packages shared : FilePath) (receipt : Receipt) (
     | .leave reason => say s!"left {path} as it is: {reason}"
     | .refuse reason => throw <| IO.userError s!"provisioning: refusing to replace {path}: {reason}"
   unless cloned.isEmpty do
-    say s!"cloned {", ".intercalate cloned.toList} (writable copy-on-write clones)"
+    say s!"cloned {", ".intercalate cloned.toList} (writable independent copies)"
 
 /-- Refuse a process using a different compiler from this program. -/
 def requireCompiler (repo : FilePath) : IO Unit := do

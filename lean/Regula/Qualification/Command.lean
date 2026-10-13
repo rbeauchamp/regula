@@ -69,7 +69,8 @@ inductive Command where
   | registry
   /-- `native`: the native linter controls. -/
   | native
-  /-- `combined`: `registry`, then `native` beside `unique-constants`. -/
+  /-- `combined`: registry, native copy-workspace and consumer-domain controls, then native
+  linter beside unique-constants. -/
   | combined
   /-- `unique-constants`: no constant declared by two modules of a claimed environment. -/
   | uniqueConstants

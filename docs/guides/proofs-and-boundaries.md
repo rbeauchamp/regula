@@ -407,9 +407,9 @@ that copy. The driver of that command, `lean/RegulaVerification.lean`, makes the
 starts a Lake command. The function `RegulaVerification.makeCopy` makes it. The copy is a new
 directory in `.lake/regula-scratch/` of the checkout.
 
-The copy has the files of the checkout, but not the directories `.git`, `.lake`, `.cache` and
-`.regula-scratch`, and not the root directory `tmp`. The theorem `walked_iff` gives that set of
-names. Thus the copy starts with no build output, and the builds in it compile each module.
+The copy selects source files through `Construction.projectRelative` (`checked_projectRelative`).
+
+It excludes root `tmp` and, outside `docs`, VCS, build, cache and scratch directories. Documentation includes cache-named subdirectories. An empty root `.lake` excludes the original root's default build state. Other selected files, including artifacts under `docs`, can enter. The builds compile each module.
 
 The step has four commands, which the function `RegulaVerification.commands` gives. The build,
 the registry checks and the qualification controls operate in the copy. The last command is the
@@ -598,13 +598,107 @@ A program can also operate Lake in a copy of a project that it made, as
 `Regula.Checker.Lake.copyProject` and the verification driver do. Lake acts on the copy as it would
 act on the workspace that it was given, thus the same reason holds.
 
-This exception has a limit. A copy that `cp -R` makes, as the qualification slot and the
-provisioning driver do, holds the symbolic links of the original. A relative link there resolves
-from the place of the copy. A copy of `copyProject` holds the link that Regula makes to the
-packages directory of the original. The removals of Lake in a copy can operate through these links.
+Regula constructs its copies through `Regula.Filesystem`. The general routine refuses selected source links and special entries through metadata reads that follow no final link. It creates directories and regular files exclusively at their exact destinations. It places no packages link. This construction removes the limit about links preserved or placed by Regula's copies.
 
-[Issue 399](https://github.com/rbeauchamp/regula/issues/399) asks for copies that hold only
-directories, files and that one link, by construction.
+`observer_copy` states the complete selected source receipt and the exact destination tree over the observer's filesystem model. `observer_construct` states the exact tree of generated instructions. `Construction.capture_io` connects captured subtrees to that model.
+
+`observer_appendFile` includes ancestor admission when the leaf writer extends an established plain parent. Its initial tree is a precondition, not an authentication of arbitrary old entries. Errors can leave partial private output. Callers refuse that output before a Lake load. These theorems state entry kinds and locations, not byte fidelity, permissions or later process effects.
+
+Assumes: Lean `v4.34.1` uses POSIX lstat for `symlinkMetadata` (`Init/System/IO.lean:1151-1156`, `runtime/io.cpp:1160-1179`). Windows is refused because this read follows links there.
+
+Assumes: Directory enumeration reaches EOF without error (`Init/System/IO.lean:1141-1142`, `runtime/io.cpp:1076-1098`). This is trusted: the core wrapper does not distinguish EOF from an enumeration error.
+
+Assumes: Exclusive mkdir creates one empty directory (`runtime/io.cpp:1181-1195`). `Mode.writeNew` uses `O_EXCL` (`Init/System/IO.lean:651-660`, `runtime/io.cpp:409`).
+
+Assumes: Exclusive creation fails for any occupied final destination and follows no final link. Source and destination have no concurrent writer. Lean exposes no `O_NOFOLLOW` file-open mode, so byte reads trust that source entries stay fixed after metadata reads.
+
+Filesystem modes are not preserved. Copied files receive 0644 and directories receive 0755. Provisioning's Git adapter gives indexed executable files 0755. Other sites that execute a copied program explicitly request 0755, with the reason where they copy it. Lake sets modes on the programs it builds. No filesystem-permission-reading program participates in construction.
+
+The Git clone adapter emits the indexed worktree and its captured `.git` metadata. Mode `100755` files receive executable rights. Mode `120000` entries become regular files with their target text. Generated Git configuration sets `core.symlinks=false`. Untracked links, special entries and other index modes refuse before writing.
+
+The adapter also emits untracked regular files beneath the package's own `.lake/build`, admitted by the same no-follow capture. Other untracked files are not emitted. Thus provisioned dependencies retain their reusable build outputs. `Construction.gitBuildFiles_mem` states the exact selection, including exclusion of paths already supplied by the index.
+
+The Git adapter has a closed source domain. Git decodes the configuration and resolves metadata paths. Extension settings, includes, `core.worktree` redirects and alternate object stores refuse before destination creation. The clone requires a plain, self-contained `.git` directory.
+
+Index paths must be valid UTF-8 and match the stored directory-entry names exactly. `Construction.admitGitName_iff` states the exact-name guard's complete membership condition. A case-folded spelling refuses before capture or blob reading. The adapter does not interpret `core.ignoreCase`.
+
+After Git confirms that the source common directory is its own metadata, the clone omits the captured `commondir` instruction. The observer supplies its stored spelling. The copied metadata thus has no instruction that selects the original common directory.
+
+The qualification slot asks Git to resolve pointer files and `commondir`. It constructs common metadata beneath its own Git directory. It refuses alternates at the path Git resolves for the effective object store. It parses no alternate entry and has no fallback path resolver.
+
+`Construction.gitFiles_sound` relates each index entry to its regular-file instruction. `Construction.gitConstruct_io` states the exact plain tree of the executed writer. The tree has those indexed files, admitted build outputs, their directories and admitted Git metadata. The generated configuration and omitted common instruction determine that metadata. It contains no link. Destination byte fidelity remains trusted.
+
+Assumes: Trusted Git reports complete index modes, paths and object identifiers with `ls-files --format/-z`. Installed Git `2.54.0` documents this protocol in `git-ls-files(1)`. See `--format`, `-z` and `FIELD NAMES`. The source index and worktree have no writer. The adapter admits `.git` through no-follow capture before Git reads it.
+
+Assumes: Git `2.54.0`, `git-cat-file(1)`, returns blob contents for `cat-file blob OBJECT`. The adapter reads target-text blobs as binary output. It follows no source link. Git object fidelity and process execution remain trusted.
+
+Assumes: Git `2.54.0`, `git(1)`, defines `--no-lazy-fetch`, `--no-optional-locks` and `--no-replace-objects`. The observations select these options. They disable lazy fetching, optional lock-taking writes and replacement-object lookup.
+
+Git commands use the shared `Construction.gitEnvironment` observation. It asks Git for its repository-local environment names, then removes those variables and `GIT_NAMESPACE`. It disables system and global configuration. Commands also select `-c core.symlinks=false`. Cold drivers interpret this same observer before their Git invocation.
+
+This Git isolation covers commands that Regula starts. Lake's own Git calls inherit the caller's environment. This includes Lake children and in-process workspace loading. Those two boundaries are outside this guarantee.
+
+The initial list query removes `GIT_CONFIG_COUNT` and `GIT_CONFIG_PARAMETERS`. It performs no repository setup or repository configuration read. A malformed command-configuration variable cannot prevent the initial list observation.
+
+Assumes: Git `2.54.0` prints its repository-local list without repository setup or the subsequent configuration read (`builtin/rev-parse.c:717-722,734-740`). The list is `local_repo_env` (`environment.c:99-118`, `environment.h:73-78`).
+
+Assumes: Git `2.54.0` uses the two removed variables for command configuration (`config.c:667-720`). Removing `GIT_CONFIG_COUNT` makes its numbered key/value variables inert (`config.c:676-707`).
+
+Assumes: Git `2.54.0` uses `GIT_NAMESPACE` to select reference namespaces (`environment.c:141-175`). It disables system configuration with `GIT_CONFIG_NOSYSTEM`. `GIT_CONFIG_GLOBAL` replaces the two global configuration paths (`config.c:1411-1427,1454-1468`). The POSIX `/dev/null` device supplies an empty file, which is trusted.
+
+Assumes: Git `2.54.0` reads command-scope configuration after local and worktree scopes (`config.c:1470-1483`). Product callers give no competing command-scope `core.symlinks` setting. `core.symlinks=false` selects target-text files with their index link type (`git-config(1)`). Git interprets checkout status.
+
+Assumes: Git `2.54.0` decodes configuration keys through its own decoder (`builtin/config.c:74-104,487-591,1264-1266`, `config.c:1492-1523`). No matching key gives exit 1. The adapter refuses an extension setting even when its value is false.
+
+Assumes: Git `2.54.0` resolves metadata paths through `--git-path` (`builtin/rev-parse.c:752-759,776-785`). Its path resolver selects the effective object store (`path.c:375-376`).
+
+Assumes: Git `2.54.0` resolves pointer files and common directories (`builtin/rev-parse.c:723-731`, `setup.c:303-324`). All captured metadata has no writer.
+
+Assumes: Lean `v4.34.1` applies process environment changes in order (`Init/System/IO.lean:1441-1448`). The shared observer's removals follow caller settings. Cold Git adapters pass the embedded source through stdin (`IO.Process.output`, `Init/System/IO.lean:1544-1557`, `--stdin --run`, `Lean/Shell.lean:497-518,552-560`). Interpreter fidelity remains trusted.
+
+Assumes: Lake `v4.34.1` tests cleanliness with `git diff --exit-code HEAD` (`Util/Git.lean:198-203`). Matching-revision dependencies with changes get a warning (`Load/Materialize.lean:255-258`).
+
+`copyProject` captures the manifest at Lake's loaded `ws.manifestFile`. Its packages fallback is `ws.relPkgsDir`. Each resolved dependency receives a typed path override, including inherited and transitive dependencies. Owned dependencies point into the copy, and trusted dependencies point to their original roots. The copy always retains the captured manifest and runs ordinary loads.
+
+Package-directory pruning is relative to the current capture root, for the configured and resolved spellings. `Construction.packageSource_owned` proves that explicitly owned roots inside that directory survive its pruning.
+
+Assumes: Lake `v4.34.1`, `Load/Resolve.lean:590-627`, applies overrides during ordinary materialization. `Load/Resolve.lean:201-235` traverses dependencies transitively. Path entries do not clone packages (`Load/Materialize.lean:239-277`).
+
+Assumes: A full update or a missing manifest bypasses overrides (`Load/Workspace.lean:64-69`, `Load/Resolve.lean:269-333`). Existing-project copies do neither. Generated update fixtures state their closed input domain where they create it.
+
+The request freezes loaded relocation selections before a producer starts. The copier and `effectiveAccount` use the same `relocateDependencies` and `generatedConfiguration` definitions. The latter also derives the expected overrides from the request's captured manifest and the copied project root. `CopyConfiguration.check_iff` proves that the executed comparison accepts exactly complete configuration equality.
+
+Result schema 20 records captured source fields and generated overrides separately in `effective.configurationOrigins`. Each other configuration value remains the exact captured text. Missing, extra or changed override entries refuse. Qualification skips no overrides field. Loading the frozen selections through Lake remains a trusted observation.
+
+An explicitly selected policy manifest outside the project keeps its exact absolute path and text in the account. It has no project-relative relocation. `configurationAccount_external` states this preservation for the executed account. The native control runs an incremental audit with that selection.
+
+The account makes a filename relative only when its project-relative components have no navigation or redirect. `configurationAccount_navigation` states preservation for an absolute path with navigation components. The external-manifest control selects such a path.
+
+An explicitly selected manifest inside the project relocates into the fresh copy. Its selection includes ancestors beneath otherwise pruned directories and files with compiled-artifact extensions. `Construction.requiredPath_ancestor` proves that each ancestor survives selection. The shared capture still refuses links and special entries before construction.
+
+`Construction.requiredFiles` observes stored spellings after no-follow admission of each requested ancestor and file. Callers select the requested and stored spellings. This preserves case aliases without resolving away a source link. The observation assumes stable source entries and the stated POSIX metadata and realpath behavior.
+
+For a fresh audit with `--with-docs`, original Markdown discovery precedes construction. Its walker admits each directory through no-follow metadata before descent, so a directory link cannot redirect or cycle discovery. Its selected files and ancestors survive package and cache pruning. `Construction.selectFiles_mem` states that artifact filtering removes only regular-file instructions. A directory with an artifact suffix retains its descendants. Regular artifacts outside pruned trees are admitted and read before filtering.
+
+`Construction.constructSelected_io` connects the executed instruction guard and writer to each required destination file. The guard refuses an omitted input before any destination write. Its domain uses stored source spellings observed through `Construction.requiredFiles`. Original discovery, native observations, byte fidelity and source stability remain trusted boundaries.
+
+The loaded Lake manifest also retains its stored source spelling. This includes a manifest that is itself a selected consumer input. Its requested path remains in the configuration account.
+
+The fresh documentation census relocates each original snapshot. `Documentation.relocateMarkdown_sources` preserves its ordered source texts, and `Documentation.relocateMarkdown_mem` retains each document. The existing documentation freshness check compares that census with the copied documents. An additional original-source check precedes combined acceptance. The cold project constructor uses the same Markdown discovery and selected-domain guard.
+
+`qualify combined` includes native construction controls for artifact-named directories and Markdown inside configured package directories. Public fresh audits accept positive fences, reject an invalid positive fence in each location, and accept the restored source. These controls also exercise selected aliases, source-link refusals, cold construction and exclusive destinations. They observe external boundaries, not universal correctness.
+
+`configurationRelative` supplies the same path decision for relocation and the account. `relocateConfigurationPath_relative` and `configurationAccount_relative` state the two results. Fresh-audit controls check exact configuration accounts for absolute selections, including pruned paths. The default-policy control also checks the rule-example comparison. Its project case requires `foundation_manifest.json`.
+
+The cold drivers embed the shared constructor's source with Lean's `include_str` and interpret that source before package artifacts exist. Assumes: Lean `v4.34.1`, `Lean/Elab/BuiltinTerm.lean:437-445`, `elabIncludeStr`, reads those bytes during elaboration. The compiler and interpreter remain trusted. The constructor has one source implementation, with checked correspondence to its filesystem model.
+
+Workspace loading runs only in compiled executables, including its control in `qualify combined`. The interpreted cold drivers run the constructor and external programs, and collect no Lake workspace in their process. Assumes: Lake `v4.34.1` runs its initialization state in the compiled loader (`Load/Lean/Elab.lean:28`). These executables enable `supportInterpreter` to expose core symbols when Lake elaborates configuration (`Config/LeanExeConfig.lean:54-68`).
+
+The interpreter refuses an uninitialized declaration with `Unreachable` (`src/library/ir_interpreter.cpp:919-928`). A seven-line cache observation aborts interpreted and passes compiled. That observation identifies a backend boundary, not a failure of the filesystem-model hypotheses.
+
+The provisioning registration link in the original integration workspace is separate from constructing a copy. Its creation race remains [issue 407](https://github.com/rbeauchamp/regula/issues/407). Lake-generated entries, original trusted dependencies and deliberately planted diagnostic aliases remain outside the plain-copy guarantee.
+
+The reporter's read-only import overlay is an import view. It retains artifact links because byte copies change the real origin that ownership attribution checks. Regula runs no Lake command in that overlay. Compiler-path workspaces deliberately plant toolchain aliases and run Lake to qualify origin classification. Those workspaces are diagnostic exceptions to the directory/file constructor.
 
 A program that a script operates with `lean --run` cannot import the check. Thus the modules
 `Regula.ProgramCheck` do the same check for each such program. The two drivers remove entries with
@@ -1526,7 +1620,7 @@ Two-way decisions (`Regula.Decides`), each with an accepted and a refused input:
 | `DecidedFunction.covers` | `DecidedFunction.Covers`: a field application covers (`FieldPacking.Covers`), and the number of arguments that a result takes is zero (`DecidedFunction.covers_iff`) | Whether a decision registration's statement is about its implementation on every argument ([RG1007]). It accepts the function itself when no result takes an argument, and refuses it when a result takes one more, which is a kind about a partially applied function. The collector's reading of that number from the kind's result type is not part of this kind. |
 | `Regula.Website.admitExampleRequest`, `admitExampleSources`, `admitDemonstration` (accept on `.ok`) | The observed request is the frozen one; `ExampleSourcesOK`; `DemonstrationOK` | Admission of a rule-example producer's request, sources and diagnostic demonstration. Each returns the admitted value with its proof, so each result type depends on the arguments. The first and the third are decided on the pair of their two arguments, and the second on the structure of its three (`ExampleSourcesInput`). |
 | `RegulaVerification.passed` | Each command of a step ended with exit status 0 (`passed_iff`). | The driver of `scripts/verify.sh` uses it before it operates one more command, before its success line and before it moves the acceptance record. |
-| `RegulaVerification.walked` | The path does not start with `tmp`, and no component of it is `.git`, `.lake`, `.cache` or `.regula-scratch` (`walked_iff`). | The files that the driver copies for the first acceptance step. No theorem relates it to the rule of the isolated copy of the checker. |
+| `Construction.projectRelative` | No root `tmp`. Documentation includes cache-named directories. Elsewhere no component is `.git`, `.lake`, `.cache` or `.regula-scratch` (`checked_projectRelative`). | The selection that the shared cold constructor executes. The constructor's filesystem theorems name their primitive hypotheses. |
 | `RegulaVerification.removal` (accepts on `.remove`) | A directory is at the place by a read that follows no link, and its real path is the place (`removal_remove_iff`). | The driver removes its copy and the `_site` directory only by this decision. The two reads of the file system are trusted. |
 | `Regula.Removal.removal` (accepts on `.remove`) | A read that follows no link finds an entry of the given kind at the place. Its real path is the place, or a symbolic link is a name in a directory at its own place (`removal_remove_iff`). | Each program of the package removes a directory, a file or a symbolic link only by this decision, through `Regula.Filesystem`. The exceptions are the library calls that `Regula.Removal.libraryRemovals` gives, and the removals of the two drivers that `Regula.ProgramCheck.Verification` and `Regula.ProgramCheck.Provision` give. The reads of the file system are trusted. |
 | `Regula.Removal.replacement` (accepts on `true`) | A read that follows no link finds a file at the source, at its own place. Nothing is at the destination, or a file is there at its own place. The destination is a name in a directory at its own place (`replacement_iff`). | Each program of the package moves a file only by this decision, through `Regula.Filesystem`. The exceptions are the library calls that `Regula.Removal.libraryRemovals` gives, and the moves of the two drivers that `Regula.ProgramCheck.Verification` and `Regula.ProgramCheck.Provision` give. The reads of the file system are trusted. |
@@ -1617,7 +1711,7 @@ imports only the toolchain:
   no program imports: `RegulaProvision.Decisions` registers `component?`, `admits`, `mathlibStep`, `cloneStep`, `found`, `prunes`, `retires` and
   `mathlibApplies`;
   `RegulaVerification.Decisions` registers `parseMode`, `dependencyFree`, `select`, `passed`,
-  `walked`, `removal` and `prebuildCovers`.
+  `removal` and `prebuildCovers`. The shared constructor registers `projectRelative` in `RegulaCore.CopyConstruction`.
   Each kind restates a theorem the program proves about the same definition, except that of
   `component?` (`checked_component`).
 
@@ -4978,11 +5072,10 @@ assumption of collision resistance, not a theorem. The comparison takes the plac
 fresh gate on the restored copy.
 
 The comparison does not prove that a fresh gate accepts the restored copy. That result also
-rests on a fact that is not a theorem. A fresh gate reads the audited project only through
-`copyProject` and builds that copy from empty output. `copyProject` does not copy `.lake`, so
-the gate does not read the output of the setup build, of the seed or of the incremental gates.
-Without `--with-docs`, as here, the gate reads no other file of the project, and it links the
-packages directory of the repository for each copy. The restored fresh gates of the clusters in
+rests on a fact that is not a theorem. The [copy contract](#the-acceptance-boundary) excludes these fixtures' original build output.
+Thus the fresh gate does not read the output of the setup build, of the seed or of the incremental gates.
+Without `--with-docs`, as here, the gate reads no other file of the project, and its typed path
+overrides point trusted dependencies to their original roots. The restored fresh gates of the clusters in
 the structural project run the same path on a project with such output in its `.lake`.
 
 The copy of the first cluster starts with the module artifacts of the build of the repository
@@ -4995,8 +5088,7 @@ copy for the probe modules have no effect on the graph.
 Lake uses a seeded `RegulaPolicy` or `AuditApp` artifact only if its saved trace agrees with the
 hash of the inputs of its module. The bytes of the source are one of these inputs. Thus Lake
 always builds the contaminated root from its contaminated source. This statement is a reading of
-the module build of Lake, not a theorem. The fresh gates do not read the seed, because
-`copyProject` does not copy `.lake`.
+the module build of Lake, not a theorem. The fresh gates exclude the seed through the same copy contract.
 
 A fresh gate on a self-hosted copy builds and inspects `RegulaPolicy` from empty output, and
 the first cluster is a serial chain, which was the first shard's longest item, so each fresh gate
@@ -5253,8 +5345,9 @@ execution, and calling a proved oracle does not prove the driver or its IO effec
   The theorem `prebuildCovers_iff` shows that the driver accepts only a surface manifest with no
   claimed target outside the prebuild. That Lake then builds nothing again is the behaviour of
   Lake. The use of `nice` by the operating system is trusted.
-- The theorems `walked_iff`, `removal_remove_iff` and `removal_nothing_iff` of
-  `RegulaVerification` state the decisions of the copy and of the removal. The theorems
+- The theorem `Construction.checked_projectRelative` states the source selection. `copy_io` and `construct_io` state the shared constructor's filesystem contracts. The theorems `removal_remove_iff` and `removal_nothing_iff` of `RegulaVerification` state its removal decision.
+
+  The theorems
   `ScratchCopy.name?_eq_some_iff` and `ScratchCopy.inside_iff` state the two decisions with which
   the gate admits a copy of the driver. The theorems `Regula.Removal.removal_remove_iff` and
   `removal_nothing_iff` state the decision of the removals of the filesystem observer,

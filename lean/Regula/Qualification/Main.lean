@@ -1,5 +1,7 @@
 import Regula.Removal
 import Regula.TaskManagerCheck
+import Regula.CopyControls
+import Regula.Qualification.CopySelection
 import Regula.Qualification.RegistryCli
 import Regula.Qualification.NativeLinter
 import Regula.Qualification.Producer
@@ -32,6 +34,8 @@ private unsafe def runCommand (attempt : Option String) : Command → IO Unit
   | .native => Regula.Qualification.NativeLinter.checkAll
   | .combined => do
       Regula.Qualification.RegistryCli.check
+      Regula.CopyControls.checkWorkspace
+      Regula.Qualification.CopySelection.check
       -- Beside the native controls; both must pass.
       let unique ← IO.asTask Regula.Qualification.UniqueConstants.check
       Regula.Qualification.NativeLinter.checkAll

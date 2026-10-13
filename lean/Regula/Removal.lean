@@ -142,12 +142,14 @@ there. Its safety rests on that workspace's own contents: its configuration and 
 of its dependencies and the release archives that it fetches, which its adopter trusts as Lake
 does. The same reason holds where a program runs Lake in a copy of a project that it made, such as
 `Regula.Checker.Lake.copyProject`'s or the verification driver's: Lake acts on the copy as it would
-on the workspace it was given. The limit of this exemption: a copy that `cp -R` makes, as
-`Regula.Qualification.Slot` and the provisioning driver make theirs, holds the symbolic links that
-the original holds, and a relative one resolves against the copy's location, not the original's. A
-copy that `copyProject` makes holds the link that Regula places to the original's packages
-directory. Lake's removals in a copy can act through either. Issue 399 tracks making each copy by
-construction, so that it holds only directories, files and that one link.
+on the workspace it was given. Regula's shared constructor refuses source links and special entries
+and creates only directories and regular files (`Regula.Filesystem.observer_copy`,
+`observer_construct`, under their native primitive hypotheses). It places no packages link: an
+ordinary load uses a retained manifest and typed dependency path overrides. Thus this exemption
+no longer needs a limit for links preserved or placed by Regula's copies. Dependency originals,
+Lake-generated entries and deliberately planted diagnostic aliases remain trusted inputs. The
+provisioning registration link in the original integration workspace is separate from constructing
+a copy; its creation race is https://github.com/rbeauchamp/regula/issues/407.
 
 - `Lake.importConfigFile`, with `IO.FS.removeFile` and with `Lean.writeModule`. Trusted exemption,
   for the reason above: it removes the stale compiled configuration of a package and its trace in
