@@ -1738,10 +1738,33 @@ private def rootOf (read : List (Lint.Arg Setting)) : IO FilePath :=
   | [] => repoRoot
   | _ => throw <| IO.userError "duplicate --project option"
 
+/-- The files that an audit of the reading `read` reads by the names that it gives, each resolved
+as the audit resolves it, against the root `root` when relative, and left out when that root does
+not resolve: each `--file` source, and the configuration files that the audit captures
+(`SourceBinding.configurationFiles`) at the root with each `--manifest` and the default manifest
+(`Manifest.defaultPath`), at each `--driver-copy` with its default manifest, and at each `--verso`
+package. The audit reads its module sources and Markdown documents only once Lake's loading of the
+workspace names them, so `Invocation.of` refuses a destination with their extensions instead. -/
+private def inputsOf (read : List (Lint.Arg Setting)) (root : Except IO.Error FilePath) :
+    List FilePath :=
+  let resolved (path : FilePath) : List FilePath :=
+    if path.isAbsolute then [path] else (root.toOption.map (resolve · path)).toList
+  let project (dir : FilePath) : List FilePath :=
+    Manifest.defaultPath dir :: (SourceBinding.configurationFiles dir).toList
+  let named := read.flatMap fun
+    | .value .file path | .value .manifest path => resolved ⟨path⟩
+    | .value .driverCopy path => project ⟨path⟩
+    | .value .verso value => (match Documentation.parseVersoOption value, root with
+      | .ok verso, .ok root => (SourceBinding.configurationFiles (root / verso.dir.toString)).toList
+      | _, _ => [])
+    | _ => []
+  named ++ (root.toOption.map project).getD []
+
 /-- An invocation's plan, from its one reading of its arguments (`arguments`): its options or the
-reason for refusing them (`admit`), the project root that reading names, and each destination it
-names (`destinations`) resolved against that root. The marking, the audit's writes and the
-`ruleExamples` marker all take their destinations from this one value. -/
+reason for refusing them (`admit`), the project root that reading names, each destination it
+names (`destinations`) resolved against that root, and the files that it reads by name
+(`inputsOf`). The marking, the audit's writes and the `ruleExamples` marker all take their
+destinations from this one value. -/
 structure Plan where
   /-- The options, or the reason for refusing the invocation. -/
   admitted : Except String Options
@@ -1750,12 +1773,14 @@ structure Plan where
   /-- Each destination named, without repeats: its kind, as given, and resolved against `root`
   when relative. -/
   targets : List (Destination × FilePath × Except IO.Error FilePath)
+  /-- The files that the audit reads by the names that the reading gives (`inputsOf`). -/
+  inputs : List FilePath
 
 /-- The plan of `args`, read once. -/
 def Plan.of (args : List String) : BaseIO Plan := do
   let read := arguments args
   let root ← (rootOf read).toBaseIO
-  return { admitted := admit read, root,
+  return { admitted := admit read, root, inputs := inputsOf read root,
            targets := (destinations read).eraseDups.map fun (kind, path) =>
              (kind, path, if path.isAbsolute then .ok path else root.map (resolve · path)) }
 
@@ -1811,8 +1836,9 @@ inductive Invocation where
   | replacementHistoryWorker (moduleWire source out : String)
   /-- Any other arguments: an audit, with the plan of its arguments. -/
   | audit (plan : Plan)
-  /-- An internal form that names one file as an input and as a file that it writes, refused with
-  `reason` (`aliasRefusal`): it writes nothing. -/
+  /-- An invocation that names one file as an input and as a file that it writes, or an audit with a
+  destination with the extension of a file that it reads, refused with `reason` (`Invocation.of`):
+  it writes nothing. -/
   | aliased (reason : String)
 
 /-- The invocation that `args` name, read once, before the check of its files (`Invocation.of`). -/
@@ -1851,33 +1877,42 @@ def Invocation.outputs : Invocation → List String
   | .inspectionGroupWorker _ out | .diagnosticWorker _ _ out | .replacementHistoryWorker _ _ out =>
     [out]
 
-/-- The files that an internal form reads by the names its arguments give. An audit gives none
-here: its run marks its destinations before it reads its source and its manifest, whose names the
-plan resolves. -/
-def Invocation.inputs : Invocation → List String
-  | .validateSite registry artifact => [registry, artifact]
+/-- The files that an invocation reads by the names its arguments give: those of an internal form,
+and for an audit those of its plan (`Plan.inputs`). -/
+def Invocation.inputs : Invocation → List FilePath
+  | .validateSite registry artifact => [⟨registry⟩, ⟨artifact⟩]
   | .validateRegistry input | .moduleGraphWorker input _ | .declarationReportWorker input _ _
   | .frontendWorker input _ | .compileBatchWorker input _ | .inspectionGroupWorker input _ =>
-    [input]
-  | .diagnosticWorker _ source _ | .replacementHistoryWorker _ source _ => [source]
-  | .registryOut _ | .audit _ | .aliased _ => []
-
-/-- The invocation that `args` name, read once (`Invocation.read`), or `aliased` when one of its
-input files is also one of the files it writes (`aliasRefusal`). The guard marks the files of this
-reading before the run reads an input (`Regula.TaskManager.guard`), so such an invocation is
-refused before anything is written. No caller in this repository names one file in both
-places. -/
-def Invocation.of (args : List String) : BaseIO Invocation := do
-  let invocation ← Invocation.read args
-  match ← aliasRefusal (invocation.inputs.map FilePath.mk) (invocation.outputs.map FilePath.mk) with
-  | some reason => return .aliased reason
-  | none => return invocation
+    [⟨input⟩]
+  | .diagnosticWorker _ source _ | .replacementHistoryWorker _ source _ => [⟨source⟩]
+  | .audit plan => plan.inputs
+  | .registryOut _ | .aliased _ => []
 
 /-- Each file that `invocation` marks and writes, as the run resolves it: the files of an internal
 form (`outputs`), or each destination of an audit's plan that resolves (`Plan.targets`). -/
 def Invocation.destinations : Invocation → List FilePath
   | .audit plan => plan.targets.filterMap fun (_, _, target) => target.toOption
   | other => other.outputs.map FilePath.mk
+
+/-- The extensions of the files that an audit reads only once Lake's loading of the workspace
+names them: its module sources, the Verso package's sources and the documentation's Markdown
+documents. -/
+def auditReadExtensions : List String := ["lean", "md"]
+
+/-- The invocation that `args` name, read once (`Invocation.read`), or `aliased` when one of the
+files that it reads by name is also one of the files it writes (`aliasRefusal`), or when an audit's
+destination has the extension of a file that the audit reads (`auditReadExtensions`,
+`extensionRefusal`). The guard marks the files of this reading before the run reads an input
+(`Regula.TaskManager.guard`), so such an invocation is refused before anything is written. No caller
+in this repository names such a destination. -/
+def Invocation.of (args : List String) : BaseIO Invocation := do
+  let invocation ← Invocation.read args
+  if let some reason ← aliasRefusal invocation.inputs invocation.destinations then
+    return .aliased reason
+  if let .audit _ := invocation then
+    if let some reason ← extensionRefusal auditReadExtensions invocation.destinations then
+      return .aliased reason
+  return invocation
 
 /-- Mark each file that `invocation` writes incomplete, each on its own, and return a line for each
 that could not be marked: an audit's destinations (`markIncomplete`), with `reason` when given,
@@ -1896,8 +1931,9 @@ def Invocation.markIncomplete (invocation : Invocation) (reason : Option String)
 process without Lean's task manager, in the run's place (`Regula.TaskManager.guard`): it reads the
 arguments once (`Invocation.of`), as `run` does, marks each file of that reading incomplete with
 `reason`, whether or not the invocation is admitted (`Invocation.markIncomplete`), and returns the
-exit code of an incomplete audit. An invocation that names one file as an input and as a file it
-writes (`Invocation.aliased`) has no file to mark, so the input stays as it was. No job runs. -/
+exit code of an incomplete audit. An invocation that `Invocation.of` refuses as `aliased`, which
+could name an input as a file it writes, has no file to mark, so each input stays as it was. No
+job runs. -/
 def refuseWithoutTaskManager (reason : String) (args : List String) : IO UInt32 := do
   for line in ← (← Invocation.of args).markIncomplete (some reason) do
     IO.eprintln s!"axiom gate: could not mark the destination {line} incomplete"

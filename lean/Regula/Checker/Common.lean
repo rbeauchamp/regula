@@ -689,25 +689,51 @@ member `payload`, so the reader of a worker packet refuses it (`readWorkerPacket
 def invalidateOutput (out : FilePath) (reason : String) : IO Unit :=
   writeJson out (Json.mkObj [("status", .str "incomplete"), ("reason", .str reason)])
 
-/-- Whether `a` and `b` name one existing file: `IO.FS.realPath` resolves both, so both exist, and
-to one path. Two names of one file that it does not resolve to one path, such as two hard links,
-are not detected. -/
-def sameExistingFile (a b : FilePath) : BaseIO Bool := do
-  match ← (IO.FS.realPath a).toBaseIO, ← (IO.FS.realPath b).toBaseIO with
-  | .ok a, .ok b => return a == b
+/-- The path of the file that `path` names, through `IO.FS.realPath`: that of `path` when it
+exists, and otherwise that of its directory with its file name, the file that a write to `path`
+creates. It is `none` when neither resolves. Two names of one file that `realPath` does not resolve
+to one path, such as two hard links, keep two paths. -/
+def canonicalPath (path : FilePath) : BaseIO (Option FilePath) := do
+  if let .ok real ← (IO.FS.realPath path).toBaseIO then return some real
+  let some name := path.fileName | return none
+  match ← (IO.FS.realPath (path.parent.getD ⟨"."⟩)).toBaseIO with
+  | .ok directory => return some (directory / name)
+  | .error _ => return none
+
+/-- Whether `a` and `b` name one file, existing or one that a write would create: both resolve
+(`canonicalPath`), to one path. -/
+def sameFile (a b : FilePath) : BaseIO Bool := do
+  match ← canonicalPath a, ← canonicalPath b with
+  | some a, some b => return a == b
   | _, _ => return false
 
-/-- The reason to refuse an invocation that names one existing file as one of its input files
-`inputs` and as one of its destinations `destinations` (`sameExistingFile`), if it names one. The
-guard of a program marks each destination incomplete before the program reads its inputs
-(`Regula.TaskManager.guard`), so that mark would replace the input before the run read it. The
-caller refuses such an invocation before it writes anything. -/
+/-- The reason to refuse an invocation that names one file as one of its input files `inputs` and as
+one of its destinations `destinations` (`sameFile`), if it names one. The guard of a program marks
+each destination incomplete before the program reads its inputs (`Regula.TaskManager.guard`), so
+that mark would replace the input, or create it, before the run read it. The caller refuses such an
+invocation before it writes anything. -/
 def aliasRefusal (inputs destinations : List FilePath) : BaseIO (Option String) := do
   for input in inputs do
     for destination in destinations do
-      if ← sameExistingFile input destination then
+      if ← sameFile input destination then
         return some s!"{input} is both an input and a destination ({destination}): the \
           destination is marked incomplete before the input is read"
+  return none
+
+/-- The reason to refuse an invocation one of whose destinations `destinations` has one of the
+extensions `extensions`, in its own name or in the path it resolves to (`canonicalPath`), if one
+has. A run that reads such files only once Lake's loading of a workspace names them, such as the
+module sources of a project, which all have the extension `lean`, cannot compare them with its
+destinations before the guard's mark (`Regula.TaskManager.guard`). The caller refuses such an
+invocation before it writes anything. -/
+def extensionRefusal (extensions : List String) (destinations : List FilePath) :
+    BaseIO (Option String) := do
+  for destination in destinations do
+    for path in destination :: (← canonicalPath destination).toList do
+      if let some extension := path.extension then
+        if extensions.contains extension then
+          return some s!"{destination} names a file with the extension .{extension}, which the \
+            run reads as an input: the destination is marked incomplete before the input is read"
   return none
 
 /-- The payload of a worker packet whose schema is 1 and whose producer, toolchain commit and

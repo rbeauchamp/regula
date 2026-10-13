@@ -891,14 +891,24 @@ completed run read each destination with one parser and mark it with one writer.
 
 A command of `qualify` without `--under-deadline` marks its evidence, and then it selects GNU
 timeout and starts the command under it. If that selection or that start fails, the command marks
-its evidence again with the text of the error.
+its evidence again with the text of the error. A start can also end with a status that shows that
+no command operated. GNU timeout gives 125, 126 or 127, and Lean gives 255 when it cannot operate
+GNU timeout. The command itself ends with 0, 1, the status of a signal or 124 at the deadline. So
+for the four other statuses the program marks its evidence with the status and the standard error.
 
 The mark replaces a destination before the program reads its inputs. Thus a program refuses
-arguments that name one file as an input and as a destination, before it writes a file. Examples
-are the request of a worker of `axiomGate`, the facts of `ruleExamples --injected-git-facts` and
-the source of `ruleExamples --policy-negative`. No caller in this repository gives such arguments.
-The program prints the reason, and the file keeps its bytes. Two names of one file that
-`IO.FS.realPath` does not make equal, such as two hard links, are not found.
+arguments that name a file that it reads as a destination, before it writes a file. A destination
+that does not exist counts as the file that a write to it creates. The program prints the reason,
+and the file keeps its bytes. No caller in this repository gives such arguments. Two names of one
+file that `IO.FS.realPath` does not make equal, such as two hard links, are not found.
+
+A worker of `axiomGate` reads its request, and `ruleExamples --injected-git-facts` reads its facts.
+An audit of `axiomGate` or of `freshChecker` reads its source, its manifest and the configuration
+files of its project. A production of `ruleExamples` reads the manifest and the configuration
+files of its project, and the source of a negative example. An audit reads its module sources and
+its Markdown documents only after Lake loads the workspace. So `axiomGate` and the productions
+refuse a destination with the extension `lean` or `md`, and `freshChecker` one with `lean`. An
+audit also reads build outputs that Lake names, and the programs do not compare these.
 
 The option `--write-baseline` of `regula-markdown` writes `prose-baseline.json`, but first it reads
 the earlier baseline in that file. Thus the mark of that file holds the text of the earlier
@@ -906,12 +916,18 @@ baseline, and check B1 refuses the mark. The run then reads the earlier baseline
 the program cannot read the earlier baseline, the mark holds the reason and no text, and the run
 fails.
 
-The script `scripts/verify.sh` adds its arguments as a line to `tmp/verification-attempts` before
-it operates Lean. The begin-attempt of `RegulaVerification` invalidates the verdicts of each
-attempt in that file, and then it removes the file. Thus an attempt that stops before its
-begin-attempt, for example without `lean`, does not keep its earlier verdicts. The next attempt
-invalidates them before a later step reads them. A reader that operates outside
-`scripts/verify.sh` before the next attempt can still read them.
+The script `scripts/verify.sh` marks `tmp/rule-examples.json` with a constant text before it
+operates Lean. The begin-attempt of `RegulaVerification` then marks the other verdicts of the
+selected mode. An attempt can stop before that begin-attempt, for example without `lean`. Then the
+earlier verdicts of the mode stay, and no code of the attempt has operated. Each reader of these
+verdicts admits one only for the current inputs, so it is still the verdict for those inputs.
+
+The reader `AcceptanceLink.require` admits an acceptance link only if its identity is the digest of
+the current inputs. The reader `Site.Build.admitShard` admits a shard export only for the current
+sources of the checker, and then the qualifier checks the export again. The deployment gate admits
+`_site` only for a clean build of the commit that it deploys. The gate of the diagnostics workflow
+reads the digests of the self-hosted input only from the jobs of its commit. No reader in this
+repository reads `tmp/environment-census.json` or `tmp/acceptance-fences.json`.
 
 These refusals cover each destination that the source of Regula writes, also the baseline of
 `regula-markdown --write-baseline` ([issue 436](https://github.com/rbeauchamp/regula/issues/436)).
@@ -1003,12 +1019,12 @@ exist and `site build` without its evidence. Each destination must then be marke
 the reason, or removed for the site artifact. For a production of `ruleExamples` and the export of
 `qualify producers`, the reason is the text of the error.
 
-The same control operates each example of one file as an input and as a destination, and the
-program must refuse it. Then it operates `scripts/verify.sh` two times without `lean`. The next
-begin-attempt must invalidate an acceptance link and a shard export that their readers accepted
-before. The reader of the shard export is that of `site build`. The controls of `regula-markdown`,
-which the documentation step operates, also stop a run of `--write-baseline` without `git`. A
-later run must then write the baseline with the entries of the earlier baseline.
+The same control operates a bounded `qualify` with GNU `env` as its only `timeout`, which ends with
+status 125 before the command operates. The mark must then hold the status and the option that
+`env` refused. It also operates each example of a file that a program reads as a destination, and
+each example of a destination with the extension `lean` or `md`. The program must refuse each one.
+The controls of `regula-markdown`, which the documentation step operates, also stop a run of
+`--write-baseline` without `git`. A later run must then write the baseline with the earlier entries.
 
 The driver moves the pending record to `tmp/acceptance-link.json` only if
 `RegulaVerification.passed` accepts the exit status of each command. The driver does that move

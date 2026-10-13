@@ -1333,43 +1333,31 @@ theorem prebuildCovers_iff (manifest : Lean.Json) :
   · next targets h => simp [h, List.all_eq_true]
   · next h => simp [h]
 
-/-- The journal of attempts: `scripts/verify.sh` appends the arguments of each attempt to it, as
-one line of words joined by spaces, before any step that can fail, so an attempt that stops
-before its own `beginAttempt` runs, such as one with no `lean` to run, is still recorded. -/
-def attemptsPath : String := "tmp/verification-attempts"
+/-- Begin an attempt: invalidate the selected mode's earlier PASS or accepted link, and remove
+an earlier site artifact. `scripts/verify.sh` runs this toolchain-only step before provisioning
+and before any checker is built, so a failed setup or build cannot leave either in place. The
+site artifact is removed only when a directory is at its own place (`removeOwn`): with a symbolic
+link at `_site` the attempt stops and removes nothing.
 
-/-- The arguments of each attempt that the text `journal` of the journal records (`attemptsPath`):
-the words of each line, in order. Each line that `scripts/verify.sh` appends ends with a line feed,
-and a last line without one, which an append that stopped could leave, is read too. -/
-def recordedArguments (journal : String) : List (List String) :=
-  if journal.isEmpty then []
-  else
-    let lines := journal.splitOn "\n"
-    (if journal.endsWith "\n" then lines.dropLast else lines).map fun line =>
-      (line.splitOn " ").filter (!·.isEmpty)
-
-/-- Begin an attempt: for the selected mode, and for each mode that the journal of attempts records
-(`attemptsPath`, `recordedArguments`), invalidate its earlier PASS or accepted link, and remove an
-earlier site artifact; then remove the journal. `scripts/verify.sh` runs this toolchain-only step
-before provisioning and before any checker is built, so a failed setup or build cannot leave
-either in place, and it records each attempt in the journal before this step, so an attempt that
-stopped before this step is invalidated by the next one. A recorded line that selects no mode
-invalidates nothing. The site artifact is removed only when a directory is at its own place
-(`removeOwn`): with a symbolic link at `_site` the attempt stops and removes nothing, and the
-journal stays for the next attempt. -/
+An attempt that stops before this step, such as one with no `lean` to run, has run no code of its
+own and leaves the earlier verdicts of its mode, apart from the corpus receipt
+`tmp/rule-examples.json`, which the wrapper marks before it runs Lean.
+Assumes: each reader that admits one of those verdicts admits it only for the current inputs, so it
+is the verdict for those inputs. `AcceptanceLink.require` admits the acceptance link (`linkPath`)
+only when its identity is the digest of the current inputs. `Site.Build.admitShard` admits a shard
+export (`shardEvidence`) only when it records the current sources of the checker
+(`Site.Build.currentSources`), and then runs `ruleExampleQualification` on it.
+`Regula.Site.Deployment.gate` admits the site artifact (`siteOutput`) only for a clean build of the
+commit it deploys. The gate of the diagnostics workflow reads the self-hosted digests only from the
+artifacts of the jobs of its commit (`Regula.DiagnosticsGate.digestPath`). No reader in this
+repository reads `tmp/environment-census.json` or `tmp/acceptance-fences.json`. -/
 def beginAttempt (args : List String) : IO Unit := do
   let some selection := select args | throw <| IO.userError usage
-  let journal ← do
-    if ← System.FilePath.pathExists attemptsPath then IO.FS.readFile attemptsPath else pure ""
-  let modes := ((recordedArguments journal).filterMap (fun args => (select args).map (·.val)) ++
-    [selection.val]).eraseDups
-  for mode in modes do
-    for (path, text) in invalidated mode do
-      IO.FS.createDirAll "tmp"
-      IO.FS.writeFile path text
-    if mode == .site then
-      removeOwn ((← IO.FS.realPath ".") / siteOutput)
-  if ← System.FilePath.pathExists attemptsPath then IO.FS.removeFile attemptsPath
+  for (path, text) in invalidated selection.val do
+    IO.FS.createDirAll "tmp"
+    IO.FS.writeFile path text
+  if selection.val == .site then
+    removeOwn ((← IO.FS.realPath ".") / siteOutput)
 
 /-- Cold-start driver; all builds and checks stay within the inherited outer deadline. After the
 preliminary checks and the mode's `prebuild`, it schedules every command of the mode

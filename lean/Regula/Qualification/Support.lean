@@ -45,18 +45,48 @@ def run (root : FilePath) (command : String) (args : Array String)
           out: {command} {args}\n{result.stdout}{result.stderr}"
   return result
 
+/-- The exit statuses with which a bounded start (`runBounded`) ends without running its command:
+GNU timeout's own failure (125), a command that it found but could not run (126) or did not find
+(127), and 255, with which Lean's runtime ends a spawned process whose program it could not
+execute. The command that `qualify` starts is `qualify` itself, which ends with 0 or 1, or by a
+signal, which GNU timeout reports as 128 plus the signal's number (at most 192), or as 124 at the
+deadline. -/
+def startupFailureStatuses : List UInt32 := [125, 126, 127, 255]
+
+/-- How many bytes of a bounded start's standard error `runBounded` keeps, from its start. -/
+def keptErrorBytes : Nat := 16384
+
 /-- One group-wide deadline for a standalone public entrypoint. This is only used at
 the outer boundary, never for commands already under acceptance. SIGKILL terminates
-the timer, child, and descendants in its group, closing inherited output handles. -/
+the timer, child, and descendants in its group, closing inherited output handles. The standard
+error of the start is forwarded as it arrives, and its first `keptErrorBytes` bytes are kept. A
+start that ends with one of `startupFailureStatuses` ran no command: the result is the error with
+that status and the kept text. Otherwise it is the command's exit status. -/
 def runBounded (root : FilePath) (seconds : Nat) (command : String) (args : Array String) :
-    IO UInt32 := do
+    IO (Except String UInt32) := do
   let timer ← timeoutCommand
   let options ← Regula.Filesystem.Construction.gitProcessArgs {cmd := command, args}
   let child ← IO.Process.spawn {
     cmd := timer, args := #["--signal=KILL", s!"{seconds}s", options.cmd] ++ options.args,
     env := options.env,
-    cwd := some root, stdin := .null, stdout := .inherit, stderr := .inherit }
-  child.wait
+    cwd := some root, stdin := .null, stdout := .inherit, stderr := .piped }
+  let forwarded ← IO.asTask (prio := .dedicated) do
+    let out ← IO.getStderr
+    let mut kept := ByteArray.empty
+    repeat
+      let chunk ← child.stderr.read 4096
+      if chunk.isEmpty then break
+      out.write chunk
+      out.flush
+      kept := kept ++ chunk.extract 0 (keptErrorBytes - kept.size)
+    return kept
+  let status ← child.wait
+  let kept ← IO.ofExcept (← IO.wait forwarded)
+  if startupFailureStatuses.contains status then
+    let text := (String.fromUTF8? kept).getD "(standard error that is not UTF-8 text)"
+    return .error s!"the bounded start of {command} by {timer} ended with exit status {status} \
+      before the command ran; its standard error: {text.trimAscii.toString}"
+  return .ok status
 
 /-- Witness that `withScratchCleaned` removed its owned scratch directory after the
 action returned normally. Only this module can construct it, so a value exists only

@@ -330,17 +330,45 @@ private def markIncomplete (targets : List (FilePath × Except IO.Error FilePath
     if let .error error := result then failed := failed.push s!"{path}: {error}"
   return failed
 
+/-- The files that a run of the reading `read` reads by name, resolved against its root `root`, and
+left out when that root does not resolve: each `--manifest`, the default manifest
+(`Manifest.defaultPath`) and the configuration files that the run captures
+(`SourceBinding.configurationFiles`). -/
+private def inputsOf (read : List (Lint.Arg Setting)) (root : Except IO.Error FilePath) :
+    List FilePath :=
+  let manifests := read.filterMap fun | .value .manifest path => some (FilePath.mk path) | _ => none
+  match root with
+  | .ok root => manifests.map (resolve root) ++ Manifest.defaultPath root ::
+      (SourceBinding.configurationFiles root).toList
+  | .error _ => manifests.filter (·.isAbsolute)
+
+/-- The reason to refuse the reading `read` with its root `root`, if it names a file that the run
+reads (`inputsOf`) as a `--json-out` destination (`aliasRefusal`), or a destination with the
+extension `lean` of a module source, which the run reads only once Lake's loading of the workspace
+names it (`extensionRefusal`). The guard marks each destination before the run reads its inputs
+(`Regula.TaskManager.guard`). No caller in this repository names such a destination. -/
+private def aliasOf (read : List (Lint.Arg Setting)) (root : Except IO.Error FilePath) :
+    BaseIO (Option String) := do
+  let destinations := (targetsOf read root).filterMap (·.2.toOption)
+  match ← aliasRefusal (inputsOf read root) destinations with
+  | some reason => return some reason
+  | none => extensionRefusal ["lean"] destinations
+
 /-- The refusal of a run in a process without Lean's task manager, which the guard of the
 executable runs (`Regula.TaskManager.guard`): it reads the arguments once and finds their root
 once, as `run` does, marks every `--json-out` destination of that reading incomplete with
-`reason`, and returns `1`. No check runs. -/
+`reason`, and returns `1`. A reading that `aliasOf` refuses has no destination to mark, so each
+input stays as it was. No check runs. -/
 def refuseWithoutTaskManager (reason : String) (args : List String) : IO UInt32 := do
   let read := arguments args
-  for line in ← markIncomplete (targetsOf read (← (rootOf read).toBaseIO)) reason do
+  let root ← (rootOf read).toBaseIO
+  if (← aliasOf read root).isSome then return 1
+  for line in ← markIncomplete (targetsOf read root) reason do
     IO.eprintln s!"freshChecker: could not mark {line} incomplete"
   return 1
 
-/-- Runs the serialized-graph qualification: reads its arguments once, marks every `--json-out`
+/-- Runs the serialized-graph qualification: reads its arguments once, refuses a reading that names
+a file it reads as a destination (`aliasOf`) before it writes anything, marks every `--json-out`
 destination of that reading incomplete, each on its own, and then refuses arguments that do not
 parse; otherwise it builds the plan, and unless `--plan-only` builds the positive targets, runs
 `leanchecker --fresh` on each root, rechecks the captured inputs and admits the result through
@@ -354,6 +382,7 @@ unsafe def run (args : List String) : IO UInt32 := do
   let read := arguments args
   let parsed := parseArgs read {}
   let root ← (rootOf read).toBaseIO
+  if let some reason ← aliasOf read root then throw <| IO.userError s!"refused: {reason}"
   -- Each destination of the one reading, resolved against the one root. An absolute destination
   -- does not need project discovery; a relative one keeps the public repo-root meaning.
   let targets := targetsOf read root

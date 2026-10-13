@@ -4471,7 +4471,9 @@ the program's own marks, for `ruleExamples --policy-negative` and `--documentati
 does not exist, for both forms of `ruleExamples --injected-git-facts`; a planted project root
 without the documented examples that `qualify --under-deadline producers --evidence` reads first;
 no GNU timeout on `PATH`, which `qualify producers --evidence` selects before it starts the
-command under its deadline; an invalid shard of `qualify --under-deadline rule-examples
+command under its deadline; GNU coreutils `env` as the one `timeout` on `PATH`, which the bounded
+start of `qualify producers --evidence` selects and which ends with status 125 before the command
+runs; an invalid shard of `qualify --under-deadline rule-examples
 --evidence`; the proxy of `axiomGate` that `qualify` runs under
 `REGULA_QUALIFICATION_WRAPPER=acceptance` with no gate beside it to start; and `site build --out`
 without its evidence, which the parser refuses. Each destination that the run names starts with a
@@ -4482,33 +4484,31 @@ task-manager control (`taskManagerControl`); for `freshChecker` a document with 
 destination must then hold a document marked incomplete with the reason, or be removed for the site
 artifact, so that the reader no longer admits it as completed. For a production of `ruleExamples`
 and the export of `qualify producers`, the reason is the error's text that the run printed
-(`markedWithError`). For the other runs, it is the reason with which the guard marks each
+(`markedWithError`), and for the start that ran no command it gives the status and the option
+that the stand-in refused. For the other runs, it is the reason with which the guard marks each
 destination before any code of the program runs (`Regula.TaskManager.guard`,
 `Regula.TaskManager.startedReason`).
 
-A run that names one file as an input and as a destination is refused before anything is written
+A run that names a file that it reads as a destination is refused before anything is written
 (`aliasRefusal`), so the guard's mark does not replace the input: the declaration-report worker of
-`axiomGate` with its request as its output, `ruleExamples --injected-git-facts` with its facts as
-the audit's `--json-out`, and `ruleExamples --policy-negative` with its source as its result,
-named through a directory and `..`. Each must exit with its refusal's code and the reason, and the
-file must keep its bytes.
+`axiomGate` with its request as its output, the audit of `axiomGate --file` with its source as its
+`--json-out`, `freshChecker` with its `--manifest` as its `--json-out`, `ruleExamples
+--injected-git-facts` with its facts as the audit's `--json-out`, and `ruleExamples
+--policy-negative` with its source as its result, named through a directory and `..`. So is a run
+with a destination with the extension of a file that its audit reads once Lake's loading names it
+(`extensionRefusal`): `axiomGate --json-out` and `freshChecker --json-out` with the extension
+`lean`, and `ruleExamples --documentation` with a result with the extension `md`. Each must exit
+with its refusal's code and the reason, and the file must keep its bytes, or stay absent.
 
-The verification wrapper `scripts/verify.sh`, with `lean` absent from its `PATH`, stops before the
-driver's begin-attempt (`RegulaVerification.beginAttempt`), once for the first acceptance step
-and once for the first corpus shard. It must exit with 127 and record both attempts in its journal
-of attempts. The next begin-attempt, of the documentation step, must then invalidate an accepted
-acceptance link (`AcceptanceLink.require`) and a shard export that the site admits, and remove
-the journal. The wrapper runs in a copy of its files, so its `tmp` is the copy's.
-
-The processes, the shell and Lean's runtime are its subject, an external boundary: it observes
+The processes and Lean's runtime are its subject, an external boundary: it observes
 this build's programs and proves nothing.
 
 Assumes: Lean 4.34.1's `Lean.findSysroot` returns `LEAN_SYSROOT` when it is set, and otherwise runs
 `lean --print-prefix` and fails when that run fails (`src/lean/Lean/Util/Path.lean:180-187`).
 Trusted: the runtime finds a command given by a bare name, such as `lean` or `timeout`, only in
-the directories of `PATH`; its process code is not among the toolchain's sources. Trusted: Bash
-ends a script under `set -e` with the status 127 of a command that it does not find on `PATH`, and
-neither `/usr/bin` nor `/bin` holds `lean`, which the control checks. -/
+the directories of `PATH`; its process code is not among the toolchain's sources. Trusted: GNU
+coreutils `env`, run under the name `timeout`, prints GNU coreutils for `--version` and ends with
+its own failure status 125 at the option `--signal=KILL`, naming that option on standard error. -/
 private def earlyStopControl (repo : FilePath) : IO (Option String) :=
   withScratch repo "checker-early-stop" fun scratch => do
     let started := Regula.TaskManager.startedReason
@@ -4592,6 +4592,35 @@ private def earlyStopControl (repo : FilePath) : IO (Option String) :=
     let plain : Array (String × Option String) := #[("REGULA_TIMING", none),
       ("REGULA_QUALIFICATION_WRAPPER", none), ("REGULA_RECEIPT_TIMER", none)]
     let withoutLean := plain ++ #[("PATH", some noLean.toString), ("LEAN_SYSROOT", none)]
+    -- GNU coreutils `env` as the one `timeout` of the whole `PATH`: the bounded start selects it,
+    -- since its `--version` names GNU coreutils (`Regula.Qualification.timeoutCommand`), and it
+    -- ends with status 125 at the option `--signal=KILL` before it runs the command.
+    let mut gnuEnv : Option FilePath := none
+    for name in ["genv", "env"] do
+      for directory in ((← IO.getEnv "PATH").getD "").splitOn ":" do
+        let candidate := FilePath.mk directory / name
+        if gnuEnv.isNone && !directory.isEmpty && (← candidate.pathExists) then
+          if let .ok version ← (runProcess scratch candidate.toString #["--version"]).toBaseIO then
+            if version.exitCode == 0 && version.stdout.contains "GNU coreutils" then
+              gnuEnv := some candidate
+    let some gnuEnv := gnuEnv
+      | return some "early stop: no GNU coreutils env (genv or env) on PATH, which installs GNU \
+          coreutils timeout beside it, to stand in for the timeout of a bounded start"
+    let standIn := scratch / "stand-in"
+    IO.FS.createDirAll standIn
+    let linked ← runProcess scratch "ln" #["-s", gnuEnv.toString, (standIn / "timeout").toString]
+    unless linked.exitCode == 0 do
+      return some s!"early stop: could not link {gnuEnv} as {standIn / "timeout"}:\n{linked.output}"
+    let withStandIn := plain ++ #[("PATH", some standIn.toString)]
+    -- The export of a bounded start that ended without running its command: its reason must give
+    -- the status and the standard error of the stand-in, which names the option it refused.
+    let startup := scratch / "startup.json"
+    let startupExport : Seeded := { producerExport "startup.json" with
+      marked := fun stderr => do
+        let reason := ((← parsedAt startup).bind fun marked =>
+          (marked.getObjValAs? String "reason").toOption).getD ""
+        return (← markedWithError startup "reason" "" stderr) &&
+          reason.contains "ended with exit status 125" && reason.contains "--signal=KILL" }
     let missing := (scratch / "missing-facts.json").toString
     let fileArgs (out : FilePath) : Array String :=
       #["--file", fixture.toString, "--claim", "kernel-only", "--json-out", out.toString]
@@ -4624,6 +4653,8 @@ private def earlyStopControl (repo : FilePath) : IO (Option String) :=
       ("qualify", qualify, project,
         #["producers", "--evidence", (scratch / "bounded.json").toString], withoutLean, some 1,
         [producerExport "bounded.json"]),
+      ("qualify", qualify, project,
+        #["producers", "--evidence", startup.toString], withStandIn, some 1, [startupExport]),
       ("qualify", qualify, repo, #["--under-deadline", "rule-examples", "--evidence",
         corpus.path.toString, "--shard", "planted"], plain, some 1, [corpus]),
       ("qualify", qualify, repo, fileArgs (scratch / "proxy.json"),
@@ -4649,9 +4680,10 @@ private def earlyStopControl (repo : FilePath) : IO (Option String) :=
           return some s!"early stop: {program} {args} left {destination.path} without the \
             incomplete mark and the reason, or admitted as completed; it holds {held}\n\
             {result.output}"
-    -- Each run that names one file as an input and as a destination (`aliasRefusal`), the second
-    -- name of the policy example's source through a directory and `..`: it must be refused with the
-    -- reason and its exit code, and the file must keep its bytes.
+    -- Each run that names a file that it reads as a destination (`aliasRefusal`), the second name
+    -- of the policy example's source through a directory and `..`, and each run with a destination
+    -- with the extension of a file that its audit reads (`extensionRefusal`): it must be refused
+    -- with the reason and its exit code, and the file must keep its bytes, or stay absent.
     let request := scratch / "alias-request.json"
     let publish := scratch / "alias-publish.json"
     IO.FS.writeFile request (toJson ({ modules := #[], searchRoots := #[], sourceRoots := #[],
@@ -4661,72 +4693,39 @@ private def earlyStopControl (repo : FilePath) : IO (Option String) :=
     IO.FS.writeFile facts "[]\n"
     let source := scratch / "AliasSource.lean"
     IO.FS.writeFile source (← IO.FS.readFile fixture)
+    let manifest := scratch / "alias-manifest.json"
+    IO.FS.writeFile manifest (← IO.FS.readFile (repo / "foundation_manifest.json"))
     IO.FS.createDirAll (scratch / "through")
-    let aliases : List (String × String × Array String × UInt32 × FilePath) := [
+    let both := "is both an input and a destination"
+    let aliases : List (String × String × Array String × UInt32 × String × FilePath) := [
       ("axiomGate", gate, #["--declaration-report-worker", request.toString, request.toString],
-        Lint.Outcome.configuration.exitCode, request),
+        Lint.Outcome.configuration.exitCode, both, request),
+      ("axiomGate", gate, #["--file", source.toString, "--claim", "kernel-only", "--json-out",
+        source.toString], Lint.Outcome.configuration.exitCode, both, source),
+      ("axiomGate", gate, fileArgs (scratch / "Result.lean"), Lint.Outcome.configuration.exitCode,
+        "with the extension .lean", scratch / "Result.lean"),
+      ("freshChecker", (← toolPath repo "freshChecker").toString,
+        #["--manifest", manifest.toString, "--json-out", manifest.toString], 1, both, manifest),
+      ("freshChecker", (← toolPath repo "freshChecker").toString,
+        #["--json-out", (scratch / "Graph.lean").toString], 1, "with the extension .lean",
+        scratch / "Graph.lean"),
       ("ruleExamples", ruleExamples, #["--injected-git-facts", facts.toString, "axiomGate"] ++
-        fileArgs facts, 4, facts),
+        fileArgs facts, 4, both, facts),
       ("ruleExamples", ruleExamples, #["--policy-negative", repo.toString, source.toString,
-        (scratch / "through" / ".." / "AliasSource.lean").toString], 4, source)]
-    for (program, path, args, code, input) in aliases do
-      let before ← IO.FS.readBinFile input
+        (scratch / "through" / ".." / "AliasSource.lean").toString], 4, both, source),
+      ("ruleExamples", ruleExamples, #["--documentation", repo.toString, (repo / "docs").toString,
+        (scratch / "Documentation.md").toString], 4, "with the extension .md",
+        scratch / "Documentation.md")]
+    for (program, path, args, code, phrase, file) in aliases do
+      let held : IO (Option ByteArray) := do
+        if ← file.pathExists then return some (← IO.FS.readBinFile file) else return none
+      let before ← held
       let result ← runProcess repo path args (env := plain)
-      unless result.exitCode == code &&
-          result.stderr.contains "is both an input and a destination" &&
-          (← IO.FS.readBinFile input).data == before.data && !(← publish.pathExists) do
+      unless result.exitCode == code && result.stderr.contains phrase &&
+          (← held).map (·.data) == before.map (·.data) && !(← publish.pathExists) do
         return some s!"early stop: {program} {args} was not refused with exit {code} and the \
-          reason that one file is both an input and a destination, leaving {input} as it was \
-          (exit {result.exitCode}):\n{result.output}"
-    -- The verification wrapper, `scripts/verify.sh`, in a copy of its files, so that its `tmp` is
-    -- the copy's. With no `lean` on its `PATH`, an attempt stops before the driver's begin-attempt
-    -- (`RegulaVerification.beginAttempt`) and records its arguments in the journal of attempts.
-    -- The next attempt's begin-attempt must then invalidate each recorded attempt's verdicts: an
-    -- accepted acceptance link (`AcceptanceLink.require`) and a corpus shard export that the site
-    -- admits, which a later documentation step and site build read.
-    let wrapper := scratch / "wrapper"
-    IO.FS.createDirAll (wrapper / "scripts")
-    IO.FS.createDirAll (wrapper / "lean")
-    IO.FS.createDirAll (wrapper / "tmp")
-    let files := [["scripts", "verify.sh"], ["lean", "RegulaVerification.lean"], ["lean-toolchain"]]
-    for file in files do
-      let place := file.foldl (· / ·) wrapper
-      IO.FS.writeFile place (← IO.FS.readFile (file.foldl (· / ·) repo))
-    let digest := String.ofList (List.replicate 64 'a')
-    let link := wrapper / "tmp" / "acceptance-link.json"
-    writeJson link (Json.mkObj [("schemaVersion", toJson (1 : Nat)), ("status", .str "accepted"),
-      ("identity", .str digest), ("acceptedJobs", toJson (#[] : Array Json)),
-      ("origin", .str "isolatedCopy")])
-    -- The export of the first of the three corpus shards (`RegulaVerification.shardEvidence`).
-    let shard := wrapper / "tmp" / "rule-examples-1of3.json"
-    writeShard shard
-    unless (← linkAccepted link digest) && (← shardAdmitted shard) do
-      return some "early stop: the seeds of the wrapper's acceptance link and shard export are \
-        not admitted by their readers"
-    let shellPath := "/usr/bin:/bin"
-    for directory in ["/usr/bin", "/bin"] do
-      if ← (FilePath.mk directory / "lean").pathExists then
-        return some s!"early stop: {directory} holds lean, so the wrapper's PATH {shellPath} \
-          cannot leave it out"
-    for args in [#[], #["diagnostics", "rule-examples", "1/3"]] do
-      let stopped ← runProcess wrapper "/bin/bash"
-        (#[(wrapper / "scripts" / "verify.sh").toString] ++ args)
-        (env := #[("PATH", some shellPath)])
-      unless stopped.exitCode == 127 do
-        return some s!"early stop: scripts/verify.sh {args} with no lean on its PATH did not stop \
-          with exit 127 (exit {stopped.exitCode}):\n{stopped.output}"
-    let journal := wrapper / "tmp" / "verification-attempts"
-    let recorded ← do if ← journal.pathExists then IO.FS.readFile journal else pure ""
-    unless recorded == "\ndiagnostics rule-examples 1/3\n" do
-      return some s!"early stop: the wrapper's journal of attempts holds {recorded.quote}, not \
-        the two stopped attempts"
-    let began ← runProcess wrapper "lean"
-      #["--run", "lean/RegulaVerification.lean", "--begin-attempt", "docs"] scrubbedLeanPathEnv
-    unless began.exitCode == 0 && !(← linkAccepted link digest) && !(← shardAdmitted shard) &&
-        !(← journal.pathExists) do
-      return some s!"early stop: the begin-attempt after two stopped attempts of \
-        scripts/verify.sh left the acceptance link or the shard export admitted, or the journal \
-        in place (exit {began.exitCode}):\n{began.output}"
+          reason that holds \"{phrase}\", leaving {file} as it was (exit {result.exitCode}):\n\
+          {result.output}"
     return none
 
 /-- Public CLI fixtures: the complete sweep for qualification, or the unchanged smoke subset for

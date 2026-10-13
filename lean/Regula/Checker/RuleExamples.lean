@@ -182,11 +182,17 @@ def Production.parse? : List String → Option Production
 def Production.output : Production → String
   | .policyNegative _ _ output | .documentation _ _ output => output
 
-/-- The file that a production reads by the name its arguments give: the source of a negative
-policy example. The project and the documentation are directories. -/
-def Production.inputs : Production → List String
-  | .policyNegative _ source _ => [source]
-  | .documentation .. => []
+/-- The files that a production reads by the names its arguments give: the source of a negative
+policy example, and the manifest and configuration files of the project that it audits
+(`Manifest.defaultPath`, `SourceBinding.configurationFiles`). The documentation is a
+directory. -/
+def Production.inputs : Production → List System.FilePath
+  | .policyNegative repo source _ => ⟨source⟩ :: project ⟨repo⟩
+  | .documentation repo _ _ => project ⟨repo⟩
+where
+  project (repo : System.FilePath) : List System.FilePath :=
+    Regula.Checker.Manifest.defaultPath repo ::
+      (Regula.Checker.SourceBinding.configurationFiles repo).toList
 
 /-- Mark the result file of `production` incomplete with `reason` (`AxiomGate.invalidateResult`),
 printing a line when it cannot. It is the one marker of a production's result: the refusal of
@@ -232,27 +238,30 @@ private unsafe def ruleExamplesEntry (production : Option Regula.Checker.RuleExa
     if let some production := production then production.markIncomplete (toString error)
     return productionIncomplete
 
-/-- The reason to refuse the arguments `args` of `ruleExamples` because they name one existing file
-as an input and as a destination (`aliasRefusal`), if they do: the injected facts against each file
-that the rest of the arguments write (`AxiomGate.Invocation.destinations` for the `axiomGate` form,
-the result file of a production), and the source of a production against its result file
-(`Production.inputs`). The gate refuses such a name in its own arguments
-(`AxiomGate.Invocation.of`). No caller in this repository names one file in both places. -/
+/-- The reason to refuse the arguments `args` of `ruleExamples` because they name a file that the
+run reads as a destination, if they do. The injected facts are compared with each file that the
+rest of the arguments write (`AxiomGate.Invocation.destinations` for the `axiomGate` form, the
+result file of a production), and the files that a production reads by name (`Production.inputs`)
+with its result file (`aliasRefusal`). A production's result file must not have the extension of a
+file that the audit of its project reads once Lake's loading names it
+(`AxiomGate.auditReadExtensions`, `extensionRefusal`). The gate refuses such arguments of its own
+(`AxiomGate.Invocation.of`). No caller in this repository names such a destination. -/
 private def aliasOf (args : List String) : BaseIO (Option String) := do
-  let production (rest : List String) : List System.FilePath × List System.FilePath :=
+  let production (facts : List System.FilePath) (rest : List String) : BaseIO (Option String) :=
     match Regula.Checker.RuleExamples.Production.parse? rest with
-    | some production => (production.inputs.map System.FilePath.mk, [⟨production.output⟩])
-    | none => ([], [])
+    | some production => do
+      let outputs : List System.FilePath := [⟨production.output⟩]
+      match ← Regula.Checker.aliasRefusal (facts ++ production.inputs) outputs with
+      | some reason => return some reason
+      | none => Regula.Checker.extensionRefusal
+          Regula.Checker.AxiomGate.auditReadExtensions outputs
+    | none => return none
   match args with
   | "--injected-git-facts" :: facts :: "axiomGate" :: gateArgs =>
     Regula.Checker.aliasRefusal [⟨facts⟩]
       (← Regula.Checker.AxiomGate.Invocation.of gateArgs).destinations
-  | "--injected-git-facts" :: facts :: rest =>
-    let (inputs, outputs) := production rest
-    Regula.Checker.aliasRefusal (⟨facts⟩ :: inputs) outputs
-  | rest =>
-    let (inputs, outputs) := production rest
-    Regula.Checker.aliasRefusal inputs outputs
+  | "--injected-git-facts" :: facts :: rest => production [⟨facts⟩] rest
+  | rest => production [] rest
 
 /-- Mark each destination that the arguments `args` of `ruleExamples` name incomplete with
 `reason`, and return the exit code of an incomplete production. For the `axiomGate` form it marks
