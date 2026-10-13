@@ -677,7 +677,7 @@ Assumes: A full update or a missing manifest bypasses overrides (`Load/Workspace
 
 The request freezes loaded relocation selections before a producer starts. The copier and `effectiveAccount` use the same `relocateDependencies` and `generatedConfiguration` definitions. The latter also derives the expected overrides from the request's captured manifest and the copied project root. `CopyConfiguration.check_iff` proves that the executed comparison accepts exactly complete configuration equality.
 
-Result schema 20 records captured source fields and generated overrides separately in `effective.configurationOrigins`. Each other configuration value remains the exact captured text. Missing, extra or changed override entries refuse. Qualification skips no overrides field. Loading the frozen selections through Lake remains a trusted observation.
+Since result schema 20, a result records captured source fields and generated overrides separately in `effective.configurationOrigins`. Each other configuration value remains the exact captured text. Missing, extra or changed override entries refuse. Qualification skips no overrides field. Loading the frozen selections through Lake remains a trusted observation.
 
 An explicitly selected policy manifest outside the project keeps its exact absolute path and text in the account. It has no project-relative relocation. `configurationAccount_external` states this preservation for the executed account. The native control runs an incremental audit with that selection.
 
@@ -697,7 +697,7 @@ The fresh documentation census relocates each original snapshot. `Documentation.
 
 `qualify combined` includes native construction controls for artifact-named directories and Markdown inside configured package directories. Public fresh audits accept positive fences, reject an invalid positive fence in each location, and accept the restored source. These controls also exercise selected aliases, source-link refusals, cold construction and exclusive destinations. They observe external boundaries, not universal correctness.
 
-`configurationRelative` supplies the same path decision for relocation and the account. `relocateConfigurationPath_relative` and `configurationAccount_relative` state the two results. Fresh-audit controls check exact configuration accounts for absolute selections, including pruned paths. The default-policy control also checks the rule-example comparison. Its project case requires `foundation_manifest.json`.
+`configurationRelative` supplies the same path decision for relocation and the account. `relocateConfigurationPath_relative` and `configurationAccount_relative` state the two results. Fresh-audit controls check exact configuration accounts for absolute selections, including pruned paths. They also give the result of each selection to the rule-example comparison, which reads the manifest at the request's `policy` path.
 
 The cold drivers embed the shared constructor's source with Lean's `include_str` and interpret that source before package artifacts exist. Assumes: Lean `v4.34.1`, `Lean/Elab/BuiltinTerm.lean:437-445`, `elabIncludeStr`, reads those bytes during elaboration. The compiler and interpreter remain trusted. The constructor has one source implementation, with checked correspondence to its filesystem model.
 
@@ -2115,6 +2115,7 @@ Lean's kernel checked the others in the build of the excluded `Regula` library. 
 | The other readers conform | `Checker.readWorkerPacket_eq_ok_iff`, `Website.parsePage_eq_ok_iff`, `Website.validateArtifact_regular` | `readWorkerPacket` returns a payload exactly when the packet has its four members and schema 1, and two members conform. The member `producer` conforms to the producer of this checker, and the member `request` to the request. `parsePage` returns a page exactly when its members read as the page and the record conforms to `pageJson` of it. `validateArtifact` accepts only an artifact list with search trees. |
 | The producer checks conform | `RegulaQualification.Producer.requirements_census_type`, `validate_census_type` | An admitted requirement list holds the census check and the theorem-type check. Each decides `JsonAgreement.Conforms` with `conforms`, with the received value first. An admitted report's census conforms to `censusJson`, and the `type` of its first declaration conforms to `theoremType`. Its other object checks decide `Conforms` too, and no theorem names them. |
 | The rule-example records conform | `Checker.RuleExampleQualification.binding_sound`, `checkIdentity_sound`, `qualify_sound` | `binding` admits a record only when its `before` input has search trees and agrees with its `after` input. `checkIdentity` admits an identity member only when it has search trees and agrees with the expected value. `RecordAdmissible` states the two. |
+| A project example's surfaces come from its selected policy | `Website.ExampleRequest.selectedPolicy_eq_ok_iff`, `Checker.RuleExampleQualification.projectAccount_eq_ok_iff`, `effectiveAccount_project`, `effectiveAccount_completed` | `selectedPolicy` returns a text exactly when only one configuration entry has the request's `policy` path, and that entry records the text. `projectAccount` admits a scope exactly when it names the requested project and its surfaces match the parse of that text. `effectiveAccount` admits a project request with an object scope only when `projectAccount` admits that scope. `effectiveAccount` admits a completed result only when its scope is an object and its `effective` account is not `null`. |
 | In a search tree, each member is found by its name | `JsonAgreement.get?_of_mem`, `mem_of_get?` | The first theorem is about `Std.TreeMap.Raw.get?`, the lookup that `Json.getObjVal?` runs. The second is for each tree: a name that is found is the name of a member. |
 | Exact members | `PolicyCodec.exactFields_iff`, `checked_exactFields` | `exactFields` accepts exactly an object that has the expected names as its member names, in some order (`ExactFields`). The proof that the expected names are distinct is an argument. Thus Lean rejects a call with a list that gives one name twice. |
 
@@ -3566,8 +3567,11 @@ inferred from any pure proof.
   returns a typed refusal ([RG2005], incomplete) on a change while preserving the original outcome
   otherwise. This includes missing or unreadable previously frozen source or configuration, and
   read failures preserve the underlying IO reason; initial environment and setup failures remain
-  [RG2001], and only re-reading existing frozen evidence receives this normalization. Terminal
-  results keep captured sources (`sourceAccount`) even on failure; an absent or partial account
+  [RG2001], and only re-reading existing frozen evidence receives this normalization. The
+  configuration capture records a file absent only when Lean reports that nothing is there
+  (`Filesystem.present_eq_ok_none_iff`). Any other read failure, such as a permission error, stops
+  the capture, and the recheck refuses it as unavailable. Terminal results keep captured sources
+  (`sourceAccount`) even on failure; an absent or partial account
   does not establish coverage. Capture callbacks retain the growing account in memory, and
   serialization occurs at terminal success/error boundaries; when an outer handler has no
   captured sources, it preserves any account already serialized by the worker.
@@ -4999,8 +5003,12 @@ that agrees with the after snapshot, the
 observed request decoding to the frozen one, exit at most 3, sources in the bound snapshot with one
 having the displayed text, for a file or diagnostic-only request one being the requested subject
 with the displayed text, a result source account unless the request is diagnostic-only or
-documentation, findings equal to the parsed diagnostics, one of three kinds, and `DemonstrationOK`
-for a demonstration); it proves nothing about the producer that wrote the record.
+documentation, findings equal to the parsed diagnostics, one of three kinds, a completed result for
+a positive record, and `DemonstrationOK` for a demonstration); it proves nothing about the producer
+that wrote the record. For a project request with an object scope, `RecordAdmissible` also gives a
+manifest that the request selects. The surfaces of the scope match that manifest.
+`RecordAdmissible` gives a positive record a completed result, with an object scope and an
+`effective` account that is not `null`, so this guarantee holds.
 `RuleExampleProjection.qualify_record` and `qualifyCorpus_records` give exact equality at the
 adapter's canonical record constructor and over the full corpus, including ordered scans,
 completeness and first refusals; their structural raw-tree laws avoid assuming parser
@@ -5122,7 +5130,9 @@ The `qualify` campaigns and what they observe:
 - `closure-evidence`: reflexive candidate versus active cycle, retained recursive IR edges and
   range refusals through four invocation paths.
 - `configuration-capture`: initial configuration IO failure through the project and file result
-  protocols.
+  protocols. It also gives the result of a fresh audit with the policy manifest `policy.json` to
+  the project-surface comparison. That comparison refuses the result with a missing selection,
+  an absent selected file or an ambiguous selection.
 - `documentation-source`: both public documentation paths with changed and missing
   dependency/configuration inputs and fresh restored positives. Its `--source-read-only`
   selection adds original-file and declaration-build read failures, initial setup classification

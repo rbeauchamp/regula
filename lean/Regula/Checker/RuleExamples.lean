@@ -23,14 +23,15 @@ private def stable {α : Type} (sources : Array ProducerReport.SourceBinding)
 /-- A negative policy example may need inspection of an elaborated hole even though the
 compiler warned. Keep that warning in the receipt; corrections use the ordinary strict gate. -/
 unsafe def inspectNegative (repo path output : FilePath) : IO UInt32 := do
-  let configuration ← SourceBinding.configuration repo (Manifest.defaultPath repo)
+  let policy := Manifest.defaultPath repo
+  let configuration ← SourceBinding.configuration repo policy
   let (scopeJson, findings) ← stable #[] configuration do
     let source ← IO.FS.readFile path
     let inventory ← Lake.surfaceInventory repo
     let sources := (← SourceBinding.capture inventory.moduleSources).push {
       moduleName := `RuleExample, path := path.toString, content := source }
     stable sources configuration do
-      let manifest ← Manifest.loadFor (Manifest.defaultPath repo) inventory
+      let manifest ← Manifest.loadFor policy inventory
       if let some lines ← Lake.buildChecked repo
           (Lake.claimedTargets manifest) "incrementally" then
         throw <| IO.userError ("example dependency build failed: " ++ "\n".intercalate lines.toList)
@@ -77,7 +78,7 @@ unsafe def inspectNegative (repo path output : FilePath) : IO UInt32 := do
     (ResultProtocol.stagesOf .freshFile) [.discovery, .build, .admission, .declarationPolicy]
   let value ← ResultProtocol.readDocument output
   let request := ResultProtocol.requestJson "policyNegative" repo.toString path.toString none none
-      configuration
+      policy configuration
   let origins ← IO.ofExcept <| Lake.configurationOrigins repo.toString
     (configuration.map fun (path, source) => (path.toString, source)) none repo
   ResultProtocol.writeDocument output ((value.setObjVal! "request" request).setObjVal! "effective"
@@ -88,7 +89,8 @@ unsafe def inspectNegative (repo path output : FilePath) : IO UInt32 := do
 /-- Capture emitted findings from the actual documentation driver in the same canonical
 result envelope used by project/file consumers. The fresh copy owns build and fence artifacts. -/
 unsafe def documentation (repo docsRoot output : FilePath) : IO UInt32 := do
-  let requestedConfiguration ← SourceBinding.configuration repo (Manifest.defaultPath repo)
+  let policy := Manifest.defaultPath repo
+  let requestedConfiguration ← SourceBinding.configuration repo policy
   let documents ← Documentation.captureMarkdown docsRoot
   if documents.isEmpty then throw <| IO.userError "empty example documentation tree"
   let sources := documents.map fun document => (FilePath.mk document.uri, document.source)
@@ -153,7 +155,7 @@ unsafe def documentation (repo docsRoot output : FilePath) : IO UInt32 := do
     | some ⟨_, accepted⟩ => value.setObjVal! "acceptance" (ResultProtocol.acceptedJson accepted)
     | none => value
   let request := ResultProtocol.requestJson "documentation" repo.toString docsRoot.toString none
-      none requestedConfiguration (some inputs)
+      none policy requestedConfiguration (some inputs)
   let origins ← IO.ofExcept <| Lake.configurationOrigins repo.toString
     (requestedConfiguration.map fun (path, source) => (path.toString, source)) (some inputs)
     (FilePath.mk configurationRoot)

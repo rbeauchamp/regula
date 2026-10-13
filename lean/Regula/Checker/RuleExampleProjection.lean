@@ -55,8 +55,8 @@ theorem sourceAccount_congr (a b : Json) (bound : Regula.Website.ExampleBinding)
 
 theorem effectiveAccount_congr (a b : Json) (admitted : Regula.Website.ExampleRequest)
     (h : ResultRel a b) : effectiveAccount a admitted = effectiveAccount b admitted := by
-  simp only [effectiveAccount, h "effective" (by decide) (by decide), h "scope" (by decide)
-      (by decide)]
+  simp only [effectiveAccount, auditedScope, string, h "effective" (by decide) (by decide),
+    h "scope" (by decide) (by decide), h "status" (by decide) (by decide)]
 
 theorem requestAccount_congr (a b : Json) (bound : Regula.Website.ExampleBinding)
     (h : ResultRel a b) : requestAccount a bound = requestAccount b bound := by

@@ -32,7 +32,10 @@ code and is not copied into a caller's. On Windows, Lean 4.34.1's
 allow, and `IO.FS.removeDirAll` uses it on each entry. Its `IO.FS.realPath` gives the path itself
 when it cannot resolve it (`runtime/io.cpp#L1032-L1033`), which `ReadsReal` does not allow. So on
 Windows the observer's read of an entry, its read of a real path and its removal of a directory
-fail without acting, and every removal and move, which read the entry first, fails. -/
+fail without acting, and every removal and move, which read the entry first, fails.
+
+`readFileIfPresent` is not an operation of the observer: it calls `IO.FS.readFile` directly, and
+gives `none` only for the error that says that nothing is at the path (`present`). -/
 
 namespace Regula.Filesystem
 
@@ -464,6 +467,35 @@ def requireNoLinkedEntries (path : FilePath) : IO Unit := do
     unless (← place entry.path) matches .present .directory | .present .file do
       throw <| IO.userError s!"{entry.path} is not a directory or a file (a symbolic link or \
         another kind of entry is there)"
+
+/-! ## The text of a file that may be absent -/
+
+/-- The outcome of a read as an optional value: `none` for Lean's `noFileOrDirectory` error, the
+one it gives for `ENOENT` (`Absent`), and each other error kept (`present_eq_ok_none_iff`,
+`present_error`). -/
+def present {α : Type} : Except IO.Error α → Except IO.Error (Option α)
+  | .ok value => .ok (some value)
+  | .error (.noFileOrDirectory ..) => .ok none
+  | .error error => .error error
+
+/-- `present` gives `none` exactly for an error that says nothing is at the path. -/
+theorem present_eq_ok_none_iff {α : Type} (read : Except IO.Error α) :
+    present read = .ok none ↔ ∃ error, read = .error error ∧ Absent error := by
+  cases read with
+  | ok value => simp [present]
+  | error error => cases error <;> simp [present, Absent]
+
+/-- `present` keeps each error that does not say that nothing is at the path. -/
+theorem present_error {α : Type} (error : IO.Error) (h : ¬Absent error) :
+    present (.error error : Except IO.Error α) = .error error := by
+  cases error <;> simp_all [present, Absent]
+
+/-- The text of the file at `path`, read with `IO.FS.readFile`, which follows symbolic links, or
+`none` when Lean reports that nothing is there (`present`). Each other failure, such as a
+permission error or a directory in the file's place, is thrown. `System.FilePath.pathExists`
+instead reports each failure of its metadata read as absence. -/
+def readFileIfPresent (path : FilePath) : IO (Option String) := do
+  MonadExcept.ofExcept (present (← (IO.FS.readFile path).toBaseIO))
 
 /-! ## The operations at the observer -/
 
