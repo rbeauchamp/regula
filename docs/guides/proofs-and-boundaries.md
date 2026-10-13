@@ -787,8 +787,22 @@ The refusal then gives the exit code of an incomplete run. For `axiomGate` and `
 code is 3. A program that writes no result file marks no file.
 
 These refusals cover each destination that the source of Regula writes. A library can also write a
-file, such as the `manualMain` function of Verso for `regula-site` and `regula-standard`. Such a
-file is outside these refusals.
+file. The function `manualMain` of Verso writes the pages, the saved state of a delayed render and
+the word count of `regula-site` and `regula-standard`. Before
+[issue 424](https://github.com/rbeauchamp/regula/issues/424), a refused run left these files in
+place. A later render with `--resume-html-multi` then used the saved state of an earlier run.
+
+Now `RegulaRender.begin` reads the options of the two programs and removes each destination of
+that reading before the render starts. The refusal of each program operates `RegulaRender.begin`
+in place of the run. Thus a refused run and a run leave the same state. In the directory of a
+resumed render, `RegulaRender.begin` keeps the table of cross-references and the saved state,
+because the render reads them. Each removal goes through the observer of the file system.
+
+The parser of Verso, `manualMain.opts`, is private to its module, thus Regula cannot call it.
+`RegulaRender.parse` is a copy of it. The build of `RegulaRender` compares the two parsers on each
+list of at most three arguments. These arguments are the options of the parser of Verso and two
+other values. The command `lake exe site renderer-refusal` examines the two programs after the
+site build of `./scripts/verify.sh site`.
 
 The check `Regula.TaskManagerCheck.checkProgram` operates at the end of the root module of each
 executable. It examines `main` if the compiled code of `main` calls a function of the runtime that

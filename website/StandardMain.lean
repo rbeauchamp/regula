@@ -1,4 +1,5 @@
 import VersoManual
+import RegulaRender
 import RegulaStandard
 import Regula.TaskManagerCheck
 import RegulaCore.Standard
@@ -26,20 +27,26 @@ def missingClauses (doc : Part Manual) : List Regula.Clause :=
     chapter.metadata.bind (·.file) == some c.chapter && (parts chapter).any fun cited =>
       cited.metadata.bind (·.tag) == some c.anchor && cited.titleString == c.heading
 
-/-- Render the standard alone, after requiring every cited section (`missingClauses`). -/
+/-- The configuration of the standard's render, before its command-line options. -/
+def standardConfig : RenderConfig :=
+  { emitTeX := false, emitHtmlSingle := .no, emitHtmlMulti := .immediately, htmlDepth := 1 }
+
+/-- Render the standard alone on Verso's command-line options `args`, after it invalidates each
+place that they name for the render (`RegulaRender.begin`) and requires every cited section
+(`missingClauses`), with the configuration that they give. -/
 def renderStandard (args : List String) : IO UInt32 := do
+  let config ← RegulaRender.begin standardConfig args
   let missing := missingClauses (%doc RegulaStandard)
   unless missing.isEmpty do
     IO.eprintln s!"cited sections missing from the standard with their tag, heading and chapter: {missing.map (·.heading)}"
     return 1
-  manualMain (%doc RegulaStandard) (options := args) (config := {
-    emitTeX := false, emitHtmlSingle := .no, emitHtmlMulti := .immediately, htmlDepth := 1 })
+  manualMain (%doc RegulaStandard) (options := []) (config := config)
 
 /-- The refusal of the renderer in a process without Lean's task manager
-(`Regula.TaskManager.guard`): it marks nothing and returns 1. The source of this program writes no
-result file; the files that Verso's `manualMain` writes for it are outside these refusals. -/
-def refuseStandard (_reason : String) (_args : List String) : IO UInt32 :=
-  pure 1
+(`Regula.TaskManager.guard`): it invalidates each place that the arguments name for the render, as
+a run does first (`RegulaRender.refuse`), and returns 1. -/
+def refuseStandard (_reason : String) (args : List String) : IO UInt32 :=
+  RegulaRender.refuse "regula-standard" standardConfig args
 
 /-- `renderStandard` on the command-line arguments; a process without Lean's task manager is
 refused before rendering starts, with exit code 1 (`Regula.TaskManager.guard`). -/

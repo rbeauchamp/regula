@@ -1,4 +1,5 @@
 import VersoManual
+import RegulaRender
 import RegulaSite
 import Regula.TaskManagerCheck
 import RegulaCore.Site
@@ -15,26 +16,31 @@ one-line description for link previews. -/
 open Verso.Genre Manual
 open Verso.Output (Html)
 
-/-- Renders the site with Verso's command-line options `options`. -/
-def renderSite (options : List String) : IO UInt32 :=
-  manualMain (%doc Generated) (options := options) (config := {
-    emitTeX := false, emitHtmlSingle := .no, emitHtmlMulti := .immediately, htmlDepth := 2,
-    features := {.search},
-    extraFilesHtml := [("Generated/regula.css", "regula.css")],
-    extraJs := {⟨RegulaSite.themeScript⟩},
-    extraHead := #[
-      Html.tag "meta" #[("name", "color-scheme"), ("content", "light dark")] .empty,
-      Html.tag "meta" #[("name", "description"), ("content", Regula.Site.tagline)] .empty,
-      Html.tag "meta" #[("property", "og:description"), ("content", Regula.Site.tagline)] .empty,
-      Html.tag "link" #[("rel", "stylesheet"), ("href", "regula.css")] .empty],
-    sourceLink := some "https://github.com/rbeauchamp/regula",
-    issueLink := some "https://github.com/rbeauchamp/regula/issues" })
+/-- The configuration of the site's render, before its command-line options. -/
+def siteConfig : RenderConfig := {
+  emitTeX := false, emitHtmlSingle := .no, emitHtmlMulti := .immediately, htmlDepth := 2,
+  features := {.search},
+  extraFilesHtml := [("Generated/regula.css", "regula.css")],
+  extraJs := {⟨RegulaSite.themeScript⟩},
+  extraHead := #[
+    Html.tag "meta" #[("name", "color-scheme"), ("content", "light dark")] .empty,
+    Html.tag "meta" #[("name", "description"), ("content", Regula.Site.tagline)] .empty,
+    Html.tag "meta" #[("property", "og:description"), ("content", Regula.Site.tagline)] .empty,
+    Html.tag "link" #[("rel", "stylesheet"), ("href", "regula.css")] .empty],
+  sourceLink := some "https://github.com/rbeauchamp/regula",
+  issueLink := some "https://github.com/rbeauchamp/regula/issues" }
+
+/-- Renders the site with Verso's command-line options `options`, after it invalidates each place
+that they name for the render (`RegulaRender.begin`), with the configuration that they give. -/
+def renderSite (options : List String) : IO UInt32 := do
+  let config ← RegulaRender.begin siteConfig options
+  manualMain (%doc Generated) (options := []) (config := config)
 
 /-- The refusal of the renderer in a process without Lean's task manager
-(`Regula.TaskManager.guard`): it marks nothing and returns 1. The source of this program writes no
-result file; the files that Verso's `manualMain` writes for it are outside these refusals. -/
-def refuseSite (_reason : String) (_args : List String) : IO UInt32 :=
-  pure 1
+(`Regula.TaskManager.guard`): it invalidates each place that the arguments name for the render, as
+a run does first (`RegulaRender.refuse`), and returns 1. -/
+def refuseSite (_reason : String) (args : List String) : IO UInt32 :=
+  RegulaRender.refuse "regula-site" siteConfig args
 
 /-- Renders the site; a process without Lean's task manager is refused before rendering starts,
 with exit code 1 (`Regula.TaskManager.guard`). -/
