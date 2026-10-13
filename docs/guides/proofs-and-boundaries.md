@@ -616,6 +616,12 @@ Filesystem modes are not preserved. Copied files receive 0644 and directories re
 
 The Git clone adapter emits the indexed worktree and its captured `.git` metadata. Mode `100755` files receive executable rights. Mode `120000` entries become regular files with their target text. Generated Git configuration sets `core.symlinks=false`. Untracked links, special entries and other index modes refuse before writing. Untracked regular files are admitted but are not emitted.
 
+The Git adapter has a closed source domain. Git decodes the configuration and resolves metadata paths. Extension settings, includes, `core.worktree` redirects and alternate object stores refuse before destination creation. The clone requires a plain, self-contained `.git` directory.
+
+Index paths must be valid UTF-8 and match the stored directory-entry names exactly. `Construction.admitGitName_iff` states the exact-name guard's complete membership condition. A case-folded spelling refuses before capture or blob reading. The adapter does not interpret `core.ignoreCase`.
+
+The qualification slot asks Git to resolve pointer files and `commondir`. It constructs common metadata beneath its own Git directory. It refuses alternates at the path Git resolves for the effective object store. It parses no alternate entry and has no fallback path resolver.
+
 `Construction.gitFiles_sound` relates each index entry to its regular-file instruction. `Construction.gitConstruct_io` states the exact plain tree of the executed writer. The tree has those indexed files, their directories and captured Git metadata. It contains no link. Destination byte fidelity remains trusted.
 
 Assumes: Trusted Git reports complete index modes, paths and object identifiers with `ls-files --format/-z`. Installed Git `2.54.0` documents this protocol in `git-ls-files(1)`. See `--format`, `-z` and `FIELD NAMES`. The source index and worktree have no writer. The adapter admits `.git` through no-follow capture before Git reads it.
@@ -624,7 +630,25 @@ Assumes: Git `2.54.0`, `git-cat-file(1)`, returns blob contents for `cat-file bl
 
 Assumes: Git `2.54.0`, `git(1)`, defines `--no-lazy-fetch`, `--no-optional-locks` and `--no-replace-objects`. The observations select these options. They disable lazy fetching, optional lock-taking writes and replacement-object lookup.
 
-Assumes: Git `2.54.0`, `git-config(1)`, `core.symlinks`, defines target-text regular files when false. Git retains their index link type. Git interprets the generated final core section and checkout status.
+Git commands use the shared `Construction.gitEnvironment` observation. It asks Git for its repository-local environment names, then removes those variables and `GIT_NAMESPACE`. It disables system and global configuration. Commands also select `-c core.symlinks=false`. Cold drivers interpret this same observer before their Git invocation.
+
+The initial list query removes `GIT_CONFIG_COUNT` and `GIT_CONFIG_PARAMETERS`. It performs no repository setup or repository configuration read. A malformed command-configuration variable cannot prevent the initial list observation.
+
+Assumes: Git `2.54.0` prints its repository-local list without repository setup or the subsequent configuration read (`builtin/rev-parse.c:717-722,734-740`). The list is `local_repo_env` (`environment.c:99-118`, `environment.h:73-78`).
+
+Assumes: Git `2.54.0` uses the two removed variables for command configuration (`config.c:667-720`). Removing `GIT_CONFIG_COUNT` makes its numbered key/value variables inert (`config.c:676-707`).
+
+Assumes: Git `2.54.0` uses `GIT_NAMESPACE` to select reference namespaces (`environment.c:141-175`). It disables system configuration with `GIT_CONFIG_NOSYSTEM`. `GIT_CONFIG_GLOBAL` replaces the two global configuration paths (`config.c:1411-1427,1454-1468`). The POSIX `/dev/null` device supplies an empty file, which is trusted.
+
+Assumes: Git `2.54.0` reads command-scope configuration after local and worktree scopes (`config.c:1470-1483`). Product callers give no competing command-scope `core.symlinks` setting. `core.symlinks=false` selects target-text files with their index link type (`git-config(1)`). Git interprets checkout status.
+
+Assumes: Git `2.54.0` decodes configuration keys through its own decoder (`builtin/config.c:74-104,487-591,1264-1266`, `config.c:1492-1523`). No matching key gives exit 1. The adapter refuses an extension setting even when its value is false.
+
+Assumes: Git `2.54.0` resolves metadata paths through `--git-path` (`builtin/rev-parse.c:752-759,776-785`). Its path resolver selects the effective object store (`path.c:375-376`).
+
+Assumes: Git `2.54.0` resolves pointer files and common directories (`builtin/rev-parse.c:723-731`, `setup.c:303-324`). All captured metadata has no writer.
+
+Assumes: Lean `v4.34.1` applies process environment changes in order (`Init/System/IO.lean:1441-1448`). The shared observer's removals follow caller settings. Cold drivers use an exclusive temporary source file and its automatic removal (`Init/System/IO.lean:1353-1359`). Interpreter fidelity remains trusted.
 
 Assumes: Lake `v4.34.1` tests cleanliness with `git diff --exit-code HEAD` (`Util/Git.lean:198-203`). Matching-revision dependencies with changes get a warning (`Load/Materialize.lean:255-258`).
 
@@ -637,6 +661,10 @@ Assumes: A full update or a missing manifest bypasses overrides (`Load/Workspace
 The request freezes loaded relocation selections before a producer starts. The copier and `effectiveAccount` use the same `relocateDependencies` and `generatedConfiguration` definitions. The latter also derives the expected overrides from the request's captured manifest and the copied project root. `CopyConfiguration.check_iff` proves that the executed comparison accepts exactly complete configuration equality.
 
 Result schema 19 records captured source fields and generated overrides separately in `effective.configurationOrigins`. Each other configuration value remains the exact captured text. Missing, extra or changed override entries refuse. Qualification skips no overrides field. Loading the frozen selections through Lake remains a trusted observation.
+
+An explicitly selected policy manifest outside the project keeps its exact absolute path and text in the account. It has no project-relative relocation. `configurationAccount_external` states this preservation for the executed account. The native control runs an incremental audit with that selection.
+
+The account makes a filename relative only when its project-relative components have no navigation or redirect. `configurationAccount_navigation` states preservation for an absolute path with navigation components. The external-manifest control selects such a path.
 
 The cold drivers embed the shared constructor's source with Lean's `include_str` and interpret that source before package artifacts exist. Assumes: Lean `v4.34.1`, `Lean/Elab/BuiltinTerm.lean:437-445`, `elabIncludeStr`, reads those bytes during elaboration. The compiler and interpreter remain trusted. The constructor has one source implementation, with checked correspondence to its filesystem model.
 

@@ -289,6 +289,124 @@ instance (relative : List String) : Decidable (ProjectRelative relative) :=
 /-- Decide exactly the cold project's source domain. -/
 def projectRelative (relative : List String) : Bool := decide (ProjectRelative relative)
 
+/-- Observe Git's repository-local environment names, then remove them for a child in another
+repository. System/global configuration is disabled and namespaces are also removed. The query
+itself removes command-configuration injection and performs no repository setup or repository
+configuration read. The final overrides must follow caller environment changes.
+
+Assumes: Git 2.54.0 `builtin/rev-parse.c:717-722,734-740` prints `local_repo_env` without
+repository setup or the subsequent repository config read; `environment.c:99-118` and
+`environment.h:73-78` define that list. Command configuration uses GIT_CONFIG_COUNT and
+GIT_CONFIG_PARAMETERS (`config.c:667-720`), which are removed before this query. Removing
+GIT_CONFIG_COUNT makes its KEY/VALUE variables inert (`config.c:676-707`). GIT_NAMESPACE selects
+reference namespaces (`environment.c:141-175`). `config.c:1411-1427,1455-1468` skips system config
+and both global files with these settings. POSIX /dev/null supplies an empty configuration
+(trusted OS device). Lean v4.34.1 `Init/System/IO.lean:1441-1448` applies env changes in order. -/
+def gitEnvironment : IO (Array (String × Option String)) := do
+  let out ← IO.Process.output {
+    cmd := "git", args := #["-c", "core.symlinks=false", "rev-parse", "--local-env-vars"]
+    env := #[("GIT_CONFIG_COUNT", none), ("GIT_CONFIG_PARAMETERS", none),
+      ("GIT_CONFIG_NOSYSTEM", some "1"), ("GIT_CONFIG_GLOBAL", some "/dev/null")]
+    stdin := .null }
+  unless out.exitCode == 0 do
+    throw <| IO.userError s!"Git repository environment unavailable: {out.stderr}"
+  let names := out.stdout.splitOn "\n" |>.filter (!·.isEmpty)
+  unless !names.isEmpty && names.all (fun name => name.startsWith "GIT_" &&
+      name != "GIT_CONFIG_NOSYSTEM" && name != "GIT_CONFIG_GLOBAL" &&
+      name.toList.all (fun c => c.toNat < 128 && (c.isAlphanum || c == '_'))) do
+    throw <| IO.userError "Git repository environment list is malformed"
+  return (names.map fun name => (name, none)).toArray ++ #[("GIT_NAMESPACE", none),
+    ("GIT_CONFIG_NOSYSTEM", some "1"), ("GIT_CONFIG_GLOBAL", some "/dev/null")]
+
+/-- Apply the same Git policy to text and binary process observations. The command name and
+launcher stay as the current repository uses them; process-start observation is separate work.
+
+Assumes: Git 2.54.0 `config.c:1470-1483` reads command-scope settings after local/worktree settings;
+`environment.c:313-316` consumes core.symlinks. Product callers supply no competing command-scope
+core.symlinks setting. Repository-local variables are removed by `gitEnvironment`. -/
+def gitProcessArgs (options : IO.Process.SpawnArgs) : IO IO.Process.SpawnArgs := do
+  if options.cmd != "git" then return options
+  return {options with
+    args := #["-c", "core.symlinks=false"] ++ options.args,
+    env := options.env ++ (← gitEnvironment)}
+
+/-- Git output with its repository environment and command scope isolated. -/
+def gitOutput (root : FilePath) (args : Array String) : IO IO.Process.Output := do
+  IO.Process.output (← gitProcessArgs {cmd := "git", args, cwd := some root, stdin := .null})
+
+/-- Binary Git output through the same isolated process arguments as text observations.
+
+Assumes: Lean v4.34.1 `Init/System/IO.lean:1002-1003,1544-1557` reads binary stdout, drains stderr
+and waits for the process. Process and Git output fidelity are trusted. -/
+def gitBinaryOutput (root : FilePath) (args : Array String) : IO (UInt32 × ByteArray × String) := do
+  let options ← gitProcessArgs {cmd := "git", args, cwd := some root}
+  let child ← IO.Process.spawn {options with stdin := .null, stdout := .piped, stderr := .piped}
+  let stdout ← IO.asTask child.stdout.readBinToEnd Task.Priority.dedicated
+  let stderr ← child.stderr.readToEnd
+  let exitCode ← child.wait
+  let bytes ← IO.ofExcept stdout.get
+  return (exitCode, bytes, stderr)
+
+/-- Decode a single absolute path printed by Git without trimming its stored spelling. Path
+names containing newline or carriage return are outside this line-oriented metadata protocol. -/
+def gitPath (root : FilePath) (args : Array String) : IO FilePath := do
+  let out ← gitOutput root args
+  unless out.exitCode == 0 && out.stdout.endsWith "\n" do
+    throw <| IO.userError s!"Git metadata path unavailable: {out.stderr}"
+  let text := (out.stdout.dropEnd 1).toString
+  unless !text.isEmpty && text.toList.all (fun c => c != '\n' && c != '\r' && c != '\x00') &&
+      (FilePath.mk text).isAbsolute do
+    throw <| IO.userError "Git metadata path is not one absolute path"
+  return FilePath.mk text
+
+/-- The closed configuration case has no extension, include or worktree-redirection setting.
+Git decodes the captured file; Regula does not reproduce Git's precedence or include rules.
+Even a disabled extension setting refuses, so the domain does not depend on its value grammar.
+
+Assumes: Git 2.54.0 `builtin/config.c:74-104,487-591,1264-1266` and `config.c:1492-1523`
+implement --file, --no-includes, --name-only and --get-regexp through Git's configuration decoder;
+absent matches exit 1. Configuration and all
+captured metadata have no concurrent writer. -/
+def admitGitConfig (root config : FilePath) : IO Unit := do
+  let out ← gitOutput root #["config", "--file", config.toString, "--no-includes", "--name-only",
+    "--get-regexp", "^(extensions\\.|include\\.|includeif\\.|core\\.worktree$)"]
+  if out.exitCode == 0 then
+    throw <| IO.userError s!"copy Git configuration is outside the closed case: {out.stdout.trimAscii}"
+  unless out.exitCode == 1 do
+    throw <| IO.userError s!"copy Git configuration unavailable: {out.stderr}"
+
+/-- Refuse alternate object stores at the path Git itself resolves. The supported qualification
+and pinned dependency inputs have a self-contained effective object store. No alternate path is
+parsed, copied or rewritten.
+
+Assumes: Git 2.54.0 `builtin/rev-parse.c:752-759,776-785` delegates --git-path to the repository's
+path resolver. `path.c:375-376` selects the effective object store; `setup.c:303-324` resolves
+commondir. The routine refuses the alternates file without reading its entries. Git metadata has
+no writer during this observation. -/
+def admitGitObjects (root : FilePath) (gitOptions : Array String := #[]) : IO Unit := do
+  let alternates ← gitPath root (gitOptions ++
+    #["rev-parse", "--path-format=absolute", "--git-path", "objects/info/alternates"])
+  unless (← kindWith observer alternates).isNone do
+    throw <| IO.userError s!"copy Git alternates are outside the closed case: {alternates}"
+
+/-- Admit exactly an index component present among the stored names, without case folding. -/
+def admitGitName (pair : String × List String) : Except IO.Error Unit :=
+  if pair.1 ∈ pair.2 then .ok () else
+    .error (IO.userError s!"copy Git index spelling differs from stored entry: {pair.1}")
+
+/-- Match each index path component to the observer's stored directory-entry name before
+reading that entry or exempting a tracked link from general capture. Intermediate links refuse.
+String equality compares the complete stored UTF-8 spelling; no core.ignoreCase interpretation
+participates. Source ancestors and entries have no concurrent writer. -/
+def admitGitPath (source : FilePath) (relative : List String) : IO Unit := do
+  let mut parent := source
+  for name in relative do
+    unless (← observeMetadata parent).type == .dir do
+      throw <| IO.userError s!"copy Git index ancestor is not a directory: {parent}"
+    let names ← observer.names parent
+    IO.ofExcept (admitGitName (name, names))
+    parent := parent / name
+
 /-- The supported Git index modes. A tracked link has a regular-file representation, never
 a link instruction. Its bytes are obtained from the index's Git blob without following it. -/
 inductive GitMode where
@@ -374,14 +492,8 @@ object lookup. Source Git metadata has no writer during this observation. -/
 def readGitBlob (source : FilePath) (object : String) : IO ByteArray := do
   unless !object.isEmpty && object.toList.all Char.isHexDigit do
     throw <| IO.userError "Git index object is not a hexadecimal identifier"
-  let child ← IO.Process.spawn {
-    cmd := "git", cwd := some source,
-    args := #["--no-lazy-fetch", "--no-optional-locks", "--no-replace-objects", "cat-file", "blob", object]
-    stdin := .null, stdout := .piped, stderr := .piped }
-  let stdout ← IO.asTask child.stdout.readBinToEnd Task.Priority.dedicated
-  let stderr ← child.stderr.readToEnd
-  let exitCode ← child.wait
-  let bytes ← IO.ofExcept stdout.get
+  let (exitCode, bytes, stderr) ← gitBinaryOutput source
+    #["--no-lazy-fetch", "--no-optional-locks", "--no-replace-objects", "cat-file", "blob", object]
   unless exitCode == 0 do throw <| IO.userError s!"Git index blob read failed: {stderr}"
   return bytes
 
@@ -394,23 +506,32 @@ Assumes: installed Git 2.54.0 git-ls-files(1), --format, -z and FIELD NAMES, rep
 index with unquoted paths, object identifiers and modes. The source has no index or worktree
 writer. git-cat-file(1) supplies index link blobs without following a source link. git-config(1),
 core.symlinks, specifies target-text regular files when false and retained index link types.
-The source .git is a plain metadata directory. Git configuration and status interpretation remain
-trusted, including the generated final core section. Lean/Lake v4.34.1
+The source .git is a plain, self-contained metadata directory, with no extension, include or
+worktree-redirection settings and no alternates. Each index path equals the stored names byte
+for byte. Git environment/config observations use `gitProcessArgs`, `admitGitConfig` and
+`admitGitObjects`; their Assumes entries name the trusted sources. Git status remains trusted.
+Lean/Lake v4.34.1
 `Lake/Util/Git.lean:198-203` tests cleanliness with `git diff --exit-code HEAD`;
 `Lake/Load/Materialize.lean:255-258` warns if a matching-revision checkout has that diff. -/
 def copyGit (source target : FilePath) : IO (List Item) := do
   let metadata ← capture (source / ".git") [".git"]
   let ⟨_, .directory⟩ :: _ := metadata
     | throw <| IO.userError "Git source metadata is not a plain directory"
-  let index ← IO.Process.output {
-    cmd := "git", cwd := some source
-    args := #["--no-lazy-fetch", "--no-optional-locks", "--no-replace-objects", "ls-files", "-z",
-      "--format=%(objectmode)%x09%(stage)%x09%(objectname)%x09%(path)"] }
-  unless index.exitCode == 0 do throw <| IO.userError s!"copy Git index failed: {index.stderr}"
-  unless index.stdout.isEmpty || index.stdout.endsWith "\x00" do
+  admitGitConfig source (source / ".git/config")
+  let common ← gitPath source #["rev-parse", "--path-format=absolute", "--git-common-dir"]
+  unless common == (← observeRealPath (source / ".git")) do
+    throw <| IO.userError "copy Git metadata has an external common directory"
+  admitGitObjects source
+  let (exitCode, indexBytes, stderr) ← gitBinaryOutput source
+    #["--no-lazy-fetch", "--no-optional-locks", "--no-replace-objects", "ls-files", "-z",
+      "--format=%(objectmode)%x09%(stage)%x09%(objectname)%x09%(path)"]
+  unless exitCode == 0 do throw <| IO.userError s!"copy Git index failed: {stderr}"
+  let some index := String.fromUTF8? indexBytes
+    | throw <| IO.userError "copy Git index names are outside the UTF-8 closed case"
+  unless index.isEmpty || index.endsWith "\x00" do
     throw <| IO.userError "copy Git index output is not NUL-terminated"
   let mut entries : List GitEntry := []
-  for record in index.stdout.splitOn "\x00" do
+  for record in index.splitOn "\x00" do
     if record.isEmpty then continue
     let mode :: stage :: object :: pathParts := record.splitOn "\t"
       | throw <| IO.userError "copy Git index record is malformed"
@@ -418,6 +539,7 @@ def copyGit (source target : FilePath) : IO (List Item) := do
     let relative := ("\t".intercalate pathParts).splitOn "/"
     unless Relative relative && relative.head? != some ".git" do
       throw <| IO.userError "copy Git index path is not a worktree-relative path"
+    admitGitPath source relative
     let mode ← match mode with
       | "100644" => pure GitMode.regular
       | "100755" => pure GitMode.executable
@@ -446,6 +568,9 @@ and the pinned Lake cleanliness observation. Git parsing and object fidelity rem
 def sourceMain (args : List String) : IO UInt32 := do
   let [domain, source, target] := args
     | throw <| IO.userError "construction requires DOMAIN SOURCE TARGET"
+  if domain == "git-environment" then
+    IO.println (Lean.toJson (← gitEnvironment)).compress
+    return 0
   if domain == "generated" then
     let captured ← capture source ["instructions"]
     let [⟨_, .file bytes _⟩] := captured

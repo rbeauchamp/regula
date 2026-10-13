@@ -333,9 +333,37 @@ structure Ran where
   /-- The process's standard error. -/
   stderr : String
 
+/-- Shared constructor source embedded by Lean; the cold provisioner imports only the toolchain.
+Assumes: Lean v4.34.1 `Lean/Elab/BuiltinTerm.lean:437-445` elabIncludeStr reads this source at elaboration,
+and the pinned Lean interpreter executes it before project artifacts exist. -/
+def constructionSource : String := include_str "RegulaCore/CopyProgram.lean"
+
+/-- Obtain the shared Git environment observation before cold artifacts exist. This runs the
+same gitEnvironment definition as the copy adapter, without a second Git policy or launcher.
+The interpreter's temporary source is exclusively created and removed by withTempFile.
+
+Assumes: Lean v4.34.1 `Init/System/IO.lean:1353-1359` creates/removes the private temporary file;
+`Lean/Util/Path.lean:85-86` identifies the running toolchain. The interpreter faithfully executes
+constructionSource. Construction.gitEnvironment documents the Git and OS assumptions. -/
+private def gitEnvironment : IO (Array (String × Option String)) := do
+  IO.FS.withTempFile fun handle path => do
+    handle.putStr (constructionSource ++ "\n/-- Cold environment entrypoint. -/\n" ++
+      "def main := Regula.Filesystem.Construction.sourceMain\n")
+    handle.flush
+    let out ← IO.Process.output {
+      cmd := ((← Lean.getBuildDir) / "bin/lean").toString
+      args := #["--run", path.toString, "git-environment", "", ""]
+      env := #[("LEAN_PATH", none), ("LEAN_SRC_PATH", none)], stdin := .null }
+    unless out.exitCode == 0 do
+      throw <| IO.userError s!"provisioning Git environment unavailable: {out.stderr}"
+    IO.ofExcept (fromJson? (← IO.ofExcept (Json.parse out.stdout)))
+
 private def run (cwd : FilePath) (cmd : String) (args : Array String) : IO Ran := do
+  let (args, env) ← if cmd == "git" then
+      pure (#["-c", "core.symlinks=false"] ++ args, ← gitEnvironment)
+    else pure (args, #[])
   let out ← IO.Process.output {
-    cmd, args, cwd := some cwd, env := #[("GHCR_TOKEN", none)], stdin := .null }
+    cmd, args, cwd := some cwd, env := env.push ("GHCR_TOKEN", none), stdin := .null }
   return ⟨out.exitCode, out.stdout, out.stderr⟩
 
 private def require (cwd : FilePath) (cmd : String) (args : Array String) : IO String := do
@@ -348,6 +376,9 @@ private def require (cwd : FilePath) (cmd : String) (args : Array String) : IO S
 /-- Run with inherited output, for long steps whose progress the user should see. -/
 private def stream (cwd : FilePath) (cmd : String) (args : Array String)
     (env : Array (String × Option String) := #[]) : IO Unit := do
+  let (args, env) ← if cmd == "git" then
+      pure (#["-c", "core.symlinks=false"] ++ args, env ++ (← gitEnvironment))
+    else pure (args, env)
   let child ← IO.Process.spawn {
     cmd, args, env := env.push ("GHCR_TOKEN", none), cwd := some cwd,
     stdin := .null, stdout := .inherit, stderr := .inherit }
@@ -411,11 +442,6 @@ private def installLink (path : FilePath) (target : String) : IO Unit := do
     if (← kind? staged) matches some _ then IO.FS.removeFile staged
     throw error
 
-/-- Shared constructor source embedded by Lean; the cold provisioner imports only the toolchain.
-Assumes: Lean v4.34.1 `Lean/Elab/BuiltinTerm.lean:437-445` elabIncludeStr reads this source at elaboration,
-and the pinned Lean interpreter executes it before project artifacts exist. -/
-def constructionSource : String := include_str "RegulaCore/CopyProgram.lean"
-
 /-- Interpret the one shared constructor in a cold driver. The wrapper is this run's
 exclusive file in a private staging parent, and is removed when the interpreter ends.
 Assumes: the running Lean executable owns its installation (`Lean/Util/Path.lean:85-86`);
@@ -439,7 +465,10 @@ private def runConstruction (parent : FilePath) (domain source : String) (target
 /-- Install an independently writable indexed worktree and its plain Git metadata through the
 shared constructor. Untracked links and special source entries fail before installation. Tracked
 index mode 120000 entries become target-text regular files, and the generated Git config sets
-core.symlinks=false. Files use 0644 except indexed 100755 files use 0755; directories use 0755.
+core.symlinks=false. Every provisioner Git command removes the shared observer's repository-local
+environment and disables system/global config, with command-scope core.symlinks=false. Extensions,
+includes, redirects, alternates and indexed/stored spelling differences refuse. Files use 0644
+except indexed 100755 files use 0755; directories use 0755.
 Index modes and target text come from Git's ls-files and blob protocols, never a followed link.
 `Construction.gitConstruct_io` describes the executed indexed account's exact plain tree.
 This does not place

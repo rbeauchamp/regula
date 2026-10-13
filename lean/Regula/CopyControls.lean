@@ -19,7 +19,7 @@ open Regula.Filesystem
 /-- Require an external fixture-maker to succeed. The link and FIFO creation below is deliberate
 negative input, never the implementation of an accepted copy. -/
 private def fixture (command : String) (args : Array String) : IO Unit := do
-  let out ← IO.Process.output {cmd := command, args}
+  let out ← IO.Process.output (← Construction.gitProcessArgs {cmd := command, args})
   unless out.exitCode == 0 do throw <| IO.userError s!"fixture failed: {out.stderr}"
 
 /-- Refuse an operation for its construction reason. A failure elsewhere does not qualify it. -/
@@ -108,11 +108,80 @@ run_cmd do
       unless (← observeMetadata (target / "tracked-link")).type == .file &&
           (← readBytes (target / "tracked-link")) == "plain".toUTF8 do
         throw <| IO.userError "tracked Git link was not its target-text regular representation"
-      let status ← IO.Process.output {
-        cmd := "git", cwd := some target
-        args := #["-c", "core.fileMode=true", "status", "--porcelain", "--untracked-files=all"]}
+      let status ← Construction.gitOutput target
+        #["-c", "core.fileMode=true", "status", "--porcelain", "--untracked-files=all"]
       unless status.exitCode == 0 && status.stdout.isEmpty do
         throw <| IO.userError s!"target-text Git checkout is not clean: {status.stdout}{status.stderr}"
+      -- Configuration scope, repository selectors, stored index spellings and alternate stores
+      -- are external Git/filesystem boundaries. Each control targets one closed-domain refusal.
+      fixture "git" #["-C", source.toString, "config", "extensions.worktreeConfig", "true"]
+      Construction.appendFileWith Construction.observer (source / ".git") "config.worktree"
+        "[core]\n\tsymlinks = true\n".toUTF8
+      refused "Git worktree extension" "outside the closed case" <|
+        discard <| Construction.copyGit source (base / "extension-output")
+      fixture "git" #["-C", source.toString, "config", "--unset", "extensions.worktreeConfig"]
+      removeOwn .file (source / ".git/config.worktree")
+      let other := base / "other"
+      construct other [⟨["plain"], .file "another repository".toUTF8⟩]
+      fixture "git" #["-C", other.toString, "init", "--quiet"]
+      fixture "ln" #["-s", "other-target", (other / "tracked-link").toString]
+      fixture "git" #["-C", other.toString, "-c", "core.symlinks=true", "add", "plain", "tracked-link"]
+      construct (base / "worker") [⟨["source.lean"], .file
+        ((include_str "../RegulaCore/CopyProgram.lean") ++
+          "\n/-- Controlled cold copy. -/\ndef main := Regula.Filesystem.Construction.sourceMain\n").toUTF8⟩]
+      let isolated := base / "isolated-output"
+      let out ← IO.Process.output {
+        cmd := ((← Lean.getBuildDir) / "bin/lean").toString
+        args := #["--run", (base / "worker/source.lean").toString, "git", source.toString, isolated.toString]
+        env := #[("LEAN_PATH", none), ("LEAN_SRC_PATH", none),
+          ("GIT_DIR", some (other / ".git").toString), ("GIT_WORK_TREE", some other.toString),
+          ("GIT_COMMON_DIR", some (other / ".git").toString),
+          ("GIT_INDEX_FILE", some (other / ".git/index").toString),
+          ("GIT_OBJECT_DIRECTORY", some (other / ".git/objects").toString),
+          ("GIT_CONFIG_COUNT", some "not-a-number"), ("GIT_CONFIG_KEY_0", some "core.symlinks"),
+          ("GIT_CONFIG_VALUE_0", some "true"), ("GIT_CONFIG_PARAMETERS", some "'malformed")] }
+      unless out.exitCode == 0 && (← readBytes (isolated / "tracked-link")) == "plain".toUTF8 do
+        throw <| IO.userError s!"copy inherited Git repository/config selectors: {out.stdout}{out.stderr}"
+      let refresh ← Construction.gitOutput isolated #["update-index", "-q", "--refresh"]
+      let diff ← Construction.gitOutput isolated #["diff", "--exit-code", "HEAD"]
+      unless refresh.exitCode == 0 && diff.exitCode == 0 do
+        throw <| IO.userError "isolated Git refresh and diff disagree with its source index"
+      if (← Construction.kindWith Construction.observer (source / "TRACKED-LINK")) == some .symlink then
+        -- A deliberate fixture rename changes only the stored spelling; Git's index stays fixed.
+        IO.FS.rename (source / "tracked-link") (source / "temporary-spelling")
+        IO.FS.rename (source / "temporary-spelling") (source / "TRACKED-LINK")
+        refused "Git link index spelling" "index spelling differs" <|
+          discard <| Construction.copyGit source (base / "link-spelling-output")
+        IO.FS.rename (source / "TRACKED-LINK") (source / "tracked-link")
+        IO.FS.rename (source / "plain") (source / "temporary-spelling")
+        IO.FS.rename (source / "temporary-spelling") (source / "PLAIN")
+        refused "Git file index spelling" "index spelling differs" <|
+          discard <| Construction.copyGit source (base / "file-spelling-output")
+        IO.FS.rename (source / "PLAIN") (source / "plain")
+      -- A relative linked-worktree pointer exercises Git's own resolution, without administering
+      -- any Git worktree. These are ordinary fixture metadata instructions in a private root.
+      let leaf := source / ".git/worktrees/control"
+      let head ← Construction.capture (source / ".git/HEAD") ["HEAD"]
+      let index ← Construction.capture (source / ".git/index") ["index"]
+      Construction.ensureDirectory 4096 (source / ".git/worktrees")
+      construct leaf (head ++ index ++ [⟨["commondir"], .file "../..\n".toUTF8⟩])
+      let linked := base / "linked"
+      construct linked [⟨[".git"], .file "gitdir: ../git-source/.git/worktrees/control\n".toUTF8⟩]
+      let slot := base / "linked-slot"
+      construct slot []
+      Regula.Qualification.Slot.materializeGit (slot / ".git") (linked / ".git")
+      let copiedHead ← Construction.gitOutput slot #["cat-file", "-e", "HEAD^{commit}"]
+      unless copiedHead.exitCode == 0 do
+        throw <| IO.userError s!"Git-resolved slot common metadata lost its objects: {copiedHead.stderr}"
+      construct (source / ".git/cache") []
+      construct (source / ".git/objects/cache") []
+      Construction.appendFileWith Construction.observer (source / ".git/objects/info") "alternates"
+        "cache\n".toUTF8
+      refused "Git clone alternates" "alternates are outside" <|
+        discard <| Construction.copyGit source (base / "alternate-copy-output")
+      refused "Git slot common alternates" "alternates are outside" <|
+        Regula.Qualification.Slot.materializeGit (base / "alternate-slot-output") (linked / ".git")
+      removeOwn .file (source / ".git/objects/info/alternates")
       fixture "ln" #["-s", "plain", (source / "untracked-link").toString]
       refused "untracked Git source link" "not a directory or" <|
         discard <| Construction.copyGit source (base / "untracked-output")
@@ -130,12 +199,15 @@ def checkWorkspace : IO Unit := do
       let toolchain ← Construction.capture "lean-toolchain" ["lean-toolchain"]
       let lakefile := "import Lake\nopen Lake DSL\npackage construction_control where\n" ++
         "  packagesDir := \"vendor\"\n" ++
+        "  leanOptions := #[⟨`autoImplicit, false⟩, ⟨`relaxedAutoImplicit, false⟩, " ++
+        "⟨`linter.missingDocs, true⟩]\n" ++
         "lean_lib Solo\n"
       let manifest := "{\"version\":\"1.1.0\",\"name\":\"construction_control\"," ++
         "\"lakeDir\":\".lake\",\"packages\":[]}\n"
       construct source (Construction.layout (toolchain ++ [
         ⟨["lakefile.lean"], .file lakefile.toUTF8⟩,
-        ⟨["Solo.lean"], .file "/-! Plain source control. -/\n".toUTF8⟩,
+        ⟨["Solo.lean"], .file ("/-! Plain source control. -/\n" ++
+          "/-- Natural equality is reflexive. -/\ntheorem reflexive (n : Nat) : n = n := rfl\n").toUTF8⟩,
         ⟨["lake-manifest.json"], .file manifest.toUTF8⟩,
         ⟨["vendor", "stale"], .file "must not be copied as project source".toUTF8⟩]))
       let target := base / "copied"
@@ -149,6 +221,31 @@ def checkWorkspace : IO Unit := do
         unless ws.relPkgsDir == "vendor" &&
             ws.manifestFile == result.project / "lake-manifest.json" do
           throw <| IO.userError "ordinary copied load lost the loaded workspace configuration"
+      -- The public audit and its serialized configuration account are an external compiler/CLI
+      -- boundary. This selected policy is deliberately outside the project, and is not relocated.
+      let policy := (Json.mkObj [("schema-version", toJson (2 : Nat)),
+        ("surfaces", toJson #[Json.mkObj [("library", .str "Solo"), ("claim", .str "kernel-only"),
+          ("rationale", .str "The same reflexivity theorem with no logical axioms.")]]),
+        ("excluded-libraries", toJson (#[] : Array Json)),
+        ("excluded-executables", toJson (#[] : Array Json))]).pretty ++ "\n"
+      let external := source / "../selected-policy.json"
+      Construction.appendFileWith Construction.observer base "selected-policy.json" policy.toUTF8
+      let binary ← IO.FS.realPath ((← IO.currentDir) / ".lake/build/bin/axiomGate")
+      let output := base / "external-manifest-result.json"
+      let audit ← IO.Process.output {
+        cmd := binary.toString, cwd := some source
+        args := #["--project", source.toString, "--manifest", external.toString,
+          "--incremental", "--json-out", output.toString]
+        env := #[("LEAN_PATH", none), ("LEAN_SRC_PATH", none)] }
+      unless audit.exitCode == 0 do
+        throw <| IO.userError s!"selected external manifest audit failed: {audit.stdout}{audit.stderr}"
+      let account ← IO.ofExcept (Json.parse (← readFile output))
+      let effective ← IO.ofExcept (account.getObjVal? "effective")
+      let origins ← IO.ofExcept (effective.getObjVal? "configurationOrigins")
+      let captured : Regula.CopyConfiguration.Files ← IO.ofExcept (origins.getObjValAs? _ "captured")
+      unless captured.contains (external.toString, some policy) do
+        throw <| IO.userError "selected external manifest lost its exact path or text in the account"
+      IO.println "construction external manifest: incremental audit and exact external account PASS"
       if ← (source / "VENDOR").isDir then
         -- A deliberate configuration mutation exercises Lake's stored-spelling boundary.
         IO.FS.writeFile (source / "lakefile.lean") (lakefile.replace "vendor" "VENDOR")

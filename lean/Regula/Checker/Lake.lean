@@ -554,14 +554,44 @@ def expectedConfiguration (inputs : Regula.CopyConfiguration.Inputs) (project : 
     throw "request did not capture exactly one overrides field"
   return captured.map fun field => if field.1 == generated.1 then generated else field
 
-/-- Put captured configuration paths into their package-relative account, refusing any outside
-path. This is used for both the original request and the actual copy's complete observation. -/
+/-- Put project-contained configuration into its package-relative account. An explicitly
+selected external policy manifest retains its exact absolute path and text; it has no relocated
+project-relative counterpart. This is used for both requests and effective observations. -/
 def configurationAccount (root : String) (configuration : Regula.CopyConfiguration.Files) :
     Except String Regula.CopyConfiguration.Files := do
   unless !root.isEmpty do throw "missing configuration root"
   configuration.mapM fun (path, source) => do
-    unless path.startsWith (root ++ "/") do throw "configuration outside captured project"
-    return ((path.drop (root.length + 1)).toString, source)
+    let relative := (path.drop (root.length + 1)).toString
+    if path.startsWith (root ++ "/") &&
+        decide (Regula.Filesystem.Construction.Relative (FilePath.mk relative).components) then
+      return ((path.drop (root.length + 1)).toString, source)
+    unless (FilePath.mk path).isAbsolute do throw "external configuration path is not absolute"
+    return (path, source)
+
+/-- A selected external manifest keeps its exact path and text in the executed account. -/
+theorem configurationAccount_external (root path : String) (source : Option String)
+    (rootPresent : root.isEmpty = false) (outside : path.startsWith (root ++ "/") = false)
+    (absolute : (FilePath.mk path).isAbsolute = true) :
+    configurationAccount root #[(path, source)] = .ok #[(path, source)] := by
+  simp only [configurationAccount, rootPresent]
+  rw [Array.mapM_eq_mapM_toList]
+  simp only [List.mapM_cons, List.mapM_nil]
+  simp only [outside, absolute]
+  rfl
+
+/-- An absolute selected manifest with navigation components also retains its exact path and
+text. A lexical project prefix does not grant a project-relative relocation. -/
+theorem configurationAccount_navigation (root path : String) (source : Option String)
+    (rootPresent : root.isEmpty = false)
+    (navigation : ¬ Regula.Filesystem.Construction.Relative
+      (FilePath.mk (path.drop (root.length + 1)).toString).components)
+    (absolute : (FilePath.mk path).isAbsolute = true) :
+    configurationAccount root #[(path, source)] = .ok #[(path, source)] := by
+  simp only [configurationAccount, rootPresent]
+  rw [Array.mapM_eq_mapM_toList]
+  simp only [List.mapM_cons, List.mapM_nil]
+  simp only [decide_eq_false navigation, Bool.and_false, absolute]
+  rfl
 
 /-- Record source bytes separately from Regula's generated overrides. The generated record is
 derived from the captured manifest by the exact function that construction uses. -/

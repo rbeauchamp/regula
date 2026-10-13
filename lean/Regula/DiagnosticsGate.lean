@@ -390,10 +390,30 @@ private def env (name : String) : IO String := do
   | some v => if v.isEmpty then fail s!"{name} is empty" else pure v
   | none => fail s!"{name} is not set"
 
+/-- The same Git environment observer as project construction, executed from embedded source
+because this cold workflow imports only the toolchain. No Git policy is reimplemented here.
+
+Assumes: Lean v4.34.1 `Lean/Elab/BuiltinTerm.lean:437-445` captures include_str source;
+`Init/System/IO.lean:1353-1359` creates/removes the private source file;
+`Lean/Util/Path.lean:85-86` identifies the interpreter, whose execution is trusted.
+Construction.gitEnvironment names the pinned Git and OS assumptions. -/
+private def gitEnvironment : IO (Array (String × Option String)) := do
+  IO.FS.withTempFile fun handle path => do
+    handle.putStr ((include_str "../RegulaCore/CopyProgram.lean") ++
+      "\n/-- Cold environment entrypoint. -/\ndef main := Regula.Filesystem.Construction.sourceMain\n")
+    handle.flush
+    let out ← IO.Process.output {
+      cmd := ((← Lean.getBuildDir) / "bin/lean").toString
+      args := #["--run", path.toString, "git-environment", "", ""]
+      env := #[("LEAN_PATH", none), ("LEAN_SRC_PATH", none)], stdin := .null }
+    unless out.exitCode == 0 do fail s!"Git environment unavailable: {out.stderr}"
+    IO.ofExcept (fromJson? (← IO.ofExcept (Json.parse out.stdout)))
+
 /-- Run `git` with `args` in the checkout; its standard output as it is, or a failure with its
 standard error. -/
 private def git (args : Array String) : IO String := do
-  let out ← IO.Process.output { cmd := "git", args }
+  let out ← IO.Process.output {
+    cmd := "git", args := #["-c", "core.symlinks=false"] ++ args, env := ← gitEnvironment }
   unless out.exitCode == 0 do fail s!"git {args}: {out.stderr}"
   return out.stdout
 

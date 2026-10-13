@@ -28,7 +28,8 @@ structure Dependency where
   manifestFile : String
   deriving DecidableEq, BEq, ToJson, FromJson
 
-/-- Relative configuration filenames and exact captured or generated text; absence is explicit. -/
+/-- Project-relative filenames, or an exact absolute path for an external selected policy
+manifest, and exact captured or generated text; absence is explicit. -/
 abbrev Files := Array (String × Option String)
 
 /-- Compare the complete derived expectation with the observed configuration. No field or

@@ -110,7 +110,7 @@ def Options.parse (environment : Option String) : List String → Option Options
 
 /-- Run `git` with `args` in `directory`. -/
 def git (directory : System.FilePath) (args : Array String) : IO IO.Process.Output :=
-  IO.Process.output { cmd := "git", args, cwd := some directory }
+  Regula.Filesystem.Construction.gitOutput directory args
 
 /-- The paths of the files Git tracks below `directory`, relative to it, or the reason Git gives
 none. -/
@@ -1144,12 +1144,12 @@ def entryControls : List RepositoryControl := [
 /-- Run `git` with `args` in `directory` for a control, with no configuration of the user or of
 the system and with one author, and give its output. -/
 def gitControl (directory : System.FilePath) (args : Array String) : IO String := do
-  let out ← IO.Process.output {
+  let out ← IO.Process.output (← Regula.Filesystem.Construction.gitProcessArgs {
     cmd := "git", args, cwd := some directory,
     env := #[("GIT_CONFIG_GLOBAL", some "/dev/null"), ("GIT_CONFIG_SYSTEM", some "/dev/null"),
       ("GIT_AUTHOR_NAME", some "control"), ("GIT_AUTHOR_EMAIL", some "control@example.invalid"),
       ("GIT_COMMITTER_NAME", some "control"),
-      ("GIT_COMMITTER_EMAIL", some "control@example.invalid")] }
+      ("GIT_COMMITTER_EMAIL", some "control@example.invalid")] })
   unless out.exitCode == 0 do
     throw <| IO.userError s!"git {args} failed in {directory}: {out.stderr}"
   return out.stdout.trimAscii.toString

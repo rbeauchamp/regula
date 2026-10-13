@@ -37,7 +37,8 @@ def timeoutCommand : IO String := do
 process group: the enclosing deadline must kill descendants holding output pipes too. -/
 def run (root : FilePath) (command : String) (args : Array String)
     (env : Array (String × Option String) := #[]) : IO IO.Process.Output := do
-  let result ← IO.Process.output { cmd := command, args, cwd := some root, env }
+  let result ← IO.Process.output (← Regula.Filesystem.Construction.gitProcessArgs
+    { cmd := command, args, cwd := some root, env })
   if #[124, 125, 126, 127, 137].contains result.exitCode then
     throw <|
         IO.userError s!"qualification process failed/timed \
@@ -50,8 +51,10 @@ the timer, child, and descendants in its group, closing inherited output handles
 def runBounded (root : FilePath) (seconds : Nat) (command : String) (args : Array String) :
     IO UInt32 := do
   let timer ← timeoutCommand
+  let options ← Regula.Filesystem.Construction.gitProcessArgs {cmd := command, args}
   let child ← IO.Process.spawn {
-    cmd := timer, args := #["--signal=KILL", s!"{seconds}s", command] ++ args,
+    cmd := timer, args := #["--signal=KILL", s!"{seconds}s", options.cmd] ++ options.args,
+    env := options.env,
     cwd := some root, stdin := .null, stdout := .inherit, stderr := .inherit }
   child.wait
 

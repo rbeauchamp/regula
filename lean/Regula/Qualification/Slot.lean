@@ -22,9 +22,10 @@ return (source-verified joined-worker discipline; no universal detached-grandchi
 termination is claimed); the consumer path — control admission and terminal
 qualification — consumes captured data and the real ROOT checkout and never
 dereferences the slot path.
-Preparation materializes self-contained Git metadata (worktree pointers,
-`commondir`, `objects/info/alternates`, `core.worktree`) so the ROOT copy's Git
-stays inside the slot, points manifest dependencies only at captured shared
+Preparation asks Git to resolve its metadata and common directory, then constructs a
+self-contained copy. Alternate object stores, configuration extensions/includes and
+core.worktree redirects refuse. The ROOT copy's Git stays inside the slot, and preparation
+points manifest dependencies only at captured shared
 roots, compares captured source/config inputs byte-exactly, records relocation
 truthfully, and refuses on any containment violation. Filesystem, Git and
 process behavior remain trusted IO, as throughout. -/
@@ -112,59 +113,34 @@ def copyTree (source target : FilePath) : IO (Array String) := do
 /-- Directory-depth bound for observation-only walks. Exhaustion fails closed. -/
 def maxWalkDepth : Nat := 4096
 
-/-- Materialize one Git metadata tree into `target` so that `git` operating on
-the copy is self-contained: pointer-file gitdirs, `commondir`,
-`objects/info/alternates` and `core.worktree` are copied and rewritten to
-contained locations. Any indirection that cannot be materialized inside the
-slot is refused. -/
+/-- Construct self-contained plain metadata using Git's own pointer and common-directory
+resolution. Linked-worktree common metadata is captured beneath `common`; the one generated
+commondir file selects it. Alternates, extension/include settings and core.worktree redirects
+are outside the closed case and refuse before any destination is written.
+
+Assumes: Git 2.54.0 `builtin/rev-parse.c:723-731` uses resolve_gitdir for --resolve-git-dir;
+`setup.c:303-324` resolves commondir. Construction's gitPath, admitGitConfig, admitGitObjects
+and gitProcessArgs document their path/config/environment assumptions. All captured source
+metadata is stable and has no concurrent writer. -/
 def materializeGit (slotGit : FilePath) (sourceGit : FilePath) : IO Unit := do
-  let mut directory := sourceGit
-  if (← Regula.Filesystem.observeMetadata sourceGit).type != .dir then
-    -- Worktree pointer file: `gitdir: <path>`.
-    let text ← Regula.Filesystem.readFile sourceGit
-    let target := FilePath.mk ((text.replace "gitdir:" "").trimAscii.toString)
-    unless (← target.pathExists) do
-      throw <| IO.userError s!"slot git pointer target missing: {target}"
-    directory := target
-  let _ ← copyTree directory slotGit
-  -- Materialize the common directory for linked worktrees. Source indirections
-  -- may point outside the source tree (that is their normal shape); they must
-  -- resolve to existing metadata, which is then materialized inside the slot.
-  if (← (slotGit / "commondir").pathExists) then
-    let raw := ((← Regula.Filesystem.readFile (slotGit / "commondir")).trimAscii.toString)
-    let candidate := FilePath.mk raw
-    let resolved ←
-      if (← (directory / raw).pathExists) then pure (directory / raw)
-      else if (← candidate.pathExists) then pure candidate
-      else throw <| IO.userError s!"slot git commondir unresolvable: {raw}"
-    let _ ← copyTree resolved (slotGit / "common")
-    IO.FS.writeFile (slotGit / "commondir") "common\n"
-  -- Materialize alternates into contained object stores.
-  let alternates := slotGit / "objects/info/alternates"
-  if (← alternates.pathExists) then
-    let mut rewritten : Array String := #[]
-    let mut index := 0
-    for line in (← Regula.Filesystem.readFile alternates).splitOn "\n" do
-      let entry := line.replace "\r" ""
-      if entry.isEmpty then continue
-      let source ←
-        if (← (directory / entry).pathExists) then pure (directory / entry)
-        else if (← (directory / "objects" / entry).pathExists) then
-          pure (directory / "objects" / entry)
-        else if (← (FilePath.mk entry).pathExists) then pure (FilePath.mk entry)
-        else throw <| IO.userError s!"slot git alternate unresolvable: {entry}"
-      let target := slotGit / s!"objects-alternated-{index}"
-      let _ ← copyTree source target
-      rewritten := rewritten.push target.toString
-      index := index + 1
-    IO.FS.writeFile alternates (String.intercalate "\n" rewritten.toList ++ "\n")
-  -- Refuse `core.worktree` bindings in worktree or common configuration rather
-  -- than let them escape the slot (`config.worktree` extension included).
-  for config in #[slotGit / "config", slotGit / "config.worktree",
-      slotGit / "common" / "config", slotGit / "common" / "config.worktree"] do
-    if (← config.pathExists) then
-      if (← Regula.Filesystem.readFile config).contains "worktree =" then
-        throw <| IO.userError s!"slot git config carries core.worktree: {config}"
+  let initial ← Regula.Filesystem.Construction.capture sourceGit
+  let some root := sourceGit.parent | throw <| IO.userError "slot Git source has no parent"
+  let directory ← Regula.Filesystem.Construction.gitPath root
+    #["rev-parse", "--resolve-git-dir", sourceGit.toString]
+  let localItems ← if directory == sourceGit then pure initial
+    else Regula.Filesystem.Construction.capture directory
+  let gitOptions := #["--git-dir", directory.toString]
+  let common ← Regula.Filesystem.Construction.gitPath root
+    (gitOptions ++ #["rev-parse", "--path-format=absolute", "--git-common-dir"])
+  let commonItems ← if common == directory then pure []
+    else Regula.Filesystem.Construction.capture common ["common"]
+  Regula.Filesystem.Construction.admitGitConfig root (common / "config")
+  Regula.Filesystem.Construction.admitGitObjects root gitOptions
+  let localItems := localItems.filter (·.relative != ["commondir"])
+  let generated := if common == directory then [] else
+    [⟨["commondir"], .file "common\n".toUTF8⟩]
+  Regula.Filesystem.construct slotGit
+    (Regula.Filesystem.Construction.layout (localItems ++ commonItems ++ generated))
 
 /-- Executed containment checks over the prepared ROOT copy: Git identity
 resolution must land inside the slot, and every manifest `dir` must resolve

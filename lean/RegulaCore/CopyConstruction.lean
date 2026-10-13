@@ -12,6 +12,20 @@ mkdir and exclusive file writes. No assumption asserts the result of a copy or o
 
 namespace Regula.Filesystem.Construction
 
+/-- Index-component admission decides exact membership in the observer's stored names. No
+case-folding function enters the implementation or this proposition. -/
+theorem admitGitName_iff (name : String) (stored : List String) :
+    admitGitName (name, stored) = .ok () ↔ name ∈ stored := by
+  simp [admitGitName]
+
+/-- The executed index-component guard decides its complete exact-name domain. -/
+theorem checked_admitGitName : Regula.ExecutableContract admitGitName
+    (Regula.Decides (· = .ok ()) (fun pair => pair.1 ∈ pair.2)) :=
+  ⟨.of_iff (fun pair => admitGitName_iff pair.1 pair.2)
+    ⟨("entry", ["entry"]), rfl⟩ ⟨("entry", []), by simp [admitGitName]⟩⟩
+
+attribute [regula_decision] admitGitName
+
 open System Regula.StateTriple
 
 /-- The decision the cold source entrypoint actually executes agrees on every input with its
