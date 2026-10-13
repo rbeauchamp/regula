@@ -1527,8 +1527,8 @@ private def appendFailure (failures : IO.Ref (Array String)) (value : Option Str
 
 /-- Preserve project-relative source and asset locations using the same fresh
 copy operation as the public gate, rather than a second fixed source list. -/
-private def prepareScratchRepo (repo scratch : FilePath) : IO Unit :=
-  discard <| Lake.copyProject repo scratch scratch
+private def prepareScratchRepo (repo scratch : FilePath) : IO Unit := do
+  (← Lake.copyProject repo scratch scratch).placeObservers
 
 private def withNewFile {α : Type} (path : FilePath) (text : String) (action : IO α) : IO α := do
   if ← path.pathExists then
@@ -1948,7 +1948,8 @@ private unsafe def structuralSelfHostedPositive (repo copy : FilePath)
   return #[s!"structural/self-hosted/positive: fresh gate failed:\n{accepted.output}"]
 
 /-- Structural mutation cluster: an unlisted root-owned module, an unclassified Lake library and an
-elaboration observer rebuilt from a source other than the running Regula's (`executables` false),
+elaboration observer library other than the running Regula's: a changed observer source, a changed
+record module and a stale library where Lake reuses it (`executables` false),
 or an unclassified Lake executable, a claimed standalone executable root
 and executable contamination (`executables` true), then the restored control. -/
 private unsafe def structuralPartB (layout : SourceLayout) (executables : Bool)
@@ -1991,15 +1992,47 @@ private unsafe def structuralPartB (layout : SourceLayout) (executables : Bool)
         if let some failure := expectedFailure "unclassified-library" (← gate)
             #["manifest-incomplete", "ExtraSurface"] then
           failures.modify (·.push failure)
-    -- The copy's observer source is no longer the running Regula's text: the workspace rebuilds
-    -- the plugin from it, `Lake.rebuiltObservers` does not admit that build, and the audit reports
-    -- the claimed modules as not observed (RG2003). The restored control below admits the build
-    -- of the unchanged text again.
+    -- The copy holds the running Regula's observer library (`Observer.placeRunning`). Each mutation
+    -- below leaves the claimed modules loading a library whose bytes are not the running observer's,
+    -- and the audit reports them as not observed (RG2003). Each puts the placed library, its trace
+    -- and its hash back afterwards, so the restored control below admits the library of the
+    -- unchanged source again. A changed observer source makes Lake link the library again, whose
+    -- bytes differ, since the linker writes the output path into it.
+    let notObserved := #["RG2003",
+      "not observed: Regula's elaboration observer was not among the plugins"]
+    let library := copy / ".lake" / "build" / "lib" /
+      _root_.Lake.nameToSharedLib
+        (Lean.mkModuleInitializationStem Observer.observerLibrary (some Observer.regulaPackage))
+    let placed ← #["", ".trace", ".hash"].mapM fun suffix => do
+      let path : FilePath := ⟨library.toString ++ suffix⟩
+      return (path, ← IO.FS.readBinFile path)
+    let observerMutation (name : String) (mutate : IO Unit) (restore : IO Unit) : IO Unit := do
+      try
+        mutate
+        if let some failure := expectedFailure name (← gate) notObserved then
+          failures.modify (·.push failure)
+      finally
+        restore
+        for (path, bytes) in placed do IO.FS.writeBinFile path bytes
     let observerSource := sources / "RegulaObserver.lean"
-    withReplacedFile observerSource ((← IO.FS.readFile observerSource) ++ "\n-- changed\n") do
-      if let some failure := expectedFailure "observer-source-changed" (← gate)
-          #["RG2003", "not observed: Regula's elaboration observer was not among the plugins"] then
-        failures.modify (·.push failure)
+    let observerText ← IO.FS.readFile observerSource
+    observerMutation "observer-source-changed"
+      (IO.FS.writeFile observerSource (observerText ++ "\n-- changed\n"))
+      (IO.FS.writeFile observerSource observerText)
+    -- The same for an unchanged `RegulaObserver.lean` whose imported `RegulaObserver.Record`
+    -- changed: Lake links that module into the library too (`LeanLib.recBuildShared`), and its
+    -- changed object makes Lake link the library again.
+    let recordSource := sources / "RegulaObserver" / "Record.lean"
+    let recordText ← IO.FS.readFile recordSource
+    observerMutation "observer-record-changed"
+      (IO.FS.writeFile recordSource (recordText ++
+        "\n/-- A changed record module. -/\ndef changedRecordModule : Nat := 1\n"))
+      (IO.FS.writeFile recordSource recordText)
+    -- A stale library where Lake reuses it: other bytes under the placed library's name, trace and
+    -- hash, so that Lake links nothing. The name admits nothing; only the running observer's path
+    -- or bytes do.
+    observerMutation "observer-library-stale"
+      (do IO.FS.writeBinFile library ((← IO.FS.readBinFile library).push 0)) (pure ())
   else
     let exeDecl :=
       "\nlean_exe «selftestTool» where\n  root := `SelftestMain\n" ++ observerPluginOwn ++

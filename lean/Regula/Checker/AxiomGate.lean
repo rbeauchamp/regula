@@ -473,11 +473,13 @@ structure Copied where
   configurationInputs : Option Regula.CopyConfiguration.Inputs
 
 /-- Copy the project at `repo`, with each path dependency it owns, into the new scratch directory
-`scratch`, which holds no build output (`copyProject`). -/
+`scratch`, which holds no build output (`copyProject`) but the running Regula's observer library
+(`ProjectCopy.placeObservers`). -/
 private def isolatedCopy (repo scratch : FilePath) (manifest : Option FilePath)
     (selectedFiles : List FilePath) : IO Copied := do
   let copy ← timedPhase "isolated source copy" <| Lake.copyProject repo (scratch / "project")
     scratch (facets := .replaced) (policy := manifest) (selectedFiles := selectedFiles)
+  copy.placeObservers
   return ⟨copy.project, copy.root, some copy.selection, some copy.configurationInputs⟩
 
 /-- The copy of the project at `repo` that the verification driver made at `path`

@@ -21,8 +21,7 @@ module's trace, which Lake compares to decide whether to replay the module, and 
 replayed under that trace was elaborated with them. Regula declares no `presetup` facet. The
 audit's builds run the facet that the workspace configures unchanged and keep each completed
 result (`recordingPresetup`), from which the audit reads whether a claimed module's elaboration
-loaded the running Regula's observer, or a build of it from the same source text
-(`pluginLoaded`, `Lake.rebuiltObservers`). A claimed module whose completed `presetup`
+loaded the running Regula's observer (`pluginLoaded`). A claimed module whose completed `presetup`
 lacks it, such as under a dependency's facet that drops plugins, has no record the audit reads,
 and RG2003 refuses it (`decideRecord`). -/
 
@@ -103,6 +102,36 @@ def observerFile : IO (FilePath × String) := do
     throw <| IO.userError s!"the running Regula has not built its elaboration observer: {file}"
   return (file, name)
 
+/-- Place the running Regula's observer library (`observerFile`), with the trace and hash files
+that Lake wrote beside it, in the build directory of `package`, a copy of a package `regula` that
+declares the observer library under Lake's default layout, where the library's `shared` facet
+writes it. Nothing is placed when the running Regula has not built it.
+
+The copy's build then elaborates the observer's modules itself and compiles them. Lake links the
+library again unless the hash of its inputs, the compiled objects and libraries it links, its traced
+arguments, the Lean version and the platform, equals the placed trace's, a hash that no path enters
+(`LeanLib.recBuildShared`, `Lake/Build/Library.lean` lines 128 to 152; `buildLeanSharedLibSync`
+and `buildArtifactUnlessUpToDate`, `Lake/Build/Common.lean` lines 1015 to 1029 and 685 to 726,
+which an audit's build reaches with Lake's artifact cache off, through `checkHashUpToDate'`, lines
+213 to 222). So a copy
+whose observer source compiles to the running Regula's objects loads this file unchanged, and
+`pluginLoaded` admits it by its bytes. Otherwise Lake links the library again, the linker writes
+the output path into it, and its bytes differ, so it is not admitted. Admission rests on the bytes
+alone, whatever Lake decides; that Lake reuses the placed file is trusted for availability only. -/
+def placeRunning (package : FilePath) : IO Unit := do
+  let some (file, _) ← (some <$> observerFile) <|> pure none | return
+  let some name := file.fileName | return
+  let lib := package / ".lake" / "build" / "lib"
+  IO.FS.createDirAll lib
+  for suffix in ["", ".trace", ".hash"] do
+    let source : FilePath := file.toString ++ suffix
+    unless ← source.pathExists do continue
+    let destination := lib / (name ++ suffix)
+    IO.FS.writeBinFile destination (← IO.FS.readBinFile source)
+    IO.setAccessRights destination {
+      user := { read := true, write := true, execution := true }
+      group := { read := true, execution := true }, other := { read := true, execution := true } }
+
 /-- The plugins of the completed `presetup` of `module` of `package` in `completed`
 (`Presetups.completed`), or none when no such job completed. -/
 def presetupPlugins? (completed : Std.HashMap (Name × Name) _root_.Lake.ModulePreSetup)
@@ -140,13 +169,11 @@ private def readRecord (olean : FilePath) : IO (Option RegulaObserver.Record) :=
     | _ => none
 
 /-- Whether the plugins of a module's completed `presetup` (`presetupPlugins?`) include the running
-Regula's observer `expected` (`observerFile`): a plugin with the same real path as `expected` or as
-one of `rebuilt`, or with the same bytes as `expected`. `rebuilt` holds the observers that the
-audited workspace builds from the running Regula's own source text (`Lake.rebuiltObservers`), such
-as the build of a copy of an owned `regula`, whose bytes differ, since the linker writes paths into
-the file. False when there is no completed `presetup`. -/
-def pluginLoaded (expected : FilePath) (rebuilt : Array FilePath)
-    (plugins : Option (Array FilePath)) : IO Bool := do
+Regula's observer `expected` (`observerFile`): a plugin with the same real path as `expected`, or with
+the same bytes, such as the copy that a fresh audit places in its copy of an owned `regula`
+(`placeRunning`). No other file is admitted, whatever its name or source. False when there is no
+completed `presetup`. -/
+def pluginLoaded (expected : FilePath) (plugins : Option (Array FilePath)) : IO Bool := do
   let some plugins := plugins | return false
   let real (path : FilePath) : IO FilePath := do
     match ← (IO.FS.realPath path).toBaseIO with
@@ -156,10 +183,10 @@ def pluginLoaded (expected : FilePath) (rebuilt : Array FilePath)
     match ← (IO.FS.readBinFile path).toBaseIO with
     | .ok data => return some data
     | .error _ => return none
-  let accepted ← (#[expected] ++ rebuilt).mapM real
+  let accepted ← real expected
   let some expectedBytes ← bytes expected | return false
   plugins.anyM fun plugin => do
-    if accepted.contains (← real plugin) then return true
+    if (← real plugin) == accepted then return true
     return (← bytes plugin).any (·.data == expectedBytes.data)
 
 /-- A position as the RG2003 decision reads it. -/

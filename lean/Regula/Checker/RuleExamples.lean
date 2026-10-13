@@ -97,6 +97,7 @@ unsafe def documentation (repo docsRoot output : FilePath) : IO UInt32 := do
   let outcome ← (stable #[] requestedConfiguration <| withScratch repo "rule-document-example"
       fun scratch => do
     let copied ← Lake.copyProject repo (scratch / "project") scratch
+    copied.placeObservers
     let copy := copied.project
     let configuration ← SourceBinding.configuration copy (Manifest.defaultPath copy)
     stable #[] configuration do

@@ -485,6 +485,17 @@ structure ProjectCopy where
   selection : CopySelection
   /-- The loaded original selections used to derive generated configuration. -/
   configurationInputs : Regula.CopyConfiguration.Inputs
+  /-- The directory in the copy of each copied package `regula` that declares the observer library,
+  the root package or an owned dependency, where `placeObservers` places the running Regula's
+  observer library. -/
+  observers : Array FilePath := #[]
+
+/-- Place the running Regula's observer library in each package of `copy.observers`
+(`Observer.placeRunning`), so that their builds load that file unchanged when their observer
+source compiles to the same objects. A caller that places other build output in the copy first,
+such as the documentation step's `AcceptanceLink.placeRetained`, places these after it. -/
+def ProjectCopy.placeObservers (copy : ProjectCopy) : IO Unit :=
+  copy.observers.forM Observer.placeRunning
 
 /-- Capture precisely the loaded values that both construction and its request account use.
 The root and dependency directories have already been resolved by the workspace inventory. -/
@@ -682,8 +693,9 @@ in their own capture pass. Paths relative to their
 common ancestor are retained. The captured loaded manifest is installed at its loaded path, and
 every resolved dependency gets a typed path override: an owned package in the copy, a trusted
 package at its original root. There is no packages link. This copy is for ordinary loads only;
-a full update is outside this adapter's domain (`relocateDependencies`). That load of the project
-prints the facet report that `facets` requests.
+a full update is outside this adapter's domain (`relocateDependencies`). The copy records each copied
+package `regula` that declares the observer library (`ProjectCopy.observers`) and places nothing in
+it. That load of the project prints the facet report that `facets` requests.
 
 Assumes: the shared constructor's native primitive contracts and no concurrent source or
 destination writer. Lake's loaded workspace and manifest stay fixed while captured. -/
@@ -758,6 +770,14 @@ def copyProject (repo target exclude : FilePath)
     let project := place root
     let dependencies := original.dependencies.map fun dependency =>
       (dependency, if dependency.owned then place dependency.root else dependency.root)
+    let observerTarget := s!"lean_lib {Observer.observerLibrary}"
+    let declaresObserver (package : String) (targets : Array TargetInventory) : Bool :=
+      package == Observer.regulaPackage && targets.any (·.target == observerTarget)
+    let observers :=
+      (if declaresObserver original.package original.targets then #[project] else #[]) ++
+        ((original.dependencies.filter fun dependency =>
+          dependency.owned && declaresObserver dependency.package dependency.targets).map
+            (place ·.root))
     instructions := instructions ++ rootManifest.map fun item =>
       { item with relative := relative root ++ item.relative }
     let generated ← IO.ofExcept <| generatedConfiguration inputs manifest project
@@ -777,6 +797,7 @@ def copyProject (repo target exclude : FilePath)
       project
       root := copiedRoot
       configurationInputs := inputs
+      observers
       selection := {
         root := original.targets
         dependencies := dependencies.map fun (dependency, dir) =>
@@ -1616,30 +1637,6 @@ audit creates it at its entry and passes it to each of its builds, so a later bu
 audit that replays their logs rests on that elaboration. No other audit reads it. -/
 abbrev Elaborated := IO.Ref (Array Name)
 
-/-- The observers that the workspace `ws` builds from the running Regula's own source text: for
-each library named `RegulaObserver` (`Observer.observerLibrary`) of a package of `ws` with at least
-one module, each of whose modules has exactly the bytes of the running Regula's own source of that
-name (`checkerSource` of `checkerPackageDir`), the file that Lake's `shared` facet of the library
-writes (`LeanLib.sharedLibFile`). Lake builds that file from those sources with the same compiler,
-so it holds the running Regula's observer compiled again, such as in a copy of an owned `regula`
-or of Regula's own checkout. Empty when the running Regula's package cannot be located. That Lake
-rebuilds the file when its sources change is trusted, as for every build output. -/
-def rebuiltObservers (ws : _root_.Lake.Workspace) : IO (Array FilePath) := do
-  let some checker ← checkerPackageDir | return #[]
-  let mut found := #[]
-  for pkg in ws.packages do
-    for lib in pkg.leanLibs do
-      unless lib.name == Observer.observerLibrary do continue
-      let modules ← lib.getModuleArray
-      if modules.isEmpty then continue
-      let same ← modules.allM fun mod => do
-        let some own := checkerSource checker mod.name | return false
-        match ← (IO.FS.readBinFile mod.leanFile).toBaseIO, ← (IO.FS.readBinFile own).toBaseIO with
-        | .ok source, .ok expected => return source.data == expected.data
-        | _, _ => return false
-      if same then found := found.push lib.sharedLibFile
-  return found
-
 /-- Build `targets` of the workspace at `repo` as `build` describes, in this process through
 Lake's build API, as `lake build` does: its build monitor's text is the output, and a failed build
 exits 1. The inherited `LEAN_PATH` and `LEAN_SRC_PATH` are ignored, so the build resolves modules
@@ -1746,10 +1743,9 @@ def Build.runObserved (build : Build) (repo : FilePath) (targets : Array Target)
         let completed ← presetups.completed.get
         let observer : FilePath ←
           if modules.isEmpty then pure "" else (·.1) <$> Observer.observerFile
-        let rebuilt ← if modules.isEmpty then pure #[] else rebuiltObservers ws
         for mod in modules do
           let plugins := Observer.presetupPlugins? completed mod.pkg.keyName mod.name
-          let loaded ← Observer.pluginLoaded observer rebuilt plugins
+          let loaded ← Observer.pluginLoaded observer plugins
           let verdict ← Observer.decideRecord mod.name.toString loaded mod.oleanFile
           verdicts.modify (·.push (mod.name, verdict))
         let jobs ← jobLogs.get

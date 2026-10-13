@@ -259,6 +259,8 @@ unsafe def run (args : List String) : IO UInt32 := do
           | some closure =>
             timedPhase "retained build placement" <|
               AcceptanceLink.placeRetained repo copy scratch link digest targets modules closure
+      -- After that placement, which requires the copy to hold no `.lake/build`.
+      copied.placeObservers
       SourceBinding.withUnchanged sources configuration do
         SourceBinding.configurationUnchanged configuration
         let (buildProcess, buildResult) ← Lake.buildCheckedObservation copy
