@@ -114,7 +114,7 @@ then a write
 [`Store.lean`](https://github.com/leanprover/lean4/blob/v4.34.1/src/lake/Lake/Util/Store.lean#L47-L55)).
 It builds the target's `needs` before that fetch
 ([`Module.lean`](https://github.com/leanprover/lean4/blob/v4.34.1/src/lake/Lake/Build/Module.lean#L546-L557),
-[lean4#13598](https://github.com/leanprover/lean4/issues/13598)), so the fetch finds the plugin
+[Lean issue 13598](https://github.com/leanprover/lean4/issues/13598)), so the fetch finds the plugin
 built.
 
 Lake builds the plugin with your modules, and it rebuilds a module when the plugin changes. A

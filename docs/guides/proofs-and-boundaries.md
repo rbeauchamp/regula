@@ -375,7 +375,7 @@ record.
 A `needs` entry of a target of the plain shape may also name that shared library, as
 `isObserverNeed` decides. Each target that loads the observer lists it there, so that Lake builds
 it before the modules of the target fetch their plugins. Without it, Lake v4.34.1 can build the
-library several times at the same time in a fresh build, and those builds write the same files.
+library several times at the same time in a fresh build. Those builds write the same files.
 The entry builds the library that the plugin entry names, and nothing else.
 
 Regula declares no `presetup` facet. The audit's own builds run the facet that the workspace
@@ -1499,8 +1499,8 @@ do not name `@regula/RegulaObserver:shared`, the target fails with `Failure.obse
 that Lake resolves for the target with `Observer.observerKey`: the package's, then the target's.
 
 The decision does not require the same key in the target's `needs`. A fresh build of a target
-without it can build the observer several times at the same time, so `doctor` names that entry
-in the finding of such a target (`Observer.unpaired`, `Setup.unpairedText`).
+without it can build the observer several times at the same time. So `doctor` names that entry in
+the finding of such a target (`Observer.unpaired`, `Setup.unpairedText`).
 
 [RG2006] also decides the options that each claimed module's source sets, as Regula's elaboration
 observer recorded them, with `RegulaPolicy.Community.sourceFailures` (`sourceFailures_eq_nil_iff`,
