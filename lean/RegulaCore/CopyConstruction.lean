@@ -129,8 +129,9 @@ theorem packageEntries_eq_some (path entries : List String) :
     rintro ⟨rfl, nonempty, relative⟩
     exact admitted ⟨by simpa using nonempty, relative⟩
 
-/-- `firstUnwritten` finds no read exactly when each read's path has a regular-file instruction
-among `items` (`Covers`). A copy refuses the read it finds, before it writes anything. -/
+/-- `firstUnwritten` finds no read exactly when, for each read, a regular-file instruction among
+`items` has exactly its path (`Covers`). A copy refuses the read it finds, before it writes
+anything. -/
 theorem firstUnwritten_eq_none {α : Type} (items : List Item) (reads : List (α × List String)) :
     firstUnwritten items reads = none ↔ Covers (reads.map (·.2)) items := by
   simp only [firstUnwritten, List.find?_eq_none, Bool.not_eq_true', Bool.not_eq_false, covers,

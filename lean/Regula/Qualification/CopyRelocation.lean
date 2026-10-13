@@ -9,7 +9,7 @@ there. It gives the copy an override for each dependency, to the directory and t
 that Lake's load of the project takes (`Lake.relocateDependencies`). Lake's load of the copy must
 then select what its load of the project selects (`Lake.checkCopiedWorkspace`). The copy refuses a
 file that Lake's load reads for a copied package when the copy writes no file where Lake's load of
-the copy reads it. The control copies `examples/fixtures/copy-relocation`, with five projects:
+the copy reads it. The control copies `examples/fixtures/copy-relocation`, with six projects:
 - `project` requires the package `dep` by path. Its manifest has two entries for `dep`: the first
   names the configuration file `a.toml`, and the last names `b.toml`.
 - `git-project` keeps its dependencies' checkouts in `vendor` and requires `gdep` by Git. The
@@ -21,6 +21,7 @@ the copy reads it. The control copies `examples/fixtures/copy-relocation`, with 
   `cdep` names the configuration `.cache/package.toml`, which the control places from `placed`.
 - `olean-manifest` requires the package `odep` by path, in its own directory. The manifest entry for
   `odep` names the manifest `pins.olean`, which the control places from `placed/pins.json`.
+- `absolute-source` has a library whose `srcDir` is `__dir__ / "src"`, an absolute path.
 
 The control's Git commands and its workers run without the Git repository variables that their
 process inherits (`Construction.gitEnvironment`).
@@ -223,6 +224,8 @@ private def snapshot (dir : FilePath) : IO (List (List String × Option (List UI
   refuses it too when `.cache/package.toml` is a link to `cdep/package.toml`.
 - A copy of `olean-manifest`, whose owned package `odep` records the manifest `pins.olean`,
   refuses that manifest by name and by its compiled-module name, and writes nothing.
+- A copy of `absolute-source`, whose library sets `srcDir` to the package's `src` directory as an
+  absolute path, refuses that setting by name, and writes nothing.
 - The steps that run Git and Lake (`gitSteps`) run in a process that inherits a `GIT_DIR` of a
   repository and an absolute `GIT_INDEX_FILE`, both in a temporary directory outside the scratch
   directory. The steps must pass, and that directory must hold the same entries and bytes after
@@ -308,6 +311,14 @@ def check : IO Unit := do
             message.contains "a compiled-module file name"⟩,
       ⟨"the refused copy of olean-manifest writes nothing", !written⟩]
     IO.println "copy relocation manifest with a compiled-module name refused: PASS"
+    let (refusal, written) ← refusedCopy (source / "absolute-source") copies "absolute-source"
+    requireChecks [
+      ⟨s!"a copy refuses the absolute srcDir of AbsoluteSource by name: {refusal}",
+        refusal.any fun message =>
+          message.contains "library AbsoluteSource of package 'absolute_source'" &&
+            message.contains "sets srcDir to the absolute path"⟩,
+      ⟨"the refused copy of absolute-source writes nothing", !written⟩]
+    IO.println "copy relocation absolute source directory refused: PASS"
     Regula.Filesystem.withOwnTempDir fun outside => do
       succeeded "git init of the inherited repository"
         (← run outside "git" #["init", "-q", "inherited"])

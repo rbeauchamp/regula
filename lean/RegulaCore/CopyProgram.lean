@@ -486,8 +486,8 @@ def packageEntries (path : List String) : Option (List String) :=
   let entries := path.filter (· != ".")
   if !entries.isEmpty && decide (Relative entries) then some entries else none
 
-/-- The first of `reads` whose path has no regular-file instruction in `items`, so that a tree
-constructed from `items` holds no regular file there (`firstUnwritten_eq_none`). -/
+/-- The first of `reads` for which no regular-file instruction in `items` has exactly that path
+spelling (`firstUnwritten_eq_none`). -/
 def firstUnwritten {α : Type} (items : List Item) (reads : List (α × List String)) :
     Option (α × List String) :=
   reads.find? fun read => !covers [read.2] items

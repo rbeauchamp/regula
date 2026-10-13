@@ -689,10 +689,12 @@ dependency's recorded manifest when present. Lake's load of the copy reads each 
 joins to the package's directory there: the recorded `relConfigFile` or `relManifestFile`, or the
 module's source below the package's directory, each without `.` components
 (`Construction.packageEntries_eq_some`). After the copy's whole file selection is computed and
-before anything is written, the copy refuses the first of these paths that has no regular-file
-instruction, and names the file and what left it out (`Construction.firstUnwritten_eq_none`). The
-constructor's guard requires the same paths (`Construction.constructSelected_io`). Paths relative
-to their common ancestor are retained. The captured loaded manifest is installed at its loaded path, and
+before anything is written, the copy refuses the first of these paths that no regular-file
+instruction has with exactly that spelling, and names the file and what left it out
+(`Construction.firstUnwritten_eq_none`). The constructor's guard requires the same paths
+(`Construction.constructSelected_io`). Before that, the copy refuses a copied package, library or
+executable whose `srcDir` is absolute, since Lake's load of the copy would read the original's
+sources there. Paths relative to their common ancestor are retained. The captured loaded manifest is installed at its loaded path, and
 every resolved dependency gets a typed path override: an owned package in the copy, a trusted
 package at its original root. There is no packages link. This copy is for ordinary loads only;
 a full update is outside this adapter's domain (`relocateDependencies`). That load of the project
@@ -712,7 +714,8 @@ enumerates. Lake builds only the modules that a glob selects and their imports
 `Lean.modToFilePath` of its library's `srcDir` (`Lake/Config/Module.lean:83-90`). That `srcDir` is
 the package's joined with the library's (`Lake/Config/LeanLib.lean:34-35`,
 `Lake/Config/Package.lean:352-353`), and an executable's root module has the executable's own
-(`Lake/Config/LeanExe.lean:45-51`).
+(`Lake/Config/LeanExe.lean:45-51`). Lean v4.34.1 `FilePath.join` gives an absolute right operand
+as it stands (`Init/System/FilePath.lean:126-130`).
 
 Assumes: POSIX path resolution, under which a `.` component names the directory before it. The copy
 holds no link, since the constructor creates none, so a read below a package's directory in the copy
@@ -789,6 +792,16 @@ def copyProject (repo target exclude : FilePath)
       let some dir := if package.isRoot then some root else
           (original.dependencies.find? (·.package == package.baseName.toString)).map (·.root)
         | throw <| IO.userError s!"copy refused: package '{package.baseName}' has no inventory"
+      -- Lake joins an absolute source directory as it stands, so Lake's load of the copy would
+      -- read the original's sources there, not the copy's.
+      let settings := [(s!"package '{package.baseName}'", package.config.srcDir)] ++
+        package.leanLibs.toList.map (fun library =>
+          (s!"library {library.name} of package '{package.baseName}'", library.config.srcDir)) ++
+        package.leanExes.toList.map (fun exe =>
+          (s!"executable {exe.name} of package '{package.baseName}'", exe.config.srcDir))
+      if let some (owner, setting) := settings.find? (·.2.isAbsolute) then
+        throw <| IO.userError s!"copy refused: {owner} sets srcDir to the absolute path \
+          {setting}, which Lake's load of the copy reads as it stands, outside the copy"
       let (_, modules) ← packageModules package
       let below := fun (file : FilePath) =>
         let components := file.normalize.components
@@ -838,7 +851,7 @@ def copyProject (repo target exclude : FilePath)
       instructions := instructions ++ [⟨relative root ++ overrideRelative,
         .file text.toUTF8⟩]
     -- The tree that the copy writes. Before anything is written, each read must have a
-    -- regular-file instruction at its path there (`Construction.firstUnwritten_eq_none`), which the
+    -- regular-file instruction at exactly its path (`Construction.firstUnwritten_eq_none`), which the
     -- constructor's own guard requires too (`Construction.constructSelected_io`).
     let items := Regula.Filesystem.Construction.layout instructions
     if let some (refusal, path) := Regula.Filesystem.Construction.firstUnwritten items reads then
@@ -854,7 +867,8 @@ def copyProject (repo target exclude : FilePath)
             "its name is a compiled-module file name, which a copy of the project leaves out"
           else "the copy captures no regular file at that path"
       throw <| IO.userError s!"{refusal}: Lake's load of the copy reads it at \
-        {"/".intercalate path} below the copy, where the copy writes no file, since {reason}"
+        {"/".intercalate path} below the copy, and no file that the copy writes has exactly that \
+        path, since {reason}"
     Regula.Filesystem.Construction.constructSelectedWith
       Regula.Filesystem.Construction.observer target
       (stored.map (relative root ++ ·) ++ reads.map (·.2)) items
