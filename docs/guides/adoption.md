@@ -355,7 +355,7 @@ workspace that dispatched it. Its exit status separates the outcome:
 | 0 | `ACCEPTED`: the audit constructed its accepted result for the selected mode. |
 | 1 | `VIOLATION`: completed policy rejections, for example [RG1001]–[RG1009], [RG3002], or [RG2004] for a claimed import of a module outside every library. |
 | 2 | `INVALID CONFIGURATION`: only [RG2002] manifest/scope rejections, an invalid driver argument, a working directory that is not the dispatching workspace, or `--help`/`--explain-config`, which run no audit. |
-| 3 | `INCOMPLETE`: an incomplete finding, for example [RG2001], [RG2003], [RG2005] or [RG3001], a failed audit-worker build, a failed audit worker ([RG2001], whose detail carries the worker's error), a working directory outside any Lean project or whose workspace fails to load, or an error that escaped the audit. It takes precedence over violations reported in the same run. |
+| 3 | `INCOMPLETE`: an incomplete finding, for example [RG2001], [RG2003], [RG2005] or [RG3001], a failed audit-worker build, a failed audit worker ([RG2001], whose detail carries the worker's error), a working directory outside any Lean project or whose workspace fails to load, or an error that escaped the audit. It takes precedence over violations reported in the same run. A `lint` process without Lean's task manager, for example with `LEAN_NUM_THREADS=0`, prints one reason line and gives exit 3 before an audit starts ([the acceptance boundary](proofs-and-boundaries.md#the-acceptance-boundary)). |
 
 The success line names its coverage: an incremental run is "incremental project acceptance over
 existing build state, not a fresh-source audit"; only `--fresh` is fresh whole-project

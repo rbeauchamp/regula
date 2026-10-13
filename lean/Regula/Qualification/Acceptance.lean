@@ -149,12 +149,15 @@ private def qualify (group : String) (evidence : FilePath) (receipt : IO.Ref Jso
       IO.println s!"acceptance transport {phase}/{fault}: PASS"
 
 /-- Invalidate old evidence before setup. SIGKILL leaves a current incomplete receipt;
-ordinary exceptions retain failure and the active case. Filesystem atomicity is trusted. -/
-def beginAttempt (group : String) (evidence : FilePath) (attempt : String) : IO Json := do
+ordinary exceptions retain failure and the active case. Filesystem atomicity is trusted. With
+`reason`, the receipt records why the attempt stops before its setup. -/
+def beginAttempt (group : String) (evidence : FilePath) (attempt : String)
+    (reason : Option String := none) : IO Json := do
   if let some parent := evidence.parent then IO.FS.createDirAll parent
-  let receipt := Json.mkObj [("attemptId", toJson attempt),
+  let receipt := Json.mkObj ([("attemptId", toJson attempt),
     ("status", toJson "incomplete"), ("group", toJson group), ("inputs", Json.mkObj []),
-    ("records", toJson (#[] : Array Json))]
+    ("records", toJson (#[] : Array Json))] ++
+      (reason.map fun reason => [("reason", toJson reason)]).getD [])
   save evidence receipt
   return receipt
 

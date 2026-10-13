@@ -162,16 +162,30 @@ private def targets (reading : Reading) (root : Except IO.Error FilePath) :
       else root.map (inWorkspace · path))
 
 /-- Mark each resolved destination incomplete, one at a time, and return a line for each that
-could not be marked, so one failure leaves no other unmarked. -/
-private def markIncomplete (targets : List (String × Except IO.Error FilePath)) :
-    IO (List String) := do
+could not be marked, so one failure leaves no other unmarked. With `reason`, each records it as the
+reason that the run stops there. -/
+private def markIncomplete (targets : List (String × Except IO.Error FilePath))
+    (reason : Option String := none) : IO (List String) := do
   let mut failed := []
   for (path, target) in targets do
     let marked ← match target with
-      | .ok target => (AxiomGate.invalidateResult target).toBaseIO
+      | .ok target =>
+        let mark : IO Unit := match reason with
+          | some reason => AxiomGate.invalidateResult target reason
+          | none => AxiomGate.invalidateResult target
+        mark.toBaseIO
       | .error error => pure (.error error)
     if let .error error := marked then failed := failed ++ [s!"{path}: {error}"]
   return failed
+
+/-- The refusal of a run in a process without Lean's task manager, which the guard of the
+executable runs (`Regula.TaskManager.guard`): it reads the arguments once (`read`) and finds the
+working directory's project root once, as `lint` does, marks each result destination of the
+reading incomplete with `reason`, and returns the incomplete class. No audit runs. -/
+def refuseWithoutTaskManager (reason : String) (args : List String) : IO UInt32 := do
+  for line in ← markIncomplete (targets (read args) (← repoRoot.toBaseIO)) reason do
+    IO.eprintln s!"regula lint: could not mark the result destination {line} incomplete"
+  return Outcome.incomplete.exitCode
 
 /-- Every path but the audit's `classify` returns a non-accepted class. The driver reads its
 arguments once (`read`) and finds the working directory's project root once; observation

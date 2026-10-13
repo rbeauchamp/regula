@@ -1,4 +1,5 @@
 import Regula.Removal
+import Regula.TaskManagerCheck
 import Regula.Qualification.RegistryCli
 import Regula.Qualification.NativeLinter
 import Regula.Qualification.Producer
@@ -15,6 +16,7 @@ import Regula.Qualification.SelfAudit
 import Regula.Qualification.UniqueConstants
 import Regula.Qualification.Command
 import Regula.Qualification.Observers
+import Regula.Checker.AxiomGate
 
 /-! # Qualification executable dispatcher
 
@@ -89,35 +91,106 @@ private unsafe def dispatch (args : List String) (attempt : Option String := non
     configuration-capture|fence-evidence|frozen-exits|documentation-source [--source-read-only]|\
     rule-examples --evidence PATH [--rules RULE ... | --shard K/N]"
 
+/-- Mark the evidence document that `args` names incomplete for the attempt `attempt`, through the
+writer that its campaign runs before it starts (`beginAttempt`), before anything else of the
+command runs; with `reason`, the evidence records why the attempt stops there. The document is the
+one that the leading arguments name (`Evidence.named`), so one that the parser refuses for a later
+argument is still marked, and for an accepted command it is the command's own
+(`Evidence.named_of_parse`). Arguments that name no evidence document mark nothing. -/
+private def markEvidence (args : List String) (attempt : String) (reason : Option String := none) :
+    IO Unit := do
+  match Evidence.named args with
+  | some (.acceptance group path) =>
+    let _ ← Regula.Qualification.Acceptance.beginAttempt group ⟨path⟩ attempt reason
+  | some (.environments path) =>
+    Regula.Qualification.EnvironmentCensus.beginAttempt ⟨path⟩ attempt reason
+  | some (.ruleExamples path) =>
+    Regula.Qualification.RuleExamples.beginAttempt ⟨path⟩ attempt reason
+  | some (.producers path) => Regula.Qualification.Producer.beginAttempt ⟨path⟩ attempt reason
+  | some .launcherReport => Regula.Qualification.NativeLinter.beginReport reason
+  | none => pure ()
+
+/-- The form of one `qualify` invocation, read from its arguments and the two variables of its
+environment that select a mode (`Invocation.of`). -/
+private inductive Invocation where
+  /-- `REGULA_RECEIPT_TIMER=1` with `--version`: the receipt boundary's worker. -/
+  | receiptTimer
+  /-- `REGULA_QUALIFICATION_WRAPPER=acceptance`: the test-only proxy of `axiomGate`, with the
+  gate's arguments. -/
+  | acceptanceProxy
+  /-- Another value of `REGULA_QUALIFICATION_WRAPPER`, which is refused. -/
+  | unknownWrapper
+  /-- `--under-deadline [--attempt ATTEMPT] REST`: the command `REST`, run under the deadline that
+  the wrapper set. -/
+  | underDeadline (attempt : Option String) (rest : List String)
+  /-- Any other arguments: a command, run under its own 420-second deadline. -/
+  | bounded (args : List String)
+
+/-- The form of the invocation with the arguments `args`, read from them and the environment. -/
+private def Invocation.of (args : List String) : BaseIO Invocation := do
+  if (← IO.getEnv "REGULA_RECEIPT_TIMER") == some "1" && args == ["--version"] then
+    return .receiptTimer
+  match ← IO.getEnv "REGULA_QUALIFICATION_WRAPPER" with
+  | some "acceptance" => return .acceptanceProxy
+  | some _ => return .unknownWrapper
+  | none => return match args with
+    | "--under-deadline" :: "--attempt" :: attempt :: rest => .underDeadline (some attempt) rest
+    | "--under-deadline" :: rest => .underDeadline none rest
+    | _ => .bounded args
+
 /-- Standalone commands get one group-wide 420-second bound. The private protocol flag
 is supplied by this wrapper or the already timed acceptance driver, never documented
-as a bounded standalone command. Nested commands do not create escaping groups. -/
-unsafe def main (args : List String) : IO UInt32 := do
-  if (← IO.getEnv "REGULA_RECEIPT_TIMER") == some "1" && args == ["--version"] then
-    return ← Regula.Qualification.ReceiptBoundary.worker args
-  match ← IO.getEnv "REGULA_QUALIFICATION_WRAPPER" with
-  | some "acceptance" => return ← Regula.Qualification.Acceptance.worker args
-  | some _ => throw <| IO.userError "unknown qualification wrapper mode"
-  | none => pure ()
-  match args with
-  | "--under-deadline" :: "--attempt" :: attempt :: rest => dispatch rest (some attempt); return 0
-  | "--under-deadline" :: rest => dispatch rest; return 0
-  | _ =>
+as a bounded standalone command. Nested commands do not create escaping groups. The form of the
+invocation is read once (`Invocation.of`). -/
+unsafe def qualifyMain (args : List String) : IO UInt32 := do
+  match ← Invocation.of args with
+  | .receiptTimer => Regula.Qualification.ReceiptBoundary.worker args
+  | .acceptanceProxy => Regula.Qualification.Acceptance.worker args
+  | .unknownWrapper => throw <| IO.userError "unknown qualification wrapper mode"
+  | .underDeadline attempt rest => dispatch rest attempt; return 0
+  | .bounded args =>
     -- Recognize evidence destinations even when later argument validation refuses.
     -- This must precede timeout selection and spawning, both of which can fail.
     let attempt ← Regula.Qualification.freshAttempt
-    match args with
-    | "acceptance" :: group :: "--evidence" :: path :: _ =>
-      let _ ← Regula.Qualification.Acceptance.beginAttempt group ⟨path⟩ attempt
-    | "environments" :: "--evidence" :: path :: _ =>
-      Regula.Qualification.EnvironmentCensus.beginAttempt ⟨path⟩ attempt
-    | "rule-examples" :: "--evidence" :: path :: _ =>
-      Regula.Qualification.RuleExamples.beginAttempt ⟨path⟩ attempt
-    | _ => pure ()
+    markEvidence args attempt
     Regula.Qualification.runBounded (← IO.currentDir) 420 (← IO.appPath).toString
       (#["--under-deadline", "--attempt", attempt] ++ args.toArray)
+
+/-- The refusal of an invocation in a process without Lean's task manager, which the guard of the
+executable runs (`Regula.TaskManager.guard`). It reads the invocation as `qualifyMain` does
+(`Invocation.of`) and marks its destinations incomplete with `reason` through the writers that a
+run uses. The proxy of `axiomGate` is refused as the gate refuses, with the gate's exit code
+(`AxiomGate.refuseWithoutTaskManager`). A command marks its evidence document (`markEvidence`),
+for the attempt that the wrapper's arguments give or otherwise for a fresh one, printing a line
+when it cannot, and returns 1, as do the receipt boundary's worker and an unknown wrapper mode,
+which write no file. No command
+runs. -/
+private def refuseQualification (reason : String) (args : List String) : IO UInt32 := do
+  let mark (rest : List String) (attempt : Option String) : IO Unit := do
+    try markEvidence rest (← attempt.getDM Regula.Qualification.freshAttempt) reason
+    catch error =>
+      IO.eprintln s!"qualify: could not mark the evidence of {rest} incomplete: {error}"
+  match ← Invocation.of args with
+  | .acceptanceProxy =>
+    return ← Regula.Checker.AxiomGate.refuseWithoutTaskManager reason args
+  | .receiptTimer | .unknownWrapper => pure ()
+  | .underDeadline attempt rest => mark rest attempt
+  | .bounded rest => mark rest none
+  return 1
+
+/-- The `qualify` executable: `qualifyMain` on the command-line arguments. A process without
+Lean's task manager is refused before any command starts: the destinations of the invocation are
+marked incomplete with the reason, and the exit code is 1, or the gate's for the proxy of
+`axiomGate` (`Regula.TaskManager.guard`, `refuseQualification`). -/
+unsafe def main : List String → IO UInt32 :=
+  Regula.TaskManager.guard "qualify" refuseQualification qualifyMain
 
 -- The removals that the compiled code of `main`, and of the initializers of the modules it links,
 -- reaches are the filesystem observer's and those that `Regula.Removal.libraryRemovals` lists: the
 -- build of this module fails otherwise (`Regula.Removal.checkProgram`).
 run_cmd Regula.Removal.checkProgram
+
+-- A program that needs Lean's task manager starts through its guard (`Regula.TaskManager.guard`),
+-- and its refusal needs none: the build of this module fails otherwise
+-- (`Regula.TaskManagerCheck.checkProgram`).
+run_cmd Regula.TaskManagerCheck.checkProgram

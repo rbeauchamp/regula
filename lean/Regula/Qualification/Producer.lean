@@ -112,6 +112,16 @@ private def standalone (root : FilePath) (fresh : String → IO FilePath) (phase
         (phase == "axiom")))
   IO.println s!"standalone executable {phase}: PASS"
 
+/-- Mark the export at `evidence` incomplete for the attempt `attempt`, before the campaign runs, so
+an earlier completed export there cannot be mistaken for this attempt's: the record has no member
+`examples`. With `reason`, it records why the attempt stops there. -/
+def beginAttempt (evidence : FilePath) (attempt : String) (reason : Option String := none) :
+    IO Unit := do
+  if let some parent := evidence.parent then IO.FS.createDirAll parent
+  writeJson evidence (Json.mkObj ([("schemaVersion", toJson (1 : Nat)),
+    ("status", .str "incomplete"), ("attempt", .str attempt)] ++
+      (reason.map fun reason => [("reason", .str reason)]).getD []))
+
 /-- Run all source-bound producer controls, optionally retaining emitted evidence. No workspace
 reads another's, so the four documented-source workspaces and the two standalone ones run on
 `jobs` workers (`mapWorkQueue`), beside the control of the guard (`rootImportsGuardControl`).

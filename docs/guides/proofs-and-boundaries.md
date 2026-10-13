@@ -663,6 +663,75 @@ check of `Regula.ProgramCheck.SiteDeployment` finds no removal in it. It passes 
 write a file. Thus a variable such as `SSLKEYLOGFILE` does not reach `curl`. The URL is the value
 of the option `--url`, thus a URL that starts with `-` is not an option.
 
+A compiled Lean program starts the task manager of Lean after the initializers of its modules. The
+variable `LEAN_NUM_THREADS` gives the number of its threads, and the value `0` gives no task
+manager. Without a task manager, Lean runs each task on the thread that starts it. A call of
+`IO.Promise.new` then stops the process with a panic: exit code 1, or an abort if
+`LEAN_ABORT_ON_PANIC` is set. Thus an audit could end with the exit code of a violation, but no
+audit completed ([issue 393](https://github.com/rbeauchamp/regula/issues/393)).
+
+The function `Regula.TaskManager.guard` prevents this result. Before the program starts, the
+function `Regula.Probe.taskManagerMissing` operates one task of priority
+`Task.Priority.dedicated`. If the task operated on the thread of its caller, Lean has no task
+manager. The guard then writes one line with the reason to the standard error. Then it operates
+the refusal of the program and gives its result. The docstring of `taskManagerMissing` gives the
+lines of the Lean runtime that this observation uses.
+
+The refusal of a program reads its arguments with the parser of the program. For `axiomGate`, that
+parser also reads the internal worker forms. For `qualify`, it also reads the modes that an
+environment variable selects, such as the proxy of `axiomGate`. The reading also gives the files
+at fixed paths that a selection writes. Examples are the report of `qualify native-launcher` and
+the digest of a structural shard of the self-test.
+
+The refusal then marks each file of that reading incomplete, with the reason. It uses the writer
+that a run of the program operates first. Thus a result of an earlier run does not stay in place.
+A self-hosted digest has no incomplete form, thus the refusal removes it, as the run does first.
+The `diagnostics` gate then refuses it as missing. The refusal of `site build` removes the output
+directory and the asset of a release, as the build does first.
+
+The refusal then gives the exit code of an incomplete run. For `axiomGate` and `lint`, that
+code is 3. A program that writes no result file marks no file.
+
+These refusals cover each destination that the source of Regula writes. A library can also write a
+file, such as the `manualMain` function of Verso for `regula-site` and `regula-standard`. Such a
+file is outside these refusals.
+
+The check `Regula.TaskManagerCheck.checkProgram` operates at the end of the root module of each
+executable. It examines `main` if the compiled code of `main` calls a function of the runtime that
+uses the task manager. Then `main` must be the guard applied to a string, the refusal and the
+program, with constants for the last two. Lean calculates the arguments of a function before it
+calls it, and these arguments operate no code. Also, the compiled code of the refusal must not call
+a function that uses the task manager. If a condition is false, the build of the module fails.
+
+The functions of the runtime that use the task manager are those of tasks, of promises and of the
+asynchronous input and output (`symbols`, `uvPrefix`). For example, `IO.Process.output` operates a
+task. The compiled code of `auditApp` calls none of these functions, thus that program has no
+guard.
+
+A compiled program operates all its initializers before it starts the task manager, in each run.
+The value of `LEAN_NUM_THREADS` does not change that order. Thus no initializer has a task manager,
+and an initializer acts the same in each run. A task that it starts operates on its own thread
+before the call returns. A promise that it creates stops the process with a panic. The docstring of
+the guard states this as an assumption, with the lines of the Lean compiler and runtime.
+
+The command `lake exe qualify observers` also refuses an executable of the root package if no
+module records this check. The executables of the packages `website` and `markdown` do the check
+in their root modules, but that command does not read those packages. A program that a script
+operates with `lean --run` does not start through the guard. The `lean` executable starts its task
+manager before it reads the file, and the variable `LEAN_NUM_THREADS` does not change it.
+
+The module `Regula.ProgramCheck.Controls` has controls of the check. The last cli shard of the
+self-test operates `axiomGate`, `lint`, `docFenceAudit`, `qualify`, `site` and the self-test with
+`LEAN_NUM_THREADS=0`. It operates one run for each kind of destination. The kinds are a result,
+an acceptance link, a worker packet, the report worker's published admission, an evidence file
+and the proxy of `axiomGate`. They also include the report of the launcher, a self-hosted digest
+and the artifact of `site build`.
+
+Before each run, each destination holds a completed document of its format, and its reader
+accepts it. After the run, each destination must be marked incomplete, with the
+reason, or removed for a digest or the site artifact. Its reader must then refuse it as a
+completed document.
+
 The driver moves the pending record to `tmp/acceptance-link.json` only if
 `RegulaVerification.passed` accepts the exit status of each command. The driver does that move
 before it removes its copy and before the success line. The command `./scripts/verify.sh docs` operates `docFenceAudit --acceptance-link
@@ -1268,9 +1337,9 @@ only the completion of a run, as a deadline does, and not a verdict.
 `Probe.publishCheck_ok_iff` states that the walk publishes a verdict exactly when the check ran on
 a thread of its own and no memory limit ended an admission. The verdict is then `checkVerdict` of
 the result of the check. A process without a task manager runs a task on the thread of its caller,
-and `requireDedicatedThreads` then ends the report with an error before its first check. In a run
-with `LEAN_NUM_THREADS=0`, a process of the audit stopped earlier still, with a panic about the
-missing task manager.
+and `requireDedicatedThreads` then ends the report with an error before its first check. A program
+of the package that starts through `Regula.TaskManager.guard` stops before that point
+([the acceptance boundary](#the-acceptance-boundary)).
 
 The fixture `Fixtures.Positive.HeartbeatCorrespondence` adds about 900 MiB in one check, and it is
 checked.
@@ -4726,7 +4795,8 @@ The `qualify` campaigns and what they observe:
 - `receipt-boundaries`: timeout-selection and spawn failures (see
   [Operational assumptions](#operational-assumptions)).
 - `observers`: the record of the removal check of each program of the package, and the check of
-  `Main`, the root of `auditApp`.
+  `Main`, the root of `auditApp`. It also refuses an executable with no record of the task-manager
+  check.
 - `acceptance fences`: fence-compilation packet mutations with positive restoration.
 - `acceptance-snapshots`: `dependencies` (ignored Git and non-Git dependency input coverage and
   mutation), `history` ([RG3001] fresh, incremental and build-lint history refusal and restoration)

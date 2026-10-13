@@ -216,6 +216,49 @@ def Selection.parse (args : List String) : Except String Selection :=
         .ok (.transcriptWorker moduleWire source rejectWarnings out)
     | _ => .suite <$> (Options.parse args {} >>= Options.validate)
 
+/-- A self-hosted fresh input whose digest a sharded run of the structural partition writes: the
+positive's or the restored copy's. -/
+inductive SelfHosted where
+  /-- The input of the accepting fresh gate of the self-hosted positive. -/
+  | positive
+  /-- The input of the restored copy of the self-hosted cluster. -/
+  | restored
+  deriving DecidableEq
+
+/-- Both self-hosted inputs. -/
+def SelfHosted.all : List SelfHosted := [.positive, .restored]
+
+/-- The name of the input's digest file (`Regula.DiagnosticsGate.digestPath`). -/
+def SelfHosted.name : SelfHosted → String
+  | .positive => "positive"
+  | .restored => "restored"
+
+/-- The structural shard, counted from 0, that runs the input's control and writes its digest:
+the first for the positive, which holds no other control, and the last for the restored copy. -/
+def SelfHosted.shard : SelfHosted → Fin Partition.structural.shards
+  | .positive => ⟨0, by decide⟩
+  | .restored => ⟨4, by decide⟩
+
+/-- A file that a selection writes for a later reader. -/
+inductive Destination where
+  /-- The packet of a worker, at the path that its arguments name. -/
+  | packet (out : String)
+  /-- The digest of a self-hosted input, below the repository's `tmp/`. -/
+  | selfHostedDigest (input : SelfHosted)
+
+/-- The files that a selection writes for a later reader: the transcript worker's `OUT`, and for a
+run of one shard of the structural partition, the digest of the self-hosted input that the shard
+runs (`SelfHosted.shard`). A focused control and every other run of the suite report on standard
+output and write none. -/
+def Selection.destinations : Selection → List Destination
+  | .transcriptWorker _ _ _ out => [.packet out]
+  | .focused _ => []
+  | .suite options =>
+    match options.partition, options.shard.bind (shardOf? Partition.structural.shards) with
+    | some .structural, some shard =>
+        (SelfHosted.all.filter (·.shard == shard)).map .selfHostedDigest
+    | _, _ => []
+
 /-- A focused control's flag alone selects it. -/
 theorem Selection.parse_focused (focused : Focused) :
     parse [focused.flag] = .ok (.focused focused) := by

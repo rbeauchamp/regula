@@ -1659,12 +1659,14 @@ def admit (read : List (Lint.Arg Setting)) : Except String Options :=
       | none => .ok options
 
 /-- Mark the result document at `path` incomplete, so an earlier completed result there cannot be
-mistaken for the current attempt's. -/
-def invalidateResult (path : FilePath) : IO Unit :=
+mistaken for the current attempt's. Its unresolved reason is `reason`, by default that the
+configuration has not been validated yet. -/
+def invalidateResult (path : FilePath) (reason : String := "configuration has not been validated") :
+    IO Unit :=
   ResultProtocol.writeDocument path (Json.mkObj (ResultProtocol.identityFields ++ [
     ("scope", Json.null), ("mode", Json.null), ("status", .str "incomplete"),
     ("diagnostics", toJson (#[] : Array Json)),
-    ("unresolved", toJson #["configuration has not been validated"]),
+    ("unresolved", toJson #[reason]),
     ResultProtocol.sourceTextsField] ++
     ResultProtocol.guidanceFields false ResultProtocol.allStages [] []))
 
@@ -1704,16 +1706,110 @@ def Plan.target (plan : Plan) (kind : Destination) : Option (Except IO.Error Fil
 
 /-- Mark each resolved destination of `plan` incomplete, each on its own, whether or not the
 invocation is admitted, so an earlier completed result cannot be mistaken for this attempt's;
-return a line for each that could not be marked. -/
-private def markIncomplete (plan : Plan) : IO (List String) := do
+return a line for each that could not be marked. With `reason`, each records it as the reason that
+the run stops there. -/
+private def markIncomplete (plan : Plan) (reason : Option String := none) : IO (List String) := do
   let mut failed := []
   for (kind, path, target) in plan.targets do
     let result ← match target with
-      | .ok target => (if kind == .acceptanceLink then AcceptanceLink.invalidate target
-          else invalidateResult target).toBaseIO
+      | .ok target => (if kind == .acceptanceLink then AcceptanceLink.invalidate target reason
+          else match reason with
+            | some reason => invalidateResult target reason
+            | none => invalidateResult target).toBaseIO
       | .error error => pure (.error error)
     if let .error error := result then failed := failed ++ [s!"{path}: {error}"]
   return failed
+
+/-- The job that the arguments of one `axiomGate` invocation name, read once from their whole
+shape (`Invocation.of`): one of the internal forms, each with what names the files that
+it writes (`Invocation.outputs`), or an audit with its plan (`Plan.of`). `run` does the job, and
+the refusal without a task manager marks the files of the same reading
+(`Invocation.markIncomplete`), so the two take their destinations from one parser. -/
+inductive Invocation where
+  /-- `--validate-site REGISTRY ARTIFACT`: writes nothing. -/
+  | validateSite (registry artifact : String)
+  /-- `--registry-out OUTPUT`: writes the registry to `output`. -/
+  | registryOut (output : String)
+  /-- `--validate-registry INPUT`: writes nothing. -/
+  | validateRegistry (input : String)
+  /-- `--module-graph-worker INPUT OUT`. -/
+  | moduleGraphWorker (input out : String)
+  /-- `--declaration-report-worker INPUT OUT`, with the request that `INPUT` holds, decoded once
+  (`ReportWorkerRequest`): besides `OUT`, its member `publish` names the file where the worker
+  publishes its completed admission. -/
+  | declarationReportWorker (input out : String)
+      (request : Except String (Json × ReportWorkerRequest))
+  /-- `--frontend-worker INPUT OUT`. -/
+  | frontendWorker (input out : String)
+  /-- `--compile-batch-worker INPUT OUT`. -/
+  | compileBatchWorker (input out : String)
+  /-- `--inspection-group-worker INPUT OUT`. -/
+  | inspectionGroupWorker (input out : String)
+  /-- `--diagnostic-worker MODULE SOURCE OUT`. -/
+  | diagnosticWorker (moduleWire source out : String)
+  /-- `--replacement-history-worker MODULE SOURCE OUT`. -/
+  | replacementHistoryWorker (moduleWire source out : String)
+  /-- Any other arguments: an audit, with the plan of its arguments. -/
+  | audit (plan : Plan)
+
+/-- The invocation that `args` name, read once. -/
+def Invocation.of (args : List String) : BaseIO Invocation :=
+  match args with
+  | ["--validate-site", registry, artifact] => pure (.validateSite registry artifact)
+  | ["--registry-out", output] => pure (.registryOut output)
+  | ["--validate-registry", input] => pure (.validateRegistry input)
+  | ["--module-graph-worker", input, out] => pure (.moduleGraphWorker input out)
+  | ["--declaration-report-worker", input, out] => do
+    let decoded ← (do
+      let json ← IO.ofExcept <| Regula.Checker.PolicyCodec.parse (← IO.FS.readFile input)
+      let request : ReportWorkerRequest ← IO.ofExcept (fromJson? json)
+      return (json, request) : IO (Json × ReportWorkerRequest)).toBaseIO
+    return .declarationReportWorker input out (decoded.mapError toString)
+  | ["--frontend-worker", input, out] => pure (.frontendWorker input out)
+  | ["--compile-batch-worker", input, out] => pure (.compileBatchWorker input out)
+  | ["--inspection-group-worker", input, out] => pure (.inspectionGroupWorker input out)
+  | ["--diagnostic-worker", moduleWire, source, out] =>
+    pure (.diagnosticWorker moduleWire source out)
+  | ["--replacement-history-worker", moduleWire, source, out] =>
+    pure (.replacementHistoryWorker moduleWire source out)
+  | _ => .audit <$> Plan.of args
+
+/-- The files that an internal form writes: its output, and for the declaration-report worker the
+file `publish` of its decoded request too. A form that writes none and an audit, whose destinations
+its plan gives, give none. -/
+def Invocation.outputs : Invocation → List String
+  | .validateSite .. | .validateRegistry _ | .audit _ => []
+  | .registryOut output => [output]
+  | .declarationReportWorker _ out request =>
+    out :: match request with
+      | .ok (_, request) => [request.publish]
+      | .error _ => []
+  | .moduleGraphWorker _ out | .frontendWorker _ out | .compileBatchWorker _ out
+  | .inspectionGroupWorker _ out | .diagnosticWorker _ _ out | .replacementHistoryWorker _ _ out =>
+    [out]
+
+/-- Mark each file that `invocation` writes incomplete, each on its own, and return a line for each
+that could not be marked: an audit's destinations (`markIncomplete`), with `reason` when given,
+and each file of an internal form (`outputs`, `invalidateOutput`), with `reason` or else the reason
+that the job has not completed. -/
+def Invocation.markIncomplete (invocation : Invocation) (reason : Option String) :
+    IO (List String) :=
+  match invocation with
+  | .audit plan => Regula.Checker.AxiomGate.markIncomplete plan reason
+  | other => other.outputs.filterMapM fun (out : String) => do
+    match ← (invalidateOutput ⟨out⟩ (reason.getD "the job has not completed")).toBaseIO with
+    | .ok () => pure none
+    | .error error => pure (some s!"{out}: {error}")
+
+/-- The refusal of an invocation in a process without Lean's task manager, which the guard of the
+executable runs (`Regula.TaskManager.guard`): it reads the arguments once (`Invocation.of`), as
+`run` does, marks each file of that reading incomplete with `reason`, whether or not the invocation
+is admitted (`Invocation.markIncomplete`), and returns the exit code of an incomplete audit. No
+job runs. -/
+def refuseWithoutTaskManager (reason : String) (args : List String) : IO UInt32 := do
+  for line in ← (← Invocation.of args).markIncomplete (some reason) do
+    IO.eprintln s!"axiom gate: could not mark the destination {line} incomplete"
+  return Lint.Outcome.incomplete.exitCode
 
 /-- Refuse an invalid invocation: the usage text and the problem, and the invalid-configuration
 exit code, since no audit ran and no result was recorded. -/
@@ -1722,107 +1818,16 @@ private def refuseInvocation (message : String) : IO UInt32 := do
   IO.eprintln s!"FAIL: invalid invocation: {message}"
   return Lint.Outcome.configuration.exitCode
 
-/-- Run one `axiomGate` invocation and return its exit code. The internal forms
-`--validate-site`, `--registry-out`, `--validate-registry` and `--replacement-history-worker`
-do only that job; otherwise it reads its arguments once into its plan (`Plan.of`): whether to
-admit them (`admit`), its root and its resolved destinations. It marks each destination
-incomplete, refuses an invalid invocation whatever marking failed, audits the single file or the
-manifested project surfaces under that root, and writes the result JSON and the acceptance link
-at those resolved destinations. An audit returns the exit code
-of the result it recorded (`Lint.gateExitCode`): 0 accepted or classified, 1 violation, 2 invalid
-configuration, 3 incomplete; an invalid invocation returns 2, and `--help` and the internal forms
-0 when they succeed. -/
-unsafe def run (args : List String) : IO UInt32 := do
-  terminalObservation.set none
-  auditedTarget.set none
-  resultTarget.set none
-  RunFeedback.reset
-  expectedStages.set ResultProtocol.allStages
-  if let ["--validate-site", registryPath, artifactPath] := args then
-    let registry ← IO.ofExcept <| Regula.Checker.PolicyCodec.parse (← IO.FS.readFile registryPath)
-    let artifact ← IO.ofExcept <| Regula.Checker.PolicyCodec.parse (← IO.FS.readFile artifactPath)
-    IO.ofExcept <| Regula.Website.validateArtifact ResultProtocol.producer registry artifact
-    return 0
-  if let ["--registry-out", output] := args then
-    writeJson output (Regula.RegistryCodec.registryJson ResultProtocol.producer)
-    return 0
-  if let ["--validate-registry", input] := args then
-    let value ← IO.ofExcept <| Regula.Checker.PolicyCodec.parse (← IO.FS.readFile input)
-    IO.ofExcept <| Regula.RegistryCodec.validateRegistry ResultProtocol.producer value
-    return 0
-  if let ["--module-graph-worker", input, out] := args then
-    let json ← IO.ofExcept <| Regula.Checker.PolicyCodec.parse (← IO.FS.readFile input)
-    let request : ModuleGraphRequest ← IO.ofExcept (fromJson? json)
-    let guarded ← SourceBinding.withUnchanged request.sourceBindings #[] <|
-      Environment.loadModuleGraph request.modules (request.searchRoots.map FilePath.mk)
-    let graph ← IO.ofExcept <| guarded.mapError (·.detail)
-    writeJson out (workerPacket json (toJson graph))
-    return 0
-  if let ["--declaration-report-worker", input, out] := args then
-    let json ← IO.ofExcept <| Regula.Checker.PolicyCodec.parse (← IO.FS.readFile input)
-    let request : ReportWorkerRequest ← IO.ofExcept (fromJson? json)
-    let guarded ← SourceBinding.withUnchanged
-        (α := Except ProducerReport.Refusal ProducerReport.Environment)
-        request.sourceBindings #[] do
-      let outcome ← Environment.loadReportOutcome request.modules
-        (request.searchRoots.map FilePath.mk) (request.sourceRoots.map FilePath.mk)
-        (request.sourceBindings.map fun source => (source.moduleName, FilePath.mk source.path))
-        request.ownership (validateReport := false)
-        (historyMemo := some (FilePath.mk request.historyMemo)) (priors := request.priors)
-        (publish := some (FilePath.mk request.publish)) (inspectDependencies := true)
-      if let .ok report := outcome then
-        if let .error failure := SourceBinding.validateAgainst request.sourceBindings report then
-          return .error (.admission failure)
-      return outcome
-    writeJson out (workerPacket json (toJson (ProducerReport.Outcome.ofExcept
-      ((guarded.mapError ProducerReport.Refusal.admission).bind id))))
-    return 0
-  if let ["--frontend-worker", input, out] := args then
-    let json ← IO.ofExcept <| Regula.Checker.PolicyCodec.parse (← IO.FS.readFile input)
-    let request : Frontend.WorkerRequest ← IO.ofExcept (fromJson? json)
-    let transcript ← Frontend.build request.moduleName request.source
-      (request.searchRoots.map FilePath.mk)
-    writeJson out (workerPacket json (toJson transcript))
-    return 0
-  if let ["--compile-batch-worker", input, out] := args then
-    let json ← IO.ofExcept <| Regula.Checker.PolicyCodec.parse (← IO.FS.readFile input)
-    let request ← IO.ofExcept (fromJson? json)
-    writeJson out
-        (workerPacket json (indexedWorkerPayload (← SourceAudit.compileBatchWorker request)))
-    return 0
-  if let ["--inspection-group-worker", input, out] := args then
-    let json ← IO.ofExcept <| Regula.Checker.PolicyCodec.parse (← IO.FS.readFile input)
-    let request ← IO.ofExcept (fromJson? json)
-    writeJson out (workerPacket json (toJson (← SourceAudit.inspectGroupWorker request)))
-    return 0
-  if let ["--diagnostic-worker", moduleWire, source, out] := args then
-    let moduleName ← IO.ofExcept <| Regula.RegistryCodec.parseName
-        (← IO.ofExcept <| Regula.Checker.PolicyCodec.parse moduleWire)
-    let before ← IO.FS.readFile source
-    let errors ← Diagnostics.errors moduleName source
-    unless (← IO.FS.readFile source) == before do throw <| IO.userError "diagnostic source changed"
-    writeJson out
-        (workerPacket (sourceWorkerRequest "diagnostic" moduleName source before) (toJson errors))
-    return 0
-  if let ["--replacement-history-worker", moduleWire, source, out] := args then
-    let moduleName ← IO.ofExcept <| Regula.RegistryCodec.parseName
-        (← IO.ofExcept <| Regula.Checker.PolicyCodec.parse moduleWire)
-    let transcript ← Frontend.buildReplacementHistoryCurrentSearchPath moduleName source
-    if !transcript.replacementHistoryUnsupported.isEmpty then
-      throw <|
-          IO.userError s!"unsupported replacement-history \
-            evaluators: {transcript.replacementHistoryUnsupported}"
-    writeJson out
-        (workerPacket (sourceWorkerRequest "history" moduleName source transcript.sourceContent)
-      (toJson transcript.runtimeReplacements))
-    return 0
-  -- Decide before the first write, then mark every destination of the one plan incomplete,
-  -- admitted or not: a refused invocation keeps its class whatever marking failed.
-  let plan ← Plan.of args
+/-- The audit of an invocation whose arguments are not an internal form, with their plan
+(`Plan.of`): it refuses an invalid invocation, audits the single file or the manifested project
+surfaces under the plan's root, and writes the result JSON and the acceptance link at the plan's
+resolved destinations. It returns the exit code of the result it recorded (`Lint.gateExitCode`):
+0 accepted or classified, 1 violation, 2 invalid configuration, 3 incomplete; an invalid
+invocation returns 2. `failed` lists the destinations of the plan that could not be marked
+incomplete (`Invocation.markIncomplete`); an admitted invocation stops with an error when it lists
+any. -/
+private unsafe def audit (plan : Plan) (failed : List String) : IO UInt32 := do
   resultTarget.set ((plan.target .result).bind (·.toOption))
-  let failed ← markIncomplete plan
-  for line in failed do
-    IO.eprintln s!"axiom gate: could not mark the destination {line} incomplete"
   let options ← match plan.admitted with
     | .error reason => return ← refuseInvocation reason
     | .ok options => pure options
@@ -1927,6 +1932,103 @@ unsafe def run (args : List String) : IO UInt32 := do
       IO.println s!"acceptance link: recorded {pending.digest}"
   -- The exit code is the recorded result's (`Lint.gateExitCode`).
   return Lint.gateExitCode code (← terminalObservation.get)
+
+/-- Run one `axiomGate` invocation and return its exit code. It reads its arguments once
+(`Invocation.of`) and marks each file of that reading incomplete, whether or not the invocation is
+admitted (`Invocation.markIncomplete`), so a run that stops before its write leaves no earlier
+completed output there. The internal forms then do only their job; any other invocation is an
+audit of its plan (`audit`), which refuses an invalid invocation whatever marking failed. An
+audit returns the exit code of the result it recorded (`Lint.gateExitCode`), and `--help` and the
+internal forms 0 when they succeed. -/
+unsafe def run (args : List String) : IO UInt32 := do
+  terminalObservation.set none
+  auditedTarget.set none
+  resultTarget.set none
+  RunFeedback.reset
+  expectedStages.set ResultProtocol.allStages
+  let invocation ← Invocation.of args
+  let failed ← invocation.markIncomplete none
+  for line in failed do
+    IO.eprintln s!"axiom gate: could not mark the destination {line} incomplete"
+  match invocation with
+  | .validateSite registryPath artifactPath =>
+    let registry ← IO.ofExcept <| Regula.Checker.PolicyCodec.parse (← IO.FS.readFile registryPath)
+    let artifact ← IO.ofExcept <| Regula.Checker.PolicyCodec.parse (← IO.FS.readFile artifactPath)
+    IO.ofExcept <| Regula.Website.validateArtifact ResultProtocol.producer registry artifact
+    return 0
+  | .registryOut output =>
+    writeJson output (Regula.RegistryCodec.registryJson ResultProtocol.producer)
+    return 0
+  | .validateRegistry input =>
+    let value ← IO.ofExcept <| Regula.Checker.PolicyCodec.parse (← IO.FS.readFile input)
+    IO.ofExcept <| Regula.RegistryCodec.validateRegistry ResultProtocol.producer value
+    return 0
+  | .moduleGraphWorker input out =>
+    let json ← IO.ofExcept <| Regula.Checker.PolicyCodec.parse (← IO.FS.readFile input)
+    let request : ModuleGraphRequest ← IO.ofExcept (fromJson? json)
+    let guarded ← SourceBinding.withUnchanged request.sourceBindings #[] <|
+      Environment.loadModuleGraph request.modules (request.searchRoots.map FilePath.mk)
+    let graph ← IO.ofExcept <| guarded.mapError (·.detail)
+    writeJson out (workerPacket json (toJson graph))
+    return 0
+  | .declarationReportWorker _ out decoded =>
+    let (json, request) ← IO.ofExcept decoded
+    let guarded ← SourceBinding.withUnchanged
+        (α := Except ProducerReport.Refusal ProducerReport.Environment)
+        request.sourceBindings #[] do
+      let outcome ← Environment.loadReportOutcome request.modules
+        (request.searchRoots.map FilePath.mk) (request.sourceRoots.map FilePath.mk)
+        (request.sourceBindings.map fun source => (source.moduleName, FilePath.mk source.path))
+        request.ownership (validateReport := false)
+        (historyMemo := some (FilePath.mk request.historyMemo)) (priors := request.priors)
+        (publish := some (FilePath.mk request.publish)) (inspectDependencies := true)
+      if let .ok report := outcome then
+        if let .error failure := SourceBinding.validateAgainst request.sourceBindings report then
+          return .error (.admission failure)
+      return outcome
+    writeJson out (workerPacket json (toJson (ProducerReport.Outcome.ofExcept
+      ((guarded.mapError ProducerReport.Refusal.admission).bind id))))
+    return 0
+  | .frontendWorker input out =>
+    let json ← IO.ofExcept <| Regula.Checker.PolicyCodec.parse (← IO.FS.readFile input)
+    let request : Frontend.WorkerRequest ← IO.ofExcept (fromJson? json)
+    let transcript ← Frontend.build request.moduleName request.source
+      (request.searchRoots.map FilePath.mk)
+    writeJson out (workerPacket json (toJson transcript))
+    return 0
+  | .compileBatchWorker input out =>
+    let json ← IO.ofExcept <| Regula.Checker.PolicyCodec.parse (← IO.FS.readFile input)
+    let request ← IO.ofExcept (fromJson? json)
+    writeJson out
+        (workerPacket json (indexedWorkerPayload (← SourceAudit.compileBatchWorker request)))
+    return 0
+  | .inspectionGroupWorker input out =>
+    let json ← IO.ofExcept <| Regula.Checker.PolicyCodec.parse (← IO.FS.readFile input)
+    let request ← IO.ofExcept (fromJson? json)
+    writeJson out (workerPacket json (toJson (← SourceAudit.inspectGroupWorker request)))
+    return 0
+  | .diagnosticWorker moduleWire source out =>
+    let moduleName ← IO.ofExcept <| Regula.RegistryCodec.parseName
+        (← IO.ofExcept <| Regula.Checker.PolicyCodec.parse moduleWire)
+    let before ← IO.FS.readFile source
+    let errors ← Diagnostics.errors moduleName source
+    unless (← IO.FS.readFile source) == before do throw <| IO.userError "diagnostic source changed"
+    writeJson out
+        (workerPacket (sourceWorkerRequest "diagnostic" moduleName source before) (toJson errors))
+    return 0
+  | .replacementHistoryWorker moduleWire source out =>
+    let moduleName ← IO.ofExcept <| Regula.RegistryCodec.parseName
+        (← IO.ofExcept <| Regula.Checker.PolicyCodec.parse moduleWire)
+    let transcript ← Frontend.buildReplacementHistoryCurrentSearchPath moduleName source
+    if !transcript.replacementHistoryUnsupported.isEmpty then
+      throw <|
+          IO.userError s!"unsupported replacement-history \
+            evaluators: {transcript.replacementHistoryUnsupported}"
+    writeJson out
+        (workerPacket (sourceWorkerRequest "history" moduleName source transcript.sourceContent)
+      (toJson transcript.runtimeReplacements))
+    return 0
+  | .audit plan => audit plan failed
 
 /-- The `axiomGate` executable body: search-path initialization, then `run`, with
 any escaping error reported as `FAIL` and the incomplete exit code 3, since no result was
