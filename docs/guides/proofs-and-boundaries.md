@@ -721,14 +721,16 @@ operates with `lean --run` does not start through the guard. The `lean` executab
 manager before it reads the file, and the variable `LEAN_NUM_THREADS` does not change it.
 
 The module `Regula.ProgramCheck.Controls` has controls of the check. The last cli shard of the
-self-test operates `axiomGate`, `lint`, `docFenceAudit`, `qualify` and the self-test with
+self-test operates `axiomGate`, `lint`, `docFenceAudit`, `qualify`, `site` and the self-test with
 `LEAN_NUM_THREADS=0`. It operates one run for each kind of destination. The kinds are a result,
-an acceptance link, a worker packet, an evidence file and the proxy of `axiomGate`. They also
-include the report of the launcher and a self-hosted digest.
+an acceptance link, a worker packet, the report worker's published admission, an evidence file
+and the proxy of `axiomGate`. They also include the report of the launcher, a self-hosted digest
+and the artifact of `site build`.
 
 Before each run, each destination holds a completed document of its format, and its reader
 accepts it. After the run, each destination must be marked incomplete, with the
-reason, or removed for a digest. Its reader must then refuse it as a completed document.
+reason, or removed for a digest or the site artifact. Its reader must then refuse it as a
+completed document.
 
 The driver moves the pending record to `tmp/acceptance-link.json` only if
 `RegulaVerification.passed` accepts the exit status of each command. The driver does that move
