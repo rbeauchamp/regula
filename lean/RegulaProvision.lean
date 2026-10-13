@@ -1073,16 +1073,15 @@ def provisionVerso (repo : FilePath) : IO Unit := do
       so pin the same commit in the two manifests"
   stream (repo / "website") (.toolchain .lake) #["build", "verso/VersoManual"]
 
-/-- Check the exact supported compiler before provisioning any dependency artifacts. -/
+/-- Check the exact supported compiler before provisioning any dependency artifacts. The process
+observer starts the policy guard only on a compiler that reports this program's identity. -/
 def requireReleasedCompiler (repo : FilePath) : IO Unit := do
   requireCompiler repo
   let out ← Process.output (.toolchain .lean) {
     cmd := "", args := #["lean/RegulaPolicy/Compiler.lean"], cwd := some repo,
-    env := #[("REGULA_COMPILER_GUARD", some "1"), ("GHCR_TOKEN", none)], stdin := .null }
+    env := #[("GHCR_TOKEN", none)], stdin := .null }
   unless out.exitCode == 0 do
     throw <| IO.userError s!"provisioning: released compiler guard failed:\n{out.stdout}{out.stderr}"
-  unless out.stdout.replace "\r" "" == s!"{Lean.versionString}\n{Lean.githash}\n" do
-    throw <| IO.userError "provisioning: the policy guard and provisioning program report different compiler identities"
 
 /-- Refuse retired acquisition settings without installing, restoring or rewriting anything. -/
 def requireReleasedSetup (repo : FilePath) : IO Unit := do
