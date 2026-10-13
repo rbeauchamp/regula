@@ -342,9 +342,11 @@ def constructionSource : String := include_str "RegulaCore/CopyProgram.lean"
 same gitEnvironment definition as the copy adapter, without a second Git policy or launcher.
 The interpreter reads its source from stdin, without a temporary file or removal.
 
-Assumes: Lean v4.34.1 `IO.Process.output` supplies stdin and waits for the child;
-`Lean/Util/Path.lean:85-86` identifies the running toolchain. `--stdin --run` faithfully executes
-constructionSource. Construction.gitEnvironment documents the Git and OS assumptions. -/
+Assumes: Lean v4.34.1 `IO.Process.output` supplies stdin and waits for the child
+(`Init/System/IO.lean:1544-1557`);
+`Lean/Util/Path.lean:85-86` identifies the running toolchain. `--stdin --run`
+(`Lean/Shell.lean:497-518,552-560`) faithfully executes constructionSource.
+Construction.gitEnvironment documents the Git and OS assumptions. -/
 private def gitEnvironment : IO (Array (String × Option String)) := do
   let out ← IO.Process.output {
     cmd := ((← Lean.getBuildDir) / "bin/lean").toString
