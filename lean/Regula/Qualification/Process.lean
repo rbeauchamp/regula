@@ -2,6 +2,9 @@ import Regula.Qualification.Support
 import Regula.Process
 import Regula.Cli.Setup
 import Regula.Checker.Workspace
+import Regula.Removal
+import Regula.Checker.Frontend
+import Regula.Checker.Diagnostics
 
 /-! # Qualification of the process and bootstrap boundaries
 
@@ -39,21 +42,71 @@ def solver : String := include_str "../../../examples/process-controls/Solver.le
 /-- The raw native-build counterexample, parameterized by its command arguments. -/
 def baseline : String := include_str "../../../examples/process-controls/Baseline.lean"
 
+/-- The standalone imported lookalike, compiled under the Lake.PlantedControl module name. -/
+def libraryLookalike : String := include_str "../../../examples/process-controls/LibraryLookalike.lean"
+
+/-- Lake's actual native fallback, without a copied selection rule. -/
+def nativeFallback : String := include_str "../../../examples/process-controls/NativeFallback.lean"
+
 /-- Copy the campaign's exact committed sources for separate sequential compiler checks.
 Called by the compiled qualifier; it executes no fixture main. The solver compiler check
 does elaborate its tactic. No printer, source generator or interpreted Lake cache is used. -/
 def writePreflight (directory : FilePath) : IO Unit := do
   IO.FS.createDirAll directory
+  IO.FS.createDirAll (directory / "Lake")
   for (name, source) in [("lakefile.lean", lakefile), ("ProcessFixture.lean", native),
       ("Setup.lean", setup), ("Driver.lean", driver), ("Solver.lean", solver),
-      ("Baseline.lean", baseline)] do
+      ("Baseline.lean", baseline), ("Lake/PlantedControl.lean", libraryLookalike),
+      ("NativeFallback.lean", nativeFallback)] do
     IO.FS.writeFile (directory / name) source
 
 end Sources
 
+/-- Compile and import an actual project artifact under a library module name. Lean's explicit
+ImportArtifacts supplies only that fixture; ordinary library imports keep their actual origins.
+The controls inspect compiled calls, and never execute their planted native actions.
+Assumes: Lean v4.34.1 `Lean/Setup.lean:69-87` and `Lean/Environment.lean:2228-2249` load the
+supplied artifact and retain its path. `Lean/Environment.lean:2427-2431` requires initializer
+execution before loading extensions; this serialized control enables it and retains the imported
+regions as `Lean/ImportingFlag.lean:18-28` requires. Compiler and imports remain trusted. -/
+private def importedLibraryControl (directory : FilePath) : IO Unit := do
+  let source := directory / "Lake" / "PlantedControl.lean"
+  let artifact := source.withExtension "olean"
+  IO.FS.createDirAll (directory / "Lake")
+  IO.FS.writeFile source Sources.libraryLookalike
+  let compiled ← run directory (.toolchain .lean)
+    #["-R", directory.toString, "-o", artifact.toString, source.toString]
+  requireChecks [⟨"imported library control: actual source compiled", compiled.exitCode == 0⟩]
+  let artifacts : ImportArtifacts := .ofArrays #[#[artifact]]
+  unsafe Lean.enableInitializersExecution
+  let env ← Lean.importModules #[{ module := `Lake.PlantedControl, importAll := true }] {} 0
+    (loadExts := true) (level := .private)
+    (arts := ({} : NameMap ImportArtifacts).insert `Lake.PlantedControl artifacts)
+  let origins ← Regula.Removal.libraryOrigins env
+  let caller := `Lake.PlantedControl.read
+  let some index := env.getModuleIdxFor? caller
+    | throw <| IO.userError "imported library control: caller was not imported"
+  requireChecks [⟨"imported library control: actual imported module has library name",
+      env.header.moduleNames[index.toNat]! == `Lake.PlantedControl⟩,
+    ⟨"imported library control: real pinned Lake origin remains admitted",
+      Regula.Removal.libraryCaller env origins [`Lake] `Lake.captureProc'⟩,
+    ⟨"imported library control: lookalike origin is refused",
+      !Regula.Removal.authenticatedCaller env origins caller⟩]
+  for (root, primitive) in [(caller, ``IO.getEnv), (`Lake.PlantedControl.start, ``Lake.captureProc')] do
+    let reach := Regula.Removal.rawRemovalsFrom env #[] #[root] (origins := origins)
+    requireChecks [⟨"imported library control: intended compiled action is refused",
+      reach.unknown.isEmpty && reach.calls.any fun call =>
+        call.caller == root && Regula.Removal.observerVariant env #[primitive] call.primitive⟩]
+
 /-- The native shadow's early entry, before any command parsing or deadline dispatch.
 Only the control supplies its marker path; it changes no project file. -/
-def worker : IO UInt32 := do
+def worker (args : List String := []) : IO UInt32 := do
+  -- This owned identity-reply control is not a copied Lean installation. It exercises the
+  -- observer's self-report protocol; the native cc/ar actions still prove their own image ran.
+  if args == ["--stdin"] && (← Regula.Process.readEnv "REGULA_PROCESS_IDENTITY") == some "1" then
+    IO.println Lean.versionString
+    IO.println Lean.githash
+    return 0
   let some marker ← Regula.Process.readEnv "REGULA_PROCESS_MARKER"
     | throw <| IO.userError "process control has no marker"
   IO.FS.writeFile marker "shadow ran\n"
@@ -62,20 +115,46 @@ def worker : IO UInt32 := do
   IO.println "regula process shadow ran"
   return 73
 
+/-- Exercise the actual process preparation or workspace load in a fresh worker. The positive
+boundary mode admits an absolute override without starting a native tool. A returned path is
+boundary admission, not a successful native build or a claim that the identity reply is Lean. -/
+def nativeFallbackWorker (mode : String) (directory : FilePath) : IO UInt32 := do
+  try
+    match mode with
+    | "prepare" => discard <| Regula.Process.prepare (.toolchain .lake) {cmd := ""}
+    | "workspace" => Regula.Checker.Workspace.withRootWorkspace directory fun _ => pure ()
+    | "boundary" => discard <| Regula.Process.lakeSysroot
+    | _ => throw <| IO.userError "unknown native fallback worker"
+    IO.println "native boundary admitted"
+    return 0
+  catch error =>
+    IO.eprintln error
+    return 2
+
 /-- Elaborate one solver-using source in this Regula executable. The raw branch is an external
 boundary counterexample: no process policy is duplicated, only the unprotected initial options.
-The protected branch calls the actual setup reader, which supplies sat.solver before elaboration.
+The protected branches call the actual setup, fresh frontend and diagnostic source readers.
 The caller selects this worker by its own single argument, so solver children with native SAT
 arguments inherit only the marker-worker environment mode. Assumes: Lean v4.34.1
 External.lean:147-166 supplies its solver arguments, and Init/System/IO.lean:1434-1450 inherits
 the parent's environment. Imported tactic code and its native solver remain trusted. -/
-def cadicalWorker (checked : Bool) : IO UInt32 := do
+def cadicalWorker (checked : Bool) (route : String := "setup") : IO UInt32 := do
   let some file ← Regula.Process.readEnv "REGULA_CADICAL_SOURCE"
     | throw <| IO.userError "cadical control has no owned source"
   let source ← IO.FS.readFile file
   let errors ← if checked then do
-    let (_, errors) ← Regula.Cli.Setup.lakefileCommands file source
-    pure errors
+    if route == "setup" then
+      let (_, errors) ← Regula.Cli.Setup.lakefileCommands file source
+      pure errors
+    else do
+      Regula.Checker.initializeLeanSearchPath
+      match route with
+      | "frontend" =>
+        discard <| unsafe Regula.Checker.Frontend.buildCurrentSearchPath `processCadical file
+        pure []
+      | "diagnostics" =>
+        (← unsafe Regula.Checker.Diagnostics.errors `processCadical file).toList |> pure
+      | _ => throw <| IO.userError "unknown checked solver reader"
   else do
     Regula.Checker.initializeLeanSearchPath
     unsafe Lean.enableInitializersExecution
@@ -158,6 +237,47 @@ private def baseline (fixture : Fixture) (tool : Regula.Process.Tool) : IO Unit 
   fixture.clear
   IO.println s!"process control: workspace {tool.basename}: live baseline completed"
 
+/-- Lake itself selects bare cc/ar when the candidate lacks its bundled tools. The baseline
+must record that exact native image, then both protected public paths must refuse for the native
+fallback reason. The owned candidate contains an identity-reply control, not a cloned compiler;
+it qualifies installation admission and Lake's actual native action, not a whole alternate build.
+Successful absolute-override preparation restores the boundary positive. -/
+private def missingNativeControl (fixture : Fixture) (executable : FilePath)
+    (tool : Regula.Process.Tool) : IO Unit := do
+  let installation := fixture.root / "candidate"
+  IO.FS.createDirAll (installation / "bin")
+  shadow executable (installation / "bin" / "lean")
+  -- The positive prepares this path but does not execute it.
+  IO.FS.writeFile (installation / "bin" / "lake") ""
+  let operation := if tool == .clang then "cc" else "ar"
+  let image := fixture.bin / operation
+  shadow executable image
+  let source := fixture.root / "NativeFallback.lean"
+  IO.FS.writeFile source Sources.nativeFallback
+  IO.FS.writeFile (fixture.root / "control.c") "int control(void) { return 0; }\n"
+  let cleared := fixture.env ++ Regula.Process.overrideVariables.map fun name => (name, none)
+  let raw ← run fixture.root (.toolchain .lean)
+    #["--run", source.toString, installation.toString, operation, fixture.root.toString] cleared
+  requireChecks [⟨"missing native bundle: Lake's exact fallback action ran",
+    raw.exitCode == 1 && (← marked fixture.marker "shadow ran\n") &&
+      (← marked (fixture.marker.addExtension "program") (← IO.FS.realPath image).toString)⟩]
+  fixture.clear
+  let env := cleared ++ #[("LEAN_SYSROOT", some installation.toString),
+    ("REGULA_PROCESS_IDENTITY", some "1")]
+  for mode in ["prepare", "workspace"] do
+    let result ← run fixture.root (.stated executable "The native worker exercises the guarded installation boundary")
+      #["--process-native-fallback", mode, fixture.root.toString] env
+    requireChecks [⟨"missing native bundle: intended installation refusal",
+      result.exitCode == 2 && result.stderr.contains "Lake's bare native-tool fallback is refused"⟩,
+      ⟨"missing native bundle: no workspace native tool started", !(← fixture.marker.pathExists)⟩]
+  let absoluteEnv := env ++ #[("LEAN_CC", some (← Regula.Process.toolPath .clang).toString),
+    ("LEAN_AR", some (← Regula.Process.toolPath .llvmAr).toString)]
+  for mode in ["prepare", "boundary"] do
+    let result ← run fixture.root (.stated executable "The native worker restores absolute-override boundary admission")
+      #["--process-native-fallback", mode, fixture.root.toString] absoluteEnv
+    requireChecks [⟨"missing native bundle: restored boundary admits absolute overrides",
+      result.exitCode == 0 && result.stdout == "native boundary admitted\n"⟩]
+
 /-- Run the actual approved wrapper's bytes in an isolated workspace with a Lean stub driver.
 The real Lean must elaborate the stub and return its exact 37; a PATH shadow writes another marker.
 No acceptance campaign runs here and no shell program is generated. -/
@@ -204,6 +324,7 @@ def check : IO Unit := do
   let root ← rootDirectory
   let executable ← Regula.Process.appPath
   withScratch root "process-observers" fun scratch => do
+    importedLibraryControl (scratch / "imported-library")
     let marker := scratch / "shadow-ran"
     let fixture ← plant (scratch / "tools") executable marker
     for (tool, args) in [(Regula.Process.Tool.lean, #["--version"]),
@@ -235,15 +356,18 @@ def check : IO Unit := do
       requireChecks [⟨s!"raw solver/{label}: workspace cadical action ran (exit {raw.exitCode}, stdout {raw.stdout}, stderr {raw.stderr})",
         raw.exitCode == 1 && (← solver.actionRan .cadical)⟩]
       solver.clear
-      let checked ← run solver.root (.stated parent "The owned qualifier exercises the actual setup reader's checked solver")
-        #["--process-cadical-checked"] solverEnv
-      requireChecks [⟨s!"checked solver/{label}: same source really elaborated", checked.exitCode == 0⟩,
-        ⟨s!"checked solver/{label}: workspace cadical was bypassed", !(← marker.pathExists)⟩]
+      for route in ["setup", "frontend", "diagnostics"] do
+        let checked ← run solver.root (.stated parent "The owned qualifier exercises the actual source reader's checked solver")
+          #["--process-cadical-reader", route] solverEnv
+        requireChecks [⟨s!"checked solver/{label}/{route}: same source really elaborated", checked.exitCode == 0⟩,
+          ⟨s!"checked solver/{label}/{route}: workspace cadical was bypassed", !(← marker.pathExists)⟩]
     let lake ← Regula.Process.toolPath .lake
     for (overrideName, tool) in [("LEAN_CC", Regula.Process.Tool.clang), ("CC", .clang),
         ("LEAN_AR", .llvmAr), ("AR", .llvmAr)] do
       let native ← plant (scratch / overrideName) executable marker
       baseline native tool
+      if overrideName == "CC" || overrideName == "AR" then
+        missingNativeControl native executable tool
       let name := tool.basename
       let overrides := native.env.push (overrideName, some name)
       -- LEAN_* always overrides the bundled tool. CC/AR are also refused, even where this

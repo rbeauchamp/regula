@@ -3,6 +3,7 @@ import RegulaStandard
 import Regula.TaskManagerCheck
 import RegulaCore.Standard
 import Regula.Removal
+import Regula.ProgramCheck.Renderer
 
 /-! Renders the standard alone. Rendering resolves every cross-reference and checklist-row
 anchor, so a successful run is the standard's cross-reference check; the published copy is
@@ -47,10 +48,10 @@ refused before rendering starts, with exit code 1 (`Regula.TaskManager.guard`). 
 def main : List String → IO UInt32 :=
   Regula.TaskManager.guard "regula-standard" refuseStandard renderStandard
 
--- The removals that the compiled code of `main`, and of the initializers of the modules it links,
--- reaches are the filesystem observer's and those that `Regula.Removal.libraryRemovals` lists: the
--- build of this module fails otherwise (`Regula.Removal.checkProgram`).
-run_cmd Regula.Removal.checkProgram
+-- The process, environment and removal primitives that the compiled code of `main`, and of the
+-- initializers of the modules it links, reaches go through their observers or sourced exemptions:
+-- the build of this module fails otherwise (`Regula.ProgramCheck.Renderer.check`).
+run_cmd Regula.ProgramCheck.Renderer.check
 
 -- A program that needs Lean's task manager starts through its guard (`Regula.TaskManager.guard`),
 -- and its refusal needs none: the build of this module fails otherwise

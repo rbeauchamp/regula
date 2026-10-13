@@ -1,5 +1,5 @@
+import Lake.Config.InstallPath
 import Lean
-import Regula.Process
 
 /-! # The diagnostics gate
 
@@ -62,6 +62,21 @@ collision resistance, not a theorem.
 -/
 
 namespace Regula.DiagnosticsGate
+
+namespace Process
+
+-- The workflow runs this source before project artifacts exist. Interpret the one process policy.
+run_cmd do
+  let origin ← Lean.getRef
+  let before ← Lean.getEnv
+  let input := Lean.Parser.mkInputContext (include_str "ProcessSource.inc") "Regula/ProcessSource.inc"
+  let result ← Lean.Elab.IO.processCommands input {} (← get)
+  set result.commandState
+  for (name, _) in result.commandState.env.constants.toList do
+    unless before.contains name do
+      Lean.Elab.addDeclarationRangesFromSyntax name origin
+
+end Process
 
 open Lean
 
@@ -387,14 +402,14 @@ theorem digestRefusals_eq_nil_iff (required : Bool) (positive restored : Option 
 /-! ## Steps -/
 
 private def env (name : String) : IO String := do
-  match ← Regula.Process.readEnv name with
+  match ← Process.readEnv name with
   | some v => if v.isEmpty then fail s!"{name} is empty" else pure v
   | none => fail s!"{name} is not set"
 
 /-- Run `git` with `args` in the checkout; its standard output as it is, or a failure with its
 standard error. -/
 private def git (args : Array String) : IO String := do
-  let out ← Regula.Process.output (.stated "git" "Git supplies the diagnostic gate's repository observation")
+  let out ← Process.output (.stated "git" "Git supplies the diagnostic gate's repository observation")
     { cmd := "", args }
   unless out.exitCode == 0 do fail s!"git {args}: {out.stderr}"
   return out.stdout

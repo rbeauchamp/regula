@@ -9,11 +9,11 @@ process. Captured values are never printed or persisted; acquisition is trusted 
 namespace Regula.Qualification.Launcher
 open Lean System RegulaQualification.Launcher
 
-/-- One validated mapping plus its actual PATH-resolved executable. -/
+/-- One validated mapping plus the compiler selected from the checked installation. -/
 structure Captured where
   /-- The variables `lake env /usr/bin/env -0` printed, admitted by `admit` as `Valid`. -/
   environment : {env : RegulaQualification.Launcher.Environment // Valid env}
-  /-- The `lean` path that `which` resolved under that environment, joined to the root. -/
+  /-- The absolute `lean` path constructed from the observer's checked installation. -/
   executable : String
 
 /-- Invocation-local cache. No state survives a qualification invocation. -/

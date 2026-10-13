@@ -1,6 +1,8 @@
 import Regula.Filesystem
 import Regula.Process
+import Regula.Checker.ModuleName
 import Lake.Build.Actions
+import Lake.Config.Module
 import Lake.Util.Proc
 import Lean.Compiler.IR.EmitUtil
 import Lean.Compiler.InitAttr
@@ -309,26 +311,59 @@ def boundaryOf (env : Environment) (index : Std.HashMap Name Boundary) (name : N
       boundary.symbols.any fun symbol => data.entries.any (bindsTo symbol)
     | _ => none
 
-/-- Whether this caller comes from an imported module under a stated library root. The local
-module never gets a library exemption, even when its name has such a root. The environment row
-trusts Init, Lean and Lake observations, including their search-path and environment decoders.
-Assumes: the imported modules at the table's stated roots are the toolchain's modules; the
-installed toolchain and import mechanism are trusted. Sources: Lean v4.34.1
-`Lean/Util/Path.lean:85-144`, `Lake/Config/Env.lean`, `Lake/Config/InstallPath.lean`. -/
-def libraryCaller (env : Environment) (roots : List Name) (caller : Name) : Bool :=
+/-- Imported modules whose canonical artifact is recorded among Lean's loaded regions and is
+exactly their artifact in the checked toolchain or an explicitly supplied Lake package. Name
+roots select a boundary's policy only after this origin admission; a project lookalike is absent.
+The caller supplies only pinned third-party packages already loaded through Lake's own model.
+Assumes: Lean v4.34.1 `Lean/CompactedRegion.lean:27-29` records the loaded path;
+`Lean/Environment.lean:2079-2091,2364-2375` loads module parts and retains their regions in the
+private view. `Lake/Config/Module.lean:58-59,97-102` resolves a package module and its artifact.
+Compiler import records, canonical-path reads, pinned package contents and their stability remain trusted. -/
+def libraryOrigins (env : Environment) (packages : Array _root_.Lake.Package := #[]) : IO NameSet := do
+  let toolchain ← Lean.getLibDir (← Regula.Process.sysroot)
+  let mut loaded : Std.HashSet String := {}
+  for region in env.header.regions do
+    loaded := loaded.insert (← IO.FS.realPath region.filePath).toString
+  let mut admitted : NameSet := {}
+  for moduleName in env.header.moduleNames do
+    let some expected := Regula.Checker.modulePath? toolchain moduleName "olean" | continue
+    let mut candidates := #[expected]
+    for package in packages do
+      if let some mod := package.findModule? moduleName then
+        candidates := candidates.push mod.oleanFile
+    for candidate in candidates do
+      if ← candidate.pathExists then
+        let canonical ← IO.FS.realPath candidate
+        if loaded.contains canonical.toString then
+          admitted := admitted.insert moduleName
+  return admitted
+
+/-- Whether Lean attributes the caller to an origin-admitted imported module. A local module
+and an imported name lookalike have no authenticated artifact, so neither receives an exemption. -/
+def authenticatedCaller (env : Environment) (origins : NameSet) (caller : Name) : Bool :=
   match env.getModuleIdxFor? caller with
-  | some index => roots.contains env.header.moduleNames[index.toNat]!.getRoot
+  | some index => origins.contains env.header.moduleNames[index.toNat]!
+  | none => false
+
+/-- The imported caller's origin is admitted and its module belongs to this row's policy domain.
+The name root is never evidence of library origin. -/
+def libraryCaller (env : Environment) (origins : NameSet) (roots : List Name) (caller : Name) : Bool :=
+  match env.getModuleIdxFor? caller with
+  | some index => origins.contains env.header.moduleNames[index.toNat]! &&
+      roots.contains env.header.moduleNames[index.toNat]!.getRoot
   | none => false
 
 /-- The one admission decision for a caller and primitive, parameterized by its system's row.
 A named bootstrap exemption and a library pair admit that whole caller/primitive pair. -/
-def admitted (env : Environment) (boundary : Boundary) (observers : Array Name)
+def admitted (env : Environment) (origins : NameSet) (boundary : Boundary) (observers : Array Name)
     (named : List (Name × Name)) (caller primitive : Name) : Bool :=
-  observerVariant env observers caller || (boundary.library ++ named).any (fun (source, operation) =>
+  observerVariant env observers caller || named.any (fun (source, operation) =>
     observerVariant env #[source] caller && observerVariant env #[operation] primitive) ||
-    (libraryCaller env boundary.entrypointCallers caller &&
+    (authenticatedCaller env origins caller && boundary.library.any (fun (source, operation) =>
+      observerVariant env #[source] caller && observerVariant env #[operation] primitive)) ||
+    (libraryCaller env origins boundary.entrypointCallers caller &&
       observerVariant env boundary.entrypoints.toArray primitive) ||
-    libraryCaller env boundary.libraryCallers caller
+    libraryCaller env origins boundary.libraryCallers caller
 
 /-- The modules that a program whose `main` is in the module `root` links: `root` and each module
 that it imports, directly or through another. -/
@@ -402,7 +437,7 @@ plus missing compiled bodies. Runtime-bound aliases use the same table as named 
 The filesystem observers parameter retains the existing control API; other rows obtain their
 observers from the same role mechanism. Native C bodies are not followed. -/
 def rawRemovalsFrom (env : Environment) (observers : Array Name) (roots : Array Name)
-    (named : List (Name × Name) := []) : Reach :=
+    (named : List (Name × Name) := []) (origins : NameSet := {}) : Reach :=
   Id.run do
   let index := primitiveIndex env
   let mut classified : Std.HashMap Name (Option Boundary) := {}
@@ -430,7 +465,7 @@ def rawRemovalsFrom (env : Environment) (observers : Array Name) (roots : Array 
           | none => boundaryOf env index used
         classified := classified.insert used boundary
         if let some boundary := boundary then
-          unless admitted env boundary (own[boundary.system]?.getD #[]) named name used do
+          unless admitted env origins boundary (own[boundary.system]?.getD #[]) named name used do
             calls := calls.push ⟨boundary.system, name, used⟩
         else if !seen.contains used then
           seen := seen.insert used
@@ -447,9 +482,10 @@ def rawRemovalsFrom (env : Environment) (observers : Array Name) (roots : Array 
 from each initializer of the modules that it links (`linked`, `initializersOf`). Each row supplies
 its own observers and sourced exemptions; `named` supplies the cold driver's explicit pairs.
 Roles outside each row's boundary module are retained as foreign declarations. -/
-def rawRemovals (env : Environment) (root : Name) (named : List (Name × Name) := []) : Reach :=
+def rawRemovals (env : Environment) (root : Name) (named : List (Name × Name) := [])
+    (origins : NameSet := {}) : Reach :=
   let roots := (initializersOf env (linked env root)).push `main
-  { rawRemovalsFrom env (filesystemObservers env) roots named with
+  { rawRemovalsFrom env (filesystemObservers env) roots named origins with
     foreign := boundaries.foldl (fun found boundary =>
       found ++ ((observerRoles env boundary.system boundary.observer).2.map
         fun name => (boundary.system, name))) #[] }
@@ -479,14 +515,17 @@ def programRefusal (root : Name) (reach : Reach) : Option String :=
 program (`programRefusal`) when there is one, and otherwise record the program (`reached`).
 `named` admits the explicit bootstrap pairs of a program that cannot import its observers,
 each as its caller and the primitive that it calls (`admitted`). -/
-def checkProgram (named : List (Name × Name) := []) : Elab.Command.CommandElabM Unit := do
-  let env ← getEnv
-  unless env.contains `main do
-    throwError "no `main` is declared here, so there is no program to check"
-  let root := moduleOf env `main
-  if let some refused := programRefusal root (rawRemovals env root named) then throwError refused
-  Elab.Command.liftCoreM <| addDecl (.defnDecl {
-    name := reached ++ root, levelParams := [], type := mkConst ``Unit,
-    value := mkConst ``Unit.unit, hints := .abbrev, safety := .safe })
+def checkProgram (named : List (Name × Name) := [])
+    (packages : Array _root_.Lake.Package := #[]) : Elab.Command.CommandElabM Unit :=
+  withExporting (isExporting := false) do
+    let env ← getEnv
+    unless env.contains `main do
+      throwError "no `main` is declared here, so there is no program to check"
+    let root := moduleOf env `main
+    let origins ← Elab.Command.liftIO <| libraryOrigins env packages
+    if let some refused := programRefusal root (rawRemovals env root named origins) then throwError refused
+    Elab.Command.liftCoreM <| addDecl (.defnDecl {
+      name := reached ++ root, levelParams := [], type := mkConst ``Unit,
+      value := mkConst ``Unit.unit, hints := .abbrev, safety := .safe })
 
 end Regula.Removal

@@ -25,8 +25,7 @@ the checker's build directory as the installation, and it reads `LAKE_HOME`, whi
 sets to the toolchain's root, as the root of a Lake build tree. The installation's commit is the
 one `Regula.Toolchain.sysroot` checked its `lean` reports. -/
 private def detectEnvironment : IO _root_.Lake.Env := do
-  Regula.Process.requireOverrides
-  let sysroot ← Regula.Toolchain.sysroot
+  let sysroot ← Regula.Process.lakeSysroot
   let elan? ← _root_.Lake.findElanInstall?
   let lean ← _root_.Lake.LeanInstall.get sysroot (collocated := true)
   let lean := { lean with githash := RegulaPolicy.Compiler.commit }

@@ -23,15 +23,13 @@ open SubVerso Highlighting
 
 /-- The options every example elaborates under: automatic implicits off, as standard §7.1
 recommends, and Lean's `linter.missingDocs` on, as standard §6.7 requires of a claimed library;
-`pp.tagAppFns` only tags the highlighting; `sat.solver` names `solver`, so `bv_decide` runs the
-selected compiler's bundled CaDiCaL rather than one beside this helper or on `PATH`. An example's
-own `set_option` still overrides each. -/
-def exampleOptions (solver : System.FilePath) (opts : Options) : Options :=
+`pp.tagAppFns` only tags the highlighting. The caller starts from Process.leanOptions, which names
+the selected compiler's bundled CaDiCaL. An example's own `set_option` still overrides each. -/
+def exampleOptions (opts : Options) : Options :=
   opts.setBool `autoImplicit false
     |>.setBool `relaxedAutoImplicit false
     |>.setBool `linter.missingDocs true
     |>.setBool `pp.tagAppFns true
-    |>.set `sat.solver solver.toString
 
 private def severity : MessageSeverity → String
   | .error => "error"
@@ -49,8 +47,7 @@ private def report (messages : Array Message) (code : Highlighted) : IO Unit := 
 unsafe def run (path : System.FilePath) : IO UInt32 := do
   let sysroot ← Regula.Process.sysroot
   initSearchPath sysroot
-  let opts := exampleOptions
-    (← Regula.Process.toolPath .cadical) {}
+  let opts := exampleOptions (← Regula.Process.leanOptions)
   let contents ← IO.FS.readFile path
   let ictx := Parser.mkInputContext contents path.toString
   let (header, parserState, headerMessages) ← Parser.parseHeader ictx

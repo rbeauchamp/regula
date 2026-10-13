@@ -106,7 +106,8 @@ theorem absolute_sound (path : FilePath) (admitted : AbsolutePath)
 def overrideVariables : Array String := #["LEAN_CC", "CC", "LEAN_AR", "AR"]
 
 /-- The effective value of a variable after POSIX Lean's left-to-right environment changes.
-Assumes: Lean v4.34.1 `runtime/process.cpp:463-469` applies valid changes in this order;
+Assumes: Lean v4.34.1 `runtime/process.cpp:463-469` applies changes in this order when every
+native update succeeds; the runtime ignores update failures, which valid strings do not exclude;
 this is not a model of Windows environment construction. -/
 def effective (initial : Option String) (changes : Array (String × Option String))
     (name : String) : Option String :=
@@ -166,6 +167,30 @@ structure Installation where
   private mk ::
   /-- The installation's absolute directory. -/
   root : AbsolutePath
+
+/-- Refuse an installation/environment in which Lake could fall back to a bare native tool.
+The guard requires the bundled tool or an override whose presence survives every supplied change;
+it does not reproduce Lake's choice between its absolute candidates. An unset occurrence cannot
+establish presence, even when a later occurrence restores it. With inheritance disabled, an
+inherited override cannot establish presence either.
+Assumes: Lean v4.34.1 `Lake/Config/InstallPath.lean:289-316` uses the bundled clang/llvm-ar or an
+applicable compiler/archiver override before its bare cc/ar fallback. The installation and parent
+environment stay stable, and native environment updates succeed (`runtime/process.cpp:463-469`). -/
+def requireNativeTools (installation : Installation)
+    (changes : Array (String × Option String) := #[]) (inheritEnv : Bool := true) : IO Unit := do
+  requireOverrides changes
+  for (tool, variables) in [(Tool.clang, #["LEAN_CC", "CC"]), (.llvmAr, #["LEAN_AR", "AR"])] do
+    let bundled := (installation.root.val / "bin" / tool.basename).addExtension FilePath.exeExtension
+    if ← bundled.pathExists then continue
+    let mut supplied := false
+    for name in variables do
+      let inherited ← if inheritEnv then readEnv name else pure none
+      let entries := changes.filter fun (key, _) =>
+        (if System.Platform.isWindows then key.toUpper else key) == name
+      if entries.all (·.2.isSome) && (inherited.isSome || entries.any (·.2.isSome)) then
+        supplied := true
+    unless supplied do
+      throw <| IO.userError s!"process selection: installation has no bundled {tool.basename} and no stable absolute override; Lake's bare native-tool fallback is refused"
 
 /-- Cache hooks retain only identity-checked installations. The installed observer supplies an
 IO.Ref; cold-source drivers use the default hooks without an initialized same-module reference.
@@ -232,6 +257,14 @@ def toolPath [Cache] (tool : Tool) (known : Option Installation := none) : IO Fi
 
 /-- The checked installation root, for Lean library lookup and in-process Lake. -/
 def sysroot [Cache] : IO FilePath := return (← identified).root.val
+
+/-- The checked installation admitted for an in-process Lake environment. This is the same
+native-tool admission the prepared process route uses, before Lake reads its own installation.
+Assumes: the installation and environment stay stable between this guard and LeanInstall.get. -/
+def lakeSysroot [Cache] : IO FilePath := do
+  let installation ← identified
+  requireNativeTools installation
+  return installation.root.val
 
 /-- A resolved program retains the tool's checked installation, whenever its type selects a tool. -/
 structure Resolution (program : Program) where
@@ -312,13 +345,15 @@ The environment array stays one value for the later environment-recording work. 
 def prepare [Cache] (program : Program) (args : IO.Process.SpawnArgs) : IO (Prepared program args) := do
   requireChanges args.env
   let known ← match program with
-    | .toolchain _ => some <$> identified
+    | .toolchain _ => do
+      let installation ← identified
+      requireNativeTools installation args.env args.inheritEnv
+      pure (some installation)
     | .stated .. => pure none
   let selected ← resolution program known
   let env ← match program with
     | .stated .. => pure args.env
     | .toolchain _ => do
-      requireOverrides args.env
       let some installation := known | throw <| IO.userError "toolchain launch lost its checked installation"
       pure (args.env ++ #[("LEAN_SYSROOT", some installation.root.val.toString),
         ("LEAN", some (← toolPath .lean known).toString), ("LAKE", some (← toolPath .lake known).toString),

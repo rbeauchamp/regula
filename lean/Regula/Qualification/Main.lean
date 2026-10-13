@@ -117,16 +117,20 @@ private inductive Invocation where
   /-- `--process-fixtures DIRECTORY`: copy the process controls' committed sources into
   `DIRECTORY` (`Regula.Qualification.Process.Sources.writePreflight`). -/
   | processFixtures (directory : String)
-  /-- `--process-cadical-raw` or `--process-cadical-checked`: the solver control's elaboration of
-  its owned source (`Regula.Qualification.Process.cadicalWorker`). -/
-  | processCadical (checked : Bool)
+  /-- `--process-cadical-raw`, `--process-cadical-checked` or `--process-cadical-reader ROUTE`:
+  the solver control's elaboration of its owned source, through the reader `route` when one is
+  named (`Regula.Qualification.Process.cadicalWorker`). -/
+  | processCadical (checked : Bool) (route : Option String)
+  /-- `--process-native-fallback MODE DIRECTORY`: the native fallback control's worker
+  (`Regula.Qualification.Process.nativeFallbackWorker`). -/
+  | processNativeFallback (mode directory : String)
   /-- `REGULA_RECEIPT_TIMER=1` with `--version`: the receipt boundary's worker. -/
   | receiptTimer
   /-- `REGULA_QUALIFICATION_WRAPPER=acceptance`: the test-only proxy of `axiomGate`, with the
   gate's arguments. -/
   | acceptanceProxy
-  /-- `REGULA_QUALIFICATION_WRAPPER=process`: the process controls' planted shadow
-  (`Regula.Qualification.Process.worker`), whatever its arguments. -/
+  /-- `REGULA_QUALIFICATION_WRAPPER=process`: the process controls' planted shadow, with its
+  arguments (`Regula.Qualification.Process.worker`). -/
   | processShadow
   /-- Another value of `REGULA_QUALIFICATION_WRAPPER`, which is refused. -/
   | unknownWrapper
@@ -141,8 +145,11 @@ through the process and environment observer (`Regula.Process.readEnv`). -/
 private def Invocation.of (args : List String) : BaseIO Invocation := do
   match args with
   | ["--process-fixtures", directory] => return .processFixtures directory
-  | ["--process-cadical-raw"] => return .processCadical false
-  | ["--process-cadical-checked"] => return .processCadical true
+  | ["--process-cadical-raw"] => return .processCadical false none
+  | ["--process-cadical-checked"] => return .processCadical true none
+  | ["--process-cadical-reader", route] => return .processCadical true (some route)
+  | ["--process-native-fallback", mode, directory] =>
+    return .processNativeFallback mode directory
   | _ => pure ()
   if (← Regula.Process.readEnv "REGULA_RECEIPT_TIMER") == some "1" && args == ["--version"] then
     return .receiptTimer
@@ -164,10 +171,14 @@ unsafe def qualifyMain (args : List String) : IO UInt32 := do
   | .processFixtures directory =>
     Regula.Qualification.Process.Sources.writePreflight directory
     return 0
-  | .processCadical checked => Regula.Qualification.Process.cadicalWorker checked
+  | .processCadical checked none => Regula.Qualification.Process.cadicalWorker checked
+  | .processCadical checked (some route) =>
+    Regula.Qualification.Process.cadicalWorker checked route
+  | .processNativeFallback mode directory =>
+    Regula.Qualification.Process.nativeFallbackWorker mode directory
   | .receiptTimer => Regula.Qualification.ReceiptBoundary.worker args
   | .acceptanceProxy => Regula.Qualification.Acceptance.worker args
-  | .processShadow => Regula.Qualification.Process.worker
+  | .processShadow => Regula.Qualification.Process.worker args
   | .unknownWrapper => throw <| IO.userError "unknown qualification wrapper mode"
   | .underDeadline attempt rest => dispatch rest attempt; return 0
   | .bounded args =>
@@ -195,8 +206,8 @@ private def refuseQualification (reason : String) (args : List String) : IO UInt
   match ← Invocation.of args with
   | .acceptanceProxy =>
     return ← Regula.Checker.AxiomGate.refuseWithoutTaskManager reason args
-  | .processFixtures _ | .processCadical _ | .receiptTimer | .processShadow | .unknownWrapper =>
-    pure ()
+  | .processFixtures _ | .processCadical _ _ | .processNativeFallback _ _ | .receiptTimer
+    | .processShadow | .unknownWrapper => pure ()
   | .underDeadline attempt rest => mark rest attempt
   | .bounded rest => mark rest none
   return 1

@@ -70,6 +70,9 @@ structure Model where
   target : Void IO.RealWorld → UInt32 → String → Prop
   /-- The environment configured for that child at launch, before its own code changes it. -/
   childEnvironment : Void IO.RealWorld → UInt32 → String → Option String
+  /-- Every native setenv/unsetenv operation for this launch succeeds. The runtime ignores their
+  return values (`runtime/process.cpp:463-469`), so valid strings alone do not establish this. -/
+  updatesSucceeded : Void IO.RealWorld → IO.Process.SpawnArgs → Prop
 
 /-- The environment primitive reports the named variable's value and changes no world state.
 Concurrent changes to the process environment are excluded by this hypothesis. -/
@@ -97,16 +100,18 @@ def StartsAbsolute (model : Model) : Prop :=
     RunsTo id (IO.Process.spawn args before)
       (fun child after => model.target after child.pid args.cmd) (fun _ _ => True)
 
-/-- With inheritEnv true, the configured child environment has the parent's values with the
-one env array's changes applied left to right. Stability of the parent environment during the
-launch and the runtime's child setup are hypotheses, not kernel facts. -/
+/-- With inheritEnv true and successful native updates, the configured child environment has
+the parent's values with the one env array's changes applied left to right. Lean ignores the
+setenv/unsetenv return values, so update success is a separate external condition. Parent stability
+and the runtime's child setup remain hypotheses, not kernel facts. -/
 @[regula_assumption environment
   (lean "v4.34.1" "Init/System/IO.lean#L1439-L1455")
   (lean "v4.34.1" "runtime/process.cpp#L453-L469")
-  (trusted "The parent environment stays stable throughout this launch; Windows runtime environment construction is not qualified by these POSIX controls")]
+  (trusted "The parent environment stays stable and every native setenv/unsetenv update succeeds; the runtime ignores their return values. Windows environment construction is unqualified")]
 def InheritsEnvironment (model : Model) : Prop :=
   System.Platform.isWindows = false →
   ∀ (args : IO.Process.SpawnArgs) name before, args.inheritEnv = true → nativeChanges args.env = true →
+    model.updatesSucceeded before args →
     RunsTo id (IO.Process.spawn args before)
       (fun child after => model.childEnvironment after child.pid name =
         effective (model.environment before name) args.env name) (fun _ _ => True)
@@ -158,15 +163,16 @@ theorem spawn_toolchain (model : Model) (starts : StartsAbsolute model) (tool : 
       exact ⟨prepared.emit.cmd, prepared.absolute tool, prepared.native, chosen⟩
 
 /-- The emitted array's child environment at the actual native start, under the runtime's
-environment hypothesis. This concerns the one array emitted, and makes no claim that a separately
+environment hypothesis and successful native updates. This concerns the one array emitted, and makes no claim that a separately
 recorded array or a running child's later environment agrees with it. -/
 theorem Prepared.environment {program : Program} {args : IO.Process.SpawnArgs}
     (prepared : Prepared program args) (model : Model) (inherits : InheritsEnvironment model)
     (name : String) (before : Void IO.RealWorld) (posix : System.Platform.isWindows = false)
-    (inherited : args.inheritEnv = true) (valid : nativeChanges prepared.env = true) :
+    (inherited : args.inheritEnv = true) (valid : nativeChanges prepared.env = true)
+    (updated : model.updatesSucceeded before prepared.emit) :
     RunsTo id (IO.Process.spawn prepared.emit before)
       (fun child after => model.childEnvironment after child.pid name =
         effective (model.environment before name) prepared.env name) (fun _ _ => True) :=
-  inherits posix prepared.emit name before inherited valid
+  inherits posix prepared.emit name before inherited valid updated
 
 end Regula.Process

@@ -127,6 +127,7 @@ run_cmd do
 -- the observers are the declarations of `Regula.Filesystem` that call the primitives.
 run_cmd do
   let env ← getEnv
+  let origins ← Regula.Removal.libraryOrigins env
   let observers := Regula.Removal.filesystemObservers env
   unless observers.size ≥ 5 && observers.all fun observer =>
       (env.getModuleIdxFor? observer).map (env.header.moduleNames[·.toNat]!) ==
@@ -134,9 +135,9 @@ run_cmd do
     throwError "the observers of the filesystem are not declarations of Regula.Filesystem: \
       {observers}"
   let some observer := observers.find? fun observer =>
-      (Regula.Removal.rawRemovalsFrom env #[] #[observer]).raw.any (·.2 == ``IO.FS.removeDirAll)
+      (Regula.Removal.rawRemovalsFrom env #[] #[observer] (origins := origins)).raw.any (·.2 == ``IO.FS.removeDirAll)
     | throwError "no observer of the filesystem calls IO.FS.removeDirAll"
-  unless (Regula.Removal.rawRemovalsFrom env observers #[observer]).raw.isEmpty do
+  unless (Regula.Removal.rawRemovalsFrom env observers #[observer] (origins := origins)).raw.isEmpty do
     throwError "the observer {observer} is not admitted"
   let planted := observer ++ `_redArg
   Elab.Command.liftTermElabM do
@@ -193,7 +194,7 @@ run_cmd do
 run_cmd do
   let env ← getEnv
   let reach := Regula.Removal.rawRemovalsFrom env (Regula.Removal.filesystemObservers env)
-    (Regula.Removal.initializers env)
+    (Regula.Removal.initializers env) (origins := ← Regula.Removal.libraryOrigins env)
   unless reach.unknown.isEmpty do
     throwError "initializers with unknown compiled code: {reach.unknown}"
   unless reach.raw.size == 1 && reach.raw.all fun (caller, primitive) =>

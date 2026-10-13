@@ -1,5 +1,6 @@
 import Lean
 import Regula.Checker.ModuleName
+import Regula.Process
 
 /-! # Frontend rejection diagnostics
 
@@ -48,7 +49,7 @@ unsafe def errors (moduleName : Name) (source : System.FilePath) : IO (Array Str
   let (_, _, parseMessages) ← Parser.parseHeader inputCtx
   let result ← if parseMessages.hasErrors then errorStrings parseMessages else do
     let sourceHeaderError ← IO.mkRef false
-    let opts := Lean.Elab.async.set {} false
+    let opts := Lean.Elab.async.set (← Regula.Process.leanOptions) false
     let snapshot ← Lean.Language.Lean.process (fun stx => do
       let reject (message : String) := do
         sourceHeaderError.set true

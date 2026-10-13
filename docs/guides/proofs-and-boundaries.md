@@ -5517,15 +5517,19 @@ The native string check excludes NUL and, on Windows, quotes, drive-relative `C:
 
 Lake's compiler and archiver variables are `LEAN_CC`, `CC`, `LEAN_AR` and `AR`. Each inherited and supplied value must be absolute. Each occurrence is checked, including one that a later environment change would remove. This conservative guard does not depend on duplicate-key merge order. The implementation is shared by the observer and the cold source drivers in `ProcessSource.inc`.
 
+The same installation guard applies to process preparation and in-process Lake. Each native tool must be bundled, or an absolute override must stay present through the supplied changes. Without inheritance, a parent override cannot establish presence. This guard refuses Lake's bare `cc` and `ar` fallback. Lake still chooses between its admitted candidates.
+
 The process model describes each actual `IO` world, the selected child command and its initial environment. A returned child does not imply successful execution. On POSIX, Lean returns after `fork`, before `exec` can fail.
 
 | Assumption | What it states | Sources at Lean `v4.34.1` |
 | --- | --- | --- |
 | `ReadsEnvironment` | The named variable has the value reported by the observer, and the read leaves the world unchanged. | [`Init/System/IO.lean#L951-L955`](https://github.com/leanprover/lean4/blob/v4.34.1/src/Init/System/IO.lean#L951-L955), [`runtime/io.cpp#L976-L1011`](https://github.com/leanprover/lean4/blob/v4.34.1/src/runtime/io.cpp#L976-L1011), POSIX `getenv()` |
 | `StartsAbsolute` | An absolute command in the native string domain is the selected child path. | [`Init/System/IO.lean#L1489-L1502`](https://github.com/leanprover/lean4/blob/v4.34.1/src/Init/System/IO.lean#L1489-L1502), [`runtime/process.cpp#L453-L515`](https://github.com/leanprover/lean4/blob/v4.34.1/src/runtime/process.cpp#L453-L515), [`runtime/process.cpp#L191-L196`](https://github.com/leanprover/lean4/blob/v4.34.1/src/runtime/process.cpp#L191-L196), POSIX `execvp()` and the stated Windows trust |
-| `InheritsEnvironment` | On POSIX, a launch with inheritance applies valid native environment changes left to right. | [`Init/System/IO.lean#L1439-L1455`](https://github.com/leanprover/lean4/blob/v4.34.1/src/Init/System/IO.lean#L1439-L1455), [`runtime/process.cpp#L453-L469`](https://github.com/leanprover/lean4/blob/v4.34.1/src/runtime/process.cpp#L453-L469) |
+| `InheritsEnvironment` | On POSIX, a launch with inheritance applies valid native environment changes left to right, if each native update succeeds. | [`Init/System/IO.lean#L1439-L1455`](https://github.com/leanprover/lean4/blob/v4.34.1/src/Init/System/IO.lean#L1439-L1455), [`runtime/process.cpp#L453-L469`](https://github.com/leanprover/lean4/blob/v4.34.1/src/runtime/process.cpp#L453-L469) |
 
-`spawn_toolchain` proves the absolute selected path for each successful run of the actual observer, conditional on `StartsAbsolute`. `Prepared.environment` describes the environment at the actual native start, conditional on `InheritsEnvironment`. It requires POSIX, inheritance and valid native entries. It does not compare that environment with a separate recorded array. The launch retains one environment array for that later work.
+`spawn_toolchain` proves the absolute selected path for each successful run of the actual observer, conditional on `StartsAbsolute`. `Prepared.environment` describes the environment at the actual native start, conditional on `InheritsEnvironment`. It requires POSIX, inheritance, valid native entries and successful native updates.
+
+Lean ignores the return values of `setenv` and `unsetenv`. Valid strings alone do not establish update success. The theorem does not compare the environment with a separate recorded array. The launch retains one environment array for that later work.
 
 The two approved shell wrappers start the installed pinned Lean by path under `ELAN_HOME` or `HOME/.elan`. Their selection does not use PATH. The installed compiler and shell execution remain trusted.
 
@@ -5548,7 +5552,9 @@ Stated selections keep their reason at each call site. They are external selecti
 
 Each observer role is admitted only in the module named by its row. Lake's starts and Lean's builtin solver start have sourced library exemptions. Their exported launch entrypoints are boundaries for project callers. A direct project call cannot borrow an exemption for the library's own starts.
 
-Regula supplies the checked `cadical` path through the initial `sat.solver` option before in-process configuration elaboration. This covers the default solver only while source leaves that option unset. Source that sets `sat.solver`, including a reset to empty, selects its own program. This route remains uncovered, as a source process start through `run_cmd` can be. No PASS is claimed for it.
+A library exemption requires the real path that Lean records for its loaded `.olean`. That path must equal the artifact path of the checked toolchain, or of the renderer's pinned package that Lake resolved. A library name alone admits nothing. The renderer checks the manifest pin before resolution and restores its original search path. A project module under `Lake` or `Lean` cannot borrow the exemption.
+
+Regula supplies the checked `cadical` path through the initial `sat.solver` option before each source reader elaborates source. The configuration, fresh frontend, diagnostics and example readers start from the shared options. This covers the default solver only while source leaves that option unset. Source that sets `sat.solver`, including a reset to empty, selects its own program. This route remains uncovered, as a source process start through `run_cmd` can be. No PASS is claimed for it.
 
 [Issue 411](https://github.com/rbeauchamp/regula/issues/411) owns source-option refusal after issue 279's observer lands. Lean `v4.34.1` [`TacticContext.lean:55–66`](https://github.com/leanprover/lean4/blob/v4.34.1/src/Lean/Meta/Tactic/BVDecide/TacticContext.lean#L55-L66) gives the option, sibling and PATH selection order.
 

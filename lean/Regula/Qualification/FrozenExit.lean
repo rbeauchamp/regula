@@ -103,7 +103,7 @@ def check : IO Unit := do
             "producer-source: source snapshot unavailable: DocFence_1" }
       check { label := s!"compile/{binary}/restored", binary, flags }
     let flags := #["--file", "Standalone.lean", "--claim", "standard-logical"]
-    let mutation := "open Lean Elab Command in\nrun_cmd do\n  let path := (← Regula.Process.currentDir) / \
+    let mutation := "open Lean Elab Command in\nrun_cmd do\n  let path := (← IO.currentDir) / \
       \"Standalone.lean\"\n  IO.FS.removeFile path\n  let _ ← IO.FS.readFile path\n  pure ()\n"
     check {
       label := "build/original-file-missing", flags, source := good ++ mutation,

@@ -343,7 +343,7 @@ private unsafe def buildCore (moduleName : Name) (sourcePath : System.FilePath)
   let attributeRefs := (← Lean.attributeMapRef.get).toArray.map (·.2.ref)
   let inputCtx := Parser.mkInputContext sourceBefore sourcePath.toString
   let ctx := { inputCtx with }
-  let opts := (Lean.Elab.async.set (warningAsError.set {} rejectWarnings) false).setBool
+  let opts := (Lean.Elab.async.set (warningAsError.set (← Regula.Process.leanOptions) rejectWarnings) false).setBool
       Regula.Linter.auditBuildOption true
   let processor := Lean.Language.Lean.process
   let importsRef ← IO.mkRef (#[] : Array Import)
