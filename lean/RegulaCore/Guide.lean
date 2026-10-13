@@ -1418,8 +1418,9 @@ def guide : RuleId → Guide
         `Workspace.unparsedCompilerOutput` selects, and, without the audit-build marker, each \
         claimed module replayed from before the run has its own current record \
         (`Acceptance.buildObservation_ok_iff`, `Lake.mem_reusedModules_iff`, \
-        `Lake.traceRecords_ownRecord_iff`). The output a finding reports is empty exactly when \
-        no job that is not optional logged such an entry (`Lake.unparsedOutput_eq_empty_iff`). \
+        `Lake.traceRecords_ownRecord_iff`). The collected unparsed compiler output is empty \
+        exactly when no job that is not optional logged such an entry \
+        (`Lake.unparsedOutput_eq_empty_iff`). \
         Lake's entry for a Lean message whose file name has no line break is never selected \
         (`unparsedCompilerOutput_ofSerialMessage`); `lineBreakSourcePaths` fails the others. A \
         build key that compiles a module and passes that check names a package of the \
@@ -1429,7 +1430,7 @@ def guide : RuleId → Guide
         (`lineBreakSourcePaths_eq_empty_iff`). That Lake fails a build whose required job logs \
         an entry at its failure level, and the forms of its entries, are read from Lake's \
         source. A single-file compilation adds no diagnostic for an information message, a \
-        warning for a warning message and an error for output that is not a message \
+        warning for a warning message and an error for nonblank output that is not a message \
         (`SourceAudit.diagnose_information`, `diagnose_warning`, `diagnose_other`), and it \
         passes exactly when the compiler exited 0 with no error and, where warnings are \
         refused, no warning (`SourceAudit.compilationPassed_iff`). Where the build of a claim \
