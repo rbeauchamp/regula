@@ -59,10 +59,30 @@ theorem packageSource_owned (source packages path : List String)
     (owned : packages.IsPrefix source) : packageSource source packages path = true :=
   decide_eq_true (Or.inr owned)
 
-/-- The entry kind of a construction instruction. -/
-def Payload.kind : Payload → IO.FS.FileType
-  | .directory => .dir
-  | .file .. => .file
+/-- File filtering retains every directory and exactly the selected regular files, without
+altering any instruction's path or payload. The statement covers every name and entry kind. -/
+theorem selectFiles_mem (selected : List String → Bool) (items : List Item) (item : Item) :
+    item ∈ selectFiles selected items ↔ item ∈ items ∧
+      (item.payload.kind = .dir ∨ selected item.relative = true) := by
+  cases item with
+  | mk relative payload => cases payload <;> simp [selectFiles, Payload.kind]
+
+/-- The executed file filter has the complete kind-aware membership contract. -/
+theorem checked_selectFiles : Regula.ExecutableContract selectFiles
+    (fun f => ∀ selected items item, item ∈ f selected items ↔ item ∈ items ∧
+      (item.payload.kind = .dir ∨ selected item.relative = true)) :=
+  ⟨selectFiles_mem⟩
+
+/-- No regular-file predicate can remove a captured directory instruction. -/
+theorem selectFiles_directory (selected : List String → Bool) (items : List Item)
+    (relative : List String) (present : ⟨relative, .directory⟩ ∈ items) :
+    ⟨relative, .directory⟩ ∈ selectFiles selected items :=
+  (selectFiles_mem selected items _).mpr ⟨present, Or.inl rfl⟩
+
+/-- The executed preconstruction guard accepts exactly complete consumer file domains. -/
+theorem checked_covers : Regula.ExecutableContract covers
+    (fun f => ∀ required items, f required items = true ↔ Covers required items) :=
+  ⟨fun _ _ => ⟨of_decide_eq_true, decide_eq_true⟩⟩
 
 /-- Every instruction has a plain entry kind. -/
 theorem Payload.plain (payload : Payload) : payload.kind = .dir ∨ payload.kind = .file := by
@@ -789,6 +809,38 @@ theorem construct_io {ops : Ops IO} {C : CopyModel} {view : Void IO.RealWorld �
   | ok result state =>
     cases result
     exact construct_sound C readsEntry readsReal names directories files target items (view w) state ran
+
+/-- The selected-domain constructor actually run by project copies cannot succeed with a
+missing consumer input. Each required path is a regular file in its exact constructed tree.
+The receipt retains captured payloads. Byte fidelity, original discovery completeness, stored
+spellings and the stability of native observations remain the stated external boundaries. -/
+theorem constructSelected_io {ops : Ops IO} {C : CopyModel}
+    {view : Void IO.RealWorld → C.filesystem.World}
+    (corresponds : CopyCorresponds ops C view) (readsEntry : ReadsEntry C.filesystem)
+    (readsReal : ReadsReal C.filesystem) (names : ReadsNames C)
+    (directories : CreatesDirectories C) (files : CreatesFiles C) (target : FilePath)
+    (required : List (List String)) (items : List Item) (w : Void IO.RealWorld) :
+    RunsTo view (constructSelectedWith ops target required items w)
+      (fun _ after => Covers required items ∧ Holds C.filesystem target items after ∧
+        ∀ path ∈ required, C.filesystem.entry after (location target path) = some .file)
+      (fun _ _ => True) := by
+  by_cases complete : covers required items = true
+  · have domain : Covers required items := of_decide_eq_true complete
+    simp only [constructSelectedWith, complete, ↓reduceIte]
+    have built := construct_io corresponds readsEntry readsReal names directories files target items w
+    cases ran : constructWith ops target items w with
+    | error error after => trivial
+    | ok result after =>
+      rw [ran] at built
+      refine ⟨domain, built, ?_⟩
+      intro path selected
+      obtain ⟨item, present, relative, kind⟩ := domain path selected
+      have entry := built.2.1 item present
+      simpa only [relative, kind] using entry
+  · have missing : covers required items = false := by simpa using complete
+    simp only [constructSelectedWith, missing, Bool.false_eq_true, ↓reduceIte]
+    rw [eio_bind_error (eio_throw _ w)]
+    trivial
 
 /-- The indexed regular-file representation, stated without the adapter's search or Boolean
 tests. Ordinary bytes belong to the captured source receipt. A tracked link's supplied blob

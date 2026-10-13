@@ -485,12 +485,33 @@ private def relativeDisplay (root path : FilePath) : String :=
   else path.toString
 
 /-- Reads every `.md` file below `root`, recursively, in path order; fails when `root` is not a
-directory. -/
+directory. No-follow admission of each discovered file and its ancestors precedes byte capture. -/
 def captureMarkdown (root : FilePath) : IO (Array RegulaPolicy.SourceSnapshot) := do
-  unless ← root.isDir do throw <| IO.userError s!"documentation root is not a directory: {root}"
-  let paths := ((← root.walkDir).filter (·.extension == some "md")).qsort
-    (fun left right => left.toString < right.toString)
-  paths.mapM fun path => do pure ⟨path.toString, ← IO.FS.readFile path⟩
+  let paths ← Regula.Filesystem.Construction.markdownPaths root
+  discard <| Regula.Filesystem.Construction.requiredFiles root
+    (paths.toList.map fun path => path.normalize.components.drop root.normalize.components.length)
+  paths.mapM fun path => do pure ⟨path.toString, ← Regula.Filesystem.readFile path⟩
+
+/-- Relocate every original Markdown snapshot into a project copy. No discovery of the copy
+can narrow this census, and every source text remains the original captured text. -/
+def relocateMarkdown (root copy : FilePath) (documents : Array RegulaPolicy.SourceSnapshot) :
+    Array RegulaPolicy.SourceSnapshot :=
+  documents.map fun document =>
+    ⟨(Lake.relocateConfigurationPath root copy document.uri).toString, document.source⟩
+
+/-- Relocation retains the complete ordered original source census, including duplicate texts. -/
+theorem relocateMarkdown_sources (root copy : FilePath)
+    (documents : Array RegulaPolicy.SourceSnapshot) :
+    (relocateMarkdown root copy documents).map (·.source) = documents.map (·.source) := by
+  simp [relocateMarkdown, Array.map_map]
+
+/-- Every original document has its relocated snapshot in the executed census. -/
+theorem relocateMarkdown_mem (root copy : FilePath)
+    (documents : Array RegulaPolicy.SourceSnapshot) (document : RegulaPolicy.SourceSnapshot)
+    (mem : document ∈ documents) :
+    ⟨(Lake.relocateConfigurationPath root copy document.uri).toString, document.source⟩ ∈
+      relocateMarkdown root copy documents :=
+  Array.mem_map.mpr ⟨document, mem, rfl⟩
 
 /-- Rereads the Markdown below `root` and throws when its paths or contents differ from
 `documents`. -/

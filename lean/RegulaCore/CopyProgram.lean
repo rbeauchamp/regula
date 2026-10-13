@@ -28,6 +28,35 @@ structure Item where
   /-- What to create there. -/
   payload : Payload
 
+/-- The entry kind of a construction instruction. -/
+def Payload.kind : Payload → IO.FS.FileType
+  | .directory => .dir
+  | .file .. => .file
+
+instance (payload : Payload) : Decidable (payload.kind = .file) := by
+  cases payload with
+  | directory => exact isFalse (by intro h; cases h)
+  | file bytes rights => exact isTrue rfl
+
+/-- Filter regular-file instructions only. Directory traversal and no-follow source admission
+have already occurred, so a file-name exclusion cannot remove a directory's descendants. -/
+def selectFiles (selected : List String → Bool) (items : List Item) : List Item :=
+  items.filter fun item => match item.payload with
+    | .directory => true
+    | .file .. => selected item.relative
+
+/-- Every consumer-selected path has a regular-file instruction in this captured layout. -/
+def Covers (required : List (List String)) (items : List Item) : Prop :=
+  ∀ path ∈ required, ∃ item ∈ items, item.relative = path ∧ item.payload.kind = .file
+
+instance (required : List (List String)) (items : List Item) : Decidable (Covers required items) :=
+  inferInstanceAs (Decidable (∀ path ∈ required,
+    ∃ item ∈ items, item.relative = path ∧ item.payload.kind = .file))
+
+/-- Admit exactly instruction lists that retain the consumer's entire original file domain. -/
+def covers (required : List (List String)) (items : List Item) : Bool :=
+  decide (Covers required items)
+
 /-- A path component that names one entry and cannot redirect a path join. -/
 def Component (name : String) : Prop :=
   name ≠ "" ∧ name ≠ "." ∧ name ≠ ".." ∧
@@ -131,6 +160,14 @@ def constructWith {m : Type → Type} [Monad m] [MonadExceptOf IO.Error m] (ops 
     (target : FilePath) (items : List Item) : m Unit := do
   beginWith ops target
   emitWith ops target items
+
+/-- Refuse a narrowed consumer domain before the first write, then execute the shared
+exclusive constructor. This guard inspects instructions, never a completed filesystem copy. -/
+def constructSelectedWith {m : Type → Type} [Monad m] [MonadExceptOf IO.Error m] (ops : Ops m)
+    (target : FilePath) (required : List (List String)) (items : List Item) : m Unit := do
+  unless covers required items do
+    throw <| IO.userError "copy instructions omit a selected source file"
+  constructWith ops target items
 
 /-- Capture the selected source entries, then construct them, using the same operations that
 the filesystem-model theorem names. No destination is written while source entries are captured. -/
@@ -303,12 +340,12 @@ def requiredPath (required : List (List String)) (relative : List String) : Bool
 
 /-- Observe stored spellings for explicit relative file selections. Every requested ancestor
 is admitted as a directory and each leaf as a regular file through no-follow metadata before
-canonical observation. The later shared capture still admits every selected source entry.
-Requested spellings remain selected too; configuration accounting keeps those original paths.
+canonical observation. The result contains one stored path for each requested file, in request
+order. The later shared capture still admits every selected source entry.
 
 Assumes: the same stable source and POSIX metadata/realpath observations as `capture` and
 `observeRealPath`. Stored spellings are observations, not consequences of the prefix proofs. -/
-def requiredPaths (source : FilePath) (required : List (List String)) : IO (List (List String)) := do
+def requiredFiles (source : FilePath) (required : List (List String)) : IO (List (List String)) := do
   let mut stored := []
   for relative in required do
     unless !relative.isEmpty && decide (Relative relative) do
@@ -325,7 +362,20 @@ def requiredPaths (source : FilePath) (required : List (List String)) : IO (List
     unless root.components.isPrefixOf actual.components do
       throw <| IO.userError "explicit file selection is outside its source root"
     stored := actual.components.drop root.components.length :: stored
-  return required ++ stored
+  return stored.reverse
+
+/-- The documentation consumer's original `.md` discovery domain, in path order. The same
+discovery supplies the audit census and cold-copy requirements. It must precede construction.
+The existing walker admits each directory through no-follow metadata before descent, so a
+directory link cannot redirect or cycle discovery. `requiredFiles` admits the selected leaves. -/
+def markdownPaths (root : FilePath) : IO (Array FilePath) := do
+  unless ← root.isDir do throw <| IO.userError s!"documentation root is not a directory: {root}"
+  let enter (path : FilePath) : IO Bool := do
+    unless (← observeMetadata path).type == .dir do
+      throw <| IO.userError s!"copy refused {path}: selected ancestor is not a directory"
+    return true
+  return ((← root.walkDir enter).filter (·.extension == some "md")).qsort
+    (fun left right => left.toString < right.toString)
 
 /-- A package-store entry is source when the current capture root is itself in that store. -/
 def PackageSource (source packages path : List String) : Prop :=
@@ -626,7 +676,8 @@ def copyGit (source target : FilePath) : IO (List Item) := do
   gitConstructWith observer target metadata captured entries
 
 /-- The cold drivers' source entrypoint. `project` prunes VCS/build/scratch directories, except
-explicit relative file selections after TARGET and the ancestors needed to capture them.
+explicit relative file selections after TARGET, the original Markdown discovery domain, and
+the ancestors needed to capture them. The instruction guard refuses any missing selected file.
 `git` uses `copyGit`'s regular-file representation, build outputs and metadata.
 It prints the regular-file receipt as a JSON array. Lean interprets this
 same source before package artifacts exist; it does not use another copy implementation.
@@ -671,14 +722,18 @@ def sourceMain (args : List String) : IO UInt32 := do
     throw <| IO.userError s!"unknown construction domain: {domain}"
   let source := FilePath.mk source
   let base := source.components.length
-  let required ← requiredPaths source (required.map (FilePath.mk · |>.components))
+  let documents ← if ← (source / "docs").isDir then markdownPaths (source / "docs") else pure #[]
+  let requested := required.map (FilePath.mk · |>.components) ++
+    documents.toList.map (fun path => path.components.drop base)
+  let stored ← requiredFiles source requested
+  let required := requested ++ stored
   let selected := fun (path : FilePath) =>
     requiredPath required (path.components.drop base) || projectRelative (path.components.drop base)
   let items ← capture source [] selected
   -- Reserve the exact Lake state spelling by exclusive creation. A case-folded source spelling
   -- cannot silently carry old state into an ordinary load: its creation collides and fails.
   let generated := [⟨[".lake"], .directory⟩]
-  construct target (layout (items ++ generated))
+  constructSelectedWith observer target stored (layout (items ++ generated))
   let files := items.filterMap fun item => match item.payload with
     | .directory => none
     | .file .. => some ("/".intercalate item.relative)

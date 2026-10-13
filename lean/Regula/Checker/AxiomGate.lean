@@ -474,9 +474,10 @@ structure Copied where
 
 /-- Copy the project at `repo`, with each path dependency it owns, into the new scratch directory
 `scratch`, which holds no build output (`copyProject`). -/
-private def isolatedCopy (repo scratch : FilePath) (manifest : Option FilePath) : IO Copied := do
+private def isolatedCopy (repo scratch : FilePath) (manifest : Option FilePath)
+    (selectedFiles : List FilePath) : IO Copied := do
   let copy ← timedPhase "isolated source copy" <| Lake.copyProject repo (scratch / "project")
-    scratch (facets := .replaced) (policy := manifest)
+    scratch (facets := .replaced) (policy := manifest) (selectedFiles := selectedFiles)
   return ⟨copy.project, copy.root, some copy.selection, some copy.configurationInputs⟩
 
 /-- The copy of the project at `repo` that the verification driver made at `path`
@@ -1246,11 +1247,13 @@ private unsafe def auditSurface (repo : FilePath) (manifest : Option FilePath)
       (auditSurfaceAt repo (manifest.getD (Manifest.defaultPath repo)) .incremental verbose repo
           composed resultOut observeSources (buildLint := buildLint))
   else withScratch repo "axiom-gate" fun scratch => do
+    let originalDocuments ← if withDocs then Documentation.captureMarkdown (repo / "docs") else pure #[]
     -- The copy to audit: the one the verification driver made, when the caller gives it and it
     -- passes what this process can observe, or else a copy this process makes now.
     let origin ← match driverCopy with
       | some path => Origin.driverCopy <$> AxiomGate.driverCopy repo path
-      | none => Origin.copied <$> isolatedCopy repo scratch manifest
+      | none => Origin.copied <$> (isolatedCopy repo scratch manifest
+          (originalDocuments.toList.map (FilePath.mk ·.uri)))
     let copy := match origin with
       | .copied copied | .driverCopy copied => copied.project
       | .incremental => repo
@@ -1260,7 +1263,7 @@ private unsafe def auditSurface (repo : FilePath) (manifest : Option FilePath)
       | .copied copied | .driverCopy copied => copied.configurationInputs
       | .incremental => none
     observeConfiguration copy (← SourceBinding.configuration copy manifestPath) inputs
-    let documents ← if withDocs then Documentation.captureMarkdown (copy / "docs") else pure #[]
+    let documents := Documentation.relocateMarkdown repo copy originalDocuments
     -- The link covers the Markdown and Verso sources the separate documentation step audits.
     let linkedSources : Documentation.Sources := ⟨repo / "docs", verso⟩
     let linkedDocuments ← if acceptanceLink then linkedSources.captureLinked repo else pure #[]
@@ -1299,6 +1302,7 @@ private unsafe def auditSurface (repo : FilePath) (manifest : Option FilePath)
             (some evidence.snapshot))
       | return (1, none)
     let combined ← if docsResult == 0 then do
+        Documentation.checkMarkdown (repo / "docs") originalDocuments
         let some ⟨docClaim, accepted⟩ ← documentAccepted.get
           | throw <| IO.userError "missing accepted documentation evidence"
         let receipt ← IO.ofExcept <|

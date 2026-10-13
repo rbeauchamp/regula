@@ -676,7 +676,17 @@ The account makes a filename relative only when its project-relative components 
 
 An explicitly selected manifest inside the project relocates into the fresh copy. Its selection includes ancestors beneath otherwise pruned directories and files with compiled-artifact extensions. `Construction.requiredPath_ancestor` proves that each ancestor survives selection. The shared capture still refuses links and special entries before construction.
 
-`Construction.requiredPaths` observes stored spellings after no-follow admission of each requested ancestor and file. This preserves case aliases without resolving away a source link. The observation assumes stable source entries and the stated POSIX metadata and realpath behavior.
+`Construction.requiredFiles` observes stored spellings after no-follow admission of each requested ancestor and file. Callers select both requested and stored spellings. This preserves case aliases without resolving away a source link. The observation assumes stable source entries and the stated POSIX metadata and realpath behavior.
+
+Original Markdown discovery precedes fresh construction. Its walker admits each directory through no-follow metadata before descent, so a directory link cannot redirect or cycle discovery. Its selected files and ancestors survive package and cache pruning. `Construction.selectFiles_mem` states that artifact filtering removes only regular-file instructions. A directory with an artifact suffix retains its descendants. Regular artifacts outside pruned trees are admitted and read before filtering.
+
+`Construction.constructSelected_io` connects the executed instruction guard and writer to every required destination file. The guard refuses an omitted input before any destination write. Its domain uses stored source spellings observed through `Construction.requiredFiles`. Original discovery, native observations, byte fidelity and source stability remain trusted boundaries.
+
+The loaded Lake manifest also retains its stored source spelling. This includes a manifest that is itself a selected consumer input. Its requested path remains in the configuration account.
+
+The fresh documentation census relocates every original snapshot. `Documentation.relocateMarkdown_sources` preserves its ordered source texts, and `Documentation.relocateMarkdown_mem` retains every document. The existing documentation freshness check compares that census with the copied documents. An additional original-source check precedes combined acceptance. The cold project constructor uses the same Markdown discovery and selected-domain guard.
+
+`qualify combined` includes native construction controls for both artifact-named directories and Markdown inside configured package directories. Public fresh audits accept positive fences, reject an invalid positive fence in each location, and accept the restored source. These controls also exercise selected aliases, source-link refusals, cold construction and exclusive destinations. They observe external boundaries, not universal correctness.
 
 `configurationRelative` supplies the same path decision for relocation and the account. `relocateConfigurationPath_relative` and `configurationAccount_relative` state the two results. Fresh-audit controls check exact configuration accounts for absolute selections, including pruned paths. The default-policy control also checks the rule-example comparison, whose project case requires `foundation_manifest.json`.
 

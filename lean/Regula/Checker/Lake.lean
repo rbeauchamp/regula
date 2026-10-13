@@ -647,10 +647,14 @@ def configurationOrigins (root : String) (configuration : Regula.CopyConfigurati
 
 /-- Capture the source file Lake loaded as this workspace's manifest, before any copy is written.
 Links and special files are refused through the shared observer. The same bytes are placed at
-the loaded relative manifest path, even when that path lies in excluded build state. -/
+its stored relative source spelling, even when the configured spelling is an alias or the path
+lies in excluded build state. Lake's configuration account retains its requested spelling. -/
 def captureManifest (ws : _root_.Lake.Workspace) :
     IO (_root_.Lake.Manifest × List Regula.Filesystem.Construction.Item) := do
-  let items ← Regula.Filesystem.Construction.capture ws.manifestFile ws.root.relManifestFile.components
+  let [relative] ← Regula.Filesystem.Construction.requiredFiles ws.root.dir
+      [ws.root.relManifestFile.components]
+    | throw <| IO.userError "Lake manifest has no unique stored source path"
+  let items ← Regula.Filesystem.Construction.capture ws.manifestFile relative
   let [item] := items | throw <| IO.userError "Lake manifest is not a single regular file"
   let .file bytes _ := item.payload | throw <| IO.userError "Lake manifest is not a regular file"
   let some text := String.fromUTF8? bytes
@@ -659,9 +663,11 @@ def captureManifest (ws : _root_.Lake.Workspace) :
   return (manifest, items)
 
 /-- Copy a checked project and its owned path dependencies through the shared no-follow
-directory/file constructor. Every selected source entry must be plain. Compiled modules, VCS,
-build/cache/scratch trees and root tmp trees are excluded before descent, except an explicitly
-selected project-contained policy and its ancestors. Owned packages survive package-store pruning
+directory/file constructor. Every selected source entry must be plain. VCS, build/cache/scratch
+trees and root tmp trees are excluded before descent, except consumer-selected files, an explicitly
+selected project-contained policy, and their ancestors. Compiled-module exclusions apply only to
+captured regular files. The final instructions must contain every selected file before construction.
+Owned packages survive package-store pruning
 in their own capture pass. Paths relative to their
 common ancestor are retained. The captured loaded manifest is installed at its loaded path, and
 every resolved dependency gets a typed path override: an owned package in the copy, a trusted
@@ -672,7 +678,8 @@ prints the facet report that `facets` requests.
 Assumes: the shared constructor's native primitive contracts and no concurrent source or
 destination writer. Lake's loaded workspace and manifest stay fixed while captured. -/
 def copyProject (repo target exclude : FilePath)
-    (facets : FacetReport.Output := .silent) (policy : Option FilePath := none) : IO ProjectCopy :=
+    (facets : FacetReport.Output := .silent) (policy : Option FilePath := none)
+    (selectedFiles : List FilePath := []) : IO ProjectCopy :=
   Workspace.withRootWorkspace repo fun ws => do
     let root ← IO.FS.realPath repo
     let original ← surfaceInventoryOf repo ws facets
@@ -694,10 +701,15 @@ def copyProject (repo target exclude : FilePath)
       if dependency.root == root || dirs.contains dependency.root then dirs
       else dirs.push dependency.root) #[]
     let directories := #[root] ++ owned
-    let required ← Regula.Filesystem.Construction.requiredPaths root
+    let selectedFiles ← selectedFiles.mapM fun path => do
+      let some relative := configurationRelative repo.toString path.toString
+        | throw <| IO.userError s!"selected copy input is outside its project: {path}"
+      pure (FilePath.mk relative).components
+    let requested := selectedFiles ++
       ((policy.bind fun path => configurationRelative repo.toString path.toString).toList.map
         (FilePath.mk · |>.components))
-    let required := required.map (root.normalize.components ++ ·)
+    let stored ← Regula.Filesystem.Construction.requiredFiles root requested
+    let required := (requested ++ stored).map (root.normalize.components ++ ·)
     let base := configurationBase inputs
     let relative := fun (dir : FilePath) => dir.normalize.components.drop base.length
     let place := fun (dir : FilePath) => Regula.Filesystem.Construction.location target (relative dir)
@@ -725,10 +737,11 @@ def copyProject (repo target exclude : FilePath)
           !(components.drop source.length).any pruned) &&
         Regula.Filesystem.Construction.packageSource source packages components &&
         packagesReal.all (fun packages =>
-          Regula.Filesystem.Construction.packageSource source packages components) &&
-        !isModulePart (path.fileName.getD "")))
-      instructions := instructions ++
-        (← Regula.Filesystem.Construction.capture top (relative top) selected)
+          Regula.Filesystem.Construction.packageSource source packages components)))
+      let captured ← Regula.Filesystem.Construction.capture top (relative top) selected
+      instructions := instructions ++ Regula.Filesystem.Construction.selectFiles
+        (fun path => Regula.Filesystem.Construction.requiredPath required (base ++ path) ||
+          !isModulePart (path.getLast?.getD "")) captured
       -- Reserve fresh build state for each copied package. A case alias retained by source
       -- selection collides exclusively instead of supplying earlier artifacts to Lake.
       instructions := instructions ++ [⟨relative top ++ [_root_.Lake.defaultLakeDir.toString], .directory⟩]
@@ -746,7 +759,9 @@ def copyProject (repo target exclude : FilePath)
         throw <| IO.userError "Lake package overrides file is outside its project"
       instructions := instructions ++ [⟨relative root ++ overrideRelative,
         .file text.toUTF8⟩]
-    Regula.Filesystem.construct target (Regula.Filesystem.Construction.layout instructions)
+    Regula.Filesystem.Construction.constructSelectedWith
+      Regula.Filesystem.Construction.observer target (stored.map (relative root ++ ·))
+      (Regula.Filesystem.Construction.layout instructions)
     let copiedRoot ← IO.FS.realPath target
     return {
       project
