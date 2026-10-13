@@ -83,6 +83,7 @@ private unsafe def runCommand (attempt : Option String) : Command → IO Unit
   | .copyRelocation => Regula.Qualification.CopyRelocation.check
   | .copyRelocationLoad project copies =>
       Regula.Qualification.CopyRelocation.loadWorker project copies
+  | .copyRelocationGit scratch => Regula.Qualification.CopyRelocation.gitSteps scratch
   | .fenceEvidence => Regula.Qualification.SourceEvidence.fences
   | .frozenExits => Regula.Qualification.FrozenExit.check
   | .documentationSource => Regula.Qualification.DocumentationSource.check false

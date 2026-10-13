@@ -680,7 +680,8 @@ Consumer-selected files, an explicitly selected project-contained policy, and th
 survive these exclusions. Compiled-module exclusions apply only to
 captured regular files. The final instructions must contain every selected file before construction.
 Owned packages survive package-store pruning
-in their own capture pass. Paths relative to their
+in their own capture pass, and so do the owned source directories and module source files in the
+packages directory, with the directories on the way to them. Paths relative to their
 common ancestor are retained. The captured loaded manifest is installed at its loaded path, and
 every resolved dependency gets a typed path override: an owned package in the copy, a trusted
 package at its original root. There is no packages link. This copy is for ordinary loads only;
@@ -688,7 +689,12 @@ a full update is outside this adapter's domain (`relocateDependencies`). That lo
 prints the facet report that `facets` requests.
 
 Assumes: the shared constructor's native primitive contracts and no concurrent source or
-destination writer. Lake's loaded workspace and manifest stay fixed while captured. -/
+destination writer. Lake's loaded workspace and manifest stay fixed while captured.
+
+Assumes: Lake v4.34.1 reads an owned module's Lean source at `Lean.modToFilePath` of its library's
+`srcDir` (`Lake/Config/Module.lean:83-90`). That `srcDir` is the package's joined with the
+library's (`Lake/Config/LeanLib.lean:34-35`, `Lake/Config/Package.lean:352-353`), and an
+executable's root module has the executable's own (`Lake/Config/LeanExe.lean:45-51`). -/
 def copyProject (repo target exclude : FilePath)
     (facets : FacetReport.Output := .silent) (policy : Option FilePath := none)
     (selectedFiles : List FilePath := []) : IO ProjectCopy :=
@@ -713,6 +719,22 @@ def copyProject (repo target exclude : FilePath)
       if dependency.root == root || dirs.contains dependency.root then dirs
       else dirs.push dependency.root) #[]
     let directories := #[root] ++ owned
+    -- The owned sources that Lake reads, which package-store pruning keeps where they lie in the
+    -- packages directory (`Construction.packageSource_source`): the source directory of each
+    -- library and executable of the root package and of each owned dependency, as Lake loaded
+    -- it, and each of their modules' source files, all at their real paths.
+    let ownedPackages := ws.packages.filter fun package => package.isRoot ||
+      original.dependencies.any fun dependency =>
+        dependency.owned && dependency.package == package.baseName.toString
+    let sourceDirectories ← (ownedPackages.flatMap fun package =>
+        package.leanLibs.map (·.srcDir) ++ package.leanExes.map (·.root.lib.srcDir)).filterMapM
+      fun dir => try pure (some (← Regula.Filesystem.observeRealPath dir).normalize.components)
+        catch
+          | .noFileOrDirectory .. => pure none
+          | error => throw error
+    let sources := sourceDirectories.toList ++ (original.moduleSources.map (·.2) ++
+      (original.dependencies.filter (·.owned)).flatMap (·.sources.map (·.source))).toList.map
+        (·.normalize.components)
     let selectedFiles ← selectedFiles.mapM fun path => do
       let some relative := configurationRelative repo.toString path.toString
         | throw <| IO.userError s!"selected copy input is outside its project: {path}"
@@ -747,9 +769,9 @@ def copyProject (repo target exclude : FilePath)
         -- directly before constructing the copy rather than overwriting a finished copy.
         ((components.drop source.length).head? == some "docs" ||
           !(components.drop source.length).any pruned) &&
-        Regula.Filesystem.Construction.packageSource source packages components &&
+        Regula.Filesystem.Construction.packageSource source packages sources components &&
         packagesReal.all (fun packages =>
-          Regula.Filesystem.Construction.packageSource source packages components)))
+          Regula.Filesystem.Construction.packageSource source packages sources components)))
       let captured ← Regula.Filesystem.Construction.capture top (relative top) selected
       instructions := instructions ++ Regula.Filesystem.Construction.selectFiles
         (fun path => Regula.Filesystem.Construction.requiredPath required (base ++ path) ||

@@ -660,7 +660,7 @@ Assumes: Lake `v4.34.1` tests cleanliness with `git diff --exit-code HEAD` (`Uti
 
 `copyProject` captures the manifest at Lake's loaded `ws.manifestFile`. Its packages fallback is `ws.relPkgsDir`. Each resolved dependency receives a typed path override, including inherited and transitive dependencies. Owned dependencies point into the copy, and trusted dependencies point to their original roots. The copy always retains the captured manifest and runs ordinary loads.
 
-Package-directory pruning is relative to the current capture root, for the configured and resolved spellings. `Construction.packageSource_owned` proves that explicitly owned roots inside that directory survive its pruning.
+Package-directory pruning is relative to the current capture root, for the configured and resolved spellings. `Construction.packageSource_owned` proves that explicitly owned roots inside that directory survive its pruning. `Construction.packageSource_source` proves the same for the owned source paths in it, with the directories on the way to them. These are the source directories of the owned libraries and executables, as Lake loaded them, and their modules' source files. `Construction.packageSource_pruned` proves that every other entry of that directory is pruned from a capture root outside it.
 
 Assumes: Lake `v4.34.1`, `Load/Resolve.lean:590-627`, applies overrides during ordinary materialization. `Load/Resolve.lean:201-235` traverses dependencies transitively. Path entries do not clone packages (`Load/Materialize.lean:239-277`).
 
@@ -5099,10 +5099,14 @@ The `qualify` campaigns and what they observe:
     Without the overrides file, the copy's override names the configuration of the last entry.
   - A project keeps its checkouts in `vendor` and requires a package by Git, which the control
     commits to a local repository. With a manifest that records no packages directory, Lake loads
-    the package from `vendor`. The copy leaves out that checkout and names it in an override.
-    Without a manifest, Lake's load through `LAKE_PKG_URL_MAP` writes the local repository into
-    the entry, and the inventory accepts it. A worker process loads these, and Git searches for no
-    repository above the control's scratch directory.
+    the package from `vendor`. The copy leaves out that checkout and names it in an override. It
+    keeps the sources that a library of the project has in `vendor/src`. Without a manifest,
+    Lake's load through `LAKE_PKG_URL_MAP` writes the local repository into the entry, and the
+    inventory accepts it. A worker process loads these, and Git searches for no repository above
+    the control's scratch directory.
+  - These steps run in a process that inherits a `GIT_DIR` and an absolute `GIT_INDEX_FILE`
+    outside the scratch directory. The control's Git commands and its workers run without them,
+    and both stay untouched.
 - `documentation-source`: both public documentation paths with changed and missing
   dependency/configuration inputs and fresh restored positives. Its `--source-read-only`
   selection adds original-file and declaration-build read failures, initial setup classification

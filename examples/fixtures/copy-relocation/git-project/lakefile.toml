@@ -2,7 +2,9 @@
 # `vendor` and requires the package `gdep` by Git, at a URL that the control never fetches. The
 # control makes a Git repository of `../gdep`, and Lake clones it from there: through the URL of a
 # manifest entry that records no packages directory, or through `LAKE_PKG_URL_MAP` when the project
-# has no manifest.
+# has no manifest. The owned sources in `vendor`, which a copy of the project must keep, are the
+# source directory `vendor/src` of the library `Vendored` and the module `vendor.Packaged` of the
+# library `Packaged`, whose source directory is the project's.
 name = "git_project"
 packagesDir = "vendor"
 
@@ -12,3 +14,12 @@ git = "https://example.invalid/gdep.git"
 
 [[lean_lib]]
 name = "GitProject"
+
+[[lean_lib]]
+name = "Vendored"
+srcDir = "vendor/src"
+roots = ["Example"]
+
+[[lean_lib]]
+name = "Packaged"
+roots = ["vendor.Packaged"]

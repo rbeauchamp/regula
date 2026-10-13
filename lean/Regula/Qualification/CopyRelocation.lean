@@ -4,15 +4,19 @@ import Regula.Checker.Lake
 /-! # The relocation of a copy's dependencies
 
 The control of `qualify copy-relocation`. `Lake.copyProject` copies a project without its `.lake`
-and without the checkouts in its packages directory, and gives the copy an override for each
-dependency, to the directory and through the files that Lake's load of the project takes
-(`Lake.relocateDependencies`). Lake's load of the copy must then select what its load of the
-project selects (`Lake.checkCopiedWorkspace`). The control copies
+and without the checkouts in its packages directory, but with the owned sources there. It gives the
+copy an override for each dependency, to the directory and through the files that Lake's load of
+the project takes (`Lake.relocateDependencies`). Lake's load of the copy must then select what its
+load of the project selects (`Lake.checkCopiedWorkspace`). The control copies
 `examples/fixtures/copy-relocation`, with two projects:
 - `project` requires the package `dep` by path. Its manifest has two entries for `dep`: the first
   names the configuration file `a.toml`, and the last names `b.toml`.
 - `git-project` keeps its dependencies' checkouts in `vendor` and requires `gdep` by Git. The
-  control commits `gdep` to a Git repository of its own, which Lake clones without a network.
+  control commits `gdep` to a Git repository of its own, which Lake clones without a network. Two
+  of the project's libraries have owned sources in `vendor` (`ownedSources`).
+
+The control's Git commands and its workers run without the Git repository variables that their
+process inherits (`Construction.gitEnvironment`).
 
 Lake's load of a project, its copy, Git and the files they read are trusted IO that the control
 observes, not proves. -/
@@ -49,7 +53,8 @@ private def succeeded (what : String) (result : IO.Process.Output) : IO Unit :=
   requireChecks [⟨s!"{what}: {result.stdout}{result.stderr}", result.exitCode == 0⟩]
 
 /-- Commit the files of the directory `dir` to a new Git repository there, and give the real path
-of that repository and its commit. -/
+of that repository and its commit. Each Git command runs through `run`, which removes Git's
+repository variables from its environment (`Construction.gitProcessArgs`). -/
 private def commitRepository (dir : FilePath) : IO (String × String) := do
   for args in #[#["init", "-q"], #["add", "."], #["-c", "user.name=Copy Relocation Control", "-c",
       "user.email=copy-relocation@example.invalid", "-c", "commit.gpgsign=false", "commit", "-qm",
@@ -71,11 +76,19 @@ def writeManifest (project : FilePath) (repository rev : String) : IO Unit := do
       packagesDir? := none, packages := #[entry] }
   manifest.save (LakeSelection.ownRootFiles project).1
 
+/-- The owned sources of the Git project that lie in its packages directory `vendor`: the module
+and a file that is not a module in the source directory `vendor/src` of the library `Vendored`,
+and the module `vendor.Packaged` of the library `Packaged`, whose source directory is the
+project's. -/
+def ownedSources : Array String :=
+  #["vendor/src/Example.lean", "vendor/src/notes.txt", "vendor/Packaged.lean"]
+
 /-- The worker of `qualify copy-relocation-load PROJECT COPIES`, in the environment that its parent
-gives it: the dependency inventory of the Git project at `project` (`Lake.surfaceInventory`), and
-a copy of the project below `copies` (`copied`). It prints, as one JSON object, each dependency
-with its real directory, each override of the copy with the directory it names, and whether the
-copy holds `vendor/gdep`. -/
+gives it (`workerEnvironment`): the dependency inventory of the Git project at `project`
+(`Lake.surfaceInventory`), and a copy of the project below `copies` (`copied`). It prints, as one
+JSON object, each dependency with its real directory, each override of the copy with the directory
+it names, whether the copy holds `vendor/gdep`, and which of the owned sources in `vendor`
+(`ownedSources`) it holds. -/
 def loadWorker (project copies : String) : IO Unit := do
   let inventory ← Lake.surfaceInventory project
   let (copy, _, overrides) ← copied project copies "copy" "gdep"
@@ -84,12 +97,16 @@ def loadWorker (project copies : String) : IO Unit := do
   let overrides := overrides.map fun entry => (entry.name.toString, match entry.src with
     | .path dir => dir.toString
     | .git url .. => url)
+  let sources ← ownedSources.filterM fun (path : String) => (copy / path).pathExists
   IO.println (Json.mkObj [("dependencies", toJson dependencies), ("overrides", toJson overrides),
-    ("checkout", toJson (← (copy / "vendor" / "gdep").pathExists))]).compress
+    ("checkout", toJson (← (copy / "vendor" / "gdep").pathExists)),
+    ("sources", toJson sources)]).compress
 
 /-- Check the answer `output` that the worker (`loadWorker`) printed for the Git project at
-`project`: Lake's load took the configuration's `vendor` and loaded `gdep` from `vendor/gdep`, and
-the copy, which leaves out that checkout, has an override that names it. -/
+`project`: Lake's load took the configuration's `vendor` and loaded `gdep` from `vendor/gdep`. The
+copy leaves out that checkout and has an override that names it. It keeps each of the owned
+sources in `vendor` (`ownedSources`), and Lake's load of the copy selects the libraries `Vendored`
+and `Packaged` as the project's does (`copied`). -/
 def checkAnswer (project : FilePath) (output : String) : IO Unit := do
   let some line := (output.splitOn "\n").filter (!·.isEmpty) |>.getLast?
     | throw <| IO.userError s!"the worker's load of {project} printed nothing"
@@ -97,25 +114,80 @@ def checkAnswer (project : FilePath) (output : String) : IO Unit := do
   let dependencies ← IO.ofExcept (answer.getObjValAs? (Array (String × String)) "dependencies")
   let overrides ← IO.ofExcept (answer.getObjValAs? (Array (String × String)) "overrides")
   let checkout ← IO.ofExcept (answer.getObjValAs? Bool "checkout")
+  let sources ← IO.ofExcept (answer.getObjValAs? (Array String) "sources")
   let vendored := (← IO.FS.realPath (project / "vendor" / "gdep")).toString
   requireChecks [
     ⟨s!"Lake loads gdep from vendor/gdep: {dependencies}",
       dependencies == #[("gdep", vendored)]⟩,
     ⟨s!"the copy's override names vendor/gdep of the project: {overrides}",
       overrides == #[("gdep", vendored)]⟩,
-    ⟨"the copy leaves out the checkout in vendor", !checkout⟩]
+    ⟨"the copy leaves out the checkout in vendor", !checkout⟩,
+    ⟨s!"the copy keeps the owned sources in vendor: {sources}", sources == ownedSources⟩]
+
+/-- The environment of a worker (`loadWorker`) that the control starts from its scratch directory
+`scratch`, with the changes `env` applied last. Git's repository variables are removed
+(`Construction.gitEnvironment`), and Git searches for no repository above `scratch`
+(`GIT_CEILING_DIRECTORIES`). That ceiling does not bound a `GIT_DIR`, so the removal is what keeps
+an inherited one from selecting its repository. -/
+def workerEnvironment (scratch : FilePath) (env : Array (String × Option String)) :
+    IO (Array (String × Option String)) := do
+  let ceiling ← IO.FS.realPath scratch
+  return (← Regula.Filesystem.Construction.gitEnvironment) ++
+    #[("GIT_CEILING_DIRECTORIES", some ceiling.toString)] ++ env
 
 /-- Run the worker (`loadWorker`) on the Git project at `project`, with its copy below `copies`, in
-a process where Git searches for no repository above `scratch` (`GIT_CEILING_DIRECTORIES`) and
-with the environment `env` besides, and check its answer (`checkAnswer`). -/
+the environment `workerEnvironment scratch env`, and check its answer (`checkAnswer`). -/
 private def loadInWorker (root scratch project copies : FilePath)
     (env : Array (String × Option String)) : IO Unit := do
-  let ceiling ← IO.FS.realPath scratch
   let result ← run root (← IO.appPath).toString
     #["--under-deadline", "copy-relocation-load", project.toString, copies.toString]
-    (#[("GIT_CEILING_DIRECTORIES", some ceiling.toString)] ++ env)
+    (← workerEnvironment scratch env)
   succeeded s!"the worker's load of {project}" result
   checkAnswer project result.stdout
+
+/-- The steps of the control (`check`) that run Git and Lake, as `qualify copy-relocation-git
+SCRATCH`, in the scratch directory `scratch` that holds the control's copy of the fixture:
+- With the manifest that `writeManifest` gives `git-project`, which records no packages directory,
+  Lake's load of the project clones `gdep` into the configuration's `vendor`. The selection takes
+  that directory, and a selection that took Lake's default `.lake/packages` would not agree with the
+  load (`LakeSelection.checkSelection`). The copy leaves out the checkout, names it in an override,
+  and keeps the owned sources in `vendor` (`ownedSources`).
+- Without a manifest, in a copy of `git-project` and with `LAKE_PKG_URL_MAP` mapping `gdep` to the
+  local repository, Lake's load resolves the requirement anew. It records the remote URL of the
+  requirement's URL for `gdep` and writes the local repository into its entry, and the inventory
+  must accept that load (`LakeSelection.RootSelection.written`).
+
+The loads run in a worker (`loadWorker`) in the environment `workerEnvironment` gives. -/
+def gitSteps (scratch : String) : IO Unit := do
+  let root ← rootDirectory
+  let scratch := FilePath.mk scratch
+  let fixture := root / "examples" / "fixtures" / "copy-relocation"
+  let source := scratch / "source"
+  let (repository, rev) ← commitRepository (source / "gdep")
+  let gitProject := source / "git-project"
+  writeManifest gitProject repository rev
+  loadInWorker root scratch gitProject (scratch / "copies-vendor") #[]
+  IO.println "copy relocation packages directory of the configuration: PASS"
+  let unlocked := scratch / "url-map"
+  copyFixture (fixture / "git-project") unlocked
+  let map := (Json.mkObj [("gdep", toJson repository)]).compress
+  loadInWorker root scratch unlocked (scratch / "copies-url-map") #[("LAKE_PKG_URL_MAP", map)]
+  let some manifest ← _root_.Lake.Manifest.load? (LakeSelection.ownRootFiles unlocked).1
+    | throw <| IO.userError s!"Lake's load of {unlocked} wrote no manifest"
+  let url := match LakeSelection.effectiveEntry manifest.packages `gdep with
+    | some { src := .git url .., .. } => some url
+    | _ => none
+  requireChecks [⟨s!"Lake's load wrote the mapped repository into the entry of gdep: {url}",
+    url == some repository⟩]
+  IO.println "copy relocation URL map without a manifest: PASS"
+
+/-- Each entry below `dir`, with the bytes of each file, read through the shared no-follow capture
+(`Construction.capture`). -/
+private def snapshot (dir : FilePath) : IO (List (List String × Option (List UInt8))) := do
+  return (← Regula.Filesystem.Construction.capture dir).map fun item =>
+    (item.relative, match item.payload with
+      | .directory => none
+      | .file bytes _ => some bytes.toList)
 
 /-- The control, in a copy of the fixture:
 - With a package overrides file of `project` that selects `a.toml` for `dep`, Lake's load of the
@@ -123,19 +195,10 @@ private def loadInWorker (root scratch project copies : FilePath)
   copy's override names `a.toml`, and Lake's load of the copy selects what the project's selects.
 - Without that overrides file, Lake's load of the project takes `b.toml`, and the copy's override
   names it.
-- With the manifest that `writeManifest` gives `git-project`, which records no packages directory,
-  Lake's load of the project clones `gdep` into the configuration's `vendor`. The selection takes
-  that directory, and a selection that took Lake's default `.lake/packages` would not agree with the
-  load (`LakeSelection.checkSelection`). The copy leaves out the checkout and names it in an
-  override.
-- Without a manifest, in a copy of `git-project` and with `LAKE_PKG_URL_MAP` mapping `gdep` to the
-  local repository, Lake's load resolves the requirement anew. It records the remote URL of the
-  requirement's URL for `gdep` and writes the local repository into its entry, and the inventory
-  must accept that load (`LakeSelection.RootSelection.written`).
-
-The loads of `git-project` run in a worker (`loadWorker`), where Git searches for no repository
-above the scratch directory: a directory without `.git` below it reads to Lake's Git commands as no
-repository, not as the repository that encloses the scratch directory. -/
+- The steps that run Git and Lake (`gitSteps`) run in a process that inherits a `GIT_DIR` of a
+  repository and an absolute `GIT_INDEX_FILE`, both in a temporary directory outside the scratch
+  directory. The steps must pass, and that directory must hold the same entries and bytes after
+  them. -/
 def check : IO Unit := do
   let root ← rootDirectory
   withScratch root "copy-relocation" fun scratch => do
@@ -167,22 +230,20 @@ def check : IO Unit := do
         leftover.map (fun entry => (entry.name, entry.configFile.toString)) ==
           #[(`dep, "b.toml")]⟩]
     IO.println "copy relocation restored: PASS"
-    let (repository, rev) ← commitRepository (source / "gdep")
-    let gitProject := source / "git-project"
-    writeManifest gitProject repository rev
-    loadInWorker root scratch gitProject (scratch / "copies-vendor") #[]
-    IO.println "copy relocation packages directory of the configuration: PASS"
-    let unlocked := scratch / "url-map"
-    copyFixture (fixture / "git-project") unlocked
-    let map := (Json.mkObj [("gdep", toJson repository)]).compress
-    loadInWorker root scratch unlocked (scratch / "copies-url-map") #[("LAKE_PKG_URL_MAP", map)]
-    let some manifest ← _root_.Lake.Manifest.load? (LakeSelection.ownRootFiles unlocked).1
-      | throw <| IO.userError s!"Lake's load of {unlocked} wrote no manifest"
-    let url := match LakeSelection.effectiveEntry manifest.packages `gdep with
-      | some { src := .git url .., .. } => some url
-      | _ => none
-    requireChecks [⟨s!"Lake's load wrote the mapped repository into the entry of gdep: {url}",
-      url == some repository⟩]
-    IO.println "copy relocation URL map without a manifest: PASS"
+    Regula.Filesystem.withOwnTempDir fun outside => do
+      succeeded "git init of the inherited repository"
+        (← run outside "git" #["init", "-q", "inherited"])
+      let inherited := #[("GIT_DIR", some (outside / "inherited" / ".git").toString),
+        ("GIT_INDEX_FILE", some (outside / "index").toString)]
+      let before ← snapshot outside
+      let result ← run root (← IO.appPath).toString
+        #["--under-deadline", "copy-relocation-git", scratch.toString] inherited
+      IO.print result.stdout
+      let after ← snapshot outside
+      requireChecks [
+        ⟨"the inherited GIT_DIR and GIT_INDEX_FILE are left untouched", before == after⟩,
+        ⟨s!"the steps that run Git and Lake: {result.stdout}{result.stderr}",
+          result.exitCode == 0⟩]
+      IO.println "copy relocation inherited Git repository variables untouched: PASS"
 
 end Regula.Qualification.CopyRelocation

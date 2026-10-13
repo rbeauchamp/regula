@@ -46,6 +46,7 @@ def form : Command → Command
   | .selfAuditModule _ _ => .selfAuditModule "MODULE" "SOURCE"
   | .selfAuditJsonModule _ => .selfAuditJsonModule "MODULE"
   | .copyRelocationLoad _ _ => .copyRelocationLoad "PROJECT" "COPIES"
+  | .copyRelocationGit _ => .copyRelocationGit "SCRATCH"
   | .environments _ => .environments "PATH"
   | .acceptance group _ => .acceptance group "PATH"
   | command => command
@@ -60,7 +61,8 @@ def qualifyForms : List Command :=
     .acceptanceSnapshots .history, .acceptanceSnapshots .gitStatus, .acceptanceSnapshots .all,
     .prepMeasure, .documentationDependencies, .inputInventory, .receiptBoundaries, .observers,
     .closureEvidence, .configurationCapture, .versoRecordedPaths, .copyRelocation,
-    form (.copyRelocationLoad "" ""), .fenceEvidence, .frozenExits, .documentationSource,
+    form (.copyRelocationLoad "" ""), form (.copyRelocationGit ""), .fenceEvidence, .frozenExits,
+    .documentationSource,
     .documentationSourceReadOnly]
 
 /-- Every selection's form is listed. -/
@@ -411,7 +413,7 @@ def reason : Campaign → Option Reason
       "the four shards together audit all modules."
   | .qualify (.selfAuditModule "MODULE" "SOURCE") | .qualify (.selfAuditJsonModule "MODULE") =>
       some (.worker (.qualify (form (.selfAuditShard ""))))
-  | .qualify (.copyRelocationLoad "PROJECT" "COPIES") =>
+  | .qualify (.copyRelocationLoad "PROJECT" "COPIES") | .qualify (.copyRelocationGit "SCRATCH") =>
       some (.worker (.qualify .copyRelocation))
   | .qualify (.acceptanceSnapshots .all) => some <| .partly
       [.qualify (.acceptanceSnapshots .dependencies), .qualify (.acceptanceSnapshots .gitStatus)]

@@ -377,16 +377,24 @@ def markdownPaths (root : FilePath) : IO (Array FilePath) := do
   return ((← root.walkDir enter).filter (·.extension == some "md")).qsort
     (fun left right => left.toString < right.toString)
 
-/-- A package-store entry is source when the current capture root is itself in that store. -/
-def PackageSource (source packages path : List String) : Prop :=
-  ¬ packages.IsPrefix path ∨ packages.IsPrefix source
+/-- A package-store entry is source when the current capture root is itself in that store, or
+when the entry lies in, or on the way to, one of the owned source paths `sources` that lie in that
+store. -/
+def PackageSource (source packages : List String) (sources : List (List String))
+    (path : List String) : Prop :=
+  ¬ packages.IsPrefix path ∨ packages.IsPrefix source ∨
+    ∃ owned ∈ sources, packages.IsPrefix owned ∧ (owned.IsPrefix path ∨ path.IsPrefix owned)
 
-instance (source packages path : List String) : Decidable (PackageSource source packages path) :=
-  inferInstanceAs (Decidable (¬ packages.IsPrefix path ∨ packages.IsPrefix source))
+instance (source packages : List String) (sources : List (List String)) (path : List String) :
+    Decidable (PackageSource source packages sources path) :=
+  inferInstanceAs (Decidable (¬ packages.IsPrefix path ∨ packages.IsPrefix source ∨
+    ∃ owned ∈ sources, packages.IsPrefix owned ∧ (owned.IsPrefix path ∨ path.IsPrefix owned)))
 
-/-- Prune a packages subtree only from a capture rooted outside that subtree. -/
-def packageSource (source packages path : List String) : Bool :=
-  decide (PackageSource source packages path)
+/-- Prune a packages subtree only from a capture rooted outside that subtree, except for the owned
+source paths in it and the directories on the way to them. -/
+def packageSource (source packages : List String) (sources : List (List String))
+    (path : List String) : Bool :=
+  decide (PackageSource source packages sources path)
 
 /-- Observe Git's repository-local environment names, then remove them for a child in another
 repository. System/global configuration is disabled and namespaces are also removed. The query

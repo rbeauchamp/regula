@@ -50,14 +50,37 @@ theorem requiredPath_ancestor (required : List (List String)) (path relative : L
 
 /-- The package pruning decision is relative to the current capture root on every input. -/
 theorem checked_packageSource : Regula.ExecutableContract packageSource
-    (fun f => ∀ source packages path,
-      f source packages path = true ↔ PackageSource source packages path) :=
-  ⟨fun _ _ _ => ⟨of_decide_eq_true, decide_eq_true⟩⟩
+    (fun f => ∀ source packages sources path,
+      f source packages sources path = true ↔ PackageSource source packages sources path) :=
+  ⟨fun _ _ _ _ => ⟨of_decide_eq_true, decide_eq_true⟩⟩
 
 /-- An explicitly captured root inside the packages tree loses no entry to package pruning. -/
-theorem packageSource_owned (source packages path : List String)
-    (owned : packages.IsPrefix source) : packageSource source packages path = true :=
-  decide_eq_true (Or.inr owned)
+theorem packageSource_owned (source packages : List String) (sources : List (List String))
+    (path : List String) (owned : packages.IsPrefix source) :
+    packageSource source packages sources path = true :=
+  decide_eq_true (Or.inr (Or.inl owned))
+
+/-- An owned source path inside the packages tree survives package pruning from every capture
+root, with each entry below it and each directory on the way to it. -/
+theorem packageSource_source (source packages : List String) (sources : List (List String))
+    (owned path : List String) (listed : owned ∈ sources) (inside : packages.IsPrefix owned)
+    (related : owned.IsPrefix path ∨ path.IsPrefix owned) :
+    packageSource source packages sources path = true :=
+  decide_eq_true (Or.inr (Or.inr ⟨owned, listed, inside, related⟩))
+
+/-- From a capture root outside the packages tree, an entry of that tree is pruned when it is
+neither in nor on the way to an owned source path inside the tree. So a tree that holds no owned
+source path is pruned whole. -/
+theorem packageSource_pruned (source packages : List String) (sources : List (List String))
+    (path : List String) (stored : packages.IsPrefix path) (outside : ¬ packages.IsPrefix source)
+    (unrelated : ∀ owned ∈ sources, packages.IsPrefix owned →
+      ¬ owned.IsPrefix path ∧ ¬ path.IsPrefix owned) :
+    packageSource source packages sources path = false :=
+  decide_eq_false fun
+    | .inl unstored => unstored stored
+    | .inr (.inl captured) => outside captured
+    | .inr (.inr ⟨owned, listed, inside, related⟩) =>
+      related.elim (unrelated owned listed inside).1 (unrelated owned listed inside).2
 
 /-- File filtering retains every directory and exactly the selected regular files, without
 altering any instruction's path or payload. The statement covers every name and entry kind. -/
