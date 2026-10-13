@@ -1007,8 +1007,8 @@ prefix's record is a snapshot, which has no replay and so is never a native role
 as a prefix and then reached as an axiom has its snapshot replaced by a replay candidate, so
 whichever of the two is reached first, every reached axiom is replayed. Records are in the order
 of their first insertion, prefix snapshots included: a replaced snapshot keeps its position. The
-axioms of both are those Lean's `collectAxioms` reports, since no kernel of this audit replayed an
-imported module.
+axioms of both are those it reaches in the environment (`KernelAxioms.reachedAxioms`), since no
+kernel of this audit replayed an imported module.
 
 Assumes:
 - Lean v4.34.1 maps each imported constant to the module that declares it
