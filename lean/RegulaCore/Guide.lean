@@ -1356,8 +1356,9 @@ def guide : RuleId → Guide
           build.",
         "Each claimed target loads Regula's elaboration observer, a Lean plugin, into the \
           elaboration of its modules through Lake's own `plugins` setting \
-          (``plugins := #[`@regula/RegulaObserver:shared]``), which RG2006 requires, so an \
-          ordinary build and the audit's build elaborate them alike. The observer records in \
+          (``plugins := #[`@regula/RegulaObserver:shared]``) with the same key in its \
+          `needs`, which RG2006 requires, so an ordinary build and the audit's build elaborate \
+          them alike. The observer records in \
           each module's `.olean` every `#guard_msgs` and `#guard_panic` command it ran, also \
           one a macro produced, and every warning or error that Lean keeps out of the build's \
           output (a silent message). A claimed module that runs such a command or has such a \
@@ -1696,7 +1697,7 @@ def guide : RuleId → Guide
         the three Mathlib-repository linters that standard §6.7 excludes, overrides these options \
         with a `-D` extra `lean` argument, or, in a surface that imports Mathlib, leaves Mathlib's \
         standard linter set or its exclusions unset, or does not load Regula's \
-        elaboration observer through its `plugins`."
+        elaboration observer through its `plugins` with the same key in its `needs`."
       trigger := [
         "After the claimed surfaces build, the checker reads Lake's resolved configuration of \
           every claimed library and executable: its `leanOptions` (build type, package, then \
@@ -1818,7 +1819,8 @@ def guide : RuleId → Guide
           accepted set and, in a Mathlib surface, enables the standard set with exactly the \
           §6.7 exclusions, or with the header linter on and its license line configured; no `-D` \
           extra `lean` argument overrides these options, and \
-          each loads Regula's elaboration observer through its plugins."]
+          each loads Regula's elaboration observer through its plugins with the same key in its \
+          `needs`."]
       notEstablished := [
         "That a community linter turned off for one declaration has the reason standard §6.2 \
           requires; review checks it.",

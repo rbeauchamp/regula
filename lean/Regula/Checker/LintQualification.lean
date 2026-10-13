@@ -760,9 +760,12 @@ decided like `set_option`, and the documentation role `{option}` and a `simp` us
 set no option of the scope, give no finding. The restored module is accepted. Without the
 library's `plugins` entry for the observer, RG2003 refuses the claimed modules as not observed and
 names the entry, as `doctor`'s RG2006 finding does. Without its `needs` entry, that finding names
-the `needs` entry, which RG2006 requires. With both entries and `platformIndependent := true`,
-under which Lake leaves the plugins' trace out of each module's trace, the run is accepted. A
-dependency's `presetup` facet that Lake does not store (`memoize := false`) is accepted, required before `regula` and after it, and one that drops the
+the `needs` entry, which RG2006 requires. A target with both entries and
+`platformIndependent := true` is accepted by RG2006 and RG2003 on a marked rebuild, since the field
+takes the workspace out of the plain shape; that the `needs` trace then reaches each module's trace
+is read from Lake (`Lake/Build/Module.lean` lines 600 to 603, `Lake/Build/Library.lean` lines 162
+to 169), not exercised here. A dependency's `presetup` facet that Lake does not store
+(`memoize := false`) is accepted, required before `regula` and after it, and one that drops the
 plugins is refused under RG2003. The file audit (`axiomGate --file`) decides its compilation's
 record with the same function (`Observer.decideRecord`): a `#guard_msgs` that drops a warning
 fails with the same `FAIL[elaboration-hidden]`, and `set_option linter.unusedVariables false` is
@@ -915,8 +918,11 @@ private def observerEscapes (repo adopter : FilePath) : IO (Array String) := do
       excludes := #["does not load Regula's elaboration observer",
         "regula doctor: the setup is complete"] }
     (← runProcess adopter "lake" #["exe", "regula", "doctor"] scrubbedLeanPathEnv))
-  -- With `platformIndependent := true` Lake leaves the plugins' trace out of each module's trace;
-  -- the observer's trace enters it through `needs`, so the target with both entries is accepted.
+  -- A target with both entries and `platformIndependent := true` is accepted by RG2006 and RG2003.
+  -- The field takes the workspace out of the plain shape, so the run is a marked rebuild and
+  -- replays no module; that the `needs` trace reaches each module's trace under the field is read
+  -- from Lake (`Lake/Build/Module.lean` lines 600 to 603, `Lake/Build/Library.lean` lines 162 to
+  -- 169), not exercised by this control.
   IO.FS.writeFile lakefile lakefileText
   mutate lakefile "globs := #[.andSubmodules `Widget]"
     "globs := #[.andSubmodules `Widget]\n  platformIndependent := true"

@@ -97,7 +97,7 @@ structure LibraryInventory where
   /-- The source file of each module. -/
   sources : Array SourceEntry
   /-- The Lean options and extra `lean` arguments Lake builds the library's modules with, and
-  whether its plugins load Regula's elaboration observer (RG2006). -/
+  whether its plugins and its `needs` name Regula's elaboration observer (RG2006). -/
   options : RegulaPolicy.Community.BuildOptions
   deriving Repr, BEq
 
@@ -110,7 +110,7 @@ structure ExecutableInventory where
   /-- The root module's source file. -/
   source : FilePath
   /-- The Lean options and extra `lean` arguments Lake builds the root module with, and whether
-  its plugins load Regula's elaboration observer (RG2006). -/
+  its plugins and its `needs` name Regula's elaboration observer (RG2006). -/
   options : RegulaPolicy.Community.BuildOptions
   deriving Repr, BEq
 
@@ -123,7 +123,7 @@ structure TargetInventory where
   /-- The modules the target provides, in `Name.quickLt` order. -/
   modules : Array Name
   /-- The Lean options and extra `lean` arguments Lake builds the target's modules with, and
-  whether its plugins load Regula's elaboration observer. -/
+  whether its plugins and its `needs` name Regula's elaboration observer. -/
   options : RegulaPolicy.Community.BuildOptions
   deriving Repr, BEq
 
