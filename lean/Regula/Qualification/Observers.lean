@@ -36,9 +36,11 @@ library directory of a package. Its control, a workspace whose dependency packag
 programs of the package too, and an adopter's workspace are not checked: their builds rest on the
 hypothesis unchecked.
 
-The campaign acquires no dependency. Before Lake loads a workspace, it refuses one whose manifest
-pins a Git package that is not checked out at the pinned commit, since Lake's loader would then
-clone or check it out (`unprovisioned`), and names the provisioning step that acquires it. The
+The campaign acquires no dependency, under the hypothesis of `toolchainFindings` that no other
+process changes the manifest, the package overrides or a dependency's checkout between its check
+and Lake's load. Before Lake loads a workspace, it refuses one whose manifest pins a Git package
+that is not checked out at the pinned commit, since Lake's loader could then clone, fetch or check
+it out (`unprovisioned`), and names the provisioning step that acquires it. The
 `markdown/` workspace pins MD4Lean, which `lean --run lean/RegulaProvision.lean verso` acquires.
 The control of that refusal, a workspace whose manifest pins a Git package that it does not hold,
 runs first (`provisionControl`). -/
@@ -122,14 +124,29 @@ def ToolchainFinding.describe : ToolchainFinding → String
     s!"package {package} provides the module {module} ({target})"
   | .holds package entry => s!"package {package} has {entry} in its library directory"
 
-/-- The Git packages, by the names of their entries, that Lake's loader would acquire when it loads
-the workspace `ws`, which is loaded with its root package alone (`Lake.loadWorkspaceRoot`). With a
-manifest, the loader materializes each dependency from its entry in the manifest or in the package
-overrides, and from nothing else (`Lake.Workspace.materializeDeps`,
-`Lake/Load/Resolve.lean:587-625`). `Lake.PackageEntry.materialize` leaves a Git package as it is,
+/-- The entries from which Lake's loader materializes the dependencies of a workspace with the
+manifest `manifest` and the package overrides `overrides`, by name, as
+`Lake.Workspace.materializeDeps` builds them (`Lake/Load/Resolve.lean:599-607`): the manifest's
+packages, then the overrides, each inserted by its name, so an override replaces the manifest's
+entry of the same name. The load configuration of `Regula.Checker.Workspace.withRootWorkspace`
+supplies no further overrides. -/
+def loaderEntries (manifest : _root_.Lake.Manifest) (overrides : Array _root_.Lake.PackageEntry) :
+    NameMap _root_.Lake.PackageEntry :=
+  overrides.foldl (init := manifest.packages.foldl (init := mkNameMap _)
+    fun map entry => map.insert entry.name entry)
+    fun map entry => map.insert entry.name entry
+
+/-- The Git packages, by the names of their entries, that are not checked out at their pinned
+commits in the workspace `ws`, which is loaded with its root package alone
+(`Lake.loadWorkspaceRoot`): a superset of those that Lake's loader can acquire when it loads the
+workspace. With a manifest, the loader materializes each dependency from its entry of
+`loaderEntries`, and a dependency with no entry there is an error, not an acquisition
+(`Lake/Load/Resolve.lean:611-622`). `Lake.PackageEntry.materialize` leaves a Git package as it is,
 with no fetch, clone or checkout, exactly when its directory below the manifest's packages
 directory exists and its `HEAD` is the pinned commit (`Lake/Load/Materialize.lean:237-264`). Each
-Git entry whose checkout is not so is listed. With no manifest, the loader resolves every
+Git entry of `loaderEntries` whose checkout is not so is listed. The list can also name an entry
+that the loader never reaches, such as a stale entry of the manifest, so a refusal by it is
+conservative; `lake update` removes such an entry. With no manifest, the loader resolves every
 dependency anew (`Lake/Load/Workspace.lean:61-69`), so a root package that declares a dependency
 gives the entry `lake-manifest.json`. -/
 def unprovisioned (ws : _root_.Lake.Workspace) : IO (Array String) := do
@@ -137,13 +154,13 @@ def unprovisioned (ws : _root_.Lake.Workspace) : IO (Array String) := do
     | return if ws.root.depConfigs.isEmpty then #[] else #["lake-manifest.json"]
   let packages := ws.dir / manifest.packagesDir?.getD ws.relPkgsDir
   let overrides ← _root_.Lake.Manifest.tryLoadEntries ws.packageOverridesFile
-  (manifest.packages ++ overrides).filterMapM fun entry => do
-    match entry.src with
-    | .git (rev := rev) .. =>
+  let mut missing := #[]
+  for (_, entry) in loaderEntries manifest overrides do
+    if let .git (rev := rev) .. := entry.src then
       let checkout : _root_.Lake.GitRepo := ⟨packages / entry.dirName⟩
-      if (← checkout.dirExists) && (← checkout.getHeadRevision?) == some rev then return none
-      return some entry.prettyName
-    | .path .. => return none
+      unless (← checkout.dirExists) && (← checkout.getHeadRevision?) == some rev do
+        missing := missing.push entry.prettyName
+  return missing
 
 /-- The text that names the step that provisions the pinned Git packages of this repository's
 workspaces: MD4Lean, which the `markdown/` workspace pins, with the website's Verso. -/
@@ -154,14 +171,20 @@ the workspace, the root package and each dependency, each module under a root of
 that the package provides by Lake's module lookup (`Regula.Checker.Lake.packageModules`,
 `toolchainProvided`), and each of `toolchainEntries` that its library directory (`leanLibDir`)
 has. It first loads the root package alone, and refuses, before Lake loads the workspace, when a
-Git package of its manifest is not checked out at the pinned commit (`unprovisioned`), so the load
-acquires no dependency. -/
+Git package of its manifest is not checked out at the pinned commit (`unprovisioned`). So, under
+the hypothesis below, the load acquires no dependency.
+
+Assumes: between that check and Lake's load of the workspace, no other process changes the
+manifest, the package overrides (`.lake/package-overrides.json`) or a checkout of a dependency
+that the check reads. The check does not hold them: a checkout whose `HEAD` moved in between would
+make the loader fetch (`Lake.updateGitRepo`), and one removed would make it clone. This campaign
+does not resolve the dependencies itself, which would repeat Lake's resolution. -/
 def toolchainFindings (repo : FilePath) : IO (Array ToolchainFinding) := do
   let missing ← Regula.Checker.Workspace.withRootWorkspace repo (resolveDependencies := false)
     unprovisioned
   unless missing.isEmpty do
     throw <| IO.userError s!"observers: the workspace {repo} needs {missing.toList} at the commits \
-      that its manifest pins before Lake loads it, and this check acquires no dependency: \
+      that its manifest pins before Lake loads it, and this check provisions no dependency: \
       provision them with `{provisioningStep}`"
   Regula.Checker.Workspace.withRootWorkspace repo fun ws => do
     Regula.Checker.Lake.checkWorkspaceModuleNames ws

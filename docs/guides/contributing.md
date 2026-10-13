@@ -592,9 +592,10 @@ workspace. The single run does the same. On the slower CI runners, the
 shard 4/4 has the shortest audit of the four. Thus this check runs there, and not in the first
 acceptance step.
 
-`qualify observers` acquires no dependency: it refuses to load the `markdown/` workspace until the
-pinned MD4Lean is in `.lake/packages`. Run `lean --run lean/RegulaProvision.lean verso` first. The
-dogfood workflow does this for the shard 4/4.
+`qualify observers` refuses to load the `markdown/` workspace until the pinned MD4Lean is in
+`.lake/packages`. Run `lean --run lean/RegulaProvision.lean verso` first. The dogfood workflow does
+this for the shard 4/4. Thus the check acquires no dependency if no other process changes the
+checkout or the manifest during the check.
 
 Before its `lake lint` in the root package, `diagnostics self-lint` builds the `lint` driver, its
 worker `axiomGate` and the claimed targets in one `lake build`. Lake's lint dispatch, the driver
