@@ -9,11 +9,13 @@ are operational observations of the actual constructor, not proofs about the ope
 finds a stand-in listing program first. The stand-in is a copy of this executable named as
 `Construction.locate` looks for GNU `ls`: it identifies as GNU coreutils 9.4 and lists the
 directory the way the variable `standinVariable` selects. A listing that ends with the exit code 2
-and the message of a failed read, as GNU `ls` reports one, a listing whose last name has no NUL,
-and a listing with error text but exit code 0 must each be refused before any receipt and before
-any write at the destination. A complete listing must give exactly the stand-in's names, which
-leave out one file of the source, so the receipt is the stand-in's and not the real program's. The
-same source copied in-process through the real program must give every file.
+and the message of a failed read, as GNU `ls` reports one, a valid but shorter listing with the exit
+code 2 and no error text, a listing whose last name has no NUL, a listing with error text but exit
+code 0, a listing that names `..`, and a name that is not UTF-8 must each be refused before any
+receipt and before any write at the destination. The `truncated` listing is refused only for its
+exit code. A complete listing must give exactly the stand-in's names, which leave out one file of
+the source, so the receipt is the stand-in's and not the real program's. The same source copied
+in-process through the real program must give every file.
 
 `failure` injects a real failed read of a directory. On a GitHub-hosted Linux runner, whose machine
 is discarded after the job, it builds an ext4 image, maps it through device-mapper with one block
@@ -46,8 +48,10 @@ def zeroListing (names : List String) : ByteArray :=
 /-- The stand-in listing program. With `--version` it identifies as GNU coreutils 9.4. With the
 options that `Construction.gnuEnumerator` gives that release, `--` and a directory, it lists that
 directory as `mode` says: `complete` writes the names of `listed`, `failed` writes the first of
-them and then fails as GNU `ls` does after a failed read, `unterminated` leaves out the last NUL,
-and `noisy` writes error text with exit code 0. Other arguments and modes exit 3. -/
+them and then fails as GNU `ls` does after a failed read, `truncated` writes the first of them and
+exits 2 with no error text, so that only the exit code reports the failure, `unterminated` leaves
+out the last NUL, `noisy` writes error text with exit code 0, `dotted` adds the name `..`, and
+`binary` adds a name that is not UTF-8. Other arguments and modes exit 3. -/
 def standin (mode : String) (args : List String) : IO UInt32 := do
   if args == ["--version"] then
     IO.println "ls (GNU coreutils) 9.4"
@@ -63,6 +67,9 @@ def standin (mode : String) (args : List String) : IO UInt32 := do
     stdout.write (zeroListing (listed.take 1))
     IO.eprintln s!"ls: reading directory '{directory}': Input/output error"
     return 2
+  | "truncated" =>
+    stdout.write (zeroListing (listed.take 1))
+    return 2
   | "unterminated" =>
     let listing := zeroListing listed
     stdout.write (listing.extract 0 (listing.size - 1))
@@ -70,6 +77,12 @@ def standin (mode : String) (args : List String) : IO UInt32 := do
   | "noisy" =>
     stdout.write (zeroListing listed)
     IO.eprintln s!"ls: {directory}: a message after a complete listing"
+    return 0
+  | "dotted" =>
+    stdout.write (zeroListing (listed ++ [".."]))
+    return 0
+  | "binary" =>
+    stdout.write (zeroListing listed ++ ByteArray.mk #[0xff, 0])
     return 0
   | _ =>
     IO.eprintln s!"listing stand-in: unknown mode {mode}"
@@ -88,8 +101,11 @@ def receipt (names : List String) : List (List String) :=
 /-- Each stand-in mode that must be refused, with a text that the refusal must contain. -/
 def refusals : List (String × String) :=
   [("failed", "failed with exit code 2: ls: reading directory"),
+    ("truncated", "failed with exit code 2"),
     ("unterminated", "does not decode"),
-    ("noisy", "failed with exit code 0: ls:")]
+    ("noisy", "failed with exit code 0: ls:"),
+    ("dotted", "lists an invalid name: .."),
+    ("binary", "is not UTF-8")]
 
 /-- Run the constructor in a child process that lists through the stand-in in `mode`. -/
 def copyThroughStandin (root bin source target : FilePath) (mode : String) :

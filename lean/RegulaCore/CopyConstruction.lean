@@ -190,29 +190,6 @@ theorem unescape_escape (letter meaning : UInt8) (rest : List UInt8)
   rw [unescape.eq_def]
   simp [backslash, digit, means]
 
-/-- The names that Apple's `ls -1 -B` writes in the C locale (`prn_octal`, `print.c` and `util.c`
-of `file_cmds-479`): a printable ASCII byte other than the backslash and the double quote for
-itself, and every other byte as a backslash and its three octal digits. -/
-def appleName (name : List UInt8) : List UInt8 :=
-  name.flatMap fun byte => if literalByte byte && byte != 34 then [byte] else octalEscape byte
-
-/-- Every name that Apple's `ls -B` writes is read back exactly. -/
-theorem unescape_appleName (name : List UInt8) : unescape (appleName name) = some name := by
-  induction name with
-  | nil => simp [appleName, unescape]
-  | cons byte rest ih =>
-    have step : appleName (byte :: rest) =
-        (if literalByte byte && byte != 34 then [byte] else octalEscape byte) ++ appleName rest := by
-      simp [appleName]
-    rw [step]
-    split
-    · next h =>
-      simp only [Bool.and_eq_true] at h
-      rw [List.singleton_append, unescape_literal _ _ h.1, ih]
-      rfl
-    · rw [unescape_octalEscape, ih]
-      rfl
-
 /-- The letter of GNU's escape quoting style for each of the seven C control characters. -/
 def controlLetter (byte : UInt8) : Option UInt8 :=
   if byte = 7 then some 97 else if byte = 8 then some 98 else if byte = 12 then some 102
@@ -287,16 +264,6 @@ theorem newline_not_literal (byte : UInt8) (h : literalByte byte = true) : byte 
   subst equal
   simp [literalByte, newline] at h
 
-/-- No name that Apple's `ls -B` writes holds a newline. -/
-theorem newline_not_mem_appleName (name : List UInt8) : newline ∉ appleName name := by
-  simp only [appleName, List.mem_flatMap, not_exists, not_and]
-  intro byte _
-  split
-  · next h =>
-    simp only [Bool.and_eq_true] at h
-    simpa using (newline_not_literal byte h.1).symm
-  · exact newline_not_mem_octalEscape byte
-
 /-- No name that GNU's escape quoting style writes holds a newline. -/
 theorem newline_not_mem_gnuName (name : List UInt8) : newline ∉ gnuName name := by
   simp only [gnuName, List.mem_flatMap, not_exists, not_and]
@@ -318,14 +285,6 @@ theorem newline_not_mem_gnuName (name : List UInt8) : newline ∉ gnuName name :
     · split
       · next h => simpa using (newline_not_literal byte h).symm
       · exact newline_not_mem_octalEscape byte
-
-/-- A nonempty name is written as a nonempty line. -/
-theorem appleName_ne_nil {name : List UInt8} (h : name ≠ []) : appleName name ≠ [] := by
-  cases name with
-  | nil => exact absurd rfl h
-  | cons byte rest =>
-    simp only [appleName, List.flatMap_cons]
-    split <;> simp [octalEscape]
 
 /-- A nonempty name is written as a nonempty line. -/
 theorem gnuName_ne_nil {name : List UInt8} (h : name ≠ []) : gnuName name ≠ [] := by
@@ -384,19 +343,6 @@ theorem decodeListing_zero (names : List (List UInt8))
     decodeListing .zero (names.flatMap (· ++ [nul])) = some names :=
   splitRecords_join nul names valid
 
-/-- What Apple's `ls -1 -B` writes for nonempty names is read back exactly. -/
-theorem decodeListing_apple (names : List (List UInt8)) (valid : ∀ name ∈ names, name ≠ []) :
-    decodeListing .escaped (names.flatMap (appleName · ++ [newline])) = some names := by
-  have lines : names.flatMap (appleName · ++ [newline]) =
-      (names.map appleName).flatMap (· ++ [newline]) := by simp [List.flatMap_map]
-  simp only [decodeListing, lines]
-  rw [splitRecords_join]
-  · simpa using mapM_unescape unescape_appleName names
-  · intro line mem
-    simp only [List.mem_map] at mem
-    obtain ⟨name, mem, rfl⟩ := mem
-    exact ⟨appleName_ne_nil (valid name mem), newline_not_mem_appleName name⟩
-
 /-- What GNU `ls -1 --quoting-style=escape` writes for nonempty names is read back exactly. -/
 theorem decodeListing_gnu (names : List (List UInt8)) (valid : ∀ name ∈ names, name ≠ []) :
     decodeListing .escaped (names.flatMap (gnuName · ++ [newline])) = some names := by
@@ -410,24 +356,37 @@ theorem decodeListing_gnu (names : List (List UInt8)) (valid : ∀ name ∈ name
     obtain ⟨name, mem, rfl⟩ := mem
     exact ⟨gnuName_ne_nil (valid name mem), newline_not_mem_gnuName name⟩
 
-/-- The GNU `ls` releases that `gnuEnumerator` admits are 9.0 to 9.12 and 8.32, and no other: the
-releases whose source `ReadsNames` cites. -/
-theorem gnuEnumerator_isSome_iff (program : String) (major minor : Nat) :
-    (gnuEnumerator program (major, minor)).isSome ↔
-      (major = 9 ∧ minor ≤ 12) ∨ (major = 8 ∧ minor = 32) := by
-  unfold gnuEnumerator lastGnuRelease
-  by_cases h₁ : major = 9 <;> by_cases h₂ : minor ≤ 12 <;> by_cases h₃ : major = 8 <;>
-    by_cases h₄ : minor = 32 <;> simp [h₁, h₂, h₃, h₄] <;> omega
+/-- The GNU `ls` releases whose source `ReadsNames` cites are 9.0 to 9.12 and 8.32, and no
+other. -/
+theorem mem_gnuReleases (major minor : Nat) :
+    (major, minor) ∈ gnuReleases ↔ (major = 9 ∧ minor ≤ 12) ∨ (major = 8 ∧ minor = 32) := by
+  simp only [gnuReleases, List.mem_append, List.mem_map, List.mem_range, Prod.mk.injEq,
+    List.mem_singleton]
+  constructor
+  · rintro (⟨k, hk, rfl, rfl⟩ | ⟨rfl, rfl⟩) <;> omega
+  · rintro (⟨rfl, h⟩ | ⟨rfl, rfl⟩)
+    · exact .inl ⟨minor, by omega, rfl, rfl⟩
+    · exact .inr ⟨rfl, rfl⟩
 
-/-- An admitted release 9 lists with `--zero`, whose listing `decodeListing_zero` reads, and 8.32
-escapes its names, whose listing `decodeListing_gnu` reads. -/
-theorem gnuEnumerator_form (program : String) (major minor : Nat) (enumerator : Enumerator)
-    (h : gnuEnumerator program (major, minor) = some enumerator) :
-    enumerator.form = if major = 9 then .zero else .escaped := by
-  unfold gnuEnumerator lastGnuRelease at h
-  by_cases h₁ : major = 9 <;> by_cases h₂ : minor ≤ 12 <;> by_cases h₃ : major = 8 <;>
-    by_cases h₄ : minor = 32 <;> simp [h₁, h₂, h₃, h₄] at h <;>
-    first | omega | (subst h; simp [h₁])
+/-- A release that `gnuRelease?` reads from the output of `ls --version` is one of `gnuReleases`,
+and its identity line is exactly the first line of that output: no text after the release number
+is ignored. -/
+theorem gnuRelease?_sound {text : String} {release : Nat × Nat}
+    (h : gnuRelease? text = some release) :
+    release ∈ gnuReleases ∧ gnuIdentity release = firstLine text :=
+  ⟨List.mem_of_find?_eq_some h, by simpa using List.find?_some h⟩
+
+/-- `gnuRelease?` reads a release exactly when the first line of the output is the identity line
+of one of `gnuReleases`. -/
+theorem gnuRelease?_isSome_iff (text : String) :
+    (gnuRelease? text).isSome ↔ ∃ release ∈ gnuReleases, gnuIdentity release = firstLine text := by
+  simp [gnuRelease?, List.find?_isSome]
+
+/-- A release 9 lists with `--zero`, whose listing `decodeListing_zero` reads, and 8.32 escapes
+its names, whose listing `decodeListing_gnu` reads. -/
+theorem gnuEnumerator_form (program : String) (release : Nat × Nat) :
+    (gnuEnumerator program release).form = if release.1 = 9 then .zero else .escaped := by
+  unfold gnuEnumerator; split <;> rfl
 
 /-- Directory enumeration changes no state and returns every stored name. An empty listing of a
 directory contains no entry below it. Completeness, including aliases, is an external filesystem
@@ -436,22 +395,22 @@ fact, not inferred from a spelling comparison.
 The construction observer lists a directory through the program that `locate` admits
 (`Enumerator.names`), which refuses unless the program exits 0 with no error text and its listing
 decodes. The listing an admitted program writes for the names it read decodes to exactly those
-names (`decodeListing_zero`, `decodeListing_gnu`, `decodeListing_apple`), and each admitted program
-exits nonzero after a failed read, so a failed read is refused, never returned as fewer names.
+names (`decodeListing_zero`, `decodeListing_gnu`), and each admitted program exits nonzero after a
+failed read, so a failed read is refused, never returned as fewer names. A program is admitted only
+when its completeness and its report of a failed read rest on its own source, at the release its
+identity line names (`gnuRelease?_sound`). Apple's `ls` is not admitted: it lists through the
+system C library's `fts`, whose release its identity line does not name.
 
 Assumes: the program that `locate` admits is the release it identifies as. In each GNU coreutils
 release from 9.0 to 9.12, read at its tag (v9.0 `src/ls.c:3008-3068`, v9.12 `src/ls.c:3024-3077`),
 and in 8.32 (`src/ls.c:2966-3036`), `print_dir` sets errno to 0 before each readdir and reports a
 nonzero errno through `file_failure` (v9.0 `:2888-2906`, v9.12 `:2901-2919`, v8.32 `:2847-2867`),
-which makes the exit status nonzero. Releases 9.6 to 9.11 end the listing at ENOENT on a C library
-other than glibc 2.3 or later, and 9.12 on every C library: ENOENT is a removed directory.
+which makes the exit status nonzero. Release 9.5 clears ENOENT after each readdir
+(`src/ls.c:3064-3066`), releases 9.6 to 9.11 end the listing at ENOENT on a C library other than
+glibc 2.3 or later, and 9.12 on every C library: ENOENT is a removed directory.
 `--zero` (v9.0 `:2225-2232`, v9.12 `:2234-2241`) writes each name as stored and ends it with NUL.
 8.32's escape style (`src/ls.c:2318-2319`, gnulib `lib/quotearg.c` at d279bc6d) writes `gnuName`.
-Apple file_cmds-479 `ls/ls.c:736-853` exits 1 when `fts_children` records an errno on the
-directory, and `-B` writes `appleName` (`ls/print.c:160-163`, `ls/util.c:170-219`).
-Libc-1752.120.2 `gen/fts.c:607-675` records the errno that `fts_build` (`:1131-1270`) leaves after
-its directory reads (`:751-835`), and `:437-451` returns the skipped directory in post-order with
-it. POSIX.1-2024 readdir sets errno on an error and leaves it unchanged at the end of a directory.
+POSIX.1-2024 readdir sets errno on an error and leaves it unchanged at the end of a directory.
 glibc 2.39 `sysdeps/unix/sysv/linux/readdir.c:39-48` ends a removed directory, which has no
 entries, without an error. Trusted: the kernel and the filesystem report each failed read of a
 directory to readdir, with an error other than ENOENT. Linux v6.8 ext4 returns a failed block read
@@ -461,12 +420,9 @@ destination during an observation. -/
 @[regula_assumption filesystem (lean "v4.34.1" "Init/System/IO.lean#L1544-L1557")
   (document filesystem "GNU coreutils v9.0 to v9.12 src/ls.c print_dir (v9.0 lines 3008-3068, \
     v9.12 lines 3024-3077), file_failure and the ZERO_OPTION case: ls --zero, and a readdir \
-    error other than ENOENT gives a nonzero exit status")
+    error other than ENOENT gives a nonzero exit status; v9.5 src/ls.c:3064-3066 clears ENOENT")
   (document filesystem "GNU coreutils v8.32 src/ls.c:2318-2319,2847-2867,2966-3036 and gnulib \
     lib/quotearg.c at d279bc6d: escape quoting, and a readdir error gives a nonzero exit status")
-  (document filesystem "Apple file_cmds-479 ls/ls.c:736-853, ls/print.c:160-163, \
-    ls/util.c:170-219 and Libc-1752.120.2 gen/fts.c:437-451,607-675,751-835,1131-1270: ls -B \
-    escapes, and exits 1 after a failed directory read")
   (document filesystem "POSIX.1-2024, readdir(): errno is set on an error and unchanged at the \
     end of the directory")
   (document filesystem "glibc 2.39 sysdeps/unix/sysv/linux/readdir.c:39-48: a removed directory \

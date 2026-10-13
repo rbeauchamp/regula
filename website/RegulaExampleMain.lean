@@ -1,5 +1,6 @@
 import SubVerso.Compat
 import Regula.TaskManagerCheck
+import Regula.ReaderCheck
 import SubVerso.Highlighting
 
 /-! # Example elaboration helper
@@ -93,3 +94,8 @@ unsafe def main : List String → IO UInt32 :=
 -- and its refusal needs none: the build of this module fails otherwise
 -- (`Regula.TaskManagerCheck.checkProgram`).
 run_cmd Regula.TaskManagerCheck.checkProgram
+
+-- No declaration of this module, or of a module of its own package that it imports, refers to
+-- Lean's readDir or walkDir, which cannot tell the end of a directory from a failed read: the
+-- build of this module fails otherwise (`Regula.ReaderCheck.checkPackage`).
+run_cmd Regula.ReaderCheck.checkPackage

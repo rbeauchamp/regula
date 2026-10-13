@@ -81,15 +81,14 @@ keeps the Mathlib revision it pins.
 
 ### A program that lists directories
 
-Regula reads the names in a directory through an `ls` program. Lean's `System.FilePath.readDir` cannot tell the end of a directory from a failed read. An admitted `ls` stops with a nonzero exit code after a failed read, and then Regula stops too. Regula admits only the releases that it has read the source of. It uses the first program of this table that it finds:
+Regula reads the names in a directory through an `ls` program. Lean's `System.FilePath.readDir` cannot tell the end of a directory from a failed read. An admitted `ls` stops with a nonzero exit code after a failed read, and then Regula stops too. Regula admits a program only when the source of the program itself shows that it lists all names and reports a failed read. That source must be the source of the release that the first line of `ls --version` names exactly. Regula uses the first program of this table that it finds:
 
 | Platform | Program | Where to get it |
 | --- | --- | --- |
 | Linux and macOS | GNU coreutils `ls` 9.0 to 9.12, as `ls` or `gls` on `PATH` | Ubuntu 24.04 and Debian 12 have it. On macOS, `brew install coreutils` gives `gls`. |
 | Linux | GNU coreutils `ls` 8.32, as `ls` or `gls` on `PATH` | Ubuntu 22.04 and Debian 11 have it. |
-| macOS | `/bin/ls` of file_cmds 479 | `what /bin/ls` shows the file_cmds release of your macOS. |
 
-If Regula finds no admitted program, it stops and gives the reason for each program that it examined. A later release of GNU coreutils or of file_cmds is admitted only by a later Regula release. The [assumptions of the construction](proofs-and-boundaries.md#assumptions-of-directory-enumeration) give the source lines of each admitted release.
+Regula does not admit the `ls` of macOS. It reads directories through the `fts` functions of the system C library, and nothing that it reports names the release of that library. On macOS, install GNU coreutils with Homebrew. If Regula finds no admitted program, it stops and gives the reason for each program that it examined. A later release of GNU coreutils is admitted only by a later Regula release. The [assumptions of the construction](proofs-and-boundaries.md#assumptions-of-directory-enumeration) give the source lines of each admitted release.
 
 ### When your Lean release has no Regula release
 

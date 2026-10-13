@@ -182,9 +182,10 @@ def copyWith {m : Type → Type} [Monad m] [MonadExceptOf IO.Error m] (ops : Ops
 
 Lean v4.34.1's `System.FilePath.readDir` cannot tell the end of a directory from a failed read: its
 native loop (`runtime/io.cpp:1076-1098`) stops at the first null `readdir` result and returns the
-names it has read. Regula lists a directory through an admitted `ls` instead. Each admitted `ls`
-checks `errno` after every `readdir` and exits nonzero after a failed read, and its listing decodes
-exactly (`decodeListing_zero`, `decodeListing_gnu` and `decodeListing_apple` in
+names it has read. Regula lists a directory through an admitted GNU coreutils `ls` instead. A program
+is admitted only when its own source, at the release that its identity line names, establishes that
+it reads each entry and exits nonzero after a failed read; each admitted release checks `errno`
+after every `readdir`. Its listing decodes exactly (`decodeListing_zero` and `decodeListing_gnu` in
 `RegulaCore.CopyConstruction`). -/
 
 /-- The byte that ends each name that `ls --zero` writes. -/
@@ -257,8 +258,8 @@ def unescape : List UInt8 → Option (List UInt8)
 inductive ListingForm where
   /-- Each name as it is stored, ended by a NUL byte: GNU `ls --zero`. -/
   | zero
-  /-- Each name escaped as `unescape` reads it, ended by a newline: GNU `ls
-  --quoting-style=escape` and Apple's `ls -B`. -/
+  /-- Each name escaped as `unescape` reads it, ended by a newline: GNU `ls --quoting-style=escape`.
+  -/
   | escaped
   deriving DecidableEq, Repr
 
@@ -301,68 +302,34 @@ def listingOutput (program : String) (args : Array String) : IO (UInt32 × ByteA
   let bytes ← IO.ofExcept stdout.get
   return (exitCode, bytes, stderr)
 
-/-- The decimal number of a nonempty run of digits. -/
-def decimal (digits : List Char) : Nat :=
-  digits.foldl (fun value digit => 10 * value + (digit.toNat - 48)) 0
+/-- The GNU coreutils releases whose `ls` source Regula has read, as major and minor version: 9.0 to
+9.12 and 8.32. Regula refuses any other release until it reads that release's source too. -/
+def gnuReleases : List (Nat × Nat) := (List.range 13).map (9, ·) ++ [(8, 32)]
 
-/-- The major and minor version on the first line that GNU `ls --version` writes,
-`ls (GNU coreutils) X.Y`. -/
-def gnuVersion? (text : String) : Option (Nat × Nat) :=
-  let header := "ls (GNU coreutils) ".toList
-  let line := text.toList.takeWhile (· != '\n')
-  if header.isPrefixOf line then
-    let version := line.drop header.length
-    let major := version.takeWhile Char.isDigit
-    match version.drop major.length with
-    | '.' :: rest =>
-      let minor := rest.takeWhile Char.isDigit
-      if major.isEmpty || minor.isEmpty then none else some (decimal major, decimal minor)
-    | _ => none
-  else none
+/-- The first line that GNU `ls --version` of `release` writes. -/
+def gnuIdentity (release : Nat × Nat) : String := s!"ls (GNU coreutils) {release.1}.{release.2}"
 
-/-- The marker of the `what` string of Apple's `ls`, which names its file_cmds release. -/
-def appleMarker : List UInt8 := "@(#)PROGRAM:ls  PROJECT:file_cmds-".toUTF8.toList
+/-- The first line of a program's output. -/
+def firstLine (text : String) : String := (text.splitOn "\n").headD ""
 
-/-- The file_cmds release that the `what` string in a program's bytes names: the digits and dots
-after the first `appleMarker`. -/
-def appleRelease? (bytes : ByteArray) : Option String := Id.run do
-  let marker := appleMarker.toArray
-  for start in [0:bytes.size] do
-    if bytes.get! start != marker[0]! then continue
-    if start + marker.size ≥ bytes.size then return none
-    unless (List.range marker.size).all fun index => bytes.get! (start + index) == marker[index]! do
-      continue
-    let mut release := []
-    let mut index := start + marker.size
-    while index < bytes.size &&
-        ((48 ≤ bytes.get! index && bytes.get! index ≤ 57) || bytes.get! index == 46) do
-      release := Char.ofNat (bytes.get! index).toNat :: release
-      index := index + 1
-    return if release.isEmpty then none else some (String.ofList release.reverse)
-  return none
+/-- The admitted release whose identity line is exactly the first line of `text`, the output of
+`ls --version`; `none` for any other line, a later patch release such as `9.12.1` among them. -/
+def gnuRelease? (text : String) : Option (Nat × Nat) :=
+  gnuReleases.find? (gnuIdentity · == firstLine text)
 
-/-- The last GNU coreutils release whose `ls` source Regula has read. -/
-def lastGnuRelease : Nat × Nat := (9, 12)
+/-- The enumerator of the admitted GNU release `release` run as `program`: release 9 lists with
+`--zero`, which writes each name as stored, and 8.32 with its escape quoting style. -/
+def gnuEnumerator (program : String) (release : Nat × Nat) : Enumerator :=
+  let identity := s!"{program} ({gnuIdentity release})"
+  if release.1 = 9 then ⟨program, #["-A", "-U", "--zero"], .zero, identity⟩
+  else ⟨program, #["-1", "-A", "-U", "--quoting-style=escape", "--show-control-chars",
+    "--color=never", "--indicator-style=none"], .escaped, identity⟩
 
-/-- The Apple file_cmds release whose `ls` source Regula has read. -/
-def appleRelease : String := "479"
-
-/-- The admitted GNU `ls` releases: 9.0 to `lastGnuRelease`, whose `--zero` writes each name as it
-is stored, and 8.32, whose escape quoting style decodes exactly. Regula has read the source of each
-of them; it refuses a later release until it reads that release too. -/
-def gnuEnumerator (program : String) : Nat × Nat → Option Enumerator
-  | (major, minor) =>
-    let identity := s!"{program} (GNU coreutils {major}.{minor})"
-    if major == 9 && minor ≤ lastGnuRelease.2 then
-      some ⟨program, #["-A", "-U", "--zero"], .zero, identity⟩
-    else if major == 8 && minor == 32 then
-      some ⟨program, #["-1", "-A", "-U", "--quoting-style=escape", "--show-control-chars",
-        "--color=never", "--indicator-style=none"], .escaped, identity⟩
-    else none
-
-/-- The first admitted listing program: GNU `ls` 9.0 to `lastGnuRelease` as `gls` or `ls` on `PATH`,
-then GNU `ls` 8.32 there, then, on macOS, `/bin/ls` of file_cmds `appleRelease`. Otherwise it
-refuses with the reason for each program it tried.
+/-- The first admitted listing program: an admitted GNU `ls` 9 release as `gls` or `ls` on `PATH`
+(`gls` first on macOS, whose `ls` is Apple's), otherwise GNU `ls` 8.32 there. Otherwise it refuses
+with the reason for each program it tried, the identity line it refused among them. Apple's `ls` is
+not admitted: its listing comes from the fts of the system's C library, whose release its identity
+does not name.
 
 Assumes: the program found is the release it identifies as. -/
 def locate : IO Enumerator := do
@@ -370,36 +337,21 @@ def locate : IO Enumerator := do
   let mut escaped : Option Enumerator := none
   let programs := if System.Platform.isOSX then ["gls", "ls"] else ["ls", "gls"]
   for program in programs do
-    let identified ← (listingOutput program #["--version"]).toBaseIO
-    match identified with
+    match ← (listingOutput program #["--version"]).toBaseIO with
     | .error error => reasons := reasons.push s!"{program}: {error}"
     | .ok (exitCode, bytes, _) =>
-      let version := if exitCode == 0 then (String.fromUTF8? bytes).bind gnuVersion? else none
-      match version with
-      | none => reasons := reasons.push s!"{program}: not GNU coreutils ls"
-      | some version =>
-        match gnuEnumerator program version with
-        | some enumerator =>
-          if enumerator.form == .zero then return enumerator
-          if escaped.isNone then escaped := some enumerator
-        | none =>
-          reasons := reasons.push
-            s!"{program}: GNU coreutils {version.1}.{version.2} is not an admitted release"
-  if let some enumerator := escaped then return enumerator
-  if System.Platform.isOSX then
-    match (← (IO.FS.readBinFile "/bin/ls").toBaseIO) with
-    | .error error => reasons := reasons.push s!"/bin/ls: {error}"
-    | .ok bytes =>
-      match appleRelease? bytes with
+      let text := (String.fromUTF8? bytes).getD ""
+      match (if exitCode == 0 then gnuRelease? text else none) with
       | some release =>
-        if release == appleRelease then
-          return ⟨"/bin/ls", #["-1", "-A", "-B", "--color=never"], .escaped,
-            s!"/bin/ls (file_cmds-{release})"⟩
-        reasons := reasons.push s!"/bin/ls: file_cmds-{release} is not an admitted release"
-      | none => reasons := reasons.push "/bin/ls: no file_cmds release is named in it"
+        let enumerator := gnuEnumerator program release
+        if enumerator.form == .zero then return enumerator
+        if escaped.isNone then escaped := some enumerator
+      | none =>
+        reasons := reasons.push
+          s!"{program}: --version exited with {exitCode} and the first line '{firstLine text}'"
+  if let some enumerator := escaped then return enumerator
   throw <| IO.userError s!"no admitted directory-listing program: Regula lists directories through \
-    GNU coreutils ls 9.0 to {lastGnuRelease.1}.{lastGnuRelease.2} or 8.32, or macOS's /bin/ls of \
-    file_cmds-{appleRelease} ({"; ".intercalate reasons.toList})"
+    GNU coreutils ls 9.0 to 9.12 or 8.32, as gls or ls on PATH ({"; ".intercalate reasons.toList})"
 
 /-- A stored name that names one entry of its directory: not `.` or `..`, and holding neither `/`
 nor NUL. -/
@@ -409,8 +361,10 @@ def entryName (name : String) : Bool :=
 /-- The stored names of the directory `path`, read through `enumerator`. It refuses unless the
 program exits 0 with no error text and its listing decodes to UTF-8 names that each name one entry,
 so a failed read of the directory refuses instead of truncating the names. The trailing `/` makes
-`ls` list a link's target directory, as `readDir` does, and refuse anything but a directory. -/
+`ls` list a link's target directory, as `readDir` does, and refuse anything but a directory; an empty
+path, which with that `/` would name the root directory, refuses. -/
 def Enumerator.names (enumerator : Enumerator) (path : FilePath) : IO (List String) := do
+  if path.toString.isEmpty then throw <| IO.userError "listing refused: the directory path is empty"
   let (exitCode, bytes, stderr) ← listingOutput enumerator.program
     (enumerator.options ++ #["--", path.toString ++ "/"])
   unless exitCode == 0 && stderr.isEmpty do
