@@ -5556,11 +5556,9 @@ Assumes: the check guards Regula's own executables from its committed lakefile a
 
 Lean `v4.34.1` records the requested import name. Its [`ModuleData`](https://github.com/leanprover/lean4/blob/v4.34.1/src/Lean/Environment.lean#L109-L129) stores no name for the artifact's original module. The [importer](https://github.com/leanprover/lean4/blob/v4.34.1/src/Lean/Environment.lean#L2225-L2228) retains the requested name. Artifact substitution and module renaming are outside this claim.
 
-The renderer uses Lake's resolution of the committed manifest. Any `package-overrides.json`, `LoadConfig.packageOverrides` or package URL-map entry for `verso` makes the check incomplete. The compiler-side load refuses those overrides before materialization. Library contents and stable build inputs remain trusted.
+The renderer checks the selection inputs that Lake reads without command-line choices. It resolves the committed manifest and reads the workspace's own override file through Lake. A `package-overrides.json` or package URL-map entry for `verso` makes this check incomplete. That load refuses these overrides before materialization. Library contents and stable build inputs remain trusted.
 
-The website build target admits its actual Lake configuration. It uses Lake's pinned parser on the arguments preserved in the build's workspace. This includes `--packages` before or after the command. The target passes its admitted configuration and manifest to renderer elaboration through a build record. A missing record, changed manifest or different workspace makes the check incomplete.
-
-Configuration keys without a lossless string representation are refused. The build configuration and record remain trusted inputs.
+Assumes: explicit Lake command-line choices, such as `--packages`, `-K` and `-R`, are trusted inputs, like the lakefile and manifest. Lake `v4.34.1` [parses build arguments and loads that selected workspace](https://github.com/leanprover/lean4/blob/v4.34.1/src/lake/Lake/CLI/Main.lean#L918-L924). Those explicit choices are outside this check.
 
 Regula supplies the checked `cadical` path through the initial `sat.solver` option before each source reader elaborates source. The configuration, fresh frontend, diagnostics and example readers start from the shared options. This covers the default solver only while source leaves that option unset. Source that sets `sat.solver`, including a reset to empty, selects its own program. This route remains uncovered, as a source process start through `run_cmd` can be. No PASS is claimed for it.
 
