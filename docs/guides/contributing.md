@@ -554,10 +554,10 @@ misses a comparison through an instance that Lean or a dependency declares for a
 field.
 
 The self-audit refuses an allowlist entry if its declaration compares no `Json` values, so each
-entry is a control of the check. It also refuses an entry whose module it does not inspect, such as
-a module that was renamed. Three fixed controls run too. A declaration named `main`, which the
-allowlist names only in `Regula.RegistryChecks`, is found in another module. So are `compress`
-texts compared through `let` bindings. A `compress` that no comparison reads is not found.
+entry is a control of the check. It also refuses an entry if it does not inspect the module of the
+entry, such as a module that was renamed. Three fixed controls run too. A declaration named `main`,
+which the allowlist names only in `Regula.RegistryChecks`, is found in a different module. So are
+`compress` texts compared through `let` bindings. A `compress` that no comparison reads is not found.
 
 `./scripts/verify.sh diagnostics self-audit 1/4` to `4/4` each run one shard of the self-audit.
 The campaign sorts each list of modules that it inspects by name, and it deals the list to the
