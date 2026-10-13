@@ -5,6 +5,7 @@ public import RegulaPolicy.Collections
 public import RegulaPolicy.Compiler
 public import Regula.Contract
 public import RegulaPolicy.Evidence
+public import Lean.Expr
 meta import Regula.Decision
 
 /-! # Policy vocabulary and observation data
@@ -86,10 +87,11 @@ inductive BoundaryKind where
   /-- A `@[csimp]`-shaped constant-equality lemma may let the compiler replace this constant
   with another. -/
   | «compilerSimplification»
-  /-- An `@[extern]` constant of a toolchain module (`Init`, `Std` or `Lean`) whose origin was
-  admitted, implemented by the toolchain's own native code. -/
+  /-- An `@[extern]` constant of a toolchain module (`Init`, `Std`, `Lean` or `Lake`) whose origin
+  was admitted, implemented by the toolchain's own native code. -/
   | «nativeRuntime»
-  /-- Any other `@[extern]` constant, implemented outside Lean. -/
+  /-- Any other `@[extern]` constant: a trusted extern boundary outside the authenticated toolchain
+  base, with no claim about the language or origin of the code bound to its symbol. -/
   | «external»
   /-- An `unsafe` constant. -/
   | «unsafeComputation»
@@ -102,6 +104,11 @@ inductive BoundaryKind where
   compiler-trust family or a name the `nativeEqTrue` scheme generates for
   `native_decide`, `decide +native` or `bv_decide` (`compilerTrustingAxiomName`). -/
   | «compilerTrustedProof»
+  /-- A constant with an initializer (`[init]` or `[builtin_init]`) and compiled IR or no
+  `implemented_by` target: compiled code reads the value its initializer action returned when the
+  module was initialized, not the constant's own value, and its compiled body is a stub that is
+  never run. -/
+  | «initializedValue»
   deriving Repr, DecidableEq, Hashable, Inhabited
 
 /-- The kind's kebab-case text in reports and diagnostics, such as `runtime-replacement`;
@@ -115,6 +122,7 @@ def BoundaryKind.spelling : BoundaryKind → String
   | .«partialComputation» => "partial-computation"
   | .«opaqueComputation» => "opaque-computation"
   | .«compilerTrustedProof» => "compiler-trusted-proof"
+  | .«initializedValue» => "initialized-value"
 
 /-- The kind a report text names; `none` for any text that is not a `spelling`
 (`BoundaryKind.canonical`). -/
@@ -128,6 +136,7 @@ def BoundaryKind.parse? : String → Option BoundaryKind
   | "partial-computation" => some .«partialComputation»
   | "opaque-computation" => some .«opaqueComputation»
   | "compiler-trusted-proof" => some .«compilerTrustedProof»
+  | "initialized-value" => some .«initializedValue»
   | _ => none
 
 instance : ToString BoundaryKind := ⟨BoundaryKind.spelling⟩
@@ -152,6 +161,7 @@ def BoundaryKind.index : BoundaryKind → Nat
   | .«partialComputation» => 5
   | .«opaqueComputation» => 6
   | .«compilerTrustedProof» => 7
+  | .«initializedValue» => 8
 
 /-- Distinct kinds have distinct indices. -/
 theorem BoundaryKind.index_injective : Function.Injective BoundaryKind.index := by
@@ -1482,7 +1492,8 @@ structure Declaration.ToolchainObserved where
   nativeReplay : Option Bool
   /-- The axioms the constant transitively depends on, sorted and without duplicates: those it
   reaches in the kernel that replayed it (`KernelAxioms.axiomTable`), or, for an editor
-  snapshot, which has no replayed kernel, those `collectAxioms` reports. -/
+  snapshot, which has no replayed kernel, those it reaches in the editor's environment
+  (`RegulaPolicy.KernelAxioms.reachedAxioms`). -/
   axioms : Array Lean.Name
   deriving Repr, DecidableEq
 
@@ -1749,10 +1760,17 @@ def Declaration.Assessed.neutral (d : Declaration.Assessed) : Declaration.Assess
 @[simp] theorem Declaration.Assessed.neutral_toInspected (d : Declaration.Assessed) :
     d.neutral.toInspected = d.toInspected := rfl
 
-/-- The roots of the library packages the Lean toolchain ships as its own code: `Init`, `Std`
-and `Lean`. A module under one of them is toolchain code only with an admitted origin
-(`ToolchainOrigin`); the name alone never makes it so. -/
-def ToolchainRoot (root : Lean.Name) : Prop := root = `Init ∨ root = `Std ∨ root = `Lean
+/-- The roots of the library packages the Lean toolchain ships as its own code: `Init`, `Std`,
+`Lean` and `Lake`. A module under one of them is toolchain code only with an admitted origin
+(`ToolchainOrigin`); the name alone never makes it so.
+
+Assumes: the Lean 4.34.1 release installs the compiled modules of these four packages in its
+library directory `lib/lean`, beside only the root modules of its executables (`LakeMain`,
+`LeanChecker`, `LeanIR` and `Leanc`), as a listing of that directory shows (Lake's sources are
+`src/lake/Lake` of the release), so a module whose loaded `.olean` is its own file there is the
+toolchain's. -/
+def ToolchainRoot (root : Lean.Name) : Prop :=
+  root = `Init ∨ root = `Std ∨ root = `Lean ∨ root = `Lake
 
 instance : DecidablePred ToolchainRoot := fun _ => by unfold ToolchainRoot; infer_instance
 
@@ -1768,7 +1786,7 @@ structure ToolchainOrigin where
   actual : String
   /-- The canonical path of that module's `.olean` in the toolchain's library directory. -/
   expected : String
-  /-- The module is under `Init`, `Std` or `Lean`. -/
+  /-- The module is under `Init`, `Std`, `Lean` or `Lake`. -/
   toolchainModule : ToolchainRoot moduleName.getRoot
   /-- The resolved path is not empty. -/
   nonempty : actual ≠ ""
@@ -1776,7 +1794,7 @@ structure ToolchainOrigin where
   agrees : actual = expected
   deriving Repr, DecidableEq
 
-/-- Admit an origin observation: an error unless the module is under `Init`, `Std` or `Lean`
+/-- Admit an origin observation: an error unless the module is under `Init`, `Std`, `Lean` or `Lake`
 and `actual` is nonempty and equal to `expected` (`toolchainOrigin_roundtrip`). -/
 @[regula_decision]
 def admitToolchainOrigin (moduleName : Lean.Name) (actual expected : String) :
@@ -1786,7 +1804,126 @@ def admitToolchainOrigin (moduleName : Lean.Name) (actual expected : String) :
       if he : actual = expected then .ok ⟨moduleName, actual, expected, hm, hn, he⟩
       else .error "toolchain origin mismatch"
     else .error "empty toolchain origin"
-  else .error "toolchain module is not under Init, Std or Lean"
+  else .error "toolchain module is not under Init, Std, Lean or Lake"
+
+/-- The toolchain's declaration of one foundation axiom: its name, the module that declares it,
+its universe parameters and its type. -/
+structure FoundationStatement where
+  /-- The axiom's name. -/
+  name : Lean.Name
+  /-- The toolchain module that declares it. -/
+  module : Lean.Name
+  /-- Its universe parameters, in order. -/
+  levels : List Lean.Name
+  /-- Its type. -/
+  type : Lean.Expr
+
+/-- The toolchain's declarations of the three axioms the profiles permit
+(`ConformingProfile.permits`): `propext {a b : Prop} : (a ↔ b) → a = b`,
+`Quot.sound {α : Sort u} {r : α → α → Prop} {a b : α} : r a b → Quot.mk r a = Quot.mk r b` and
+`Classical.choice {α : Sort u} : Nonempty α → α`.
+
+Assumes: Lean 4.34.1 declares `propext` in `Init/Core.lean:1607`, `Classical.choice` in
+`Init/Prelude.lean:809` and `Quot.sound` in `Init/Prelude.lean:4776`, with these statements. The
+build of `Regula.RegistryChecks` admits the toolchain's constants it was compiled against with
+`admitFoundation` and fails when one differs. -/
+def foundationStatements : Array FoundationStatement :=
+  let prop := Lean.mkSort .zero
+  let u := Lean.mkLevelParam `u
+  #[{ name := `propext, module := `Init.Core, levels := []
+      type := .forallE `a prop (.forallE `b prop
+        (.forallE `h (Lean.mkApp2 (Lean.mkConst `Iff) (.bvar 1) (.bvar 0))
+          (Lean.mkApp3 (Lean.mkConst `Eq [.succ .zero]) prop (.bvar 2) (.bvar 1)) .default)
+        .implicit) .implicit },
+    { name := `Quot.sound, module := `Init.Prelude, levels := [`u]
+      type := .forallE `α (Lean.mkSort u) (.forallE `r
+        (.forallE `a (.bvar 0) (.forallE `b (.bvar 1) prop .default) .default)
+        (.forallE `a (.bvar 1) (.forallE `b (.bvar 2)
+          (.forallE `h (Lean.mkApp2 (.bvar 2) (.bvar 1) (.bvar 0))
+            (Lean.mkApp3 (Lean.mkConst `Eq [u])
+              (Lean.mkApp2 (Lean.mkConst `Quot [u]) (.bvar 4) (.bvar 3))
+              (Lean.mkApp3 (Lean.mkConst `Quot.mk [u]) (.bvar 4) (.bvar 3) (.bvar 2))
+              (Lean.mkApp3 (Lean.mkConst `Quot.mk [u]) (.bvar 4) (.bvar 3) (.bvar 1))) .default)
+          .implicit) .implicit) .implicit) .implicit },
+    { name := `Classical.choice, module := `Init.Prelude, levels := [`u]
+      type := .forallE `α (Lean.mkSort u)
+        (.forallE `h (Lean.mkApp (Lean.mkConst `Nonempty [u]) (.bvar 0)) (.bvar 1) .default)
+        .implicit }]
+
+/-- What the probe observes of a constant of the audited environment named as a foundation axiom:
+the module the environment holds it from, the canonical paths of the files that module was loaded
+from and of the same files in the toolchain's library, whether it is an axiom, and its universe
+parameters and type. That the paths are those files is the probe's filesystem observation
+(`Regula.Collect.foundationObservations`), not a property of this type. -/
+structure FoundationObservation where
+  /-- The constant's name. -/
+  name : Lean.Name
+  /-- The module the environment holds it from. -/
+  module : Lean.Name
+  /-- The canonical paths of the files that module was loaded from, one per line, or empty. -/
+  actual : String
+  /-- The canonical paths of the same files in the toolchain's library, one per line, or empty. -/
+  expected : String
+  /-- Whether the constant is an axiom. -/
+  isAxiom : Bool
+  /-- Its universe parameters, in order. -/
+  levels : List Lean.Name
+  /-- Its type. -/
+  type : Lean.Expr
+
+/-- The observed constant is the toolchain's foundation axiom: a statement of
+`foundationStatements` has its name, its module, its universe parameters and, up to the names and
+annotations of binders (`Lean.Expr.eqv`), its type, the constant is an axiom, and the module was
+loaded from its files in the toolchain's library, by nonempty canonical paths. -/
+def FoundationAuthentic (o : FoundationObservation) : Prop :=
+  ∃ s ∈ foundationStatements, o.name = s.name ∧ o.module = s.module ∧ o.isAxiom = true ∧
+    o.actual ≠ "" ∧ o.actual = o.expected ∧ o.levels = s.levels ∧ o.type.eqv s.type = true
+
+/-- Whether `FoundationAuthentic` holds of `o` (`foundationAuthentic_iff`). -/
+def foundationAuthentic (o : FoundationObservation) : Bool :=
+  foundationStatements.any fun s =>
+    s.name == o.name && s.module == o.module && o.isAxiom && !o.actual.isEmpty &&
+      o.actual == o.expected && s.levels == o.levels && o.type.eqv s.type
+
+/-- The executed test accepts exactly the authentic observations. -/
+theorem foundationAuthentic_iff (o : FoundationObservation) :
+    foundationAuthentic o = true ↔ FoundationAuthentic o := by
+  unfold foundationAuthentic FoundationAuthentic
+  simp only [Array.any_eq_true, Bool.and_eq_true, beq_iff_eq, Bool.not_eq_true',
+    String.isEmpty_eq_false_iff]
+  constructor
+  · rintro ⟨i, hi, ⟨⟨⟨⟨⟨⟨hn, hm⟩, ha⟩, he⟩, hp⟩, hl⟩, ht⟩⟩
+    exact ⟨_, Array.getElem_mem hi, hn.symm, hm.symm, ha, he, hp, hl.symm, ht⟩
+  · rintro ⟨s, hs, hn, hm, ha, he, hp, hl, ht⟩
+    obtain ⟨i, hi, rfl⟩ := Array.getElem_of_mem hs
+    exact ⟨i, hi, ⟨⟨⟨⟨⟨⟨hn.symm, hm.symm⟩, ha⟩, he⟩, hp⟩, hl.symm⟩, ht⟩⟩
+
+/-- Admit the observations of the audited environment's foundation axioms: an error naming the
+first that is not the toolchain's (`FoundationAuthentic`), so that no declaration of an
+environment whose `propext`, `Quot.sound` or `Classical.choice` is another constant is decided as
+resting on the foundation those names stand for. -/
+@[regula_decision]
+def admitFoundation (observed : Array FoundationObservation) : Except String Unit :=
+  match observed.find? fun o => !foundationAuthentic o with
+  | some o => .error s!"the environment's {o.name} is not the toolchain's foundation axiom: it is \
+      held from module {o.module}, loaded from {o.actual}"
+  | none => .ok ()
+
+/-- **`admitFoundation` accepts exactly when every observation is authentic.** -/
+theorem admitFoundation_isOk_iff (observed : Array FoundationObservation) :
+    (admitFoundation observed).isOk = true ↔ ∀ o ∈ observed, FoundationAuthentic o := by
+  unfold admitFoundation
+  cases h : observed.find? fun o => !foundationAuthentic o with
+  | some o =>
+    simp only [Except.isOk, Except.toBool, Bool.false_eq_true, false_iff, Classical.not_forall]
+    have hm := Array.mem_of_find?_eq_some h
+    have hp := Array.find?_some h
+    exact ⟨o, hm, by simpa [← foundationAuthentic_iff] using hp⟩
+  | none =>
+    simp only [Except.isOk, Except.toBool, true_iff]
+    intro o ho
+    have := Array.find?_eq_none.mp h o ho
+    simpa [← foundationAuthentic_iff] using this
 
 /-- Checked replacement equality and an admitted opaque body have different meanings. -/
 inductive CheckedEvidence : BoundaryKind → Type where
@@ -1803,21 +1940,25 @@ inductive CheckedEvidence : BoundaryKind → Type where
   deriving Repr, DecidableEq
 
 /-- Trusted evidence by kind. A native-runtime `extern` always carries the admitted origin of
-its toolchain module. A runtime replacement or an unsafe or partial computation may carry one,
-which the probe attaches exactly when the declaring module has an admitted toolchain origin;
-without one it is the project's or a dependency's. No other kind can carry one: a compiler
-simplification is registered by its equality's module, an `external` is by definition outside
-the toolchain, the probe reports an opaque constant as checked, unresolved, or through its
-partial helper, and a compiler-trusting proof axiom is the project's use of the compiler. -/
+its toolchain module. A runtime replacement, an unsafe or partial computation or an initialized
+value may carry one, which the probe attaches exactly when the declaring module has an admitted
+toolchain origin; without one it is the project's or a dependency's. No other kind can carry
+one: a compiler simplification is registered by its equality's module, an `external` is by
+definition outside the toolchain, the probe reports an opaque constant as checked, unresolved, or
+through its partial helper, and a compiler-trusting proof axiom is the project's use of the
+compiler. -/
 def TrustedEvidence : BoundaryKind → Type
   | .nativeRuntime => ToolchainOrigin
-  | .runtimeReplacement | .unsafeComputation | .partialComputation => Option ToolchainOrigin
+  | .runtimeReplacement | .unsafeComputation | .partialComputation | .initializedValue =>
+      Option ToolchainOrigin
   | .compilerSimplification | .external | .opaqueComputation | .compilerTrustedProof => Unit
 
 /-- The kinds whose trusted evidence can carry a toolchain origin (`TrustedEvidence`): a
-runtime replacement, a native-runtime `extern`, and unsafe or partial computation. -/
+runtime replacement, a native-runtime `extern`, unsafe or partial computation, and an initialized
+value. -/
 def BoundaryKind.toolchainOwnable : BoundaryKind → Bool
-  | .runtimeReplacement | .nativeRuntime | .unsafeComputation | .partialComputation => true
+  | .runtimeReplacement | .nativeRuntime | .unsafeComputation | .partialComputation
+  | .initializedValue => true
   | .compilerSimplification | .external | .opaqueComputation | .compilerTrustedProof => false
 
 instance (k : BoundaryKind) : Repr (TrustedEvidence k) := by cases k <;> dsimp
@@ -1863,6 +2004,7 @@ def BoundaryEvidence.toolchainOrigin? {k : BoundaryKind} (e : BoundaryEvidence k
   | .runtimeReplacement, .trusted _ origin => origin
   | .unsafeComputation, .trusted _ origin => origin
   | .partialComputation, .trusted _ origin => origin
+  | .initializedValue, .trusted _ origin => origin
   | _, _ => none
 
 /-- A toolchain-owned boundary is trusted: never checked, never unresolved. -/
@@ -1906,8 +2048,9 @@ def boundaryEvidenceCandidate (kind : BoundaryKind) (state : Correspondence)
     | .runtimeReplacement => .ok (.trusted detail origin)
     | .unsafeComputation => .ok (.trusted detail origin)
     | .partialComputation => .ok (.trusted detail origin)
+    | .initializedValue => .ok (.trusted detail origin)
     | .compilerSimplification | .external | .opaqueComputation | .compilerTrustedProof =>
-        .ok (.trusted detail ())
+      .ok (.trusted detail ())
   | .checked => match kind, detail, terms with
     | .runtimeReplacement, some s, some t => .ok (.checked (.replacement s t))
     | .compilerSimplification, some s, some t => .ok (.checked (.simplification s t))
@@ -2043,7 +2186,9 @@ structure ExecutionBoundary.ToolchainObserved where
 /-- The part of a boundary's record that marks an audited project writes can decide: its kind, its
 evidence and the constant run in its place. `@[implemented_by]` and `@[extern]` decide the kind of
 the boundary that each makes, and for `@[extern]` the toolchain origin of the module chooses
-`native-runtime` over `external`. A constant whose type is an equality of two constants with the
+`native-runtime` over `external`. An initializer (`initialize`, `@[init]`) makes an
+`initialized-value` boundary, unless an `@[implemented_by]` target leaves its constant with no
+compiled IR. A constant whose type is an equality of two constants with the
 same list of distinct universe parameters makes a `compiler-simplification` boundary, registered
 with `@[csimp]` or not, and an attribute such as `@[simp]` makes Lean generate equation lemmas of
 that shape. The name of an axiom decides the `compiler-trusted-proof` kind
@@ -2060,14 +2205,13 @@ structure ExecutionBoundary.ProjectWritten where
 
 /-- One boundary in the conservative compiler/source closure of an
 executable root. `boundary` is one of `runtime-replacement`, `compiler-simplification`,
-`native-runtime`,
-`external`, `unsafe-computation`, `partial-computation`, `opaque-computation`,
-or `compiler-trusted-proof`; `correspondence` is `checked`, `trusted`, or
-`unresolved`. Each field the pass sets at one constant is declared in the part that says where its
-value comes from. Its position and its callers are computed over the walk of the root, through the
-edges of the project-written part of the name records (`ExecutionWalk.NodeRecord.ProjectWritten`),
-so they are fields of the boundary itself. Its callers are the sources of the compiled edges whose
-target is its observed name. -/
+`native-runtime`, `external`, `unsafe-computation`, `partial-computation`, `opaque-computation`,
+`compiler-trusted-proof` or `initialized-value`; `correspondence` is
+`checked`, `trusted`, or `unresolved`. Each field the pass sets at one constant is declared in
+the part that says where its value comes from. Its position and its callers are computed over the
+walk of the root, through the edges of the project-written part of the name records
+(`ExecutionWalk.NodeRecord.ProjectWritten`), so they are fields of the boundary itself. Its callers
+are the sources of the compiled edges whose target is its observed name. -/
 structure ExecutionBoundary extends ExecutionBoundary.ToolchainObserved,
     ExecutionBoundary.ProjectWritten where
   /-- The boundary's position in its root's boundary list. -/

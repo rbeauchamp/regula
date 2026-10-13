@@ -1,6 +1,7 @@
 import Regula.Report
 import Regula.SourceTexts
 import RegulaPolicy.Admission
+import RegulaPolicy.KernelAxioms
 import RegulaPolicy.ModuleHeader
 import RegulaPolicy.Guards
 import Regula.Contract
@@ -1106,14 +1107,17 @@ end Regula.Checker.ProducerReport
 
 -- Exact dependency ceiling for the transport-admission guarantees above: Standard-Logical.
 run_cmd do
-  for name in #[``Regula.Checker.ProducerReport.validate_eq_ok,
+  let names := #[``Regula.Checker.ProducerReport.validate_eq_ok,
       ``Regula.Checker.ProducerReport.validate_sound,
       ``Regula.Checker.ProducerReport.validate_nonvacuous,
       ``Regula.Checker.ProducerReport.checked_validate,
       ``Regula.Checker.ProducerReport.fromJson_admissible,
       ``Regula.Checker.ProducerReport.admit_eq_ok,
       ``Regula.Checker.ProducerReport.Admitted.admitExecution_eq,
-      ``Regula.Checker.ProducerReport.fromJson_admitted] do
-    let axioms ← Lean.collectAxioms name
+      ``Regula.Checker.ProducerReport.fromJson_admitted]
+  let some table := RegulaPolicy.KernelAxioms.reachedAxiomTable (← Lean.getEnv) names
+    | throwError "the axiom search ran out of fuel"
+  for name in names do
+    let some axioms := table[name]? | throwError "the axiom search did not reach {name}"
     unless axioms.all RegulaPolicy.standardLogicalAxiom do
       throwError "transport theorem {name} exceeds Standard-Logical: {axioms}"

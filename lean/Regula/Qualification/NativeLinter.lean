@@ -53,14 +53,18 @@ def decode (value : Json) : Except String RegulaQualification.Native.Message := 
     data := (← value.getObjValAs? String "data"), fileName :=
         (← value.getObjValAs? String "fileName") }
 
+/-- Compile `control` and require the diagnostics it expects. With `first`, `lean` runs with `first`
+ahead of the whole search path that `lake env` gives, through the launcher's recording launch
+(`Launcher.runLean`). -/
 private def check (root scratch : FilePath) (launcher : Launcher.State) (control : Control)
-    (env : Array (String × Option String) := #[]) : IO (List Json) := do
+    (env : Array (String × Option String) := #[]) (first : Option FilePath := none) :
+    IO (List Json) := do
   let path := scratch / s!"{control.label}.lean"
   IO.FS.writeFile path control.source
   let args := #["--json", "--root", scratch.toString] ++ control.options ++
     (if control.output then #["-o", (path.withExtension "olean").toString] else #[]) ++
         #[path.toString]
-  let result ← Launcher.runLean root launcher args env
+  let result ← Launcher.runLean root launcher args env first
   let messages ← (result.stdout.splitOn "\n").filterMapM fun line => do
     if line.trimAscii.isEmpty then return none
     return some (← IO.ofExcept (Json.parse line))
@@ -78,6 +82,40 @@ private def check (root scratch : FilePath) (launcher : Launcher.State) (control
       throw <| IO.userError s!"{control.label}: {detail}\n{result.stdout}{result.stderr}"
   return messages
 
+/-- A library directory below `scratch` whose `Init` is the toolchain's except `Init.Prelude`: a
+symbolic link to each other `Init` artifact of the toolchain library, beside a prelude compiled
+from the toolchain's source with a `Classical.choice` of type `α`, from which `False` follows. A
+search path that starts with it gives an importer that prelude in place of the toolchain's. -/
+private def forgedPrelude (root scratch : FilePath) (launcher : Launcher.State) :
+    IO FilePath := do
+  let sysroot ← Lean.findSysroot
+  let library ← Lean.getLibDir sysroot
+  let forged := scratch / "forged-foundation"
+  let lib := forged / "lib"
+  let source := forged / "src" / "Init" / "Prelude.lean"
+  IO.FS.createDirAll (lib / "Init")
+  IO.FS.createDirAll (forged / "src" / "Init")
+  let original ← IO.FS.readFile (sysroot / "src" / "lean" / "Init" / "Prelude.lean")
+  let statement := "axiom Classical.choice {α : Sort u} : Nonempty α → α\n"
+  let use := "  Classical.choice inferInstance\n"
+  requireChecks [⟨"forged prelude: one toolchain statement and one use of Classical.choice",
+    (original.splitOn statement).length == 2 && (original.splitOn use).length == 2⟩]
+  IO.FS.writeFile source ((original.replace statement
+      "axiom Classical.choice {α : Sort u} : α\n").replace use "  Classical.choice\n")
+  let link (sources : Array FilePath) (directory : FilePath) : IO Unit := do
+    let output ← IO.Process.output
+      { cmd := "ln", args := #["-s"] ++ sources.map (·.toString) ++ #[directory.toString] }
+    requireChecks [⟨s!"forged prelude: link toolchain artifacts into {directory}",
+      output.exitCode == 0⟩]
+  link (((← library.readDir).filter (·.fileName.startsWith "Init.")).map (·.path)) lib
+  link (((← (library / "Init").readDir).filter (!·.fileName.startsWith "Prelude.")).map
+    (·.path)) (lib / "Init")
+  let compiled ← Launcher.runLean root launcher
+    #["-R", (forged / "src").toString, "-o", (lib / "Init" / "Prelude.olean").toString,
+      source.toString] #[]
+  requireChecks [⟨"forged prelude compiles", compiled.exitCode == 0⟩]
+  return lib
+
 private def position (messages : List Json) (id : String) : IO Json := do
   let some message := messages.find? (fun message =>
     (message.getObjValAs? String "kind").toOption == some s!"Regula.{id}._namedError")
@@ -90,7 +128,7 @@ control is its own compiler process with its own source path, so controls run `j
 time in three waves that keep each order the checks depend on: `Control` first; then every
 control that reads no other control's output; then the controls that import wave-one
 artifacts and the `Restored` controls, which follow every malformed control. Returns the number of
-controls it ran. -/
+compiler launches it made: one for each control, and one that compiles the forged prelude. -/
 def checkAt (root scratch : FilePath) (launcher : Launcher.State) (jobs : Nat := 4) : IO Nat := do
     let check := check root scratch launcher
     let _ ← check { label := "Control", source := base, output := true }
@@ -383,9 +421,23 @@ def checkAt (root scratch : FilePath) (launcher : Launcher.State) (jobs : Nat :=
           s!"theorem retiredDependency : True := {name}\n", ids := ["RG1003"] }, env)
     let _ ← Regula.Checker.mapWorkQueue jobs dependent fun (control, env) =>
       NativeLinter.check root scratch launcher control env
-    let controls := 1 + retired.size + independent.size + dependent.size
+    -- The profiles permit `Classical.choice` by name. With a prelude that is not the toolchain's
+    -- first on the search path, the editor refuses the environment (`authenticateFoundation`)
+    -- instead of deciding `False` by that prelude's `Classical.choice` as Standard-Logical; both
+    -- of its linters report the refusal.
+    let forged ← forgedPrelude root scratch launcher
+    let _ ← NativeLinter.check root scratch launcher
+      { label := "ForgedFoundation"
+        source := "import Regula.Linter\n" ++
+          "/-! A theorem of `False` from a prelude that is not the toolchain's. -/\n" ++
+          "/-- `False`, by that prelude's `Classical.choice`. -/\n" ++
+          "theorem forgedChoice : False := Classical.choice\n"
+        ids := ["RG2005", "RG2005"]
+        detail := some "is not the toolchain's foundation axiom" } (first := some forged)
+    let controls := 2 + retired.size + independent.size + dependent.size
     IO.println s!"native bridge qualification: PASS ({controls} actual Lean source controls)"
-    return controls
+    -- One compiler launch for each control, and one that compiled the forged prelude.
+    return controls + 1
 
 /-- Normal acceptance uses the cached actual Lake environment, never a cached verdict. -/
 def checkAll : IO Unit := do
@@ -394,7 +446,9 @@ def checkAll : IO Unit := do
     discard <| checkAt root scratch (← Launcher.create)
 
 /-- Paired baseline-first diagnostic with the same scratch path, source, argv, observed
-outputs, environment and executable. Measurements describe only these actual runs. -/
+outputs, environment and executable. Measurements describe only these actual runs. Each run's
+`controls` and `controlMillis` entries are its compiler launches, the compile of the forged prelude
+included. -/
 def paired : IO Unit := do
   let root ← rootDirectory
   let output := root / "tmp/native-launcher-diagnostic.json"
@@ -412,7 +466,7 @@ def paired : IO Unit := do
         IO.FS.createDir controls
         let launcher ← Launcher.create legacy
         let start ← IO.monoMsNow
-        -- One control at a time keeps both runs' record order identical for the comparison.
+        -- One launch at a time keeps both runs' record order identical for the comparison.
         let count ←
           try checkAt root controls launcher (jobs := 1)
           finally Regula.Filesystem.removePath .directory controls
@@ -432,13 +486,13 @@ def paired : IO Unit := do
         report.modify (·.setObjVal! "runs" (toJson runs))
       let some before := observations[0]? | throw <| IO.userError "missing baseline"
       let some after := observations[1]? | throw <| IO.userError "missing candidate"
-      let some controlCount := counts[0]? | throw <| IO.userError "missing baseline count"
+      let some launchCount := counts[0]? | throw <| IO.userError "missing baseline count"
       requireChecks
-          [⟨s!"{controlCount} exact paired controls",
-            RegulaQualification.Launcher.checked_equivalence.run controlCount before after⟩]
+          [⟨s!"{launchCount} exact paired launches",
+            RegulaQualification.Launcher.checked_equivalence.run launchCount before after⟩]
       report.modify fun value => (value.setObjVal! "equivalent" (.bool true)).setObjVal! "outcome"
                                   (.str "PASS")
-      IO.println s!"launcher diagnostic: PASS ({before.size} exact paired controls; timing is an \
+      IO.println s!"launcher diagnostic: PASS ({before.size} exact paired launches; timing is an \
         observation only)"
   catch e =>
     report.modify (·.setObjVal! "outcome" (.str "FAIL"))

@@ -56,21 +56,35 @@ def environment (root : FilePath) (state : State) (overrides : Array (String × 
   return result
 
 /-- Launch the same compiler argv/cwd/environment; baseline mode retains Lake startup.
-Record source and full environment in memory for the separate paired diagnostic only. -/
+Record source and full environment in memory for the separate paired diagnostic only.
+With `first`, the launch puts `first` ahead of the captured `LEAN_PATH` and runs the captured
+executable in either mode: `lake env` puts the workspace's own entries before an inherited
+`LEAN_PATH`, so no launch through it can put a directory first. The record holds the environment
+the launch used. -/
 def runLean (root : FilePath) (state : State) (args : Array String)
-    (overrides : Array (String × Option String)) : IO IO.Process.Output := do
+    (overrides : Array (String × Option String)) (first : Option FilePath := none) :
+    IO IO.Process.Output := do
   let capture ← environment root state overrides
   let some path := args.back? | throw <| IO.userError "missing compiler source argument"
   let source ← IO.FS.readFile path
+  let variables ← match first with
+    | none => pure capture.environment.val
+    | some first =>
+      unless capture.environment.val.any (·.1 == "LEAN_PATH") do
+        throw <| IO.userError "missing admitted Lean path"
+      pure <| capture.environment.val.map fun (key, value) =>
+        (key, if key == "LEAN_PATH" then SearchPath.toString (first :: SearchPath.parse value)
+          else value)
   let start ← IO.monoMsNow
-  let output ← if state.legacy then run root "lake" (#["env", "lean"] ++ args) overrides
-    else run root capture.executable args (capture.environment.val.map fun (k, v) => (k, some v))
+  let output ←
+    if state.legacy && first.isNone then run root "lake" (#["env", "lean"] ++ args) overrides
+    else run root capture.executable args (variables.map fun (k, v) => (k, some v))
   let elapsed := (← IO.monoMsNow) - start
   state.timings.modify (·.push elapsed)
   state.records.modify (·.push {
     label := (FilePath.mk path).fileStem.getD path, args, source, exitCode := output.exitCode.toNat,
     stdout := output.stdout, stderr := output.stderr,
-    environment := capture.environment.val, executable := capture.executable })
+    environment := variables, executable := capture.executable })
   return output
 
 /-- Preserve the original stripped LEAN_PATH query, then capture the augmented actual
