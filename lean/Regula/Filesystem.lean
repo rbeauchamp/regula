@@ -17,10 +17,12 @@ entry into a directory that it makes new, so it replaces and removes nothing. Th
 end state, under the assumptions they name, what each does. The reach check
 `Regula.Removal.rawRemovals` refuses each call of a removal primitive outside a declaration with
 the observer's role, so no code of Regula calls one other than through this module, except the
-calls of Lean's library that `Regula.Removal.libraryRemovals` lists and the removals and moves of
-the two drivers that `Regula.ProgramCheck.Verification` and `Regula.ProgramCheck.Provision` name. A
-deliberate use of the private declarations, with `open private` or a hand-written name, is outside
-that criterion, as for the private observation of issue 261.
+calls of Lean's library that `Regula.Removal.libraryRemovals` lists, the removals of `bv_decide`
+that `Regula.Removal.tacticRemovals` lists, which run as trusted active effects of a program that
+runs the tactic, and the removals and moves of the two drivers that
+`Regula.ProgramCheck.Verification` and `Regula.ProgramCheck.Provision` name. A deliberate use of
+the private declarations, with `open private` or a hand-written name, is outside that criterion,
+as for the private observation of issue 261.
 
 The observer's reads are public: `ownPath` and `ownRoot` give the path at which a removal is
 decided, and `requireOwnDirectory` and `requireNoLinkedEntries` check a place before a program

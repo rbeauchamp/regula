@@ -42,49 +42,66 @@ The criterion is honest code, as `SECURITY.md` and `CONTEXT.md` define it: code 
 deliberately change Lean's environment, compiler or build to make a check pass. Honest code in a
 checked program cannot reach a removal outside the observer, except the library removals that
 `libraryRemovals` lists, each a trusted exemption of Lake or resting on an assumption, as it states,
-and the removals of the two programs that `scripts/verify.sh` and `scripts/provision.sh` run, which
-are admitted by name where they are checked (`Regula.ProgramCheck.Verification`,
-`Regula.ProgramCheck.Provision`). Deliberate circumvention by Regula's own authors is outside it
+the removals of `bv_decide` that `tacticRemovals` lists, trusted active effects of a program that
+runs the tactic (see "Programs that elaborate"), and the removals of the two programs that
+`scripts/verify.sh` and `scripts/provision.sh` run, which are admitted by name where they are
+checked (`Regula.ProgramCheck.Verification`, `Regula.ProgramCheck.Provision`). Deliberate
+circumvention by Regula's own authors is outside it
 (issue 286), for example a hand-written `extern` bound to a C function of the runtime that removes
 other than `removalSymbols`, or a use of the private declarations of `Regula.Filesystem`. Honest
 code in a checked program writes a file or makes an entry only at the calls that these lists and
 its own list name, each again as a whole for its caller and primitive.
 
-The check admits a removal of `libraryRemovals` or of a driver by the pair of its caller and the
-primitive that it calls (`admitted`), not by its path or by the call site in the caller. So each
-admitted pair is a trusted exception as a whole, together with any further call of the same
-primitive inside the same caller: a second `IO.FS.removeDirAll` in a removal of the verification
-driver passes the check. Issue 389 tracks deciding the drivers' removals with a decision that a
-theorem relates to `RegulaCore.Removal`.
+The check admits a removal or a write of a list or of a driver by the pair of its caller and the
+primitive that it calls (`admitted`), not by its path, by the call site in the caller or by the
+path through which the program reaches the caller. So each admitted pair is a trusted exception as
+a whole. It admits any further call of the same primitive inside the same caller: a second
+`IO.FS.removeDirAll` in a removal of the verification driver passes the check. It admits the call
+whoever calls the caller, `main`, an initializer or the program's own code: a program that calls
+`Lake.Manifest.saveEntries` or `Std.Tactic.BVDecide.LRAT.dumpLRATProof` itself writes where it
+asks, admitted by the pair of `libraryWrites` or `tacticWrites`. Issue 389 tracks deciding the
+drivers' removals with a decision that a theorem relates to `RegulaCore.Removal`.
 
 ## Programs that elaborate
 
-A program elaborates when its `main` reaches Lean's elaborator (`elaborationEntries`) or a write
-or removal of a tactic (`tacticWrites`, `tacticRemovals`). Its check states whether it does
-(`checkProgram`), and fails when the statement is wrong (`elaborationRefusal`). Nine programs
-elaborate: `axiomGate`, `lint`, `ruleExamples`, `freshChecker`, `docFenceAudit`, `checkerSelftest`,
-`qualify`, `regula` and `site`. Each elaborates the Lake configuration of a project when it loads
-its workspace (`Lake.importConfigFile`). Some also elaborate the project's modules in Regula's
-frontend, in their own process or in a worker of `axiomGate`, or regenerate the recursion of a
-declaration that they audit, which runs its `decreasing_by` tactics.
+The check of a program states whether the program elaborates (`checkProgram`), and fails when the
+statement is wrong (`elaborationRefusal`). The statement is about the compiled code that runs when
+the program starts and runs: the active initializers of the linked modules outside Lean's toolchain,
+and `main` (`elaborationRoots`). The program elaborates when that code reaches Lean's elaborator
+(`elaborationEntries`) or a declaration that makes a write or a removal of a tactic (`tacticWrites`,
+`tacticRemovals`). This is conservative reachability in the compiled code, not a proof that
+elaboration runs: `Lean.IR.collectUsedDecls` collects a constant and a partial application too, so a
+reference to an elaborator that the program never calls counts. The initializers of the modules that
+Lean loaded from its toolchain's library are not followed (`toolchainModules`). Each registers what
+its module defines, and the registration of an elaborator or a tactic refers to it, so a walk of
+them would reach every tactic in every program that links Lean's elaborator. They are trusted to run
+none, as `elaborationRoots` states. Nine programs state that they elaborate: `axiomGate`, `lint`,
+`ruleExamples`, `freshChecker`, `docFenceAudit`, `checkerSelftest`, `qualify`, `regula` and `site`.
+Each elaborates the Lake configuration of a project when it loads its workspace
+(`Lake.importConfigFile`). Some also elaborate the project's modules in Regula's frontend, in their
+own process or in a worker of `axiomGate`, or regenerate the recursion of a declaration that they
+audit, which runs its `decreasing_by` tactics.
 
 Elaboration runs the commands, terms and tactics of the source, with their effects, as `lake
-build` runs them on the same source. They are trusted active effects of the program, and the check
-finds none of them. Such are the writes and removals of `bv_decide`: the `aig.gv` that its option
-`graphviz` writes in the working directory, the LRAT proof that `bv_decide?` writes beside the
-source file, and the temporary files that it removes. A program that does not elaborate reaches
-these only through the initializers that register the tactic, and no call of its run runs a
-registered tactic; the check admits them in such a program on that ground alone.
+build` runs them on the same source. They are trusted active effects of the program, which the
+check neither finds nor bounds. Such an effect writes or removes what the source or the tactic
+names, as the process may, also through a symbolic link and also at a destination of the program:
+the writer of `Regula.Filesystem` does not protect a destination against it, as it does not
+against `lake build` on the same source. Such are the writes and removals of `bv_decide`, whose
+compiled code Lean's library holds, so that the check finds and admits them by their pairs in every
+program: the `aig.gv` that its option `graphviz` writes in the working directory, through a
+symbolic link there too, the LRAT proof that `bv_decide?` writes beside the source file, and the
+temporary files that it removes. In a program that does not elaborate, neither `main` nor an
+initializer outside the toolchain reaches them. The initializers of the toolchain reach them by
+registering the tactic, which only an elaborator runs.
 
 A program elaborates in the working directory in which it was started. Each worker that a program
 of Regula starts runs in the program's working directory or in the project's root, and writes its
 packet in a directory that the program made for the run below it: a scratch directory below
 `.lake/regula-scratch` (`Regula.Scratch.withScratch`), or `tmp/fence-build` of the workspace of a
 documentation audit. So no worker's working directory is the directory of its packet. A
-destination of the program that started it may be in that working directory. A tactic's write
-replaces such a destination only when it has the tactic's name, such as `aig.gv`; then the
-program's own write refuses the file there, which is not a document of Regula, and so does every
-reader.
+destination of the program that started it may be in that working directory, where an effect of
+the elaboration reaches it as above.
 
 ## Boundaries
 
@@ -397,10 +414,11 @@ def libraryRemovals : List (Name × Name) :=
 `IO.FS.withTempFile` in its frontends, each of which removes the temporary file that `withTempFile`
 made in the system's temporary directory (`Init/System/IO.lean:1353`), holding the problem that it
 gives a SAT solver or the proof that the solver writes. The tactic's initializers reach them, so
-every program that links the tactic reaches them. The check admits them as a trusted exemption, and
-which programs run them is the program's class (`elaborationRefusal`): a program that elaborates
-runs the tactics of the source that it elaborates, and one that does not elaborate reaches them only
-through those initializers, whose registered tactics only an elaboration runs. -/
+every program that links the tactic reaches them. The check admits them in every program, as
+trusted active effects of a program that runs the tactic, and the class of the program states
+whether it may (`elaborationRefusal`): a program that elaborates runs the tactics of the source
+that it elaborates. In one that does not, only the initializers of Lean's toolchain reach them, by
+registering the tactic, which only an elaborator runs (`elaborationRoots`). -/
 def tacticRemovals : List (Name × Name) :=
   [(`IO.FS.withTempFile._at_.Lean.Meta.Tactic.BVDecide.runExternal.spec_3._redArg._lam_0,
       ``IO.FS.removeFile),
@@ -430,7 +448,10 @@ check admits each of them without establishing what it writes.
   entries of its artifact cache and an unpacked release archive (`Lake/Build/Actions.lean:29`,
   `:121` and `:186`, `Lake/Build/Common.lean:177`, `:376`, `:401`, `:454` and `:648`,
   `Lake/Build/Library.lean`, `Lake/Config/Cache.lean:183` and `:434`, `Lake/Util/IO.lean:18`,
-  `:31`, `:41` and `:70`).
+  `:31`, `:41` and `:70`). Regula's own code also calls `Lake.Manifest.saveEntries`, to write the
+  overrides of the packages of a project that it made for its run
+  (`Regula.Checker.Lake.relocateDependencies`, `Regula.Checker.LintQualification`), which the same
+  pair admits, as it admits every caller (`admitted`).
 
 The writes of a tactic of Lean's library are listed apart (`tacticWrites`). -/
 def libraryWrites : List (Name × Name) :=
@@ -462,13 +483,17 @@ removals are (`tacticRemovals`):
 
 - the graph of a problem, which `lratBitblaster` writes at `aig.gv` in the working directory of the
   process when the proof sets the option `graphviz`
-  (`Lean/Meta/Tactic/BVDecide/Prover/Bitblast.lean:75`);
+  (`Lean/Meta/Tactic/BVDecide/Prover/Bitblast.lean:75`), with `IO.FS.writeFile`, which follows a
+  symbolic link at that name, so that it writes the file at the link's target, a destination of
+  the program too;
 - the LRAT proof that `bv_decide?` trims, which `dumpLRATProof` writes over the one that the SAT
   solver wrote (`Std/Tactic/BVDecide/LRAT/Parser.lean:420`, `Lean/Elab/Tactic/BVDecide.lean:181`),
   in the directory of the source file that the process elaborates, named after that file, the
   declaration and the position of the tactic (`Lean/Elab/Tactic/BVDecide.lean:113-148`).
 
-The SAT solver is a program that the tactic starts, outside the check. -/
+Each is outside the protection of the writer of `Regula.Filesystem`, as every effect of an
+elaboration is (`Regula.Removal`, "Programs that elaborate"). The SAT solver is a program that the
+tactic starts, outside the check. -/
 def tacticWrites : List (Name × Name) :=
   [(`Std.Tactic.BVDecide.LRAT.dumpLRATProof, ``IO.FS.writeBinFile),
     (`Lean.Meta.Tactic.BVDecide.lratBitblaster, ``IO.FS.writeFile)]
@@ -667,17 +692,66 @@ def elaborationEntries : List Name :=
     `Lean.Elab.Term.elabTermAndSynthesize, `Lean.Elab.Term.synthesizeSyntheticMVars,
     `Lean.Elab.Term.runTactic, `Lean.Elab.Tactic.evalTactic]
 
-/-- The declarations that the compiled code of `main` reaches, not counting the initializers of
-the modules that the program links, through which the program elaborates or a tactic writes or
-removes: each declaration of `elaborationEntries`, and each declaration that is, or whose
-`compiledSource` is, a declaration of `tacticRemovals` or `tacticWrites` that makes the call. This
-finds each declaration whose `sourceDeclaration` is one of them without a lookup in the environment
-for each declaration that the walk visits. Then the declarations that the walk left at its bound,
-each of which may reach one. -/
-def elaborationReached (env : Environment) : Array Name := Id.run do
+/-- The modules among `modules` that Lean loaded from the library of its toolchain: each module
+whose compiled file, where Lean's search path finds it (`Lean.SearchPath.findWithExt`), is the file
+of the same module in the toolchain's library directory, the last entry of the search path, as the
+two real paths show. A module that the search path does not find there, such as one of a package
+or the module of the environment's own commands, is not one of them.
+
+Assumes: Lean 4.34.1 makes its search path the given entries, then those of `LEAN_PATH`, then the
+library directory of the toolchain, last (`Lean.initSearchPath`, `Lean/Util/Path.lean:108-110`),
+which the `lean` executable runs with its own system root (`Lean/Util/Path.lean:112-114`) and a
+program of Regula with the one that `lean --print-prefix` gives
+(`Regula.Checker.initializeLeanSearchPath`); `importModules` reads each module from the file that
+`Lean.findOLean` finds with that search path (`Lean/Util/Path.lean:116-124`,
+`Lean/Environment.lean:2079` and `:2094`), and nothing changes the search path between the import
+and this call. -/
+def toolchainModules (env : Environment) (modules : Std.HashSet Name) :
+    IO (Std.HashSet Name) := do
+  let path ← searchPathRef.get
+  let some library := path.getLast?
+    | throw <| IO.userError "Lean's search path is empty, so the modules that Lean loaded from \
+        its toolchain's library are unknown"
+  let mut toolchain := {}
+  for module in modules do
+    unless env.header.moduleNames.contains module do continue
+    let some found ← SearchPath.findWithExt path "olean" module | continue
+    let own := modToFilePath library module "olean"
+    unless ← own.pathExists do continue
+    if (← IO.FS.realPath found) == (← IO.FS.realPath own) then
+      toolchain := toolchain.insert module
+  return toolchain
+
+/-- The declarations from which the check of the class of a program walks
+(`elaborationRefusal`): the initializers of the modules that the program whose `main` is in the
+module `root` links (`linked`, `initializersOf`), except the modules of `toolchain`, and `main`.
+They are the compiled code that runs when the program starts and runs.
+
+Assumes: the initializers of the modules of Lean 4.34.1's toolchain register what their modules
+define and run no elaborator and no tactic, nor call a declaration of `tacticRemovals` or
+`tacticWrites`. Trusted, as the toolchain is: the registration of an elaborator or a tactic is an
+initializer whose code adds the declaration to a table (`Lean.declareBuiltin`,
+`Lean/Compiler/InitAttr.lean:149-157`), such as `@[builtin_tactic]` on `bv_decide`'s
+`Lean.Elab.Tactic.BVDecide.evalBvDecide` (`Lean/Elab/Tactic/BVDecide.lean:189`). So the compiled code
+of the initializer refers to the declaration, and a walk of it cannot tell the registration from a
+run. -/
+def elaborationRoots (env : Environment) (root : Name) (toolchain : Std.HashSet Name) :
+    Array Name :=
+  (initializersOf env ((linked env root).filter (!toolchain.contains ·))).push `main
+
+/-- The declarations that the compiled code of `roots` reaches (`elaborationRoots`), through which
+the program elaborates or a tactic writes or removes: each declaration of `elaborationEntries`, and
+each declaration that is, or whose `compiledSource` is, a declaration of `tacticRemovals` or
+`tacticWrites` that makes the call. This finds each declaration whose `sourceDeclaration` is one of
+them without a lookup in the environment for each declaration that the walk visits. Then the
+declarations that the walk left at its bound, each of which may reach one. A declaration is reached
+when the compiled code of one that is reached uses it (`collectUsedDecls`): a call, a constant or a
+partial application, so a reference that a run never calls is reached too. -/
+def elaborationReached (env : Environment) (roots : Array Name) : Array Name := Id.run do
   let tacticCallers := (tacticRemovals ++ tacticWrites).map (·.1)
-  let mut seen : Std.HashSet Name := ({} : Std.HashSet Name).insert `main
-  let mut work := #[`main]
+  let mut seen : Std.HashSet Name := {}
+  for root in roots do seen := seen.insert root
+  let mut work := roots
   let mut found := #[]
   -- Each declaration is added to `work` at most once, as in `rawRemovalsFrom`.
   for _ in [:maxDeclarations] do
@@ -694,18 +768,24 @@ def elaborationReached (env : Environment) : Array Name := Id.run do
   return found ++ work
 
 /-- The reason to refuse the program whose `main` the environment declares, in the module `root`,
-when its check declares the wrong class: `elaborates` states whether the program runs Lean's
-elaborator on source that it reads, and so the tactics of that source with their writes, and its
-`main` reaches the elaborator or a tactic's write or removal exactly when `elaborationReached`
-finds a declaration. -/
-def elaborationRefusal (env : Environment) (root : Name) (elaborates : Bool) : Option String :=
-  let found := elaborationReached env
+when its check states the wrong class. `elaborates` states whether the compiled code that runs when
+the program starts and runs, its `main` and the initializers of its modules outside `toolchain`
+(`elaborationRoots`), reaches Lean's elaborator or a tactic's write or removal: whether
+`elaborationReached` finds a declaration. This is conservative reachability, not a proof that the
+program elaborates: a reference to the elaborator that no run calls counts. A program that may run
+it states `elaborates := true`, so that the tactics of the source that it elaborates, with their
+writes, are trusted effects of the program. -/
+def elaborationRefusal (env : Environment) (root : Name) (elaborates : Bool)
+    (toolchain : Std.HashSet Name) : Option String :=
+  let found := elaborationReached env (elaborationRoots env root toolchain)
   if elaborates && found.isEmpty then
-    some s!"the check of the program of {root} states that it elaborates source, but its main \
-      reaches none of {elaborationEntries}: its check states `elaborates := false`"
+    some s!"the check of the program of {root} states that it elaborates source, but neither its \
+      main nor an initializer of its modules outside Lean's toolchain reaches one of \
+      {elaborationEntries} or a tactic's write or removal: its check states `elaborates := false`"
   else if !elaborates && !found.isEmpty then
     some s!"the program of {root} reaches Lean's elaborator or a tactic's write or removal from \
-      its main ({found.toList.take 5}), so the tactics of the source that it elaborates run in its \
+      its main or an initializer of its modules outside Lean's toolchain \
+      ({found.toList.take 5}), so the tactics of the source that it elaborates may run in its \
       process: its check states `elaborates := true`, which makes their writes trusted effects of \
       the program (`Regula.Removal`)"
   else none
@@ -745,7 +825,8 @@ program (`programRefusal`) or of its class (`elaborationRefusal`) when there is 
 record the program (`reached`). `named` admits the removals and the writes of the program that no
 list of this module admits, each as the pair of its caller and the primitive that it calls
 (`admitted`), so a call of a primitive at another place fails the build. `elaborates` states
-whether the program runs Lean's elaborator on source that it reads. -/
+whether the compiled code of the program reaches Lean's elaborator (`elaborationRefusal`), read
+with the modules that Lean loaded from its toolchain's library (`toolchainModules`). -/
 def checkProgram (named : List (Name × Name) := []) (elaborates : Bool := false) :
     Elab.Command.CommandElabM Unit := do
   let env ← getEnv
@@ -754,7 +835,8 @@ def checkProgram (named : List (Name × Name) := []) (elaborates : Bool := false
   let root := moduleOf env `main
   if let some refused := programRefusal env root (rawRemovals env root named) then
     throwError refused
-  if let some refused := elaborationRefusal env root elaborates then
+  let toolchain ← toolchainModules env (linked env root)
+  if let some refused := elaborationRefusal env root elaborates toolchain then
     throwError refused
   Elab.Command.liftCoreM <| addDecl (.defnDecl {
     name := reached ++ root, levelParams := [], type := mkConst ``Unit,

@@ -1,5 +1,6 @@
 import Regula.Removal
 import Regula.TaskManagerCheck
+import Std.Tactic.BVDecide.LRAT.Parser
 
 /-! # Controls of the check that each program runs
 
@@ -10,9 +11,17 @@ observer passes it. A planted program that writes a file fails it too, and so do
 file to write it; one that opens a file to read it passes it. A planted declaration of this module
 with the filesystem observer's role admits nothing, and the check refuses a program while one is
 declared outside `Regula.Filesystem` (`Regula.Removal.foreignObservers`). A planted program whose
-`main` reaches Lean's elaborator fails the check that states that it does not elaborate, and
-passes the one that states that it does; a planted program that does not elaborate fails the check
-that states that it does (`Regula.Removal.elaborationRefusal`).
+`main` refers to Lean's elaborator in its compiled code, without calling it, fails the check that
+states that it does not elaborate, and passes the one that states that it does: the class is the
+reachability of the compiled code, which a reference makes. A planted program whose `main` does
+nothing and whose module's initializer calls a tactic's write
+(`Std.Tactic.BVDecide.LRAT.dumpLRATProof`) is classified by that write in the same way, since the
+check walks the initializers of the modules outside Lean's toolchain too
+(`Regula.Removal.elaborationRoots`). Those modules are told apart by where Lean's search path found
+each one (`Regula.Removal.toolchainModules`): among those of this build, the modules of Lean's
+elaborator and of `bv_decide` are of the toolchain, and those of this package are not. A planted
+program that does not elaborate fails the check that states that it does
+(`Regula.Removal.elaborationRefusal`).
 
 A planted program whose `main` starts a task, creates a promise or captures a process's output
 fails the check that a compiled program needing Lean's task manager starts through the guard
@@ -72,9 +81,10 @@ run_cmd do
   then
     throwError "the check refused a program whose main opens a file to read it: {refused}"
 
--- A `main` that reaches Lean's elaborator fails the check that states that it does not elaborate,
--- and passes the one that states that it does. A `main` that does not elaborate fails the check
--- that states that it does.
+-- A `main` whose compiled code refers to Lean's elaborator, storing it without calling it, fails the
+-- check that states that it does not elaborate, and passes the one that states that it does: the
+-- class is reachability in the compiled code, not a run of the elaborator. A `main` that does not
+-- elaborate fails the check that states that it does.
 run_cmd do
   let plant (body : Term) : CommandElabM Unit := do
     elabCommand (← `(command| def $(mkIdent `plantedElaboration) : IO Unit := $body))
@@ -87,9 +97,38 @@ run_cmd do
   if let some refused ← refusal planted (plant elaborating) (elaborates := true) then
     throwError "the check refused a program that elaborates and states that it does: {refused}"
   let idle ← refusal planted (plant (← `(pure ()))) (elaborates := true)
-  unless idle.any (·.contains "reaches none of") do
+  unless idle.any (·.contains "reaches one of") do
     throwError "the check accepted a program that does not elaborate and states that it does: \
       {idle}"
+
+-- The modules that Lean loaded from its toolchain's library, as the search path of this build finds
+-- them, hold those of Lean's elaborator and of `bv_decide`, and none of this package.
+run_cmd do
+  let env ← getEnv
+  let toolchain ← Regula.Removal.toolchainModules env (Regula.Removal.linked env env.mainModule)
+  for module in [`Init.Prelude, `Lean.Elab.Command, `Std.Tactic.BVDecide.LRAT.Parser] do
+    unless toolchain.contains module do
+      throwError "{module} is not among the modules that Lean loaded from its toolchain's library"
+  for module in [`Regula.Removal, `Regula.Filesystem, env.mainModule] do
+    if toolchain.contains module then
+      throwError "{module} is among the modules that Lean loaded from its toolchain's library"
+
+-- A `main` that does nothing, in a module whose initializer calls a tactic's write, fails the check
+-- that states that it does not elaborate, and passes the one that states that it does: the check
+-- walks the initializers of the modules outside Lean's toolchain, where it finds the write.
+run_cmd do
+  let plant : CommandElabM Unit := do
+    elabCommand (← `(command| def $(mkIdent `plantedIdle) : IO Unit := pure ()))
+    elabCommand (← `(command|
+      initialize Std.Tactic.BVDecide.LRAT.dumpLRATProof "planted" #[] true))
+  let planted := mkConst ((← getCurrNamespace) ++ `plantedIdle)
+  let undeclared ← refusal planted plant
+  unless undeclared.any (·.contains "Std.Tactic.BVDecide.LRAT.dumpLRATProof") do
+    throwError "the check accepted, as a program that does not elaborate, one whose initializer \
+      calls a tactic's write: {undeclared}"
+  if let some refused ← refusal planted plant (elaborates := true) then
+    throwError "the check refused a program whose initializer calls a tactic's write and that \
+      states that it elaborates: {refused}"
 
 -- The filesystem observer's role, given in this module: a planted observer that calls the library's
 -- primitive does not make its call admitted, and a planted observer that removes nothing makes the

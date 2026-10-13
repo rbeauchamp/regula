@@ -57,7 +57,8 @@ def checkOutside (root : Name) : IO Unit := do
   let reach := Regula.Removal.rawRemovals env root
   if let some refused := Regula.Removal.programRefusal env root reach then
     throw <| IO.userError s!"observers: {refused}"
-  if let some refused := Regula.Removal.elaborationRefusal env root false then
+  let toolchain ← Regula.Removal.toolchainModules env (Regula.Removal.linked env root)
+  if let some refused := Regula.Removal.elaborationRefusal env root false toolchain then
     throw <| IO.userError s!"observers: {refused}"
   if let some refused := Regula.TaskManagerCheck.refusal env root then
     throw <| IO.userError s!"observers: {refused}"

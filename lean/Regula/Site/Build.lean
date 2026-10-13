@@ -34,8 +34,9 @@ Each directory or file that the builder removes is removed by `Regula.Filesystem
 at its own place (`Regula.Removal.removal_remove_iff`); in every other case the build stops with
 nothing removed. `Regula.Site.Main` fails to build when its `main` or an initializer reaches
 another removal than the observer's and those of Lean's and Lake's libraries that
-`Regula.Removal.libraryRemovals` lists, a removal being a call that removes or replaces an entry
-(`Regula.Removal.checkProgram`).
+`Regula.Removal.libraryRemovals` and `Regula.Removal.tacticRemovals` list, a removal being a call
+that removes or replaces an entry (`Regula.Removal.checkProgram`). Those of `tacticRemovals` are
+the removals of `bv_decide`, trusted active effects of the elaboration that the program runs.
 Workspace paths of the
 disposable qualification projects are displayed as `<example>`, `<scratch>` and `<regula>`; the
 exact records remain in the corpus export this build consumed.

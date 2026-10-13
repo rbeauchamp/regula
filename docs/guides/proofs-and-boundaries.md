@@ -578,7 +578,9 @@ scratch directories with the same function.
 Each program of the package removes or moves an entry only through the filesystem observer,
 `Regula.Filesystem`. The exceptions are the library calls that `Regula.Removal.libraryRemovals`
 gives, and the removals and moves of the two drivers that `Regula.ProgramCheck.Verification` and
-`Regula.ProgramCheck.Provision` give. The observer removes an entry only by the decision
+`Regula.ProgramCheck.Provision` give. The removals of `bv_decide` that
+`Regula.Removal.tacticRemovals` gives are also exceptions, because they are trusted effects of a
+program that runs that tactic. The observer removes an entry only by the decision
 `Regula.Removal.removal` of `RegulaCore.Removal`. That decision uses the same read and the same
 comparison as the decision of the driver. It also gets the kind of entry that the caller removes:
 a directory, a file or a symbolic link.
@@ -643,8 +645,8 @@ The build of the root module of each executable reads the compiled code of `main
 initializers of the linked modules. It also reads the compiled code of each
 declaration that this code calls, in this package and in the libraries. Only the declarations of
 the observer and the variants of them that the compiler made can call a removal function of the
-Lean library. The calls that `Regula.Removal.libraryRemovals` gives are the only other calls that
-the check permits. The build fails for each different call.
+Lean library. The calls that `Regula.Removal.libraryRemovals` and `Regula.Removal.tacticRemovals`
+give are the only other calls that the check permits. The build fails for each different call.
 
 The check permits the role of the observer only for declarations of `Regula.Filesystem`. If a
 different module gives that role, the build fails.
@@ -957,16 +959,23 @@ directories, which several programs reach (`sharedPairs`). The list of a program
 that it makes alone, and a pair of it that admits no call fails the build too. So a new direct
 write at a destination fails the build of its program, such as `qualify`, `ruleExamples`, `site`,
 `regula-markdown` or the verification driver. The check does not find a write through an open
-handle, a write by a started process, or a temporary file of the system.
+handle, a write by a started process, or a temporary file of the system. A pair permits the call of
+its function by its caller for each path to that caller, thus also Regula's own call of
+`Lake.Manifest.saveEntries`.
 
 Nine programs elaborate Lean source, such as the Lake configuration of a project: `axiomGate`,
 `lint`, `ruleExamples`, `freshChecker`, `docFenceAudit`, `checkerSelftest`, `qualify`, `regula` and
 `site`. Their check states this with `elaborates := true`, and it fails if the compiled code of
-`main` disagrees. The tactics of the elaborated source run with their effects, as `lake build` runs
-them. These are trusted effects that the check does not find, such as the `aig.gv` and LRAT files of
-`bv_decide`. A program that does not elaborate reaches those writes only through the initializers
-of the tactic, which its run does not call. Each worker that a program starts writes its packet
-below its working directory, in a directory that the program made for the run.
+`main` or of an initializer outside Lean's toolchain disagrees. This is reachability in the
+compiled code, thus a reference to the elaborator that the program does not call also counts.
+
+The tactics of the elaborated source run with their effects, as `lake build` runs them. These are
+trusted effects that the check does not find or limit, such as the `aig.gv` and LRAT files of
+`bv_decide`. They can write a destination of the program, also through a symbolic link, and the
+writer of `Regula.Filesystem` does not prevent this. In a program that does not elaborate, only the
+initializers of Lean's toolchain reach those writes. Regula trusts that these initializers only
+register the tactic. Each worker that a program starts writes its packet below its working
+directory, in a directory that the program made for the run.
 
 Third, a program refuses an invocation if two of its destinations may name one entry. The check
 compares the entries that `Regula.Destination.place` finds, folding ASCII case. If a name below a
