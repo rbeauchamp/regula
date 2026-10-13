@@ -599,7 +599,9 @@ The self-audit compiles the two modules in `examples/fixtures/absence-reads` and
 each, as for an audited module. It must refuse a call of `pathExists` and a use of `isDir` without
 an argument in one, and nothing in the other. In the first acceptance step,
 `Regula.AbsenceControls` makes a path in a directory without search permission. It runs, on that
-path, the fixture module that calls Lean's readers, the shared reads and four sites that use them.
+path, the fixture module that calls Lean's readers, the shared reads and a caller of each read. It
+also runs the walk of the shared roots on a symbolic link to that path. It runs the removal of a
+shared store that provisioning cannot read.
 
 `./scripts/verify.sh diagnostics self-audit 1/4` to `4/4` each run one shard of the self-audit.
 The campaign sorts each list of modules that it inspects by name, and it deals the list to the

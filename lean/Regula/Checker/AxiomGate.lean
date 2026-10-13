@@ -1914,9 +1914,12 @@ private unsafe def audit (plan : Plan) (failed : List String) : IO UInt32 := do
   let capturedSources ← IO.mkRef (#[] : Array ProducerReport.SourceBinding)
   let observeSources := fun sources => capturedSources.set sources
   let effective ← IO.mkRef (none : Option Json)
-  let originalCopyInputs ← if options.file.isNone && !options.incremental && options.driverCopy.isNone then
-      try pure (some (← Lake.captureConfigurationInputs repo)) catch _ => pure none
+  -- A failure of the capture is kept, and the audit refuses with it before it audits anything
+  -- (`action`), as it refuses any other failure; it is never recorded as no copy configuration.
+  let captured ← if options.file.isNone && !options.incremental && options.driverCopy.isNone then
+      some <$> (Lake.captureConfigurationInputs repo).toBaseIO
     else pure none
+  let originalCopyInputs := captured.bind (·.toOption)
   let copyInputs ← IO.mkRef originalCopyInputs
   let composed ← IO.mkRef (none : Option Json)
   let observeConfiguration := fun (root : FilePath)
@@ -1946,6 +1949,9 @@ private unsafe def audit (plan : Plan) (failed : List String) : IO UInt32 := do
     return 1
   let action : IO (UInt32 × Option AcceptanceLink.Pending) := do
     try
+      if let some (.error error) := captured then
+        throw <| IO.userError s!"the copy configuration could not be captured before \
+          construction: {error}"
       match options.file with
       | some path =>
           return (← auditFile repo (resolve repo path) options.claim options.execution

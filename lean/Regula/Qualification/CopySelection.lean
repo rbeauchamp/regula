@@ -154,12 +154,20 @@ def checkAt (root base : FilePath) : IO Unit := do
   let casing := base / "casing"
   construct casing [⟨[".LaKe"], .directory⟩]
   if ← Regula.Filesystem.isDirectory (casing / ".lake") then
+    let collision := base / "alias-collision"
     let attempt ← (Construction.constructSelectedWith Construction.observer
-      (base / "alias-collision") [[".LaKe", "entry"]]
+      collision [[".LaKe", "entry"]]
       [⟨[".LaKe"], .directory⟩, ⟨[".lake"], .directory⟩,
        ⟨[".LaKe", "entry"], .file "selected".toUTF8⟩]).toBaseIO
-    unless attempt matches .error _ do
-      throw <| IO.userError "selected construction accepted colliding directory aliases"
+    -- Only the exclusive creation of the second alias refuses here; any other failure, such as a
+    -- read that could not be made, fails the control rather than pass for that refusal.
+    match attempt with
+    | .error (.alreadyExists (some file) ..) =>
+      unless file == (collision / ".lake").toString do
+        throw <| IO.userError s!"selected construction refused another entry: {file}"
+    | .error error =>
+      throw <| IO.userError s!"selected construction failed otherwise than at the alias: {error}"
+    | .ok _ => throw <| IO.userError "selected construction accepted colliding directory aliases"
   IO.println "copy selection: original domain, exclusive destinations and alias collision PASS"
 
 /-- Run native selection qualification inside one scratch directory owned by this campaign. -/

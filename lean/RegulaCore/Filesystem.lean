@@ -729,6 +729,46 @@ theorem atOwnPlace_io (corresponds : Corresponds ops M view) (readsEntry : Reads
   (atOwnPlace_agrees corresponds path).transfer w
     ((triple_iff _ _ _ _).mp (atOwnPlace_spec M readsEntry readsReal path (view w)) (view w) rfl)
 
+/-- When the read of `path` that follows no link gives `metadata`, `entryType` gives its type and
+ends where the read ends. -/
+theorem entryType_ok {path : FilePath} {w s : Void IO.RealWorld} {metadata : IO.FS.Metadata}
+    (read : ops.symlinkMetadata path w = .ok metadata s) :
+    entryType ops path w = .ok (some metadata.type) s := by
+  unfold entryType
+  exact eio_tryCatch_ok (by rw [eio_bind_ok read]; exact eio_pure _ _) _
+
+/-- When the read of `path` that follows no link fails with an error that does not say that
+nothing is there, `entryType` fails with that same error and ends where the read ends. -/
+theorem entryType_error {path : FilePath} {w s : Void IO.RealWorld} {error : IO.Error}
+    (read : ops.symlinkMetadata path w = .error error s) (other : ¬Absent error) :
+    entryType ops path w = .error error s := by
+  unfold entryType
+  rw [eio_tryCatch_error (eio_bind_error read _)]
+  cases error <;> first | exact absurd trivial other | exact eio_throw _ _
+
+/-- When the read of `path` that follows no link fails with an error that does not say that
+nothing is there, `atOwnPlace` fails with that same error and ends where the read ends: it never
+reads such a failure as `false`. -/
+theorem atOwnPlace_entry_error {path : FilePath} {w s : Void IO.RealWorld} {error : IO.Error}
+    (read : ops.symlinkMetadata path w = .error error s) (other : ¬Absent error) :
+    atOwnPlace ops path w = .error error s := by
+  unfold atOwnPlace
+  exact eio_bind_error (entryType_error read other) _
+
+/-- When an entry that is not a symbolic link is at `path` and its resolution fails, `atOwnPlace`
+fails with the resolution's error and ends where it ends: it never reads such a failure as
+`false`. -/
+theorem atOwnPlace_real_error {path : FilePath} {w s s' : Void IO.RealWorld}
+    {metadata : IO.FS.Metadata} {error : IO.Error}
+    (read : ops.symlinkMetadata path w = .ok metadata s) (entry : metadata.type ≠ .symlink)
+    (resolve : ops.realPath path s = .error error s') :
+    atOwnPlace ops path w = .error error s' := by
+  unfold atOwnPlace
+  rw [eio_bind_ok (entryType_ok read)]
+  cases type : metadata.type with
+  | symlink => exact absurd type entry
+  | _ => exact eio_bind_error resolve _
+
 end IO
 
 end Regula.Filesystem

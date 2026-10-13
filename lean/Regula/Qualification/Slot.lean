@@ -183,8 +183,8 @@ def compareBytes (target : FilePath) (expected : ByteArray) : IO Unit := do
 
 /-- One content-level entry under a shared dependency root: root-relative path,
 `lstat` kind and, for regular files, the exact byte length and the pinned native
-`ByteArray.hash` of the complete contents. Symlinks are never followed; their
-resolution (or its failure) is recorded instead. The digest is a 64-bit
+`ByteArray.hash` of the complete contents. Symlinks are never followed; the resolved path of
+each is recorded, and a link that cannot be resolved fails the walk. The digest is a 64-bit
 non-cryptographic hash: it detects accidental persisting content changes, not adversarial
 collisions. -/
 structure SharedEntry where

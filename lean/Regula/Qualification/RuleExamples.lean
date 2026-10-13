@@ -336,8 +336,10 @@ private def produce (ctx : Context) (slot : Slot.ProducerSlot) (rule phase : Str
   -- paths, from the same definitions.
   let policy := Regula.Checker.Manifest.defaultPath project
   let configPaths := Regula.Checker.SourceBinding.configurationPaths project policy
+  -- A failure of the capture fails the production; it is never recorded as no copy
+  -- configuration.
   let copyInputs ← if mode == "project" || mode == "documentation" then
-      try pure (some (← Regula.Checker.Lake.captureConfigurationInputs project)) catch _ => pure none
+      some <$> Regula.Checker.Lake.captureConfigurationInputs project
     else pure none
   let configurationBefore ← configuration configPaths
   let frozen := Json.mkObj

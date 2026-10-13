@@ -26,19 +26,27 @@ file system calls, and they prove nothing.
 - The observers (`observers`): `Regula.Filesystem.isPresent`, `isDirectory`, `metadataIfPresent`,
   `readFileIfPresent`, `entryIfPresent`, `realPathIfPresent` and `atOwnPlace` each fail with the
   read's `permissionDenied`. The theorems of `Regula.Filesystem` (`isPresent_error` and the others)
-  and `atOwnPlace_run` state this for every error that is not `noFileOrDirectory`; this control
-  observes that the toolchain's read gives such an error here.
+  state, for every error that is not `noFileOrDirectory`, that the observer fails with that error;
+  for `atOwnPlace` they are `atOwnPlace_entry_error` (its entry read fails) and
+  `atOwnPlace_real_error` (its resolution fails). This control observes that the toolchain's read
+  gives such an error here.
 - A caller of each observer (`callers`), which fails with the read's `permissionDenied` too. For
   `isPresent`, one for each outcome that `false` used to give: a refusal with another reason
   (`AcceptanceLink.require`), an absent record (`Inspection.freezeArtifact`) and a walk past the
   path to its parent (`Setup.guidanceDirs`). Then `Construction.markdownPaths` (`isDirectory`),
   `RuleExamples.configuration` (`metadataIfPresent`), `SourceBinding.configuration`
   (`readFileIfPresent`), `Regula.Filesystem.ownPath` (the entry read of `entryIfPresent`), and
-  `Slot.contained` and `Checker.findRepoRoot?` (`realPathIfPresent`). No caller tells a failure of
-  `atOwnPlace` from a `false`: each reads the entry by the same read before or after it, and that
-  read fails in the same way. So `atOwnPlace` is controlled alone. Each other changed site binds
-  an observer's result in `IO` in the same way, so the error propagates there too, unless a caller
-  catches it; this control does not run them.
+  `Slot.contained` and `Checker.findRepoRoot?` (`realPathIfPresent`). `atOwnPlace` has three
+  callers. `Removal.ownParent` gives its result, so it is controlled on `path / "new"`. `ownPath`
+  reads the entry (`entryType`) before it, and `Removal.observe` reads the same entry after it, so
+  a control of either fails at that read whatever `atOwnPlace` does; `observe` binds its result, so
+  its failure propagates there. Each other changed site binds an observer's result in `IO` in the
+  same way, so the error propagates there too, unless a caller catches it; this control does not
+  run them.
+- `Slot.sharedIdentity` of a directory that holds a symbolic link to the path (`shared`): Lean's
+  `IO.FS.realPath` reports every failure as `noFileOrDirectory`, so the walk must fail with that
+  error rather than record the link, and once the permissions are given back it records the link
+  with its resolved path.
 - Provisioning's removal of a shared store that no registered copy links
   (`RegulaProvision.prune`), the case that destroys data (`provisioning`): a store whose Mathlib
   cannot be read, and a store whose registered copy's link cannot be resolved
@@ -96,8 +104,24 @@ def callers (base path : FilePath) : List (String × IO Unit) := [
   ("Regula.Checker.SourceBinding.configuration",
     discard <| Regula.Checker.SourceBinding.configuration path (path / "lake-manifest.json")),
   ("Regula.Filesystem.ownPath", discard <| Regula.Filesystem.ownPath (path / "new")),
+  ("Regula.Removal.ownParent", discard <| Regula.Removal.ownParent reads (path / "new")),
   ("Regula.Qualification.Slot.contained", discard <| Regula.Qualification.Slot.contained base path),
   ("Regula.Checker.findRepoRoot?", discard <| Regula.Checker.findRepoRoot? path)]
+
+/-- `Slot.sharedIdentity` of `root`, which holds a symbolic link to the path `path`, run while
+`path` cannot be read: whether it failed with the error of the resolution. -/
+def sharedUnresolved (root : FilePath) : IO Bool := do
+  return match ← (Regula.Qualification.Slot.sharedIdentity #[root]).toBaseIO with
+    | .error (.noFileOrDirectory ..) => true
+    | _ => false
+
+/-- `Slot.sharedIdentity` of `root`, run once `path` can be read again: whether it recorded the
+link to `path` with the real path of `path`. -/
+def sharedResolved (root path : FilePath) : IO Bool := do
+  let real := (← IO.FS.realPath path).toString
+  let identity ← Regula.Qualification.Slot.sharedIdentity #[root]
+  return identity.roots.any fun (_, entries) =>
+    entries.any fun entry => entry.kind == "symlink" && entry.target == real
 
 /-- A shared store in `parent` as `RegulaProvision.prune` identifies one: a directory named by
 its receipt's key, holding that receipt and a Mathlib directory, with a registry beside it that
@@ -160,6 +184,12 @@ def check : IO Unit :=
     let path := locked / "child"
     IO.FS.createDirAll path
     IO.FS.writeFile (path / "AGENTS.md") "control"
+    let shared := base / "shared"
+    IO.FS.createDirAll shared
+    let linked ← IO.Process.output
+      { cmd := "ln", args := #["-s", path.toString, (shared / "link").toString] }
+    unless linked.exitCode == 0 do
+      fail s!"the control could not make the link {shared / "link"}: {linked.stderr}"
     let source := base / "Refused.lean"
     IO.FS.writeFile source refusedSource
     let mut failed : Array String := #[]
@@ -180,8 +210,14 @@ def check : IO Unit :=
       for (name, read) in observers path ++ callers base path do
         unless denied (← read.toBaseIO) do
           failed := failed.push s!"{name} did not fail with the read's permissionDenied"
+      unless ← sharedUnresolved shared do
+        failed := failed.push "Regula.Qualification.Slot.sharedIdentity did not fail with the \
+          resolution's noFileOrDirectory"
     finally
       IO.Prim.setAccessRights locked 448
+    unless ← sharedResolved shared path do
+      failed := failed.push "Regula.Qualification.Slot.sharedIdentity did not record the link once \
+        its target could be read"
     for (name, kept) in ← provisioning base do
       unless kept do
         failed := failed.push s!"{name} did not keep the store and its registry"

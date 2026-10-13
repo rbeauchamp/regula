@@ -547,7 +547,8 @@ unsafe def inspectCurrentSearchPath (value : Compilation)
   IO.ofExcept <| outcome.mapError (·.detail)
 
 /-- Compiles `spec` through Lake and inspects the result; returns the compiler output as `.error`
-when compilation does not pass, or the inspection error followed by that output. -/
+when compilation does not pass. A failure of the inspection is thrown, so it is never returned as
+that `.error`, which a caller reads as a source that does not compile. -/
 unsafe def compileAndInspect (repo scratch : FilePath) (spec : SourceSpec)
     (extraSearchRoots : Array FilePath := #[]) (sourceRoots : Array FilePath := #[])
     (moduleSources : Array (Name × FilePath) := #[]) (ownership : Ownership := {}) :
@@ -555,9 +556,6 @@ unsafe def compileAndInspect (repo scratch : FilePath) (spec : SourceSpec)
   let compilation ← IO.ofExcept <| (← compile repo scratch spec).mapError (·.detail)
   if !compilationPassed compilation then
     return .error compilation.process.output
-  try
-    return .ok (← inspect compilation extraSearchRoots sourceRoots moduleSources ownership)
-  catch error =>
-    return .error s!"{error}\n{compilation.process.output}"
+  return .ok (← inspect compilation extraSearchRoots sourceRoots moduleSources ownership)
 
 end Regula.Checker.SourceAudit
