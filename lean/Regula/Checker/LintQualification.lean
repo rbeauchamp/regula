@@ -1189,7 +1189,9 @@ private def tomlTargets (repo adopter : FilePath) : IO (Array String) := do
     excludes := #[s!"regula lint: {acceptanceLabel}", "manifest-"] }
   IO.FS.writeFile lakefile <| (← IO.FS.readFile lakefile) ++
     "\n[[lean_lib]]\nname = \"gadget-extra\"\nroots = [\"Extra\"]\n" ++
-    "\n[[lean_exe]]\nname = \"gadget-tool\"\nroot = \"Gadget.Cli\"\n"
+    observerPluginToml ++ observerNeedToml ++
+    "\n[[lean_exe]]\nname = \"gadget-tool\"\nroot = \"Gadget.Cli\"\n" ++
+    observerPluginToml ++ observerNeedToml
   IO.FS.writeFile cli
     "/-! The adopter's command. -/\n\n/-- Does nothing. -/\ndef main : IO Unit := pure ()\n"
   IO.FS.writeFile extra
