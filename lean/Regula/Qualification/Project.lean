@@ -102,24 +102,34 @@ def requireRootImportsBuilt (root : FilePath) (sources : Array String) : IO Unit
 
 /-- The control of `requireRootImportsBuilt`, in a copy below `scratch` of the repository at
 `root` (`Lake.copyProject`) given the module artifacts of its build, the files below the root
-package's `leanLibDir` and `irDir`: the guard passes on that copy for `sources`, and refuses,
-naming it, once the source of the first root module they import (`rootImports`) has changed after
-its build. -/
+package's `leanLibDir` and `irDir` and the files in its `sharedLibDir`: the guard passes on that
+copy for `sources`, and refuses, naming it, once the source of the first root module they import
+(`rootImports`) has changed after its build. -/
 def rootImportsGuardControl (root scratch : FilePath) (sources : Array String) : IO Unit := do
   let copy := scratch / "root-imports-guard"
   discard <| Regula.Checker.Lake.copyProject root copy copy
   Regula.Checker.Workspace.withRootWorkspace root (scrubSearchPath := true) fun ws => do
     let base := ws.root.dir.normalize.components
-    for place in #[ws.root.leanLibDir, ws.root.irDir] do
+    -- Of the shared library directory, only its own files: the elaboration observer's library,
+    -- which the `needs` entry of each target builds before its modules (`Lake.isObserverNeed`).
+    for (place, below) in #[(ws.root.leanLibDir, true), (ws.root.irDir, true),
+        (ws.root.sharedLibDir, false)] do
       let components := place.normalize.components
       unless base.isPrefixOf components && components.length > base.length do
         throw <| IO.userError s!"the build directory {place} is not inside {ws.root.dir}"
       unless ← place.isDir do continue
       let destination := Regula.Filesystem.Construction.location copy
         (components.drop base.length)
-      let some parent := destination.parent | throw <| IO.userError "build copy has no parent"
-      Regula.Filesystem.Construction.ensureDirectory 4096 parent
-      discard <| Regula.Filesystem.copy place destination
+      if below then
+        let some parent := destination.parent | throw <| IO.userError "build copy has no parent"
+        Regula.Filesystem.Construction.ensureDirectory 4096 parent
+        discard <| Regula.Filesystem.copy place destination
+      else
+        -- The directory holds `leanLibDir`, already copied; its own files join it one by one.
+        Regula.Filesystem.Construction.ensureDirectory 4096 destination
+        for entry in ← place.readDir do
+          unless ← entry.path.isDir do
+            Regula.Filesystem.copyFile entry.path (destination / entry.fileName) 0o755
   requireRootImportsBuilt copy sources
   let some (name, file) := (← rootImports copy sources)[0]?
     | throw <| IO.userError "the guard control's sources import no module of the root package"
