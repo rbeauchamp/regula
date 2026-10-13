@@ -718,14 +718,18 @@ private to the module that realizes them (`Lean.Meta.Match.getEquationsForImpl`)
 lemma it realizes in that module refers to them. Two modules that each realize `f.eq_2` for one `f`
 therefore hold copies of it whose proofs differ in which module's private match equation they use,
 and the name is `differing`. `renamedCopy` relates such a copy to the copy of the module the name is
-attributed to when renaming the names private to the copy's module to the same names private to
-the other module turns the copy into a constant `Identical` to the other, under the conditions
-that follow. The names private to the copy's module that the copy refers to, with every name
-private to that module linked to them by a reference (`blockOf`), must each be renamed in the same
-way into the other module's constant. Only the copies of the name and these names, with their
-renamed names, may refer to them or to their renamed names, and none of them may reach the name.
-The name itself must lie on no cycle, and no constant that reaches it may reach `Lean.reduceBool`
-or `Lean.reduceNat` or be one of `kernelNames` (`uniformUpToPrivate`). The copies of a name agree
+attributed to under the conditions that follow. The two are theorems Lean's import accepts
+together (`sameTheorem`), and the copy refers to no name private to the other module and turns
+into a constant `Identical` to the other when the names private to its module are renamed to the
+same names private to the other module (`renamedTo`). The names private to the copy's module that
+the copy refers to, with every name private to that module linked to them by a reference
+(`blockOf`), must each be `renameable`: declared by the copy's module alone, which the name is
+attributed to, free of a role and uniform under both names, and a theorem or a safe definition
+that `renamedTo` renames into the other module's constant under the renamed name. Only the
+copies of the name and these names, with their renamed names, may refer to them or to their renamed
+names, and none of them may reach the name. The name itself must lie on no cycle, and no constant
+that reaches it may reach `Lean.reduceBool` or `Lean.reduceNat` or be one of `kernelNames`
+(`uniformUpToPrivate`). The copies of a name agree
 (`agrees`, `agrees_iff`) when the name is outside `differing`, or when `UniformUpToPrivate` admits
 it and only owned modules declare it (`DeclaredOwned`); the three decisions of reuse read that
 (`copiesAgree`, `referencesWithin`, `ownedAgrees`). The docstring of `renamedCopy` argues why reuse

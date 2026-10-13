@@ -2887,8 +2887,9 @@ inferred from any pure proof.
   in the replay base instead of replaying it (`Admission.reusedModules`; the receipt's `reused`)
   only when (1) an offered admission replayed it over the identical import closure
   (`Admission.importClosure`: the same modules, canonical `.olean` paths and import edges) and
-  did not list it as `shared` (a module with a shared copy of a name that has a different copy there or
-  that an unowned module declares); (2) the module and every owned module of that closure is a claimed
+  did not list it as `shared` (`Admission.AdmitRequest.pinned`: a module with a shared copy of a
+  name that `Admission.ownedAgrees` refuses because its copies do not agree or an unowned module
+  declares it); (2) the module and every owned module of that closure is a claimed
   library module all of whose `.olean` parts (the `.olean` and, for a module-system file, the
   `.olean.server` and the `.olean.private` Lean takes its kernel constants from) the coordinator
   read before the first inspection, read again as this environment started with the frozen
@@ -3041,10 +3042,13 @@ inferred from any pure proof.
   5. No joined name reaches `n`.
   6. Only the copies of `n` and the joined names refer to a joined name.
 
-  A name `x` of the block is renameable if only `src` declares it and it is not private to `dst`.
-  The renaming must change the constant of `x` into a constant `Identical` to the constant of `dst`
-  with the renamed name. The two names must have no role, and they must be uniform.
-  `Admission.renameable` makes this decision.
+  A name `x` of the block is renameable if only `src` declares it, `x` is attributed to `src`, and
+  `x` is not private to `dst`. Its constant must be a theorem or a safe definition, the only
+  constants that `Admission.renameConstant` renames. `Admission.renamedTo` must accept the renaming
+  of that constant into the constant of `dst` with the renamed name. Thus that constant refers to no
+  name private to `dst`, and the renaming changes it into a constant `Identical` to the constant of
+  `dst`. The two names must have no role, and they must be uniform. `Admission.renameable` makes
+  this decision.
 
   Let `r` be the copy of the module that `n` is attributed to. `Admission.uniformUpToPrivate`
   accepts `n` if these four conditions are true:
