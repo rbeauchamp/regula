@@ -101,9 +101,15 @@ theorem absolute_sound (path : FilePath) (admitted : AbsolutePath)
   unfold absolute at accepted
   split at accepted <;> cases accepted <;> rfl
 
-/-- The override variables Lake v4.34.1 reads for its compiler and archiver
-(`Lake/Config/InstallPath.lean:289-316`). Each must be absent or absolute. -/
-def overrideVariables : Array String := #["LEAN_CC", "CC", "LEAN_AR", "AR"]
+/-- The native tools Lake v4.34.1 resolves for its compiler and archiver
+(`Lake/Config/InstallPath.lean:289-316`), each with the override Lake always reads first and the
+override it reads only when the installation has no bundled tool. -/
+def nativeOverrides : List (Tool × String × String) :=
+  [(.clang, "LEAN_CC", "CC"), (.llvmAr, "LEAN_AR", "AR")]
+
+/-- Every override variable Lake v4.34.1 can read for its compiler and archiver. -/
+def overrideVariables : Array String :=
+  (nativeOverrides.flatMap fun (_, first, fallback) => [first, fallback]).toArray
 
 /-- The effective value of a variable after POSIX Lean's left-to-right environment changes.
 Assumes: Lean v4.34.1 `runtime/process.cpp:463-469` applies changes in this order when every
@@ -126,33 +132,39 @@ def nativeChanges (changes : Array (String × Option String)) : Bool := changes.
 def requireChanges (changes : Array (String × Option String)) : IO Unit := do
   unless nativeChanges changes do throw <| IO.userError "invalid native process environment entry"
 
-/-- Refuse every inherited or supplied compiler/archiver override that Lake could resolve
+/-- Refuse every inherited or supplied value of the named overrides that Lake could resolve
 through PATH. Checking every occurrence avoids relying on duplicate-key merge order. Windows
 keys are checked in uppercase because that OS's environment lookup is case insensitive.
 This conservative decision also refuses an unsafe inherited value that a change would remove.
-Assumes: Lean v4.34.1 `Lake/Config/InstallPath.lean:289-316` reads these variables; Windows
-case-insensitive environment lookup is trusted. This is the one shared override decision. -/
-def requireOverrides (changes : Array (String × Option String) := #[]) : IO Unit := do
-  requireChanges changes
+Assumes: Windows case-insensitive environment lookup is trusted. -/
+def requireAbsoluteOverrides (names : List String) (changes : Array (String × Option String)) :
+    IO Unit := do
   let validate (name value : String) : IO Unit := do
     match absolute value with
     | .ok _ => pure ()
     | .error reason => throw <| IO.userError s!"invalid {name} override: {reason}"
-  for name in overrideVariables do
+  for name in names do
     if let some value ← readEnv name then
       validate name value
   for (key, value) in changes do
     let key := if System.Platform.isWindows then key.toUpper else key
-    if overrideVariables.contains key then
+    if names.contains key then
       if let some value := value then validate key value
 
-/-- Select the installation without starting a PATH-resolved Lean. A Lake environment supplies
-an absolute LEAN_SYSROOT. Otherwise Lake's own Elan toolchain-directory construction resolves
-ELAN_TOOLCHAIN under ELAN_HOME (or HOME/.elan), defaulting to the release that built this program.
+/-- Refuse a malformed environment and each override Lake reads for every installation unless
+it is absolute. Lake reads the fallback overrides only without the bundled tool, so
+`requireNativeTools` decides them with the installation. Assumes: Lean v4.34.1
+`Lake/Config/InstallPath.lean:289-316` reads these variables. This is the one shared override
+decision. -/
+def requireOverrides (changes : Array (String × Option String) := #[]) : IO Unit := do
+  requireChanges changes
+  requireAbsoluteOverrides (nativeOverrides.map fun (_, first, _) => first) changes
+
+/-- The Elan installation at the absolute ELAN_HOME, or HOME/.elan, with the `elan` of its
+binary directory, read without PATH.
 Assumes: Lean v4.34.1 `Lake/Config/InstallPath.lean:32-58` describes the Elan installation layout;
-the named installed toolchain and its contents are trusted. No PATH fallback or installation runs. -/
-private def candidateRoot : IO AbsolutePath := do
-  if let some root ← readEnv "LEAN_SYSROOT" then return ← IO.ofExcept (absolute root)
+the Elan installation and its contents are trusted. -/
+def elanInstall : IO _root_.Lake.ElanInstall := do
   let home ← match ← readEnv "ELAN_HOME" with
     | some home => pure (FilePath.mk home)
     | none =>
@@ -160,10 +172,17 @@ private def candidateRoot : IO AbsolutePath := do
         | throw <| IO.userError "process selection needs LEAN_SYSROOT or an absolute Elan home"
       pure (FilePath.mk home / ".elan")
   let home ← IO.ofExcept (absolute home)
+  return { home := home.val, elan := (home.val / "bin" / "elan").addExtension FilePath.exeExtension }
+
+/-- Select the installation without starting a PATH-resolved Lean. A Lake environment supplies
+an absolute LEAN_SYSROOT. Otherwise Lake's own Elan toolchain-directory construction resolves
+ELAN_TOOLCHAIN under the Elan home (`elanInstall`), defaulting to the release that built this
+program. The named installed toolchain and its contents are trusted. No PATH fallback or
+installation runs. -/
+private def candidateRoot : IO AbsolutePath := do
+  if let some root ← readEnv "LEAN_SYSROOT" then return ← IO.ofExcept (absolute root)
   let selector := (← readEnv "ELAN_TOOLCHAIN").getD s!"leanprover/lean4:v{Lean.versionString}"
-  let elan : _root_.Lake.ElanInstall := { home := home.val, elan := home.val / "bin" / "elan" }
-  let root := elan.toolchainDir selector
-  IO.ofExcept (absolute root)
+  IO.ofExcept (absolute ((← elanInstall).toolchainDir selector))
 
 /-- An absolute installation whose Lean reported this program's compiler identity.
 Only the identity observer constructs it. File contents and the compiler's self-report remain trusted. -/
@@ -172,22 +191,25 @@ structure Installation where
   /-- The installation's absolute directory. -/
   root : AbsolutePath
 
-/-- Refuse an installation/environment in which Lake could fall back to a bare native tool.
-The guard requires the bundled tool or an override whose presence survives every supplied change;
+/-- Refuse an installation/environment in which Lake could fall back to a bare native tool, or
+read a fallback override that is not absolute. Without the bundled tool, each fallback override
+must be absolute, and the guard requires an override whose presence survives every supplied change;
 it does not reproduce Lake's choice between its absolute candidates. An unset occurrence cannot
 establish presence, even when a later occurrence restores it. With inheritance disabled, an
 inherited override cannot establish presence either.
 Assumes: Lean v4.34.1 `Lake/Config/InstallPath.lean:289-316` uses the bundled clang/llvm-ar or an
-applicable compiler/archiver override before its bare cc/ar fallback. The installation and parent
-environment stay stable, and native environment updates succeed (`runtime/process.cpp:463-469`). -/
+applicable compiler/archiver override before its bare cc/ar fallback, and reads CC/AR only without
+the bundled tool. The installation and parent environment stay stable, and native environment
+updates succeed (`runtime/process.cpp:463-469`). -/
 def requireNativeTools (installation : Installation)
     (changes : Array (String × Option String) := #[]) (inheritEnv : Bool := true) : IO Unit := do
   requireOverrides changes
-  for (tool, variables) in [(Tool.clang, #["LEAN_CC", "CC"]), (.llvmAr, #["LEAN_AR", "AR"])] do
+  for (tool, first, fallback) in nativeOverrides do
     let bundled := (installation.root.val / "bin" / tool.basename).addExtension FilePath.exeExtension
     if ← bundled.pathExists then continue
+    requireAbsoluteOverrides [fallback] changes
     let mut supplied := false
-    for name in variables do
+    for name in [first, fallback] do
       let inherited ← if inheritEnv then readEnv name else pure none
       let entries := changes.filter fun (key, _) =>
         (if System.Platform.isWindows then key.toUpper else key) == name
@@ -343,8 +365,8 @@ theorem Prepared.native {program : Program} {original : IO.Process.SpawnArgs}
     (prepared : Prepared program original) : nativeProgram prepared.emit.cmd = true :=
   prepared.selected.native
 
-/-- Prepare a launch. Toolchain launches refuse bare compiler/archiver overrides in their
-inherited and supplied environments and receive the checked installation's Lean, Lake and sysroot paths.
+/-- Prepare a launch. Toolchain launches refuse bare compiler/archiver overrides that Lake would
+read from their inherited and supplied environments and receive the checked installation's Lean, Lake and sysroot paths.
 The environment array stays one value for the later environment-recording work. -/
 def prepare [Cache] (program : Program) (args : IO.Process.SpawnArgs) : IO (Prepared program args) := do
   requireChanges args.env

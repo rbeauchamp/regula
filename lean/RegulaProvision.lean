@@ -880,8 +880,7 @@ end RegulaProvision
 
 /-- Standalone released-toolchain setup and explicit Mathlib or Verso provisioning. -/
 def main (args : List String) : IO Unit := do
-  discard RegulaProvision.Process.identified
-  RegulaProvision.Process.requireOverrides
+  RegulaProvision.Process.requireNativeTools (← RegulaProvision.Process.identified)
   let repo ← IO.FS.realPath (← RegulaProvision.Process.currentDir)
   unless ← (repo / "lakefile.lean").pathExists do
     throw <| IO.userError "provisioning: run from the repository root"

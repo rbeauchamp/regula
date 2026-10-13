@@ -216,6 +216,8 @@ run_cmd do
       ("output wrapper", ← `(do
         let wrapped := IO.Process.output
         discard <| wrapped { cmd := "planted" }), "IO.Process.output"),
+      ("run", ← `(do discard <| IO.Process.run { cmd := "planted" }), "IO.Process.run"),
+      ("findSysroot PATH fallback", ← `(do discard <| Lean.findSysroot), "IO.Process.run"),
       ("environment", ← `(do discard <| IO.getEnv "PLANTED"), "IO.getEnv")] do
     let refused ← bodyRefusal body
     unless refused.any (·.contains s!"calls {primitive}") do

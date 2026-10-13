@@ -22,19 +22,21 @@ def compilerEnv : Array (String × Option String) :=
       (fun name => (name, none))
 
 /-- The `lean` executable of the installed toolchain `selector` names (`installedName?` over
-`elan toolchain list`), from directory `root`. Only that listed name is given to `elan run`, without
-`--install`. -/
+`elan toolchain list`), from directory `root`. Elan starts by its path in the Elan home
+(`Regula.Process.elanInstall`), not by a name that `PATH` resolves. Only that listed name is given
+to `elan run`, without `--install`. -/
 def selectedLean (root : FilePath) (selector : String) : IO FilePath := do
-  let listed ← Regula.Process.output (.stated "elan" "Elan lists the explicitly selected installed compilers") {
-    cmd := "elan", args := #["toolchain", "list"], cwd := some root, env := compilerEnv }
+  let elan := (← Regula.Process.elanInstall).elan
+  let listed ← Regula.Process.output (.stated elan "Elan lists the explicitly selected installed compilers") {
+    cmd := elan.toString, args := #["toolchain", "list"], cwd := some root, env := compilerEnv }
   unless listed.exitCode == 0 do
-    throw <| IO.userError s!"cannot list installed toolchains: {listed.stderr.trimAscii}"
+    throw <| IO.userError s!"cannot list installed toolchains with {elan}: {listed.stderr.trimAscii}"
   let some name := installedName? (listedToolchains listed.stdout) selector
     | throw <| IO.userError
         s!"cannot resolve selected compiler: Elan lists no installed toolchain named exactly \
           '{selector}'"
-  let out ← Regula.Process.output (.stated "elan" "Elan resolves a listed installed compiler without installing") {
-    cmd := "elan", args := #["run", name, "elan", "which", "lean"]
+  let out ← Regula.Process.output (.stated elan "Elan resolves a listed installed compiler without installing") {
+    cmd := elan.toString, args := #["run", name, elan.toString, "which", "lean"]
     cwd := some root, env := compilerEnv }
   unless out.exitCode == 0 do
     throw <| IO.userError s!"cannot resolve selected compiler: {out.stderr.trimAscii}"

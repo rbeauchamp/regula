@@ -1,7 +1,8 @@
 import Lake
 import Lake.Load
 import Regula.Checker.Common
-import Regula.ToolchainProgram
+import Regula.Process
+import RegulaPolicy.Compiler
 import Regula.Filesystem
 
 /-!
@@ -18,12 +19,12 @@ namespace Regula.Checker.Workspace
 open Lean System
 
 /-- The Lake environment of the toolchain's identity-checked installation
-(`Regula.Toolchain.sysroot`), with the Lake installed beside its Lean (`LakeInstall.ofLean`), as
+(`Regula.Process.lakeSysroot`), with the Lake installed beside its Lean (`LakeInstall.ofLean`), as
 the toolchain's `lake` command computes it for itself. Lake's own `findInstall?` is not run: it
 reads the running program as a `lake`, so a `lean` beside this checker's executable would select
 the checker's build directory as the installation, and it reads `LAKE_HOME`, which a parent `lake`
 sets to the toolchain's root, as the root of a Lake build tree. The installation's commit is the
-one `Regula.Toolchain.sysroot` checked its `lean` reports. -/
+one `Regula.Process.identified` checked its `lean` reports. -/
 private def detectEnvironment : IO _root_.Lake.Env := do
   let sysroot ← Regula.Process.lakeSysroot
   let elan? ← _root_.Lake.findElanInstall?

@@ -10,7 +10,7 @@ import Regula.Checker.BuildLintQualification
 import Regula.Checker.LintQualification
 import Regula.Checker.Inspection
 import RegulaCore.ScratchCopy
-import Regula.ToolchainProgram
+import RegulaPolicy.Compiler
 import Regula.Checker.AcceptanceLink
 import Regula.Checker.ResultProtocol
 import Regula.Checker.SelftestArguments
@@ -2872,10 +2872,10 @@ private unsafe def fenceEnvironmentControl (layout : SourceLayout) (repo : FileP
     writeJson manifest (freshControlManifest (← parsedManifest manifest))
     -- A counterexample aid at the process boundary: the workspace provides a `leanchecker` in the
     -- root package's binary directory, which `lake env` puts first on `PATH`. It is a link to the
-    -- toolchain's own `lean` (`Regula.Toolchain.program`), which refuses the `--fresh` option, and
+    -- toolchain's own `lean` (`Regula.Process.toolPath`), which refuses the `--fresh` option, and
     -- the control first runs it with the arguments a `leanchecker` gets for each root below and
     -- requires each run to fail, so an accepted run below did not run it.
-    let failing ← Regula.Toolchain.program .lean
+    let failing ← Regula.Process.toolPath .lean
     let workspaceBin := dir / ".lake" / "build" / "bin"
     IO.FS.createDirAll workspaceBin
     let plantedPath := workspaceBin / "leanchecker"

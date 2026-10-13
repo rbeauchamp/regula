@@ -5515,7 +5515,7 @@ The observer selects an absolute `LEAN_SYSROOT`, or an installed Elan toolchain 
 
 The native string check excludes NUL and, on Windows, quotes, drive-relative `C:clang` and root-relative `\clang`. Lean's absolute-path predicate alone accepts these relative forms. [Microsoft's path reference](https://learn.microsoft.com/en-us/windows/win32/fileio/naming-a-file#fully-qualified-vs-relative-paths) gives their dependence on the current drive or directory.
 
-Lake's compiler and archiver variables are `LEAN_CC`, `CC`, `LEAN_AR` and `AR`. Each inherited and supplied value must be absolute. Each occurrence is checked, including one that a later environment change would remove. This conservative guard does not depend on duplicate-key merge order. The implementation is shared by the observer and the cold source drivers in `ProcessSource.inc`.
+Lake's compiler and archiver variables are `LEAN_CC`, `CC`, `LEAN_AR` and `AR`. Lake always reads `LEAN_CC` and `LEAN_AR`, and each inherited and supplied value of them must be absolute. Lake reads `CC` and `AR` only for an installation without bundled `clang` or `llvm-ar`, and then their values must be absolute. Each occurrence is checked, including one that a later environment change would remove. This conservative guard does not depend on duplicate-key merge order. The implementation is shared by the observer and the cold source drivers in `ProcessSource.inc`.
 
 The same installation guard applies to process preparation and in-process Lake. Each native tool must be bundled, or an absolute override must stay present through the supplied changes. Without inheritance, a parent override cannot establish presence. This guard refuses Lake's bare `cc` and `ar` fallback. Lake still chooses between its admitted candidates.
 
@@ -5539,7 +5539,7 @@ Stated selections keep their reason at each call site. They are external selecti
 | --- | --- |
 | `git`, `gh` | Repository and forge operations use the operator's configured utilities. |
 | `shasum`, `curl`, `tar`, `chmod`, `shellcheck` | Digests, acquisition, extraction, fixture modes and shell diagnostics use stated external utilities. |
-| `elan` | The doctor lists and resolves an explicitly requested installed compiler. Its reported compiler path must be absolute. |
+| `elan` | The doctor starts the `elan` of the Elan home, not one that PATH selects. It lists and resolves an explicitly requested installed compiler, and its reported compiler path must be absolute. |
 | `gtimeout`, `timeout`, `/usr/bin/nice` | The external deadline and scheduling utilities receive the prepared child's path and environment. |
 | `/usr/bin/env` | The existing deployment launcher clears unlisted variables. Its environment record remains separate work. |
 | `/bin/bash`, `/bin/chmod` | The controls execute exact approved wrapper copies and set owned fixture modes. |

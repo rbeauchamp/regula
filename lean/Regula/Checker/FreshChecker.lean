@@ -3,7 +3,8 @@ import Regula.TaskManagerCheck
 import Regula.Checker.Acceptance
 import Regula.Checker.ResultProtocol
 import RegulaCore.Lint
-import Regula.ToolchainProgram
+import Regula.Process
+import RegulaPolicy.Compiler
 
 /-!
 # Serialized-environment qualification
@@ -346,7 +347,7 @@ parse; otherwise it builds the plan, and unless `--plan-only` builds the positiv
 `leanchecker --fresh` on each root, rechecks the captured inputs and admits the result through
 `RegulaPolicy.finalize`, then writes the JSON result when requested. `lake` and `leanchecker` are
 the toolchain's own, run by their paths in its identity-checked installation
-(`Regula.Toolchain.program`), so a program that the workspace's packages put on the `PATH` of
+(`Regula.Process.toolPath`), so a program that the workspace's packages put on the `PATH` of
 `lake env` under either name is never run; that `lake` gets the installation as `LEAN_SYSROOT`,
 without `LAKE_OVERRIDE_LEAN`. Returns `1` when the build or a check fails and `0`
 otherwise. -/
@@ -382,8 +383,8 @@ unsafe def run (args : List String) : IO UInt32 := do
       for line in lines do IO.println s!"    {line}"
       return 1
     let frozen ← freezeGraph plan snapshot manifest inventory sources
-    let leanchecker := (← Regula.Toolchain.program .leanchecker).toString
-    let env := #[("LEAN_SYSROOT", some (← Regula.Toolchain.sysroot).toString),
+    let leanchecker := (← Regula.Process.toolPath .leanchecker).toString
+    let env := #[("LEAN_SYSROOT", some (← Regula.Process.sysroot).toString),
       ("LAKE_OVERRIDE_LEAN", none)]
     for root in plan.roots do
       let covered := (plan.coverage.find? (·.root == root)).map (·.modules) |>.getD #[]

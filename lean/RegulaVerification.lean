@@ -1458,6 +1458,5 @@ private def dispatch : List String → IO Unit
 
 /-- Check the selected installation before invalidation, copies, setup or verification. -/
 def main (args : List String) : IO Unit := do
-  discard RegulaVerification.Process.identified
-  RegulaVerification.Process.requireOverrides
+  RegulaVerification.Process.requireNativeTools (← RegulaVerification.Process.identified)
   dispatch args

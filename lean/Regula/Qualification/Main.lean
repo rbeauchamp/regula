@@ -114,9 +114,6 @@ private def markEvidence (args : List String) (attempt : String) (reason : Optio
 /-- The form of one `qualify` invocation, read from its arguments and the two variables of its
 environment that select a mode (`Invocation.of`). -/
 private inductive Invocation where
-  /-- `--process-fixtures DIRECTORY`: copy the process controls' committed sources into
-  `DIRECTORY` (`Regula.Qualification.Process.Sources.writePreflight`). -/
-  | processFixtures (directory : String)
   /-- `--process-cadical-raw`, `--process-cadical-checked` or `--process-cadical-reader ROUTE`:
   the solver control's elaboration of its owned source, through the reader `route` when one is
   named (`Regula.Qualification.Process.cadicalWorker`). -/
@@ -144,7 +141,6 @@ private inductive Invocation where
 through the process and environment observer (`Regula.Process.readEnv`). -/
 private def Invocation.of (args : List String) : BaseIO Invocation := do
   match args with
-  | ["--process-fixtures", directory] => return .processFixtures directory
   | ["--process-cadical-raw"] => return .processCadical false none
   | ["--process-cadical-checked"] => return .processCadical true none
   | ["--process-cadical-reader", route] => return .processCadical true (some route)
@@ -168,9 +164,6 @@ as a bounded standalone command. Nested commands do not create escaping groups. 
 invocation is read once (`Invocation.of`). -/
 unsafe def qualifyMain (args : List String) : IO UInt32 := do
   match ← Invocation.of args with
-  | .processFixtures directory =>
-    Regula.Qualification.Process.Sources.writePreflight directory
-    return 0
   | .processCadical checked none => Regula.Qualification.Process.cadicalWorker checked
   | .processCadical checked (some route) =>
     Regula.Qualification.Process.cadicalWorker checked route
@@ -206,7 +199,7 @@ private def refuseQualification (reason : String) (args : List String) : IO UInt
   match ← Invocation.of args with
   | .acceptanceProxy =>
     return ← Regula.Checker.AxiomGate.refuseWithoutTaskManager reason args
-  | .processFixtures _ | .processCadical _ _ | .processNativeFallback _ _ | .receiptTimer
+  | .processCadical _ _ | .processNativeFallback _ _ | .receiptTimer
     | .processShadow | .unknownWrapper => pure ()
   | .underDeadline attempt rest => mark rest attempt
   | .bounded rest => mark rest none

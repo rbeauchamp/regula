@@ -55,19 +55,6 @@ def selection : String := include_str "../../../examples/process-controls/Select
 /-- Each tiny local dependency declares only its package, not a private Verso copy. -/
 def selectedDependency : String := include_str "../../../examples/process-controls/SelectedDependency.lean"
 
-/-- Copy the campaign's exact committed sources for separate sequential compiler checks.
-Called by the compiled qualifier; it executes no fixture main. The solver compiler check
-does elaborate its tactic. No printer, source generator or interpreted Lake cache is used. -/
-def writePreflight (directory : FilePath) : IO Unit := do
-  IO.FS.createDirAll directory
-  IO.FS.createDirAll (directory / "Regula")
-  for (name, source) in [("lakefile.lean", lakefile), ("ProcessFixture.lean", native),
-      ("Setup.lean", setup), ("Driver.lean", driver), ("Solver.lean", solver),
-      ("Baseline.lean", baseline), ("Regula/ProjectCaller.lean", projectCaller),
-      ("NativeFallback.lean", nativeFallback), ("Selection.lean", selection),
-      ("SelectedDependency.lean", selectedDependency)] do
-    IO.FS.writeFile (directory / name) source
-
 end Sources
 
 /-- Compile and import ordinary project callers through Lean's actual artifact loader.
@@ -298,11 +285,13 @@ private def baseline (fixture : Fixture) (tool : Regula.Process.Tool) : IO Unit 
 
 /-- Lake itself selects bare cc/ar when the candidate lacks its bundled tools. The baseline
 must record that exact native image, then both protected public paths must refuse for the native
-fallback reason. The owned candidate contains an identity-reply control, not a cloned compiler;
-it qualifies installation admission and Lake's actual native action, not a whole alternate build.
+fallback reason. Lake then also reads the bare `fallback` override; its baseline must record the
+named tool's image, and both paths must refuse that override. The owned candidate contains an
+identity-reply control, not a cloned compiler; it qualifies installation admission and Lake's
+actual native action, not a whole alternate build.
 Successful absolute-override preparation restores the boundary positive. -/
 private def missingNativeControl (fixture : Fixture) (executable : FilePath)
-    (tool : Regula.Process.Tool) : IO Unit := do
+    (tool : Regula.Process.Tool) (fallback : String) : IO Unit := do
   let installation := fixture.root / "candidate"
   IO.FS.createDirAll (installation / "bin")
   shadow executable (installation / "bin" / "lean")
@@ -333,6 +322,20 @@ private def missingNativeControl (fixture : Fixture) (executable : FilePath)
     requireChecks [⟨"missing native bundle: intended installation refusal",
       result.exitCode == 2 && result.stderr.contains s!"installation has no bundled {tool.basename} and no stable absolute override; Lake's bare native-tool fallback is refused"⟩,
       ⟨"missing native bundle: no workspace native tool started", !(← fixture.marker.pathExists)⟩]
+  let bare := #[(fallback, some tool.basename)]
+  let bareRun ← run fixture.root (.toolchain .lean)
+    #["--run", source.toString, installation.toString, operation, fixture.root.toString]
+    (cleared ++ bare)
+  requireChecks [⟨s!"missing native bundle: Lake's {fallback} action ran",
+    bareRun.exitCode == 1 && (← fixture.actionRan tool)⟩]
+  fixture.clear
+  for mode in ["prepare", "workspace"] do
+    let result ← run fixture.root (.stated executable "The native worker exercises the guarded installation boundary")
+      #["--process-native-fallback", mode, fixture.root.toString] (env ++ bare)
+    requireChecks [⟨s!"missing native bundle: intended {fallback} refusal",
+      result.exitCode == 2 && result.stderr.contains
+        s!"invalid {fallback} override: process selection requires an absolute path: {tool.basename}"⟩,
+      ⟨s!"missing native bundle: no workspace {tool.basename} started", !(← fixture.marker.pathExists)⟩]
   let absoluteEnv := env ++ #[("LEAN_CC", some (← Regula.Process.toolPath .clang).toString),
     ("LEAN_AR", some (← Regula.Process.toolPath .llvmAr).toString)]
   for mode in ["prepare", "boundary"] do
@@ -430,15 +433,20 @@ def check : IO Unit := do
         ("LEAN_AR", .llvmAr), ("AR", .llvmAr)] do
       let native ← plant (scratch / overrideName) executable marker
       baseline native tool
-      if overrideName == "CC" || overrideName == "AR" then
-        missingNativeControl native executable tool
       let name := tool.basename
       let overrides := native.env.filter (fun entry => !Regula.Process.overrideVariables.contains entry.1) ++
         (Regula.Process.overrideVariables.filter (· != overrideName)).map (fun key => (key, none)) ++
         #[(overrideName, some name)]
-      -- LEAN_* always overrides the bundled tool. CC/AR are also refused, even where this
-      -- released installation's bundled compiler means Lake would ignore them today.
-      if overrideName == "LEAN_CC" || overrideName == "LEAN_AR" then
+      -- LEAN_* always overrides the bundled tool. Lake reads CC/AR only without the bundled tool,
+      -- so this released installation admits them and the missing bundle qualifies their refusal.
+      if overrideName == "CC" || overrideName == "AR" then
+        missingNativeControl native executable tool overrideName
+        let admitted ← (Regula.Process.output (.toolchain .lake)
+          {cmd := "", args := #["--version"], cwd := some native.root, env := overrides}).toBaseIO
+        requireChecks [⟨s!"{overrideName}: bundled {name} present, bare override admitted", match admitted with
+          | .ok result => result.exitCode == 0
+          | .error _ => false⟩]
+      else
         let project := native.root
         let source := project / "Baseline.lean"
         IO.FS.writeFile source Sources.baseline
@@ -447,13 +455,13 @@ def check : IO Unit := do
         requireChecks [⟨s!"{overrideName}: Lake really invoked the workspace native tool (exit {attempted.exitCode}, stdout {attempted.stdout}, stderr {attempted.stderr})",
           attempted.exitCode != 0 && (← native.actionRan tool)⟩]
         native.clear
-      let refused ← (Regula.Process.output (.toolchain .lake)
-        {cmd := "", args := #["--version"], cwd := some native.root, env := overrides}).toBaseIO
-      requireChecks [⟨s!"{overrideName}: intended absolute-override refusal", match refused with
-          | .error error => (toString error).contains s!"invalid {overrideName} override" &&
-              (toString error).contains s!"process selection requires an absolute path: {name}"
-          | .ok _ => false⟩,
-        ⟨s!"{overrideName}: no workspace native tool started", !(← marker.pathExists)⟩]
+        let refused ← (Regula.Process.output (.toolchain .lake)
+          {cmd := "", args := #["--version"], cwd := some native.root, env := overrides}).toBaseIO
+        requireChecks [⟨s!"{overrideName}: intended absolute-override refusal", match refused with
+            | .error error => (toString error).contains s!"invalid {overrideName} override" &&
+                (toString error).contains s!"process selection requires an absolute path: {name}"
+            | .ok _ => false⟩,
+          ⟨s!"{overrideName}: no workspace native tool started", !(← marker.pathExists)⟩]
     IO.println "process observers: PASS (live tool, wrapper and native-override controls; Windows unqualified)"
 
 end Regula.Qualification.Process

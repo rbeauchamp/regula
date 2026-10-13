@@ -1343,25 +1343,11 @@ def runControls (directory : System.FilePath) : IO UInt32 := do
 end Regula.Controlled.Run
 
 open Regula.Controlled.Run in
-/-- Private process-qualification preflight: inspect the same eight counters without computing
-finding locations or writing a baseline. This supplies the evidence for a decrease-only update. -/
-private def processProseCounts (root path : String) : IO UInt32 := do
-  let options : Options := { root }
-  let tracked ← IO.ofExcept (← trackedFiles options.root)
-  let vocabulary ← match ← loadVocabulary options tracked with
-    | .ok vocabulary => pure vocabulary
-    | .error refusals => throw <| IO.userError ("\n".intercalate refusals)
-  let source ← IO.FS.readFile (options.root / path)
-  IO.println (Lean.toJson (Regula.Controlled.tally (lexicon vocabulary path) (Regula.Markdown.read source))).compress
-  return 0
-
-open Regula.Controlled.Run in
 /-- Check the tracked Markdown documents, the vocabulary and the baseline of the repository at
 the directory given as the first argument (see `Regula.Controlled.Run.check`), or do one of the
 other tasks of the usage text. -/
 def markdownMain (args : List String) : IO UInt32 := do
   match args with
-  | ["--process-prose-counts", root, path] => processProseCounts root path
   | ["--controls", directory] => runControls directory
   | _ =>
     let some options := Options.parse (← Regula.Process.readEnv startVariable) args

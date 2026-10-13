@@ -284,7 +284,7 @@ It accepts a run only if the check of each root passed, thus an accepted run did
 program.
 
 `freshChecker` starts `lake` and `leanchecker` by their paths in the installation directory of the
-toolchain (`Regula.Toolchain.program`). The `lean` of that directory must give the version and the
+toolchain (`Regula.Process.toolPath`). The `lean` of that directory must give the version and the
 commit of the supported compiler.
 
 Omitting `PARTITION` requests the `checkerSelftest` campaign; the `producers`, `history` and
