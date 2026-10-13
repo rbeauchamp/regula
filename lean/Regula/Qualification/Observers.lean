@@ -54,7 +54,7 @@ program (`Regula.Removal.rawRemovals`), and as `Regula.TaskManagerCheck.checkPro
 compiled one (`Regula.TaskManagerCheck.refusal`). -/
 def checkOutside (root : Name) : IO Unit := do
   let env ← importModules #[{ module := root }] {} 0
-  let reach := Regula.Removal.rawRemovals env root (origins := ← Regula.Removal.libraryOrigins env)
+  let reach := Regula.Removal.rawRemovals env root
   if let some refused := Regula.Removal.programRefusal root reach then
     throw <| IO.userError s!"observers: {refused}"
   if let some refused := Regula.TaskManagerCheck.refusal env root then

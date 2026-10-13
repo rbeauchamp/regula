@@ -134,13 +134,17 @@ Assumes: Lean v4.34.1 `Lake/Config/InstallPath.lean:289-316` reads these variabl
 case-insensitive environment lookup is trusted. This is the one shared override decision. -/
 def requireOverrides (changes : Array (String × Option String) := #[]) : IO Unit := do
   requireChanges changes
+  let validate (name value : String) : IO Unit := do
+    match absolute value with
+    | .ok _ => pure ()
+    | .error reason => throw <| IO.userError s!"invalid {name} override: {reason}"
   for name in overrideVariables do
     if let some value ← readEnv name then
-      discard <| IO.ofExcept (absolute value)
+      validate name value
   for (key, value) in changes do
     let key := if System.Platform.isWindows then key.toUpper else key
     if overrideVariables.contains key then
-      if let some value := value then discard <| IO.ofExcept (absolute value)
+      if let some value := value then validate key value
 
 /-- Select the installation without starting a PATH-resolved Lean. A Lake environment supplies
 an absolute LEAN_SYSROOT. Otherwise Lake's own Elan toolchain-directory construction resolves

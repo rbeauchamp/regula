@@ -5552,7 +5552,11 @@ Stated selections keep their reason at each call site. They are external selecti
 
 Each observer role is admitted only in the module named by its row. Lake's starts and Lean's builtin solver start have sourced library exemptions. Their exported launch entrypoints are boundaries for project callers. A direct project call cannot borrow an exemption for the library's own starts.
 
-A library exemption requires the real path that Lean records for its loaded `.olean`. That path must equal the artifact path of the checked toolchain, or of the renderer's pinned package that Lake resolved. A library name alone admits nothing. The renderer checks the manifest pin before resolution and restores its original search path. A project module under `Lake` or `Lean` cannot borrow the exemption.
+Assumes: the check guards Regula's own executables from its committed lakefile and `lake-manifest.json`. It trusts build configuration, package selection, module names and artifact loading. It does not authenticate those inputs.
+
+Lean `v4.34.1` records the requested import name. Its [`ModuleData`](https://github.com/leanprover/lean4/blob/v4.34.1/src/Lean/Environment.lean#L109-L129) stores no name for the artifact's original module. The [importer](https://github.com/leanprover/lean4/blob/v4.34.1/src/Lean/Environment.lean#L2225-L2228) retains the requested name. Artifact substitution and module renaming are outside this claim.
+
+The renderer uses Lake's resolution of the committed manifest. Any `package-overrides.json`, `LoadConfig.packageOverrides` or package URL-map entry for `verso` makes the check incomplete. Those selector overrides are refused before materialization. Library contents and stable build inputs remain trusted.
 
 Regula supplies the checked `cadical` path through the initial `sat.solver` option before each source reader elaborates source. The configuration, fresh frontend, diagnostics and example readers start from the shared options. This covers the default solver only while source leaves that option unset. Source that sets `sat.solver`, including a reset to empty, selects its own program. This route remains uncovered, as a source process start through `run_cmd` can be. No PASS is claimed for it.
 

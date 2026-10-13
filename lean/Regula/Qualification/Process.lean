@@ -5,6 +5,7 @@ import Regula.Checker.Workspace
 import Regula.Removal
 import Regula.Checker.Frontend
 import Regula.Checker.Diagnostics
+import Regula.ProgramCheck.Renderer
 
 /-! # Qualification of the process and bootstrap boundaries
 
@@ -42,61 +43,119 @@ def solver : String := include_str "../../../examples/process-controls/Solver.le
 /-- The raw native-build counterexample, parameterized by its command arguments. -/
 def baseline : String := include_str "../../../examples/process-controls/Baseline.lean"
 
-/-- The standalone imported lookalike, compiled under the Lake.PlantedControl module name. -/
-def libraryLookalike : String := include_str "../../../examples/process-controls/LibraryLookalike.lean"
+/-- Ordinary imported project callers, with trusted module naming and artifact loading. -/
+def projectCaller : String := include_str "../../../examples/process-controls/ProjectCaller.lean"
 
 /-- Lake's actual native fallback, without a copied selection rule. -/
 def nativeFallback : String := include_str "../../../examples/process-controls/NativeFallback.lean"
+
+/-- The local manifest-selection workspace; paths are fixed fixture-relative names. -/
+def selection : String := include_str "../../../examples/process-controls/Selection.lean"
+
+/-- Each tiny local dependency declares only its package, not a private Verso copy. -/
+def selectedDependency : String := include_str "../../../examples/process-controls/SelectedDependency.lean"
 
 /-- Copy the campaign's exact committed sources for separate sequential compiler checks.
 Called by the compiled qualifier; it executes no fixture main. The solver compiler check
 does elaborate its tactic. No printer, source generator or interpreted Lake cache is used. -/
 def writePreflight (directory : FilePath) : IO Unit := do
   IO.FS.createDirAll directory
-  IO.FS.createDirAll (directory / "Lake")
+  IO.FS.createDirAll (directory / "Regula")
   for (name, source) in [("lakefile.lean", lakefile), ("ProcessFixture.lean", native),
       ("Setup.lean", setup), ("Driver.lean", driver), ("Solver.lean", solver),
-      ("Baseline.lean", baseline), ("Lake/PlantedControl.lean", libraryLookalike),
-      ("NativeFallback.lean", nativeFallback)] do
+      ("Baseline.lean", baseline), ("Regula/ProjectCaller.lean", projectCaller),
+      ("NativeFallback.lean", nativeFallback), ("Selection.lean", selection),
+      ("SelectedDependency.lean", selectedDependency)] do
     IO.FS.writeFile (directory / name) source
 
 end Sources
 
-/-- Compile and import an actual project artifact under a library module name. Lean's explicit
-ImportArtifacts supplies only that fixture; ordinary library imports keep their actual origins.
+/-- Compile and import ordinary project callers through Lean's actual artifact loader.
 The controls inspect compiled calls, and never execute their planted native actions.
 Assumes: Lean v4.34.1 `Lean/Setup.lean:69-87` and `Lean/Environment.lean:2228-2249` load the
 supplied artifact and retain its path. `Lean/Environment.lean:2427-2431` requires initializer
 execution before loading extensions; this serialized control enables it and retains the imported
 regions as `Lean/ImportingFlag.lean:18-28` requires. Compiler and imports remain trusted. -/
-private def importedLibraryControl (directory : FilePath) : IO Unit := do
-  let source := directory / "Lake" / "PlantedControl.lean"
+private def importedProjectControl (directory : FilePath) : IO Unit := do
+  let source := directory / "Regula" / "ProjectCaller.lean"
   let artifact := source.withExtension "olean"
-  IO.FS.createDirAll (directory / "Lake")
-  IO.FS.writeFile source Sources.libraryLookalike
+  IO.FS.createDirAll (directory / "Regula")
+  IO.FS.writeFile source Sources.projectCaller
   let compiled ← run directory (.toolchain .lean)
     #["-R", directory.toString, "-o", artifact.toString, source.toString]
-  requireChecks [⟨"imported library control: actual source compiled", compiled.exitCode == 0⟩]
+  requireChecks [⟨"imported project control: actual source compiled", compiled.exitCode == 0⟩]
   let artifacts : ImportArtifacts := .ofArrays #[#[artifact]]
   unsafe Lean.enableInitializersExecution
-  let env ← Lean.importModules #[{ module := `Lake.PlantedControl, importAll := true }] {} 0
+  let env ← Lean.importModules #[{ module := `Regula.ProjectCaller, importAll := true }] {} 0
     (loadExts := true) (level := .private)
-    (arts := ({} : NameMap ImportArtifacts).insert `Lake.PlantedControl artifacts)
-  let origins ← Regula.Removal.libraryOrigins env
-  let caller := `Lake.PlantedControl.read
+    (arts := ({} : NameMap ImportArtifacts).insert `Regula.ProjectCaller artifacts)
+  let caller := `Regula.ProjectCaller.read
   let some index := env.getModuleIdxFor? caller
-    | throw <| IO.userError "imported library control: caller was not imported"
-  requireChecks [⟨"imported library control: actual imported module has library name",
-      env.header.moduleNames[index.toNat]! == `Lake.PlantedControl⟩,
-    ⟨"imported library control: real pinned Lake origin remains admitted",
-      Regula.Removal.libraryCaller env origins [`Lake] `Lake.captureProc'⟩,
-    ⟨"imported library control: lookalike origin is refused",
-      !Regula.Removal.authenticatedCaller env origins caller⟩]
-  for (root, primitive) in [(caller, ``IO.getEnv), (`Lake.PlantedControl.start, ``Lake.captureProc')] do
-    let reach := Regula.Removal.rawRemovalsFrom env #[] #[root] (origins := origins)
-    requireChecks [⟨"imported library control: intended compiled action is refused",
+    | throw <| IO.userError "imported project control: caller was not imported"
+  requireChecks [⟨"imported project control: actual caller module is recorded",
+      env.header.moduleNames[index.toNat]! == `Regula.ProjectCaller⟩,
+    ⟨"imported project control: genuine named Lake library remains admitted",
+      Regula.Removal.libraryCaller env [`Lake] `Lake.captureProc'⟩,
+    ⟨"imported project control: project module is outside library policy domains",
+      !Regula.Removal.libraryCaller env [`Init, `Lean, `Lake, `Std, `MultiVerso] caller⟩]
+  for (root, primitive) in [(caller, ``IO.getEnv), (`Regula.ProjectCaller.start, ``Lake.captureProc'),
+      (`Std.Time.Database.TZdb.resolveLocalPath, ``IO.getEnv)] do
+    let reach := Regula.Removal.rawRemovalsFrom env #[] #[root]
+    requireChecks [⟨"imported project control: intended compiled action is refused",
       reach.unknown.isEmpty && reach.calls.any fun call =>
         call.caller == root && Regula.Removal.observerVariant env #[primitive] call.primitive⟩]
+
+/-- Exercise Lake's actual override resolution before testing the renderer's shared refusal.
+The baseline must select the stated local package; a failed load cannot satisfy it. The guarded
+route must name the overridden dependency and never enter its action. The positive action
+inspects the package Lake actually resolved. This observes an external loader, not artifact
+authentication or a proof of arbitrary package contents. Assumes: Lake v4.34.1
+`Load/Resolve.lean:603-607` overlays Manifest entries with the workspace override file, and
+`Load/Manifest.lean:300-317` supplies that file's decoder and encoder. No dependency is copied. -/
+private def manifestSelectionControl (directory : FilePath) : IO Unit := do
+  IO.FS.createDirAll directory
+  IO.FS.writeFile (directory / "lean-toolchain") s!"leanprover/lean4:v{Lean.versionString}\n"
+  IO.FS.writeFile (directory / "lakefile.lean") Sources.selection
+  for name in ["committed", "overridden"] do
+    let dependency := directory / name
+    IO.FS.createDirAll dependency
+    IO.FS.writeFile (dependency / "lakefile.lean") Sources.selectedDependency
+  let committed : _root_.Lake.PackageEntry := {
+    name := `verso, inherited := false, src := .path "committed" }
+  let manifest : _root_.Lake.Manifest := {
+    name := `regula_selection_fixture, lakeDir := ".lake", fixedToolchain := false,
+    packagesDir? := some ".lake/packages", packages := #[committed] }
+  let manifestFile := directory / _root_.Lake.defaultManifestFile
+  discard <| manifest.save manifestFile
+  let before ← IO.FS.readFile manifestFile
+  let selectedPath (workspace : _root_.Lake.Workspace) : IO FilePath := do
+    let some package := workspace.findPackageByName? `verso
+      | throw <| IO.userError "selection control: actual resolver omitted verso"
+    IO.FS.realPath package.dir
+  let overridesFile ← Regula.Checker.Workspace.withRootWorkspace directory
+    (fun workspace => pure workspace.packageOverridesFile) (resolveDependencies := false)
+  for (label, entry, expected) in [
+      ("changed entry", { committed with src := .path "overridden" }, "overridden"),
+      ("identical entry", committed, "committed")] do
+    discard <| _root_.Lake.Manifest.saveEntries overridesFile #[entry]
+    let selected ← Regula.Checker.Workspace.withRootWorkspace directory selectedPath
+    requireChecks [⟨s!"{label}: Lake's override baseline actually resolved its package",
+      selected == (← IO.FS.realPath (directory / expected))⟩]
+    let entered ← IO.mkRef false
+    let refused ← (Regula.ProgramCheck.Renderer.requireCommittedSelection directory
+      (fun _ => entered.set true)).toBaseIO
+    requireChecks [⟨s!"{label}: intended selector refusal", match refused with
+      | .error error => (toString error).contains "observer reach check incomplete: exempted dependency verso has an overridden selection"
+      | .ok _ => false⟩,
+      ⟨s!"{label}: guarded action was not entered", !(← entered.get)⟩,
+      ⟨s!"{label}: committed manifest remained unchanged", (← IO.FS.readFile manifestFile) == before⟩]
+    Regula.Filesystem.removePath .file overridesFile
+  let entered ← IO.mkRef false
+  Regula.ProgramCheck.Renderer.requireCommittedSelection directory fun workspace => do
+    requireChecks [⟨"committed selection: actual dependency resolved",
+      (← selectedPath workspace) == (← IO.FS.realPath (directory / "committed"))⟩]
+    entered.set true
+  requireChecks [⟨"committed selection: guarded positive action really entered", ← entered.get⟩]
 
 /-- The native shadow's early entry, before any command parsing or deadline dispatch.
 Only the control supplies its marker path; it changes no project file. -/
@@ -262,13 +321,17 @@ private def missingNativeControl (fixture : Fixture) (executable : FilePath)
     raw.exitCode == 1 && (← marked fixture.marker "shadow ran\n") &&
       (← marked (fixture.marker.addExtension "program") (← IO.FS.realPath image).toString)⟩]
   fixture.clear
-  let env := cleared ++ #[("LEAN_SYSROOT", some installation.toString),
+  let otherOverride := if tool == .clang then "LEAN_AR" else "LEAN_CC"
+  let otherTool := if tool == .clang then Regula.Process.Tool.llvmAr else .clang
+  let env := cleared.filter (fun entry => entry.1 != otherOverride) ++
+    #[(otherOverride, some (← Regula.Process.toolPath otherTool).toString),
+    ("LEAN_SYSROOT", some installation.toString),
     ("REGULA_PROCESS_IDENTITY", some "1")]
   for mode in ["prepare", "workspace"] do
     let result ← run fixture.root (.stated executable "The native worker exercises the guarded installation boundary")
       #["--process-native-fallback", mode, fixture.root.toString] env
     requireChecks [⟨"missing native bundle: intended installation refusal",
-      result.exitCode == 2 && result.stderr.contains "Lake's bare native-tool fallback is refused"⟩,
+      result.exitCode == 2 && result.stderr.contains s!"installation has no bundled {tool.basename} and no stable absolute override; Lake's bare native-tool fallback is refused"⟩,
       ⟨"missing native bundle: no workspace native tool started", !(← fixture.marker.pathExists)⟩]
   let absoluteEnv := env ++ #[("LEAN_CC", some (← Regula.Process.toolPath .clang).toString),
     ("LEAN_AR", some (← Regula.Process.toolPath .llvmAr).toString)]
@@ -324,7 +387,8 @@ def check : IO Unit := do
   let root ← rootDirectory
   let executable ← Regula.Process.appPath
   withScratch root "process-observers" fun scratch => do
-    importedLibraryControl (scratch / "imported-library")
+    importedProjectControl (scratch / "imported-project")
+    manifestSelectionControl (scratch / "manifest-selection")
     let marker := scratch / "shadow-ran"
     let fixture ← plant (scratch / "tools") executable marker
     for (tool, args) in [(Regula.Process.Tool.lean, #["--version"]),
@@ -369,7 +433,9 @@ def check : IO Unit := do
       if overrideName == "CC" || overrideName == "AR" then
         missingNativeControl native executable tool
       let name := tool.basename
-      let overrides := native.env.push (overrideName, some name)
+      let overrides := native.env.filter (fun entry => !Regula.Process.overrideVariables.contains entry.1) ++
+        (Regula.Process.overrideVariables.filter (· != overrideName)).map (fun key => (key, none)) ++
+        #[(overrideName, some name)]
       -- LEAN_* always overrides the bundled tool. CC/AR are also refused, even where this
       -- released installation's bundled compiler means Lake would ignore them today.
       if overrideName == "LEAN_CC" || overrideName == "LEAN_AR" then
@@ -384,7 +450,8 @@ def check : IO Unit := do
       let refused ← (Regula.Process.output (.toolchain .lake)
         {cmd := "", args := #["--version"], cwd := some native.root, env := overrides}).toBaseIO
       requireChecks [⟨s!"{overrideName}: intended absolute-override refusal", match refused with
-          | .error error => (toString error).contains "process selection requires an absolute path"
+          | .error error => (toString error).contains s!"invalid {overrideName} override" &&
+              (toString error).contains s!"process selection requires an absolute path: {name}"
           | .ok _ => false⟩,
         ⟨s!"{overrideName}: no workspace native tool started", !(← marker.pathExists)⟩]
     IO.println "process observers: PASS (live tool, wrapper and native-override controls; Windows unqualified)"

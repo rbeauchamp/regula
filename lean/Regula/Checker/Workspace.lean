@@ -70,6 +70,34 @@ def withRootWorkspace {α : Type} (repo : FilePath) (action : _root_.Lake.Worksp
     else _root_.Lake.loadWorkspaceRoot config).captureLog
   withLoaded ws? log action
 
+/-- Resolve the supplied committed manifest through Lake, refusing selector overrides for each
+dependency whose effects receive a sourced exemption. Root configuration, module naming and
+artifact loading remain trusted; this is a closed build case, not artifact authentication.
+Assumes: Lake v4.34.1 `Load/Workspace.lean:62-67` and `Load/Resolve.lean:598-625` select locked
+entries, workspace overrides and LoadConfig overrides; `Load/Manifest.lean:300-305` decodes the
+override file and `Load/Materialize.lean:260-263` uses the environment's package URL map.
+The committed manifest/configuration and selector inputs stay stable during resolution. -/
+def withManifestWorkspace {α : Type} (repo : FilePath) (manifest : _root_.Lake.Manifest)
+    (exempted : Array Name) (action : _root_.Lake.Workspace → IO α) : IO α := do
+  let config ← loadConfig repo false
+  let load : _root_.Lake.LoggerIO _root_.Lake.Workspace := _root_.Lake.loadWorkspaceRoot config
+  let (root?, rootLog) ← load.captureLog
+  withLoaded root? rootLog fun root => do
+    let overrides ← _root_.Lake.Manifest.tryLoadEntries root.packageOverridesFile
+    for name in exempted do
+      unless manifest.packages.any (·.name == name) do
+        throw <| IO.userError s!"observer reach check incomplete: exempted dependency {name} is absent from the committed manifest"
+      if overrides.any (·.name == name) || config.packageOverrides.any (·.name == name) ||
+          (root.lakeEnv.pkgUrlMap.find? name).isSome then
+        throw <| IO.userError s!"observer reach check incomplete: exempted dependency {name} has an overridden selection; the committed manifest is required"
+    let (resolved?, log) ← (root.materializeDeps manifest config.leanOpts config.reconfigure
+      config.packageOverrides).captureLog
+    withLoaded resolved? log fun resolved => do
+      for name in exempted do
+        if (resolved.findPackageByName? name).isNone then
+          throw <| IO.userError s!"observer reach check incomplete: exempted dependency {name} was not resolved"
+      action resolved
+
 /-- Load only the root package of the workspace at `repo` (`Lake.loadWorkspaceRoot`) and pass it
 to `action`, after refusing a root package that declares a dependency. For a root that declares
 none, `Lake.loadWorkspace` loads no other package, so `action` gets the packages that
