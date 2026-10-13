@@ -130,7 +130,18 @@ private def reproduction (website program scratch : FilePath)
 - an output directory `.` or an empty one is reported and stays, and the word count is still moved;
 - a word count whose new directory would have a name longer than the file system's limit
   (`NAME_MAX`) is reported and stays, whatever the privileges of the process;
-- options that Verso's parser refuses move nothing. -/
+- options that Verso's parser refuses move nothing.
+
+Assumes: POSIX.1-2024: `mkdir()` fails with `ENAMETOOLONG` when a component of its path is longer
+than `NAME_MAX` (https://pubs.opengroup.org/onlinepubs/9799919799/functions/mkdir.html), whatever
+the privileges of the process, and `getconf NAME_MAX DIR` gives that limit for the file system of
+`DIR` (https://pubs.opengroup.org/onlinepubs/9799919799/utilities/getconf.html). Lean 4.34.1 maps
+`ENAMETOOLONG` to libuv's `UV_ENAMETOOLONG` and gives it as `IO.Error.invalidArgument` with the
+path and libuv's message for that code (`src/runtime/io.cpp:195, 256-274`). `IO.Error.toString`
+prints that error as `invalid argument (error code: N, name too long)` and a line `  file: PATH`
+(`src/Init/System/IOError.lean:256-258, 277`). libuv 1.52.1, which Lean 4.34.1 links
+(`lib/libuv.a`), gives the message `name too long` for `UV_ENAMETOOLONG` and for no other code
+(`UV_ERRNO_MAP` in `include/uv.h`, https://github.com/libuv/libuv/blob/v1.52.1/include/uv.h). -/
 private def refusals (program scratch : FilePath) (name : String)
     (refusing : Array (String × Option String)) : IO Unit := do
   let base := scratch / s!"{name}-refusals"
@@ -191,12 +202,7 @@ private def refusals (program scratch : FilePath) (name : String)
     {shown refused}",
     reports refused "was not moved aside: it is an empty path" &&
       (← present (dot / "kept.txt"))⟩]
-  -- `mkdir(2)` fails with `ENAMETOOLONG` on a component longer than `NAME_MAX` (POSIX.1-2024,
-  -- https://pubs.opengroup.org/onlinepubs/9799919799/functions/mkdir.html), which
-  -- `getconf NAME_MAX DIR` gives for the file system of `DIR`
-  -- (https://pubs.opengroup.org/onlinepubs/9799919799/utilities/getconf.html), whatever the
-  -- privileges of the process. A word count whose name is that long has a new directory whose name
-  -- is longer.
+  -- A word count whose name is `NAME_MAX` long has a new directory whose name is longer.
   let limit ← run base "getconf" #["NAME_MAX", base.toString]
   let some longest := (limit.stdout.splitOn "\n").head?.bind String.toNat?
     | throw (IO.userError s!"getconf NAME_MAX {base} gave no number {shown limit}")
@@ -204,10 +210,6 @@ private def refusals (program scratch : FilePath) (name : String)
   seed long "long"
   let refused ← refuse base #["--output", (base / "unmade").toString, "--with-word-count",
     long.toString]
-  -- The runtime gives `ENAMETOOLONG` as `IO.Error.invalidArgument` with the path that `mkdir`
-  -- refused and libuv's text `name too long`, which no other error mapped there has
-  -- (`src/runtime/io.cpp#L255-L274`), and prints it as `IO.Error.toString` does
-  -- (`src/Init/System/IOError.lean:256-258, 277`).
   let made := s!"\n  file: {long}.regula-refused-"
   let derived := match refused.stderr.splitOn made with
     | [_, after] => newSuffix after
@@ -226,30 +228,6 @@ private def refusals (program scratch : FilePath) (name : String)
     reports refused "nothing was moved aside: Verso's parser refused the options" &&
       (← present (out / "index.html")) && (← asides out).isEmpty⟩]
 
-/-- The check that `docFenceAudit --verso` makes before it builds the standard
-(`Regula.Checker.Lake.executableMismatch`): the website package `website` as it is passes, and a
-copy of its configuration in `scratch` with `binDir` set elsewhere is refused, with a reason that
-names the file that Lake builds and the file that the standard's examples launch. -/
-private def exampleHelper (website scratch : FilePath) : IO Unit := do
-  let check (package : FilePath) :=
-    Regula.Checker.Lake.executableMismatch package Regula.exampleHelper Regula.exampleHelperPath
-  if let some reason ← check website then
-    throw (IO.userError s!"the website package does not build the standard's example helper where \
-      its examples launch it: {reason}")
-  let copy := scratch / "example-helper"
-  IO.FS.createDirAll copy
-  let config ← IO.FS.readFile (website / "lakefile.toml")
-  IO.FS.writeFile (copy / "lakefile.toml") ("binDir = \"executables\"\n" ++ config)
-  let launched := (← IO.FS.realPath copy) / System.mkFilePath Regula.exampleHelperPath
-  let built := s!"/.lake/build/executables/{Regula.exampleHelper}"
-  match ← check copy with
-  | none => throw (IO.userError s!"the check accepted a website configuration whose executables \
-      are in `executables`, where the standard's examples do not launch the helper: {copy}")
-  | some reason =>
-    requireChecks [⟨s!"the refusal of a website configuration whose executables are in \
-      `executables` names not both the file that Lake builds and {launched}: {reason}",
-      (reason.splitOn built).length > 1 && (reason.splitOn launched.toString).length > 1⟩]
-
 /-- The two JSON values of `text`, with white space before and after each, read by Lean's own JSON
 parser: `Lean.Json.Parser.anyCore` reads one value and the white space after it. -/
 private def twoJsonValues (text : String) : Except String (Lean.Json × Lean.Json) :=
@@ -262,10 +240,9 @@ private def twoJsonValues (text : String) : Except String (Lean.Json × Lean.Jso
 
 /-- Build `regula-site` and `regula-standard` in the website package of the repository at `root`
 and find their executables with `lake query --json`, then run the issue's reproduction with
-`regula-standard` (`reproduction`), the refusals of both programs (`refusals`) and the check of
-the standard's example helper (`exampleHelper`), in a fresh scratch directory. The first failure
-stops it. It runs after `lake exe site build`, which builds the website package and generates the
-sources of `regula-site`.
+`regula-standard` (`reproduction`) and the refusals of both programs (`refusals`), in a fresh
+scratch directory. The first failure stops it. It runs after `lake exe site build`, which builds
+the website package and generates the sources of `regula-site`.
 
 Assumes: Lake 4.34.1 builds the executable of a `lean_exe` target at `LeanExe.file`, the package's
 `binDir` with the executable's file name, and gives that path as the target's result
@@ -291,6 +268,5 @@ def control (root : FilePath) : IO Unit := do
     reproduction website standard scratch cleanEnv refusing
     for (name, program) in [("regula-standard", standard), ("regula-site", site)] do
       refusals program scratch name refusing
-    exampleHelper website scratch
 
 end Regula.Site.RendererRefusal

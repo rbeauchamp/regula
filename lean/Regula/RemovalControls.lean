@@ -41,6 +41,17 @@ planted initializer never runs. The planted removals below are the calls of a re
 - A URL of `Regula.Site.Deployment.fetch` that starts with `-`: curl does not read it as an
   option.
 
+Assumes, for the control of `NAME_MAX`: POSIX.1-2024: `mkdir()` fails with `ENAMETOOLONG` when a
+component of its path is longer than `NAME_MAX`
+(https://pubs.opengroup.org/onlinepubs/9799919799/functions/mkdir.html), whatever the privileges
+of the process, and `getconf NAME_MAX DIR` gives that limit for the file system of `DIR`
+(https://pubs.opengroup.org/onlinepubs/9799919799/utilities/getconf.html). Lean 4.34.1 maps
+`ENAMETOOLONG` to libuv's `UV_ENAMETOOLONG` and gives it as `IO.Error.invalidArgument` with the
+path and libuv's message for that code (`src/runtime/io.cpp:195, 256-274`). libuv 1.52.1, which
+Lean 4.34.1 links (`lib/libuv.a`), gives the message `name too long` for `UV_ENAMETOOLONG` and for
+no other code (`UV_ERRNO_MAP` in `include/uv.h`,
+https://github.com/libuv/libuv/blob/v1.52.1/include/uv.h).
+
 `Regula.ProgramCheck.Controls` runs the check that each program runs (`checkProgram`) on a planted
 program. -/
 
@@ -147,17 +158,12 @@ run_cmd do
       throwError "moveAside moved an absent entry"
     unless (← (Regula.Filesystem.moveAside (base / "target" / "..")).toBaseIO) matches .error _ do
       throwError "moveAside accepted a path whose last component is `..`"
-    -- `mkdir(2)` fails with `ENAMETOOLONG` on a component longer than `NAME_MAX`, which
-    -- `getconf NAME_MAX` gives for the file system of `base`, whatever the privileges of the
-    -- process.
     let limit ← IO.Process.output { cmd := "getconf", args := #["NAME_MAX", base.toString] }
     let some longest := (limit.stdout.splitOn "\n").head?.bind String.toNat?
       | throwError "getconf NAME_MAX {base} gave no number: {limit.stdout}{limit.stderr}"
     let long := base / String.ofList (List.replicate longest 'n')
     IO.FS.writeFile long "long"
-    -- The runtime gives `ENAMETOOLONG` as `IO.Error.invalidArgument` with the path that `mkdir`
-    -- refused and libuv's text `name too long`, which no other error mapped there has
-    -- (`src/runtime/io.cpp#L255-L274`); that path is the new directory beside `long`.
+    -- `mkdir` refuses the new directory beside `long`, whose name is longer than `NAME_MAX`.
     let made := s!"{long}.regula-refused-"
     match ← (Regula.Filesystem.moveAside long).toBaseIO with
     | .error (.invalidArgument (some file) _ "name too long") =>

@@ -178,15 +178,4 @@ def checklistRows : List String :=
   checklistGroups.flatMap fun (group, count) =>
     (List.range count).map fun i => group ++ "-" ++ rowNumber (i + 1)
 
-/-- The executable that elaborates each `lean` block of the standard in its own process, a
-`lean_exe` of the package in `website/` (`RegulaExample.runHelper`). -/
-def exampleHelper : String := "regula-example"
-
-/-- The names, below the directory of the package in `website/`, of the file that the standard's
-elaboration launches as `exampleHelper` (`RegulaExample.helperPath`): Lake's default build
-directory `.lake/build`, its default directory of executables `bin`, and the executable's name.
-`docFenceAudit --verso` refuses before it builds the standard unless Lake's configured file of
-`exampleHelper` is that file (`Regula.Checker.Lake.executableMismatch`). -/
-def exampleHelperPath : List String := [".lake", "build", "bin", exampleHelper]
-
 end Regula

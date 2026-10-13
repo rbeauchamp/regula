@@ -162,11 +162,6 @@ cannot move.
 A refused run leaves its copies beside the destinations, and the renderers do not delete them.
 Delete them by hand when they are not necessary.
 
-The same command checks the standard's example helper, `regula-example`. Lake must build it at
-the file that the examples of the standard launch, and a copy of the website configuration with
-`binDir` set elsewhere must be refused. The documentation acceptance step makes this check before
-it builds the standard.
-
 The website package requires the root `regula` package and the `audit/` package by relative
 path, because the standard's examples import modules of both. Neither requires Mathlib, and no
 example imports it, so building the standard and the site needs only the pinned Verso. The

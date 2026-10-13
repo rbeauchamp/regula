@@ -101,17 +101,10 @@ structure Reported where
   text : String
   deriving FromJson
 
-/-- The helper executable (`Regula.exampleHelper`), built by Lake before the standard's modules
-(`needs`), at `Regula.exampleHelperPath` below the website package directory, where Lake runs the
-document's elaboration.
-
-Assumes: Lake builds the helper at that file. `docFenceAudit --verso` establishes it for the
-standard's build in acceptance, before that build starts: it refuses unless Lake's configured file
-of the helper is that file below the package directory (`Regula.Checker.Lake.executableMismatch`),
-and its observed build runs the elaboration in that directory
-(`Regula.Checker.Lake.Build.runObserved`). -/
+/-- The helper executable, built by Lake before the standard's modules (`needs`). Lake runs
+the document's elaboration in the website package directory. -/
 def helperPath : IO System.FilePath := do
-  let path := (← IO.currentDir) / System.mkFilePath Regula.exampleHelperPath
+  let path := (← IO.currentDir) / ".lake" / "build" / "bin" / "regula-example"
   unless ← path.pathExists do
     throw <| IO.userError s!"example helper not built: {path}"
   return path
