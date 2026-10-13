@@ -21,9 +21,11 @@ of the declaration that makes it and the primitive that it calls (`Regula.Remova
 - the moves of the copy's build output to an absent path in `RegulaVerification.Copy.adopt`, and
   of the pending acceptance record with its `build` field over the pending record in
   `RegulaVerification.Copy.recordBuild`, which writes that record first;
-- the writes of the copy of the project below its scratch directory, in the loop of
-  `RegulaVerification.copyTree`, and of the directory of the scratch area in
-  `RegulaVerification.makeCopy`;
+- the writes of the copy of the project below its scratch directory, in
+  `RegulaVerification.copyTree` and its two specialized loops, and of the directory of the scratch
+  area in `RegulaVerification.makeCopy`;
+- the writes of the LRAT proof file of Lean's `bv_decide`, in its library, which the driver
+  reaches only through the initializers of the modules that it links;
 - the writes at a destination of the driver: the directory of the destination in
   `RegulaVerification.destinationAt`, the rename of a new file over the destination and the
   removal of that file when the write stops, in `RegulaVerification.writeDocument`, and the rename
@@ -50,13 +52,22 @@ open Lean in
 /-- The loop over an array, specialized at the copy of the project's files. -/
 def copyLoop : Name :=
   mkPrivateNameCore `Init.Data.Array.Basic `Array.forIn'Unsafe.loop ++ `_at_ ++
-    `RegulaVerification.copyTree.spec_0
+    `RegulaVerification.copyTree.spec_1
+
+open Lean in
+/-- The loop of `copyLoop`, specialized again inside it. -/
+def copyInnerLoop : Name :=
+  mkPrivateNameCore `Init.Data.Array.Basic `Array.forIn'Unsafe.loop ++ `_at_ ++ (copyLoop ++ `spec_1)
+
+/-- The primitives that the check of the driver finds: the removal primitives and the primitives
+that write (`Regula.Removal.primitives`, `Regula.Removal.writePrimitives`). -/
+def watched : List Lean.Name :=
+  Regula.Removal.primitives ++ Regula.Removal.writePrimitives
 
 end Regula.ProgramCheck.Verification
 
 open Regula.ProgramCheck.Verification in
-run_cmd Regula.Removal.checkProgram
-    (watched := Regula.Removal.primitives ++ Regula.Removal.writePrimitives) (named := [
+run_cmd Regula.Removal.checkProgram (watched := watched) (named := [
   (`RegulaVerification.removeOwn, ``IO.FS.removeDirAll),
   (reclaimLoop, ``IO.FS.removeDirAll),
   (reclaimLoop, ``IO.FS.removeFile),
@@ -68,8 +79,16 @@ run_cmd Regula.Removal.checkProgram
   (`RegulaVerification.copyTree, ``IO.FS.createDirAll),
   (copyLoop, ``IO.FS.createDirAll),
   (copyLoop, ``IO.FS.writeBinFile),
+  (copyInnerLoop, ``IO.FS.createDirAll),
+  (copyInnerLoop, ``IO.FS.writeBinFile),
   (`RegulaVerification.makeCopy, ``IO.FS.createDirAll),
   (`RegulaVerification.destinationAt, ``IO.FS.createDirAll),
   (`RegulaVerification.writeDocument, ``IO.FS.rename),
   (`RegulaVerification.writeDocument, ``IO.FS.removeFile),
-  (`RegulaVerification.promote, ``IO.FS.rename)])
+  (`RegulaVerification.promote, ``IO.FS.rename),
+  -- Lean's `bv_decide` writes its LRAT proof file; the driver reaches it only through the
+  -- initializers of Lean's library that it links, and calls no tactic.
+  (``Std.Tactic.BVDecide.LRAT.dumpLRATProof, ``IO.FS.writeBinFile),
+  (``Lean.Meta.Tactic.BVDecide.lratBitblaster, ``IO.FS.writeFile),
+  (`Lean.Meta.Tactic.BVDecide.lratBitblaster._lam_6, ``IO.FS.writeFile),
+  (`Lean.Meta.Tactic.BVDecide.lratBitblaster._lam_7, ``IO.FS.writeFile)])
