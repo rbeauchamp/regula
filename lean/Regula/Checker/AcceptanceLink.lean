@@ -25,24 +25,37 @@ output that its claimed build compiles in its copy only as `BuildReuse.reuse` de
 namespace Regula.Checker.AcceptanceLink
 open Lean System
 
-/-- Root-relative display of a path inside an isolated copy or the documentation root. -/
+/-- Root-relative display of a path inside an isolated copy or the documentation root: `.` for the
+root itself. -/
 def relative (root : FilePath) (path : String) : String :=
   let stem := root.toString ++ "/"
-  if path.startsWith stem then (path.drop stem.length).toString else path
+  if path == root.toString then "."
+  else if path.startsWith stem then (path.drop stem.length).toString else path
 
 /-- The captured inputs, with every copy-root or documentation-root path made relative
-so that two isolated copies of the same checkout have equal identities. -/
-def identityJson (projectRoot docsRoot : FilePath)
+so that two isolated copies of the same checkout have equal identities: a path below the copied
+project `projectRoot` relative to it, and any other path below the real directory of the copy
+`copyRoot` (`Lake.ProjectCopy.root`) relative to that, such as a source of an owned path dependency
+that holds the project. The copy's `.lake/package-overrides.json` names such a dependency by its
+directory in the copy, so that file's text has `copyRoot` replaced by `.`. -/
+def identityJson (projectRoot copyRoot docsRoot : FilePath)
     (sources : Array ProducerReport.SourceBinding)
     (configuration : Array (FilePath × Option String))
     (dependencies : Array Snapshot.DependencyObservation)
     (documents : Array RegulaPolicy.SourceSnapshot) : Json :=
-  let rel := relative projectRoot
+  let rel (path : String) : String :=
+    let below := relative projectRoot path
+    if below != path then below else relative copyRoot path
   Json.mkObj [
     ("toolchain", toJson (Lean.versionString, Lean.githash)),
     ("sources", toJson (sources.map fun source =>
       (source.moduleName.toString, rel source.path, source.content))),
-    ("configuration", toJson (configuration.map fun (path, text) => (rel path.toString, text))),
+    -- The copy writes its own `.lake/package-overrides.json` (`Lake.relocateDependencies`), whose
+    -- entries name the copied owned dependencies by their directories in the copy.
+    ("configuration", toJson (configuration.map fun (path, text) =>
+      let shown := rel path.toString
+      (shown, if shown == ".lake/package-overrides.json" then
+        text.map (String.replace · copyRoot.toString ".") else text))),
     ("dependencies", toJson (dependencies.map fun dependency => Json.mkObj [
       ("package", toJson dependency.package), ("root", toJson (rel dependency.root.toString)),
       ("revision", toJson dependency.revision), ("dirty", toJson dependency.dirty),
@@ -61,14 +74,15 @@ def identityJson (projectRoot docsRoot : FilePath)
         document.source)))]
 
 /-- SHA-256 of the compact identity bytes, computed by the external `shasum` tool. -/
-def identity (scratch projectRoot docsRoot : FilePath)
+def identity (scratch projectRoot copyRoot docsRoot : FilePath)
     (sources : Array ProducerReport.SourceBinding)
     (configuration : Array (FilePath × Option String))
     (dependencies : Array Snapshot.DependencyObservation)
     (documents : Array RegulaPolicy.SourceSnapshot) : IO String := do
   let path := scratch / "acceptance-link-identity.json"
   IO.FS.writeFile path
-    (identityJson projectRoot docsRoot sources configuration dependencies documents).compress
+    (identityJson projectRoot copyRoot docsRoot sources configuration dependencies
+      documents).compress
   try sha256File scratch path finally Regula.Filesystem.removePath .file path
 
 /-- Replace any earlier record before the ordinary audit starts. A run that stops before its audit

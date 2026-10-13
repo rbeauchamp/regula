@@ -1276,6 +1276,9 @@ private unsafe def auditSurface (repo : FilePath) (manifest : Option FilePath)
     let copy := match origin with
       | .copied copied | .driverCopy copied => copied.project
       | .incremental => repo
+    let copyRoot := match origin with
+      | .copied copied | .driverCopy copied => copied.root
+      | .incremental => repo
     let manifestPath := (manifest.map (Lake.relocateConfigurationPath repo copy)).getD
       (Manifest.defaultPath copy)
     let inputs := match origin with
@@ -1294,8 +1297,8 @@ private unsafe def auditSurface (repo : FilePath) (manifest : Option FilePath)
       project.set (some evidence)
       if acceptanceLink then
         linkedSources.checkLinked repo linkedDocuments
-        let digest ← AcceptanceLink.identity scratch copy (repo / "docs") evidence.sources
-          evidence.configuration evidence.dependencies linkedDocuments
+        let digest ← AcceptanceLink.identity scratch copy copyRoot (repo / "docs")
+          evidence.sources evidence.configuration evidence.dependencies linkedDocuments
         linked.set (some {
           digest, account := Account.account evidence.accepted, origin := origin.spelling })
     let result ← timedPhase "complete declaration audit" <|
