@@ -386,13 +386,21 @@ module from there. The build store of Lake does not keep the job of a facet with
 `memoize := false`, so the audit does not read them from that store.
 
 A claimed module counts as observed only when its completed `presetup` loaded the observer of the
-running Regula, as `Observer.pluginLoaded` decides. That is the same file or a file with the same
-bytes. The audit reads the record of the module only then. So a dependency's facet that drops the
-plugin leaves the module refused under [RG2003]. [RG2006] requires the plugin in the configuration
-of each claimed target.
+running Regula, as `Observer.pluginLoaded` decides. The audit reads the record of the module only
+then. So a dependency's facet that drops the plugin leaves the module refused under [RG2003].
+[RG2006] requires the plugin in the configuration of each claimed target.
 
-A fresh audit places a copy of that file in each copied package `regula` with the observer library
-(`Observer.placeRunning`). Lake reuses it when the copy's observer source compiles to the same
+Each Regula process reads the bytes of its own observer library one time, `Observer.running`. It
+does so when it starts, before it loads a workspace, copies a project or runs a build. A loaded
+plugin counts only when its bytes equal that snapshot. Its path counts for nothing, since a build
+can write other bytes at any path.
+
+The comparison reads each plugin file after the build. A file
+that changes after Lean loaded it and before that read is outside this guarantee. The cause is
+that Lake reports a plugin by its path, not by the bytes that Lean read.
+
+A fresh audit writes that snapshot into each copied package `regula` with the observer library,
+`Observer.placeRunning`. Lake reuses it when the copy's observer source compiles to the same
 objects. Otherwise Lake links a new file with other bytes, and the audit does not admit it.
 
 A file `lakefile.lean` must also declare only what the commands of Lake generate. These are the

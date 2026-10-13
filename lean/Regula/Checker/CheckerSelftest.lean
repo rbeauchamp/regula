@@ -1620,8 +1620,10 @@ private def auditAppVariant (layout : SourceLayout) (repo : FilePath)
   return (Manifest.toJson { base with surfaces, excludedExecutables }).compress
 
 /-- The structural project in `copy` (`StructuralProject`): its sources at their places in the
-repository, its Lake configuration, the repository's toolchain pin and lock manifest, and the
-manifest of `structuralBase`. -/
+repository, its Lake configuration, the repository's toolchain pin and lock manifest, the
+manifest of `structuralBase`, and the running Regula's observer library in its build directory
+(`Observer.placeRunning`), which the setup build and each gate then load unchanged while the
+copy's observer source is the running Regula's. -/
 private def prepareStructuralProject (layout : SourceLayout) (repo copy : FilePath) :
     IO Unit := do
   let mut items := []
@@ -1632,6 +1634,7 @@ private def prepareStructuralProject (layout : SourceLayout) (repo copy : FilePa
   items := items ++ [⟨["lakefile.lean"], .file layout.project.lakefile.toUTF8⟩,
     ⟨["foundation_manifest.json"], .file ((← structuralManifestText layout repo) ++ "\n").toUTF8⟩]
   Regula.Filesystem.construct copy (Regula.Filesystem.Construction.layout items)
+  Observer.placeRunning copy
 
 /-- The restored control that ends a structural cluster: once each of its mutations is restored,
 the fresh gate (empty-output elaboration of a copy of the cluster's project) accepts it. A
@@ -1948,8 +1951,9 @@ private unsafe def structuralSelfHostedPositive (repo copy : FilePath)
   return #[s!"structural/self-hosted/positive: fresh gate failed:\n{accepted.output}"]
 
 /-- Structural mutation cluster: an unlisted root-owned module, an unclassified Lake library and an
-elaboration observer library other than the running Regula's: a changed observer source, a changed
-record module and a stale library where Lake reuses it (`executables` false),
+elaboration observer library other than the running Regula's: an observer source changed in its
+compiled code, a changed record module that a library whose only glob is its root links through
+an import, and a stale library where Lake reuses it (`executables` false),
 or an unclassified Lake executable, a claimed standalone executable root
 and executable contamination (`executables` true), then the restored control. -/
 private unsafe def structuralPartB (layout : SourceLayout) (executables : Bool)
@@ -1996,8 +2000,7 @@ private unsafe def structuralPartB (layout : SourceLayout) (executables : Bool)
     -- below leaves the claimed modules loading a library whose bytes are not the running observer's,
     -- and the audit reports them as not observed (RG2003). Each puts the placed library, its trace
     -- and its hash back afterwards, so the restored control below admits the library of the
-    -- unchanged source again. A changed observer source makes Lake link the library again, whose
-    -- bytes differ, since the linker writes the output path into it.
+    -- unchanged source again.
     let notObserved := #["RG2003",
       "not observed: Regula's elaboration observer was not among the plugins"]
     let library := copy / ".lake" / "build" / "lib" /
@@ -2014,23 +2017,41 @@ private unsafe def structuralPartB (layout : SourceLayout) (executables : Bool)
       finally
         restore
         for (path, bytes) in placed do IO.FS.writeBinFile path bytes
+    -- A changed observer source that compiles to other code: an added public definition gives
+    -- the module's C file another declaration, and Lake compiles its object from the C file's
+    -- content (`Module.cFacetConfig`, `Lake/Build/Module.lean` lines 1184 to 1198), so the object
+    -- the library links changes and Lake links the library again, whose bytes differ. A change
+    -- that leaves the C file as it was, such as a comment, leaves the placed library current.
     let observerSource := sources / "RegulaObserver.lean"
     let observerText ← IO.FS.readFile observerSource
     observerMutation "observer-source-changed"
-      (IO.FS.writeFile observerSource (observerText ++ "\n-- changed\n"))
+      (IO.FS.writeFile observerSource (observerText ++
+        "\n/-- A changed observer module. -/\ndef changedObserverModule : Nat := 1\n"))
       (IO.FS.writeFile observerSource observerText)
     -- The same for an unchanged `RegulaObserver.lean` whose imported `RegulaObserver.Record`
-    -- changed: Lake links that module into the library too (`LeanLib.recBuildShared`), and its
-    -- changed object makes Lake link the library again.
+    -- changed, in an observer library whose only glob is its root, `.one RegulaObserver`, so that
+    -- `RegulaObserver.Record` is one of its modules only through that import
+    -- (`LeanLib.recCollectLocalModules`, `Lake/Build/Library.lean` lines 36 to 61), and Lake links
+    -- it into the library for that reason alone (`LeanLib.recBuildShared`). This reproduces the
+    -- omission that reading 17 found: a check of the library's glob modules alone misses a
+    -- changed module that the library links through an import.
     let recordSource := sources / "RegulaObserver" / "Record.lean"
     let recordText ← IO.FS.readFile recordSource
-    observerMutation "observer-record-changed"
-      (IO.FS.writeFile recordSource (recordText ++
-        "\n/-- A changed record module. -/\ndef changedRecordModule : Nat := 1\n"))
-      (IO.FS.writeFile recordSource recordText)
+    let observerGlob := renderGlob (.andSubmodules Observer.observerLibrary)
+    let bareLakefile := originalLakefile.replace s!"  globs := #[{observerGlob}]\n"
+      s!"  globs := #[{renderGlob (.one Observer.observerLibrary)}]\n"
+    if bareLakefile == originalLakefile then
+      failures.modify (·.push s!"structural/observer-record-changed: the copy's lakefile declares \
+        no observer library whose only glob is {observerGlob}")
+    else
+      withReplacedFile lakefile bareLakefile do
+        observerMutation "observer-record-changed"
+          (IO.FS.writeFile recordSource (recordText ++
+            "\n/-- A changed record module. -/\ndef changedRecordModule : Nat := 1\n"))
+          (IO.FS.writeFile recordSource recordText)
     -- A stale library where Lake reuses it: other bytes under the placed library's name, trace and
-    -- hash, so that Lake links nothing. The name admits nothing; only the running observer's path
-    -- or bytes do.
+    -- hash, so that Lake links nothing. Neither its name nor its path admits it; only the bytes of
+    -- the running observer do (`Observer.pluginLoaded`).
     observerMutation "observer-library-stale"
       (do IO.FS.writeBinFile library ((← IO.FS.readBinFile library).push 0)) (pure ())
   else

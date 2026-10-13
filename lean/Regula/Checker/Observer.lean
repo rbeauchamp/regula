@@ -92,20 +92,76 @@ def recordingPresetup (existing : _root_.Lake.ModuleFacetConfig _root_.Lake.Modu
 
 /-- The observer's shared library that the running Regula's build wrote, which its `Regula`
 library needs and its targets load as a plugin: `<package>/.lake/build/lib/<library>` beside the
-running executable (`runningPackageDir`). An error when the file is not there. -/
-def observerFile : IO (FilePath × String) := do
+running executable (`runningPackageDir`). An error when the file is not there. Only `readSnapshot`
+reads it, once, before `main` runs. -/
+private def observerFile : IO FilePath := do
   let some dir ← runningPackageDir
     | throw <| IO.userError "the running executable is not in a package's build directory"
   let name := mkModuleInitializationStem observerLibrary (some regulaPackage)
   let file := dir / ".lake" / "build" / "lib" / _root_.Lake.nameToSharedLib name
   unless ← file.pathExists do
     throw <| IO.userError s!"the running Regula has not built its elaboration observer: {file}"
-  return (file, name)
+  return file
 
-/-- Place the running Regula's observer library (`observerFile`), with the trace and hash files
-that Lake wrote beside it, in the build directory of `package`, a copy of a package `regula` that
+/-- The running Regula's observer library as the process read it at its start: the library's file
+name and bytes, and the trace and hash files that Lake wrote beside it, by suffix, those that
+exist. -/
+structure Snapshot where
+  /-- The file name of the library, as Lake names it (`Lake.nameToSharedLib`). -/
+  fileName : String
+  /-- The bytes of the library. -/
+  library : ByteArray
+  /-- The bytes of the files `<library>.trace` and `<library>.hash`, by suffix, those that exist. -/
+  companions : Array (String × ByteArray)
+  deriving Inhabited
+
+/-- Read the running Regula's observer library (`observerFile`), with its trace and hash files, or
+the reason that it cannot be read. -/
+private def readSnapshot : IO (Except String Snapshot) := do
+  try
+    let file ← observerFile
+    let some fileName := file.fileName
+      | return .error s!"the observer library {file} has no file name"
+    let library ← IO.FS.readBinFile file
+    let mut companions := #[]
+    for suffix in [".trace", ".hash"] do
+      let companion : FilePath := ⟨file.toString ++ suffix⟩
+      if ← companion.pathExists then
+        companions := companions.push (suffix, ← IO.FS.readBinFile companion)
+    return .ok { fileName, library, companions }
+  catch error => return .error error.toString
+
+/-- The running Regula's observer library (`readSnapshot`), read once when the process starts: a
+module's `initialize` runs before `main`, so before the audit loads a workspace, copies a project or
+runs a build. It is the only source of the observer's identity: the audit admits a loaded plugin
+(`pluginLoaded`), places the observer in its copies (`placeRunning`) and loads it into a standalone
+compilation (`Snapshot.write`) from it alone, never from the file it was read from, which a later
+build can rewrite. -/
+initialize runningSnapshot : Except String Snapshot ← readSnapshot
+
+/-- The running Regula's observer library (`runningSnapshot`), or an error when the process could
+not read it at its start. -/
+def running : IO Snapshot :=
+  match runningSnapshot with
+  | .ok snapshot => pure snapshot
+  | .error reason => throw <| IO.userError reason
+
+/-- Write the snapshot's library and its trace and hash files into the directory `dir` under the
+library's file name, and return the library's path. -/
+def Snapshot.write (snapshot : Snapshot) (dir : FilePath) : IO FilePath := do
+  IO.FS.createDirAll dir
+  for (suffix, bytes) in #[("", snapshot.library)] ++ snapshot.companions do
+    let destination := dir / (snapshot.fileName ++ suffix)
+    IO.FS.writeBinFile destination bytes
+    IO.setAccessRights destination {
+      user := { read := true, write := true, execution := true }
+      group := { read := true, execution := true }, other := { read := true, execution := true } }
+  return dir / snapshot.fileName
+
+/-- Place the running Regula's observer library (`running`), with the trace and hash files that
+Lake wrote beside it, in the build directory of `package`, a copy of a package `regula` that
 declares the observer library under Lake's default layout, where the library's `shared` facet
-writes it. Nothing is placed when the running Regula has not built it.
+writes it. Nothing is placed when the process could not read the library at its start.
 
 The copy's build then elaborates the observer's modules itself and compiles them. Lake links the
 library again unless the hash of its inputs, the compiled objects and libraries it links, its traced
@@ -119,18 +175,8 @@ whose observer source compiles to the running Regula's objects loads this file u
 the output path into it, and its bytes differ, so it is not admitted. Admission rests on the bytes
 alone, whatever Lake decides; that Lake reuses the placed file is trusted for availability only. -/
 def placeRunning (package : FilePath) : IO Unit := do
-  let some (file, _) ← (some <$> observerFile) <|> pure none | return
-  let some name := file.fileName | return
-  let lib := package / ".lake" / "build" / "lib"
-  IO.FS.createDirAll lib
-  for suffix in ["", ".trace", ".hash"] do
-    let source : FilePath := file.toString ++ suffix
-    unless ← source.pathExists do continue
-    let destination := lib / (name ++ suffix)
-    IO.FS.writeBinFile destination (← IO.FS.readBinFile source)
-    IO.setAccessRights destination {
-      user := { read := true, write := true, execution := true }
-      group := { read := true, execution := true }, other := { read := true, execution := true } }
+  let .ok snapshot := runningSnapshot | return
+  discard <| snapshot.write (package / ".lake" / "build" / "lib")
 
 /-- The plugins of the completed `presetup` of `module` of `package` in `completed`
 (`Presetups.completed`), or none when no such job completed. -/
@@ -169,25 +215,21 @@ private def readRecord (olean : FilePath) : IO (Option RegulaObserver.Record) :=
     | _ => none
 
 /-- Whether the plugins of a module's completed `presetup` (`presetupPlugins?`) include the running
-Regula's observer `expected` (`observerFile`): a plugin with the same real path as `expected`, or with
-the same bytes, such as the copy that a fresh audit places in its copy of an owned `regula`
-(`placeRunning`). No other file is admitted, whatever its name or source. False when there is no
-completed `presetup`. -/
-def pluginLoaded (expected : FilePath) (plugins : Option (Array FilePath)) : IO Bool := do
+Regula's observer `expected` (`running`): a plugin file whose bytes, read now, equal the library's
+bytes that the process read at its start. That is the only criterion. A plugin's path proves
+nothing, since a build can rewrite the file at a path, the running Regula's own included; a file
+with other bytes is refused, whatever its name, path or source. False when there is no completed
+`presetup` or a plugin cannot be read.
+
+Assumes: the file that Lean loaded for the module holds, when it is read here, the bytes Lean
+loaded. A file changed after Lean loaded it and before this comparison is outside what the
+comparison establishes, since Lake reports a plugin by its path, not by the bytes Lean read. -/
+def pluginLoaded (expected : Snapshot) (plugins : Option (Array FilePath)) : IO Bool := do
   let some plugins := plugins | return false
-  let real (path : FilePath) : IO FilePath := do
-    match ← (IO.FS.realPath path).toBaseIO with
-    | .ok path => return path
-    | .error _ => return path
-  let bytes (path : FilePath) : IO (Option ByteArray) := do
-    match ← (IO.FS.readBinFile path).toBaseIO with
-    | .ok data => return some data
-    | .error _ => return none
-  let accepted ← real expected
-  let some expectedBytes ← bytes expected | return false
   plugins.anyM fun plugin => do
-    if (← real plugin) == accepted then return true
-    return (← bytes plugin).any (·.data == expectedBytes.data)
+    match ← (IO.FS.readBinFile plugin).toBaseIO with
+    | .ok bytes => return bytes.data == expected.library.data
+    | .error _ => return false
 
 /-- A position as the RG2003 decision reads it. -/
 def location (position : Position) : RegulaPolicy.Elaboration.Location :=

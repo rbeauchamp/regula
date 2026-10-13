@@ -1741,8 +1741,8 @@ def Build.runObserved (build : Build) (repo : FilePath) (targets : Array Target)
           if recordsOwn && text.any (Workspace.traceRecords (ownRecord mod.lib)) then
             recorded.modify (·.push mod.name)
         let completed ← presetups.completed.get
-        let observer : FilePath ←
-          if modules.isEmpty then pure "" else (·.1) <$> Observer.observerFile
+        let observer : Observer.Snapshot ←
+          if modules.isEmpty then pure default else Observer.running
         for mod in modules do
           let plugins := Observer.presetupPlugins? completed mod.pkg.keyName mod.name
           let loaded ← Observer.pluginLoaded observer plugins

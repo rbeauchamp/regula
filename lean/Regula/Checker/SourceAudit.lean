@@ -353,8 +353,9 @@ private def compileIn (repo scratch : FilePath) (spec : SourceSpec)
     -- prints an information message without position or severity, so its text can read as a
     -- warning.
     -- Regula's elaboration observer is loaded into the compilation, as into a claimed build, so
-    -- the `.olean` holds its record (`Compilation.observe`).
-    let (observer, _) ← Observer.observerFile
+    -- the `.olean` holds its record (`Compilation.observe`). Lean loads the library the process
+    -- read at its start (`Observer.running`), written into a directory of this compilation's own.
+    let observer ← (← Observer.running).write (scratch / s!"{spec.«module»}.observer")
     let args := warningArgs ++ #["--json", s!"--plugin={observer}", "-R", scratch.toString,
       "-o", oleanPath.toString, "-i", ileanPath.toString, sourcePath.toString]
     -- The worker sees only the workspace's own search path: an import of a

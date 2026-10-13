@@ -88,14 +88,14 @@ private def qualify (group : String) (evidence : FilePath) (receipt : IO.Ref Jso
     -- and checkerSource/checkReservedModules read matching sources below package/lean.
     -- Neither requires loading this proxy package's Lake configuration. The copied gate also
     -- finds the elaboration observer's library that its build loads in that layout, beside its
-    -- `bin` (`Regula.Checker.Observer.observerFile`).
+    -- `bin`, written from the library this process read at its start
+    -- (`Regula.Checker.Observer.running`).
     let library ← Regula.Filesystem.Construction.capture (root / ".lake/build/lib/lean")
       [".lake", "build", "lib", "lean"]
-    let (observer, _) ← Regula.Checker.Observer.observerFile
-    let some observerName := observer.fileName
-      | throw <| IO.userError s!"the observer library {observer} has no file name"
-    let observerLibrary ← Regula.Filesystem.Construction.capture observer
-      [".lake", "build", "lib", observerName]
+    let observer ← Regula.Checker.Observer.running
+    let observerLibrary : List Regula.Filesystem.Construction.Item :=
+      ((#[("", observer.library)] ++ observer.companions).toList.map fun (suffix, bytes) =>
+        ⟨[".lake", "build", "lib", observer.fileName ++ suffix], .file bytes 493⟩)
     let sources ← Regula.Filesystem.Construction.capture (root / "lean") ["lean"]
     let programs ← #[(executable, "axiomGate-real"), (← IO.appPath, "axiomGate")].toList.flatMapM
       fun (source, name) => do
