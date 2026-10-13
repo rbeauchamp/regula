@@ -19,8 +19,8 @@ private def first (xs : Array Json) : IO Json := do
 
 /-- Copy the native dispatcher, without generating an interpreter or shell program. -/
 def copyExecutable (source target : FilePath) : IO Unit := do
-  IO.FS.writeBinFile target (← IO.FS.readBinFile source)
-  success (← run (target.parent.getD ".") (.stated "chmod" "Make the owned native control executable") #["755", target.toString])
+  -- The proxy and axiomGate-real are executed by their exact copied paths.
+  Regula.Filesystem.copyFile source target 493
 
 /-- Test-only native proxy; invoked before the dispatcher's outer deadline wrapper. -/
 def worker (args : List String) : IO UInt32 := do
@@ -75,23 +75,30 @@ private def qualify (group : String) (evidence : FilePath) (receipt : IO.Ref Jso
     ("binarySha256", toJson (digest.stdout.splitOn " ").head!)])
   withScratch root "acceptance-controls" fun scratch => do
     let project := scratch / "project"
-    IO.FS.createDirAll (project / "docs")
     prepareProject root project "acceptance_control" "standard-logical"
         "Exact accepted-result transport controls."
     manifest project "standard-logical"
-    IO.FS.writeFile (project / "Example.lean") "import Regula.Contract\n/-! Public acceptance \
+    Regula.Filesystem.writeFile (project / "Example.lean") "import Regula.Contract\n/-! Public acceptance \
       transport control. -/\n/-- The accepted value. -/\ndef value : Nat := 7\n"
-    IO.FS.writeFile (project / "docs/control.md")
+    Regula.Filesystem.writeFile (project / "docs/control.md")
       "```lean\ntheorem documented : True := True.intro\n```\n\n<!-- lean-fail: Type mismatch \
         -->\n```lean\nexample : False := True.intro\n```\n"
-    let bin := scratch / "tool/bin"
-    IO.FS.createDirAll bin
-    IO.FS.createDirAll (scratch / "tool/lib")
-    success
-        (← run root (.stated "ln" "until #399 replaces this copy with the construction in Regula.Filesystem")
-            #["-s", (root / ".lake/build/lib/lean").toString, (scratch / "tool/lib/lean").toString])
-    copyExecutable executable (bin / "axiomGate-real")
-    copyExecutable (← Regula.Process.appPath) (bin / "axiomGate")
+    let tool := scratch / "tool"
+    let bin := tool / ".lake/build/bin"
+    -- checkerPackageDir requires the real .lake/build/lib/lean suffix (Checker/Lake.lean),
+    -- and checkerSource/checkReservedModules read matching sources below package/lean.
+    -- Neither requires loading this proxy package's Lake configuration.
+    let library ← Regula.Filesystem.Construction.capture (root / ".lake/build/lib/lean")
+      [".lake", "build", "lib", "lean"]
+    let sources ← Regula.Filesystem.Construction.capture (root / "lean") ["lean"]
+    let programs ← #[(executable, "axiomGate-real"), (← Regula.Process.appPath, "axiomGate")].toList.flatMapM
+      fun (source, name) => do
+        let items ← Regula.Filesystem.Construction.capture source [".lake", "build", "bin", name]
+        pure (items.map fun item => match item.payload with
+          | .file bytes _ => {item with payload := .file bytes 493}
+          | .directory => item)
+    Regula.Filesystem.construct tool
+      (Regula.Filesystem.Construction.layout (library ++ sources ++ programs))
     let mut sources : List (String × Json) := []
     for name in
         #["lean-toolchain", "lakefile.lean", "lake-manifest.json", "foundation_manifest.json",
@@ -212,6 +219,7 @@ def documentationDependencies : IO Unit := do
     IO.FS.writeFile (project / "Example.lean") source
     IO.FS.writeFile
         (project / "docs/control.md") "```lean\nimport Dep\nexample : Dep.n = 1 := rfl\n```\n"
+    -- The complete generated requirement graph is this one path dependency, with no Git source.
     success (← run project (.toolchain .lake) #["update"] cleanEnv)
     for route in #["docFenceAudit", "ruleExamples"] do
       for phase in #["positive", "changed-during-build", "restored"] do

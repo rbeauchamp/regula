@@ -372,9 +372,11 @@ private def statusRelative (root path : FilePath) : IO (Option String) := do
 /-- One unrestricted `git status` of the canonical root, as raw bytes: file names
 in unrelated entries need not be UTF-8. -/
 private def statusBytes (root : FilePath) : IO (UInt32 × ByteArray) := do
-  let child ← Regula.Process.spawn (.stated "git" "Git supplies the repository's source inventory") {
-    cmd := "git", cwd := some root, stdin := .null, stdout := .piped, stderr := .piped
+  let options ← Regula.Filesystem.Construction.gitProcessArgs {
+    cmd := "git", cwd := some root
     args := #["status", "--porcelain=v1", "-z", "--untracked-files=all", "--ignored=matching"] }
+  let child ← Regula.Process.spawn (.stated "git" "Git supplies the repository's source inventory")
+    {options with stdin := .null, stdout := .piped, stderr := .piped}
   let stderr ← IO.asTask child.stderr.readBinToEnd .dedicated
   let stdout ← child.stdout.readBinToEnd
   let _ ← IO.ofExcept stderr.get

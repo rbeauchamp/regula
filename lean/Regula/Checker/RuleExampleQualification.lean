@@ -134,28 +134,39 @@ def sourceAccount (result : Json) (bound : ExampleBinding) (displayed : String) 
         (fun source => source.uri == bound.request.subject && source.source == displayed) do
       throw "missing requested file source account"
 
-private def configurationAccount (root : String) (configuration : Array (String × Option String)) :
-    Except String (Array (String × Option String)) := do
-  unless !root.isEmpty do throw "missing configuration root"
-  configuration.mapM fun (path, source) => do
-    unless path.startsWith (root ++ "/") do throw "configuration outside captured project"
-    return ((path.drop (root.length + 1)).toString, source)
+private abbrev configurationAccount := Lake.configurationAccount
 
-/-- The effective configuration and scope agree with the admitted request. -/
+/-- The complete observed configuration equals the expectation derived from the admitted
+request's exact captured bytes and frozen loaded selections. Constructed copies use
+`Lake.expectedConfiguration` and the same `relocateDependencies`/`generatedConfiguration` that
+the copier runs; other routes retain literal equality. Missing, extra or changed override entries
+refuse. `configurationOrigins` separately records captured source bytes and generated files and
+must equal that same derivation. Scope and effective observations must agree byte-exactly. -/
 def effectiveAccount (result : Json) (admitted : ExampleRequest) : Except String Unit := do
   let requested ← configurationAccount admitted.project admitted.configuration
   let effectiveAccount ← field result "effective"
+  let expected ← if effectiveAccount matches .null then pure requested else do
+    let root ← string effectiveAccount "root"
+    match admitted.copyConfiguration with
+    | none => pure requested
+    | some inputs =>
+      unless inputs.project == admitted.project do throw "relocation inputs belong to another request"
+      Lake.expectedConfiguration inputs (System.FilePath.mk root) requested
   unless effectiveAccount matches .null do
     let effective ← configurationAccount (← string effectiveAccount "root")
       (← fromJson? (α := Array (String × Option String)) (← field effectiveAccount "configuration"))
-    unless effective == requested do throw "effective configuration differs from request"
+    Regula.CopyConfiguration.check (expected, effective)
+    let origins ← Lake.configurationOrigins admitted.project admitted.configuration
+      admitted.copyConfiguration (System.FilePath.mk (← string effectiveAccount "root"))
+    unless JsonAgreement.conforms (← field effectiveAccount "configurationOrigins") origins do
+      throw "configuration origin account differs from captured and generated files"
   let scope ← field result "scope"
   if let .ok _ := scope.getObj? then
     if effectiveAccount matches .null then throw "missing effective request account"
     let configuration ← fromJson? (α := Array (String × Option String))
         (← field scope "configuration")
     let effective ← configurationAccount (← string scope "configurationRoot") configuration
-    unless effective == requested &&
+    unless effective == expected &&
         JsonAgreement.conforms (← field scope "configuration")
           (← field effectiveAccount "configuration") &&
         JsonAgreement.conforms (← field scope "configurationRoot")

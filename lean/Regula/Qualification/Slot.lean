@@ -22,9 +22,10 @@ return (source-verified joined-worker discipline; no universal detached-grandchi
 termination is claimed); the consumer path — control admission and terminal
 qualification — consumes captured data and the real ROOT checkout and never
 dereferences the slot path.
-Preparation materializes self-contained Git metadata (worktree pointers,
-`commondir`, `objects/info/alternates`, `core.worktree`) so the ROOT copy's Git
-stays inside the slot, points manifest dependencies only at captured shared
+Preparation asks Git to resolve its metadata and common directory, then constructs a
+self-contained copy. Alternate object stores, configuration extensions/includes and
+core.worktree redirects refuse. The ROOT copy's Git stays inside the slot, and preparation
+points manifest dependencies only at captured shared
 roots, compares captured source/config inputs byte-exactly, records relocation
 truthfully, and refuses on any containment violation. Filesystem, Git and
 process behavior remain trusted IO, as throughout. -/
@@ -37,8 +38,9 @@ structure ProducerSlot where
   root : FilePath
   deriving Inhabited
 
-/-- One prepared-file provenance record. `identity` is `"byte-identical"` when
-the prepared bytes were compared equal to the captured input bytes, and
+/-- One prepared-file provenance record. `identity` is `"captured-source-equal"` when
+the source bytes read before construction equal the frozen input bytes; destination byte
+writing remains trusted and is not compared by this record. The label is
 `"relocated"` when preparation truthfully rewrote path-bearing configuration. -/
 structure FileProvenance where
   /-- The prepared path relative to the slot (`root/...`), or a shared dependency's package
@@ -46,7 +48,7 @@ structure FileProvenance where
   relativePath : String
   /-- What was prepared: `source`, `config`, `build`, `git` or `dependency`. -/
   kind : String
-  /-- How the prepared entry relates to its input: `byte-identical`, `relocated`, `copy` (the
+  /-- Source comparison or preparation: `captured-source-equal`, `relocated`, `copy` (the
   build directory or Git metadata) or `shared` (a dependency used in place). -/
   identity : String
 
@@ -87,167 +89,58 @@ def contained (root path : FilePath) : IO Bool := do
       resolved.toString.startsWith (base.toString ++ "/")
   catch _ => return false
 
-/-- Copy one file as an independent real byte copy (never a hardlink). -/
-def copyFile (source target : FilePath) : IO Unit := do
-  if let some parent := target.parent then IO.FS.createDirAll parent
-  IO.FS.writeBinFile target (← IO.FS.readBinFile source)
+/-- Copy one source file through the shared no-follow/exclusive constructor. -/
+def copyFile (source target : FilePath) : IO Unit :=
+  Regula.Filesystem.copyFile source target
 
-/-- Metadata-preserving subtree copy through the system `cp` (argv only; no
-shell interpolation of paths): `-R` recursive and `-p` permission/time
-preservation on POSIX/Linux. Clone/CoW (`-c`) is optional and attempted first;
-the real-copy `-p` path is the mandatory fallback (Linux CI has no clonefile).
-Failures throw (fail closed). Only used after the guarded enumeration proves
-the subtree has no excluded roots and no symlinks. -/
-def copySubtreeSystem (source target : FilePath) : IO Unit := do
-  let cloned ← run source (.stated "cp" "until #399 replaces this copy with the construction in Regula.Filesystem") #["-R", "-c", "-p", ".", target.toString]
-  if cloned.exitCode == 0 then return
-  let copied ← run source (.stated "cp" "until #399 replaces this copy with the construction in Regula.Filesystem") #["-R", "-p", ".", target.toString]
-  unless copied.exitCode == 0 do
-    throw <| IO.userError s!"slot subtree copy failed: {source} -> {target}\n{copied.stderr}"
+/-- Recursively copy a subtree through the shared constructor. No source link or special entry
+is followed or retained, including Git metadata and build-state subtrees. The slot's source and
+destination have no concurrent writer. Copied executable programs are granted 0755 only at the
+places that execute them; all other regular files use 0644. -/
+def copyTree (source target : FilePath) : IO (Array String) := do
+  -- Keep the supplied spelling: canonicalizing first would hide a final source link.
+  let root := source.normalize
+  let base := root.components.length
+  let selected := fun (path : FilePath) =>
+    !excluded ("/".intercalate (path.components.drop base))
+  let some parent := target.parent | throw <| IO.userError "slot copy target has no parent"
+  Regula.Filesystem.Construction.ensureDirectory 4096 parent
+  let items ← Regula.Filesystem.copy root target selected
+  return (items.filterMap fun item => match item.payload with
+    | .directory => none
+    | .file .. => some ("/".intercalate item.relative)).toArray
 
-private def isDirSafe (path : FilePath) : IO Bool := do
-  try
-    path.isDir
-  catch _ => return false
-
-/-- Fail-closed resolution helper: `none` marks an unresolvable path (classified
-for the materializing fallback and refused at copy). -/
-private def resolveSafe (path : FilePath) : IO (Option FilePath) := do
-  try
-    pure (some (← IO.FS.realPath path))
-  catch _ => return none
-
-/-- Directory depth bound of the slot walks (`scanTree`, `sharedWalk`), which makes them
-total. A walk that reaches it fails closed. Under the trusted OS path limit (`PATH_MAX`:
-4096 bytes on Linux, 1024 on macOS) a descent through real directories cannot reach it,
-since each level adds at least two bytes, a separator and a name. Only `scanTree`, which
-follows symlinks, can reach it, through a chain of more than 4096 distinct directories. -/
+/-- Directory-depth bound for observation-only walks. Exhaustion fails closed. -/
 def maxWalkDepth : Nat := 4096
 
-/-- Explicit scan-boundary traversal. Each directory scan carries the resolved
-locations of its descent chain; a directory whose resolved location is already
-on the chain is a cycle and is refused **at the scan boundary** (its entry is
-still enumerated by its parent). Scans and recursion happen **at resolved
-paths**: alias entries are pushed by their parent exactly as the legacy walk
-did, but never produce alias-form children; where an alias re-scans a real
-subtree, duplicate pushes may remain — the preserved claim is the **unique
-legacy path-set** on finite acyclic inputs (not exactly-once). Unresolvable
-entries are classified for the materializing fallback and fail closed at
-copy. The walk terminates on its chain length, bounded by `maxWalkDepth`; a
-deeper chain fails closed. -/
-def scanTree (root : FilePath) (dir : FilePath) (chain : Array String) :
-    IO (Array (FilePath × String × Bool)) := do
-  let resolved ← IO.FS.realPath dir
-  if chain.contains resolved.toString then
-    return #[]
-  if _h : chain.size < maxWalkDepth then
-    let chain := chain.push resolved.toString
-    let mut entries := #[]
-    for d in (← resolved.readDir) do
-      let isDir ← isDirSafe d.path
-      entries := entries.push (d.path, (relativeOf root d.path).toString, isDir)
-      if isDir then
-        match ← resolveSafe d.path with
-        | some target => entries := entries ++ (← scanTree root target chain)
-        | none => pure ()
-    return entries
-  else
-    throw <| IO.userError s!"slot copy walk exceeds {maxWalkDepth} directory levels: {resolved}"
-termination_by maxWalkDepth - chain.size
-decreasing_by simp; omega
+/-- Construct self-contained plain metadata using Git's own pointer and common-directory
+resolution. Linked-worktree common metadata is captured beneath `common`; the one generated
+commondir file selects it. Alternates, extension/include settings and core.worktree redirects
+are outside the closed case and refuse before any destination is written.
 
-/-- Recursively copy `source` into `target`. The guarded enumeration is the
-explicit scan-boundary traversal (`scanTree`) with unchanged semantics: the
-exact copy set with exclusion skipping, fail-closed unresolved containment,
-and symlink classification covering directories and files alike (any entry
-whose resolved location differs from its walked path — including symlinked and
-empty/directories-only subtrees — forces the materializing per-file fallback,
-so `cp` never copies a link). When the tree is guarded-clean, one
-metadata-preserving system `cp` performs the copy (`copySubtreeSystem`);
-otherwise the per-file real byte copy fallback runs with identical
-exclusion/containment semantics. Returns the relative file paths copied, in
-scan order. -/
-def copyTree (source target : FilePath) : IO (Array String) := do
-  let sourceRoot ← IO.FS.realPath source
-  IO.FS.createDirAll target
-  let mut copied : Array String := #[]
-  let mut files : Array (FilePath × String) := #[]
-  let mut guarded := true
-  for (path, relative, isDirectory) in (← scanTree sourceRoot sourceRoot #[]) do
-    if excluded relative then
-      guarded := false
-      continue
-    unless (← contained sourceRoot path) do
-      throw <| IO.userError s!"slot copy walk crossed owned root: {path}"
-    let resolved ← resolveSafe path
-    match resolved with
-    | some value => if value.toString != path.toString then guarded := false
-    | none => guarded := false
-    if isDirectory then
-      IO.FS.createDirAll (target / relative)
-    else
-      files := files.push (path, relative)
-      copied := copied.push relative
-  if guarded then
-    copySubtreeSystem source target
-  else
-    for (path, relative) in files do
-      copyFile path (target / relative)
-  return copied
-
-/-- Materialize one Git metadata tree into `target` so that `git` operating on
-the copy is self-contained: pointer-file gitdirs, `commondir`,
-`objects/info/alternates` and `core.worktree` are copied and rewritten to
-contained locations. Any indirection that cannot be materialized inside the
-slot is refused. -/
+Assumes: Git 2.54.0 `builtin/rev-parse.c:723-731` uses resolve_gitdir for --resolve-git-dir;
+`setup.c:303-324` resolves commondir. Construction's gitPath, admitGitConfig, admitGitObjects
+and gitProcessArgs document their path/config/environment assumptions. All captured source
+metadata is stable and has no concurrent writer. -/
 def materializeGit (slotGit : FilePath) (sourceGit : FilePath) : IO Unit := do
-  let mut directory := sourceGit
-  if !(← sourceGit.isDir) then
-    -- Worktree pointer file: `gitdir: <path>`.
-    let text ← IO.FS.readFile sourceGit
-    let target := FilePath.mk ((text.replace "gitdir:" "").trimAscii.toString)
-    unless (← target.pathExists) do
-      throw <| IO.userError s!"slot git pointer target missing: {target}"
-    directory := target
-  let _ ← copyTree directory slotGit
-  -- Materialize the common directory for linked worktrees. Source indirections
-  -- may point outside the source tree (that is their normal shape); they must
-  -- resolve to existing metadata, which is then materialized inside the slot.
-  if (← (slotGit / "commondir").pathExists) then
-    let raw := ((← IO.FS.readFile (slotGit / "commondir")).trimAscii.toString)
-    let candidate := FilePath.mk raw
-    let resolved ←
-      if (← (directory / raw).pathExists) then pure (directory / raw)
-      else if (← candidate.pathExists) then pure candidate
-      else throw <| IO.userError s!"slot git commondir unresolvable: {raw}"
-    let _ ← copyTree resolved (slotGit / "common")
-    IO.FS.writeFile (slotGit / "commondir") "common\n"
-  -- Materialize alternates into contained object stores.
-  let alternates := slotGit / "objects/info/alternates"
-  if (← alternates.pathExists) then
-    let mut rewritten : Array String := #[]
-    let mut index := 0
-    for line in (← IO.FS.readFile alternates).splitOn "\n" do
-      let entry := line.replace "\r" ""
-      if entry.isEmpty then continue
-      let source ←
-        if (← (directory / entry).pathExists) then pure (directory / entry)
-        else if (← (directory / "objects" / entry).pathExists) then
-          pure (directory / "objects" / entry)
-        else if (← (FilePath.mk entry).pathExists) then pure (FilePath.mk entry)
-        else throw <| IO.userError s!"slot git alternate unresolvable: {entry}"
-      let target := slotGit / s!"objects-alternated-{index}"
-      let _ ← copyTree source target
-      rewritten := rewritten.push target.toString
-      index := index + 1
-    IO.FS.writeFile alternates (String.intercalate "\n" rewritten.toList ++ "\n")
-  -- Refuse `core.worktree` bindings in worktree or common configuration rather
-  -- than let them escape the slot (`config.worktree` extension included).
-  for config in #[slotGit / "config", slotGit / "config.worktree",
-      slotGit / "common" / "config", slotGit / "common" / "config.worktree"] do
-    if (← config.pathExists) then
-      if (← IO.FS.readFile config).contains "worktree =" then
-        throw <| IO.userError s!"slot git config carries core.worktree: {config}"
+  let initial ← Regula.Filesystem.Construction.capture sourceGit
+  let some root := sourceGit.parent | throw <| IO.userError "slot Git source has no parent"
+  let directory ← Regula.Filesystem.Construction.gitPath root
+    #["rev-parse", "--resolve-git-dir", sourceGit.toString]
+  let localItems ← if directory == sourceGit then pure initial
+    else Regula.Filesystem.Construction.capture directory
+  let gitOptions := #["--git-dir", directory.toString]
+  let common ← Regula.Filesystem.Construction.gitPath root
+    (gitOptions ++ #["rev-parse", "--path-format=absolute", "--git-common-dir"])
+  let commonItems ← if common == directory then pure []
+    else Regula.Filesystem.Construction.capture common ["common"]
+  Regula.Filesystem.Construction.admitGitConfig root (common / "config")
+  Regula.Filesystem.Construction.admitGitObjects root gitOptions
+  let localItems := localItems.filter (·.relative != ["commondir"])
+  let generated := if common == directory then [] else
+    [⟨["commondir"], .file "common\n".toUTF8⟩]
+  Regula.Filesystem.construct slotGit
+    (Regula.Filesystem.Construction.layout (localItems ++ commonItems ++ generated))
 
 /-- Executed containment checks over the prepared ROOT copy: Git identity
 resolution must land inside the slot, and every manifest `dir` must resolve
@@ -382,8 +275,8 @@ def SharedIdentity.difference (before after : SharedIdentity) : String := Id.run
 /-- Prepare one complete slot: the writable ROOT package copy. The ROOT copy's
 `lake-manifest.json` is truthfully relocated so that every package entry names
 its captured shared dependency root (a manifest package without a captured
-dependency refuses), recorded as `relocated`; captured inputs are compared
-byte-exactly; Git identity is preserved through self-contained materialization
+dependency refuses), recorded as `relocated`; source captures are compared
+byte-exactly with frozen inputs, without comparing destination bytes; Git identity is preserved through self-contained materialization
 while top-level path equivalence with the original ROOT is explicitly not
 claimed. Dependencies are recorded as `shared`; their no-writer requirement is
 decided by the caller's `sharedIdentity` equality around the producer window. -/
@@ -392,32 +285,51 @@ def prepareSlot (originalRoot : FilePath) (slot : ProducerSlot)
     (deps : Array Regula.Checker.Snapshot.DependencyObservation) :
     IO SlotProvenance := do
   let copy := slot.root / "root"
-  IO.FS.createDirAll copy
   let mut provenance : Array FileProvenance := #[]
+  let mut instructions := []
+  let mut inputs : Array (FilePath × ByteArray) := #[]
   for (path, bytes) in rootSources ++ rootConfigs do
-    let relative := (relativeOf originalRoot path).toString
-    copyFile path (copy / relative)
-    compareBytes (copy / relative) bytes
-    provenance := provenance.push ⟨s!"root/{relative}", "source", "byte-identical"⟩
-  -- Truthful relocation of the copied ROOT manifest to the captured shared
-  -- dependency roots (canonical paths from the frozen Lake discovery).
-  let manifestPath := copy / "lake-manifest.json"
-  if (← manifestPath.pathExists) then
-    let manifest ← readJson manifestPath
-    let packages ← IO.ofExcept (manifest.getObjValAs? (Array Json) "packages")
-    let relocated ← packages.mapM fun entry => do
-      match entry.getObjVal? "name" with
-      | .error _ => pure entry
-      | .ok _ =>
-        let name ← IO.ofExcept (entry.getObjValAs? String "name")
-        let some dep := deps.find? (·.package == name)
-          | throw <| IO.userError s!"slot manifest package without captured dependency: {name}"
-        pure ((entry.setObjVal! "dir" (.str dep.root.toString)).setObjVal! "copy" (.bool false))
-    IO.FS.writeFile manifestPath
-      ((manifest.setObjVal! "packages" (toJson relocated)).compress ++ "\n")
-    provenance := provenance.push ⟨"root/lake-manifest.json", "config", "relocated"⟩
+    if let some (_, previous) := inputs.find? (fun input => input.1.normalize == path.normalize) then
+      unless previous == bytes do
+        throw <| IO.userError s!"slot duplicate input has conflicting captured bytes: {path}"
+      continue
+    inputs := inputs.push (path, bytes)
+    let relative := (relativeOf originalRoot path).components
+    let captured ← Regula.Filesystem.Construction.capture path relative
+    let [⟨_, .file actual _⟩] := captured
+      | throw <| IO.userError s!"slot input is not a regular file: {path}"
+    unless actual == bytes do throw <| IO.userError s!"slot input changed before construction: {path}"
+    instructions := instructions ++ captured
+    let relative := "/".intercalate relative
+    provenance := provenance.push ⟨s!"root/{relative}", "source", "captured-source-equal"⟩
+  Regula.Filesystem.construct copy (Regula.Filesystem.Construction.layout instructions)
+  -- Relocate every captured dependency as a typed path entry, so ordinary loads of the slot
+  -- never materialize a Git clone at a packages directory inside the slot.
+  let relocatedManifest ← Regula.Checker.Workspace.withRootWorkspace originalRoot fun ws => do
+    let relative := ws.manifestFile.normalize.components.drop originalRoot.normalize.components.length
+    let manifestPath := Regula.Filesystem.Construction.location copy relative
+    let manifest ← _root_.Lake.Manifest.load manifestPath
+    let relocated ← manifest.packages.mapM fun entry => do
+      let some dep := deps.find? (·.package == entry.name.toString)
+        | throw <| IO.userError s!"slot manifest package without captured dependency: {entry.name}"
+      pure {entry with src := .path dep.root}
+    -- This is an explicit relocation of a file the constructor placed, in a private plain tree.
+    _root_.Lake.Manifest.save {manifest with packages := relocated} manifestPath
+    return "/".intercalate relative
+  provenance := provenance.push ⟨s!"root/{relocatedManifest}", "config", "relocated"⟩
   if (← (originalRoot / ".lake/build").pathExists) then
     let _ ← copyTree (originalRoot / ".lake/build") (copy / ".lake/build")
+    -- Slot producers run the copied axiomGate/ruleExamples dispatchers by path, and Lake can
+    -- invoke any declared executable. Grant 0755 precisely to the root's Lake-declared binaries.
+    Regula.Checker.Workspace.withRootWorkspace originalRoot fun ws => do
+      for executable in ws.root.leanExes do
+        -- Lake v4.34.1 Config/LeanExe.lean:68-73 supplies the executable's exact output path.
+        let relative := executable.file.normalize.components.drop originalRoot.normalize.components.length
+        let path := Regula.Filesystem.Construction.location copy relative
+        match ← Regula.Filesystem.Construction.kindWith Regula.Filesystem.Construction.observer path with
+        | some .file => Regula.Filesystem.makeExecutable path
+        | none => pure ()
+        | _ => throw <| IO.userError s!"slot executable is not regular: {path}"
     provenance := provenance.push ⟨"root/.lake/build", "build", "copy"⟩
   if (← (originalRoot / ".git").pathExists) then
     materializeGit (copy / ".git") (originalRoot / ".git")
@@ -458,32 +370,31 @@ manifest `dir` is a captured shared dependency root, and no `.lake/packages` sym
 created. -/
 def prepareSlotProject (slot : ProducerSlot) (project : FilePath)
     (packageName claim rationale : String) : IO Unit := do
-  IO.FS.writeBinFile (project / "lean-toolchain")
-    (← IO.FS.readBinFile (slot.root / "root" / "lean-toolchain"))
-  IO.FS.writeFile (project / "lakefile.lean")
+  let toolchain ← Regula.Filesystem.Construction.capture
+    (slot.root / "root" / "lean-toolchain") ["lean-toolchain"]
+  Regula.Filesystem.construct project (Regula.Filesystem.Construction.layout toolchain)
+  Regula.Filesystem.writeFile (project / "lakefile.lean")
     s!"import Lake\nopen Lake DSL\npackage {packageName} where\n  leanOptions := #[⟨`autoImplicit, \
       false⟩, ⟨`relaxedAutoImplicit, false⟩, ⟨`linter.missingDocs, true⟩]\nrequire regula \
       from {toJson (slot.root / "root").toString |>.compress}\n@[default_target] lean_lib Example\n"
-  writeJson (project / "foundation_manifest.json") (Json.mkObj [
+  Regula.Filesystem.writeJson (project / "foundation_manifest.json") (Json.mkObj [
     ("schema-version", toJson (2 : Nat)), ("surfaces", toJson #[Json.mkObj [
       ("library", .str "Example"), ("claim", .str claim), ("execution", .str "checked"),
       ("rationale", .str rationale)]]),
     ("excluded-libraries", toJson (#[] : Array Json)),
     ("excluded-executables", toJson (#[] : Array Json))])
-  let manifest ← readJson (slot.root / "root" / "lake-manifest.json")
-  let packages ← IO.ofExcept (manifest.getObjValAs? (Array Json) "packages")
-  -- Genuine path-class entries: `regula` at the slot-private ROOT copy, and
-  -- each inherited entry at the captured shared dependency root. Explicit copy=false
-  -- retains in-place materialization on Lake versions with copied path dependencies;
-  -- older Lake ignores that field. Git pin fields remain inert provenance.
-  let packages := packages.map (fun entry =>
-    let entry := (entry.setObjVal! "inherited" (.bool true)).setObjVal! "type" (.str "path")
-    entry.setObjVal! "copy" (.bool false)) |>.push
-        (Json.mkObj [
-    ("name", .str "regula"), ("scope", .str ""), ("type", .str "path"),
-    ("dir", .str (slot.root / "root").toString), ("configFile", .str "lakefile.lean"),
-    ("manifestFile", .str "lake-manifest.json"), ("inherited", .bool false)])
-  writeJson (project / "lake-manifest.json") (manifest.setObjVal! "packages" (toJson packages))
-  IO.FS.createDirAll (project / ".lake")
+  -- These producer templates require Regula at its prepared ROOT slot. Its default manifest
+  -- was relocated before the frozen producer window. Decode those captured bytes with Lake;
+  -- loading the shared ROOT here would create config/0 during that no-writer window.
+  let manifest ← IO.ofExcept <| _root_.Lake.Manifest.parse
+    (← Regula.Filesystem.readFile (slot.root / "root/lake-manifest.json"))
+  let packages ← manifest.packages.mapM fun entry => do
+    unless entry.src matches .path _ do
+      throw <| IO.userError s!"slot dependency was not prepared as a path: {entry.name}"
+    pure {entry with inherited := true}
+  let rootEntry : _root_.Lake.PackageEntry :=
+    {name := `regula, inherited := false, src := .path (slot.root / "root")}
+  Regula.Filesystem.writeFile (project / "lake-manifest.json")
+    ((toJson {manifest with name := packageName.toName, packages := packages.push rootEntry}).pretty ++ "\n")
 
 end Regula.Qualification.Slot

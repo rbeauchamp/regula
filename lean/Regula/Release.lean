@@ -1574,10 +1574,31 @@ private def ghGet (path : String) : IO Json := do
 
 private def str (j : Json) (key : String) : IO String := IO.ofExcept (j.getObjValAs? String key)
 
+/-- The same Git environment observer as project construction, executed from embedded source
+because this cold workflow imports only the toolchain. No Git policy is reimplemented here.
+
+Assumes: Lean v4.34.1 `Lean/Elab/BuiltinTerm.lean:437-445` captures include_str source;
+`IO.Process.output` supplies stdin and waits for the child (`Init/System/IO.lean:1544-1557`);
+`Process.identified` checks the selected installation's compiler identity. `--stdin --run`
+(`Lean/Shell.lean:497-518,552-560`) executes the embedded source without a temporary file or
+removal; interpreter execution is trusted.
+Construction.gitEnvironment names the pinned Git and OS assumptions. -/
+private def gitEnvironment : IO (Array (String × Option String)) := do
+  let out ← Process.output (.toolchain .lean) {
+    cmd := ""
+    args := #["--stdin", "--run", "GitEnvironment.lean", "git-environment", "", ""]
+    env := #[("LEAN_PATH", none), ("LEAN_SRC_PATH", none)] }
+    (Process.constructorSource (include_str "../RegulaCore/CopyProgram.lean")
+      (include_str "ProcessSource.inc") (include_str "GitProcessSource.inc") ++
+      "\n/-- Cold environment entrypoint. -/\ndef main := Regula.Filesystem.Construction.sourceMain\n")
+  unless out.exitCode == 0 do fail s!"Git environment unavailable: {out.stderr}"
+  IO.ofExcept (fromJson? (← IO.ofExcept (Json.parse out.stdout)))
+
 /-- Run `git` with `args` in the checkout; its standard output without surrounding whitespace, or
 a failure with its standard error. -/
 private def git (args : Array String) : IO String := do
-  let out ← Process.output (.stated "git" "Git supplies the release's repository observations") { cmd := "", args }
+  let out ← Process.output (.stated "git" "Git is the stated repository mechanism") {
+    cmd := "git", args := #["-c", "core.symlinks=false"] ++ args, env := ← gitEnvironment }
   unless out.exitCode == 0 do fail s!"git {args}: {out.stderr}"
   return out.stdout.trimAscii.toString
 

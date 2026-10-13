@@ -48,9 +48,7 @@ lake -d audit build                # the standard's example library
 ```
 
 Ordinary acceptance builds its checker executables, type-checks the diagnostic
-modules and audits the root package's claimed Lean surfaces from fresh output. It also runs the
-registry and native qualification controls (`qualify combined`, which runs those of
-`qualify registry` and then those of `qualify native` beside `qualify unique-constants`).
+modules and audits the root package's claimed Lean surfaces from fresh output. It also runs `qualify combined`. The [dispatcher](../../lean/Regula/Qualification/Main.lean) defines its control sequence.
 It refuses a root lock manifest that records any dependency. It records the content
 identity of the inputs it accepted in `tmp/acceptance-link.json`. `./scripts/verify.sh docs`
 then refuses a rule ID in the prose of a tracked Markdown document that is not a link to its rule page ([rule IDs in documentation](#rule-ids-in-documentation)), refuses a link of the root `README.md` to the rule-reference site that is not a stable address ([links of the root README](#links-of-the-root-readme)), refuses a root `README.md` or adoption guide that does not open with the summary of Regula ([opening of the root README](#opening-of-the-root-readme)), refuses a root `README.md` if its example does not show its module and what Lean and `axiomGate --file` give for it ([example of the root README](#the-example-of-the-root-readme)), audits the `audit/` package's claimed surface from fresh output, checks every Lean example
@@ -75,8 +73,8 @@ the other three commands, which run at low priority.
 `qualify unique-constants` refuses a constant that two modules of one claimed environment
 declare, if one of them is a module of the root package. Lean makes an equation lemma in the first
 module that unfolds its definition. If two modules that do not import each other each make it, an
-environment that loads the two can replay a module again. It does so if the two copies are
-different or if a module that the audit does not own also declares the name.
+environment that loads the two can replay a module again. It does so if the two copies do not
+agree or if a module that the audit does not own also declares the name.
 [Admission reuse](proofs-and-boundaries.md#producers) states the conditions.
 
 If the step passed and the checkout has no build output, the driver moves the build output of
@@ -172,7 +170,7 @@ archive cache (`~/.cache/mathlib`) once into
 `$XDG_CACHE_HOME` instead of `~/.cache` when that is set), compiles every
 module's native object there (executables that import Mathlib link them), makes it
 read-only, and links the copy's `integration/mathlib/.lake/packages/mathlib` to it. The rest of Mathlib's closure
-(Batteries, Aesop, ...) becomes writable copy-on-write clones, since executables compile
+(Batteries, Aesop, ...) becomes writable independent copies, since executables compile
 native objects into them. The integration package keeps its own packages directory, so its pins
 are independent of the website's; the example adopters under `examples/` require only `regula` and
 need no packages directory. Run `lean --run lean/RegulaProvision.lean mathlib` in a copy before the first Lake command in
@@ -397,7 +395,7 @@ campaign that does not run. For a reason that names part of them, its text names
 | `./scripts/verify.sh diagnostics snapshot-history` | Too long for a job. Its check took 104 s, and a check of more than 85 s does not leave a quarter of the 420-second deadline. [Issue 391](https://github.com/rbeauchamp/regula/issues/391) is the work to divide it into shards. |
 | `./scripts/verify.sh diagnostics policy-domain` | Too long for a job. Its check took 158 s, and a check of more than 85 s does not leave a quarter of the 420-second deadline. [Issue 391](https://github.com/rbeauchamp/regula/issues/391) is the work to divide it into shards. |
 | `lake exe qualify registry` | Its controls run in `lake exe qualify combined`: `combined` runs `registry` first. |
-| `lake exe qualify native` | Its controls run in `lake exe qualify combined`: `combined` runs `native` second. |
+| `lake exe qualify native` | Its controls run in `lake exe qualify combined`: `combined` includes the `native` controls. |
 | `lake exe qualify unique-constants` | Its controls run in `lake exe qualify combined`: `combined` runs `unique-constants` beside `native`. |
 | `lake exe qualify native-launcher` | Too long for a job. Its check took 92 s, and a check of more than 85 s does not leave a quarter of the 420-second deadline. [Issue 391](https://github.com/rbeauchamp/regula/issues/391) is the work to divide it into shards. |
 | `lake exe qualify rule-examples --evidence PATH` | Its controls run in `lake exe qualify rule-examples --evidence PATH --shard K/N`: the shards together run the whole corpus. |

@@ -391,7 +391,7 @@ def reason : Campaign → Option Reason
   | .verify ["diagnostics", name, _] => (Partition.parse name).bind fun partition =>
       (overBudgetShard partition).map (partitionOverBudget partition)
   | .qualify .registry => some <| .within (.qualify .combined) "`combined` runs `registry` first."
-  | .qualify .native => some <| .within (.qualify .combined) "`combined` runs `native` second."
+  | .qualify .native => some <| .within (.qualify .combined) "`combined` includes the `native` controls."
   | .qualify .uniqueConstants => some <|
       .within (.qualify .combined) "`combined` runs `unique-constants` beside `native`."
   | .qualify .nativeLauncher => some (overBudget 92)

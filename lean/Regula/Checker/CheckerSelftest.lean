@@ -396,7 +396,7 @@ private def structuralProject (manifest : Manifest) (ws : _root_.Lake.Workspace)
     pending := rest
     if modules.any (·.name == next.name) then continue
     modules := modules.push next
-    let header ← Lean.parseImports' (← IO.FS.readFile next.leanFile) next.leanFile.toString
+    let header ← Lean.parseImports' (← Regula.Filesystem.readFile next.leanFile) next.leanFile.toString
     for imported in header.imports do
       if let some found := ws.findModule? imported.module then
         if found.pkg.keyName == pkg.keyName then pending := found :: pending
@@ -1264,7 +1264,7 @@ private unsafe def diagnosticSetupQualification (repo scratch : FilePath) : IO (
   let compiled := project / "compiled"
   IO.FS.createDirAll output
   IO.FS.createDirAll compiled
-  IO.FS.writeFile (project / "lean-toolchain") (← IO.FS.readFile (repo / "lean-toolchain"))
+  Regula.Filesystem.copyFile (repo / "lean-toolchain") (project / "lean-toolchain")
   IO.FS.writeFile (project / "lakefile.toml") <|
     "name = \"diagnostic_control\"\n[leanOptions]\nautoImplicit = false\n" ++
       "relaxedAutoImplicit = false\nlinter.missingDocs = true\n[[lean_lib]]\nname = \
@@ -1597,15 +1597,14 @@ repository, its Lake configuration, the repository's toolchain pin and lock mani
 manifest of `structuralBase`. -/
 private def prepareStructuralProject (layout : SourceLayout) (repo copy : FilePath) :
     IO Unit := do
-  for relative in layout.project.sources do
-    let destination := copy / relative
-    if let some parent := destination.parent then IO.FS.createDirAll parent
-    IO.FS.writeBinFile destination (← IO.FS.readBinFile (repo / relative))
+  let mut items := []
+  for relative in layout.project.sources.toList.eraseDups do
+    items := items ++ (← Regula.Filesystem.Construction.capture (repo / relative) relative.components)
   for file in #["lean-toolchain", "lake-manifest.json"] do
-    IO.FS.writeBinFile (copy / file) (← IO.FS.readBinFile (repo / file))
-  IO.FS.writeFile (copy / "lakefile.lean") layout.project.lakefile
-  IO.FS.writeFile (copy / "foundation_manifest.json")
-    ((← structuralManifestText layout repo) ++ "\n")
+    items := items ++ (← Regula.Filesystem.Construction.capture (repo / file) [file])
+  items := items ++ [⟨["lakefile.lean"], .file layout.project.lakefile.toUTF8⟩,
+    ⟨["foundation_manifest.json"], .file ((← structuralManifestText layout repo) ++ "\n").toUTF8⟩]
+  Regula.Filesystem.construct copy (Regula.Filesystem.Construction.layout items)
 
 /-- The restored control that ends a structural cluster: once each of its mutations is restored,
 the fresh gate (empty-output elaboration of a copy of the cluster's project) accepts it. A
@@ -1718,18 +1717,15 @@ private def seedModuleArtifacts (layout : SourceLayout) (repo copy : FilePath) :
   for relative in layout.artifactDirs do
     let place := repo / relative
     unless ← place.isDir do continue
-    let base := place.normalize.components
-    for path in ← place.walkDir do
-      if ← path.isDir then continue
-      let destination :=
-        (path.normalize.components.drop base.length).foldl (· / FilePath.mk ·) (copy / relative)
-      if let some parent := destination.parent then IO.FS.createDirAll parent
-      IO.FS.writeBinFile destination (← IO.FS.readBinFile path)
+    let destination := copy / relative
+    let some parent := destination.parent | throw <| IO.userError "artifact copy has no parent"
+    Regula.Filesystem.Construction.ensureDirectory 4096 parent
+    discard <| Regula.Filesystem.copy place destination
 
 /-- What a fresh gate reads of `project`: the entries its own copy operation (`copyProject`)
 copies into `snapshot`, each by its path below the project, a file with its bytes, in path
-order. The copy operation's own `.lake` there (the link to the shared packages, the path
-overrides) is not an entry: it copies nothing from the project's `.lake`. -/
+order. The copy operation's own `.lake` there (the typed path overrides) is not an entry: it
+copies nothing from the project's `.lake`. -/
 private def freshInput (project snapshot : FilePath) :
     IO (Array (String × Option ByteArray)) := do
   prepareScratchRepo project snapshot
@@ -3049,10 +3045,8 @@ private unsafe def adopterQualification (repo scratch : FilePath) (parts : List 
         throw <| IO.userError <|
           s!"adopter/{label}/setup: relative checker path {checkerDir} resolves to {resolved}, \
             not {repo}"
-    let lakeManifest ← adopterLakeManifest repo checkerDir
     IO.FS.writeFile (adopter / s!"lakefile.{format}") (lakefileText checkerDir)
-    IO.FS.writeBinFile (adopter / "lean-toolchain")
-      (← IO.FS.readBinFile (repo / "lean-toolchain"))
+    Regula.Filesystem.copyFile (repo / "lean-toolchain") (adopter / "lean-toolchain")
     IO.FS.writeFile
         (adopter / "Widget.lean")
             "import Widget.Extra\n/-! Re-export the arithmetic identity in Widget.Extra. -/\n"
@@ -3062,12 +3056,7 @@ private unsafe def adopterQualification (repo scratch : FilePath) (parts : List 
     IO.FS.writeFile (adopter / "Main.lean") "/-! Standalone no-effect IO entrypoint. -/\n/-- Does \
       nothing. -/\ndef main : IO Unit := pure ()\n"
     IO.FS.writeFile (adopter / "foundation_manifest.json") (adopterManifestText ++ "\n")
-    writeJson (adopter / "lake-manifest.json") lakeManifest
-    IO.FS.createDirAll (adopter / ".lake")
-    let link ← runProcess adopter (.stated "ln" "until #399 replaces this copy with the construction in Regula.Filesystem") #["-s", (repo / ".lake" / "packages").toString,
-      (adopter / ".lake" / "packages").toString]
-    if !link.succeeded then
-      throw <| IO.userError s!"could not link pinned Lake packages: {link.output}"
+    Lake.pinAdopter repo adopter
     -- An adopter is a repository of its own, so `regula`, which it requires from this checkout, is
     -- a dependency in a different Git work tree, which the audit trusts, as an adopter's is.
     let initialized ← runProcess adopter (.stated "git" "Git is the caller-selected repository mechanism") #["init", "-q"]
@@ -3239,7 +3228,7 @@ environment. -/
 private def libraryCycleControl (repo : FilePath) : IO (Array String) :=
   withScratch repo "library-cycle-control" fun project =>
     withScratch repo "library-cycle-result" fun output => do
-  IO.FS.writeFile (project / "lean-toolchain") (← IO.FS.readFile (repo / "lean-toolchain"))
+  Regula.Filesystem.copyFile (repo / "lean-toolchain") (project / "lean-toolchain")
   IO.FS.writeFile (project / "lakefile.toml") <|
     "name = \"library_cycle_control\"\n[leanOptions]\nautoImplicit = false\n" ++
       "relaxedAutoImplicit = false\nlinter.missingDocs = true\n" ++
@@ -3262,6 +3251,7 @@ private def libraryCycleControl (repo : FilePath) : IO (Array String) :=
         s!"theorem {fact}Top : True := {otherFact}Base\n"
   -- Lake writes the lock manifest of this package without dependencies; without one the fresh
   -- copy's build would create it, a configuration change during the audit.
+  -- This generated configuration has no requirements; update creates only its initial manifest.
   let locked ← runProcess project (.toolchain .lake) #["update"] scrubbedLeanPathEnv
   unless locked.succeeded do return #[s!"library-cycle/setup: lake update failed:\n{locked.output}"]
   let result := output / "result.json"
@@ -3295,59 +3285,91 @@ private def libraryCycleControl (repo : FilePath) : IO (Array String) :=
       the key of its reused module Right.Base"
   return failures
 
-/-- External-boundary control for reuse with identical copies, where Lean's realization and import
+/-- External-boundary control for reuse with shared copies, where Lean's realization and import
 of several copies of one name, the report workers and the kernel are the external mechanism
-(`Admission.copiesIdentical_iff`, `Admission.referencesWithin_iff` and `Admission.ownedUniform_iff`
-state the decisions). `Lib.Left` and `Lib.Right` do not import each other, and each realizes its
-own copy of `positive.eq_1` of `Lib.Base` and uses it, so the two copies are identical. `Lib.Odd`
-and `Lib.Even` each declare `sharedFact` with a different proof. `App.Main` imports the four. The
-fresh audit must accept; the `Lib` environment replays its five modules, with both copies of each
-name, and lists only `Lib.Odd` and `Lib.Even` as `shared`; the `App` environment reuses `Lib.Base`,
-`Lib.Left` and `Lib.Right`, though it attributes the copy of `Lib.Right` to `Lib.Left`, and replays
-`Lib.Odd`, `Lib.Even` and `App.Main`, again listing `Lib.Odd` and `Lib.Even` as `shared`. -/
-private def identicalCopiesControl (repo : FilePath) : IO (Array String) :=
-  withScratch repo "identical-copies-control" fun project =>
-    withScratch repo "identical-copies-result" fun output => do
+(`Admission.copiesAgree_iff`, `Admission.referencesWithin_iff` and `Admission.ownedAgrees_iff`
+state the decisions, and `Admission.agreesIn_iff` when copies agree). `Lib.Left` and `Lib.Right`
+do not import each other. Each realizes its own copy of `positive.eq_1` of `Lib.Base`, and the two
+copies are identical. Each also realizes its own copy of `classify.eq_2`, whose proof uses the
+match equation Lean realizes privately in that module, and uses it only by that name. The two
+copies differ only in those private names, and the reuse this control expects requires
+`Admission.agrees` to accept the name, through `Admission.uniformUpToPrivate` and
+`Admission.declaredOwned`. `Lib.Near` and `Lib.Far` each realize a copy of `grade.eq_2` the same
+way, but their own theorems also refer to the private match equation, so a check of one in an
+environment that holds the other module's copy would read the private names of both modules, and
+the copies do not agree. `Lib.Odd` and
+`Lib.Even` each declare `sharedFact` with a different proof. `Lib.Up` and `Lib.Down` each declare
+`helperFact` through a private `helper` with a different proof, so exchanging the names of
+`helper` does not relate its two copies. `App.Main` imports the eight. The fresh audit must
+accept; the `Lib` environment replays its nine modules, with both copies of each name, and lists
+only `Lib.Near`, `Lib.Far`, `Lib.Odd`, `Lib.Even`, `Lib.Up` and `Lib.Down` as `shared`; the `App`
+environment reuses `Lib.Base`, `Lib.Left` and `Lib.Right`, though it attributes the copies of
+`Lib.Right` to `Lib.Left`, and replays the other six and `App.Main`, again listing those six as
+`shared`. Each constant that reaches `Lean.reduceBool` reaches the axiom `Lean.trustCompiler`,
+which no claim admits, so the exclusion of native reduction has its witnesses in `Admission`. -/
+private def sharedCopiesControl (repo : FilePath) : IO (Array String) :=
+  withScratch repo "shared-copies-control" fun project =>
+    withScratch repo "shared-copies-result" fun output => do
   IO.FS.writeFile (project / "lean-toolchain") (← IO.FS.readFile (repo / "lean-toolchain"))
   IO.FS.writeFile (project / "lakefile.toml") <|
-    "name = \"identical_copies_control\"\n[leanOptions]\nautoImplicit = false\n" ++
+    "name = \"shared_copies_control\"\n[leanOptions]\nautoImplicit = false\n" ++
       "relaxedAutoImplicit = false\nlinter.missingDocs = true\n" ++
       "[[lean_lib]]\nname = \"Lib\"\nglobs = [\"Lib.+\"]\n" ++
       "[[lean_lib]]\nname = \"App\"\nglobs = [\"App.+\"]\n"
   let surface (library : String) : String :=
     "{\"library\":\"" ++ library ++ "\",\"executables\":[],\"claim\":\"standard-logical\"," ++
-      "\"execution\":\"report\",\"rationale\":\"Identical copies control\"}"
+      "\"execution\":\"report\",\"rationale\":\"Shared copies control\"}"
   IO.FS.writeFile (Manifest.defaultPath project) <|
     "{\"schema-version\":2,\"surfaces\":[" ++ surface "Lib" ++ "," ++ surface "App" ++
       "],\"excluded-libraries\":[],\"excluded-executables\":[]}"
   IO.FS.createDirAll (project / "Lib")
   IO.FS.createDirAll (project / "App")
   IO.FS.writeFile (project / "Lib" / "Base.lean") <|
-    "/-! The definition whose equation lemma two modules realize. -/\n\n" ++
-      "/-- A positive number. -/\ndef positive (n : Nat) : Prop := 0 < n\n"
+    "/-! The definitions whose equation lemmas several modules realize. -/\n\n" ++
+      "/-- A positive number. -/\ndef positive (n : Nat) : Prop := 0 < n\n\n" ++
+      "/-- One for the option of zero, two otherwise. -/\n" ++
+      "def classify : Option Nat → Nat\n  | some 0 => 1\n  | _ => 2\n\n" ++
+      "/-- Zero for the option of one, three otherwise. -/\n" ++
+      "def grade : Option Nat → Nat\n  | some 1 => 0\n  | _ => 3\n"
   for side in #["left", "right"] do
     IO.FS.writeFile (project / "Lib" / s!"{side.capitalize}.lean") <|
-      s!"import Lib.Base\n\n/-! Realizes its own copy of `positive.eq_1`. -/\n\n" ++
-        s!"theorem {side}Unfold (n : Nat) : positive n = (0 < n) := positive.eq_1 n\n"
+      "import Lib.Base\n\n/-! Realizes its own copies of `positive.eq_1` and of the equation " ++
+        "lemmas of `classify`. -/\n\n" ++
+        s!"theorem {side}Unfold (n : Nat) : positive n = (0 < n) := positive.eq_1 n\n\n" ++
+        s!"theorem {side}Classify (x : Option Nat) (h : x ≠ some 0) : classify x = 2 :=\n" ++
+        "  classify.eq_2 x h\n"
+  for side in #["near", "far"] do
+    IO.FS.writeFile (project / "Lib" / s!"{side.capitalize}.lean") <|
+      "import Lib.Base\n\n/-! Realizes its own copies of the equation lemmas of `grade` and " ++
+        "refers to its own private match equation of `grade`. -/\n\n" ++
+        s!"theorem {side}Grade (x : Option Nat) (h : x ≠ some 1) : grade x = 3 := by\n" ++
+        "  simp only [grade]\n"
   for (parity, proof) in #[("Odd", "True.intro"), ("Even", "trivial")] do
     IO.FS.writeFile (project / "Lib" / s!"{parity}.lean") <|
       s!"/-! Declares `sharedFact` with the proof `{proof}`. -/\n\n" ++
         s!"theorem sharedFact : True := {proof}\n"
+  for (direction, proof) in #[("Up", "True.intro"), ("Down", "trivial")] do
+    IO.FS.writeFile (project / "Lib" / s!"{direction}.lean") <|
+      s!"/-! Declares `helperFact` through a private `helper` with the proof `{proof}`. -/\n\n" ++
+        s!"private theorem helper : True := {proof}\n\ntheorem helperFact : True := helper\n"
   IO.FS.writeFile (project / "App" / "Main.lean") <|
-    "import Lib.Left\nimport Lib.Right\nimport Lib.Odd\nimport Lib.Even\n\n" ++
-      "/-! Loads both copies of `positive.eq_1` and of `sharedFact`. -/\n\n" ++
+    "import Lib.Left\nimport Lib.Right\nimport Lib.Near\nimport Lib.Far\nimport Lib.Odd\n" ++
+      "import Lib.Even\nimport Lib.Up\nimport Lib.Down\n\n" ++
+      "/-! Loads both copies of `positive.eq_1`, `classify.eq_2`, `grade.eq_2`, `sharedFact` " ++
+      "and `helperFact`. -/\n\n" ++
       "theorem appFact : positive 1 = (0 < 1) ∧ True := ⟨rightUnfold 1, sharedFact⟩\n"
   -- Lake writes the lock manifest of this package without dependencies; without one the fresh
   -- copy's build would create it, a configuration change during the audit.
   let locked ← runProcess project (.toolchain .lake) #["update"] scrubbedLeanPathEnv
   unless locked.succeeded do
-    return #[s!"identical-copies/setup: lake update failed:\n{locked.output}"]
+    return #[s!"shared-copies/setup: lake update failed:\n{locked.output}"]
   let result := output / "result.json"
   let gate ← runProcess project (.stated (← toolPath repo "axiomGate").toString "The caller selects this resolved non-toolchain executable")
     #["--project", project.toString, "--json-out", result.toString] scrubbedLeanPathEnv
   unless gate.succeeded do
-    return #[s!"identical-copies/accepted: expected PASS:\n{gate.output}"]
-  let modules := #["Lib.Base", "Lib.Even", "Lib.Left", "Lib.Odd", "Lib.Right", "App.Main"]
+    return #[s!"shared-copies/accepted: expected PASS:\n{gate.output}"]
+  let modules := #["Lib.Base", "Lib.Down", "Lib.Even", "Lib.Far", "Lib.Left", "Lib.Near", "Lib.Odd",
+    "Lib.Right", "Lib.Up", "App.Main"]
   let json ← requireAuditDocument (← IO.ofExcept (Json.parse (← IO.FS.readFile result)))
   let surfaces ← IO.ofExcept <|
     (json.getObjVal? "scope").bind (·.getObjValAs? (Array Json) "surfaces")
@@ -3364,20 +3386,23 @@ private def identicalCopiesControl (repo : FilePath) : IO (Array String) :=
     found := found.push (library, replayed, modules.filter reused.contains,
       modules.filter shared.contains)
     if library == "Lib" then required := keys
+  let shared := #["Lib.Down", "Lib.Even", "Lib.Far", "Lib.Near", "Lib.Odd", "Lib.Up"]
   let expected : Array (String × Array String × Array String × Array String) := #[
-    ("Lib", #["Lib.Base", "Lib.Even", "Lib.Left", "Lib.Odd", "Lib.Right"], #[],
-      #["Lib.Even", "Lib.Odd"]),
-    ("App", #["Lib.Even", "Lib.Odd", "App.Main"], #["Lib.Base", "Lib.Left", "Lib.Right"],
-      #["Lib.Even", "Lib.Odd"])]
+    ("Lib", #["Lib.Base", "Lib.Down", "Lib.Even", "Lib.Far", "Lib.Left", "Lib.Near", "Lib.Odd",
+        "Lib.Right", "Lib.Up"], #[], shared),
+    ("App", #["Lib.Down", "Lib.Even", "Lib.Far", "Lib.Near", "Lib.Odd", "Lib.Up", "App.Main"],
+      #["Lib.Base", "Lib.Left", "Lib.Right"], shared)]
   let mut failures := #[]
   -- Each copy is a key of the module that declares it, so both copies of each name exist.
   for key in #[("Lib.Left", "positive.eq_1"), ("Lib.Right", "positive.eq_1"),
-      ("Lib.Odd", "sharedFact"), ("Lib.Even", "sharedFact")] do
+      ("Lib.Left", "classify.eq_2"), ("Lib.Right", "classify.eq_2"), ("Lib.Near", "grade.eq_2"),
+      ("Lib.Far", "grade.eq_2"), ("Lib.Odd", "sharedFact"), ("Lib.Even", "sharedFact"),
+      ("Lib.Up", "helperFact"), ("Lib.Down", "helperFact")] do
     unless required.contains key do
-      failures := failures.push s!"identical-copies/copies: the Lib environment does not \
+      failures := failures.push s!"shared-copies/copies: the Lib environment does not \
         require {key}, so the project does not hold the copies this control is about"
   unless found == expected do
-    failures := failures.push s!"identical-copies/reuse: expected {expected}, found {found}"
+    failures := failures.push s!"shared-copies/reuse: expected {expected}, found {found}"
   return failures
 
 /-- Writes the project of `crossSurfaceDecisionControl` into the empty directory `project`. It
@@ -3388,7 +3413,7 @@ registration of `crossCheck`; without it, it holds an unrelated theorem. With `r
 manifest names `Exec` in the `decides` of `Proofs`. -/
 private def writeCrossSurfaceProject (repo project : FilePath) (relation decided : Bool) :
     IO Unit := do
-  IO.FS.writeFile (project / "lean-toolchain") (← IO.FS.readFile (repo / "lean-toolchain"))
+  Regula.Filesystem.copyFile (repo / "lean-toolchain") (project / "lean-toolchain")
   IO.FS.writeFile (project / "lakefile.toml") <|
     "name = \"cross_surface_control\"\n[leanOptions]\nautoImplicit = false\n" ++
       "relaxedAutoImplicit = false\nlinter.missingDocs = true\n" ++
@@ -3481,7 +3506,7 @@ only a copy that built the gate is admitted, and these controls build no gate.
 Each copy is made by the driver itself, through its private entry (`lean --run
 lean/RegulaVerification.lean --copy-control`), in a project with one library and no dependency:
 
-* While the driver lives, its copy holds the project's files and no `.lake`, and the pending
+* While the driver lives, its copy holds the project's files and an empty `.lake`, and the pending
   record of the run is beside the copy; a file in the
   project's build output from before is still there and is not in the copy; and a scratch user
   of the checker in the same project (`Regula.Scratch.withScratch`, which reclaims) does not
@@ -3500,7 +3525,7 @@ private def driverCopyControl (repo : FilePath) : IO (Array String) :=
   withScratch repo "driver-copy-control" fun scratch => do
   let project := scratch / "project"
   IO.FS.createDirAll (project / "Solo")
-  IO.FS.writeFile (project / "lean-toolchain") (← IO.FS.readFile (repo / "lean-toolchain"))
+  Regula.Filesystem.copyFile (repo / "lean-toolchain") (project / "lean-toolchain")
   IO.FS.writeFile (project / "lakefile.toml") <|
     "name = \"driver_copy_control\"\n[leanOptions]\nautoImplicit = false\n" ++
       "relaxedAutoImplicit = false\nlinter.missingDocs = true\n" ++
@@ -3512,6 +3537,7 @@ private def driverCopyControl (repo : FilePath) : IO (Array String) :=
       "\"excluded-libraries\":[],\"excluded-executables\":[]}"
   IO.FS.writeFile (project / "Solo" / "Base.lean")
     "/-! The base module of the control. -/\n\ntheorem soloBase : True := True.intro\n"
+  -- This generated configuration has no requirements; update creates only its initial manifest.
   let locked ← runProcess project (.toolchain .lake) #["update"] scrubbedLeanPathEnv
   unless locked.succeeded do
     return #[s!"driver-copy/setup: lake update failed:\n{locked.output}"]
@@ -3558,7 +3584,8 @@ private def driverCopyControl (repo : FilePath) : IO (Array String) :=
   let marker := area / s!"{name}.{Regula.Scratch.markerExtension}"
   failures := failures ++ expect "copy: a file of the project is missing"
     (← (copy / "Solo" / "Base.lean").pathExists)
-  failures := failures ++ expect "copy: it has a .lake directory" !(← (copy / ".lake").pathExists)
+  failures := failures ++ expect "copy: Lake state is not initially empty"
+    (← (copy / ".lake").readDir).isEmpty
   failures := failures ++ expect "copy: no ownership marker" (← marker.pathExists)
   failures := failures ++ expect "copy: the run has no pending record of its own beside its copy"
     ((← IO.FS.readFile ((copy.parent.getD copy) / "acceptance-link.pending.json")).contains
@@ -3694,7 +3721,7 @@ private def retainedBuildControl (repo : FilePath) : IO (Array String) :=
   let project := scratch / "project"
   IO.FS.createDirAll (project / "Solo")
   IO.FS.createDirAll (project / "docs")
-  IO.FS.writeFile (project / "lean-toolchain") (← IO.FS.readFile (repo / "lean-toolchain"))
+  Regula.Filesystem.copyFile (repo / "lean-toolchain") (project / "lean-toolchain")
   -- The weak-arguments facet of Regula's shipped `lakefile.lean`, so the ordinary build records
   -- each module's weak arguments in its trace, as the first acceptance step's build does.
   let some facet := Lake.weakArgsDeclarations (← IO.FS.readFile (repo / "lakefile.lean"))
@@ -3727,6 +3754,7 @@ private def retainedBuildControl (repo : FilePath) : IO (Array String) :=
   let step (label : String) (cmd : Regula.Process.Program) (args : Array String) : IO (Option String) := do
     let result ← runProcess project cmd args env
     return if result.succeeded then none else some s!"retained-build/{label}:\n{result.output}"
+  -- This generated configuration has no requirements; update creates only its initial manifest.
   if let some failure ← step "setup" (.toolchain .lake) #["update"] then return #[failure]
   let link := scratch / "acceptance-link.json"
   let fresh (reason : String) :=
@@ -3813,7 +3841,7 @@ private def shardDescription (label : String) (others : Nat) (names : Array Stri
 
 /-- Structural mutations and manifest controls retain their isolated projects, worker joins,
 and complete failure accumulation. The frozen-artifact controls, the mutation clusters, the
-cross-surface decision control, the library cycle control, the identical copies control, the
+cross-surface decision control, the library cycle control, the shared copies control, the
 driver copy control, the retained build control and the manifest controls share one queue of
 `jobs` workers, so no more than `jobs` of them run at once. The short controls wait behind the
 clusters and take the
@@ -3843,8 +3871,8 @@ private unsafe def runStructural (layout : SourceLayout) (repo : FilePath) (jobs
               crossSurfaceDecisionControl false repo),
             (structuralShard 4, StructuralGroup.cycle, "library cycle control",
               libraryCycleControl repo),
-            (structuralShard 1, StructuralGroup.copies, "identical copies control",
-              identicalCopiesControl repo),
+            (structuralShard 1, StructuralGroup.copies, "shared copies control",
+              sharedCopiesControl repo),
             (structuralShard 1, StructuralGroup.manifest, "manifest controls",
               manifestQualification repo manifests),
             (structuralShard 1, StructuralGroup.frozen, "frozen artifact controls",
@@ -3900,9 +3928,11 @@ private unsafe def runStructural (layout : SourceLayout) (repo : FilePath) (jobs
       " (two claimed libraries that import one another: accepted, each module replayed in one \
         environment, a requested module reused with its keys)"
   if ran .copies then
-    IO.println <| "self-test identical copies: " ++ verdict .copies ++
-      " (two modules that realize identical copies of one lemma: reused in a later environment; \
-        two modules with different copies of one theorem: replayed again)"
+    IO.println <| "self-test shared copies: " ++ verdict .copies ++
+      " (two modules that realize copies of two lemmas, identical or equal up to their private \
+        match equations, which only those copies use: reused in a later environment; two \
+        modules whose own theorems use their private match equations, and two pairs of modules \
+        with different copies of one theorem, or of its private helper: replayed again)"
   if ran .crossSurface then
     IO.println <| "self-test cross-surface decisions: " ++ verdict .crossSurface ++
       " (a registered function whose only decision registration is in another claimed library: \
@@ -4346,7 +4376,7 @@ subdirectories pruned by the generic project copier. Exercise a fresh positive,
 a single invalid fence, and its restored positive in an isolated tiny project. -/
 private def combinedSnapshotQualification (repo : FilePath) : IO (Array String) :=
   withScratch repo "combined-snapshot-control" fun project => do
-    IO.FS.writeFile (project / "lean-toolchain") (← IO.FS.readFile (repo / "lean-toolchain"))
+    Regula.Filesystem.copyFile (repo / "lean-toolchain") (project / "lean-toolchain")
     IO.FS.writeFile (project / "lakefile.toml") <|
       "name = \"snapshot_control\"\n[leanOptions]\nautoImplicit = false\n" ++
         "relaxedAutoImplicit = false\nlinter.missingDocs = true\n[[lean_lib]]\nname = \
@@ -4360,6 +4390,7 @@ private def combinedSnapshotQualification (repo : FilePath) : IO (Array String) 
         control\"}],\"excluded-libraries\":[],\"excluded-executables\":[]}"
     -- Lake writes the lock manifest of a project that has none at its first build; written
     -- before the audits, it is not a configuration change during one.
+    -- This generated configuration has no requirements; update creates only its initial manifest.
     let updated ← runProcess project (.toolchain .lake) #["update"] scrubbedLeanPathEnv
     unless updated.succeeded do return #[s!"combined snapshot/update: {updated.output}"]
     let docs := project / "docs" / ".cache"

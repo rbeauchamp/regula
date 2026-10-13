@@ -6,6 +6,14 @@ There is no package import to build before a cold driver can run. -/
 
 open System
 
+/-- The cold constructor interprets its unchanged toolchain-only definitions, followed by this
+same observer source and its one Git adapter. Imports precede all definitions, and the namespace
+matches the adapter's package namespace. No copy or process policy is reconstructed here. -/
+def constructorSource (construction observer adapter : String) : String :=
+  "import Lake.Config.InstallPath\n" ++ construction ++ "\nnamespace Regula.Process\n" ++
+    observer ++ "\nend Regula.Process\nnamespace Regula.CopyProcess\n" ++ adapter ++
+    "\nend Regula.CopyProcess\n"
+
 /-- The closed set of programs belonging to the selected Lean installation. -/
 inductive Tool where
   /-- Lean's source compiler. -/
@@ -390,7 +398,7 @@ documented effect. The OS, signal delivery and child execution remain trusted. -
   IO.Process.spawn selected.emit
 
 /-- Run the typed program to completion and capture its output, using Lean's own pipe management.
-Assumes: Lean v4.34.1 `Init/System/IO.lean:1577-1608` joins the child and drains its streams. -/
+Assumes: Lean v4.34.1 `Init/System/IO.lean:1544-1557` joins the child and drains its streams. -/
 @[noinline, nospecialize] def output [Cache] (program : Program) (args : IO.Process.SpawnArgs)
     (input : Option String := none) : IO IO.Process.Output := do
   IO.Process.output (← prepare program args).emit input

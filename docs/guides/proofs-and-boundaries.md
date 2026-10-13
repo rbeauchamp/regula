@@ -407,9 +407,9 @@ that copy. The driver of that command, `lean/RegulaVerification.lean`, makes the
 starts a Lake command. The function `RegulaVerification.makeCopy` makes it. The copy is a new
 directory in `.lake/regula-scratch/` of the checkout.
 
-The copy has the files of the checkout, but not the directories `.git`, `.lake`, `.cache` and
-`.regula-scratch`, and not the root directory `tmp`. The theorem `walked_iff` gives that set of
-names. Thus the copy starts with no build output, and the builds in it compile each module.
+The copy selects source files through `Construction.projectRelative` (`checked_projectRelative`).
+
+It excludes root `tmp` and, outside `docs`, VCS, build, cache and scratch directories. Documentation includes cache-named subdirectories. An empty root `.lake` excludes the original root's default build state. Other selected files, including artifacts under `docs`, can enter. The builds compile each module.
 
 The step has four commands, which the function `RegulaVerification.commands` gives. The build,
 the registry checks and the qualification controls operate in the copy. The last command is the
@@ -598,13 +598,107 @@ A program can also operate Lake in a copy of a project that it made, as
 `Regula.Checker.Lake.copyProject` and the verification driver do. Lake acts on the copy as it would
 act on the workspace that it was given, thus the same reason holds.
 
-This exception has a limit. A copy that `cp -R` makes, as the qualification slot and the
-provisioning driver do, holds the symbolic links of the original. A relative link there resolves
-from the place of the copy. A copy of `copyProject` holds the link that Regula makes to the
-packages directory of the original. The removals of Lake in a copy can operate through these links.
+Regula constructs its copies through `Regula.Filesystem`. The general routine refuses selected source links and special entries through metadata reads that follow no final link. It creates directories and regular files exclusively at their exact destinations. It places no packages link. This construction removes the limit about links preserved or placed by Regula's copies.
 
-[Issue 399](https://github.com/rbeauchamp/regula/issues/399) asks for copies that hold only
-directories, files and that one link, by construction.
+`observer_copy` states the complete selected source receipt and the exact destination tree over the observer's filesystem model. `observer_construct` states the exact tree of generated instructions. `Construction.capture_io` connects captured subtrees to that model.
+
+`observer_appendFile` includes ancestor admission when the leaf writer extends an established plain parent. Its initial tree is a precondition, not an authentication of arbitrary old entries. Errors can leave partial private output. Callers refuse that output before a Lake load. These theorems state entry kinds and locations, not byte fidelity, permissions or later process effects.
+
+Assumes: Lean `v4.34.1` uses POSIX lstat for `symlinkMetadata` (`Init/System/IO.lean:1151-1156`, `runtime/io.cpp:1160-1179`). Windows is refused because this read follows links there.
+
+Assumes: Directory enumeration reaches EOF without error (`Init/System/IO.lean:1141-1142`, `runtime/io.cpp:1076-1098`). This is trusted: the core wrapper does not distinguish EOF from an enumeration error.
+
+Assumes: Exclusive mkdir creates one empty directory (`runtime/io.cpp:1181-1195`). `Mode.writeNew` uses `O_EXCL` (`Init/System/IO.lean:651-660`, `runtime/io.cpp:409`).
+
+Assumes: Exclusive creation fails for any occupied final destination and follows no final link. Source and destination have no concurrent writer. Lean exposes no `O_NOFOLLOW` file-open mode, so byte reads trust that source entries stay fixed after metadata reads.
+
+Filesystem modes are not preserved. Copied files receive 0644 and directories receive 0755. Provisioning's Git adapter gives indexed executable files 0755. Other sites that execute a copied program explicitly request 0755, with the reason where they copy it. Lake sets modes on the programs it builds. No filesystem-permission-reading program participates in construction.
+
+The Git clone adapter emits the indexed worktree and its captured `.git` metadata. Mode `100755` files receive executable rights. Mode `120000` entries become regular files with their target text. Generated Git configuration sets `core.symlinks=false`. Untracked links, special entries and other index modes refuse before writing.
+
+The adapter also emits untracked regular files beneath the package's own `.lake/build`, admitted by the same no-follow capture. Other untracked files are not emitted. Thus provisioned dependencies retain their reusable build outputs. `Construction.gitBuildFiles_mem` states the exact selection, including exclusion of paths already supplied by the index.
+
+The Git adapter has a closed source domain. Git decodes the configuration and resolves metadata paths. Extension settings, includes, `core.worktree` redirects and alternate object stores refuse before destination creation. The clone requires a plain, self-contained `.git` directory.
+
+Index paths must be valid UTF-8 and match the stored directory-entry names exactly. `Construction.admitGitName_iff` states the exact-name guard's complete membership condition. A case-folded spelling refuses before capture or blob reading. The adapter does not interpret `core.ignoreCase`.
+
+After Git confirms that the source common directory is its own metadata, the clone omits the captured `commondir` instruction. The observer supplies its stored spelling. The copied metadata thus has no instruction that selects the original common directory.
+
+The qualification slot asks Git to resolve pointer files and `commondir`. It constructs common metadata beneath its own Git directory. It refuses alternates at the path Git resolves for the effective object store. It parses no alternate entry and has no fallback path resolver.
+
+`Construction.gitFiles_sound` relates each index entry to its regular-file instruction. `Construction.gitConstruct_io` states the exact plain tree of the executed writer. The tree has those indexed files, admitted build outputs, their directories and admitted Git metadata. The generated configuration and omitted common instruction determine that metadata. It contains no link. Destination byte fidelity remains trusted.
+
+Assumes: Trusted Git reports complete index modes, paths and object identifiers with `ls-files --format/-z`. Installed Git `2.54.0` documents this protocol in `git-ls-files(1)`. See `--format`, `-z` and `FIELD NAMES`. The source index and worktree have no writer. The adapter admits `.git` through no-follow capture before Git reads it.
+
+Assumes: Git `2.54.0`, `git-cat-file(1)`, returns blob contents for `cat-file blob OBJECT`. The adapter reads target-text blobs as binary output. It follows no source link. Git object fidelity and process execution remain trusted.
+
+Assumes: Git `2.54.0`, `git(1)`, defines `--no-lazy-fetch`, `--no-optional-locks` and `--no-replace-objects`. The observations select these options. They disable lazy fetching, optional lock-taking writes and replacement-object lookup.
+
+Git commands use the shared `Construction.gitEnvironment` observation. It asks Git for its repository-local environment names, then removes those variables and `GIT_NAMESPACE`. It disables system and global configuration. Commands also select `-c core.symlinks=false`. Cold drivers interpret this same observer before their Git invocation.
+
+This Git isolation covers commands that Regula starts. Lake's own Git calls inherit the caller's environment. This includes Lake children and in-process workspace loading. Those two boundaries are outside this guarantee.
+
+The initial list query removes `GIT_CONFIG_COUNT` and `GIT_CONFIG_PARAMETERS`. It performs no repository setup or repository configuration read. A malformed command-configuration variable cannot prevent the initial list observation.
+
+Assumes: Git `2.54.0` prints its repository-local list without repository setup or the subsequent configuration read (`builtin/rev-parse.c:717-722,734-740`). The list is `local_repo_env` (`environment.c:99-118`, `environment.h:73-78`).
+
+Assumes: Git `2.54.0` uses the two removed variables for command configuration (`config.c:667-720`). Removing `GIT_CONFIG_COUNT` makes its numbered key/value variables inert (`config.c:676-707`).
+
+Assumes: Git `2.54.0` uses `GIT_NAMESPACE` to select reference namespaces (`environment.c:141-175`). It disables system configuration with `GIT_CONFIG_NOSYSTEM`. `GIT_CONFIG_GLOBAL` replaces the two global configuration paths (`config.c:1411-1427,1454-1468`). The POSIX `/dev/null` device supplies an empty file, which is trusted.
+
+Assumes: Git `2.54.0` reads command-scope configuration after local and worktree scopes (`config.c:1470-1483`). Product callers give no competing command-scope `core.symlinks` setting. `core.symlinks=false` selects target-text files with their index link type (`git-config(1)`). Git interprets checkout status.
+
+Assumes: Git `2.54.0` decodes configuration keys through its own decoder (`builtin/config.c:74-104,487-591,1264-1266`, `config.c:1492-1523`). No matching key gives exit 1. The adapter refuses an extension setting even when its value is false.
+
+Assumes: Git `2.54.0` resolves metadata paths through `--git-path` (`builtin/rev-parse.c:752-759,776-785`). Its path resolver selects the effective object store (`path.c:375-376`).
+
+Assumes: Git `2.54.0` resolves pointer files and common directories (`builtin/rev-parse.c:723-731`, `setup.c:303-324`). All captured metadata has no writer.
+
+Assumes: Lean `v4.34.1` applies process environment changes in order (`Init/System/IO.lean:1441-1448`). The shared observer's removals follow caller settings. Cold Git adapters pass the embedded source through stdin (`IO.Process.output`, `Init/System/IO.lean:1544-1557`, `--stdin --run`, `Lean/Shell.lean:497-518,552-560`). Interpreter fidelity remains trusted.
+
+Assumes: Lake `v4.34.1` tests cleanliness with `git diff --exit-code HEAD` (`Util/Git.lean:198-203`). Matching-revision dependencies with changes get a warning (`Load/Materialize.lean:255-258`).
+
+`copyProject` captures the manifest at Lake's loaded `ws.manifestFile`. Its packages fallback is `ws.relPkgsDir`. Each resolved dependency receives a typed path override, including inherited and transitive dependencies. Owned dependencies point into the copy, and trusted dependencies point to their original roots. The copy always retains the captured manifest and runs ordinary loads.
+
+Package-directory pruning is relative to the current capture root, for the configured and resolved spellings. `Construction.packageSource_owned` proves that explicitly owned roots inside that directory survive its pruning.
+
+Assumes: Lake `v4.34.1`, `Load/Resolve.lean:590-627`, applies overrides during ordinary materialization. `Load/Resolve.lean:201-235` traverses dependencies transitively. Path entries do not clone packages (`Load/Materialize.lean:239-277`).
+
+Assumes: A full update or a missing manifest bypasses overrides (`Load/Workspace.lean:64-69`, `Load/Resolve.lean:269-333`). Existing-project copies do neither. Generated update fixtures state their closed input domain where they create it.
+
+The request freezes loaded relocation selections before a producer starts. The copier and `effectiveAccount` use the same `relocateDependencies` and `generatedConfiguration` definitions. The latter also derives the expected overrides from the request's captured manifest and the copied project root. `CopyConfiguration.check_iff` proves that the executed comparison accepts exactly complete configuration equality.
+
+Result schema 20 records captured source fields and generated overrides separately in `effective.configurationOrigins`. Each other configuration value remains the exact captured text. Missing, extra or changed override entries refuse. Qualification skips no overrides field. Loading the frozen selections through Lake remains a trusted observation.
+
+An explicitly selected policy manifest outside the project keeps its exact absolute path and text in the account. It has no project-relative relocation. `configurationAccount_external` states this preservation for the executed account. The native control runs an incremental audit with that selection.
+
+The account makes a filename relative only when its project-relative components have no navigation or redirect. `configurationAccount_navigation` states preservation for an absolute path with navigation components. The external-manifest control selects such a path.
+
+An explicitly selected manifest inside the project relocates into the fresh copy. Its selection includes ancestors beneath otherwise pruned directories and files with compiled-artifact extensions. `Construction.requiredPath_ancestor` proves that each ancestor survives selection. The shared capture still refuses links and special entries before construction.
+
+`Construction.requiredFiles` observes stored spellings after no-follow admission of each requested ancestor and file. Callers select the requested and stored spellings. This preserves case aliases without resolving away a source link. The observation assumes stable source entries and the stated POSIX metadata and realpath behavior.
+
+For a fresh audit with `--with-docs`, original Markdown discovery precedes construction. Its walker admits each directory through no-follow metadata before descent, so a directory link cannot redirect or cycle discovery. Its selected files and ancestors survive package and cache pruning. `Construction.selectFiles_mem` states that artifact filtering removes only regular-file instructions. A directory with an artifact suffix retains its descendants. Regular artifacts outside pruned trees are admitted and read before filtering.
+
+`Construction.constructSelected_io` connects the executed instruction guard and writer to each required destination file. The guard refuses an omitted input before any destination write. Its domain uses stored source spellings observed through `Construction.requiredFiles`. Original discovery, native observations, byte fidelity and source stability remain trusted boundaries.
+
+The loaded Lake manifest also retains its stored source spelling. This includes a manifest that is itself a selected consumer input. Its requested path remains in the configuration account.
+
+The fresh documentation census relocates each original snapshot. `Documentation.relocateMarkdown_sources` preserves its ordered source texts, and `Documentation.relocateMarkdown_mem` retains each document. The existing documentation freshness check compares that census with the copied documents. An additional original-source check precedes combined acceptance. The cold project constructor uses the same Markdown discovery and selected-domain guard.
+
+`qualify combined` includes native construction controls for artifact-named directories and Markdown inside configured package directories. Public fresh audits accept positive fences, reject an invalid positive fence in each location, and accept the restored source. These controls also exercise selected aliases, source-link refusals, cold construction and exclusive destinations. They observe external boundaries, not universal correctness.
+
+`configurationRelative` supplies the same path decision for relocation and the account. `relocateConfigurationPath_relative` and `configurationAccount_relative` state the two results. Fresh-audit controls check exact configuration accounts for absolute selections, including pruned paths. The default-policy control also checks the rule-example comparison. Its project case requires `foundation_manifest.json`.
+
+The cold drivers embed the shared constructor's source with Lean's `include_str` and interpret that source before package artifacts exist. Assumes: Lean `v4.34.1`, `Lean/Elab/BuiltinTerm.lean:437-445`, `elabIncludeStr`, reads those bytes during elaboration. The compiler and interpreter remain trusted. The constructor has one source implementation, with checked correspondence to its filesystem model.
+
+Workspace loading runs only in compiled executables, including its control in `qualify combined`. The interpreted cold drivers run the constructor and external programs, and collect no Lake workspace in their process. Assumes: Lake `v4.34.1` runs its initialization state in the compiled loader (`Load/Lean/Elab.lean:28`). These executables enable `supportInterpreter` to expose core symbols when Lake elaborates configuration (`Config/LeanExeConfig.lean:54-68`).
+
+The interpreter refuses an uninitialized declaration with `Unreachable` (`src/library/ir_interpreter.cpp:919-928`). A seven-line cache observation aborts interpreted and passes compiled. That observation identifies a backend boundary, not a failure of the filesystem-model hypotheses.
+
+The provisioning registration link in the original integration workspace is separate from constructing a copy. Its creation race remains [issue 407](https://github.com/rbeauchamp/regula/issues/407). Lake-generated entries, original trusted dependencies and deliberately planted diagnostic aliases remain outside the plain-copy guarantee.
+
+The reporter's read-only import overlay is an import view. It retains artifact links because byte copies change the real origin that ownership attribution checks. Regula runs no Lake command in that overlay. Compiler-path workspaces deliberately plant toolchain aliases and run Lake to qualify origin classification. Those workspaces are diagnostic exceptions to the directory/file constructor.
 
 A program that a script operates with `lean --run` cannot import the check. Thus the modules
 `Regula.ProgramCheck` do the same check for each such program. The two drivers remove entries with
@@ -1526,7 +1620,7 @@ Two-way decisions (`Regula.Decides`), each with an accepted and a refused input:
 | `DecidedFunction.covers` | `DecidedFunction.Covers`: a field application covers (`FieldPacking.Covers`), and the number of arguments that a result takes is zero (`DecidedFunction.covers_iff`) | Whether a decision registration's statement is about its implementation on every argument ([RG1007]). It accepts the function itself when no result takes an argument, and refuses it when a result takes one more, which is a kind about a partially applied function. The collector's reading of that number from the kind's result type is not part of this kind. |
 | `Regula.Website.admitExampleRequest`, `admitExampleSources`, `admitDemonstration` (accept on `.ok`) | The observed request is the frozen one; `ExampleSourcesOK`; `DemonstrationOK` | Admission of a rule-example producer's request, sources and diagnostic demonstration. Each returns the admitted value with its proof, so each result type depends on the arguments. The first and the third are decided on the pair of their two arguments, and the second on the structure of its three (`ExampleSourcesInput`). |
 | `RegulaVerification.passed` | Each command of a step ended with exit status 0 (`passed_iff`). | The driver of `scripts/verify.sh` uses it before it operates one more command, before its success line and before it moves the acceptance record. |
-| `RegulaVerification.walked` | The path does not start with `tmp`, and no component of it is `.git`, `.lake`, `.cache` or `.regula-scratch` (`walked_iff`). | The files that the driver copies for the first acceptance step. No theorem relates it to the rule of the isolated copy of the checker. |
+| `Construction.projectRelative` | No root `tmp`. Documentation includes cache-named directories. Elsewhere no component is `.git`, `.lake`, `.cache` or `.regula-scratch` (`checked_projectRelative`). | The selection that the shared cold constructor executes. The constructor's filesystem theorems name their primitive hypotheses. |
 | `RegulaVerification.removal` (accepts on `.remove`) | A directory is at the place by a read that follows no link, and its real path is the place (`removal_remove_iff`). | The driver removes its copy and the `_site` directory only by this decision. The two reads of the file system are trusted. |
 | `Regula.Removal.removal` (accepts on `.remove`) | A read that follows no link finds an entry of the given kind at the place. Its real path is the place, or a symbolic link is a name in a directory at its own place (`removal_remove_iff`). | Each program of the package removes a directory, a file or a symbolic link only by this decision, through `Regula.Filesystem`. The exceptions are the library calls that `Regula.Removal.libraryRemovals` gives, and the removals of the two drivers that `Regula.ProgramCheck.Verification` and `Regula.ProgramCheck.Provision` give. The reads of the file system are trusted. |
 | `Regula.Removal.replacement` (accepts on `true`) | A read that follows no link finds a file at the source, at its own place. Nothing is at the destination, or a file is there at its own place. The destination is a name in a directory at its own place (`replacement_iff`). | Each program of the package moves a file only by this decision, through `Regula.Filesystem`. The exceptions are the library calls that `Regula.Removal.libraryRemovals` gives, and the moves of the two drivers that `Regula.ProgramCheck.Verification` and `Regula.ProgramCheck.Provision` give. The reads of the file system are trusted. |
@@ -1617,7 +1711,7 @@ imports only the toolchain:
   no program imports: `RegulaProvision.Decisions` registers `component?`, `admits`, `mathlibStep`, `cloneStep`, `found`, `prunes`, `retires` and
   `mathlibApplies`;
   `RegulaVerification.Decisions` registers `parseMode`, `dependencyFree`, `select`, `passed`,
-  `walked`, `removal` and `prebuildCovers`.
+  `removal` and `prebuildCovers`. The shared constructor registers `projectRelative` in `RegulaCore.CopyConstruction`.
   Each kind restates a theorem the program proves about the same definition, except that of
   `component?` (`checked_component`).
 
@@ -2292,8 +2386,8 @@ of `docs/` and on the Verso sources of the standard. It compiles each fence that
   `Admission.TableWithin`.
 - **The observing pass** is the rest of `validate`. It computes the replay set (`replaySet`) and
   the reported modules, imports the replay base and replays the copies (`replayMap`). When a copy
-  is shared, it computes `offerable` with `ownedUniform` over `duplicatesIn` of the audited
-  environment. It computes the axioms of the owned declarations, gives a failure of a decision its text and catches the
+  is shared, it computes `offerable` with `ownedAgrees` and `agrees` over `duplicatesIn` of the
+  audited environment. It computes the axioms of the owned declarations, gives a failure of a decision its text and catches the
   exceptions of the replay.
 
 The import of the replay base runs before the handler of `validate`, as before this split. Thus an
@@ -2339,7 +2433,7 @@ items:
   declares. The pass computes it from the base and from `nameCounts`, and that step is read from
   the code.
 - That `offerable` is the decision of the pass. When a copy is shared, the pass computes it with
-  `ownedUniform` over `duplicatesIn` of the audited environment and `ownedModules`. Otherwise it
+  `ownedAgrees` and `agrees` over `duplicatesIn` of the audited environment and `ownedModules`. Otherwise it
   accepts each name. These steps are read from the code.
 - The text of a failure.
 
@@ -2766,9 +2860,9 @@ inferred from any pure proof.
   the names its proof uses denote the replayed kernel's constants (the base's, where the base
   declares them). A module containing a copy of such a shared name is listed in the receipt's
   `shared` and never offered for reuse, since its admission depends on which copy an environment
-  keeps, unless each loaded copy of the name is `Identical` to the kept constant and only owned
-  modules declare it (`Admission.ownedUniform` and `Admission.AdmitRequest.pinned`, in **Reuse
-  with identical copies** below). **Proved** about the executed definitions:
+  keeps, unless the copies of the name agree and only owned modules declare it
+  (`Admission.ownedAgrees` and `Admission.AdmitRequest.pinned`, in **Reuse with copies that
+  agree** below). **Proved** about the executed definitions:
   `Admission.sameTheorem_iff_subsumesInfo`
   (private in the `module` file `Regula.Checker.SharedName`, whose `import all Lean.Environment`
   reaches Lean's private `subsumesInfo`: on two theorems the condition equals `subsumesInfo` in
@@ -2887,20 +2981,22 @@ inferred from any pure proof.
   in the replay base instead of replaying it (`Admission.reusedModules`; the receipt's `reused`)
   only when (1) an offered admission replayed it over the identical import closure
   (`Admission.importClosure`: the same modules, canonical `.olean` paths and import edges) and
-  did not list it as `shared` (a module with a shared copy of a name that has a different copy there or
-  that an unowned module declares); (2) the module and every owned module of that closure is a claimed
+  did not list it as `shared` (`Admission.AdmitRequest.pinned`: a module with a shared copy of a
+  name that `Admission.ownedAgrees` refuses because its copies do not agree or an unowned module
+  declares it); (2) the module and every owned module of that closure is a claimed
   library module all of whose `.olean` parts (the `.olean` and, for a module-system file, the
   `.olean.server` and the `.olean.private` Lean takes its kernel constants from) the coordinator
   read before the first inspection, read again as this environment started with the frozen
   presence and bytes (`Inspection.readings`, `Admission.Unchanged`), and compares again after the
   last inspection (a change is [RG2005], incomplete); (3) each declaration of each owned module of
-  the closure refers only to constants of its own closure, where a name counts when all its
-  copies are `Identical` to the kept constant and a module of the closure declares one
+  the closure refers only to constants of its own closure, where a name counts when its
+  copies agree (`Admission.agrees`) and a module of the closure declares one
   (`Admission.referencesWithin` over `ConstantInfo.getUsedConstantsAsSet`, the dependencies
-  `Kernel.Environment.replay` replays first); (4) each loaded copy of each name of the
-  module's constants is `Identical` to the constant this environment keeps, and a constant that is
-  not a theorem is the only copy of its name, attributed to the module
-  (`Admission.copiesIdentical`), so no module here declares a different copy of its names; and (5) every owned module of the closure is reused too: a candidate
+  `Kernel.Environment.replay` replays first); (4) the copies of each name of the
+  module's constants agree as `Admission.agrees` decides (the name is `Admission.Uniform`, or
+  `Admission.uniformUpToPrivate` and `Admission.declaredOwned` accept it, see **Reuse with copies
+  that agree** below), and a constant that is not
+  a theorem is the only copy of its name, attributed to the module (`Admission.copiesAgree`); and (5) every owned module of the closure is reused too: a candidate
   (`Admission.candidates`, a module meeting (1) to (4)) whose closure contains an owned module
   that is not a candidate is removed, so a module that cannot be reused takes the modules above
   it out with it. One pass settles this: a member's closure lies within the closure
@@ -2974,12 +3070,12 @@ inferred from any pure proof.
   **Derived, not machine-checked:** the kernel's check of a declaration depends only on the
   declaration and the constants it consults, which its references and their values reach. By
   (3), (5) and the imported base's own references, a reused module's declarations consult only
-  its closure; by (4) for each owned module of the closure (all reused by (5)), no module here
-  declares a different copy of their names, and another copy here of a base module's name is
+  its closure; by (4) for each owned module of the closure (all reused by (5)), the copies here
+  of their names agree, and another copy here of a base module's name is
   checked by this environment when a replayed module holds it (`Admission.checkCopies`) and
   trusted when another unreplayed module does; by (1) and (2) that closure is the same bytes in
   both environments, and by (1) each of its names with a second copy in the earlier environment
-  had only `Identical` copies there, all in owned modules (**Reuse with identical copies**
+  had only copies that agree there, all in owned modules (**Reuse with copies that agree**
   below), so the earlier environment's successful replay is the one this environment would repeat. This
   rests on the stated trusted boundary: authentic imported artifacts unchanged during the audit
   (as the history memo already assumes), filesystem reads, and no change restored between two
@@ -2991,38 +3087,133 @@ inferred from any pure proof.
   probe loads, such as `Regula.StructuralName` in this repository), whose `.olean` is not frozen,
   with the reporter modules that import it; and a claimed library that an environment reaches
   only through a module without a bound source, which the import headers do not show.
-- **Reuse with identical copies.** Lean realizes an equation lemma in the first module that uses
+- **Reuse with copies that agree.** Lean realizes an equation lemma in the first module that uses
   it. Thus two modules that do not import each other can each declare the same lemma, for example
   `RegulaPolicy.Named.eq_1` in `RegulaPolicy.Decision` and in `RegulaPolicy.Execution`. An
   environment that loads the two modules keeps one constant under the name, and it attributes the
-  name to the module that it loaded first. Reuse accepts such a module when all the copies of its
-  names are identical. A module with a different copy of one of its names is replayed, as before.
+  name to the module that it loaded first. Reuse accepts such a module when the copies of its
+  names agree. A module is replayed, as before, if the copies of one of its names do not agree.
 
-  Two copies of `Lean.Json.getObjVal?.eq_2` are an example of different copies. Each proof uses a
-  private match-equation lemma of its own module.
+  Two copies of a lemma can be different only in the names of private constants. Lean gives the
+  match equations of a definition names that are private to the module that realizes them. The
+  equation lemma of that module refers to them. For example, `RegulaCore.JsonAgreement` and
+  `RegulaQualification.Registry` each realize `Lean.Json.getObjVal?.eq_2`. The proof in the first
+  module uses `_private.RegulaCore.JsonAgreement.0.Lean.Json.getObjVal?.match_3.eq_2`, and the
+  proof in the second module uses the same name, private to the second module.
 
   One pass, `Admission.duplicatesOf`, reads the constants of all the modules that the environment
   loaded. A name is uniform if each loaded copy of the name is `Identical` to the constant that the
-  environment keeps. The theorems `Admission.identical_iff` and `Admission.not_mem_differing_iff`
-  state this. Three decisions use the pass:
+  environment keeps. A name that is not uniform is in `differing`. The theorems
+  `Admission.identical_iff` and `Admission.not_mem_differing_iff` state this.
 
-  - `Admission.copiesIdentical` is the fourth condition of reuse. For each constant of the module,
-    the name must be uniform. A constant that is not a theorem must also be the only copy of its
-    name, attributed to the module.
+  Let `src` and `dst` be two modules. `Admission.renameName` changes a name private to `src` into
+  the same name private to `dst`, and it does not change a different name. The prefix of a name
+  private to a module is the name that `Admission.privatePrefix` gives, for example
+  `_private.RegulaCore.JsonAgreement.0`.
+
+  The references of a constant are the names that `KernelAxioms.successorsOf` gives. A constant
+  reaches itself, each name that it refers to and each name that those names reach. The region of
+  the owned modules is the smallest set of modules with three properties. It contains each owned
+  module and each module that imports a module of the set. It also contains each module that shares
+  a name with a module of the set, as `Admission.Shares` states. `Admission.regionOf` computes the
+  region from the imports of the modules and from `Admission.duplicatesOf`, and it reads no
+  constant.
+
+  `Admission.linksOf` reads the references of the constants of the region only. Each search
+  backward from a name reads these references, for example the search for the names that reach
+  `n`. `Admission.nativeReaching` makes one search forward from the names that pass the tests over
+  the region and from the names that reach them. It reads the copies of each name that it meets, in
+  all the loaded modules. Thus the dependency cone of these names bounds this search, not the
+  region. It indexes the constants of a module by name only when it first reads a copy there.
+
+  Each call of `Admission.agreeing` runs `Admission.regionOf`, `linksOf` and the search forward a
+  maximum of one time. They run only if a differing name that only owned modules declare has the
+  shape of a renamed copy. The searches backward run for each such name. A name that the tests
+  over the region refuse adds no name to the starts of the search forward. `Admission.candidates`
+  and `Admission.validate` each call `agreeing` through `Admission.agreeingIn`. Thus `regionOf`,
+  `linksOf` and the search forward run a maximum of two times in each environment.
+
+  `Admission.ImportScoped` states a fact about the modules outside the owned modules. Each constant
+  of such a module refers only to names that its module or a module of its import closure
+  declares. If this fact is true, the backward searches meet each constant that refers to a name
+  that a module of the region declares. `Admission.covers_regionOf` and `Admission.mem_before`
+  prove this. The kernel gives the fact for a module that it checked, because it refuses a
+  declaration that uses a constant its environment does not hold. The docstring of `ImportScoped`
+  gives the source lines of Lean v4.34.1.
+
+  The fact is trusted for the modules outside the owned modules. These modules can contain
+  unchecked declarations, as all trusted code can. The fact is not assumed for an owned module,
+  because `linksOf` reads each owned module completely. A module outside the owned modules can fail
+  to obey the fact. Then a backward search can miss a constant that refers to a name that the region
+  declares. The theorems that take the fact as a hypothesis then do not apply.
+
+  Let `c` be a copy of the name `n` in `src`. The block of `c` is a set of names private to `src`.
+  It starts with the names private to `src` that `c` refers to. A reference in either direction
+  between a name of the block and a name private to `src` puts that name in the block.
+  `Admission.blockOf` gives the block. The joined names are the names of the block and their
+  renamed names.
+
+  `Admission.renamedCopy` accepts `c` as a renamed copy of the copy `r` in `dst` if these
+  conditions are true:
+
+  1. `c` and `r` are theorems that Lean's import accepts together, as
+     `Admission.sameTheorem` decides.
+  2. `c` refers to no name private to `dst`.
+  3. The renaming changes `c` into a theorem that is `Identical` to `r`.
+  4. Each name of the block is renameable.
+  5. No joined name reaches `n`.
+  6. Only the copies of `n` and the joined names refer to a joined name.
+
+  A name `x` of the block is renameable if only `src` declares it, `x` is attributed to `src`, and
+  `x` is not private to `dst`. Its constant must be a theorem or a safe definition, the only
+  constants that `Admission.renameConstant` renames. `Admission.renamedTo` must accept the renaming
+  of that constant into the constant of `dst` with the renamed name. Thus that constant refers to no
+  name private to `dst`, and the renaming changes it into a constant `Identical` to the constant of
+  `dst`. The two names must have no role, and they must be uniform. `Admission.renameable` makes
+  this decision.
+
+  Let `r` be the copy of the module that `n` is attributed to. `Admission.uniformUpToPrivate`
+  accepts `n` if these four conditions are true:
+
+  1. Each copy of `n` is `r` or a renamed copy of `r`.
+  2. No name that `n` reaches refers to `n`. Thus `n` is on no cycle of references.
+  3. No constant that reaches `n` reaches `Lean.reduceBool` or `Lean.reduceNat`.
+  4. No name of `Admission.kernelNames` reaches `n`.
+
+  The copies of a name agree if the name is uniform. They also agree if
+  `Admission.uniformUpToPrivate` accepts the name and only owned modules declare it, as
+  `Admission.declaredOwned` decides. `Admission.agrees` makes this decision. Three decisions of
+  reuse use it:
+
+  - `Admission.copiesAgree` is the fourth condition of reuse. For each constant of the module, the
+    copies of the name must agree. A constant that is not a theorem must also be the only copy of
+    its name, attributed to the module.
   - `Admission.referencesWithin` is the third condition. Each name that a constant uses must have
-    its attribution to a module of the closure. Or the name must be uniform, and a module of the
-    closure must declare a copy.
-  - `Admission.ownedUniform` decides the offer of a replayed module that holds a shared copy. The
-    environment offers the module only if the name is uniform and only owned modules declare it.
-    Otherwise the receipt lists the module as `shared`, through `Admission.AdmitRequest.pinned`.
+    its attribution to a module of the closure. Or the copies of the name must agree, and a module
+    of the closure must declare a copy.
+  - `Admission.ownedAgrees` decides the offer of a replayed module that holds a shared copy. The
+    environment offers the module only if the copies of the name agree and only owned modules
+    declare it. Otherwise the receipt lists the module as `shared`, through
+    `Admission.AdmitRequest.pinned`.
 
-  The argument below uses four facts about Lean v4.34.1. The docstrings of
-  `Admission.duplicatesIn` and `Admission.copiesIdentical` give their source lines under
-  `Assumes:`. First, Lean's import keeps one of the copies that it read under each name, and
-  attributes the name to the first module that lists it. Second, `Expr.eqv` is an equivalence
-  relation, thus `Identical` is symmetric and transitive. Third, the kernel gives the same result
-  for two `Identical` constants. Fourth, replay regenerates each constructor and recursor, and it
-  accepts the stored record when it is `Identical` to the regenerated one.
+  The condition on owned modules removes no reuse that Regula had before it read renamed copies,
+  because then no differing name agreed. Agreement up to renaming is only for the reuse of an owned
+  module. `Admission.ownedAgrees` already refuses to offer a replayed module that holds a shared
+  copy of a name that a module outside the owned modules declares. Thus, in an environment that
+  loads such a module, the name gives no reuse through that offer.
+
+  A name that a module outside the owned modules declares does not start `Admission.regionOf` or
+  the searches. A name that only toolchain modules declare is such a name. In an environment that loads the module
+  outside the owned modules, an owned module that holds a renamed copy of the name is replayed. This
+  is also true if an environment that did not load that module offered the owned module.
+
+  The argument below uses four facts about Lean v4.34.1 for `Identical` copies. The docstrings of
+  `Admission.duplicatesIn` and `Admission.copiesAgree` give their source lines under `Assumes:`.
+  First, Lean's import keeps one of the copies that it read under each name, and attributes the
+  name to the first module that lists it. Second, `Expr.eqv` is an equivalence relation, thus
+  `Identical` is symmetric and transitive. Third, the kernel gives the same result for two
+  `Identical` constants. Fourth, replay regenerates each constructor and recursor, and it accepts
+  the stored record when it is `Identical` to the regenerated one.
 
   The third fact is about the C++ kernel, and no theorem models it. Thus the third fact is
   trusted, as `Admission.checkOwn` already trusts it. These source lines of Lean v4.34.1
@@ -3051,16 +3242,35 @@ inferred from any pure proof.
 
   Thus no decision of the kernel uses a part that `Expr.eqv` ignores. Reuse changes no input of the
   other checks of Regula, because these checks read the audited environment and the axiom and
-  assumption tables of `validate`. As the text below shows, these inputs are the same if a module
-  is replayed or reused. The reuse set goes only to `Admission.validate`, from the
-  `Admission.reusedModules` call in `Regula.Checker.Environment`. The declaration report gets
-  `admission.modules ++ admission.reused`, which is the same set if a module is replayed or reused.
-  In `validate`, reuse changes only the copies that `replayMap` gives to the kernel and the copies
-  that the replay base holds.
+  assumption tables of `validate`. The audited environment is the same if a module is replayed or
+  reused. The tables have the same axioms and the same roles, as the text below shows. The reuse
+  set goes only to `Admission.validate`, from the `Admission.reusedModules` call in
+  `Regula.Checker.Environment`. The declaration report gets `admission.modules ++ admission.reused`,
+  which is the same set if a module is replayed or reused.
 
-  `Admission.checkShared` compares with `sameTheorem`, and `Admission.checkOwn` and
-  `Admission.checkKept` with `identical` and `sameTheorem`, which compare expressions with
-  `Expr.eqv`. A receipt key is a module and a name from the data of the module, as
+  For renamed copies, the argument uses more facts about Lean v4.34.1. The docstring of
+  `Admission.renamedCopy` gives their source lines under `Assumes:`. First, `Expr.replace` changes
+  exactly the constants that `Admission.renameExpr` selects. Second, the check of a declaration
+  reads a constant only under a name that the declaration or a constant that the check read refers
+  to. The check can also read a name of `Admission.kernelNames`, or the recursor of an inductive
+  type that it read. Third, the kernel uses the name of a constant only to find the constant or to
+  compare it with a different name.
+
+  The kernel also hashes names for its caches, which compare their keys with `Expr.eqv`, and it
+  prints names in messages. These uses do not change a result. A recursor that the check reads can
+  have a name private to a module, for example the recursor of a private inductive type. But a
+  recursor is not a theorem or a definition, thus it is not a copy of `n` and not a joined name.
+
+  The third fact has two exceptions. `reduce_native` runs the compiled code of the constant that
+  `Lean.reduceBool` or `Lean.reduceNat` gets. The kernel makes no term with these two names. Two
+  steps for nested inductive types make names of auxiliary types from the names of inductive types.
+  They also compare a name with the prefix `_nested`. No joined name is an inductive type, and no
+  private name has that prefix.
+
+  In `validate`, reuse changes only the copies that `replayMap` gives to the kernel and the copies
+  that the replay base holds. `Admission.checkShared` compares with `sameTheorem`, and
+  `Admission.checkOwn` and `Admission.checkKept` with `identical` and `sameTheorem`, which compare
+  expressions with `Expr.eqv`. A receipt key is a module and a name from the data of the module, as
   `Admission.mem_required` states. The axiom and assumption searches read only the constant names
   that `KernelAxioms.successorsOf` gives, and `Expr.eqv` compares these names.
 
@@ -3070,20 +3280,28 @@ inferred from any pure proof.
   check it either. Reuse changes nothing for it, and the boundary of such helpers stays as
   admission states it.
 
-  **The offer:** each safe, total constant of an offered module is `Identical` to a constant that a
-  kernel of the audit accepted. A name with one copy in a replayed module is replayed by the
-  kernel itself, as `Admission.replayMap_sound` states. A shared name is uniform, so each copy is
-  `Identical` to the kept constant and to the held constant. If the base does not declare the
-  name, the held constant is a replayed constant. If the base declares the name, only owned
-  modules declare it, thus a reused module supplies the held constant. An earlier environment offered that module,
-  and induction on the start order gives the result.
+  **The offer:** the kernel of an environment of the audit accepted each safe, total constant of
+  an offered module, or a constant `Identical` to it. The kernel accepted the constant under its
+  name or, through `checkProof`, under a fresh name. A name with one copy in a replayed module is
+  replayed by the kernel itself, as `Admission.replayMap_sound` states. A copy of a shared name is
+  `Identical` to the held constant, or `checkOwn` gives it to `checkProof`.
 
-  **The reuse:** let an environment reuse a module. The replay base then holds the module, and
-  admission does not check its constants. By the fourth condition, the base, the replayed kernel
-  and the audited environment hold a constant `Identical` to the module's own under each name.
-  Thus `replayMap`, `checkShared`, `checkOwn` and `checkKept` read there a constant `Identical` to
-  the one in a replay of the module. A copy in a replayed module passes `checkShared`, because two
-  `Identical` theorems are a `SameTheorem`. It passes the two other checks with no proof check.
+  The copies of a shared name agree. If the base does not declare the name, the held constant is a
+  replayed constant. If the base declares the name, only owned modules declare it, thus a reused
+  module supplies the held constant. An earlier environment offered that module, and induction on
+  the start order gives the result.
+
+  **The reuse:** an environment that reuses a module holds the module in the replay base, and
+  admission does not check its constants. By the fourth condition, the copies of each name of the
+  module agree. Thus the base, the replayed kernel and the audited environment hold a copy of each
+  such name. Up to `Identical`, that copy is the copy `r` of the attributed module or a renamed
+  copy of `r`. A replay of the module can hold a different one of these copies. **Renamed copies**
+  below shows that the results are the same.
+
+  A copy in a replayed module passes `checkShared`, because two `Identical` theorems are a
+  `SameTheorem`, and a renamed copy is a `SameTheorem` of `r`. It passes the two other checks with
+  no proof check if it is `Identical` to the held constant. Otherwise `checkProof` checks its proof
+  in the kernel under a fresh name.
 
   **A fresh replay:** a replay of the module in this environment would also admit its constants.
   A shared copy of a theorem is a `SameTheorem` with the held constant. A constant that is not a
@@ -3091,28 +3309,100 @@ inferred from any pure proof.
   `Identical` axioms of one name, but `checkShared` refuses them. This is why the fourth condition
   requires a theorem where a different module declares the name.
 
+  **Renamed copies:** reuse and a replay can hold different copies under `n`, a renamed copy `c`
+  in `src` or the copy `r` in `dst`. Take two kernel environments that are different only
+  under `n`. The first holds `r` under `n`, and the second holds `c`. Steps of this type, one name
+  at a time through the attributed copy, join any two sets of held copies. Let `τ` exchange each
+  name of the block of `c` with its renamed name and keep each different name. `τ` is a bijection,
+  because no name of the block is private to `dst`.
+
+  - `τ` changes the first environment into the second, constant by constant, in each part that the
+    kernel reads. These parts are the name, the universe parameters, the type and the value, and
+    the hints and the safety of a definition. Under `n`, `τ` changes `r` into `c`. Under a name of
+    the block, it changes the only copy into the constant of `dst` under the renamed name, and the
+    reverse. Condition 6 of a renamed copy makes sure that each different constant refers to no
+    joined name, thus `τ` keeps it.
+
+    The field `all` of a theorem or a definition gives its mutual block, and it can be different.
+    `renameConstant` renames each name private to `src` in it, but `τ` changes only the names of
+    the block. The kernel does not read `all`, as `src/lean/Lean/Declaration.lean:124-130` of Lean
+    v4.34.1 states. The searches below also read only types and values.
+  - If a declaration `d` does not reach `n`, the two environments hold the same constant under
+    each name that its check reads. By condition 4, no name of `Admission.kernelNames` reaches `n`
+    either. Thus the two checks of `d` give the same result.
+  - If `d` reaches `n`, it reaches neither `Lean.reduceBool` nor `Lean.reduceNat`. The terms of its
+    check come from `d` and from the constants that it reaches, thus the check runs no compiled
+    code. By the facts above, the check of `d` in the first environment is then the check of `τ d`
+    in the second, name for name. The two checks give the same result.
+  - A declaration that reaches `n` is not a joined name, by condition 5. If it is not a copy of
+    `n`, it refers to no joined name, thus `τ d` is `d`. If it is the copy under `n`, `τ` changes
+    `r` into `c`.
+
+  Thus the kernel gives each declaration the same result in the two environments. This includes a
+  declaration of `dst` that refers to a name private to `dst` while the kernel holds `c`. If that
+  name is a joined name, condition 6 is false, and reuse does not accept `c`. The searches for the
+  axioms and the roles that each owned declaration reaches, and the searches of `checkProof`,
+  follow the references of the held constants. `τ` changes the names that a search reaches in the
+  first environment into the names that it reaches in the second.
+
+  A name of the block and its renamed name are theorems or safe definitions with no role. Thus the
+  searches from `c` and from `r` find the same axioms and the same roles. A renamed copy is a
+  `SameTheorem` of `r`, thus it passes `checkShared`. If it is not `Identical` to the held
+  constant, `checkProof` checks its proof and compares its axioms through the searches above.
+
   **The references and the keys:** the kernel's check of a declaration also reads the constants
   that the declaration uses. The third condition accepts a used name with its attribution outside
-  the closure only if the name is uniform and the closure declares a copy. Then each constant that
-  the environment holds under that name is `Identical` to the copy of the closure. The receipt
-  requires the key of each safe, total constant of a reused module of the request. Admission reads
-  the key from the data of the module, not from the attribution of the name.
-  `Admission.reuseJustified` accepts the key only if the replaying environment admitted it.
+  the closure only if its copies agree and the closure declares one. Then each
+  constant that the environment holds under that name is the copy `r`, or a renamed copy of `r`,
+  up to `Identical`. The receipt requires the key of each safe, total constant of a reused module
+  of the request. Admission reads the key from the data of the module, not from the attribution of
+  the name. `Admission.reuseJustified` accepts the key only if the replaying environment admitted it.
 
   **Proved** about the executed definitions: `Admission.identical_iff`,
   `Admission.not_mem_differing_iff` and `Admission.mem_others_iff` give what the pass records.
-  `Admission.copiesIdentical_iff`, `Admission.referencesWithin_iff` and
-  `Admission.ownedUniform_iff` show that each decision accepts exactly the inputs that its
-  proposition admits. `Admission.mem_reusedModules_iff` shows that a module is reused exactly when
-  it is a candidate and each owned module of its closure is a candidate.
-  `Admission.offerable_of_unpinned` shows that an offered module holds a shared copy only of an
-  `offerable` name. **Argued, not machine-checked:** the arguments above, and that
-  `Admission.validate` gives `ownedUniform` to admission as `offerable`.
+  `Admission.renamedTo_iff`, `Admission.renameable_iff`, `Admission.renamedCopy_iff`,
+  `Admission.uniformUpToPrivate_iff`, `Admission.declaredOwned_iff`, `Admission.agrees_iff`,
+  `Admission.fixedIn_iff` and `Admission.agreesIn_iff` show that each decision of the renaming
+  accepts exactly the inputs that its proposition admits. `Admission.mem_regionOf` and
+  `Admission.mem_blockOf` show that `Admission.regionOf` gives exactly the region and the search
+  over the references gives exactly the block. `Admission.mem_aboveIn` shows the same for the names
+  that reach `n`. `Admission.nativeFree_iff` shows that `Admission.nativeFree`, over the one search
+  of `Admission.nativeReaching`, accepts exactly when no name that reaches `n` reaches the two
+  primitives. `Admission.mem_closure`, `Admission.nativeFree_iff` and `KernelAxioms.search_isSome`
+  show that each such search has sufficient fuel.
 
-  **Observed, an external boundary:** the `identical-copies` control of the structural partition
-  of `checkerSelftest` audits a project with `Identical` copies and with different copies.
-  The census still gives a shared name to the module that Lean's import attributes it to, through
-  `Probe.ownedConstants`.
+  `Admission.copiesAgree_iff`, `Admission.referencesWithin_iff` and `Admission.ownedAgrees_iff`
+  show the same for each decision of reuse. `Admission.mem_reusedModules_iff` shows that a module
+  is reused exactly when it is a candidate and each owned module of its closure is a candidate.
+  `Admission.offerable_of_unpinned` shows that an offered module holds a shared copy only of an
+  `offerable` name. `Admission.covers_regionOf` derives the hypothesis `Admission.Covers` of the
+  search theorems from `Admission.ImportScoped`, and `Admission.agrees_iff` and the theorems that
+  use it take `ImportScoped` as a hypothesis. No theorem proves that hypothesis, because it is the
+  trusted fact above. **Argued, not machine-checked:** the arguments above, and that
+  `Admission.validate` gives `ownedAgrees` with `Admission.agrees` to admission as `offerable`.
+
+  **Observed, an external boundary:** the shared copies control of the structural partition of
+  `checkerSelftest` audits a project with `Identical` copies, renamed copies and different copies.
+  In that project, the proofs of two modules refer to their private match equations, thus their
+  renamed copies do not agree. The census still gives a shared name to the module that Lean's import
+  attributes it to, through `Probe.ownedConstants`.
+
+  A claimed constant that reaches `Lean.reduceBool` or `Lean.reduceNat` also reaches the axiom
+  `Lean.trustCompiler`, which no claim admits. A module that imports `Init` cannot declare a name
+  of `Admission.kernelNames` again. Thus the witnesses of conditions 3 and 4 are `#guard` commands
+  of `Admission` that run `agrees` on module data that the commands write. The same commands also
+  run `agrees` with a module that is not owned. These module data do not obey
+  `Admission.ImportScoped`, thus the commands observe `agrees` and are not instances of
+  `Admission.agrees_iff`. Each of these cases has a witness without that difference, which `agrees`
+  accepts:
+
+  - A copy that uses an alias of `Lean.reduceBool`.
+  - A name that refers to the copy and to the alias.
+  - A name that refers to the copy and to the alias, in a module outside the owned modules that
+    imports an owned module.
+  - A constant `Char.ofNat` that refers to the copy.
+  - A name that refers to a private name of a copy.
+  - A copy that a module outside the owned modules declares.
 - **Documentation.** `Environment.loadReportCoreAtSearchPath` freezes the `@[regula_material]`
   selector from the completed owned environment and reads module docs (Markdown and Verso) and
   docstrings with `Lean.findDocString?`, the same lookup as native feedback, so the project gate's
@@ -4744,7 +5034,7 @@ not yet proved, and are labelled so at their definition; they are not correctnes
 | project audit | changed import, changed `.olean` part | an owned module is replayed unless an offer covers it over its closure here and over artifacts read again with their frozen parts | Proved | `Admission.replayed_unless_offered`, `Admission.replayed_of_changed`, `Admission.replayed_of_changed_import`; an artifact not read again with its frozen parts cannot support an offer (`Admission.Unchanged`) |
 | checkerSelftest structural | a changed, removed and added `.olean`, `.olean.server` and `.olean.private`, each restored, for a module with three parts and with one, through `Inspection.readings` and `Admission.currentOffers` | reading the frozen parts: each change withdraws the offer and `Inspection.changedArtifact?` reports it | External | observed |
 | checkerSelftest structural | a fresh audit of two claimed libraries that import one another | the report workers, Lean's import and the kernel reuse a requested module: accepted, each module replayed in one environment, the reused module's key required | External | observed; the decision is `Admission.reuseJustified_admitted` and `Admission.replayed_of_loaded` |
-| checkerSelftest structural | a fresh audit of a library with identical copies of one lemma and different copies of one theorem, and of a library that imports it | Lean's realization and import of the copies, the report workers and the kernel: the identical copies are reused, the different copies are replayed again | External | observed. The decisions are `Admission.copiesIdentical_iff`, `Admission.referencesWithin_iff` and `Admission.ownedUniform_iff` |
+| checkerSelftest structural | fresh audits of a library and of a library that imports it, with identical, renamed and different copies of lemmas | Lean's realization and import of the copies, the report workers and the kernel. Identical copies and the renamed copies of `Lib.Left` and `Lib.Right`, which the conditions of `Admission.renamedCopy` and `Admission.uniformUpToPrivate` accept, are reused. The renamed copies of `Lib.Near` and `Lib.Far` are replayed again, because the theorems of these modules use their private match equations. Different copies are also replayed again. | External | observed. The decisions are `Admission.copiesAgree_iff`, `Admission.referencesWithin_iff`, `Admission.ownedAgrees_iff` and `Admission.agreesIn_iff` |
 | project audit | none | a frozen `.olean` part that changes during the audit is [RG2005] | External | open: MUT-02 not yet evidenced through the gate; reading the parts is observed directly (three rows above), and no intended-reason control rewrites a part between the freeze and the final comparison |
 
 The `qualify` campaigns and what they observe:
@@ -4980,11 +5270,10 @@ assumption of collision resistance, not a theorem. The comparison takes the plac
 fresh gate on the restored copy.
 
 The comparison does not prove that a fresh gate accepts the restored copy. That result also
-rests on a fact that is not a theorem. A fresh gate reads the audited project only through
-`copyProject` and builds that copy from empty output. `copyProject` does not copy `.lake`, so
-the gate does not read the output of the setup build, of the seed or of the incremental gates.
-Without `--with-docs`, as here, the gate reads no other file of the project, and it links the
-packages directory of the repository for each copy. The restored fresh gates of the clusters in
+rests on a fact that is not a theorem. The [copy contract](#the-acceptance-boundary) excludes these fixtures' original build output.
+Thus the fresh gate does not read the output of the setup build, of the seed or of the incremental gates.
+Without `--with-docs`, as here, the gate reads no other file of the project, and its typed path
+overrides point trusted dependencies to their original roots. The restored fresh gates of the clusters in
 the structural project run the same path on a project with such output in its `.lake`.
 
 The copy of the first cluster starts with the module artifacts of the build of the repository
@@ -4997,8 +5286,7 @@ copy for the probe modules have no effect on the graph.
 Lake uses a seeded `RegulaPolicy` or `AuditApp` artifact only if its saved trace agrees with the
 hash of the inputs of its module. The bytes of the source are one of these inputs. Thus Lake
 always builds the contaminated root from its contaminated source. This statement is a reading of
-the module build of Lake, not a theorem. The fresh gates do not read the seed, because
-`copyProject` does not copy `.lake`.
+the module build of Lake, not a theorem. The fresh gates exclude the seed through the same copy contract.
 
 A fresh gate on a self-hosted copy builds and inspects `RegulaPolicy` from empty output, and
 the first cluster is a serial chain, which was the first shard's longest item, so each fresh gate
@@ -5046,7 +5334,7 @@ and, for a structural or lint-driver selection, the other targets its baseline n
 (`RegulaVerification.commands`), so the gate's own modules compile beside the self-test's last
 ones instead of after its link; that command selects nothing, and the baseline build still
 names and builds its targets. The frozen-artifact, cross-surface decision, library cycle,
-identical copies, driver copy, retained build and manifest controls run in the structural clusters'
+shared copies, driver copy, retained build and manifest controls run in the structural clusters'
 queue, so no more of
 them run at once than the queue has workers.
 
@@ -5074,7 +5362,7 @@ exactly one shard.
 The shards of a partition list the same controls because they run the same sources, which no
 theorem states. The first structural shard holds `self-hosted-positive` alone. The other four hold
 the chain `self-hosted` and the clusters cut from `a`, `b`, `c` and `d`. They also hold the
-frozen-artifact, cross-surface decision, library cycle, identical copies, driver copy, retained
+frozen-artifact, cross-surface decision, library cycle, shared copies, driver copy, retained
 build and manifest controls. The retained build control is in shard `4/5`, because the baseline of that shard builds
 `docFenceAudit`.
 
@@ -5255,8 +5543,9 @@ execution, and calling a proved oracle does not prove the driver or its IO effec
   The theorem `prebuildCovers_iff` shows that the driver accepts only a surface manifest with no
   claimed target outside the prebuild. That Lake then builds nothing again is the behaviour of
   Lake. The use of `nice` by the operating system is trusted.
-- The theorems `walked_iff`, `removal_remove_iff` and `removal_nothing_iff` of
-  `RegulaVerification` state the decisions of the copy and of the removal. The theorems
+- The theorem `Construction.checked_projectRelative` states the source selection. `copy_io` and `construct_io` state the shared constructor's filesystem contracts. The theorems `removal_remove_iff` and `removal_nothing_iff` of `RegulaVerification` state its removal decision.
+
+  The theorems
   `ScratchCopy.name?_eq_some_iff` and `ScratchCopy.inside_iff` state the two decisions with which
   the gate admits a copy of the driver. The theorems `Regula.Removal.removal_remove_iff` and
   `removal_nothing_iff` state the decision of the removals of the filesystem observer,

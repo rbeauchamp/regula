@@ -822,7 +822,7 @@ private def tomlAudit (repo adopter : FilePath) : IO (Array String) := do
   let foreign := adopter / "foreign"
   IO.FS.createDirAll foreign
   IO.FS.writeFile (foreign / "lakefile.toml") "name = \"foreign\"\n"
-  IO.FS.writeFile (foreign / "lean-toolchain") (← IO.FS.readFile (adopter / "lean-toolchain"))
+  Regula.Filesystem.copyFile (adopter / "lean-toolchain") (foreign / "lean-toolchain")
   failures := failures ++ (← expect foreign {
       label := "toml/foreign-dir-unwritten", exitCode := 2,
       contains := #["unknown or incomplete argument: --bogus",
@@ -1585,6 +1585,8 @@ files it read in the chain. The first control of a later part that builds starts
 output, where in the chain it started from the output of the controls before it. -/
 private def pathSetup (repo adopter : FilePath) : IO Unit := do
   BuildLintQualification.setup repo adopter
+  -- Override controls write before the first Lake load creates this directory.
+  IO.FS.createDirAll (adopter / ".lake")
   BuildLintQualification.addSupport adopter (supportSource false) (owned := true)
   mutate (adopter / "Widget.lean") "import Regula.Contract\n"
     "import Regula.Contract\nimport Support\n"
@@ -1788,10 +1790,10 @@ private def pathReserved (repo adopter : FilePath) : IO (Array String) := do
         contains := #["Regula.Contract", "reserved to the checker", "not the text"] }
       (← runProcess adopter (.stated (repo / ".lake" / "build" / "bin" / "axiomGate").toString "The caller selects this resolved non-toolchain executable")
         #["--incremental", "--project", adopter.toString] scrubbedLeanPathEnv)
-  let contract := (← IO.FS.readFile (repo / "lean" / "Regula" / "Contract.lean")) ++
+  let contract := (← Regula.Filesystem.readFile (repo / "lean" / "Regula" / "Contract.lean")) ++
     "\n/-- An axiom that nothing uses. -/\naxiom Regula.Contract.unused : False\n"
   IO.FS.createDirAll (support / "Regula")
-  IO.FS.writeFile (support / "Regula" / "Contract.lean") contract
+  Regula.Filesystem.writeFile (support / "Regula" / "Contract.lean") contract
   IO.FS.writeFile supportLakefile <| supportConfiguration ++
     "[[lean_lib]]\nname = \"SupportContract\"\nroots = [\"Regula.Contract\"]\n"
   failures := failures ++ (← gate "path/owned-reserved-name")
@@ -1812,8 +1814,8 @@ private def pathReserved (repo adopter : FilePath) : IO (Array String) := do
   -- `regula`, with the same modified `Regula.Contract`: the name grants nothing.
   let vendor := adopter / "vendor"
   IO.FS.createDirAll (vendor / "lean" / "Regula")
-  IO.FS.writeFile (vendor / "lean" / "Regula" / "Contract.lean") contract
-  IO.FS.writeFile (vendor / "lean-toolchain") (← IO.FS.readFile (adopter / "lean-toolchain"))
+  Regula.Filesystem.writeFile (vendor / "lean" / "Regula" / "Contract.lean") contract
+  Regula.Filesystem.copyFile (adopter / "lean-toolchain") (vendor / "lean-toolchain")
   IO.FS.writeFile (vendor / "lakefile.toml")
     "name = \"regula\"\n[[lean_lib]]\nname = \"Regula\"\nsrcDir = \"lean\"\nroots = [\"Regula.Contract\"]\n"
   let vendorManifestPath := adopter / "lake-manifest.json"
@@ -1871,8 +1873,8 @@ private def pathEscapes (repo adopter : FilePath) : IO (Array String) := do
   -- the name before any build, where Lake's build would refuse the import as ambiguous.
   let second := adopter / "support2"
   IO.FS.createDirAll second
-  IO.FS.writeFile (second / "Support.lean") (← IO.FS.readFile (support / "Support.lean"))
-  IO.FS.writeFile (second / "lean-toolchain") (← IO.FS.readFile (adopter / "lean-toolchain"))
+  Regula.Filesystem.copyFile (support / "Support.lean") (second / "Support.lean")
+  Regula.Filesystem.copyFile (adopter / "lean-toolchain") (second / "lean-toolchain")
   IO.FS.writeFile (second / "lakefile.toml")
     "name = \"build_lint_support_two\"\n[[lean_lib]]\nname = \"Support\"\n"
   let manifestPath := adopter / "lake-manifest.json"
@@ -1979,9 +1981,7 @@ private def pathEscapes (repo adopter : FilePath) : IO (Array String) := do
   -- library's own, `Init` included, so its build of the claimed library fails, and `lake lint`
   -- cannot build its driver; the checker built in this repository shows the admission alone.
   let supportFile := support / "Support.lean"
-  let supportText ← IO.FS.readFile supportFile
-  IO.FS.createDirAll (support / "src")
-  IO.FS.writeFile (support / "src" / "Support.lean") supportText
+  Regula.Filesystem.copyFile supportFile (support / "src" / "Support.lean")
   Regula.Filesystem.removePath .file supportFile
   asLean "import Lake\nopen Lake DSL\n\npackage build_lint_support\n\nlean_lib Support where\n  \
     srcDir := \"src\"\n  roots := #[]\n  globs := #[.submodules .anonymous]\n"
@@ -2003,8 +2003,8 @@ private def pathOverrides (repo adopter : FilePath) : IO (Array String) := do
   let external := adopter / "external"
   IO.FS.createDirAll external
   for name in #["Support.lean", "lakefile.toml", "lean-toolchain"] do
-    IO.FS.writeFile (external / name) (← IO.FS.readFile (support / name))
-  let initialized ← runProcess external (.stated "git" "Git is the caller-selected repository mechanism") #["init", "-q"]
+    Regula.Filesystem.copyFile (support / name) (external / name)
+  let initialized ← runProcess external (.stated "git" "Git is the stated repository mechanism") #["init", "-q"]
   unless initialized.succeeded do
     return failures.push s!"lake-lint/path: git init failed: {initialized.output}"
   let manifestPath := adopter / "lake-manifest.json"
@@ -2027,7 +2027,7 @@ private def pathOverrides (repo adopter : FilePath) : IO (Array String) := do
   let first := adopter / "external-first"
   IO.FS.createDirAll first
   for name in #["lakefile.toml", "lean-toolchain"] do
-    IO.FS.writeFile (first / name) (← IO.FS.readFile (external / name))
+    Regula.Filesystem.copyFile (external / name) (first / name)
   IO.FS.writeFile (first / "Support.lean") (supportSource true)
   let initializedFirst ← runProcess first (.stated "git" "Git is the caller-selected repository mechanism") #["init", "-q"]
   unless initializedFirst.succeeded do
@@ -2138,6 +2138,9 @@ private def lakeNew (repo scratch : FilePath) : IO (Array String) := do
   -- `lake new`, the `regula` requirement, then `init` twice: the first must report writing
   -- `setting`, after which the lakefile must contain `written`.
   let setUp (name format lakefile require setting written : String) : IO (Array String) := do
+    -- This control observes Lake's own scaffold generator, which cannot be replaced by a copy
+    -- without losing the tested behavior. Its generated package has no dependencies; the only
+    -- added dependency is the explicit root path, pinned by requireCheckout before a load.
     let made ← runProcess scratch (.toolchain .lake) (#["new", name] ++ (if format.isEmpty then #[] else
       #[format])) scrubbedLeanPathEnv
     if !made.succeeded then return #[s!"lake-lint/new/{name}: lake new failed", made.output]
@@ -2207,8 +2210,7 @@ not a compiler of another identity. No new shell program or compiler copy is mad
 private def compilerGuard (repo project : FilePath) : IO (Array String) := do
   for name in #["lakefile.lean", "lean-toolchain", "lean/RegulaPolicy/Compiler.lean",
       "lean/Regula/ProcessSource.inc"] do
-    if let some parent := (project / name).parent then IO.FS.createDirAll parent
-    IO.FS.writeFile (project / name) (← IO.FS.readFile (repo / name))
+    Regula.Filesystem.copyFile (repo / name) (project / name)
   let lake ← Regula.Process.toolPath .lake
   let executable ← Regula.Process.appPath
   let marker := project / "compiler-action-ran"
@@ -2219,8 +2221,7 @@ private def compilerGuard (repo project : FilePath) : IO (Array String) := do
     let sysroot := project / label
     let lean := sysroot / "bin" / "lean"
     IO.FS.createDirAll (sysroot / "bin")
-    let linked ← runProcess project (.stated "ln" "until #399 replaces this copy with the construction in Regula.Filesystem") #["-s", executable.toString, lean.toString]
-    if !linked.succeeded then throw <| IO.userError linked.output
+    Regula.Filesystem.copyFile executable lean 493
     let env := #[("REGULA_COMPILER_CONTROL", some label),
       ("REGULA_COMPILER_CONTROL_MARKER", some marker.toString)]
     let baseline ← runProcess project (.stated lean "Invoke this owned native child to establish the compiler-guard control's action")

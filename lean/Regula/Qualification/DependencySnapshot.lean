@@ -18,7 +18,7 @@ def removeFile (path : FilePath) : IO Unit := do
 
 /-- Copies the Regula root's `lean-toolchain` file into the directory `target`. -/
 def toolchain (root target : FilePath) : IO Unit := do
-  IO.FS.writeBinFile (target / "lean-toolchain") (← IO.FS.readBinFile (root / "lean-toolchain"))
+  Regula.Filesystem.copyFile (root / "lean-toolchain") (target / "lean-toolchain")
 
 /-- Writes `project`'s `foundation_manifest.json` (schema 2): one surface, the `Example`
 library with foundation claim `claim` and execution mode `report`, and no exclusions. -/
@@ -163,7 +163,8 @@ private def gitStatusControls (root : FilePath) : IO Unit :=
     expectCase "input inside an untracked nested repository" #[repository / "nest/q.lean"]
       "clean" "dirty" (·.contains "?? nest/\x00")
     let link := scratch / "link"
-    success (← run scratch (.stated "ln" "until #399 replaces this copy with the construction in Regula.Filesystem") #["-s", repository.toString, link.toString])
+    -- Deliberate source alias for Git's spelling control. Lake never loads this alias as a copy.
+    success (← run scratch (.stated "ln" "This control deliberately constructs a source alias for Git spelling") #["-s", repository.toString, link.toString])
     expectCase "input spelled through a symlinked root" #[link / "A/a.lean"] "clean" "clean"
     IO.FS.writeFile (repository / "A/a.lean") "def a : Nat := 4\n"
     expectCase "modified input spelled through a symlinked root"
@@ -211,6 +212,7 @@ def check (group : String) : IO Unit := do
         false\nlinter.missingDocs = true\n[[require]]\nname = \"dep\"\npath = \
         \"../dependency\"\n[[lean_lib]]\nname = \"Example\"\n"
     IO.FS.writeFile (project / "Example.lean") "import Dep\n/-! Snapshot control. -/\n"
+    -- The complete generated requirement graph is this one path dependency, with no Git source.
     success (← run project (.toolchain .lake) #["update"] cleanEnv)
     if group != "history" then
       manifest project "standard-logical"
@@ -238,6 +240,7 @@ def check (group : String) : IO Unit := do
       \"history_control\"\n[leanOptions]\nautoImplicit = false\nrelaxedAutoImplicit = \
       false\nlinter.missingDocs = true\n[[lean_lib]]\nname = \"Example\"\n"
     removeFile (project / "lake-manifest.json")
+    -- The replacement generated configuration has no requirements; update creates its manifest.
     success (← run project (.toolchain .lake) #["update"] cleanEnv)
     manifest project "standard-logical"
     for (mode, flags) in
@@ -246,7 +249,7 @@ def check (group : String) : IO Unit := do
           #[("positive", "Fixed.lean"), ("negative", "Violation.lean"),
               ("restored", "Fixed.lean")] do
         IO.FS.writeBinFile (project / "Example.lean")
-            (← IO.FS.readBinFile (root / "examples/rules/RG3001" / fixture))
+            (← Regula.Filesystem.readBytes (root / "examples/rules/RG3001" / fixture))
         if phase != "negative" then clearBuild project
         let (result, packet) ← observeProject root project (scratch / s!"{mode}-{phase}.json") flags
         if phase != "negative" then

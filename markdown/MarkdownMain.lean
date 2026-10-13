@@ -4,6 +4,7 @@ import RegulaCore.ProseBaseline
 import Regula.Process
 import Regula.Removal
 import Regula.Scratch
+import Regula.Checker.Lake
 
 /-! Checks every Markdown document the repository tracks: for a rule ID in prose that is not a
 link to its rule page (`Regula.Markdown.documentErrors`), and for the writing rules that a text
@@ -112,8 +113,7 @@ def Options.parse (environment : Option String) : List String → Option Options
 
 /-- Run `git` with `args` in `directory`. -/
 def git (directory : System.FilePath) (args : Array String) : IO IO.Process.Output :=
-  Regula.Process.output (.stated "git" "The Markdown checker reads the repository through Git")
-    { cmd := "", args, cwd := some directory }
+  Regula.Filesystem.Construction.gitOutput directory args
 
 /-- The paths of the files Git tracks below `directory`, relative to it, or the reason Git gives
 none. -/
@@ -466,17 +466,23 @@ in the first try of the root `README.md`: its `lean-toolchain` is the root's, it
 name. -/
 def observeDemonstration (root : System.FilePath) : IO (Except String Demonstration) := do
   let file := (System.FilePath.mk demonstrationModule).fileName.getD "Shortcut.lean"
-  let module ← try IO.FS.readFile (root / demonstrationModule) catch error =>
+  let captured ← try Regula.Filesystem.Construction.capture (root / demonstrationModule) [file]
+    catch error =>
     return .error s!"{demonstrationModule}: {error}"
-  let toolchain ← IO.FS.readFile (root / "lean-toolchain")
+  let [item] := captured | return .error "demonstration is not one regular file"
+  let .file bytes _ := item.payload | return .error "demonstration is not a regular file"
+  let some module := String.fromUTF8? bytes | return .error "demonstration is not UTF-8"
+  let toolchain ← Regula.Filesystem.Construction.capture (root / "lean-toolchain") ["lean-toolchain"]
   let regula ← IO.FS.realPath root
-  Prod.fst <$> Regula.Scratch.withScratch (← Regula.Process.currentDir) "markdown-demonstration" fun project => do
-    IO.FS.writeFile (project / "lean-toolchain") toolchain
-    IO.FS.writeFile (project / "lakefile.toml")
-      s!"name = \"demo\"\n\n[[lean_lib]]\nname = \"Demo\"\n\n[[require]]\nname = \"regula\"\npath = \
-        {regula.toString.quote}\n"
-    IO.FS.writeFile (project / "Demo.lean") "def hello := \"world\"\n"
-    IO.FS.writeFile (project / file) module
+  Regula.Filesystem.withOwnTempDir fun project => do
+    let lakefile := s!"name = \"demo\"\n\n[[lean_lib]]\nname = \"Demo\"\n\n[[require]]\nname = \"regula\"\npath = \
+      {regula.toString.quote}\n"
+    Regula.Filesystem.construct project (toolchain ++ captured ++
+      [⟨["lakefile.toml"], .file lakefile.toUTF8⟩,
+       ⟨["Demo.lean"], .file "def hello := \"world\"\n".toUTF8⟩])
+    -- This closed generated project uses the root path dependency's captured path manifest.
+    -- Its ordinary loads perform no update and place no packages link.
+    Regula.Checker.Lake.pinAdopter root project
     let messages ← match ← leanMessages project file with
       | .ok messages => pure messages
       | .error reason => return .error reason
@@ -1142,12 +1148,12 @@ def entryControls : List RepositoryControl := [
 /-- Run `git` with `args` in `directory` for a control, with no configuration of the user or of
 the system and with one author, and give its output. -/
 def gitControl (directory : System.FilePath) (args : Array String) : IO String := do
-  let out ← Regula.Process.output (.stated "git" "The Markdown controls construct isolated repositories through Git") {
-    cmd := "", args, cwd := some directory,
+  let out ← Regula.Process.output (.stated "git" "Git is the stated repository mechanism") (← Regula.Filesystem.Construction.gitProcessArgs {
+    cmd := "git", args, cwd := some directory,
     env := #[("GIT_CONFIG_GLOBAL", some "/dev/null"), ("GIT_CONFIG_SYSTEM", some "/dev/null"),
       ("GIT_AUTHOR_NAME", some "control"), ("GIT_AUTHOR_EMAIL", some "control@example.invalid"),
       ("GIT_COMMITTER_NAME", some "control"),
-      ("GIT_COMMITTER_EMAIL", some "control@example.invalid")] }
+      ("GIT_COMMITTER_EMAIL", some "control@example.invalid")] })
   unless out.exitCode == 0 do
     throw <| IO.userError s!"git {args} failed in {directory}: {out.stderr}"
   return out.stdout.trimAscii.toString

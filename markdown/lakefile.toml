@@ -27,3 +27,5 @@ name = "RegulaMarkdown"
 [[lean_exe]]
 name = "regula-markdown"
 root = "MarkdownMain"
+# observeDemonstration loads Lake's Lean configuration in this native executable.
+supportInterpreter = true

@@ -104,7 +104,7 @@ private def forgedPrelude (root scratch : FilePath) (launcher : Launcher.State) 
       "axiom Classical.choice {α : Sort u} : α\n").replace use "  Classical.choice\n")
   let link (sources : Array FilePath) (directory : FilePath) : IO Unit := do
     let output ← Regula.Process.output
-      (.stated "ln" "until #399 replaces this copy with the construction in Regula.Filesystem")
+      (.stated "ln" "The forged-prelude control deliberately links toolchain artifacts")
       { cmd := "", args := #["-s"] ++ sources.map (·.toString) ++ #[directory.toString] }
     requireChecks [⟨s!"forged prelude: link toolchain artifacts into {directory}",
       output.exitCode == 0⟩]

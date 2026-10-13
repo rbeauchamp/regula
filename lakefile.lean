@@ -92,13 +92,13 @@ lean_lib «RegulaPolicy» where
 @[default_target]
 lean_lib «RegulaVerification» where
   globs := #[.andSubmodules `RegulaVerification]
-  needs := #[`@/processSource]
+  needs := #[`@/processSource, `@/gitProcessSource, `@/copyConstructionSource]
 
 -- Dependency setup.
 @[default_target]
 lean_lib «RegulaProvision» where
   globs := #[.andSubmodules `RegulaProvision]
-  needs := #[`@/processSource]
+  needs := #[`@/processSource, `@/gitProcessSource, `@/copyConstructionSource]
 
 @[default_target]
 lean_lib «RegulaQualification» where
@@ -121,9 +121,19 @@ input_file processSource where
   path := "lean/Regula/ProcessSource.inc"
   text := true
 
+-- The shared adapter routes the constructor's Git effects through Process.
+input_file gitProcessSource where
+  path := "lean/Regula/GitProcessSource.inc"
+  text := true
+
 -- External-boundary controls are committed Lean sources, embedded without generated layout.
 input_dir processFixtureSources where
   path := "examples/process-controls"
+  text := true
+
+-- Cold drivers interpret this shared source before package artifacts exist.
+input_file copyConstructionSource where
+  path := "lean/RegulaCore/CopyProgram.lean"
   text := true
 
 @[default_target]
@@ -137,7 +147,8 @@ lean_lib «Regula» where
   -- Lean-only checker implementation. Operational checker modules are
   -- separately qualified; they are not part of the conforming proof surface.
   globs := #[.submodules `Regula]
-  needs := #[`@/compilerObservationSource, `@/processSource, `@/processFixtureSources]
+  needs := #[`@/compilerObservationSource, `@/processSource, `@/gitProcessSource,
+    `@/processFixtureSources]
 
 lean_exe «axiomGate» where
   root := `Regula.Checker.AxiomGateMain
