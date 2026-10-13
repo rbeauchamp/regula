@@ -317,17 +317,20 @@ private def targetsOf (read : List (Lint.Arg Setting)) (root : Except IO.Error F
   (destinations read).eraseDups.map fun path =>
     (path, if path.isAbsolute then .ok path else root.map (resolve · path))
 
+/-- The serialized-graph result at `path`, the destination of `--json-out`. -/
+private def graphAt (path : FilePath) : Regula.Destination.Target :=
+  Regula.Destination.target .graph path
+
 /-- Mark each target incomplete with the unresolved reason `reason`, each on its own, so one
 failure leaves no other unmarked; return a line for each that could not be marked, such as a
-file that is not a serialized-graph result or empty (`Regula.Destination.write`). -/
+file that is not a serialized-graph result or empty (`Regula.Destination.Target.mark`). -/
 private def markIncomplete (targets : List (FilePath × Except IO.Error FilePath))
     (reason : String) : IO (Array String) := do
   let mut failed := #[]
   for (path, target) in targets do
     let result ← match target with
-      | .ok target => (Regula.Destination.write .graph target (Json.compress (Json.mkObj
-          [("mode", .str "serializedGraph"), ("status", .str "incomplete"),
-            ("unresolved", toJson #[reason])]) ++ "\n").toUTF8).toBaseIO
+      | .ok target => ((graphAt target).mark [("mode", .str "serializedGraph"),
+          ("status", .str "incomplete"), ("unresolved", toJson #[reason])]).toBaseIO
       | .error error => pure (.error error)
     if let .error error := result then failed := failed.push s!"{path}: {error}"
   return failed
@@ -340,7 +343,7 @@ holds something that the run may not replace, or two of them may be one entry
 private def refusalOf (read : List (Lint.Arg Setting)) (root : Except IO.Error FilePath) :
     IO (Option String) :=
   Regula.Destination.refusal ((targetsOf read root).filterMap fun (_, target) =>
-    target.toOption.map (.graph, ·))
+    target.toOption.map graphAt)
 
 /-- The refusal of a run in a process without Lean's task manager, which the guard of the
 executable runs (`Regula.TaskManager.guard`): it reads the arguments once and finds their root
@@ -426,7 +429,7 @@ unsafe def run (args : List String) : IO UInt32 := do
           value.setObjVal! "status" (.str (if options.planOnly then "planned" else "incomplete"))
     -- The last destination of the reading, as `parseArgs` keeps it, where it was marked.
     match targets.find? (·.1 == path) with
-    | some (_, target) => writeJson (← IO.ofExcept target) value
+    | some (_, target) => writeDestination (graphAt (← IO.ofExcept target)) value
     | none => throw <| IO.userError s!"{path} was not marked incomplete"
   IO.println
       s!"Lake modules: {plan.modules.size}   fresh roots: {", ".intercalate plan.roots.toList}"

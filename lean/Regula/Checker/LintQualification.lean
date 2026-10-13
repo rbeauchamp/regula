@@ -629,8 +629,8 @@ private def leanArguments (probes : Std.Mutex Unit) (repo adopter : FilePath) :
       {stale.compress}"
   Regula.Filesystem.removePath .file (adopter / "stale.json")
   -- A destination that holds a file other than a result of Regula, such as an input of the
-  -- audit, is not marked and keeps its bytes (`Regula.Destination.write`), so the run stops
-  -- incomplete before the audit.
+  -- audit, is not marked and keeps its bytes (`Regula.Destination.Target.mark`), so the run
+  -- stops incomplete before the audit.
   IO.FS.writeFile lakefile plain
   let foreign := "{\"status\":\"completed\"}\n"
   IO.FS.writeFile (adopter / "stale.json") foreign

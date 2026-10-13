@@ -522,6 +522,14 @@ def regulaManifestEntry (repo : FilePath) : Json :=
     ("manifestFile", .str "lake-manifest.json"), ("inherited", .bool false),
     ("type", .str "path"), ("dir", .str repo.toString)]
 
+/-- Write `value` as compact JSON and a final newline at the destination `target`
+(`Regula.Destination.Target.writeJson`), and report how long the write took when timing output is
+on. -/
+def writeDestination (target : Regula.Destination.Target) (value : Json) : IO Unit := do
+  let start ← IO.monoMsNow
+  target.writeJson value
+  timingSpan s!"diagnostic span: writeDestination {target}: {(← IO.monoMsNow) - start}ms"
+
 /-- The JSON on a succeeded process's standard output, parsed strictly; a failed process or
 malformed output throws an error that names `what`. -/
 def parseJsonOutput (what : String) (result : ProcessResult) : IO Json := do
@@ -685,19 +693,20 @@ def workerPacket (request payload : Json) : Json := Json.mkObj [
   ("schema", toJson (1 : Nat)), ("producer", workerProducer),
   ("request", request), ("payload", payload)]
 
-/-- Mark the file at `out`, which an internal job of a checker writes as a document of `kind`,
-incomplete with `reason`, so an earlier completed output there cannot be mistaken for the current
-attempt's. The record has no member `payload`, so the reader of a worker packet refuses it
-(`readWorkerPacket`), and it is not the registry, so the registry's reader refuses it
-(`Regula.RegistryCodec.validateRegistry`). Its identity members
-(`Regula.RegistryCodec.identityFields`) identify it as Regula's, so a later run replaces it
-(`Regula.Destination.Kind.identifies`). It stops with nothing written at a file that is not one
-that the job may replace (`Regula.Destination.write`). -/
-def invalidateOutput (out : FilePath) (reason : String)
-    (kind : Regula.Destination.Kind := .workerOutput) : IO Unit := do
-  let mark := Json.mkObj (Regula.RegistryCodec.identityFields Regula.Checker.Producer.identity ++
+/-- The destination of a worker's packet at `out`. -/
+def packetAt (out : String) : Regula.Destination.Target :=
+  Regula.Destination.target .workerPacket ⟨out⟩
+
+/-- Mark `target`, a file that an internal job of a checker writes, incomplete with `reason`, so an
+earlier completed output there cannot be mistaken for the current attempt's. The mark holds each
+member that the target's kind requires with the value `null` (`Regula.Destination.Target.mark`),
+so the reader of a worker packet, which accepts exactly its four members, refuses it
+(`readWorkerPacket`), and the registry's reader, which accepts only the registry, refuses it
+(`Regula.RegistryCodec.validateRegistry`). It stops with nothing written at a file that is not one
+that the job may replace (`Regula.Destination.Target.ownershipRefusal`). -/
+def invalidateOutput (target : Regula.Destination.Target) (reason : String) : IO Unit :=
+  target.mark (Regula.RegistryCodec.identityFields Regula.Checker.Producer.identity ++
     [("status", .str "incomplete"), ("reason", .str reason)])
-  Regula.Destination.write kind out (mark.compress ++ "\n").toUTF8
 
 /-- The payload of a worker packet whose schema is 1 and whose producer, toolchain commit and
 request are this checker's and `request`; otherwise an error naming the mismatch. The received

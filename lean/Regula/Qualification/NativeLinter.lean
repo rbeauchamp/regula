@@ -451,6 +451,15 @@ def checkAll : IO Unit := do
 def reportPath (root : FilePath) : FilePath :=
   root / "tmp/native-launcher-diagnostic.json"
 
+/-- The destination of the report of the paired launcher diagnostic below the package root `root`
+(`reportPath`): a launcher report (`Regula.Destination.Kind.launcherReport`), which the diagnostic
+writes only through it. -/
+def reportDestination (root : FilePath) : Regula.Destination.Target :=
+  Regula.Destination.target .launcherReport (reportPath root)
+
+/-- The text of a report: pretty JSON with a final newline. -/
+private def reportText (report : Json) : String := report.pretty ++ "\n"
+
 /-- The report of a diagnostic that has not completed: outcome `INCOMPLETE`, not equivalent, with
 `reason` when one is given. -/
 def incompleteReport (reason : Option String) : Json :=
@@ -463,7 +472,7 @@ def incompleteReport (reason : Option String) : Json :=
 def beginReport (reason : Option String := none) : IO Unit := do
   let root ← rootDirectory
   IO.FS.createDirAll (root / "tmp")
-  writeJson (reportPath root) (incompleteReport reason)
+  (reportDestination root).writeJson (incompleteReport reason) (render := reportText)
 
 /-- Paired baseline-first diagnostic with the same scratch path, source, argv, observed
 outputs, environment and executable. Measurements describe only these actual runs. Each run's
@@ -471,7 +480,7 @@ outputs, environment and executable. Measurements describe only these actual run
 included. -/
 def paired : IO Unit := do
   let root ← rootDirectory
-  let output := reportPath root
+  let output := reportDestination root
   beginReport
   let started ← IO.monoMsNow
   let report ← IO.mkRef (incompleteReport none)
@@ -517,6 +526,7 @@ def paired : IO Unit := do
     report.modify (·.setObjVal! "outcome" (.str "FAIL"))
     throw e
   finally
-    writeJson output ((← report.get).setObjVal! "totalMillis" (toJson ((← IO.monoMsNow) - started)))
+    output.writeJson ((← report.get).setObjVal! "totalMillis" (toJson ((← IO.monoMsNow) - started)))
+      (render := reportText)
 
 end Regula.Qualification.NativeLinter

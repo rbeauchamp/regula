@@ -235,7 +235,8 @@ production that they name holds something that the run may not replace
 private def refusalOf (args : List String) : IO (Option String) := do
   let production (rest : List String) : IO (Option String) :=
     match Regula.Checker.RuleExamples.Production.parse? rest with
-    | some production => Regula.Destination.refusal [(.result, ⟨production.output⟩)]
+    | some production =>
+      Regula.Destination.refusal [Regula.Destination.target .result ⟨production.output⟩]
     | none => return none
   match args with
   | "--injected-git-facts" :: _ :: "axiomGate" :: _ => return none

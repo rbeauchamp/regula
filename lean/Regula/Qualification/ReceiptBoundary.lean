@@ -21,7 +21,8 @@ def check : IO Unit := do
   let executable ← IO.appPath
   withScratch root "receipt-boundary" fun scratch => do
     for route in #[#["acceptance", "fences"], #["environments"]] do
-      let evidence := scratch / "evidence.json"
+      -- One evidence file for each route, whose kind differs from the other route's.
+      let evidence := scratch / s!"{route[0]!}-evidence.json"
       for fault in #["missing", "unusable", "spawn"] do
         let bin := scratch / s!"{route[0]!}-{fault}"
         IO.FS.createDir bin
@@ -30,12 +31,18 @@ def check : IO Unit := do
         if fault == "spawn" then
           -- This native timeout stand-in is executed by path in the process-boundary control.
           Regula.Filesystem.copyFile executable (bin / "gtimeout") 493
-        -- Completed evidence of an earlier attempt, with the members of a receipt and of a
-        -- census, which the run may replace (`Regula.Destination.Kind.identifies`).
-        writeJson evidence (Json.mkObj [("status", toJson "completed"),
-          ("attemptId", toJson "old"), ("group", toJson "fences"),
-          ("records", toJson (#[] : Array Json)), ("packets", toJson (#[] : Array Json)),
-          ("controls", toJson (#[] : Array Json))])
+        -- Completed evidence of an earlier attempt of the route's kind, which the run may replace:
+        -- the write refuses a document that the kind does not identify
+        -- (`Regula.Destination.Kind.identifies`).
+        let empty := toJson (#[] : Array Json)
+        let (seed, earlier) := if route[0]! == "acceptance" then
+            (Regula.Destination.target .acceptanceReceipt evidence, Json.mkObj [
+              ("status", toJson "completed"), ("attemptId", toJson "old"),
+              ("group", toJson "fences"), ("records", empty)])
+          else (Regula.Destination.target .census evidence, Json.mkObj [
+              ("schemaVersion", toJson (1 : Nat)), ("status", toJson "completed"),
+              ("attemptId", toJson "old"), ("packets", empty), ("controls", empty)])
+        seed.writeJson earlier
         let result ← IO.Process.output {
           cmd := executable.toString, args := route ++ #["--evidence", evidence.toString],
           env := #[("PATH", some bin.toString),

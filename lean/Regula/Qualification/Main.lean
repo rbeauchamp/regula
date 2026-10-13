@@ -32,6 +32,15 @@ this process dispatcher and its IO adapters remain operational tooling. -/
 
 open Regula.Qualification
 
+/-- The shard of the rule-example corpus that `spec` names, `K/N` with `1 ≤ K ≤ N`, or the error
+that refuses it. -/
+private def ruleExampleShard (spec : String) : Except String (Nat × Nat) :=
+  match (spec.splitOn "/").map String.toNat? with
+  | [some index, some count] =>
+    if 1 ≤ index && index ≤ count then .ok (index, count)
+    else .error s!"invalid rule-example shard: {spec}"
+  | _ => .error s!"invalid rule-example shard: {spec}"
+
 /-- Run one selection. The acceptance shell owns the overall deadline, not this dispatcher. -/
 private unsafe def runCommand (attempt : Option String) : Command → IO Unit
   | .registry => Regula.Qualification.RegistryCli.check
@@ -46,18 +55,18 @@ private unsafe def runCommand (attempt : Option String) : Command → IO Unit
       IO.ofExcept (← IO.wait unique)
   | .uniqueConstants => Regula.Qualification.UniqueConstants.check
   | .nativeLauncher => Regula.Qualification.NativeLinter.paired
-  | .ruleExamples path => Regula.Qualification.RuleExamples.check ⟨path⟩ none attempt
+  | .ruleExamples path =>
+      Regula.Qualification.RuleExamples.check (RuleExamples.destination ⟨path⟩) none attempt
   | .ruleExamplesRules path rules =>
-      Regula.Qualification.RuleExamples.check ⟨path⟩ (some rules.toArray) attempt
+      Regula.Qualification.RuleExamples.check (RuleExamples.destination ⟨path⟩)
+        (some rules.toArray) attempt
   | .ruleExamplesShard path spec => do
-      let shard ← match (spec.splitOn "/").map String.toNat? with
-        | [some index, some count] =>
-          if 1 ≤ index && index ≤ count then pure (index, count)
-          else throw <| IO.userError s!"invalid rule-example shard: {spec}"
-        | _ => throw <| IO.userError s!"invalid rule-example shard: {spec}"
-      Regula.Qualification.RuleExamples.check ⟨path⟩ none attempt (some shard)
+      let shard ← IO.ofExcept ((ruleExampleShard spec).mapError IO.userError)
+      Regula.Qualification.RuleExamples.check (RuleExamples.destination ⟨path⟩) none attempt
+        (some shard)
   | .producers => Regula.Qualification.Producer.check none
-  | .producersExport path => Regula.Qualification.Producer.check (some ⟨path⟩) attempt
+  | .producersExport path =>
+      Regula.Qualification.Producer.check (some (Producer.destination ⟨path⟩)) attempt
   | .producersCombined => do
       Regula.Qualification.Producer.check none
       Regula.Qualification.History.check
@@ -69,8 +78,10 @@ private unsafe def runCommand (attempt : Option String) : Command → IO Unit
       Regula.Qualification.SelfAudit.check (some shard)
   | .selfAuditModule m source => Regula.Qualification.SelfAudit.worker m source
   | .selfAuditJsonModule m => Regula.Qualification.SelfAudit.jsonWorker m
-  | .environments path => Regula.Qualification.EnvironmentCensus.check ⟨path⟩ attempt
-  | .acceptance group path => Regula.Qualification.Acceptance.check group.spelling ⟨path⟩ attempt
+  | .environments path =>
+      Regula.Qualification.EnvironmentCensus.check (EnvironmentCensus.destination ⟨path⟩) attempt
+  | .acceptance group path =>
+      Regula.Qualification.Acceptance.check group.spelling (Acceptance.destination ⟨path⟩) attempt
   | .acceptanceSnapshots group => Regula.Qualification.DependencySnapshot.check group.spelling
   | .prepMeasure => Regula.Qualification.Preparation.check
   | .documentationDependencies => Regula.Qualification.Acceptance.documentationDependencies
@@ -95,12 +106,14 @@ private unsafe def runCommand (attempt : Option String) : Command → IO Unit
   | .enumerationFailure => Regula.Qualification.Enumeration.failure
   | .readers => Regula.Qualification.Readers.check
 
-/-- Explicit commands, parsed by `Command.parse`; unknown or extra arguments refuse instead of
-silently skipping work. -/
-private unsafe def dispatch (args : List String) (attempt : Option String := none) : IO Unit := do
+/-- The command that `args` name (`Command.parse`), or the error that refuses them before any
+campaign begins: the usage text for unknown or extra arguments, which refuse instead of silently
+skipping work, and the refusal of a rule-example shard (`ruleExampleShard`). -/
+private def commandOf (args : List String) : Except String Command :=
   match Command.parse args with
-  | some command => runCommand attempt command
-  | none => throw <| IO.userError "usage: lake exe qualify \
+  | some command@(.ruleExamplesShard _ spec) => (ruleExampleShard spec).map fun _ => command
+  | some command => .ok command
+  | none => .error "usage: lake exe qualify \
     registry|native|combined|unique-constants|native-launcher|producers [--evidence PATH]|\
     producers-combined|\
     environments --evidence PATH|acceptance fences --evidence PATH|acceptance-snapshots \
@@ -111,21 +124,26 @@ private unsafe def dispatch (args : List String) (attempt : Option String := non
     documentation-source [--source-read-only]|enumeration|enumeration-failure|readers|\
     rule-examples --evidence PATH [--rules RULE ... | --shard K/N]"
 
+/-- The destination of the evidence document `evidence`, which its campaign's own `destination`
+gives, of the campaign's kind. The launcher's report is at `NativeLinter.reportDestination` of the
+package root, and a run outside that root has none here, as its mark then fails
+(`NativeLinter.beginReport`). -/
+private def evidenceDestination : Evidence → IO (Option Regula.Destination.Target)
+  | .ruleExamples path => pure (some (RuleExamples.destination ⟨path⟩))
+  | .producers path => pure (some (Producer.destination ⟨path⟩))
+  | .environments path => pure (some (EnvironmentCensus.destination ⟨path⟩))
+  | .acceptance _ path => pure (some (Acceptance.destination ⟨path⟩))
+  | .launcherReport => do
+    match ← Regula.Qualification.rootDirectory.toBaseIO with
+    | .ok root => pure (some (NativeLinter.reportDestination root))
+    | .error _ => pure none
+
 /-- The reason to refuse the evidence document that `args` name from their leading arguments
-(`Evidence.named`), if it holds something that the command may not replace
-(`Regula.Destination.refusal`): the command marks it before it reads an input. The launcher's
-report is at `NativeLinter.reportPath` of the package root, and a run outside that root names none
-here, as its mark then fails (`NativeLinter.beginReport`). -/
+(`Evidence.named`, `evidenceDestination`), if it holds something that the command may not replace
+(`Regula.Destination.refusal`): the command marks it before it reads an input. -/
 private def evidenceRefusal (args : List String) : IO (Option String) := do
-  let named : Option (Regula.Destination.Kind × System.FilePath) ← match Evidence.named args with
-    | some (.ruleExamples path) => pure (some (.corpus, ⟨path⟩))
-    | some (.producers path) => pure (some (.producerExport, ⟨path⟩))
-    | some (.environments path) => pure (some (.census, ⟨path⟩))
-    | some (.acceptance _ path) => pure (some (.acceptanceReceipt, ⟨path⟩))
-    | some .launcherReport => do
-      match ← Regula.Qualification.rootDirectory.toBaseIO with
-      | .ok root => pure (some (.launcherReport, Regula.Qualification.NativeLinter.reportPath root))
-      | .error _ => pure none
+  let named ← match Evidence.named args with
+    | some evidence => evidenceDestination evidence
     | none => pure none
   Regula.Destination.refusal named.toList
 
@@ -141,12 +159,12 @@ private def markEvidence (args : List String) (attempt : String) (reason : Optio
   if let some refusal ← evidenceRefusal args then throw <| IO.userError s!"refused: {refusal}"
   match Evidence.named args with
   | some (.acceptance group path) =>
-    let _ ← Regula.Qualification.Acceptance.beginAttempt group ⟨path⟩ attempt reason
+    let _ ← Acceptance.beginAttempt group (Acceptance.destination ⟨path⟩) attempt reason
   | some (.environments path) =>
-    Regula.Qualification.EnvironmentCensus.beginAttempt ⟨path⟩ attempt reason
+    EnvironmentCensus.beginAttempt (EnvironmentCensus.destination ⟨path⟩) attempt reason
   | some (.ruleExamples path) =>
-    Regula.Qualification.RuleExamples.beginAttempt ⟨path⟩ attempt reason
-  | some (.producers path) => Regula.Qualification.Producer.beginAttempt ⟨path⟩ attempt reason
+    RuleExamples.beginAttempt (RuleExamples.destination ⟨path⟩) attempt reason
+  | some (.producers path) => Producer.beginAttempt (Producer.destination ⟨path⟩) attempt reason
   | some .launcherReport => Regula.Qualification.NativeLinter.beginReport reason
   | none => pure ()
 
@@ -190,7 +208,10 @@ is supplied by this wrapper or the already timed acceptance driver, never docume
 as a bounded standalone command. Nested commands do not create escaping groups. The form of the
 invocation is read once (`Invocation.of`). A bounded command marks its evidence before the
 selection of the timeout, and again with the error's text when that selection or the spawn fails,
-or when the start ends without running the command (`runBounded`, `markEvidence`). -/
+or when the start ends without running the command (`runBounded`, `markEvidence`). A command under
+the deadline that its arguments refuse before a campaign begins (`commandOf`) marks the evidence
+that its leading arguments name with the error's text, for the attempt that the wrapper gives or
+otherwise for one fresh attempt that the campaign then uses too. -/
 unsafe def qualifyMain (args : List String) : IO UInt32 := do
   match ← Invocation.of args with
   | .receiptTimer => Regula.Qualification.ReceiptBoundary.worker args
@@ -199,7 +220,12 @@ unsafe def qualifyMain (args : List String) : IO UInt32 := do
   | .unknownWrapper => throw <| IO.userError "unknown qualification wrapper mode"
   | .underDeadline attempt rest =>
     if let some reason ← evidenceRefusal rest then throw <| IO.userError s!"refused: {reason}"
-    dispatch rest attempt; return 0
+    let attempt ← attempt.getDM Regula.Qualification.freshAttempt
+    match commandOf rest with
+    | .ok command => runCommand (some attempt) command; return 0
+    | .error error =>
+      discard <| (markEvidence rest attempt (some error)).toBaseIO
+      throw <| IO.userError error
   | .bounded args =>
     -- Recognize evidence destinations even when later argument validation refuses.
     -- This must precede timeout selection and spawning, both of which can fail.

@@ -469,6 +469,8 @@ def replacePath (source destination : FilePath) : IO Unit := do
 /-- Write `contents` to the file `path` names by making a new file beside it and moving that file
 there (`replace`). The new file is in the real path of the directory of `path`, which `ownRoot`
 makes, and nothing was at its name: `IO.FS.Mode.writeNew` creates a file only where no entry is.
+Its name is `.regula-`, the process's id, a random number and `.pending`, at most 47 bytes and none
+of the destination's, so any destination name that the directory admits has a new file beside it.
 So the write replaces the entry at `path` and never writes into the file that entry names. A file
 that is also a hard link at another path keeps its bytes there, and a reader of `path` reads the
 earlier file or the whole new one. It stops with nothing moved when a symbolic link, a directory
@@ -479,7 +481,7 @@ def writeReplacing (path : FilePath) (contents : ByteArray) : IO Unit := do
     | throw <| IO.userError s!"nothing was written: {path} names no file"
   let directory ← ownRoot (path.parent.getD ⟨"."⟩)
   let random := (← IO.getRandomBytes 8).foldl (fun value byte => value * 256 + byte.toNat) 0
-  let pending := directory / s!".{name}.{← IO.Process.getPID}-{random}.pending"
+  let pending := directory / s!".regula-{← IO.Process.getPID}-{random}.pending"
   let handle ← IO.FS.Handle.mk pending .writeNew
   try
     handle.write contents

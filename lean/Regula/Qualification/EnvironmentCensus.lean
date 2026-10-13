@@ -15,21 +15,30 @@ namespace Regula.Qualification.EnvironmentCensus
 open Lean System Regula.Checker RegulaPolicy
 open scoped Regula.Report
 
+/-- Write the packet of an environment at `path` beside the census, which is not a destination: the
+census itself is written through its `Regula.Destination.Target` (`save`). -/
 private def atomicWrite (path : FilePath) (value : Json) : IO Unit :=
   Regula.Filesystem.writeReplacing path (value.compress ++ "\n").toUTF8
 
-private def save (attempt : String) (path : FilePath) (packets records : Array Json)
-    (status : String) (reason : Option String := none) : IO Unit :=
-  atomicWrite path <| Json.mkObj <| [
+/-- Write the census of the attempt `attempt` at its destination, with its packets, controls,
+status and, when one is given, the reason that the attempt stops. -/
+private def save (attempt : String) (path : Regula.Destination.Target)
+    (packets records : Array Json) (status : String) (reason : Option String := none) : IO Unit :=
+  path.writeJson <| Json.mkObj <| [
     ("attemptId", toJson attempt), ("schemaVersion", toJson (1 : Nat)), ("status", toJson status),
     ("packets", toJson packets), ("controls", toJson records)] ++
       (reason.map fun reason => [("reason", toJson reason)]).getD []
 
+/-- The destination of the census that `path` names: an environment census
+(`Regula.Destination.Kind.census`), which the campaign writes only through it. -/
+def destination (path : FilePath) : Regula.Destination.Target :=
+  Regula.Destination.target .census path
+
 /-- Invalidate the destination before timeout discovery or process launch. With `reason`, the
 destination records why the attempt stops there. -/
-def beginAttempt (path : FilePath) (attempt : String) (reason : Option String := none) :
-    IO Unit := do
-  if let some parent := path.parent then IO.FS.createDirAll parent
+def beginAttempt (path : Regula.Destination.Target) (attempt : String)
+    (reason : Option String := none) : IO Unit := do
+  IO.FS.createDirAll path.directory
   save attempt path #[] #[] "incomplete" reason
 
 /-- Exercise actual native acquisition and the public freeze/finalization adapters.
@@ -37,8 +46,8 @@ Every report comes from the project audit's own acquisition (`Inspection.inspect
 `--declaration-report-worker` process per environment, so no environment's correspondence
 checks run under a resource limit an earlier environment's process fixed (`Regula.Probe`).
 The command owns one existing outer deadline, including its incremental build observation. -/
-private unsafe def checkCore (attempt : String) (path : FilePath) : IO Unit := do
-  if let some parent := path.parent then IO.FS.createDirAll parent
+private unsafe def checkCore (attempt : String) (path : Regula.Destination.Target) : IO Unit := do
+  IO.FS.createDirAll path.directory
   save attempt path #[] #[] "incomplete"
   let root ← rootDirectory
   -- The same search-path initialization as the audit's coordinator (`AxiomGate.entry`); the
@@ -78,7 +87,7 @@ private unsafe def checkCore (attempt : String) (path : FilePath) : IO Unit := d
   let mut reports : Array Acceptance.RequestedInspection := #[]
   let mut refusals : Array String := #[]
   for (environment, outcome) in inspections do
-    let packetPath := path.addExtension s!"packet-{packets.size}.json"
+    let packetPath := path.beside s!".packet-{packets.size}.json"
     let refused (detail : String) : Json × Except String Acceptance.RequestedInspection :=
       (Json.mkObj [("expectedModules", toJson environment.info.modules),
         ("refusal", toJson detail)], .error detail)
@@ -268,13 +277,14 @@ private unsafe def checkCore (attempt : String) (path : FilePath) : IO Unit := d
 /-- An ordinary failure keeps the packets already written (every environment's, once
 `Inspection.inspect` has returned; see `checkCore`) and reports failure. Termination before
 this handler runs leaves the initialized incomplete receipt; atomic rename is trusted IO. -/
-unsafe def check (path : FilePath) (attempt : Option String := none) : IO Unit := do
+unsafe def check (path : Regula.Destination.Target) (attempt : Option String := none) :
+    IO Unit := do
   let attempt ← attempt.map pure |>.getD freshAttempt
   beginAttempt path attempt
   try checkCore attempt path
   catch error =>
-    let evidence ← Regula.Qualification.readJson path
-    atomicWrite path ((evidence.setObjVal! "status" (toJson "failed")).setObjVal!
+    let evidence ← Regula.Checker.requireAuditDocument (← IO.ofExcept (Json.parse (← path.read)))
+    path.writeJson ((evidence.setObjVal! "status" (toJson "failed")).setObjVal!
       "failure" (toJson error.toString))
     throw error
 

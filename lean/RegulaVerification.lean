@@ -909,8 +909,9 @@ def executeBeside (priority : Priority) : (known : List (Option UInt32)) →
 
 /-! ## Places the driver removes
 
-The driver removes two directories: the site artifact of an earlier run (`siteOutput`), and the
-scratch directory of the copy it made (`Copy.remove`). `IO.FS.removeDirAll` reads the entries of
+The driver removes two directories: the site artifact of an earlier run (`siteOutput`), only when
+it is one that the site's build may replace (`siteRefusal`), and the scratch directory of the copy
+it made (`Copy.remove`). `IO.FS.removeDirAll` reads the entries of
 the path it is given, also when that path is a symbolic link to a directory, and then removes
 the entries of the link's target. So the driver removes a directory only after `removal` decided
 it from an observation that follows no link at the path.
@@ -1253,6 +1254,188 @@ def Copy.remove (copy : Copy) : BaseIO Unit := do
   if let .error error ← remove.toBaseIO then
     announce s!"could not remove the copy {copy.scratch}: {error}"
 
+/-! ## The destinations the driver writes
+
+The driver writes three kinds of file in the project's `tmp` directory: the acceptance link
+(`linkPath`), the receipt of the whole rule-example corpus (`corpusEvidence`), and the export of
+each of the corpus's shards (`shardEvidence`). It writes each by the rules of the destinations of
+the package's programs (`Regula.Destination`), which this module cannot import, so the rules are
+written a second time here:
+
+- It writes only a document that the destination's kind identifies (`Signature.identifies`), so a
+  later run of that kind may replace it.
+- It replaces only nothing, an empty regular file, or a regular file whose text is a document of
+  the destination's kind, by a read that follows no link at the destination (`ownershipRefusal`).
+- It makes a new file beside the destination and renames that file there (`writeDocument`), so it
+  replaces the entry at the destination and does not write into the file that the entry names.
+
+In the module `RegulaVerification.Decisions`, `identifies_link` and `identifies_corpus` prove that
+the driver's identification of each kind is `Regula.Destination.Kind.identifies` of that kind, and
+`identifiesSiteBuild_shared` and `siteAssemblingMarker_shared` relate the site artifact that the
+driver removes (`siteRefusal`) to the one that the site's build replaces. -/
+
+/-- The kind of a document that the driver writes at a destination, by the top-level members whose
+presence identifies it, whatever their values: a document of the kind holds each member of
+`required` and none of `forbidden` (`Signature.identifies`). -/
+structure Signature where
+  /-- What a document of the kind is, with its article, in a reason to refuse a destination. -/
+  description : String
+  /-- The members that each document of the kind holds, completed or marked. -/
+  required : List String
+  /-- The identifying members of the other kinds that no document of the kind holds. -/
+  forbidden : List String
+
+/-- Whether `value` is an object with the member `name`, whatever its value. -/
+def present (value : Lean.Json) (name : String) : Bool :=
+  match value.getObjVal? name with
+  | .ok _ => true
+  | .error _ => false
+
+/-- Whether `value` is a document of the kind: it holds each member of `required` and none of
+`forbidden`, whatever their values. -/
+def Signature.identifies (signature : Signature) (value : Lean.Json) : Bool :=
+  signature.required.all (present value) && signature.forbidden.all fun name => !present value name
+
+/-- An acceptance link (`linkPath`), completed or marked: the kind
+`Regula.Destination.Kind.acceptanceLink` (`identifies_link`). -/
+def linkSignature : Signature where
+  description := "an acceptance link"
+  required := ["schemaVersion", "status"]
+  forbidden := ["scope", "diagnostics", "mode", "rules", "schema", "receipt", "outcome",
+    "examples", "attemptId", "packets", "group", "equivalent", "documents"]
+
+/-- Rule-example evidence (`corpusEvidence`, `shardEvidence`), completed or marked: the kind
+`Regula.Destination.Kind.corpus` (`identifies_corpus`). -/
+def corpusSignature : Signature where
+  description := "rule-example evidence"
+  required := ["outcome"]
+  forbidden := ["status", "scope", "diagnostics", "mode", "rules", "schema", "receipt",
+    "examples", "attemptId", "packets", "group", "equivalent", "documents"]
+
+/-- The name of a kind of entry in a reason to refuse a destination. -/
+private def entryName : IO.FS.FileType → String
+  | .dir => "a directory"
+  | .file => "a regular file"
+  | .symlink => "a symbolic link"
+  | .other => "an entry that is not a directory, a regular file or a symbolic link"
+
+/-- The reason to refuse writing a document of `signature` at `path`, if there is one: something
+is at `path`, by a read that follows no link at `path` itself, and it is not a regular file that is
+empty or whose text is a JSON document that `signature` identifies. An error of that read other
+than the absence of the entry is a reason too. It is
+`Regula.Destination.Target.ownershipRefusal` written a second time. -/
+def ownershipRefusal (signature : Signature) (path : System.FilePath) : IO (Option String) := do
+  let refuse (what : String) : Option String := some s!"{path} is {what}, not \
+    {signature.description} that Regula wrote, so the run does not replace it"
+  match ← path.symlinkMetadata.toBaseIO with
+  | .error (.noFileOrDirectory ..) => return none
+  | .error error => return some s!"{path} cannot be read without following a link ({error}), \
+      so the run does not replace it"
+  | .ok metadata =>
+    unless metadata.type == .file do return refuse (entryName metadata.type)
+    match ← (IO.FS.readBinFile path).toBaseIO with
+    | .error error => return refuse s!"a regular file that cannot be read ({error})"
+    | .ok bytes =>
+      if bytes.isEmpty then return none
+      let some text := String.fromUTF8? bytes | return refuse "a file that is not UTF-8 text"
+      match Lean.Json.parse text with
+      | .ok value => return if signature.identifies value then none else refuse "a JSON document"
+      | .error _ => return refuse "a file that is not a JSON document"
+
+/-- The path of the destination that `path` names, below the real path of its directory, which
+is created when it is absent: the place where `writeDocument` and `promote` read and replace. -/
+def destinationAt (path : System.FilePath) : IO System.FilePath := do
+  let some name := path.fileName
+    | throw <| IO.userError s!"nothing was written: {path} names no file"
+  let parent := path.parent.getD "."
+  IO.FS.createDirAll parent
+  return (← IO.FS.realPath parent) / name
+
+/-- Stop with nothing written unless `value` is a document that `signature` identifies, so that
+a later run of the kind may replace what the driver writes at `path`. -/
+def requireIdentified (signature : Signature) (path : System.FilePath) (value : Lean.Json) :
+    IO Unit := do
+  unless signature.identifies value do
+    throw <| IO.userError s!"nothing was written at {path}: the document is not \
+      {signature.description}, which a later run could not replace"
+
+/-- Write `text`, the text of a JSON document, at `path`: stop with nothing written when the text
+is not a document that `signature` identifies (`requireIdentified`), or when a file at `path` is
+not one that the run may replace (`ownershipRefusal`). Otherwise make a new file in the real path
+of the directory of `path` (`destinationAt`) and rename it to `path`. The new file's name is
+`.regula-`, the process's id, a random number and `.pending`, and it is created only where no entry
+is, so the write replaces the entry at `path` and does not write into the file that the entry
+names. It removes the new file when it stops after making it. It is
+`Regula.Destination.Target.writeText` written a second time. -/
+def writeDocument (signature : Signature) (path : System.FilePath) (text : String) : IO Unit := do
+  match Lean.Json.parse text with
+  | .ok value => requireIdentified signature path value
+  | .error error => throw <| IO.userError s!"nothing was written at {path}: the text is not \
+      JSON ({error})"
+  let destination ← destinationAt path
+  if let some reason ← ownershipRefusal signature destination then throw (IO.userError reason)
+  let random := (← IO.getRandomBytes 8).foldl (fun value byte => value * 256 + byte.toNat) 0
+  let pending := destination.parent.getD "." / s!".regula-{← IO.Process.getPID}-{random}.pending"
+  let handle ← IO.FS.Handle.mk pending .writeNew
+  try
+    handle.putStr text
+    handle.flush
+    IO.FS.rename pending destination
+  catch error =>
+    discard <| (IO.FS.removeFile pending).toBaseIO
+    throw error
+
+/-- Rename the file at `source`, a record that only this run has the path of, to `path`: stop with
+nothing renamed when its text is not a document that `signature` identifies
+(`requireIdentified`), or when a file at `path` is not one that the run may replace
+(`ownershipRefusal`). -/
+def promote (signature : Signature) (source path : System.FilePath) : IO Unit := do
+  requireIdentified signature path (← IO.ofExcept (Lean.Json.parse (← IO.FS.readFile source)))
+  let destination ← destinationAt path
+  if let some reason ← ownershipRefusal signature destination then throw (IO.userError reason)
+  IO.FS.rename source destination
+
+/-- The file that marks a directory that a build of the site is assembling:
+`Regula.Destination.siteAssemblingMarker` (`siteAssemblingMarker_shared`). -/
+def siteAssemblingMarker : String := ".regula-site-assembling"
+
+/-- The members of the `build.json` of a site artifact whose presence identifies it, whatever
+their values: `Regula.Destination.siteBuildMembers`. -/
+def siteBuildMembers : List String := ["schemaVersion", "site", "producerVersion"]
+
+/-- Whether `value` is the `build.json` of a site artifact: it holds each member of
+`siteBuildMembers`, whatever its value (`identifiesSiteBuild_shared`). -/
+def identifiesSiteBuild (value : Lean.Json) : Bool :=
+  siteBuildMembers.all (present value)
+
+/-- Whether a regular file is at `path`, by a read that follows no link at `path` itself. -/
+def regularFile (path : System.FilePath) : BaseIO Bool := do
+  match ← path.symlinkMetadata.toBaseIO with
+  | .ok metadata => return metadata.type == .file
+  | .error _ => return false
+
+/-- The reason to refuse removing the site artifact at `out`, if there is one: something is at
+`out`, by a read that follows no link at `out` itself, and it is not a directory that is empty,
+that holds the marker of an assembly (`siteAssemblingMarker`), or that holds a `build.json` of an
+artifact (`identifiesSiteBuild`), each a regular file. A directory that holds anything else, such
+as the documentation of a repository, is thus not removed. It is
+`Regula.Site.Build.artifactRefusal` written a second time. -/
+def siteRefusal (out : System.FilePath) : IO (Option String) := do
+  let refuse := some s!"{out} is not empty and holds neither a build.json of a site that Regula \
+    built nor the marker {siteAssemblingMarker} of an assembly, so the attempt removes nothing"
+  match ← out.symlinkMetadata.toBaseIO with
+  | .error (.noFileOrDirectory ..) => return none
+  | .error error => return some s!"{out} cannot be read without following a link ({error}), so \
+      the attempt removes nothing"
+  | .ok metadata =>
+    unless metadata.type == .dir do return refuse
+    if (← out.readDir).isEmpty then return none
+    if ← regularFile (out / siteAssemblingMarker) then return none
+    unless ← regularFile (out / "build.json") do return refuse
+    match Lean.Json.parse (← IO.FS.readFile (out / "build.json")) with
+    | .ok value => return if identifiesSiteBuild value then none else refuse
+    | .error _ => return refuse
+
 /-- The failure report: each command that did not end with exit status 0, with how it ended. -/
 def report (ends : List (Command × Option UInt32)) : String :=
   "\n".intercalate ("verification failed:" :: ends.filterMap fun (command, ended) =>
@@ -1269,15 +1452,20 @@ private def usage : String :=
   Lake can update or fetch a dependency there; run it after provisioning (lean --run \
   lean/RegulaProvision.lean verso and mathlib) and ./scripts/verify.sh site"
 
-/-- The earlier verdicts an attempt of `mode` invalidates, each with the constant text recording
-it as incomplete. Ordinary acceptance invalidates the accepted link, so it is not accepted from
-then on unless a run promotes the pending record of its own gate to it. -/
-def invalidated : Mode → List (String × String)
-  | .ordinary => [(linkPath, incompleteLink)]
-  | .ruleExamples =>
-      [("tmp/rule-examples.json", "{\"outcome\":\"INCOMPLETE\",\"phase\":\"setup\"}\n")]
-  | .ruleExamplesShard index =>
-      [(shardEvidence (index.val + 1), "{\"outcome\":\"INCOMPLETE\",\"phase\":\"setup\"}\n")]
+/-- The receipt of the whole rule-example corpus, which `diagnostics rule-examples` writes and
+which each attempt marks (`beginAttempt`). -/
+def corpusEvidence : String := "tmp/rule-examples.json"
+
+/-- The constant text that records rule-example evidence as incomplete before setup. -/
+def setupMark : String := "{\"outcome\":\"INCOMPLETE\",\"phase\":\"setup\"}\n"
+
+/-- The earlier verdicts an attempt of `mode` invalidates beside the corpus receipt
+(`corpusEvidence`), which each attempt invalidates, each with its kind and the constant text
+recording it as incomplete. Ordinary acceptance invalidates the accepted link, so it is not
+accepted from then on unless a run promotes the pending record of its own gate to it. -/
+def invalidated : Mode → List (Signature × String × String)
+  | .ordinary => [(linkSignature, linkPath, incompleteLink)]
+  | .ruleExamplesShard index => [(corpusSignature, shardEvidence (index.val + 1), setupMark)]
   | _ => []
 
 /-- The package adopters require stays dependency-free: its lock manifest records no package. Lake
@@ -1333,31 +1521,44 @@ theorem prebuildCovers_iff (manifest : Lean.Json) :
   · next targets h => simp [h, List.all_eq_true]
   · next h => simp [h]
 
-/-- Begin an attempt: invalidate the selected mode's earlier PASS or accepted link, and remove
-an earlier site artifact. `scripts/verify.sh` runs this toolchain-only step before provisioning
-and before any checker is built, so a failed setup or build cannot leave either in place. The
-site artifact is removed only when a directory is at its own place (`removeOwn`): with a symbolic
-link at `_site` the attempt stops and removes nothing.
+/-- Begin an attempt: mark the corpus receipt (`corpusEvidence`) incomplete, whatever the
+arguments, then invalidate the selected mode's earlier PASS or accepted link (`invalidated`), and
+remove an earlier site artifact. Each mark is written as `writeDocument` writes, so it replaces
+only nothing, an empty file or a document of its kind. `scripts/verify.sh` runs this
+toolchain-only step before provisioning and before any checker is built, so a failed setup or
+build cannot leave either in place. The site artifact is removed only when it is one that the
+site's build may replace (`siteRefusal`) and a directory is at its own place (`removeOwn`): with
+a symbolic link or a directory of something else at `_site` the attempt removes nothing. A
+destination that the attempt may not replace keeps what it holds; the attempt marks the others,
+and then stops with each reason.
 
 An attempt that stops before this step, such as one with no `lean` to run, has run no code of its
-own and leaves the earlier verdicts of its mode, apart from the corpus receipt
-`tmp/rule-examples.json`, which the wrapper marks before it runs Lean.
+own and leaves the earlier verdicts of its mode and the corpus receipt.
 Assumes: each reader that admits one of those verdicts admits it only for the current inputs, so it
 is the verdict for those inputs. `AcceptanceLink.require` admits the acceptance link (`linkPath`)
 only when its identity is the digest of the current inputs. `Site.Build.admitShard` admits a shard
 export (`shardEvidence`) only when it records the current sources of the checker
-(`Site.Build.currentSources`), and then runs `ruleExampleQualification` on it.
-`Regula.Site.Deployment.gate` admits the site artifact (`siteOutput`) only for a clean build of the
-commit it deploys. The gate of the diagnostics workflow reads the self-hosted digests only from the
-artifacts of the jobs of its commit (`Regula.DiagnosticsGate.digestPath`). No reader in this
-repository reads `tmp/environment-census.json` or `tmp/acceptance-fences.json`. -/
+(`Site.Build.currentSources`), and then runs `ruleExampleQualification` on it. Only the attempt
+of `diagnostics rule-examples` that writes the corpus receipt reads it, and that attempt marks it
+here first. `Regula.Site.Deployment.gate` admits the site artifact (`siteOutput`) only for a clean
+build of the commit it deploys. The gate of the diagnostics workflow reads the self-hosted digests
+only from the artifacts of the jobs of its commit (`Regula.DiagnosticsGate.digestPath`). No reader
+in this repository reads `tmp/environment-census.json` or `tmp/acceptance-fences.json`. -/
 def beginAttempt (args : List String) : IO Unit := do
+  let corpus ← (writeDocument corpusSignature corpusEvidence setupMark).toBaseIO
   let some selection := select args | throw <| IO.userError usage
-  for (path, text) in invalidated selection.val do
-    IO.FS.createDirAll "tmp"
-    IO.FS.writeFile path text
+  let mut refused : Array String := #[]
+  if let .error error := corpus then refused := refused.push (toString error)
+  for (signature, path, text) in invalidated selection.val do
+    if let .error error ← (writeDocument signature path text).toBaseIO then
+      refused := refused.push (toString error)
   if selection.val == .site then
-    removeOwn ((← IO.FS.realPath ".") / siteOutput)
+    let remove : IO Unit := do
+      let out := (← IO.FS.realPath ".") / siteOutput
+      if let some reason ← siteRefusal out then throw (IO.userError reason)
+      removeOwn out
+    if let .error error ← remove.toBaseIO then refused := refused.push (toString error)
+  unless refused.isEmpty do throw <| IO.userError ("\n".intercalate refused.toList)
 
 /-- Cold-start driver; all builds and checks stay within the inherited outer deadline. After the
 preliminary checks and the mode's `prebuild`, it schedules every command of the mode
@@ -1365,11 +1566,12 @@ preliminary checks and the mode's `prebuild`, it schedules every command of the 
 one it started, and reports success only when `passed` accepts how every one of those commands
 and of the prebuilds ended (`passed_covers`). The first acceptance step promotes the pending
 record of its own gate to the accepted link only then, before the removal of its copy and before
-the success line. It refuses a surface manifest that claims a target its prebuild does not build
-(`prebuildCovers`), makes its copy after the preliminary checks (`makeCopy`), runs its prebuild
-and its commands for that copy (`ordinary_places`), gives the copy's build output to a project
-that has none when the step passed (`Copy.adopt`) and then records it (`Copy.recordBuild`), and
-removes the copy in each case (`Copy.remove`). -/
+the success line, and only when the record is an acceptance link and the file at `linkPath` is one
+that the run may replace (`promote`). It refuses a surface manifest that claims a target its
+prebuild does not build (`prebuildCovers`), makes its copy after the preliminary checks
+(`makeCopy`), runs its prebuild and its commands for that copy (`ordinary_places`), gives the
+copy's build output to a project that has none when the step passed (`Copy.adopt`) and then
+records it (`Copy.recordBuild`), and removes the copy in each case (`Copy.remove`). -/
 def run (args : List String) : IO Unit := do
   let some selection := select args | throw <| IO.userError usage
   if selection.val == .ordinary then
@@ -1414,7 +1616,7 @@ def run (args : List String) : IO Unit := do
       if passed all.statuses then
         if (← copy.adopt root) then
           if let some tree := tree then copy.recordBuild root tree
-        IO.FS.rename copy.pending linkPath
+        promote linkSignature copy.pending linkPath
         announce s!"every command exited 0: moved {copy.pending} to {linkPath}"
     finally copy.remove
   unless passed all.statuses do

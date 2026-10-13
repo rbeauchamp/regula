@@ -796,10 +796,11 @@ private unsafe def loadReportCoreAtSearchPath (modules : Array Name)
     let admission := admitted.receipt
     -- Later environments of the audit may start from this admission while the report below is
     -- still being built; the coordinator compares it with the finished report
-    -- (`Inspection.inspect`). The rename makes the file appear complete or not at all.
+    -- (`Inspection.inspect`). The rename makes the file appear complete or not at all, and it
+    -- replaces only an empty file or an admission (`Regula.Destination.Target.writeJson`).
     if let some path := publish then
-      Regula.Filesystem.writeReplacing path
-        (toJson ({ receipt := admission, origins } : Admission.Completed)).compress.toUTF8
+      (Regula.Destination.target .admission path).writeJson (render := Json.compress)
+        (toJson ({ receipt := admission, origins } : Admission.Completed))
     -- In a project audit, the modules of owned dependencies that the environment owns are
     -- inspected with the requested ones (`EnvironmentOwnership.dependencies`), each of them owned
     -- and so replayed above: their declarations, roots, documentation and sources.

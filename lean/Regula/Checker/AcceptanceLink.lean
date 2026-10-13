@@ -128,12 +128,11 @@ def identity (scratch projectRoot copyRoot docsRoot : FilePath)
 
 /-- Replace any earlier record before the ordinary audit starts. A run that stops before its audit
 records why as `reason` (`AxiomGate.refuseWithoutTaskManager`). It stops with nothing written at a
-file that is not an acceptance link or empty (`Regula.Destination.write`). -/
-def invalidate (path : FilePath) (reason : Option String := none) : IO Unit := do
-  let mark := Json.mkObj <|
+file that is not an acceptance link or empty (`Regula.Destination.Target.mark`). -/
+def invalidate (path : FilePath) (reason : Option String := none) : IO Unit :=
+  (Regula.Destination.target .acceptanceLink path).mark <|
     [("schemaVersion", toJson (1 : Nat)), ("status", .str "incomplete")] ++
       (reason.map fun reason => [("reason", Json.str reason)]).getD []
-  Regula.Destination.write .acceptanceLink path (mark.compress ++ "\n").toUTF8
 
 /-- The identity of one accepted run's captured inputs, computed before its success line
 and held, unrecorded, until the run's outer freshness recheck has passed. -/
@@ -149,11 +148,13 @@ structure Pending where
 
 /-- Written only after accepted ordinary success. It cannot be called without a `Pending`, whose
 `Account` is a projection of some `AcceptedRun`; that it is this run's account, and that
-`digest` matches it, is the caller's binding. -/
+`digest` matches it, is the caller's binding. It replaces only a file that is empty or an acceptance
+link (`Regula.Destination.Target.writeJson`). -/
 def record (path : FilePath) (pending : Pending) : IO Unit :=
-  writeJson path (Json.mkObj [("schemaVersion", toJson (1 : Nat)), ("status", .str "accepted"),
-      ("identity", .str pending.digest), ("acceptedJobs", toJson pending.account.val.jobs),
-      ("origin", .str pending.origin)])
+  (Regula.Destination.target .acceptanceLink path).writeJson <| Json.mkObj [
+    ("schemaVersion", toJson (1 : Nat)), ("status", .str "accepted"),
+    ("identity", .str pending.digest), ("acceptedJobs", toJson pending.account.val.jobs),
+    ("origin", .str pending.origin)]
 
 /-- Refuse unless ordinary acceptance recorded an accepted success over equal inputs.
 The `status: accepted` record lives in a writable `tmp/` file and is trusted as written

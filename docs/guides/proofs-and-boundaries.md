@@ -567,7 +567,8 @@ The driver uses that decision for its copy and for the directory `_site` of the 
 Before this decision, the site mode removed `_site` with no such read. With a link at `_site`,
 it deleted the content of the target of the link
 ([issue 260](https://github.com/rbeauchamp/regula/issues/260)). At this time, the site mode
-stops there and removes nothing.
+stops there and removes nothing. It also removes `_site` only if `site build` could replace it, as
+the option `--out` of that command describes below.
 
 One case stays outside that decision. A process can replace an entry in the directory with a
 link during the removal. `IO.FS.removeDirAll` examines an entry and then opens it by its path.
@@ -896,6 +897,9 @@ no command operated. GNU timeout gives 125, 126 or 127, and Lean gives 255 when 
 GNU timeout. The command itself ends with 0, 1, the status of a signal or 124 at the deadline. So
 for the four other statuses the program marks its evidence with the status and the standard error.
 
+A command of `qualify` with `--under-deadline` marks its evidence first too. If the rest of its
+arguments name no command, it marks its evidence again with the text of that error and stops.
+
 The mark replaces a destination before the program reads its inputs. So three rules of the module
 `Regula.Destination` keep a mark or a write from losing a file that is not a document of Regula.
 First, a write makes a new file in the directory of the destination and then moves it onto the
@@ -905,10 +909,22 @@ also stays whole until the move.
 Second, a write stops with nothing written if the destination holds a file that the run may not
 replace. The run may replace an empty regular file or a JSON document of the kind that it writes
 there. An empty file holds no bytes to lose, so a destination that `mktemp` made stays usable. The
-function `Regula.Destination.Kind.identifies` decides a kind by the members of a document, not by
-the values of its identity. Thus a document of an earlier version of Regula stays replaceable. A
-symbolic link, a directory, a source file, a configuration file and a Markdown document keep their
-bytes.
+function `Regula.Destination.Kind.identifies` decides a kind by the members that a document has,
+not by their values. Thus a document of an earlier version of Regula stays replaceable. A symbolic
+link, a directory, a source file, a configuration file and a Markdown document keep their bytes.
+
+Each kind requires some members, and it forbids the identifying members of the other kinds that its
+documents lack. A mark holds each required member, with the value `null` if it has no other value.
+The theorem `identifies_disjoint` proves that no JSON value is a document of two kinds. Its proof
+checks with `decide` that, for each pair of kinds, one requires a member that the other forbids.
+Thus a run of one kind replaces no document of a different kind.
+
+A program writes a destination only through the type `Regula.Destination.Target`. The path of a
+target is private to that module. The writers `Target.writeJson` and `Target.writeText` apply the
+first two rules. They also stop if the written document is not of the kind of the destination. The
+verification driver imports only Lean, so it holds a copy of that writer for its acceptance link
+and its rule-example evidence. Theorems in `RegulaVerification.Decisions` prove that the decisions
+of the copy are those of `Regula.Destination`.
 
 Third, a program refuses an invocation if two of its destinations may name one entry. The check
 compares the real path of the nearest present directory above each destination and the names below
@@ -934,11 +950,12 @@ baseline, and check B1 refuses the mark. The run then reads the earlier baseline
 the program cannot read the earlier baseline, the mark holds the reason and no text, and the run
 fails.
 
-The script `scripts/verify.sh` marks `tmp/rule-examples.json` with a constant text before it
-operates Lean. The begin-attempt of `RegulaVerification` then marks the other verdicts of the
-selected mode. An attempt can stop before that begin-attempt, for example without `lean`. Then the
-earlier verdicts of the mode stay, and no code of the attempt has operated. Each reader of these
-verdicts admits one only for the current inputs, so it is still the verdict for those inputs.
+The begin-attempt of `RegulaVerification` marks `tmp/rule-examples.json` in each mode, and then
+the other verdicts of the selected mode. An attempt can stop before that begin-attempt, for example
+without `lean`. Then the earlier verdicts stay, and no code of the attempt has operated. Each reader
+of these verdicts admits one only for the current inputs, so it is still the verdict for those
+inputs. The campaign `qualify rule-examples` and its qualifier alone read `tmp/rule-examples.json`,
+and the campaign marks it first.
 
 The reader `AcceptanceLink.require` admits an acceptance link only if its identity is the digest of
 the current inputs. The reader `Site.Build.admitShard` admits a shard export only for the current

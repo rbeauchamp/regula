@@ -40,7 +40,9 @@ def worker (args : List String) : IO UInt32 := do
     else
       let entry ← IO.ofExcept ((← first payload).getArr?)
       payload := payload.set! 0 (toJson (entry.set! 0 (toJson (999999 : Nat))))
-    writeJson ⟨path⟩ (packet.setObjVal! "payload" (toJson payload))
+    -- The mutated packet replaces the worker's through its destination, a worker packet.
+    (Regula.Destination.target .workerPacket ⟨path⟩).writeJson
+      (packet.setObjVal! "payload" (toJson payload)) (render := fun value => value.pretty ++ "\n")
   return 0
 
 private def faults : String → Array (String × String)
@@ -49,10 +51,17 @@ private def faults : String → Array (String × String)
           ("fence-misindexed", "unknownKey")]
   | _ => #[]
 
-private def save (path : FilePath) (receipt : Json) : IO Unit :=
-  writeJson path receipt
+/-- The destination of the receipt that `path` names: an acceptance receipt
+(`Regula.Destination.Kind.acceptanceReceipt`), which the campaign writes only through it. -/
+def destination (path : FilePath) : Regula.Destination.Target :=
+  Regula.Destination.target .acceptanceReceipt path
 
-private def qualify (group : String) (evidence : FilePath) (receipt : IO.Ref Json) : IO Unit := do
+/-- Write `receipt` at the destination `path`, as pretty JSON. -/
+private def save (path : Regula.Destination.Target) (receipt : Json) : IO Unit :=
+  path.writeJson receipt (render := fun value => value.pretty ++ "\n")
+
+private def qualify (group : String) (evidence : Regula.Destination.Target)
+    (receipt : IO.Ref Json) : IO Unit := do
   let root ← rootDirectory
   let update (key : String) (value : Json) := do
     receipt.modify (·.setObjVal! key value)
@@ -128,7 +137,7 @@ private def qualify (group : String) (evidence : FilePath) (receipt : IO.Ref Jso
       active := (active.setObjVal! "exitCode" (toJson result.exitCode.toNat)).setObjVal!
         "log" (toJson (result.stdout ++ result.stderr))
       update "activeCase" active
-      let resultEvidence := evidence.addExtension s!"result-{records.size}.json"
+      let resultEvidence := evidence.beside s!".result-{records.size}.json"
       let resultFile ← if ← output.pathExists then do
         Regula.Filesystem.replacePath output resultEvidence
         pure (toJson resultEvidence.toString)
@@ -158,9 +167,9 @@ private def qualify (group : String) (evidence : FilePath) (receipt : IO.Ref Jso
 /-- Invalidate old evidence before setup. SIGKILL leaves a current incomplete receipt;
 ordinary exceptions retain failure and the active case. Filesystem atomicity is trusted. With
 `reason`, the receipt records why the attempt stops before its setup. -/
-def beginAttempt (group : String) (evidence : FilePath) (attempt : String)
+def beginAttempt (group : String) (evidence : Regula.Destination.Target) (attempt : String)
     (reason : Option String := none) : IO Json := do
-  if let some parent := evidence.parent then IO.FS.createDirAll parent
+  IO.FS.createDirAll evidence.directory
   let receipt := Json.mkObj ([("attemptId", toJson attempt),
     ("status", toJson "incomplete"), ("group", toJson group), ("inputs", Json.mkObj []),
     ("records", toJson (#[] : Array Json))] ++
@@ -170,7 +179,8 @@ def beginAttempt (group : String) (evidence : FilePath) (attempt : String)
 
 /-- The outer wrapper supplies its original attempt; direct timed dispatch creates
 one before setup. Neither path can reuse a previous completed receipt. -/
-def check (group : String) (evidence : FilePath) (attempt : Option String := none) : IO Unit := do
+def check (group : String) (evidence : Regula.Destination.Target)
+    (attempt : Option String := none) : IO Unit := do
   let attempt ← attempt.map pure |>.getD freshAttempt
   let receipt ← IO.mkRef (← beginAttempt group evidence attempt)
   try

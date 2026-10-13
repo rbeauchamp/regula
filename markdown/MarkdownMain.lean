@@ -325,16 +325,19 @@ B1 refuses it (`baselineOf`), and keep the earlier baseline `earlier` that the r
 (`earlierBaseline`) in the mark, so that the run and a later `--write-baseline` keep its entries.
 When the decoding failed, the mark holds its reason and no earlier text. It is the one writer of
 the mark: the refusal of the program (`refuseMarkdown`) calls it, which the guard also runs before
-every run (`Regula.TaskManager.guard`). It writes only over a baseline or its mark, or an empty
-file (`Regula.Destination.write`), and stops with the reason for any other file. -/
+every run (`Regula.TaskManager.guard`). The mark holds `documents` with the value `null`, which
+identifies it as a prose baseline's (`Regula.Destination.Kind.mark`); the reader admits only the
+text that `Baseline.write` gives, so it refuses the mark. It writes only over a baseline or its
+mark, or an empty file (`Regula.Destination.Target.mark`), and stops with the reason for any
+other file. -/
 def markBaseline (root : System.FilePath) (reason : String)
     (earlier : Except String (Option String)) : IO Unit :=
   let members : List (String × Lean.Json) := match earlier with
     | .ok earlier => [("reason", Lean.Json.str reason),
         ("earlier", match earlier with | some text => .str text | none => .null)]
     | .error error => [("reason", .str error)]
-  Regula.Destination.write .proseBaseline (root / baselineFile)
-    ((Lean.Json.mkObj (("status", .str "incomplete") :: members)).compress ++ "\n").toUTF8
+  (Regula.Destination.target .proseBaseline (root / baselineFile)).mark
+    (("status", .str "incomplete") :: members)
 
 /-- What Git gives for `start`, of the checked commit `HEAD`. Git is asked only for the value
 that `baseOf` reads for that start: the merge base of `HEAD` and the revision for the run of a
@@ -714,7 +717,7 @@ def writeBaseline (options : Options) : IO UInt32 := do
   let text := String.ofList (ledgerOf entries).render
   match baselineOf baselineFile text with
   | .ok written =>
-    Regula.Destination.write .proseBaseline (options.root / baselineFile) text.toUTF8
+    (Regula.Destination.target .proseBaseline (options.root / baselineFile)).writeText text
     IO.println s!"{baselineFile}: {written.entries.length} entries written"
     return 0
   | .error refusals =>
@@ -1305,8 +1308,8 @@ those of the control of `--write-baseline` (`runWriteControl`), and the reader o
 with no `git`, stops when it lists the tracked files. The file must then hold the mark of the guard
 (`markBaseline`), with the guard's reason (`Regula.TaskManager.startedReason`) and the earlier
 baseline, and the reader must refuse it. A run with the inherited `PATH` must then write the
-expected baseline, with the entries of the earlier baseline that the mark kept. A baseline file
-that is not UTF-8 text is not a baseline that Regula wrote (`Regula.Destination.write`): a run
+expected baseline, with the entries of the earlier baseline that the mark kept. A baseline file that
+is not UTF-8 text is not a baseline that Regula wrote (`Regula.Destination.Target.writeText`): a run
 must then fail with that reason, and the file must keep its bytes.
 The program, Git and the filesystem are its subject, an external boundary: it observes them and
 proves nothing. -/
