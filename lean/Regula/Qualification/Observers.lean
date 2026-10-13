@@ -27,11 +27,21 @@ checked here: its environment is imported and checked as each `checkProgram` che
 
 The removal check reads a linked module under `Init`, `Std`, `Lean` or `Lake` as Lean's own by its
 name, under the hypothesis that no package of the workspace that builds the program provides one
-(`Regula.Removal.toolchainModules`). This campaign checks that hypothesis for each workspace of this
-repository whose builds run the removal check (`checkToolchainWorkspaces`): it loads the workspace
-with Lake, and refuses a module under those roots that a package of it provides, the root package
-or a dependency, and an entry of those roots in the library directory of a package. Its control, a
-workspace whose dependency package provides `Lean.Planted`, runs first (`toolchainControl`). -/
+(`Regula.Removal.toolchainModules`). This campaign checks that hypothesis for three workspaces of
+this repository, the root package's, the `markdown/` package's and the `audit/` package's
+(`checkToolchainWorkspaces`): it loads each with Lake, and refuses a module under those roots that
+a package of it provides, the root package or a dependency, and an entry of those roots in the
+library directory of a package. Its control, a workspace whose dependency package provides
+`Lean.Planted`, runs first (`toolchainControl`). The Mathlib integration's workspace, which builds
+programs of the package too, and an adopter's workspace are not checked: their builds rest on the
+hypothesis unchecked.
+
+The campaign acquires no dependency. Before Lake loads a workspace, it refuses one whose manifest
+pins a Git package that is not checked out at the pinned commit, since Lake's loader would then
+clone or check it out (`unprovisioned`), and names the provisioning step that acquires it. The
+`markdown/` workspace pins MD4Lean, which `lean --run lean/RegulaProvision.lean verso` acquires.
+The control of that refusal, a workspace whose manifest pins a Git package that it does not hold,
+runs first (`provisionControl`). -/
 
 namespace Regula.Qualification.Observers
 
@@ -112,12 +122,47 @@ def ToolchainFinding.describe : ToolchainFinding → String
     s!"package {package} provides the module {module} ({target})"
   | .holds package entry => s!"package {package} has {entry} in its library directory"
 
+/-- The Git packages, by the names of their entries, that Lake's loader would acquire when it loads
+the workspace `ws`, which is loaded with its root package alone (`Lake.loadWorkspaceRoot`). With a
+manifest, the loader materializes each dependency from its entry in the manifest or in the package
+overrides, and from nothing else (`Lake.Workspace.materializeDeps`,
+`Lake/Load/Resolve.lean:587-625`). `Lake.PackageEntry.materialize` leaves a Git package as it is,
+with no fetch, clone or checkout, exactly when its directory below the manifest's packages
+directory exists and its `HEAD` is the pinned commit (`Lake/Load/Materialize.lean:237-264`). Each
+Git entry whose checkout is not so is listed. With no manifest, the loader resolves every
+dependency anew (`Lake/Load/Workspace.lean:61-69`), so a root package that declares a dependency
+gives the entry `lake-manifest.json`. -/
+def unprovisioned (ws : _root_.Lake.Workspace) : IO (Array String) := do
+  let some manifest ← _root_.Lake.Manifest.load? ws.manifestFile
+    | return if ws.root.depConfigs.isEmpty then #[] else #["lake-manifest.json"]
+  let packages := ws.dir / manifest.packagesDir?.getD ws.relPkgsDir
+  let overrides ← _root_.Lake.Manifest.tryLoadEntries ws.packageOverridesFile
+  (manifest.packages ++ overrides).filterMapM fun entry => do
+    match entry.src with
+    | .git (rev := rev) .. =>
+      let checkout : _root_.Lake.GitRepo := ⟨packages / entry.dirName⟩
+      if (← checkout.dirExists) && (← checkout.getHeadRevision?) == some rev then return none
+      return some entry.prettyName
+    | .path .. => return none
+
+/-- The text that names the step that provisions the pinned Git packages of this repository's
+workspaces: MD4Lean, which the `markdown/` workspace pins, with the website's Verso. -/
+def provisioningStep : String := "lean --run lean/RegulaProvision.lean verso"
+
 /-- The findings of the workspace that Lake loads for the project at `repo`: for each package of
 the workspace, the root package and each dependency, each module under a root of Lean's toolchain
 that the package provides by Lake's module lookup (`Regula.Checker.Lake.packageModules`,
 `toolchainProvided`), and each of `toolchainEntries` that its library directory (`leanLibDir`)
-has. -/
-def toolchainFindings (repo : FilePath) : IO (Array ToolchainFinding) :=
+has. It first loads the root package alone, and refuses, before Lake loads the workspace, when a
+Git package of its manifest is not checked out at the pinned commit (`unprovisioned`), so the load
+acquires no dependency. -/
+def toolchainFindings (repo : FilePath) : IO (Array ToolchainFinding) := do
+  let missing ← Regula.Checker.Workspace.withRootWorkspace repo (resolveDependencies := false)
+    unprovisioned
+  unless missing.isEmpty do
+    throw <| IO.userError s!"observers: the workspace {repo} needs {missing.toList} at the commits \
+      that its manifest pins before Lake loads it, and this check acquires no dependency: \
+      provision them with `{provisioningStep}`"
   Regula.Checker.Workspace.withRootWorkspace repo fun ws => do
     Regula.Checker.Lake.checkWorkspaceModuleNames ws
     let mut findings := #[]
@@ -131,22 +176,62 @@ def toolchainFindings (repo : FilePath) : IO (Array ToolchainFinding) :=
           findings := findings.push (.holds name entry)
     return findings
 
-/-- The directories, below the repository root, of the workspaces of this repository whose builds
-run the removal check of a program (`Regula.Removal.checkProgram`): the root package's, the
-`markdown/` package's, which builds `MarkdownMain`, and the `audit/` package's, which builds the
-root package's `axiomGate` and `lint`. -/
+/-- The directories, below the repository root, of the three workspaces of this repository that
+`checkToolchainWorkspaces` checks, whose builds run the removal check of a program
+(`Regula.Removal.checkProgram`): the root package's, the `markdown/` package's, which builds
+`MarkdownMain`, and the `audit/` package's, which builds the root package's `axiomGate` and `lint`.
+The Mathlib integration's workspace builds the root package's programs too, and is not one of
+them: loading it needs Mathlib, which this campaign does not provision. Its builds, and an
+adopter's, rest on the hypothesis of `Regula.Removal.toolchainModules` unchecked. -/
 def toolchainWorkspaces : List FilePath := [".", "markdown", "audit"]
+
+/-- Write the manifest of a control workspace at `dir` with the package entries `packages`, as
+`Lake.Manifest.save` writes one (`Lake.Manifest.toJson`), through the writer of
+`Regula.Filesystem`. -/
+def writeControlManifest (dir : FilePath) (packages : Array _root_.Lake.PackageEntry) :
+    IO Unit :=
+  let manifest : _root_.Lake.Manifest :=
+    { name := `control, lakeDir := ".lake", fixedToolchain := false
+      packagesDir? := some ".lake/packages", packages }
+  Regula.Filesystem.writeReplacing (dir / "lake-manifest.json")
+    ((Json.pretty manifest.toJson).push '\n').toUTF8
+
+/-- The control of `unprovisioned`: a workspace whose root package requires the Git package
+`planted` and whose manifest pins it, with no checkout of it, is refused before Lake loads it, by
+the text that names `planted` and the provisioning step. The package's address is a `file:` URL
+that names no directory, so a check that let Lake load the workspace would make no network
+request. -/
+def provisionControl (repo : FilePath) : IO Unit := do
+  let rev := "0000000000000000000000000000000000000000"
+  let (refusal, _) ← Regula.Scratch.withScratch repo "provision-control" fun scratch => do
+    Regula.Filesystem.writeReplacing (scratch / "lakefile.toml")
+      s!"name = \"control\"\n\n[[require]]\nname = \"planted\"\n\
+        git = \"file:///nonexistent\"\nrev = \"{rev}\"\n".toUTF8
+    writeControlManifest scratch
+      #[{ name := `planted, inherited := false, configFile := "lakefile.toml"
+          manifestFile? := some "lake-manifest.json"
+          src := .git "file:///nonexistent" rev (some rev) none }]
+    try
+      discard <| toolchainFindings scratch
+      return none
+    catch error => return some error.toString
+  unless refusal.any fun text => text.contains "[planted]" && text.contains provisioningStep do
+    throw <| IO.userError s!"observers: the control of the unprovisioned packages gave \
+      {refusal}, not a refusal that names planted and `{provisioningStep}`"
 
 /-- The control of `toolchainFindings`: a workspace whose dependency package provides the modules
 `Lean.Planted` and `Planted.Fine`, and whose root package's library directory has the directory
-`Std`, gives exactly the findings of `Lean.Planted` and of `Std`. It makes the workspace in a
-scratch directory, through the writer of `Regula.Filesystem`. -/
+`Std`, gives exactly the findings of `Lean.Planted` and of `Std`. It makes the workspace, with its
+manifest, in a scratch directory, through the writer of `Regula.Filesystem`. -/
 def toolchainControl (repo : FilePath) : IO Unit := do
   let (findings, _) ← Regula.Scratch.withScratch repo "toolchain-control" fun scratch => do
     let write (path : FilePath) (text : String) := Regula.Filesystem.writeReplacing path text.toUTF8
     let dependency := scratch / "dependency"
     write (scratch / "lakefile.toml")
       "name = \"control\"\n\n[[require]]\nname = \"dependency\"\npath = \"dependency\"\n"
+    writeControlManifest scratch
+      #[{ name := `dependency, inherited := false, configFile := "lakefile.toml"
+          manifestFile? := some "lake-manifest.json", src := .path "dependency" }]
     write (dependency / "lakefile.toml")
       "name = \"dependency\"\n\n[[lean_lib]]\nname = \"Planted\"\n\
         roots = [\"Lean.Planted\", \"Planted.Fine\"]\n"
@@ -161,8 +246,10 @@ def toolchainControl (repo : FilePath) : IO Unit := do
       {(findings.map (·.describe)).toList}, not {(expected.map (·.describe)).toList}"
 
 /-- Refuse a workspace of `toolchainWorkspaces` below the repository root `repo` with a finding
-(`toolchainFindings`), after the control (`toolchainControl`) gave its findings. -/
+(`toolchainFindings`), or with a Git package that it pins and does not hold (`unprovisioned`),
+after the controls (`provisionControl`, `toolchainControl`) gave their answers. -/
 def checkToolchainWorkspaces (repo : FilePath) : IO Unit := do
+  provisionControl repo
   toolchainControl repo
   for workspace in toolchainWorkspaces do
     let findings ← toolchainFindings (repo / workspace)

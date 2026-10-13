@@ -972,8 +972,9 @@ that it does not call. Three more programs state it because they link such code:
 `ruleExampleQualification`, `regula-markdown` and the registry checks.
 
 The check takes a module as part of Lean's toolchain by its name: `Init`, `Std`, `Lean` or `Lake`.
-`lake exe qualify observers` checks that no package of the workspaces of this repository provides a
-module under these names.
+`lake exe qualify observers` checks that no package of the root, `markdown/` or `audit/` workspace
+provides a module under these names. The builds in the Mathlib integration's workspace and in an
+adopter's rely on this unchecked.
 
 The tactics of the elaborated source run with their effects, as `lake build` runs them. These are
 trusted effects that the check does not find or limit, such as the `aig.gv` and LRAT files of
@@ -3349,6 +3350,8 @@ inferred from any pure proof.
   decision accepts exactly when each such constant is an axiom with the toolchain's universe
   parameters and type, from the toolchain's declaring module, loaded from that module's files in
   the toolchain library. **Trusted:** that the observed canonical paths are the files Lean loaded.
+  `Collect.foundationObservations` finds them after the import, so it also trusts that nothing that
+  its lookup reads changed in between.
 
   The checks of proofs that the checker makes use `KernelAxioms.axiomsWith`: the recursion equation
   of a recursion helper and an execution correspondence. It starts at the new theorem, stops at

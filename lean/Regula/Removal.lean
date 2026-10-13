@@ -702,7 +702,7 @@ Assumes:
   `Lake/Build/Actions.lean:63`), then the toolchain's `lib/lean` (`Lean/Util/Path.lean:95-96`,
   `:108-110`). It reads a module from the first of them that has its root's directory or `.olean`
   file (`Lean/Util/Path.lean:61-65`). So a module under these roots is read from the toolchain's
-  `lib/lean`. `lake exe qualify observers` checks this hypothesis for the workspaces of this
+  `lib/lean`. `lake exe qualify observers` checks this hypothesis for three workspaces of this
   repository whose builds run the check: the root package's, the `markdown/` package's and the
   `audit/` package's. It loads each with Lake, and refuses a module under these roots that a
   package of it provides, the root package or a dependency, and such an entry of a package's

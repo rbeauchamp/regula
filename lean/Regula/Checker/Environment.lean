@@ -78,7 +78,8 @@ graph permits inspection to continue; this observation grants no acceptance auth
 structure ModuleGraph where
   /-- Every loaded module, in the complete report's canonical name order. -/
   modules : Array Name
-  /-- The canonical artifact and recorded direct imports of every loaded module. -/
+  /-- The canonical artifact and recorded direct imports of every loaded module, under the
+  hypotheses of `Regula.Probe.loadedModuleOrigins`. -/
   moduleOrigins : Array Regula.Report.ModuleOrigin
   deriving ToJson
 
@@ -581,7 +582,8 @@ def ModuleGraph.importDetails (graph : ModuleGraph) (ordinary excluded configure
 /-- Authenticate the narrow infrastructure partition against the running checker's
 canonical artifacts, retaining the request snapshot. Import restrictions are subsequently
 rechecked over the complete census by `InfrastructureOK`; these receipts alone do not
-allow a source import of a reporter or change any replay ownership. -/
+allow a source import of a reporter or change any replay ownership. The loaded path of each module
+is the report's, which rests on the hypotheses of `Regula.Probe.loadedModuleOrigins`. -/
 def infrastructureOrigins (snapshot : RegulaPolicy.AdmittedSnapshot)
     (report : ProducerReport.Environment) : IO (Array RegulaPolicy.InfrastructureOrigin) := do
   let some lib ← checkerPackageLibDir

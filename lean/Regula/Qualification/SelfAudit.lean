@@ -116,7 +116,9 @@ structure ModuleObservation where
   /-- The finding texts of the comparison rule for the module (`jsonFindings`). -/
   jsonFindings : Array String
 
-/-- Whether `owner`'s artifact is the pinned toolchain's own `Lake` module. -/
+/-- Whether `owner`'s artifact is the pinned toolchain's own `Lake` module: the file that the search
+path finds for it is, by real path, the toolchain's. That this is the file Lean read rests on the
+hypotheses of `Regula.Probe.loadedModuleOrigins`. -/
 private def toolchainLakeModule (toolchainLib : FilePath) (owner : Name) : IO Bool := do
   unless owner.getRoot == `Lake do return false
   let expected := modToFilePath toolchainLib owner "olean"
