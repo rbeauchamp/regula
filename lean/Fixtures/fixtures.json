@@ -1130,9 +1130,17 @@
   "execution": "checked",
   "reason": "execution-trusted-boundary",
   "output": [
-   "fixtures_replaced_counter [runtime-replacement] correspondence=trusted replacement=fixtures_counter_replacement",
-   "fixtures_read_replaced_counter reaches fixtures_replaced_counter (runtime-replacement)"
+   "fixtures_replaced_counter [initialized-value] correspondence=trusted",
+   "fixtures_replaced_counter [runtime-replacement] correspondence=checked replacement=fixtures_counter_replacement",
+   "fixtures_read_replaced_counter reaches fixtures_replaced_counter (initialized-value)"
   ]
+ },
+ "Fixtures.Mutations.UncompiledInitializedReplacement": {
+  "expect": "fail",
+  "claim": "standard-logical",
+  "execution": "checked",
+  "reason": "audit-incomplete",
+  "pattern": "unknown declaration 'fixtures_uncompiled_counter'"
  },
  "Fixtures.Mutations.ExternExportSignatureMismatch": {
   "expect": "fail",

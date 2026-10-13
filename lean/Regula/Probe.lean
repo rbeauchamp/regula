@@ -602,25 +602,29 @@ inductive Lowering where
   deriving DecidableEq
 
 /-- The classification of a constant from what Lean records of it: whether it is an `extern`
-(`isExtern`), whether it has an `implemented_by` target (`implemented`), and its initializer
-(`initializer`). A call of a constant with an `implemented_by` target that is not an `extern`,
-compiled after the target was added, calls the target and never reads the value of the
-constant's initializer (`lowering_initialized_iff`). -/
-def lowering (isExtern implemented : Bool) (initializer : Option Name) : Lowering :=
+(`isExtern`), whether it has an `implemented_by` target (`implemented`), whether Lean holds
+compiled IR for it (`compiled`), and its initializer (`initializer`). A constant with an
+initializer is an initialized value unless it has an `implemented_by` target and no IR: Lean
+generated no code for it, so no initializer of it runs, and every call of it calls the target. A
+constant with an initializer, a target and IR, whose target was added after it was compiled, is
+an initialized value too, since a call compiled before the target was added, the target's own
+included, still reads the initializer's value (`lowering_initialized_iff`). -/
+def lowering (isExtern implemented compiled : Bool) (initializer : Option Name) : Lowering :=
   if isExtern then .extern
-  else if implemented then .ordinary
+  else if implemented && !compiled then .ordinary
   else match initializer with
     | some action => .initialized action
     | none => .ordinary
 
 /-- A constant is classified as an initialized value exactly when it is not an `extern`, has no
-`implemented_by` target, and Lean records an initializer for it. -/
-theorem lowering_initialized_iff (isExtern implemented : Bool) (initializer : Option Name)
-    (action : Name) :
-    lowering isExtern implemented initializer = .initialized action ↔
-      isExtern = false ∧ implemented = false ∧ initializer = some action := by
+`implemented_by` target or has compiled IR, and Lean records an initializer for it. -/
+theorem lowering_initialized_iff (isExtern implemented compiled : Bool)
+    (initializer : Option Name) (action : Name) :
+    lowering isExtern implemented compiled initializer = .initialized action ↔
+      isExtern = false ∧ (implemented = false ∨ compiled = true) ∧
+        initializer = some action := by
   unfold lowering
-  cases isExtern <;> cases implemented <;> cases initializer <;> simp
+  cases isExtern <;> cases implemented <;> cases compiled <;> cases initializer <;> simp
 
 
 /-- What a walk observes of one name `name`: the targets of the edges from the name, its
@@ -636,8 +640,8 @@ bodies remain boundary leaves. Every `extern` is a trusted boundary. One of a pr
 dependency names the declarations whose `@[export]` name is its C symbol (`exportersOf`), with no
 claim that they run; that match adds no edge, and the extern's simplification candidates stay
 edges, as for any constant. A constant with an `implemented_by` target is a runtime replacement,
-an `extern` included, and a constant with an initializer and no such target is an initialized
-value.
+an `extern` included, and a constant with an initializer is an initialized value unless it has
+such a target and no compiled IR (`lowering`); one with an initializer, a target and IR is both.
 
 An opaque constant gets a helper edge to the constant `Lean.Compiler.mkUnsafeRecName` names for it
 when the environment has that constant and it is `partial`. The edge is how the policy pairs a
@@ -666,11 +670,14 @@ Assumes:
   `implemented_by` target when it is compiled (`shouldGenerateCode`,
   `src/lean/Lean/Compiler/LCNF/Main.lean:34`, `:40`); a target added after the constant was
   compiled, as `attribute [implemented_by]` after `initialize` adds one, leaves its IR and
-  initializer in place. Its simplifier replaces a call of any constant with an `implemented_by`
-  target, an `extern` included, by a call of the target (`applyImplementedBy?`,
-  `src/lean/Lean/Compiler/LCNF/Simp/SimpValue.lean:55-59`, enabled at
+  initializer in place, and Lean's IR environment extension still holds that IR (`findEnvDecl`,
+  `src/lean/Lean/Compiler/IR/CompilerM.lean:142`). The module's initialization runs the
+  initializers of its IR declarations alone (`emitInitFn`,
+  `src/lean/Lean/Compiler/LCNF/EmitC.lean:1047-1049`). Its simplifier replaces a call of any
+  constant with an `implemented_by` target, an `extern` included, by a call of the target
+  (`applyImplementedBy?`, `src/lean/Lean/Compiler/LCNF/Simp/SimpValue.lean:55-59`, enabled at
   `src/lean/Lean/Compiler/LCNF/Passes.lean:107`), so a call compiled after the target was added
-  never reads the constant's value. -/
+  never reads the constant's value, and a call compiled before still does. -/
 private def observeNode (env : Environment) (ownedModules : List Name)
     (toolchainModules : NameMap RegulaPolicy.ToolchainOrigin)
     (cached : Std.HashMap Name (Array Name))
@@ -762,7 +769,8 @@ private def observeNode (env : Environment) (ownedModules : List Name)
         {evidence.getD ""}") terms
     record := { record with boundaries := record.boundaries.push boundary }
   let implemented := Lean.Compiler.getImplementedBy? env name
-  match lowering (Lean.isExtern env name) implemented.isSome (Lean.getInitFnNameFor? env name) with
+  match lowering (Lean.isExtern env name) implemented.isSome (code != .missing)
+      (Lean.getInitFnNameFor? env name) with
   | .extern =>
     -- Every `extern` is a trusted boundary. An `extern` outside the toolchain names the
     -- declarations whose `@[export]` name is its C symbol, read from the attribute names alone:
@@ -780,13 +788,15 @@ private def observeNode (env : Environment) (ownedModules : List Name)
     record := { record with boundaries := record.boundaries.push boundary }
     if implemented.isNone then return record
   | .initialized action =>
-    -- A constant with an initializer and no `implemented_by` target is compiled to a stub that
-    -- is never run, and compiled code reads the value its initializer action returned at module
-    -- initialization. The action is a retained compiler call of the record
-    -- (`compilerDependencies`), so the walk follows it.
+    -- A constant with an initializer and compiled IR, or with no `implemented_by` target, is
+    -- compiled to a stub that is never run, and compiled code reads the value its initializer
+    -- action returned at module initialization. The action is a retained compiler call of the
+    -- record (`compilerDependencies`), so the walk follows it. Calls compiled after an
+    -- `implemented_by` target was added call the target, so it is a runtime replacement too.
     let boundary ← entry .initializedValue .trusted none
       (some s!"compiled code reads the value that initializer {action} returned")
-    return { record with boundaries := record.boundaries.push boundary }
+    record := { record with boundaries := record.boundaries.push boundary }
+    if implemented.isNone then return record
   | .ordinary => pure ()
   if let some target := implemented then
     record := { record with

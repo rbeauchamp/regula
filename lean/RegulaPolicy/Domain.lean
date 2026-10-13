@@ -104,9 +104,10 @@ inductive BoundaryKind where
   compiler-trust family or a name the `nativeEqTrue` scheme generates for
   `native_decide`, `decide +native` or `bv_decide` (`compilerTrustingAxiomName`). -/
   | «compilerTrustedProof»
-  /-- A constant with an initializer (`[init]` or `[builtin_init]`) and no `implemented_by`
-  target: compiled code reads the value its initializer action returned when the module was
-  initialized, not the constant's own value, and its compiled body is a stub that is never run. -/
+  /-- A constant with an initializer (`[init]` or `[builtin_init]`) and compiled IR or no
+  `implemented_by` target: compiled code reads the value its initializer action returned when the
+  module was initialized, not the constant's own value, and its compiled body is a stub that is
+  never run. -/
   | «initializedValue»
   deriving Repr, DecidableEq, Hashable, Inhabited
 
