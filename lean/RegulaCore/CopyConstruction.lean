@@ -48,39 +48,54 @@ theorem requiredPath_ancestor (required : List (List String)) (path relative : L
     requiredPath required relative = true :=
   decide_eq_true ⟨path, selected, ancestor⟩
 
-/-- The package pruning decision is relative to the current capture root on every input. -/
+/-- The package pruning decision agrees with its proposition on every input. -/
 theorem checked_packageSource : Regula.ExecutableContract packageSource
-    (fun f => ∀ source packages sources path,
-      f source packages sources path = true ↔ PackageSource source packages sources path) :=
-  ⟨fun _ _ _ _ => ⟨of_decide_eq_true, decide_eq_true⟩⟩
+    (fun f => ∀ source dependencies path,
+      f source dependencies path = true ↔ PackageSource source dependencies path) :=
+  ⟨fun _ _ _ => ⟨of_decide_eq_true, decide_eq_true⟩⟩
 
-/-- An explicitly captured root inside the packages tree loses no entry to package pruning. -/
-theorem packageSource_owned (source packages : List String) (sources : List (List String))
-    (path : List String) (owned : packages.IsPrefix source) :
-    packageSource source packages sources path = true :=
-  decide_eq_true (Or.inr (Or.inl owned))
+/-- A capture root, such as that of an owned package in the packages directory, is never pruned
+from its own pass. -/
+theorem packageSource_owned (source : List String) (dependencies : List (List String)) :
+    packageSource source dependencies source = true :=
+  decide_eq_true (Or.inr rfl)
 
-/-- An owned source path inside the packages tree survives package pruning from every capture
-root, with each entry below it and each directory on the way to it. -/
-theorem packageSource_source (source packages : List String) (sources : List (List String))
-    (owned path : List String) (listed : owned ∈ sources) (inside : packages.IsPrefix owned)
-    (related : owned.IsPrefix path ∨ path.IsPrefix owned) :
-    packageSource source packages sources path = true :=
-  decide_eq_true (Or.inr (Or.inr ⟨owned, listed, inside, related⟩))
+/-- Package pruning keeps every entry that is not a recorded dependency directory. -/
+theorem packageSource_other (source : List String) (dependencies : List (List String))
+    (path : List String) (other : path ∉ dependencies) :
+    packageSource source dependencies path = true :=
+  decide_eq_true (Or.inl other)
 
-/-- From a capture root outside the packages tree, an entry of that tree is pruned when it is
-neither in nor on the way to an owned source path inside the tree. So a tree that holds no owned
-source path is pruned whole. -/
-theorem packageSource_pruned (source packages : List String) (sources : List (List String))
-    (path : List String) (stored : packages.IsPrefix path) (outside : ¬ packages.IsPrefix source)
-    (unrelated : ∀ owned ∈ sources, packages.IsPrefix owned →
-      ¬ owned.IsPrefix path ∧ ¬ path.IsPrefix owned) :
-    packageSource source packages sources path = false :=
-  decide_eq_false fun
-    | .inl unstored => unstored stored
-    | .inr (.inl captured) => outside captured
-    | .inr (.inr ⟨owned, listed, inside, related⟩) =>
-      related.elim (unrelated owned listed inside).1 (unrelated owned listed inside).2
+/-- Package pruning leaves out only a recorded dependency directory other than the capture root. -/
+theorem packageSource_dependency (source : List String) (dependencies : List (List String))
+    (path : List String) (pruned : packageSource source dependencies path = false) :
+    path ∈ dependencies ∧ path ≠ source :=
+  have kept : ¬ PackageSource source dependencies path := of_decide_eq_false pruned
+  ⟨Decidable.of_not_not fun absent => kept (Or.inl absent), fun same => kept (Or.inr same)⟩
+
+/-- The executed selection of a capture pass prunes an entry only when it is the directory of a
+dependency package that Lake's loaded workspace records in the packages directory, and not the
+pass's own root. -/
+theorem CopyFilter.omission_pruned (filter : CopyFilter) (path : List String)
+    (pruned : filter.omission path = some .pruned) :
+    path ∈ filter.dependencies ∧ path ≠ filter.source := by
+  unfold CopyFilter.omission at pruned
+  cases excluded : filter.exclusion path with
+  | some exclusion => simp [excluded] at pruned
+  | none =>
+    cases kept : packageSource filter.source filter.dependencies path with
+    | true => simp [excluded, kept] at pruned
+    | false => exact packageSource_dependency _ _ _ kept
+
+/-- Every other entry, in the packages directory or not, is left out or selected exactly as the
+exclusions decide. -/
+theorem CopyFilter.omission_other (filter : CopyFilter) (path : List String)
+    (other : path ∉ filter.dependencies) :
+    filter.omission path = (filter.exclusion path).map .excluded := by
+  unfold CopyFilter.omission
+  cases filter.exclusion path with
+  | some exclusion => rfl
+  | none => simp [packageSource_other filter.source filter.dependencies path other]
 
 /-- File filtering retains every directory and exactly the selected regular files, without
 altering any instruction's path or payload. The statement covers every name and entry kind. -/

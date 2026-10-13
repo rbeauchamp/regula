@@ -660,9 +660,11 @@ Assumes: Lake `v4.34.1` tests cleanliness with `git diff --exit-code HEAD` (`Uti
 
 `copyProject` captures the manifest at Lake's loaded `ws.manifestFile`. Its packages fallback is `ws.relPkgsDir`. Each resolved dependency receives a typed path override, including inherited and transitive dependencies. Owned dependencies point into the copy, and trusted dependencies point to their original roots. The copy always retains the captured manifest and runs ordinary loads.
 
-Package-directory pruning is relative to the current capture root, for the configured and resolved spellings. `Construction.packageSource_owned` proves that explicitly owned roots inside that directory survive its pruning. `Construction.packageSource_source` proves the same for the owned source paths in it, with the directories on the way to them. These are the source directories of the owned libraries and executables, as Lake loaded them, and their modules' source files. `Construction.packageSource_pruned` proves that every other entry of that directory is pruned from a capture root outside it.
+Package-directory pruning leaves out exactly the directory of each dependency package that Lake's loaded workspace records in the packages directory, at its stored spelling. `Construction.CopyFilter.omission_pruned` proves that a capture pass prunes no other entry. `Construction.CopyFilter.omission_other` proves that the same exclusions decide every other entry there as anywhere else. `Construction.packageSource_owned` proves that a capture root, such as an owned package's in that directory, survives its own pass. Before it writes anything, the copy refuses a module whose source a capture pass leaves out, such as one below a `.lake` directory. The refusal names the module and the exclusion that `Construction.CopyFilter.firstOmission` finds.
 
 Assumes: Lake `v4.34.1`, `Load/Resolve.lean:590-627`, applies overrides during ordinary materialization. `Load/Resolve.lean:201-235` traverses dependencies transitively. Path entries do not clone packages (`Load/Materialize.lean:239-277`).
+
+Assumes: Lake `v4.34.1` materializes a Git entry at its directory name in the packages directory (`Load/Materialize.lean:246`). It builds each module that `LeanLibConfig.isBuildableModule` admits (`Config/LeanLibConfig.lean:128-130`), which `Lake.packageModules` lists. It reads the module's source below its library's `srcDir` (`Config/Module.lean:83-90`, `Config/LeanLib.lean:34-35`).
 
 Assumes: A full update or a missing manifest bypasses overrides (`Load/Workspace.lean:64-69`, `Load/Resolve.lean:269-333`). Existing-project copies do neither. Generated update fixtures state their closed input domain where they create it.
 
@@ -5100,13 +5102,15 @@ The `qualify` campaigns and what they observe:
   - A project keeps its checkouts in `vendor` and requires a package by Git, which the control
     commits to a local repository. With a manifest that records no packages directory, Lake loads
     the package from `vendor`. The copy leaves out that checkout and names it in an override. It
-    keeps the sources that a library of the project has in `vendor/src`. Without a manifest,
-    Lake's load through `LAKE_PKG_URL_MAP` writes the local repository into the entry, and the
-    inventory accepts it. A worker process loads these, and Git searches for no repository above
-    the control's scratch directory.
-  - These steps run in a process that inherits a `GIT_DIR` and an absolute `GIT_INDEX_FILE`
-    outside the scratch directory. The control's Git commands and its workers run without them,
-    and both stay untouched.
+    keeps the other entries of `vendor`, such as a library's source directory and a submodule that
+    no glob names. Without a manifest, Lake's load through `LAKE_PKG_URL_MAP` writes the local
+    repository into the entry, and the inventory accepts it. A worker process loads these, and Git
+    searches for no repository above the control's scratch directory.
+  - A copy of a project whose library has its source directory below `.lake` refuses before it
+    writes anything. The refusal names the module and the `.lake` directory.
+  - The Git project's steps run in a process that inherits a `GIT_DIR` and an absolute
+    `GIT_INDEX_FILE` outside the scratch directory. The control's Git commands and its workers run
+    without them, and both stay untouched.
 - `documentation-source`: both public documentation paths with changed and missing
   dependency/configuration inputs and fresh restored positives. Its `--source-read-only`
   selection adds original-file and declaration-build read failures, initial setup classification

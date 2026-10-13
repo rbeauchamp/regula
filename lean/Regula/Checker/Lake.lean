@@ -679,9 +679,13 @@ before descent. VCS and build/cache/scratch trees are excluded outside each capt
 Consumer-selected files, an explicitly selected project-contained policy, and their ancestors
 survive these exclusions. Compiled-module exclusions apply only to
 captured regular files. The final instructions must contain every selected file before construction.
-Owned packages survive package-store pruning
-in their own capture pass, and so do the owned source directories and module source files in the
-packages directory, with the directories on the way to them. Paths relative to their
+Package pruning leaves out exactly the directory of each dependency package that Lake's loaded
+workspace records in the packages directory, and keeps every other entry there
+(`Construction.CopyFilter.omission_pruned`, `Construction.CopyFilter.omission_other`). An owned
+package there keeps its own capture pass (`Construction.packageSource_owned`). Before anything is
+written, the copy refuses a module that Lake would build for the root package or an owned
+dependency (`packageModules`) whose source its capture pass leaves out, and names that exclusion
+(`Construction.CopyFilter.firstOmission`). Paths relative to their
 common ancestor are retained. The captured loaded manifest is installed at its loaded path, and
 every resolved dependency gets a typed path override: an owned package in the copy, a trusted
 package at its original root. There is no packages link. This copy is for ordinary loads only;
@@ -691,10 +695,13 @@ prints the facet report that `facets` requests.
 Assumes: the shared constructor's native primitive contracts and no concurrent source or
 destination writer. Lake's loaded workspace and manifest stay fixed while captured.
 
-Assumes: Lake v4.34.1 reads an owned module's Lean source at `Lean.modToFilePath` of its library's
-`srcDir` (`Lake/Config/Module.lean:83-90`). That `srcDir` is the package's joined with the
-library's (`Lake/Config/LeanLib.lean:34-35`, `Lake/Config/Package.lean:352-353`), and an
-executable's root module has the executable's own (`Lake/Config/LeanExe.lean:45-51`). -/
+Assumes: Lake v4.34.1 materializes a Git entry at its name in the packages directory
+(`Lake/Load/Materialize.lean:246`). It builds a library's module when `isBuildableModule` admits it
+(`Lake/Config/LeanLibConfig.lean:128-130`), which `buildableModules` enumerates. It reads the module's
+Lean source at `Lean.modToFilePath` of its library's `srcDir` (`Lake/Config/Module.lean:83-90`). That
+`srcDir` is the package's joined with the library's (`Lake/Config/LeanLib.lean:34-35`,
+`Lake/Config/Package.lean:352-353`), and an executable's root module has the executable's own
+(`Lake/Config/LeanExe.lean:45-51`). -/
 def copyProject (repo target exclude : FilePath)
     (facets : FacetReport.Output := .silent) (policy : Option FilePath := none)
     (selectedFiles : List FilePath := []) : IO ProjectCopy :=
@@ -707,34 +714,26 @@ def copyProject (repo target exclude : FilePath)
     -- Capture above refuses links; canonical observation identifies that same regular file.
     let manifestReal ← Regula.Filesystem.observeRealPath ws.manifestFile
     let (packagesDir, _) ← IO.ofExcept <| relocateDependencies inputs manifest root
-    let packages := (root / packagesDir).normalize.components
     -- Resolve a present packages directory through the observer, so a configured VENDOR
-    -- also excludes the stored vendor spelling on a case-folding filesystem.
+    -- also finds the stored vendor spelling on a case-folding filesystem.
     let packagesReal ← try
-        pure (some (← Regula.Filesystem.observeRealPath (root / packagesDir)).components)
+        pure (some (← Regula.Filesystem.observeRealPath (root / packagesDir)).normalize.components)
       catch
         | .noFileOrDirectory .. => pure none
         | error => throw error
+    -- The directory of each dependency package that Lake's loaded workspace records in the
+    -- packages directory, at its stored spelling: the only entries that package pruning leaves
+    -- out (`Construction.CopyFilter.omission_pruned`). Each has its path override.
+    let dependencyDirectories ← match packagesReal with
+      | none => pure []
+      | some packages => ws.packages.toList.filterMapM fun package => do
+        if package.isRoot then return none
+        let dir := (← Regula.Filesystem.observeRealPath package.dir).normalize.components
+        return if dir.dropLast == packages then some dir else none
     let owned := (original.dependencies.filter (·.owned)).foldl (fun dirs dependency =>
       if dependency.root == root || dirs.contains dependency.root then dirs
       else dirs.push dependency.root) #[]
     let directories := #[root] ++ owned
-    -- The owned sources that Lake reads, which package-store pruning keeps where they lie in the
-    -- packages directory (`Construction.packageSource_source`): the source directory of each
-    -- library and executable of the root package and of each owned dependency, as Lake loaded
-    -- it, and each of their modules' source files, all at their real paths.
-    let ownedPackages := ws.packages.filter fun package => package.isRoot ||
-      original.dependencies.any fun dependency =>
-        dependency.owned && dependency.package == package.baseName.toString
-    let sourceDirectories ← (ownedPackages.flatMap fun package =>
-        package.leanLibs.map (·.srcDir) ++ package.leanExes.map (·.root.lib.srcDir)).filterMapM
-      fun dir => try pure (some (← Regula.Filesystem.observeRealPath dir).normalize.components)
-        catch
-          | .noFileOrDirectory .. => pure none
-          | error => throw error
-    let sources := sourceDirectories.toList ++ (original.moduleSources.map (·.2) ++
-      (original.dependencies.filter (·.owned)).flatMap (·.sources.map (·.source))).toList.map
-        (·.normalize.components)
     let selectedFiles ← selectedFiles.mapM fun path => do
       let some relative := configurationRelative repo.toString path.toString
         | throw <| IO.userError s!"selected copy input is outside its project: {path}"
@@ -751,27 +750,44 @@ def copyProject (repo target exclude : FilePath)
     let excludedReal ← try pure (← IO.FS.realPath exclude).normalize.components catch
       | .noFileOrDirectory .. => pure exclude.normalize.components
       | error => throw error
-    let pruned := fun (name : String) =>
-      [".git", _root_.Lake.defaultLakeDir.toString, ".cache", Regula.Scratch.legacyDirName].contains name
+    -- The capture pass rooted at `top`. Documentation discovery consumes cache-named
+    -- subdirectories too; the pass captures those directly before constructing the copy rather
+    -- than overwriting a finished copy.
+    let filterOf := fun (top : FilePath) => ({
+      source := top.normalize.components
+      roots := (directories.filter (· != top)).toList.map (·.normalize.components)
+      manifests := [ws.manifestFile.normalize.components, manifestReal.normalize.components]
+      required, copies := [excluded, excludedReal]
+      names := [".git", _root_.Lake.defaultLakeDir.toString, ".cache", Regula.Scratch.legacyDirName]
+      dependencies := dependencyDirectories } : Regula.Filesystem.Construction.CopyFilter)
+    -- Each module that Lake would build for the root package or an owned dependency must have its
+    -- source in the copy: the pass of the innermost capture root that holds it selects that source
+    -- and each directory on the way to it.
+    let ownedPackages := ws.packages.filter fun package => package.isRoot ||
+      original.dependencies.any fun dependency =>
+        dependency.owned && dependency.package == package.baseName.toString
+    for package in ownedPackages do
+      let (_, modules) ← packageModules package
+      for (name, file) in modules do
+        let path? ← try
+            pure (some (← Regula.Filesystem.observeRealPath file).normalize.components)
+          catch
+            | .noFileOrDirectory .. => pure none
+            | error => throw error
+        let some path := path? | continue
+        let refusal := s!"copy refused: module {name} of package '{package.baseName}' has its \
+          source at {file}"
+        let some top := (directories.filter (·.normalize.components.isPrefixOf path)).foldl
+            (fun best dir => if best.all (·.normalize.components.length <
+              dir.normalize.components.length) then some dir else best) (none : Option FilePath)
+          | throw <| IO.userError s!"{refusal}, outside each directory that the copy captures"
+        if let some (entry, omission) := (filterOf top).firstOmission path then
+          throw <| IO.userError s!"{refusal}, in {"/".intercalate entry}, which a copy of the \
+            project leaves out as {omission.describe}"
     let mut instructions := []
     for top in directories do
-      let source := top.normalize.components
-      let otherRoots := (directories.filter (· != top)).map (·.normalize.components)
-      let selected := fun (path : FilePath) =>
-        let components := path.normalize.components
-        -- Owned package roots are captured by their own iteration, including roots within packages.
-        !(otherRoots.any fun other => source.length < other.length && other.isPrefixOf components) &&
-        path.normalize != ws.manifestFile.normalize && path.normalize != manifestReal.normalize &&
-        (Regula.Filesystem.Construction.requiredPath required components ||
-        (!excluded.isPrefixOf components && !excludedReal.isPrefixOf components &&
-        !(source ++ ["tmp"]).isPrefixOf components &&
-        -- Documentation discovery consumes cache-named subdirectories too; capture those
-        -- directly before constructing the copy rather than overwriting a finished copy.
-        ((components.drop source.length).head? == some "docs" ||
-          !(components.drop source.length).any pruned) &&
-        Regula.Filesystem.Construction.packageSource source packages sources components &&
-        packagesReal.all (fun packages =>
-          Regula.Filesystem.Construction.packageSource source packages sources components)))
+      let filter := filterOf top
+      let selected := fun (path : FilePath) => (filter.omission path.normalize.components).isNone
       let captured ← Regula.Filesystem.Construction.capture top (relative top) selected
       instructions := instructions ++ Regula.Filesystem.Construction.selectFiles
         (fun path => Regula.Filesystem.Construction.requiredPath required (base ++ path) ||

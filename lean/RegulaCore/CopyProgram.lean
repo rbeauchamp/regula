@@ -377,24 +377,107 @@ def markdownPaths (root : FilePath) : IO (Array FilePath) := do
   return ((← root.walkDir enter).filter (·.extension == some "md")).qsort
     (fun left right => left.toString < right.toString)
 
-/-- A package-store entry is source when the current capture root is itself in that store, or
-when the entry lies in, or on the way to, one of the owned source paths `sources` that lie in that
-store. -/
-def PackageSource (source packages : List String) (sources : List (List String))
+/-- An entry is source unless it is the directory of a dependency package that Lake's loaded
+workspace records in the packages directory, one of `dependencies`. The capture root `source` is
+always source, so an owned package that the packages directory holds keeps its own capture pass. -/
+def PackageSource (source : List String) (dependencies : List (List String))
     (path : List String) : Prop :=
-  ¬ packages.IsPrefix path ∨ packages.IsPrefix source ∨
-    ∃ owned ∈ sources, packages.IsPrefix owned ∧ (owned.IsPrefix path ∨ path.IsPrefix owned)
+  path ∉ dependencies ∨ path = source
 
-instance (source packages : List String) (sources : List (List String)) (path : List String) :
-    Decidable (PackageSource source packages sources path) :=
-  inferInstanceAs (Decidable (¬ packages.IsPrefix path ∨ packages.IsPrefix source ∨
-    ∃ owned ∈ sources, packages.IsPrefix owned ∧ (owned.IsPrefix path ∨ path.IsPrefix owned)))
+instance (source : List String) (dependencies : List (List String)) (path : List String) :
+    Decidable (PackageSource source dependencies path) :=
+  inferInstanceAs (Decidable (path ∉ dependencies ∨ path = source))
 
-/-- Prune a packages subtree only from a capture rooted outside that subtree, except for the owned
-source paths in it and the directories on the way to them. -/
-def packageSource (source packages : List String) (sources : List (List String))
+/-- Prune exactly the recorded dependency directories other than the capture root. -/
+def packageSource (source : List String) (dependencies : List (List String))
     (path : List String) : Bool :=
-  decide (PackageSource source packages sources path)
+  decide (PackageSource source dependencies path)
+
+/-- Why a capture pass of a project copy (`CopyFilter`) leaves out an entry, other than package
+pruning. -/
+inductive Exclusion where
+  /-- The entry lies in another capture root below this pass's, which its own pass captures. -/
+  | otherRoot (root : List String)
+  /-- The entry is the loaded manifest, which the copy installs from its own capture. -/
+  | manifest
+  /-- The entry lies in the directory `dir` that holds the copy. -/
+  | copy (dir : List String)
+  /-- The entry lies in the capture root's `tmp` directory. -/
+  | tmp
+  /-- The entry lies, outside the capture root's `docs` directory, in a directory named `name`. -/
+  | named (name : String)
+  deriving DecidableEq, Repr
+
+/-- Why a capture pass of a project copy leaves out an entry. -/
+inductive Omission where
+  /-- An exclusion leaves it out. -/
+  | excluded (exclusion : Exclusion)
+  /-- Package pruning leaves it out (`packageSource`). -/
+  | pruned
+  deriving DecidableEq, Repr
+
+/-- The text that names an omission in a refusal. -/
+def Omission.describe : Omission → String
+  | .excluded (.otherRoot root) => s!"the capture of the owned package at {"/".intercalate root}"
+  | .excluded .manifest => "the loaded manifest, which the copy installs separately"
+  | .excluded (.copy dir) => s!"the directory {"/".intercalate dir}, which holds the copy"
+  | .excluded .tmp => "the project's tmp directory"
+  | .excluded (.named name) => s!"a directory named {name}"
+  | .pruned => "the directory of a dependency package in the packages directory"
+
+/-- One capture pass of a project copy, all as normalized path components. -/
+structure CopyFilter where
+  /-- The capture root. -/
+  source : List String
+  /-- The other capture roots, which their own passes capture. -/
+  roots : List (List String)
+  /-- The paths of the loaded manifest. -/
+  manifests : List (List String)
+  /-- The consumer-selected files, which survive with their ancestors every exclusion other than
+  another root and the manifest. -/
+  required : List (List String)
+  /-- The directory that holds the copy, at each of its spellings. -/
+  copies : List (List String)
+  /-- The names of the directories that the pass leaves out below its root, outside its `docs`. -/
+  names : List String
+  /-- The directory of each dependency package that Lake's loaded workspace records in the packages
+  directory. -/
+  dependencies : List (List String)
+
+/-- The exclusion that leaves out the entry at `path`, if any. Another root and the manifest come
+before the consumer's selection, and the other exclusions after it. -/
+def CopyFilter.exclusion (filter : CopyFilter) (path : List String) : Option Exclusion :=
+  match filter.roots.find? fun root => filter.source.length < root.length && root.isPrefixOf path with
+  | some root => some (.otherRoot root)
+  | none =>
+    if filter.manifests.contains path then some .manifest
+    else if requiredPath filter.required path then none
+    else match filter.copies.find? (·.isPrefixOf path) with
+      | some dir => some (.copy dir)
+      | none =>
+        if (filter.source ++ ["tmp"]).isPrefixOf path then some .tmp
+        else
+          let below := path.drop filter.source.length
+          if below.head? == some "docs" then none
+          else (below.find? filter.names.contains).map .named
+
+/-- Why the pass leaves out the entry at `path`, or `none` when it selects that entry. Package
+pruning applies only to an entry that no exclusion leaves out and the consumer did not select. -/
+def CopyFilter.omission (filter : CopyFilter) (path : List String) : Option Omission :=
+  match filter.exclusion path with
+  | some exclusion => some (.excluded exclusion)
+  | none =>
+    if requiredPath filter.required path || packageSource filter.source filter.dependencies path then
+      none
+    else some .pruned
+
+/-- The first entry on the way from the capture root to `path`, `path` included, that the pass
+leaves out, with its omission. It is `none` exactly when the pass selects each of these entries,
+which `captureWith` requires before it reads `path`. -/
+def CopyFilter.firstOmission (filter : CopyFilter) (path : List String) :
+    Option (List String × Omission) :=
+  ((List.range (path.length + 1)).drop filter.source.length).findSome? fun length =>
+    (filter.omission (path.take length)).map (path.take length, ·)
 
 /-- Observe Git's repository-local environment names, then remove them for a child in another
 repository. System/global configuration is disabled and namespaces are also removed. The query
