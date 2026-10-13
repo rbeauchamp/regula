@@ -3396,11 +3396,12 @@ audit builds reaches them, since the project's module imports nothing and the ob
 import only Lean. A project that requires `regula` from the tool loads the tool's library as a
 plugin.
 
-- Rebuilt in place: the observer source gains a public definition, so Lake links the library again
-  at the path the gate read at its start (`Module.cFacetConfig`, `Lake/Build/Module.lean` lines
-  1184 to 1198), with other bytes. The audit must refuse the project under RG2003. An admission
-  by the library's path, or by an identity read after the build, admits that library, so this
-  control fails under either.
+- Rebuilt in place: the observer source gains a public definition, so its C file and object change
+  (`Module.cFacetConfig`, `Lake/Build/Module.lean` lines 1184 to 1198), and Lake links the
+  library again at its `sharedLibFile`, the path the gate read at its start
+  (`LeanLib.recBuildShared`, `Lake/Build/Library.lean` lines 128 to 152), with other bytes. The
+  audit must refuse the project under RG2003. An admission by the library's path, or by an
+  identity read after the build, admits that library, so this control fails under either.
 - Restored: the source and the placed library, trace and hash put back, Lake reuses the library,
   and the audit must accept the project. -/
 private def observerIdentityControl (repo : FilePath) : IO (Array String) :=
@@ -3414,13 +3415,15 @@ private def observerIdentityControl (repo : FilePath) : IO (Array String) :=
       throw <| IO.userError s!"observer identity: cannot link {target}: {linked.output}"
   let observerEntry (name : String) : Bool :=
     name.startsWith Observer.observerLibrary.toString
+  IO.FS.createDirAll (tool / "lean")
   for file in #["lakefile.lean", "lean-toolchain", "lake-manifest.json"] do
     IO.FS.writeBinFile (tool / file) (← IO.FS.readBinFile (repo / file))
-  IO.FS.createDirAll (tool / "lean")
   let sources := (repo / "lean").normalize.components.length
   for entry in ← (repo / "lean").readDir do
     if observerEntry entry.fileName then
-      for path in ← entry.path.walkDir do
+      -- `RegulaObserver.lean` is a file and `RegulaObserver` a directory, which `walkDir` reads.
+      let files ← if ← entry.path.isDir then entry.path.walkDir else pure #[entry.path]
+      for path in files do
         if ← path.isDir then continue
         let destination :=
           (path.normalize.components.drop sources).foldl (· / FilePath.mk ·) (tool / "lean")
