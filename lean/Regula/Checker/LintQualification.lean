@@ -1584,6 +1584,8 @@ files it read in the chain. The first control of a later part that builds starts
 output, where in the chain it started from the output of the controls before it. -/
 private def pathSetup (repo adopter : FilePath) : IO Unit := do
   BuildLintQualification.setup repo adopter
+  -- Override controls write before the first Lake load creates this directory.
+  IO.FS.createDirAll (adopter / ".lake")
   BuildLintQualification.addSupport adopter (supportSource false) (owned := true)
   mutate (adopter / "Widget.lean") "import Regula.Contract\n"
     "import Regula.Contract\nimport Support\n"

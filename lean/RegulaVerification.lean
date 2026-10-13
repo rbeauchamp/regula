@@ -754,21 +754,20 @@ def constructionSource : String := include_str "RegulaCore/CopyProgram.lean"
 /-- Obtain the same Git environment policy as construction before cold artifacts exist.
 The preliminary Git commands use this observer; Lake's own Git children remain outside it.
 
-Assumes: Lean v4.34.1 `Init/System/IO.lean:1353-1359` creates/removes the private source file;
-`Lean/Util/Path.lean:85-86` identifies the interpreter, whose execution is trusted.
+Assumes: Lean v4.34.1 `IO.Process.output` supplies stdin and waits for the child;
+`Lean/Util/Path.lean:85-86` identifies the interpreter. `--stdin --run` executes the embedded
+source without a temporary file or removal; interpreter execution is trusted.
 Construction.gitEnvironment names its pinned Git and OS assumptions. -/
 private def gitEnvironment : IO (Array (String × Option String)) := do
-  IO.FS.withTempFile fun handle path => do
-    handle.putStr (constructionSource ++ "\n/-- Cold environment entrypoint. -/\n" ++
+  let out ← IO.Process.output {
+    cmd := ((← Lean.getBuildDir) / "bin/lean").toString
+    args := #["--stdin", "--run", "GitEnvironment.lean", "git-environment", "", ""]
+    env := #[("LEAN_PATH", none), ("LEAN_SRC_PATH", none)] }
+    (constructionSource ++ "\n/-- Cold environment entrypoint. -/\n" ++
       "def main := Regula.Filesystem.Construction.sourceMain\n")
-    handle.flush
-    let out ← IO.Process.output {
-      cmd := ((← Lean.getBuildDir) / "bin/lean").toString
-      args := #["--run", path.toString, "git-environment", "", ""]
-      env := #[("LEAN_PATH", none), ("LEAN_SRC_PATH", none)], stdin := .null }
-    unless out.exitCode == 0 do
-      throw <| IO.userError s!"verification Git environment unavailable: {out.stderr}"
-    IO.ofExcept (Lean.fromJson? (← IO.ofExcept (Lean.Json.parse out.stdout)))
+  unless out.exitCode == 0 do
+    throw <| IO.userError s!"verification Git environment unavailable: {out.stderr}"
+  IO.ofExcept (Lean.fromJson? (← IO.ofExcept (Lean.Json.parse out.stdout)))
 
 /-- Start `command` at `priority` without waiting for it; `none`, with a report, when it could not
 be started. It cannot raise. The child stays in the driver's process group, so the outer

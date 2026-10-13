@@ -654,7 +654,7 @@ Assumes: Git `2.54.0` resolves metadata paths through `--git-path` (`builtin/rev
 
 Assumes: Git `2.54.0` resolves pointer files and common directories (`builtin/rev-parse.c:723-731`, `setup.c:303-324`). All captured metadata has no writer.
 
-Assumes: Lean `v4.34.1` applies process environment changes in order (`Init/System/IO.lean:1441-1448`). The shared observer's removals follow caller settings. Cold drivers use an exclusive temporary source file and its automatic removal (`Init/System/IO.lean:1353-1359`). Interpreter fidelity remains trusted.
+Assumes: Lean `v4.34.1` applies process environment changes in order (`Init/System/IO.lean:1441-1448`). The shared observer's removals follow caller settings. Cold Git adapters pass the embedded source through stdin (`IO.Process.output`, `--stdin --run`). Interpreter fidelity remains trusted.
 
 Assumes: Lake `v4.34.1` tests cleanliness with `git diff --exit-code HEAD` (`Util/Git.lean:198-203`). Matching-revision dependencies with changes get a warning (`Load/Materialize.lean:255-258`).
 

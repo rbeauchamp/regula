@@ -340,23 +340,21 @@ def constructionSource : String := include_str "RegulaCore/CopyProgram.lean"
 
 /-- Obtain the shared Git environment observation before cold artifacts exist. This runs the
 same gitEnvironment definition as the copy adapter, without a second Git policy or launcher.
-The interpreter's temporary source is exclusively created and removed by withTempFile.
+The interpreter reads its source from stdin, without a temporary file or removal.
 
-Assumes: Lean v4.34.1 `Init/System/IO.lean:1353-1359` creates/removes the private temporary file;
-`Lean/Util/Path.lean:85-86` identifies the running toolchain. The interpreter faithfully executes
+Assumes: Lean v4.34.1 `IO.Process.output` supplies stdin and waits for the child;
+`Lean/Util/Path.lean:85-86` identifies the running toolchain. `--stdin --run` faithfully executes
 constructionSource. Construction.gitEnvironment documents the Git and OS assumptions. -/
 private def gitEnvironment : IO (Array (String × Option String)) := do
-  IO.FS.withTempFile fun handle path => do
-    handle.putStr (constructionSource ++ "\n/-- Cold environment entrypoint. -/\n" ++
+  let out ← IO.Process.output {
+    cmd := ((← Lean.getBuildDir) / "bin/lean").toString
+    args := #["--stdin", "--run", "GitEnvironment.lean", "git-environment", "", ""]
+    env := #[("LEAN_PATH", none), ("LEAN_SRC_PATH", none)] }
+    (constructionSource ++ "\n/-- Cold environment entrypoint. -/\n" ++
       "def main := Regula.Filesystem.Construction.sourceMain\n")
-    handle.flush
-    let out ← IO.Process.output {
-      cmd := ((← Lean.getBuildDir) / "bin/lean").toString
-      args := #["--run", path.toString, "git-environment", "", ""]
-      env := #[("LEAN_PATH", none), ("LEAN_SRC_PATH", none)], stdin := .null }
-    unless out.exitCode == 0 do
-      throw <| IO.userError s!"provisioning Git environment unavailable: {out.stderr}"
-    IO.ofExcept (fromJson? (← IO.ofExcept (Json.parse out.stdout)))
+  unless out.exitCode == 0 do
+    throw <| IO.userError s!"provisioning Git environment unavailable: {out.stderr}"
+  IO.ofExcept (fromJson? (← IO.ofExcept (Json.parse out.stdout)))
 
 private def run (cwd : FilePath) (cmd : String) (args : Array String) : IO Ran := do
   let (args, env) ← if cmd == "git" then

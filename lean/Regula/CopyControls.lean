@@ -18,8 +18,10 @@ open Lean System
 open Regula.Filesystem
 
 /-- Require an external fixture-maker to succeed. The link and FIFO creation below is deliberate
-negative input, never the implementation of an accepted copy. -/
+negative input, never the implementation of an accepted copy. Git fixture writers disable
+automatic maintenance so no detached writer can race the subsequent source capture. -/
 private def fixture (command : String) (args : Array String) : IO Unit := do
+  let args := if command == "git" then #["-c", "maintenance.auto=false"] ++ args else args
   let out ← IO.Process.output (← Construction.gitProcessArgs {cmd := command, args})
   unless out.exitCode == 0 do throw <| IO.userError s!"fixture failed: {out.stderr}"
 
