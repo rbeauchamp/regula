@@ -11,14 +11,15 @@ end RegulaBootstrap
 
 -- A fresh dependency has no Regula artifacts. The shared typed observer selects an installed
 -- compiler without PATH and checks its identity, then that compiler elaborates the policy source
--- and reports its identity. Both the selected child and the Lean elaborating this file must agree.
+-- and, asked by `REGULA_COMPILER_GUARD`, reports its identity. Both the selected child and the
+-- Lean elaborating this file must agree.
 run_cmd do
   let running := s!"{Lean.versionString}\n{Lean.githash}\n"
   let refusal : IO (Option String) := do
     let lean := (← RegulaBootstrap.toolPath .lean).toString
     let child ← RegulaBootstrap.output (.toolchain .lean) {
       cmd := lean, args := #[(__dir__ / "lean/RegulaPolicy/Compiler.lean").toString]
-      env := #[("GHCR_TOKEN", none)] }
+      env := #[("REGULA_COMPILER_GUARD", some "1"), ("GHCR_TOKEN", none)] }
     if child.exitCode != 0 then
       return some s!"Regula's compiler guard stopped: Lake is running Lean \
         {Lean.versionString} ({Lean.githash}), and the selected installed `{lean}` \

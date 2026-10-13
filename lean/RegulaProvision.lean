@@ -932,7 +932,7 @@ def requireReleasedCompiler (repo : FilePath) : IO Unit := do
   requireCompiler repo
   let out ← Process.output (.toolchain .lean) {
     cmd := "", args := #["lean/RegulaPolicy/Compiler.lean"], cwd := some repo,
-    env := #[("GHCR_TOKEN", none)], stdin := .null }
+    env := #[("REGULA_COMPILER_GUARD", some "1"), ("GHCR_TOKEN", none)], stdin := .null }
   unless out.exitCode == 0 do
     throw <| IO.userError s!"provisioning: released compiler guard failed:\n{out.stdout}{out.stderr}"
   unless out.stdout.replace "\r" "" == s!"{Lean.versionString}\n{Lean.githash}\n" do
