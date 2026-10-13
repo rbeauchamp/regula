@@ -104,9 +104,10 @@ lean_lib MyProject where
 A `plugins` entry of the package also loads the plugin into each of its targets. Lake has no
 `needs` setting for a package, so each target lists the key in its own `needs`.
 
-[RG2006] requires both entries. The `needs` entry makes Lake build the plugin before the modules
+[RG2006] requires the two entries. The `needs` entry makes Lake build the plugin before the modules
 of the target fetch it. Without it, a fresh build with Lake v4.34.1 can start several builds of the
 plugin at the same time. They write the same files, so the build can fail with a corrupted file.
+
 Lake also puts the trace of the `needs` into the trace of each module, whatever the target's
 `platformIndependent` setting. So Lake replays a module only when the build has the plugin that
 elaborated it. With `platformIndependent := true`, the trace of the `plugins` entry alone is not in
@@ -125,7 +126,7 @@ Lake builds the plugin with your modules, and it rebuilds a module when the plug
 claimed target without the plugin fails [RG2006], and `doctor` names the two lines in that
 finding. A claimed target that has the plugin but no `needs` entry for it also fails [RG2006],
 and `doctor` names the `needs` line. For a target without one of the entries, `lake lint` stops
-first at [RG2003]. It reports each module of the target as not observed, on a line that names both
+first at [RG2003]. It reports each module of the target as not observed, on a line that names the two
 entries.
 
 ### When your Lean release has no Regula release
@@ -805,7 +806,7 @@ core-only code.
   `set_option linter.NAME false in` for a community linter before a command that expands to one
   declaration, such as Mathlib's `lemma`. Where the
   community's guidance accepts an exception, disable that linter for the one declaration
-  (`set_option linter.style.longLine false in`) with a comment giving the reason. Never disable
+  (`set_option linter.style.longLine false in`) with a comment giving the reason. Do not disable
   Lean's default warnings, such as `linter.unusedVariables` or `warn.sorry`. [RG2006] rejects that
   in source too. It does not read `@[nolint]`, which turns off no linter that reports through a
   build warning.
@@ -1032,10 +1033,11 @@ audit refuses a `decides` entry that names its own surface or no claimed surface
   records in the
   module's `.olean` the options that its source sets and each `#guard_msgs` and `#guard_panic`
   command. It also records each warning or error that Lean keeps out of the build's output, and
-  it prints nothing. The audit's builds run the `presetup` facet that your workspace configures.
+  it prints nothing.
+- The audit's builds run the `presetup` facet that your workspace configures.
   From the completed `presetup` of each claimed module, they read if Lean loaded the observer.
   They read the record only for a target that lists the observer in `needs`. Without that entry,
-  Lake can reuse an `.olean` that another observer wrote, so [RG2003] reports the module as not
+  Lake can reuse an `.olean` that a different observer wrote, so [RG2003] reports the module as not
   observed.
 - [RG2003] fails a claimed module that runs `#guard_msgs` or `#guard_panic`, also from a macro.
   Keep such checks in a test or documentation module outside the claimed surface. [RG2003] also
@@ -1056,8 +1058,8 @@ audit refuses a `decides` entry that names its own surface or no claimed surface
   It accepts the setting only if the expansion has exactly one declaration, and apart from it only
   `namespace`, `end` and Lean's internal `end_local_scope` commands. A `def` with a `requires` or
   `ensures` contract expands to two declarations, so [RG2006] rejects the setting before it.
-  It rejects the setting before a command that an elaborator of its own elaborates, such as
-  Mathlib's `irreducible_def` or Batteries' `alias`, also if that command makes one declaration.
+  It rejects the setting before a command with an elaborator of its own, also if that command
+  makes one declaration. Examples are Mathlib's `irreducible_def` and Batteries' `alias`.
 - The only supported editor is VS Code with the Lean 4 extension, and there is no latency claim.
 - Regula has run on small adopters only, including a Mathlib-importing library accepted
   incrementally and fresh; there is no Mathlib-scale adopter claim. These are bounded

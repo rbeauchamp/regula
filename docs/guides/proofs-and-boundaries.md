@@ -1521,7 +1521,7 @@ that Lake resolves for the target with `Observer.observerKey`: the package's, th
 The decision also requires the same key in the target's `needs`. A target whose plugins name the
 observer and whose `needs` do not fails with `Failure.observerNeed` (`observer_unneeded_fails`),
 and the finding names the entry to add. The adapter reads the target's own `needs` with
-`Observer.observerKey`; Lake has no `needs` setting for a package. Lake mixes the trace of the
+`Observer.observerKey`. Lake has no `needs` setting for a package. Lake mixes the trace of the
 `needs` into the trace of each module of the target, whatever its `platformIndependent`, so a
 module that Lake replays was elaborated with the observer that the build has. A fresh build of a
 target without the entry can also build the observer several times at the same time.
