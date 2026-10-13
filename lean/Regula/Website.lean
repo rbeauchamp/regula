@@ -78,11 +78,61 @@ structure ExampleRequest where
   claim : Option String
   /-- The execution mode of a `file` request; `none` for the other kinds. -/
   execution : Option String
+  /-- The path of the policy manifest the producer selected: its `--manifest`, resolved against
+  the project, or else the project's `foundation_manifest.json` (`Manifest.defaultPath`). It is
+  the same path the producer gives its configuration capture, so it names that capture's entry
+  (`SelectsPolicy`). -/
+  policy : String
   /-- Each configuration file path of the project with its text, `none` when it is absent. -/
   configuration : Array (String × Option String)
   /-- Captured loaded selections for a constructed project copy; absent for other routes. -/
   copyConfiguration : Option Regula.CopyConfiguration.Inputs := none
   deriving DecidableEq, ToJson, FromJson
+
+/-- The request selects the policy manifest text `text`: the configuration records `text` at the
+selected path `policy`, and exactly one configuration entry has that path. -/
+def ExampleRequest.SelectsPolicy (request : ExampleRequest) (text : String) : Prop :=
+  (request.policy, some text) ∈ request.configuration ∧
+    request.configuration.toList.countP (·.1 = request.policy) = 1
+
+/-- The text of the request's selected policy manifest, read at its `policy` path among its
+configuration entries. It refuses when no entry has that path, when the entry records the file
+absent, and when more than one entry has that path; it never falls back on a conventional file
+name (`selectedPolicy_eq_ok_iff`). -/
+def ExampleRequest.selectedPolicy (request : ExampleRequest) : Except String String :=
+  match request.configuration.toList.filter (·.1 == request.policy) with
+  | [(_, some text)] => .ok text
+  | [(_, none)] => .error "requested manifest is absent"
+  | [] => .error "missing requested manifest"
+  | _ => .error "ambiguous requested manifest"
+
+/-- `selectedPolicy` returns exactly the text the request selects (`SelectsPolicy`): the one
+configuration entry at `policy`, which records that text. -/
+theorem ExampleRequest.selectedPolicy_eq_ok_iff (request : ExampleRequest) (text : String) :
+    request.selectedPolicy = .ok text ↔ request.SelectsPolicy text := by
+  unfold selectedPolicy SelectsPolicy
+  rw [← Array.mem_toList_iff, List.countP_eq_length_filter]
+  have hfilter : ∀ l : List (String × Option String),
+      l.filter (fun e => decide (e.1 = request.policy)) = l.filter (·.1 == request.policy) := by
+    intro l; congr
+  rw [hfilter]
+  generalize hl : request.configuration.toList = l
+  constructor
+  · intro h
+    split at h
+    next _ path _ heq =>
+      cases h
+      have hmem : (path, some text) ∈ l.filter (·.1 == request.policy) := by rw [heq]; simp
+      obtain ⟨hin, hpath⟩ := List.mem_filter.mp hmem
+      simp only [beq_iff_eq] at hpath
+      exact ⟨hpath ▸ hin, by rw [heq]; rfl⟩
+    all_goals cases h
+  · rintro ⟨hin, hone⟩
+    obtain ⟨entry, hentry⟩ := List.length_eq_one_iff.mp hone
+    have hmem : (request.policy, some text) ∈ l.filter (·.1 == request.policy) :=
+      List.mem_filter.mpr ⟨hin, by simp⟩
+    rw [hentry, List.mem_singleton] at hmem
+    rw [hentry, ← hmem]
 
 /-- Admit `observed` only when it equals the frozen `expected` request; the admitted value
 carries both equalities. -/
@@ -120,7 +170,7 @@ theorem checked_admitExampleRequest :
       Regula.Decides (· = true) (fun input => input.2 = input.1)
         (Regula.Dependent.isOk fun input : ExampleRequest × ExampleRequest =>
           admit input.1 input.2)) :=
-  let request (kind : String) : ExampleRequest := ⟨kind, "", "", none, none, #[], none⟩
+  let request (kind : String) : ExampleRequest := ⟨kind, "", "", none, none, "", #[], none⟩
   ⟨.of_iff (fun input => admitExampleRequest_isOk_iff input.1 input.2)
     ⟨⟨request "file", request "file"⟩,
       (admitExampleRequest_isOk_iff (request "file") (request "file")).mpr rfl⟩
@@ -338,7 +388,7 @@ theorem checked_admitDemonstration :
           admit input.1 input.2)) :=
   let binding : ExampleBinding :=
     ⟨⟨⟨#[], ⟨"lakefile", ""⟩, ⟨"lean", "commit", "revision"⟩, #[]⟩, by decide⟩, .freshFile,
-      ⟨"file", "", "", none, none, #[], none⟩⟩
+      ⟨"file", "", "", none, none, "", #[], none⟩⟩
   let finding : Finding :=
     ⟨.environment, { arguments := ⟨"project", "analysis unavailable"⟩, location := .module `Module
                      mode := .freshFile, claim := none, impact := .incomplete

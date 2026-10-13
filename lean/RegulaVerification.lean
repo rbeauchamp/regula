@@ -174,7 +174,9 @@ inductive Mode where
   | ruleExamplesShard (index : Fin ruleExampleShards)
   /-- `diagnostics GROUP`: a group of qualification controls (`Group`). -/
   | diagnostic (group : Group)
-  /-- `site`: build and check the rule-reference site artifact from the shards' evidence. -/
+  /-- `site`: build and check the rule-reference site artifact from the shards' evidence, then
+  check what the website's renderers leave when they render and when they refuse a run without
+  Lean's task manager. -/
   | site
   /-- `mathlib`: the separate Mathlib integration check, never part of acceptance: the fresh
   acceptance and the lint of the Mathlib integration package, whose pinned Mathlib
@@ -373,8 +375,8 @@ def otherTargets : List String :=
     "+Regula.RegistryChecks:olean", "+Regula.Linter:olean", "+Regula.Checker.LintMain:olean",
     "+Regula.Checker.RuleExamples:olean", "+Regula.Checker.RuleExampleQualificationMain:olean",
     "+Regula.Cli.Main:olean", "+Regula.Release:olean", "+Regula.DiagnosticsGate:olean",
-    "+Regula.RemovalControls:olean", "+Regula.CopyControls:olean", "+Regula.Campaigns.Verification:olean",
-    "+Regula.Campaigns.Diagnostics:olean"]
+    "+Regula.RemovalControls:olean", "+Regula.CopyControls:olean", "+Regula.ProvisionControls:olean",
+    "+Regula.Campaigns.Verification:olean", "+Regula.Campaigns.Diagnostics:olean"]
 
 /-- A `qualify` selection under the driver's deadline. -/
 private def qualify (selection : Array String) : Command :=
@@ -521,7 +523,9 @@ def commands (copy pending : String) : Mode → List Command
       lake #["build", "axiomGate", "ruleExampleQualification", "site"],
       lake
           (#["exe", "site", "build", "--out", siteOutput, "--evidence"] ++
-              ((List.range ruleExampleShards).map (shardEvidence <| · + 1)).toArray)]
+              ((List.range ruleExampleShards).map (shardEvidence <| · + 1)).toArray),
+      -- After the build, which builds the website package and generates the site's sources.
+      lake #["exe", "site", "renderer-refusal"]]
   -- The Mathlib integration check: the integration package's fresh acceptance and lint, as a
   -- Mathlib adopter of `regula` runs them. Its Mathlib is provisioned beforehand, as setup; the
   -- first command refuses a copy the check does not apply to (another toolchain than that package selects) and one whose Mathlib is not provisioned, so an
@@ -1413,7 +1417,8 @@ def run (args : List String) : IO Unit := do
       every SHA-256 equal, and the rest in this run against those artifacts; every rule ID in the prose `Regula.Prose` reads in the rendered \
       standard links to its rule page; inputs equal the accepted ordinary inputs)"
     | .graph => "serialized-graph diagnostic: PASS (not ordinary verification)"
-    | .site => "site build and check: PASS (rule-reference artifact in _site; separate from \
+    | .site => "site build and check: PASS (rule-reference artifact in _site, and the renderers' \
+      destinations after a render and a run refused without Lean's task manager; separate from \
       acceptance; publication is verified after deployment)"
     | .mathlib => "Mathlib integration check: PASS (the Mathlib integration package accepted fresh \
       and linted on its pinned Mathlib; separate from acceptance, which needs no Mathlib)"

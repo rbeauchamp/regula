@@ -1,5 +1,6 @@
 import Regula.Qualification.Project
 import RegulaQualification.Evidence
+import Regula.Checker.RuleExampleQualification
 
 /-! # Source and evidence campaigns
 
@@ -167,6 +168,63 @@ def configuration : IO Unit := do
               (text item "sourceText").toOption == some source⟩]
         requireChecks checks
         IO.println s!"configuration capture {mode}/{phase}: PASS"
+
+/-- A project whose one policy manifest is `policy.json`, selected with `--manifest`. The public
+fresh audit's own result and request pass the rule-example qualifier's project-surface comparison
+(`RuleExampleQualification.effectiveAccount`), which finds the manifest by the request's `policy`
+alone (`projectAccount_eq_ok_iff`); the request names that file and captures no
+`foundation_manifest.json`. The same result is refused with the selection absent (a request
+without `policy`, which the decoder refuses, or a `policy` that names no configuration entry), with
+the selected file recorded absent (its entry's text `none`) and with the selection ambiguous (the
+selected entry twice in the request's configuration), each for its reason. The theorems decide the
+comparison of given values; this run observes the boundary they do not cover: the public command,
+the request it writes and the qualifier's decoder. -/
+def selectedPolicy : IO Unit := do
+  let root ← rootDirectory
+  withScratch root "selected-policy" fun project => do
+    prepareCoreProject root project "policy_adopter" "kernel-only"
+    IO.FS.writeFile (project / "Example.lean")
+      "/-! Fixed proposition. -/\ntheorem valid : True := True.intro\n"
+    let defaultManifest := Regula.Checker.Manifest.defaultPath project
+    let policy := project / "policy.json"
+    IO.FS.writeFile policy (← IO.FS.readFile defaultManifest)
+    Regula.Filesystem.removePath .file defaultManifest
+    let (_, some result) ← observe root project "policy-json" "axiomGate"
+        #["--manifest", policy.toString] { mode := some "freshProject" }
+      | throw <| IO.userError "missing selected-policy result"
+    let compare (result : Json) : Except String Unit := do
+      Regula.Checker.RuleExampleQualification.effectiveAccount result
+        (← Regula.Checker.RuleExampleQualification.parseRequest (← field result "request"))
+    let request ← IO.ofExcept (field result "request")
+    let decoded ← IO.ofExcept (Regula.Checker.RuleExampleQualification.parseRequest request)
+    let some selected := decoded.configuration.find? (·.1 == decoded.policy)
+      | throw <| IO.userError "the selected policy has no configuration entry"
+    let admitted := match compare result with
+      | .error error => error
+      | .ok () => "ok"
+    let withRequest (value : Json) : Json := result.setObjVal! "request" value
+    let refusals : List (String × Json × String) := [
+      ("absent policy member", withRequest (match request with
+        | .obj fields => .obj (fields.erase "policy")
+        | other => other), "ExampleRequest.policy"),
+      ("absent policy entry",
+        withRequest (toJson { decoded with policy := (project / "missing.json").toString }),
+        "missing requested manifest"),
+      ("absent policy file",
+        withRequest (toJson { decoded with configuration := decoded.configuration.map (fun
+          (path, text) => if path == decoded.policy then (path, none) else (path, text)) }),
+        "requested manifest is absent"),
+      ("ambiguous policy entry",
+        withRequest (toJson { decoded with configuration := decoded.configuration.push selected }),
+        "ambiguous requested manifest")]
+    requireChecks ([
+      Check.mk "request names the selected policy" (decoded.policy == policy.toString),
+      ⟨"request captures no default manifest",
+        !decoded.configuration.any (·.1 == defaultManifest.toString)⟩,
+      ⟨s!"project-surface comparison admits the selected policy: {admitted}", admitted == "ok"⟩] ++
+      refusals.map fun (label, mutated, reason) => ⟨s!"{label} refused for its reason",
+        match compare mutated with | .error error => error.contains reason | .ok () => false⟩)
+    IO.println "selected policy policy.json: PASS"
 
 /-- Independent range, replay, policy and compiler defects originating in positive
 fences, through both documentation public entrypoints, each followed by restoration. -/

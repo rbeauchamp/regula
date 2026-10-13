@@ -74,8 +74,8 @@ the other three commands, which run at low priority.
 `qualify unique-constants` refuses a constant that two modules of one claimed environment
 declare, if one of them is a module of the root package. Lean makes an equation lemma in the first
 module that unfolds its definition. If two modules that do not import each other each make it, an
-environment that loads the two can replay a module again. It does so if the two copies are
-different or if a module that the audit does not own also declares the name.
+environment that loads the two can replay a module again. It does so if the two copies do not
+agree or if a module that the audit does not own also declares the name.
 [Admission reuse](proofs-and-boundaries.md#producers) states the conditions.
 
 If the step passed and the checkout has no build output, the driver moves the build output of
@@ -184,6 +184,15 @@ shared store or changing registrations and packages, provisioning requires each 
 link to identify a stable store with an admissible receipt. Source-origin, unknown and dangling
 links are preserved and refused; their disposition remains manual.
 
+Provisioning makes the link `mathlib` in a new directory `.mathlib.<nonce>` beside the place of
+the link. Then it moves the link to its place. If an entry is at the place of that directory, the
+link installation stops and changes nothing. A run that stops before it removes that directory can
+leave it. Remove such a directory by hand.
+
+The steps of a run before the link installation are not undone when it stops. Thus the packages
+directory, the shared directory and the registration of the copy can remain. On a replacement, the
+old `mathlib` entry is already removed.
+
 Each shared directory's registry `<dir>.copies.json` beside it records the copies provisioned
 to link it; a copy is registered before it links. Every provisioning run removes the shared
 directories of other stable pins and toolchains that no
@@ -262,7 +271,7 @@ checker behavior:
 | `environment-census` | This repository's claimed environments and their mutations (`qualify environments`). |
 | `snapshot-history` | Fresh, incremental and build-lint history refusal and restoration over the dependency snapshot (`qualify acceptance-snapshots history`). |
 | `acceptance-controls` | Fence-compilation packet mutations with positive restoration, and the `dependencies` and `git-status` snapshot groups. Also timeout-selection and spawn failures, and the preparation of a shared producer slot. A stand-in listing program fails a listing, and the copy routine refuses before any receipt or write. The commands are `qualify acceptance fences`, `acceptance-snapshots dependencies` and `git-status`, `receipt-boundaries`, `prep-measure` and `enumeration`. |
-| `documentation-controls` | The two documentation commands keep their pre-build dependency observations. An initial configuration IO failure goes through the project and file result protocols. The commands are `qualify documentation-dependencies` and `configuration-capture`. |
+| `documentation-controls` | The two documentation commands keep their pre-build dependency observations. An initial configuration IO failure goes through the project and file result protocols. A fresh audit with the policy manifest `policy.json` passes the project-surface comparison. That comparison refuses a missing selection, an absent selected file and an ambiguous selection. The commands are `qualify documentation-dependencies` and `configuration-capture`. |
 | `focused-controls` | The self-test's focused native-adopter, combined-snapshot and policy-transport controls (`checkerSelftest --native-adopter-only`, `--combined-snapshot-only`, `--policy-transport-only`). |
 | `policy-domain` | The self-test's focused policy-domain controls, the policy transport and the public paths (`checkerSelftest --policy-domain-only`). |
 | `enumeration-failure` | A failed read of a directory on a real ext4 file system, through a device-mapper error target (`qualify enumeration-failure`). `ls` reports it, Lean's `readDir` returns fewer entries, and the copy routine refuses. It runs only on a GitHub-hosted Linux runner, and elsewhere it reports that it is not supported. |
@@ -551,8 +560,8 @@ The self-audit also refuses a one-sided comparison of `Json` values, the defect 
 except `Fixtures`, and each executable root that no library contains. Lake builds them first, and a
 worker imports each module alone, with its private declarations. It refuses a declaration if its
 type or value names the instance `Lean.Json.instBEq`. It also refuses one that compares texts of
-`Json.compress`, directly or through `let` bindings. The module `RegulaCore.JsonAgreement` is
-exempt, and so is each entry of `SelfAudit.jsonComparisonAllowlist`, which states its reason.
+`Json.compress`, directly or through `let` bindings. Each entry of
+`SelfAudit.jsonComparisonAllowlist` is exempt, and states its reason.
 
 Each use of that instance names it, so the check finds each such use in the inspected modules. It
 does not find texts that a named helper or a function argument renders before a comparison. It also
@@ -560,9 +569,10 @@ misses a comparison through an instance that Lean or a dependency declares for a
 field.
 
 The self-audit refuses an allowlist entry if its declaration compares no `Json` values, so each
-entry is a control of the check. Three fixed controls run too. A declaration named under
-`Regula.JsonAgreement` in a different module is found, and so are `compress` texts compared through
-`let` bindings. A `compress` that no comparison reads is not found.
+entry is a control of the check. It also refuses an entry if it does not inspect the module of the
+entry, such as a module that was renamed. Three fixed controls run too. A declaration named `main`,
+which the allowlist names only in `Regula.RegistryChecks`, is found in a different module. So are
+`compress` texts compared through `let` bindings. A `compress` that no comparison reads is not found.
 
 `./scripts/verify.sh diagnostics self-audit 1/4` to `4/4` each run one shard of the self-audit.
 The campaign sorts each list of modules that it inspects by name, and it deals the list to the

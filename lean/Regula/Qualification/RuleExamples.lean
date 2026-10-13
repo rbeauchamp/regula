@@ -328,10 +328,11 @@ private def produce (ctx : Context) (slot : Slot.ProducerSlot) (rule phase : Str
     command := #["--injected-git-facts", facts, "axiomGate"] ++ command
   else
     command := #["--injected-git-facts", facts] ++ command
-  let configPaths :=
-      #["foundation_manifest.json", "lakefile.lean", "lakefile.toml", "lean-toolchain",
-          "lake-manifest.json", ".lake/package-overrides.json"].map
-              (fun (name : String) => project / name)
+  -- The producer runs with no `--manifest`, so it selects the default manifest and captures the
+  -- configuration paths of that selection; the frozen request records the same selection and
+  -- paths, from the same definitions.
+  let policy := Regula.Checker.Manifest.defaultPath project
+  let configPaths := Regula.Checker.SourceBinding.configurationPaths project policy
   let copyInputs ← if mode == "project" || mode == "documentation" then
       try pure (some (← Regula.Checker.Lake.captureConfigurationInputs project)) catch _ => pure none
     else pure none
@@ -350,7 +351,8 @@ private def produce (ctx : Context) (slot : Slot.ProducerSlot) (rule phase : Str
                                                    project.toString)),
     ("claim", if requestKind == "file" then .str requestedClaim else .null),
     ("execution", if requestKind == "file" then .str "checked" else .null),
-    ("configuration", configurationBefore), ("copyConfiguration", toJson copyInputs)]
+    ("policy", .str policy.toString), ("configuration", configurationBefore),
+    ("copyConfiguration", toJson copyInputs)]
   let registration := Json.mkObj [
     ("attempt", .str ctx.attempt), ("rule", .str rule), ("phase", .str phase),
     ("resultPath", .str output.toString), ("stdoutPath", .str (raw / "stdout").toString),
