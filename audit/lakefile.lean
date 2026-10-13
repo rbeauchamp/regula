@@ -19,5 +19,7 @@ lean_lib «Audit» where
   -- transitive imports of the umbrella module. Lake's elaborated module
   -- inventory is the semantic inventory consumed by the declaration gate.
   globs := #[.andSubmodules `Audit]
+  -- Regula's elaboration observer, which each claimed target loads (RG2003, RG2006).
+  plugins := #[`@regula/RegulaObserver:shared]
 
 require regula from ".."

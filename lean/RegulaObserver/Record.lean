@@ -36,6 +36,9 @@ inductive Form where
   | term
   /-- `set_option name value in` inside a tactic block. -/
   | tactic
+  /-- `{set_option name value}` in a documentation comment, which sets the option for the rest of
+  that comment. -/
+  | docComment
   /-- An option set without `set_option` syntax the observer found. -/
   | elaborated
   deriving Inhabited, BEq, Repr

@@ -151,6 +151,7 @@ private def setup (repo adopter : FilePath) : IO Unit := do
     "import Lake\nopen Lake DSL\npackage policy_adopter where\n" ++
       "  leanOptions := #[⟨`autoImplicit, false⟩, ⟨`relaxedAutoImplicit, false⟩, \
         ⟨`linter.missingDocs, true⟩]\n" ++
+      "  plugins := #[`@regula/RegulaObserver:shared]\n" ++
       "require regula from " ++
       (toJson repo.toString).compress ++ "\n@[default_target] lean_lib PublicApi\n"
   Regula.Filesystem.writeFile (adopter / "foundation_manifest.json") <| Json.compress <| Json.mkObj [

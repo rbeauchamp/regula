@@ -79,6 +79,32 @@ requires nothing beyond the Lean toolchain (no Mathlib, no Batteries) and import
 core libraries, so it never pins a package your project also uses, and a project with Mathlib
 keeps the Mathlib revision it pins.
 
+### Load the elaboration observer
+
+Regula's elaboration observer is a Lean plugin. It records in each module's `.olean` the options
+that its source sets and the messages that a build does not show. [RG2003] and [RG2006] decide on
+that record. Each claimed library and executable loads it through Lake's own `plugins`
+setting. Add it to your package, which loads it into each of its libraries and executables. In
+`lakefile.toml` it is a top-level key, before the first table:
+
+```toml
+name = "my_project"
+plugins = ["@regula/RegulaObserver:shared"]
+```
+
+In `lakefile.lean` it is a field of the `package` declaration:
+
+```text
+package my_project where
+  plugins := #[`@regula/RegulaObserver:shared]
+```
+
+The same field on a `lean_lib` or `lean_exe` adds the plugin to that target only.
+
+Lake builds the plugin with your modules, and it rebuilds a module when the plugin changes. A
+claimed target without the plugin fails [RG2006], and the finding names this line. [RG2003] then
+reports each of its modules as not observed.
+
 ### When your Lean release has no Regula release
 
 Each Regula release supports one Lean release. A patch release of Lean, for example `v4.34.1`, is a different release. Do one of these:
@@ -154,6 +180,11 @@ nothing is left to write. A second run therefore writes nothing:
 `Regula.Setup.plan_idempotent` proves that the plan of the result is empty over the modelled
 setup, and that runtime check confirms the files as written match it. `init` ends by running
 `doctor`.
+
+`init` does not write the elaboration observer's `plugins` entry. Add it as
+[step 1](#load-the-elaboration-observer) shows. `doctor` reports a claimed target without it in its
+[RG2006] finding.
+[Issue 425](https://github.com/rbeauchamp/regula/issues/425) tracks writing it from `init`.
 
 `lake exe regula doctor` changes nothing. It prints each missing or wrong piece in the linter's
 finding form, with the exact fix: setup findings for the lint driver, options, manifest, agent
@@ -325,12 +356,10 @@ libraries' `weakLeanArgs` in each module's build trace, so that reuse can settle
 ([limits](#limits)). The plain shape is a conservative guard under your assertion. It is not a
 guarantee against a lakefile that someone wrote to defeat it.
 
-The plain shape admits two facet declarations by identity. They are the `extraDep` and `presetup`
-facets of Regula's own `lakefile.lean`, in a package with the same `lakefile.lean` text as the
-running Regula.
-The first only runs Lake's own `extraDep` facet and adds the record.
-The second runs Lake's own `presetup` facet and adds Regula's elaboration observer to the plugins
-of your root package's modules.
+The plain shape admits one facet declaration by identity. It is the `extraDep` facet of
+Regula's own `lakefile.lean`, in a package with the same `lakefile.lean` text as the running
+Regula. It only runs Lake's own `extraDep` facet and adds the record. The only plugin that the
+plain shape admits is Regula's elaboration observer.
 Without the assertion the driver always builds with the marker ([details](proofs-and-boundaries.md#the-acceptance-boundary)).
 
 Give the assertion in the environment of `lake lint`, which no lakefile sets. The driver refuses
@@ -960,7 +989,7 @@ audit refuses a `decides` entry that names its own surface or no claimed surface
   Regula rebuilds the modules of your root package and of Regula one time.
 - If your root package declares an `extraDep` library facet, Regula's facet replaces it.
   Work unique to the overridden configuration may be lost.
-  The [facet report](proofs-and-boundaries.md#replaced-root-facets) in `lake lint` and the audit names that declaration.
+  The [facet report](proofs-and-boundaries.md#replaced-root-library-facets) in `lake lint` and the audit names that declaration.
   Move that work to `extraDepTargets` or `needs`, which Lake's own facet runs.
 - A dependency that Lake resolves after Regula can declare an `extraDep` facet that replaces
   Regula's. Lake resolves the `require` lines of a package from the last to the first, and then
@@ -973,22 +1002,19 @@ audit refuses a `decides` entry that names its own surface or no claimed surface
 - The incremental gate trusts the build traces that Lake recorded in the checkout, and the record
   is part of them. A facet that forged the record when Lake built a module is outside that
   evidence. A `--fresh` audit rests on no recorded trace.
-- Regula's `lakefile.lean` also declares a facet in place of Lake's `presetup` facet. For each
-  module of your root package, it adds Regula's elaboration observer, a Lean plugin, to the
-  plugins that Lean loads. The observer records in the module's `.olean` the options that its
-  source sets and each `#guard_msgs` and `#guard_panic` command. It also records each warning or
-  error that Lean keeps out of the build's output, and it prints nothing. The audit's builds load the
-  observer in the same way, whatever facet the workspace declares. The first build after you
-  upgrade to this Regula rebuilds the modules of your root package one time.
+- Each claimed target loads Regula's elaboration observer through its `plugins`
+  ([load the elaboration observer](#load-the-elaboration-observer)). The observer records in the
+  module's `.olean` the options that its source sets and each `#guard_msgs` and `#guard_panic`
+  command. It also records each warning or error that Lean keeps out of the build's output, and
+  it prints nothing. The audit's builds run the `presetup` facet that your workspace configures.
+  From the completed `presetup` of each claimed module, they read if Lean loaded the observer.
 - [RG2003] fails a claimed module that runs `#guard_msgs` or `#guard_panic`, also from a macro.
   Keep such checks in a test or documentation module outside the claimed surface. [RG2003] also
   fails a claimed module with a warning or error that Lean keeps out of the output, or that the
   observer did not observe. A file audit with a claim (`axiomGate --file`) loads the observer into
   its compilation and fails the file in the same way.
-- If your root package declares a `presetup` module facet, Regula's facet replaces it.
-  Work unique to the overridden configuration may be lost.
-  The [facet report](proofs-and-boundaries.md#replaced-root-facets) in `lake lint` and the audit names that declaration.
-  Move that work to the library's `plugins` or `dynlibs`, which Lake's own facet reads.
+- A `presetup` facet that a package declares replaces Lake's own. If it drops the observer from
+  the plugins of a claimed module, [RG2003] reports that module as not observed.
 - Code that runs while Lean elaborates a module can write or remove the observer's record. An
   example is an `initialize` declaration or an elaborator of an imported module. The audit trusts
   that no such code forges the record. A stateful linter of an imported module runs after the

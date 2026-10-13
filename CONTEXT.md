@@ -40,7 +40,7 @@ Standard: ASD-STE100 Issue 9
 | control | 7 | An input for a check, with the result that the check must give for it. | - | `docs/guides/contributing.md` |
 | decision contract | 7 | A theorem that tells which inputs a decision function accepts, in relation to a specification. | - | `lean/Regula/Contract.lean` |
 | external system | 19 | A system that a Regula program reads or changes, but that no Lean proof can examine, for example the file system or Lake. | - | `lean/RegulaPolicy/External.lean` (`RegulaPolicy.External.System`) |
-| facet report | 19 | A report that names a root `extraDep` or `presetup` facet that Regula replaces, with the possible loss of unique work and its remedy. | - | `lean/Regula/Checker/FacetReport.lean` (`Regula.Checker.FacetReport.report`) |
+| facet report | 19 | A report that names a root library facet that Regula replaces, with the possible loss of unique work and its remedy. | - | `lean/Regula/Checker/FacetReport.lean` (`Regula.Checker.FacetReport.report`) |
 | finding | 19 | One report of a check that a rule is not obeyed or that the check did not complete. | - | `lean/RegulaCore/Rule.lean` (`Regula.Impact`) |
 | honest code | 19 | Code that does not deliberately change Lean's environment, compiler or build to make a check pass, except where the rule-reference site states a check. | - | `SECURITY.md` |
 | observer | 19 | The code that supplies the operations of one external system to a Regula program. | - | `lean/RegulaPolicy/External.lean` (`RegulaPolicy.External.Role.observer`) |

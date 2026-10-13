@@ -16,7 +16,8 @@ Lake's `leanOptions` or with a `-D` among its extra `lean` arguments, must be in
 accepted set (`Accepted`) at an accepted value; any other option, at any value, fails, whether
 Lean declares it or not. So no target-wide option can stop a warning that Lean reports by default,
 except a raised `exponentiation.threshold`, unless one of the arguments for the accepted set below
-is wrong.
+is wrong. The target must also load Regula's elaboration observer through Lake's `plugins`
+(`BuildOptions.observer`), which records the options its modules' source sets (`sourceFailures`).
 
 ## Main declarations
 
@@ -52,6 +53,8 @@ is wrong.
 - `missingDocs_unset_fails`: a core-only target (`mathlib = false`) with only the
   automatic-implicit options and no extra `lean` arguments fails with exactly the missing
   `linter.missingDocs`.
+- `observer_unloaded_fails`: a core-only target with exactly the required options that does not
+  load Regula's elaboration observer (`BuildOptions.observer`) fails with exactly that failure.
 - `mem_argumentTexts_iff`: the `-D` reading holds exactly the settings of `Defines`, stated over
   the characters of the arguments.
 - `leanArgument_mem_failures_iff`, `unaccepted_mem_failures_iff`: a `-D` argument fails exactly
@@ -125,8 +128,9 @@ pinned release compares the second header line with `linter.style.header.license
 from its source (`Mathlib/Tactic/Linter/Header.lean`) and assumed. The options a claimed
 module's source sets are decided by `sourceFailures`, from the record of Regula's elaboration
 observer; the decision does not read options given to `lake` on its command line. A
-project that wants a resource limit fixed checks it itself. Which targets are claimed and
-whether a target imports Mathlib are supplied by the operational adapter. That
+project that wants a resource limit fixed checks it itself. Which targets are claimed,
+whether a target imports Mathlib and whether its plugins name the observer's shared library
+(`BuildOptions.observer`) are supplied by the operational adapter. That
 `linter.missingDocs` is on establishes only that Lean runs the linter; its reports are build
 warnings, which RG2003 rejects. -/
 
@@ -175,6 +179,10 @@ structure BuildOptions where
   /-- Lake's extra `lean` arguments: `weakLeanArgs` and `moreLeanArgs` of the package and the
   target. -/
   arguments : List String
+  /-- Whether Lake loads Regula's elaboration observer into the elaboration of the target's
+  modules: the plugins Lake resolves for the target, the package's then the target's own, name
+  the observer's shared library. -/
+  observer : Bool
   deriving DecidableEq, Repr
 
 /-- The option a `leanOptions` key sets: the key without a leading `weak.` component, removed by
@@ -988,11 +996,14 @@ inductive Failure where
   | unaccepted (name : Name) (value : OptionValue)
   /-- An extra `lean` argument sets `name` to `value` with `-D` against the requirement. -/
   | leanArgument (name : Name) (value : OptionValue)
+  /-- The target does not load Regula's elaboration observer, so the build records no option the
+  source of its modules sets. -/
+  | observer
   deriving DecidableEq, Repr
 
 /-- Every failure of one target's build options: required options in the order of `required`,
 then each option outside the accepted set in option order, then each contradicting `-D` in
-argument order. -/
+argument order, then a target that does not load Regula's elaboration observer. -/
 @[regula_decision]
 def failures (o : BuildOptions) (mathlib : Bool) : List Failure :=
   (required mathlib).filterMap (fun r =>
@@ -1001,8 +1012,9 @@ def failures (o : BuildOptions) (mathlib : Bool) : List Failure :=
       if unaccepted mathlib (optionOf entry.1) entry.2 then
         some (.unaccepted (optionOf entry.1) entry.2)
       else none) ++
-    (argumentSettings o.arguments).filterMap fun s =>
-      if contradicts o mathlib s.1 s.2 then some (.leanArgument s.1 s.2) else none
+    (argumentSettings o.arguments).filterMap (fun s =>
+      if contradicts o mathlib s.1 s.2 then some (.leanArgument s.1 s.2) else none) ++
+    if o.observer then [] else [.observer]
 
 /-- An option value as written in `lakefile.lean`. -/
 def OptionValue.text : OptionValue → String
@@ -1028,6 +1040,10 @@ def Failure.text : Failure → String
   | .leanArgument name value =>
     s!"an extra `lean` argument sets `{name}` to {value.text}, which RG2006 does not accept; \
       remove it" ++ licenseHint name
+  | .observer =>
+    "the target does not load Regula's elaboration observer, so the options its modules' source \
+      sets are unknown; add plugins := #[`@regula/RegulaObserver:shared] to the package or the \
+      target in lakefile.lean, or plugins = [\"@regula/RegulaObserver:shared\"] in lakefile.toml"
 
 /-- The finding detail of a target's failures. -/
 def detail (failures : List Failure) : String :=
@@ -1038,16 +1054,18 @@ required option is given, and only values that the requirement admits: what Lean
 required value, and for Mathlib's header linter also `true` when the target configures the license
 line (`Licensed`); every other option the options set is `Accepted`; and each `-D` among the extra
 `lean` arguments gives a required option only a value the requirement admits and sets any other
-option only as `Accepted` allows. -/
+option only as `Accepted` allows; and the target loads Regula's elaboration observer
+(`BuildOptions.observer`). -/
 def Conforming (o : BuildOptions) (mathlib : Bool) : Prop :=
   (∀ r ∈ required mathlib, valuesOf o r.1 ≠ [] ∧ ∀ v ∈ valuesOf o r.1,
     v.ReadsAs r.2 ∨ (r.1 = headerLinter ∧ v.ReadsAs (.bool true) ∧ Licensed o)) ∧
   (∀ entry ∈ o.options, (∀ r ∈ required mathlib, r.1 ≠ optionOf entry.1) →
     Accepted (optionOf entry.1) entry.2) ∧
-  ∀ s ∈ argumentSettings o.arguments,
+  (∀ s ∈ argumentSettings o.arguments,
     (∀ r ∈ required mathlib, optionOf s.1 = r.1 → s.2.ReadsAs r.2 ∨
       (r.1 = headerLinter ∧ s.2.ReadsAs (.bool true) ∧ Licensed o)) ∧
-    ((∀ r ∈ required mathlib, r.1 ≠ optionOf s.1) → Accepted (optionOf s.1) s.2)
+    ((∀ r ∈ required mathlib, r.1 ≠ optionOf s.1) → Accepted (optionOf s.1) s.2)) ∧
+  o.observer = true
 
 /-- `meets` decides exactly the first conjunct's condition for one option. -/
 theorem meets_iff (o : BuildOptions) (r : Name × OptionValue) :
@@ -1070,13 +1088,14 @@ theorem failures_eq_nil_iff (o : BuildOptions) (mathlib : Bool) :
   simp only [failures, Conforming, ← admits_iff, List.append_eq_nil_iff,
     List.filterMap_eq_nil_iff, and_assoc]
   refine and_congr (forall₂_congr fun r _ => ?_)
-    (and_congr (forall₂_congr fun e _ => ?_) (forall₂_congr fun s _ => ?_))
+    (and_congr (forall₂_congr fun e _ => ?_) (and_congr (forall₂_congr fun s _ => ?_) ?_))
   · rw [← meets_iff]
     cases meets o r <;> simp
   · rw [← unaccepted_eq_false_iff]
     cases unaccepted mathlib (optionOf e.1) e.2 <;> simp
   · rw [← contradicts_eq_false_iff]
     cases contradicts o mathlib s.1 s.2 <;> simp
+  · cases o.observer <;> simp
 
 /-- Each value the Mathlib requirement admits for one of Mathlib's options is `Accepted` without
 it. -/
@@ -1111,7 +1130,8 @@ theorem conforming_of_mathlib (o : BuildOptions) (h : Conforming o true) : Confo
       · exact hn r (by simpa [required] using hb) hrn
       · exact hm ⟨r, hb, hrn⟩
   refine ⟨fun r hr => h.1 r (by simp_all [required]), fun e he hn => ?_,
-    fun s hs => ⟨fun r hr => (h.2.2 s hs).1 r (by simp_all [required]), fun hn => ?_⟩⟩
+    fun s hs => ⟨fun r hr => (h.2.2.1 s hs).1 r (by simp_all [required]), fun hn => ?_⟩,
+    h.2.2.2⟩
   · rcases hreq _ hn with ht | ⟨r, hr, hre⟩
     · exact h.2.1 e he ht
     · have hm : r ∈ required true := by simp [required, hr]
@@ -1121,10 +1141,10 @@ theorem conforming_of_mathlib (o : BuildOptions) (h : Conforming o true) : Confo
       rw [← hre]
       exact accepted_of_mathlibBaseline o r hr e.2 ((h.1 r hm).2 e.2 hv)
   · rcases hreq _ hn with ht | ⟨r, hr, hre⟩
-    · exact (h.2.2 s hs).2 ht
+    · exact (h.2.2.1 s hs).2 ht
     · have hm : r ∈ required true := by simp [required, hr]
       rw [← hre]
-      exact accepted_of_mathlibBaseline o r hr s.2 ((h.2.2 s hs).1 r hm hre.symm)
+      exact accepted_of_mathlibBaseline o r hr s.2 ((h.2.2.1 s hs).1 r hm hre.symm)
 
 
 /-- For an option other than the header linter the requirement admits exactly what Lean reads as
@@ -1150,7 +1170,7 @@ theorem conforming_autoImplicit (o : BuildOptions) (mathlib : Bool) (h : Conform
     simp only [List.mem_cons, List.not_mem_nil, or_false] at hname
     rcases hname with rfl | rfl <;> simp [headerLinter]
   exact ⟨fun v hv => ((h.1 _ hr).2 v hv).resolve_right fun h' => hne h'.1,
-    fun s hs hs' => ((h.2.2 s hs).1 _ hr hs').resolve_right fun h' => hne h'.1⟩
+    fun s hs hs' => ((h.2.2.1 s hs).1 _ hr hs').resolve_right fun h' => hne h'.1⟩
 
 /-- Every conforming target enables `linter.missingDocs`: its options give the option at least
 once and only values Lean reads as `true`, and no `-D` among its extra `lean` arguments gives it
@@ -1164,14 +1184,20 @@ theorem conforming_missingDocs (o : BuildOptions) (mathlib : Bool) (h : Conformi
     simp [required, baseline]
   have hne : (`linter.missingDocs : Name) ≠ headerLinter := by simp [headerLinter]
   exact ⟨(h.1 _ hr).1, fun v hv => ((h.1 _ hr).2 v hv).resolve_right fun h' => hne h'.1,
-    fun s hs hs' => ((h.2.2 s hs).1 _ hr hs').resolve_right fun h' => hne h'.1⟩
+    fun s hs hs' => ((h.2.2.1 s hs).1 _ hr hs').resolve_right fun h' => hne h'.1⟩
 
 /-- A core-only target (`mathlib = false`) that turns automatic implicits off, sets no other
 option and has no extra `lean` arguments fails with exactly one failure: `linter.missingDocs` is
 not set. -/
 theorem missingDocs_unset_fails :
-    failures ⟨[(`autoImplicit, .bool false), (`relaxedAutoImplicit, .bool false)], []⟩ false =
+    failures ⟨[(`autoImplicit, .bool false), (`relaxedAutoImplicit, .bool false)], [], true⟩
+        false =
       [.option `linter.missingDocs (.bool true) []] := by
+  decide
+
+/-- A core-only target whose options are exactly the required ones but that does not load Regula's
+elaboration observer fails with exactly that failure. -/
+theorem observer_unloaded_fails : failures ⟨required false, [], false⟩ false = [.observer] := by
   decide
 
 /-- A `-D` string value contradicts the requirement exactly when it is a value the requirement does
@@ -1199,7 +1225,7 @@ theorem leanArgument_mem_failures_iff (o : BuildOptions) (mathlib : Bool) (n : N
       (n, v) ∈ argumentSettings o.arguments ∧ contradicts o mathlib n v = true := by
     simp only [failures, List.mem_append, List.mem_filterMap]
     constructor
-    · rintro ((⟨r, -, h⟩ | ⟨e, -, h⟩) | ⟨s, hs, h⟩)
+    · rintro (((⟨r, -, h⟩ | ⟨e, -, h⟩) | ⟨s, hs, h⟩) | h)
       · split at h <;> simp at h
       · split at h <;> simp at h
       · split at h
@@ -1207,8 +1233,9 @@ theorem leanArgument_mem_failures_iff (o : BuildOptions) (mathlib : Bool) (n : N
           obtain ⟨rfl, rfl⟩ := h
           exact ⟨hs, by assumption⟩
         · simp at h
+      · split at h <;> simp at h
     · rintro ⟨hs, hc⟩
-      exact .inr ⟨(n, v), hs, by simp [hc]⟩
+      exact .inl (.inr ⟨(n, v), hs, by simp [hc]⟩)
   rw [hmem, mem_argumentSettings_iff]
   constructor
   · rintro ⟨⟨name, value, hd, rfl, rfl⟩, hc⟩
@@ -1226,7 +1253,7 @@ theorem unaccepted_mem_failures_iff (o : BuildOptions) (mathlib : Bool) (n : Nam
         (∀ r ∈ required mathlib, r.1 ≠ n) ∧ ¬Accepted n v := by
   simp only [failures, List.mem_append, List.mem_filterMap]
   constructor
-  · rintro ((⟨r, -, h⟩ | ⟨e, he, h⟩) | ⟨s, -, h⟩)
+  · rintro (((⟨r, -, h⟩ | ⟨e, he, h⟩) | ⟨s, -, h⟩) | h)
     · split at h <;> simp at h
     · split at h
       · rename_i hd
@@ -1235,8 +1262,9 @@ theorem unaccepted_mem_failures_iff (o : BuildOptions) (mathlib : Bool) (n : Nam
         exact ⟨e, he, rfl, rfl, (unaccepted_iff _ _ _).1 hd⟩
       · simp at h
     · split at h <;> simp at h
+    · split at h <;> simp at h
   · rintro ⟨e, he, rfl, rfl, hd⟩
-    exact .inl (.inr ⟨e, he, by simp [(unaccepted_iff _ _ _).2 hd]⟩)
+    exact .inl (.inl (.inr ⟨e, he, by simp [(unaccepted_iff _ _ _).2 hd]⟩))
 
 /-- An option that the options set for every module to a value `unaccepted` refuses is reported. -/
 theorem unaccepted_option_fails (o : BuildOptions) (mathlib : Bool) (n : Name) (v : OptionValue)
@@ -1299,7 +1327,7 @@ theorem accepted_families_pass :
       (`linter.extra.dupNamespace.consecutiveOnly, .bool true), (`linter.haveLet, .nat 2),
       (`warn.sorry, .bool true), (`warningAsError, .bool true), (`debugAssertions, .bool true),
       (`maxHeartbeats, .nat 0), (`exponentiation.threshold, .nat 512),
-      (`pp.unicode, .bool true)], []⟩ false = [] := by
+      (`pp.unicode, .bool true)], [], true⟩ false = [] := by
   decide
 
 /-! The cases below fix the extra `lean` arguments and hold for every `leanOptions`. Lean's
@@ -1310,7 +1338,7 @@ argument names an option or gives a number takes what `lean` reads as a hypothes
 theorem autoImplicit_argument_fails (options : List (Name × OptionValue)) (mathlib : Bool)
     (h : "autoImplicit".toName = `autoImplicit) :
     Failure.leanArgument `autoImplicit (.string "true") ∈
-      failures ⟨options, ["-DautoImplicit=true"]⟩ mathlib := by
+      failures ⟨options, ["-DautoImplicit=true"], true⟩ mathlib := by
   rw [leanArgument_mem_failures_iff]
   refine ⟨"autoImplicit", "true", (mem_argumentTexts_iff ["-DautoImplicit=true"] _ _).1 (by decide),
     h.symm, rfl,
@@ -1322,7 +1350,8 @@ reported. -/
 theorem unaccepted_argument_fails (options : List (Name × OptionValue)) (mathlib : Bool)
     (argument name value : String) (n : Name) (hd : Defines [argument] name value)
     (h : name.toName = n) (hu : unaccepted mathlib (optionOf n) (.string value) = true) :
-    Failure.leanArgument n (.string value) ∈ failures ⟨options, [argument]⟩ mathlib := by
+    Failure.leanArgument n (.string value) ∈
+      failures ⟨options, [argument], true⟩ mathlib := by
   rw [leanArgument_mem_failures_iff]
   exact ⟨name, value, hd, h.symm, rfl, .inr ((unaccepted_iff _ _ _).1 hu)⟩
 
@@ -1331,7 +1360,7 @@ accepted set, so the target fails. -/
 theorem linter_argument_fails (options : List (Name × OptionValue)) (mathlib : Bool)
     (h : "weak.linter.unusedVariables".toName = `weak.linter.unusedVariables) :
     Failure.leanArgument `weak.linter.unusedVariables (.string "false") ∈
-      failures ⟨options, ["-qD", "weak.linter.unusedVariables=false"]⟩ mathlib := by
+      failures ⟨options, ["-qD", "weak.linter.unusedVariables=false"], true⟩ mathlib := by
   rw [leanArgument_mem_failures_iff]
   exact ⟨"weak.linter.unusedVariables", "false",
     (mem_argumentTexts_iff ["-qD", "weak.linter.unusedVariables=false"] _ _).1 (by decide),
@@ -1342,7 +1371,7 @@ target fails. -/
 theorem warn_argument_fails (options : List (Name × OptionValue)) (mathlib : Bool)
     (h : "warn.sorry".toName = `warn.sorry) :
     Failure.leanArgument `warn.sorry (.string "false") ∈
-      failures ⟨options, ["-Dwarn.sorry=false"]⟩ mathlib :=
+      failures ⟨options, ["-Dwarn.sorry=false"], true⟩ mathlib :=
   unaccepted_argument_fails options mathlib _ "warn.sorry" "false" _
     ((mem_argumentTexts_iff ["-Dwarn.sorry=false"] _ _).1 (by decide)) h
     (by cases mathlib <;> decide)
@@ -1352,7 +1381,7 @@ ignores the setting: a `weak.` entry is classified by its name alone. -/
 theorem undeclared_weak_argument_fails (options : List (Name × OptionValue)) (mathlib : Bool)
     (h : "weak.warn.example".toName = `weak.warn.example) :
     Failure.leanArgument `weak.warn.example (.string "false") ∈
-      failures ⟨options, ["-Dweak.warn.example=false"]⟩ mathlib :=
+      failures ⟨options, ["-Dweak.warn.example=false"], true⟩ mathlib :=
   unaccepted_argument_fails options mathlib _ "weak.warn.example" "false" _
     ((mem_argumentTexts_iff ["-Dweak.warn.example=false"] _ _).1 (by decide)) h
     (by cases mathlib <;> decide)
@@ -1362,7 +1391,8 @@ number, so it adds no failure. -/
 theorem maxHeartbeats_argument_passes (options : List (Name × OptionValue)) (mathlib : Bool)
     (h : "maxHeartbeats".toName = `maxHeartbeats) (hn : "400000".toNat? = some 400000)
     (n : Name) (v : OptionValue) :
-    Failure.leanArgument n v ∉ failures ⟨options, ["-DmaxHeartbeats=400000"]⟩ mathlib := by
+    Failure.leanArgument n v ∉
+      failures ⟨options, ["-DmaxHeartbeats=400000"], true⟩ mathlib := by
   rw [leanArgument_mem_failures_iff]
   rintro ⟨name, value, hd, rfl, rfl, hc⟩
   have ht : argumentTexts ["-DmaxHeartbeats=400000"] = [("maxHeartbeats", "400000")] := by
@@ -1380,7 +1410,8 @@ theorem maxHeartbeats_argument_passes (options : List (Name × OptionValue)) (ma
 theorem excluded_linter_argument_passes (options : List (Name × OptionValue))
     (h : "weak.linter.hashCommand".toName = `weak.linter.hashCommand) (n : Name)
     (v : OptionValue) :
-    Failure.leanArgument n v ∉ failures ⟨options, ["-Dweak.linter.hashCommand=false"]⟩ true := by
+    Failure.leanArgument n v ∉
+      failures ⟨options, ["-Dweak.linter.hashCommand=false"], true⟩ true := by
   rw [leanArgument_mem_failures_iff]
   rintro ⟨name, value, hd, rfl, rfl, hc⟩
   have ht : argumentTexts ["-Dweak.linter.hashCommand=false"] =
@@ -1397,7 +1428,7 @@ theorem excluded_linter_argument_passes (options : List (Name × OptionValue))
 theorem plugin_argument_passes (options : List (Name × OptionValue)) (mathlib : Bool) (n : Name)
     (v : OptionValue) :
     Failure.leanArgument n v ∉
-      failures ⟨options, ["--plugin=libDemo.dylib", "--tstack=100000"]⟩ mathlib := by
+      failures ⟨options, ["--plugin=libDemo.dylib", "--tstack=100000"], true⟩ mathlib := by
   rw [leanArgument_mem_failures_iff]
   rintro ⟨name, value, hd, -⟩
   have ht : argumentTexts ["--plugin=libDemo.dylib", "--tstack=100000"] = [] := by decide
@@ -1442,7 +1473,7 @@ theorem conforming_header (o : BuildOptions) (h : Conforming o true) :
         s.2.ReadsAs (.bool false) ∨ (s.2.ReadsAs (.bool true) ∧ Licensed o) :=
   ⟨(h.1 _ header_mem_required).1,
     fun v hv => ((h.1 _ header_mem_required).2 v hv).imp_right And.right,
-    fun s hs hs' => ((h.2.2 s hs).1 _ header_mem_required hs').imp_right And.right⟩
+    fun s hs hs' => ((h.2.2.1 s hs).1 _ header_mem_required hs').imp_right And.right⟩
 
 /-- A Mathlib target that leaves the header linter on and configures no license line fails: the
 header linter's `true`, in a value its options give or in a `-D` argument, is not admitted. -/
@@ -1466,7 +1497,8 @@ theorem licensed_header_passes :
       (`linter.style.header, .bool true),
       (`linter.style.header.license,
         .string "Released under the MIT license as described in the repository LICENSE."),
-      (`linter.hashCommand, .bool false), (`linter.style.longFile, .nat 0)], []⟩ true = [] := by
+      (`linter.hashCommand, .bool false), (`linter.style.longFile, .nat 0)], [], true⟩ true =
+      [] := by
   decide
 
 /-- The same target without the license line fails with exactly the header linter, set to
@@ -1475,7 +1507,7 @@ theorem unlicensed_header_fails :
     failures ⟨[(`autoImplicit, .bool false), (`relaxedAutoImplicit, .bool false),
       (`linter.missingDocs, .bool true), (`linter.mathlibStandardSet, .bool true),
       (`linter.style.header, .bool true),
-      (`linter.hashCommand, .bool false), (`linter.style.longFile, .nat 0)], []⟩ true =
+      (`linter.hashCommand, .bool false), (`linter.style.longFile, .nat 0)], [], true⟩ true =
       [.option `linter.style.header (.bool false) [.bool true]] := by
   decide
 
@@ -1511,6 +1543,9 @@ inductive SourceForm where
   | term
   /-- `set_option name value in` inside a tactic block. -/
   | tactic
+  /-- `{set_option name value}` in a documentation comment, which sets the option for the rest of
+  that comment. -/
+  | docComment
   /-- An option set without `set_option` syntax that the observer found. -/
   | elaborated
   deriving DecidableEq, Repr

@@ -72,9 +72,8 @@ private def mutate (path : FilePath) (before after : String) : IO Unit := do
 /-- Controls of Lake's compiled-configuration and process-output boundary. The public
 `--explain-config` path runs the same facet report as an audit without running its proof stages,
 and only it prints the census line, which proves that the negative control ran the decision. A
-named root `extraDep` library facet and a root `presetup` module facet are reported; a different
-facet and a text-only decoy are not. Regula's own root facets are not reported as replaced by its
-own declarations. The empty-Regula-glob case uses the already-built
+named root facet is reported; a different facet and a text-only decoy are not. Regula's own root facet is not
+reported as replaced by its own declaration. The empty-Regula-glob case uses the already-built
 auditor's `--project` path: through Lake's lint driver, that glob already stops the run earlier
 by shadowing the driver's Regula imports. Lake v4.34.1 builds that executable before running it
 (`Lake/CLI/Actions.lean:89-99`), resolves imports through workspace lookup
@@ -87,31 +86,23 @@ private def facetReport (repo adopter : FilePath) : IO (Array String) := do
   let original ← IO.FS.readFile lakefile
   let args := #["--", "--explain-config"]
   let checked := "regula facet report: checked "
-  let empty := "0 root extraDep or presetup declarations replaced by Regula"
+  let empty := "0 root extraDep declarations replaced by Regula"
   let displaced := "root package 'build_lint_adopter' library facet 'adopterPrerequisite'"
   let replacement := #[displaced,
     "has its configuration overridden by Regula's 'weakLeanArgsTrace'",
     "Work unique to the overridden facet may be lost",
     "Move that work to extraDepTargets or needs"]
-  let displacedSetup := "root package 'build_lint_adopter' module facet 'adopterSetup'"
-  let setupReplacement := #[displacedSetup,
-    "(presetup) has its configuration overridden by Regula's 'elaborationObserver'",
-    "Move that work to the library's plugins or dynlibs"]
   let collisionLakefile := original ++ "\n\
     /-- A facet replaced by a later root declaration, before dependencies load. -/\n\
     @[«library_facet»] def earlierPrerequisite : LibraryFacetDecl :=\n\
       .mk LeanLib.extraDepFacet LeanLib.extraDepFacetConfig\n\
     /-- A prerequisite represented by the root's library facet. -/\n\
     @[«library_facet»] def adopterPrerequisite : LibraryFacetDecl :=\n\
-      .mk LeanLib.extraDepFacet LeanLib.extraDepFacetConfig\n\
-    /-- A module setup step represented by the root's module facet. -/\n\
-    @[«module_facet»] def adopterSetup : ModuleFacetDecl :=\n\
-      .mk Module.presetupFacet Module.presetupFacetConfig\n"
+      .mk LeanLib.extraDepFacet LeanLib.extraDepFacetConfig\n"
   IO.FS.writeFile lakefile collisionLakefile
   let positive : Expectation := {
     label := "facet-report/replaced", exitCode := 2,
-    contains := #[checked, "2 root extraDep or presetup declarations replaced by Regula"] ++
-      replacement ++ setupReplacement,
+    contains := #[checked, "1 root extraDep declarations replaced by Regula"] ++ replacement,
     excludes := #["library facet 'earlierPrerequisite'", "Its build step does not run"] }
   let mut failures ← expect adopter positive args
   IO.FS.writeFile lakefile (original ++ "\n\
@@ -119,7 +110,7 @@ private def facetReport (repo adopter : FilePath) : IO (Array String) := do
     library_facet other : Unit := pure Job.nil\n")
   let negative : Expectation := {
     label := "facet-report/not-replaced", exitCode := 2,
-    contains := #[checked, empty], excludes := #[displaced, displacedSetup,
+    contains := #[checked, empty], excludes := #[displaced,
       "Work unique to the overridden facet may be lost", "Its build step does not run"] }
   failures := failures ++ (← expect adopter negative args)
   -- Lake chooses Lean from the relative lakefile.lean, even when the resolved target ends in
@@ -744,15 +735,21 @@ setting alone. A `#guard_msgs` around a command with an unused `have` is no cont
 elaborates the guarded command with `elabCommandTopLevel` (`Lean/Elab/GuardMsgs.lean` line 200),
 which lints it, since only a command that contains `#guard_msgs` goes unlinted
 (`Lean/Elab/Command.lean` line 868), and the warning the docstring does not expect fails the build
-with an error (`Lean/Elab/GuardMsgs.lean` line 248). A one-declaration disable of `linter.missingDocs`, a community linter, is accepted; the same
-disable before a section of two definitions is a violation. So is `set_option linter.missingDocs
-false` that the project's code elaborates through `run_cmd`, `run_elab`, a `try_suggestion`
-generator or a simproc. A setting of `RegulaPolicy.Community.generatedSettings` that the module
-writes itself is accepted, as is the `grind` tactic's `set_option` at an accepted value and the
-restored module, and the restored module with a dependency whose `presetup` facet Lake does not
-store (`memoize := false`). The file audit (`axiomGate --file`) decides its compilation's
+with an error (`Lean/Elab/GuardMsgs.lean` line 248). A one-declaration disable of
+`linter.missingDocs`, a community linter, is accepted; the same disable before a section of two
+definitions is a violation. So is `set_option linter.missingDocs false` that the project's code
+elaborates through `run_cmd`, `run_elab`, a `try_suggestion` generator or a simproc. A setting of
+`RegulaPolicy.Community.generatedSettings` that the module writes itself is accepted, as is the
+`grind` tactic's `set_option` at an accepted value. The documentation command `{set_option}` is
+decided like `set_option`, and the documentation role `{option}` and a `simp` user option, which
+set no option of the scope, give no finding. The restored module is accepted. Without the
+library's `plugins` entry for the observer, RG2006 names the entry and RG2003 refuses the claimed
+modules as not observed. A dependency's `presetup` facet that Lake does not store
+(`memoize := false`) is accepted, required before `regula` and after it, and one that drops the
+plugins is refused under RG2003. The file audit (`axiomGate --file`) decides its compilation's
 record with the same function (`Observer.decideRecord`): a `#guard_msgs` that drops a warning
-fails with the same `FAIL[elaboration-hidden]`, and `set_option linter.unusedVariables false` is an RG2006 violation. -/
+fails with the same `FAIL[elaboration-hidden]`, and `set_option linter.unusedVariables false` is
+an RG2006 violation. -/
 private def observerEscapes (repo adopter : FilePath) : IO (Array String) := do
   BuildLintQualification.setup repo adopter
   let originals ← leanOriginals adopter
@@ -847,43 +844,96 @@ private def observerEscapes (repo adopter : FilePath) : IO (Array String) := do
   write "/-- A control. -/\ntheorem grindSet (a : Nat) : a + 0 = a := by\n  \
     grind => set_option maxHeartbeats 400000 in skip"
   failures := failures ++ (← expect adopter (accepted "observer/grind-option"))
+  -- Lean records an option's name in four places (`GeneratedSettingSearch.producers`). The
+  -- documentation command `{set_option name value}` sets the option for the rest of its comment,
+  -- so it is decided like `set_option`; the documentation role `{option}` refers to one and sets
+  -- none, so it gives no finding. `doc.verso`, which both need, is itself refused.
+  write "set_option doc.verso true\n\n/-- Refers to {option}`pp.all`.\n\n\
+    {set_option linter.unusedVariables false}\n-/\ndef documented : Nat := 0"
+  failures := failures ++ (← expect adopter {
+      label := "observer/documentation-options", exitCode := 1,
+      contains := #["RG2006", "Widget.Additional:9:11: set_option doc.verso true",
+        "Widget.Additional:13:12: set_option linter.unusedVariables false",
+        "regula lint: VIOLATION (exit 1)"],
+      excludes := #["set_option pp.all", "FAIL[elaboration-hidden]"] })
+  -- A `simp` user option sets the option in the tactic's own configuration, not in the scope.
+  write "/-- A control. -/\ntheorem viaUserOption (n : Nat) : n + 0 = n := by \
+    simp +user.exampleBool"
+  failures := failures ++ (← expect adopter (accepted "observer/simp-user-option"))
   restore adopter originals
   failures := failures ++ (← expect adopter (accepted "observer/restored"))
-  -- A dependency, required before `regula`, whose `presetup` facet runs Lake's own with
+  -- A claimed library loads the observer only through its own `plugins` (RG2006): without the
+  -- entry, RG2006 names it, and RG2003 refuses each module that Lean elaborated without the
+  -- observer.
+  let lakefile := adopter / "lakefile.lean"
+  let lakefileText ← IO.FS.readFile lakefile
+  mutate lakefile "  plugins := #[`@regula/RegulaObserver:shared]\n" ""
+  failures := failures ++ (← expect adopter {
+      label := "observer/no-plugins", exitCode := 3,
+      contains := #["RG2006", "does not load Regula's elaboration observer",
+        "plugins := #[`@regula/RegulaObserver:shared]", "FAIL[elaboration-hidden]",
+        "not observed: Regula's elaboration observer was not among the plugins Lean loaded to \
+          elaborate Widget", "regula lint: INCOMPLETE (exit 3)"],
+      excludes := #[s!"regula lint: {acceptanceLabel}"] })
+  IO.FS.writeFile lakefile lakefileText
+  restore adopter originals
+  -- A dependency's `presetup` facet, which replaces Lake's own in the workspace whatever the order
+  -- of the `require` lines, since Regula declares none. One runs Lake's own with
   -- `memoize := false`, so Lake stores no `presetup` job (`Lake/Build/Index.lean` lines 43 to 49).
-  -- Lake loads a package's requires from the last to the first and each loaded facet replaces one
-  -- of the same name (`Lake/Load/Resolve.lean` lines 49, 73 and 212), so this facet is the
-  -- workspace's and Regula's own is not.
   -- The audit reads each module's source file and plugins from the jobs that completed
-  -- (`Observer.Presetups`), so the run is accepted. The facet writes a file as it runs, which shows
-  -- that the workspace configured it. The dependency is a Git repository of its own, as `regula` is.
+  -- (`Observer.Presetups`), so the run is accepted with the dependency required before `regula`
+  -- and after it. The other runs Lake's own and drops the plugins, so Lean elaborates the claimed
+  -- modules without the observer and RG2003 refuses them. Each facet writes a file as it runs,
+  -- which shows that the workspace configured it. The dependency is a Git repository of its own,
+  -- as `regula` is.
   let manifestFile := adopter / "lake-manifest.json"
   let manifest ← IO.FS.readFile manifestFile
   let setupDep := adopter / "setupdep"
   let ran := setupDep / "presetup-ran"
-  IO.FS.createDirAll setupDep
-  IO.FS.writeFile (setupDep / "lakefile.lean") s!"import Lake\nopen Lake DSL\n\npackage setupdep\n\n\
-    @[«module_facet»] def unmemoizedSetup : ModuleFacetDecl := .mk Module.presetupFacet <|\n  \
-    mkFacetJobConfig (buildable := false) (memoize := false) fun mod => do\n    \
-    IO.FS.writeFile {(toJson ran.toString).compress} \"\"\n    \
-    Module.presetupFacetConfig.run mod\n"
-  let initialized ← runProcess setupDep "git" #["init", "-q"]
-  unless initialized.succeeded do throw <| IO.userError initialized.output
-  mutate (adopter / "lakefile.lean") "\nrequire regula from"
-    s!"\nrequire setupdep from {(toJson setupDep.toString).compress}\nrequire regula from"
-  let parsed ← readJson manifestFile
-  let packages : Array Json ← IO.ofExcept <| parsed.getObjValAs? (Array Json) "packages"
-  writeJson manifestFile <| parsed.setObjVal! "packages" <| toJson <| packages.push <| Json.mkObj [
-    ("name", toJson "setupdep"), ("scope", toJson ""), ("configFile", toJson "lakefile.lean"),
-    ("manifestFile", toJson "lake-manifest.json"), ("inherited", toJson false),
-    ("type", toJson "path"), ("dir", toJson setupDep.toString)]
-  failures := failures ++ (← expect adopter (accepted "observer/unmemoized-dependency-presetup"))
+  let configuration (result : String) : String :=
+    s!"import Lake\nopen Lake DSL\n\npackage setupdep\n\n\
+      @[«module_facet»] def dependencySetup : ModuleFacetDecl := .mk Module.presetupFacet <|\n  \
+      mkFacetJobConfig (buildable := false) (memoize := false) fun mod => do\n    \
+      IO.FS.writeFile {(toJson ran.toString).compress} \"\"\n    {result}\n"
+  let requireDependency (result : String) (before : Bool) : IO Unit := do
+    IO.FS.createDirAll setupDep
+    IO.FS.writeFile (setupDep / "lakefile.lean") (configuration result)
+    let initialized ← runProcess setupDep "git" #["init", "-q"]
+    unless initialized.succeeded do throw <| IO.userError initialized.output
+    let line := s!"require setupdep from {(toJson setupDep.toString).compress}"
+    if before then mutate lakefile "\nrequire regula from" s!"\n{line}\nrequire regula from"
+    else IO.FS.writeFile lakefile (lakefileText ++ s!"\n{line}\n")
+    let parsed ← readJson manifestFile
+    let packages : Array Json ← IO.ofExcept <| parsed.getObjValAs? (Array Json) "packages"
+    writeJson manifestFile <| parsed.setObjVal! "packages" <| toJson <| packages.push <|
+      Json.mkObj [("name", toJson "setupdep"), ("scope", toJson ""),
+        ("configFile", toJson "lakefile.lean"), ("manifestFile", toJson "lake-manifest.json"),
+        ("inherited", toJson false), ("type", toJson "path"), ("dir", toJson setupDep.toString)]
+  let removeDependency : IO Unit := do
+    Regula.Filesystem.removePath .directory setupDep
+    IO.FS.writeFile manifestFile manifest
+    IO.FS.writeFile lakefile lakefileText
+    restore adopter originals
+  for (order, before) in [("before", true), ("after", false)] do
+    let label := s!"observer/unmemoized-dependency-presetup-{order}"
+    requireDependency "Module.presetupFacetConfig.run mod" before
+    failures := failures ++ (← expect adopter (accepted label))
+    unless ← ran.pathExists do
+      failures := failures.push s!"lake-lint/{label}: the dependency's presetup facet did not \
+        run, so the workspace did not configure it"
+    removeDependency
+  requireDependency "return (← Module.presetupFacetConfig.run mod).map fun setup =>\n      \
+    { setup with plugins := #[] }" true
+  failures := failures ++ (← expect adopter {
+      label := "observer/dependency-drops-plugins", exitCode := 3,
+      contains := #["FAIL[elaboration-hidden]", "(RG2003)",
+        "not observed: Regula's elaboration observer was not among the plugins Lean loaded to \
+          elaborate Widget", "regula lint: INCOMPLETE (exit 3)"],
+      excludes := #[s!"regula lint: {acceptanceLabel}"] })
   unless ← ran.pathExists do
-    failures := failures.push "lake-lint/observer/unmemoized-dependency-presetup: the \
-      dependency's presetup facet did not run, so the workspace did not configure it"
-  Regula.Filesystem.removePath .directory setupDep
-  IO.FS.writeFile manifestFile manifest
-  restore adopter originals
+    failures := failures.push "lake-lint/observer/dependency-drops-plugins: the dependency's \
+      presetup facet did not run, so the workspace did not configure it"
+  removeDependency
 
   -- The file audit's compilation loads the observer too, and its record decides the same way. The
   -- file is outside the claimed library, so the claimed build that precedes it passes.
@@ -2310,10 +2360,11 @@ private def absentWorker (repo adopter : FilePath) : IO (Array String) := do
 /-- The first commands of an adopter on Lake's own templates, external boundaries all: the
 template of this toolchain's `lake new`, the lakefile edits of `regula init`, and `lake lint`.
 In each format (`lakefile.toml`, and `lakefile.lean` with `.lean`, whose `lean_lib` has an empty
-`where` block), a project from `lake new` that requires this checkout (`requireCheckout`) gets
-from `lake exe regula init` the glob that includes the module its umbrella imports, then
-`doctor` reports the setup complete, and a second `init` writes nothing. In the `lakefile.toml`
-project, `lake lint` then reports only the docstrings the template lacks ([RG2003]); with them
+`where` block), a project from `lake new` that requires this checkout (`requireCheckout`) and
+whose package loads Regula's elaboration observer as a plugin gets from `lake exe regula init`
+the glob that includes the module its umbrella imports, then `doctor` reports the setup complete,
+and a second `init` writes nothing. In the `lakefile.toml` project, `lake lint` then reports only
+the docstrings the template lacks ([RG2003]); with them
 written it accepts the project. That the plan of the result is empty in the model is
 `Regula.Setup.plan_idempotent`; these runs observe that the written files realize it. When the
 `lakefile.lean` project's file then links to its Lean configuration under a name that ends in
@@ -2331,7 +2382,16 @@ private def lakeNew (repo scratch : FilePath) : IO (Array String) := do
       #[format])) scrubbedLeanPathEnv
     if !made.succeeded then return #[s!"lake-lint/new/{name}: lake new failed", made.output]
     let project := scratch / name
-    IO.FS.writeFile (project / lakefile) ((← IO.FS.readFile (project / lakefile)) ++ require)
+    -- The package loads Regula's elaboration observer (RG2006), which `init` does not write: at
+    -- the top of a `lakefile.toml`, before its first table, and after the `version` field of the
+    -- template's `package` in a `lakefile.lean`.
+    let template ← IO.FS.readFile (project / lakefile)
+    let version := "  version := v!\"0.1.0\"\n"
+    let configured := if format.isEmpty then observerPluginToml ++ template
+      else template.replace version (version ++ observerPluginLean)
+    unless format.isEmpty || configured != template do
+      return #[s!"lake-lint/new/{name}: the template's package lacks {version}"]
+    IO.FS.writeFile (project / lakefile) (configured ++ require)
     BuildLintQualification.requireCheckout repo project
     let mut failures ← assess {
         label := s!"new/{name}/init", exitCode := 0,

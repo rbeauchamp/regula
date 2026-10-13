@@ -482,6 +482,30 @@ def writeJson (path : FilePath) (value : Json) : IO Unit := do
   IO.FS.writeFile path encoded
   timingSpan s!"diagnostic span: writeJson write {path}: {(← IO.monoMsNow) - writeStart}ms"
 
+/-- The top-level `lakefile.toml` key with which a package loads Regula's elaboration observer
+into each of its libraries and executables (RG2003, RG2006). A top-level key precedes the file's
+first table. -/
+def observerPluginToml : String := "plugins = [\"@regula/RegulaObserver:shared\"]\n"
+
+/-- The field of a `lakefile.lean` `package` or target declaration with which it loads Regula's
+elaboration observer (`observerPluginToml`), indented as a declaration's field. -/
+def observerPluginLean : String := "  plugins := #[`@regula/RegulaObserver:shared]\n"
+
+/-- `observerPluginLean` in a configuration of the package `regula` itself, such as a copy of
+Regula's checkout, which names its own observer library. -/
+def observerPluginOwn : String := "  plugins := #[`@/RegulaObserver:shared]\n"
+
+/-- The `lakefile.toml` table that requires `regula` from the checkout at `repo`. -/
+def regulaRequireToml (repo : FilePath) : String :=
+  s!"[[require]]\nname = \"regula\"\npath = {(Json.str repo.toString).compress}\n"
+
+/-- The Lake manifest entry of `regula` at the checkout `repo`, which a project that requires it
+by path (`regulaRequireToml`) records; Regula requires no package of its own. -/
+def regulaManifestEntry (repo : FilePath) : Json :=
+  Json.mkObj [("name", .str "regula"), ("scope", .str ""), ("configFile", .str "lakefile.lean"),
+    ("manifestFile", .str "lake-manifest.json"), ("inherited", .bool false),
+    ("type", .str "path"), ("dir", .str repo.toString)]
+
 /-- The JSON on a succeeded process's standard output, parsed strictly; a failed process or
 malformed output throws an error that names `what`. -/
 def parseJsonOutput (what : String) (result : ProcessResult) : IO Json := do

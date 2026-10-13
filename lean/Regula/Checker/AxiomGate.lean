@@ -1523,10 +1523,11 @@ private unsafe def auditFile (repo path : FilePath) (claim : Option Profile)
             -- RG2006: the options the file's source set, decided by the proved
             -- `RegulaPolicy.Community.sourceFailures` as a claimed module's are. The file belongs to
             -- no target, so no target option licenses Mathlib's header linter; the file imports
-            -- Mathlib when its environment contains a `Mathlib` module.
+            -- Mathlib when its environment contains a `Mathlib` module. The file audit loads the
+            -- observer itself, with `--plugin`.
             if let some verdict := verdict then
               let mathlib := inspected.report.modules.any (·.getRoot == `Mathlib)
-              if let some detail := verdict.sourceDetail path.toString ⟨[], []⟩ mathlib then
+              if let some detail := verdict.sourceDetail path.toString ⟨[], [], true⟩ mathlib then
                 let finding ← IO.ofExcept <| Regula.makeDiagnostic .communityConfiguration
                   ⟨path.toString, detail⟩ (.project path.toString) .freshFile
                   (claim.map Profile.toString) .violation

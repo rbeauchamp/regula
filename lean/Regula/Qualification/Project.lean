@@ -27,8 +27,9 @@ def prepareProject (root project : FilePath) (packageName claim rationale : Stri
   Regula.Filesystem.construct project (Regula.Filesystem.Construction.layout toolchain)
   Regula.Filesystem.writeFile (project / "lakefile.lean")
     s!"import Lake\nopen Lake DSL\npackage {packageName} where\n  leanOptions := #[⟨`autoImplicit, \
-      false⟩, ⟨`relaxedAutoImplicit, false⟩, ⟨`linter.missingDocs, true⟩]\nrequire regula \
-      from {toJson root.toString |>.compress}\n@[default_target] lean_lib Example\n"
+      false⟩, ⟨`relaxedAutoImplicit, false⟩, ⟨`linter.missingDocs, true⟩]\n  \
+      plugins := #[`@regula/RegulaObserver:shared]\nrequire regula from \
+      {toJson root.toString |>.compress}\n@[default_target] lean_lib Example\n"
   Regula.Filesystem.writeJson (project / "foundation_manifest.json") (Json.mkObj [
     ("schema-version", toJson (2 : Nat)), ("surfaces", toJson #[Json.mkObj [
       ("library", .str "Example"), ("claim", .str claim), ("execution", .str "checked"),
@@ -39,18 +40,21 @@ def prepareProject (root project : FilePath) (packageName claim rationale : Stri
   let initialized ← run project "git" #["init", "-q"]
   requireChecks [⟨"adopter repository", initialized.exitCode == 0⟩]
 
-/-- Core-only adopter for source/evidence controls. No checker dependency is imported
-into the observed surface, matching the original standalone qualification path. -/
+/-- Core-only adopter for source/evidence controls. No checker module is imported into the
+observed surface, matching the original standalone qualification path; the project requires
+`regula` from `root` only so that its library loads Regula's elaboration observer as a plugin
+(`Regula.Checker.observerPluginToml`), as RG2006 requires. -/
 def prepareCoreProject (root project : FilePath) (packageName claim : String) : IO Unit := do
   let toolchain ← Regula.Filesystem.Construction.capture (root / "lean-toolchain") ["lean-toolchain"]
   Regula.Filesystem.construct project (Regula.Filesystem.Construction.layout toolchain)
-  Regula.Filesystem.writeFile (project / "lakefile.toml") s!"name = \
-    \"{packageName}\"\n[leanOptions]\nautoImplicit = false\nrelaxedAutoImplicit = \
-    false\nlinter.missingDocs = true\n[[lean_lib]]\nname = \"Example\"\n"
+  Regula.Filesystem.writeFile (project / "lakefile.toml") <| s!"name = \"{packageName}\"\n" ++
+    Regula.Checker.observerPluginToml ++ Regula.Checker.regulaRequireToml root ++
+    "[leanOptions]\nautoImplicit = false\nrelaxedAutoImplicit = false\n" ++
+    "linter.missingDocs = true\n[[lean_lib]]\nname = \"Example\"\n"
   let manifest ← IO.ofExcept <| Json.parse (← Regula.Filesystem.readFile (root / "lake-manifest.json"))
+  let packages := toJson #[Regula.Checker.regulaManifestEntry root]
   Regula.Filesystem.writeJson (project / "lake-manifest.json")
-    ((manifest.setObjVal! "packages" (toJson (#[] : Array Json))).setObjVal! "name"
-        (.str packageName))
+    ((manifest.setObjVal! "packages" packages).setObjVal! "name" (.str packageName))
   Regula.Filesystem.writeJson (project / "foundation_manifest.json") (Json.mkObj [
     ("schema-version", toJson (2 : Nat)), ("surfaces", toJson #[Json.mkObj [
       ("library", .str "Example"), ("claim", .str claim),

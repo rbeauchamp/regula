@@ -646,8 +646,10 @@ def main : IO Unit := do
   let expected : Checker.GeneratedSettingSearch.Result := {
     pairs := RegulaPolicy.Community.generatedSettings.mergeSort (text · ≤ text ·)
     nonLiteral := Checker.GeneratedSettingSearch.nonLiteral
-    readers := Checker.GeneratedSettingSearch.readers }
+    readers := Checker.GeneratedSettingSearch.readers
+    producers := Checker.GeneratedSettingSearch.producers
+    userOptionCallers := Checker.GeneratedSettingSearch.userOptionCallers }
   require (found == expected)
-    s!"RegulaPolicy.Community.generatedSettings and the stated sites are the search's result \
-      {repr found}"
+    s!"RegulaPolicy.Community.generatedSettings, the stated sites and the producers of an option's \
+      recorded name are the search's result {repr found}"
   IO.println "registry qualification: PASS (closed metadata, transport, source and mode boundaries)"

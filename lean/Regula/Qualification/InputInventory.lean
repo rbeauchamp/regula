@@ -8,13 +8,15 @@ that facet changes an input when the build of the library begins. -/
 namespace Regula.Qualification.InputInventory
 open Lean System DependencySnapshot
 
-/-- The scratch project's configuration. The library `Example`'s only default facet is
-`inventoryFault`, which builds the library's Lean artifacts (`leanArts`, Lake's default facet) as
-the default build does. When `INVENTORY_FAULT` names a fault and the file `INVENTORY_RECORD` is
-absent, the facet first injects the fault: it writes the text of the file `INVENTORY_SOURCE` to
-`INVENTORY_TARGET`, or removes `INVENTORY_TARGET` when `INVENTORY_SOURCE` is unset, and then
-writes the record with the fault's name. Once the library's Lean artifacts are built, it writes
-the record again with `buildSucceeded` and whether `Example.New` was built (`addedBuilt`).
+/-- The scratch project's configuration, which requires `regula` from the checkout `regula` and
+loads its elaboration observer as a plugin of the package (RG2006). The library `Example`'s only
+default facet is `inventoryFault`, which builds the library's Lean artifacts (`leanArts`, Lake's
+default facet) as the default build does. When `INVENTORY_FAULT` names a fault and the file
+`INVENTORY_RECORD` is absent, the facet first injects the fault: it writes the text of the file
+`INVENTORY_SOURCE` to `INVENTORY_TARGET`, or removes `INVENTORY_TARGET` when `INVENTORY_SOURCE`
+is unset, and then writes the record with the fault's name. Once the library's Lean artifacts
+are built, it writes the record again with `buildSucceeded` and whether `Example.New` was built
+(`addedBuilt`).
 
 Assumes:
 - Lake `v4.34.1` fetches a library's default facets in their order
@@ -28,12 +30,14 @@ Assumes:
   collected and built by the same build.
 - The checker builds a claimed library through its default facet (`Regula.Checker.Lake.Build.run`,
   `surfaceRequest`), in its own process, with this process's environment. -/
-def lakefile : String := "\n".intercalate [
+def lakefile (regula : FilePath) : String := "\n".intercalate [
   "import Lake",
   "open Lake DSL",
   "package inventory_control where",
   "  leanOptions := #[⟨`autoImplicit, false⟩, ⟨`relaxedAutoImplicit, false⟩,",
   "    ⟨`linter.missingDocs, true⟩]",
+  Regula.Checker.observerPluginLean ++
+    s!"require regula from {(Json.str regula.toString).compress}",
   "",
   "/-- The input-inventory campaign's fault, injected when a build of the library begins. -/",
   "library_facet inventoryFault (lib : LeanLib) : Unit := do",
@@ -81,7 +85,7 @@ def check : IO Unit := do
     IO.FS.createDirAll (project / "Example")
     toolchain root project
     IO.FS.writeFile (project / "Example.lean") "/-! Empty declared surface. -/\n"
-    IO.FS.writeFile (project / "lakefile.lean") lakefile
+    IO.FS.writeFile (project / "lakefile.lean") (lakefile root)
     manifest project "kernel-only"
     -- Closed generated configuration with no dependencies: this update creates its initial
     -- manifest. It is not an update of an existing-project copy with path overrides.

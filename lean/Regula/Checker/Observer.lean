@@ -7,21 +7,22 @@ import RegulaPolicy.Elaboration
 
 /-! # Regula's elaboration observer in a Lake build
 
-How a Lake build loads Regula's elaboration observer (`RegulaObserver`) into the elaboration of
-each module of the root package, and how the audit reads the record the observer writes into each
-claimed module's `.olean` and turns it into the inputs of the RG2003 and RG2006 decisions
+How a Lake build loads Regula's elaboration observer (`RegulaObserver`) into the elaboration of a
+module, and how the audit reads the record the observer writes into each claimed module's `.olean`
+and turns it into the inputs of the RG2003 and RG2006 decisions
 (`RegulaPolicy.Elaboration.failures`, `RegulaPolicy.Community.sourceFailures`).
 
-The `presetup` facet of a module decides the plugins Lean loads while elaborating it
-(`Lake/Build/Module.lean` lines 545 to 622, `ModulePreSetup.plugins`), and Lake fetches it
-through the workspace's facet table, so a facet that a package declares replaces Lake's own.
-`observerPresetup` wraps Lake's own facet: it adds the observer's shared library to the plugins
-of each module of the root package and of the running Regula outside the observer's own library,
-and mixes that library's trace into the module's trace, which Lake compares to decide whether to
-replay the module (`Lake/Build/Module.lean` lines 1008 and 1062). A module replayed under that
-trace was elaborated with that plugin. Every other module keeps the facet the workspace
-configures. Regula's `lakefile.lean` declares the same facet for ordinary builds, and the
-audit's builds install it themselves (`Regula.Checker.Lake.Build.runObserved`). -/
+A target loads the observer through Lake's own `plugins` setting, which names the observer's shared
+library: `@regula/RegulaObserver:shared`, or `@/RegulaObserver:shared` in Regula's own
+`lakefile.lean`. Lake's `presetup` facet fetches a module's plugins, mixes their trace into the
+module's trace, which Lake compares to decide whether to replay the module, and hands them to Lean
+(`Lake/Build/Module.lean` lines 545 to 624, 1008 and 1062, `ModulePreSetup.plugins`). A module
+replayed under that trace was elaborated with them. Regula declares no `presetup` facet. The
+audit's builds run the facet that the workspace configures unchanged and keep each completed
+result (`recordingPresetup`), from which the audit reads whether a claimed module's elaboration
+loaded the running Regula's observer (`pluginLoaded`). A claimed module whose completed `presetup`
+lacks it, such as under a dependency's facet that drops plugins, has no record the audit reads,
+and RG2003 refuses it (`decideRecord`). -/
 
 namespace Regula.Checker.Observer
 
@@ -33,64 +34,56 @@ def observerLibrary : Name := `RegulaObserver
 /-- The name of Regula's package, as its `lakefile.lean` declares it. -/
 def regulaPackage : String := "regula"
 
+/-- Whether the plugin target `key`, which a configuration of the package named `declaring`
+declares, names the shared library of Regula's elaboration observer: the `shared` facet of the
+`observerLibrary` library of the package `regulaPackage`, written `@regula/RegulaObserver:shared`
+in a `lakefile.lean` or a `lakefile.toml` (`Lake/DSL/Key.lean` lines 47 to 62,
+`Lake.PartialBuildKey.parse`), or `@/RegulaObserver:shared` in a configuration of that package,
+since Lake resolves the elided package of a target to the declaring one (`Target.fetchIn`,
+`Lake/Build/Target/Fetch.lean` line 138). That the package `regula` is Regula is the workspace
+owner's assertion; whether the library Lake loaded is the running Regula's observer is decided
+from the build (`pluginLoaded`). -/
+def observerKey (declaring : Name) : _root_.Lake.PartialBuildKey → Bool
+  | .facet (.packageTarget owner library) `shared =>
+    library == observerLibrary &&
+      (if owner.isAnonymous then declaring else owner) == Name.mkSimple regulaPackage
+  | _ => false
+
 /-- The directory of the package whose build directory holds the running executable,
 `<package>/.lake/build/bin/<executable>`, or none when the path is shorter. -/
 def runningPackageDir : IO (Option FilePath) := do
   let app ← IO.FS.realPath (← IO.appPath)
   return (app.parent.bind (·.parent)).bind (·.parent) |>.bind (·.parent)
 
-/-- What the audit keeps of a build's `presetup` facets, by package and module, whatever Lake
-stores: the job of each observed module, which the facet shares among the fetches of that module,
-and the completed result of each module, observed or not, from which the audit reads the module's
-plugins (`presetupPlugins?`) and source file (`presetupSource?`). -/
+/-- The completed result of each module's `presetup` facet in one build, by package and module,
+whatever Lake stores, from which the audit reads the module's plugins (`presetupPlugins?`) and
+source file (`presetupSource?`). -/
 structure Presetups where
-  /-- The job of each observed module. -/
-  jobs : IO.Ref (Std.HashMap (Name × Name) (_root_.Lake.Job _root_.Lake.ModulePreSetup))
   /-- The result of each module's completed `presetup`, the latest when the facet ran again. -/
   completed : IO.Ref (Std.HashMap (Name × Name) _root_.Lake.ModulePreSetup)
 
 /-- Empty records for one build. -/
 def Presetups.new : BaseIO Presetups :=
-  return { jobs := ← IO.mkRef {}, completed := ← IO.mkRef {} }
+  return { completed := ← IO.mkRef {} }
 
-/-- The `presetup` facet of a module with Regula's observer. For a module for which `observed`
-holds, it is Lake's own facet (`Lake.Module.presetupFacetConfig`) with the observer's shared
-library that `plugin` fetches added to the module's plugins, and with that library's trace mixed
-into the module's trace; its job is kept in `records` and shared by every fetch of the module.
-Every other module runs the facet `existing` that the workspace configures each time Lake fetches
-it, so the build gives it the plugins and trace of an ordinary build of the workspace, and Lake
-does not rebuild it, a dependency's module included, for the audit's facet. The facet keeps
-whether `existing` lets Lake store its jobs (`memoize`, `Lake/Build/Index.lean` lines 43 to 49),
-so such a module's `presetup` runs as often as in an ordinary build. Each job, of either kind,
-writes its result into `records` when it completes, whatever Lake stores. -/
-def observerPresetup (existing : _root_.Lake.ModuleFacetConfig _root_.Lake.Module.presetupFacet)
-    (plugin : _root_.Lake.FetchM (_root_.Lake.Job _root_.Lake.Dynlib))
-    (observed : _root_.Lake.Module → Bool) (records : Presetups) :
-    _root_.Lake.ModuleFacetConfig _root_.Lake.Module.presetupFacet :=
-  _root_.Lake.mkFacetJobConfig (buildable := false) (memoize := existing.memoize)
+/-- The `presetup` facet `existing` that the workspace configures, with each job's result written
+into `records` when it completes, whatever Lake stores. Each fetch of a module runs `existing`, and
+the facet keeps whether `existing` is buildable and whether Lake stores its jobs (`memoize`,
+`Lake/Build/Index.lean` lines 43 to 49), so each module's `presetup` runs as often, and gives the
+same plugins and trace, as in an ordinary build of the workspace. -/
+def recordingPresetup (existing : _root_.Lake.ModuleFacetConfig _root_.Lake.Module.presetupFacet)
+    (records : Presetups) : _root_.Lake.ModuleFacetConfig _root_.Lake.Module.presetupFacet :=
+  _root_.Lake.mkFacetJobConfig (buildable := existing.buildable) (memoize := existing.memoize)
     fun (mod : _root_.Lake.Module) => do
       let key := (mod.pkg.keyName, mod.name)
-      let record (job : _root_.Lake.Job _root_.Lake.ModulePreSetup) :=
-        job.mapM (sync := true) fun setup => do
-          records.completed.modify (·.insert key setup)
-          return setup
-      if !observed mod then return ← record (← existing.run mod)
-      if let some job := (← records.jobs.get)[key]? then return job
-      let job ← _root_.Lake.Module.presetupFacetConfig.run mod
-      let shared ← plugin
-      let job ← job.bindM (sync := true) fun setup => shared.mapM (sync := true) fun dynlib =>
-        return { setup with
-          plugins := setup.plugins.push dynlib
-          trace := setup.trace.mix (shared.getTrace.withCaption "Regula's elaboration observer") }
-      let job ← record job
-      records.jobs.modify (·.insert key job)
-      return job
+      let job ← existing.run mod
+      job.mapM (sync := true) fun setup => do
+        records.completed.modify (·.insert key setup)
+        return setup
 
-
-/-- The observer's shared library that the running Regula's build wrote, which its `Regula` library
-needs, whichever `presetup` facet Lake runs:
-`<package>/.lake/build/lib/<library>` beside the running executable (`runningPackageDir`). An error
-when the file is not there. -/
+/-- The observer's shared library that the running Regula's build wrote, which its `Regula`
+library needs and its targets load as a plugin: `<package>/.lake/build/lib/<library>` beside the
+running executable (`runningPackageDir`). An error when the file is not there. -/
 def observerFile : IO (FilePath × String) := do
   let some dir ← runningPackageDir
     | throw <| IO.userError "the running executable is not in a package's build directory"
@@ -99,26 +92,6 @@ def observerFile : IO (FilePath × String) := do
   unless ← file.pathExists do
     throw <| IO.userError s!"the running Regula has not built its elaboration observer: {file}"
   return (file, name)
-
-/-- Where the audit takes the observer's shared library from in a build of the workspace `ws`:
-from the package of `ws` that is the running Regula, through Lake's own job for the observer's
-library, so that the build has the trace of an ordinary build of that workspace; otherwise from
-the file the running Regula's build wrote (`observerFile`). Returns the job and the file. -/
-def observerPlugin (ws : _root_.Lake.Workspace) :
-    IO (_root_.Lake.FetchM (_root_.Lake.Job _root_.Lake.Dynlib) × FilePath × Option Name) := do
-  let some dir ← runningPackageDir
-    | throw <| IO.userError "the running executable is not in a package's build directory"
-  for pkg in ws.packages do
-    if (← IO.FS.realPath pkg.dir) == dir then
-      let some lib := pkg.findLeanLib? observerLibrary
-        | throw <| IO.userError s!"the running Regula's package has no library {observerLibrary}"
-      return (lib.shared.fetch, lib.sharedLibFile, some pkg.keyName)
-  let (file, name) ← observerFile
-  let fetch : _root_.Lake.FetchM (_root_.Lake.Job _root_.Lake.Dynlib) := do
-    let job ← _root_.Lake.inputBinFile file
-    return job.map fun path => { path, name, plugin := true }
-  return (fetch, file, none)
-
 
 /-- The plugins of the completed `presetup` of `module` of `package` in `completed`
 (`Presetups.completed`), or none when no such job completed. -/
@@ -156,8 +129,9 @@ private def readRecord (olean : FilePath) : IO (Option RegulaObserver.Record) :=
     | #[record] => some record
     | _ => none
 
-/-- Whether the plugins of a module's completed `presetup` (`presetupPlugins?`) include the
-observer's shared library `expected`, compared by real path; false when there is no completed
+/-- Whether the plugins of a module's completed `presetup` (`presetupPlugins?`) include the running
+Regula's observer `expected` (`observerFile`): a plugin with the same real path, or with the same
+bytes, such as the same build of it in a copy of Regula's checkout. False when there is no completed
 `presetup`. -/
 def pluginLoaded (expected : FilePath) (plugins : Option (Array FilePath)) : IO Bool := do
   let some plugins := plugins | return false
@@ -165,8 +139,15 @@ def pluginLoaded (expected : FilePath) (plugins : Option (Array FilePath)) : IO 
     match ← (IO.FS.realPath path).toBaseIO with
     | .ok path => return path
     | .error _ => return path
-  let expected ← real expected
-  plugins.anyM fun plugin => return (← real plugin) == expected
+  let bytes (path : FilePath) : IO (Option ByteArray) := do
+    match ← (IO.FS.readBinFile path).toBaseIO with
+    | .ok data => return some data
+    | .error _ => return none
+  let expectedPath ← real expected
+  let some expectedBytes ← bytes expected | return false
+  plugins.anyM fun plugin => do
+    if (← real plugin) == expectedPath then return true
+    return (← bytes plugin).any (·.data == expectedBytes.data)
 
 /-- A position as the RG2003 decision reads it. -/
 def location (position : Position) : RegulaPolicy.Elaboration.Location :=
@@ -204,6 +185,7 @@ def form : RegulaObserver.Form → RegulaPolicy.Community.SourceForm
   | .commandIn => .commandIn
   | .term => .term
   | .tactic => .tactic
+  | .docComment => .docComment
   | .elaborated => .elaborated
 
 /-- The options a record says the module's source set, as RG2006 reads them. -/
@@ -281,10 +263,13 @@ def Verdict.sourceDetail (verdict : Verdict) (module : String)
     | failed => some (RegulaPolicy.Community.sourceDetail module failed)
 
 /-- The one decision on the observer's record in the `.olean` file `olean` of the module that
-`subject` names, with `loaded` whether Lean loaded the observer for it. Every path of the audit that reads a record calls it: a claimed build and a file
-audit. A missing file, or one without exactly one record, gives no record. -/
+`subject` names, with `loaded` whether Lean loaded the running Regula's observer for it. Every path
+of the audit that reads a record calls it: a claimed build and a file audit. The file is read only
+when `loaded`, since only that observer's record has the type the read gives it
+(`recordEntries`). A module that did not load it, a missing file, or one without exactly one record
+gives no record. -/
 def decideRecord (subject : String) (loaded : Bool) (olean : FilePath) : IO Verdict := do
-  let record ← if ← olean.pathExists then
+  let record ← if loaded && (← olean.pathExists) then
       match ← (readRecord olean).toBaseIO with
       | .ok record => pure record
       | .error _ => pure none

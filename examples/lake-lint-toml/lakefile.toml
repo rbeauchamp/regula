@@ -2,6 +2,9 @@ name = "lake_lint_adopter"
 defaultTargets = ["Gadget"]
 # `lake lint` runs the Regula driver over every manifested surface.
 lintDriver = "regula/lint"
+# Regula's elaboration observer records the options the source sets and the messages a build does
+# not show (RG2003, RG2006); every claimed target loads it.
+plugins = ["@regula/RegulaObserver:shared"]
 
 # The community linters of standard §6.7 and the options of §7.1. A library that imports
 # Mathlib also enables Mathlib's standard set, as the adoption guide shows.

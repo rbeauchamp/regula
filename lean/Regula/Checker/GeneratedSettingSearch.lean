@@ -12,10 +12,10 @@ The search reads the elaborated values of the constants in the environment of th
 and `Lake`, which import `Init` and `Std`. A quotation elaborates to an application of
 `Lean.Syntax.node` or one of `Lean.Syntax.node1` to `Lean.Syntax.node8` to a literal kind name and
 the node's children. A construction is such an application whose kind is one of `kinds`. Its
-option is the name of its second child, a `Lean.Syntax.ident`, and its value is the text of its
-fourth child, an atom, as `RegulaObserver.literal` reads the same positions of the syntax. A
-construction whose option or value is not a literal of the compiled code gives no pair; the search
-names the constant that holds it (`nonLiteral`).
+option is the name of its second child, a `Lean.Syntax.ident`, and its value is what Lean's
+`set_option` elaborator reads from its fourth child (`optionValue?`), as `RegulaObserver.literal`
+reads the same positions of the syntax. A construction whose option or value is not a literal of
+the compiled code gives no pair; the search names the constant that holds it (`nonLiteral`).
 
 Each other function that the compiled code applies to a kind of `kinds` is listed too (`readers`),
 so that a construction through a function other than `Lean.Syntax.node` is not left out silently:
@@ -42,6 +42,11 @@ structure Result where
   /-- The functions other than the syntax-node constructors that the code applies to a kind of
   `kinds`, sorted. -/
   readers : List Name
+  /-- The definitions that construct a `Lean.Elab.OptionInfo`, the information node in which Lean
+  records an option's name, other than recursors and `noConfusion`, sorted. -/
+  producers : List Name
+  /-- The constants that call `Lean.Elab.ConfigEval.EvalConfigItem.evalSetOptions`, sorted. -/
+  userOptionCallers : List Name
   deriving BEq, Repr
 
 /-- The constant `e` builds, when it is a literal `Name`: `Name.anonymous`, `Name.str`,
@@ -98,25 +103,28 @@ def node? (e : Expr) : Option (Name × Array Expr) :=
 def identName? (e : Expr) : Option Name :=
   if e.isAppOfArity ``Syntax.ident 4 then nameLit? (e.getArg! 2) else none
 
-/-- The text of a literal atom, or of the one atom of a literal node with one child, such as the
-`num` or `str` node of a numeral or a string literal. -/
-partial def atomText? (e : Expr) : Option String :=
+/-- The syntax that `e` builds when it is a literal atom, or a literal node of one such child, such
+as the `num` or `str` node of a numeral or a string literal. -/
+partial def valueSyntax? (e : Expr) : Option Syntax :=
   if e.isAppOfArity ``Syntax.atom 2 then
     match e.getArg! 1 with
-    | .lit (.strVal s) => some s
+    | .lit (.strVal s) => some (.atom .none s)
     | _ => none
   else match node? e with
-    | some (_, #[a]) => atomText? a
+    | some (k, #[a]) => (valueSyntax? a).map fun s => .node .none k #[s]
     | _ => none
 
-/-- The value that the text of a `set_option` value reads as: `true` or `false`, a numeral, or a
-string literal. -/
-def optionValue? (text : String) : Option RegulaPolicy.Community.OptionValue :=
-  if text == "true" then some (.bool true)
-  else if text == "false" then some (.bool false)
-  else match text.toNat? with
-    | some n => some (.nat n)
-    | none => (Syntax.decodeStrLit text).map .string
+/-- The value that Lean's `set_option` elaborator reads from the value syntax `val`
+(`Lean.Elab.elabSetOption`, `Lean/Elab/SetOption.lean` lines 69 to 77), through the same
+`Syntax.isStrLit?` and `Syntax.isNatLit?`: a string literal, a numeral in any base Lean accepts, or
+the atom `true` or `false`. -/
+def optionValue? (val : Syntax) : Option RegulaPolicy.Community.OptionValue :=
+  match val.isStrLit?, val.isNatLit?, val with
+  | some s, _, _ => some (.string s)
+  | none, some n, _ => some (.nat n)
+  | none, none, .atom _ "true" => some (.bool true)
+  | none, none, .atom _ "false" => some (.bool false)
+  | _, _, _ => none
 
 /-- What one constant's value holds: its constructions, as an option and a value when both are
 literals, and the functions it applies to a kind of `kinds` that are not syntax-node
@@ -140,7 +148,7 @@ partial def scan (e : Expr) : StateM (Std.HashSet Expr × Found) Unit := do
       | some (k, children) =>
         if kinds.contains k then
           let pair := (children[1]?.bind identName?).bind fun name =>
-            ((children[3]?.bind atomText?).bind optionValue?).map (name, ·)
+            ((children[3]?.bind valueSyntax?).bind optionValue?).map (name, ·)
           modify fun (seen, found) =>
             (seen, { found with constructions := found.constructions.push pair })
       | none =>
@@ -168,8 +176,15 @@ private unsafe def searchImpl : IO Result := do
   let mut pairs : Array (Name × RegulaPolicy.Community.OptionValue) := #[]
   let mut nonLiteral : Array Name := #[]
   let mut readers : Array Name := #[]
+  let mut producers : Array Name := #[]
+  let mut userOptionCallers : Array Name := #[]
   for (name, c) in env.constants.toList do
     let some value := c.value? (allowOpaque := true) | continue
+    if (value.find? (·.isConstOf ``Lean.Elab.ConfigEval.EvalConfigItem.evalSetOptions)).isSome then
+      userOptionCallers := userOptionCallers.push name
+    if !c.isTheorem && !isAuxRecursor env name && !isNoConfusion env name &&
+        (value.find? (·.isAppOfArity ``Lean.Elab.OptionInfo.mk 3)).isSome then
+      producers := producers.push name
     unless (value.find? fun e => e == mkStrLit "set_option" || e == mkStrLit "setOption").isSome do
       continue
     let (_, _, found) := Id.run ((scan value).run ({}, {}))
@@ -182,7 +197,9 @@ private unsafe def searchImpl : IO Result := do
   return {
     pairs := pairs.toList.eraseDups.mergeSort (pairText · ≤ pairText ·)
     nonLiteral := nonLiteral.toList.eraseDups.mergeSort byText
-    readers := readers.toList.eraseDups.mergeSort byText }
+    readers := readers.toList.eraseDups.mergeSort byText
+    producers := producers.toList.mergeSort byText
+    userOptionCallers := userOptionCallers.toList.mergeSort byText }
 
 /-- `searchImpl`: it imports a second environment, which a safe definition cannot do. -/
 @[implemented_by searchImpl]
@@ -208,5 +225,28 @@ def readers : List Name :=
     ``Lean.Parser.withCache.parenthesizer, ``Lean.ParserDescr.node,
     ``Lean.PrettyPrinter.Parenthesizer.leadingNode.parenthesizer, ``Lean.addBuiltinDeclarationRanges,
     ``Lean.addBuiltinDocString].mergeSort (·.toString ≤ ·.toString)
+
+/-- The definitions that construct a `Lean.Elab.OptionInfo`, each of which records an option's name
+for `RegulaObserver.settingOf?` to classify: `Lean.Elab.elabSetOption`, which the `set_option`
+forms call and which sets the option; the documentation command `{set_option name value}`
+(`Lean.Doc.set_option`), which sets it for the rest of the comment; the documentation role
+`{option}` (`Lean.Doc.option`), which refers to one and sets none;
+`Lean.Elab.ConfigEval.EvalConfigItem.evalSetOptions`, which sets it in the configuration of the
+tactic that calls it (`userOptionCallers`); `Lean.Elab.Info.setStx`, which copies a recorded name
+with other syntax for `Lean.Elab.InfoTree.addTrailing?`; and `Lean.Elab.OptionInfo.mk._flat_ctor`,
+the constructor's compiled form, which no constant calls. -/
+def producers : List Name :=
+  [``Lean.Doc.option, ``Lean.Doc.set_option, ``Lean.Elab.ConfigEval.EvalConfigItem.evalSetOptions,
+    `Lean.Elab.OptionInfo.mk._flat_ctor, ``Lean.Elab.elabSetOption,
+    .num `_private.Lean.Elab.InfoTree.Basic 0 ++ `Lean.Elab.Info.setStx].mergeSort
+    (·.toString ≤ ·.toString)
+
+/-- The callers of `Lean.Elab.ConfigEval.EvalConfigItem.evalSetOptions`: the configuration
+elaborators of `simp` and `dsimp` (`Lean/Elab/Tactic/Simp.lean` lines 57 and 98), which set a
+user option under `tactic.simp.user` in the tactic's own `userConfig`
+(`RegulaObserver.simpUserOption`). -/
+def userOptionCallers : List Name :=
+  [.num `_private.Lean.Elab.Tactic.Simp 0 ++ `Lean.Elab.Tactic.elabDSimpConfigCore.evalConfigItem,
+    .num `_private.Lean.Elab.Tactic.Simp 0 ++ `Lean.Elab.Tactic.elabSimpConfigAux.evalConfigItem]
 
 end Regula.Checker.GeneratedSettingSearch

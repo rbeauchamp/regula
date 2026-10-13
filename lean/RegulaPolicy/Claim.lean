@@ -685,16 +685,17 @@ end
 namespace Community
 
 /-- `failures` reports nothing exactly for options that are `Conforming`
-(`failures_eq_nil_iff`): nothing for the required baseline itself on a target without Mathlib,
-and a failure for a target that sets no option. The decision is over the options Lake resolved;
-reading them from the workspace is the adapter's. It is registered here, in the library that
-declares it, because its two witnesses are evaluations that its own `module`, which sees its
-imports' declarations without their bodies, does not reduce. -/
+(`failures_eq_nil_iff`): nothing for the required baseline itself on a target without Mathlib that
+loads Regula's elaboration observer, and a failure for a target that sets no option. The decision
+is over the options Lake resolved; reading them from the workspace is the adapter's. It is
+registered here, in the library that declares it, because its two witnesses are evaluations that
+its own `module`, which sees its imports' declarations without their bodies, does not reduce. -/
 theorem checked_failures : Regula.ExecutableContract failures (fun run =>
     Regula.Decides (· = [])
       (fun input : BuildOptions × Bool => Conforming input.1 input.2) (Function.uncurry run)) :=
   ⟨.of_iff (fun input => failures_eq_nil_iff input.1 input.2)
-    ⟨(⟨required false, []⟩, false), by decide⟩ ⟨(⟨[], []⟩, false), by decide⟩⟩
+    ⟨(⟨required false, [], true⟩, false), by decide⟩
+    ⟨(⟨[], [], true⟩, false), by decide⟩⟩
 
 /-- `sourceFailures` reports nothing exactly for options of a claimed module's source that RG2006
 accepts (`sourceFailures_eq_nil_iff`): nothing for a module whose source sets no option, and a
@@ -706,8 +707,8 @@ theorem checked_sourceFailures : Regula.ExecutableContract sourceFailures (fun r
         ∀ s ∈ input.2, SourceAccepted input.1.1 input.1.2 s)
       (Function.uncurry (Function.uncurry run))) :=
   ⟨.of_iff (fun input => sourceFailures_eq_nil_iff input.1.1 input.1.2 input.2)
-    ⟨((⟨[], []⟩, false), []), rfl⟩
-    ⟨((⟨[], []⟩, false), [written `autoImplicit (.bool true) .command]), by decide⟩⟩
+    ⟨((⟨[], [], true⟩, false), []), rfl⟩
+    ⟨((⟨[], [], true⟩, false), [written `autoImplicit (.bool true) .command]), by decide⟩⟩
 
 end Community
 

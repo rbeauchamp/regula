@@ -1,14 +1,12 @@
 module
-public import Lake.Build.Infos
 public import Lake.Config.Workspace
 public import Regula.Checker.LakeConfig
 import all Lake.Load.Lean.Elab
 import all Lake.Load.Lean.Eval
 
-/-! # Replaced root facets
+/-! # Replaced root library facets
 
-Report a root package's facet that a loaded declaration of Regula replaces: its `extraDep`
-library facet (`weakLeanArgsTrace`) or its `presetup` module facet (`elaborationObserver`).
+Report a root package's `extraDep` library facet that Regula's loaded declaration replaces.
 The decision is over supplied declaration records. Lake's compiled configuration, its runtime
 evaluation and its insertion order are trusted observations, not proved by that decision.
 -/
@@ -19,34 +17,15 @@ namespace Regula.Checker.FacetReport
 
 open Lean System
 
-/-- The facet attribute that tags a declaration, in the order Lake v4.34.1 evaluates them for
-one package (`Lake/Load/Lean/Eval.lean:181-192`). -/
-inductive Kind where
-  /-- `@[module_facet]`. -/
-  | module
-  /-- `@[package_facet]`. -/
-  | package
-  /-- `@[library_facet]`. -/
-  | library
-  deriving DecidableEq
-
-/-- The report's name for a declaration of `kind`. -/
-def Kind.text : Kind → String
-  | .module => "module facet"
-  | .package => "package facet"
-  | .library => "library facet"
-
-/-- One facet evaluated from a package's loaded configuration. -/
+/-- One library facet evaluated from a package's loaded configuration. -/
 structure Declaration where
   /-- Lake's assigned package name. -/
   package : Name
-  /-- The constant tagged with Lake's facet attribute. -/
+  /-- The constant tagged with Lake's library-facet attribute. -/
   declaration : Name
-  /-- The attribute that tags the constant. -/
-  kind : Kind
-  /-- This declaration's position in its package's facet inventory, in Lake's insertion order. -/
+  /-- This declaration's position in its package's library-facet attribute inventory. -/
   ordinal : Nat
-  /-- The evaluated facet name, which Lake uses as the insertion key of every kind. -/
+  /-- The evaluated facet name, which Lake uses as the insertion key. -/
   facet : Name
   /-- Whether Lake identifies this package as the root. -/
   root : Bool
@@ -54,32 +33,25 @@ structure Declaration where
   regula : Bool
   deriving DecidableEq
 
-/-- The facet keys that Regula's `lakefile.lean` declares: `extraDep` of a library and
-`presetup` of a module. -/
-def regulaFacets : List Name :=
-  [_root_.Lake.LeanLib.extraDepFacet, _root_.Lake.Module.presetupFacet]
-
-/-- A non-root Regula declaration of `facet`, one of `regulaFacets`, regardless of its constant
+/-- A non-root Regula declaration with the evaluated `extraDep` key, regardless of its constant
 name. Declaration names are report text, not facet insertion keys. -/
-@[expose] def RegulaFacet (facet : Name) (entry : Declaration) : Prop :=
-  entry.root = false ∧ entry.regula = true ∧ entry.facet = facet ∧ facet ∈ regulaFacets
+@[expose] def RegulaExtraDep (entry : Declaration) : Prop :=
+  entry.root = false ∧ entry.regula = true ∧ entry.facet = _root_.Lake.LeanLib.extraDepFacet
 
-instance (facet : Name) (entry : Declaration) : Decidable (RegulaFacet facet entry) := by
-  unfold RegulaFacet
+instance (entry : Declaration) : Decidable (RegulaExtraDep entry) := by
+  unfold RegulaExtraDep
   infer_instance
 
-/-- `candidate` is the root's last declaration of a key in `regulaFacets`, of any kind, and the
-supplied records include a declaration of that key from a non-root Regula package. Lake keeps one
-configuration for each key (`Lake/Config/FacetConfig.lean:40-42`), so under its
-root-before-dependencies insertion order Regula replaces the root facet, even if a later
-dependency replaces Regula's. This proposition says nothing about the final facet or the behavior
-of the displaced job. -/
+/-- `candidate` is the last root `extraDep` declaration, and the supplied records include a
+declaration of that facet from a non-root Regula package. Under Lake's root-before-dependencies
+insertion order, Regula replaces the root facet, even if a later dependency replaces Regula's.
+This proposition says nothing about the final facet or the behavior of the displaced job. -/
 def Replaced (declarations : Array Declaration) (candidate : Declaration) : Prop :=
   candidate.root = true ∧
-    candidate.facet ∈ regulaFacets ∧
+    candidate.facet = _root_.Lake.LeanLib.extraDepFacet ∧
     (∀ other ∈ declarations, other.root = true → other.facet = candidate.facet →
       other.ordinal ≤ candidate.ordinal) ∧
-    ∃ replacing ∈ declarations, RegulaFacet candidate.facet replacing
+    ∃ replacing ∈ declarations, RegulaExtraDep replacing
 
 /-- The one decision of `Replaced`, computed from the finite supplied records. -/
 def replacementDecision (declarations : Array Declaration) (candidate : Declaration) :
@@ -99,21 +71,17 @@ theorem mem_replaced_iff (declarations : Array Declaration) (candidate : Declara
       candidate ∈ declarations ∧ Replaced declarations candidate := by
   simp only [replaced, Array.mem_filter, decide_eq_true_eq]
 
-/-- Read the module, package and library facets, in that order, from the already compiled
-configuration of `package` in `ws`, with Lake's own environment importer, attribute inventory and
-evaluator. The file's text is not read. An unreadable or unevaluable configuration fails the
-observation.
+/-- Read library facets from the already compiled configuration of `package` in `ws`, with
+Lake's own environment importer, attribute inventory and evaluator. The file's text is not read.
+An unreadable or unevaluable configuration fails the observation.
 
 Assumes:
 - Lake v4.34.1 stores the loaded configuration at `LoadConfig.configDir` with its configuration
   file name and `.olean` extension (`Lake/Load/Lean/Elab.lean:180-187`).
 - Lake v4.34.1 imports that file with `importConfigFileCore`, including imported and local
-  facet entries (`Lake/Load/Lean/Elab.lean:103-159`).
-- Lake v4.34.1 evaluates every `moduleFacetAttr`, then `packageFacetAttr`, then
-  `libraryFacetAttr` entry of `getAllEntries` with `evalConstCheck` as `ModuleFacetDecl`,
-  `PackageFacetDecl` and `LibraryFacetDecl`, and inserts them in that order
-  (`Lake/Load/Lean/Eval.lean:181-192`, `Lake/Load/Workspace.lean:39`,
-  `Lake/Load/Resolve.lean:49-50`).
+  library-facet entries (`Lake/Load/Lean/Elab.lean:103-159`).
+- Lake v4.34.1 evaluates every `libraryFacetAttr.getAllEntries` entry with `evalConstCheck` as
+  `LibraryFacetDecl` (`Lake/Load/Lean/Eval.lean:181-192`).
 - Lake v4.34.1 loads no facet declaration from TOML (`Lake/Load/Toml.lean:483-502` and
   `Lake/Config/LakefileConfig.lean:28`).
 - Lake v4.34.1 selects the language from `relConfigFile`, not the resolved `configFile`
@@ -130,27 +98,20 @@ def packageDeclarations (ws : _root_.Lake.Workspace) (regulaPackages : Array Nam
     { lakeEnv := ws.lakeEnv, wsDir := ws.dir, pkgIdx := package.wsIdx }
   let compiled := config.configDir / (FilePath.mk file).withExtension "olean"
   let env ← _root_.Lake.importConfigFileCore compiled {}
-  let modules ← _root_.Lake.moduleFacetAttr.getAllEntries env |>.mapM fun name => do
-    let decl ← IO.ofExcept <| _root_.Lake.evalConstCheck env {} _root_.Lake.ModuleFacetDecl name
-    return (name, Kind.module, decl.name)
-  let packages ← _root_.Lake.packageFacetAttr.getAllEntries env |>.mapM fun name => do
-    let decl ← IO.ofExcept <| _root_.Lake.evalConstCheck env {} _root_.Lake.PackageFacetDecl name
-    return (name, Kind.package, decl.name)
-  let libraries ← _root_.Lake.libraryFacetAttr.getAllEntries env |>.mapM fun name => do
-    let decl ← IO.ofExcept <| _root_.Lake.evalConstCheck env {} _root_.Lake.LibraryFacetDecl name
-    return (name, Kind.library, decl.name)
   let regula := regulaPackages.contains package.keyName
-  return (modules ++ packages ++ libraries).mapIdx fun ordinal (declaration, kind, facet) =>
-    { package := package.baseName, declaration, kind, ordinal, facet
-      root := package.isRoot, regula }
+  _root_.Lake.libraryFacetAttr.getAllEntries env |>.mapIdxM fun ordinal name => do
+    let facet ← IO.ofExcept <| _root_.Lake.evalConstCheck env {} _root_.Lake.LibraryFacetDecl name
+    return {
+      package := package.baseName, declaration := name, ordinal, facet := facet.name
+      root := package.isRoot, regula := regula }
 
-/-- Observe every loaded package's facet declarations, retaining the package that contributes
-each entry, including entries imported by its configuration.
+/-- Observe every loaded package's library-facet declarations, retaining the package that
+contributes each entry, including entries imported by its configuration.
 
 Assumes:
 - Lake v4.34.1 inserts the root's facets first (`Lake/Load/Workspace.lean:36-39`), then each
-  dependency's (`Lake/Load/Resolve.lean:69-74`); insertion overwrites the same facet key, whatever
-  the facet's kind (`Lake/Config/FacetConfig.lean:40-42`).
+  dependency's (`Lake/Load/Resolve.lean:69-74`); insertion overwrites the same facet key
+  (`Lake/Config/FacetConfig.lean:43-45`).
 - Each package's compiled configuration has the entries read by `packageDeclarations`, under
   that observer's assumptions.
 - `regulaPackages` come from `Lake.checkReservedModules` over the actual source inventory of
@@ -174,15 +135,6 @@ inductive Output where
   | census
   deriving DecidableEq
 
-/-- The report's name of a key in `regulaFacets`, and the remedy for work unique to a root facet
-of that key: where Lake's own facet of the key, which Regula's runs, reads that work. -/
-def remedy (facet : Name) : String × String :=
-  if facet = _root_.Lake.Module.presetupFacet then
-    ("presetup", "Move that work to the library's plugins or dynlibs, \
-      which Lake's own presetup facet reads.")
-  else
-    ("extraDep", "Move that work to extraDepTargets or needs, which Lake's own extraDep facet runs.")
-
 /-- Print each replaced declaration, its consequence and remedy, as `output` requests, and with
 `census` first the decision's completed census. This is an advisory about the build
 configuration; it changes no audit exit class and does not restore an overridden configuration.
@@ -192,18 +144,18 @@ def report (ws : _root_.Lake.Workspace) (regulaPackages : Array Name) (output : 
   if output = .silent then return
   let declarations ← observe ws regulaPackages
   let collisions := replaced declarations
+  let replacing := declarations.toList.reverse.find? fun entry => decide (RegulaExtraDep entry)
   if output = .census then
-    IO.eprintln s!"regula facet report: checked {declarations.size} loaded facet \
-      declarations; {collisions.size} root extraDep or presetup declarations replaced by Regula"
+    IO.eprintln s!"regula facet report: checked {declarations.size} loaded library facet \
+      declarations; {collisions.size} root extraDep declarations replaced by Regula"
   for entry in collisions do
-    let some replacing := declarations.toList.reverse.find? fun other =>
-        decide (RegulaFacet entry.facet other)
+    let some replacing := replacing
       | throw <| IO.userError "facet-report: replacement selection has no supplying declaration"
-    let (key, remedy) := remedy entry.facet
-    IO.eprintln s!"regula facet report: root package '{entry.package}' {entry.kind.text} \
-      '{entry.declaration}' ({key}) has its configuration overridden by Regula's \
+    IO.eprintln s!"regula facet report: root package '{entry.package}' library facet \
+      '{entry.declaration}' (extraDep) has its configuration overridden by Regula's \
       '{replacing.declaration}' \
       from package '{replacing.package}'. \
-      Work unique to the overridden facet may be lost. {remedy}"
+      Work unique to the overridden facet may be lost. Move that work to extraDepTargets or needs, \
+      which Lake's own extraDep facet runs."
 
 end Regula.Checker.FacetReport

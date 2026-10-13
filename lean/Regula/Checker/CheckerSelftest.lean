@@ -370,9 +370,20 @@ private def renderGlob : _root_.Lake.Glob → String
   | .submodules name => s!".submodules `{name}"
   | .andSubmodules name => s!".andSubmodules `{name}"
 
+/-- Render a target's `plugins` for the structural project. The repository's targets load only
+Regula's elaboration observer, as `@/RegulaObserver:shared`; any other plugin is refused. -/
+private def renderPlugins (target : String) (keys : Array _root_.Lake.PartialBuildKey) :
+    IO String := do
+  if keys.isEmpty then return ""
+  unless keys.all (Observer.observerKey (Name.mkSimple Observer.regulaPackage)) do
+    throw <| IO.userError s!"self-test: {target} loads a plugin other than Regula's observer"
+  return s!"  plugins := #[`@/{Observer.observerLibrary}:shared]\n"
+
 /-- Derive the structural project from the repository's loaded workspace and parsed manifest.
-Module ownership, sources, imports of root-package modules and target configuration are Lake's
-own (`Workspace.findModule?`, `Lean.parseImports'`); nothing is a fixed file list. -/
+It holds the claimed application, the fixture, their root-package imports and the elaboration
+observer library the targets load as a plugin. Module ownership, sources, imports of root-package
+modules and target configuration, `plugins` included, are Lake's own (`Workspace.findModule?`,
+`Lean.parseImports'`); nothing is a fixed file list. -/
 private def structuralProject (manifest : Manifest) (ws : _root_.Lake.Workspace) :
     IO StructuralProject := do
   let pkg := ws.root
@@ -381,6 +392,8 @@ private def structuralProject (manifest : Manifest) (ws : _root_.Lake.Workspace)
     | throw <| IO.userError s!"self-test: Lake omitted the {structuralApplication} library"
   let some fixture := ws.findModule? structuralFixture
     | throw <| IO.userError s!"self-test: Lake omitted the module {structuralFixture}"
+  let some observer := pkg.leanLibs.find? (·.name == Observer.observerLibrary)
+    | throw <| IO.userError s!"self-test: Lake omitted the {Observer.observerLibrary} library"
   let claimed := (manifest.surfaces.filter (·.library == structuralApplication)).flatMap
     (·.executables)
   let executables := pkg.leanExes.filter (claimed.contains <| spelling ·.name)
@@ -388,7 +401,8 @@ private def structuralProject (manifest : Manifest) (ws : _root_.Lake.Workspace)
     throw <| IO.userError
       s!"self-test: Lake omitted a claimed executable of {structuralApplication}"
   let mut pending := (← application.getModuleArray).toList ++ [fixture] ++
-    executables.toList.map (·.root)
+    executables.toList.map (·.root) ++
+    (← observer.getModuleArray).toList
   let mut modules : Array _root_.Lake.Module := #[]
   repeat
     let next :: rest := pending | break
@@ -410,20 +424,23 @@ private def structuralProject (manifest : Manifest) (ws : _root_.Lake.Workspace)
     sources := sources.push (System.mkFilePath (components.drop base.length))
   let mut lakefile := "import Lake\nopen Lake DSL\n\n" ++
     s!"package «{pkg.baseName}» where\n  srcDir := {repr pkg.config.srcDir.toString}\n" ++
-    s!"  leanOptions := {renderOptions pkg.config.leanOptions}\n"
+    s!"  leanOptions := {renderOptions pkg.config.leanOptions}\n" ++
+    (← renderPlugins pkg.baseName.toString (pkg.config.plugins.map (·.key)))
   for library in libraries do
     refuseArguments (spelling library.name) (Lake.libraryOptions library)
     lakefile := lakefile ++ s!"\nlean_lib «{library.name}» where\n" ++
       s!"  srcDir := {repr library.config.srcDir.toString}\n" ++
       s!"  roots := #[{", ".intercalate (library.config.roots.toList.map (s!"`{·}"))}]\n" ++
       s!"  globs := #[{", ".intercalate (library.config.globs.toList.map renderGlob)}]\n" ++
-      s!"  leanOptions := {renderOptions library.config.leanOptions}\n"
+      s!"  leanOptions := {renderOptions library.config.leanOptions}\n" ++
+      (← renderPlugins (spelling library.name) (library.config.plugins.map (·.key)))
   for executable in executables do
     refuseArguments (spelling executable.name) (Lake.executableOptions executable)
     lakefile := lakefile ++ s!"\nlean_exe «{executable.name}» where\n" ++
       s!"  root := `{executable.root.name}\n" ++
       s!"  supportInterpreter := {executable.supportInterpreter}\n" ++
-      s!"  leanOptions := {renderOptions executable.config.leanOptions}\n"
+      s!"  leanOptions := {renderOptions executable.config.leanOptions}\n" ++
+      (← renderPlugins (spelling executable.name) (executable.config.plugins.map (·.key)))
   -- The repository's `extraDep` facet, which records the `weakLeanArgs` of the root package in
   -- each module's trace, so an incremental gate decides a module it replays (RG2003) as it does
   -- in the repository, and the module artifacts seeded from the repository's build match.
@@ -1964,7 +1981,7 @@ private unsafe def structuralPartB (layout : SourceLayout) (executables : Bool)
           failures.modify (·.push failure)
   else
     let exeDecl :=
-      "\nlean_exe «selftestTool» where\n  root := `SelftestMain\n"
+      "\nlean_exe «selftestTool» where\n  root := `SelftestMain\n" ++ observerPluginOwn
     let claimedManifest := copy / "claimed-exe.json"
     -- The claimed-exe controls claim the added executable beside the application's: both roots
     -- define `main`, so the positive control also requires each root to be inspected in an
@@ -2619,7 +2636,8 @@ private unsafe def structuralCorrespondence (layout : SourceLayout) (mutation : 
   let source := sources / "CorrespondenceControl.lean"
   -- Boundary evidence text is printed only in verbose mode.
   let gate := runBinaryFrom repo copy "axiomGate" #["--verbose"]
-  withReplacedFile lakefile (originalLakefile ++ "\nlean_lib CorrespondenceControl\n") do
+  withReplacedFile lakefile
+      (originalLakefile ++ "\nlean_lib CorrespondenceControl where\n" ++ observerPluginOwn) do
     withReplacedFile manifest checkedManifest do
       withNewFile source positive do
         if !mutation then
@@ -2862,7 +2880,8 @@ private unsafe def fenceEnvironmentControl (layout : SourceLayout) (repo : FileP
           unit\n"
     let lakefile := dir / "lakefile.lean"
     IO.FS.writeFile lakefile ((← IO.FS.readFile lakefile) ++
-      "\nlean_lib FreshControl where\n  globs := #[.submodules `FreshControl]\n")
+      "\nlean_lib FreshControl where\n  globs := #[.submodules `FreshControl]\n" ++
+        observerPluginOwn)
     let manifest := dir / "foundation_manifest.json"
     writeJson manifest (freshControlManifest (← parsedManifest manifest))
     -- A counterexample aid at the process boundary: the workspace provides a `leanchecker` in the
@@ -2948,7 +2967,7 @@ private def adopterOmittedExeText : String :=
   "\"excluded-libraries\":[],\"excluded-executables\":[]}"
 
 private def adopterTomlLakefile (checkerPath : String) : String :=
-  "name = \"widget_adopter\"\n\n" ++
+  "name = \"widget_adopter\"\n" ++ observerPluginToml ++ "\n" ++
   "[leanOptions]\nautoImplicit = false\nrelaxedAutoImplicit = false\nlinter.missingDocs = \
     true\n\n" ++
   "[[require]]\nname = \"regula\"\n" ++
@@ -2959,6 +2978,7 @@ private def adopterTomlLakefile (checkerPath : String) : String :=
 private def adopterLeanLakefile (checkerPath : String) : String :=
   "import Lake\nopen Lake DSL\n\n" ++
   "package «widget_adopter» where\n" ++
+  observerPluginLean ++
   "  leanOptions := #[⟨`autoImplicit, false⟩, ⟨`relaxedAutoImplicit, false⟩, ⟨`linter.missingDocs, \
     true⟩]\n\n" ++
   s!"require «regula» from \"{checkerPath}\"\n\n" ++
@@ -3229,10 +3249,12 @@ private def libraryCycleControl (repo : FilePath) : IO (Array String) :=
     withScratch repo "library-cycle-result" fun output => do
   Regula.Filesystem.copyFile (repo / "lean-toolchain") (project / "lean-toolchain")
   IO.FS.writeFile (project / "lakefile.toml") <|
-    "name = \"library_cycle_control\"\n[leanOptions]\nautoImplicit = false\n" ++
+    "name = \"library_cycle_control\"\n" ++ observerPluginToml ++
+      "[leanOptions]\nautoImplicit = false\n" ++
       "relaxedAutoImplicit = false\nlinter.missingDocs = true\n" ++
       "[[lean_lib]]\nname = \"Left\"\nglobs = [\"Left.+\"]\n" ++
-      "[[lean_lib]]\nname = \"Right\"\nglobs = [\"Right.+\"]\n"
+      "[[lean_lib]]\nname = \"Right\"\nglobs = [\"Right.+\"]\n" ++
+      regulaRequireToml repo
   let surface (library : String) : String :=
     "{\"library\":\"" ++ library ++ "\",\"executables\":[],\"claim\":\"standard-logical\"," ++
       "\"execution\":\"report\",\"rationale\":\"Library cycle control\"}"
@@ -3311,10 +3333,12 @@ private def sharedCopiesControl (repo : FilePath) : IO (Array String) :=
     withScratch repo "shared-copies-result" fun output => do
   IO.FS.writeFile (project / "lean-toolchain") (← IO.FS.readFile (repo / "lean-toolchain"))
   IO.FS.writeFile (project / "lakefile.toml") <|
-    "name = \"shared_copies_control\"\n[leanOptions]\nautoImplicit = false\n" ++
+    "name = \"shared_copies_control\"\n" ++ observerPluginToml ++
+      "[leanOptions]\nautoImplicit = false\n" ++
       "relaxedAutoImplicit = false\nlinter.missingDocs = true\n" ++
       "[[lean_lib]]\nname = \"Lib\"\nglobs = [\"Lib.+\"]\n" ++
-      "[[lean_lib]]\nname = \"App\"\nglobs = [\"App.+\"]\n"
+      "[[lean_lib]]\nname = \"App\"\nglobs = [\"App.+\"]\n" ++
+      regulaRequireToml repo
   let surface (library : String) : String :=
     "{\"library\":\"" ++ library ++ "\",\"executables\":[],\"claim\":\"standard-logical\"," ++
       "\"execution\":\"report\",\"rationale\":\"Shared copies control\"}"
@@ -3414,7 +3438,8 @@ private def writeCrossSurfaceProject (repo project : FilePath) (relation decided
     IO Unit := do
   Regula.Filesystem.copyFile (repo / "lean-toolchain") (project / "lean-toolchain")
   IO.FS.writeFile (project / "lakefile.toml") <|
-    "name = \"cross_surface_control\"\n[leanOptions]\nautoImplicit = false\n" ++
+    "name = \"cross_surface_control\"\n" ++ observerPluginToml ++
+      "[leanOptions]\nautoImplicit = false\n" ++
       "relaxedAutoImplicit = false\nlinter.missingDocs = true\n" ++
       s!"[[require]]\nname = \"regula\"\npath = {(Json.str repo.toString).compress}\n" ++
       "[[lean_lib]]\nname = \"Exec\"\nglobs = [\"Exec.+\"]\n" ++
@@ -3723,14 +3748,15 @@ private def retainedBuildControl (repo : FilePath) : IO (Array String) :=
   Regula.Filesystem.copyFile (repo / "lean-toolchain") (project / "lean-toolchain")
   -- The weak-arguments facet of Regula's shipped `lakefile.lean`, so the ordinary build records
   -- each module's weak arguments in its trace, as the first acceptance step's build does. Only
-  -- that section is copied (`Lake.weakArgsDeclarations`): the observer's library and `presetup`
-  -- facet need Regula's own package, and the audit's build installs that facet itself.
+  -- that section is copied (`Lake.weakArgsDeclarations`); the package requires `regula` and loads
+  -- its elaboration observer as a plugin (RG2006).
   let some facet := Lake.weakArgsDeclarations (← IO.FS.readFile (repo / "lakefile.lean"))
     | return #["retained-build/setup: Regula's lakefile has no weak-arguments facet"]
   IO.FS.writeFile (project / "lakefile.lean") <|
     "import Lake\nopen Lake DSL\n\npackage retained_build_control where\n" ++
       "  leanOptions := #[⟨`autoImplicit, false⟩, ⟨`relaxedAutoImplicit, false⟩,\n" ++
-      "    ⟨`linter.missingDocs, true⟩]\n\n" ++
+      "    ⟨`linter.missingDocs, true⟩]\n" ++ observerPluginLean ++
+      s!"\nrequire regula from {(Json.str repo.toString).compress}\n\n" ++
       "lean_lib Solo where\n  globs := #[.submodules `Solo]\n\n" ++
       "lean_lib Extra where\n  globs := #[.submodules `Extra]\n" ++ facet
   IO.FS.writeFile (Manifest.defaultPath project) <|
@@ -4378,10 +4404,12 @@ private def combinedSnapshotQualification (repo : FilePath) : IO (Array String) 
   withScratch repo "combined-snapshot-control" fun project => do
     Regula.Filesystem.copyFile (repo / "lean-toolchain") (project / "lean-toolchain")
     IO.FS.writeFile (project / "lakefile.toml") <|
-      "name = \"snapshot_control\"\n[leanOptions]\nautoImplicit = false\n" ++
+      "name = \"snapshot_control\"\n" ++ observerPluginToml ++
+        "[leanOptions]\nautoImplicit = false\n" ++
         "relaxedAutoImplicit = false\nlinter.missingDocs = true\n[[lean_lib]]\nname = \
           \"Snapshot\"\n" ++
-        "[[lean_lib]]\nname = \"Companion\"\n"
+        "[[lean_lib]]\nname = \"Companion\"\n" ++
+        regulaRequireToml repo
     IO.FS.writeFile (Manifest.defaultPath project)
       "{\"schema-version\":2,\"surfaces\":[{\"library\":\"Snapshot\",\"executables\":[],\"claim\":\
         \"standard-logical\",\"execution\":\"report\",\"rationale\":\"Control\"},{\"library\":\"Com\

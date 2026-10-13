@@ -262,10 +262,13 @@ private def phase (repo scratch : FilePath) (test : Case) (negative : Bool) : IO
   -- `linter.missingDocs` goes on each claimed library (RG2006): the support library is
   -- claimed only in the project cases.
   let supportOptions := if test.project then "leanOptions.linter.missingDocs = true\n" else ""
-  IO.FS.writeFile (scratch / "lakefile.toml")
-    s!"name = \"compiler_path_control\"\n[leanOptions]\nautoImplicit = false\nrelaxedAutoImplicit \
+  -- Every claimed library loads Regula's elaboration observer (RG2006), which the package-level
+  -- `plugins` of the required `regula` gives each library.
+  IO.FS.writeFile (scratch / "lakefile.toml") <|
+    "name = \"compiler_path_control\"\n" ++ observerPluginToml ++
+    s!"[leanOptions]\nautoImplicit = false\nrelaxedAutoImplicit \
       = false\n[[lean_lib]]\nname = \"{test.supportModule}\"\n{supportOptions}[[lean_lib]]\nname = \
-      \"Wrapper\"\nleanOptions.linter.missingDocs = true\n"
+      \"Wrapper\"\nleanOptions.linter.missingDocs = true\n" ++ regulaRequireToml repo
   -- Resolve configuration before the checker captures its immutable source
   -- binding. A later first Lake invocation would otherwise create the manifest
   -- inside the checked interval, correctly invalidating that binding.
@@ -307,10 +310,8 @@ private def phase (repo scratch : FilePath) (test : Case) (negative : Bool) : IO
           support\"},{\"library\":\"Wrapper\",\"claim\":\"standard-logical\"," ++
         "\"execution\":\"checked\",\"rationale\":\"checked consumer\"}]," ++
         "\"excluded-libraries\":[],\"excluded-executables\":[]}")
-    -- This project does not require Regula, so its traces lack the `weakLeanArgs` record of
-    -- Regula's `extraDep` facet, and each checked build reports a claimed module that it replays
-    -- from an earlier build as not established (RG2003). The project audit runs first, and the
-    -- file audit's claimed module `Wrapper` loses its trace before that audit builds it again.
+    -- The project audit runs first, and the file audit's claimed module `Wrapper` loses its trace
+    -- before that audit builds it again, so that audit elaborates `Wrapper` afresh.
     -- Preserve the toolchain-only symlink overlay in this case. The claimed
     -- adopter sources are still built afresh in each independent phase.
     -- Boundary evidence lines are printed only in verbose mode.

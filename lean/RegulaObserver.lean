@@ -10,9 +10,10 @@ It decides nothing: Regula's audit reads the record from the module's `.olean`
 (`RegulaObserver.records`) and decides RG2003 and RG2006 from it. It imports only Lean, since Lean
 loads a plugin's shared library alone, without the libraries of its imports.
 
-Lake loads it into the elaboration of each module of the root package through the `presetup`
-facet that Regula's `lakefile.lean` declares, and Regula's audit builds load it the same way
-(`Regula.Checker.Observer.observerPresetup`). Loading the plugin runs this module's initializers,
+Lake loads it into the elaboration of each module of a target whose `plugins` name its shared
+library, `@regula/RegulaObserver:shared`, through Lake's own `presetup` facet, and Regula's audit
+reads from each claimed module's completed `presetup` whether it did
+(`Regula.Checker.Observer.pluginLoaded`). Loading the plugin runs this module's initializers,
 which register the two linters below (`Lean/LoadDynlib.lean` lines 95 to 118).
 
 - The stateful linter folds each command's observations in source order: Lean chains its runs
@@ -37,11 +38,14 @@ linter logs is outside the record: that linter is code that runs inside the audi
 like a trusted plugin.
 
 Each `set_option` form records the option's name in the info tree (`Lean/Elab/SetOption.lean` line
-65), and the record holds the options set through `Lean.Elab.elabSetOption` (`setOptionKinds`).
-An option that elaborator code changes directly is outside the record: a temporary change for
-the code's own commands through `withScope`, such as `autoImplicit` in the `ToExpr` deriving
-handler (`Lean/Elab/Deriving/ToExpr.lean` line 228), `warn.exposeOnPrivate` in every deriving
-handler (`Lean/Elab/Deriving/Basic.lean` lines 294 to 297) and
+65), and the record holds the options set through `Lean.Elab.elabSetOption` (`setOptionKinds`) and
+through the documentation command `{set_option name value}`. Lean records an option's name in two
+more places that set no option of the scope, the documentation role `{option}` and a `simp` user
+option, which the record leaves out (`settingOf?`). An option that elaborator code changes
+directly is outside the record: a temporary change for the code's own commands through
+`withScope`, such as `autoImplicit` in the `ToExpr` deriving handler
+(`Lean/Elab/Deriving/ToExpr.lean` line 228), `warn.exposeOnPrivate` in every deriving handler
+(`Lean/Elab/Deriving/Basic.lean` lines 294 to 297) and
 `quotPrecheck.allowSectionVars` in a `local notation` (`Lean/Elab/Notation.lean` lines 154 to
 157). Of Lean's builtin commands, only `set_option` and `unlock_limits` assign the options of the
 enclosing scope for the commands after them (`modifyScope`, `Lean/Elab/BuiltinCommand.lean` lines
@@ -108,61 +112,133 @@ partial def wrappedCommand (cmd : Syntax) : Syntax :=
 it, and for the command form before one command the syntax kind of the command it wraps
 (`wrappedCommand`). The command form is `commandIn` when an ancestor is `cmd in cmd` whose first
 command is `setter`; the `grind` tactic form is a tactic form. -/
-def formOf (setter : Option Syntax) (ancestors : List Syntax) : Form × Option Name :=
-  match setter with
-  | none => (.elaborated, none)
-  | some setter =>
-    if setter.isOfKind ``Lean.Parser.Command.set_option then
-      match ancestors.find? fun a => a.isOfKind ``Lean.Parser.Command.in &&
-          sameOccurrence a[0] setter with
-      | some a => (.commandIn, some (wrappedCommand a[2]).getKind)
-      | none => (.command, none)
-    else if setter.isOfKind ``Lean.Parser.Term.set_option then (.term, none)
-    else (.tactic, none)
+def formOf (setter : Syntax) (ancestors : List Syntax) : Form × Option Name :=
+  if setter.isOfKind ``Lean.Parser.Command.set_option then
+    match ancestors.find? fun a => a.isOfKind ``Lean.Parser.Command.in &&
+        sameOccurrence a[0] setter with
+    | some a => (.commandIn, some (wrappedCommand a[2]).getKind)
+    | none => (.command, none)
+  else if setter.isOfKind ``Lean.Parser.Term.set_option then (.term, none)
+  else (.tactic, none)
 
-/-- An option name the `set_option` elaborator recorded, with what the walk knew above it. -/
+/-- An option name that Lean recorded (`Lean.Elab.OptionInfo`), with what the walk knew above it. -/
 structure Found where
   /-- The recorded name. -/
   info : OptionInfo
   /-- The syntax of the nodes above it, innermost first. -/
   ancestors : List Syntax
+  /-- For a name recorded inside an element of a documentation comment, the expander that Lean's
+  documentation elaborator records for the innermost such element (`Lean.Elab.DocElabInfo`), or
+  none when it records none; none outside documentation. -/
+  doc : Option (Option Name)
 
 /-- What one walk of a command's info trees collects. -/
 structure Walk where
-  /-- Each option name the `set_option` elaborator recorded. -/
+  /-- Each option name that Lean recorded. -/
   options : Array Found := #[]
   /-- Each command elaborated as `#guard_msgs` or `#guard_panic`. -/
   guards : Array Syntax := #[]
 
 /-- Walk an info tree, with `ancestors` the syntax of each command, tactic and term node above,
-innermost first. -/
-partial def walk (ancestors : List Syntax) (acc : Walk) : InfoTree → Walk
-  | .context _ tree => walk ancestors acc tree
+innermost first, and `doc` what `Found.doc` records for a name below. Lean's documentation
+elaborator elaborates each element of a comment under a `Lean.Elab.DocInfo` node and records the
+expander that elaborated it as a `Lean.Elab.DocElabInfo` leaf among that node's children
+(`Lean/Elab/DocString.lean` lines 1487 to 1489, 1549 to 1554, 1572 to 1574 and 1679 to 1684). -/
+partial def walk (ancestors : List Syntax) (doc : Option (Option Name)) (acc : Walk) :
+    InfoTree → Walk
+  | .context _ tree => walk ancestors doc acc tree
   | .hole _ => acc
   | .node info children =>
     let acc := match info with
       | .ofCommandInfo i => if guardKinds.contains i.stx.getKind then
           { acc with guards := acc.guards.push i.stx } else acc
-      | .ofOptionInfo i => { acc with options := acc.options.push { info := i, ancestors } }
+      | .ofOptionInfo i => { acc with options := acc.options.push { info := i, ancestors, doc } }
       | _ => acc
+    let doc := match info with
+      | .ofDocInfo _ => some <| children.toList.findSome? fun
+          | .node (.ofDocElabInfo d) _ => some d.name
+          | _ => none
+      | _ => doc
     let ancestors := match info with
       | .ofCommandInfo i => i.stx :: ancestors
       | other => match other.toElabInfo? with
         | some i => i.stx :: ancestors
         | none => ancestors
-    children.foldl (walk ancestors) acc
+    children.foldl (walk ancestors doc) acc
 
-/-- The setting that `found` records: its value and form from its `set_option` syntax
-(`setterOf`). Who wrote the syntax is not recorded: RG2006 decides on the setting alone. -/
-def settingOf (decls : OptionDecls) (fileMap : FileMap) (found : Found) : Setting :=
+/-- The expander that Lean records for the documentation command `{set_option name value}`
+(`Lean.Doc.set_option`, `Lean/Elab/DocString/Builtin.lean` lines 1329 to 1338), which sets the
+option for the rest of the comment. -/
+def docSetter : Name := `Lean.Doc.set_option.getArgs
+
+/-- The expander that Lean records for the documentation role `{option}`, which refers to an option
+by its name or by `set_option` text and sets none: it validates the value and only renders the
+reference (`Lean.Doc.option`, `Lean/Elab/DocString/Builtin.lean` lines 1161 to 1205). -/
+def docReference : Name := `Lean.Doc.option.getArgs
+
+/-- The value that the documentation command `{set_option name value}` sets, from the syntax `block`
+of the command and `id`, the option's name in it: its arguments must be `name` and a literal value,
+both positional, and Lean reads a numeral, a string or one of the identifiers `true` and `false`
+(`instance : FromDocArg DataValue`, `Lean/Elab/DocString.lean` lines 454 to 466, which resolves an
+identifier and refuses one that names neither constant). None for any other syntax. -/
+def docValue (id : Syntax) (block : Syntax) : Option DataValue :=
+  match block[2].getArgs with
+  | #[name, value] =>
+    if !block.isOfKind `Lean.Doc.Syntax.command || !name.isOfKind `Lean.Doc.Syntax.anon ||
+        !value.isOfKind `Lean.Doc.Syntax.anon || !sameOccurrence name[0][0] id then none
+    else
+      let arg := value[0]
+      if arg.isOfKind `Lean.Doc.Syntax.arg_num then arg[0].isNatLit?.map .ofNat
+      else if arg.isOfKind `Lean.Doc.Syntax.arg_str then arg[0].isStrLit?.map .ofString
+      else if arg.isOfKind `Lean.Doc.Syntax.arg_ident && arg[0].getId == `true then
+        some (.ofBool true)
+      else if arg.isOfKind `Lean.Doc.Syntax.arg_ident && arg[0].getId == `false then
+        some (.ofBool false)
+      else none
+  | _ => none
+
+/-- Whether `found` is a `simp` or `dsimp` configuration item `+user.name`, `-user.name` or
+`(user.name := value)`: its name is under `tactic.simp.user` and it is the option of a
+configuration item above it. Lean records it in `Lean.Elab.ConfigEval.EvalConfigItem.evalSetOptions`
+(`Lean/Elab/ConfigEval/Extra.lean` lines 21 to 29), whose only callers, the configuration
+elaborators of `simp` and `dsimp` (`Lean/Elab/Tactic/Simp.lean` lines 57 and 98), set the option in
+the tactic's own `userConfig`, which only `simp`'s procedures read
+(`Lean/Meta/Tactic/Simp/Types.lean` lines 64 to 66 and 472), not in the options of the scope. -/
+def simpUserOption (found : Found) : Bool :=
+  (`tactic.simp.user).isPrefixOf found.info.optionName &&
+    found.ancestors.any fun stx => (stx.find? fun n =>
+      [`Lean.Parser.Tactic.posConfigItem, `Lean.Parser.Tactic.negConfigItem,
+        `Lean.Parser.Tactic.valConfigItem].contains n.getKind &&
+        n.getArgs.any (sameOccurrence · found.info.stx)).isSome
+
+/-- The setting that `found` records, or none when the code that recorded it sets no option of the
+source. Lean v4.34.1 records an option's name in four places, which
+`Regula.Checker.GeneratedSettingSearch.producers` lists: `Lean.Elab.elabSetOption`, which the
+`set_option` forms call; the documentation command `{set_option name value}` (`docSetter`); the
+documentation role `{option}` (`docReference`), which sets none; and a `simp` user option
+(`simpUserOption`), which sets none of the scope. A name under `set_option` syntax has the value
+and form of that syntax (`setterOf`); the documentation command's has its value (`docValue`); any
+other has no value, so RG2006 rejects it. Who wrote the syntax is not recorded: RG2006 decides on
+the setting alone. -/
+def settingOf? (decls : OptionDecls) (fileMap : FileMap) (found : Found) : Option Setting :=
   let id := found.info.stx
-  let setter := setterOf id found.ancestors
-  let (form, wrapped) := formOf setter found.ancestors
-  { name := found.info.optionName
-    value := setter.bind fun setter => literal setter[3]
-    registeredDefault := (decls.find? found.info.optionName).map (·.defValue)
-    form, wrapped
-    position := positionOf fileMap id }
+  let setting (value : Option DataValue) (form : Form) (wrapped : Option Name) : Setting :=
+    { name := found.info.optionName
+      value, form, wrapped
+      registeredDefault := (decls.find? found.info.optionName).map (·.defValue)
+      position := positionOf fileMap id }
+  match setterOf id found.ancestors, found.doc with
+  | some setter, _ =>
+    let (form, wrapped) := formOf setter found.ancestors
+    some (setting (literal setter[3]) form wrapped)
+  | none, some (some expander) =>
+    if expander == docReference then none
+    else if expander == docSetter then
+      some (setting ((found.ancestors.find? (·.isOfKind `Lean.Doc.Syntax.command)).bind
+        (docValue id)) .docComment none)
+    else some (setting none .elaborated none)
+  | none, _ => if simpUserOption found then none else some (setting none .elaborated none)
+
 
 /-- The observations of the command `stx`, appended to `fold`. -/
 def observe (stx : Syntax) (fold : Fold) : CommandElabM Fold := do
@@ -170,8 +246,8 @@ def observe (stx : Syntax) (fold : Fold) : CommandElabM Fold := do
   let decls ← getOptionDecls
   let mut acc : Walk := {}
   for tree in (← getInfoTrees) do
-    acc := walk [stx] acc tree
-  let settings := acc.options.map (settingOf decls fileMap)
+    acc := walk [stx] none acc tree
+  let settings := acc.options.filterMap (settingOf? decls fileMap)
   let mut fold := { fold with settings := fold.settings ++ settings }
   for guard in acc.guards do
     let observed : Guard := { kind := guard.getKind, position := positionOf fileMap guard }

@@ -1354,15 +1354,17 @@ def guide : RuleId → Guide
           manifest checks, not by reading that name as Lake target syntax, in which a `/` names \
           a package; a name that matches none of them, or a library without a module, fails the \
           build.",
-        "The audit's build loads Regula's elaboration observer, a Lean plugin, into the \
-          elaboration of each module of the root package, as the `presetup` facet of Regula's \
-          `lakefile.lean` does in an ordinary build. The observer records in each module's \
-          `.olean` every `#guard_msgs` and `#guard_panic` command it ran, also one a macro \
-          produced, and every warning or error that Lean keeps out of the build's output (a \
-          silent message). A claimed module that runs such a command or has such a message fails \
-          the build, with its line and column. So does a claimed module that the observer did \
-          not observe: the plugin was not among those Lean loaded for it, its `.olean` holds no \
-          complete record, or a command of it was neither linted nor skipped for `#guard_msgs`. \
+        "Each claimed target loads Regula's elaboration observer, a Lean plugin, into the \
+          elaboration of its modules through Lake's own `plugins` setting \
+          (``plugins := #[`@regula/RegulaObserver:shared]``), which RG2006 requires, so an \
+          ordinary build and the audit's build elaborate them alike. The observer records in \
+          each module's `.olean` every `#guard_msgs` and `#guard_panic` command it ran, also \
+          one a macro produced, and every warning or error that Lean keeps out of the build's \
+          output (a silent message). A claimed module that runs such a command or has such a \
+          message fails the build, with its line and column. So does a claimed module that the \
+          observer did not observe: the plugin was not among those Lean loaded for it, its \
+          `.olean` holds no complete record, or a command of it was neither linted nor skipped \
+          for `#guard_msgs`. \
           Every build of a claimed surface decides this: those of `lake lint`, `axiomGate`, the \
           build-lint `policy` target, `freshChecker` and the documentation audit's claimed \
           build. A file audit with a claim (`axiomGate --file F --claim P`) loads the observer \
@@ -1438,17 +1440,17 @@ def guide : RuleId → Guide
           INCOMPLETE under this rule. Regula's `lakefile.lean` replaces Lake's `extraDep` \
           facet with one that records each root and Regula library's identity and \
           `weakLeanArgs` in its modules' traces. The project audit and `lake lint` print a \
-          facet report naming a root `extraDep` library facet or `presetup` module facet \
-          that Regula replaces, with the consequence (work unique to its overridden \
-          configuration may be lost) and remedy (move that work to `extraDepTargets` or \
-          `needs`, or to the library's `plugins` or `dynlibs`). The report uses Lake's loaded \
-          declarations, changes no audit exit class and does not restore the configuration. Without the marker, a claimed module replayed \
+          facet report naming a root `extraDep` library facet that Regula replaces, with the \
+          consequence (work unique to its overridden configuration may be lost) and remedy \
+          (move that work to \
+          `extraDepTargets` or `needs`). The report uses Lake's loaded declarations, changes no \
+          audit exit class and does not restore the configuration. Without the marker, a claimed module replayed \
           from before the run whose trace lacks its own library's current record is not \
           established (INCOMPLETE), as when another dependency declares a library or module facet.",
-        "Regula's `lakefile.lean` and the audit's build replace Lake's `presetup` facet with one \
-          that adds the elaboration observer to the plugins of each module of the root package, \
-          so a `presetup` facet that the root package declares does not run; the facet report \
-          names it.",
+        "Regula declares no `presetup` facet; the audit's build runs the one the workspace \
+          configures and reads from each claimed module's completed `presetup` whether Lean \
+          loaded the running Regula's observer, compared by path or by content. A facet that \
+          drops the observer from a claimed module's plugins leaves the module not observed.",
         "That the observer's record holds what Lean elaborated is read from Lean's source at \
           the pinned release, not proved.",
         "That each claimed module's trace records an elaboration is checked after the build \
@@ -1693,7 +1695,8 @@ def guide : RuleId → Guide
         accepted set, such as a linter or one of Lean's own `warn.*` warnings turned off beyond \
         the three Mathlib-repository linters that standard §6.7 excludes, overrides these options \
         with a `-D` extra `lean` argument, or, in a surface that imports Mathlib, leaves Mathlib's \
-        standard linter set or its exclusions unset."
+        standard linter set or its exclusions unset, or does not load Regula's \
+        elaboration observer through its `plugins`."
       trigger := [
         "After the claimed surfaces build, the checker reads Lake's resolved configuration of \
           every claimed library and executable: its `leanOptions` (build type, package, then \
@@ -1704,6 +1707,14 @@ def guide : RuleId → Guide
           `true`, when `leanOptions` or a `-D name=value` among the extra arguments sets any \
           other option outside the accepted set, at any value and whether Lean declares the \
           option or not, or when a `-D` gives a required option a value the rule does not admit.",
+        "Each claimed target must also load Regula's elaboration observer through Lake's own \
+          `plugins` setting, on the target or on its package: \
+          ``plugins := #[`@regula/RegulaObserver:shared]`` in `lakefile.lean`, or \
+          `plugins = [\"@regula/RegulaObserver:shared\"]` in `lakefile.toml`; Regula's own \
+          `lakefile.lean` writes it `@/RegulaObserver:shared`. The decision rejects a target \
+          whose resolved plugins name no such target, and the finding names the line to add. \
+          The observer records the options the source sets, which the rule reads below, and the \
+          messages that RG2003 decides.",
         "The accepted set holds the required options at the values the rule admits; the §6.7 \
           exclusions `linter.style.header`, `linter.hashCommand` and `linter.style.longFile` at \
           `false`, `false` and `0`; `linter.style.header.license` at a nonempty string, which \
@@ -1742,7 +1753,8 @@ def guide : RuleId → Guide
           audits, the rule also reads the options the source set, as Regula's elaboration \
           observer recorded them while Lean elaborated it (RG2003): `set_option` as a command, \
           before one command (`… in`), in a term, in a tactic block or in a `grind` block, \
-          including one that a macro wrote. The proved decision \
+          including one that a macro wrote, and `{set_option name value}` in a documentation \
+          comment, which sets the option for the rest of the comment. The proved decision \
           `RegulaPolicy.Community.sourceFailures` rejects each that the target itself \
           could not set at that value, with two exceptions. The first is \
           `set_option linter.NAME false in` before one declaration, which turns a community \
@@ -1763,7 +1775,12 @@ def guide : RuleId → Guide
           The finding names each option with its \
           module, line and column.",
         "The rule reads the options that Lean's `set_option` elaborator \
-          (`Lean.Elab.elabSetOption`) set. Of Lean v4.34.1's builtin commands, one other assigns \
+          (`Lean.Elab.elabSetOption`) and the documentation command `{set_option}` set. Lean also \
+          records an option's name for the documentation role `{option}`, which refers to an \
+          option, and for a `simp` user option such as `simp +user.name`, which sets it in the \
+          tactic's own configuration; neither sets an option of the scope, so the rule reads \
+          neither (`Regula.Checker.GeneratedSettingSearch.producers`). Of Lean v4.34.1's builtin \
+          commands, one other assigns \
           the options of the enclosing scope: `unlock_limits` sets `maxHeartbeats`, \
           `maxRecDepth` and `synthInstance.maxHeartbeats` to `0`, which the rule accepts \
           (`RegulaPolicy.Community.unlockLimits_accepted`). An option that elaborator code \
@@ -1789,7 +1806,8 @@ def guide : RuleId → Guide
           off and `linter.missingDocs` on, sets no option for all its modules outside the \
           accepted set and, in a Mathlib surface, enables the standard set with exactly the \
           §6.7 exclusions, or with the header linter on and its license line configured; no `-D` \
-          extra `lean` argument overrides these options."]
+          extra `lean` argument overrides these options, and \
+          each loads Regula's elaboration observer through its plugins."]
       notEstablished := [
         "That a community linter turned off for one declaration has the reason standard §6.2 \
           requires; review checks it.",
@@ -1837,7 +1855,10 @@ def guide : RuleId → Guide
           `linter.style.header.license` is read from its source at the pinned release and \
           assumed; the rule checks that the license option is configured, not that the modules' \
           header lines match it.",
-        "The rule runs in project audits only; editor feedback does not read Lake configuration."]
+        "The rule runs in project audits only; editor feedback does not read Lake configuration.",
+        "That the package `regula` the plugins name is Regula is the workspace owner's \
+          assertion; RG2003 checks from the build that Lean loaded the running Regula's \
+          observer for each claimed module."]
       residuals := [.qualify, .intent]
       checklist := ["DECL-01", "DOC-01"]
       linkage := text! "`RegulaPolicy.Community.failures_eq_nil_iff`, `accepts_iff`, \

@@ -170,21 +170,29 @@ private def checkSource (repo : FilePath) (what : String)
   return ← IO.FS.realPath source
 
 /-- The options Lake builds a target's modules with, exactly as Lake resolves them for the
-target (`leanOptions`: build type, package, then target), and the extra `lean` arguments it
-passes (`weakLeanArgs`, then `leanArgs`, the order of Lake's module build). -/
-def buildOptions (options : Lean.LeanOptions) (weakArgs args : Array String) :
+target (`leanOptions`: build type, package, then target), the extra `lean` arguments it passes
+(`weakLeanArgs`, then `leanArgs`, the order of Lake's module build), and whether one of its
+plugins `plugins`, which the package `declaring` declares, is Regula's elaboration observer
+(`Observer.observerKey`). -/
+def buildOptions (options : Lean.LeanOptions) (weakArgs args : Array String)
+    (declaring : Name) (plugins : Array _root_.Lake.PartialBuildKey) :
     RegulaPolicy.Community.BuildOptions where
   options := options.values.toList.map fun (name, value) => (name, match value with
     | .ofString s => .string s | .ofBool b => .bool b | .ofNat n => .nat n)
   arguments := (weakArgs ++ args).toList
+  observer := plugins.any (Observer.observerKey declaring)
 
-/-- The options and extra `lean` arguments Lake builds the modules of library `lib` with. -/
+/-- The options and extra `lean` arguments Lake builds the modules of library `lib` with, and
+whether its plugins load Regula's elaboration observer. -/
 def libraryOptions (lib : _root_.Lake.LeanLib) : RegulaPolicy.Community.BuildOptions :=
-  buildOptions lib.leanOptions lib.weakLeanArgs lib.leanArgs
+  buildOptions lib.leanOptions lib.weakLeanArgs lib.leanArgs lib.pkg.baseName
+    (lib.plugins.map (·.key))
 
-/-- The options and extra `lean` arguments Lake builds the root of executable `exe` with. -/
+/-- The options and extra `lean` arguments Lake builds the root of executable `exe` with, and
+whether its plugins load Regula's elaboration observer. -/
 def executableOptions (exe : _root_.Lake.LeanExe) : RegulaPolicy.Community.BuildOptions :=
-  buildOptions exe.root.leanOptions exe.root.weakLeanArgs exe.root.leanArgs
+  buildOptions exe.root.leanOptions exe.root.weakLeanArgs exe.root.leanArgs exe.pkg.baseName
+    (exe.root.plugins.map (·.key))
 
 /-- The modules Lake can build as part of `library`, found in its source directory with Lake's
 glob reader: those its globs match, and the submodules of each root that a glob matches, which
@@ -1305,32 +1313,24 @@ def lakefileEncoderAgrees (env : Environment) (config : ModuleData) : Except Str
   unless facet.getUsedConstants.contains lakefileEncoderName do
     throw s!"the facet {regulaFacetName} of Regula's lakefile does not use {lakefileEncoderName}"
 
-/-- The name of the `presetup` module facet declaration that Regula's own `lakefile.lean` ships,
-which loads Regula's elaboration observer into the elaboration of each module of the root package
-(`Observer.observerPresetup` is the audit's own). -/
-def observerFacetName : Name := `elaborationObserver
-
-/-- Whether a package's compiled configuration holds exactly Regula's own facet declarations: the
-text of its configuration file (`text`) is the text of the `lakefile.lean` of the Regula that runs
-this decision (`running`, `runningLakefile`), that file declares exactly one library facet and one
-module facet itself (`ownLibraryFacets`, `ownModuleFacets`), and `regulaFacetName` and
-`observerFacetName` are among its constants. -/
-def regulaFacetAdmitted (text running : Option String) (ownLibraryFacets ownModuleFacets : Nat)
+/-- Whether a package's compiled configuration holds exactly Regula's own `extraDep` facet
+declaration: the text of its configuration file (`text`) is the text of the `lakefile.lean` of the
+Regula that runs this decision (`running`, `runningLakefile`), that file declares exactly one library
+facet itself (`ownLibraryFacets`), and `regulaFacetName` is among its constants. -/
+def regulaFacetAdmitted (text running : Option String) (ownLibraryFacets : Nat)
     (constants : Array Name) : Bool :=
   match text, running with
   | some text, some running =>
-    text == running && ownLibraryFacets == 1 && ownModuleFacets == 1 &&
-      constants.contains regulaFacetName && constants.contains observerFacetName
+    text == running && ownLibraryFacets == 1 && constants.contains regulaFacetName
   | _, _ => false
 
-/-- Regula's facets are admitted exactly when both configuration texts are read and equal, the
-file declares one library facet and one module facet of its own, and it has constants named
-`regulaFacetName` and `observerFacetName`. -/
-theorem regulaFacetAdmitted_iff (text running : Option String)
-    (ownLibraryFacets ownModuleFacets : Nat) (constants : Array Name) :
-    regulaFacetAdmitted text running ownLibraryFacets ownModuleFacets constants = true ↔
+/-- Regula's facet is admitted exactly when both configuration texts are read and equal, the file
+declares one library facet of its own, and it has a constant named `regulaFacetName`. -/
+theorem regulaFacetAdmitted_iff (text running : Option String) (ownLibraryFacets : Nat)
+    (constants : Array Name) :
+    regulaFacetAdmitted text running ownLibraryFacets constants = true ↔
       ∃ source, text = some source ∧ running = some source ∧ ownLibraryFacets = 1 ∧
-        ownModuleFacets = 1 ∧ regulaFacetName ∈ constants ∧ observerFacetName ∈ constants := by
+        regulaFacetName ∈ constants := by
   cases text with
   | none => simp [regulaFacetAdmitted]
   | some source =>
@@ -1340,8 +1340,9 @@ theorem regulaFacetAdmitted_iff (text running : Option String)
       simp only [regulaFacetAdmitted, Bool.and_eq_true, beq_iff_eq, Array.contains_iff_mem,
         Option.some.injEq]
       constructor
-      · rintro ⟨⟨⟨⟨rfl, h1⟩, h2⟩, h3⟩, h4⟩; exact ⟨_, rfl, rfl, h1, h2, h3, h4⟩
-      · rintro ⟨_, rfl, rfl, h1, h2, h3, h4⟩; exact ⟨⟨⟨⟨rfl, h1⟩, h2⟩, h3⟩, h4⟩
+      · rintro ⟨⟨rfl, h1⟩, h2⟩; exact ⟨_, rfl, rfl, h1, h2⟩
+      · rintro ⟨_, rfl, rfl, h1, h2⟩; exact ⟨⟨rfl, h1⟩, h2⟩
+
 
 /-- The text of the `lakefile.lean` of the package whose build directory holds the running
 executable (`Observer.runningPackageDir`), or none when it cannot be read. -/
@@ -1352,12 +1353,12 @@ def runningLakefile : IO (Option String) := do
   | .error _ => return none
 
 /-- The number of library and module facets that the compiled configuration of `package`
-declares, itself or through its imports, other than Regula's own `extraDep` and `presetup` facets
-when the file is the running Regula's `lakefile.lean` (`regulaFacetAdmitted`, with `running` its
-text). Lake inserts each into the workspace's facets in turn (`Workspace.addFacetDecls`), so one
-named `extraDep` or `presetup` replaces the facet that Regula's `lakefile.lean` declares when its
-package is resolved later, and another module facet can replace a step of each module's build. A
-`lakefile.toml` declares none. A configuration file that cannot be read fails.
+declares, itself or through its imports, other than Regula's own `extraDep` facet when the file is
+the running Regula's `lakefile.lean` (`regulaFacetAdmitted`, with `running` its text). Lake inserts
+each into the workspace's facets in turn (`Workspace.addFacetDecls`), so one named `extraDep`
+replaces the facet that Regula's `lakefile.lean` declares when its package is resolved later, and a
+module facet can replace a step of each module's build, such as the `presetup` facet that loads
+the plugins. A `lakefile.toml` declares none. A configuration file that cannot be read fails.
 
 Assumes: Lake v4.34.1 selects the language from `relConfigFile`, not the resolved `configFile`
 (`Lake/Load/Package.lean:100`), under `LakeConfig.language`'s assumptions. -/
@@ -1380,10 +1381,10 @@ def otherFacets (ws : _root_.Lake.Workspace) (running : Option String)
     | .ok text => pure (some text)
     | .error _ => pure none
   let admitted :=
-    regulaFacetAdmitted text running ownLibrary ownModule (config.constants.map (·.name))
+    regulaFacetAdmitted text running ownLibrary (config.constants.map (·.name))
   return (_root_.Lake.libraryFacetAttr.getAllEntries imported).size +
     (_root_.Lake.moduleFacetAttr.getAllEntries imported).size + ownLibrary + ownModule -
-    if admitted then 2 else 0
+    if admitted then 1 else 0
 
 /-- Whether no dependency can have replaced a facet of Regula's `lakefile.lean` or a step of a
 module's build: no package other than the root declares a library or module facet other than
@@ -1645,11 +1646,12 @@ as the working directory, as a `lake build` run there does. Lake's loader sets t
 path (`Lean.searchPathRef`), which the checker's workers inherit. The run restores both, so like a
 child `lake build` it leaves the checker's own state as it was. Both are process-wide, so no other
 task of the process may build or read them while it runs; the checker runs its builds one at a
-time. Every build loads Regula's elaboration observer into the elaboration of each module of the root
-package, from the running Regula (`Observer.observerPlugin`), through a `presetup` facet installed
-over the one the workspace configures (`Observer.observerPresetup`). Every build then reads, for
-each claimed module, whether its completed `presetup` loaded that plugin and the record the plugin
-wrote into its `.olean`, and decides on them (`Observer.decideRecord`). -/
+time. A module loads Regula's elaboration observer through its target's `plugins` (RG2006); the
+build runs the `presetup` facet that the workspace configures unchanged and keeps each completed
+result (`Observer.recordingPresetup`). Every build then reads, for each claimed module, whether
+its completed `presetup` loaded the running Regula's observer (`Observer.pluginLoaded`) and, when
+it did, the record the observer wrote into its `.olean`, and decides on them
+(`Observer.decideRecord`). -/
 def Build.runObserved (build : Build) (repo : FilePath) (targets : Array Target)
     (elaborated : Option Elaborated := none) : IO CheckedBuild := do
   let buffer ← IO.mkRef ({} : IO.FS.Stream.Buffer)
@@ -1686,8 +1688,8 @@ def Build.runObserved (build : Build) (repo : FilePath) (targets : Array Target)
         if let some elaborated := elaborated then earlier.set (← elaborated.get)
         Workspace.dropRestoredTraces ws
         -- A record counts only when no dependency declares a library or module facet, which can
-        -- replace Regula's `extraDep` or `presetup` facet; the marked build settles replayed
-        -- logs without one.
+        -- replace Regula's `extraDep` facet or a step of a module's build; the marked build
+        -- settles replayed logs without one.
         let recordsOwn ← if rootOptions.isSome then pure false else onlyRegulaFacets ws
         let (ws, leanOptOverrides) ← match rootOptions with
           | some options =>
@@ -1696,19 +1698,14 @@ def Build.runObserved (build : Build) (repo : FilePath) (targets : Array Target)
             pure (ws.addLibraryFacetConfig (weakArgsExtraDep existing),
               ({} : NameMap LeanOptions).insert ws.root.baseName options)
           | none => pure (ws, {})
-        -- Every build loads Regula's elaboration observer into the modules of the root package and
-        -- of the running Regula outside the observer's library, from the running Regula, whatever
-        -- facet the workspace configures, as Regula's `lakefile.lean` does in an ordinary build.
-        let (plugin, pluginFile, regula?) ← Observer.observerPlugin ws
-        let observed (mod : _root_.Lake.Module) :=
-          let regula := regula? == some mod.pkg.keyName
-          (mod.pkg.isRoot || regula) && !(regula && mod.lib.name == Observer.observerLibrary)
-        -- Every other module keeps the workspace's own facet, so its trace is that of an ordinary
-        -- build and Lake replays it, a dependency's module included.
+        -- A claimed module loads Regula's elaboration observer through its target's own `plugins`
+        -- (RG2006). The build runs the `presetup` facet that the workspace configures unchanged,
+        -- so each module's trace is that of an ordinary build and Lake replays it, a dependency's
+        -- module included, and only records each completed result.
         let existing := (ws.findModuleFacetConfig? _root_.Lake.Module.presetupFacet).getD
           _root_.Lake.Module.presetupFacetConfig
         let presetups ← Observer.Presetups.new
-        let ws := ws.addModuleFacetConfig (Observer.observerPresetup existing plugin observed presetups)
+        let ws := ws.addModuleFacetConfig (Observer.recordingPresetup existing presetups)
         let fetch := observedFetch ws jobLogs presetups (_root_.Lake.buildSpecs specs)
         ws.runBuild fetch {
           out := .stream out, ansiMode := .noAnsi, showSuccess := true, leanOptOverrides,
@@ -1723,9 +1720,11 @@ def Build.runObserved (build : Build) (repo : FilePath) (targets : Array Target)
           if recordsOwn && text.any (Workspace.traceRecords (ownRecord mod.lib)) then
             recorded.modify (·.push mod.name)
         let completed ← presetups.completed.get
+        let observer : FilePath ←
+          if modules.isEmpty then pure "" else (·.1) <$> Observer.observerFile
         for mod in modules do
           let plugins := Observer.presetupPlugins? completed mod.pkg.keyName mod.name
-          let loaded ← Observer.pluginLoaded pluginFile plugins
+          let loaded ← Observer.pluginLoaded observer plugins
           let verdict ← Observer.decideRecord mod.name.toString loaded mod.oleanFile
           verdicts.modify (·.push (mod.name, verdict))
         let jobs ← jobLogs.get

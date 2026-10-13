@@ -721,7 +721,7 @@ def observe (root : FilePath) : IO Project := do
         unless hit.isEmpty do uncovered := uncovered ++ [(library, roots, sorted hit)]
         unless rest.isEmpty do unimported := unimported ++ [(library, roots, sorted rest)]
       let own (options : Array Lean.LeanOption) :=
-        (Lake.buildOptions (.ofArray options) #[] #[]).options
+        (Lake.buildOptions (.ofArray options) #[] #[] .anonymous #[]).options
       let libs := pkg.leanLibs.filter fun lib =>
         !excludedLibraries.contains (Manifest.targetSpelling lib.name)
       let exes := pkg.leanExes.filter fun exe =>
@@ -741,7 +741,7 @@ def observe (root : FilePath) : IO Project := do
         | .lean => Lakefile.lean
       let addedNames := added.foldl (fun s (m, _) => s.insert m) ({} : NameSet)
       return (kind, pkg.configFile, pkg.lintDriver,
-        (Lake.buildOptions pkg.leanOptions #[] #[]).options, targets,
+        (Lake.buildOptions pkg.leanOptions #[] #[] .anonymous #[]).options, targets,
         !invalid && libs.size == pkg.leanLibs.size && exes.size == pkg.leanExes.size,
         !pkg.leanLibs.isEmpty,
         ws.packages.any (·.baseName == `mathlib), uncovered, unimported, candidate,

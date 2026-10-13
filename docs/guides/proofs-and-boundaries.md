@@ -156,7 +156,7 @@ Lake's module trace omits these arguments. Regula's `lakefile.lean` declares an 
 that adds this record for the libraries of the root package and of the package that declares the
 facet. Lake identifies each package itself (`Package.isRoot`, `__name__`), not by the name a
 `require` gives it.
-The [facet report](#replaced-root-facets) names a root facet that Regula replaces.
+The [facet report](#replaced-root-library-facets) names a root library facet that Regula replaces.
 `Lake.ClaimedBuildPlan.completionTargets_exact` binds the deferred build to the original
 target array; `build_completed_iff` records the build stage before preflight exactly when no
 target build remains. A library-only claim keeps one original build
@@ -341,41 +341,20 @@ of a facet of Lake. The driver counts these declarations, and it keeps the marke
 one, except for the facet of Regula below. A file `lakefile.toml` declares no facet and cannot
 set `nativeFacets`. Its filter of an `input_dir` is the default only if it omits the filter or
 writes `"*"`. Lake only reads and hashes an input target. Thus a build in the plain shape runs no
-custom build step except Regula's `extraDep` and `presetup` facets.
+custom build step except Regula's `extraDep` facet.
 
-The driver admits those facets, `weakLeanArgsTrace` and `elaborationObserver`, by identity. The
-package's `lakefile.lean` must have the same text as the `lakefile.lean` of the running Regula.
-Its compiled file must declare the two constants, one library facet and one module facet only, as
-`regulaFacetAdmitted_iff` states. The driver then removes the two declarations, their attribute
-entries and the encoder `weakLeanArgsRecord` from what it reads, with
-`ConfigReading.withoutRegulaFacet`. It also removes the proof that Lean abstracts from the body of
-the second declaration. It also removes the encoder's documentation comment and the entry that the
-compilation of the encoder adds to the specialization cache of the compiler.
+The driver admits that facet, `weakLeanArgsTrace`, by identity. The package's `lakefile.lean`
+must have the same text as the `lakefile.lean` of the running Regula. Its compiled file must
+declare that constant and one library facet only, as `regulaFacetAdmitted_iff` states. The driver
+then removes that declaration, its encoder `weakLeanArgsRecord` and its attribute entry from what
+it reads, with `ConfigReading.withoutRegulaFacet`. It also removes the encoder's documentation
+comment and the entry that the compilation of the encoder adds to the specialization cache of the
+compiler.
 
-The `extraDep` facet runs Lake's own `extraDep` facet, which builds the `extraDepTargets` and
-`needs` of each library. It also adds a trace input that records the identity and the `weakLeanArgs` of each
+The facet runs Lake's own `extraDep` facet, which builds the `extraDepTargets` and `needs` of each
+library. It also adds a trace input that records the identity and the `weakLeanArgs` of each
 library of the root package or of Regula. It compiles no module and sets no option. A package
 named `regula` with different text keeps the marker.
-
-The `presetup` facet runs Lake's own `presetup` facet. It then acts on each module of the root
-package and of Regula, outside the `RegulaObserver` library. It adds the observer's shared library
-to the plugins that Lean loads, and that library's trace to the module's trace. Thus a module of
-Regula has the same trace as a root and as a dependency. An adopter that requires a checkout of
-Regula by path does not build its modules again.
-
-The observer imports only Lean, prints nothing and reads no option that the marker sets. So a
-build with the marker and a build without it write the same record.
-
-The audit's own builds install the same facet in the process with `Observer.observerPresetup`,
-over whatever the workspace declares. It acts there on the modules of the root package and of the
-running Regula. Each other module keeps the facet of the workspace, with that facet's `memoize`
-setting. So the audit does not build again the modules of a different Regula checkout, such as the
-copy that a rule-example producer requires.
-
-Each `presetup` job of the build writes its result to `Observer.Presetups` when it completes. The
-audit reads the plugins and the source file of each module from there, not from the build store of
-Lake. Lake does not store the job of a facet with `memoize := false`.
-
 
 The facet writes the record with `weakLeanArgsRecord`, a copy of `weakArgsRecordJson` in the
 file. The file cannot import the modules of Regula, since Lake loads the configuration of a fresh
@@ -384,6 +363,27 @@ of the shipped file as equal to `weakArgsRecordJson` (`lakefileEncoderAgrees`, r
 `Regula.RegistryChecks`). This catches a drift between that file and the proved encoder. It
 establishes nothing about a configuration that an adopter or a dependency changes, which is a
 forged facet outside the evidence of the incremental gate.
+
+A target of the plain shape may name one plugin only, Regula's elaboration observer, as
+`isObserverPlugin` decides. That plugin is `@regula/RegulaObserver:shared`, or `@/RegulaObserver:shared`
+in the `lakefile.lean` of Regula that the driver admits by identity. Lake's own `presetup` facet
+builds that shared library and adds it to the plugins that Lean loads. It also mixes the trace of
+the library into the module's trace. The observer imports only Lean, prints nothing and reads no
+option that the marker sets. So a build with the marker and a build without it write the same
+record.
+
+Regula declares no `presetup` facet. The audit's own builds run the facet that the workspace
+configures, without a change, through `Observer.recordingPresetup`. That wrapper keeps the
+`buildable` and `memoize` settings of the facet. Each `presetup` job writes its result to
+`Observer.Presetups` when it completes. The audit reads the plugins and the source file of each
+module from there. The build store of Lake does not keep the job of a facet with
+`memoize := false`, so the audit does not read them from that store.
+
+A claimed module counts as observed only when its completed `presetup` loaded the observer of the
+running Regula (`Observer.pluginLoaded`). That is the same file, or a file with the same bytes.
+The audit reads the record of the module only then. So a dependency's facet that drops the plugin
+leaves the module refused under [RG2003]. [RG2006] requires the plugin in the configuration of each
+claimed target.
 
 A file `lakefile.lean` must also declare only what the commands of Lake generate. These are the
 definitions of the package, its targets and their configurations, `require` and the name of the
@@ -1088,21 +1088,18 @@ closed by qualification and review, never by a count or hash. Private constructo
 ergonomic boundary, not hostile in-process unforgeability. Lean/Lake extraction, compiler
 admission, source reads, process completion and compiled execution remain trusted.
 
-### Replaced root facets
+### Replaced root library facets
 
-Lake inserts the root package's facets before those of its dependencies, and it keeps one configuration for each facet key.
-Thus Regula's `weakLeanArgsTrace` overrides the configuration of a root facet with the `extraDep` library key.
-Regula's `elaborationObserver` overrides one with the `presetup` module key in the same way.
+Lake inserts the root package's facets before those of its dependencies.
+Thus Regula's `weakLeanArgsTrace` overrides the configuration of a root library facet with the same `extraDep` key.
 Work unique to that configuration may be lost.
-Regula's facets also run Lake's own, and a later dependency can restore the root facet.
-
-Move `extraDep` work to `extraDepTargets` or `needs`, which Lake's own `extraDep` facet runs.
-Move `presetup` work to the library's `plugins` or `dynlibs`, which Lake's own `presetup` facet reads.
+Regula's facet also runs Lake's own facet, and a later dependency can restore the root facet.
+Move that work to `extraDepTargets` or `needs`, which Lake's own facet runs.
 
 The project audit and the `--explain-config` path of `lake lint` print the `regula facet report`.
 `lake lint` runs the project audit in the same process.
 The report names each replaced root declaration and its package, with that consequence and remedy.
-Only `--explain-config` also prints the count of loaded facet declarations and replaced root declarations.
+Only `--explain-config` also prints the count of loaded library facet declarations and replaced root declarations.
 The report is advisory and changes no audit exit class, but a failed read of the loaded declarations fails the inventory.
 It does not restore the overridden configuration.
 
@@ -1119,8 +1116,7 @@ Examples are the scope check of `lake lint`, `regula init`, `regula doctor` and 
 
 `FacetReport.observe` reads each package's compiled configuration through Lake's own importer, attribute inventory and evaluator.
 It reads no lakefile text.
-Each record keeps the package that contributes the declaration, its constant name, its attribute and its evaluated facet key.
-It also keeps the position of the declaration in the order in which Lake inserts the facets of its package.
+Each record keeps the package that contributes the declaration, its constant name and its evaluated facet key.
 The facet observer itself does not authenticate source or establish the behavior of a facet's job.
 
 The inventory reads the modules and sources of each package (`Lake.packageModules`) and applies the source guard (`Lake.checkReservedModules`).
@@ -1137,21 +1133,19 @@ A glob over an empty directory supplies no authenticated source and no key.
 If the provider guard refuses, the inventory prints no report.
 
 The shared reader `LakeConfig.language` uses the selected `relConfigFile`, as Lake does, rather than the resolved symlink target.
-The facet report, plain-shape guard, facet count and setup observer use this reader.
+The facet report, plain-shape guard, library-facet count and setup observer use this reader.
 It calls Lake's `ConfigLang.ofString?` decoder.
 `language_ok_iff` proves its exact correspondence to Lake's `ConfigLang.fileExtension` for the supplied relative path.
 
 `FacetReport.replacementDecision` decides `Replaced` on these records.
 `mem_replaced_iff` proves that the report's selection contains exactly the records for which this proposition holds.
-The proposition requires the last root record of the `extraDep` or `presetup` key, of any kind.
-It also requires a declaration of that key by Regula from a dependency.
-
+The proposition requires the last root `extraDep` record and Regula's declaration of that key from a dependency.
 The theorem is about supplied records.
 The observation trusts Lake's insertion order, compiled configuration and runtime evaluation, plus the audit's source authentication and stable files during the read.
 A later dependency can replace Regula's facet also, so the report does not identify the final facet.
 
 The `facet-report` controls run in `diagnostics lint-driver 1/5`, through `lake lint -- --explain-config` and `axiomGate --incremental --project`.
-They report a root `extraDep` library facet and a root `presetup` module facet, but not a text-only decoy or a different facet key.
+They report a named root facet and leave a text-only decoy and a different facet key unreported.
 They also check symlinked configuration files, a Regula dependency at a different directory, a renamed facet declaration and Regula's own root configuration.
 The negative controls require the census line of `--explain-config`, so absence of a report alone cannot pass them.
 The audit controls require the report without the census line.
@@ -1492,6 +1486,11 @@ gives it (`licensed_iff`); a `-D` extra argument that gives it a value can only 
 fail. That the linter compares the header with that option is read from Mathlib's source and
 assumed.
 
+The decision on the target's configuration also requires the observer. If the plugins of a target
+do not name `@regula/RegulaObserver:shared`, the target fails with `Failure.observer`
+(`observer_unloaded_fails`). The finding names the line to add. The adapter reads the plugins
+that Lake resolves for the target with `Observer.observerKey`: the package's, then the target's.
+
 [RG2006] also decides the options that each claimed module's source sets, as Regula's elaboration
 observer recorded them, with `RegulaPolicy.Community.sourceFailures` (`sourceFailures_eq_nil_iff`,
 `checked_sourceFailures`). The same accepted set decides them, with two more admissions.
@@ -1540,6 +1539,15 @@ can change an option for its own commands, through `withScope`. Examples are `au
 `ToExpr` deriving handler and `quotPrecheck.allowSectionVars` in a `local notation`. Such a change
 is outside the record.
 
+Lean records an option's name in four places, which `GeneratedSettingSearch.producers` lists.
+The registry checks require that list to be the search's result. The `set_option` forms record a
+setting. The documentation command `{set_option name value}` records one too, for the rest of its
+comment.
+
+The observer leaves out the other two, since neither sets an option of the scope. The
+documentation role `{option}` only refers to an option. A `simp` user option such as
+`simp +user.name` sets the option in the tactic's own configuration.
+
 [RG2003] decides each claimed module's record with `RegulaPolicy.Elaboration.failures`
 (`failures_eq_nil_iff`, `checked_failures`). The two theorems are about the decisions over the
 recorded data. Lean's source at the pinned release shows that the observer records each `set_option`,
@@ -1552,7 +1560,6 @@ A stateful linter that an imported module registers runs after the observer's li
 command, since Lean loads the plugin first. Lean gives a plugin no later point to read the
 messages, so a silent message from such a linter is outside the record too. A file audit with a
 claim loads the observer into its compilation and decides on that record.
-
 
 Each other option that a target sets in `leanOptions` or with `-D` must be in the closed accepted
 set `RegulaPolicy.Community.Accepted`, at an accepted value. The function `accepts` decides that
