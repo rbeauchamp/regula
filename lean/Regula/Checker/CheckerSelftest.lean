@@ -3384,6 +3384,108 @@ private def libraryCycleControl (repo : FilePath) : IO (Array String) :=
       the key of its reused module Right.Base"
   return failures
 
+/-- Observer identity control: a gate admits only the observer library that it read at its start
+(`Observer.running`), even when its audit's build writes other bytes at the very path it read.
+
+A tool package below the scratch directory holds a copy of the running Regula's `axiomGate` (a
+hard link, so the gate's real path, and with it the place it reads its observer from,
+`Observer.runningPackageDir`, is the tool's), the running observer library placed in its build
+directory (`Observer.placeRunning`), and a copy of the observer's sources. Each other source and
+compiled module of the repository is a symbolic link to the repository's: no module that the
+audit builds reaches them, since the project's module imports nothing and the observer's modules
+import only Lean. A project that requires `regula` from the tool loads the tool's library as a
+plugin.
+
+- Rebuilt in place: the observer source gains a public definition, so Lake links the library again
+  at the path the gate read at its start (`Module.cFacetConfig`, `Lake/Build/Module.lean` lines
+  1184 to 1198), with other bytes. The audit must refuse the project under RG2003. An admission
+  by the library's path, or by an identity read after the build, admits that library, so this
+  control fails under either.
+- Restored: the source and the placed library, trace and hash put back, Lake reuses the library,
+  and the audit must accept the project. -/
+private def observerIdentityControl (repo : FilePath) : IO (Array String) :=
+  withScratch repo "observer-identity" fun dir => withScratch repo "observer-identity-result"
+      fun output => do
+  let tool := dir / "tool"
+  let project := dir / "project"
+  let link (source target : FilePath) : IO Unit := do
+    let linked ← runProcess dir "ln" #["-s", source.toString, target.toString]
+    unless linked.succeeded do
+      throw <| IO.userError s!"observer identity: cannot link {target}: {linked.output}"
+  let observerEntry (name : String) : Bool :=
+    name.startsWith Observer.observerLibrary.toString
+  for file in #["lakefile.lean", "lean-toolchain", "lake-manifest.json"] do
+    IO.FS.writeBinFile (tool / file) (← IO.FS.readBinFile (repo / file))
+  IO.FS.createDirAll (tool / "lean")
+  let sources := (repo / "lean").normalize.components.length
+  for entry in ← (repo / "lean").readDir do
+    if observerEntry entry.fileName then
+      for path in ← entry.path.walkDir do
+        if ← path.isDir then continue
+        let destination :=
+          (path.normalize.components.drop sources).foldl (· / FilePath.mk ·) (tool / "lean")
+        if let some parent := destination.parent then IO.FS.createDirAll parent
+        IO.FS.writeBinFile destination (← IO.FS.readBinFile path)
+    else link entry.path (tool / "lean" / entry.fileName)
+  let compiled := tool / ".lake" / "build" / "lib" / "lean"
+  IO.FS.createDirAll compiled
+  for entry in ← (repo / ".lake" / "build" / "lib" / "lean").readDir do
+    unless observerEntry entry.fileName do link entry.path (compiled / entry.fileName)
+  Observer.placeRunning tool
+  let snapshot ← Observer.running
+  let library := tool / ".lake" / "build" / "lib" / snapshot.fileName
+  let bin := tool / ".lake" / "build" / "bin"
+  IO.FS.createDirAll bin
+  let gate := bin / "axiomGate"
+  let hardLinked ← runProcess dir "ln" #[(← toolPath repo "axiomGate").toString, gate.toString]
+  unless hardLinked.succeeded do
+    return #[s!"observer-identity/setup: cannot link the gate: {hardLinked.output}"]
+  IO.FS.createDirAll project
+  IO.FS.writeFile (project / "lean-toolchain") (← IO.FS.readFile (repo / "lean-toolchain"))
+  IO.FS.writeFile (project / "lakefile.toml") <|
+    "name = \"observer_identity_control\"\n" ++ observerPluginToml ++
+      "[leanOptions]\nautoImplicit = false\n" ++
+      "relaxedAutoImplicit = false\nlinter.missingDocs = true\n" ++
+      "[[lean_lib]]\nname = \"Example\"\n" ++ observerNeedToml ++ regulaRequireToml tool
+  IO.FS.writeFile (Manifest.defaultPath project) <|
+    "{\"schema-version\":2,\"surfaces\":[{\"library\":\"Example\",\"executables\":[]," ++
+      "\"claim\":\"kernel-only\",\"execution\":\"report\"," ++
+      "\"rationale\":\"Observer identity control\"}]," ++
+      "\"excluded-libraries\":[],\"excluded-executables\":[]}"
+  IO.FS.writeFile (project / "Example.lean")
+    "/-! Observer identity control. -/\n\n/-- A value. -/\ndef value : Nat := 1\n"
+  -- The project is a Git work tree of its own, so the tool, in the repository's, is a
+  -- dependency the fresh copy loads in place.
+  let initialized ← runProcess project "git" #["init", "-q"]
+  let locked ← runProcess project "lake" #["update"] scrubbedLeanPathEnv
+  unless initialized.succeeded && locked.succeeded do
+    return #[s!"observer-identity/setup: {initialized.output}{locked.output}"]
+  let audit (name : String) : IO ProcessResult :=
+    runProcess project gate.toString
+      #["--project", project.toString, "--json-out", (output / s!"{name}.json").toString]
+      scrubbedLeanPathEnv
+  let mut failures := #[]
+  let observerSource := tool / "lean" / "RegulaObserver.lean"
+  let observerText ← IO.FS.readFile observerSource
+  IO.FS.writeFile observerSource (observerText ++
+    "\n/-- A changed observer module. -/\ndef changedObserverModule : Nat := 1\n")
+  let rebuilt ← audit "rebuilt"
+  if (← IO.FS.readBinFile library).data == snapshot.library.data then
+    failures := failures.push s!"observer-identity/rebuilt-in-place: the build did not write other \
+      bytes at {library}:\n{rebuilt.output}"
+  else if let some failure := expectedFailure "observer-identity/rebuilt-in-place" rebuilt
+      #["RG2003", "not observed: Regula's elaboration observer was not among the plugins"] then
+    failures := failures.push failure
+  IO.FS.writeFile observerSource observerText
+  Observer.placeRunning tool
+  let restored ← audit "restored"
+  unless restored.succeeded do
+    failures := failures.push s!"observer-identity/restored: expected PASS:\n{restored.output}"
+  unless (← IO.FS.readBinFile library).data == snapshot.library.data do
+    failures := failures.push s!"observer-identity/restored: the build wrote other bytes at \
+      {library}, so the restored control did not run on the placed library"
+  return failures
+
 /-- External-boundary control for reuse with shared copies, where Lean's realization and import
 of several copies of one name, the report workers and the kernel are the external mechanism
 (`Admission.copiesAgree_iff`, `Admission.referencesWithin_iff` and `Admission.ownedAgrees_iff`
@@ -3937,6 +4039,7 @@ private inductive StructuralGroup where
   | driverCopy
   | retainedBuild
   | manifest
+  | observerIdentity
   deriving BEq
 
 /-- What a sharded run printed in place of the description of every control of its group: the
@@ -3947,9 +4050,10 @@ private def shardDescription (label : String) (others : Nat) (names : Array Stri
 
 /-- Structural mutations and manifest controls retain their isolated projects, worker joins,
 and complete failure accumulation. The frozen-artifact controls, the mutation clusters, the
-cross-surface decision control, the library cycle control, the shared copies control, the
-driver copy control, the retained build control and the manifest controls share one queue of
-`jobs` workers, so no more than `jobs` of them run at once. The short controls wait behind the
+cross-surface decision control, the library cycle control, the observer identity control, the
+shared copies control, the driver copy control, the retained build control and the manifest
+controls share one queue of `jobs` workers, so no more than `jobs` of them run at once. The short
+controls wait behind the
 clusters and take the
 workers the first clusters free, instead of competing with the first clusters for the
 processors. Each control has its shard; with `shard`, only that shard's controls run, and only
@@ -3977,6 +4081,8 @@ private unsafe def runStructural (layout : SourceLayout) (repo : FilePath) (jobs
               crossSurfaceDecisionControl false repo),
             (structuralShard 4, StructuralGroup.cycle, "library cycle control",
               libraryCycleControl repo),
+            (structuralShard 4, StructuralGroup.observerIdentity, "observer identity control",
+              observerIdentityControl repo),
             (structuralShard 1, StructuralGroup.copies, "shared copies control",
               sharedCopiesControl repo),
             (structuralShard 1, StructuralGroup.manifest, "manifest controls",
@@ -4033,6 +4139,10 @@ private unsafe def runStructural (layout : SourceLayout) (repo : FilePath) (jobs
     IO.println <| "self-test library cycle: " ++ verdict .cycle ++
       " (two claimed libraries that import one another: accepted, each module replayed in one \
         environment, a requested module reused with its keys)"
+  if ran .observerIdentity then
+    IO.println <| "self-test observer identity: " ++ verdict .observerIdentity ++
+      " (a copied gate whose audit links the observer library again at the path the gate read it \
+        from: refused under RG2003; restored, the library reused: accepted)"
   if ran .copies then
     IO.println <| "self-test shared copies: " ++ verdict .copies ++
       " (two modules that realize copies of two lemmas, identical or equal up to their private \
