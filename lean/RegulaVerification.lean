@@ -285,8 +285,8 @@ def auditPackage : String := "audit"
 
 /-- The Mathlib integration package (`MathlibAudit`): a Mathlib adopter of the root `regula`
 package by relative path, holding the Mathlib-specific behaviour Regula supports. Only the
-`mathlib` mode runs Lake in it; no other mode loads its workspace, so no other mode needs
-Mathlib. -/
+`mathlib` mode and the `readers` group of the `diagnostics` mode run Lake in it (`lake exe qualify
+readers` builds its modules); no other mode loads its workspace, so no other mode needs Mathlib. -/
 def mathlibPackage : String := "integration/mathlib"
 
 private def lakeIn (dir : String) (args : Array String) : Command :=

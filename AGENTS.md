@@ -196,7 +196,7 @@ claim still needs its actual evidence.
 On every PR and `main`, CI runs both acceptance steps in one job, the three rule-example
 shards, and then `./scripts/verify.sh site`, which builds and checks the rule-reference site (its own
 420-second limit; never part of acceptance). A separate job runs `./scripts/verify.sh mathlib`,
-the Mathlib integration check, the only one that needs Mathlib (never part of acceptance). The
+the Mathlib integration check, the only CI check that needs Mathlib (never part of acceptance). The
 [contributor guide](docs/guides/contributing.md#choose-focused-diagnostics) lists which
 workflow runs each diagnostic and when; the
 [website guide](docs/guides/website.md#publication) owns publication. Merge requires passing
