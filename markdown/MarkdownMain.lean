@@ -1497,11 +1497,15 @@ before any check starts, with exit code 1 (`Regula.TaskManager.guard`). -/
 def main : List String → IO UInt32 :=
   Regula.TaskManager.guard "regula-markdown" refuseMarkdown markdownMain
 
--- The removals and the writes that the compiled code of `main`, and of the initializers of the
--- modules it links, reaches are those of the filesystem observer, those that
+-- The removals and the writes that the compiled code of the program reaches from its roots
+-- (`Regula.Removal.rawRemovals`) are those of the filesystem observer, those that
 -- `Regula.Removal.sharedPairs` lists and those that are named here: the build of this module fails
--- otherwise (`Regula.Removal.checkProgram`).
-run_cmd Regula.Removal.checkProgram (named := [
+-- otherwise (`Regula.Removal.checkProgram`). Its modules link `Regula.Collect` through the guard of
+-- Lean's task manager (`Regula.TaskManager`, which imports `Regula.Probe`), and the regeneration of
+-- a declaration's recursion there runs its `decreasing_by` tactics, so its check states that it
+-- elaborates: the class is conservative reachability from every compiled declaration of its
+-- modules (`Regula.Removal.programRoots`).
+run_cmd Regula.Removal.checkProgram (elaborates := true) (named := [
   -- The files of the controls, each below the temporary directory that its control made
   -- (`Regula.Filesystem.withOwnTempDir`): the repositories of the controls and their baselines.
   (``Regula.Controlled.Run.makeRepository, ``IO.FS.createDirAll),

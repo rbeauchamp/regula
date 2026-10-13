@@ -11,9 +11,11 @@ the check admits in every program (`Regula.Removal.sharedPairs`) and the driver'
 it names. It names each as the pair of the declaration of a source that makes it and the primitive
 that it calls (`Regula.Removal.checkProgram`):
 
-- the removals of a directory, in `RegulaVerification.removeOwn` and in the loop of
-  `RegulaVerification.reclaim`, each of which `RegulaVerification.removal` decides, the decision
-  that `RegulaVerification.removal_shared` relates to `Regula.Removal.removal`;
+- the removals of a directory, in `RegulaVerification.removeDecided`, which takes the proof that
+  `RegulaVerification.removal` decided the removal, the decision that
+  `RegulaVerification.removal_shared` relates to `Regula.Removal.removal`, and where the compiler
+  placed its body, in `RegulaVerification.removeOwn` and in the loop of
+  `RegulaVerification.reclaim`;
 - the removals of the ownership marker of a scratch directory, a regular file by a read that
   follows no link, in the loop of `RegulaVerification.reclaim` and in
   `RegulaVerification.Copy.remove`;
@@ -42,6 +44,7 @@ writes. Issue 389 asks for a decision of each of the removals that a theorem rel
 `RegulaCore.Removal`. -/
 
 run_cmd Regula.Removal.checkProgram (named := [
+  (``RegulaVerification.removeDecided, ``IO.FS.removeDirAll),
   (``RegulaVerification.removeOwn, ``IO.FS.removeDirAll),
   (``RegulaVerification.reclaim, ``IO.FS.removeDirAll),
   (``RegulaVerification.reclaim, ``IO.FS.removeFile),

@@ -72,8 +72,8 @@ before the build starts, with exit code 1 (`Regula.TaskManager.guard`). -/
 def main : List String → IO UInt32 :=
   Regula.TaskManager.guard "site" refuseSiteBuild siteMain
 
--- The removals and the writes that the compiled code of `main`, and of the initializers of the
--- modules it links, reaches are those of the filesystem observer and those that
+-- The removals and the writes that the compiled code of the program reaches from its roots
+-- (`Regula.Removal.rawRemovals`) are those of the filesystem observer and those that
 -- `Regula.Removal.sharedPairs` lists, and those named here, each by the declaration of a source
 -- that makes it: the build of this module fails otherwise, and when a name here admits no call
 -- (`Regula.Removal.checkProgram`). The program elaborates Lean source, so its check states it.
@@ -91,7 +91,36 @@ run_cmd Regula.Removal.checkProgram (elaborates := true) (named := [
   (``Regula.Site.Build.generate, ``IO.FS.createDirAll),
   (``Regula.Site.Build.generate, ``IO.FS.writeFile),
   (``Regula.Site.Build.writeTree, ``IO.FS.createDirAll),
-  (``Regula.Site.Build.writeTree, ``IO.FS.writeBinFile)])
+  (``Regula.Site.Build.writeTree, ``IO.FS.writeBinFile),
+  -- The writes of the campaigns that `qualify` runs and names (`Regula.Qualification.Main`), in
+  -- the modules of them that this program links: their projects and slots, and the raw
+  -- observations of a rule-example production beside its evidence
+  -- (`Regula.Qualification.RuleExamples`). The compiled code of those modules is among the
+  -- program's roots (`Regula.Removal.programRoots`).
+  (``Regula.Qualification.prepareCoreProject, ``IO.FS.createDirAll),
+  (``Regula.Qualification.prepareCoreProject, ``IO.FS.writeBinFile),
+  (``Regula.Qualification.prepareCoreProject, ``IO.FS.writeFile),
+  (``Regula.Qualification.prepareProject, ``IO.FS.createDirAll),
+  (``Regula.Qualification.prepareProject, ``IO.FS.writeBinFile),
+  (``Regula.Qualification.prepareProject, ``IO.FS.writeFile),
+  (``Regula.Qualification.rootImportsGuardControl, ``IO.FS.createDirAll),
+  (``Regula.Qualification.rootImportsGuardControl, ``IO.FS.writeBinFile),
+  (``Regula.Qualification.rootImportsGuardControl, ``IO.FS.writeFile),
+  (`Regula.Qualification.RuleExamples.observe, ``IO.FS.Handle.mk),
+  (`Regula.Qualification.RuleExamples.produce, ``IO.FS.createDir),
+  (`Regula.Qualification.RuleExamples.produce, ``IO.FS.createDirAll),
+  (`Regula.Qualification.RuleExamples.produce, ``IO.FS.writeBinFile),
+  (`Regula.Qualification.RuleExamples.produce, ``IO.FS.writeFile),
+  (``Regula.Qualification.RuleExamples.check, ``IO.FS.createDirAll),
+  (``Regula.Qualification.Slot.copyFile, ``IO.FS.createDirAll),
+  (``Regula.Qualification.Slot.copyFile, ``IO.FS.writeBinFile),
+  (``Regula.Qualification.Slot.copyTree, ``IO.FS.createDirAll),
+  (``Regula.Qualification.Slot.materializeGit, ``IO.FS.writeFile),
+  (``Regula.Qualification.Slot.prepareSlot, ``IO.FS.createDirAll),
+  (``Regula.Qualification.Slot.prepareSlot, ``IO.FS.writeFile),
+  (``Regula.Qualification.Slot.prepareSlotProject, ``IO.FS.createDirAll),
+  (``Regula.Qualification.Slot.prepareSlotProject, ``IO.FS.writeBinFile),
+  (``Regula.Qualification.Slot.prepareSlotProject, ``IO.FS.writeFile)])
 
 -- A program that needs Lean's task manager starts through its guard (`Regula.TaskManager.guard`),
 -- and its refusal needs none: the build of this module fails otherwise

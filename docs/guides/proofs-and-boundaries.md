@@ -641,9 +641,9 @@ programs declares `main`. Thus the decision has two implementations. The theorem
 `RegulaVerification.removal_shared` shows that the two implementations give the same result for a
 directory.
 
-The build of the root module of each executable reads the compiled code of `main` and of the
-initializers of the linked modules. It also reads the compiled code of each
-declaration that this code calls, in this package and in the libraries. Only the declarations of
+The build of the root module of each executable reads the compiled code of each declaration of the
+linked modules outside Lean's toolchain. It also reads the initializers of the toolchain's linked
+modules, and the code of each declaration that this code calls. Only the declarations of
 the observer and the variants of them that the compiler made can call a removal function of the
 Lean library. The calls that `Regula.Removal.libraryRemovals` and `Regula.Removal.tacticRemovals`
 give are the only other calls that the check permits. The build fails for each different call.
@@ -965,9 +965,15 @@ its function by its caller for each path to that caller, thus also Regula's own 
 
 Nine programs elaborate Lean source, such as the Lake configuration of a project: `axiomGate`,
 `lint`, `ruleExamples`, `freshChecker`, `docFenceAudit`, `checkerSelftest`, `qualify`, `regula` and
-`site`. Their check states this with `elaborates := true`, and it fails if the compiled code of
-`main` or of an initializer outside Lean's toolchain disagrees. This is reachability in the
-compiled code, thus a reference to the elaborator that the program does not call also counts.
+`site`. Their check states this with `elaborates := true`, and it fails if the compiled code of the
+linked modules outside Lean's toolchain disagrees. This is conservative reachability in the compiled
+code. A declaration that the program does not run counts, and so does a reference to the elaborator
+that it does not call. Three more programs state it because they link such code:
+`ruleExampleQualification`, `regula-markdown` and the registry checks.
+
+The check takes a module as part of Lean's toolchain by its name: `Init`, `Std`, `Lean` or `Lake`.
+`lake exe qualify observers` checks that no package of the workspaces of this repository provides a
+module under these names.
 
 The tactics of the elaborated source run with their effects, as `lake build` runs them. These are
 trusted effects that the check does not find or limit, such as the `aig.gv` and LRAT files of
@@ -2009,7 +2015,7 @@ Two-way decisions (`Regula.Decides`), each with an accepted and a refused input:
 | `RegulaVerification.passed` | Each command of a step ended with exit status 0 (`passed_iff`). | The driver of `scripts/verify.sh` uses it before it operates one more command, before its success line and before it moves the acceptance record. |
 | `Construction.projectRelative` | No root `tmp`. Documentation includes cache-named directories. Elsewhere no component is `.git`, `.lake`, `.cache` or `.regula-scratch` (`checked_projectRelative`). | The selection that the shared cold constructor executes. The constructor's filesystem theorems name their primitive hypotheses. |
 | `RegulaVerification.removal` (accepts on `.remove`) | A directory is at the place by a read that follows no link, and its real path is the place (`removal_remove_iff`). | The driver removes its copy and the `_site` directory only by this decision. The two reads of the file system are trusted. |
-| `Regula.Removal.removal` (accepts on `.remove`) | A read that follows no link finds an entry of the given kind at the place. Its real path is the place, or a symbolic link is a name in a directory at its own place (`removal_remove_iff`). | Each program of the package removes a directory, a file or a symbolic link only by this decision, through `Regula.Filesystem`. The exceptions are the library calls that `Regula.Removal.libraryRemovals` gives, and the removals of the two drivers that `Regula.ProgramCheck.Verification` and `Regula.ProgramCheck.Provision` give. The reads of the file system are trusted. |
+| `Regula.Removal.removal` (accepts on `.remove`) | A read that follows no link finds an entry of the given kind at the place. Its real path is the place, or a symbolic link is a name in a directory at its own place (`removal_remove_iff`). | Each program of the package removes a directory, a file or a symbolic link only by this decision, through `Regula.Filesystem`. The exceptions are the library calls that `Regula.Removal.libraryRemovals` gives, and the removals of the two drivers that `Regula.ProgramCheck.Verification` and `Regula.ProgramCheck.Provision` give. The removals of `bv_decide` that `Regula.Removal.tacticRemovals` gives are also exceptions. The reads of the file system are trusted. |
 | `Regula.Removal.replacement` (accepts on `true`) | A read that follows no link finds a file at the source, at its own place. Nothing is at the destination, or a file is there at its own place. The destination is a name in a directory at its own place (`replacement_iff`). | Each program of the package moves a file only by this decision, through `Regula.Filesystem`. The exceptions are the library calls that `Regula.Removal.libraryRemovals` gives, and the moves of the two drivers that `Regula.ProgramCheck.Verification` and `Regula.ProgramCheck.Provision` give. The operation `Regula.Filesystem.moveAside` also moves an entry with no such decision, into a new directory beside it. The reads of the file system are trusted. |
 | `RegulaVerification.prebuildCovers` | The surface manifest has the shape that `claimedTargets` reads, and each target it claims is in `gateTargets` (`prebuildCovers_iff`). | The driver runs the first acceptance step only on such a manifest. Thus the gate does not build a claimed target beside the step's build. No theorem relates `claimedTargets` to the manifest reader of the checker. |
 | `ScratchCopy.name?` (accepts on `some`) | The path is the scratch area, then one name, then `project` (`name?_eq_some_iff`). | The gate admits a copy of the driver only at such a path. The components come from real paths, which the file system gives. |
@@ -5531,7 +5537,8 @@ The `qualify` campaigns and what they observe:
   [Operational assumptions](#operational-assumptions)).
 - `observers`: the record of the removal check of each program of the package, and the check of
   `Main`, the root of `auditApp`. It also refuses an executable with no record of the task-manager
-  check.
+  check. It refuses a module under `Init`, `Std`, `Lean` or `Lake` in a package of the root,
+  `markdown/` or `audit/` workspace (`checkToolchainWorkspaces`), after its control.
 - `acceptance fences`: fence-compilation packet mutations with positive restoration.
 - `acceptance-snapshots`: `dependencies` (ignored Git and non-Git dependency input coverage and
   mutation), `history` ([RG3001] fresh, incremental and build-lint history refusal and restoration)

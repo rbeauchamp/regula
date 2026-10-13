@@ -1,6 +1,6 @@
 /-
-Mutation: an audited module registers the same command token as the interactive
-probe compatibility command and also contains a forbidden declaration. The
+Mutation: an audited module registers the command token `audit_dump_json`, which an
+earlier probe registered as an interactive command, and also contains a forbidden declaration. The
 public file gate must use its trusted runner, inventory the axiom, and fail for
 `project-axiom` rather than invoking this handler.
 -/

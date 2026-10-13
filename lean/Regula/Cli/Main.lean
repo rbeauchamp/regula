@@ -49,8 +49,8 @@ task manager is refused before the invocation runs, with exit code 1
 def main : List String → IO UInt32 :=
   Regula.TaskManager.guard "regula" refuseRegula regulaMain
 
--- The removals and the writes that the compiled code of `main`, and of the initializers of the
--- modules it links, reaches are those of the filesystem observer and those that
+-- The removals and the writes that the compiled code of the program reaches from its roots
+-- (`Regula.Removal.rawRemovals`) are those of the filesystem observer and those that
 -- `Regula.Removal.sharedPairs` lists, and those named here, each by the declaration of a source
 -- that makes it: the build of this module fails otherwise, and when a name here admits no call
 -- (`Regula.Removal.checkProgram`). The program elaborates Lean source, so its check states it.
