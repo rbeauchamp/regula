@@ -47,9 +47,10 @@ compiled-as module name (Lean/Environment.lean:109-129); imports record the requ
 artifacts are outside this boundary. Exempted external dependencies must retain the committed
 manifest selection; the renderer refuses override selectors before Lake resolves them.
 
-The runtime's C bodies and child programs are not followed. The table identifies the pinned
-runtime symbols at the Lean boundary. A new native binding outside that table needs a sourced
-entry before this check can say anything about its effects. -/
+The runtime's C bodies and child programs are not followed. The table identifies the runtime
+symbols of the pinned Lean and of its libuv bindings in `Std` at the Lean boundary, each with its
+source (`removalSymbols`, `environmentSymbols`). A new native binding outside that table needs a
+sourced entry before this check can say anything about its effects. -/
 
 namespace Regula.Removal
 
@@ -274,18 +275,35 @@ def libraryLaunchers : List Name :=
       ``Lake.compileExe, ``Lean.Meta.Tactic.BVDecide.External.satQuery,
       ``Lean.Meta.Tactic.BVDecide.runExternal]
 
-/-- The single primitive table: filesystem replacement, process starts and environment reads.
-A wrapper around output or run is controlled at that operation, while an extern alias is
-controlled by its runtime binding. Other systems have no entries yet. -/
+/-- The runtime symbols of Lean 4.34.1 that read or change the process environment: its variables,
+working directory and executable path. Lean binds the first five in `Init/System/IO.lean` (`:951`,
+`:955`, `:959`, `:1383` and `:1386`). `Std.Internal.UV.System` binds the others to libuv
+(`Std/Internal/UV/System.lean:134-152`, `:170-188` and `:236`). Its only callers are the public
+`@[inline]` wrappers of `Std.Async.System` (`Std/Async/System.lean:250-287`) and `Std.IO.Process`
+(`Std/Async/Process.lean:156-164` and `:209-210`), so a project call of a wrapper reaches the
+binding, inlined or through the wrapper.
+Assumes: on POSIX, the toolchain's libuv reads HOME for the home directory and TMPDIR, TMP, TEMP or
+TEMPDIR for the temporary directory before any other source, so those two bindings observe
+variables. The C bodies are not followed: a variable that a different runtime function reads in C
+is outside this list. -/
+def environmentSymbols : List String :=
+  ["lean_io_getenv", "lean_io_current_dir", "lean_io_process_get_current_dir", "lean_io_app_path",
+    "lean_io_process_set_current_dir", "lean_uv_cwd", "lean_uv_chdir", "lean_uv_os_homedir",
+    "lean_uv_os_tmpdir", "lean_uv_os_environ", "lean_uv_os_getenv", "lean_uv_os_setenv",
+    "lean_uv_os_unsetenv", "lean_uv_exepath"]
+
+/-- The single primitive table: filesystem replacement, process starts and environment
+observations. A wrapper around output or run is controlled at that operation, while an extern
+alias is controlled by its runtime binding, as are `Std`'s libuv environment bindings and their
+public wrappers. Other systems have no entries yet. -/
 def boundaries : List Boundary :=
   [⟨.filesystem, primitives, removalSymbols, observerModule, libraryRemovals, [], [`Lean, `Lake], []⟩,
     ⟨.process, [``IO.Process.spawn, ``IO.Process.output, ``IO.Process.run],
       ["lean_io_process_spawn"], `Regula.Process, libraryStarts ++ rendererStarts, libraryLaunchers,
       [`Lean, `Lake, `MultiVerso], []⟩,
     ⟨.environment, [``IO.getEnv, ``IO.currentDir, ``IO.Process.getCurrentDir, ``IO.appPath, ``IO.Process.setCurrentDir],
-      ["lean_io_getenv", "lean_io_current_dir", "lean_io_process_get_current_dir", "lean_io_app_path", "lean_io_process_set_current_dir"],
-      `Regula.Process, rendererEnvironment, rendererEnvironment.map Prod.fst, [`Std, `MultiVerso],
-      [`Init, `Lean, `Lake]⟩]
+      environmentSymbols, `Regula.Process, rendererEnvironment, rendererEnvironment.map Prod.fst,
+      [`Std, `MultiVerso], [`Init, `Lean, `Lake]⟩]
 
 /-- The cold-start source's native boundaries, instantiated for the driver module and namespace.
 Each driver elaborates the same `ProcessSource.inc`, uses its typed selection and override

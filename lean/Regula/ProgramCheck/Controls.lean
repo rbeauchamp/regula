@@ -1,5 +1,7 @@
 import Regula.Removal
 import Regula.TaskManagerCheck
+import Std.Async.Process
+import Std.Async.System
 import Std.Time.Zoned.Database.TZdb
 
 /-! # Controls of the check that each program runs
@@ -14,11 +16,12 @@ admits nothing, and the check refuses a program while one is declared outside `R
 A planted program whose `main` starts a process or reads the environment outside `Regula.Process`
 fails the same check: through `IO.Process.spawn`, a wrapper of `IO.Process.output`,
 `IO.Process.run`, the PATH fallback of `Lean.findSysroot`, `IO.getEnv`, a public launcher of Lake
-or Lean, a timezone read of `Std`, or an `extern` of another name bound to the runtime's process
-start. So do such a read in a local module whose name starts with `Lake`, and a process
-observer's role given in this module.
-The same start through `Regula.Process.output` passes it. These controls compile each program and
-start no process.
+or Lean, a timezone read of `Std`, the public `Std` wrapper of each libuv environment binding, or
+an `extern` of another name bound to the runtime's process start or to a libuv environment read.
+So do such a read in a local module whose name starts with `Lake`, and a process observer's role
+given in this module.
+The same start through `Regula.Process.output` and the same read through `Regula.Process.readEnv`
+pass it. These controls compile each program, and start no process and read no variable.
 
 A planted program whose `main` starts a task, creates a promise or captures a process's output
 fails the check that a compiled program needing Lean's task manager starts through the guard
@@ -235,6 +238,27 @@ run_cmd do
     discard <| Regula.Process.output (.toolchain .lean) { cmd := "", args := #["--version"] }))
   if let some refused := routed then
     throwError "the reach check refused a process through the observer: {refused}"
+  let read ← bodyRefusal (← `(do discard <| Regula.Process.readEnv "PLANTED"))
+  if let some refused := read then
+    throwError "the reach check refused an environment read through the observer: {refused}"
+
+-- Each public `Std` wrapper of a libuv environment binding reaches that binding, inlined or
+-- through the wrapper, and the refusal names the binding. No variable or directory is read or
+-- changed by these compile-time controls.
+run_cmd do
+  for (label, body, binding) in [
+      ("getEnvVar", ← `(do discard <| Std.Async.System.getEnvVar "PLANTED"), "osGetenv"),
+      ("setEnvVar", ← `(Std.Async.System.setEnvVar "PLANTED" "planted"), "osSetenv"),
+      ("unsetEnvVar", ← `(Std.Async.System.unsetEnvVar "PLANTED"), "osUnsetenv"),
+      ("getEnv", ← `(do discard <| Std.Async.System.getEnv), "osEnviron"),
+      ("getHomeDir", ← `(do discard <| Std.Async.System.getHomeDir), "osHomedir"),
+      ("getTmpDir", ← `(do discard <| Std.Async.System.getTmpDir), "osTmpdir"),
+      ("getCwd", ← `(do discard <| Std.IO.Process.getCwd), "cwd"),
+      ("setCwd", ← `(Std.IO.Process.setCwd (System.FilePath.mk "planted")), "chdir"),
+      ("getExecutablePath", ← `(do discard <| Std.IO.Process.getExecutablePath), "exePath")] do
+    let refused ← bodyRefusal body
+    unless refused.any (·.contains s!"calls Std.Internal.UV.System.{binding}") do
+      throwError "{label}: the reach check did not refuse the intended libuv binding: {refused}"
 
 -- Public library launch APIs are boundaries too: a project caller cannot borrow an exemption
 -- for a library's own starts. These controls inspect compiled calls without running a child.
@@ -272,6 +296,14 @@ run_cmd do
   let refused ← bodyRefusal (← `(do discard <| plantedSpawn { cmd := "planted" })) setup
   unless refused.any (·.contains "calls Regula.ProgramCheck.Controls.plantedSpawn") do
     throwError "a differently named process extern escaped the reach check: {refused}"
+
+-- An arbitrary extern name bound to a libuv environment symbol is detected as the same boundary.
+run_cmd do
+  let setup := elabCommand (← `(command|
+    @[extern "lean_uv_os_getenv"] opaque plantedGetenv (name : @& String) : IO (Option String)))
+  let refused ← bodyRefusal (← `(do discard <| plantedGetenv "PLANTED")) setup
+  unless refused.any (·.contains "calls Regula.ProgramCheck.Controls.plantedGetenv") do
+    throwError "a differently named environment extern escaped the reach check: {refused}"
 
 -- A process observer role belongs only to Regula.Process, even if a foreign declaration is pure.
 run_cmd do
