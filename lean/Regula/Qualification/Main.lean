@@ -264,10 +264,74 @@ marked incomplete with the reason, and the exit code is 1, or the gate's for the
 unsafe def main : List String → IO UInt32 :=
   Regula.TaskManager.guard "qualify" refuseQualification qualifyMain
 
--- The removals that the compiled code of `main`, and of the initializers of the modules it links,
--- reaches are the filesystem observer's and those that `Regula.Removal.libraryRemovals` lists: the
--- build of this module fails otherwise (`Regula.Removal.checkProgram`).
-run_cmd Regula.Removal.checkProgram
+-- The removals and the writes that the compiled code of `main`, and of the initializers of the
+-- modules it links, reaches are those of the filesystem observer and those that
+-- `Regula.Removal.sharedPairs` lists, and those named here, each by the declaration of a source
+-- that makes it: the build of this module fails otherwise, and when a name here admits no call
+-- (`Regula.Removal.checkProgram`).
+run_cmd Regula.Removal.checkProgram (named := [
+  -- The projects, slots and fixtures of the campaigns, in the scratch and slot directories that
+  -- they make, and the raw observations of a rule-example production in the raw directory beside
+  -- its evidence (`Regula.Qualification.RuleExamples`).
+  (`Regula.Qualification.Acceptance.qualify, ``IO.FS.createDirAll),
+  (`Regula.Qualification.Acceptance.qualify, ``IO.FS.writeFile),
+  (``Regula.Qualification.Acceptance.copyExecutable, ``IO.FS.writeBinFile),
+  (``Regula.Qualification.Acceptance.documentationDependencies, ``IO.FS.createDirAll),
+  (``Regula.Qualification.Acceptance.documentationDependencies, ``IO.FS.writeFile),
+  (`Regula.Qualification.DependencySnapshot.control, ``IO.FS.writeFile),
+  (`Regula.Qualification.DependencySnapshot.gitStatusControls, ``IO.FS.createDirAll),
+  (`Regula.Qualification.DependencySnapshot.gitStatusControls, ``IO.FS.writeFile),
+  (``Regula.Qualification.DependencySnapshot.check, ``IO.FS.createDirAll),
+  (``Regula.Qualification.DependencySnapshot.check, ``IO.FS.writeBinFile),
+  (``Regula.Qualification.DependencySnapshot.check, ``IO.FS.writeFile),
+  (``Regula.Qualification.DependencySnapshot.toolchain, ``IO.FS.writeBinFile),
+  (``Regula.Qualification.DocumentationSource.check, ``IO.FS.writeFile),
+  (`Regula.Qualification.FrozenExit.runCase, ``IO.FS.writeFile),
+  (`Regula.Qualification.History.control, ``IO.FS.createDir),
+  (`Regula.Qualification.History.control, ``IO.FS.writeFile),
+  (``Regula.Qualification.InputInventory.check, ``IO.FS.createDirAll),
+  (``Regula.Qualification.InputInventory.check, ``IO.FS.writeFile),
+  (`Regula.Qualification.NativeLinter.check, ``IO.FS.writeFile),
+  (`Regula.Qualification.NativeLinter.forgedPrelude, ``IO.FS.createDirAll),
+  (`Regula.Qualification.NativeLinter.forgedPrelude, ``IO.FS.writeFile),
+  (``Regula.Qualification.NativeLinter.paired, ``IO.FS.createDir),
+  (``Regula.Qualification.Preparation.check, ``IO.FS.createDirAll),
+  (`Regula.Qualification.Producer.chain, ``IO.FS.writeBinFile),
+  (`Regula.Qualification.Producer.checkControls, ``IO.FS.createDir),
+  (`Regula.Qualification.Producer.standalone, ``IO.FS.writeBinFile),
+  (`Regula.Qualification.Producer.standalone, ``IO.FS.writeFile),
+  (``Regula.Qualification.prepareCoreProject, ``IO.FS.createDirAll),
+  (``Regula.Qualification.prepareCoreProject, ``IO.FS.writeBinFile),
+  (``Regula.Qualification.prepareCoreProject, ``IO.FS.writeFile),
+  (``Regula.Qualification.prepareProject, ``IO.FS.createDirAll),
+  (``Regula.Qualification.prepareProject, ``IO.FS.writeBinFile),
+  (``Regula.Qualification.prepareProject, ``IO.FS.writeFile),
+  (``Regula.Qualification.rootImportsGuardControl, ``IO.FS.createDirAll),
+  (``Regula.Qualification.rootImportsGuardControl, ``IO.FS.writeBinFile),
+  (``Regula.Qualification.rootImportsGuardControl, ``IO.FS.writeFile),
+  (``Regula.Qualification.ReceiptBoundary.check, ``IO.FS.createDir),
+  (``Regula.Qualification.ReceiptBoundary.check, ``IO.FS.writeBinFile),
+  (``Regula.Qualification.ReceiptBoundary.check, ``IO.FS.writeFile),
+  (`Regula.Qualification.RuleExamples.observe, ``IO.FS.Handle.mk),
+  (`Regula.Qualification.RuleExamples.produce, ``IO.FS.createDir),
+  (`Regula.Qualification.RuleExamples.produce, ``IO.FS.createDirAll),
+  (`Regula.Qualification.RuleExamples.produce, ``IO.FS.writeBinFile),
+  (`Regula.Qualification.RuleExamples.produce, ``IO.FS.writeFile),
+  (``Regula.Qualification.RuleExamples.check, ``IO.FS.createDirAll),
+  (``Regula.Qualification.Slot.copyFile, ``IO.FS.createDirAll),
+  (``Regula.Qualification.Slot.copyFile, ``IO.FS.writeBinFile),
+  (``Regula.Qualification.Slot.copyTree, ``IO.FS.createDirAll),
+  (``Regula.Qualification.Slot.materializeGit, ``IO.FS.writeFile),
+  (``Regula.Qualification.Slot.prepareSlot, ``IO.FS.createDirAll),
+  (``Regula.Qualification.Slot.prepareSlot, ``IO.FS.writeFile),
+  (``Regula.Qualification.Slot.prepareSlotProject, ``IO.FS.createDirAll),
+  (``Regula.Qualification.Slot.prepareSlotProject, ``IO.FS.writeBinFile),
+  (``Regula.Qualification.Slot.prepareSlotProject, ``IO.FS.writeFile),
+  (``Regula.Qualification.SourceEvidence.closure, ``IO.FS.writeFile),
+  (``Regula.Qualification.SourceEvidence.configuration, ``IO.FS.createDir),
+  (``Regula.Qualification.SourceEvidence.configuration, ``IO.FS.writeFile),
+  (``Regula.Qualification.SourceEvidence.fences, ``IO.FS.writeFile),
+  (``Regula.Qualification.SourceEvidence.writeFence, ``IO.FS.writeFile)])
 
 -- A program that needs Lean's task manager starts through its guard (`Regula.TaskManager.guard`),
 -- and its refusal needs none: the build of this module fails otherwise

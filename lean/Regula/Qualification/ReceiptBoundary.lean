@@ -33,7 +33,8 @@ def check : IO Unit := do
         -- Completed evidence of an earlier attempt, with the members of a receipt and of a
         -- census, which the run may replace (`Regula.Destination.regulaDocument`).
         writeJson evidence (Json.mkObj [("status", toJson "completed"),
-          ("attemptId", toJson "old"), ("group", toJson "fences"),
+          ("attemptId", toJson "old"), ("schemaVersion", toJson (1 : Nat)),
+          ("group", toJson "fences"), ("inputs", Json.mkObj []),
           ("records", toJson (#[] : Array Json)), ("packets", toJson (#[] : Array Json)),
           ("controls", toJson (#[] : Array Json))])
         let result ← IO.Process.output {

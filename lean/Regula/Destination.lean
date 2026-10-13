@@ -6,9 +6,13 @@ import Regula.Filesystem
 
 A program of Regula marks each result destination that its arguments name before any code of the
 run reads an input (`Regula.TaskManager.guard`), so a destination that names one of its inputs
-would replace that input before the run reads it. Three rules keep the mark and the run's writes
+would replace that input before the run reads it. Four rules keep the mark and the run's writes
 from losing a file that is not Regula's, whatever files the run reads:
 
+- Each destination is read, before anything is made, as the real path of its longest present
+  prefix and the names below it (`place`), and a destination with a `..` among those names is
+  refused. So the entry that the rules below read is the one that the write replaces once it
+  makes the absent directories.
 - A write replaces the entry at the destination and never writes into the file that the entry
   names (`Regula.Filesystem.writeReplacing`), so a hard link there keeps the file that it shares.
 - A write, and so a mark, stops with nothing written when the destination holds something other
@@ -22,7 +26,7 @@ from losing a file that is not Regula's, whatever files the run reads:
 
 A document of Regula of any kind is replaceable, not only one of the kind that the destination
 holds: Regula regenerates each of its documents, so replacing one loses nothing that a later run
-cannot make again. The third rule keeps the destinations of one run from replacing each other. An
+cannot make again. The last rule keeps the destinations of one run from replacing each other. An
 empty file is replaced: it holds no bytes to lose, and a destination that `mktemp` made is such a
 file. -/
 
@@ -32,11 +36,13 @@ open Lean System
 
 /-- A completed result of an earlier version of Regula: the identity members of a document of
 Regula (`Regula.RegistryCodec.identityFields`) with values that no current build writes, and the
-members of a result. A control seeds a destination with it to require that a run replace it. -/
+other members that the readers of a result require (`completedSignatures`). A control seeds a
+destination with it to require that a run replace it. -/
 def earlierResult : String :=
   "{\"schemaVersion\":3,\"producerVersion\":\"0.0.0\",\"toolchain\":\"leanprover/lean4:v4.34.0\",\
     \"sourceRevision\":\"0000000\",\"scope\":\"file\",\"mode\":\"freshFile\",\
-    \"status\":\"completed\",\"diagnostics\":[],\"unresolved\":[]}\n"
+    \"status\":\"completed\",\"diagnostics\":[],\"unresolved\":[],\"sourceTexts\":[],\
+    \"stages\":[],\"stagesCompleted\":[],\"complete\":true,\"stagesNotRun\":[],\"rules\":[]}\n"
 
 /-- The name of a kind of entry in a reason to refuse a destination. -/
 private def entryName : IO.FS.FileType → String
@@ -69,63 +75,91 @@ def ownershipRefusal (path : FilePath) : IO (Option String) := do
       | .ok value => return if regulaDocument value then none else refuse "a JSON document"
       | .error _ => return refuse "a file that is not a JSON document"
 
-/-- Where the entry that `path` names is: the real path of the nearest present ancestor of its
-directory (`Regula.Filesystem.observeRealPath`), with `path` read from the working directory when it
-is relative, and the names below that ancestor, the last of them the entry's own. The entry itself
-is not resolved, so a link at `path` is a place of its own. -/
-def place (path : FilePath) : IO (FilePath × List String) := do
+/-- The entry that a destination names, by `place`: the real path of its longest present prefix and
+the names below it. -/
+def entryPath (found : FilePath × List String) : FilePath :=
+  found.2.foldl (fun directory (name : String) => directory / name) found.1
+
+/-- Where the entry that `path` names is, without making anything: the real path of the longest
+prefix of its directory that is present (`Regula.Filesystem.observeRealPath`), with `path` read from
+the working directory when it is relative, and the names below that prefix (`plainNames`), the last
+of them the entry's own. The entry itself is not resolved, so a link at `path` is a place of its
+own. A prefix is absent when neither its real path nor its entry, by a read that follows no link,
+is there. It is the reason to refuse `path` when a name below the prefix is `..`, when no name is
+left for the entry, or when a prefix is there but cannot be resolved, such as a symbolic link whose
+target is absent. With plain names, `entryPath` is the entry that a write replaces once it makes
+the absent directories, when no process makes an entry there after this read, which is trusted. -/
+def place (path : FilePath) : IO (Except String (FilePath × List String)) := do
   let path ← if path.isAbsolute then pure path else pure ((← IO.currentDir) / path)
   let components := path.components
+  let below (real : FilePath) (names : List String) : Except String (FilePath × List String) :=
+    match plainNames names with
+    | some names@(_ :: _) => .ok (real, names)
+    | some [] => .error s!"{path} names no file, so the run writes nothing there"
+    | none => .error s!"{path} has a `..` component below {real}, its longest prefix that is \
+        present, so the entry that it names depends on what the run makes; the run writes nothing \
+        there"
   for count in (List.range (components.length - 1)).reverse do
     let ancestor := System.mkFilePath (components.take (count + 1))
     let ancestor : FilePath := if ancestor.toString.isEmpty then ⟨"/"⟩ else ancestor
-    if let .ok real ← (Regula.Filesystem.observeRealPath ancestor).toBaseIO then
-      return (real, components.drop (count + 1))
-  return (⟨"/"⟩, components.drop 1)
+    match ← (Regula.Filesystem.observeRealPath ancestor).toBaseIO with
+    | .ok real => return below real (components.drop (count + 1))
+    | .error (.noFileOrDirectory ..) =>
+      match ← (Regula.Filesystem.observeMetadata ancestor).toBaseIO with
+      | .error (.noFileOrDirectory ..) => continue
+      | _ => return .error s!"{ancestor}, a prefix of {path}, is there but cannot be resolved \
+          (a symbolic link whose target is absent), so the run writes nothing there"
+    | .error error => return .error s!"{ancestor}, a prefix of {path}, cannot be resolved \
+        ({error}), so the run writes nothing there"
+  return below ⟨"/"⟩ (components.drop 1)
 
 /-- `text` with each ASCII letter in lower case. -/
 private def fold (text : String) : String := text.map Char.toLower
 
-/-- Whether a name below a place may name something that a file system resolves or folds to a
-different name: `.`, `..`, or a name with a character outside ASCII, whose case or Unicode
-normalization a file system may fold. -/
+/-- Whether a name below a place may name something that a file system folds to a different name:
+a name with a character outside ASCII, whose case or Unicode normalization a file system may fold.
+-/
 private def doubtful (name : String) : Bool :=
-  name == "." || name == ".." || name.any fun c : Char => c.toNat ≥ 128
+  name.any fun c : Char => c.toNat ≥ 128
 
-/-- Whether two places (`place`) may be one entry: their real ancestors and the names below them
+/-- Whether two places (`place`) may be one entry: their real prefixes and the names below them
 are one path once each ASCII letter is in lower case, as on a file system that folds case; or a
-name below one of them is doubtful (`doubtful`) and their real ancestors are one path. -/
+name below one of them is doubtful (`doubtful`) and their real prefixes are one path. The names are
+plain (`plainNames`), so the comparison is exact up to that folding. -/
 def sameEntry (a b : FilePath × List String) : Bool :=
   if a.2.any doubtful || b.2.any doubtful then fold a.1.toString == fold b.1.toString
   else fold (System.mkFilePath (a.1.toString :: a.2)).toString ==
     fold (System.mkFilePath (b.1.toString :: b.2)).toString
 
-/-- The reason to refuse writing at the given destinations, if there is one: two destinations that
-may be one entry (`sameEntry`), whose writes would replace each other, or else a destination that
-holds a file that the run may not replace (`ownershipRefusal`). Overlap is decided first, so a run
-that names one entry twice gets that reason whatever the entry holds. -/
+/-- The reason to refuse writing at the given destinations, if there is one, decided before
+anything is made: a destination that `place` refuses; two destinations that may be one entry
+(`sameEntry`), whose writes would replace each other; or else a destination whose entry
+(`entryPath`) holds a file that the run may not replace (`ownershipRefusal`). Overlap is decided
+before ownership, so a run that names one entry twice gets that reason whatever the entry holds. -/
 def refusal (destinations : List FilePath) : IO (Option String) := do
   let mut seen : List (FilePath × FilePath × List String) := []
   for path in destinations do
-    let entry ← place path
-    if let some (other, _) := seen.find? (sameEntry entry ·.2) then
-      return some s!"{other} and {path} may name one entry, so the writes of the run would \
-        replace each other"
-    seen := (path, entry) :: seen
-  for path in destinations do
-    if let some reason ← ownershipRefusal path then return some reason
+    match ← place path with
+    | .error reason => return some reason
+    | .ok entry =>
+      if let some (other, _) := seen.find? (sameEntry entry ·.2) then
+        return some s!"{other} and {path} may name one entry, so the writes of the run would \
+          replace each other"
+      seen := seen ++ [(path, entry)]
+  for (_, entry) in seen do
+    if let some reason ← ownershipRefusal (entryPath entry) then return some reason
   return none
 
-/-- Write `text` at `path`: make the directory of `path` and resolve it to its real path
-(`Regula.Filesystem.ownRoot`), stop with nothing written when the entry that the write would replace
-there holds a file that the run may not replace (`ownershipRefusal`), and otherwise replace that
-entry (`Regula.Filesystem.writeReplacing`). The check reads the exact entry that the rename
-replaces, so a path such as `missing/../config.json` is checked at the entry that it resolves to
-once `missing` is made. -/
+/-- Write `text` at `path`: find its entry without making anything (`place`, `entryPath`), stop with
+nothing written when `place` refuses `path` or the entry holds a file that the run may not replace
+(`ownershipRefusal`), and otherwise replace the entry (`Regula.Filesystem.writeReplacing`), which
+makes its absent directories. The entry that the check reads is the one that the rename replaces:
+its names below the present prefix are plain, so the directories made there are the real path of
+its directory. -/
 def write (path : FilePath) (text : String) : IO Unit := do
-  let some name := path.fileName
-    | throw <| IO.userError s!"nothing was written: {path} names no file"
-  let entry := (← Regula.Filesystem.ownRoot (path.parent.getD ⟨"."⟩)) / name
+  let entry ← match ← place path with
+    | .ok found => pure (entryPath found)
+    | .error reason => throw (IO.userError reason)
   if let some reason ← ownershipRefusal entry then throw (IO.userError reason)
   Regula.Filesystem.writeReplacing entry text.toUTF8
 

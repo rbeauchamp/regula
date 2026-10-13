@@ -1272,6 +1272,9 @@ each of the corpus's shards (`shardEvidence`). It writes each by the rules of th
 the package's programs (`Regula.Destination`), which this module cannot import, so the rules are
 written a second time here:
 
+- It finds the entry that a destination names before it makes anything, as the real path of its
+  longest present prefix and the names below it, and stops when one of those names is `..`
+  (`destinationAt`). So the entry that it checks is the one that it replaces.
 - It replaces only nothing, an empty regular file, or a regular file whose text is a document of
   Regula of any kind (`regulaDocument`), by a read that follows no link at the destination
   (`ownershipRefusal`). Regula regenerates each of its documents, so replacing one loses nothing
@@ -1280,27 +1283,44 @@ written a second time here:
   replaces the entry at the destination and does not write into the file that the entry names.
 
 In the module `RegulaVerification.Decisions`, `regulaDocument_shared` proves that the driver's
-identification of a document of Regula is `Regula.Destination.regulaDocument`, and
+identification of a document of Regula is `Regula.Destination.regulaDocument`, `plainNames_shared`
+that its names below a present prefix are `Regula.Destination.plainNames`, and
 `identifiesSiteBuild_shared` and `siteAssemblingMarker_shared` relate the site artifact that the
 driver removes (`siteRefusal`) to the one that the site's build replaces. The module
 `Regula.ProgramCheck.Verification` admits a write, a rename or a removal of a file in the driver
 only at the places that it names, among them `writeDocument` and `promote`. -/
 
-/-- The members that identify a document of Regula, one entry for each kind of document or mark:
-`Regula.Destination.signatures` (`regulaDocument_shared`). -/
-def signatures : List (List String × List (String × String)) :=
-  [(["schemaVersion", "producerVersion", "toolchain", "sourceRevision"], []),
-    (["schemaVersion", "status"], []),
+/-- The members that identify a kind of document: `Regula.Destination.Signature`. -/
+abbrev Signature := List String × List (String × String)
+
+/-- The signature of each kind of completed document: `Regula.Destination.completedSignatures`
+(`regulaDocument_shared`). -/
+def completedSignatures : List Signature :=
+  [(["schemaVersion", "status", "mode", "diagnostics", "stages", "stagesCompleted", "complete",
+      "stagesNotRun", "rules", "sourceTexts"], []),
+    (["schemaVersion", "producerVersion", "toolchain", "sourceRevision", "rules"], []),
+    (["schemaVersion", "status", "identity"], []),
     (["schema", "producer", "request", "payload"], []),
     (["receipt", "origins"], []),
-    (["status"], [("mode", "serializedGraph")]),
-    (["outcome"], []),
-    (["schemaVersion", "examples"], []),
-    (["attemptId", "packets", "controls"], []),
-    (["attemptId", "group", "records"], []),
-    (["outcome", "equivalent"], []),
+    (["outcome", "schemaVersion", "selected", "completeCorpus", "checkerBefore", "checkerAfter",
+      "records"], []),
     (["version", "checks", "documents"], []),
-    (["reason"], [("status", "incomplete")])]
+    (["status", "moduleSets", "modules", "roots", "coverage", "checks"],
+      [("mode", "serializedGraph")]),
+    (["schemaVersion", "examples"], []),
+    (["attemptId", "schemaVersion", "status", "packets", "controls"], []),
+    (["attemptId", "status", "group", "inputs", "records"], []),
+    (["outcome", "equivalent", "totalMillis"], [])]
+
+/-- The signature of each kind of mark: `Regula.Destination.markSignatures`
+(`regulaDocument_shared`). -/
+def markSignatures : List Signature :=
+  [(["reason"], [("status", "incomplete")]),
+    (["schemaVersion"], [("status", "incomplete")]),
+    (["unresolved"], [("status", "incomplete"), ("mode", "serializedGraph")]),
+    (["attempt", "rawDirectory"], [("outcome", "INCOMPLETE")]),
+    (["phase"], [("outcome", "INCOMPLETE")]),
+    (["equivalent"], [("outcome", "INCOMPLETE")])]
 
 /-- Whether `value` is an object with the member `name`, whatever its value. -/
 def has (value : Lean.Json) (name : String) : Bool :=
@@ -1310,12 +1330,15 @@ def has (value : Lean.Json) (name : String) : Bool :=
 def holds (value : Lean.Json) (name text : String) : Bool :=
   (value.getObjValAs? String name).toOption == some text
 
-/-- Whether `value` is a document of Regula of some kind, completed or marked: for one entry of
-`signatures`, it holds each member that the entry names and each string value that the entry
-gives. It is `Regula.Destination.regulaDocument` (`regulaDocument_shared`). -/
+/-- Whether `value` has the signature `signature`: it holds each member that the signature names
+and each string value that it gives. -/
+def hasSignature (value : Lean.Json) (signature : Signature) : Bool :=
+  signature.1.all (has value) && signature.2.all fun member => holds value member.1 member.2
+
+/-- Whether `value` is a document of Regula of some kind, completed (`completedSignatures`) or a
+mark (`markSignatures`). It is `Regula.Destination.regulaDocument` (`regulaDocument_shared`). -/
 def regulaDocument (value : Lean.Json) : Bool :=
-  signatures.any fun signature =>
-    signature.1.all (has value) && signature.2.all fun member => holds value member.1 member.2
+  completedSignatures.any (hasSignature value) || markSignatures.any (hasSignature value)
 
 /-- The name of a kind of entry in a reason to refuse a destination. -/
 private def entryName : IO.FS.FileType → String
@@ -1347,29 +1370,55 @@ def ownershipRefusal (path : System.FilePath) : IO (Option String) := do
       | .ok value => return if regulaDocument value then none else refuse "a JSON document"
       | .error _ => return refuse "a file that is not a JSON document"
 
-/-- The path of the destination that `path` names, below the real path of its directory, which
-is created when it is absent: the exact entry that `writeDocument` and `promote` check and
-replace, so a path such as `missing/../link.json` is checked at the entry that it resolves to once
-`missing` is made. -/
-def destinationAt (path : System.FilePath) : IO System.FilePath := do
-  let some name := path.fileName
-    | throw <| IO.userError s!"nothing was written: {path} names no file"
-  let parent := path.parent.getD "."
-  IO.FS.createDirAll parent
-  return (← IO.FS.realPath parent) / name
+/-- The names below the longest present prefix of a destination, as a write makes them, or `none`
+when one of them is `..`: `Regula.Destination.plainNames` (`plainNames_shared`). -/
+def plainNames (names : List String) : Option (List String) :=
+  if names.contains ".." then none else some (names.filter fun name => name != "." && name != "")
 
-/-- Write `text` at `path`: stop with nothing written when the entry at `path`, once its directory
-is made and resolved (`destinationAt`), holds a file that the run may not replace
-(`ownershipRefusal`). Otherwise make a new file in that directory and rename it to the entry. The
-new file's name is `.regula-`, the process's id, a random number and `.pending`, and it is created
-only where no entry is, so the write replaces the entry at `path` and does not write into the file
-that the entry names. It removes the new file when it stops after making it. It is
-`Regula.Destination.write` written a second time. -/
+/-- The entry that `path` names, found without making anything: the real path of the longest
+prefix of its directory that is present, and the names below it (`plainNames`). It stops when a
+name below the prefix is `..`, whose entry depends on what the run makes, when no name is left for
+the entry, or when a prefix is there but cannot be resolved. It is `Regula.Destination.place`
+written a second time. -/
+def destinationAt (path : System.FilePath) : IO System.FilePath := do
+  let path ← if path.isAbsolute then pure path else pure ((← IO.currentDir) / path)
+  let components := path.components
+  let below (real : System.FilePath) (names : List String) : IO System.FilePath :=
+    match plainNames names with
+    | some names@(_ :: _) =>
+      pure (names.foldl (fun directory (name : String) => directory / name) real)
+    | some [] => throw <| IO.userError s!"{path} names no file, so the run writes nothing there"
+    | none => throw <| IO.userError s!"{path} has a `..` component below {real}, its longest \
+        prefix that is present, so the entry that it names depends on what the run makes; the \
+        run writes nothing there"
+  for count in (List.range (components.length - 1)).reverse do
+    let ancestor := System.mkFilePath (components.take (count + 1))
+    let ancestor : System.FilePath := if ancestor.toString.isEmpty then ⟨"/"⟩ else ancestor
+    match ← (IO.FS.realPath ancestor).toBaseIO with
+    | .ok real => return ← below real (components.drop (count + 1))
+    | .error (.noFileOrDirectory ..) =>
+      match ← (entryMetadata ancestor).toBaseIO with
+      | .error (.noFileOrDirectory ..) => continue
+      | _ => throw <| IO.userError s!"{ancestor}, a prefix of {path}, is there but cannot be \
+          resolved (a symbolic link whose target is absent), so the run writes nothing there"
+    | .error error => throw <| IO.userError s!"{ancestor}, a prefix of {path}, cannot be resolved \
+        ({error}), so the run writes nothing there"
+  below ⟨"/"⟩ (components.drop 1)
+
+/-- Write `text` at `path`: stop with nothing made or written when the entry at `path`
+(`destinationAt`) holds a file that the run may not replace (`ownershipRefusal`). Otherwise make the
+entry's directory, make a new file in it and rename that file to the entry. The new file's name is
+`.regula-`, the process's id, a random number and `.pending`, and it is created only where no entry
+is, so the write replaces the entry at `path` and does not write into the file that the entry
+names. It removes the new file when it stops after making it. It is `Regula.Destination.write`
+written a second time. -/
 def writeDocument (path : System.FilePath) (text : String) : IO Unit := do
   let destination ← destinationAt path
   if let some reason ← ownershipRefusal destination then throw (IO.userError reason)
+  let directory := destination.parent.getD "."
+  IO.FS.createDirAll directory
   let random := (← IO.getRandomBytes 8).foldl (fun value byte => value * 256 + byte.toNat) 0
-  let pending := destination.parent.getD "." / s!".regula-{← IO.Process.getPID}-{random}.pending"
+  let pending := directory / s!".regula-{← IO.Process.getPID}-{random}.pending"
   let handle ← IO.FS.Handle.mk pending .writeNew
   -- No `try`: its handler would be a closure of its own, which the removal check names apart.
   let written ← (handle.putStr text *> handle.flush *> IO.FS.rename pending destination).toBaseIO
@@ -1378,11 +1427,12 @@ def writeDocument (path : System.FilePath) (text : String) : IO Unit := do
     throw error
 
 /-- Rename the file at `source`, a record that only this run has the path of, to `path`: stop with
-nothing renamed when the entry at `path`, once its directory is made and resolved
-(`destinationAt`), holds a file that the run may not replace (`ownershipRefusal`). -/
+nothing made or renamed when the entry at `path` (`destinationAt`) holds a file that the run may not
+replace (`ownershipRefusal`); otherwise make the entry's directory and rename the record there. -/
 def promote (source path : System.FilePath) : IO Unit := do
   let destination ← destinationAt path
   if let some reason ← ownershipRefusal destination then throw (IO.userError reason)
+  IO.FS.createDirAll (destination.parent.getD ".")
   IO.FS.rename source destination
 
 /-- The file that marks a directory that a build of the site is assembling:

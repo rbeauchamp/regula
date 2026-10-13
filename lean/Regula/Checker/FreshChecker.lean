@@ -463,9 +463,10 @@ unsafe def main : List String → IO UInt32 :=
   Regula.TaskManager.guard "freshChecker" Regula.Checker.FreshChecker.refuseWithoutTaskManager
     freshCheckerMain
 
--- The removals that the compiled code of `main`, and of the initializers of the modules it links,
--- reaches are the filesystem observer's and those that `Regula.Removal.libraryRemovals` lists: the
--- build of this module fails otherwise (`Regula.Removal.checkProgram`).
+-- The removals and the writes that the compiled code of `main`, and of the initializers of the
+-- modules it links, reaches are those of the filesystem observer and those that
+-- `Regula.Removal.sharedPairs` lists: the build of this module fails otherwise
+-- (`Regula.Removal.checkProgram`).
 run_cmd Regula.Removal.checkProgram
 
 -- A program that needs Lean's task manager starts through its guard (`Regula.TaskManager.guard`),

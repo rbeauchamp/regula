@@ -911,41 +911,53 @@ replace. The run may replace an empty regular file or a JSON document of Regula 
 empty file holds no bytes to lose, so a destination that `mktemp` made stays usable. A symbolic
 link, a directory, a source file, a configuration file and a Markdown document keep their bytes.
 
-The function `Regula.Destination.regulaDocument` decides if a JSON document is Regula's. For each
-kind of document, it requires the members that one of Regula's readers checks to identify that
-kind. For a kind that no reader reads, and for each mark, it requires members that each such
-document holds. It reads no values, except the status `incomplete` of a mark and the mode
-`serializedGraph` of a graph result. Thus a document of an earlier version of Regula stays
-replaceable.
+The function `Regula.Destination.regulaDocument` decides if a JSON document is Regula's. Each kind
+of completed document has a signature in `completedSignatures`: the members that the reader of
+that kind requires. For a kind that no reader reads, the signature holds the members that each such
+document holds. Each mark has a signature of its own in `markSignatures`, with the value that marks
+it incomplete. The function reads no other values, except the mode `serializedGraph` of a graph
+result. Thus a document of an earlier version of Regula stays replaceable.
 
 A run may replace a document of Regula of a different kind from the one that it writes. Regula
 regenerates each of its documents, so a later run can make the replaced document again. The third
-rule keeps the destinations of one run from replacing each other. A few kinds are identified by one
-or two members, such as `outcome` alone for rule-example evidence. A JSON file of a different tool
-with those members is thus replaceable too.
+rule keeps the destinations of one run from replacing each other. A few kinds are identified by two
+or three members, such as `receipt` and `origins` for a published admission. A JSON file of a
+different tool with those members is thus replaceable too.
 
 A program writes a destination through `Regula.Destination.write`, which applies the first two
-rules. It first makes the directory of the destination and resolves its real path. Then it checks
-the exact entry that the move replaces, so a destination such as `missing/../config.json` is
-checked where it resolves. The verification driver imports only Lean, so it holds a copy of that
-writer for its acceptance link and its rule-example evidence. The theorem `regulaDocument_shared`
-in `RegulaVerification.Decisions` proves that the copy decides as `regulaDocument` does.
+rules. It makes nothing before it checks the destination. With `Regula.Destination.place`, it
+resolves the real path of the longest prefix of the destination that is present, and it reads the
+names below that prefix. If one of those names is `..`, it refuses the destination by its name,
+because the entry would depend on what the run makes. Otherwise the entry is exactly that
+real path and those names, and the check and the move act on that entry.
 
-The build of `Regula.ProgramCheck.Verification` checks the compiled code of the driver. A call of
-`IO.FS.writeFile`, `IO.FS.writeBinFile`, `IO.FS.createDirAll`, a rename or a removal fails that
-build, except at the places that the module names. Those places are the writer, its cleanup, the
-promotion of the acceptance link and the driver's copy of the project. So a new direct write at a
-destination of the driver fails the build. The programs of the package rename and remove only
-through `Regula.Filesystem`, but their writes of files are not inventoried.
+The verification driver imports only Lean, so it holds a copy of that writer for its acceptance
+link and its rule-example evidence. In `RegulaVerification.Decisions`, the theorems
+`regulaDocument_shared` and `plainNames_shared` prove that the copy decides as `regulaDocument` and
+`plainNames` do.
+
+Each program of the package checks the writes of its compiled code when it is built, as it checks
+its removals with `Regula.Removal.checkProgram`. A write is a call of `IO.FS.writeFile`,
+`IO.FS.writeBinFile`, `IO.FS.createDirAll` or `IO.FS.withFile`. It is also a call bound to a
+function of the runtime that writes a file or makes an entry, as `writeSymbols` lists. An opening by
+`IO.FS.Handle.mk` is a write unless its mode is the literal `IO.FS.Mode.read`, and a truncation is a
+write. Such a call fails the build unless the writer of `Regula.Filesystem` makes it, or a list
+names its caller.
+
+The lists of `Regula.Removal` hold the writes of Lake, of Lean's `bv_decide` and of Regula's scratch
+directories, which several programs reach (`sharedPairs`). The list of a program holds the calls
+that it makes alone, and a pair of it that admits no call fails the build too. So a new direct
+write at a destination fails the build of its program, such as `qualify`, `ruleExamples`, `site`,
+`regula-markdown` or the verification driver. The check does not find a write through an open
+handle, a write by a started process, or a temporary file of the system.
 
 Third, a program refuses an invocation if two of its destinations may name one entry. The check
-compares the real path of the nearest present directory above each destination and the names below
-it, folding ASCII case. If a name below that directory is `.`, `..` or holds a character outside
-ASCII, the check compares the directories alone. It decides overlap before ownership, so two names
-of one entry get that reason whatever the entry holds. A program first marks each destination that
-it may replace, and then it refuses the run if a rule refuses a destination. Thus a refused run
-leaves no earlier result at a destination, and a file that is not a document of Regula keeps its
-bytes.
+compares the entries that `Regula.Destination.place` finds, folding ASCII case. If a name below a
+present prefix holds a character outside ASCII, the check compares the prefixes alone. It decides
+overlap before ownership, so two names of one entry get that reason whatever the entry holds. A
+program first marks each destination that it may replace, and then it refuses the run if a rule
+refuses a destination. Thus a refused run leaves no earlier result at a destination, and a file that
+is not a document of Regula keeps its bytes.
 
 These rules take the place of lists of the files that each program reads. Such lists missed the
 build outputs that Lake names and the modules that Lake loads later. Thus no program refuses a

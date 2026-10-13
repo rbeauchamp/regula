@@ -462,7 +462,6 @@ def incompleteReport (reason : Option String) : Json :=
 `qualify native-launcher` runs in its place, with its reason. -/
 def beginReport (reason : Option String := none) : IO Unit := do
   let root ← rootDirectory
-  IO.FS.createDirAll (root / "tmp")
   writeEvidence (reportPath root) (incompleteReport reason)
 
 /-- Paired baseline-first diagnostic with the same scratch path, source, argv, observed

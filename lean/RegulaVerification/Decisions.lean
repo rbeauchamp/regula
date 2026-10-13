@@ -113,6 +113,12 @@ theorem regulaDocument_shared (value : Lean.Json) :
     regulaDocument value = Regula.Destination.regulaDocument value :=
   rfl
 
+/-- The driver reads the names below the longest present prefix of a destination (`plainNames`)
+exactly as the package's programs do (`Regula.Destination.plainNames`), for every list of names. -/
+theorem plainNames_shared (names : List String) :
+    plainNames names = Regula.Destination.plainNames names :=
+  rfl
+
 /-- The driver identifies the `build.json` of a site artifact (`identifiesSiteBuild`) exactly as
 the site's build does (`Regula.Destination.identifiesSiteBuild`), for every JSON value. -/
 theorem identifiesSiteBuild_shared (value : Lean.Json) :

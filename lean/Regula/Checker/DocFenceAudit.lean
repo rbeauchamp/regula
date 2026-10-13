@@ -329,10 +329,15 @@ without Lean's task manager is refused before the audit starts, with exit code 1
 unsafe def main : List String → IO UInt32 :=
   Regula.TaskManager.guard "docFenceAudit" refuseDocFenceAudit docFenceAuditMain
 
--- The removals that the compiled code of `main`, and of the initializers of the modules it links,
--- reaches are the filesystem observer's and those that `Regula.Removal.libraryRemovals` lists: the
--- build of this module fails otherwise (`Regula.Removal.checkProgram`).
-run_cmd Regula.Removal.checkProgram
+-- The removals and the writes that the compiled code of `main`, and of the initializers of the
+-- modules it links, reaches are those of the filesystem observer and those that
+-- `Regula.Removal.sharedPairs` lists, and those named here, each by the declaration of a source
+-- that makes it: the build of this module fails otherwise, and when a name here admits no call
+-- (`Regula.Removal.checkProgram`).
+run_cmd Regula.Removal.checkProgram (named := [
+  -- The build output of the first acceptance step, placed in the copy of the documentation step.
+  (``Regula.Checker.AcceptanceLink.placeRetained, ``IO.FS.createDirAll),
+  (``Regula.Checker.AcceptanceLink.placeRetained, ``IO.FS.writeBinFile)])
 
 -- A program that needs Lean's task manager starts through its guard (`Regula.TaskManager.guard`),
 -- and its refusal needs none: the build of this module fails otherwise

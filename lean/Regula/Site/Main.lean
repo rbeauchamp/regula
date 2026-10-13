@@ -72,10 +72,26 @@ before the build starts, with exit code 1 (`Regula.TaskManager.guard`). -/
 def main : List String → IO UInt32 :=
   Regula.TaskManager.guard "site" refuseSiteBuild siteMain
 
--- The removals that the compiled code of `main`, and of the initializers of the modules it links,
--- reaches are the filesystem observer's and those that `Regula.Removal.libraryRemovals` lists: the
--- build of this module fails otherwise (`Regula.Removal.checkProgram`).
-run_cmd Regula.Removal.checkProgram
+-- The removals and the writes that the compiled code of `main`, and of the initializers of the
+-- modules it links, reaches are those of the filesystem observer and those that
+-- `Regula.Removal.sharedPairs` lists, and those named here, each by the declaration of a source
+-- that makes it: the build of this module fails otherwise, and when a name here admits no call
+-- (`Regula.Removal.checkProgram`).
+run_cmd Regula.Removal.checkProgram (named := [
+  -- The artifact that `site build` assembles at its destination, after its refusal
+  -- (`Regula.Site.Build.artifactRefusal`).
+  (``Regula.Site.Build.assemble, ``IO.FS.createDirAll),
+  (``Regula.Site.Build.assemble, ``IO.FS.writeFile),
+  -- The generated modules of the site's package, and the release that the build downloads and
+  -- unpacks in its own directory.
+  (`Regula.Site.Build.writeModule, ``IO.FS.createDirAll),
+  (`Regula.Site.Build.writeModule, ``IO.FS.writeFile),
+  (``Regula.Site.Build.downloadRelease, ``IO.FS.createDirAll),
+  (``Regula.Site.Build.extractRelease, ``IO.FS.createDirAll),
+  (``Regula.Site.Build.generate, ``IO.FS.createDirAll),
+  (``Regula.Site.Build.generate, ``IO.FS.writeFile),
+  (``Regula.Site.Build.writeTree, ``IO.FS.createDirAll),
+  (``Regula.Site.Build.writeTree, ``IO.FS.writeBinFile)])
 
 -- A program that needs Lean's task manager starts through its guard (`Regula.TaskManager.guard`),
 -- and its refusal needs none: the build of this module fails otherwise

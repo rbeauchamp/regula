@@ -3,6 +3,7 @@ import Regula.TaskManagerCheck
 import RegulaCore.ProseBaseline
 import Regula.Checker.Lake
 import Regula.Destination
+import Regula.Removal
 
 /-! Checks every Markdown document the repository tracks: for a rule ID in prose that is not a
 link to its rule page (`Regula.Markdown.documentErrors`), and for the writing rules that a text
@@ -1211,7 +1212,7 @@ def makeRepository (directory : System.FilePath) (commits : List Commit) : IO Un
     for (path, text) in commit.files do
       match text with
       | some text => IO.FS.writeFile (directory / path) text
-      | none => IO.FS.removeFile (directory / path)
+      | none => Regula.Filesystem.removeOwn .file (directory / path)
     match commit.merges with
     | some branch =>
       discard <| gitControl directory #["merge", "--quiet", "--no-ff", "--message",
@@ -1241,7 +1242,7 @@ def expand (directory : System.FilePath) (text : String) : IO String := do
 document: what each control that does not give its expected result gave. -/
 def runRepositoryControls (judge : String → Expect → List String → List String) :
     IO (List String) :=
-  IO.FS.withTempDir fun root => do
+  Regula.Filesystem.withOwnTempDir fun root => do
     for (name, commits) in repositories do
       makeRepository (root / name) commits
     let mut failures : List String := []
@@ -1283,7 +1284,7 @@ document and write no entry that has no document. A run that reads the baseline 
 tracks it writes an entry of numbers for the generated document and no entry for the frozen
 document. -/
 def runWriteControl : IO (List String) :=
-  IO.FS.withTempDir fun directory => do
+  Regula.Filesystem.withOwnTempDir fun directory => do
     makeRepository directory [⟨"main", none, [(vocabularyFile, some controlVocabulary),
       ("a.md", some "# A\n\nOne; two three.\n"),
       ("made.md", some "# Made\n\nMade text; more text.\n"),
@@ -1313,7 +1314,7 @@ must then fail with that reason, and the file must keep its bytes.
 The program, Git and the filesystem are its subject, an external boundary: it observes them and
 proves nothing. -/
 def runWriteEarlyStopControl : IO (List String) :=
-  IO.FS.withTempDir fun directory => do
+  Regula.Filesystem.withOwnTempDir fun directory => do
     let repository := directory / "repository"
     makeRepository repository [⟨"main", none, [(vocabularyFile, some controlVocabulary),
       ("a.md", some "# A\n\nOne; two three.\n"),
@@ -1329,7 +1330,8 @@ def runWriteEarlyStopControl : IO (List String) :=
     IO.FS.createDirAll noGit
     let program := (← IO.appPath).toString
     let run (path : Option System.FilePath) : IO IO.Process.Output :=
-      IO.Process.output { cmd := program, args := #[repository.toString, "--write-baseline"],
+      IO.Process.output {
+        cmd := program, args := #[repository.toString, "--write-baseline"],
         env := (path.map fun path => #[("PATH", some path.toString)]).getD #[] }
     let text : IO (Option String) := do return (← (IO.FS.readFile file).toBaseIO).toOption
     let admitted : IO Bool := do
@@ -1494,6 +1496,20 @@ def refuseMarkdown (reason : String) (args : List String) : IO UInt32 := do
 before any check starts, with exit code 1 (`Regula.TaskManager.guard`). -/
 def main : List String → IO UInt32 :=
   Regula.TaskManager.guard "regula-markdown" refuseMarkdown markdownMain
+
+-- The removals and the writes that the compiled code of `main`, and of the initializers of the
+-- modules it links, reaches are those of the filesystem observer, those that
+-- `Regula.Removal.sharedPairs` lists and those that are named here: the build of this module fails
+-- otherwise (`Regula.Removal.checkProgram`).
+run_cmd Regula.Removal.checkProgram (named := [
+  -- The files of the controls, each below the temporary directory that its control made
+  -- (`Regula.Filesystem.withOwnTempDir`): the repositories of the controls and their baselines.
+  (``Regula.Controlled.Run.makeRepository, ``IO.FS.createDirAll),
+  (``Regula.Controlled.Run.makeRepository, ``IO.FS.writeFile),
+  (``Regula.Controlled.Run.runWriteControl, ``IO.FS.writeFile),
+  (``Regula.Controlled.Run.runWriteEarlyStopControl, ``IO.FS.createDirAll),
+  (``Regula.Controlled.Run.runWriteEarlyStopControl, ``IO.FS.writeFile),
+  (``Regula.Controlled.Run.runWriteEarlyStopControl, ``IO.FS.writeBinFile)])
 
 -- A program that needs Lean's task manager starts through its guard (`Regula.TaskManager.guard`),
 -- and its refusal needs none: the build of this module fails otherwise

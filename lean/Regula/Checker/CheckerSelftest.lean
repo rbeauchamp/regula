@@ -4355,7 +4355,8 @@ private def taskManagerControl (repo : FilePath) : IO (Option String) :=
         marked := fun _ => markedWith report "reason" reason ("outcome", "INCOMPLETE"),
         seed := do
           IO.FS.createDirAll (project / "tmp")
-          writeJson report (Json.mkObj [("outcome", .str "PASS"), ("equivalent", .bool true)]),
+          writeJson report (Json.mkObj [("outcome", .str "PASS"), ("equivalent", .bool true),
+            ("totalMillis", toJson (0 : Nat))]),
         completed := return (← parsedAt report).any fun value =>
           (value.getObjValAs? String "outcome").toOption == some "PASS" }
     let positive := selfHostedDigestPath project .positive
@@ -4560,8 +4561,10 @@ private def earlyStopControl (repo : FilePath) : IO (Option String) :=
     let graph : Seeded :=
       { path := scratch / "graph.json",
         marked := fun _ => markedWith (scratch / "graph.json") "unresolved" started,
-        seed := writeJson (scratch / "graph.json")
-          (Json.mkObj [("mode", .str "serializedGraph"), ("status", .str "completed")]),
+        seed := writeJson (scratch / "graph.json") (Json.mkObj [("mode", .str "serializedGraph"),
+          ("status", .str "completed"), ("moduleSets", Json.mkObj []),
+          ("modules", toJson (#[] : Array Json)), ("roots", toJson (#[] : Array Json)),
+          ("coverage", Json.mkObj []), ("checks", toJson (#[] : Array Json))]),
         completed := do return (← parsedAt (scratch / "graph.json")).any fun value =>
           (value.getObjValAs? String "status").toOption == some "completed" }
     let producerExport (name : String) : Seeded :=
@@ -4783,6 +4786,11 @@ private def earlyStopControl (repo : FilePath) : IO (Option String) :=
     -- (`Regula.Destination.regulaDocument`).
     let rulesOnly := scratch / "rules-only.json"
     IO.FS.writeFile rulesOnly "{\"rules\":[]}\n"
+    -- A JSON document with the identity members of a registry export and not its rules, which the
+    -- reader of a registry refuses (`validateRegistry`), so no signature of a kind recognizes it.
+    let identityOnly := scratch / "identity-only.json"
+    IO.FS.writeFile identityOnly "{\"schemaVersion\":4,\"producerVersion\":\"0.0.0\",\
+      \"toolchain\":\"leanprover/lean4:v4.34.0\",\"sourceRevision\":\"0000000\"}\n"
     IO.FS.createDirAll (scratch / "through")
     let configuration := Lint.Outcome.configuration.exitCode
     let notRegula := "not a document that Regula wrote"
@@ -4794,6 +4802,8 @@ private def earlyStopControl (repo : FilePath) : IO (Option String) :=
       ("axiomGate", gate, fileArgs source, configuration, notRegula, [source]),
       ("axiomGate", gate, #["--registry-out", rulesOnly.toString], configuration, notRegula,
         [rulesOnly]),
+      ("axiomGate", gate, #["--registry-out", identityOnly.toString], configuration, notRegula,
+        [identityOnly]),
       ("axiomGate", gate, fileArgs symbolic, configuration, "is a symbolic link",
         [symbolic, completed]),
       ("freshChecker", (← toolPath repo "freshChecker").toString,
@@ -4846,6 +4856,17 @@ private def earlyStopControl (repo : FilePath) : IO (Option String) :=
       return some s!"early stop: axiomGate with --json-out {lower} and --acceptance-link {upper} \
         did not mark them incomplete and refuse (exit {overlapping.exitCode}):\n\
         {overlapping.output}"
+    -- A destination with a `..` below an absent directory names an entry that depends on what the
+    -- run makes: the run refuses it before it makes anything, so the directory stays absent and
+    -- the result that the path would reach keeps its bytes (`Regula.Destination.place`).
+    let absent := scratch / "absent"
+    let escaping := absent / ".." / "completed.json"
+    let held ← IO.FS.readBinFile completed
+    let refused ← runProcess repo gate #["--registry-out", escaping.toString] (env := plain)
+    unless refused.exitCode == configuration && refused.stderr.contains "has a `..` component" &&
+        !(← absent.pathExists) && (← IO.FS.readBinFile completed).data == held.data do
+      return some s!"early stop: axiomGate with --registry-out {escaping} was not refused before \
+        it made {absent} (exit {refused.exitCode}):\n{refused.output}"
     -- A directory at the `--out` of `site build` that holds something other than an artifact of a
     -- build, such as the documentation of a repository, is refused and keeps its files
     -- (`Regula.Site.Build.artifactRefusal`).
@@ -5373,10 +5394,121 @@ process without Lean's task manager is refused before the self-test starts, with
 unsafe def main : List String → IO UInt32 :=
   Regula.TaskManager.guard "checkerSelftest" refuseCheckerSelftest checkerSelftestMain
 
--- The removals that the compiled code of `main`, and of the initializers of the modules it links,
--- reaches are the filesystem observer's and those that `Regula.Removal.libraryRemovals` lists: the
--- build of this module fails otherwise (`Regula.Removal.checkProgram`).
-run_cmd Regula.Removal.checkProgram
+-- The removals and the writes that the compiled code of `main`, and of the initializers of the
+-- modules it links, reaches are those of the filesystem observer and those that
+-- `Regula.Removal.sharedPairs` lists, and those named here, each by the declaration of a source
+-- that makes it: the build of this module fails otherwise, and when a name here admits no call
+-- (`Regula.Removal.checkProgram`).
+run_cmd Regula.Removal.checkProgram (named := [
+  -- The projects of the build-integration controls (`Regula.Checker.BuildLintQualification`).
+  (`Regula.Checker.BuildLintQualification.disabledControl, ``IO.FS.writeFile),
+  (`Regula.Checker.BuildLintQualification.runCase, ``IO.FS.writeFile),
+  (``Regula.Checker.BuildLintQualification.addSupport, ``IO.FS.createDirAll),
+  (``Regula.Checker.BuildLintQualification.addSupport, ``IO.FS.writeFile),
+  (``Regula.Checker.BuildLintQualification.requireCheckout, ``IO.FS.createDirAll),
+  (``Regula.Checker.BuildLintQualification.setup, ``IO.FS.createDirAll),
+  (``Regula.Checker.BuildLintQualification.setup, ``IO.FS.writeFile),
+  -- The fixtures of the self-test's controls, among them the seeded destinations of the guard's
+  -- controls, in the projects and scratch directories that they make.
+  (`Regula.Checker.CheckerSelftest.adopterQualification, ``IO.FS.createDirAll),
+  (`Regula.Checker.CheckerSelftest.adopterQualification, ``IO.FS.writeBinFile),
+  (`Regula.Checker.CheckerSelftest.adopterQualification, ``IO.FS.writeFile),
+  (`Regula.Checker.CheckerSelftest.bvCheckCertificates, ``IO.FS.createDirAll),
+  (`Regula.Checker.CheckerSelftest.bvCheckCertificates, ``IO.FS.writeFile),
+  (`Regula.Checker.CheckerSelftest.combinedSnapshotQualification, ``IO.FS.createDirAll),
+  (`Regula.Checker.CheckerSelftest.combinedSnapshotQualification, ``IO.FS.writeFile),
+  (`Regula.Checker.CheckerSelftest.copyDocument, ``IO.FS.writeFile),
+  (`Regula.Checker.CheckerSelftest.diagnosticSetupQualification, ``IO.FS.createDirAll),
+  (`Regula.Checker.CheckerSelftest.diagnosticSetupQualification, ``IO.FS.writeFile),
+  (`Regula.Checker.CheckerSelftest.driverCopyControl, ``IO.FS.createDirAll),
+  (`Regula.Checker.CheckerSelftest.driverCopyControl, ``IO.FS.writeFile),
+  (`Regula.Checker.CheckerSelftest.earlyStopControl, ``IO.FS.createDirAll),
+  (`Regula.Checker.CheckerSelftest.earlyStopControl, ``IO.FS.writeFile),
+  (`Regula.Checker.CheckerSelftest.executionQualification, ``IO.FS.createDirAll),
+  (`Regula.Checker.CheckerSelftest.fenceEnvironmentControl, ``IO.FS.createDirAll),
+  (`Regula.Checker.CheckerSelftest.fenceEnvironmentControl, ``IO.FS.writeFile),
+  (`Regula.Checker.CheckerSelftest.fenceEnvironmentQualification, ``IO.FS.createDirAll),
+  (`Regula.Checker.CheckerSelftest.forcedCollectorQualification, ``IO.FS.writeFile),
+  (`Regula.Checker.CheckerSelftest.frozenArtifactControls, ``IO.FS.writeBinFile),
+  (`Regula.Checker.CheckerSelftest.identicalCopiesControl, ``IO.FS.createDirAll),
+  (`Regula.Checker.CheckerSelftest.identicalCopiesControl, ``IO.FS.writeFile),
+  (`Regula.Checker.CheckerSelftest.libraryCycleControl, ``IO.FS.createDirAll),
+  (`Regula.Checker.CheckerSelftest.libraryCycleControl, ``IO.FS.writeFile),
+  (`Regula.Checker.CheckerSelftest.manifestQualification, ``IO.FS.writeFile),
+  (`Regula.Checker.CheckerSelftest.prepareSelfHosted, ``IO.FS.writeFile),
+  (`Regula.Checker.CheckerSelftest.prepareStructuralProject, ``IO.FS.createDirAll),
+  (`Regula.Checker.CheckerSelftest.prepareStructuralProject, ``IO.FS.writeBinFile),
+  (`Regula.Checker.CheckerSelftest.prepareStructuralProject, ``IO.FS.writeFile),
+  (`Regula.Checker.CheckerSelftest.publicScannerQualification, ``IO.FS.createDirAll),
+  (`Regula.Checker.CheckerSelftest.publicScannerQualification, ``IO.FS.writeFile),
+  (`Regula.Checker.CheckerSelftest.retainedBuildControl, ``IO.FS.createDirAll),
+  (`Regula.Checker.CheckerSelftest.retainedBuildControl, ``IO.FS.writeBinFile),
+  (`Regula.Checker.CheckerSelftest.retainedBuildControl, ``IO.FS.writeFile),
+  (`Regula.Checker.CheckerSelftest.seedModuleArtifacts, ``IO.FS.createDirAll),
+  (`Regula.Checker.CheckerSelftest.seedModuleArtifacts, ``IO.FS.writeBinFile),
+  (`Regula.Checker.CheckerSelftest.structuralPartB, ``IO.FS.createDirAll),
+  (`Regula.Checker.CheckerSelftest.structuralPartB, ``IO.FS.writeFile),
+  (`Regula.Checker.CheckerSelftest.structuralPartC, ``IO.FS.writeFile),
+  (`Regula.Checker.CheckerSelftest.taskManagerControl, ``IO.FS.createDirAll),
+  (`Regula.Checker.CheckerSelftest.taskManagerControl, ``IO.FS.writeFile),
+  (`Regula.Checker.CheckerSelftest.withNewFile, ``IO.FS.createDirAll),
+  (`Regula.Checker.CheckerSelftest.withNewFile, ``IO.FS.writeFile),
+  (`Regula.Checker.CheckerSelftest.withRemovedFile, ``IO.FS.writeFile),
+  (`Regula.Checker.CheckerSelftest.withReplacedFile, ``IO.FS.writeFile),
+  (`Regula.Checker.CheckerSelftest.writeCrossSurfaceProject, ``IO.FS.createDirAll),
+  (`Regula.Checker.CheckerSelftest.writeCrossSurfaceProject, ``IO.FS.writeFile),
+  (`Regula.Checker.CheckerSelftest.writeFreshInput, ``IO.FS.Handle.mk),
+  -- The fixtures of the controls of the compiler's paths (`Regula.Checker.CompilerPaths`).
+  (`Regula.Checker.CompilerPaths.phase, ``IO.FS.createDirAll),
+  (`Regula.Checker.CompilerPaths.phase, ``IO.FS.writeFile),
+  -- The adopter projects of the `lake lint` controls (`Regula.Checker.LintQualification`).
+  (`Regula.Checker.LintQualification.WeakArgsAdopter.hidden, ``IO.FS.writeFile),
+  (`Regula.Checker.LintQualification.WeakArgsAdopter.requireOverride, ``IO.FS.createDirAll),
+  (`Regula.Checker.LintQualification.WeakArgsAdopter.requireOverride, ``IO.FS.writeFile),
+  (`Regula.Checker.LintQualification.cachedWarning, ``IO.FS.writeFile),
+  (`Regula.Checker.LintQualification.compilerGuard, ``IO.FS.createDirAll),
+  (`Regula.Checker.LintQualification.dependencyCachedWarning, ``IO.FS.createDirAll),
+  (`Regula.Checker.LintQualification.dependencyCachedWarning, ``IO.FS.writeFile),
+  (`Regula.Checker.LintQualification.emptyFacetsWarning, ``IO.FS.writeFile),
+  (`Regula.Checker.LintQualification.escapedNameWarning, ``IO.FS.createDirAll),
+  (`Regula.Checker.LintQualification.escapedNameWarning, ``IO.FS.writeFile),
+  (`Regula.Checker.LintQualification.facetReport, ``IO.FS.createDirAll),
+  (`Regula.Checker.LintQualification.facetReport, ``IO.FS.writeFile),
+  (`Regula.Checker.LintQualification.lakeNew, ``IO.FS.writeFile),
+  (`Regula.Checker.LintQualification.leanArguments, ``IO.FS.createDirAll),
+  (`Regula.Checker.LintQualification.leanArguments, ``IO.FS.writeFile),
+  (`Regula.Checker.LintQualification.leanAudit, ``IO.FS.writeFile),
+  (`Regula.Checker.LintQualification.leanDecisions, ``IO.FS.createDirAll),
+  (`Regula.Checker.LintQualification.leanDecisions, ``IO.FS.writeFile),
+  (`Regula.Checker.LintQualification.leanRefusals, ``IO.FS.writeFile),
+  (`Regula.Checker.LintQualification.mutate, ``IO.FS.writeFile),
+  (`Regula.Checker.LintQualification.pathConfig, ``IO.FS.createDirAll),
+  (`Regula.Checker.LintQualification.pathConfig, ``IO.FS.writeFile),
+  (`Regula.Checker.LintQualification.pathEscapes, ``IO.FS.createDirAll),
+  (`Regula.Checker.LintQualification.pathEscapes, ``IO.FS.writeFile),
+  (`Regula.Checker.LintQualification.pathForged, ``IO.FS.writeFile),
+  (`Regula.Checker.LintQualification.pathOverrides, ``IO.FS.createDirAll),
+  (`Regula.Checker.LintQualification.pathOverrides, ``IO.FS.writeFile),
+  (`Regula.Checker.LintQualification.pathOwnedChecks, ``IO.FS.writeFile),
+  (`Regula.Checker.LintQualification.pathReserved, ``IO.FS.createDirAll),
+  (`Regula.Checker.LintQualification.pathReserved, ``IO.FS.writeFile),
+  (`Regula.Checker.LintQualification.pathTrusted, ``IO.FS.writeFile),
+  (`Regula.Checker.LintQualification.restore, ``IO.FS.writeFile),
+  (`Regula.Checker.LintQualification.tomlAudit, ``IO.FS.createDirAll),
+  (`Regula.Checker.LintQualification.tomlAudit, ``IO.FS.writeFile),
+  (`Regula.Checker.LintQualification.tomlPlain, ``IO.FS.createDirAll),
+  (`Regula.Checker.LintQualification.tomlPlain, ``IO.FS.writeFile),
+  (`Regula.Checker.LintQualification.tomlTargets, ``IO.FS.writeFile),
+  (`Regula.Checker.LintQualification.weakArgsDeclared, ``IO.FS.writeFile),
+  (`Regula.Checker.LintQualification.weakArgsModes, ``IO.FS.writeFile),
+  (`Regula.Checker.LintQualification.weakArgsOverrides, ``IO.FS.writeFile),
+  (`Regula.Checker.LintQualification.weakArgsProbes, ``IO.FS.createDirAll),
+  (`Regula.Checker.LintQualification.weakArgsProbes, ``IO.FS.writeFile),
+  -- The projects of the policy controls (`Regula.Checker.PolicyQualification`).
+  (`Regula.Checker.PolicyQualification.setup, ``IO.FS.createDirAll),
+  (`Regula.Checker.PolicyQualification.setup, ``IO.FS.writeFile),
+  (``Regula.Checker.PolicyQualification.nativeImport, ``IO.FS.writeFile),
+  (``Regula.Checker.PolicyQualification.publicPaths, ``IO.FS.writeFile)])
 
 -- A program that needs Lean's task manager starts through its guard (`Regula.TaskManager.guard`),
 -- and its refusal needs none: the build of this module fails otherwise

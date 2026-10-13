@@ -6,9 +6,10 @@ import Regula.TaskManagerCheck
 A planted program whose `main` calls a removal primitive fails the check that each program of the
 package runs at the end of its root module or of a module that imports it
 (`Regula.Removal.checkProgram`), and the same program with its removal made by the filesystem
-observer passes it. A planted declaration of this module with the filesystem observer's role
-admits nothing, and the check refuses a program while one is declared outside `Regula.Filesystem`
-(`Regula.Removal.foreignObservers`).
+observer passes it. A planted program that writes a file fails it too, and so does one that opens a
+file to write it; one that opens a file to read it passes it. A planted declaration of this module
+with the filesystem observer's role admits nothing, and the check refuses a program while one is
+declared outside `Regula.Filesystem` (`Regula.Removal.foreignObservers`).
 
 A planted program whose `main` starts a task, creates a promise or captures a process's output
 fails the check that a compiled program needing Lean's task manager starts through the guard
@@ -51,6 +52,21 @@ run_cmd do
     (mkApp (mkConst ``System.FilePath.mk) path)
   if let some refused ← refusal routed then
     throwError "the check refused a program whose main removes with the observer: {refused}"
+
+-- A `main` that writes a file with the library's primitive fails the check, and so does one that
+-- opens a file to write it; one that opens a file to read it passes it.
+run_cmd do
+  let plant (body : Term) : CommandElabM Unit := do
+    elabCommand (← `(command| def $(mkIdent `plantedWrite) : IO Unit := $body))
+  let planted := mkConst ((← getCurrNamespace) ++ `plantedWrite)
+  for (body, primitive) in [((← `(IO.FS.writeFile "planted" "")), ``IO.FS.writeFile),
+      ((← `(discard <| IO.FS.Handle.mk "planted" .write)), ``IO.FS.Handle.mk)] do
+    let refused ← refusal planted (plant body)
+    unless refused.any (·.contains s!"plantedWrite calls {primitive}") do
+      throwError "the check accepted a program whose main calls {primitive} to write: {refused}"
+  if let some refused ← refusal planted (plant (← `(discard <| IO.FS.Handle.mk "planted" .read)))
+  then
+    throwError "the check refused a program whose main opens a file to read it: {refused}"
 
 -- The filesystem observer's role, given in this module: a planted observer that calls the library's
 -- primitive does not make its call admitted, and a planted observer that removes nothing makes the
