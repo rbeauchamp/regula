@@ -347,8 +347,7 @@ def checkWorkspace : IO Unit := do
         let freshResult ← Regula.Checker.ResultProtocol.readDocument freshOutput
         let request : Regula.Website.ExampleRequest ← IO.ofExcept
           (fromJson? (← IO.ofExcept (freshResult.getObjVal? "request")))
-        if selected == "foundation_manifest.json" then
-          IO.ofExcept (Regula.Checker.RuleExampleQualification.effectiveAccount freshResult request)
+        IO.ofExcept (Regula.Checker.RuleExampleQualification.effectiveAccount freshResult request)
         let effective ← IO.ofExcept (freshResult.getObjVal? "effective")
         let root : String ← IO.ofExcept (effective.getObjValAs? _ "root")
         let configuration : Regula.CopyConfiguration.Files ← IO.ofExcept

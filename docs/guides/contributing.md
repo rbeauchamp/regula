@@ -183,6 +183,15 @@ shared store or changing registrations and packages, provisioning requires each 
 link to identify a stable store with an admissible receipt. Source-origin, unknown and dangling
 links are preserved and refused; their disposition remains manual.
 
+Provisioning makes the link `mathlib` in a new directory `.mathlib.<nonce>` beside the place of
+the link. Then it moves the link to its place. If an entry is at the place of that directory, the
+link installation stops and changes nothing. A run that stops before it removes that directory can
+leave it. Remove such a directory by hand.
+
+The steps of a run before the link installation are not undone when it stops. Thus the packages
+directory, the shared directory and the registration of the copy can remain. On a replacement, the
+old `mathlib` entry is already removed.
+
 Each shared directory's registry `<dir>.copies.json` beside it records the copies provisioned
 to link it; a copy is registered before it links. Every provisioning run removes the shared
 directories of other stable pins and toolchains that no
@@ -261,7 +270,7 @@ checker behavior:
 | `environment-census` | This repository's claimed environments and their mutations (`qualify environments`). |
 | `snapshot-history` | Fresh, incremental and build-lint history refusal and restoration over the dependency snapshot (`qualify acceptance-snapshots history`). |
 | `acceptance-controls` | Fence-compilation packet mutations with positive restoration, and the `dependencies` and `git-status` snapshot groups. Also timeout-selection and spawn failures, and the preparation of a shared producer slot. The commands are `qualify acceptance fences`, `acceptance-snapshots dependencies` and `git-status`, `receipt-boundaries` and `prep-measure`. |
-| `documentation-controls` | The two documentation commands keep their pre-build dependency observations. An initial configuration IO failure goes through the project and file result protocols. The commands are `qualify documentation-dependencies` and `configuration-capture`. |
+| `documentation-controls` | The two documentation commands keep their pre-build dependency observations. An initial configuration IO failure goes through the project and file result protocols. A fresh audit with the policy manifest `policy.json` passes the project-surface comparison. That comparison refuses a missing selection, an absent selected file and an ambiguous selection. The commands are `qualify documentation-dependencies` and `configuration-capture`. |
 | `focused-controls` | The self-test's focused native-adopter, combined-snapshot and policy-transport controls (`checkerSelftest --native-adopter-only`, `--combined-snapshot-only`, `--policy-transport-only`). |
 | `policy-domain` | The self-test's focused policy-domain controls, the policy transport and the public paths (`checkerSelftest --policy-domain-only`). |
 

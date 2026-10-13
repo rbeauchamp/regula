@@ -75,7 +75,9 @@ private unsafe def runCommand (attempt : Option String) : Command → IO Unit
   | .receiptBoundaries => Regula.Qualification.ReceiptBoundary.check
   | .observers => Regula.Qualification.Observers.check
   | .closureEvidence => Regula.Qualification.SourceEvidence.closure
-  | .configurationCapture => Regula.Qualification.SourceEvidence.configuration
+  | .configurationCapture => do
+      Regula.Qualification.SourceEvidence.configuration
+      Regula.Qualification.SourceEvidence.selectedPolicy
   | .fenceEvidence => Regula.Qualification.SourceEvidence.fences
   | .frozenExits => Regula.Qualification.FrozenExit.check
   | .documentationSource => Regula.Qualification.DocumentationSource.check false

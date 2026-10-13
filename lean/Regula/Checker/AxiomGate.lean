@@ -1914,7 +1914,8 @@ private unsafe def audit (plan : Plan) (failed : List String) : IO UInt32 := do
             (driverCopy := options.driverCopy)
           return result
     catch error => return (← reportFailure error, none)
-  -- A configuration-read failure still records the request, with no configuration read.
+  -- A configuration-read failure still records the request, with its policy selection and no
+  -- configuration read.
   let (configuration, readFailure) ← try
       pure (← SourceBinding.configuration repo manifestPath, none)
     catch error => pure (#[], some error)
@@ -1923,7 +1924,8 @@ private unsafe def audit (plan : Plan) (failed : List String) : IO UInt32 := do
                                                                          "project")
     repo.toString ((options.file.map (fun path => (resolve repo path).toString)).getD repo.toString)
     (options.claim.map Profile.toString)
-    (if options.file.isSome then some options.execution.toString else none) configuration
+    (if options.file.isSome then some options.execution.toString else none) manifestPath
+    configuration
   let (code, linked) ← withRetainedSources resultOut composed capturedSources <|
     match readFailure with
     | some error => return (← reportFailure error, none)
