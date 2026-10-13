@@ -34,10 +34,9 @@ planted initializer never runs. The planted removals below are the calls of a re
 - A symbolic link, a path through one and a file where a directory is checked:
   `requireOwnDirectory` refuses each, and accepts a directory at its own place and an absent path.
   `requireNoLinkedEntries` refuses a directory with a symbolic link among its entries.
-- A symbolic link, also one whose target is absent, a path through one and a directory where a file
-  is checked: `requireOwnFile` refuses each, and accepts a file at its own place and an absent path.
-- A hard link and a symbolic link: `identities` gives the identity of the file for its hard link,
-  a different one for the symbolic link than for its target, and none for an absent path.
+- A directory and a symbolic link moved aside: `moveAside` moves each into a new directory beside
+  it, the link itself and not its target, and moves nothing when something is already where the
+  new directory is made.
 - A URL of `Regula.Site.Deployment.fetch` that starts with `-`: curl does not read it as an
   option.
 
@@ -97,22 +96,6 @@ run_cmd do
         matches .error _ do
       throwError "requireNoLinkedEntries accepted a directory with a dangling linked entry"
     Regula.Filesystem.requireOwnDirectory (base / "absent")
-    for refused in [base / "linked", base / "linked" / "out" / "keep", base / "target" / "out",
-        base / "target" / "out" / "dangling"] do
-      unless (← (Regula.Filesystem.requireOwnFile refused).toBaseIO) matches .error _ do
-        throwError "requireOwnFile accepted {refused}"
-    Regula.Filesystem.requireOwnFile (base / "target" / "out" / "keep")
-    Regula.Filesystem.requireOwnFile (base / "absent")
-    let kept := base / "target" / "out" / "keep"
-    let hard ← IO.Process.output { cmd := "ln", args := #[kept.toString, (base / "hard").toString] }
-    unless hard.exitCode == 0 do throwError "ln failed: {hard.stderr}"
-    match ← Regula.Filesystem.identities [kept, base / "hard",
-        base / "linked", base / "target", base / "absent"] with
-    | [some keep, some hard, some linked, some target, none] =>
-      unless keep == hard && linked != target do
-        throwError "identities did not give one file for a hard link and its file, or gave one \
-          file for a symbolic link and its target"
-    | ids => throwError "identities gave {repr ids} for three files, a link and an absent path"
     unless ← (base / "target" / "out" / "keep").pathExists do
       throwError "removeOwn removed an entry below a linked component"
     -- Moves: a file over a file and to an absent path; none through the link, of a directory, or
@@ -138,6 +121,31 @@ run_cmd do
     Regula.Filesystem.removeOwn .directory (base / "target" / "out")
     if ← (base / "target" / "out").pathExists then
       throwError "removeOwn kept a directory at its own place"
+    -- Moves aside: a directory and a symbolic link, each into a new directory beside it; none
+    -- when something is where the new directory is made.
+    IO.FS.createDirAll (base / "pages")
+    IO.FS.writeFile (base / "pages" / "index") "index"
+    Regula.Filesystem.moveAside { path := base / "pages", aside := base / "pages.aside",
+                                  name := "pages" }
+    unless (← (base / "pages.aside" / "pages" / "index").pathExists) &&
+        !(← (base / "pages").pathExists) do
+      throwError "moveAside did not move a directory into a new directory"
+    let aliased ← IO.Process.output
+      { cmd := "ln", args := #["-s", (base / "target").toString, (base / "alias").toString] }
+    unless aliased.exitCode == 0 do throwError "ln -s failed: {aliased.stderr}"
+    Regula.Filesystem.moveAside { path := base / "alias", aside := base / "alias.aside",
+                                  name := "alias" }
+    unless (← (base / "alias.aside" / "alias").symlinkMetadata).type == .symlink &&
+        (← (base / "target").isDir) && !(← (base / "alias").pathExists) do
+      throwError "moveAside did not move a symbolic link itself"
+    IO.FS.writeFile (base / "staying") "staying"
+    IO.FS.createDir (base / "staying.aside")
+    let staying : Regula.Filesystem.AsideMove :=
+      { path := base / "staying", aside := base / "staying.aside", name := "staying" }
+    unless (← (Regula.Filesystem.moveAside staying).toBaseIO) matches .error _ do
+      throwError "moveAside moved an entry into a directory that was already there"
+    unless (← IO.FS.readFile (base / "staying")) == "staying" do
+      throwError "a refused move aside changed its entry"
   finally
     Regula.Filesystem.removeOwn .directory base
 

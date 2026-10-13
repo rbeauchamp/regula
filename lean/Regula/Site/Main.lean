@@ -43,12 +43,12 @@ def siteMain (args : List String) : IO UInt32 := do
   | none, ["renderer-refusal"] =>
     Regula.Site.RendererRefusal.control (← Regula.Qualification.rootDirectory)
     IO.println "site renderer-refusal: PASS (regula-standard renders from the saved state of a \
-      delayed render, and after a refused run with the same options a resumed render stops; the \
-      refusals of regula-site and regula-standard remove the saved state, the word count and the \
-      pages, and keep what a resumed render reads; each stops before it removes anything on a \
-      symbolic link at a file that it reads, an empty output directory, a saved state or word \
-      count that may be in its output directory, by spelling or case, and a word count that is a \
-      file that it reads, by path or by identity)"
+      delayed render, which keeps a file of its output directory, and after a refused run with the \
+      same options a resumed render stops; the refusals of regula-site and regula-standard move \
+      the saved state, the word count and the output directory aside whole, a symbolic link \
+      itself, and keep the saved state that a resumed render reads; each reports and keeps an \
+      output directory `.` or empty and a word count where it can make nothing, and moves nothing \
+      for options that Verso's parser refuses)"
     return 0
   | none, _ =>
     IO.eprintln "usage: lake exe site build --out DIR --evidence SHARD.json [SHARD.json ...]"

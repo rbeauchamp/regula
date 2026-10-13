@@ -794,36 +794,30 @@ render and the word count of `regula-site` and `regula-standard`. Before
 [issue 424](https://github.com/rbeauchamp/regula/issues/424), a refused run left these files in
 place, and a later render with `--resume-html-multi` used the saved state of an earlier run.
 
-Now `RegulaRender.begin` reads the options of the two programs with the parser of Verso,
-`manualMain.opts`. That parser is private to its module, and the module `RegulaRender.Options`
-gets it with `import all`. Before the render starts, `RegulaRender.begin` removes the saved states,
-the word count and the three directories of pages below the output directory. It removes a
-directory of pages also when the options do not select its mode. The refusal of each program
-operates `RegulaRender.begin` in place of the run, thus a refused run and a run leave the same state.
+Regula invalidates the destinations of the runs that it refuses itself. A run that Verso starts
+keeps the write behaviour of Verso, and Regula removes nothing before it. The refusal of each
+program reads its options with the parser of Verso, `manualMain.opts`. That parser is private to
+its module, and the module `RegulaRender.Options` gets it with `import all`. The destinations of
+the options are the output directory, the saved state of each delayed mode and the word count.
 
-A resumed render reads its saved state and the table of cross-references in its directory of
-pages, and `RegulaRender.begin` keeps that table. Before any removal, `RegulaRender.resolvePlan`
-resolves each path of the configuration into a plan of absolute paths, through the observer of the
-file system. It refuses an empty output directory, a symbolic link at a path of the plan, and an
-entry of the wrong kind there. The files that the render reads are its saved states, its tables of
-cross-references, the files that it copies and its remote configuration. Then
-`RegulaRender.invalidate` observes the device and the number of the file at each removal and each
-read. The function `RegulaRender.refusal` admits that observation.
+For each destination where something is, `RegulaRender.invalidate` makes a new directory beside it
+and moves the destination into it, under its own name. It makes the directory with `mkdir`, which
+fails if anything is at that path. It moves the destination with `rename`, which moves a symbolic
+link itself and not its target. Thus the refusal removes nothing, and it changes only the paths
+that the options name as destinations. A later render finds nothing at these paths, and a resumed
+render stops. If a move fails, for example at a mount point, the refusal reports the destination
+and the error and returns 1.
 
-The theorem `RegulaRender.removals_admitted` states that each removal is in a directory of pages
-below the output directory, or is a file that the render writes. No present removal is, or
-contains, a file that the render reads, by the identity of the files. The theorem
-`RegulaRender.written_admitted` states that a saved state or a word count is not in the output
-directory. For paths that do not exist yet, it compares the names. Two names that a volume can take
-for one name count as equal.
+The theorem `RegulaRender.moves_operations` is about the moves that the refusal operates. Their
+operations are one `mkdir` and one `rename` for each destination where something is, and they
+include no removal. The theorem is about the plan, not about the file system.
 
-The theorems are about the observation, not about the file system. The program `/usr/bin/stat`
-gives the identities, because Lean 4.34.1 does not give them, and that program is trusted. That
-the observation shows the file system rests on the checks of the observer, if no other process
-changes the files after the checks. Verso also reads the files that the content of a remote
-configuration names, and the theorems do not include them. Each removal goes through the observer.
-The command `lake exe site renderer-refusal` examines the two programs after the site build of
-`./scripts/verify.sh site`.
+In Lean 4.34.1, `IO.FS.createDir` calls `mkdir` and `IO.FS.rename` calls `rename` of POSIX. That
+`mkdir` is exclusive and that `rename` moves a symbolic link itself are assumptions about POSIX. On
+Windows, `IO.FS.rename` replaces what is at its destination, thus the refusal moves nothing there
+and reports each destination. The assumptions do not include a process that changes a destination
+while the refusal operates. The command `lake exe site renderer-refusal` examines the two programs
+after the site build of `./scripts/verify.sh site`.
 
 
 The check `Regula.TaskManagerCheck.checkProgram` operates at the end of the root module of each

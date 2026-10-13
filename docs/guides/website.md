@@ -154,10 +154,10 @@ After the build, `./scripts/verify.sh site` operates `lake exe site renderer-ref
 of [issue 424](https://github.com/rbeauchamp/regula/issues/424). This command builds `regula-site`
 and `regula-standard`, and a delayed render of the standard and a resumed render must succeed.
 After a refused run with the same options, a resumed render must stop. The refusals of the two
-programs must also remove the saved state, the word count and the pages. A run must stop before it
-removes anything if its output directory is empty, or if a file that it reads is a symbolic link.
-It must also stop if its saved state or word count can be in its output directory, or can be a
-file that it reads.
+programs must move the saved state, the word count and the output directory aside, into new
+directories beside them. A refusal must keep the saved state that a resumed render reads, and move
+a symbolic link itself. It must report an output directory `.` or empty, and a destination that it
+cannot move.
 
 The website package requires the root `regula` package and the `audit/` package by relative
 path, because the standard's examples import modules of both. Neither requires Mathlib, and no

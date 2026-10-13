@@ -7,7 +7,7 @@ import all VersoManual
 Verso's parser of the command-line options of `manualMain`, `manualMain.opts`, is an auxiliary
 definition of `manualMain`, private to the module `VersoManual`. This module imports `VersoManual`
 with `import all`, which gives it that private definition, and exposes the parser itself as
-`RegulaRender.versoOptions`, so `RegulaRender.begin` reads the options with the parser that
+`RegulaRender.versoOptions`, so `RegulaRender.refuse` reads the options with the parser that
 `manualMain` runs. -/
 
 namespace RegulaRender

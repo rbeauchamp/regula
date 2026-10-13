@@ -10,21 +10,21 @@ of `IO`. That the observer satisfies the assumptions of `RegulaCore.Filesystem` 
 trusted step.
 
 The observer's operations that remove or move an entry, and `observer` itself, are private to this
-module. The only way that other code removes or moves an entry is one of the operations below,
-each of which observes the place and acts only on what the decisions of `RegulaCore.Removal`
-decide: `removeOwn`, `removeFound`, `replace` and `withOwnTempDir`. The theorems at the end state,
-under the assumptions they name, what each does. The reach check `Regula.Removal.rawRemovals`
-refuses each call of a removal primitive outside a declaration with the observer's role, so no
-code of Regula calls one other than through this module, except the calls of Lean's library that
-`Regula.Removal.libraryRemovals` lists and the removals and moves of the two drivers that
-`Regula.ProgramCheck.Verification` and `Regula.ProgramCheck.Provision` name. A deliberate use of
-the private declarations, with `open private` or a hand-written name, is outside that criterion,
-as for the private observation of issue 261.
+module. The only way that other code removes or moves an entry is one of the operations below:
+`removeOwn`, `removeFound`, `replace` and `withOwnTempDir`, each of which observes the place and
+acts only on what the decisions of `RegulaCore.Removal` decide, and `moveAside`, which moves an
+entry into a directory that it makes new, so it replaces and removes nothing. The theorems at the
+end state, under the assumptions they name, what each does. The reach check
+`Regula.Removal.rawRemovals` refuses each call of a removal primitive outside a declaration with
+the observer's role, so no code of Regula calls one other than through this module, except the
+calls of Lean's library that `Regula.Removal.libraryRemovals` lists and the removals and moves of
+the two drivers that `Regula.ProgramCheck.Verification` and `Regula.ProgramCheck.Provision` name. A
+deliberate use of the private declarations, with `open private` or a hand-written name, is outside
+that criterion, as for the private observation of issue 261.
 
 The observer's reads are public: `ownPath` and `ownRoot` give the path at which a removal is
-decided, and `requireOwnDirectory`, `requireOwnFile` and `requireNoLinkedEntries` check a place
-before a program makes, writes or loads something there. `identities` gives the file that each of
-several paths names, by a trusted program.
+decided, and `requireOwnDirectory` and `requireNoLinkedEntries` check a place before a program
+makes or loads something there.
 
 Each operation is `@[noinline]`, so its call of the library's operation stays in its own compiled
 code and is not copied into a caller's. On Windows, Lean 4.34.1's
@@ -240,6 +240,51 @@ appear complete or not at all: it writes the file beside its destination and mov
 def replace (source destination : FilePath) : IO Unit :=
   replaceWith observer source destination
 
+/-- A move of the entry at `path` aside: into the new directory `aside`, under the name `name`. -/
+structure AsideMove where
+  /-- The path of the entry that is moved. -/
+  path : FilePath
+  /-- The directory that the move makes, beside the entry. -/
+  aside : FilePath
+  /-- The name of the entry in `aside`. -/
+  name : String
+
+/-- An operation of a move aside (`AsideMove.operations`). No operation removes an entry. -/
+inductive AsideOperation where
+  /-- Make a directory with `IO.FS.createDir`, which fails when anything is at the path. -/
+  | makeDirectory (path : FilePath)
+  /-- Rename the entry at the first path to the second with `IO.FS.rename`. -/
+  | rename (source destination : FilePath)
+
+/-- The operations of the move `m`, in order: make the directory `m.aside`, then rename the entry
+at `m.path` to the entry `m.name` of that directory. -/
+def AsideMove.operations (m : AsideMove) : List AsideOperation :=
+  [.makeDirectory m.aside, .rename m.path (m.aside / m.name)]
+
+/-- Run one operation of a move aside: `IO.FS.createDir` or `IO.FS.rename` (`observeRename`). -/
+private def runAside : AsideOperation → IO Unit
+  | .makeDirectory path => IO.FS.createDir path
+  | .rename source destination => observeRename source destination
+
+/-- Move the entry at `m.path`, whatever it is, aside: run `m.operations` in order, and stop at the
+first that fails. When the first succeeds, `m.aside` is a new, empty directory, so the rename
+replaces nothing. A symbolic link at `m.path` is moved, not the file that it points to. It removes
+nothing. It stops before it acts on Windows, where Lean 4.34.1 renames with `MoveFileEx` and
+replaces what is there (`src/runtime/io.cpp#L1219-L1222`).
+
+Assumes: POSIX.1-2024 (https://pubs.opengroup.org/onlinepubs/9799919799/functions/mkdir.html,
+https://pubs.opengroup.org/onlinepubs/9799919799/functions/rename.html). `mkdir()` is exclusive:
+it fails with `EEXIST` when anything is at the path, a symbolic link among them. `rename()` is
+atomic within one file system, renames a symbolic link at its first path itself and does not follow
+it, removes nothing when nothing is at its second path, and fails with `EXDEV` across file systems
+and with `EBUSY` or `EXDEV` on a mount point. Lean 4.34.1's `IO.FS.createDir` calls `mkdir` and
+`IO.FS.rename` calls `rename` on these systems (`src/runtime/io.cpp#L1181-L1195`, `#L1209-L1236`).
+No process makes an entry in `m.aside` between the two operations, which is trusted. -/
+def moveAside (m : AsideMove) : IO Unit := do
+  if System.Platform.isWindows then
+    throw (windowsRefusal "rename" m.path "IO.FS.rename replaces what is at its destination")
+  m.operations.forM runAside
+
 /-- A new directory that `IO.FS.createTempDir` makes, by its real path, so `removeOwn` removes it:
 on macOS the temporary directory is below `/var`, a symbolic link to `/private/var`. On Windows,
 where the observer reads no real path (`observeRealPath`), it stops before it makes the directory,
@@ -314,56 +359,6 @@ def requireOwnDirectory (path : FilePath) : IO Unit := do
   if removal .directory (← observe observer path) == .refuse then
     throw <| IO.userError s!"{path} is not a directory at its own place (a symbolic link, a file, \
       or a path through a symbolic link is there)"
-
-/-- Stop unless nothing is at `path` or a file is there at its own place, by the observation that
-`removeOwn` makes. These are the places on which `removal .file` does not refuse
-(`removal_remove_iff`, `removal_nothing_iff`), so a symbolic link, also one whose target is absent,
-a directory, an entry of another kind and a path through a symbolic link at `path` make it stop. -/
-def requireOwnFile (path : FilePath) : IO Unit := do
-  if removal .file (← observe observer path) == .refuse then
-    throw <| IO.userError s!"{path} is not a file at its own place (a symbolic link, a directory, \
-      an entry of another kind, or a path through a symbolic link is there)"
-
-/-- The identity (`FileId`) of the entry at each path of `paths`, by a read that follows no
-symbolic link at the path, or `none` when nothing is there. Lean 4.34.1's `IO.FS.Metadata` has no
-identity (`Init/System/IO.lean#L1115-L1129`), so it runs `/usr/bin/stat` one time over the paths
-where something is there. That program prints `st_dev` and `st_ino` of `lstat(2)` for each path,
-with `-f '%d %i'` on macOS and `-c '%d %i'` elsewhere, and it is trusted. It starts the process
-with no captured error output, so it starts no task, also in a process without Lean's task manager
-(`IO.Process.output` starts one). It stops on Windows, where the observer reads no entry, and when
-`stat` fails or does not print one pair of decimal numbers for each such path. -/
-def identities (paths : List FilePath) : IO (List (Option FileId)) := do
-  let found ← paths.mapM fun path => return (path, (← entryType observer path).isSome)
-  let present := found.filterMap fun (path, here) => if here then some path else none
-  let mut read : List FileId := []
-  unless present.isEmpty do
-    let format := if System.Platform.isOSX then #["-f", "%d %i"] else #["-c", "%d %i"]
-    let child ← IO.Process.spawn
-      { cmd := "/usr/bin/stat", args := format ++ #["--"] ++ present.toArray.map (·.toString),
-        stdin := .null, stdout := .piped, stderr := .null }
-    let output ← child.stdout.readToEnd
-    let exitCode ← child.wait
-    let parse (line : String) : Option FileId :=
-      match line.splitOn " " with
-      | [device, inode] => do return { device := (← device.toNat?), inode := (← inode.toNat?) }
-      | _ => none
-    match exitCode, ((output.splitOn "\n").filter (!·.isEmpty)).mapM parse with
-    | 0, some ids =>
-      unless ids.length == present.length do
-        throw <| IO.userError s!"/usr/bin/stat printed {ids.length} identities for \
-          {present.length} paths"
-      read := ids
-    | _, _ => throw <| IO.userError s!"/usr/bin/stat did not print the identities of {present} \
-      (exit {exitCode})"
-  let mut result : List (Option FileId) := []
-  for (_, here) in found do
-    if here then
-      let id :: more := read | throw <| IO.userError "/usr/bin/stat printed too few identities"
-      result := some id :: result
-      read := more
-    else
-      result := none :: result
-  return result.reverse
 
 /-- Stop unless nothing is at `path`, or a directory is there at its own place
 (`requireOwnDirectory`) and each of its entries is a directory or a file, by a read that follows no

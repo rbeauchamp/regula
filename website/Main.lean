@@ -30,15 +30,14 @@ def siteConfig : RenderConfig := {
   sourceLink := some "https://github.com/rbeauchamp/regula",
   issueLink := some "https://github.com/rbeauchamp/regula/issues" }
 
-/-- Renders the site with Verso's command-line options `options`, after it invalidates each place
-that they name for the render (`RegulaRender.begin`), with the configuration that they give. -/
-def renderSite (options : List String) : IO UInt32 := do
-  let config ← RegulaRender.begin siteConfig options
-  manualMain (%doc Generated) (options := []) (config := config)
+/-- Renders the site with Verso's command-line options `options` and the configuration `siteConfig`,
+which its refusal reads them with too (`refuseSite`). -/
+def renderSite (options : List String) : IO UInt32 :=
+  manualMain (%doc Generated) (options := options) (config := siteConfig)
 
 /-- The refusal of the renderer in a process without Lean's task manager
-(`Regula.TaskManager.guard`): it invalidates each place that the arguments name for the render, as
-a run does first (`RegulaRender.refuse`), and returns 1. -/
+(`Regula.TaskManager.guard`): it moves aside each destination that the arguments name for a render
+with `siteConfig` (`RegulaRender.refuse`), and returns 1. -/
 def refuseSite (_reason : String) (args : List String) : IO UInt32 :=
   RegulaRender.refuse "regula-site" siteConfig args
 

@@ -31,20 +31,19 @@ def missingClauses (doc : Part Manual) : List Regula.Clause :=
 def standardConfig : RenderConfig :=
   { emitTeX := false, emitHtmlSingle := .no, emitHtmlMulti := .immediately, htmlDepth := 1 }
 
-/-- Render the standard alone on Verso's command-line options `args`, after it invalidates each
-place that they name for the render (`RegulaRender.begin`) and requires every cited section
-(`missingClauses`), with the configuration that they give. -/
+/-- Render the standard alone on Verso's command-line options `args` and the configuration
+`standardConfig`, which its refusal reads them with too (`refuseStandard`), after requiring every
+cited section (`missingClauses`). -/
 def renderStandard (args : List String) : IO UInt32 := do
-  let config ← RegulaRender.begin standardConfig args
   let missing := missingClauses (%doc RegulaStandard)
   unless missing.isEmpty do
     IO.eprintln s!"cited sections missing from the standard with their tag, heading and chapter: {missing.map (·.heading)}"
     return 1
-  manualMain (%doc RegulaStandard) (options := []) (config := config)
+  manualMain (%doc RegulaStandard) (options := args) (config := standardConfig)
 
 /-- The refusal of the renderer in a process without Lean's task manager
-(`Regula.TaskManager.guard`): it invalidates each place that the arguments name for the render, as
-a run does first (`RegulaRender.refuse`), and returns 1. -/
+(`Regula.TaskManager.guard`): it moves aside each destination that the arguments name for a render
+with `standardConfig` (`RegulaRender.refuse`), and returns 1. -/
 def refuseStandard (_reason : String) (args : List String) : IO UInt32 :=
   RegulaRender.refuse "regula-standard" standardConfig args
 
