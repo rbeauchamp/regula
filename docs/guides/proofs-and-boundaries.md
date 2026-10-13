@@ -536,10 +536,11 @@ own place. The decision removes the place only if an entry of the kind is there 
 place (`removal_remove_iff`). The theorem `checked_removal` is the decision contract of that
 function.
 
-The observer moves a file only by the decision `Regula.Removal.replacement`. It moves a file at
-its own place to a path where nothing is, or where a file is at its own place. The destination
-must be a name in a directory at its own place (`replacement_iff`). A move over a file removes
-that file, thus the decision examines the destination as it examines a removal of a file.
+The operation `Regula.Filesystem.replace` moves a file only by the decision
+`Regula.Removal.replacement`. It moves a file at its own place to a path where nothing is, or
+where a file is at its own place. The destination must be a name in a directory at its own place
+(`replacement_iff`). A move over a file removes that file, thus the decision examines the
+destination as it examines a removal of a file.
 
 Before this decision, the site executable removed its output directory, `tmp/site-render`,
 `tmp/site-releases` and `website/Generated` with no such read. With a link at one of these
@@ -549,10 +550,18 @@ code removed directories in the same way
 ([issue 361](https://github.com/rbeauchamp/regula/issues/361)). At this time, each program stops
 there and removes nothing.
 
-The observer joins a relative path to the real path of the working directory, and it resolves no
-component that the path gives. It drops the leading `.` components. Before it reads anything, it
-refuses each other `.` or `..` component. Before it makes anything, it refuses a link among the
-present components (`Regula.Filesystem.ownPath`).
+The function `Regula.Filesystem.ownPath` gives the path at which a removal is decided. It joins a
+relative path to the real path of the working directory, and it resolves no component that the
+path gives. It drops the leading `.` components, and before it reads anything, it refuses each
+other `.` or `..` component. Before it makes anything, it refuses a link among the present
+components. The operations `removeOwn`, `removeFound` and `replace` act only on an entry at its own
+place. Thus they also refuse a `.` or `..` component, or a link above the entry.
+
+The operation `Regula.Filesystem.moveAside` does not use `ownPath` or the decisions
+`Regula.Removal.removal` and `Regula.Removal.replacement`. It moves an entry into a new directory
+that `mkdir` makes beside it, and it removes and replaces nothing. The operating system resolves a
+symbolic link or a `..` among the components above the entry. A run of Verso also writes through
+such a component.
 
 A program resolves some directories to their real path one time (`Regula.Filesystem.ownRoot`).
 These are the scratch area under `.lake`, the build directory of the project and the directory of a
@@ -1666,7 +1675,7 @@ Two-way decisions (`Regula.Decides`), each with an accepted and a refused input:
 | `Construction.projectRelative` | No root `tmp`. Documentation includes cache-named directories. Elsewhere no component is `.git`, `.lake`, `.cache` or `.regula-scratch` (`checked_projectRelative`). | The selection that the shared cold constructor executes. The constructor's filesystem theorems name their primitive hypotheses. |
 | `RegulaVerification.removal` (accepts on `.remove`) | A directory is at the place by a read that follows no link, and its real path is the place (`removal_remove_iff`). | The driver removes its copy and the `_site` directory only by this decision. The two reads of the file system are trusted. |
 | `Regula.Removal.removal` (accepts on `.remove`) | A read that follows no link finds an entry of the given kind at the place. Its real path is the place, or a symbolic link is a name in a directory at its own place (`removal_remove_iff`). | Each program of the package removes a directory, a file or a symbolic link only by this decision, through `Regula.Filesystem`. The exceptions are the library calls that `Regula.Removal.libraryRemovals` gives, and the removals of the two drivers that `Regula.ProgramCheck.Verification` and `Regula.ProgramCheck.Provision` give. The reads of the file system are trusted. |
-| `Regula.Removal.replacement` (accepts on `true`) | A read that follows no link finds a file at the source, at its own place. Nothing is at the destination, or a file is there at its own place. The destination is a name in a directory at its own place (`replacement_iff`). | Each program of the package moves a file only by this decision, through `Regula.Filesystem`. The exceptions are the library calls that `Regula.Removal.libraryRemovals` gives, and the moves of the two drivers that `Regula.ProgramCheck.Verification` and `Regula.ProgramCheck.Provision` give. The reads of the file system are trusted. |
+| `Regula.Removal.replacement` (accepts on `true`) | A read that follows no link finds a file at the source, at its own place. Nothing is at the destination, or a file is there at its own place. The destination is a name in a directory at its own place (`replacement_iff`). | Each program of the package moves a file only by this decision, through `Regula.Filesystem`. The exceptions are the library calls that `Regula.Removal.libraryRemovals` gives, and the moves of the two drivers that `Regula.ProgramCheck.Verification` and `Regula.ProgramCheck.Provision` give. The operation `Regula.Filesystem.moveAside` also moves an entry with no such decision, into a new directory beside it. The reads of the file system are trusted. |
 | `RegulaVerification.prebuildCovers` | The surface manifest has the shape that `claimedTargets` reads, and each target it claims is in `gateTargets` (`prebuildCovers_iff`). | The driver runs the first acceptance step only on such a manifest. Thus the gate does not build a claimed target beside the step's build. No theorem relates `claimedTargets` to the manifest reader of the checker. |
 | `ScratchCopy.name?` (accepts on `some`) | The path is the scratch area, then one name, then `project` (`name?_eq_some_iff`). | The gate admits a copy of the driver only at such a path. The components come from real paths, which the file system gives. |
 | `ScratchCopy.inside` | The path is the directory with one or more components after it (`inside_iff`). | The gate requires its own executable in the build directory of a copy of the driver. |

@@ -165,7 +165,8 @@ inductive Mode where
   /-- `diagnostics GROUP`: a group of qualification controls (`Group`). -/
   | diagnostic (group : Group)
   /-- `site`: build and check the rule-reference site artifact from the shards' evidence, then
-  check what the website's renderers leave when they render and when they refuse a run. -/
+  check what the website's renderers leave when they render and when they refuse a run without
+  Lean's task manager. -/
   | site
   /-- `mathlib`: the separate Mathlib integration check, never part of acceptance: the fresh
   acceptance and the lint of the Mathlib integration package, whose pinned Mathlib
@@ -1381,8 +1382,8 @@ def run (args : List String) : IO Unit := do
       standard links to its rule page; inputs equal the accepted ordinary inputs)"
     | .graph => "serialized-graph diagnostic: PASS (not ordinary verification)"
     | .site => "site build and check: PASS (rule-reference artifact in _site, and the renderers' \
-      destinations after a render and a refused run; separate from acceptance; publication is \
-      verified after deployment)"
+      destinations after a render and a run refused without Lean's task manager; separate from \
+      acceptance; publication is verified after deployment)"
     | .mathlib => "Mathlib integration check: PASS (the Mathlib integration package accepted fresh \
       and linted on its pinned Mathlib; separate from acceptance, which needs no Mathlib)"
     | _ => "diagnostic qualification: PASS (selected scope only; not ordinary verification)")

@@ -105,14 +105,14 @@ def invalidate (paths : List FilePath) : IO (List String) := do
     catch error => lines := lines ++ [s!"{path} was not moved aside: {error}"]
   return lines
 
-/-- The refusal of the program `program`, whose configuration is `config`, of a run that the program
-refuses before Verso starts: the refusal of a process without Lean's task manager by the guard of
-`regula-site` and `regula-standard` (`Regula.TaskManager.guard`), and the refusal of a standard that
-lacks a cited section by `regula-standard` (`renderStandard`). It reads `args` with Verso's own
-parser (`versoOptions`) and moves the destinations of that reading aside (`destinations`, `invalidate`),
-printing a line for each, and returns 1. When the parser refuses the options, it prints why and
-moves nothing: a run with those options writes nothing either, since `manualMain` parses them
-before it writes anything.
+/-- The refusal of the program `program`, whose configuration is `config`, of a run that the
+program refuses before Verso starts: the refusal of a process without Lean's task manager by the
+guard of `regula-site` and `regula-standard` (`Regula.TaskManager.guard`), and the refusal of a
+standard that lacks a cited section by `regula-standard` (`renderStandard`). It reads `args` with
+Verso's own parser (`versoOptions`) and moves the destinations of that reading aside
+(`destinations`, `invalidate`), printing a line for each, and returns 1. When the parser refuses
+the options, it prints why and moves nothing: a run with those options writes nothing either, since
+`manualMain` parses them before it writes anything.
 
 Assumes: Verso `cad4b633`, `src/verso-manual/VersoManual.lean`: `manualMain` parses its options with
 `opts` (1043) before it writes anything. -/
