@@ -189,8 +189,10 @@ def guide : RuleId → Guide
         "In the editor the rule is reported for completed declarations of the current snapshot. A \
           cancelled collection reports nothing for that declaration; a failed one is reported as \
           RG2005 (incomplete), never as an invented RG1002. The editor has no replayed kernel: it \
-          reads the axioms Lean's `collectAxioms` reports, which for an imported declaration come \
-          from its module's table and can be fewer than the project audit computes.",
+          searches the constants its environment holds \
+          (`RegulaPolicy.KernelAxioms.reachedAxioms`), and for a theorem or an unexposed \
+          definition that a `module` dependency exports without its body it reads the axioms \
+          that module's table records, which can be fewer than the project audit computes.",
         "The checked example comes from a diagnostic single-file inspection that keeps Lean's \
           `sorry` warning as related evidence and continues to policy inspection; the ordinary \
           project commands stop earlier with RG2003, as described above."]
@@ -376,7 +378,9 @@ def guide : RuleId → Guide
           pinned Lean 4.34.1 records no axiom for `Float`, whose constructor's type reaches \
           `propext` and `Quot.sound`. `#print axioms` can then show a smaller set, and a lower \
           label, than the checker, and the audit reports the omission (RG2005). The editor, which \
-          has no replayed kernel, reads that table."]
+          has no replayed kernel, searches the constants its environment holds, and reads that \
+          table only for a theorem or an unexposed definition that a `module` dependency exports \
+          without its body."]
       residuals := [.qualify]
       checklist := ["FOUND-03", "FOUND-04", "BUILD-02", "THEOREM-01", "THEOREM-10", "BUILD-01"]
       linkage := declarationLinkage
@@ -1649,10 +1653,10 @@ def guide : RuleId → Guide
           error before it recorded the kernel's answer, is unresolved.",
         "Replacement history is reconstructed by fresh re-elaboration; metaprogramming commands \
           such as `run_cmd`, `run_elab` or module-local elaborators make it unavailable.",
-        "A path through the Lean toolchain's own origin-checked `Init`, `Std` or `Lean` modules \
-          does not need that history: a toolchain replacement is followed through the current \
-          target its compiled module records, as part of the toolchain's trusted base, so no \
-          toolchain replacement is reported as unresolved for missing history."]
+        "A path through the Lean toolchain's own origin-checked `Init`, `Std`, `Lean` or `Lake` \
+          modules does not need that history: a toolchain replacement is followed through the \
+          current target its compiled module records, as part of the toolchain's trusted base, \
+          so no toolchain replacement is reported as unresolved for missing history."]
       rationaleDetail := []
       proofShape := []
       established := [
@@ -1700,15 +1704,16 @@ def guide : RuleId → Guide
         "Each reached boundary gets a kind and a correspondence state. Under checked execution, a \
           boundary that is `trusted` rather than `checked` is rejected with applicability \
           `execution-trusted-boundary` in every root that reaches it, unless the boundary itself \
-          carries an admitted toolchain origin. Only a replacement, `extern`, or unsafe or partial \
-          computation can: a `csimp` simplification or a compiler-trusting proof axiom never \
-          does, even on a constant declared in `Init`.",
-        "The toolchain owns a replacement, `extern`, or unsafe or partial computation declared in \
-          one of its own `Init`, `Std` or `Lean` modules, decided by where Lean loaded that module \
-          from (the pinned toolchain's library, an observation of the probe), not by its name. \
-          Such a boundary is the toolchain's trusted base: it passes and is reported for the whole \
-          audit in the audit's toolchain trusted base, as one entry with every environment and \
-          root that reaches it or as a `partial` implementation that such an entry names.",
+          carries an admitted toolchain origin. Only a replacement, `extern`, unsafe or partial \
+          computation, or initialized value can: a `csimp` simplification or a compiler-trusting \
+          proof axiom never does, even on a constant declared in `Init`.",
+        "The toolchain owns a replacement, `extern`, unsafe or partial computation, or initialized \
+          value declared in one of its own `Init`, `Std`, `Lean` or `Lake` modules, decided by \
+          where Lean loaded that module from (the pinned toolchain's library, an observation of \
+          the probe), not by its name. Such a boundary is the toolchain's trusted base: it passes \
+          and is reported for the whole audit in the audit's toolchain trusted base, as one entry \
+          with every environment and root that reaches it or as a `partial` implementation that \
+          such an entry names.",
         "A `partial` implementation that a trusted boundary names as the code run in its place \
           is reported with that boundary where both are trusted and have the same owner (both \
           the toolchain's, or neither): the coverage counts take the two as one boundary, and \

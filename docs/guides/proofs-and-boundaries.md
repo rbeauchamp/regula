@@ -26,8 +26,9 @@ declaration's exact axiom set; Standard-Logical is an upper bound, not a claim t
 choice. Theorems in the excluded operational `Regula` library are kernel-checked by its
 warning-free build (`warningAsError` also rejects `sorry`); `Checker.Manifest`,
 `Checker.ProducerReport` and `Checker.RuleExampleQualification` bound their theorems' axioms to
-Standard-Logical with a `collectAxioms` command, and `RegistryChecks` checks the registry and
-codec theorems' axioms. None of this certifies the whole operational checker as verified.
+Standard-Logical with a command that reads the axioms each reaches with
+`KernelAxioms.reachedAxiomTable`, and `RegistryChecks` checks the registry and codec theorems'
+axioms. None of this certifies the whole operational checker as verified.
 
 ## The acceptance boundary
 
@@ -995,10 +996,10 @@ to source bytes, compiler identity and valid coordinates (an inventory is still 
 census); `admitExecution` requires unique roots and boundary occurrences with valid toolchain-origin
 bindings; `BoundaryEvidence kind` keeps replacement equality, simplification equality and
 opaque-body admission distinct, a trusted native-runtime observation carries matching origin
-data, and only a trusted replacement or unsafe or partial computation can also carry one
-(`TrustedEvidence`, `correspondence_of_toolchainOrigin`). Checked replacement and simplification
-evidence holds the proof the kernel admitted and its required proposition as exact terms
-(`CorrespondenceTerms`). `admitBoundaryEvidence` preserves
+data, and only a trusted replacement, unsafe or partial computation, or initialized value can
+also carry one (`TrustedEvidence`, `correspondence_of_toolchainOrigin`). Checked replacement and
+simplification evidence holds the proof the kernel admitted and its required proposition as exact
+terms (`CorrespondenceTerms`). `admitBoundaryEvidence` preserves
 correspondence, detail, toolchain origin and the exact correspondence terms, refuses
 incompatible extra evidence, and every representable value round-trips. Accepted canonical
 external spellings re-encode identically. The pure codec proves
@@ -1243,27 +1244,41 @@ set (`accepts_iff`). The accepted values were read from the option registrations
 from those registrations, not a theorem. The exception is a raised `exponentiation.threshold`,
 which stops the warning that a power was not evaluated, because Lean then evaluates the power.
 
-**Correspondence resource bound.** `kernelAnswer` gives the kernel Lean's
-per-declaration default heartbeats (`Core.getMaxHeartbeats` of the default options), so a
-checker-added obligation costs no more than one the adopter could write, and runs under Lean's
-runtime memory limit. The limit is fixed once per process, at its first correspondence check, to the
-process's peak resident size then plus 1 GiB; it is set only while a check runs, never exceeds a
-`max_memory` the shell set, and is restored afterward. Argued from the Lean runtime source, not
-observed: the kernel throws only when current resident memory reaches the limit, so the first check
-never fires on memory already held, and because the limit never re-reads the peak, an exhausted
-check cannot raise the next one's limit. The 1 GiB is shared by every later check and other growth
-in the worker, so after one exhaustion later checks may exhaust at once; they fail closed as
-unresolved. At most three report workers run, each running its checks sequentially, so checks add at
-most 3 GiB above those workers' first-check peaks; that increment does not by itself bound the
-audit's total memory. Because the allowance is per process, a process that has inspected one
-environment is not fresh for the next, whose checks may then exhaust at once; the audit and the
-`qualify environments` census therefore acquire every claimed environment's report through the same
-code, `Inspection.inspect`, each in its own report worker. Supplied and then discovered theorem
-candidates are tried before the kernel-defeq check, to keep a kernel-exhausting unfolding within one
-comparison from consuming the headroom a supplied proof needs, so a replacement with both reports
-`proved:` evidence; kernel resource exhaustion is never conflated with rejection; a theorem
-candidate whose admission exhausts the kernel supplies no evidence, like any candidate the
-deliberately incomplete search cannot use.
+**Correspondence resource bound.** `kernelAnswer` gives the kernel the default heartbeats of
+`Core.getMaxHeartbeats`, which Lean gives each declaration. Thus a checker-added obligation costs
+no more than one that the adopter could write. Each check builds its proof and admits it on a task
+of its own, with `Task.Priority.dedicated`, as `Probe.runCheck` does. The kernel counts heartbeats
+in a counter of its thread, and `addDeclCore` sets the budget but not the count. A new thread
+starts that count at zero, and the elaborator counts its own heartbeats from the start of the check.
+
+The sources are `check_heartbeat` in `src/runtime/interrupt.cpp`, `lean_add_decl` in
+`src/kernel/environment.cpp`, `run_task` in `src/runtime/object.cpp` and `CoreM.toIO` in
+`src/Lean/CoreM.lean` of Lean `v4.34.1`. This is read from the source and is not a theorem. The
+check starts its own elaborator state on the environment, with fixed options. Thus its verdict,
+checked, refused or unresolved, is a function of the environment, the check and the heartbeat
+budgets. The walk builds its index of theorems before the first check, so no check pays for it.
+
+Regula sets no memory limit. Lean stops a kernel admission for memory only under a runtime limit,
+which the `lean` executable sets from `-M`, and a report runs in Regula's own executables. When
+such a limit ends an admission anyway, the walk publishes no verdict for the check. The report then
+ends with an error, which an audit records as incomplete. A process that runs out of memory ends,
+and the deadline of the run ends a check that runs too long. Thus the memory of a process decides
+only the completion of a run, as a deadline does, and not a verdict.
+
+`Probe.publishCheck_ok_iff` states that the walk publishes a verdict exactly when the check ran on
+a thread of its own and no memory limit ended an admission. The verdict is then `checkVerdict` of
+the result of the check. A process without a task manager runs a task on the thread of its caller,
+and `requireDedicatedThreads` then ends the report with an error before its first check. In a run
+with `LEAN_NUM_THREADS=0`, a process of the audit stopped earlier still, with a panic about the
+missing task manager.
+
+The fixture `Fixtures.Positive.HeartbeatCorrespondence` adds about 900 MiB in one check, and it is
+checked.
+
+Supplied and then discovered theorem candidates are tried before the kernel-defeq check, so a
+replacement with both reports `proved:` evidence; kernel resource exhaustion is never
+conflated with rejection; a theorem candidate whose admission exhausts the kernel supplies no
+evidence, like any candidate the deliberately incomplete search cannot use.
 The correspondence cache in `Probe.environmentReport` stores checked results by name pair within one
 fixed environment, and replacement-history worker output is shared within one audit only under
 identical inputs (standard §7.6); no cache crosses environments. A cross-environment cache would
@@ -2763,7 +2778,20 @@ inferred from any pure proof.
   A constant of the replayed kernel refers only to constants of that kernel, so the search from a
   safe declaration reads only the replayed kernel. **Trusted:** the kernel and `replay` as above,
   and the constants of the imported, unowned dependencies, which replay does not check. The editor
-  has no replayed kernel, thus it reads `collectAxioms`.
+  has no replayed kernel, thus `KernelAxioms.reachedAxiomTable` searches the constants of its own
+  environment, exact by `KernelAxioms.axiomTableThrough_some`, and for a theorem or an unexposed
+  definition that a `module` dependency exports without its body it reads the axioms that the
+  dependency's table records, a trusted input. A later search of the editor stops at the imported
+  constants that an earlier one searched under the same imports. It finds the same axioms
+  (`KernelAxioms.tableThrough_agree`) when equal module data give the same imported constants,
+  which is trusted.
+
+  The profiles permit `propext`, `Quot.sound` and `Classical.choice` by name, so the report and the
+  editor first refuse an environment whose constant of one of those names is not the toolchain's
+  (`Collect.authenticateFoundation`). `RegulaPolicy.admitFoundation_isOk_iff` states that the
+  decision accepts exactly when each such constant is an axiom with the toolchain's universe
+  parameters and type, from the toolchain's declaring module, loaded from that module's files in
+  the toolchain library. **Trusted:** that the observed canonical paths are the files Lean loaded.
 
   The checks of proofs that the checker makes use `KernelAxioms.axiomsWith`: the recursion equation
   of a recursion helper and an execution correspondence. It starts at the new theorem, stops at
@@ -4653,13 +4681,14 @@ The `qualify` campaigns and what they observe:
 
 - `registry`: six malformed invocations invalidate stale output; the validators accept real
   exports and refuse each removed field, the previous schema and a missing page.
-- `native`: 52 compiler controls for identity, multiplicity, severity and warning promotion,
+- `native`: 53 compiler controls for identity, multiplicity, severity and warning promotion,
   ranges, current and imported ownership, private and generated coverage and both documentation
   formats. Each control is its own compiler process with its own source path, run four at a time
   in dependency order: imported-artifact controls after the artifacts they import, restored
-  controls after every malformed one.
-- `native-launcher`: one paired baseline/cached-environment observation for each `native` control,
-  with exact equality.
+  controls after every malformed one. With the compile of the forged prelude, that is 54 compiler
+  launches.
+- `native-launcher`: one paired baseline/cached-environment observation for each compiler launch of
+  `native`, each control and the compile of the forged prelude, with exact equality.
 - `producers`: for the incremental and build-lint entrypoints and each of [RG5001]/[RG5002], one
   workspace runs Fixed, then Violation over that Fixed build (so a stale build must not hide the
   violation), then Fixed again from a cleared build. A standalone executable additionally has
@@ -4743,14 +4772,15 @@ the public controls include both an authored tagged lookalike and a runtime-modi
 helper.
 
 **The manifest** (`Checker.Manifest`, excluded library; axioms bounded to Standard-Logical by
-the module's `collectAxioms` command). `parse_sound` and `parse_input`: every manifest the executed
-`parse` accepts satisfies `Manifest.Valid` (nonempty surfaces, duplicate-free library and
-executable names across surfaces and exclusions, well-formed target names, no compiler-trusting
-claim, a nonempty rationale for every entry) and comes from JSON whose keys are all allowed and
-whose schema version is 2, each array decoding element by element in order. Every rationale is
-the JSON string, the JSON string of the claim is its written form (`Profile.toString`), an absent
-`executables` is empty and a present one is its string array, and an absent `execution`
-is `report` while the JSON string of a present one is its spelling (`ExecutionClaim.spelling`) (`SurfaceDecodes`,
+the module's `KernelAxioms.reachedAxiomTable` command). `parse_sound` and `parse_input`: every
+manifest the executed `parse` accepts satisfies `Manifest.Valid` (nonempty surfaces,
+duplicate-free library and executable names across surfaces and exclusions, well-formed target
+names, no compiler-trusting claim, a nonempty rationale for every entry) and comes from JSON
+whose keys are all allowed and whose schema version is 2, each array decoding element by element
+in order. Every rationale is the JSON string, the JSON string of the claim is its written form
+(`Profile.toString`), an absent `executables` is empty and a present one is its string array, and
+an absent `execution` is `report` while the JSON string of a present one is its spelling
+(`ExecutionClaim.spelling`) (`SurfaceDecodes`,
 `ExcludedLibraryDecodes`, `ExcludedExecutableDecodes`). Every library and executable name is
 `recordedName` of the JSON string (`parse_input`, `recordTargets_ok`): Lake's own reading of a
 target name (`Lake.stringToLegalOrSimpleName`, which its TOML loader applies to a `lean_lib` and
@@ -5125,9 +5155,9 @@ execution, and calling a proved oracle does not prove the driver or its IO effec
   reason strings.
 - `Launcher.admit`: a proof-bearing mapping with nonempty unique names and both required search
   paths, admitting every valid decoded mapping; `checked_equivalence` requires one observation for
-  each control the qualification ran and full ordered equality of source, arguments, streams,
-  exit, environment and resolved executable. Lake's environment is cached only within one fixed
-  parent and workspace invocation, separately for the imported-control search-path override;
+  each compiler launch the qualification made and full ordered equality of source, arguments,
+  streams, exit, environment and resolved executable. Lake's environment is cached only within one
+  fixed parent and workspace invocation, separately for the imported-control search-path override;
   neither observations nor compiled artifacts are reused, environment values are not exported, and
   durations are observations, not a speed guarantee or compiler-equivalence theorem.
 - `Template.instantiate`: the required `Maps` proof for the recursive JSON transformation (array

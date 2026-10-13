@@ -13,7 +13,7 @@ registry diagnostics and binds them to observed exact source/configuration/mode.
 -- Exact dependency ceiling for the new claimed data-level guarantees. Acquisition,
 -- JSON and compiler authenticity are expressly outside these theorem statements.
 run_cmd do
-  for name in #[``Regula.Website.admitDemonstration_complete,
+  let names := #[``Regula.Website.admitDemonstration_complete,
       ``Regula.Website.admitDemonstration_sound, ``Regula.Website.demonstration_completed,
       ``Regula.Website.demonstration_observed_incomplete,
       ``Regula.Website.demonstration_selected_rule,
@@ -25,8 +25,11 @@ run_cmd do
       ``Regula.Website.checked_admitExampleRequest,
       ``Regula.Website.checked_admitExampleSources,
       ``Regula.Website.checked_admitDemonstration,
-      ``Regula.Checker.Documentation.positiveClassifications_sound] do
-    let axioms ← Lean.collectAxioms name
+      ``Regula.Checker.Documentation.positiveClassifications_sound]
+  let some table := RegulaPolicy.KernelAxioms.reachedAxiomTable (← Lean.getEnv) names
+    | throwError "the axiom search ran out of fuel"
+  for name in names do
+    let some axioms := table[name]? | throwError "the axiom search did not reach {name}"
     unless axioms.all RegulaPolicy.standardLogicalAxiom do
       throwError "example theorem {name} exceeds Standard-Logical: {axioms}"
 
@@ -556,7 +559,10 @@ end Regula.Checker.RuleExampleQualification
 
 -- Exact dependency ceiling for the record-admission guarantee: Standard-Logical.
 run_cmd do
-  for name in #[``Regula.Checker.RuleExampleQualification.qualify_sound] do
-    let axioms ← Lean.collectAxioms name
+  let names := #[``Regula.Checker.RuleExampleQualification.qualify_sound]
+  let some table := RegulaPolicy.KernelAxioms.reachedAxiomTable (← Lean.getEnv) names
+    | throwError "the axiom search ran out of fuel"
+  for name in names do
+    let some axioms := table[name]? | throwError "the axiom search did not reach {name}"
     unless axioms.all RegulaPolicy.standardLogicalAxiom do
       throwError "record-admission theorem {name} exceeds Standard-Logical: {axioms}"

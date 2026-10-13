@@ -1214,4 +1214,54 @@ theorem assemble_account (rootCompiled : Bool) (walked : Walked) :
     · intro visited
       exact ⟨(caller, _), mem_edgesFrom.mpr visited, by simp⟩
 
+
+/-! ## Executable roots -/
+
+/-- What the root census (`Probe.executableRoots`) reads of an owned definition or opaque
+constant. -/
+structure RootFacts where
+  /-- Lean's C emitter makes the constant the program's entry point: its name is `main` and its
+  module's compiled code holds a function body of that name (`emitMainFnIfNeeded`). -/
+  entryPoint : Bool
+  /-- Its name is internal. -/
+  internal : Bool
+  /-- It is `unsafe`. -/
+  isUnsafe : Bool
+  /-- It is `partial`. -/
+  isPartial : Bool
+  /-- It is `noncomputable`. -/
+  isNoncomputable : Bool
+  /-- Execution erases it: its type is a proposition or its result is a `Sort`. -/
+  erased : Bool
+  deriving Repr, DecidableEq
+
+/-- Whether the constant is an executable root: the program's entry point, whatever its safety, or
+a computable, safe, non-partial constant with a public name that execution does not erase. -/
+def RootFacts.root (facts : RootFacts) : Bool :=
+  facts.entryPoint ||
+    !(facts.internal || facts.isUnsafe || facts.isPartial || facts.isNoncomputable || facts.erased)
+
+/-- A constant is a root exactly when it is the entry point, or no fact excludes it. -/
+theorem RootFacts.root_iff (facts : RootFacts) :
+    facts.root = true ↔ facts.entryPoint = true ∨
+      (facts.internal = false ∧ facts.isUnsafe = false ∧ facts.isPartial = false ∧
+        facts.isNoncomputable = false ∧ facts.erased = false) := by
+  cases facts with
+  | mk e i u p n r => cases e <;> cases i <;> cases u <;> cases p <;> cases n <;> cases r <;> decide
+
+/-- The entry point is a root, whatever its safety, its computability and its erasure. -/
+theorem RootFacts.root_of_entryPoint {facts : RootFacts} (h : facts.entryPoint = true) :
+    facts.root = true :=
+  (root_iff facts).mpr (.inl h)
+
+/-- Erasure decides nothing about a constant that another fact already decides: the answer with
+`erased` false is the answer, unless the constant is no entry point and no other fact excludes
+it. So the census reads erasure only in that case. -/
+theorem RootFacts.root_erased (facts : RootFacts)
+    (h : facts.entryPoint = true ∨ ({ facts with erased := false }).root = false) :
+    facts.root = ({ facts with erased := false }).root := by
+  cases facts with
+  | mk e i u p n r => cases e <;> cases i <;> cases u <;> cases p <;> cases n <;> cases r <;>
+      simp_all [RootFacts.root]
+
 end RegulaPolicy.ExecutionWalk

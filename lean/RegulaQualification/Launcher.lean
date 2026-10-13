@@ -45,9 +45,10 @@ theorem admit_complete (raw : String) (env : Environment) (h : decode raw = .ok 
     else Except.error "invalid or incomplete environment capture") = _
   simp [valid]
 
-/-- Full in-memory identity of one real compiler control, excluding measured duration. -/
+/-- Full in-memory identity of one real compiler launch, excluding measured duration: a control, or
+the compile of the forged `Init/Prelude.lean`. -/
 structure Observation where
-  /-- The control's name: the stem of the compiled source file's path. -/
+  /-- The launch's name: the stem of the compiled source file's path. -/
   label : String
   /-- The compiler's arguments, the source path last. -/
   args : Array String
@@ -59,36 +60,38 @@ structure Observation where
   stdout : String
   /-- The compiler's standard error. -/
   stderr : String
-  /-- The captured environment, which the direct launch uses. -/
+  /-- The captured environment, which a direct launch uses; with `first`, that environment with
+  `first` ahead of its `LEAN_PATH`. -/
   environment : Environment
   /-- The resolved path of the `lean` executable, which the direct launch uses. -/
   executable : String
   deriving BEq, DecidableEq
 
-/-- Exact full-sequence comparison of two runs of `controls` controls: the baseline holds one
-observation for each control, and the two runs agree in order, multiplicity and every field,
+/-- Exact full-sequence comparison of two runs of `launches` compiler launches: the baseline holds
+one observation for each launch, and the two runs agree in order, multiplicity and every field,
 including the environment and the resolved compiler path. -/
 @[regula_decision]
-def equivalent (controls : Nat) (before after : Array Observation) : Bool :=
-  decide (before.size = controls ∧ before = after)
+def equivalent (launches : Nat) (before after : Array Observation) : Bool :=
+  decide (before.size = launches ∧ before = after)
 
-/-- The arguments of `equivalent`, in its order: the number of controls the qualification ran
-(`Regula.Qualification.NativeLinter.checkAt`) and the observations of its two runs. -/
+/-- The arguments of `equivalent`, in its order: the number of compiler launches the
+qualification made (`Regula.Qualification.NativeLinter.checkAt`) and the observations of its two
+runs. -/
 structure Runs where
-  /-- The number of controls the qualification ran. -/
-  controls : Nat
+  /-- The number of compiler launches the qualification made. -/
+  launches : Nat
   /-- The observations of the baseline run. -/
   before : Array Observation
   /-- The observations of the candidate run. -/
   after : Array Observation
 
-/-- The paired diagnostic consumes this proof-linked predicate, with the number of controls the
-qualification ran; timing is separate. It is a two-way decision: it refuses two empty runs of one
-control, and the accepted witness is one observation, compared with itself, for one control. -/
+/-- The paired diagnostic consumes this proof-linked predicate, with the number of compiler launches
+the qualification made; timing is separate. It is a two-way decision: it refuses two empty runs of
+one launch, and the accepted witness is one observation, compared with itself, for one launch. -/
 theorem checked_equivalence : Regula.ExecutableContract equivalent (fun run =>
     Regula.Decides (· = true)
-      (fun input : Runs => input.before.size = input.controls ∧ input.before = input.after)
-      (fun input => run input.controls input.before input.after)) :=
+      (fun input : Runs => input.before.size = input.launches ∧ input.before = input.after)
+      (fun input => run input.launches input.before input.after)) :=
   let observations : Array Observation := #[⟨"", #[], "", 0, "", "", #[], ""⟩]
   ⟨.of_iff (fun input => by simp [equivalent])
     ⟨⟨1, observations, observations⟩, by simp [equivalent, observations]⟩

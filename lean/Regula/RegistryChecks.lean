@@ -18,7 +18,7 @@ universe u v
 
 -- This named set is the public theorem claim, not a module-discovery substitute.
 run_cmd do
-  for name in #[``RuleId.parse_spelling, ``RuleId.spelling_injective, ``RuleId.mem_all,
+  let names := #[``RuleId.parse_spelling, ``RuleId.spelling_injective, ``RuleId.mem_all,
       ``RuleId.all_nodup, ``RuleId.route_injective, ``mode_roundtrip, ``rule_roundtrip,
       ``nameParts_roundtrip, ``name_roundtrip, ``printsExactly_iff, ``printedNameJson_roundtrip,
       ``printedNameJson_eq_str_iff, ``parsePrintedNameJson_str, ``mem_firedRules,
@@ -98,10 +98,25 @@ run_cmd do
       ``Regula.SharedExecution.slots_intern, ``Regula.SharedExecution.read_write,
       ``Regula.SharedExecution.Graph.bounds, ``Regula.SharedExecution.Graph.walk_accepted,
       ``Regula.SharedExecution.walk_eq, ``Regula.ExecutionShare.walk_agree,
-      ``Regula.Checker.ResultProtocol.resultJson_slots] do
-    let axioms ← Lean.collectAxioms name
+      ``Regula.Checker.ResultProtocol.resultJson_slots]
+  let some table := RegulaPolicy.KernelAxioms.reachedAxiomTable (← Lean.getEnv) names
+    | throwError "the axiom search ran out of fuel"
+  for name in names do
+    let some axioms := table[name]? | throwError "the axiom search did not reach {name}"
     unless axioms.all RegulaPolicy.standardLogicalAxiom do
       throwError "registry theorem {name} exceeds Standard-Logical: {axioms}"
+
+-- The statements of the foundation axioms are the toolchain's: the constants this module was
+-- compiled against, loaded from the toolchain's library, are admitted (`admitFoundation`), and
+-- each of the three is observed.
+run_cmd do
+  let observed ← Regula.Collect.foundationObservations (← Lean.getEnv)
+  unless observed.size == RegulaPolicy.foundationStatements.size do
+    throwError
+      "foundation observations: {observed.size} of {RegulaPolicy.foundationStatements.size}"
+  match RegulaPolicy.admitFoundation observed with
+  | .ok () => pure ()
+  | .error message => throwError message
 
 /-- The check that the encoder of Regula's own `lakefile.lean` is `weakArgsRecordJson`
 (`Lake.lakefileEncoderAgrees`), which acceptance runs with this file's `main` from the root of the

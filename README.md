@@ -84,7 +84,7 @@ A pass does not show that your theorems state the intended claims. Review their 
 
 Regula trusts Lean's kernel, compiler and runtime, Lake and the operating system. It also trusts packages outside your Git work tree. It does not replay those packages in Lean's kernel. Code loaded by name at runtime and spawned processes are outside its execution account. See the [assurance boundaries](docs/guides/proofs-and-boundaries.md) and [security scope](SECURITY.md#scope) for the full limits.
 
-Keep Lean's warnings and the community linters. For independent kernel replay, run `lake env leanchecker` beside Regula, as described in [Validating a Lean Proof](https://lean-lang.org/doc/reference/latest/ValidatingProofs/).
+Keep Lean's warnings and the community linters. For independent kernel replay, run `lake exe freshChecker` beside Regula. It runs the toolchain's own `leanchecker` by its path, as described in [Validating a Lean Proof](https://lean-lang.org/doc/reference/latest/ValidatingProofs/).
 
 Regula accepts no `sorry`, so use it when you complete proofs. For Mathlib pull requests, use Mathlib's CI. Use [Comparator](https://github.com/leanprover/comparator) to check an untrusted proof against a fixed statement.
 
@@ -112,7 +112,7 @@ Regula adds no Mathlib dependency. Only the separate [Mathlib integration check]
 
 ## License
 
-The adapted container recursion of Lean's JSON parser in `lean/Regula/Checker/PolicyCodec.lean` keeps its upstream Apache 2.0 notice ([license text](LICENSES/Apache-2.0.txt), [design influences](docs/guides/design-influences.md#adapted-code-and-licenses)). All other code uses [MIT](LICENSE).
+The adapted container recursion of Lean's JSON parser and the adapted JSON printer in `lean/Regula/Checker/PolicyCodec.lean` keep their upstream Apache 2.0 notices ([license text](LICENSES/Apache-2.0.txt), [design influences](docs/guides/design-influences.md#adapted-code-and-licenses)). All other code uses [MIT](LICENSE).
 
 Regula is not affiliated with the Lean FRO or Mathlib.
 
