@@ -660,11 +660,11 @@ Assumes: Lake `v4.34.1` tests cleanliness with `git diff --exit-code HEAD` (`Uti
 
 `copyProject` captures the manifest at Lake's loaded `ws.manifestFile`. Its packages fallback is `ws.relPkgsDir`. Each resolved dependency receives a typed path override, including inherited and transitive dependencies. Owned dependencies point into the copy, and trusted dependencies point to their original roots. The copy always retains the captured manifest and runs ordinary loads.
 
-Package-directory pruning leaves out exactly the directory of each dependency package that Lake's loaded workspace records in the packages directory, at its stored spelling. `Construction.CopyFilter.omission_pruned` proves that a capture pass prunes no other entry, and `Construction.CopyFilter.omission_other` that the same exclusions decide every other entry there. `Construction.packageSource_owned` proves that a capture root, such as an owned package's in that directory, survives its own pass.
+Package-directory pruning leaves out exactly the directory of each dependency package that Lake's loaded workspace records in the packages directory, at its stored spelling. `Construction.CopyFilter.omission_pruned` proves that a capture pass prunes no other entry, and `Construction.CopyFilter.omission_other` that the same exclusions decide each other entry there. `Construction.packageSource_owned` proves that a capture root, such as an owned package's in that directory, survives its own pass.
 
-The copy keeps the exclusions of names such as `.lake` and `.cache`, and checks one domain against the files it writes instead. That domain is every file that Lake's load reads for the root package and each owned dependency. These files are the source of each module that Lake can build, the loaded configuration file and an owned dependency's recorded manifest when present. Lake's load of the copy reads each at the path it joins to the package's directory, such as the recorded `relConfigFile`. Before it writes anything, the copy refuses the first such path that none of the files it would write has, with exactly that spelling. It names the file and what left it out, such as an excluded directory or a compiled-module file name.
+The copy keeps the exclusions of names such as `.lake` and `.cache`, and checks one domain against the files it writes instead. That domain is each file that Lake's load reads for the root package and each owned dependency. These files are the source of each module that Lake can build, the loaded configuration file and an owned dependency's recorded manifest when present. Lake's load of the copy reads each at the path it joins to the package's directory, such as the recorded `relConfigFile`. Before it writes anything, the copy refuses the first such path that none of the files it would write has, with exactly that spelling. It names the file and what left it out, such as an excluded directory or a compiled-module file name.
 
-`Construction.firstUnwritten_eq_none` proves that the copy refuses none exactly when the files it would write cover each such path (`Construction.Covers`). The constructor's own guard requires the same paths, so `Construction.constructSelected_io` states that a successful construction holds a regular file at each. `Construction.packageEntries_eq_some` states the path: the recorded components without `.`. Before it captures anything, the copy refuses a package, library or executable whose `srcDir` is absolute, since Lake joins it unchanged.
+`Construction.firstUnwritten_eq_none` proves that the copy refuses none exactly when the files it would write cover each such path (`Construction.Covers`). The constructor's own guard requires the same paths, so `Construction.constructSelected_io` states that a successful construction holds a regular file at each. `Construction.packageEntries_eq_some` states the path: the recorded components without `.`. Before it captures anything, the copy refuses a package, library or executable with an absolute `srcDir`, since Lake joins it unchanged.
 
 Assumes: Lake `v4.34.1`, `Load/Resolve.lean:590-627`, applies overrides during ordinary materialization. `Load/Resolve.lean:201-235` traverses dependencies transitively. Path entries do not clone packages (`Load/Materialize.lean:239-277`).
 
@@ -5116,15 +5116,16 @@ The `qualify` campaigns and what they observe:
     no glob names. Without a manifest, Lake's load through `LAKE_PKG_URL_MAP` writes the local
     repository into the entry, and the inventory accepts it. A worker process loads these, and Git
     searches for no repository above the control's scratch directory.
-  - A copy of a project whose library has its source directory below `.lake` refuses before it
-    writes anything. The refusal names the module and the `.lake` directory. A copy of a project
-    whose owned dependency has its configuration below `.cache` refuses that file by name. It
-    refuses it too when that configuration is a link to a file outside `.cache`. A copy whose owned
-    dependency records the manifest `pins.olean` refuses it by its compiled-module name. A copy of
-    a project whose library sets `srcDir` to an absolute path refuses that setting by name.
+  - A copy of a project with a library that has its source directory below `.lake` refuses before
+    it writes anything. The refusal names the module and the `.lake` directory. A copy of a project
+    with an owned dependency that has its configuration below `.cache` refuses that file by name.
+    It refuses it too when that configuration is a link to a file outside `.cache`. A copy of a
+    project with an owned dependency that records the manifest `pins.olean` refuses it by its
+    compiled-module name. A copy of a project with a library that sets `srcDir` to an absolute path
+    refuses that setting by name.
   - The Git project's steps run in a process that inherits a `GIT_DIR` and an absolute
     `GIT_INDEX_FILE` outside the scratch directory. The control's Git commands and its workers run
-    without them, and both stay untouched.
+    without them, and the two stay untouched.
 - `documentation-source`: both public documentation paths with changed and missing
   dependency/configuration inputs and fresh restored positives. Its `--source-read-only`
   selection adds original-file and declaration-build read failures, initial setup classification
