@@ -2898,8 +2898,9 @@ inferred from any pure proof.
   copies agree (`Admission.agrees`) and a module of the closure declares one
   (`Admission.referencesWithin` over `ConstantInfo.getUsedConstantsAsSet`, the dependencies
   `Kernel.Environment.replay` replays first); (4) the copies of each name of the
-  module's constants agree (each is `Identical` to the kept constant, or each is `Identical` to the
-  attributed module's copy up to the private names of its own module), and a constant that is not
+  module's constants agree as `Admission.agrees` decides (the name is `Admission.Uniform`, or
+  `Admission.uniformUpToPrivate` and `Admission.declaredOwned` accept it, see **Reuse with copies
+  that agree** below), and a constant that is not
   a theorem is the only copy of its name, attributed to the module (`Admission.copiesAgree`); and (5) every owned module of the closure is reused too: a candidate
   (`Admission.candidates`, a module meeting (1) to (4)) whose closure contains an owned module
   that is not a candidate is removed, so a module that cannot be reused takes the modules above

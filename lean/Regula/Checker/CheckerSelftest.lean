@@ -3300,11 +3300,13 @@ of several copies of one name, the report workers and the kernel are the externa
 state the decisions, and `Admission.agreesIn_iff` when copies agree). `Lib.Left` and `Lib.Right`
 do not import each other. Each realizes its own copy of `positive.eq_1` of `Lib.Base`, and the two
 copies are identical. Each also realizes its own copy of `classify.eq_2`, whose proof uses the
-match equation Lean realizes privately in that module, and uses it only by that name, so the two
-copies agree up to exchanging the private names (`Admission.uniformUpToPrivate`). `Lib.Near` and
-`Lib.Far` each realize a copy of `grade.eq_2` the same way, but their own theorems also refer to
-the private match equation, so a check of one in an environment that holds the other module's copy
-would read the private names of both modules, and the copies do not agree. `Lib.Odd` and
+match equation Lean realizes privately in that module, and uses it only by that name. The two
+copies differ only in those private names, and the reuse this control expects requires
+`Admission.agrees` to accept the name, through `Admission.uniformUpToPrivate` and
+`Admission.declaredOwned`. `Lib.Near` and `Lib.Far` each realize a copy of `grade.eq_2` the same
+way, but their own theorems also refer to the private match equation, so a check of one in an
+environment that holds the other module's copy would read the private names of both modules, and
+the copies do not agree. `Lib.Odd` and
 `Lib.Even` each declare `sharedFact` with a different proof. `Lib.Up` and `Lib.Down` each declare
 `helperFact` through a private `helper` with a different proof, so exchanging the names of
 `helper` does not relate its two copies. `App.Main` imports the eight. The fresh audit must
