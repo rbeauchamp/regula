@@ -668,7 +668,7 @@ Assumes: A full update or a missing manifest bypasses overrides (`Load/Workspace
 
 The request freezes loaded relocation selections before a producer starts. The copier and `effectiveAccount` use the same `relocateDependencies` and `generatedConfiguration` definitions. The latter also derives the expected overrides from the request's captured manifest and the copied project root. `CopyConfiguration.check_iff` proves that the executed comparison accepts exactly complete configuration equality.
 
-Result schema 20 records captured source fields and generated overrides separately in `effective.configurationOrigins`. Each other configuration value remains the exact captured text. Missing, extra or changed override entries refuse. Qualification skips no overrides field. Loading the frozen selections through Lake remains a trusted observation.
+Since result schema 20, a result records captured source fields and generated overrides separately in `effective.configurationOrigins`. Each other configuration value remains the exact captured text. Missing, extra or changed override entries refuse. Qualification skips no overrides field. Loading the frozen selections through Lake remains a trusted observation.
 
 An explicitly selected policy manifest outside the project keeps its exact absolute path and text in the account. It has no project-relative relocation. `configurationAccount_external` states this preservation for the executed account. The native control runs an incremental audit with that selection.
 
@@ -688,7 +688,7 @@ The fresh documentation census relocates each original snapshot. `Documentation.
 
 `qualify combined` includes native construction controls for artifact-named directories and Markdown inside configured package directories. Public fresh audits accept positive fences, reject an invalid positive fence in each location, and accept the restored source. These controls also exercise selected aliases, source-link refusals, cold construction and exclusive destinations. They observe external boundaries, not universal correctness.
 
-`configurationRelative` supplies the same path decision for relocation and the account. `relocateConfigurationPath_relative` and `configurationAccount_relative` state the two results. Fresh-audit controls check exact configuration accounts for absolute selections, including pruned paths. The default-policy control also checks the rule-example comparison. Its project case requires `foundation_manifest.json`.
+`configurationRelative` supplies the same path decision for relocation and the account. `relocateConfigurationPath_relative` and `configurationAccount_relative` state the two results. Fresh-audit controls check exact configuration accounts for absolute selections, including pruned paths. They also give the result of each selection to the rule-example comparison, which reads the manifest at the request's `policy` path.
 
 The cold drivers embed the shared constructor's source with Lean's `include_str` and interpret that source before package artifacts exist. Assumes: Lean `v4.34.1`, `Lean/Elab/BuiltinTerm.lean:437-445`, `elabIncludeStr`, reads those bytes during elaboration. The compiler and interpreter remain trusted. The constructor has one source implementation, with checked correspondence to its filesystem model.
 
