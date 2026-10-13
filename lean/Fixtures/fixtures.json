@@ -1082,6 +1082,14 @@
    "Lake.removeDirAllIfExists"
   ]
  },
+ "Fixtures.Positive.ExternReplacement": {
+  "expect": "pass",
+  "claim": "standard-logical",
+  "output": [
+   "fixtures_extern_reference [external] correspondence=trusted",
+   "fixtures_extern_reference [runtime-replacement] correspondence=checked replacement=fixtures_extern_replacement"
+  ]
+ },
  "Fixtures.Positive.ExternExportPair": {
   "expect": "pass",
   "claim": "standard-logical",
