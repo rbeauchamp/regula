@@ -189,6 +189,42 @@ theorem projectAccount_eq_ok_iff (scope : Json) (admitted : ExampleRequest) :
     simp only [beq_self_eq_true, ite_true, bind_eq_ok]
     exact ⟨text, htext, manifest, hmanifest, hsurfaces⟩
 
+/-- The result's `scope` is the scope it audited, an object, and its `effective` account is not
+`null`; or its `scope` is not an object and the result is not completed. A run that stops early
+records the project root as its scope (`auditedScope_completed`). -/
+def auditedScope (result : Json) : Except String Unit := do
+  if (← field result "scope").getObj?.isOk then
+    if (← field result "effective") matches .null then throw "missing effective request account"
+  else if (← string result "status") == "completed" then
+    throw "completed result without an audited scope"
+
+open RegulaPolicy.Guards in
+/-- `auditedScope` admits a completed result only when its `scope` is an object and its
+`effective` account is not `null`. -/
+theorem auditedScope_completed {result scope : Json} (h : auditedScope result = .ok ())
+    (hstatus : string result "status" = .ok "completed")
+    (hscope : field result "scope" = .ok scope) :
+    scope.getObj?.isOk = true ∧
+      ∃ effective, field result "effective" = .ok effective ∧ effective ≠ .null := by
+  have okBind : ∀ {α β : Type} (a : α) (f : α → Except String β), (Except.ok a >>= f) = f a :=
+    fun _ _ => rfl
+  unfold auditedScope at h
+  rw [hscope, okBind] at h
+  split at h
+  next hobject =>
+    simp only [bind_eq_ok] at h
+    obtain ⟨effective, heffective, h⟩ := h
+    split at h
+    next => cases h
+    next hnull =>
+      refine ⟨hobject, effective, heffective, ?_⟩
+      rintro rfl
+      exact hnull rfl
+  next =>
+    simp only [bind_eq_ok, hstatus] at h
+    obtain ⟨_, ⟨⟩, h⟩ := h
+    cases h
+
 /-- The complete observed configuration equals the expectation derived from the admitted
 request's exact captured bytes and frozen loaded selections. Constructed copies use
 `Lake.expectedConfiguration` and the same `relocateDependencies`/`generatedConfiguration` that
@@ -198,10 +234,12 @@ must equal that same derivation. Scope and effective observations must agree byt
 project request, the scope's surfaces agree with the policy manifest the request selected
 (`projectAccount`, `effectiveAccount_project`). A project request whose selection is missing,
 absent or ambiguous (`ExampleRequest.selectedPolicy`) is refused first, before any observation is
-compared. -/
+compared. A completed result must record the scope it audited (`auditedScope`,
+`effectiveAccount_completed`), so its comparisons run. -/
 def effectiveAccount (result : Json) (admitted : ExampleRequest) : Except String Unit := do
   if admitted.kind == "project" then
     let _ ← admitted.selectedPolicy
+  auditedScope result
   let requested ← configurationAccount admitted.project admitted.configuration
   let effectiveAccount ← field result "effective"
   let expected ← if effectiveAccount matches .null then pure requested else do
@@ -221,7 +259,6 @@ def effectiveAccount (result : Json) (admitted : ExampleRequest) : Except String
       throw "configuration origin account differs from captured and generated files"
   let scope ← field result "scope"
   if let .ok _ := scope.getObj? then
-    if effectiveAccount matches .null then throw "missing effective request account"
     let configuration ← fromJson? (α := Array (String × Option String))
         (← field scope "configuration")
     let effective ← configurationAccount (← string scope "configurationRoot") configuration
@@ -249,6 +286,25 @@ def effectiveAccount (result : Json) (admitted : ExampleRequest) : Except String
     | _ => throw "unknown example request kind"
 
 open RegulaPolicy.Guards in
+/-- `effectiveAccount` admits a completed result only when its `scope` is an object and its
+`effective` account is not `null` (`auditedScope_completed`), so the comparisons of the scope with
+the request ran. A result that is not completed can record the project root as its scope. -/
+theorem effectiveAccount_completed {result scope : Json} {admitted : ExampleRequest}
+    (h : effectiveAccount result admitted = .ok ())
+    (hstatus : string result "status" = .ok "completed")
+    (hscope : field result "scope" = .ok scope) :
+    scope.getObj?.isOk = true ∧
+      ∃ effective, field result "effective" = .ok effective ∧ effective ≠ .null := by
+  unfold effectiveAccount at h
+  by_cases hk : admitted.kind = "project"
+  · simp only [hk, beq_self_eq_true, ite_true, bind_eq_ok] at h
+    obtain ⟨_, -, ⟨⟩, haudited, -⟩ := h
+    exact auditedScope_completed haudited hstatus hscope
+  · simp only [beq_iff_eq, hk, ↓reduceIte, bind_eq_ok] at h
+    obtain ⟨⟨⟩, haudited, -⟩ := h
+    exact auditedScope_completed haudited hstatus hscope
+
+open RegulaPolicy.Guards in
 /-- For a project request, `effectiveAccount` admits a result whose `scope` is an object only
 when `projectAccount` admits that scope: the surfaces it compares are those of the policy manifest
 the request selects (`projectAccount_eq_ok_iff`), found by its `policy` path. -/
@@ -264,12 +320,12 @@ theorem effectiveAccount_project {result scope : Json} {admitted : ExampleReques
     fun _ _ => rfl
   unfold effectiveAccount at h
   simp only [bind_eq_ok, hkind, hscope, okBind, hfields, beq_self_eq_true, ite_true] at h
-  obtain ⟨_, -, requested, -, account, -, h⟩ := h
-  split at h <;> split at h
-  · cases h
-  · contradiction
-  · contradiction
-  · simp only [bind_eq_ok, throw_bind, ite_throw_eq_ok] at h
+  obtain ⟨_, -, _, -, requested, -, account, -, h⟩ := h
+  split at h
+  · simp only [ite_true, bind_eq_ok] at h
+    obtain ⟨_, -, _, -, _, -, _, -, _, -, _, hnull, -⟩ := h
+    cases hnull
+  · simp only [Bool.false_eq_true, ↓reduceIte, bind_eq_ok, throw_bind, ite_throw_eq_ok] at h
     obtain ⟨_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, hp⟩ := h
     exact hp
 
@@ -590,6 +646,9 @@ def RecordAdmissible (record : Json) : Prop :=
     (kind = "diagnosticDemonstration" → ∃ rule,
       (field record "rule" >>= RegistryCodec.parseRule) = .ok rule ∧
       DemonstrationOK ⟨bound, rule, actual⟩ ⟨bound, .completed, .checked actual false⟩) ∧
+    (string result "status" = .ok "completed" → ∀ scope, field result "scope" = .ok scope →
+      scope.getObj?.isOk = true ∧
+        ∃ effective, field result "effective" = .ok effective ∧ effective ≠ .null) ∧
     (bound.request.kind = "project" → ∀ scope, field result "scope" = .ok scope →
       scope.getObj?.isOk = true → ∃ text manifest, bound.request.SelectsPolicy text ∧
         PolicyCodec.parse text = .ok manifest ∧ surfaceAccount scope manifest = .ok ())
@@ -608,6 +667,7 @@ theorem qualify_sound (record : Json) (h : qualify record = .ok ()) : RecordAdmi
     hmode, hrm, ⟨before, after, hbefore, hafter, hregular, hstable⟩, hb, ⟨rj, hrj, hbreq⟩,
     ⟨oj, hoj, horeq⟩,
     hcode, hle, hsrc, hsources, hpresent, checkFindings_sound hfind, hk, hkind, by simpa using hdemo,
+    fun hstatus _ hscope => effectiveAccount_completed heffective hstatus hscope,
     fun hproject scope hscope hobject =>
       ((projectAccount_eq_ok_iff scope _).mp
         (effectiveAccount_project heffective hproject hscope hobject)).2⟩
@@ -650,6 +710,8 @@ run_cmd do
   let names := #[``Regula.Checker.RuleExampleQualification.qualify_sound,
       ``Regula.Checker.RuleExampleQualification.projectAccount_eq_ok_iff,
       ``Regula.Checker.RuleExampleQualification.effectiveAccount_project,
+      ``Regula.Checker.RuleExampleQualification.auditedScope_completed,
+      ``Regula.Checker.RuleExampleQualification.effectiveAccount_completed,
       ``Regula.Website.ExampleRequest.selectedPolicy_eq_ok_iff]
   let some table := RegulaPolicy.KernelAxioms.reachedAxiomTable (← Lean.getEnv) names
     | throwError "the axiom search ran out of fuel"

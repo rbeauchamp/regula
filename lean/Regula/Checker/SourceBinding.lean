@@ -1,5 +1,6 @@
 import Regula.Checker.ProducerReport
 import Regula.Checker.Common
+import Regula.Filesystem
 
 /-! # Source and configuration binding
 
@@ -79,20 +80,20 @@ theorem configurationPaths_policy (repo manifest : FilePath) :
     (configurationPaths repo manifest)[0]? = some manifest := rfl
 
 /-- Configuration absence is also part of the snapshot: each of `configurationPaths`, in order,
-with its text, `none` when it does not exist. This is observation binding, not a new
-configuration resolution rule or an authentication of dependencies. -/
+with its text, `none` when Lean reports that nothing is there (`Filesystem.readFileIfPresent`).
+Each other failure of a read, such as a permission error, is thrown, so it is never recorded as
+absence. This is observation binding, not a new configuration resolution rule or an
+authentication of dependencies. -/
 def configuration (repo manifest : FilePath) : IO (Array (FilePath × Option String)) :=
   (configurationPaths repo manifest).mapM fun path => do
-    let content ← if ← path.pathExists then some <$> IO.FS.readFile path else pure none
-    return (path, content)
+    return (path, ← Regula.Filesystem.readFileIfPresent path)
 
-/-- Refuse a change in any captured configuration file's presence or exact text. -/
+/-- Refuse a change in any captured configuration file's presence or exact text, and a read that
+fails other than by finding nothing there (`Filesystem.readFileIfPresent`). -/
 def checkConfiguration (snapshot : Array (FilePath × Option String)) : IO
     (Except AdmissionFailure Unit) := do
   for (path, content) in snapshot do
-    let read : IO (Option String) := do
-      if ← path.pathExists then pure (some (← IO.FS.readFile path)) else pure none
-    let current ← read.toBaseIO
+    let current ← (Regula.Filesystem.readFileIfPresent path).toBaseIO
     match current with
     | .error error =>
         return .error ⟨s!"producer-source: configuration snapshot unavailable: {path}: {error}"⟩

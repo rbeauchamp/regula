@@ -174,8 +174,9 @@ fresh audit's own result and request pass the rule-example qualifier's project-s
 (`RuleExampleQualification.effectiveAccount`), which finds the manifest by the request's `policy`
 alone (`projectAccount_eq_ok_iff`); the request names that file and captures no
 `foundation_manifest.json`. The same result is refused with the selection absent (a request
-without `policy`, which the decoder refuses, or a `policy` that names no configuration entry) and
-ambiguous (the selected entry twice in the request's configuration). The theorems decide the
+without `policy`, which the decoder refuses, or a `policy` that names no configuration entry), with
+the selected file recorded absent (its entry's text `none`) and with the selection ambiguous (the
+selected entry twice in the request's configuration), each for its reason. The theorems decide the
 comparison of given values; this run observes the boundary they do not cover: the public command,
 the request it writes and the qualifier's decoder. -/
 def selectedPolicy : IO Unit := do
@@ -209,6 +210,10 @@ def selectedPolicy : IO Unit := do
       ("absent policy entry",
         withRequest (toJson { decoded with policy := (project / "missing.json").toString }),
         "missing requested manifest"),
+      ("absent policy file",
+        withRequest (toJson { decoded with configuration := decoded.configuration.map (fun
+          (path, text) => if path == decoded.policy then (path, none) else (path, text)) }),
+        "requested manifest is absent"),
       ("ambiguous policy entry",
         withRequest (toJson { decoded with configuration := decoded.configuration.push selected }),
         "ambiguous requested manifest")]
