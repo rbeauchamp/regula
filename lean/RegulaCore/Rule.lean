@@ -878,7 +878,7 @@ def descriptor : (id : RuleId) → RuleDescriptor id
       evidenceModes := [.incrementalProject, .freshProject, .freshFile]
       requirement := "Targets' `leanOptions`: auto-implicits off, `linter.missingDocs` on, with \
         Mathlib its standard set, header linter off or licensed; other options, in `-D` \
-        or source too, only in RG2006's accepted set."
+        or source too, only in the accepted set."
       rationale := "An automatic implicit adds a binder the source does not show, so the \
         elaborated statement can quantify over more than the text a reviewer compares with the \
         intent. A linter or warning reports only where it is on, and a target-wide option can \
