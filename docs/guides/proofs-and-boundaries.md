@@ -912,11 +912,17 @@ empty file holds no bytes to lose, so a destination that `mktemp` made stays usa
 link, a directory, a source file, a configuration file and a Markdown document keep their bytes.
 
 The function `Regula.Destination.regulaDocument` decides if a JSON document is Regula's. Each kind
-of completed document has a signature in `completedSignatures`: the members that the reader of
-that kind requires. For a kind that no reader reads, the signature holds the members that each such
-document holds. Each mark has a signature of its own in `markSignatures`, with the value that marks
+of completed document has a signature in `completedSignatures`: the members that its readers
+require and that each such document of Regula holds. For a kind that no reader reads, the signature
+holds the members that each such document holds. Each mark has a signature of its own in
+`markSignatures`, with the value that marks
 it incomplete. The function reads no other values, except the mode `serializedGraph` of a graph
 result. Thus a document of an earlier version of Regula stays replaceable.
+
+A reader may require a member only when a different member has some value. The guidance reader of a
+result requires `request` when `mode` is not `null`. The gate writes a result with a mode before it
+adds its request, and then replaces that result through the same check. So the signature of a
+result leaves `request` out, since it would refuse the gate's own result.
 
 A run may replace a document of Regula of a different kind from the one that it writes. Regula
 regenerates each of its documents, so a later run can make the replaced document again. The third
@@ -925,11 +931,12 @@ or three members, such as `receipt` and `origins` for a published admission. A J
 different tool with those members is thus replaceable too.
 
 A program writes a destination through `Regula.Destination.write`, which applies the first two
-rules. It makes nothing before it checks the destination. With `Regula.Destination.place`, it
-resolves the real path of the longest prefix of the destination that is present, and it reads the
-names below that prefix. If one of those names is `..`, it refuses the destination by its name,
-because the entry would depend on what the run makes. Otherwise the entry is exactly that
-real path and those names, and the check and the move act on that entry.
+rules. It makes nothing before it checks the destination, and it refuses a destination if its last
+component names no file, such as `out/` or `out/.`. With `Regula.Destination.place`, it resolves
+the real path of the longest present prefix and reads the names below it. A `..` among those names
+is refused, because the entry would depend on what the run makes. So is a prefix that cannot be
+resolved, with the error of each read. Otherwise the entry is exactly that real path and those
+names, and the check and the move act on that entry.
 
 The verification driver imports only Lean, so it holds a copy of that writer for its acceptance
 link and its rule-example evidence. In `RegulaVerification.Decisions`, the theorems
@@ -940,9 +947,10 @@ Each program of the package checks the writes of its compiled code when it is bu
 its removals with `Regula.Removal.checkProgram`. A write is a call of `IO.FS.writeFile`,
 `IO.FS.writeBinFile`, `IO.FS.createDirAll` or `IO.FS.withFile`. It is also a call bound to a
 function of the runtime that writes a file or makes an entry, as `writeSymbols` lists. An opening by
-`IO.FS.Handle.mk` is a write unless its mode is the literal `IO.FS.Mode.read`, and a truncation is a
-write. Such a call fails the build unless the writer of `Regula.Filesystem` makes it, or a list
-names its caller.
+`IO.FS.Handle.mk` is a write unless its mode is the literal `IO.FS.Mode.read`. A call of a different
+declaration bound to the same function of the runtime is always a write, and so is a truncation.
+Such a call fails the build unless the writer of `Regula.Filesystem` makes it, or a list names its
+caller.
 
 The lists of `Regula.Removal` hold the writes of Lake, of Lean's `bv_decide` and of Regula's scratch
 directories, which several programs reach (`sharedPairs`). The list of a program holds the calls
@@ -950,6 +958,15 @@ that it makes alone, and a pair of it that admits no call fails the build too. S
 write at a destination fails the build of its program, such as `qualify`, `ruleExamples`, `site`,
 `regula-markdown` or the verification driver. The check does not find a write through an open
 handle, a write by a started process, or a temporary file of the system.
+
+Nine programs elaborate Lean source, such as the Lake configuration of a project: `axiomGate`,
+`lint`, `ruleExamples`, `freshChecker`, `docFenceAudit`, `checkerSelftest`, `qualify`, `regula` and
+`site`. Their check states this with `elaborates := true`, and it fails if the compiled code of
+`main` disagrees. The tactics of the elaborated source run with their effects, as `lake build` runs
+them. These are trusted effects that the check does not find, such as the `aig.gv` and LRAT files of
+`bv_decide`. A program that does not elaborate reaches those writes only through the initializers
+of the tactic, which its run does not call. Each worker that a program starts writes its packet
+below its working directory, in a directory that the program made for the run.
 
 Third, a program refuses an invocation if two of its destinations may name one entry. The check
 compares the entries that `Regula.Destination.place` finds, folding ASCII case. If a name below a

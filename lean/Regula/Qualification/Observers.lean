@@ -49,12 +49,15 @@ def recordedBy (marker : Name) (names : Array Name) : Array Name :=
     else none
 
 /-- Import the environment of the root module `root`, and check it as `checkProgram` checks a
-program (`Regula.Removal.rawRemovals`), and as `Regula.TaskManagerCheck.checkProgram` checks a
+program that names no call and does not elaborate (`Regula.Removal.rawRemovals`,
+`Regula.Removal.elaborationRefusal`), and as `Regula.TaskManagerCheck.checkProgram` checks a
 compiled one (`Regula.TaskManagerCheck.refusal`). -/
 def checkOutside (root : Name) : IO Unit := do
   let env ← importModules #[{ module := root }] {} 0
   let reach := Regula.Removal.rawRemovals env root
   if let some refused := Regula.Removal.programRefusal env root reach then
+    throw <| IO.userError s!"observers: {refused}"
+  if let some refused := Regula.Removal.elaborationRefusal env root false then
     throw <| IO.userError s!"observers: {refused}"
   if let some refused := Regula.TaskManagerCheck.refusal env root then
     throw <| IO.userError s!"observers: {refused}"

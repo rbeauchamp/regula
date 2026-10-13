@@ -6,9 +6,12 @@ A program of Regula marks each file that its arguments name as a destination inc
 run, and later writes its document there. Before it replaces a file, it recognizes the file as a
 document of Regula (`regulaDocument`), completed or marked, so it replaces nothing else.
 
-A completed document is recognized by its kind's signature (`completedSignatures`): every member
-that a reader of its kind requires, or for a kind that no reader of the repository reads, every
-member that each of its documents holds. A mark is recognized by a signature of its own
+A completed document is recognized by its kind's signature (`completedSignatures`): each member
+that a reader of its kind requires and that each document of the kind that Regula writes holds, or
+for a kind that no reader of the repository reads, every member that each of its documents holds. A
+member that a reader requires only when another member has some value is left out when Regula
+writes a document of the kind with that value and without the member: the signature would refuse
+Regula's own document. A mark is recognized by a signature of its own
 (`markSignatures`): the members that it holds and the value that marks it incomplete. Values are not
 read otherwise, except the mode `serializedGraph` of a serialized-graph result, so a document of an
 earlier version of Regula with these members stays recognized. A document of any kind is
@@ -26,9 +29,14 @@ abbrev Signature := List String × List (String × String)
 /-- The signature of each kind of completed document, one entry for each kind:
 
 - a result of `axiomGate`, `lake lint` or `ruleExamples`: `sourceTexts`, which its reader
-  (`ResultProtocol.readDocument`) requires, and the members that the reader of its guidance
-  (`ResultProtocol.admitGuidance`) requires. A result's mark is a result (`resultJson`), so this
-  signature recognizes it too;
+  (`ResultProtocol.readDocument`) requires; the members that the reader of its guidance
+  (`ResultProtocol.admitGuidance`) requires; `scope`, which the gate reads back from its own
+  result; and the identity members and `unresolved`, which the qualifier of rule examples requires
+  of the result in a record (`RuleExampleQualification.qualify`). The guidance reader requires
+  `request` too when `mode` is not `null`, but the gate writes a result with a mode and without its
+  request, then replaces it with the one that holds it, so the signature leaves `request` out. A
+  result's mark is a result (`resultJson`, `invalidateResult`), so this signature recognizes it
+  too;
 - a registry export: the members that its reader (`validateRegistry`) requires;
 - an acceptance link: the members that its reader (`AcceptanceLink.require`) requires;
 - a worker packet: the members that its reader (`readWorkerPacket`) admits exactly;
@@ -42,8 +50,9 @@ abbrev Signature := List String × List (String × String)
   which no reader reads: the members that each holds. A census's and a receipt's mark is a census or
   a receipt with the status `incomplete`, so their signatures recognize it too. -/
 def completedSignatures : List Signature :=
-  [(["schemaVersion", "status", "mode", "diagnostics", "stages", "stagesCompleted", "complete",
-      "stagesNotRun", "rules", "sourceTexts"], []),
+  [(["schemaVersion", "producerVersion", "toolchain", "sourceRevision", "scope", "mode", "status",
+      "diagnostics", "unresolved", "sourceTexts", "stages", "stagesCompleted", "complete",
+      "stagesNotRun", "rules"], []),
     (["schemaVersion", "producerVersion", "toolchain", "sourceRevision", "rules"], []),
     (["schemaVersion", "status", "identity"], []),
     (["schema", "producer", "request", "payload"], []),

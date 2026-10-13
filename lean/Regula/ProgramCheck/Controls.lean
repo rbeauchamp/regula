@@ -9,7 +9,10 @@ package runs at the end of its root module or of a module that imports it
 observer passes it. A planted program that writes a file fails it too, and so does one that opens a
 file to write it; one that opens a file to read it passes it. A planted declaration of this module
 with the filesystem observer's role admits nothing, and the check refuses a program while one is
-declared outside `Regula.Filesystem` (`Regula.Removal.foreignObservers`).
+declared outside `Regula.Filesystem` (`Regula.Removal.foreignObservers`). A planted program whose
+`main` reaches Lean's elaborator fails the check that states that it does not elaborate, and
+passes the one that states that it does; a planted program that does not elaborate fails the check
+that states that it does (`Regula.Removal.elaborationRefusal`).
 
 A planted program whose `main` starts a task, creates a promise or captures a process's output
 fails the check that a compiled program needing Lean's task manager starts through the guard
@@ -29,7 +32,8 @@ open Lean Elab Command
 
 /-- The refusal of `checkProgram` for the program whose `main` is `value`, of type `IO Unit`, added
 to the environment for this control alone after `setup`; `none` when it accepts the program. -/
-def refusal (value : Expr) (setup : CommandElabM Unit := pure ()) : CommandElabM (Option String) :=
+def refusal (value : Expr) (setup : CommandElabM Unit := pure ()) (elaborates : Bool := false) :
+    CommandElabM (Option String) :=
   withoutModifyingEnv do
     setup
     liftTermElabM do
@@ -37,7 +41,7 @@ def refusal (value : Expr) (setup : CommandElabM Unit := pure ()) : CommandElabM
         name := `main, levelParams := [], type := mkApp (mkConst ``IO) (mkConst ``Unit), value,
         hints := .opaque, safety := .safe })
     try
-      Regula.Removal.checkProgram
+      Regula.Removal.checkProgram (elaborates := elaborates)
       return none
     catch error => return some (← error.toMessageData.toString)
 
@@ -67,6 +71,25 @@ run_cmd do
   if let some refused ← refusal planted (plant (← `(discard <| IO.FS.Handle.mk "planted" .read)))
   then
     throwError "the check refused a program whose main opens a file to read it: {refused}"
+
+-- A `main` that reaches Lean's elaborator fails the check that states that it does not elaborate,
+-- and passes the one that states that it does. A `main` that does not elaborate fails the check
+-- that states that it does.
+run_cmd do
+  let plant (body : Term) : CommandElabM Unit := do
+    elabCommand (← `(command| def $(mkIdent `plantedElaboration) : IO Unit := $body))
+  let planted := mkConst ((← getCurrNamespace) ++ `plantedElaboration)
+  let elaborating ← `(discard <| IO.mkRef Lean.Elab.Command.elabCommand)
+  let undeclared ← refusal planted (plant elaborating)
+  unless undeclared.any (·.contains "reaches Lean's elaborator") do
+    throwError "the check accepted a program that elaborates and states that it does not: \
+      {undeclared}"
+  if let some refused ← refusal planted (plant elaborating) (elaborates := true) then
+    throwError "the check refused a program that elaborates and states that it does: {refused}"
+  let idle ← refusal planted (plant (← `(pure ()))) (elaborates := true)
+  unless idle.any (·.contains "reaches none of") do
+    throwError "the check accepted a program that does not elaborate and states that it does: \
+      {idle}"
 
 -- The filesystem observer's role, given in this module: a planted observer that calls the library's
 -- primitive does not make its call admitted, and a planted observer that removes nothing makes the

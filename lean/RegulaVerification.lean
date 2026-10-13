@@ -1296,8 +1296,9 @@ abbrev Signature := List String × List (String × String)
 /-- The signature of each kind of completed document: `Regula.Destination.completedSignatures`
 (`regulaDocument_shared`). -/
 def completedSignatures : List Signature :=
-  [(["schemaVersion", "status", "mode", "diagnostics", "stages", "stagesCompleted", "complete",
-      "stagesNotRun", "rules", "sourceTexts"], []),
+  [(["schemaVersion", "producerVersion", "toolchain", "sourceRevision", "scope", "mode", "status",
+      "diagnostics", "unresolved", "sourceTexts", "stages", "stagesCompleted", "complete",
+      "stagesNotRun", "rules"], []),
     (["schemaVersion", "producerVersion", "toolchain", "sourceRevision", "rules"], []),
     (["schemaVersion", "status", "identity"], []),
     (["schema", "producer", "request", "payload"], []),
@@ -1376,11 +1377,14 @@ def plainNames (names : List String) : Option (List String) :=
   if names.contains ".." then none else some (names.filter fun name => name != "." && name != "")
 
 /-- The entry that `path` names, found without making anything: the real path of the longest
-prefix of its directory that is present, and the names below it (`plainNames`). It stops when a
-name below the prefix is `..`, whose entry depends on what the run makes, when no name is left for
-the entry, or when a prefix is there but cannot be resolved. It is `Regula.Destination.place`
-written a second time. -/
+prefix of its directory that is present, and the names below it (`plainNames`). It stops when the
+last component of `path` names no file (`System.FilePath.fileName`), read before any name is
+dropped; when a name below the prefix is `..`, whose entry depends on what the run makes; or when a
+prefix cannot be resolved, with the error of each read. It is `Regula.Destination.place` written a
+second time. -/
 def destinationAt (path : System.FilePath) : IO System.FilePath := do
+  if path.fileName.isNone then
+    throw <| IO.userError s!"{path} names no file, so the run writes nothing there"
   let path ← if path.isAbsolute then pure path else pure ((← IO.currentDir) / path)
   let components := path.components
   let below (real : System.FilePath) (names : List String) : IO System.FilePath :=
@@ -1396,11 +1400,18 @@ def destinationAt (path : System.FilePath) : IO System.FilePath := do
     let ancestor : System.FilePath := if ancestor.toString.isEmpty then ⟨"/"⟩ else ancestor
     match ← (IO.FS.realPath ancestor).toBaseIO with
     | .ok real => return ← below real (components.drop (count + 1))
-    | .error (.noFileOrDirectory ..) =>
+    | .error absent@(.noFileOrDirectory ..) =>
       match ← (entryMetadata ancestor).toBaseIO with
       | .error (.noFileOrDirectory ..) => continue
-      | _ => throw <| IO.userError s!"{ancestor}, a prefix of {path}, is there but cannot be \
-          resolved (a symbolic link whose target is absent), so the run writes nothing there"
+      | .ok metadata =>
+        if metadata.type == .symlink then
+          throw <| IO.userError s!"{ancestor}, a prefix of {path}, is a symbolic link whose \
+            target is absent ({absent}), so the run writes nothing there"
+        throw <| IO.userError s!"{ancestor}, a prefix of {path}, is {entryName metadata.type} \
+          that cannot be resolved ({absent}), so the run writes nothing there"
+      | .error error => throw <| IO.userError s!"{ancestor}, a prefix of {path}, cannot be \
+          resolved ({absent}) and cannot be read without following a link ({error}), so the run \
+          writes nothing there"
     | .error error => throw <| IO.userError s!"{ancestor}, a prefix of {path}, cannot be resolved \
         ({error}), so the run writes nothing there"
   below ⟨"/"⟩ (components.drop 1)

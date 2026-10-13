@@ -268,8 +268,8 @@ unsafe def main : List String → IO UInt32 :=
 -- modules it links, reaches are those of the filesystem observer and those that
 -- `Regula.Removal.sharedPairs` lists, and those named here, each by the declaration of a source
 -- that makes it: the build of this module fails otherwise, and when a name here admits no call
--- (`Regula.Removal.checkProgram`).
-run_cmd Regula.Removal.checkProgram (named := [
+-- (`Regula.Removal.checkProgram`). The program elaborates Lean source, so its check states it.
+run_cmd Regula.Removal.checkProgram (elaborates := true) (named := [
   -- The projects, slots and fixtures of the campaigns, in the scratch and slot directories that
   -- they make, and the raw observations of a rule-example production in the raw directory beside
   -- its evidence (`Regula.Qualification.RuleExamples`).

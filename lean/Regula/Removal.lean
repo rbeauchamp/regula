@@ -20,8 +20,9 @@ or a `..` among the components above the entry is followed as the operating syst
 a run of Verso writes through it too.
 
 The same walk finds each call of a primitive that writes a file or makes an entry
-(`writePrimitives`, `writeSymbols`), and each opening of a file whose mode is not the literal
-`IO.FS.Mode.read` (`opensToWrite`). It admits such a call only in the writer of
+(`writePrimitives`, `writeSymbols`). An opening of a file by `IO.FS.Handle.mk` is such a call when
+its mode is not the literal `IO.FS.Mode.read` (`opensToWrite`), and a call of any other declaration
+bound to its C function always is (`readableOpening`). It admits such a call only in the writer of
 `Regula.Filesystem` (`writers`), at a call that `libraryWrites` or `packageWrites` lists, or at a
 call that the program names to `checkProgram`, each by its source declaration
 (`sourceDeclaration`). A pair that a program names and that admits no call fails the check, so the
@@ -55,6 +56,35 @@ admitted pair is a trusted exception as a whole, together with any further call 
 primitive inside the same caller: a second `IO.FS.removeDirAll` in a removal of the verification
 driver passes the check. Issue 389 tracks deciding the drivers' removals with a decision that a
 theorem relates to `RegulaCore.Removal`.
+
+## Programs that elaborate
+
+A program elaborates when its `main` reaches Lean's elaborator (`elaborationEntries`) or a write
+or removal of a tactic (`tacticWrites`, `tacticRemovals`). Its check states whether it does
+(`checkProgram`), and fails when the statement is wrong (`elaborationRefusal`). Nine programs
+elaborate: `axiomGate`, `lint`, `ruleExamples`, `freshChecker`, `docFenceAudit`, `checkerSelftest`,
+`qualify`, `regula` and `site`. Each elaborates the Lake configuration of a project when it loads
+its workspace (`Lake.importConfigFile`). Some also elaborate the project's modules in Regula's
+frontend, in their own process or in a worker of `axiomGate`, or regenerate the recursion of a
+declaration that they audit, which runs its `decreasing_by` tactics.
+
+Elaboration runs the commands, terms and tactics of the source, with their effects, as `lake
+build` runs them on the same source. They are trusted active effects of the program, and the check
+finds none of them. Such are the writes and removals of `bv_decide`: the `aig.gv` that its option
+`graphviz` writes in the working directory, the LRAT proof that `bv_decide?` writes beside the
+source file, and the temporary files that it removes. A program that does not elaborate reaches
+these only through the initializers that register the tactic, and no call of its run runs a
+registered tactic; the check admits them in such a program on that ground alone.
+
+A program elaborates in the working directory in which it was started. Each worker that a program
+of Regula starts runs in the program's working directory or in the project's root, and writes its
+packet in a directory that the program made for the run below it: a scratch directory below
+`.lake/regula-scratch` (`Regula.Scratch.withScratch`), or `tmp/fence-build` of the workspace of a
+documentation audit. So no worker's working directory is the directory of its packet. A
+destination of the program that started it may be in that working directory. A tactic's write
+replaces such a destination only when it has the tactic's name, such as `aig.gv`; then the
+program's own write refuses the file there, which is not a document of Regula, and so does every
+reader.
 
 ## Boundaries
 
@@ -179,28 +209,42 @@ def altCalls : Alt → Calls
   | .ctor _ rest | .default rest => bodyCalls rest
 end
 
-/-- Whether the call of `callee` with the arguments `args` opens a file to write it, when `callee`
-is bound to `openSymbol`: the call is a partial application, or its mode is not a variable that the
-body binds to the literal 0 (`IO.FS.Mode.read`), among `literals`. The mode is the second argument
-that is not erased, the second argument of the C function. -/
-def opensToWrite (env : Environment) (literals : Array (VarId × Nat)) (callee : Name)
-    (args : Array Arg) (partialCall : Bool) : Bool :=
-  match findEnvDecl env callee with
-  | some (.extern _ params _ _) =>
-    let relevant := (List.range params.size).filter fun index =>
-      !(params[index]?.map (·.ty.isErased)).getD true
-    match relevant[1]?.bind (args[·]?) with
-    | some (Arg.var mode) => partialCall || !literals.contains (mode, 0)
-    | _ => true
+/-- The binding of `IO.FS.Handle.mk` whose C call the check has read, as Lean 4.34.1 declares it
+(`Init/System/IO.lean:795`): one standard entry for every backend, which calls `openSymbol` with
+the arguments of the declaration in order. -/
+def readableOpen : ExternAttrData := { entries := [.standard `all openSymbol] }
+
+/-- The compiled parameters of that binding in Lean 4.34.1: the path, borrowed, the mode as one
+byte, and the world, which the C function does not take. -/
+def readableOpenParams : Array IRType := #[.object, .uint8, .void]
+
+/-- Whether the check reads the mode of a call of `name` (`opensToWrite`): `name` is
+`IO.FS.Handle.mk`, bound as `readableOpen` with the parameters `readableOpenParams`, so that its
+second argument is the mode that the C function receives. Any other declaration bound to
+`openSymbol` opens a file to write it at each call: one with an inline pattern can give the C
+function a mode of its own whatever its arguments, and one of another name or with other
+parameters has an order of arguments that the check has not read. -/
+def readableOpening (env : Environment) (name : Name) : Bool :=
+  name == ``IO.FS.Handle.mk && match findEnvDecl env name with
+    | some (.extern _ params _ data) =>
+      data == readableOpen && params.map (·.ty) == readableOpenParams &&
+        (params[0]?.map (·.borrow)).getD false
+    | _ => false
+
+/-- Whether the call of `IO.FS.Handle.mk` (`readableOpening`) with the arguments `args` opens a file
+to write it: the call is a partial application, or its mode, the second argument, is not a variable
+that the body binds to the literal 0 (`IO.FS.Mode.read`), among `literals`. -/
+def opensToWrite (literals : Array (VarId × Nat)) (args : Array Arg) (partialCall : Bool) : Bool :=
+  match args[1]? with
+  | some (Arg.var mode) => partialCall || !literals.contains (mode, 0)
   | _ => true
 
-/-- The declarations bound to `openSymbol` that the compiled body `body` calls to write a file
-(`opensToWrite`). -/
+/-- The calls of `IO.FS.Handle.mk` (`readableOpening`) that the compiled body `body` makes to write
+a file (`opensToWrite`), each by its callee. -/
 def writingOpens (env : Environment) (body : FnBody) : Array Name :=
   let (literals, calls) := bodyCalls body
   calls.filterMap fun (callee, args, partialCall) =>
-    if boundAmong env [openSymbol] callee |>.isSome then
-      if opensToWrite env literals callee args partialCall then some callee else none
+    if readableOpening env callee && opensToWrite literals args partialCall then some callee
     else none
 
 /-- The suffixes that Lean's compiler appends to the name of a declaration for the compiled
@@ -272,16 +316,23 @@ def compiledPart (component : Name) : Bool :=
         (text.toList.drop stem.length).all Char.isDigit
   | _ => false
 
+/-- The name after the last `_at_` of the compiled declaration `name`, a specialization made in
+that declaration, without the parts that `compiledPart` names: `D` for the loop
+`Array.forIn'Unsafe.loop._at_.D.spec_5` and for the function `D._lam_2`. It reads the name alone,
+not the environment, and joins its parts as they stand (`Name.appendCore`): `++` moves the macro
+scopes of a hygienic part, and panics when both of its arguments have some. -/
+def compiledSource (name : Name) : Name :=
+  let made := (name.components.reverse.takeWhile (· != `_at_)).reverse
+  (made.reverse.dropWhile compiledPart).reverse.foldl Name.appendCore .anonymous
+
 /-- The declaration of a source in whose compiled code Lean's compiler made the compiled declaration
-`name`: `name` when a source declares it, and otherwise the name after the last `_at_` of `name`, a
-specialization made in that declaration, without the parts that `compiledPart` names, when a source
-declares it. So the loop `Array.forIn'Unsafe.loop._at_.D.spec_5` and the function `D._lam_2` are
-the code of `D`. A name of another form is its own. -/
+`name`: `name` when a source declares it, and otherwise its `compiledSource` when a source declares
+that. So the loop `Array.forIn'Unsafe.loop._at_.D.spec_5` and the function `D._lam_2` are the code
+of `D`. A name of another form is its own. -/
 def sourceDeclaration (env : Environment) (name : Name) : Name :=
   if env.contains name then name
   else
-    let made := (name.components.reverse.takeWhile (· != `_at_)).reverse
-    let source := (made.reverse.dropWhile compiledPart).reverse.foldl (· ++ ·) .anonymous
+    let source := compiledSource name
     if env.contains source then source else name
 
 /-- The calls of a removal primitive in Lean's library that a program of the package reaches, each
@@ -327,9 +378,8 @@ refuses an entry already at its place (`RegulaProvision.installLink_refused`).
 - `Lake.reuseManifest`, specialized at `Lake.Workspace.updateAndMaterializeCore`, with
   `IO.FS.rename`. Trusted exemption, for the reason above: it moves the packages directory that a
   loaded manifest names to the workspace's (`Lake/Load/Resolve.lean:252-283`).
-- The three variants of `IO.FS.withTempFile` in `bv_decide`. Assumes: the program elaborates no
-  `bv_decide` proof, so these, which the tactic's initializers reach, do not run; each removes the
-  temporary file that `withTempFile` made (`Init/System/IO.lean:1353`). -/
+
+The removals of a tactic of Lean's library are listed apart (`tacticRemovals`). -/
 def libraryRemovals : List (Name × Name) :=
   [(`Lake.importConfigFile, ``IO.FS.removeFile),
     (`Lake.importConfigFile, ``Lean.writeModule),
@@ -341,8 +391,18 @@ def libraryRemovals : List (Name × Name) :=
       ``IO.FS.removeDirAll),
     (mkPrivateNameCore `Lake.Load.Resolve `Lake.reuseManifest ++ `_at_ ++
         mkPrivateNameCore `Lake.Load.Resolve `Lake.Workspace.updateAndMaterializeCore ++ `spec_3,
-      ``IO.FS.rename),
-    (`IO.FS.withTempFile._at_.Lean.Meta.Tactic.BVDecide.runExternal.spec_3._redArg._lam_0,
+      ``IO.FS.rename)]
+
+/-- The removals of `bv_decide`, a tactic of Lean's library, for Lean 4.34.1: the three variants of
+`IO.FS.withTempFile` in its frontends, each of which removes the temporary file that `withTempFile`
+made in the system's temporary directory (`Init/System/IO.lean:1353`), holding the problem that it
+gives a SAT solver or the proof that the solver writes. The tactic's initializers reach them, so
+every program that links the tactic reaches them. The check admits them as a trusted exemption, and
+which programs run them is the program's class (`elaborationRefusal`): a program that elaborates
+runs the tactics of the source that it elaborates, and one that does not elaborate reaches them only
+through those initializers, whose registered tactics only an elaboration runs. -/
+def tacticRemovals : List (Name × Name) :=
+  [(`IO.FS.withTempFile._at_.Lean.Meta.Tactic.BVDecide.runExternal.spec_3._redArg._lam_0,
       ``IO.FS.removeFile),
     ((`IO.FS.withTempFile._at_._private.Lean.Elab.Tactic.Grind.BVDecide).num 0 ++
         `Lean.Elab.Tactic.Grind.evalBvDecide.spec_1._redArg._lam_0, ``IO.FS.removeFile),
@@ -371,10 +431,8 @@ check admits each of them without establishing what it writes.
   `:121` and `:186`, `Lake/Build/Common.lean:177`, `:376`, `:401`, `:454` and `:648`,
   `Lake/Build/Library.lean`, `Lake/Config/Cache.lean:183` and `:434`, `Lake/Util/IO.lean:18`,
   `:31`, `:41` and `:70`).
-- Lean's `bv_decide`: the LRAT proof (`Std/Tactic/BVDecide/LRAT/Parser.lean:420`) and the files
-  of a proof that `lratBitblaster` writes (`Lean/Meta/Tactic/BVDecide/Prover/Bitblast.lean:63`).
-  Assumes, as for its removals in `libraryRemovals`: the program elaborates no `bv_decide` proof,
-  so these, which the tactic's initializers reach, do not run. -/
+
+The writes of a tactic of Lean's library are listed apart (`tacticWrites`). -/
 def libraryWrites : List (Name × Name) :=
   [(`Lake.importConfigFile, ``IO.FS.Handle.mk),
     (`Lake.importConfigFile, ``IO.FS.Handle.truncate),
@@ -397,8 +455,22 @@ def libraryWrites : List (Name × Name) :=
     (`Lake.createParentDirs, ``IO.FS.createDirAll),
     (`Lake.writeFileIfNew, ``IO.FS.Handle.mk),
     (`Lake.writeBinFileIfNew, ``IO.FS.Handle.mk),
-    (`Lake.copyFile, ``IO.FS.writeBinFile),
-    (`Std.Tactic.BVDecide.LRAT.dumpLRATProof, ``IO.FS.writeBinFile),
+    (`Lake.copyFile, ``IO.FS.writeBinFile)]
+
+/-- The writes of `bv_decide`, a tactic of Lean's library, for Lean 4.34.1, admitted as its
+removals are (`tacticRemovals`):
+
+- the graph of a problem, which `lratBitblaster` writes at `aig.gv` in the working directory of the
+  process when the proof sets the option `graphviz`
+  (`Lean/Meta/Tactic/BVDecide/Prover/Bitblast.lean:75`);
+- the LRAT proof that `bv_decide?` trims, which `dumpLRATProof` writes over the one that the SAT
+  solver wrote (`Std/Tactic/BVDecide/LRAT/Parser.lean:420`, `Lean/Elab/Tactic/BVDecide.lean:181`),
+  in the directory of the source file that the process elaborates, named after that file, the
+  declaration and the position of the tactic (`Lean/Elab/Tactic/BVDecide.lean:113-148`).
+
+The SAT solver is a program that the tactic starts, outside the check. -/
+def tacticWrites : List (Name × Name) :=
+  [(`Std.Tactic.BVDecide.LRAT.dumpLRATProof, ``IO.FS.writeBinFile),
     (`Lean.Meta.Tactic.BVDecide.lratBitblaster, ``IO.FS.writeFile)]
 
 /-- The writes of Regula's own declarations that more than one program reaches, each with the
@@ -448,9 +520,9 @@ def admittingPair (env : Environment) (pairs : List (Name × Name)) (caller prim
   pairs.find? fun (named, called) => called == primitive && callers.contains named
 
 /-- The removals and the writes that the check admits in every program: `libraryRemovals`,
-`writers`, `libraryWrites` and `packageWrites`. -/
+`tacticRemovals`, `writers`, `libraryWrites`, `tacticWrites` and `packageWrites`. -/
 def sharedPairs : List (Name × Name) :=
-  libraryRemovals ++ writers ++ libraryWrites ++ packageWrites
+  libraryRemovals ++ tacticRemovals ++ writers ++ libraryWrites ++ tacticWrites ++ packageWrites
 
 /-- Whether the call of `primitive` by `caller` is a removal or a write that the check admits: a
 call by one of `observers` or a compiled variant of one (`observerVariant`), or a call that a pair
@@ -525,9 +597,10 @@ def watched : List Name := primitives ++ writePrimitives
 admit, with the declaration that makes it; and each reached declaration whose compiled body `env`
 does not hold, so that what it calls is unknown. A primitive is a declaration of `watched`, or an
 `extern` declaration bound to a C function of `removalSymbols` or `writeSymbols`, whatever its name
-(`isPrimitive`), or a compiled variant of one (`calledPrimitive`). A call of one bound to
-`openSymbol` is found only when it opens a file to write it (`writingOpens`), and a call of its
-variant always is. As a root, a primitive bound to a C function is raw. Every compiled declaration
+(`isPrimitive`), or a compiled variant of one (`calledPrimitive`). A call of `IO.FS.Handle.mk`
+(`readableOpening`) is found only when it opens a file to write it (`writingOpens`); a call of its
+variant, or of any other declaration bound to `openSymbol`, always is. As a root, a primitive bound
+to a C function is raw. Every compiled declaration
 is followed, of this package, of Lean's library and of each other package; a C function of the
 runtime is not. -/
 def rawRemovalsFrom (env : Environment) (observers : Array Name) (roots : Array Name)
@@ -552,7 +625,7 @@ def rawRemovalsFrom (env : Environment) (observers : Array Name) (roots : Array 
         if used == name then continue
         match calledPrimitive env watched used with
         | some primitive =>
-          let reads := (boundAmong env [openSymbol] used).isSome && !opens.contains used
+          let reads := readableOpening env used && !opens.contains used
           unless reads || admitted env observers named name primitive do
             raw := raw.push (name, primitive)
           if let some pair := admittingPair env named name primitive then
@@ -577,6 +650,65 @@ def rawRemovals (env : Environment) (root : Name) (named : List (Name × Name) :
   let roots := (initializersOf env (linked env root)).push `main
   { rawRemovalsFrom env (filesystemObservers env) roots named with
     foreign := foreignObservers env }
+
+/-- The declarations of Lean 4.34.1's library through which a program runs Lean's elaborator on
+source that it reads: its frontends (`Lean.Elab.runFrontend`, `Lean.Elab.IO.processCommands`,
+`Lean.Elab.Frontend.processCommand`, `Lean.Language.Lean.process`) and the dispatchers of its
+elaborators (`Lean.Elab.Command.elabCommandTopLevel`, `Lean.Elab.Command.elabCommand`,
+`Lean.Elab.Term.elabTerm`, `Lean.Elab.Term.elabTermAndSynthesize`,
+`Lean.Elab.Term.synthesizeSyntheticMVars`, `Lean.Elab.Term.runTactic`,
+`Lean.Elab.Tactic.evalTactic`). Assumes: Lean runs an elaborator of a command, a term or a tactic,
+each of which its initializers register, only from one of these dispatchers, which find it by the
+syntax that it elaborates. -/
+def elaborationEntries : List Name :=
+  [`Lean.Elab.runFrontend, `Lean.Elab.IO.processCommands, `Lean.Elab.Frontend.processCommand,
+    `Lean.Language.Lean.process, `Lean.Elab.Command.elabCommandTopLevel,
+    `Lean.Elab.Command.elabCommand, `Lean.Elab.Term.elabTerm,
+    `Lean.Elab.Term.elabTermAndSynthesize, `Lean.Elab.Term.synthesizeSyntheticMVars,
+    `Lean.Elab.Term.runTactic, `Lean.Elab.Tactic.evalTactic]
+
+/-- The declarations that the compiled code of `main` reaches, not counting the initializers of
+the modules that the program links, through which the program elaborates or a tactic writes or
+removes: each declaration of `elaborationEntries`, and each declaration that is, or whose
+`compiledSource` is, a declaration of `tacticRemovals` or `tacticWrites` that makes the call. This
+finds each declaration whose `sourceDeclaration` is one of them without a lookup in the environment
+for each declaration that the walk visits. Then the declarations that the walk left at its bound,
+each of which may reach one. -/
+def elaborationReached (env : Environment) : Array Name := Id.run do
+  let tacticCallers := (tacticRemovals ++ tacticWrites).map (·.1)
+  let mut seen : Std.HashSet Name := ({} : Std.HashSet Name).insert `main
+  let mut work := #[`main]
+  let mut found := #[]
+  -- Each declaration is added to `work` at most once, as in `rawRemovalsFrom`.
+  for _ in [:maxDeclarations] do
+    let some name := work.back? | break
+    work := work.pop
+    if elaborationEntries.contains name || tacticCallers.contains name ||
+        tacticCallers.contains (compiledSource name) then
+      found := found.push name
+    if let some decl@(.fdecl ..) := findEnvDecl env name then
+      for used in collectUsedDecls env [decl] do
+        unless seen.contains used do
+          seen := seen.insert used
+          work := work.push used
+  return found ++ work
+
+/-- The reason to refuse the program whose `main` the environment declares, in the module `root`,
+when its check declares the wrong class: `elaborates` states whether the program runs Lean's
+elaborator on source that it reads, and so the tactics of that source with their writes, and its
+`main` reaches the elaborator or a tactic's write or removal exactly when `elaborationReached`
+finds a declaration. -/
+def elaborationRefusal (env : Environment) (root : Name) (elaborates : Bool) : Option String :=
+  let found := elaborationReached env
+  if elaborates && found.isEmpty then
+    some s!"the check of the program of {root} states that it elaborates source, but its main \
+      reaches none of {elaborationEntries}: its check states `elaborates := false`"
+  else if !elaborates && !found.isEmpty then
+    some s!"the program of {root} reaches Lean's elaborator or a tactic's write or removal from \
+      its main ({found.toList.take 5}), so the tactics of the source that it elaborates run in its \
+      process: its check states `elaborates := true`, which makes their writes trusted effects of \
+      the program (`Regula.Removal`)"
+  else none
 
 /-- The prefix of the marker that `checkProgram` adds for each program that it checked: the
 definition `reached ++ root` of type `Unit`, where `root` is the program's root module. `lake exe
@@ -609,16 +741,20 @@ def programRefusal (env : Environment) (root : Name) (reach : Reach) : Option St
   else none
 
 /-- Check the program whose `main` the environment declares: fail with the refusal of the
-program (`programRefusal`) when there is one, and otherwise record the program (`reached`).
-`named` admits the removals and the writes of the program that no list of this module admits,
-each as the pair of its caller and the primitive that it calls (`admitted`), so a call of a
-primitive at another place fails the build. -/
-def checkProgram (named : List (Name × Name) := []) : Elab.Command.CommandElabM Unit := do
+program (`programRefusal`) or of its class (`elaborationRefusal`) when there is one, and otherwise
+record the program (`reached`). `named` admits the removals and the writes of the program that no
+list of this module admits, each as the pair of its caller and the primitive that it calls
+(`admitted`), so a call of a primitive at another place fails the build. `elaborates` states
+whether the program runs Lean's elaborator on source that it reads. -/
+def checkProgram (named : List (Name × Name) := []) (elaborates : Bool := false) :
+    Elab.Command.CommandElabM Unit := do
   let env ← getEnv
   unless env.contains `main do
     throwError "no `main` is declared here, so there is no program to check"
   let root := moduleOf env `main
   if let some refused := programRefusal env root (rawRemovals env root named) then
+    throwError refused
+  if let some refused := elaborationRefusal env root elaborates then
     throwError refused
   Elab.Command.liftCoreM <| addDecl (.defnDecl {
     name := reached ++ root, levelParams := [], type := mkConst ``Unit,

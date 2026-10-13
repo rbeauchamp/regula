@@ -4867,6 +4867,16 @@ private def earlyStopControl (repo : FilePath) : IO (Option String) :=
         !(← absent.pathExists) && (← IO.FS.readBinFile completed).data == held.data do
       return some s!"early stop: axiomGate with --registry-out {escaping} was not refused before \
         it made {absent} (exit {refused.exitCode}):\n{refused.output}"
+    -- A destination whose last component names no file, `new/` or `new/.`, names a directory and
+    -- not a file in it: the run refuses it by its name before it makes anything, so `new` stays
+    -- absent (`Regula.Destination.place`).
+    let unnamed := scratch / "new"
+    for named in [s!"{unnamed}/", s!"{unnamed}/."] do
+      let refused ← runProcess repo gate #["--registry-out", named] (env := plain)
+      unless refused.exitCode == configuration && refused.stderr.contains "names no file" &&
+          !(← unnamed.pathExists) do
+        return some s!"early stop: axiomGate with --registry-out {named} was not refused by its \
+          name before it made {unnamed} (exit {refused.exitCode}):\n{refused.output}"
     -- A directory at the `--out` of `site build` that holds something other than an artifact of a
     -- build, such as the documentation of a repository, is refused and keeps its files
     -- (`Regula.Site.Build.artifactRefusal`).
@@ -5398,8 +5408,8 @@ unsafe def main : List String → IO UInt32 :=
 -- modules it links, reaches are those of the filesystem observer and those that
 -- `Regula.Removal.sharedPairs` lists, and those named here, each by the declaration of a source
 -- that makes it: the build of this module fails otherwise, and when a name here admits no call
--- (`Regula.Removal.checkProgram`).
-run_cmd Regula.Removal.checkProgram (named := [
+-- (`Regula.Removal.checkProgram`). The program elaborates Lean source, so its check states it.
+run_cmd Regula.Removal.checkProgram (elaborates := true) (named := [
   -- The projects of the build-integration controls (`Regula.Checker.BuildLintQualification`).
   (`Regula.Checker.BuildLintQualification.disabledControl, ``IO.FS.writeFile),
   (`Regula.Checker.BuildLintQualification.runCase, ``IO.FS.writeFile),

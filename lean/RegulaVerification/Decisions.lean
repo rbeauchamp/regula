@@ -3,6 +3,7 @@ import Regula.Contract
 import Regula.Decision
 import RegulaCore.Removal
 import RegulaCore.Destination
+import Regula.Destination
 
 /-! # Decision contracts of the verification driver
 
@@ -13,7 +14,9 @@ the package is built. This second module of its library imports it together with
 interfaces, the removal decision of the filesystem observer (`RegulaCore.Removal`) and the
 identification of a document of Regula (`RegulaCore.Destination`), and nothing the driver runs
 imports this module. Each kind restates theorems of the driver about the same definition and adds
-the witnesses a kind requires. -/
+the witnesses a kind requires. A control requires that the driver's reading of a destination
+(`destinationAt`) and the programs' (`Regula.Destination.place`) refuse a path whose last component
+names no file, and accept the same path with a file name. -/
 
 namespace RegulaVerification
 
@@ -130,6 +133,33 @@ writes it at (`Regula.Destination.siteAssemblingMarker`). -/
 theorem siteAssemblingMarker_shared :
     siteAssemblingMarker = Regula.Destination.siteAssemblingMarker :=
   rfl
+
+-- A destination whose last component names no file, `new/` or `new/.`, names a directory and not
+-- a file in it: the driver and the programs refuse it by its name, before they drop a `.` or an
+-- empty name. The same destination with a file name is accepted, at the real path of its prefix.
+run_cmd do
+  let base ← Regula.Filesystem.ownTempDir
+  let outcome ← (do
+    for named in [s!"{base / "new"}/", s!"{base / "new"}/."].map System.FilePath.mk do
+      let place ← Regula.Destination.place named
+      let driver ← (destinationAt named).toBaseIO
+      unless (match place with | .error reason => reason.endsWith "names no file, so the run \
+          writes nothing there" | .ok _ => false) &&
+          (match driver with | .error error => (toString error).endsWith "names no file, so \
+            the run writes nothing there" | .ok _ => false) do
+        throw <| IO.userError s!"{named} is not refused by its name"
+    let named : System.FilePath := base / "new" / "file.json"
+    let expected := (← IO.FS.realPath base) / "new" / "file.json"
+    let place ← Regula.Destination.place named
+    let driver ← destinationAt named
+    unless (place.toOption.map Regula.Destination.entryPath) == some expected &&
+        driver == expected do
+      throw <| IO.userError s!"{named} is not accepted at {expected}"
+    ).toBaseIO
+  Regula.Filesystem.removeOwn .directory base
+  match outcome with
+  | .ok () => pure ()
+  | .error error => throwError "the control of a destination that names no file failed: {error}"
 
 attribute [regula_decision] parseMode dependencyFree select passed removal prebuildCovers
 
