@@ -1531,12 +1531,13 @@ observer recorded them, with `RegulaPolicy.Community.sourceFailures` (`sourceFai
 `checked_sourceFailures`). The same accepted set decides them, with two more admissions.
 
 The first admission is a community linter turned off by `set_option linter.NAME false in` before
-one declaration. The observer records the kinds of the command that the form wraps and of each
-command that macros expand it to. The decision admits the setting only if one of these kinds is a
-declaration, so a `section` of several declarations fails. A macro that expands to several commands
-also fails, and so does a command with an elaborator of its own. The theorems
-`communityDisable_iff`, `missingDocs_in_section_fails`, `missingDocs_in_macro_passes` and
-`missingDocs_in_macro_list_fails` state this.
+one declaration. The observer records the kinds of the commands that Lean elaborates for the wrapped
+command when all macros have expanded it. `oneDeclaration` admits the setting only if exactly one
+kind is a declaration and the others are `namespace`, `end` or `end_local_scope`. So a declaration
+whose name has a namespace passes, but a `section` of several declarations fails. A macro that
+expands to two declarations fails, and so does a command with an elaborator of its own. The
+theorems `oneDeclaration_iff`, `communityDisable_iff`, `missingDocs_in_namespaced_passes` and
+`missingDocs_in_two_declarations_fails` state this.
 
 The second admission is a closed set of settings, `RegulaPolicy.Community.generatedSettings`. These
 are the settings that the code of the pinned Lean writes as `set_option` syntax into the code it

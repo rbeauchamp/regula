@@ -1553,8 +1553,9 @@ Regula's elaboration observer records each option that a claimed module's source
 Lean's `set_option` elaborator, with the value and form of its `set_option` syntax
 (`RegulaObserver.Setting`). The same accepted set decides them as decides a target's options, with
 the one permission that standard §6.2 gives: a community linter turned off for one declaration by
-`set_option linter.NAME false in` before a declaration command (`declarationKind`), or before a
-command that macros expand, one command at each step, to one. Lean's default
+`set_option linter.NAME false in` before a command that Lean elaborates, once every macro has
+expanded it, as one declaration command (`declarationKind`) with only scope commands around it
+(`oneDeclaration`). Lean's default
 warnings, the `linter.` and `warn.` options Lean registers (`leanWarningSettings`) whose registered
 default is not `false`, are never community linters, and neither are the options that switch
 many linters at once (`linterSwitches`). The decision reads the setting
@@ -1598,9 +1599,9 @@ structure SourceSetting where
   registeredDefault : Option OptionValue
   /-- How the source set it. -/
   form : SourceForm
-  /-- For the form before one command, the syntax kinds of the command that `set_option … in`
-  wraps, through each further `set_option … in`, and of each command that a macro expanded it to
-  in turn (`RegulaObserver.Setting.wrapped`); none otherwise. -/
+  /-- For the form before one command, the syntax kinds of the commands that Lean elaborates for
+  the command that `set_option … in` wraps, through each further `set_option … in`, once every
+  macro has expanded them (`RegulaObserver.Setting.wrapped`); none otherwise. -/
   wrapped : Option (List Name) := none
   /-- Where the option's name is in the module, line and column, as Lean reports them; only the
   report reads it. -/
@@ -1640,22 +1641,53 @@ theorem defaultWarning_iff (name : Name) (registeredDefault : Option OptionValue
   cases registeredDefault <;>
     simp [defaultWarning, DefaultWarning, ← OptionValue.readsAs_iff]
 
+/-- The syntax kinds of the commands that only open or close a scope around a declaration:
+`namespace`, `end` and Lean's internal `end_local_scope`, the commands that Lean's
+`expandNamespacedDeclaration` puts around a declaration whose name has a namespace. -/
+def scopeKinds : List Name :=
+  [`Lean.Parser.Command.namespace, `Lean.Parser.Command.end,
+    `Lean.Parser.Command.InternalSyntax.end_local_scope]
+
+/-- Whether the syntax kinds `leaves` of the commands that Lean elaborates for one command, once
+every macro has expanded it (`SourceSetting.wrapped`), make one declaration: exactly one is a
+declaration command and each other is a scope command (`scopeKinds`). A command that an
+elaborator of its own elaborates, or a command that could not be followed (the anonymous kind),
+is neither.
+
+Assumes: at the pinned Lean v4.34.1, the builtin macro `expandNamespacedDeclaration`
+(`Lean/Elab/Declaration.lean` lines 149 to 157) expands a declaration named `Foo.bar` to
+`namespace Foo`, `end_local_scope`, the declaration named `bar` and `end Foo`, which this accepts,
+and the builtin macro `expandDefContract` (`Lean/Elab/Tactic/Do/Contract.lean` lines 89 to 147)
+expands a `def` with `requires` or `ensures` to a contract notice, the `def` and a `spec` theorem
+in a `section`, which this refuses. -/
+def oneDeclaration (leaves : List Name) : Bool :=
+  leaves.count declarationKind == 1 &&
+    leaves.all fun kind => kind == declarationKind || scopeKinds.contains kind
+
+/-- `oneDeclaration`, stated by quantifiers. -/
+def OneDeclaration (leaves : List Name) : Prop :=
+  leaves.count declarationKind = 1 ∧ ∀ kind ∈ leaves, kind = declarationKind ∨ kind ∈ scopeKinds
+
+/-- `oneDeclaration` decides exactly `OneDeclaration`. -/
+theorem oneDeclaration_iff (leaves : List Name) :
+    oneDeclaration leaves = true ↔ OneDeclaration leaves := by
+  simp [oneDeclaration, OneDeclaration]
+
 /-- A community linter turned off for one declaration: `set_option linter.NAME false in` before a
-declaration command, or before a command that macros expand, one command at each step, to a
-declaration command (`SourceSetting.wrapped`), where `linter.NAME` is not a default warning of Lean
-and switches no set of linters. A command that an elaborator of its own elaborates, or that a macro
-expands to several commands, is no declaration command. -/
+command that Lean elaborates, once every macro has expanded it, as one declaration
+(`oneDeclaration` of `SourceSetting.wrapped`), where `linter.NAME` is not a default warning of
+Lean and switches no set of linters. -/
 def communityDisable (s : SourceSetting) : Bool :=
-  s.form == .commandIn && s.wrapped.any (·.contains declarationKind) &&
+  s.form == .commandIn && s.wrapped.any oneDeclaration &&
     s.name.getRoot == `linter &&
     !linterSwitches.contains s.name && s.value.any (·.readsAs (.bool false)) &&
     !defaultWarning s.name s.registeredDefault
 
-/-- `communityDisable`, stated by its parts: the form before one command, whose chain of macro
-expansions reaches a declaration command, an option under `linter`, outside `linterSwitches`, whose
-value reads as `false`, and not a default warning of Lean. -/
+/-- `communityDisable`, stated by its parts: the form before one command, which Lean elaborates as
+one declaration, an option under `linter`, outside `linterSwitches`, whose value reads as `false`,
+and not a default warning of Lean. -/
 def CommunityDisable (s : SourceSetting) : Prop :=
-  s.form = .commandIn ∧ (∃ kinds, s.wrapped = some kinds ∧ declarationKind ∈ kinds) ∧
+  s.form = .commandIn ∧ (∃ leaves, s.wrapped = some leaves ∧ OneDeclaration leaves) ∧
     s.name.getRoot = `linter ∧
     s.name ∉ linterSwitches ∧ (∃ v, s.value = some v ∧ v.ReadsAs (.bool false)) ∧
     ¬ DefaultWarning s.name s.registeredDefault
@@ -1665,7 +1697,8 @@ theorem communityDisable_iff (s : SourceSetting) :
     communityDisable s = true ↔ CommunityDisable s := by
   have hd := defaultWarning_iff s.name s.registeredDefault
   cases hv : s.value <;> cases hw : s.wrapped <;>
-    simp [communityDisable, CommunityDisable, hv, hw, ← hd, ← OptionValue.readsAs_iff, and_assoc]
+    simp [communityDisable, CommunityDisable, hv, hw, ← hd, ← OptionValue.readsAs_iff, and_assoc,
+      oneDeclaration_iff]
 
 /-- The settings that the pinned Lean's own code writes as `set_option` syntax into the code it
 generates, as (option, value) pairs: `match.ignoreUnusedAlts` set to `true` by the `deriving BEq`
@@ -1806,7 +1839,8 @@ theorem missingDocs_command_fails (o : BuildOptions) (mathlib : Bool) :
     sourceAccepted o mathlib (written `linter.missingDocs (.bool false) .command) = false := by
   cases mathlib <;> rfl
 
-/-- `set_option linter.missingDocs false in` before one declaration passes: `linter.missingDocs` is
+/-- `set_option linter.missingDocs false in` before one declaration, or before a command that a
+macro expands to one, as Mathlib's `lemma` expands to a `theorem`, passes: `linter.missingDocs` is
 a community linter (standard §6.2), Lean's default for it being `false`. -/
 theorem missingDocs_in_passes (o : BuildOptions) (mathlib : Bool) :
     sourceAccepted o mathlib { written `linter.missingDocs (.bool false) .commandIn with
@@ -1822,20 +1856,31 @@ theorem missingDocs_in_section_fails (o : BuildOptions) (mathlib : Bool) :
       wrapped := some [`Lean.Parser.Command.section] } = false := by
   cases mathlib <;> rfl
 
-/-- `set_option linter.missingDocs false in` before a command that a macro expands to one
-declaration, as Mathlib's `lemma` expands to a `theorem`, passes. -/
-theorem missingDocs_in_macro_passes (o : BuildOptions) (mathlib : Bool) :
+/-- `set_option linter.missingDocs false in` before a declaration whose name has a namespace
+passes: Lean elaborates it as `namespace`, `end_local_scope`, the declaration and `end`. -/
+theorem missingDocs_in_namespaced_passes (o : BuildOptions) (mathlib : Bool) :
     sourceAccepted o mathlib { written `linter.missingDocs (.bool false) .commandIn with
       registeredDefault := some (.bool false),
-      wrapped := some [`lemma, declarationKind] } = true := by
+      wrapped := some [`Lean.Parser.Command.namespace,
+        `Lean.Parser.Command.InternalSyntax.end_local_scope, declarationKind,
+        `Lean.Parser.Command.end] } = true := by
   cases mathlib <;> rfl
 
-/-- `set_option linter.missingDocs false in` before a command that a macro expands to several
-commands, a list of kind `null`, fails. -/
-theorem missingDocs_in_macro_list_fails (o : BuildOptions) (mathlib : Bool) :
+/-- `set_option linter.missingDocs false in` before a command that macros expand to two
+declarations fails, as does one before a `def` with a contract, which Lean elaborates as a
+contract notice, the `def` and, in a `section`, a `spec` theorem in its namespace. -/
+theorem missingDocs_in_two_declarations_fails (o : BuildOptions) (mathlib : Bool) :
     sourceAccepted o mathlib { written `linter.missingDocs (.bool false) .commandIn with
-      registeredDefault := some (.bool false), wrapped := some [`pair, `null] } = false := by
-  cases mathlib <;> rfl
+      registeredDefault := some (.bool false),
+      wrapped := some [declarationKind, declarationKind] } = false ∧
+    sourceAccepted o mathlib { written `linter.missingDocs (.bool false) .commandIn with
+      registeredDefault := some (.bool false),
+      wrapped := some [`Lean.Parser.Command.contractDeclVal, declarationKind,
+        `Lean.Parser.Command.section, `Lean.Parser.Command.open,
+        `Lean.Parser.Command.InternalSyntax.end_local_scope, `Lean.Parser.Command.namespace,
+        `Lean.Parser.Command.InternalSyntax.end_local_scope, declarationKind,
+        `Lean.Parser.Command.end, `Lean.Parser.Command.end] } = false := by
+  cases mathlib <;> exact ⟨rfl, rfl⟩
 
 
 /-- `set_option linter.unusedVariables false in` fails: it turns one of Lean's default warnings

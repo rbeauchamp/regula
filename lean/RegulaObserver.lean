@@ -108,30 +108,33 @@ partial def wrappedCommand (cmd : Syntax) : Syntax :=
     wrappedCommand cmd[2]
   else cmd
 
-/-- The syntax kinds of `cmd` and of each command that a macro expanded it to in turn, where `steps`
-holds each macro expansion that Lean elaborated (`Walk.expansions`) as the syntax before and after
-it, following at most `fuel` expansions. The chain ends at a command that no macro expanded, such
-as one that an elaborator elaborated or the list of commands that a macro expanded one command to,
-whose kind is `null` and which Lean elaborates command by command (`Lean.Elab.Command.elabCommand`,
-`Lean/Elab/Command.lean` lines 698 to 703). -/
-def expansionKinds (steps : Array (Syntax × Syntax)) : Nat → Syntax → Array Name
-  | 0, cmd => #[cmd.getKind]
-  | fuel + 1, cmd =>
-    match steps.find? (sameOccurrence ·.1 cmd) with
-    | some (_, output) => #[cmd.getKind] ++ expansionKinds steps fuel output
-    | none => #[cmd.getKind]
+/-- The syntax kinds of the commands that Lean elaborates for `cmd` once every macro of `steps` has
+expanded them, where `steps` holds each macro expansion that Lean elaborated (`macroSteps`) as the
+syntax before and after it. A command that a macro expanded gives the kinds of its expansion. A
+list of commands, a node of kind `null` such as a macro's expansion to several commands, gives the
+kinds of each of its commands, since Lean elaborates such a list command by command
+(`Lean.Elab.Command.elabCommand`, `Lean/Elab/Command.lean` lines 698 to 703). Any other command,
+one that no macro expanded, gives its own kind. On each path at most `fuel` expansions are
+followed; one more gives the anonymous kind, which no decision accepts. The recursion ends, since
+an argument of a list is a smaller syntax tree and each expansion uses up `fuel`. -/
+partial def leafKinds (steps : Array (Syntax × Syntax)) (fuel : Nat) (cmd : Syntax) : Array Name :=
+  match steps.find? (sameOccurrence ·.1 cmd), fuel with
+  | some _, 0 => #[.anonymous]
+  | some (_, output), fuel + 1 => leafKinds steps fuel output
+  | none, _ =>
+    if cmd.isOfKind nullKind then cmd.getArgs.flatMap (leafKinds steps fuel) else #[cmd.getKind]
 
 /-- The form of the `set_option` syntax `setter`, with `ancestors` the syntax of the nodes above
-it, and for the command form before one command the syntax kinds of the command it wraps
-(`wrappedCommand`) and of each command that a macro of `steps` expanded it to in turn
-(`expansionKinds`). The command form is `commandIn` when an ancestor is `cmd in cmd` whose first
+it, and for the command form before one command the syntax kinds of the commands that Lean
+elaborates for the command it wraps (`wrappedCommand`) once the macros of `steps` have expanded
+them (`leafKinds`). The command form is `commandIn` when an ancestor is `cmd in cmd` whose first
 command is `setter`; the `grind` tactic form is a tactic form. -/
 def formOf (steps : Array (Syntax × Syntax)) (setter : Syntax) (ancestors : List Syntax) :
     Form × Option (Array Name) :=
   if setter.isOfKind ``Lean.Parser.Command.set_option then
     match ancestors.find? fun a => a.isOfKind ``Lean.Parser.Command.in &&
         sameOccurrence a[0] setter with
-    | some a => (.commandIn, some (expansionKinds steps steps.size (wrappedCommand a[2])))
+    | some a => (.commandIn, some (leafKinds steps steps.size (wrappedCommand a[2])))
     | none => (.command, none)
   else if setter.isOfKind ``Lean.Parser.Term.set_option then (.term, none)
   else (.tactic, none)
@@ -159,7 +162,7 @@ structure Walk where
   resolved : Array (Syntax × Name) := #[]
   /-- Each command that an elaborator expanded, with the elaborator and the syntax before and after
   the expansion: a command node whose child records that expansion of the node's own syntax
-  (`Lean.Elab.MacroExpansionInfo`). `observe` keeps those whose elaborator is a macro. -/
+  (`Lean.Elab.MacroExpansionInfo`). `macroSteps` keeps those whose elaborator is a macro. -/
   expansions : Array (Name × Syntax × Syntax) := #[]
 
 /-- Walk an info tree, with `ancestors` the syntax of each command, tactic and term node above,
@@ -280,24 +283,27 @@ def settingOf? (decls : OptionDecls) (fileMap : FileMap) (resolved : Array (Synt
     else some (setting none .elaborated none)
   | none, _ => if simpUserOption found then none else some (setting none .elaborated none)
 
+/-- The expansions of `expansions` (`Walk.expansions`) whose elaborator is a macro of its syntax's
+kind in `env`, as `Lean.Elab.expandMacroImpl?` finds one (`Lean/Elab/Util.lean` lines 157 to 167),
+as the syntax before and after each. Only these are steps that `leafKinds` follows: a macro runs
+in `MacroM` and returns syntax, so it changes no message and no state of the command. A command
+whose elaborator records an expansion itself, as `Lean.Elab.Command.adaptExpander` does
+(`Lean/Elab/Command.lean` lines 874 to 876), stays a command that no macro expanded. -/
+def macroSteps (env : Environment) (expansions : Array (Name × Syntax × Syntax)) :
+    Array (Syntax × Syntax) :=
+  expansions.filterMap fun (elaborator, before, after) =>
+    if (macroAttribute.getEntries env before.getKind).any (·.declName == elaborator) then
+      some (before, after)
+    else none
 
-/-- The observations of the command `stx`, appended to `fold`. An expansion of `Walk.expansions` is
-a step of the chain that `expansionKinds` follows only when its elaborator is a macro of its
-syntax's kind, as `Lean.Elab.expandMacroImpl?` finds one (`Lean/Elab/Util.lean` lines 157 to 167): a
-macro runs in `MacroM` and returns syntax, so it changes no message and no state of the command. An
-elaborator that records an expansion itself, as `Lean.Elab.Command.adaptExpander` does
-(`Lean/Elab/Command.lean` lines 874 to 876), ends the chain. -/
+/-- The observations of the command `stx`, appended to `fold`. -/
 def observe (stx : Syntax) (fold : Fold) : CommandElabM Fold := do
   let fileMap ← getFileMap
   let decls ← getOptionDecls
   let mut acc : Walk := {}
   for tree in (← getInfoTrees) do
     acc := walk [stx] none acc tree
-  let env ← getEnv
-  let steps := acc.expansions.filterMap fun (elaborator, before, after) =>
-    if (macroAttribute.getEntries env before.getKind).any (·.declName == elaborator) then
-      some (before, after)
-    else none
+  let steps := macroSteps (← getEnv) acc.expansions
   let settings := acc.options.filterMap (settingOf? decls fileMap acc.resolved steps)
   let mut fold := { fold with settings := fold.settings ++ settings }
   for guard in acc.guards do

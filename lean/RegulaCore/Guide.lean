@@ -1776,13 +1776,16 @@ def guide : RuleId → Guide
           comment, which sets the option for the rest of the comment. The proved decision \
           `RegulaPolicy.Community.sourceFailures` rejects each that the target itself \
           could not set at that value, with two exceptions. The first is \
-          `set_option linter.NAME false in` before one declaration command, or before a \
-          command that macros expand, one command at each step, to one declaration command, \
-          such as Mathlib's `lemma`, which turns a community linter off for it (standard \
-          §6.2). Before any other command it is rejected: a `section` of several \
-          declarations, a command that a macro expands to several commands, or a command \
-          that an elaborator of its own elaborates, such as Mathlib's `irreducible_def` or \
-          Batteries' `alias`, even where it declares one constant. The second is a setting that the pinned Lean's \
+          `set_option linter.NAME false in` before a command that Lean elaborates, once every \
+          macro has expanded it, as exactly one declaration command with only `namespace`, \
+          `end` and internal `end_local_scope` commands around it \
+          (`RegulaPolicy.Community.oneDeclaration`), such as a declaration, one whose name has \
+          a namespace, or Mathlib's `lemma`, which turns a community linter off for it \
+          (standard §6.2). Before any other command it is rejected: a `section` of several \
+          declarations, a command that macros expand to several declarations, such as a `def` \
+          with a `requires` or `ensures` contract, or a command that an elaborator of its own \
+          elaborates, such as Mathlib's `irreducible_def` or Batteries' `alias`, even where it \
+          declares one constant. The second is a setting that the pinned Lean's \
           own generated code writes as `set_option` syntax \
           (`RegulaPolicy.Community.generatedSettings`): `match.ignoreUnusedAlts true` in \
           `deriving BEq` and `deriving Ord`, `smartUnfolding false` in `rfl'`, \

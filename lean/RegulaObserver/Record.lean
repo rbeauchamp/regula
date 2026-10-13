@@ -54,9 +54,9 @@ structure Setting where
   registeredDefault : Option DataValue
   /-- How the source set it. -/
   form : Form
-  /-- For the form before one command, the syntax kinds of the command that `set_option … in`
-  wraps, through each further `set_option … in`, and of each command that a macro expanded it to
-  in turn, in that order (`RegulaObserver.expansionKinds`); none for the other forms. -/
+  /-- For the form before one command, the syntax kinds of the commands that Lean elaborates for
+  the command that `set_option … in` wraps, through each further `set_option … in`, once every
+  macro has expanded them (`RegulaObserver.leafKinds`); none for the other forms. -/
   wrapped : Option (Array Name)
   /-- Where the option's name is. -/
   position : Position

@@ -752,13 +752,15 @@ which lints it, since only a command that contains `#guard_msgs` goes unlinted
 (`Lean/Elab/Command.lean` line 868), and the warning the docstring does not expect fails the build
 with an error (`Lean/Elab/GuardMsgs.lean` line 248). A one-declaration disable of
 `linter.missingDocs`, a community linter, is accepted, as is the same disable before a macro that
-expands to one theorem; the same disable before a section of two definitions, or before a macro
-that expands to two theorems, is a violation. So is `set_option linter.missingDocs false` that the
-project's code elaborates through `run_cmd`, `run_elab`, a `try_suggestion` generator or a
-simproc. A setting of `RegulaPolicy.Community.generatedSettings` that the module writes itself is
-accepted, as is the `grind` tactic's `set_option` at an accepted value. The documentation command
-`{set_option}` is decided like `set_option`, and the documentation role `{option}` and a `simp`
-user option, which set no option of the scope, give no finding. The restored module is accepted.
+expands to one theorem or before a theorem whose name has a namespace. The same disable before a
+section of two definitions, a macro that expands to two theorems, a macro on the declaration kind
+that expands one theorem to two, or a `def` with a contract is a violation. So is
+`set_option linter.missingDocs false` that the project's code elaborates through `run_cmd`,
+`run_elab`, a `try_suggestion` generator or a simproc. A setting of
+`RegulaPolicy.Community.generatedSettings` that the module writes itself is accepted, as is the
+`grind` tactic's `set_option` at an accepted value. The documentation command `{set_option}` is
+decided like `set_option`, and the documentation role `{option}` and a `simp` user option, which
+set no option of the scope, give no finding. The restored module is accepted.
 Without the library's `plugins` entry for the observer, RG2003 refuses the claimed modules as not
 observed and names the entry, as `doctor`'s RG2006 finding does. Without its `needs` entry, the
 audit reads no record, RG2003 refuses the claimed modules as not observed and names both entries,
@@ -832,14 +834,20 @@ private def observerEscapes (repo adopter : FilePath) : IO (Array String) := do
       contains := #["RG2006", "Widget.Additional:10:11: set_option linter.missingDocs false",
         "regula lint: VIOLATION (exit 1)"],
       excludes := #["FAIL[elaboration-hidden]"] })
-  -- The decision follows the macros that expand the wrapped command, one command at each step: a
-  -- macro that expands to one declaration, as Mathlib's `lemma` does, takes the disable, and one
-  -- that expands to two declarations does not.
+  -- The decision reads the commands that Lean elaborates for the wrapped command once every macro
+  -- has expanded it: exactly one declaration, with only scope commands around it. A macro that
+  -- expands to one declaration, as Mathlib's `lemma` does, and a declaration whose name has a
+  -- namespace, which Lean expands to `namespace`, the declaration and `end`, take the disable. A
+  -- macro that expands to two declarations, one on the declaration kind itself, and a `def` with a
+  -- contract, which Lean expands to the `def` and a `spec` theorem, do not.
   write <| "/-- Declares one theorem, as Mathlib's `lemma` does. -/\n\
     macro \"single \" name:ident : command =>\n  `(command| theorem $name : True := trivial)\n\n\
     -- The control's reason: a declaration the documentation linter may skip.\n\
     set_option linter.missingDocs false in\nsingle onlyOne"
   failures := failures ++ (← expect adopter (accepted "observer/community-disable-macro"))
+  write <| "-- The control's reason: a declaration the documentation linter may skip.\n\
+    set_option linter.missingDocs false in\ntheorem Inner.nested : True := trivial"
+  failures := failures ++ (← expect adopter (accepted "observer/community-disable-namespaced"))
   write <| "/-- Declares two theorems. -/\n\
     macro \"pair \" first:ident second:ident : command =>\n  \
     `(theorem $first : True := trivial\n    theorem $second : True := trivial)\n\n\
@@ -848,6 +856,28 @@ private def observerEscapes (repo adopter : FilePath) : IO (Array String) := do
   failures := failures ++ (← expect adopter {
       label := "observer/community-disable-macro-pair", exitCode := 1,
       contains := #["RG2006", "Widget.Additional:15:11: set_option linter.missingDocs false",
+        "regula lint: VIOLATION (exit 1)"],
+      excludes := #["FAIL[elaboration-hidden]"] })
+  write <| "-- Expands a theorem proved by `trivial` into two theorems.\nmacro_rules\n  \
+    | `(command| theorem $name:ident : $type := trivial) =>\n    \
+    `(theorem $name : $type := by trivial\n      \
+    theorem $(Lean.mkIdentFrom name (name.getId.appendAfter \"Again\")) : $type := by trivial)\n\n\
+    -- The control's reason: two declarations the documentation linter may skip.\n\
+    set_option linter.missingDocs false in\ntheorem doubled : True := trivial"
+  failures := failures ++ (← expect adopter {
+      label := "observer/community-disable-declaration-macro", exitCode := 1,
+      contains := #["RG2006", "Widget.Additional:16:11: set_option linter.missingDocs false",
+        "regula lint: VIOLATION (exit 1)"],
+      excludes := #["FAIL[elaboration-hidden]"] })
+  -- The import moves the block down to line 10.
+  write <| "-- The control's reason: a declaration the documentation linter may skip.\n\
+    set_option linter.missingDocs false in\nset_option experimental.intrinsic true in\n\
+    set_option mvcgen.warning false in\n/-- Returns its argument. -/\n\
+    def contracted (n : Nat) : Id Nat\n  ensures r => r = n\n  := pure n"
+  mutate additional "/-! A configured module" "import Std.Internal.Do\n/-! A configured module"
+  failures := failures ++ (← expect adopter {
+      label := "observer/community-disable-contract", exitCode := 1,
+      contains := #["RG2006", "Widget.Additional:11:11: set_option linter.missingDocs false",
         "regula lint: VIOLATION (exit 1)"],
       excludes := #["FAIL[elaboration-hidden]"] })
   -- RG2006 decides on the setting alone, so code of the project that Lean evaluates while it

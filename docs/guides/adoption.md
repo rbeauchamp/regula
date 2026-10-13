@@ -802,8 +802,8 @@ core-only code.
   `weakLeanArgs` that overrides these options or sets an option outside that set. In each claimed
   module it also reads the options that the source sets, as Regula's elaboration observer records
   them. There it accepts an option that the target could set. It also accepts
-  `set_option linter.NAME false in` for a community linter before one declaration command, or
-  before a command that macros expand to one, such as Mathlib's `lemma`. Where the
+  `set_option linter.NAME false in` for a community linter before a command that expands to one
+  declaration, such as Mathlib's `lemma`. Where the
   community's guidance accepts an exception, disable that linter for the one declaration
   (`set_option linter.style.longLine false in`) with a comment giving the reason. Never disable
   Lean's default warnings, such as `linter.unusedVariables` or `warn.sorry`. [RG2006] rejects that
@@ -1053,6 +1053,9 @@ audit refuses a `decides` entry that names its own surface or no claimed surface
 - [RG2006] reads the options that Lean's `set_option` elaborator sets. An option that elaborator
   code changes directly, such as a deriving handler, is outside the record.
 - After `set_option linter.NAME false in`, [RG2006] follows only the macros that expand the command.
+  It accepts the setting only if the expansion has exactly one declaration, and apart from it only
+  `namespace` and `end` commands. A `def` with a `requires` or `ensures` contract expands to two
+  declarations, so [RG2006] rejects the setting before it.
   It rejects the setting before a command that an elaborator of its own elaborates, such as
   Mathlib's `irreducible_def` or Batteries' `alias`, also if that command makes one declaration.
 - The only supported editor is VS Code with the Lean 4 extension, and there is no latency claim.
