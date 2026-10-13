@@ -4950,11 +4950,12 @@ that agrees with the after snapshot, the
 observed request decoding to the frozen one, exit at most 3, sources in the bound snapshot with one
 having the displayed text, for a file or diagnostic-only request one being the requested subject
 with the displayed text, a result source account unless the request is diagnostic-only or
-documentation, findings equal to the parsed diagnostics, one of three kinds, and `DemonstrationOK`
-for a demonstration); it proves nothing about the producer that wrote the record. For a project
-request with an object scope, `RecordAdmissible` also gives a manifest that the request selects.
-The surfaces of the scope match that manifest. A completed result has an object scope and an
-`effective` account that is not `null`, so a positive record gets this guarantee.
+documentation, findings equal to the parsed diagnostics, one of three kinds, a completed result for
+a positive record, and `DemonstrationOK` for a demonstration); it proves nothing about the producer
+that wrote the record. For a project request with an object scope, `RecordAdmissible` also gives a
+manifest that the request selects. The surfaces of the scope match that manifest.
+`RecordAdmissible` gives a positive record a completed result, with an object scope and an
+`effective` account that is not `null`, so this guarantee holds.
 `RuleExampleProjection.qualify_record` and `qualifyCorpus_records` give exact equality at the
 adapter's canonical record constructor and over the full corpus, including ordered scans,
 completeness and first refusals; their structural raw-tree laws avoid assuming parser

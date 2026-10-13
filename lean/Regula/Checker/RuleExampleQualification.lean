@@ -627,7 +627,18 @@ theorem qualifyKind_sound {record result : Json} {bound : ExampleBinding} {req :
     (kind = "diagnosticDemonstration" → ∃ rule,
       (field record "rule" >>= RegistryCodec.parseRule) = .ok rule ∧
       DemonstrationOK ⟨bound, rule, actual⟩
-        ⟨{ bound with request := req }, .completed, .checked actual false⟩) := by
+        ⟨{ bound with request := req }, .completed, .checked actual false⟩) ∧
+    (kind = "positive" → status = "completed") := by
+  have hpositive : kind = "positive" → status = "completed" := by
+    rintro rfl
+    by_cases hs : status = "completed"
+    · exact hs
+    · exfalso
+      unfold qualifyKind at h
+      simp [hs] at h
+      split at h <;> simp at h
+  refine and_assoc.mp ⟨?_, hpositive⟩
+  clear hpositive
   unfold qualifyKind at h
   split at h
   · exact ⟨Or.inl rfl, by simp⟩
@@ -678,6 +689,7 @@ def RecordAdmissible (record : Json) : Prop :=
     (kind = "diagnosticDemonstration" → ∃ rule,
       (field record "rule" >>= RegistryCodec.parseRule) = .ok rule ∧
       DemonstrationOK ⟨bound, rule, actual⟩ ⟨bound, .completed, .checked actual false⟩) ∧
+    (kind = "positive" → string result "status" = .ok "completed") ∧
     (string result "status" = .ok "completed" → ∀ scope, field result "scope" = .ok scope →
       scope.getObj?.isOk = true ∧
         ∃ effective, field result "effective" = .ok effective ∧ effective ≠ .null) ∧
@@ -688,18 +700,19 @@ def RecordAdmissible (record : Json) : Prop :=
 theorem qualify_sound (record : Json) (h : qualify record = .ok ()) : RecordAdmissible record := by
   obtain ⟨result, mode, bound, req, code, actual, status, kind, displayed, hr, hadm, hid, hmode,
       hrm, hb, hreq,
-    _, hcode, hle, hfind, _, hk, hsrc, hsa, hq⟩ := qualify_parts record h
+    _, hcode, hle, hfind, hstatus, hk, hsrc, hsa, hq⟩ := qualify_parts record h
   obtain ⟨before, after, hbefore, hafter, hregular, hstable, _, rj, hrj, hbreq⟩ := binding_sound hb
   obtain ⟨rfl, ⟨oj, hoj, horeq⟩, heffective⟩ := requestAccount_sound hreq
   obtain ⟨hsources, hpresent⟩ := sourceAccount_sound hsa
-  obtain ⟨hkind, hdemo⟩ := qualifyKind_sound hq
+  obtain ⟨hkind, hdemo, hpositive⟩ := qualifyKind_sound hq
   refine ⟨result, mode, bound, code, displayed, kind, actual, hr,
     (ResultProtocol.admitGuidance_eq_ok_iff _).mp hadm, fun e he => checkIdentity_sound
                                                                                (hid e he),
     hmode, hrm, ⟨before, after, hbefore, hafter, hregular, hstable⟩, hb, ⟨rj, hrj, hbreq⟩,
     ⟨oj, hoj, horeq⟩,
     hcode, hle, hsrc, hsources, hpresent, checkFindings_sound hfind, hk, hkind, by simpa using hdemo,
-    fun hstatus _ hscope => effectiveAccount_completed heffective hstatus hscope,
+    fun hpos => by rw [hstatus, hpositive hpos],
+    fun hcompleted _ hscope => effectiveAccount_completed heffective hcompleted hscope,
     fun hproject scope hscope hobject =>
       ((projectAccount_eq_ok_iff scope _).mp
         (effectiveAccount_project heffective hproject hscope hobject)).2⟩
