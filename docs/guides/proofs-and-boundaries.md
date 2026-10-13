@@ -692,6 +692,10 @@ directory and the asset of a release, as the build does first.
 The refusal then gives the exit code of an incomplete run. For `axiomGate` and `lint`, that
 code is 3. A program that writes no result file marks no file.
 
+These refusals cover each destination that the source of Regula writes. A library can also write a
+file, such as the `manualMain` function of Verso for `regula-site` and `regula-standard`. Such a
+file is outside these refusals.
+
 The check `Regula.TaskManagerCheck.checkProgram` operates at the end of the root module of each
 executable. It examines `main` if the compiled code of `main` calls a function of the runtime that
 uses the task manager. Then `main` must be the guard applied to a string, the refusal and the
@@ -704,11 +708,11 @@ asynchronous input and output (`symbols`, `uvPrefix`). For example, `IO.Process.
 task. The compiled code of `auditApp` calls none of these functions, thus that program has no
 guard.
 
-A compiled program operates all its initializers before it starts the task manager, in each run. The
-value of `LEAN_NUM_THREADS` does not change that order. Thus an initializer that uses the task
-manager stops each run of its program, and no guard can help. That is a defect of the program in
-each environment, outside the runs that the guard refuses. The docstring of the guard states this as
-an assumption, with the lines of the Lean compiler.
+A compiled program operates all its initializers before it starts the task manager, in each run.
+The value of `LEAN_NUM_THREADS` does not change that order. Thus no initializer has a task manager,
+and an initializer acts the same in each run. A task that it starts operates on its own thread
+before the call returns. A promise that it creates stops the process with a panic. The docstring of
+the guard states this as an assumption, with the lines of the Lean compiler and runtime.
 
 The command `lake exe qualify observers` also refuses an executable of the root package if no
 module records this check. The executables of the packages `website` and `markdown` do the check

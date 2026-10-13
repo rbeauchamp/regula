@@ -36,8 +36,8 @@ def renderStandard (args : List String) : IO UInt32 := do
     emitTeX := false, emitHtmlSingle := .no, emitHtmlMulti := .immediately, htmlDepth := 1 })
 
 /-- The refusal of the renderer in a process without Lean's task manager
-(`Regula.TaskManager.guard`): it writes a rendered standard, not a result, so it marks nothing, and
-it returns 1. -/
+(`Regula.TaskManager.guard`): it marks nothing and returns 1. The source of this program writes no
+result file; the files that Verso's `manualMain` writes for it are outside these refusals. -/
 def refuseStandard (_reason : String) (_args : List String) : IO UInt32 :=
   pure 1
 

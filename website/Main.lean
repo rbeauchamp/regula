@@ -31,8 +31,8 @@ def renderSite (options : List String) : IO UInt32 :=
     issueLink := some "https://github.com/rbeauchamp/regula/issues" })
 
 /-- The refusal of the renderer in a process without Lean's task manager
-(`Regula.TaskManager.guard`): it writes a rendered site, not a result, so it marks nothing, and it
-returns 1. -/
+(`Regula.TaskManager.guard`): it marks nothing and returns 1. The source of this program writes no
+result file; the files that Verso's `manualMain` writes for it are outside these refusals. -/
 def refuseSite (_reason : String) (_args : List String) : IO UInt32 :=
   pure 1
 

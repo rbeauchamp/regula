@@ -34,8 +34,8 @@ says. Without threads, its own elaboration of the file creates a promise and end
 before `main` runs.
 
 The initializers of a compiled program are not followed. They run before the task manager starts
-in every run, whatever `LEAN_NUM_THREADS` says, so an initializer that needs it stops every run of
-its program and no guard can give it one (the `Assumes:` entry of `Regula.TaskManager.guard`). The
+in every run, whatever `LEAN_NUM_THREADS` says, so none of them runs with one, the same in every
+run, and no guard runs before them (the `Assumes:` entry of `Regula.TaskManager.guard`). The
 check reads the compiled code that the environment holds, and a reached declaration whose compiled
 code it does not hold counts as one that needs the task manager. The C functions of the runtime
 are not followed: `symbols` and `uvPrefix` name the ones that need the task manager. As for the

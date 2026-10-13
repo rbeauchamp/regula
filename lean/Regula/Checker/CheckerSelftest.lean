@@ -244,15 +244,15 @@ private def cliAttributionShard : Fin cliShards := ⟨cliShards - 1, by decide�
 
 /-- The baseline of a run of `partition`, of one of its shards when `shard` selects one. The
 shard of the self-hosted positive (`selfHostedShard`) runs `axiomGate` alone; a run of the cli
-partition that runs its last shard (`cliAttributionShard`), sharded or not, also runs `qualify`, in
-the control of a process without Lean's task manager; every other shard keeps the partition's
-baseline. -/
+partition that runs its last shard (`cliAttributionShard`), sharded or not, also runs `qualify` and
+`site`, in the control of a process without Lean's task manager; every other shard keeps the
+partition's baseline. -/
 private def baselineOf (partition : Partition) (shard : Option (Nat × Nat)) : Baseline :=
   if partition = .structural ∧ (shard.bind (shardOf? structuralShards)) = some selfHostedShard
   then ⟨["axiomGate"], false, []⟩
   else if partition = .cli ∧
       (shard.isNone ∨ shard.bind (shardOf? cliShards) = some cliAttributionShard) then
-    ⟨checkerTools ++ ["qualify"], true, []⟩
+    ⟨checkerTools ++ ["qualify", "site"], true, []⟩
   else partitionBaseline partition
 
 /-- Every run's baseline build names `axiomGate` (`partitionBaseline_axiomGate`), a shard's
@@ -3986,6 +3986,12 @@ private structure Seeded where
   incomplete with the reason (`markedWith`), or nothing for a digest. -/
   marked : IO Bool
 
+/-- A completed admission of no module, the seed of a published admission in the task-manager
+control (`taskManagerControl`). -/
+private def emptyAdmission : Admission.Completed where
+  receipt := { modules := #[], required := #[], admitted := #[], reused := #[], shared := #[] }
+  origins := #[]
+
 /-- Whether the document at `path` holds `incomplete` in `status`, and `reason` in `member`:
 `unresolved`, a list, or `reason`, a string. -/
 private def markedWith (path : FilePath) (member reason : String)
@@ -3997,8 +4003,8 @@ private def markedWith (path : FilePath) (member reason : String)
   return stated && (marked.getObjValAs? String status.1).toOption == some status.2
 
 /-- The control of a process without Lean's task manager (issue 393), one refused run for each
-shape of program. Each of the actual `axiomGate`, `lint`, `docFenceAudit`, `qualify` and this
-self-test, run with `LEAN_NUM_THREADS=0` and without `REGULA_TIMING`, `REGULA_RECEIPT_TIMER`
+shape of program. Each of the actual `axiomGate`, `lint`, `docFenceAudit`, `qualify`, `site` and
+this self-test, run with `LEAN_NUM_THREADS=0` and without `REGULA_TIMING`, `REGULA_RECEIPT_TIMER`
 and `REGULA_QUALIFICATION_WRAPPER`, which only the run of the proxy sets, must refuse before its run
 starts (`Regula.TaskManager.guard`): its standard error must hold the guard's reason line, its exit
 code must be the one of its incomplete run, and it must print nothing to standard output, so no
@@ -4008,14 +4014,17 @@ format, which the format's reader admits as completed: a result of the gate's ow
 `lint` and of the proxy of `axiomGate` that `qualify` runs under
 `REGULA_QUALIFICATION_WRAPPER=acceptance`
 (`ResultProtocol.readDocument`), an accepted acceptance link with its identity
-(`AcceptanceLink.require`), a worker packet for the gate's `--frontend-worker` and the self-test's
-`--transcript-worker` (`readWorkerPacket`), the export of `qualify producers --evidence`, the
-passing report of `qualify native-launcher`, and a digest of the self-hosted positive for the
-self-test's first structural shard. The last two run in a
-planted project root, where their fixed paths lie. The refused run must replace each document with
-one marked incomplete with the reason, or remove the digest, so that the reader no longer admits it
-as completed. `docFenceAudit` names no destination. The processes and Lean's runtime are its
-subject, an external boundary: it observes this build's programs and proves nothing. -/
+(`AcceptanceLink.require`), a worker packet for the gate's `--frontend-worker` and
+`--declaration-report-worker` and the self-test's `--transcript-worker` (`readWorkerPacket`), the
+completed admission that the report worker's request names as `publish` (`Admission.Completed`),
+the export of `qualify producers --evidence`, the passing report of `qualify native-launcher`, a
+digest of the self-hosted positive for the self-test's first structural shard, and a clean,
+publishable artifact of `site build --out` (`Regula.Site.Deployment.gate`). The runs of the
+launcher and of the structural shard run in a planted project root, where their fixed paths lie.
+The refused run must replace each document with one marked incomplete with the reason, or remove
+the digest or the artifact, so that the reader no longer admits it as completed. `docFenceAudit`
+names no destination. The processes and Lean's runtime are its subject, an external boundary: it
+observes this build's programs and proves nothing. -/
 private def taskManagerControl (repo : FilePath) : IO (Option String) :=
   withScratch repo "checker-task-manager" fun scratch => do
     let reason := Regula.Probe.taskManagerMissingReason
@@ -4075,6 +4084,35 @@ private def taskManagerControl (repo : FilePath) : IO (Option String) :=
           unless ← positive.pathExists do return false
           return (← IO.FS.readFile positive) == digest ++ "\n" }
     IO.FS.writeFile (scratch / "request.json") request.compress
+    -- The request of the declaration-report worker names the file where the worker publishes its
+    -- admission; the coordinator reads it as an `Admission.Completed` (`publishedAdmission`).
+    let publish := scratch / "publish.json"
+    let admission : Seeded :=
+      { path := publish, marked := markedWith publish "reason" reason,
+        seed := writeJson publish (toJson emptyAdmission),
+        completed := do
+          unless ← publish.pathExists do return false
+          let read : Except String Admission.Completed :=
+            (PolicyCodec.parse (← IO.FS.readFile publish)).bind fromJson?
+          return read.isOk }
+    let report : Inspection.ReportWorkerRequest :=
+      { modules := #[], searchRoots := #[], sourceRoots := #[], sourceBindings := #[],
+        ownership := {}, historyMemo := (scratch / "history").toString, priors := #[],
+        publish := publish.toString }
+    IO.FS.writeFile (scratch / "report-request.json") (toJson report).compress
+    -- An artifact of `site build`, whose `build.json` the deployment gate reads: a clean build
+    -- that is publishable (`Regula.Site.Deployment.gate`).
+    let site := scratch / "site"
+    let artifact : Seeded :=
+      { path := site, marked := return !(← site.pathExists),
+        seed := do
+          IO.FS.createDirAll site
+          writeJson (site / "build.json") (Json.mkObj [("dirty", .bool false),
+            ("revision", .str digest), ("publishable", .bool true)]),
+        completed := do
+          let some build ← parsedAt (site / "build.json") | return false
+          return (build.getObjValAs? Bool "dirty").toOption == some false &&
+            (build.getObjValAs? Bool "publishable").toOption == some true }
     let issue := repo / "lean" / "Fixtures" / "Positive" / "HeartbeatCorrespondence.lean"
     let gateArgs (out : FilePath) : Array String :=
       #["--file", issue.toString, "--claim", "choice-free", "--execution", "checked", "--json-out",
@@ -4096,6 +4134,9 @@ private def taskManagerControl (repo : FilePath) : IO (Option String) :=
       ("axiomGate", gate, repo, #["--frontend-worker", (scratch / "request.json").toString,
         (scratch / "frontend.json").toString], without, Lint.Outcome.incomplete.exitCode,
         [packet "frontend.json"]),
+      ("axiomGate", gate, repo, #["--declaration-report-worker",
+        (scratch / "report-request.json").toString, (scratch / "report.json").toString], without,
+        Lint.Outcome.incomplete.exitCode, [packet "report.json", admission]),
       ("lint", (← toolPath repo "lint").toString, repo,
         #["--json-out", (scratch / "lint.json").toString], without,
         Lint.Outcome.incomplete.exitCode, [result "lint.json"]),
@@ -4110,7 +4151,10 @@ private def taskManagerControl (repo : FilePath) : IO (Option String) :=
         [evidence]),
       ("qualify", qualify, project, #["native-launcher"], without, 1, [launcher]),
       ("qualify", qualify, repo, gateArgs proxy.path, wrapper (some "acceptance"),
-        Lint.Outcome.incomplete.exitCode, [proxy])]
+        Lint.Outcome.incomplete.exitCode, [proxy]),
+      ("site", (← toolPath repo "site").toString, repo,
+        #["build", "--out", site.toString, "--evidence", (scratch / "evidence.json").toString],
+        without, 1, [artifact])]
     for (program, path, cwd, args, env, code, destinations) in runs do
       for destination in destinations do
         destination.seed
@@ -4126,7 +4170,8 @@ private def taskManagerControl (repo : FilePath) : IO (Option String) :=
           {result.output}"
       for destination in destinations do
         unless (← destination.marked) && !(← destination.completed) do
-          let held ← if ← destination.path.pathExists then IO.FS.readFile destination.path
+          let held ← if ← destination.path.isDir then pure "a directory"
+            else if ← destination.path.pathExists then IO.FS.readFile destination.path
             else pure "nothing"
           return some s!"task manager: {program} {args} with LEAN_NUM_THREADS=0 left \
             {destination.path} without the incomplete mark and the reason, or admitted as \
@@ -4156,12 +4201,13 @@ private def runCli (repo : FilePath) (jobs : Nat) (fullCli : Bool)
     let refused ← loggedPhase "task manager" (taskManagerControl repo)
     appendFailure failures refused
     IO.println <| "self-test task manager: " ++ (if refused.isNone then "PASS" else "FAIL") ++
-      " (axiomGate, lint, docFenceAudit, qualify and the self-test with LEAN_NUM_THREADS=0 refuse \
-        before their runs, with the incomplete exit code, the guard's reason line and no result \
-        line; each destination they name, a result, an acceptance link, a worker packet, an \
-        evidence export or the launcher's report that held a completed document of its format, \
-        ends marked incomplete with the reason, including the proxy of axiomGate and the workers, \
-        and a self-hosted digest ends removed)"
+      " (axiomGate, lint, docFenceAudit, qualify, site and the self-test with LEAN_NUM_THREADS=0 \
+        refuse before their runs, with the incomplete exit code, the guard's reason line and no \
+        result line; each destination they name, a result, an acceptance link, a worker packet, \
+        the report worker's published admission, an evidence export or the launcher's report \
+        that held a completed document of its format, ends marked incomplete with the reason, \
+        including the proxy of axiomGate and the workers, and a self-hosted digest and a site \
+        artifact end removed)"
   if fullCli && runsIn shard cliAttributionShard then
     let attribution ← loggedPhase "source attribution" <|
       withScratch repo "checker-source-attribution" fun scratch =>
