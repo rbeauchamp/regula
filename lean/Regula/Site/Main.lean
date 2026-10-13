@@ -47,8 +47,10 @@ def siteMain (args : List String) : IO UInt32 := do
       same options a resumed render stops; the refusals of regula-site and regula-standard move \
       the saved state, the word count and the output directory aside whole, a symbolic link \
       itself, and keep the saved state that a resumed render reads; each reports and keeps an \
-      output directory `.` or empty and a word count where it can make nothing, and moves nothing \
-      for options that Verso's parser refuses)"
+      output directory `.` or empty and a word count whose new directory's name is longer than \
+      NAME_MAX, and moves nothing for options that Verso's parser refuses; Lake builds the \
+      standard's example helper where its examples launch it, and a website configuration with \
+      `binDir` elsewhere is refused)"
     return 0
   | none, _ =>
     IO.eprintln "usage: lake exe site build --out DIR --evidence SHARD.json [SHARD.json ...]"

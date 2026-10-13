@@ -1713,6 +1713,30 @@ def runBuiltExecutable (repo : FilePath) (spelling : String) (args : Array Strin
     throw <| IO.userError s!"executable {spelling} was not built: {file}"
   runProcess repo file.toString args env
 
+/-- Why the root package of the Lake workspace at `package` does not build its executable `name` at
+the file `launched` below the package's directory, or `none` when it does: Lake's configured file
+of that executable (`Lake.LeanExe.file`) must be the package's directory followed by the names
+`launched`. The package's directory is its real path, as Lake loads it (`withRootWorkspace`), and
+the `.` components of both paths are dropped, so a symbolic link in the path of `package` does not
+count. It loads only the root package's configuration and builds nothing.
+
+Assumes: Lake 4.34.1: `LeanExe.file` is the package's `binDir` with the executable's file name
+(`src/lake/Lake/Config/LeanExe.lean:72-73`), the file that its executable facet builds
+(`src/lake/Lake/Build/Executable.lean:22-31`). -/
+def executableMismatch (package : FilePath) (name : String) (launched : List String) :
+    IO (Option String) :=
+  Workspace.withRootWorkspace package (resolveDependencies := false) fun ws => do
+    let names (path : FilePath) := path.components.filter (· != ".")
+    let expected := names ws.root.dir ++ launched
+    let recorded := Manifest.recordedName name
+    match ws.root.leanExes.find? (Manifest.targetSpelling ·.name == recorded) with
+    | none => return some s!"the package at {package} configures no executable '{name}', which is \
+        launched at {mkFilePath expected}"
+    | some exe =>
+      if names exe.file == expected then return none
+      return some s!"Lake builds the executable '{name}' at {exe.file}, but it is launched at \
+        {mkFilePath expected}"
+
 /-- Build the targets with the root package's own options, printing nothing as it runs. -/
 def buildTargets : Build := {}
 

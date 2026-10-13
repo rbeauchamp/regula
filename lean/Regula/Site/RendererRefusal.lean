@@ -226,6 +226,30 @@ private def refusals (program scratch : FilePath) (name : String)
     reports refused "nothing was moved aside: Verso's parser refused the options" &&
       (← present (out / "index.html")) && (← asides out).isEmpty⟩]
 
+/-- The check that `docFenceAudit --verso` makes before it builds the standard
+(`Regula.Checker.Lake.executableMismatch`): the website package `website` as it is passes, and a
+copy of its configuration in `scratch` with `binDir` set elsewhere is refused, with a reason that
+names the file that Lake builds and the file that the standard's examples launch. -/
+private def exampleHelper (website scratch : FilePath) : IO Unit := do
+  let check (package : FilePath) :=
+    Regula.Checker.Lake.executableMismatch package Regula.exampleHelper Regula.exampleHelperPath
+  if let some reason ← check website then
+    throw (IO.userError s!"the website package does not build the standard's example helper where \
+      its examples launch it: {reason}")
+  let copy := scratch / "example-helper"
+  IO.FS.createDirAll copy
+  let config ← IO.FS.readFile (website / "lakefile.toml")
+  IO.FS.writeFile (copy / "lakefile.toml") ("binDir = \"executables\"\n" ++ config)
+  let launched := (← IO.FS.realPath copy) / System.mkFilePath Regula.exampleHelperPath
+  let built := s!"/.lake/build/executables/{Regula.exampleHelper}"
+  match ← check copy with
+  | none => throw (IO.userError s!"the check accepted a website configuration whose executables \
+      are in `executables`, where the standard's examples do not launch the helper: {copy}")
+  | some reason =>
+    requireChecks [⟨s!"the refusal of a website configuration whose executables are in \
+      `executables` names not both the file that Lake builds and {launched}: {reason}",
+      (reason.splitOn built).length > 1 && (reason.splitOn launched.toString).length > 1⟩]
+
 /-- The two JSON values of `text`, with white space before and after each, read by Lean's own JSON
 parser: `Lean.Json.Parser.anyCore` reads one value and the white space after it. -/
 private def twoJsonValues (text : String) : Except String (Lean.Json × Lean.Json) :=
@@ -238,9 +262,10 @@ private def twoJsonValues (text : String) : Except String (Lean.Json × Lean.Jso
 
 /-- Build `regula-site` and `regula-standard` in the website package of the repository at `root`
 and find their executables with `lake query --json`, then run the issue's reproduction with
-`regula-standard` (`reproduction`) and the refusals of both programs (`refusals`), in a fresh
-scratch directory. The first failure stops it. It runs after `lake exe site build`, which builds
-the website package and generates the sources of `regula-site`.
+`regula-standard` (`reproduction`), the refusals of both programs (`refusals`) and the check of
+the standard's example helper (`exampleHelper`), in a fresh scratch directory. The first failure
+stops it. It runs after `lake exe site build`, which builds the website package and generates the
+sources of `regula-site`.
 
 Assumes: Lake 4.34.1 builds the executable of a `lean_exe` target at `LeanExe.file`, the package's
 `binDir` with the executable's file name, and gives that path as the target's result
@@ -266,5 +291,6 @@ def control (root : FilePath) : IO Unit := do
     reproduction website standard scratch cleanEnv refusing
     for (name, program) in [("regula-standard", standard), ("regula-site", site)] do
       refusals program scratch name refusing
+    exampleHelper website scratch
 
 end Regula.Site.RendererRefusal

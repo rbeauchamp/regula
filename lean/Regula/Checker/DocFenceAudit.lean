@@ -5,6 +5,7 @@ import Regula.Checker.Lake
 import Regula.Checker.AcceptanceLink
 import Regula.Checker.LintBuild
 import RegulaCore.Prose
+import RegulaCore.Standard
 
 /-! # Documentation fence audit executable
 
@@ -108,13 +109,19 @@ private def renderedHtml (root : FilePath) : IO (List (String × String)) := do
 /-- Build the Verso library in the isolated copy, where every `lean` block is elaborated where it
 is written by the library's own code block. The copy's library sources and Verso package inputs
 must be exactly the audited and linked ones (`linked`), and the Verso package must pin every Git
-dependency it shares with a package it requires by path at the same revision. -/
+dependency it shares with a package it requires by path at the same revision. Before the build, it
+refuses unless Lake's configured file of the standard's example helper (`Regula.exampleHelper`) is
+the file that the standard's elaboration launches, `Regula.exampleHelperPath` below the package's
+directory (`Lake.executableMismatch`). -/
 private def prepareVerso (repo copy : FilePath) (verso : VersoPackage)
     (linked : Array RegulaPolicy.SourceSnapshot) : IO (Option String) := do
   let package := copy / verso.dir.toString
   let versoDir := repo / verso.dir.toString
   if let some mismatch ← sharedPinMismatch package then
     return some s!"the Verso package pins {mismatch} differently from a package it requires by path"
+  let helper ← Lake.executableMismatch package Regula.exampleHelper Regula.exampleHelperPath
+  if let some mismatch := helper then
+    return some s!"the standard's examples launch a file that Lake does not build: {mismatch}"
   let library ← captureVerso { verso with dir := versoDir }
   let copied := (← captureVerso { verso with dir := package }) ++
       (← captureVersoPackage copy { verso with dir := package })
