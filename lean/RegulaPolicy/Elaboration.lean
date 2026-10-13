@@ -69,7 +69,8 @@ structure Observed where
 
 /-- One way a module's record fails RG2003. -/
 inductive Failure where
-  /-- Regula's elaboration observer was not among the plugins Lean loaded for the module. -/
+  /-- Regula's elaboration observer was not among the plugins Lean loaded for the module, or the
+  module's target does not list it in its `needs`, so its record is not read. -/
   | unloaded
   /-- The module's `.olean` holds no complete record. -/
   | absent
@@ -83,10 +84,10 @@ inductive Failure where
   | unobserved (location : Location)
   deriving DecidableEq, Repr
 
-/-- Every failure of a module: the observer not loaded, alone, when Lean did not load it for the
-module (`loaded` false); otherwise a missing record alone; otherwise each command that contains
-`#guard_msgs`, each elaborated guard, each silent warning or error, and then each command the
-observer neither ran on nor saw skipped. -/
+/-- Every failure of a module: the observer not loaded, alone, when the audit does not read the
+module's record as the running observer's (`loaded` false); otherwise a missing record alone;
+otherwise each command that contains `#guard_msgs`, each elaborated guard, each silent warning or
+error, and then each command the observer neither ran on nor saw skipped. -/
 @[regula_decision]
 def failures (loaded : Bool) : Option Observed → List Failure
   | none => if loaded then [.absent] else [.unloaded]

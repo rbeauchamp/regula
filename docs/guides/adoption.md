@@ -1032,6 +1032,9 @@ audit refuses a `decides` entry that names its own surface or no claimed surface
   command. It also records each warning or error that Lean keeps out of the build's output, and
   it prints nothing. The audit's builds run the `presetup` facet that your workspace configures.
   From the completed `presetup` of each claimed module, they read if Lean loaded the observer.
+  They read the record only for a target that lists the observer in `needs`. Without that entry,
+  Lake can reuse an `.olean` that another observer wrote, so [RG2003] reports the module as not
+  observed.
 - [RG2003] fails a claimed module that runs `#guard_msgs` or `#guard_panic`, also from a macro.
   Keep such checks in a test or documentation module outside the claimed surface. [RG2003] also
   fails a claimed module with a warning or error that Lean keeps out of the output, or that the

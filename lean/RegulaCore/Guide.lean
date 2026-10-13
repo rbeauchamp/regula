@@ -1450,8 +1450,10 @@ def guide : RuleId → Guide
           established (INCOMPLETE), as when another dependency declares a library or module facet.",
         "Regula declares no `presetup` facet; the audit's build runs the one the workspace \
           configures and reads from each claimed module's completed `presetup` whether Lean \
-          loaded the running Regula's observer, compared by path or by content. A facet that \
-          drops the observer from a claimed module's plugins leaves the module not observed.",
+          loaded the running Regula's observer, compared by content. A facet that drops the \
+          observer from a claimed module's plugins leaves the module not observed, and so does \
+          a target that does not list the observer in `needs`, since Lake could then replay an \
+          `.olean` that another observer wrote.",
         "That the observer's record holds what Lean elaborated is read from Lean's source at \
           the pinned release, not proved.",
         "That each claimed module's trace records an elaboration is checked after the build \

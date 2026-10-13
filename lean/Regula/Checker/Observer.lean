@@ -27,8 +27,9 @@ elaborated with the observer the build has; the trace of the plugins alone is le
 audit's builds run the facet that the workspace configures unchanged and keep each completed
 result (`recordingPresetup`), from which the audit reads whether a claimed module's elaboration
 loaded the running Regula's observer (`pluginLoaded`). A claimed module whose completed `presetup`
-lacks it, such as under a dependency's facet that drops plugins, has no record the audit reads,
-and RG2003 refuses it (`decideRecord`). -/
+lacks it, such as under a dependency's facet that drops plugins, or whose target does not list the
+observer's key in `needs`, has no record the audit reads, and RG2003 refuses it
+(`decideRecord`). -/
 
 namespace Regula.Checker.Observer
 
@@ -214,7 +215,8 @@ private unsafe def recordEntriesImpl (data : ModuleData) : Array RegulaObserver.
 
 /-- The entries of the observer's extension (`RegulaObserver.records`) that the module data
 `data` holds. Lean stores each entry as the value the extension exported, and its import casts it
-to the extension's entry type the same way (`Lean.setImportedEntries`); an entry another
+to the extension's entry type the same way (`Lean.setImportedEntries`). The cast is sound only for
+data that the running Regula's observer wrote, which `decideRecord` reads alone; an entry another
 extension of that name wrote is outside what the record establishes. -/
 @[implemented_by recordEntriesImpl]
 opaque recordEntries (data : ModuleData) : Array RegulaObserver.Record
@@ -299,13 +301,14 @@ def settings (record : RegulaObserver.Record) : List RegulaPolicy.Community.Sour
 
 /-- One RG2003 failure of a module's record, as a line of the build's report that names the module
 `module`: its name, or the file that a standalone compilation compiled. The line of an observer
-that Lean did not load names the `plugins` entry that loads it and the `needs` entry beside it,
-which RG2006 requires (`RegulaPolicy.Community.BuildOptions.observerNeed`); an audit stops at this
-refusal before its RG2006 stage. -/
+that Lean did not load, or whose target does not list it in `needs`, names the `plugins` entry
+that loads it and the `needs` entry beside it, which RG2006 requires
+(`RegulaPolicy.Community.BuildOptions.observerNeed`); an audit stops at this refusal before its
+RG2006 stage. -/
 def failureLine (module : String) : RegulaPolicy.Elaboration.Failure → String
   | .unloaded => s!"not observed: Regula's elaboration observer was not among the plugins Lean \
-      loaded to elaborate {module}; its target loads it with \
-      plugins := #[`@regula/RegulaObserver:shared] in lakefile.lean, or \
+      loaded to elaborate {module}, or its target does not list it in needs; its target loads it \
+      with plugins := #[`@regula/RegulaObserver:shared] in lakefile.lean, or \
       plugins = [\"@regula/RegulaObserver:shared\"] in lakefile.toml, with the same key in its \
       needs (RG2006)"
   | .absent => s!"not observed: {module} has no complete record of Regula's elaboration observer"
@@ -366,11 +369,17 @@ def Verdict.sourceDetail (verdict : Verdict) (module : String)
     | failed => some (RegulaPolicy.Community.sourceDetail module failed)
 
 /-- The one decision on the observer's record in the `.olean` file `olean` of the module that
-`subject` names, with `loaded` whether Lean loaded the running Regula's observer for it. Every path
-of the audit that reads a record calls it: a claimed build and a file audit. The file is read only
-when `loaded`, since only that observer's record has the type the read gives it
-(`recordEntries`). A module that did not load it, a missing file, or one without exactly one record
-gives no record. -/
+`subject` names, with `loaded` whether the file was written under the running Regula's observer.
+Every path of the audit that reads a record calls it: a claimed build and a file audit. The file is
+read only when `loaded`, since only that observer's record has the type the read gives it
+(`recordEntries`). A file audit's own compilation loads that observer and writes the file. A Lake
+build gives `loaded` only when the module's completed `presetup` loaded a library with the running
+observer's bytes (`pluginLoaded`) and its target lists the observer's key in `needs`
+(`observerKey`): the observer library's job trace is then in the module's trace through the
+target's `extraDep` job (`Lake/Build/Library.lean` lines 162 to 169, `Lake/Build/Module.lean`
+lines 600 to 603), so an `.olean` Lake replays was built under the library whose bytes
+`pluginLoaded` matched. A module without `loaded`, a missing file, or one without exactly one
+record gives no record. -/
 def decideRecord (subject : String) (loaded : Bool) (olean : FilePath) : IO Verdict := do
   let record ← if loaded && (← olean.pathExists) then
       match ← (readRecord olean).toBaseIO with

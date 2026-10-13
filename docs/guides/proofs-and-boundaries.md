@@ -390,9 +390,14 @@ module from there. The build store of Lake does not keep the job of a facet with
 `memoize := false`, so the audit does not read them from that store.
 
 A claimed module counts as observed only when its completed `presetup` loaded the observer of the
-running Regula, as `Observer.pluginLoaded` decides. The audit reads the record of the module only
-then. So a dependency's facet that drops the plugin leaves the module refused under [RG2003].
-[RG2006] requires the plugin in the configuration of each claimed target.
+running Regula, as `Observer.pluginLoaded` decides, and its target lists the observer's key in
+`needs`. The audit reads the record of the module only then. The record is read with an unchecked
+cast to the running observer's type (`Observer.recordEntries`). With the key in `needs` the
+observer's trace is in the module's trace, so an `.olean` that Lake replays was written under the
+library whose bytes `pluginLoaded` matched. Without it, Lake can replay one that another observer
+wrote, so the audit reads no record. A dependency's facet that drops the plugin, or a target
+without the `needs` entry, leaves the module refused under [RG2003]. [RG2006] requires both entries
+in the configuration of each claimed target.
 
 Each Regula process reads the bytes of its own observer library one time, `Observer.running`. It
 does so when it starts, before it loads a workspace, copies a project or runs a build. A loaded

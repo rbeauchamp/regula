@@ -1677,9 +1677,11 @@ lists the same key in `needs`, whose job's trace Lake mixes into the module's tr
 target's `platformIndependent` (RG2006, `RegulaPolicy.Community.BuildOptions.observerNeed`); the
 build runs the `presetup` facet that the workspace configures unchanged and keeps each completed
 result (`Observer.recordingPresetup`). Every build then reads, for each claimed module, whether
-its completed `presetup` loaded the running Regula's observer (`Observer.pluginLoaded`) and, when
-it did, the record the observer wrote into its `.olean`, and decides on them
-(`Observer.decideRecord`). -/
+its completed `presetup` loaded the running Regula's observer (`Observer.pluginLoaded`) under a
+target that lists the observer's key in its `needs` (`Observer.observerKey`) and, when both hold,
+the record the observer wrote into its `.olean`, and decides on them (`Observer.decideRecord`).
+Without the key in `needs`, Lake can replay an `.olean` that another observer wrote, so the record
+is not read and RG2003 refuses the module as not observed. -/
 def Build.runObserved (build : Build) (repo : FilePath) (targets : Array Target)
     (elaborated : Option Elaborated := none) : IO CheckedBuild := do
   let buffer ← IO.mkRef ({} : IO.FS.Stream.Buffer)
@@ -1754,7 +1756,8 @@ def Build.runObserved (build : Build) (repo : FilePath) (targets : Array Target)
           if modules.isEmpty then pure default else Observer.running
         for mod in modules do
           let plugins := Observer.presetupPlugins? completed mod.pkg.keyName mod.name
-          let loaded ← Observer.pluginLoaded observer plugins
+          let needed := mod.lib.config.needs.any (Observer.observerKey mod.pkg.baseName)
+          let loaded ← if needed then Observer.pluginLoaded observer plugins else pure false
           let verdict ← Observer.decideRecord mod.name.toString loaded mod.oleanFile
           verdicts.modify (·.push (mod.name, verdict))
         let jobs ← jobLogs.get

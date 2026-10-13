@@ -759,8 +759,9 @@ elaborates through `run_cmd`, `run_elab`, a `try_suggestion` generator or a simp
 decided like `set_option`, and the documentation role `{option}` and a `simp` user option, which
 set no option of the scope, give no finding. The restored module is accepted. Without the
 library's `plugins` entry for the observer, RG2003 refuses the claimed modules as not observed and
-names the entry, as `doctor`'s RG2006 finding does. Without its `needs` entry, that finding names
-the `needs` entry, which RG2006 requires. A target with both entries and
+names the entry, as `doctor`'s RG2006 finding does. Without its `needs` entry, the audit reads no
+record, RG2003 refuses the claimed modules as not observed and names both entries, and `doctor`'s
+RG2006 finding names the `needs` entry, which RG2006 requires. A target with both entries and
 `platformIndependent := true` is accepted by RG2006 and RG2003 on a marked rebuild, since the field
 takes the workspace out of the plain shape; that the `needs` trace then reaches each module's trace
 is read from Lake (`Lake/Build/Module.lean` lines 600 to 603, `Lake/Build/Library.lean` lines 162
@@ -895,7 +896,7 @@ private def observerEscapes (repo adopter : FilePath) : IO (Array String) := do
       label := "observer/no-plugins", exitCode := 3,
       contains := #["FAIL[elaboration-hidden]",
         "not observed: Regula's elaboration observer was not among the plugins Lean loaded to \
-          elaborate Widget; its target loads it with \
+          elaborate Widget, or its target does not list it in needs; its target loads it with \
           plugins := #[`@regula/RegulaObserver:shared] in lakefile.lean",
         "regula lint: INCOMPLETE (exit 3)"],
       excludes := #[s!"regula lint: {acceptanceLabel}"] })
@@ -907,10 +908,19 @@ private def observerEscapes (repo adopter : FilePath) : IO (Array String) := do
     (← runProcess adopter "lake" #["exe", "regula", "doctor"] scrubbedLeanPathEnv))
   -- With the `plugins` entry but without the same key in `needs`, RG2006 refuses the target and
   -- its finding names the `needs` entry (`RegulaPolicy.Community.Failure.observerNeed`), which
-  -- `doctor` decides as the audit does. Only `doctor` runs: a fresh build of the claimed library
-  -- could then build the observer several times at once.
+  -- `doctor` decides as the audit does. The audit reads no record of the claimed modules, since
+  -- Lake could have replayed one that another observer wrote (`Observer.decideRecord`), so RG2003
+  -- refuses them as not observed and names both entries, and the audit stops there. The runs
+  -- above built the observer, so this build does not build it again.
   IO.FS.writeFile lakefile lakefileText
   mutate lakefile observerNeedLean ""
+  failures := failures ++ (← expect adopter {
+      label := "observer/no-needs", exitCode := 3,
+      contains := #["FAIL[elaboration-hidden]",
+        "not observed: Regula's elaboration observer was not among the plugins Lean loaded to \
+          elaborate Widget, or its target does not list it in needs",
+        "regula lint: INCOMPLETE (exit 3)"],
+      excludes := #[s!"regula lint: {acceptanceLabel}", "PANIC"] })
   failures := failures ++ (← assess {
       label := "observer/no-needs-doctor", exitCode := 1,
       contains := #["RG2006", "without the same key in needs",
