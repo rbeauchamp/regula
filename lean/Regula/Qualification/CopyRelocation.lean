@@ -4,8 +4,8 @@ import Regula.Checker.Lake
 /-! # The relocation of a copy's dependencies
 
 The control of `qualify copy-relocation`. `Lake.copyProject` copies a project without its `.lake`
-and without the checkout of each dependency in its packages directory, but with every other entry
-there. It gives the copy an override for each dependency, to the directory and through the files
+and without each dependency's checkout or directory in its packages directory, but with every
+other entry there. It gives the copy an override for each dependency, to the directory and through the files
 that Lake's load of the project takes (`Lake.relocateDependencies`). Lake's load of the copy must
 then select what its load of the project selects (`Lake.checkCopiedWorkspace`). The copy refuses a
 file that Lake's load reads for a copied package when the copy writes no file where Lake's load of
