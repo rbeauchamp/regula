@@ -102,17 +102,15 @@ lean_lib «RegulaPolicy» where
 @[default_target]
 lean_lib «RegulaVerification» where
   plugins := #[`@/RegulaObserver:shared]
-  needs := #[`@/RegulaObserver:shared]
+  needs := #[`@/copyConstructionSource, `@/RegulaObserver:shared]
   globs := #[.andSubmodules `RegulaVerification]
-  needs := #[`@/copyConstructionSource]
 
 -- Dependency setup.
 @[default_target]
 lean_lib «RegulaProvision» where
   plugins := #[`@/RegulaObserver:shared]
-  needs := #[`@/RegulaObserver:shared]
+  needs := #[`@/copyConstructionSource, `@/RegulaObserver:shared]
   globs := #[.andSubmodules `RegulaProvision]
-  needs := #[`@/copyConstructionSource]
 
 @[default_target]
 lean_lib «RegulaQualification» where
