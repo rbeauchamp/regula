@@ -8,13 +8,15 @@ package build_lint_adopter where
   -- imports Mathlib also enables Mathlib's standard set, as the adoption guide shows.
   leanOptions := #[⟨`linter.missingDocs, true⟩, ⟨`autoImplicit, false⟩,
     ⟨`relaxedAutoImplicit, false⟩]
-  -- Regula's elaboration observer records the options the source sets and the messages a build
-  -- does not show (RG2003, RG2006); every claimed target loads it.
-  plugins := #[`@regula/RegulaObserver:shared]
 
 require regula from "../.."
 
 lean_lib Widget where
+  -- Regula's elaboration observer records the options the source sets and the messages a build
+  -- does not show (RG2003, RG2006); every claimed target loads it, and lists it in `needs` so that
+  -- a fresh build builds it once.
+  plugins := #[`@regula/RegulaObserver:shared]
+  needs := #[`@regula/RegulaObserver:shared]
   globs := #[.andSubmodules `Widget]
 
 /-- The sole default target: build the tool, then build and inspect every

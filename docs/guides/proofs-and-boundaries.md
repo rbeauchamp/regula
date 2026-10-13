@@ -328,8 +328,8 @@ marker.
 A library can change its source directory, roots, globs, `needs` and Lean options. An executable
 can also change its root, its file name and its interpreter support. An input target can change
 its path and its text mode. Each `needs` entry must name an `input_file` or an `input_dir` of the
-same package. A package can change its source directory, its Lean options, its lint and test
-drivers and its metadata.
+same package, or the observer below. A package can change its source directory, its Lean options,
+its lint and test drivers and its metadata.
 
 Lake runs no code from these fields in a build. The function `nativeFacets` of a library or an
 executable and the filter of an `input_dir` are also fields. Regula reads them from the compiled
@@ -371,6 +371,12 @@ builds that shared library and adds it to the plugins that Lean loads. It also m
 the library into the module's trace. The observer imports only Lean, prints nothing and reads no
 option that the marker sets. So a build with the marker and a build without it write the same
 record.
+
+A `needs` entry of a target of the plain shape may also name that shared library, as
+`isObserverNeed` decides. Each target that loads the observer lists it there, so that Lake builds
+it before the modules of the target fetch their plugins. Without it, Lake v4.34.1 can build the
+library several times at the same time in a fresh build, and those builds write the same files.
+The entry builds the library that the plugin entry names, and nothing else.
 
 Regula declares no `presetup` facet. The audit's own builds run the facet that the workspace
 configures, without a change, through `Observer.recordingPresetup`. That wrapper keeps the
@@ -1491,6 +1497,10 @@ The decision on the target's configuration also requires the observer. If the pl
 do not name `@regula/RegulaObserver:shared`, the target fails with `Failure.observer`
 (`observer_unloaded_fails`). The finding names the line to add. The adapter reads the plugins
 that Lake resolves for the target with `Observer.observerKey`: the package's, then the target's.
+
+The decision does not require the same key in the target's `needs`. A fresh build of a target
+without it can build the observer several times at the same time, so `doctor` names that entry
+in the finding of such a target (`Observer.unpaired`, `Setup.unpairedText`).
 
 [RG2006] also decides the options that each claimed module's source sets, as Regula's elaboration
 observer recorded them, with `RegulaPolicy.Community.sourceFailures` (`sourceFailures_eq_nil_iff`,

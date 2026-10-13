@@ -16,8 +16,9 @@ Its `leanOptions` enable Lean's `linter.missingDocs` and turn off automatic impl
 (standard §6.7 and §7.1), so the enforcing build rejects an undocumented public definition.
 A library that imports Mathlib also enables Mathlib's standard linter set as the
 [adoption guide](../../docs/guides/adoption.md#community-conventions-and-linters) shows.
-The package loads Regula's elaboration observer into each of its targets with
-``plugins := #[`@regula/RegulaObserver:shared]``. Each claimed target must load it
+The `Widget` library loads Regula's elaboration observer with
+``plugins := #[`@regula/RegulaObserver:shared]`` and lists the same key in `needs`. Each claimed
+target must load it
 ([adoption guide](../../docs/guides/adoption.md#load-the-elaboration-observer)).
 
 The package sets `lintDriver := "regula/lint"`. `lake lint` exits 0 (accepted),

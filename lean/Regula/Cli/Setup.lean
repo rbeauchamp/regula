@@ -102,6 +102,9 @@ structure Project where
   guidance : GuidanceFile
   /-- The facts the setup decision reads. -/
   observation : Observation
+  /-- Each claimed library and executable, as a manifest spells it, that loads Regula's
+  elaboration observer through `plugins` without the same key in `needs` (`Observer.unpaired`). -/
+  unpaired : Array String
 
 /-- Whether `text` has `agentsHeading` as one of its lines. -/
 def hasAgentsHeading (text : String) : Bool :=
@@ -656,7 +659,7 @@ def observe (root : FilePath) : IO Project := do
   let excludedLibraries := (manifest.map (·.excludedLibraries.map (·.library))).getD #[]
   let excludedExecutables := (manifest.map (·.excludedExecutables.map (·.executable))).getD #[]
   let (lakefile, configFile, driver, options, targets, allClaimed, libraries, mathlib,
-      uncovered, unimported, candidate, added, read) ←
+      uncovered, unimported, candidate, added, read, unpaired) ←
       Workspace.withRootWorkspace root fun ws => do
       -- An entry of module names: the configuration of each package of the workspace, before
       -- any module is resolved or any path is built from a name (`Lake.checkModuleNames`).
@@ -736,6 +739,13 @@ def observe (root : FilePath) : IO Project := do
             (Lake.libraryOptions lib)) ++
           exes.map (fun exe => target true exe.name exe.config.leanOptions
             (Lake.executableOptions exe))).toList
+      let unpaired :=
+        libs.filterMap (fun lib =>
+            if Observer.unpaired lib.pkg.baseName (lib.plugins.map (·.key)) lib.config.needs then
+              some (Manifest.targetSpelling lib.name) else none) ++
+          exes.filterMap fun exe =>
+            if Observer.unpaired exe.pkg.baseName (exe.root.plugins.map (·.key)) exe.config.needs
+            then some (Manifest.targetSpelling exe.name) else none
       let kind := match ← IO.ofExcept (LakeConfig.language pkg.relConfigFile) with
         | .toml => Lakefile.toml
         | .lean => Lakefile.lean
@@ -745,7 +755,7 @@ def observe (root : FilePath) : IO Project := do
         !invalid && libs.size == pkg.leanLibs.size && exes.size == pkg.leanExes.size,
         !pkg.leanLibs.isEmpty,
         ws.packages.any (·.baseName == `mathlib), uncovered, unimported, candidate,
-        added.toList, imported.filter fun (m, _) => addedNames.contains m)
+        added.toList, imported.filter (fun (m, _) => addedNames.contains m), unpaired)
   -- The configuration file is read only when the glob could apply: a library with modules for its
   -- glob to add.
   let sole ← match candidate with
@@ -774,7 +784,7 @@ def observe (root : FilePath) : IO Project := do
       return some (name, (← IO.FS.readFile (root / name)) == Regula.Guidance.skill)
     return none
   return {
-    root, lakefile, configFile, guidance
+    root, lakefile, configFile, guidance, unpaired
     observation := {
       driver, options, targets, allClaimed, libraries, mathlib
       manifest := ← (Manifest.defaultPath root).pathExists
@@ -832,11 +842,23 @@ def manifestText (m : Manifest) : String :=
 
 /-! ## The commands -/
 
+/-- The part of a doctor RG2006 finding for a target that loads Regula's elaboration observer
+through `plugins` without the same key in `needs` (`Observer.unpaired`). Lake v4.34.1 can then build
+the observer several times at the same time in a fresh build (`Lake.isObserverNeed`). -/
+def unpairedText : String :=
+  "the target loads Regula's elaboration observer through plugins without the same key in needs, \
+    so a fresh build can build the observer several times at the same time and corrupt its \
+    files; add needs := #[`@regula/RegulaObserver:shared] beside the plugins entry in \
+    lakefile.lean, or needs = [\"@regula/RegulaObserver:shared\"] in lakefile.toml"
+
 /-- The linter's configuration findings for a project with a manifest: RG2002 when the manifest
 does not parse or does not classify every root target, and otherwise RG2006 for each claimed
-target, decided by `RegulaPolicy.Community.failures` exactly as the audit decides it. Targets with
-the same claim and the same failures share one finding naming them all, in manifest order, where
-the linter prints one per target: a `-D` in the package's arguments fails every target alike. -/
+target, decided by `RegulaPolicy.Community.failures` exactly as the audit decides it. A claimed
+target that loads the observer through `plugins` without the same key in `needs`
+(`Project.unpaired`) also gets `unpairedText` in that finding, which the audit does not decide.
+Targets with the same claim and the same failures share one finding naming them all, in manifest
+order, where the linter prints one per target: a `-D` in the package's arguments fails every target
+alike. -/
 def configurationFindings (project : Project) : IO (Array Regula.Finding) := do
   let root := project.root
   let mode : EvidenceMode := .incrementalProject
@@ -853,9 +875,13 @@ def configurationFindings (project : Project) : IO (Array Regula.Finding) := do
           targets := targets.push (exe, info.options)
       for (target, options) in targets do
         let failed := RegulaPolicy.Community.failures options project.observation.mathlib
-        unless failed.isEmpty do
+        let unpaired := project.unpaired.contains target
+        unless failed.isEmpty && !unpaired do
           let claim := surface.claim.toString
-          let detail := RegulaPolicy.Community.detail failed
+          let detail := if unpaired then
+              "community-configuration: " ++ "; ".intercalate
+                (failed.map RegulaPolicy.Community.Failure.text ++ [unpairedText])
+            else RegulaPolicy.Community.detail failed
           match groups.findIdx? fun g => g.1 == claim && g.2.1 == detail with
           | some i => groups := groups.modify i fun g => (g.1, g.2.1, g.2.2.push target)
           | none => groups := groups.push (claim, detail, #[target])

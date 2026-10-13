@@ -73,7 +73,8 @@ structure TargetShape where
   /-- Each field of the target's configuration that Regula does not show to have Lake's default
   value. -/
   unknown : Array Name
-  /-- The kind of the target that each `needs` entry of a library or an executable names. -/
+  /-- The kind of the target that each `needs` entry of a library or an executable names, except
+  the observer's key, which `targetShape` sets aside (`isObserverNeed`). -/
   needs : Array TargetKind
 
 /-- A target of the plain shape: a `lean_lib`, `lean_exe`, `input_file` or `input_dir` that has
@@ -148,15 +149,16 @@ structure PackageShape where
 /-- A package of the plain shape: it has Lake's default value in each field outside
 `packageFields`, each of its targets is of the plain shape, its configuration file declares no
 facet (`leanConfigReading` sets aside Regula's own `extraDep` facet first, when it admits the file
-by identity, and with it the `needs` entry `isObserverNeed`), each declaration of its compiled
-configuration file is a `configuration` or a `typeFact`, and each extension with entries of that
-file is one of `configExtensions`. The file imports only modules of Lean and Lake
-(`toolchainRoots`), its syntax has no `attribute` command and no local or scoped attribute, and
-its `inline` entries are exactly those of Lake's commands. Its only `plugins` entries load Regula's
-elaboration observer (`isObserverPlugin`). In a workspace of such packages, a build of `lean_lib`
-and `lean_exe` targets runs no custom build step other than that facet, which runs Lake's own and
-adds a trace input: it compiles modules, with the observer loaded where an entry names it, and
-reads and hashes input files. -/
+by identity), each declaration of its compiled configuration file is a `configuration` or a
+`typeFact`, and each extension with entries of that file is one of `configExtensions`. The file
+imports only modules of Lean and Lake (`toolchainRoots`), its syntax has no `attribute` command and
+no local or scoped attribute, and its `inline` entries are exactly those of Lake's commands. Its
+only `plugins` entries load Regula's elaboration observer (`isObserverPlugin`), and a target's
+`needs` entries name, besides its package's input files and directories, only that observer
+(`isObserverNeed`). In a workspace of such packages, a build of `lean_lib` and `lean_exe` targets
+runs no custom build step other than that facet, which runs Lake's own and adds a trace input: it
+compiles modules, with the observer loaded where an entry names it, builds the observer, and reads
+and hashes input files. -/
 def PackageShape.Plain (shape : PackageShape) : Prop :=
   (∀ field ∈ shape.unknown, field ∈ packageFields) ∧ (∀ target ∈ shape.targets, target.Plain) ∧
     shape.facets = some 0 ∧ (∀ declaration ∈ shape.declarations, declaration.2 ≠ .other) ∧
@@ -410,16 +412,6 @@ def declarationKind (kind : Name) : TargetKind :=
   else if kind == _root_.Lake.InputDir.configKind then .inputDir
   else .other
 
-/-- Whether the `needs` entry `key` is that of the `Regula` library of Regula's `lakefile.lean`,
-`@/RegulaObserver:shared` (`Lake/DSL/Key.lean` lines 54 to 70): the shared library of its
-`RegulaObserver` library, which `compileIn` loads as a plugin into a standalone compilation. The
-same library's `plugins` entry (`isObserverPlugin`) names that shared library too, so in that file
-the entry builds nothing that a build of the library's modules under Lake's own `presetup` facet
-does not. -/
-def isObserverNeed : _root_.Lake.PartialBuildKey → Bool
-  | .facet (.packageTarget owner `RegulaObserver) `shared => owner.isAnonymous
-  | _ => false
-
 /-- The kind of the target that the `needs` entry `key` of a library or an executable of
 `package` names: a target of `package` written `@/NAME` or `@PACKAGE/NAME`, with no facet. Every
 other entry, such as a module, a facet or a target of another package, is `other`. -/
@@ -448,6 +440,20 @@ message and does not read the marker. That the package `regula` is Regula is the
 owner's assertion, as the plain shape is. -/
 def isObserverPlugin (own : Bool) (key : _root_.Lake.PartialBuildKey) : Bool :=
   Observer.observerKey (if own then Name.mkSimple Observer.regulaPackage else .anonymous) key
+
+/-- Whether the `needs` entry `key` of a library or an executable is the observer's key that a
+`plugins` entry may name (`isObserverPlugin`). A target that loads the observer lists the same key
+in `needs`, because Lake v4.34.1 can otherwise build a `plugins` key several times at once. It
+fetches each module's plugins (`Module.recFetchPreSetup`, `Lake/Build/Module.lean` line 580)
+through a facet fetch whose continuation runs on a worker thread (`PartialBuildKey.fetchInCore`,
+`Lake/Build/Target/Fetch.lean` lines 54 to 66), and its job memo is a read and then a write of
+one reference (`fetchOrCreate`, `Lake/Util/Store.lean` lines 47 to 55), so concurrent fetches
+each start a job that writes the same files. The same function awaits the library's `extraDep`
+job, which builds `needs`, before it fetches plugins (lines 546 to 557, lean4#13598), so the entry
+builds the key once and later fetches find its job. The entry builds the shared library that the
+`plugins` entry names, and nothing else. -/
+def isObserverNeed (own : Bool) (key : _root_.Lake.PartialBuildKey) : Bool :=
+  isObserverPlugin own key
 
 /-- The tests against Lake's defaults of the fields of `LeanConfig`, which a package, a library and
 an executable share, with `own` whether the file is Regula's own `lakefile.lean`: `plugins` passes
@@ -808,21 +814,22 @@ def leanConfigReading (ws : _root_.Lake.Workspace) (package : _root_.Lake.Packag
 `lakefile.toml` (`toml`), Lake's TOML loader never sets `nativeFacets`, and it gives an `input_dir`
 Lake's `Pattern.star`, which is named `star`, only for an omitted filter or `"*"`; it gives every
 other filter `Pattern.ofDescr`, which has no name. With `regula`, the file is exactly Regula's own
-(`ConfigReading.regula`), and the `needs` entry `isObserverNeed` of its libraries is set aside, as
-its facets are. -/
+(`ConfigReading.regula`). The `needs` entry that loads the observer (`isObserverNeed`) of a library
+or an executable is set aside, as its `plugins` entry is. -/
 def targetShape (package : _root_.Lake.Package)
     (declaration : _root_.Lake.PConfigDecl package.keyName) (toml functions regula : Bool) :
     TargetShape :=
   let kind := declarationKind declaration.kind
   let nativeFacets := toml || functions
   if let some config := declaration.config? _root_.Lake.LeanLib.configKind then
-    let needs := if regula then config.needs.filter (!isObserverNeed ·) else config.needs
+    let needs := config.needs.filter (!isObserverNeed regula ·)
     { name := declaration.name, kind, needs := needs.map (needKind package)
       unknown := unknownFields (_root_.Lake.ConfigFields.fields
         (σ := _root_.Lake.LeanLibConfig declaration.name))
         (libraryChecks config nativeFacets regula) }
   else if let some config := declaration.config? _root_.Lake.LeanExe.configKind then
-    { name := declaration.name, kind, needs := config.needs.map (needKind package)
+    { name := declaration.name, kind
+      needs := (config.needs.filter (!isObserverNeed regula ·)).map (needKind package)
       unknown := unknownFields (_root_.Lake.ConfigFields.fields
         (σ := _root_.Lake.LeanExeConfig declaration.name))
         (executableChecks config nativeFacets regula) }

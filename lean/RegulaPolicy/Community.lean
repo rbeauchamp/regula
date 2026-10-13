@@ -1042,8 +1042,9 @@ def Failure.text : Failure → String
       remove it" ++ licenseHint name
   | .observer =>
     "the target does not load Regula's elaboration observer, so the options its modules' source \
-      sets are unknown; add plugins := #[`@regula/RegulaObserver:shared] to the package or the \
-      target in lakefile.lean, or plugins = [\"@regula/RegulaObserver:shared\"] in lakefile.toml"
+      sets are unknown; add plugins := #[`@regula/RegulaObserver:shared] to the target in \
+      lakefile.lean, or plugins = [\"@regula/RegulaObserver:shared\"] to its lakefile.toml table, \
+      with the same key in its needs"
 
 /-- The finding detail of a target's failures. -/
 def detail (failures : List Failure) : String :=

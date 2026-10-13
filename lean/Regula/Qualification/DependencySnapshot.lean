@@ -207,12 +207,14 @@ def check (group : String) : IO Unit := do
     IO.FS.createDirAll project
     success (← run project "git" #["init", "-q"])
     toolchain root project
-    -- Its library loads Regula's elaboration observer (RG2006), so it requires `regula` too.
+    -- Its library loads Regula's elaboration observer (RG2006) and lists it in `needs`, so it
+    -- requires `regula` too.
     IO.FS.writeFile (project / "lakefile.toml") <|
       "name = \"snapshot_control\"\n" ++ Regula.Checker.observerPluginToml ++
       "[leanOptions]\nautoImplicit = false\nrelaxedAutoImplicit = false\n" ++
       "linter.missingDocs = true\n[[require]]\nname = \"dep\"\npath = \"../dependency\"\n" ++
-      Regula.Checker.regulaRequireToml root ++ "[[lean_lib]]\nname = \"Example\"\n"
+      Regula.Checker.regulaRequireToml root ++ "[[lean_lib]]\nname = \"Example\"\n" ++
+      Regula.Checker.observerNeedToml
     IO.FS.writeFile (project / "Example.lean") "import Dep\n/-! Snapshot control. -/\n"
     -- The complete generated requirement graph is this one path dependency, with no Git source.
     success (← run project "lake" #["update"] cleanEnv)
@@ -242,7 +244,7 @@ def check (group : String) : IO Unit := do
       "name = \"history_control\"\n" ++ Regula.Checker.observerPluginToml ++
       "[leanOptions]\nautoImplicit = false\nrelaxedAutoImplicit = false\n" ++
       "linter.missingDocs = true\n" ++ Regula.Checker.regulaRequireToml root ++
-      "[[lean_lib]]\nname = \"Example\"\n"
+      "[[lean_lib]]\nname = \"Example\"\n" ++ Regula.Checker.observerNeedToml
     removeFile (project / "lake-manifest.json")
     -- The replacement generated configuration has no requirements; update creates its manifest.
     success (← run project "lake" #["update"] cleanEnv)

@@ -83,28 +83,45 @@ keeps the Mathlib revision it pins.
 
 Regula's elaboration observer is a Lean plugin. It records in each module's `.olean` the options
 that its source sets and the messages that a build does not show. [RG2003] and [RG2006] decide on
-that record. Each claimed library and executable loads it through Lake's own `plugins`
-setting. Add it to your package, which loads it into each of its libraries and executables. In
-`lakefile.toml` it is a top-level key, before the first table:
+that record. Each claimed library and executable loads it through Lake's own `plugins` setting,
+and lists the same key in `needs`. In `lakefile.toml` the two keys go in the table of each target:
 
 ```toml
-name = "my_project"
+[[lean_lib]]
+name = "MyProject"
 plugins = ["@regula/RegulaObserver:shared"]
+needs = ["@regula/RegulaObserver:shared"]
 ```
 
-In `lakefile.lean` it is a field of the `package` declaration:
+In `lakefile.lean` they are fields of each `lean_lib` and `lean_exe` declaration:
 
 ```text
-package my_project where
+lean_lib MyProject where
   plugins := #[`@regula/RegulaObserver:shared]
+  needs := #[`@regula/RegulaObserver:shared]
 ```
 
-The same field on a `lean_lib` or `lean_exe` adds the plugin to that target only.
+A `plugins` entry of the package also loads the plugin into each of its targets. Lake has no
+`needs` setting for a package, so each target lists the key in its own `needs`.
+
+The `needs` entry makes Lake build the plugin before the modules of the target fetch it. Without
+it, a fresh build with Lake v4.34.1 can start several builds of the plugin at the same time. They
+write the same files, so the build can fail with a corrupted file.
+
+Lake fetches a module's plugins on a worker thread, and its record of started jobs is a read and
+then a write
+([`Fetch.lean`](https://github.com/leanprover/lean4/blob/v4.34.1/src/lake/Lake/Build/Target/Fetch.lean#L54-L66),
+[`Store.lean`](https://github.com/leanprover/lean4/blob/v4.34.1/src/lake/Lake/Util/Store.lean#L47-L55)).
+It builds the target's `needs` before that fetch
+([`Module.lean`](https://github.com/leanprover/lean4/blob/v4.34.1/src/lake/Lake/Build/Module.lean#L546-L557),
+[lean4#13598](https://github.com/leanprover/lean4/issues/13598)), so the fetch finds the plugin
+built.
 
 Lake builds the plugin with your modules, and it rebuilds a module when the plugin changes. A
-claimed target without the plugin fails [RG2006], and `doctor` names this line in that finding.
-`lake lint` stops first at [RG2003], which reports each module of the target as not observed and
-names the same line.
+claimed target without the plugin fails [RG2006], and `doctor` names the two lines in that
+finding. `doctor` also reports a target that has the plugin but no `needs` entry for it. [RG2006]
+does not require that entry. `lake lint` stops first at [RG2003], which reports each module of a
+target without the plugin as not observed and names the same lines.
 
 ### When your Lean release has no Regula release
 
@@ -182,10 +199,10 @@ nothing is left to write. A second run therefore writes nothing:
 setup, and that runtime check confirms the files as written match it. `init` ends by running
 `doctor`.
 
-`init` does not write the elaboration observer's `plugins` entry. Add it as
-[step 1](#load-the-elaboration-observer) shows. `doctor` reports a claimed target without it in its
-[RG2006] finding.
-[Issue 425](https://github.com/rbeauchamp/regula/issues/425) tracks writing it from `init`.
+`init` does not write the elaboration observer's `plugins` and `needs` entries. Add them as
+[step 1](#load-the-elaboration-observer) shows. `doctor` reports a claimed target without them in
+its [RG2006] finding.
+[Issue 425](https://github.com/rbeauchamp/regula/issues/425) tracks writing them from `init`.
 
 `lake exe regula doctor` changes nothing. It prints each missing or wrong piece in the linter's
 finding form, with the exact fix: setup findings for the lint driver, options, manifest, agent
@@ -359,8 +376,9 @@ guarantee against a lakefile that someone wrote to defeat it.
 
 The plain shape admits one facet declaration by identity. It is the `extraDep` facet of
 Regula's own `lakefile.lean`, in a package with the same `lakefile.lean` text as the running
-Regula. It only runs Lake's own `extraDep` facet and adds the record. The only plugin that the
-plain shape admits is Regula's elaboration observer.
+Regula. It only runs Lake's own `extraDep` facet and adds the record. The only plugin, and the
+only `needs` entry outside the package's input files and directories, that the plain shape admits
+is Regula's elaboration observer.
 Without the assertion the driver always builds with the marker ([details](proofs-and-boundaries.md#the-acceptance-boundary)).
 
 Give the assertion in the environment of `lake lint`, which no lakefile sets. The driver refuses
@@ -1003,8 +1021,9 @@ audit refuses a `decides` entry that names its own surface or no claimed surface
 - The incremental gate trusts the build traces that Lake recorded in the checkout, and the record
   is part of them. A facet that forged the record when Lake built a module is outside that
   evidence. A `--fresh` audit rests on no recorded trace.
-- Each claimed target loads Regula's elaboration observer through its `plugins`
-  ([load the elaboration observer](#load-the-elaboration-observer)). The observer records in the
+- Each claimed target loads Regula's elaboration observer through its `plugins`, and lists it in
+  its `needs` ([load the elaboration observer](#load-the-elaboration-observer)). The observer
+  records in the
   module's `.olean` the options that its source sets and each `#guard_msgs` and `#guard_panic`
   command. It also records each warning or error that Lean keeps out of the build's output, and
   it prints nothing. The audit's builds run the `presetup` facet that your workspace configures.

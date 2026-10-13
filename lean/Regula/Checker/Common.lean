@@ -495,6 +495,17 @@ def observerPluginLean : String := "  plugins := #[`@regula/RegulaObserver:share
 Regula's checkout, which names its own observer library. -/
 def observerPluginOwn : String := "  plugins := #[`@/RegulaObserver:shared]\n"
 
+/-- The `lakefile.toml` key of a `[[lean_lib]]` or `[[lean_exe]]` table with which the target builds
+Regula's elaboration observer before its modules fetch their plugins, so that Lake builds the
+observer once (`Lake.isObserverNeed`). Each target that loads the observer lists it. -/
+def observerNeedToml : String := "needs = [\"@regula/RegulaObserver:shared\"]\n"
+
+/-- `observerNeedToml` as a field of a `lakefile.lean` `lean_lib` or `lean_exe` declaration. -/
+def observerNeedLean : String := "  needs := #[`@regula/RegulaObserver:shared]\n"
+
+/-- `observerNeedLean` in a configuration of the package `regula` itself (`observerPluginOwn`). -/
+def observerNeedOwn : String := "  needs := #[`@/RegulaObserver:shared]\n"
+
 /-- The `lakefile.toml` table that requires `regula` from the checkout at `repo`. -/
 def regulaRequireToml (repo : FilePath) : String :=
   s!"[[require]]\nname = \"regula\"\npath = {(Json.str repo.toString).compress}\n"

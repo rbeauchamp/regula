@@ -335,10 +335,17 @@ private def leanPlain (lakefile : FilePath) : IO String := do
   | [declarations, _] => pure declarations
   | _ => throw <| IO.userError "lake-lint: expected one policy target in the adopter's lakefile"
 
-/-- The lakefile `plain` with `field` added to the declaration of the library `Widget`. -/
+/-- The lakefile `plain` with `field` added to the declaration of the library `Widget`, after its
+last field. A `needs` field in `field` replaces the declaration's own, which lists Regula's
+elaboration observer (`observerNeedLean`), and lists the observer first, as Lake accepts one
+`needs` field. -/
 private def widgetLibraryIn (plain field : String) : String :=
-  plain.replace "globs := #[.andSubmodules `Widget]"
-    s!"globs := #[.andSubmodules `Widget]\n  {field}"
+  let globs := "globs := #[.andSubmodules `Widget]"
+  let needs := "needs := #["
+  if (field.splitOn needs).length == 2 then
+    (plain.replace observerNeedLean "").replace globs
+      s!"{globs}\n  {field.replace needs (needs ++ "`@regula/RegulaObserver:shared, ")}"
+  else plain.replace globs s!"{globs}\n  {field}"
 
 /-- `lakefile.lean` adopter, the second part. Without the custom `policy` target the workspace has
 the plain shape: without the owner's assertion the driver keeps the audit-build marker and prints
@@ -524,10 +531,12 @@ refusal keeps the configuration class though a destination cannot be written, ea
 marked on its own, and a manifest named `--json-out` is read as the manifest, not written. The
 corpus producer marks the result where the audit's own plan resolved it. Decision probes of the
 guard (`probe`), each with one change to the plain shape and the reason that decides: an
-`input_file` in `needs` keeps the plain shape, and each of these keeps the marker: Lake's `ilean`
-facet declared again with Lake's own configuration, a library field outside the plain shape's list
-(`libName`), a `nativeFacets` that is not Lake's whole default term, a lakefile declaration beside
-Lake's configuration declarations, and a theorem that equates two functions. -/
+`input_file` in `needs`, beside the entry of the observer's shared library, keeps the plain shape,
+and each of these keeps the marker: Lake's `ilean` facet declared again with Lake's own
+configuration, a library field outside the plain shape's list (`libName`), the observer's library
+without its `shared` facet in `needs`, a `nativeFacets` that is not Lake's whole default term, a
+lakefile declaration beside Lake's configuration declarations, and a theorem that equates two
+functions. -/
 private def leanArguments (probes : Std.Mutex Unit) (repo adopter : FilePath) :
     IO (Array String) := do
   BuildLintQualification.setup repo adopter
@@ -686,6 +695,12 @@ private def leanArguments (probes : Std.Mutex Unit) (repo adopter : FilePath) :
       ⟨Module.ileanFacet, Module.ileanFacetConfig⟩\n"))
   failures := failures ++ (← marked "lean/field-marked" "target Widget sets the field libName"
     (widgetLibrary "libName := \"widget\""))
+  -- The observer's shared library is the one `needs` entry outside the package that the plain
+  -- shape admits (`Lake.isObserverNeed`): the observer's library itself, without that facet, keeps
+  -- the marker, beside the observer's entry that the library keeps.
+  failures := failures ++ (← marked "lean/observer-library-need-marked"
+    "target Widget needs a target of kind other"
+    (widgetLibrary "needs := #[`@regula/RegulaObserver]"))
   failures := failures ++ (← marked "lean/native-facets-marked"
     "target Widget sets the field nativeFacets"
     (widgetLibrary "nativeFacets := fun b => #[@ite (ModuleFacet System.FilePath) (b = true)\n    \
@@ -743,8 +758,9 @@ elaborates through `run_cmd`, `run_elab`, a `try_suggestion` generator or a simp
 `grind` tactic's `set_option` at an accepted value. The documentation command `{set_option}` is
 decided like `set_option`, and the documentation role `{option}` and a `simp` user option, which
 set no option of the scope, give no finding. The restored module is accepted. Without the
-library's `plugins` entry for the observer, RG2006 names the entry and RG2003 refuses the claimed
-modules as not observed. A dependency's `presetup` facet that Lake does not store
+library's `plugins` entry for the observer, RG2003 refuses the claimed modules as not observed and
+names the entry, as `doctor`'s RG2006 finding does. Without its `needs` entry, that finding names
+the `needs` entry. A dependency's `presetup` facet that Lake does not store
 (`memoize := false`) is accepted, required before `regula` and after it, and one that drops the
 plugins is refused under RG2003. The file audit (`axiomGate --file`) decides its compilation's
 record with the same function (`Observer.decideRecord`): a `#guard_msgs` that drops a warning
@@ -882,6 +898,18 @@ private def observerEscapes (repo adopter : FilePath) : IO (Array String) := do
       contains := #["RG2006", "does not load Regula's elaboration observer",
         "plugins := #[`@regula/RegulaObserver:shared]"],
       excludes := #["regula doctor: the setup is complete"] }
+    (← runProcess adopter "lake" #["exe", "regula", "doctor"] scrubbedLeanPathEnv))
+  -- With the `plugins` entry but without the same key in `needs`, `doctor` names the `needs` entry
+  -- in its RG2006 finding (`Setup.unpairedText`), which the audit does not decide. Only `doctor`
+  -- runs: a fresh build of the claimed library could then build the observer several times at once.
+  IO.FS.writeFile lakefile lakefileText
+  mutate lakefile observerNeedLean ""
+  failures := failures ++ (← assess {
+      label := "observer/no-needs-doctor", exitCode := 1,
+      contains := #["RG2006", "without the same key in needs",
+        "needs := #[`@regula/RegulaObserver:shared]"],
+      excludes := #["does not load Regula's elaboration observer",
+        "regula doctor: the setup is complete"] }
     (← runProcess adopter "lake" #["exe", "regula", "doctor"] scrubbedLeanPathEnv))
   IO.FS.writeFile lakefile lakefileText
   restore adopter originals
@@ -1238,8 +1266,11 @@ private def tomlPlain (probes : Std.Mutex Unit) (repo adopter : FilePath) :
   IO.FS.writeFile (inputs / "notes.lean") "-- An input file.\n"
   let base ← IO.FS.readFile lakefile
   let withFilter (filter : String) : IO Unit :=
-    IO.FS.writeFile lakefile (base.replace "globs = [\"Gadget\", \"Gadget.+\"]"
-      s!"globs = [\"Gadget\", \"Gadget.+\"]\nneeds = [\"@/notes\"]\n\n[[input_dir]]\n\
+    -- The library's one `needs` key lists Regula's elaboration observer and the input directory.
+    IO.FS.writeFile lakefile ((base.replace observerNeedToml
+        "needs = [\"@regula/RegulaObserver:shared\", \"@/notes\"]\n").replace
+      "globs = [\"Gadget\", \"Gadget.+\"]"
+      s!"globs = [\"Gadget\", \"Gadget.+\"]\n\n[[input_dir]]\n\
         name = \"notes\"\npath = \"inputs\"\n{filter}")
   withFilter "filter = \"*\""
   failures := failures ++ (← expect adopter
@@ -2367,10 +2398,11 @@ private def absentWorker (repo adopter : FilePath) : IO (Array String) := do
 
 /-- The first commands of an adopter on Lake's own templates, external boundaries all: the
 template of this toolchain's `lake new`, the lakefile edits of `regula init`, and `lake lint`.
-In each format (`lakefile.toml`, and `lakefile.lean` with `.lean`, whose `lean_lib` has an empty
-`where` block), a project from `lake new` that requires this checkout (`requireCheckout`) and
-whose package loads Regula's elaboration observer as a plugin gets from `lake exe regula init`
-the glob that includes the module its umbrella imports, then `doctor` reports the setup complete,
+In each format (`lakefile.toml`, and `lakefile.lean` with `.lean`, whose template's `lean_lib` has
+only a comment in its `where` block), a project from `lake new` that requires this checkout
+(`requireCheckout`) and whose package loads Regula's elaboration observer as a plugin, which each
+target also lists in `needs`, gets from `lake exe regula init` the glob that includes the module
+its umbrella imports, then `doctor` reports the setup complete,
 and a second `init` writes nothing. In the `lakefile.toml` project, `lake lint` then reports only
 the docstrings the template lacks ([RG2003]); with them
 written it accepts the project. That the plan of the result is empty in the model is
@@ -2392,13 +2424,22 @@ private def lakeNew (repo scratch : FilePath) : IO (Array String) := do
     let project := scratch / name
     -- The package loads Regula's elaboration observer (RG2006), which `init` does not write: at
     -- the top of a `lakefile.toml`, before its first table, and after the `version` field of the
-    -- template's `package` in a `lakefile.lean`.
+    -- template's `package` in a `lakefile.lean`. Each library and executable lists it in `needs`
+    -- after its table's first line or the first field of its declaration, so that a fresh build
+    -- builds it once (`Lake.isObserverNeed`).
     let template ← IO.FS.readFile (project / lakefile)
     let version := "  version := v!\"0.1.0\"\n"
-    let configured := if format.isEmpty then observerPluginToml ++ template
-      else template.replace version (version ++ observerPluginLean)
-    unless format.isEmpty || configured != template do
-      return #[s!"lake-lint/new/{name}: the template's package lacks {version}"]
+    let anchors := if format.isEmpty then
+        [("[[lean_lib]]\n", observerNeedToml), ("[[lean_exe]]\n", observerNeedToml)]
+      else [(version, observerPluginLean),
+        ("  -- add library configuration options here\n", observerNeedLean),
+        ("  root := `Main\n", observerNeedLean)]
+    let mut configured := if format.isEmpty then observerPluginToml ++ template else template
+    for (anchor, field) in anchors do
+      let inserted := configured.replace anchor (anchor ++ field)
+      if inserted == configured then
+        return #[s!"lake-lint/new/{name}: the template lacks {anchor.quote}"]
+      configured := inserted
     IO.FS.writeFile (project / lakefile) (configured ++ require)
     BuildLintQualification.requireCheckout repo project
     let mut failures ← assess {

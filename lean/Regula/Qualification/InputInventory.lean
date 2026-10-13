@@ -59,6 +59,7 @@ def lakefile (regula : FilePath) : String := "\n".intercalate [
   "",
   "lean_lib Example where",
   "  globs := #[.andSubmodules `Example]",
+  "  needs := #[`@regula/RegulaObserver:shared]",
   "  defaultFacets := #[LeanLib.facetKind ++ `inventoryFault]",
   ""]
 

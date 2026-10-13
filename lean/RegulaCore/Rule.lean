@@ -892,9 +892,9 @@ def descriptor : (id : RuleId) → RuleDescriptor id
       rewrites := [
         "Add ``⟨`autoImplicit, false⟩, ⟨`relaxedAutoImplicit, false⟩, \
           ⟨`linter.missingDocs, true⟩`` to `leanOptions` (the same keys under `[leanOptions]` in \
-          `lakefile.toml`) and ``plugins := #[`@regula/RegulaObserver:shared]`` to each claimed \
-          target, then declare each universe and implicit the build reports as unknown and \
-          document each declaration it reports.",
+          `lakefile.toml`), and ``plugins := #[`@regula/RegulaObserver:shared]`` and the same key \
+          in `needs` to each claimed target, then declare each universe and implicit the build \
+          reports as unknown and document each declaration it reports.",
         "With Mathlib, also set `weak.linter.mathlibStandardSet` to true, `weak.linter.hashCommand` \
           false, `weak.linter.style.longFile` 0 and `weak.linter.style.header` false, or true \
           with `weak.linter.style.header.license` set to your license line.",

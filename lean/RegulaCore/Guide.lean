@@ -1715,7 +1715,10 @@ def guide : RuleId → Guide
           whose resolved plugins name no such target, and the finding names the line to add. \
           `doctor` reports that finding; an audit of such a target stops first at RG2003, \
           whose line for each module that Lean elaborated without the observer names the same \
-          entry. \
+          entry. `doctor` also names the `needs` entry when a target lists the observer in \
+          `plugins` alone, which the decision does not require. Lake v4.34.1 builds a target's \
+          `needs` before its modules fetch their plugins. Without the entry, a fresh build can \
+          build the observer several times at the same time and corrupt its files. \
           The observer records the options the source sets, which the rule reads below, and the \
           messages that RG2003 decides.",
         "The accepted set holds the required options at the values the rule admits; the §6.7 \
