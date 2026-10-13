@@ -1751,7 +1751,9 @@ def guide : RuleId → Guide
           own libraries wrote, such as `smartUnfolding` in `rfl'`, when the audit finds the \
           macro's module as an `.olean` of the toolchain's library or the macro among the builtins of \
           the Lean that elaborated the module, such as `match.ignoreUnusedAlts` in `deriving BEq`; \
-          a project's own module named `Lean.…` is not one. So the source cannot turn one of Lean's default warnings off, set \
+          a project's own module named `Lean.…` is not one, and neither is an option under an \
+          elaborator of Lean that evaluates the project's code, such as `run_cmd` or `run_elab` \
+          (`RegulaPolicy.Community.evaluators`). So the source cannot turn one of Lean's default warnings off, set \
           `linter.all` or `autoImplicit`, or set a `debug.` or `trace.` option, and an option \
           whose value is not a literal is rejected. The finding names each option with its \
           module, line and column.",

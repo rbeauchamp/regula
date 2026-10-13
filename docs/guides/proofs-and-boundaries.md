@@ -364,11 +364,13 @@ Regula has the same trace as a root and as a dependency. An adopter that require
 Regula by path does not build its modules again.
 
 The observer imports only Lean, prints nothing and reads no option that the marker sets. So a
-build with the marker and a build without it write the same record. The audit's own builds install
-the same facet in the process with `Observer.observerPresetup`, over whatever the workspace
-declares. It acts there on the modules of the root package and of the running Regula, and each
-other module keeps the facet of the workspace. So the audit does not build again the modules of
-a different Regula checkout, such as the copy that a rule-example producer requires.
+build with the marker and a build without it write the same record.
+
+The audit's own builds install the same facet in the process with `Observer.observerPresetup`, over whatever the workspace
+declares. It acts there on the modules of the root package and of the running Regula.
+Each other module keeps the facet of the workspace, with that facet's `memoize` setting. So the audit does not build again the modules of a different Regula checkout, such as the copy
+that a rule-example producer requires. The facet caches its own job for an observed module, and
+the audit reads from that cache the plugins that the module's compilation loaded.
 
 
 The facet writes the record with `weakLeanArgsRecord`, a copy of `weakArgsRecordJson` in the
@@ -1502,6 +1504,18 @@ states.
 A builtin of the running Lean, such as the `deriving BEq` handler, writes options in a module that
 does not import its module. The observer then finds the elaborator among the builtins that the
 Lean of the build registered (`Lean.builtinDeclRanges`), and the decision admits that origin too.
+
+The second admission does not hold under an elaborator of Lean that evaluates the project's
+code, such as `run_cmd` or `run_elab`. That code may have built the option's syntax. The observer
+records the elaborators above the option, and the decision refuses the admission when one of
+them is in `RegulaPolicy.Community.evaluators` (`evaluated_not_toolchainWritten`).
+
+That list is the result of a search over the builtin command, term and tactic elaborators of the
+pinned Lean. It keeps the elaborators with compiled code that reaches `evalTerm`, `evalExprCore` or the
+`#eval` core, through the call edges of the module `Lean`. The registry checks run the
+search (`Regula.Checker.EvaluatorSearch.search`) and refuse unless its result is that list.
+Lean's `evalConst` is not a target, since `set_option` and declarations reach it through
+attribute code. A call through a closure that a table or a reference holds is outside the search.
 
 The observer records the options that Lean's `set_option` elaborator set. Of the builtin commands
 of Lean v4.34.1, only `unlock_limits` also assigns the options of the enclosing scope. It sets three

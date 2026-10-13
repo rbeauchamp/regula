@@ -1668,7 +1668,6 @@ def Build.runObserved (build : Build) (repo : FilePath) (targets : Array Target)
   let earlier ← IO.mkRef (#[] : Array Name)
   let recorded ← IO.mkRef (#[] : Array Name)
   let verdicts ← IO.mkRef (#[] : Array (Name × Observer.Verdict))
-  let store ← IO.mkRef (none : Option _root_.Lake.BuildStore)
   let exitCode ← try
       Workspace.withRootWorkspace repo (scrubSearchPath := true) fun loaded => do
         let ws := Workspace.uncachedWorkspace loaded
@@ -1714,8 +1713,9 @@ def Build.runObserved (build : Build) (repo : FilePath) (targets : Array Target)
         -- build and Lake replays it, a dependency's module included.
         let existing := (ws.findModuleFacetConfig? _root_.Lake.Module.presetupFacet).getD
           _root_.Lake.Module.presetupFacetConfig
-        let ws := ws.addModuleFacetConfig (Observer.observerPresetup existing plugin observed)
-        let fetch := observedFetch ws jobLogs (_root_.Lake.buildSpecs specs) (fun built => store.set (some built))
+        let presetups ← IO.mkRef ({} : Observer.PresetupCache)
+        let ws := ws.addModuleFacetConfig (Observer.observerPresetup existing plugin observed presetups)
+        let fetch := observedFetch ws jobLogs (_root_.Lake.buildSpecs specs)
         ws.runBuild fetch {
           out := .stream out, ansiMode := .noAnsi, showSuccess := true, leanOptOverrides,
           failLv := build.failLv }
@@ -1728,10 +1728,9 @@ def Build.runObserved (build : Build) (repo : FilePath) (targets : Array Target)
               so its messages were not observed"
           if recordsOwn && text.any (Workspace.traceRecords (ownRecord mod.lib)) then
             recorded.modify (·.push mod.name)
-        let built ← store.get
+        let presetups ← presetups.get
         for mod in modules do
-          let plugins := built.bind fun built =>
-            Observer.presetupPlugins? built mod.pkg.keyName mod.name
+          let plugins := Observer.presetupPlugins? presetups mod.pkg.keyName mod.name
           let loaded ← Observer.pluginLoaded pluginFile plugins
           -- Lake compiles each module with `LEAN_PATH` set to the workspace's library directories
           -- (`Lake/Build/Module.lean` lines 988 and 989, `Lake/Build/Actions.lean` line 63).

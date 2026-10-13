@@ -178,6 +178,7 @@ def settingOf (env : Environment) (decls : OptionDecls) (builtins : NameMap Decl
     value := setter.bind fun setter => literal setter[3]
     registeredDefault := (decls.find? found.info.optionName).map (·.defValue)
     form, wrapped, origin
+    under := (found.ancestors.filterMap fun (e, _) => if e.isAnonymous then none else some e).toArray
     position := positionOf fileMap id }
 
 /-- The observations of the command `stx`, appended to `fold`. -/

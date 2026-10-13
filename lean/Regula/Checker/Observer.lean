@@ -41,24 +41,37 @@ def runningPackageDir : IO (Option FilePath) := do
   let app ← IO.FS.realPath (← IO.appPath)
   return (app.parent.bind (·.parent)).bind (·.parent) |>.bind (·.parent)
 
+/-- The `presetup` jobs of the observed modules of a build, by package and module. -/
+abbrev PresetupCache :=
+  Std.HashMap (Name × Name) (_root_.Lake.Job _root_.Lake.ModulePreSetup)
+
 /-- The `presetup` facet of a module with Regula's observer. For a module for which `observed`
 holds, it is Lake's own facet (`Lake.Module.presetupFacetConfig`) with the observer's shared
 library that `plugin` fetches added to the module's plugins, and with that library's trace mixed
 into the module's trace. Every other module keeps the facet `existing` that the workspace
 configures, so the build gives it the plugins and trace of an ordinary build of the workspace, and
-Lake does not rebuild it, a dependency's module included, for the audit's facet. -/
+Lake does not rebuild it, a dependency's module included, for the audit's facet. The facet keeps
+whether `existing` lets Lake store its jobs (`memoize`, `Lake/Build/Index.lean` lines 43 to 49),
+so such a module's `presetup` runs as often as in an ordinary build. The job of an observed module
+is stored in `cache` by package and module, whatever Lake stores, and the audit reads its plugins
+there (`presetupPlugins?`). -/
 def observerPresetup (existing : _root_.Lake.ModuleFacetConfig _root_.Lake.Module.presetupFacet)
     (plugin : _root_.Lake.FetchM (_root_.Lake.Job _root_.Lake.Dynlib))
-    (observed : _root_.Lake.Module → Bool) :
+    (observed : _root_.Lake.Module → Bool) (cache : IO.Ref PresetupCache) :
     _root_.Lake.ModuleFacetConfig _root_.Lake.Module.presetupFacet :=
-  _root_.Lake.mkFacetJobConfig (buildable := false) fun (mod : _root_.Lake.Module) => do
-    if !observed mod then return ← existing.run mod
-    let job ← _root_.Lake.Module.presetupFacetConfig.run mod
-    let shared ← plugin
-    job.bindM (sync := true) fun setup => shared.mapM (sync := true) fun dynlib =>
-      return { setup with
-        plugins := setup.plugins.push dynlib
-        trace := setup.trace.mix (shared.getTrace.withCaption "Regula's elaboration observer") }
+  _root_.Lake.mkFacetJobConfig (buildable := false) (memoize := existing.memoize)
+    fun (mod : _root_.Lake.Module) => do
+      if !observed mod then return ← existing.run mod
+      let key := (mod.pkg.keyName, mod.name)
+      if let some job := (← cache.get)[key]? then return job
+      let job ← _root_.Lake.Module.presetupFacetConfig.run mod
+      let shared ← plugin
+      let job ← job.bindM (sync := true) fun setup => shared.mapM (sync := true) fun dynlib =>
+        return { setup with
+          plugins := setup.plugins.push dynlib
+          trace := setup.trace.mix (shared.getTrace.withCaption "Regula's elaboration observer") }
+      cache.modify (·.insert key job)
+      return job
 
 /-- The observer's shared library that the running Regula's build wrote, which its `Regula` library
 needs, whichever `presetup` facet Lake runs:
@@ -93,15 +106,10 @@ def observerPlugin (ws : _root_.Lake.Workspace) :
   return (fetch, file, none)
 
 
-/-- The plugins of the completed `presetup` of `module` of `package` in the build's `store`, or
-none when the store holds no completed one. -/
-def presetupPlugins? (store : _root_.Lake.BuildStore) (package module : Name) :
-    Option (Array FilePath) :=
-  let job? : Option (_root_.Lake.Job (_root_.Lake.FacetOut _root_.Lake.Module.presetupFacet)) :=
-    store.get? (_root_.Lake.BuildKey.packageModuleFacet package module
-      _root_.Lake.Module.presetupFacet)
-  job?.bind fun job => job.task.get.result?.map fun data =>
-    (_root_.Lake.ofFamily data : _root_.Lake.ModulePreSetup).plugins.map (·.path)
+/-- The plugins of the completed `presetup` of `module` of `package` that `observerPresetup` stored
+in `cache`, or none when it stored none or the job failed. -/
+def presetupPlugins? (cache : PresetupCache) (package module : Name) : Option (Array FilePath) :=
+  cache[(package, module)]?.bind fun job => job.task.get.result?.map (·.plugins.map (·.path))
 
 private unsafe def recordEntriesImpl (data : ModuleData) : Array RegulaObserver.Record :=
   match data.entries.find? (·.1 == RegulaObserver.records.name) with
@@ -190,6 +198,7 @@ def settings (toolchain : Name → Option RegulaPolicy.ToolchainOrigin)
       origin := s.origin.map (·.«module»)
       toolchain := s.origin.bind (toolchain ·.«module»)
       builtin := s.origin.any (·.builtin)
+      under := s.under.toList
       location := location s.position })
 
 /-- The receipt (`Regula.Probe.toolchainOrigin?`) for each module that declares a macro that wrote

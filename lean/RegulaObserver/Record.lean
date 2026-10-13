@@ -71,6 +71,11 @@ structure Setting where
   /-- The macro whose expansion wrote the option's name, or none when the name is in the module's
   source text. -/
   origin : Option Origin
+  /-- The elaborators of the nodes above the option's name in the command's info trees, innermost
+  first, each command, term and tactic node with a named elaborator: those that ran while Lean
+  elaborated the syntax that set it, such as `Lean.Elab.Command.elabRunCmd` when evaluated code
+  built that syntax. -/
+  under : Array Name := #[]
   /-- Where the option's name is. -/
   position : Position
   deriving Inhabited

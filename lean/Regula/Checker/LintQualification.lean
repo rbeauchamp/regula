@@ -747,7 +747,9 @@ the docstring does not expect fails the build with an error (`Lean/Elab/GuardMsg
 248). A one-declaration disable of `linter.missingDocs`, a community linter, is accepted; the same
 disable before a section of two definitions is a violation, as is the option that a macro of the
 adopter's own module `Lean.Adopter` writes, which only the toolchain's authenticated `.olean`
-would license. The `grind` tactic's `set_option` at an accepted value is accepted, as is the
+would license. A `set_option linter.missingDocs false` that `run_cmd` or `run_elab` elaborates
+from the project's own syntax is a violation that names the evaluating elaborator, with
+`Lean.Elab.Command` imported and with `Lean`. The `grind` tactic's `set_option` at an accepted value is accepted, as is the
 restored module. The file audit (`axiomGate --file`) decides its compilation's record with the same
 function (`Observer.decideRecord`): a `#guard_msgs` that drops a warning fails with the same
 `FAIL[elaboration-hidden]`, and `set_option linter.unusedVariables false` is an RG2006 violation. -/
@@ -832,6 +834,28 @@ private def observerEscapes (repo adopter : FilePath) : IO (Array String) := do
         "regula lint: VIOLATION (exit 1)"],
       excludes := #["FAIL[elaboration-hidden]"] })
   Regula.Filesystem.removePath .directory (adopter / "Lean")
+  -- An option that the project's code builds under an elaborator that evaluates it is the
+  -- project's (`RegulaPolicy.Community.evaluators`): with `Lean.Elab.Command` alone the builtin
+  -- elaborator is outside the environment, and with `Lean` the toolchain's `.olean` holds it.
+  for imported in ["Lean.Elab.Command", "Lean"] do
+    write "run_cmd Lean.Elab.Command.elabCommand \
+      (← `(command| set_option linter.missingDocs false))\n\ndef undocumented : Nat := 0"
+    mutate additional "/-! A configured module" s!"import {imported}\n/-! A configured module"
+    failures := failures ++ (← expect adopter {
+        label := s!"observer/run-cmd-option/{imported}", exitCode := 1,
+        contains := #["RG2006", "set_option linter.missingDocs false, written under \
+            Lean.Elab.Command.elabRunCmd, which evaluates the project's code",
+          "regula lint: VIOLATION (exit 1)"],
+        excludes := #["FAIL[elaboration-hidden]"] })
+    write "run_elab discard <| Lean.Elab.Term.elabTerm \
+      (← `(set_option linter.missingDocs false in (0 : Nat))) none"
+    mutate additional "/-! A configured module" s!"import {imported}\n/-! A configured module"
+    failures := failures ++ (← expect adopter {
+        label := s!"observer/run-elab-option/{imported}", exitCode := 1,
+        contains := #["RG2006", "set_option linter.missingDocs false, written under \
+            Lean.Elab.Command.elabRunElab, which evaluates the project's code",
+          "regula lint: VIOLATION (exit 1)"],
+        excludes := #["FAIL[elaboration-hidden]"] })
   -- The `grind` tactic's own `set_option` form, at a value RG2006 accepts.
   write "/-- A control. -/\ntheorem grindSet (a : Nat) : a + 0 = a := by\n  \
     grind => set_option maxHeartbeats 400000 in skip"

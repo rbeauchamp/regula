@@ -1540,6 +1540,9 @@ structure SourceSetting where
   /-- Whether the observer found the macro's declaration among the builtins of the Lean that
   elaborated the module, outside the module's environment, so that no module of it names one. -/
   builtin : Bool := false
+  /-- The elaborators of the nodes above the option's name, innermost first, as the observer recorded
+  them. -/
+  under : List Name := []
   /-- Where the option's name is in the module, line and column, as Lean reports them; only the
   report reads it. -/
   location : Nat × Nat := (0, 0)
@@ -1595,25 +1598,51 @@ theorem communityDisable_iff (s : SourceSetting) :
   cases hv : s.value <;>
     simp [communityDisable, CommunityDisable, hv, ← hd, ← OptionValue.readsAs_iff, and_assoc]
 
-/-- A macro of the pinned toolchain wrote the option's name: the adapter gave a receipt for the
-module `origin` names, or the macro is a builtin of the Lean that elaborated the module. -/
-def toolchainWritten (s : SourceSetting) : Bool :=
-  (match s.origin, s.toolchain with
-    | some m, some r => r.moduleName == m
-    | _, _ => false) ||
-    (s.origin.isSome && s.builtin)
+/-- The builtin elaborators of Lean v4.34.1 that evaluate code the project supplies, so that syntax
+they elaborate may have been built by that code: each builtin command, term and tactic elaborator
+and macro (`Lean.Elab.Command.commandElabAttribute`, `Lean.Elab.Term.termElabAttribute`,
+`Lean.Elab.Tactic.tacticElabAttribute`, `Lean.Elab.macroAttribute`) whose compiled code reaches
+`Lean.Elab.Term.evalTerm`, `Lean.Meta.evalExprCore` (under `evalExpr` and `evalExpr'`) or the
+`#eval` core `Lean.Elab.Command.elabEvalCoreUnsafe`, through the constants that definitions use and
+their `implemented_by` targets. `Regula.Checker.EvaluatorSearch.search` computes that set from the
+pinned toolchain and the registry checks refuse unless it is this list. The elaborators are `#eval`,
+`#eval!`, `run_cmd`, `run_elab`, `run_meta` (`Lean/Elab/BuiltinEvalCommand.lean` lines 265 to
+291), `register_error_explanation` (`Lean/Elab/ErrorExplanation.lean` line 98), `#guard`
+(`Lean/Elab/Tactic/Guard.lean` line 156), `include_str` (`Lean/Elab/BuiltinTerm.lean` line 437),
+`by_elab` (`Lean/Elab/BuiltinNotation.lean` line 583) and `run_tac`
+(`Lean/Elab/Tactic/BuiltinTactic.lean` line 680). -/
+def evaluators : List Name :=
+  [`Lean.Elab.Command.elabEval, `Lean.Elab.Command.elabEvalBang, `Lean.Elab.Command.elabRunCmd,
+    `Lean.Elab.Command.elabRunElab, `Lean.Elab.Command.elabRunMeta,
+    `Lean.Elab.ErrorExplanation.elabRegisterErrorExplanation,
+    `Lean.Elab.Tactic.GuardExpr.evalGuardCmd, `Lean.Elab.Term.elabIncludeStr,
+    `Lean.Elab.Term.elabRunElab, `Lean.Elab.Tactic.evalRunTac]
 
-/-- `toolchainWritten`, stated by its evidence: some toolchain receipt names the macro's module, or
-a macro wrote the name and the observer found it among the running Lean's builtins. -/
+/-- A macro of the pinned toolchain wrote the option's name, and no elaborator above it evaluates
+code the project supplies (`evaluators`): the adapter gave a receipt for the module `origin` names,
+or the macro is a builtin of the Lean that elaborated the module. Under such an elaborator, the
+project's code may have built the syntax, so the option counts as the source's own. -/
+def toolchainWritten (s : SourceSetting) : Bool :=
+  !s.under.any (evaluators.contains ·) &&
+    ((match s.origin, s.toolchain with
+      | some m, some r => r.moduleName == m
+      | _, _ => false) ||
+      (s.origin.isSome && s.builtin))
+
+/-- `toolchainWritten`, stated by its evidence: no elaborator above the name is one of
+`evaluators`, and some toolchain receipt names the macro's module, or a macro wrote the name and
+the observer found it among the running Lean's builtins. -/
 def ToolchainWritten (s : SourceSetting) : Prop :=
-  (∃ r, s.toolchain = some r ∧ s.origin = some r.moduleName) ∨ (s.origin ≠ none ∧ s.builtin = true)
+  (∀ e ∈ s.under, e ∉ evaluators) ∧
+    ((∃ r, s.toolchain = some r ∧ s.origin = some r.moduleName) ∨
+      (s.origin ≠ none ∧ s.builtin = true))
 
 /-- `toolchainWritten` decides exactly `ToolchainWritten`. -/
 theorem toolchainWritten_iff (s : SourceSetting) :
     toolchainWritten s = true ↔ ToolchainWritten s := by
   unfold toolchainWritten ToolchainWritten
-  rw [Bool.or_eq_true]
-  refine or_congr ?_ (by cases s.origin <;> simp)
+  rw [Bool.and_eq_true, Bool.or_eq_true]
+  refine and_congr (by simp) (or_congr ?_ (by cases s.origin <;> simp))
   cases s.origin with
   | none => simp
   | some m =>
@@ -1622,6 +1651,14 @@ theorem toolchainWritten_iff (s : SourceSetting) :
     | some r =>
       simp only [beq_iff_eq, Option.some.injEq, exists_eq_left']
       exact ⟨Eq.symm, Eq.symm⟩
+
+/-- An option with one of `evaluators` above its name is never toolchain-written, whatever its
+origin and receipt. -/
+theorem evaluated_not_toolchainWritten (s : SourceSetting)
+    (h : ∃ e ∈ s.under, e ∈ evaluators) : toolchainWritten s = false := by
+  obtain ⟨e, he, hm⟩ := h
+  simp only [toolchainWritten, Bool.and_eq_false_iff, Bool.not_eq_false']
+  exact .inl (List.any_eq_true.mpr ⟨e, he, by simpa using hm⟩)
 
 /-- RG2006 accepts the option a claimed module's source set, for a target with options `o` that
 imports Mathlib when `mathlib`: a toolchain macro wrote it, it turns a community linter off for
@@ -1697,14 +1734,16 @@ theorem sourceFailures_eq_nil_iff (o : BuildOptions) (mathlib : Bool)
 
 /-- One option a module's source set that RG2006 does not accept, as the report names it: where
 it is, in `module` (a module's name, or the file a standalone compilation compiled), the option,
-its value, and the macro's module when a macro wrote it. -/
+its value, and the innermost of `evaluators` above it, or else the macro's module when a macro
+wrote it. -/
 def SourceSetting.text (module : String) (s : SourceSetting) : String :=
   let value := match s.value with
     | some v => s!" {v.text}"
     | none => " (a value that is not a literal)"
-  let origin := match s.origin with
-    | some m => s!", written by a macro of {m}"
-    | none => ""
+  let origin := match s.under.find? (evaluators.contains ·), s.origin with
+    | some e, _ => s!", written under {e}, which evaluates the project's code"
+    | none, some m => s!", written by a macro of {m}"
+    | none, none => ""
   s!"{module}:{s.location.1}:{s.location.2}: set_option {s.name}{value}{origin}"
 
 /-- The detail of the RG2006 finding for the source options `failures` of `module`. -/
@@ -1805,7 +1844,29 @@ passes in a module that does not import that handler's module, where the observe
 for the macro and finds it among the running Lean's builtins. -/
 theorem builtin_macro_accepted (o : BuildOptions) (mathlib : Bool) :
     sourceAccepted o mathlib { written `match.ignoreUnusedAlts (.bool true) .command with
-      origin := some .anonymous, builtin := true } = true := by
+      origin := some .anonymous, builtin := true
+      under := [`Lean.Elab.Command.elabSetOption, `Lean.Elab.Command.expandMutualPreamble,
+        `Lean.Elab.Command.elabDeclaration] } = true := by
+  cases mathlib <;> rfl
+
+/-- `set_option linter.missingDocs false` that `run_cmd` built and elaborated (`run_cmd
+Lean.Elab.Command.elabCommand (← \`(command| set_option linter.missingDocs false))`) fails, though
+the observer finds a builtin above it: `Lean.Elab.Command.elabRunCmd` evaluated the code that built
+it. -/
+theorem runCmd_builtin_fails (o : BuildOptions) (mathlib : Bool) :
+    sourceAccepted o mathlib { written `linter.missingDocs (.bool false) .command with
+      origin := some .anonymous, builtin := true
+      under := [`Lean.Elab.Command.elabSetOption, `Lean.Elab.Command.elabRunCmd] } = false := by
+  cases mathlib <;> rfl
+
+/-- The same option built by `run_elab`, in a module that imports Lean, where the adapter gave a
+receipt for the module that declares `Lean.Elab.Command.elabRunElab`, fails too. -/
+theorem runElab_receipt_fails (o : BuildOptions) (mathlib : Bool) (r : ToolchainOrigin) :
+    sourceAccepted o mathlib { written `linter.missingDocs (.bool false) .command with
+      origin := some `Lean.Elab.BuiltinEvalCommand, toolchain := some r
+      under := [`Lean.Elab.Command.elabSetOption, `Lean.Elab.Command.elabRunElab] } = false := by
+  unfold sourceAccepted
+  rw [evaluated_not_toolchainWritten _ ⟨`Lean.Elab.Command.elabRunElab, by simp, by decide⟩]
   cases mathlib <;> rfl
 
 /-- The same option with no builtin evidence and no receipt fails. -/

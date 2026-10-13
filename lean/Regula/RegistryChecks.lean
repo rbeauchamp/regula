@@ -7,6 +7,7 @@ import Regula.Website
 import RegulaCore.Guidance
 import Regula.Campaigns.Workflow
 import Regula.Checker.Lake
+import Regula.Checker.EvaluatorSearch
 
 /-! # Registry transport qualification
 
@@ -636,4 +637,10 @@ def main : IO Unit := do
       (!succeeded
           (Website.validateExample (.compilerRejection "error") (.incomplete "worker crashed")))
     "crash cannot satisfy negative example"
+  -- RG2006's list of Lean's evaluating elaborators is the search's result for the pinned
+  -- toolchain, so a toolchain change that adds or removes one cannot leave the list behind.
+  let found ← Regula.Checker.EvaluatorSearch.search
+  let listed := RegulaPolicy.Community.evaluators.mergeSort (·.toString ≤ ·.toString)
+  require (found == listed)
+    s!"RegulaPolicy.Community.evaluators is the evaluator search's result {found}"
   IO.println "registry qualification: PASS (closed metadata, transport, source and mode boundaries)"
