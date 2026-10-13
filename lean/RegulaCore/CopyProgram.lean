@@ -501,6 +501,8 @@ def readGitBlob (source : FilePath) (object : String) : IO ByteArray := do
 Tracked links are represented by Git's own blobs. Every other source entry is admitted through
 the general capture, so an untracked link or special entry is still refused before construction.
 Only indexed worktree files and captured Git metadata are emitted.
+After Git confirms that the common directory is the source's own .git, its captured commondir
+instruction is omitted using the observer's stored name, including case-folded spellings.
 
 Assumes: installed Git 2.54.0 git-ls-files(1), --format, -z and FIELD NAMES, reports the complete
 index with unquoted paths, object identifiers and modes. The source has no index or worktree
@@ -521,6 +523,13 @@ def copyGit (source target : FilePath) : IO (List Item) := do
   let common ← gitPath source #["rev-parse", "--path-format=absolute", "--git-common-dir"]
   unless common == (← observeRealPath (source / ".git")) do
     throw <| IO.userError "copy Git metadata has an external common directory"
+  -- Equality establishes that no common-directory instruction is needed in the clone. Observe
+  -- its stored name so the same omission covers a case-folded spelling without interpreting it.
+  let metadata ← if (← kindWith observer (source / ".git/commondir")).isSome then do
+      let some name := (← observeRealPath (source / ".git/commondir")).fileName
+        | throw <| IO.userError "copy Git common instruction has no stored name"
+      pure (metadata.filter fun item => ![".git", name].isPrefixOf item.relative)
+    else pure metadata
   admitGitObjects source
   let (exitCode, indexBytes, stderr) ← gitBinaryOutput source
     #["--no-lazy-fetch", "--no-optional-locks", "--no-replace-objects", "ls-files", "-z",

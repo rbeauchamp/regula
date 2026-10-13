@@ -620,9 +620,11 @@ The Git adapter has a closed source domain. Git decodes the configuration and re
 
 Index paths must be valid UTF-8 and match the stored directory-entry names exactly. `Construction.admitGitName_iff` states the exact-name guard's complete membership condition. A case-folded spelling refuses before capture or blob reading. The adapter does not interpret `core.ignoreCase`.
 
+After Git confirms that the source common directory is its own metadata, the clone omits the captured `commondir` instruction. The observer supplies its stored spelling. The copied metadata thus has no instruction that selects the original common directory.
+
 The qualification slot asks Git to resolve pointer files and `commondir`. It constructs common metadata beneath its own Git directory. It refuses alternates at the path Git resolves for the effective object store. It parses no alternate entry and has no fallback path resolver.
 
-`Construction.gitFiles_sound` relates each index entry to its regular-file instruction. `Construction.gitConstruct_io` states the exact plain tree of the executed writer. The tree has those indexed files, their directories and captured Git metadata. It contains no link. Destination byte fidelity remains trusted.
+`Construction.gitFiles_sound` relates each index entry to its regular-file instruction. `Construction.gitConstruct_io` states the exact plain tree of the executed writer. The tree has those indexed files, their directories and admitted Git metadata. The generated configuration and omitted common instruction determine that metadata. It contains no link. Destination byte fidelity remains trusted.
 
 Assumes: Trusted Git reports complete index modes, paths and object identifiers with `ls-files --format/-z`. Installed Git `2.54.0` documents this protocol in `git-ls-files(1)`. See `--format`, `-z` and `FIELD NAMES`. The source index and worktree have no writer. The adapter admits `.git` through no-follow capture before Git reads it.
 
@@ -631,6 +633,8 @@ Assumes: Git `2.54.0`, `git-cat-file(1)`, returns blob contents for `cat-file bl
 Assumes: Git `2.54.0`, `git(1)`, defines `--no-lazy-fetch`, `--no-optional-locks` and `--no-replace-objects`. The observations select these options. They disable lazy fetching, optional lock-taking writes and replacement-object lookup.
 
 Git commands use the shared `Construction.gitEnvironment` observation. It asks Git for its repository-local environment names, then removes those variables and `GIT_NAMESPACE`. It disables system and global configuration. Commands also select `-c core.symlinks=false`. Cold drivers interpret this same observer before their Git invocation.
+
+This Git isolation covers commands that Regula starts. Lake's own Git calls inherit the caller's environment. This includes Lake children and in-process workspace loading. Those two boundaries are outside this guarantee.
 
 The initial list query removes `GIT_CONFIG_COUNT` and `GIT_CONFIG_PARAMETERS`. It performs no repository setup or repository configuration read. A malformed command-configuration variable cannot prevent the initial list observation.
 
@@ -665,6 +669,8 @@ Result schema 19 records captured source fields and generated overrides separate
 An explicitly selected policy manifest outside the project keeps its exact absolute path and text in the account. It has no project-relative relocation. `configurationAccount_external` states this preservation for the executed account. The native control runs an incremental audit with that selection.
 
 The account makes a filename relative only when its project-relative components have no navigation or redirect. `configurationAccount_navigation` states preservation for an absolute path with navigation components. The external-manifest control selects such a path.
+
+An explicitly selected manifest inside the project relocates into the fresh copy. `configurationRelative` supplies the same path decision for relocation and the account. `relocateConfigurationPath_relative` and `configurationAccount_relative` state the two results. A fresh-audit control uses an absolute selection and checks its rule-example configuration comparison.
 
 The cold drivers embed the shared constructor's source with Lean's `include_str` and interpret that source before package artifacts exist. Assumes: Lean `v4.34.1`, `Lean/Elab/BuiltinTerm.lean:437-445`, `elabIncludeStr`, reads those bytes during elaboration. The compiler and interpreter remain trusted. The constructor has one source implementation, with checked correspondence to its filesystem model.
 

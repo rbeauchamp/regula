@@ -1,4 +1,5 @@
 import Regula.Checker.Lake
+import Regula.Checker.RuleExampleQualification
 import Regula.Qualification.Slot
 import Lean.Elab.Command
 
@@ -112,6 +113,29 @@ run_cmd do
         #["-c", "core.fileMode=true", "status", "--porcelain", "--untracked-files=all"]
       unless status.exitCode == 0 && status.stdout.isEmpty do
         throw <| IO.userError s!"target-text Git checkout is not clean: {status.stdout}{status.stderr}"
+      -- A self-pointing common instruction is unnecessary after source-location equality and
+      -- must not redirect the clone to its source. Stored case is an external filesystem boundary.
+      Construction.appendFileWith Construction.observer (source / ".git") "commondir"
+        ((source / ".git").toString ++ "\n").toUTF8
+      let selfCommon := base / "self-common-output"
+      discard <| Construction.copyGit source selfCommon
+      unless (← Construction.gitPath selfCommon
+          #["rev-parse", "--path-format=absolute", "--git-common-dir"]) ==
+          (← observeRealPath (selfCommon / ".git")) &&
+          (← Construction.kindWith Construction.observer (selfCommon / ".git/commondir")).isNone do
+        throw <| IO.userError "copied self-pointing common instruction selects its source"
+      if (← Construction.kindWith Construction.observer (source / ".git/COMMONDIR")).isSome then
+        IO.FS.rename (source / ".git/commondir") (source / ".git/temporary-spelling")
+        IO.FS.rename (source / ".git/temporary-spelling") (source / ".git/COMMONDIR")
+        let foldedCommon := base / "folded-common-output"
+        discard <| Construction.copyGit source foldedCommon
+        unless (← Construction.gitPath foldedCommon
+            #["rev-parse", "--path-format=absolute", "--git-common-dir"]) ==
+            (← observeRealPath (foldedCommon / ".git")) &&
+            (← Construction.kindWith Construction.observer (foldedCommon / ".git/commondir")).isNone do
+          throw <| IO.userError "copied folded common instruction selects its source"
+        removeOwn .file (source / ".git/COMMONDIR")
+      else removeOwn .file (source / ".git/commondir")
       -- Configuration scope, repository selectors, stored index spellings and alternate stores
       -- are external Git/filesystem boundaries. Each control targets one closed-domain refusal.
       fixture "git" #["-C", source.toString, "config", "extensions.worktreeConfig", "true"]
@@ -246,6 +270,22 @@ def checkWorkspace : IO Unit := do
       unless captured.contains (external.toString, some policy) do
         throw <| IO.userError "selected external manifest lost its exact path or text in the account"
       IO.println "construction external manifest: incremental audit and exact external account PASS"
+      -- A fresh audit relocates a project-contained absolute selection. Qualification consumes
+      -- the actual public result and request, rather than a duplicated expected-account model.
+      Construction.appendFileWith Construction.observer source "foundation_manifest.json" policy.toUTF8
+      let freshOutput := base / "fresh-manifest-result.json"
+      let fresh ← IO.Process.output {
+        cmd := binary.toString, cwd := some source,
+        args := #["--project", source.toString, "--manifest",
+          (source / "foundation_manifest.json").toString, "--json-out", freshOutput.toString],
+        env := #[("LEAN_PATH", none), ("LEAN_SRC_PATH", none)] }
+      unless fresh.exitCode == 0 do
+        throw <| IO.userError s!"absolute selected fresh manifest audit failed: {fresh.stdout}{fresh.stderr}"
+      let freshResult ← Regula.Checker.ResultProtocol.readDocument freshOutput
+      let request : Regula.Website.ExampleRequest ← IO.ofExcept
+        (fromJson? (← IO.ofExcept (freshResult.getObjVal? "request")))
+      IO.ofExcept (Regula.Checker.RuleExampleQualification.effectiveAccount freshResult request)
+      IO.println "construction selected manifest: fresh audit and rule-example account PASS"
       if ← (source / "VENDOR").isDir then
         -- A deliberate configuration mutation exercises Lake's stored-spelling boundary.
         IO.FS.writeFile (source / "lakefile.lean") (lakefile.replace "vendor" "VENDOR")

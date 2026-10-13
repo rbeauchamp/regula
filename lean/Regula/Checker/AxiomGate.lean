@@ -1254,7 +1254,8 @@ private unsafe def auditSurface (repo : FilePath) (manifest : Option FilePath)
     let copy := match origin with
       | .copied copied | .driverCopy copied => copied.project
       | .incremental => repo
-    let manifestPath := manifest.getD (Manifest.defaultPath copy)
+    let manifestPath := (manifest.map (Lake.relocateConfigurationPath repo copy)).getD
+      (Manifest.defaultPath copy)
     let inputs := match origin with
       | .copied copied | .driverCopy copied => copied.configurationInputs
       | .incremental => none
