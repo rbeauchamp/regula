@@ -15,7 +15,8 @@ the copy reads it. The control copies `examples/fixtures/copy-relocation`, with 
 - `git-project` keeps its dependencies' checkouts in `vendor` and requires `gdep` by Git, in the
   subdirectory `package` (`subDir`). The control commits `gdep` to a Git repository of its own,
   which Lake clones without a network, and which holds a file outside that subdirectory. Two of the
-  project's libraries have owned sources in `vendor` (`ownedSources`).
+  project's libraries have owned sources in `vendor` (`ownedSources`). After the first load, the
+  control moves the checkout outside `vendor` and links it back there.
 - `lake-source` has a library whose source directory `.lake/packages/src` lies in Lake's default
   packages directory, where the control places its module from `placed`.
 - `cache-config` requires the package `cdep` by path, in its own directory. The manifest entry for
@@ -182,6 +183,9 @@ SCRATCH`, in the scratch directory `scratch` that holds the control's copy of th
   load (`LakeSelection.checkSelection`). The copy leaves out the whole checkout, though the package
   lies in its subdirectory `subDir`, names the package in an override, and keeps the owned sources
   in `vendor` (`ownedSources`).
+- With that checkout moved outside `vendor` and linked back at `vendor/gdep`, Lake's load of the
+  project loads `gdep` through the link. The copy prunes the link without a refusal, and Lake's load
+  of the copy loads `gdep` through its override (`checkAnswer`).
 - Without a manifest, in a copy of `git-project` and with `LAKE_PKG_URL_MAP` mapping `gdep` to the
   local repository, Lake's load resolves the requirement anew. It records the remote URL of the
   requirement's URL for `gdep` and writes the local repository into its entry, and the inventory
@@ -198,6 +202,13 @@ def gitSteps (scratch : String) : IO Unit := do
   writeManifest gitProject repository rev
   loadInWorker root scratch gitProject (scratch / "copies-vendor") #[]
   IO.println "copy relocation packages directory of the configuration: PASS"
+  let linked := (← IO.FS.realPath scratch) / "linked-gdep"
+  succeeded "move of the checkout of gdep" (← run (gitProject / "vendor") "mv"
+    #["gdep", linked.toString])
+  succeeded "link of the checkout of gdep" (← run (gitProject / "vendor") "ln"
+    #["-s", linked.toString, "gdep"])
+  loadInWorker root scratch gitProject (scratch / "copies-linked") #[]
+  IO.println "copy relocation linked checkout: PASS"
   let unlocked := scratch / "url-map"
   copyFixture (fixture / "git-project") unlocked
   let map := (Json.mkObj [("gdep", toJson repository)]).compress

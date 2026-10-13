@@ -683,7 +683,11 @@ Package pruning leaves out exactly the checkout of each Git dependency and the d
 path dependency that lie directly in the packages directory, by the entry that Lake's load
 materialized each from (`LakeSelection.effectiveEntry`, `LakeSelection.checkoutDir`), and keeps
 every other entry there (`Construction.CopyFilter.omission_pruned`,
-`Construction.CopyFilter.omission_other`). An owned package there keeps its own capture pass (`Construction.packageSource_owned`). The copy's domain is
+`Construction.CopyFilter.omission_other`). Each pruned entry is spelled as the observed real path
+of the packages directory and the entry's own name, without following a link at the entry, so a
+linked checkout is pruned as a cloned one is. A packages directory that is itself a link is
+refused when the capture walks it, as each link that the capture walks is. An owned package there
+keeps its own capture pass (`Construction.packageSource_owned`). The copy's domain is
 each file that Lake's load reads for the root package or an owned dependency: the source of each
 module that Lake can build (`packageModules`), the loaded configuration file and an owned
 dependency's recorded manifest when present. Lake's load of the copy reads each at the path that it
@@ -742,19 +746,22 @@ def copyProject (repo target exclude : FilePath)
         | .noFileOrDirectory .. => pure none
         | error => throw error
     -- The checkout of each Git dependency and the directory of each path dependency that lie
-    -- directly in the packages directory, at their stored spelling: the only entries that pruning
-    -- leaves out (`Construction.CopyFilter.omission_pruned`). A Git dependency's package lies at
-    -- its checkout, or below it at the subdirectory its entry names. Each has its path override.
+    -- directly in the packages directory: the only entries that pruning leaves out
+    -- (`Construction.CopyFilter.omission_pruned`). Each is spelled as the observed real path of
+    -- the packages directory and the entry's own name, without following a link at the entry,
+    -- so a linked checkout is pruned as a cloned one is. A Git dependency's package lies at its
+    -- checkout, or below it at the subdirectory its entry names. Each has its path override.
     let dependencyDirectories ← match packagesReal with
       | none => pure []
       | some packages => ws.packages.toList.filterMapM fun package => do
         if package.isRoot then return none
-        let dir := match LakeSelection.effectiveEntry selection.entries package.baseName with
-          | some (entry@{ src := .git .., .. }) =>
-            _root_.Lake.joinRelative ws.dir (LakeSelection.checkoutDir selection.packagesDir entry)
-          | _ => package.dir
-        let dir := (← Regula.Filesystem.observeRealPath dir).normalize.components
-        return if dir.dropLast == packages then some dir else none
+        let some entry := LakeSelection.effectiveEntry selection.entries package.baseName
+          | return none
+        let dir := _root_.Lake.joinRelative ws.dir
+          (LakeSelection.checkoutDir selection.packagesDir entry)
+        let (some parent, some name) := (dir.parent, dir.fileName) | return none
+        let parent := (← Regula.Filesystem.observeRealPath parent).normalize.components
+        return if parent == packages then some (packages ++ [name]) else none
     let owned := (original.dependencies.filter (·.owned)).foldl (fun dirs dependency =>
       if dependency.root == root || dirs.contains dependency.root then dirs
       else dirs.push dependency.root) #[]
