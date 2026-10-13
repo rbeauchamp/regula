@@ -36,7 +36,8 @@ planted initializer never runs. The planted removals below are the calls of a re
   `requireNoLinkedEntries` refuses a directory with a symbolic link among its entries.
 - A directory and a symbolic link moved aside: `moveAside` moves each into a new directory beside
   it, the link itself and not its target. It moves nothing at an absent path or a last component
-  `..`, and stops with the entry in place when the new directory's name is longer than `NAME_MAX`.
+  `..`, and stops with `ENAMETOOLONG` at the new directory, the entry in place, when that
+  directory's name is longer than `NAME_MAX`.
 - A URL of `Regula.Site.Deployment.fetch` that starts with `-`: curl does not read it as an
   option.
 
@@ -154,8 +155,23 @@ run_cmd do
       | throwError "getconf NAME_MAX {base} gave no number: {limit.stdout}{limit.stderr}"
     let long := base / String.ofList (List.replicate longest 'n')
     IO.FS.writeFile long "long"
-    unless (← (Regula.Filesystem.moveAside long).toBaseIO) matches .error _ do
-      throwError "moveAside moved an entry whose new directory's name is longer than NAME_MAX"
+    -- The runtime gives `ENAMETOOLONG` as `IO.Error.invalidArgument` with the path that `mkdir`
+    -- refused and libuv's text `name too long`, which no other error mapped there has
+    -- (`src/runtime/io.cpp#L255-L274`); that path is the new directory beside `long`.
+    let made := s!"{long}.regula-refused-"
+    match ← (Regula.Filesystem.moveAside long).toBaseIO with
+    | .error (.invalidArgument (some file) _ "name too long") =>
+      let suffix := file.toList.drop made.length
+      unless file.startsWith made && suffix.length == 16 &&
+          suffix.all ("0123456789abcdef".toList.contains ·) do
+        throwError "moveAside stopped with ENAMETOOLONG at {file}, not at a new directory beside \
+          the entry"
+    | .error error =>
+      throwError "moveAside on an entry whose new directory's name is longer than NAME_MAX did \
+        not stop with ENAMETOOLONG at that directory: {error}"
+    | .ok moved =>
+      throwError "moveAside moved an entry whose new directory's name is longer than NAME_MAX: \
+        {moved.map (·.toString)}"
     unless (← IO.FS.readFile long) == "long" do
       throwError "a failed move aside changed its entry"
   finally

@@ -40,6 +40,13 @@ private def seed (path : FilePath) (text : String := "seed") : IO Unit := do
 private def reports (output : IO.Process.Output) (text : String) : Bool :=
   (output.stderr.splitOn text).length > 1
 
+/-- Whether `text` starts with the suffix of a new directory's name and the end of its line: 16
+hexadecimal digits (`Regula.Filesystem.moveAside`) and a line feed. -/
+private def newSuffix (text : String) : Bool :=
+  let chars := text.toList
+  chars.length > 16 && (chars.take 16).all ("0123456789abcdef".toList.contains ·) &&
+    chars[16]? == some '\n'
+
 /-- Require that the refused run `output` of the program `program` stopped as its guard does:
 exit code 1 and the guard's reason line on standard error (`Regula.TaskManager.refusalLine`). -/
 private def requireRefused (program : String) (output : IO.Process.Output) : IO Unit := do
@@ -197,10 +204,20 @@ private def refusals (program scratch : FilePath) (name : String)
   seed long "long"
   let refused ← refuse base #["--output", (base / "unmade").toString, "--with-word-count",
     long.toString]
+  -- The runtime gives `ENAMETOOLONG` as `IO.Error.invalidArgument` with the path that `mkdir`
+  -- refused and libuv's text `name too long`, which no other error mapped there has
+  -- (`src/runtime/io.cpp#L255-L274`), and prints it as `IO.Error.toString` does
+  -- (`src/Init/System/IOError.lean:256-258, 277`).
+  let made := s!"\n  file: {long}.regula-refused-"
+  let derived := match refused.stderr.splitOn made with
+    | [_, after] => newSuffix after
+    | _ => false
   requireChecks [⟨s!"a refused run of {name} whose word count's new directory would have a name \
-    longer than NAME_MAX did not report it, or moved or changed it {shown refused}",
-    reports refused s!"{long} was not moved aside: " && (← IO.FS.readFile long) == "long" &&
-      (← asides long).isEmpty⟩]
+    longer than NAME_MAX did not report ENAMETOOLONG at that directory, or moved or changed the \
+    word count {shown refused}",
+    reports refused s!"{long} was not moved aside: invalid argument (error code: " &&
+      reports refused s!", name too long){made}" && derived &&
+      (← IO.FS.readFile long) == "long" && (← asides long).isEmpty⟩]
   let out := base / "unparsed"
   seed (out / "index.html")
   let refused ← refuse base #["--output", out.toString, "--unknown-option"]
@@ -209,8 +226,18 @@ private def refusals (program scratch : FilePath) (name : String)
     reports refused "nothing was moved aside: Verso's parser refused the options" &&
       (← present (out / "index.html")) && (← asides out).isEmpty⟩]
 
+/-- The two JSON values of `text`, with white space before and after each, read by Lean's own JSON
+parser: `Lean.Json.Parser.anyCore` reads one value and the white space after it. -/
+private def twoJsonValues (text : String) : Except String (Lean.Json × Lean.Json) :=
+  Std.Internal.Parsec.String.Parser.run (do
+    Std.Internal.Parsec.String.ws
+    let first ← Lean.Json.Parser.anyCore
+    let second ← Lean.Json.Parser.anyCore
+    Std.Internal.Parsec.eof
+    return (first, second)) text
+
 /-- Build `regula-site` and `regula-standard` in the website package of the repository at `root`
-and find their executables with `lake query`, then run the issue's reproduction with
+and find their executables with `lake query --json`, then run the issue's reproduction with
 `regula-standard` (`reproduction`) and the refusals of both programs (`refusals`), in a fresh
 scratch directory. The first failure stops it. It runs after `lake exe site build`, which builds
 the website package and generates the sources of `regula-site`.
@@ -218,14 +245,20 @@ the website package and generates the sources of `regula-site`.
 Assumes: Lake 4.34.1 builds the executable of a `lean_exe` target at `LeanExe.file`, the package's
 `binDir` with the executable's file name, and gives that path as the target's result
 (`src/lake/Lake/Build/Executable.lean:22-31, 38-40`, `src/lake/Lake/Config/LeanExe.lean:72-73`).
-`lake query` prints the result of each target that it names, on one line each and in that order
-(`src/lake/Lake/Config/OutFormat.lean:26, 46`). -/
+`lake query --json` prints the result of each target that it names in that order, each as a
+compact JSON value (`src/lake/Lake/CLI/Main.lean:281, 942-952`,
+`src/lake/Lake/Config/OutFormat.lean:61, 78-81`). A path is a JSON string of its text on Linux and
+macOS (`src/Lean/Data/Json/FromToJson/Basic.lean:108-109`,
+`src/lake/Lake/Util/FilePath.lean:29-36`), and a compact JSON string escapes a line feed
+(`src/Lean/Data/Json/Printer.lean:36-43`), so a path with a line feed in it is read whole. -/
 def control (root : FilePath) : IO Unit := do
   let website := root / "website"
-  let built ← run website "lake" #["query", "regula-site", "regula-standard"] cleanEnv
-  let found := (built.stdout.splitOn "\n").filter (!·.isEmpty)
+  let built ← run website "lake" #["query", "--json", "regula-site", "regula-standard"] cleanEnv
+  let found : Except String (FilePath × FilePath) := do
+    let (site, standard) ← twoJsonValues built.stdout
+    return (← Lean.fromJson? site, ← Lean.fromJson? standard)
   let (site, standard) ← match built.exitCode, found with
-    | 0, [site, standard] => pure (website / site, website / standard)
+    | 0, .ok (site, standard) => pure (website / site, website / standard)
     | _, _ => throw (IO.userError s!"lake query of regula-site and regula-standard did not give \
         their two executables {shown built}")
   let refusing := cleanEnv.push ("LEAN_NUM_THREADS", some "0")
