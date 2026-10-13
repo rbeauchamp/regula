@@ -77,8 +77,9 @@ inductive Group where
   a GitHub-hosted Linux runner; anywhere else it refuses as unsupported. -/
   | enumerationFailure
   /-- `qualify readers`: no declaration of a module of a package of the repository refers to
-  Lean's directory readers. It builds each package, after its dependencies are provisioned and
-  the website sources are generated. -/
+  Lean's directory readers. It builds the modules of each package with Lake, as the other modes
+  build, so Lake can update or fetch a dependency there. It runs after provisioning and after the
+  website sources are generated. -/
   | readers
   deriving DecidableEq
 
@@ -1256,7 +1257,10 @@ private def usage : String :=
     environments [1/6..6/6]|build-policy [1/3..3/3]|lint-driver [1/5..5/5]|producers|history|\
     self-lint|self-lint-default|self-audit [1/4..4/4]|rule-examples [1/3..3/3]|input-inventory|\
     environment-census|snapshot-history|acceptance-controls|documentation-controls|\
-    focused-controls|policy-domain|enumeration-failure|readers]]"
+    focused-controls|policy-domain|enumeration-failure|readers]]\n\
+  diagnostics readers builds the modules of each package with Lake, as the other modes build, so \
+  Lake can update or fetch a dependency there; run it after provisioning (lean --run \
+  lean/RegulaProvision.lean verso and mathlib) and ./scripts/verify.sh site"
 
 /-- The earlier verdicts an attempt of `mode` invalidates, each with the constant text recording
 it as incomplete. Ordinary acceptance invalidates the accepted link, so it is not accepted from
