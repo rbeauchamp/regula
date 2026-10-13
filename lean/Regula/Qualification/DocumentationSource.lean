@@ -106,9 +106,10 @@ def check (sourceReadOnly : Bool) : IO Unit := do
                   "source-unreadable", "restored"]
         for index in [:phases.size] do
           let phase := phases[index]!
-          if ← target.isDir then Regula.Filesystem.removePath .directory target
+          if ← Regula.Filesystem.isDirectory target then
+            Regula.Filesystem.removePath .directory target
           if phase == "initial-missing" then
-            if ← target.pathExists then Regula.Filesystem.removePath .file target
+            Regula.Filesystem.removePath .file target
           else
             let operation := if phase == "source-change" then "append" else if phase ==
                                                                              "source-missing" then

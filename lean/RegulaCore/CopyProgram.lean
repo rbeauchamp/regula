@@ -7,11 +7,25 @@ regular files through no-follow metadata, then creates the selected entries. The
 of a finished copy, no link creator, and no recursive system copy. This module imports only the
 toolchain so the cold verification and provisioning drivers can execute its source before the
 package has artifacts. `RegulaCore.CopyConstruction` states its filesystem-model contract.
+
+It reads whether a directory is present with its own copy of `Regula.Filesystem.isDirectory`
+(`Construction.isDirectory`), since it cannot import `RegulaCore.Presence`.
 -/
 
 namespace Regula.Filesystem.Construction
 
 open System
+
+/-- Whether a directory is at `path`, following symbolic links: `true` for a directory, `false` for
+another kind of file or when the read fails with `noFileOrDirectory`, and the read's error for each
+other error. Lean's `System.FilePath.isDir` returns `false` for every error of `metadata`. This
+program cannot import `RegulaCore.Presence`; `Regula.Filesystem.Construction.isDirectory_eq`
+proves this equal to `Regula.Filesystem.isDirectory`. -/
+def isDirectory (path : FilePath) : IO Bool := do
+  match ← path.metadata.toBaseIO with
+  | .ok metadata => return metadata.type == .dir
+  | .error (.noFileOrDirectory ..) => return false
+  | .error error => throw error
 
 /-- The only entries that construction can create. Copied files use 0644; explicitly generated executable files name their required rights. -/
 inductive Payload where
@@ -618,7 +632,8 @@ discovery supplies the audit census and cold-copy requirements. It must precede 
 The walk admits each directory through no-follow metadata before descent, so a directory link
 cannot redirect or cycle discovery. `requiredFiles` admits the selected leaves. -/
 def markdownPaths (root : FilePath) : IO (Array FilePath) := do
-  unless ← root.isDir do throw <| IO.userError s!"documentation root is not a directory: {root}"
+  unless ← isDirectory root do
+    throw <| IO.userError s!"documentation root is not a directory: {root}"
   let enter (path : FilePath) : IO Bool := do
     unless (← observeMetadata path).type == .dir do
       throw <| IO.userError s!"copy refused {path}: selected ancestor is not a directory"
@@ -1098,7 +1113,8 @@ def sourceMain (args : List String) : IO UInt32 := do
     throw <| IO.userError s!"unknown construction domain: {domain}"
   let source := FilePath.mk source
   let base := source.components.length
-  let documents ← if ← (source / "docs").isDir then markdownPaths (source / "docs") else pure #[]
+  let documents ← if ← isDirectory (source / "docs") then markdownPaths (source / "docs")
+    else pure #[]
   let requested := required.map (FilePath.mk · |>.components) ++
     documents.toList.map (fun path => path.components.drop base)
   let stored ← requiredFiles source requested

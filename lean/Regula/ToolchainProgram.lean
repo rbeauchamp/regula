@@ -2,6 +2,7 @@ module
 
 public import Regula.CompilerObservation
 public import RegulaPolicy.Compiler
+import RegulaCore.Presence
 
 /-! # The toolchain's programs
 
@@ -37,7 +38,7 @@ directory (`sysroot`), with the platform's executable extension added. Throws wh
 installation has no file there. -/
 def program (name : String) : IO FilePath := do
   let path := (← sysroot) / "bin" / name |>.addExtension FilePath.exeExtension
-  unless ← path.pathExists do
+  unless ← Regula.Filesystem.isPresent path do
     throw <| IO.userError s!"the Lean toolchain has no program {name} at {path}"
   return path
 

@@ -173,6 +173,18 @@ open Lean System
 private def fail {α : Type} (message : String) : IO α :=
   throw <| IO.userError s!"release: {message}"
 
+/-- Whether an entry is at `path`, following a symbolic link: `true` when `path.metadata` reads it,
+`false` when that read fails with `noFileOrDirectory`, and the read's error for every other error.
+Lean's `System.FilePath.pathExists` returns `false` for every error of `metadata`, so a path that
+cannot be read, such as one under a directory without search permission, would read as absent.
+This program cannot import `Regula.Filesystem`; `Regula.ProgramCheck.Release.isPresent_eq` proves
+this equal to `Regula.Filesystem.isPresent`. -/
+def isPresent (path : System.FilePath) : IO Bool := do
+  match ← path.metadata.toBaseIO with
+  | .ok _ => return true
+  | .error (.noFileOrDirectory ..) => return false
+  | .error error => throw error
+
 /-! ## Versions -/
 
 /-- A version `major.minor.patch`: a Regula release's, or a Lean release's. -/
@@ -2162,7 +2174,7 @@ def publish : IO Unit := do
     let id ← IO.ofExcept (draft.getObjValAs? Nat "id")
     discard <| gh #["api", "--method", "DELETE", s!"repos/{repo}/releases/{id}"]
   let asset : FilePath := s!"tmp/site-release/regula-site-{v.spelling}.tar.gz"
-  unless ← asset.pathExists do fail s!"the site build wrote no release edition {asset}"
+  unless ← isPresent asset do fail s!"the site build wrote no release edition {asset}"
   IO.FS.createDirAll "tmp"
   IO.FS.writeFile "tmp/release-notes.md" (notes r repo)
   -- `gh` creates the release as a draft, uploads the asset, then publishes it, which creates the

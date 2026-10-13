@@ -128,7 +128,7 @@ checkout, never a library build. Lake keeps the compiled configuration of a work
 must admit that copy as equal to `weakArgsRecordJson` and refuse it with one literal changed. -/
 private def lakefileEncoderCheck : IO Unit := do
   let root ← IO.currentDir
-  unless ← (root / "lakefile.lean").pathExists do
+  unless ← Regula.Filesystem.isPresent (root / "lakefile.lean") do
     throw <| IO.userError s!"registry: {root} has no lakefile.lean"
   let (config, _) ← readModuleData (root / ".lake" / "config" / "0" / "lakefile.olean")
   let env ← importModules #[{ module := `Regula.Checker.Lake }] {}

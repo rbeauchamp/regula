@@ -232,7 +232,7 @@ private unsafe def lint (args : List String) : IO Outcome := do
     match ← (Lake.surfaceInventory dispatching).toBaseIO with
     | .ok _ =>
       let worker ← Lake.buildTargetsShowing dispatching #[.spec workerTarget]
-      unless worker.succeeded && (← (← workerBinary).pathExists) do
+      unless worker.succeeded && (← Regula.Filesystem.isPresent (← workerBinary)) do
         IO.eprintln worker.output
         IO.eprintln s!"regula lint: {Outcome.incomplete.label}: audit worker {workerTarget} did \
           not build"

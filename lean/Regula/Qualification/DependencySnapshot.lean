@@ -12,9 +12,10 @@ open Lean System
 def success (result : IO.Process.Output) : IO Unit :=
   requireChecks [⟨result.stdout ++ result.stderr, result.exitCode == 0⟩]
 
-/-- Removes the file at `path` when it exists; a missing file is not an error. -/
-def removeFile (path : FilePath) : IO Unit := do
-  if ← path.pathExists then Regula.Filesystem.removePath .file path
+/-- Removes the file at `path` when it exists; a missing file is not an error, and every other
+failure of the read or the removal is (`Regula.Filesystem.removePath`). -/
+def removeFile (path : FilePath) : IO Unit :=
+  Regula.Filesystem.removePath .file path
 
 /-- Copies the Regula root's `lean-toolchain` file into the directory `target`. -/
 def toolchain (root target : FilePath) : IO Unit := do
@@ -57,11 +58,12 @@ private def control (project dependency : FilePath) : IO Unit := do
   unchanged
   let built ← Regula.Checker.Lake.buildTargets project #[.surface (.library "Example")]
   requireChecks [⟨built.output, built.succeeded⟩,
-    ⟨"custom dependency build directory", ← (dependency / "build/lib/lean/Dep.olean").pathExists⟩]
+    ⟨"custom dependency build directory",
+      ← Regula.Filesystem.isPresent (dependency / "build/lib/lean/Dep.olean")⟩]
   unchanged
   for name in #["Dep/Generated.lean", "lean-toolchain", "Dep/New.lean"] do
     let path := dependency / name
-    let original ← if ← path.pathExists then pure (some (← IO.FS.readFile path)) else pure none
+    let original ← Regula.Filesystem.readFileIfPresent path
     IO.FS.writeFile path (original.getD "" ++
       if name == "lean-toolchain" then "\n" else "\ndef added : Nat := 9\n")
     let changed ← unchanged.toBaseIO
@@ -225,7 +227,7 @@ def check (group : String) : IO Unit := do
       for kind in #["git", "non-git"] do
         if kind == "non-git" then Regula.Filesystem.removePath .directory (dependency / ".git")
         for path in #[dependency / "build", project / ".lake/build"] do
-          if ← path.pathExists then Regula.Filesystem.removePath .directory path
+          Regula.Filesystem.removePath .directory path
         for name in #[".env", "unrelated.txt"] do
           IO.FS.writeFile (dependency / name) "R4_SYNTHETIC_UNRELATED"
         control project dependency

@@ -1,5 +1,6 @@
 import RegulaCore.Removal
 import RegulaCore.CopyConstruction
+import RegulaCore.Presence
 
 /-! # The observer of the filesystem, and the removals and moves that Regula runs
 
@@ -35,7 +36,12 @@ Windows the observer's read of an entry, its read of a real path and its removal
 fail without acting, and every removal and move, which read the entry first, fails.
 
 `readFileIfPresent` is not an operation of the observer: it calls `IO.FS.readFile` directly, and
-gives `none` only for the error that says that nothing is at the path (`present`). -/
+gives `none` only for the error that says that nothing is at the path (`present`). Neither are
+`isPresent`, `isDirectory` and `metadataIfPresent` of `RegulaCore.Presence`, which Regula's code
+reads in place of Lean's `System.FilePath.pathExists` and `System.FilePath.isDir`: they read
+`System.FilePath.metadata`, which follows links, and give absence only for that error too
+(`isPresent_runsTo`, `isDirectory_runsTo`). `entryIfPresent` is the same read of the entry itself,
+by the observer. -/
 
 namespace Regula.Filesystem
 
@@ -488,15 +494,13 @@ def requireNoLinkedEntries (path : FilePath) : IO Unit := do
       throw <| IO.userError s!"{entry.path} is not a directory or a file (a symbolic link or \
         another kind of entry is there)"
 
-/-! ## The text of a file that may be absent -/
+/-! ## Whether a path is present, and the text of a file that may be absent
 
-/-- The outcome of a read as an optional value: `none` for Lean's `noFileOrDirectory` error, the
-one it gives for `ENOENT` (`Absent`), and each other error kept (`present_eq_ok_none_iff`,
-`present_error`). -/
-def present {α : Type} : Except IO.Error α → Except IO.Error (Option α)
-  | .ok value => .ok (some value)
-  | .error (.noFileOrDirectory ..) => .ok none
-  | .error error => .error error
+`present`, `metadataIfPresent`, `isPresent` and `isDirectory` are in `RegulaCore.Presence`, so that
+each module of Regula can import them. The programs that cannot import it define their own copies,
+each proved equal to the read here: the copy program's `Construction.isDirectory`
+(`Construction.isDirectory_eq`), and the `isPresent` of each program that `lean --run` runs, in its
+module of `Regula.ProgramCheck` (`isPresent_eq_match`). -/
 
 /-- `present` gives `none` exactly for an error that says nothing is at the path. -/
 theorem present_eq_ok_none_iff {α : Type} (read : Except IO.Error α) :
@@ -516,6 +520,179 @@ permission error or a directory in the file's place, is thrown. `System.FilePath
 instead reports each failure of its metadata read as absence. -/
 def readFileIfPresent (path : FilePath) : IO (Option String) := do
   MonadExcept.ofExcept (present (← (IO.FS.readFile path).toBaseIO))
+
+section Presence
+
+variable {path : FilePath} {w s : Void IO.RealWorld}
+
+/-- When Lean's `System.FilePath.metadata` reads `metadata` at `path`, `metadataIfPresent` gives it,
+and ends where the read ends. -/
+theorem metadataIfPresent_ok {metadata : IO.FS.Metadata} (read : path.metadata w = .ok metadata s) :
+    metadataIfPresent path w = .ok (some metadata) s := by
+  unfold metadataIfPresent
+  rw [eio_bind_ok (io_toBaseIO_ok read), io_ofExcept]
+  rfl
+
+/-- When the read fails with an error that says that nothing is at `path` (`Absent`),
+`metadataIfPresent` gives `none`. -/
+theorem metadataIfPresent_absent {error : IO.Error} (read : path.metadata w = .error error s)
+    (absent : Absent error) : metadataIfPresent path w = .ok none s := by
+  unfold metadataIfPresent
+  rw [eio_bind_ok (io_toBaseIO_error read), io_ofExcept]
+  cases error <;> simp_all [present, Absent]
+
+/-- When the read fails with any other error, `metadataIfPresent` fails with it. -/
+theorem metadataIfPresent_error {error : IO.Error} (read : path.metadata w = .error error s)
+    (other : ¬Absent error) : metadataIfPresent path w = .error error s := by
+  unfold metadataIfPresent
+  rw [eio_bind_ok (io_toBaseIO_error read), io_ofExcept, present_error error other]
+
+/-- When the read gives metadata, `isPresent` gives `true`. -/
+theorem isPresent_ok {metadata : IO.FS.Metadata} (read : path.metadata w = .ok metadata s) :
+    isPresent path w = .ok true s := by
+  unfold isPresent
+  rw [eio_bind_ok (metadataIfPresent_ok read), eio_pure]
+  rfl
+
+/-- When the read fails with an error that says that nothing is at `path`, `isPresent` gives
+`false`, as `System.FilePath.pathExists` does. -/
+theorem isPresent_absent {error : IO.Error} (read : path.metadata w = .error error s)
+    (absent : Absent error) : isPresent path w = .ok false s := by
+  unfold isPresent
+  rw [eio_bind_ok (metadataIfPresent_absent read absent), eio_pure]
+  rfl
+
+/-- When the read fails with any other error, `isPresent` fails with it, where
+`System.FilePath.pathExists` gives `false`. -/
+theorem isPresent_error {error : IO.Error} (read : path.metadata w = .error error s)
+    (other : ¬Absent error) : isPresent path w = .error error s := by
+  unfold isPresent
+  rw [eio_bind_error (metadataIfPresent_error read other)]
+
+/-- When the read gives metadata, `isDirectory` gives whether its type is a directory. -/
+theorem isDirectory_ok {metadata : IO.FS.Metadata} (read : path.metadata w = .ok metadata s) :
+    isDirectory path w = .ok (metadata.type == .dir) s := by
+  unfold isDirectory
+  rw [eio_bind_ok (metadataIfPresent_ok read), eio_pure]
+  rfl
+
+/-- When the read fails with an error that says that nothing is at `path`, `isDirectory` gives
+`false`, as `System.FilePath.isDir` does. -/
+theorem isDirectory_absent {error : IO.Error} (read : path.metadata w = .error error s)
+    (absent : Absent error) : isDirectory path w = .ok false s := by
+  unfold isDirectory
+  rw [eio_bind_ok (metadataIfPresent_absent read absent), eio_pure]
+  rfl
+
+/-- When the read fails with any other error, `isDirectory` fails with it, where
+`System.FilePath.isDir` gives `false`. -/
+theorem isDirectory_error {error : IO.Error} (read : path.metadata w = .error error s)
+    (other : ¬Absent error) : isDirectory path w = .error error s := by
+  unfold isDirectory
+  rw [eio_bind_error (metadataIfPresent_error read other)]
+
+end Presence
+
+/-- What `isPresent` gives, by the run of Lean's `System.FilePath.metadata` from the same world:
+`true` exactly when the read succeeds, `false` exactly when it fails with an error that says that
+nothing is at the path (`Absent`), and every other error of the read, thrown, from the world the
+read ends in. -/
+theorem isPresent_runsTo (path : FilePath) (w : Void IO.RealWorld) :
+    RunsTo id (isPresent path w)
+      (fun found s => if found then ∃ metadata, path.metadata w = .ok metadata s
+        else ∃ error, path.metadata w = .error error s ∧ Absent error)
+      (fun error s => path.metadata w = .error error s ∧ ¬Absent error) := by
+  cases read : path.metadata w with
+  | ok metadata s => rw [isPresent_ok read]; exact ⟨metadata, rfl⟩
+  | error error s =>
+    by_cases absent : Absent error
+    · rw [isPresent_absent read absent]; exact ⟨error, rfl, absent⟩
+    · rw [isPresent_error read absent]; exact ⟨rfl, absent⟩
+
+/-- What `isDirectory` gives, by the run of Lean's `System.FilePath.metadata` from the same world:
+`true` exactly when the read gives a directory, `false` exactly when it gives another kind of file
+or fails with an error that says that nothing is at the path (`Absent`), and every other error of
+the read, thrown. -/
+theorem isDirectory_runsTo (path : FilePath) (w : Void IO.RealWorld) :
+    RunsTo id (isDirectory path w)
+      (fun found s => if found then
+          ∃ metadata, path.metadata w = .ok metadata s ∧ metadata.type = .dir
+        else (∃ metadata, path.metadata w = .ok metadata s ∧ metadata.type ≠ .dir) ∨
+          ∃ error, path.metadata w = .error error s ∧ Absent error)
+      (fun error s => path.metadata w = .error error s ∧ ¬Absent error) := by
+  cases read : path.metadata w with
+  | ok metadata s =>
+    rw [isDirectory_ok read]
+    by_cases directory : metadata.type = .dir
+    · simp only [RunsTo, directory]; exact ⟨metadata, rfl, directory⟩
+    · have other : (metadata.type == .dir) = false := by
+        cases type : metadata.type <;> first | rfl | exact absurd type directory
+      simp only [RunsTo, other]; exact .inl ⟨metadata, rfl, directory⟩
+  | error error s =>
+    by_cases absent : Absent error
+    · rw [isDirectory_absent read absent]; exact .inr ⟨error, rfl, absent⟩
+    · rw [isDirectory_error read absent]; exact ⟨rfl, absent⟩
+
+/-- `isPresent` as one match on Lean's read: the form of its copies in the code that cannot import
+it, the programs that run with `lean --run` before the package is built (`RegulaProvision`,
+`Regula.DiagnosticsGate`, `Regula.Release`) and the collector (`Regula.Collect`). A theorem proves
+each copy equal to `isPresent` through this one (`Regula.ProgramCheck.Provision.isPresent_eq` and
+the others, `Regula.Checker.Environment.collectIsPresent_eq`). -/
+theorem isPresent_eq_match : isPresent = (fun path => do
+    match ← path.metadata.toBaseIO with
+    | .ok _ => return true
+    | .error (.noFileOrDirectory ..) => return false
+    | .error error => throw error) := by
+  funext path w
+  show _ = (liftM (m := BaseIO) (n := IO) (path.metadata.toBaseIO) >>= _) w
+  cases read : path.metadata w with
+  | ok metadata s =>
+    rw [isPresent_ok read, eio_bind_ok (io_toBaseIO_ok read)]
+    exact (eio_pure _ _).symm
+  | error error s =>
+    rw [eio_bind_ok (io_toBaseIO_error read)]
+    cases error with
+    | noFileOrDirectory =>
+      rw [isPresent_absent read trivial]
+      exact (eio_pure _ _).symm
+    | _ =>
+      rw [isPresent_error read id]
+      exact (eio_throw _ _).symm
+
+/-- `isDirectory` as one match on the outcome of the read, the form that a program which cannot
+import `RegulaCore.Presence` writes. -/
+theorem isDirectory_eq_match : isDirectory = (fun path => do
+    match ← path.metadata.toBaseIO with
+    | .ok metadata => return metadata.type == .dir
+    | .error (.noFileOrDirectory ..) => return false
+    | .error error => throw error) := by
+  funext path w
+  show _ = (liftM (m := BaseIO) (n := IO) (path.metadata.toBaseIO) >>= _) w
+  cases read : path.metadata w with
+  | ok metadata s =>
+    rw [isDirectory_ok read, eio_bind_ok (io_toBaseIO_ok read)]
+    exact (eio_pure _ _).symm
+  | error error s =>
+    rw [eio_bind_ok (io_toBaseIO_error read)]
+    cases error with
+    | noFileOrDirectory =>
+      rw [isDirectory_absent read trivial]
+      exact (eio_pure _ _).symm
+    | _ =>
+      rw [isDirectory_error read id]
+      exact (eio_throw _ _).symm
+
+/-- The copy program's read of whether a directory is present is `isDirectory`. -/
+theorem Construction.isDirectory_eq :
+    Construction.isDirectory = Regula.Filesystem.isDirectory :=
+  isDirectory_eq_match.symm
+
+/-- The kind of the entry at `path` itself, by the observer's read, which follows no symbolic link
+at `path` (`observeMetadata`), or `none` when Lean reports that nothing is there; every other
+failure of the read is thrown (`RegulaCore.Filesystem.entryType`). It fails on Windows, where the
+observer reads no entry. -/
+def entryIfPresent (path : FilePath) : IO (Option IO.FS.FileType) :=
+  entryType observer path
 
 /-! ## The operations at the observer -/
 

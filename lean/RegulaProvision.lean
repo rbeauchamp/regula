@@ -418,9 +418,26 @@ private def admitComponent (what text : String) : IO Component := do
     | throw <| IO.userError s!"provisioning: {what} '{text}' is not a single path component"
   return name
 
-/-- Kind of the path itself, without following a final symbolic link. -/
+/-- Whether an entry is at `path`, following a symbolic link: `true` when `path.metadata` reads it,
+`false` when that read fails with `noFileOrDirectory`, and the read's error for every other error.
+Lean's `System.FilePath.pathExists` returns `false` for every error of `metadata`, so a path that
+cannot be read, such as one under a directory without search permission, would read as absent.
+This program cannot import `Regula.Filesystem`; `Regula.ProgramCheck.Provision.isPresent_eq`
+proves this equal to `Regula.Filesystem.isPresent`. -/
+def isPresent (path : System.FilePath) : IO Bool := do
+  match ← path.metadata.toBaseIO with
+  | .ok _ => return true
+  | .error (.noFileOrDirectory ..) => return false
+  | .error error => throw error
+
+/-- Kind of the path itself, without following a final symbolic link: `none` when reading it fails
+with `noFileOrDirectory`, and the read's error for every other error, so that a path that cannot be
+read is not taken for an absent one. -/
 private def kind? (path : FilePath) : IO (Option IO.FS.FileType) := do
-  try return some (← path.symlinkMetadata).type catch _ => return none
+  match ← path.symlinkMetadata.toBaseIO with
+  | .ok metadata => return some metadata.type
+  | .error (.noFileOrDirectory ..) => return none
+  | .error error => throw error
 
 private def observe (path : FilePath) : IO Observed := do
   match ← kind? path with
@@ -429,7 +446,7 @@ private def observe (path : FilePath) : IO Observed := do
     try return .link (← IO.FS.realPath path).toString catch _ => return .link ""
   | some .dir =>
     -- Without its own `.git`, Git would answer for the enclosing repository instead.
-    unless ← (path / ".git").pathExists do return .directory none false
+    unless ← isPresent (path / ".git") do return .directory none false
     let head ← run path "git" #["rev-parse", "HEAD"]
     let reports ← [#["status", "--porcelain"], #["stash", "list"],
       #["rev-list", "-n", "1", "HEAD", "--branches", "--not", "--remotes"]].mapM (run path "git")
@@ -849,7 +866,7 @@ private def registryPath (parent : FilePath) (name : String) : FilePath :=
 
 /-- A registry's copies: none registered when it is absent, `none` when it is unreadable. -/
 private def readRegistry (path : FilePath) : IO (Option (Array String)) := do
-  unless ← path.pathExists do return some #[]
+  unless ← isPresent path do return some #[]
   try
     let .ok json := Json.parse (← IO.FS.readFile path) | return none
     return (fromJson? json : Except String (Array String)).toOption
@@ -904,7 +921,7 @@ private def prune (parent : FilePath) (current link retired : String) : IO Unit 
             say s!"removed the retired link {copy} to {entry.path}"
             return (copy, false)
           if prunes current entry.fileName observed then
-            if ← registry.pathExists then IO.FS.removeFile registry
+            if ← isPresent registry then IO.FS.removeFile registry
             let removing := parent / s!"{removingPrefix entry.fileName}{← nonce}"
             IO.FS.rename entry.path removing
             removeShared removing
@@ -1083,7 +1100,7 @@ def requireReleasedSetup (repo : FilePath) : IO Unit := do
   for path in #["dependency-build-mode", ".github/compiler-source.json",
       ".github/snapshot-preparation.json", ".github/snapshot-compiler.json",
       ".github/compiler-snapshot.json"] do
-    if ← (repo / path).pathExists then
+    if ← isPresent (repo / path) then
       throw <| IO.userError s!"provisioning: retired compiler setup {path}; use a clean released-toolchain checkout"
   requireReleasedCompiler repo
 
@@ -1092,7 +1109,7 @@ end RegulaProvision
 /-- Standalone released-toolchain setup and explicit Mathlib or Verso provisioning. -/
 def main (args : List String) : IO Unit := do
   let repo ← IO.FS.realPath (← IO.currentDir)
-  unless ← (repo / "lakefile.lean").pathExists do
+  unless ← RegulaProvision.isPresent (repo / "lakefile.lean") do
     throw <| IO.userError "provisioning: run from the repository root"
   RegulaProvision.requireReleasedSetup repo
   match args with
@@ -1112,7 +1129,7 @@ def main (args : List String) : IO Unit := do
   | ["mathlib-applies", "--require"] =>
     RegulaProvision.requireMathlibApplies repo
     let mathlib := repo / RegulaProvision.mathlibPackage / ".lake" / "packages" / "mathlib"
-    unless ← mathlib.pathExists do
+    unless ← RegulaProvision.isPresent mathlib do
       throw <| IO.userError s!"provisioning: {mathlib} is absent; run \
         lean --run lean/RegulaProvision.lean mathlib before scripts/verify.sh mathlib"
   | ["verso"] => RegulaProvision.provisionVerso repo

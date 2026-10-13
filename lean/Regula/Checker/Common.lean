@@ -246,12 +246,12 @@ that, so the check states it. -/
 def findRepoRoot (start : FilePath) : IO FilePath := do
   let root ← IO.FS.realPath start
   let rec loop (path : FilePath) : IO FilePath := do
-    let hasLean ← (path / "lakefile.lean").pathExists
-    let hasToml ← (path / "lakefile.toml").pathExists
+    let hasLean ← Regula.Filesystem.isPresent (path / "lakefile.lean")
+    let hasToml ← Regula.Filesystem.isPresent (path / "lakefile.toml")
     if hasLean && hasToml then
       throw <|
           IO.userError s!"ambiguous Lean project root {path}: both lakefile.lean and lakefile.toml"
-    if (hasLean || hasToml) && (← (path / "lean-toolchain").pathExists) then
+    if (hasLean || hasToml) && (← Regula.Filesystem.isPresent (path / "lean-toolchain")) then
       return path
     match path.parent with
     | some parent =>
@@ -276,7 +276,7 @@ resolves from here even when no Lake-provided `LEAN_PATH` is in scope. -/
 def checkerPackageLibDir : IO (Option FilePath) := do
   let some bin := (← IO.appPath).parent | return none
   let libDir := bin / ".." / "lib" / "lean"
-  if ← (libDir / "Regula" / "Probe.olean").pathExists then
+  if ← Regula.Filesystem.isPresent (libDir / "Regula" / "Probe.olean") then
     return some libDir
   return none
 

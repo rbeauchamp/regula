@@ -115,12 +115,14 @@ structure ModuleObservation where
   material : Array (Name × Option MaterialDocumentationFailure)
   /-- The finding texts of the comparison rule for the module (`jsonFindings`). -/
   jsonFindings : Array String
+  /-- The finding texts of the absence rule for the module (`absenceFindings`). -/
+  absenceFindings : Array String
 
 /-- Whether `owner`'s artifact is the pinned toolchain's own `Lake` module. -/
 private def toolchainLakeModule (toolchainLib : FilePath) (owner : Name) : IO Bool := do
   unless owner.getRoot == `Lake do return false
   let expected := modToFilePath toolchainLib owner "olean"
-  unless ← expected.pathExists do return false
+  unless ← Regula.Filesystem.isPresent expected do return false
   return (← IO.FS.realPath (← findOLean owner)) == (← IO.FS.realPath expected)
 
 /-! ### Comparisons of `Json` values
@@ -294,6 +296,134 @@ def jsonFindings (moduleName : Name) (owned : Array (Name × ConstantInfo)) : Ar
       compares no Json values there; remove the entry"
   (jsonComparisons moduleName owned).map (jsonComparisonText · moduleName) ++ stale
 
+/-! ### Reads that take an unreadable path for an absent one
+
+Lean 4.34.1's `System.FilePath.pathExists` and `System.FilePath.isDir` return `false` for every
+error of `System.FilePath.metadata`, not only for `noFileOrDirectory`
+(`Init/System/IO.lean:1162-1173`), so a path that cannot be read, such as one under a directory
+without search permission, reads as absent (https://github.com/rbeauchamp/regula/issues/430).
+Regula reads whether a path is present through `Regula.Filesystem.isPresent`, `isDirectory`,
+`metadataIfPresent`, `readFileIfPresent` or `entryIfPresent`, each of which reads absence only for
+`noFileOrDirectory` and propagates every other error. Code that cannot import them, a program that
+`lean --run` runs, the copy program and the collector, defines its own copy, which a theorem proves
+equal to the shared one (`Regula.Filesystem.isPresent_eq_match`). The campaign refuses each declaration whose type or value names one of
+Lean's two readers (`absenceReaders`), unless the allowlist names it with its reason: a read whose
+`false` decides nothing, because it only selects a cleanup or a report.
+
+What the check finds: each declaration of an inspected module that names either reader, in its
+elaborated type or value, completely, since a call, a partial application and a point-free use
+each name it. It does not find a read inside a function of Lean's library or of another package
+that a declaration calls, such as `System.SearchPath.findWithExt`, `System.FilePath.walkDir` or
+`Lean.findOLean`, which read with these two themselves
+(https://github.com/rbeauchamp/regula/issues/441), and it inspects no module of the `markdown` and
+`website` packages (https://github.com/rbeauchamp/regula/issues/442). -/
+
+/-- Lean's readers that return `false` for every error of `System.FilePath.metadata`. -/
+def absenceReaders : List Name :=
+  [``System.FilePath.pathExists, ``System.FilePath.isDir]
+
+/-- The declarations that keep one of `absenceReaders`, each by its module and its name, with the
+reason that its `false` decides nothing. The module is part of the key: each executable root
+declares its own `main`. Every read of the package goes through the shared observer, so there is
+none. -/
+def absenceReadAllowlist : Array (Name × Name × String) := #[]
+
+/-- Whether the term `e` names one of `absenceReaders`. -/
+def readsAbsence (e : Expr) : Bool :=
+  (e.find? fun e => absenceReaders.any e.isConstOf).isSome
+
+/-- Whether the type or the value of `info` names one of `absenceReaders` (`readsAbsence`). -/
+def readsAbsenceIn (info : ConstantInfo) : Bool :=
+  readsAbsence info.type || (info.value? (allowOpaque := true)).any readsAbsence
+
+/-- Whether `allowlist` names the declaration `name` of the module `moduleName`. -/
+def allowedIn (allowlist : Array (Name × Name × String)) (moduleName name : Name) : Bool :=
+  allowlist.any fun entry => entry.1 == moduleName && entry.2.1 == privateToUserName name
+
+/-- An allowlist with no entry for a module names none of its declarations. -/
+theorem allowedIn_eq_false {allowlist : Array (Name × Name × String)} {moduleName : Name}
+    (unlisted : ∀ entry ∈ allowlist, entry.1 ≠ moduleName) (name : Name) :
+    allowedIn allowlist moduleName name = false := by
+  simp only [allowedIn, Array.any_eq_false]
+  intro index bound
+  simp [unlisted _ (Array.getElem_mem bound)]
+
+/-- The declarations of `owned`, of the module `moduleName`, that read absence with one of Lean's
+readers (`readsAbsenceIn`), except those that `allowlist` names for the module (`allowedIn`). -/
+def absenceReads (allowlist : Array (Name × Name × String)) (moduleName : Name)
+    (owned : Array (Name × ConstantInfo)) : Array Name :=
+  owned.filterMap fun entry =>
+    if !allowedIn allowlist moduleName entry.1 && readsAbsenceIn entry.2 then some entry.1 else none
+
+/-- With no allowlist entry for its module, the check finds exactly the declarations whose type or
+value names one of Lean's readers. -/
+theorem mem_absenceReads {allowlist : Array (Name × Name × String)} {moduleName name : Name}
+    {owned : Array (Name × ConstantInfo)}
+    (unlisted : ∀ entry ∈ allowlist, entry.1 ≠ moduleName) :
+    name ∈ absenceReads allowlist moduleName owned ↔
+      ∃ info, (name, info) ∈ owned ∧ readsAbsenceIn info = true := by
+  simp only [absenceReads, Array.mem_filterMap, allowedIn_eq_false unlisted, Bool.not_false,
+    Bool.true_and]
+  constructor
+  · rintro ⟨⟨found, info⟩, member, result⟩
+    by_cases reads : readsAbsenceIn info = true
+    · simp only [reads, ite_true, Option.some.injEq] at result
+      exact ⟨info, result ▸ member, reads⟩
+    · simp [reads] at result
+  · rintro ⟨info, member, reads⟩
+    exact ⟨(name, info), member, by simp [reads]⟩
+
+/-- The finding text for a declaration that reads absence with one of Lean's readers. -/
+def absenceReadText (name moduleName : Name) : String :=
+  s!"absence-read: {privateToUserName name} ({moduleName}) reads whether a path is present with \
+    System.FilePath.pathExists or isDir, which return false for every error of metadata; read with \
+    Regula.Filesystem.isPresent, isDirectory, metadataIfPresent, readFileIfPresent or \
+    entryIfPresent, or name the declaration in absenceReadAllowlist when its false decides nothing"
+
+/-- The findings of the absence rule for the declarations `owned` of the module `moduleName`:
+each declaration that reads absence with one of Lean's readers (`absenceReads`), and each entry of
+`allowlist` for the module that names no such declaration. The second kind makes each entry a
+control: the rule must still find the read it allows. -/
+def absenceFindings (moduleName : Name) (owned : Array (Name × ConstantInfo))
+    (allowlist : Array (Name × Name × String) := absenceReadAllowlist) : Array String :=
+  let stale := (allowlist.filter (·.1 == moduleName)).filterMap fun (_, entry, _) =>
+    if owned.any (fun (name, info) => privateToUserName name == entry && readsAbsenceIn info) then
+      none
+    else some s!"absence-read: {entry} ({moduleName}) is in absenceReadAllowlist but reads no \
+      absence with pathExists or isDir there; remove the entry"
+  (absenceReads allowlist moduleName owned).map (absenceReadText · moduleName) ++ stale
+
+/-- Controls of the check, each with whether it gave the intended answer, on declarations of a
+module `Control` that the controls build: a call of `pathExists` and a point-free use of `isDir`
+are found; a call of `Regula.Filesystem.isPresent` is not; an allowlisted read is not found, and an
+allowlist entry for a declaration that reads nothing is reported. -/
+def absenceControls : List (String × Bool) :=
+  let path := mkStrLit "control"
+  let io (type : Expr) : Expr := mkApp (mkConst ``IO) type
+  let declaration (name : Name) (value : Expr) : Name × ConstantInfo :=
+    (name, .defnInfo {
+      name, levelParams := [], type := io (mkConst ``Bool), value, hints := .opaque,
+      safety := .safe, all := [name] })
+  let module := `Control
+  let called := declaration `Control.called (mkApp (mkConst ``System.FilePath.pathExists)
+    (mkApp (mkConst ``System.FilePath.mk) path))
+  let pointFree := declaration `Control.pointFree (.lam `read
+    (mkConst ``System.FilePath.isDir) (mkApp (.bvar 0) (mkApp (mkConst ``System.FilePath.mk) path))
+    .default)
+  let observed := declaration `Control.observed (mkApp (mkConst ``Regula.Filesystem.isPresent)
+    (mkApp (mkConst ``System.FilePath.mk) path))
+  let owned := #[called, pointFree, observed]
+  let allowlist : Array (Name × Name × String) :=
+    #[(module, `Control.called, "control"), (module, `Control.observed, "control")]
+  [("a call of pathExists and a point-free use of isDir are found",
+      absenceFindings module owned #[] ==
+        #[absenceReadText `Control.called module, absenceReadText `Control.pointFree module]),
+    ("a read through Regula.Filesystem.isPresent is not found",
+      absenceReads #[] module #[observed] == #[]),
+    ("an allowlisted read is exempt, and an entry that names no read is reported",
+      absenceReads allowlist module owned == #[`Control.pointFree] &&
+        (absenceFindings module owned allowlist).size == 2)]
+
 /-- Import one module, kernel-admit its owned declarations and collect its observations. -/
 private unsafe def observe (toolchainLib : FilePath) (moduleName : Name) (source : FilePath) :
     IO (Except String ModuleObservation) := do
@@ -336,7 +466,7 @@ private unsafe def observe (toolchainLib : FilePath) (moduleName : Name) (source
   let found := jsonFindings moduleName own
   return .ok {
     «module» := moduleName, declarations, admitted, toolchain, header, material,
-    jsonFindings := found }
+    jsonFindings := found, absenceFindings := absenceFindings moduleName own }
 
 /-- Text of one violation finding at the declaration's module. -/
 private def declarationText (id : RuleId) (name : Name) (detail : String) (moduleName : Name) :
@@ -403,7 +533,7 @@ private def decide (o : ModuleObservation) : Except String ModuleResult := do
     if let some failure := failure? then
       violations := violations.push (← declarationText
         (ruleForMaterialDocumentation failure) name (materialDocumentationDetail failure) o.module)
-  violations := violations ++ o.jsonFindings
+  violations := violations ++ o.jsonFindings ++ o.absenceFindings
   -- A name is reported with its module: two modules, each audited alone, can declare one name.
   let inModule (name : Name) : String := s!"{name} ({o.module})"
   let mut unsafeDeclarations := #[]
@@ -459,14 +589,15 @@ unsafe def worker (moduleName source : String) : IO Unit := do
   IO.println (toJson (← IO.ofExcept (decide observation))).compress
 
 /-- Worker for a module of another library of the package: import it alone and print, as a JSON
-array, the findings of the comparison rule for it (`jsonFindings`). -/
-unsafe def jsonWorker (moduleName : String) : IO Unit := do
+array, the findings of the comparison rule and of the absence rule for it (`jsonFindings`,
+`absenceFindings`). -/
+unsafe def rulesWorker (moduleName : String) : IO Unit := do
   Checker.initializeLeanSearchPath
   Lean.enableInitializersExecution
   let env ← importModules #[{ module := moduleName.toName, importAll := true }] {} 0
     (loadExts := true) (level := .private)
-  let found :=
-    jsonFindings moduleName.toName (Regula.Probe.ownedConstants env [moduleName.toName])
+  let own := Regula.Probe.ownedConstants env [moduleName.toName]
+  let found := jsonFindings moduleName.toName own ++ absenceFindings moduleName.toName own
   IO.println (toJson found).compress
 
 /-- Run the campaign, or the part of it that `shard` selects (`selected`, `selected_cover`): one
@@ -502,7 +633,8 @@ def check (shard : Option (Fin shards) := none) (jobs : Nat := 4) : IO Unit := d
       return .error s!"{moduleName}: worker answered for {r.module}"
     | .error e => return .error s!"{moduleName}: unreadable worker result: {e}"
   -- The other libraries of the package, other than the intended-failure controls, and the root
-  -- modules of executables that no library contains are held to the comparison rule alone: each
+  -- modules of executables that no library contains are held to the comparison rule and the
+  -- absence rule alone: each
   -- module in a worker of its own, after Lake builds them, since a worker imports built modules.
   -- A shard builds and inspects only the modules it selects.
   let others := inventory.libraries.filter fun l => l.library != library && l.library != "Fixtures"
@@ -518,11 +650,12 @@ def check (shard : Option (Fin shards) := none) (jobs : Nat := 4) : IO Unit := d
     if build.exitCode != 0 then
       throw <| IO.userError s!"self-audit: lake build of the guarded modules failed: \
         {build.stdout.trimAscii} {build.stderr.trimAscii}"
-  let jsonOutcomes ← Checker.loggedPhase s!"self-audit Json comparisons{scope}" <|
+  let jsonOutcomes ← Checker.loggedPhase
+      s!"self-audit Json comparisons and absence reads{scope}" <|
       Checker.mapWorkQueue jobs guarded.toArray fun moduleName =>
     show IO (Except String (Array String)) from do
     let result ← Checker.runProcess repo self
-      #["--under-deadline", "self-audit-json-module", moduleName.toString]
+      #["--under-deadline", "self-audit-rules-module", moduleName.toString]
     if result.exitCode != 0 then
       return .error s!"{moduleName}: worker exit {result.exitCode}: {result.stderr.trimAscii}"
     match Json.parse result.stdout >>= fromJson? (α := Array String) with
@@ -533,6 +666,8 @@ def check (shard : Option (Fin shards) := none) (jobs : Nat := 4) : IO Unit := d
   let incomplete := incomplete ++ jsonOutcomes.filterMap fun | .ok _ => none | .error e => some e
   let incomplete := incomplete ++ jsonControls.filterMap fun (label, passed) =>
     if passed then none else some s!"Json comparison control failed: {label}"
+  let incomplete := incomplete ++ absenceControls.filterMap fun (label, passed) =>
+    if passed then none else some s!"absence read control failed: {label}"
   let union (field : ModuleResult → Array String) : Array String :=
     (results.foldl (fun acc r => (field r).foldl
       (fun acc n => if acc.contains n then acc else acc.push n) acc) #[]).qsort (· < ·)
@@ -557,6 +692,9 @@ def check (shard : Option (Fin shards) := none) (jobs : Nat := 4) : IO Unit := d
     {roots.toList} inspected, \
     {jsonComparisonAllowlist.size} allowlisted declaration(s), \
     {(jsonControls.filter (·.2)).length}/{jsonControls.length} control(s) as intended"
+  IO.println s!"absence reads{scope}: the same modules inspected for pathExists and isDir, \
+    {absenceReadAllowlist.size} allowlisted declaration(s), \
+    {(absenceControls.filter (·.2)).length}/{absenceControls.length} control(s) as intended"
   IO.println s!"reported, not failed: {unsafeDeclarations.size} unsafe \
     declaration(s): {unsafeDeclarations.toList}"
   IO.println s!"reported, not failed: {partialDefinitions.size} partial \

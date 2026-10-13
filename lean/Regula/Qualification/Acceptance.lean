@@ -109,8 +109,8 @@ private def qualify (group : String) (evidence : FilePath) (receipt : IO.Ref Jso
     for name in
         #["lean-toolchain", "lakefile.lean", "lake-manifest.json", "foundation_manifest.json",
             "Example.lean", "docs/control.md"] do
-      if ← (project / name).pathExists then sources := sources ++
-                                             [(name, toJson (← IO.FS.readFile (project / name)))]
+      if let some text ← Regula.Filesystem.readFileIfPresent (project / name) then
+        sources := sources ++ [(name, toJson text)]
     update "sources" (Json.mkObj sources)
     let mut records : Array Json := #[]
     let mut cases := #[("positive", "", "")]
@@ -136,7 +136,7 @@ private def qualify (group : String) (evidence : FilePath) (receipt : IO.Ref Jso
         "log" (toJson (result.stdout ++ result.stderr))
       update "activeCase" active
       let resultEvidence := evidence.addExtension s!"result-{records.size}.json"
-      let resultFile ← if ← output.pathExists then do
+      let resultFile ← if ← Regula.Filesystem.isPresent output then do
         Regula.Filesystem.replacePath output resultEvidence
         pure (toJson resultEvidence.toString)
         else pure Json.null
@@ -253,7 +253,7 @@ def documentationDependencies : IO Unit := do
             ⟨s!"frozen dependency refused: {log}", result.exitCode != 0 &&
                 log.contains "dependency snapshot changed:" &&
               !log.contains "accepted "⟩]
-          if ← output.pathExists then
+          if ← Regula.Filesystem.isPresent output then
             requireChecks
                 [⟨"no acceptance", ((← readJson output).getObjVal? "acceptance").toOption.isNone⟩]
         else

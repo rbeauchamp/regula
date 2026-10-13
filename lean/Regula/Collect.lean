@@ -57,6 +57,19 @@ open RegulaPolicy (DeclarationKind BoundaryKind Correspondence Safety Reducibili
   NativeTactic)
 open RegulaPolicy.Erasure (fixpointArguments?)
 
+/-- Whether an entry is at `path`, following a symbolic link: `true` when `path.metadata` reads it,
+`false` when that read fails with `noFileOrDirectory`, and the read's error for every other error.
+Lean's `System.FilePath.pathExists` returns `false` for every error of `metadata`, so a path that
+cannot be read would read as absent. The collector is loaded into every audited environment, so it
+imports no module outside the probe's closure (`Regula.Checker.Environment.probeModuleNames`) and
+cannot import `RegulaCore.Presence`; `Regula.Checker.Environment.collectIsPresent_eq` proves this
+equal to `Regula.Filesystem.isPresent`. -/
+@[expose] def isPresent (path : System.FilePath) : IO Bool := do
+  match ← path.metadata.toBaseIO with
+  | .ok _ => return true
+  | .error (.noFileOrDirectory ..) => return false
+  | .error error => throw error
+
 private initialize capabilityCache : IO.Ref (Option RegulaPolicy.Compiler.LegacyCompilerTrust) ←
   IO.mkRef none
 
@@ -75,7 +88,7 @@ establish this, since a project or a dependency can supply a module under `Init`
 `Lean`. That the path identifies the toolchain's own artifact is a filesystem observation. -/
 private def loadedFromLibrary (library : System.FilePath) (moduleName : Name) : IO Bool := do
   let expected := Lean.modToFilePath library moduleName "olean"
-  unless ← expected.pathExists do return false
+  unless ← isPresent expected do return false
   return (← IO.FS.realPath (← Lean.findOLean moduleName)) == (← IO.FS.realPath expected)
 
 /-- What `env` holds under each name of `RegulaPolicy.foundationStatements`, for each such name it
@@ -101,7 +114,7 @@ def foundationObservations (env : Environment) : IO (Array RegulaPolicy.Foundati
       let files := #[olean, Lean.OLeanLevel.server.adjustFileName olean,
         Lean.OLeanLevel.private.adjustFileName olean]
       let found ← files.filterMapM fun file => do
-        if ← file.pathExists then return some (← IO.FS.realPath file).toString else return none
+        if ← isPresent file then return some (← IO.FS.realPath file).toString else return none
       return "\n".intercalate found.toList
     let actual ← if imported then
         try parts (← Lean.findOLean module) catch _ => pure ""

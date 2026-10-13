@@ -363,7 +363,7 @@ private def capturedSourceAccount (resultOut : Option FilePath)
     (sources : Array ProducerReport.SourceBinding) : IO Json := do
   if sources.isEmpty then
     if let some output := resultOut then
-      if ← output.pathExists then
+      if ← Regula.Filesystem.isPresent output then
         let value ← ResultProtocol.readDocument output
         if let .ok captured := value.getObjVal? "sourceAccount" then return captured
   return ProducerReport.sourceAccountJson sources
@@ -375,7 +375,7 @@ private def retainSourceAccount (resultOut : Option FilePath)
   | some _ => pure ()
   | none =>
     if let some output := resultOut then
-      if ← output.pathExists then
+      if ← Regula.Filesystem.isPresent output then
         let captured ← capturedSourceAccount resultOut sources
         let value ← ResultProtocol.readDocument output
         ResultProtocol.writeDocument output (value.setObjVal! "sourceAccount" captured)
@@ -508,9 +508,9 @@ private def driverCopy (repo path : FilePath) : IO Copied := do
   let some name := ScratchCopy.name? area.normalize.components copy.normalize.components
     | refuse s!"is not the directory `project` of a scratch directory of {area}"
   let marker := area / s!"{name}.{Regula.Scratch.markerExtension}"
-  let marked ← match ← marker.symlinkMetadata.toBaseIO with
-    | .ok metadata => pure (metadata.type == .file)
-    | .error _ => pure false
+  let marked ← match ← (Regula.Filesystem.entryIfPresent marker).toBaseIO with
+    | .ok kind => pure (kind == some .file)
+    | .error error => refuse s!"has an ownership marker {marker} that cannot be read ({error})"
   unless marked do refuse s!"has no ownership marker {marker}"
   let build ← match ← (Workspace.withRootWorkspace copy fun workspace =>
       IO.FS.realPath workspace.root.buildDir).toBaseIO with
@@ -1386,7 +1386,7 @@ private unsafe def auditFile (repo path : FilePath) (claim : Option Profile)
   let manifestPath := manifest.getD (Manifest.defaultPath repo)
   let configuration ← SourceBinding.configuration repo manifestPath
   observeConfiguration repo configuration none
-  if !(← path.pathExists) then
+  if !(← Regula.Filesystem.isPresent path) then
     reportContextFailure .environment path.toString .freshFile .incomplete []
       s!"missing source file {path}" composed resultOut
     return 1
@@ -1402,7 +1402,7 @@ private unsafe def auditFile (repo path : FilePath) (claim : Option Profile)
       observeSources (captured.push fileSource)
     let sources := dependencySources.push fileSource
     withSourceEvidence sources configuration path.toString .freshFile composed resultOut do
-      if manifest.isSome || (← manifestPath.pathExists) then
+      if manifest.isSome || (← Regula.Filesystem.isPresent manifestPath) then
         let claimed ← Manifest.loadFor manifestPath inventory
         let (_, buildResult) ← Lake.buildCheckedObservation repo
           (Lake.claimedTargets claimed) "incrementally" Lake.buildTargetsShowing

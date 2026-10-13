@@ -1536,12 +1536,12 @@ private def prepareScratchRepo (repo scratch : FilePath) : IO (Array FilePath) :
   return copy.placedPaths
 
 private def withNewFile {α : Type} (path : FilePath) (text : String) (action : IO α) : IO α := do
-  if ← path.pathExists then
+  if ← Regula.Filesystem.isPresent path then
     throw <| IO.userError s!"refusing to overwrite structural fixture {path}"
   if let some parent := path.parent then IO.FS.createDirAll parent
   IO.FS.writeFile path text
   try action
-  finally if ← path.pathExists then Regula.Filesystem.removePath .file path
+  finally Regula.Filesystem.removePath .file path
 
 private def withReplacedFile {α : Type} (path : FilePath) (text : String) (action : IO α) :
     IO α := do
@@ -1751,7 +1751,7 @@ module build, not a theorem. -/
 private def seedModuleArtifacts (layout : SourceLayout) (repo copy : FilePath) : IO Unit := do
   for relative in layout.artifactDirs do
     let place := repo / relative
-    unless ← place.isDir do continue
+    unless ← Regula.Filesystem.isDirectory place do continue
     let destination := copy / relative
     let some parent := destination.parent | throw <| IO.userError "artifact copy has no parent"
     Regula.Filesystem.Construction.ensureDirectory 4096 parent
@@ -1771,7 +1771,8 @@ private def freshInput (project snapshot : FilePath) :
   for path in ← Regula.Filesystem.Construction.walkDirectory snapshot
       (fun path => pure (own path != [lake])) do
     if own path == [lake] then continue
-    let content ← if ← path.isDir then pure none else some <$> IO.FS.readBinFile path
+    let content ← if ← Regula.Filesystem.isDirectory path then pure none
+      else some <$> IO.FS.readBinFile path
     entries := entries.push ("/".intercalate (own path), content)
   return entries.qsort (·.1 < ·.1)
 
@@ -1846,7 +1847,7 @@ it as missing until a run writes it again: the writer that a run of its shard ru
 in its place. -/
 def clearSelfHostedDigest (repo : FilePath) (input : SelfHosted) : IO Unit := do
   let evidence := selfHostedDigestPath repo input
-  if ← evidence.pathExists then Regula.Filesystem.removePath .file evidence
+  Regula.Filesystem.removePath .file evidence
 
 /-- What a sharded run does in place of `selfHostedIdentity`, after its queue, in the shard of
 `input` (`SelfHosted.shard`): remove any earlier digest (`clearSelfHostedDigest`), then write
@@ -2571,7 +2572,7 @@ private def sourceAttributionControls (dir : FilePath)
           one block"
       return #[]
     finally
-      if ← report.pathExists then Regula.Filesystem.removePath .file report
+      Regula.Filesystem.removePath .file report
 
 /-- Controls for a decision registered from another module of its inventory (standard §7.11).
 `AuditApp.DownstreamDecision` declares `downstreamCheck` without importing `Regula.Decision`, and
@@ -3036,11 +3037,13 @@ private unsafe def fenceEnvironmentQualification (layout : SourceLayout) (repo s
       IO.FS.createDirAll dir
       let placed ← prepareScratchRepo repo dir
       let build := dir / ".lake" / "build"
-      let outputs ← if ← build.pathExists then Regula.Filesystem.Construction.walkDirectory build
+      let outputs ← if ← Regula.Filesystem.isPresent build then
+          Regula.Filesystem.Construction.walkDirectory build
         else pure #[]
       let mut unexpected := #[]
       for path in outputs do
-        unless (← path.isDir) || placed.contains path do unexpected := unexpected.push path
+        unless (← Regula.Filesystem.isDirectory path) || placed.contains path do
+          unexpected := unexpected.push path
       unless unexpected.isEmpty do
         failures.modify (·.push s!"fence-env/{name}: setup unexpectedly has build output \
           other than the placed observer library: {unexpected}")
@@ -3290,7 +3293,7 @@ private def frozenArtifactControls (scratch : FilePath) : IO (Array String) := d
     for ((level, _), isPresent) in levels.zip present do
       let part := level.adjustFileName olean
       if isPresent then IO.FS.writeBinFile part frozenBytes
-      else if ← part.pathExists then Regula.Filesystem.removePath .file part
+      else Regula.Filesystem.removePath .file part
     let some artifact ← Inspection.freezeArtifact `Frozen olean
       | failures := failures.push s!"frozen-artifact/{layout}: the artifact was not frozen"
         continue
@@ -3785,7 +3788,7 @@ private def driverCopyControl (repo : FilePath) : IO (Array String) :=
   -- Whether the checker's scratch protocol, used in the same project, leaves `path` there.
   let survivesReclamation (path : FilePath) : IO Bool := do
     discard <| Regula.Scratch.withScratch project "reclaim-probe" fun _ => pure ()
-    path.pathExists
+    Regula.Filesystem.isPresent path
   -- The driver's answer to a line: its next line that is not one of its progress lines.
   let answer (out : IO.FS.Handle) : IO String := do
     let mut line := (← out.getLine)
@@ -3805,15 +3808,16 @@ private def driverCopyControl (repo : FilePath) : IO (Array String) :=
     | return #[s!"driver-copy/place: the driver's copy {copy} is not in the scratch area {area}"]
   let marker := area / s!"{name}.{Regula.Scratch.markerExtension}"
   failures := failures ++ expect "copy: a file of the project is missing"
-    (← (copy / "Solo" / "Base.lean").pathExists)
+    (← Regula.Filesystem.isPresent (copy / "Solo" / "Base.lean"))
   failures := failures ++ expect "copy: Lake state is not initially empty"
     (← Regula.Filesystem.Construction.listDirectory (copy / ".lake")).isEmpty
-  failures := failures ++ expect "copy: no ownership marker" (← marker.pathExists)
+  failures := failures ++
+    expect "copy: no ownership marker" (← Regula.Filesystem.isPresent marker)
   failures := failures ++ expect "copy: the run has no pending record of its own beside its copy"
     ((← IO.FS.readFile ((copy.parent.getD copy) / "acceptance-link.pending.json")).contains
       "\"status\":\"incomplete\"")
   failures := failures ++ expect "project: its build output changed"
-    (← (build / "kept.txt").pathExists)
+    (← Regula.Filesystem.isPresent (build / "kept.txt"))
   failures := failures ++ expect "live: the checker's reclamation removed a live copy"
     (← survivesReclamation copy)
   failures := failures ++ (← refused "no-build-directory" "has no build directory"
@@ -3832,14 +3836,14 @@ private def driverCopyControl (repo : FilePath) : IO (Array String) :=
   input.putStrLn "adopt"
   input.flush
   failures := failures ++ expect "adopt: a project with build output did not keep it"
-    ((← answer child.stdout) == "kept" && (← (build / "kept.txt").pathExists)
-      && !(← (build / "made.txt").pathExists))
+    ((← answer child.stdout) == "kept" && (← Regula.Filesystem.isPresent (build / "kept.txt"))
+      && !(← Regula.Filesystem.isPresent (build / "made.txt")))
   input.putStrLn "remove"
   input.flush
   failures := failures ++ expect "remove: the driver did not end with exit code 0"
     ((← child.wait) == 0)
   failures := failures ++ expect "remove: the copy or its marker is still there"
-    (!(← copy.pathExists) && !(← marker.pathExists))
+    (!(← Regula.Filesystem.isPresent copy) && !(← Regula.Filesystem.isPresent marker))
   -- 2. A project with a symbolic link at `.lake/build`, and then a driver that is killed.
   Regula.Filesystem.removePath .directory build
   link marked build
@@ -3859,15 +3863,16 @@ private def driverCopyControl (repo : FilePath) : IO (Array String) :=
   input.flush
   failures := failures ++ expect "adopt: a link at the build directory's place was not kept"
     ((← answer child.stdout) == "kept" &&
-      (← (marked / "kept.txt").pathExists) && !(← (marked / "made.txt").pathExists) &&
+      (← Regula.Filesystem.isPresent (marked / "kept.txt")) &&
+      !(← Regula.Filesystem.isPresent (marked / "made.txt")) &&
       (← build.symlinkMetadata).type == .symlink)
   -- A killed driver removes nothing, and its lock ends with its process.
   child.kill
   discard child.wait
   failures := failures ++ expect "left: a killed driver left no copy or no marker"
-    ((← copy.pathExists) && (← marker.pathExists))
+    ((← Regula.Filesystem.isPresent copy) && (← Regula.Filesystem.isPresent marker))
   failures := failures ++ expect "left: the checker's reclamation did not remove the copy of a \
-    killed driver" (!(← survivesReclamation copy) && !(← marker.pathExists))
+    killed driver" (!(← survivesReclamation copy) && !(← Regula.Filesystem.isPresent marker))
   -- 3. A second killed driver, and then a project with no build output: the next driver removes
   -- the copy of the dead one before it makes its own, and the project gets the copy's output.
   Regula.Filesystem.removePath .link build
@@ -3883,25 +3888,27 @@ private def driverCopyControl (repo : FilePath) : IO (Array String) :=
   child.kill
   discard child.wait
   failures := failures ++ expect "dead: a killed driver left no copy or no marker"
-    ((← dead.pathExists) && (← deadMarker.pathExists))
+    ((← Regula.Filesystem.isPresent dead) && (← Regula.Filesystem.isPresent deadMarker))
   let child ← IO.Process.spawn {
     cmd := "lean", args := #["--run", driver, "--copy-control"], cwd := some project
     env := scrubbedLeanPathEnv, stdin := .piped, stdout := .piped, stderr := .inherit }
   let (input, child) ← child.takeStdin
   let copy := FilePath.mk (← answer child.stdout)
   failures := failures ++ expect "dead: the next driver did not remove the copy of a dead driver"
-    (!(← dead.pathExists) && !(← deadMarker.pathExists) && (← copy.pathExists))
+    (!(← Regula.Filesystem.isPresent dead) && !(← Regula.Filesystem.isPresent deadMarker) &&
+      (← Regula.Filesystem.isPresent copy))
   IO.FS.createDirAll (copy / ".lake" / "build")
   IO.FS.writeFile (copy / ".lake" / "build" / "made.txt") "made in the copy"
   input.putStrLn "adopt"
   input.flush
   failures := failures ++ expect "adopt: a project with no build output did not get the copy's"
     ((← answer child.stdout) == "adopted" &&
-      (← (build / "made.txt").pathExists) && !(← (copy / ".lake" / "build").pathExists))
+      (← Regula.Filesystem.isPresent (build / "made.txt")) &&
+      !(← Regula.Filesystem.isPresent (copy / ".lake" / "build")))
   input.putStrLn "remove"
   input.flush
   failures := failures ++ expect "remove: the driver did not end with exit code 0 after adopt"
-    ((← child.wait) == 0 && !(← copy.pathExists))
+    ((← child.wait) == 0 && !(← Regula.Filesystem.isPresent copy))
   -- 4. The site artifact of an earlier run.
   let site := project / "_site"
   link marked site
@@ -3909,14 +3916,15 @@ private def driverCopyControl (repo : FilePath) : IO (Array String) :=
     scrubbedLeanPathEnv
   failures := failures ++ expect "site: a link at _site was followed or removed"
     (!stopped.succeeded && stopped.output.contains "nothing was removed" &&
-      (← (marked / "kept.txt").pathExists) && (← site.symlinkMetadata).type == .symlink)
+      (← Regula.Filesystem.isPresent (marked / "kept.txt")) &&
+      (← site.symlinkMetadata).type == .symlink)
   Regula.Filesystem.removePath .link site
   IO.FS.createDirAll (site / "pages")
   IO.FS.writeFile (site / "pages" / "old.html") "an earlier artifact"
   let removed ← runProcess project "lean" #["--run", driver, "--begin-attempt", "site"]
     scrubbedLeanPathEnv
   failures := failures ++ expect "site: an earlier artifact was not removed"
-    (removed.succeeded && !(← site.pathExists))
+    (removed.succeeded && !(← Regula.Filesystem.isPresent site))
   return failures
 
 /-- External-boundary controls of the documentation step's reuse of the first acceptance step's
@@ -4001,7 +4009,7 @@ private def retainedBuildControl (repo : FilePath) : IO (Array String) :=
   let build := project / ".lake" / "build"
   let mut artifacts := #[]
   for part in ["lib", "ir"] do
-    unless ← (build / part).isDir do continue
+    unless ← Regula.Filesystem.isDirectory (build / part) do continue
     for path in ← Regula.Filesystem.Construction.walkDirectory (build / part) do
       if (← path.symlinkMetadata).type == .file then
         artifacts := artifacts.push ("/".intercalate
@@ -4340,12 +4348,12 @@ private def taskManagerControl (repo : FilePath) : IO (Option String) :=
           (value.getObjValAs? String "outcome").toOption == some "PASS" }
     let positive := selfHostedDigestPath project .positive
     let selfHosted : Seeded :=
-      { path := positive, marked := return !(← positive.pathExists),
+      { path := positive, marked := return !(← Regula.Filesystem.isPresent positive),
         seed := do
           if let some parent := positive.parent then IO.FS.createDirAll parent
           IO.FS.writeFile positive (digest ++ "\n"),
         completed := do
-          unless ← positive.pathExists do return false
+          unless ← Regula.Filesystem.isPresent positive do return false
           return (← IO.FS.readFile positive) == digest ++ "\n" }
     IO.FS.writeFile (scratch / "request.json") request.compress
     -- The request of the declaration-report worker names the file where the worker publishes its
@@ -4355,7 +4363,7 @@ private def taskManagerControl (repo : FilePath) : IO (Option String) :=
       { path := publish, marked := markedWith publish "reason" reason,
         seed := writeJson publish (toJson emptyAdmission),
         completed := do
-          unless ← publish.pathExists do return false
+          unless ← Regula.Filesystem.isPresent publish do return false
           let read : Except String Admission.Completed :=
             (PolicyCodec.parse (← IO.FS.readFile publish)).bind fromJson?
           return read.isOk }
@@ -4368,7 +4376,7 @@ private def taskManagerControl (repo : FilePath) : IO (Option String) :=
     -- that is publishable (`Regula.Site.Deployment.gate`).
     let site := scratch / "site"
     let artifact : Seeded :=
-      { path := site, marked := return !(← site.pathExists),
+      { path := site, marked := return !(← Regula.Filesystem.isPresent site),
         seed := do
           IO.FS.createDirAll site
           writeJson (site / "build.json") (Json.mkObj [("dirty", .bool false),
@@ -4434,9 +4442,10 @@ private def taskManagerControl (repo : FilePath) : IO (Option String) :=
           {result.output}"
       for destination in destinations do
         unless (← destination.marked) && !(← destination.completed) do
-          let held ← if ← destination.path.isDir then pure "a directory"
-            else if ← destination.path.pathExists then IO.FS.readFile destination.path
-            else pure "nothing"
+          let held ← match ← Regula.Filesystem.metadataIfPresent destination.path with
+            | some { type := .dir, .. } => pure "a directory"
+            | some _ => IO.FS.readFile destination.path
+            | none => pure "nothing"
           return some s!"task manager: {program} {args} with LEAN_NUM_THREADS=0 left \
             {destination.path} without the incomplete mark and the reason, or admitted as \
             completed; it holds {held}"

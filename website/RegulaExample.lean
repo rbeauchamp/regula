@@ -105,7 +105,7 @@ structure Reported where
 the document's elaboration in the website package directory. -/
 def helperPath : IO System.FilePath := do
   let path := (← IO.currentDir) / ".lake" / "build" / "bin" / "regula-example"
-  unless ← path.pathExists do
+  unless ← Regula.Filesystem.isPresent path do
     throw <| IO.userError s!"example helper not built: {path}"
   return path
 
@@ -292,9 +292,9 @@ def repo : RoleExpanderOf RepoArgs
       | [p, f] => (p, f)
       | _ => (target, "")
     let file := (← repositoryRoot) / path
-    unless ← file.pathExists do
+    unless ← Regula.Filesystem.isPresent file do
       throwError "repository path does not exist: {path}"
-    let directory ← file.isDir
+    let directory ← Regula.Filesystem.isDirectory file
     let content ← content.mapM elabInline
     ``(Verso.Doc.Inline.other (Inline.repo $(quote path) $(quote fragment) $(quote directory)) #[$content,*])
 

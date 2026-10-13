@@ -37,6 +37,12 @@ audited project's own build, which this command does not see. -/
 def probeModuleNames : Array String :=
   RegulaPolicy.reporterModuleNames.map (·.toString)
 
+/-- The collector's read of whether a path is present, which it defines because it imports no
+module outside the probe's closure, is the filesystem observer's (`Regula.Filesystem.isPresent`,
+whose match form `Regula.Filesystem.isPresent_eq_match` states). -/
+theorem collectIsPresent_eq : Regula.Collect.isPresent = Regula.Filesystem.isPresent :=
+  Regula.Filesystem.isPresent_eq_match.symm
+
 run_cmd do
   let env ← getEnv
   let mut pending := [`Regula.Probe]
@@ -407,7 +413,7 @@ direct importer in header order. An output directory that does not exist holds n
 metadata phase and full loader share this refusal. -/
 def ModuleGraph.unownedModules (graph : ModuleGraph) (ownership : EnvironmentOwnership)
     (outputs : Array FilePath) : IO (Array ProducerReport.UnownedModule) := do
-  let outputs ← outputs.filterM (·.pathExists)
+  let outputs ← outputs.filterM Regula.Filesystem.isPresent
   let mut unowned := #[]
   for origin in graph.moduleOrigins do
     if !ownership.modules.contains origin.name && !ownership.reporterOnly.contains origin.name &&
@@ -638,7 +644,7 @@ private def historyWorkerOutput (memo : Option FilePath) (inputs : HistoryMemo)
   let record := directory / s!"{key}.json"
   let lock := directory / s!"{key}.lock"
   let reuse : IO (Option String) := do
-    unless ← record.pathExists do return none
+    unless ← Regula.Filesystem.isPresent record do return none
     let stored : HistoryMemo ← IO.ofExcept <| (Json.parse (← IO.FS.readFile record)).bind fromJson?
     return if { stored with output := "" } == inputs then some stored.output else none
   if let some output ← (reuse <|> pure none) then return output
@@ -661,7 +667,7 @@ private def historyWorkerOutput (memo : Option FilePath) (inputs : HistoryMemo)
   let start ← IO.monoMsNow
   while (← IO.monoMsNow) - start < 600000 do
     if let some output ← (reuse <|> pure none) then return output
-    unless ← lock.pathExists do
+    unless ← Regula.Filesystem.isPresent lock do
       if let some output ← (reuse <|> pure none) then return output
       break
     IO.sleep 50
@@ -683,7 +689,7 @@ private def replacementHistory (sourceRoots : Array FilePath)
     -- proofwidgets/Widget before reaching the adopter's actual Widget.lean.
     let source ← if let some (_, source) := moduleSources.find? (·.1 == moduleName) then
         pure source
-      else if ← alongside.pathExists then pure alongside else
+      else if ← Regula.Filesystem.isPresent alongside then pure alongside else
         Lean.findLean (sourceRoots.toList ++ (← Lean.getSrcSearchPath) ++
           [(← Lean.findSysroot) / "src" / "lean"])
           moduleName
@@ -882,8 +888,9 @@ def probePrefixes : Array String := reservedPrefixes
 /-- The compiled modules of the prefix `pre` in `dir`: the module `pre` itself, at `dir`, and those
 below `dir / pre`, each by its path components below `dir` without the `.olean` extension. -/
 private def compiledModules (dir : FilePath) (pre : String) : IO (Array (List String)) := do
-  let root := if ← ((dir / pre).addExtension "olean").pathExists then #[[pre]] else #[]
-  unless ← (dir / pre).isDir do return root
+  let root := if ← Regula.Filesystem.isPresent ((dir / pre).addExtension "olean") then #[[pre]]
+    else #[]
+  unless ← Regula.Filesystem.isDirectory (dir / pre) do return root
   let base := dir.normalize.components.length
   return root ++ (← Regula.Filesystem.Construction.walkDirectory (dir / pre)).filterMap fun path =>
     if path.extension == some "olean" then
@@ -909,7 +916,8 @@ private def linkProbeOverlay (overlay selfLib : FilePath) (searchPath : List Fil
         let name := module.foldl (fun name part => Name.mkStr name part) .anonymous
         let pinned := RegulaPolicy.infrastructureModuleNames.contains name
         let source := if pinned then selfLib else dir
-        if pinned && !(← (selfLib / System.mkFilePath module).addExtension "olean" |>.pathExists)
+        if pinned && !(← Regula.Filesystem.isPresent
+            ((selfLib / System.mkFilePath module).addExtension "olean"))
         then continue
         sources := sources.insert module source
         order := order.push module
@@ -923,7 +931,7 @@ private def linkProbeOverlay (overlay selfLib : FilePath) (searchPath : List Fil
     let relative := System.mkFilePath module
     for part in moduleParts do
       let file := (source / relative).addExtension part
-      if ← file.pathExists then
+      if ← Regula.Filesystem.isPresent file then
         let some parent := (overlay / relative).parent | continue
         byDirectory := byDirectory.insert parent
           ((byDirectory.getD parent #[]).push file.toString)

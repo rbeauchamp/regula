@@ -1,5 +1,6 @@
 import RegulaProvision
 import Regula.Removal
+import Regula.Filesystem
 
 /-! # The removal check of the provisioning driver
 
@@ -30,7 +31,10 @@ link at the path (`RegulaProvision.observe`, `RegulaProvision.kind?`,
   before its removal, in the loops of `prune`.
 
 Issue 389 asks for a decision of each of these removals that a theorem relates to
-`RegulaCore.Removal`. -/
+`RegulaCore.Removal`.
+
+It also proves the driver's own presence read, which the driver defines because it cannot import
+`Regula.Filesystem`, equal to the filesystem observer's (`isPresent_eq`). -/
 
 namespace Regula.ProgramCheck.Provision
 
@@ -68,3 +72,9 @@ run_cmd Regula.Removal.checkProgram (named := [
   (specialized `Array.mapMUnsafe.map `prune `spec_0, ``IO.FS.removeFile),
   (specialized `Array.forIn'Unsafe.loop `prune `spec_2, ``IO.FS.removeFile),
   (specialized `Array.forIn'Unsafe.loop `prune `spec_2._lam_0, ``IO.FS.rename)])
+
+/-- The presence read of the driver is the filesystem observer's (`Regula.Filesystem.isPresent`,
+whose match form `Regula.Filesystem.isPresent_eq_match` states). -/
+theorem Regula.ProgramCheck.Provision.isPresent_eq :
+    RegulaProvision.isPresent = Regula.Filesystem.isPresent :=
+  Regula.Filesystem.isPresent_eq_match.symm

@@ -163,7 +163,7 @@ private def checkSource (repo : FilePath) (what : String)
     (moduleName sourceRaw : String) : IO FilePath := do
   let source := FilePath.mk sourceRaw
   let mut invalidSource := moduleName.isEmpty || sourceRaw.isEmpty
-    || source.extension != some "lean" || !(← source.pathExists)
+    || source.extension != some "lean" || !(← Regula.Filesystem.isPresent source)
   if !invalidSource then
     invalidSource := !(← pathWithin source repo)
   if invalidSource then
@@ -205,7 +205,7 @@ def buildableModules (library : _root_.Lake.LeanLib) : IO (Array Name) := do
   let mut globs := library.config.globs
   for root in library.roots do
     if library.config.globs.any (·.matches root) &&
-        (← (Lean.modToFilePath library.srcDir root "").isDir) then
+        (← Regula.Filesystem.isDirectory (Lean.modToFilePath library.srcDir root "")) then
       globs := globs.push (.submodules root)
   for glob in globs do
     glob.forEachModuleIn library.srcDir fun name => names.modify (·.push name)
@@ -393,7 +393,7 @@ def surfaceInventoryOf (repo : FilePath) (ws : _root_.Lake.Workspace)
         -- Dependencies may declare unused executables without shipping their
         -- sources. Capture existing roots; terminal rediscovery still detects
         -- their addition/removal. Claimed root-package targets remain required.
-        if !(← exe.root.leanFile.pathExists) then continue
+        if !(← Regula.Filesystem.isPresent exe.root.leanFile) then continue
         let source ← checkSource package.dir s!"dependency executable {exe.name}"
           exe.root.name.toString exe.root.leanFile.toString
         sources := sources.push { «module» := exe.root.name, source }
@@ -1977,7 +1977,7 @@ def runBuiltExecutable (repo : FilePath) (spelling : String) (args : Array Strin
     let some exe := ws.root.leanExes.find? (Manifest.targetSpelling ·.name == recorded)
       | throw <| IO.userError s!"'{spelling}' names no executable of the root package"
     pure (exe.file, ws.augmentedEnvVars)
-  unless ← file.pathExists do
+  unless ← Regula.Filesystem.isPresent file do
     throw <| IO.userError s!"executable {spelling} was not built: {file}"
   runProcess repo file.toString args env
 

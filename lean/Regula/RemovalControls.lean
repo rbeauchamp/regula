@@ -108,7 +108,7 @@ run_cmd do
         matches .error _ do
       throwError "requireNoLinkedEntries accepted a directory with a dangling linked entry"
     Regula.Filesystem.requireOwnDirectory (base / "absent")
-    unless ← (base / "target" / "out" / "keep").pathExists do
+    unless ← Regula.Filesystem.isPresent (base / "target" / "out" / "keep") do
       throwError "removeOwn removed an entry below a linked component"
     -- Moves: a file over a file and to an absent path; none through the link, of a directory, or
     -- onto a directory.
@@ -116,22 +116,24 @@ run_cmd do
     IO.FS.writeFile (base / "published") "earlier"
     Regula.Filesystem.replace (base / "staged") (base / "published")
     unless (← IO.FS.readFile (base / "published")) == "staged" &&
-        !(← (base / "staged").pathExists) do
+        !(← Regula.Filesystem.isPresent (base / "staged")) do
       throwError "replace did not move a file over a file"
     Regula.Filesystem.replace (base / "published") (base / "moved")
-    unless (← (base / "moved").pathExists) && !(← (base / "published").pathExists) do
+    unless (← Regula.Filesystem.isPresent (base / "moved")) &&
+        !(← Regula.Filesystem.isPresent (base / "published")) do
       throwError "replace did not move a file to an absent path"
     for (source, destination) in [(base / "moved", base / "linked" / "out" / "moved"),
         (base / "target" / "out", base / "directory"), (base / "moved", base / "target")] do
       unless (← (Regula.Filesystem.replace source destination).toBaseIO) matches .error _ do
         throwError "replace moved {source} to {destination}"
-    unless ← (base / "moved").pathExists do
+    unless ← Regula.Filesystem.isPresent (base / "moved") do
       throwError "a refused move changed its source"
     Regula.Filesystem.removeOwn .link (base / "linked")
-    unless !(← (base / "linked").pathExists) && (← (base / "target" / "out" / "keep").pathExists) do
+    unless !(← Regula.Filesystem.isPresent (base / "linked")) &&
+        (← Regula.Filesystem.isPresent (base / "target" / "out" / "keep")) do
       throwError "removeOwn did not remove a symbolic link at its own place, or removed its target"
     Regula.Filesystem.removeOwn .directory (base / "target" / "out")
-    if ← (base / "target" / "out").pathExists then
+    if ← Regula.Filesystem.isPresent (base / "target" / "out") then
       throwError "removeOwn kept a directory at its own place"
     -- Moves aside: a directory and a symbolic link, each into a new directory beside it; nothing
     -- for an absent entry, a last component `..` and an entry whose new directory's name is longer
@@ -274,11 +276,11 @@ run_cmd do
     IO.FS.writeFile (base / "config")
       s!"url = \"file://{base / "body"}\"\noutput = \"{base / "written"}\"\n"
     let _ ← Regula.Site.Deployment.fetch s!"-K{base / "config"}"
-    if ← (base / "written").pathExists then
+    if ← Regula.Filesystem.isPresent (base / "written") then
       throwError "fetch read a URL that starts with `-` as an option of curl"
     let direct ← IO.Process.output
       { cmd := "curl", args := #["--disable", "--silent", s!"-K{base / "config"}"] }
-    unless direct.exitCode == 0 && (← (base / "written").pathExists) do
+    unless direct.exitCode == 0 && (← Regula.Filesystem.isPresent (base / "written")) do
       throwError "the planted configuration of curl writes no file: {direct.stderr}"
   finally
     Regula.Filesystem.removeOwn .directory base

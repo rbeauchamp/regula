@@ -1200,7 +1200,7 @@ def environmentReport (modules : List Name)
       if RegulaPolicy.ToolchainRoot moduleName.getRoot then
         let actual ← liftIO <| IO.FS.realPath origin.olean
         let expected := Lean.modToFilePath toolchainLib moduleName "olean"
-        if ← liftIO expected.pathExists then
+        if ← liftIO (Regula.Collect.isPresent expected) then
           if actual == (← liftIO <| IO.FS.realPath expected) then
             let receipt ← match RegulaPolicy.admitToolchainOrigin moduleName actual.toString
                 (← liftIO <| IO.FS.realPath expected).toString with

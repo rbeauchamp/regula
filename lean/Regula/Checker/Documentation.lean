@@ -724,7 +724,8 @@ def captureVersoPackage (project : FilePath) (verso : VersoPackage) :
       return (components.drop real.length).foldl
           (fun (acc : FilePath) (part : String) => acc / part) anchor
     return (anchors.map (·.2), inputs, modules)
-  let config ← (inputs.toArray ++ anchors.map Manifest.defaultPath).filterM (·.pathExists)
+  let config ← (inputs.toArray ++ anchors.map Manifest.defaultPath).filterM
+    Regula.Filesystem.isPresent
   let paths := (modules ++ config).qsort (fun left right => left.toString < right.toString)
   let paths := paths.toList.eraseDups.toArray
   paths.mapM fun path => do pure ⟨path.toString, ← IO.FS.readFile path⟩

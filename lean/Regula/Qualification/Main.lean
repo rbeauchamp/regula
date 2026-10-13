@@ -68,7 +68,7 @@ private unsafe def runCommand (attempt : Option String) : Command → IO Unit
         | throw <| IO.userError s!"invalid self-audit shard: {spec}"
       Regula.Qualification.SelfAudit.check (some shard)
   | .selfAuditModule m source => Regula.Qualification.SelfAudit.worker m source
-  | .selfAuditJsonModule m => Regula.Qualification.SelfAudit.jsonWorker m
+  | .selfAuditRulesModule m => Regula.Qualification.SelfAudit.rulesWorker m
   | .environments path => Regula.Qualification.EnvironmentCensus.check ⟨path⟩ attempt
   | .acceptance group path => Regula.Qualification.Acceptance.check group.spelling ⟨path⟩ attempt
   | .acceptanceSnapshots group => Regula.Qualification.DependencySnapshot.check group.spelling

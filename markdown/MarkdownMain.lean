@@ -649,7 +649,7 @@ def writeBaseline (options : Options) : IO UInt32 := do
     | .error refusals =>
       IO.eprintln ("\n".intercalate refusals)
       return 1
-  let present ← (options.root / baselineFile).pathExists
+  let present ← Regula.Filesystem.isPresent (options.root / baselineFile)
   let baseline ← match ← loadBaseline options.root present with
     | .ok baseline => pure (baseline.getD Baseline.empty)
     | .error refusals =>

@@ -207,7 +207,7 @@ private def facetReport (repo adopter : FilePath) : IO (Array String) := do
       label := "facet-report/generated-directory"
       contains := generatedReport.push "no such file or directory" }
     (← runElsewhere))
-  if ← (elsewhere / "Generated").pathExists then
+  if ← Regula.Filesystem.isPresent (elsewhere / "Generated") then
     failures := failures.push "facet-report/generated-source: a missing-source control created \
       the generated directory"
   failures := failures ++ (← expect repo { negative with label := "facet-report/dogfood" } args)
@@ -229,8 +229,7 @@ private def accepted (label : String) (fresh : Bool := false) : Expectation :=
 
 private def restore (adopter : FilePath) (files : Array (FilePath × String)) : IO Unit := do
   for (path, text) in files do IO.FS.writeFile path text
-  if ← (adopter / ".lake" / "build").pathExists then
-    Regula.Filesystem.removePath .directory (adopter / ".lake" / "build")
+  Regula.Filesystem.removePath .directory (adopter / ".lake" / "build")
 
 /-- A decision probe: after an ordinary `lake build` of `targets`, which leaves the compiled
 lakefile under `.lake/config`, the workspace at `adopter` is loaded in-process as the driver loads
@@ -597,7 +596,7 @@ private def leanArguments (probes : Std.Mutex Unit) (repo adopter : FilePath) :
   unless JsonAgreement.conforms stale (toJson "incomplete") do
     failures := failures.push s!"lake-lint/lean/option-like-value-refused: stale.json has status \
       {stale.compress}"
-  if ← (adopter / "--json-out").pathExists then
+  if ← Regula.Filesystem.isPresent (adopter / "--json-out") then
     failures := failures.push "lake-lint/lean/option-like-value-refused: the configured value \
       --json-out was written as a destination"
   Regula.Filesystem.removePath .file (adopter / "stale.json")
@@ -1774,8 +1773,7 @@ private def dependencyCachedWarning (repo adopter : FilePath) : IO (Array String
   let mut failures : Array String := #[]
   unless filled.succeeded && filled.output.contains warning do
     failures := failures.push s!"lake-lint/dependency-cache/fill: {filled.output}"
-  if ← (dependency / ".lake" / "build").pathExists then
-    Regula.Filesystem.removePath .directory (dependency / ".lake" / "build")
+  Regula.Filesystem.removePath .directory (dependency / ".lake" / "build")
   let fresh := runProcess adopter "lake" #["lint", "--", "--fresh"] env
   failures := failures ++ (← assess {
       label := "dependency-cache/fresh", exitCode := 3,
@@ -2022,7 +2020,7 @@ private def pathOwned (repo adopter : FilePath) : IO (Array String) := do
   Regula.Filesystem.removePath .directory (support / ".lake" / "build")
   failures := failures ++
     (← expect adopter (ownedAccepted "path/owned-fresh" (fresh := true)) #["--", "--fresh"])
-  if ← (support / ".lake" / "build").pathExists then
+  if ← Regula.Filesystem.isPresent (support / ".lake" / "build") then
     failures := failures.push "lake-lint/path/owned-fresh: the fresh audit wrote the original \
       dependency's build output"
   return failures
@@ -2075,10 +2073,9 @@ private def pathForged (repo adopter : FilePath) : IO (Array String) := do
   IO.FS.writeFile supportLakefile <| supportConfiguration.replace "[[lean_lib]]"
     s!"leanLibDir = {toJson (support / ".lake" / "build" / "lib" / "lean").toString |>.compress}\n\
       [[lean_lib]]"
-  if ← (support / ".lake" / "build").pathExists then
-    Regula.Filesystem.removePath .directory (support / ".lake" / "build")
+  Regula.Filesystem.removePath .directory (support / ".lake" / "build")
   failures := failures ++ (← expect adopter (layout "path/owned-libdir-outside") #["--", "--fresh"])
-  if ← (support / ".lake" / "build").pathExists then
+  if ← Regula.Filesystem.isPresent (support / ".lake" / "build") then
     failures := failures.push "lake-lint/path/owned-libdir-outside: the fresh audit wrote the \
       original dependency's build output"
   failures := failures ++ (← expect adopter (layout "path/owned-libdir-incremental"))
@@ -2577,7 +2574,7 @@ private def compilerGuard (repo project : FilePath) : IO (Array String) := do
   for name in #["lakefile.lean", "lean-toolchain", "lean/RegulaPolicy/Compiler.lean"] do
     Regula.Filesystem.copyFile (repo / name) (project / name)
   let path := System.SearchPath.parse ((← IO.getEnv "PATH").getD "")
-  let some silent ← path.findM? fun dir => (dir / "true").pathExists
+  let some silent ← path.findM? fun dir => Regula.Filesystem.isPresent (dir / "true")
     | throw <| IO.userError "lake-lint: the compiler-guard control found no `true` on PATH"
   let load (env : Array (String × Option String)) : IO ProcessResult :=
     runProcess project "lake" #["check-lint"] (scrubbedLeanPathEnv ++ env)

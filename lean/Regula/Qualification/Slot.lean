@@ -150,7 +150,7 @@ def checkContainment (slot : ProducerSlot) (copy : FilePath)
     (shared : Array FilePath) : IO Unit := do
   unless (← contained slot.root copy) do
     throw <| IO.userError s!"slot package copy escapes slot: {copy}"
-  if (← (copy / ".git").pathExists) then
+  if (← Regula.Filesystem.isPresent (copy / ".git")) then
     let git ← run copy "git" #["rev-parse", "--git-dir", "--git-common-dir", "--show-toplevel"]
     unless git.exitCode == 0 do
       throw <| IO.userError s!"slot git identity unavailable: {copy}\n{git.stdout}{git.stderr}"
@@ -161,7 +161,7 @@ def checkContainment (slot : ProducerSlot) (copy : FilePath)
         else copy / entry
       unless (← contained slot.root resolved) do
         throw <| IO.userError s!"slot git resolution escapes slot: {entry}"
-  if (← (copy / "lake-manifest.json").pathExists) then
+  if (← Regula.Filesystem.isPresent (copy / "lake-manifest.json")) then
     let manifest ← readJson (copy / "lake-manifest.json")
     let packages ← IO.ofExcept (manifest.getObjValAs? (Array Json) "packages")
     for entry in packages do
@@ -320,7 +320,7 @@ def prepareSlot (originalRoot : FilePath) (slot : ProducerSlot)
     _root_.Lake.Manifest.save {manifest with packages := relocated} manifestPath
     return "/".intercalate relative
   provenance := provenance.push ⟨s!"root/{relocatedManifest}", "config", "relocated"⟩
-  if (← (originalRoot / ".lake/build").pathExists) then
+  if (← Regula.Filesystem.isPresent (originalRoot / ".lake/build")) then
     let _ ← copyTree (originalRoot / ".lake/build") (copy / ".lake/build")
     -- Slot producers run the copied axiomGate/ruleExamples dispatchers by path, and Lake can
     -- invoke any declared executable. Grant 0755 precisely to the root's Lake-declared binaries.
@@ -334,7 +334,7 @@ def prepareSlot (originalRoot : FilePath) (slot : ProducerSlot)
         | none => pure ()
         | _ => throw <| IO.userError s!"slot executable is not regular: {path}"
     provenance := provenance.push ⟨"root/.lake/build", "build", "copy"⟩
-  if (← (originalRoot / ".git").pathExists) then
+  if (← Regula.Filesystem.isPresent (originalRoot / ".git")) then
     materializeGit (copy / ".git") (originalRoot / ".git")
     provenance := provenance.push ⟨"root/.git", "git", "copy"⟩
   for dep in deps do

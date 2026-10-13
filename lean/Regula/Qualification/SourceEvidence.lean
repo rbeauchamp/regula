@@ -37,7 +37,7 @@ def observe (root project : FilePath) (label binary : String) (flags : Array Str
     (expected : Expected) (env : Array (String × Option String) := cleanEnv) :
     IO (IO.Process.Output × Option Json) := do
   let output := project / s!"{label}.json"
-  requireChecks [⟨"fresh evidence output", !(← output.pathExists)⟩]
+  requireChecks [⟨"fresh evidence output", !(← Regula.Filesystem.isPresent output)⟩]
   let jsonCommand := binary == "axiomGate"
   let result ← run project (root / ".lake/build/bin" / binary).toString
     (#["--project", project.toString] ++ flags ++

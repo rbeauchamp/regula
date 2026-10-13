@@ -107,9 +107,9 @@ def snapshotCached (cache : IO.Ref SnapshotCache) (paths : Array FilePath) : IO 
 
 private def configuration (paths : Array FilePath) : IO Json := do
   return toJson (← paths.mapM fun path => do
-    let value ← if (← path.pathExists) && !(← path.isDir) then pure
-                                                                (some (← IO.FS.readFile path)) else
-                                                                    pure none
+    let value ← match ← Regula.Filesystem.metadataIfPresent path with
+      | some { type := .dir, .. } | none => pure none
+      | some _ => pure (some (← IO.FS.readFile path))
     pure (path.toString, value))
 
 private def save (path : FilePath) (value : Json) : IO Unit := do
@@ -233,7 +233,7 @@ private def produce (ctx : Context) (slot : Slot.ProducerSlot) (rule phase : Str
   let raw := ctx.rawDirectory / rule / phase
   IO.FS.createDirAll raw
   let output := raw / "result.json"
-  requireChecks [⟨"fresh corpus output", !(← output.pathExists)⟩]
+  requireChecks [⟨"fresh corpus output", !(← Regula.Filesystem.isPresent output)⟩]
   let kind ← if case == "Fixed" then pure "positive" else string spec "kind"
   let mode ← string spec "invocation"
   if mode == "file" && rule != "RG2001" then
@@ -380,7 +380,7 @@ private def produce (ctx : Context) (slot : Slot.ProducerSlot) (rule phase : Str
   save (raw / "terminal.json") terminal
   requireChecks
       [⟨s!"{rule}/{phase}: missing terminal result\n{execution.stdout}{execution.stderr}",
-          ← output.pathExists⟩,
+          ← Regula.Filesystem.isPresent output⟩,
     ⟨s!"{rule}/{phase}: process failed/timed out",
         !#[124, 125, 126, 127, 137].contains execution.exitCode⟩]
   let evidenceStart ← IO.monoMsNow
@@ -495,7 +495,7 @@ sources, the toolchain, Lake configuration and manifest, and every corpus file. 
 recomputes this set to require that exported evidence belongs to the current sources. -/
 def sourcePaths (root : FilePath) (modulePaths : Array FilePath) : IO (Array FilePath) := do
   let corpusPaths ← (← Regula.Filesystem.Construction.walkDirectory (root / "examples/rules")).filterM
-    fun path => return !(← path.isDir)
+    fun path => return !(← Regula.Filesystem.isDirectory path)
   return (modulePaths ++
       #[root / "lean-toolchain", root / "lakefile.lean", root / "lake-manifest.json"] ++
           corpusPaths).toList.eraseDups.toArray
@@ -583,7 +583,8 @@ def check (evidence : FilePath) (selection : Option (Array String))
   let root ← rootDirectory
   let evidence ← IO.FS.realPath evidence
   let rawDirectory := FilePath.mk (evidence.toString ++ ".raw/" ++ attempt)
-  requireChecks [⟨"fresh raw observation attempt", !(← rawDirectory.pathExists)⟩]
+  requireChecks
+    [⟨"fresh raw observation attempt", !(← Regula.Filesystem.isPresent rawDirectory)⟩]
   IO.FS.createDirAll rawDirectory
   let specs ← readJson (root / "examples/rules/corpus.json")
   let keys := (← IO.ofExcept specs.getObj?).toList.map Prod.fst |>.toArray
@@ -612,7 +613,7 @@ def check (evidence : FilePath) (selection : Option (Array String))
     IO.FS.createDirAll slot.root
     let configNames ← (#["lean-toolchain", "lakefile.lean", "lake-manifest.json",
       "foundation_manifest.json"] : Array String).filterM
-        (fun (name : String) => (root / name).pathExists)
+        (fun (name : String) => Regula.Filesystem.isPresent (root / name))
     let rootConfigs ← configNames.mapM (fun (name : String) => do
       pure (root / name, ← Regula.Filesystem.readBytes (root / name)))
     let rootSources ← modulePaths.mapM fun path => do

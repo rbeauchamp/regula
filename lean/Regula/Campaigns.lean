@@ -44,7 +44,7 @@ def form : Command → Command
   | .producersExport _ => .producersExport "PATH"
   | .selfAuditShard _ => .selfAuditShard "K/4"
   | .selfAuditModule _ _ => .selfAuditModule "MODULE" "SOURCE"
-  | .selfAuditJsonModule _ => .selfAuditJsonModule "MODULE"
+  | .selfAuditRulesModule _ => .selfAuditRulesModule "MODULE"
   | .copyRelocationLoad _ _ => .copyRelocationLoad "PROJECT" "COPIES"
   | .copyRelocationGit _ => .copyRelocationGit "SCRATCH"
   | .environments _ => .environments "PATH"
@@ -57,7 +57,7 @@ def qualifyForms : List Command :=
   [.registry, .native, .combined, .uniqueConstants, .nativeLauncher, form (.ruleExamples ""),
     form (.ruleExamplesRules "" []), form (.ruleExamplesShard "" ""), .producers,
     form (.producersExport ""), .producersCombined, .history, .selfAudit, form (.selfAuditShard ""),
-    form (.selfAuditModule "" ""), form (.selfAuditJsonModule ""), form (.environments ""),
+    form (.selfAuditModule "" ""), form (.selfAuditRulesModule ""), form (.environments ""),
     form (.acceptance .fences ""), .acceptanceSnapshots .dependencies,
     .acceptanceSnapshots .history, .acceptanceSnapshots .gitStatus, .acceptanceSnapshots .all,
     .prepMeasure, .documentationDependencies, .inputInventory, .receiptBoundaries, .observers,
@@ -424,7 +424,7 @@ def reason : Campaign → Option Reason
       "`producers` and `history` run, each in a job of its own."
   | .qualify .selfAudit => some <| .within (.qualify (form (.selfAuditShard "")))
       "the four shards together audit all modules."
-  | .qualify (.selfAuditModule "MODULE" "SOURCE") | .qualify (.selfAuditJsonModule "MODULE") =>
+  | .qualify (.selfAuditModule "MODULE" "SOURCE") | .qualify (.selfAuditRulesModule "MODULE") =>
       some (.worker (.qualify (form (.selfAuditShard ""))))
   | .qualify (.enumerationCopy "SOURCE" "TARGET") => some (.worker (.qualify .enumeration))
   | .qualify .readers => some readersNotRun
