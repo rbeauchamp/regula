@@ -68,8 +68,8 @@ private def modeText (fresh : Bool) : String :=
   else "incrementalProject (incremental elaboration; current policy on cached modules)"
 
 /-- Read-only: validates the manifest and Lake scope with the audit's own functions and
-prints what an audit of the dispatching root `repo` would check. It never constructs or reports a
-result. -/
+prints what an audit of the dispatching root `repo` would check, with the facet report and its
+census (`FacetReport.Output.census`). It never constructs or reports a result. -/
 private def explain (repo : FilePath) (options : Options) : IO Outcome := do
   Regula.Checker.initializeLeanSearchPath
   let manifestPath := match options.manifest with
@@ -80,7 +80,7 @@ private def explain (repo : FilePath) (options : Options) : IO Outcome := do
   IO.println
       s!"manifest: {manifestPath} \
         ({if options.manifest.isSome then "--manifest" else "project-root default"})"
-  let inventory ← Lake.surfaceInventory repo
+  let inventory ← Lake.surfaceInventory repo (facets := .census)
   let manifest ← Manifest.loadFor manifestPath inventory
   discard <| IO.ofExcept <| Acceptance.surfaceAssignments manifest inventory
   AxiomGate.checkClassification manifest inventory

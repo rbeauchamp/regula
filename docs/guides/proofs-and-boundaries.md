@@ -156,6 +156,7 @@ Lake's module trace omits these arguments. Regula's `lakefile.lean` declares an 
 that adds this record for the libraries of the root package and of the package that declares the
 facet. Lake identifies each package itself (`Package.isRoot`, `__name__`), not by the name a
 `require` gives it.
+The [facet report](#replaced-root-library-facets) names a root library facet that Regula replaces.
 `Lake.ClaimedBuildPlan.completionTargets_exact` binds the deferred build to the original
 target array; `build_completed_iff` records the build stage before preflight exactly when no
 target build remains. A library-only claim keeps one original build
@@ -837,6 +838,82 @@ project root is resolved.
 closed by qualification and review, never by a count or hash. Private constructors are an
 ergonomic boundary, not hostile in-process unforgeability. Lean/Lake extraction, compiler
 admission, source reads, process completion and compiled execution remain trusted.
+
+### Replaced root library facets
+
+Lake inserts the root package's facets before those of its dependencies.
+Thus Regula's `weakLeanArgsTrace` overrides the configuration of a root library facet with the same `extraDep` key.
+Work unique to that configuration may be lost.
+Regula's facet also runs Lake's own facet, and a later dependency can restore the root facet.
+Move that work to `extraDepTargets` or `needs`, which Lake's own facet runs.
+
+The project audit and the `--explain-config` path of `lake lint` print the `regula facet report`.
+`lake lint` runs the project audit in the same process.
+The report names each replaced root declaration and its package, with that consequence and remedy.
+Only `--explain-config` also prints the count of loaded library facet declarations and replaced root declarations.
+The report is advisory and changes no audit exit class, but a failed read of the loaded declarations fails the inventory.
+It does not restore the overridden configuration.
+
+A process prints the report one time, from the one inventory that requests it (`FacetReport.Output`).
+These inventories request it:
+
+- The inventory of `--explain-config`.
+- The inventory of the project in an incremental audit.
+- The inventory of the original project when a fresh audit makes its copy.
+- The inventory of the copy that the verification driver makes, when an audit uses that copy.
+
+The other readers of the inventory print no report.
+Examples are the scope check of `lake lint`, `regula init`, `regula doctor` and the terminal recheck of an audit.
+
+`FacetReport.observe` reads each package's compiled configuration through Lake's own importer, attribute inventory and evaluator.
+It reads no lakefile text.
+Each record keeps the package that contributes the declaration, its constant name and its evaluated facet key.
+The facet observer itself does not authenticate source or establish the behavior of a facet's job.
+
+The inventory reads the modules and sources of each package (`Lake.packageModules`) and applies the source guard (`Lake.checkReservedModules`).
+The source guard gives the keys of packages that provide `Regula.Checker.Lake` with the running checker's source text.
+If the inventory of a package fails, that package gives no key, and the inventory raises that failure after the report.
+
+The report receives the keys when the provider guard (`Lake.checkOneProvider`) passes over the inventories that completed.
+It uses all those keys, since the provider guard permits duplicate providers among trusted packages.
+This includes a dependency at a different directory or with a different assigned name.
+
+Thus the report precedes the refusal of a missing source or glob directory that the overridden facet generates.
+It also precedes the validation of the other source files.
+A glob over an empty directory supplies no authenticated source and no key.
+If the provider guard refuses, the inventory prints no report.
+
+The shared reader `LakeConfig.language` uses the selected `relConfigFile`, as Lake does, rather than the resolved symlink target.
+The facet report, plain-shape guard, library-facet count and setup observer use this reader.
+It calls Lake's `ConfigLang.ofString?` decoder.
+`language_ok_iff` proves its exact correspondence to Lake's `ConfigLang.fileExtension` for the supplied relative path.
+
+`FacetReport.replacementDecision` decides `Replaced` on these records.
+`mem_replaced_iff` proves that the report's selection contains exactly the records for which this proposition holds.
+The proposition requires the last root `extraDep` record and Regula's declaration of that key from a dependency.
+The theorem is about supplied records.
+The observation trusts Lake's insertion order, compiled configuration and runtime evaluation, plus the audit's source authentication and stable files during the read.
+A later dependency can replace Regula's facet also, so the report does not identify the final facet.
+
+The `facet-report` controls run in `diagnostics lint-driver 1/5`, through `lake lint -- --explain-config` and `axiomGate --incremental --project`.
+They report a named root facet and leave a text-only decoy and a different facet key unreported.
+They also check symlinked configuration files, a Regula dependency at a different directory, a renamed facet declaration and Regula's own root configuration.
+The negative controls require the census line of `--explain-config`, so absence of a report alone cannot pass them.
+The audit controls require the report without the census line.
+These controls observe Lake and process output, not a universal property of the loader.
+
+One more control reports the root facet when a root glob covers Regula submodules over an empty directory.
+Three audit controls stop after discovery on an incomplete fixture manifest, before any target build.
+Two audit controls name a facet that generates a configured directory and source, then refuse because these are absent.
+One control names the source explicitly, and the other has a glob over the directory.
+The empty-glob control uses the auditor because the same glob prevents Lake from building its lint driver.
+
+The `weak-args-probes` group, also in `diagnostics lint-driver 1/5`, links a `lakefile.lean` to a Lean configuration named `configuration.toml`.
+Its decision probe of the plain shape keeps the marker for the facet of that configuration.
+As a dependency, the same configuration adds its facet to the count of `Lake.otherLibraryFacets`.
+The `lake-new` group, in `diagnostics lint-driver 4/5`, links the `lakefile.lean` of its Lean project in the same way.
+Then `regula doctor` names `lakefile.lean` and reports the setup complete.
+A decision that used the extension of the resolved target would read TOML in these three controls.
 
 ## Keys, census and collection
 

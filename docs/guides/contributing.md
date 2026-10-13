@@ -311,8 +311,9 @@ lint-driver partitions of the self-test, and four groups of qualification contro
 partitions and groups are too long for a job, and the table of
 [campaigns no workflow runs](#campaigns-no-workflow-runs) names them. They run as parallel jobs, each with its own hard 420-second limit, on a pull
 request exactly when it changes one of the paths `Regula.DiagnosticsGate.inputs` lists (the checker, rules, rule examples, the
-adopter fixtures in `examples/lake-lint-toml` and `examples/build-lint`, the application and
-fixture sources the structural and execution controls mutate, Lake configuration, manifests, or
+adopter fixtures in `examples/lake-lint-toml` and `examples/build-lint`, the Lake configuration
+fixtures in `examples/fixtures`, the application and fixture sources the structural and execution
+controls mutate, Lake configuration, manifests, or
 the compiler and dependency setup: the provisioning program and its decision contracts, the
 provisioning action, the verification scripts and the configuration they read before a campaign),
 and on every other run; it also runs the three `rule-examples` shards nightly. Its last job,

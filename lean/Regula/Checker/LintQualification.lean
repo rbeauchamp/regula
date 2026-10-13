@@ -62,6 +62,157 @@ private def expect (cwd : FilePath) (e : Expectation) (args : Array String := #[
     (env : Array (String × Option String) := #[]) : IO (Array String) := do
   assess e (← lint cwd args env)
 
+/-- Replace one exact anchor; a missing or repeated anchor is a harness failure. -/
+private def mutate (path : FilePath) (before after : String) : IO Unit := do
+  let original ← IO.FS.readFile path
+  if (original.splitOn before).length != 2 then
+    throw <| IO.userError s!"lake-lint: expected exactly one anchor {before} in {path}"
+  IO.FS.writeFile path (original.replace before after)
+
+/-- Controls of Lake's compiled-configuration and process-output boundary. The public
+`--explain-config` path runs the same facet report as an audit without running its proof stages,
+and only it prints the census line, which proves that the negative control ran the decision. A
+named root facet is reported; a different facet and a text-only decoy are not. Regula's own root facet is not
+reported as replaced by its own declaration. The empty-Regula-glob case uses the already-built
+auditor's `--project` path: through Lake's lint driver, that glob already stops the run earlier
+by shadowing the driver's Regula imports. Lake v4.34.1 builds that executable before running it
+(`Lake/CLI/Actions.lean:89-99`), resolves imports through workspace lookup
+(`Lake/Build/Module.lean:30-37`), and takes the first configured glob match without checking
+source existence (`Lake/Config/Workspace.lean:279-280`, `Lake/Config/Module.lean:41-59`,
+`Lake/Config/LeanLibConfig.lean:128-130`). These observations do not prove Lake's loader. -/
+private def facetReport (repo adopter : FilePath) : IO (Array String) := do
+  BuildLintQualification.setup repo adopter
+  let lakefile := adopter / "lakefile.lean"
+  let original ← IO.FS.readFile lakefile
+  let args := #["--", "--explain-config"]
+  let checked := "regula facet report: checked "
+  let empty := "0 root extraDep declarations replaced by Regula"
+  let displaced := "root package 'build_lint_adopter' library facet 'adopterPrerequisite'"
+  let replacement := #[displaced,
+    "has its configuration overridden by Regula's 'weakLeanArgsTrace'",
+    "Work unique to the overridden facet may be lost",
+    "Move that work to extraDepTargets or needs"]
+  let collisionLakefile := original ++ "\n\
+    /-- A facet replaced by a later root declaration, before dependencies load. -/\n\
+    @[«library_facet»] def earlierPrerequisite : LibraryFacetDecl :=\n\
+      .mk LeanLib.extraDepFacet LeanLib.extraDepFacetConfig\n\
+    /-- A prerequisite represented by the root's library facet. -/\n\
+    @[«library_facet»] def adopterPrerequisite : LibraryFacetDecl :=\n\
+      .mk LeanLib.extraDepFacet LeanLib.extraDepFacetConfig\n"
+  IO.FS.writeFile lakefile collisionLakefile
+  let positive : Expectation := {
+    label := "facet-report/replaced", exitCode := 2,
+    contains := #[checked, "1 root extraDep declarations replaced by Regula"] ++ replacement,
+    excludes := #["library facet 'earlierPrerequisite'", "Its build step does not run"] }
+  let mut failures ← expect adopter positive args
+  IO.FS.writeFile lakefile (original ++ "\n\
+    -- @[«library_facet»] def adopterPrerequisite uses LeanLib.extraDepFacet\n\
+    library_facet other : Unit := pure Job.nil\n")
+  let negative : Expectation := {
+    label := "facet-report/not-replaced", exitCode := 2,
+    contains := #[checked, empty], excludes := #[displaced,
+      "Work unique to the overridden facet may be lost", "Its build step does not run"] }
+  failures := failures ++ (← expect adopter negative args)
+  -- Lake chooses Lean from the relative lakefile.lean, even when the resolved target ends in
+  -- .toml. A positive report proves that the root facet was read rather than silently skipped.
+  IO.FS.writeFile lakefile collisionLakefile
+  Regula.Filesystem.replace lakefile (adopter / "configuration.toml")
+  let linkedLean ← runProcess adopter "ln" #["-s", "configuration.toml", "lakefile.lean"]
+  unless linkedLean.succeeded do throw <| IO.userError linkedLean.output
+  failures := failures ++ (← expect adopter { positive with label := "facet-report/lean-symlink" }
+    args)
+  -- Conversely, TOML selected by its relative name has no .olean even when its target is
+  -- extensionless. The completed census is required, so an importer failure cannot pass.
+  let toml := adopter / "toml"
+  BuildLintQualification.setup repo toml "lake-lint-toml" #["Gadget.lean", "Gadget/Double.lean"]
+    "lakefile.toml"
+  Regula.Filesystem.replace (toml / "lakefile.toml") (toml / "configuration")
+  let linkedToml ← runProcess toml "ln" #["-s", "configuration", "lakefile.toml"]
+  unless linkedToml.succeeded do throw <| IO.userError linkedToml.output
+  failures := failures ++ (← expect toml { negative with label := "facet-report/toml-symlink" }
+    args)
+  -- A small configuration fixture supplies Regula's actual shipped facet from a different
+  -- directory under the assigned name checker. Its only module is a copy of the running
+  -- checker's source, so the audit's reserved-source guard can admit it. No second checkout or
+  -- compiler tree is copied, and no package target is built in this control.
+  let elsewhere := adopter / "elsewhere"
+  let otherRegula := adopter / "other-regula"
+  BuildLintQualification.setup repo elsewhere
+  IO.FS.createDirAll (otherRegula / "lean" / "Regula" / "Checker")
+  IO.FS.writeFile (otherRegula / "lean" / "Regula" / "Checker" / "Lake.lean")
+    (← IO.FS.readFile (repo / "lean" / "Regula" / "Checker" / "Lake.lean"))
+  let some shipped := Lake.weakArgsDeclarations (← IO.FS.readFile (repo / "lakefile.lean"))
+    | throw <| IO.userError "facet-report: the shipped facet is unavailable"
+  let otherConfig := "import Lake\nopen Lake DSL\npackage regula\nlean_lib Regula where\n  \
+    srcDir := \"lean\"\n  roots := #[`Regula.Checker.Lake]\n  \
+    globs := #[.one `Regula.Checker.Lake]\n" ++ shipped
+  IO.FS.writeFile (otherRegula / "lakefile.lean") otherConfig
+  let initialized ← runProcess otherRegula "git" #["init", "-q"]
+  unless initialized.succeeded do throw <| IO.userError initialized.output
+  IO.FS.writeFile (elsewhere / "lakefile.lean")
+    (collisionLakefile.replace (toJson repo.toString).compress (toJson otherRegula.toString).compress
+      |>.replace "require regula from" "require checker from")
+  let manifest ← readJson (elsewhere / "lake-manifest.json")
+  writeJson (elsewhere / "lake-manifest.json") <| manifest.setObjVal! "packages" <| toJson #[
+    Json.mkObj [("name", toJson "checker"), ("scope", toJson ""),
+      ("configFile", toJson "lakefile.lean"), ("manifestFile", toJson "lake-manifest.json"),
+      ("inherited", toJson false), ("type", toJson "path"), ("dir", toJson otherRegula.toString)]]
+  -- An intentionally unclassified root library stops after discovery, before any target build.
+  -- This qualifies the supported --project report, not a completed audit of the fixture package.
+  writeJson (elsewhere / "foundation_manifest.json") <| Json.mkObj [
+    ("schema-version", toJson (2 : Nat)), ("surfaces", toJson (#[] : Array Json)),
+    ("excluded-libraries", toJson (#[] : Array Json)),
+    ("excluded-executables", toJson (#[] : Array Json))]
+  let runElsewhere := runProcess repo (repo / ".lake" / "build" / "bin" / "axiomGate").toString
+    #["--incremental", "--project", elsewhere.toString] scrubbedLeanPathEnv
+  -- The audit prints each replaced declaration and no census.
+  let cross : Expectation := {
+    label := "facet-report/elsewhere", exitCode := Lint.Outcome.configuration.exitCode
+    contains := replacement.push "manifest-incomplete", excludes := positive.excludes.push checked }
+  failures := failures ++ (← assess cross (← runElsewhere))
+  -- External Lake boundary: an empty glob provides no authenticated checker source. Running
+  -- the already-built auditor reaches discovery without asking Lake to build a lint driver.
+  let elsewhereLakefile := elsewhere / "lakefile.lean"
+  let unshadowed ← IO.FS.readFile elsewhereLakefile
+  IO.FS.createDirAll (elsewhere / "Regula")
+  mutate elsewhereLakefile "globs := #[.andSubmodules `Widget]"
+    "globs := #[.andSubmodules `Widget, .submodules `Regula]"
+  failures := failures ++ (← assess { cross with label := "facet-report/empty-glob" }
+    (← runElsewhere))
+  IO.FS.writeFile elsewhereLakefile unshadowed
+  IO.FS.writeFile (otherRegula / "lakefile.lean")
+    (otherConfig.replace "@[«library_facet»] def weakLeanArgsTrace"
+      "@[«library_facet»] def Trace.alternateTrace")
+  let renamed := { cross with
+    label := "facet-report/renamed", contains :=
+      cross.contains.map (·.replace "Regula's 'weakLeanArgsTrace'" "Regula's 'Trace.alternateTrace'") }
+  failures := failures ++ (← assess renamed (← runElsewhere))
+  -- External filesystem/Lake boundary: the overridden root facet would create a configured
+  -- directory and source. Lake still enumerates an explicit .one when the source is absent
+  -- (v4.34.1, Lake/Config/Glob.lean:55), so the report must precede its missing-source refusal.
+  IO.FS.writeFile (otherRegula / "lakefile.lean") otherConfig
+  IO.FS.writeFile elsewhereLakefile
+    (← IO.FS.readFile (repo / "examples" / "fixtures" / "generated-source" / "lakefile.lean"))
+  let generatedReport := replacement.map (·.replace "adopterPrerequisite" "generateSource")
+  let generated : Expectation := { cross with
+    label := "facet-report/generated-source", exitCode := Lint.Outcome.incomplete.exitCode
+    contains := generatedReport.push
+      "lake-query-malformed: Widget module Generated.Value has invalid source"
+    excludes := cross.excludes.push "manifest-incomplete" }
+  failures := failures ++ (← assess generated (← runElsewhere))
+  -- A glob over the absent directory: Lean's `forEachModuleInDir` reads it during the package
+  -- inventory (v4.34.1, Lean/Util/Path.lean:35), so the report must precede that refusal too.
+  mutate elsewhereLakefile "globs := #[.one `Generated.Value]" "globs := #[.submodules `Generated]"
+  failures := failures ++ (← assess { generated with
+      label := "facet-report/generated-directory"
+      contains := generatedReport.push "no such file or directory" }
+    (← runElsewhere))
+  if ← (elsewhere / "Generated").pathExists then
+    failures := failures.push "facet-report/generated-source: a missing-source control created \
+      the generated directory"
+  failures := failures ++ (← expect repo { negative with label := "facet-report/dogfood" } args)
+  return failures
+
 /-- The adopter's `axiomGate --file` audit of `file` against kernel-only, run through Lake. -/
 private def fileAudit (cwd : FilePath) (file : String) (args : Array String := #[]) :
     IO ProcessResult :=
@@ -75,13 +226,6 @@ private def accepted (label : String) (fresh : Bool := false) : Expectation :=
       s!"regula lint: {acceptanceLabel} — fresh whole-project acceptance"
     else s!"regula lint: {acceptanceLabel} — incremental project acceptance"],
     excludes := #["verification phase", "diagnostic span"] }
-
-/-- Replace one exact anchor; a missing or repeated anchor is a harness failure. -/
-private def mutate (path : FilePath) (before after : String) : IO Unit := do
-  let original ← IO.FS.readFile path
-  if (original.splitOn before).length != 2 then
-    throw <| IO.userError s!"lake-lint: expected exactly one anchor {before} in {path}"
-  IO.FS.writeFile path (original.replace before after)
 
 private def restore (adopter : FilePath) (files : Array (FilePath × String)) : IO Unit := do
   for (path, text) in files do IO.FS.writeFile path text
@@ -1092,7 +1236,10 @@ facet is admitted (the lint mode's marker-free runs of `weakArgsModes`), while a
 `regula` that declares the same facet in another `lakefile.lean`, or a facet of that name with
 another body, keeps the marker. A workspace that requires Regula as `checker` and an unrelated
 package as `regula` records weak arguments for its root library and none for the unrelated
-package's: Regula's facet decides by Lake's identity of its own package, not by name. -/
+package's: Regula's facet decides by Lake's identity of its own package, not by name. When the
+unrelated package's `lakefile.lean` links to a Lean configuration under a name that ends in
+`.toml`, its library facet keeps the marker as a root and counts toward
+`Lake.otherLibraryFacets` as a dependency. -/
 private def weakArgsProbes (probes : Std.Mutex Unit) (repo adopter : FilePath) :
     IO (Array String) := do
   BuildLintQualification.setup repo adopter
@@ -1150,6 +1297,29 @@ private def weakArgsProbes (probes : Std.Mutex Unit) (repo adopter : FilePath) :
       `regula` has a record or no trace:\n{probeTrace}"
   else
     IO.println "lake-lint control weak-args/renamed: completed"
+  -- External Lake boundary: a `lakefile.lean` that links to a Lean configuration whose name ends
+  -- in `.toml`. Lake reads Lean from the relative name (`LakeConfig.language`), so the plain
+  -- shape of the root counts its facet, and as a dependency of `renamed` the facet counts toward
+  -- `Lake.otherLibraryFacets`. Read by the target's extension, each would see no facet.
+  let otherFacet := "library_facet other : Unit := pure Job.nil\n"
+  Regula.Filesystem.replace (fake / "lakefile.lean") (fake / "configuration.toml")
+  IO.FS.writeFile (fake / "configuration.toml") (fakeLakefile otherFacet)
+  let linked ← runProcess fake "ln" #["-s", "configuration.toml", "lakefile.lean"]
+  unless linked.succeeded do throw <| IO.userError linked.output
+  failures := failures ++ (← probe probes fake "weak-args/lean-symlink-shape" #["Probe"]
+    (some "facet declaration"))
+  let counted : Except String Nat ← try
+      probes.atomically do
+        Workspace.withRootWorkspace renamed (scrubSearchPath := true) fun ws => do
+          let some package := ws.packages.find? (·.baseName == `regula)
+            | return .error "the dependency regula is not loaded"
+          return .ok (← Lake.otherLibraryFacets ws (← Lake.runningLakefile) package)
+    catch error => pure (.error (toString error))
+  match counted with
+  | .ok 0 => failures := failures.push "lake-lint/weak-args/lean-symlink-facets: the linked Lean \
+      configuration of the dependency regula counts no library facet"
+  | .ok _ => IO.println "lake-lint control weak-args/lean-symlink-facets: completed"
+  | .error error => failures := failures.push s!"lake-lint/weak-args/lean-symlink-facets: {error}"
   Regula.Filesystem.removePath .directory renamed
   Regula.Filesystem.removePath .directory fake
   return failures
@@ -1958,7 +2128,9 @@ from `lake exe regula init` the glob that includes the module its umbrella impor
 `doctor` reports the setup complete, and a second `init` writes nothing. In the `lakefile.toml`
 project, `lake lint` then reports only the docstrings the template lacks ([RG2003]); with them
 written it accepts the project. That the plan of the result is empty in the model is
-`Regula.Setup.plan_idempotent`; these runs observe that the written files realize it. -/
+`Regula.Setup.plan_idempotent`; these runs observe that the written files realize it. When the
+`lakefile.lean` project's file then links to its Lean configuration under a name that ends in
+`.toml`, `doctor` still names `lakefile.lean` and reports the setup complete. -/
 private def lakeNew (repo scratch : FilePath) : IO (Array String) := do
   let regula (project : FilePath) : IO ProcessResult :=
     runProcess project "lake" #["exe", "regula", "init"] scrubbedLeanPathEnv
@@ -1996,9 +2168,22 @@ private def lakeNew (repo scratch : FilePath) : IO (Array String) := do
   IO.FS.writeFile (demo / "Main.lean") <| "import Demo\n/-! The `demo` executable. -/\n" ++
     "/-- Print the greeting. -/\ndef main : IO Unit :=\n  IO.println s!\"Hello, {hello}!\"\n"
   failures := failures ++ (← expect demo (accepted "new/demo/documented"))
-  return failures ++ (← setUp "legacy" ".lean" "lakefile.lean"
+  let legacyFailures ← setUp "legacy" ".lean" "lakefile.lean"
     s!"\nrequire regula from {path}\n" "globs := #[.andSubmodules `Legacy]"
-    "lean_lib «Legacy» where\n  globs := #[.andSubmodules `Legacy]")
+    "lean_lib «Legacy» where\n  globs := #[.andSubmodules `Legacy]"
+  if !legacyFailures.isEmpty then return failures ++ legacyFailures
+  -- External Lake boundary: a `lakefile.lean` that links to a Lean configuration whose name ends
+  -- in `.toml`. Setup reads Lean from the relative name (`LakeConfig.language`), as Lake does, so
+  -- `doctor` names `lakefile.lean` and finds the setup complete.
+  let legacy := scratch / "legacy"
+  Regula.Filesystem.replace (legacy / "lakefile.lean") (legacy / "configuration.toml")
+  let linked ← runProcess legacy "ln" #["-s", "configuration.toml", "lakefile.lean"]
+  unless linked.succeeded do throw <| IO.userError linked.output
+  return failures ++ (← assess {
+      label := "new/legacy/lean-symlink-doctor", exitCode := 0,
+      contains := #["(lakefile.lean)", "regula doctor: the setup is complete"],
+      excludes := #["lakefile.toml"] }
+    (← runProcess legacy "lake" #["exe", "regula", "doctor"] scrubbedLeanPathEnv))
 
 /-- The cold compiler guard of Regula's own `lakefile.lean`, through `lake` in a fresh package
 holding only that file, its toolchain pin and the policy source it executes. An inherited
@@ -2105,6 +2290,7 @@ private def queuedGroups (probes : Std.Mutex Unit) : List Group :=
     (numbered 4, "path-escapes", pathEscapes),
     (numbered 2, "empty-facets", emptyFacetsWarning),
     (numbered 0, "path-reserved", pathReserved),
+    (numbered 0, "facet-report", facetReport),
     (numbered 3, "dependency-cache", dependencyCachedWarning),
     (numbered 3, "escaped-name", escapedNameWarning),
     (numbered 1, "guard", compilerGuard)]

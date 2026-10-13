@@ -1,6 +1,7 @@
 import Regula.Checker.Common
 import Regula.Checker.Manifest
 import Regula.Checker.Workspace
+import Regula.Checker.FacetReport
 import RegulaCore.EditorPolicy
 import Lake.CLI.Build
 
@@ -110,9 +111,18 @@ source of that module (`checkerSource` of `checker`). `modules` are the package'
 executable modules with their sources, as the package's configuration gives them, before Lake
 resolves each name to one package of the workspace. A module that the package provides with that
 text is compiled from the same text as the checker's own artifact of that name, which the reporter's
-overlay loads in its place. -/
+overlay loads in its place. Return `true` exactly when this inventory includes
+`Regula.Checker.Lake` whose source passed that authentication. The caller retains this package's
+key for the facet report, after the existing provider guard passes.
+
+Assumes:
+- Lean v4.34.1's `IO.FS.readBinFile` supplies the source bytes: trusted runtime and filesystem
+  observation; this check does not verify that external read mechanism.
+- Source files remain stable through workspace discovery and facet observation: trusted
+  filesystem and process boundary; this check does not lock out other processes. -/
 def checkReservedModules (checker : Option FilePath) (package : String)
-    (modules : Array (Name × FilePath)) : IO Unit := do
+    (modules : Array (Name × FilePath)) : IO Bool := do
+  let mut providesChecker := false
   for (name, source) in modules do
     unless reservedModule name do continue
     let refuse {α : Type} (reason : String) : IO α :=
@@ -129,6 +139,8 @@ def checkReservedModules (checker : Option FilePath) (package : String)
     unless same do
       refuse s!"with a source {source} that is not the text of the running checker's own source \
         {own}"
+    if name == `Regula.Checker.Lake then providesChecker := true
+  return providesChecker
 
 /-- Lake's default output directories of a package, by configuration field: `buildDir`,
 `leanLibDir`, `nativeLibDir`, `binDir` and `irDir`, with Lake's own default values. -/
@@ -263,12 +275,25 @@ def checkDefaultLayout (inventory : SurfaceInventory) : IO Unit := do
           output layout of the root package and each owned dependency, but package \
           '{package}' sets {field} = {value}"
 
+private structure ProviderInventory where
+  package : _root_.Lake.Package
+  root : FilePath
+  owned : Bool
+  targets : Array TargetInventory
+  providesChecker : Bool
+
 /-- Obtain every root-package Lean library and executable, exact module, and
 exact source from Lake's own elaborated package model. This loads the checked
 project's workspace in-process, so `lakefile.lean` and `lakefile.toml`
 projects share one discovery path and need no custom Lake facets. This is the inventory of the
-loaded workspace `ws` of the project at `repo`. -/
-def surfaceInventoryOf (repo : FilePath) (ws : _root_.Lake.Workspace) : IO SurfaceInventory := do
+loaded workspace `ws` of the project at `repo`. It prints the facet report that `facets` requests
+(`FacetReport.report`), with the checker-provider keys of the package inventories that completed
+the source guard, when the provider guard passes over those inventories. The report precedes the
+error of the first failed package inventory, which is raised before the provider guard's refusal,
+and the validation of other source existence. An overridden facet may have generated a missing
+source or glob directory. -/
+def surfaceInventoryOf (repo : FilePath) (ws : _root_.Lake.Workspace)
+    (facets : FacetReport.Output := .silent) : IO SurfaceInventory := do
     let pkg := ws.root
     -- No path is built from a module name before each name that a package's configuration gives is
     -- a safe module name (`checkModuleNames`); a resolved module is placed by `modulePath?`.
@@ -276,6 +301,26 @@ def surfaceInventoryOf (repo : FilePath) (ws : _root_.Lake.Workspace) : IO Surfa
     -- Modules under the checker's reserved prefixes must hold the running checker's own source
     -- text, whatever package provides them (`checkReservedModules`).
     let checker ← checkerPackageDir
+    let rootTree ← gitWorkTree repo
+    let observed ← ws.packages.mapM fun package => EIO.toIO' (ε := IO.Error) do
+      let (targets, own) ← packageModules package
+      let providesChecker ← checkReservedModules checker package.baseName.toString own
+      let root ← IO.FS.realPath package.dir
+      let owned ← if package.isRoot then pure true else ownedDirectory rootTree root
+      return ({ package, root, owned, targets, providesChecker } : ProviderInventory)
+    -- These are the same actual provider/source observations used for authentication; an empty
+    -- configured glob contributes no checker source. A failed package inventory, such as a glob
+    -- over an absent directory, supplies no key; it is raised after the report.
+    let completed := observed.filterMap (·.toOption)
+    let guarded ← (checkOneProvider (completed.map fun provider =>
+      (provider.package.baseName.toString, provider.owned, provider.targets))).toBaseIO
+    if guarded.isOk then
+      FacetReport.report ws (completed.filterMap fun provider =>
+        if provider.providesChecker then some provider.package.keyName else none) facets
+    let providers ← observed.mapM MonadExcept.ofExcept
+    MonadExcept.ofExcept guarded
+    let some rootProvider := providers[0]?
+      | throw <| IO.userError "lake-query-malformed: workspace has no root provider inventory"
     let leanLibDir := pkg.leanLibDir
     if leanLibDir.toString.isEmpty then
       throw <| IO.userError "lake-query-malformed: root leanLibDir is empty"
@@ -312,18 +357,12 @@ def surfaceInventoryOf (repo : FilePath) (ws : _root_.Lake.Workspace) : IO Surfa
       executables := executables.push {
         executable, root, source
         options := executableOptions exe }
-    -- The root package's own library and executable modules, as each dependency's below.
-    let (targets, own) ← packageModules pkg
-    checkReservedModules checker pkg.baseName.toString own
+    let targets := rootProvider.targets
     let leanPath := #[leanLibDir] ++ ws.leanPath.toArray
     let leanSrcPath := ws.leanSrcPath.toArray
-    -- A dependency is owned when its directory is in the root package's Git work tree.
-    let rootTree ← gitWorkTree repo
-    let dependencies ← (ws.packages.extract 1 ws.packages.size).mapM fun package => do
-      -- The package's own library and executable modules, before Lake resolves each name to one
-      -- package of the workspace.
-      let (targets, own) ← packageModules package
-      checkReservedModules checker package.baseName.toString own
+    let dependencies ← (providers.extract 1 providers.size).mapM fun provider => do
+      let package := provider.package
+      let targets := provider.targets
       let names := (targets.filter (·.target.startsWith "lean_lib ")).foldl
         (fun names target => target.modules.foldl NameSet.insert names) ({} : NameSet)
       let mut sources := #[]
@@ -343,26 +382,20 @@ def surfaceInventoryOf (repo : FilePath) (ws : _root_.Lake.Workspace) : IO Surfa
         let source ← checkSource package.dir s!"dependency executable {exe.name}"
           exe.root.name.toString exe.root.leanFile.toString
         sources := sources.push { «module» := exe.root.name, source }
-      let root ← IO.FS.realPath package.dir
+      let root := provider.root
       let configurationPaths := #[package.configFile, package.manifestFile,
         package.dir / "lean-toolchain", package.dir / "lakefile.lean",
             package.dir / "lakefile.toml"]
         |>.toList.eraseDups.toArray
-      let owned ← ownedDirectory rootTree root
+      let owned := provider.owned
       if owned && package.leanLibDir.toString.isEmpty then
         throw <| IO.userError s!"lake-query-malformed: {package.baseName} leanLibDir is empty"
-      pure
-          ({ package := package.baseName.toString, root, sources, configurationPaths, owned
-             leanLibDir := package.leanLibDir, scope := package.scope
-             configFile := package.relConfigFile, manifestFile := package.relManifestFile
-             configuration := ← IO.FS.readFile package.configFile
-             outputDirectories := packageOutputDirectories package, targets } :
-              DependencyInventory)
-    -- One provider for each library module and executable root of an owned package, counting the
-    -- library modules of every package, by each package's own resolution.
-    checkOneProvider (#[(pkg.baseName.toString, true, targets)] ++
-      dependencies.map fun dependency =>
-        (dependency.package, dependency.owned, dependency.targets))
+      return ({
+        package := package.baseName.toString, root, sources, configurationPaths, owned
+        leanLibDir := package.leanLibDir, scope := package.scope
+        configFile := package.relConfigFile, manifestFile := package.relManifestFile
+        configuration := ← IO.FS.readFile package.configFile
+        outputDirectories := packageOutputDirectories package, targets } : DependencyInventory)
     let root ← IO.FS.realPath repo
     let inventory : SurfaceInventory := {
       root, package := pkg.baseName.toString, outputDirectories := packageOutputDirectories pkg
@@ -372,9 +405,10 @@ def surfaceInventoryOf (repo : FilePath) (ws : _root_.Lake.Workspace) : IO Surfa
     return inventory
 
 /-- The inventory (`surfaceInventoryOf`) of the workspace that Lake loads, with its dependencies, for
-the project at `repo`. -/
-def surfaceInventory (repo : FilePath) : IO SurfaceInventory :=
-  Workspace.withRootWorkspace repo (surfaceInventoryOf repo)
+the project at `repo`, with the facet report that `facets` requests. -/
+def surfaceInventory (repo : FilePath) (facets : FacetReport.Output := .silent) :
+    IO SurfaceInventory :=
+  Workspace.withRootWorkspace repo fun ws => surfaceInventoryOf repo ws facets
 
 /-- The inventory (`surfaceInventoryOf`) of the root package of the project at `repo`, which must
 declare no dependency (`Workspace.withRootPackage`). It is the inventory that `surfaceInventory`
@@ -501,11 +535,12 @@ copy's manifest would not load as the original's load does is given an override
 (`relocateDependencies`). The packages directory is the one the project's manifest records,
 `.lake/packages` by default; a relative one outside the project, such as a nested package's
 `../.lake/packages`, is linked at the same relative place from the copied project, which must lie
-inside `exclude`. -/
-def copyProject (repo target exclude : FilePath) : IO ProjectCopy := do
+inside `exclude`. That load of the project prints the facet report that `facets` requests. -/
+def copyProject (repo target exclude : FilePath)
+    (facets : FacetReport.Output := .silent) : IO ProjectCopy := do
   IO.FS.createDirAll target
   let root ← IO.FS.realPath repo
-  let original ← surfaceInventory repo
+  let original ← surfaceInventory repo facets
   let owned := (original.dependencies.filter (·.owned)).foldl (fun dirs dependency =>
     if dependency.root == root || dirs.contains dependency.root then dirs
     else dirs.push dependency.root) #[]
@@ -1134,10 +1169,13 @@ through its imports, other than Regula's own `extraDep` facet when the file is t
 `lakefile.lean` (`regulaFacetAdmitted`, with `running` its text). Lake inserts each into the
 workspace's facets in turn (`Workspace.addFacetDecls`), so one named `extraDep` replaces the facet
 that Regula's `lakefile.lean` declares when its package is resolved later. A `lakefile.toml`
-declares none. A configuration file that cannot be read fails. -/
+declares none. A configuration file that cannot be read fails.
+
+Assumes: Lake v4.34.1 selects the language from `relConfigFile`, not the resolved `configFile`
+(`Lake/Load/Package.lean:100`), under `LakeConfig.language`'s assumptions. -/
 def otherLibraryFacets (ws : _root_.Lake.Workspace) (running : Option String)
     (package : _root_.Lake.Package) : IO Nat := do
-  if package.configFile.extension == some "toml" then return 0
+  if (← IO.ofExcept (LakeConfig.language package.relConfigFile)) == .toml then return 0
   let some file := package.configFile.fileName
     | throw <| IO.userError s!"the configuration {package.configFile} names no file"
   let compiled := ws.root.dir / _root_.Lake.defaultLakeDir / "config" / toString package.wsIdx /
