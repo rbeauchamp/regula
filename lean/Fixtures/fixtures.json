@@ -892,6 +892,16 @@
    "required="
   ]
  },
+ "Fixtures.Positive.HeartbeatCorrespondence": {
+  "expect": "pass",
+  "claim": "choice-free",
+  "execution": "checked",
+  "output": [
+   "correspondence=checked",
+   "fixtures_heartbeat_tree_impl",
+   "required="
+  ]
+ },
  "Fixtures.Mutations.ConditionalCorrespondence": {
   "expect": "fail",
   "claim": "standard-logical",
@@ -1051,5 +1061,94 @@
   "expect": "fail",
   "reason": "kernel-admission",
   "claim": "kernel-only"
+ },
+ "Fixtures.Mutations.UnsafeEntryPoint": {
+  "expect": "fail",
+  "claim": "standard-logical",
+  "execution": "checked",
+  "reasons": [
+   "escape-hatch",
+   "execution-trusted-boundary"
+  ],
+  "output": [
+   "main reaches main (unsafe-computation)"
+  ]
+ },
+ "Fixtures.Positive.LakeBoundary": {
+  "expect": "pass",
+  "claim": "standard-logical",
+  "execution": "checked",
+  "output": [
+   "Lake.removeDirAllIfExists"
+  ]
+ },
+ "Fixtures.Positive.ExternReplacement": {
+  "expect": "pass",
+  "claim": "standard-logical",
+  "output": [
+   "fixtures_extern_reference [external] correspondence=trusted",
+   "fixtures_extern_reference [runtime-replacement] correspondence=checked replacement=fixtures_extern_replacement"
+  ]
+ },
+ "Fixtures.Positive.ExternExportPair": {
+  "expect": "pass",
+  "claim": "standard-logical",
+  "output": [
+   "fixtures_pair_reference [external] correspondence=trusted evidence=the symbol fixtures_pair_symbol is also exported by fixtures_pair_implementation"
+  ]
+ },
+ "Fixtures.Positive.SelfExportedExtern": {
+  "expect": "pass",
+  "claim": "standard-logical",
+  "output": [
+   "fixtures_self_reference [external] correspondence=trusted evidence=the symbol fixtures_self_symbol is also exported by fixtures_self_reference"
+  ]
+ },
+ "Fixtures.Positive.CycleAxiomTable": {
+  "expect": "pass",
+  "claim": "standard-logical",
+  "output": [
+   "collectAxioms [Classical.choice], replayed kernel [Classical.choice, propext]; omitted: [propext]"
+  ]
+ },
+ "Fixtures.Positive.CycleAxiomReading": {
+  "expect": "pass",
+  "claim": "standard-logical"
+ },
+ "Fixtures.Mutations.InitializedValueBoundary": {
+  "expect": "fail",
+  "claim": "standard-logical",
+  "execution": "checked",
+  "reason": "execution-trusted-boundary",
+  "output": [
+   "fixtures_read_counter reaches fixtures_initialized_counter (initialized-value)"
+  ]
+ },
+ "Fixtures.Mutations.InitializedReplacement": {
+  "expect": "fail",
+  "claim": "standard-logical",
+  "execution": "checked",
+  "reason": "execution-trusted-boundary",
+  "output": [
+   "fixtures_replaced_counter [initialized-value] correspondence=trusted",
+   "fixtures_replaced_counter [runtime-replacement] correspondence=checked replacement=fixtures_counter_replacement",
+   "fixtures_read_replaced_counter reaches fixtures_replaced_counter (initialized-value)"
+  ]
+ },
+ "Fixtures.Mutations.UncompiledInitializedReplacement": {
+  "expect": "fail",
+  "claim": "standard-logical",
+  "execution": "checked",
+  "reason": "audit-incomplete",
+  "pattern": "unknown declaration 'fixtures_uncompiled_counter'"
+ },
+ "Fixtures.Mutations.ExternExportSignatureMismatch": {
+  "expect": "fail",
+  "claim": "standard-logical",
+  "execution": "checked",
+  "reason": "execution-trusted-boundary",
+  "output": [
+   "fixtures_mismatch_reference reaches fixtures_mismatch_reference (external)"
+  ]
  }
 }

@@ -18,7 +18,6 @@ import Lean.Meta.Eqns
 import Lean.Meta.RecExt
 import Lean.ProjFns
 import Lean.Util.FoldConsts
-import Std.Internal.UV.System
 import Regula.Report
 import Regula.Contract
 import Regula.MaterialClaim
@@ -45,15 +44,15 @@ module index is requested, the report records:
 - instance / `noncomputable` / `@[implemented_by]` / `@[extern]` flags;
 - the exact transitive axiom set: the axioms the declaration reaches in the kernel that replayed
   it (`Admission.validate`, `KernelAxioms.axiomTable`), or, for a caller with no replayed kernel,
-  those `Lean.collectAxioms` reports, as `#print axioms` does; and
+  those it reaches in the environment that holds it (`KernelAxioms.reachedAxioms`); and
 - Lean-native reporting metadata (internal/private spelling, projection,
   matcher, recursor kind, unsafe-recursion relationship, and source range).
 
 The report additionally carries an execution-coverage account, distinct from
 the logical axiom audit: for every owned executable root (computable,
 non-proposition, safe, non-partial, non-internal definitions and opaque
-constants, including claimed executable `main`s, and the action of each
-initializer that an owned module records) it computes the transitive
+constants, each program entry point `main` with a compiled body, `unsafe` or not, and the
+action of each initializer that an owned module records) it computes the transitive
 conservative closure over value-level dependencies, retained compiler IR,
 constant-equality simplification candidates, historical `@[implemented_by]`
 targets, and partial helpers. `@[extern]` constants are boundary leaves for
@@ -61,12 +60,12 @@ their Lean bodies. The report distinguishes possible replacements from actual
 retained compiler edges and records every boundary in this closure:
 compiler simplifications, `@[implemented_by]` replacements, `@[extern]` declarations split into
 toolchain native-runtime primitives and other external code, unsafe/partial/opaque
-computation, and compiler-trusting proof axioms. A replacement, `extern`, or unsafe or partial
-computation declared in an origin-checked `Init`, `Std` or `Lean` module carries that
-module's toolchain origin: it is the toolchain's trusted base, and a toolchain replacement is
-followed through its current target without source history or correspondence. An unsafe
-constant whose type Lean's `Meta.isProp` finds to be a proposition, such as `lcProof`, is a
-proof the compiler erases and is no boundary. Each
+computation, compiler-trusting proof axioms, and initialized values. A replacement, `extern`,
+unsafe or partial computation, or initialized value declared in an origin-checked `Init`, `Std`,
+`Lean` or `Lake` module carries that module's toolchain origin: it is the toolchain's trusted
+base, and a toolchain replacement is followed through its current target without source history or
+correspondence. An unsafe constant whose type Lean's `Meta.isProp` finds to be a proposition, such
+as `lcProof`, is a proof the compiler erases and is no boundary. Each
 boundary is marked `checked` (kernel-definitional equality, a standard-logical
 correspondence theorem of a module that the audit replays or of the toolchain, or a
 kernel-checked opaque body), `trusted`, or
@@ -165,46 +164,15 @@ private def reportPhase {α : Type} (enabled : Bool) (label : String)
 
 /-- Kernel heartbeat budget for one correspondence check: Lean's per-declaration default
 (`maxHeartbeats` at its default value, in the kernel's raw unit), so a checker-added
-correspondence obligation costs no more than a declaration the adopter could write. -/
+correspondence obligation costs no more than a declaration the adopter could write. The kernel
+counts it over all kernel admissions of one check (`runCheck`). -/
 private def correspondenceHeartbeats : USize := (Core.getMaxHeartbeats {}).toUSize
 
-/-- Resident memory the correspondence checks of one process may add above its peak resident
-size at its first check: 1 GiB. The limit is fixed once per process, at that first check, to
-that peak plus this allowance. The peak is at least the resident size then, so the first
-check never fires on memory the process already held (its imported environment included).
-Every later check in the process runs under the same limit, so no number of checks, exhausted
-or not, raises the process's resident memory during a check above it. The allowance is shared
-by every later check and all other resident growth in the process, so a later check that
-starts at or above the limit exhausts at once and fails closed. At most three report workers
-run at once, so the checks add at most 3 GiB to their first-check peaks; that increment
-does not bound those peaks or memory used outside the checks. -/
-private def correspondenceMemoryBytes : Nat := 1024 * 1024 * 1024
-
-/-- This process's correspondence memory limit in bytes, fixed at its first check. -/
-private initialize correspondenceLimit : IO.Ref (Option Nat) ← IO.mkRef none
-
-/-- Lean's runtime memory limit in bytes (`lean -M`; `0` disables it). The kernel compares it
-with the process's resident memory at its system checks and raises `excessiveMemory`.
-`Lean.Shell` keeps its own binding of this runtime symbol private. -/
-@[extern "lean_internal_set_max_memory"]
-private opaque setMaxMemory (bytes : USize) : BaseIO Unit
-
-/-- Run `action` under this process's correspondence limit, fixing it at the first call from
-the peak resident size (libuv reports it in KiB), never above the limit the shell set from
-`max_memory`, and restore that limit afterward. The runtime limit is process-wide, and a
-process runs its correspondence checks sequentially. -/
-private def withCorrespondenceMemory {α : Type} (opts : Options) (action : IO α) : IO α := do
-  let outer := (opts.get? `max_memory).getD (0 : Nat) * 1024 * 1024
-  let bound ← match ← correspondenceLimit.get with
-    | some bound => pure bound
-    | none => do
-      let peak := (← Std.Internal.UV.System.getrusage).maxRSS.toNat * 1024
-      let bound := peak + correspondenceMemoryBytes
-      correspondenceLimit.set (some bound)
-      pure bound
-  let bound := if outer == 0 then bound else min outer bound
-  setMaxMemory bound.toUSize
-  try action finally setMaxMemory outer.toUSize
+/-- The options of every correspondence check: Lean's defaults with smart unfolding off, as in the
+walk (`Collect.withoutSmartUnfolding`), so no answer rests on a declaration found by the name
+`_sunfold`. They are the same for every check, so the elaborator's heartbeat budget
+(`maxHeartbeats`) and recursion limit (`maxRecDepth`) are its defaults. -/
+private def checkOptions : Options := Meta.smartUnfolding.set {} false
 
 /-- Kernel resource exhaustion ends admission without a verdict on the proof. -/
 private def kernelExhausted : Kernel.Exception → Bool
@@ -221,11 +189,13 @@ implicit arguments and universe levels, and Lean's printer can abbreviate, so on
 is complete; the axioms are those the declaration reaches in the kernel
 environment that holds it (`KernelAxioms.axiomsWith`), the search stopping at each name of
 `cached`, the table admission computed in the replayed kernel for the owned declarations' closure,
-and an exhausted search is the kernel's exhaustion; its resource exhaustion or interruption (`kernelExhausted`);
-or any other refusal. A proof or proposition with an undischarged variable, and an error while the
+and an exhausted search is the kernel's exhaustion; its resource exhaustion or interruption
+(`kernelExhausted`); or any other refusal. A runtime memory limit that ends the admission
+(`excessiveMemory`) also sets `memoryExhausted`, so the check gives no verdict
+(`publishCheck`). A proof or proposition with an undischarged variable, and an error while the
 answer is read, raise an error and record no answer. -/
-private def kernelAnswer (cached : Std.HashMap Name (Array Name)) (levels : List Name)
-    (required proof : Expr) : MetaM KernelAnswer := do
+private def kernelAnswer (cached : Std.HashMap Name (Array Name)) (memoryExhausted : IO.Ref Bool)
+    (levels : List Name) (required proof : Expr) : MetaM KernelAnswer := do
   let required ← instantiateMVars required
   let proof ← instantiateMVars proof
   if required.hasMVar || proof.hasMVar || required.hasFVar || proof.hasFVar then
@@ -237,13 +207,13 @@ private def kernelAnswer (cached : Std.HashMap Name (Array Name)) (levels : List
     type := required
     value := proof }
   let env ← getEnv
-  let result ← withCorrespondenceMemory (← getOptions) <|
-    IO.lazyPure fun _ => env.addDeclCore correspondenceHeartbeats 1000 declaration none
-  match result with
-  | .error e => return if kernelExhausted e then .exhausted else .refused
+  match ← IO.lazyPure fun _ => env.addDeclCore correspondenceHeartbeats 1000 declaration none with
+  | .error e =>
+    if e matches .excessiveMemory then memoryExhausted.set true
+    return if kernelExhausted e then .exhausted else .refused
   | .ok checked =>
     let some axioms := RegulaPolicy.KernelAxioms.axiomsWith checked.toKernelEnv.find? cached
-        (Regula.Collect.fuelFor checked 1) name | return .exhausted
+        (RegulaPolicy.KernelAxioms.fuelFor checked 1) name | return .exhausted
     withOptions (fun opts => opts.setBool `pp.all true |>.setBool `pp.deepTerms true
         |>.set `pp.maxSteps (1000000 : Nat)) do
       return .admitted axioms
@@ -255,8 +225,7 @@ private def kernelAnswer (cached : Std.HashMap Name (Array Name)) (levels : List
 its result, so an attempt that raised an error records no answer and its comparison is
 incomplete, whatever the error (`DefeqComparison.ofAttempt_error`). Lean's Core-based monads
 rethrow a runtime resource exception (heartbeats, recursion depth) or an interruption instead of
-catching it, so such an exception records no comparison and ends the report
-(`Probe.observing` of the walk). -/
+catching it, so such an exception records no comparison and ends the check (`runCheck`). -/
 private def comparison (attempt : MetaM KernelAnswer) : MetaM DefeqComparison := do
   let attempt ← match ← _root_.observing attempt with
     | .ok answer => pure (.ok answer)
@@ -268,7 +237,8 @@ prefix of the actual dependent domain, instantiate its universes and premises,
 match the equality, apply any remaining arguments by congruence, and close over
 exactly the actual domain. Unsolved theorem-only premises remain metavariables
 and cannot pass kernel admission. Search incompleteness never grants evidence. -/
-private def theoremCorrespondence? (cached : Std.HashMap Name (Array Name)) (levels : List Name)
+private def theoremCorrespondence? (cached : Std.HashMap Name (Array Name))
+    (memoryExhausted : IO.Ref Bool) (levels : List Name)
     (reference replacement : Expr) (domain : Array Expr) (required : Expr) (name : Name) :
     MetaM (Option (String × CorrespondenceTerms)) := do
   for count in List.range (domain.size + 1) do
@@ -286,14 +256,17 @@ private def theoremCorrespondence? (cached : Std.HashMap Name (Array Name)) (lev
           for arg in domain.extract count domain.size do
             proof ← Meta.mkCongrFun proof arg
           proof ← Meta.mkLambdaFVars domain proof
-          let .completed (some terms) ← comparison (kernelAnswer cached levels required proof)
+          let .completed (some terms) ←
+              comparison (kernelAnswer cached memoryExhausted levels required proof)
             | return none
           return some (s!"proved: {name}; {terms.text}", terms)
         catch _ => return none
       if result.isSome then return result
   return none
 
-/-- The exact theorem entries of a captured constant list, in its original order. -/
+/-- The exact theorem entries of a captured constant list, in its original order: each theorem
+with the constants its type uses. The walk builds it once for an environment, before the first
+correspondence check (`observeNode`), so no check pays for it. -/
 private def theoremDependencies (constants : List (Name × ConstantInfo)) :
     List (Name × Array Name) :=
   constants.filterMap fun (name, info) =>
@@ -301,61 +274,19 @@ private def theoremDependencies (constants : List (Name × ConstantInfo)) :
     | .thmInfo _ => some (name, info.type.getUsedConstants)
     | _ => none
 
-/-- Each dependency traversal is delayed independently, so a successful theorem attempt stops
-before traversing later types. The thunk captures this entry's type, including duplicate names. -/
-private def delayedTheoremDependencies (constants : List (Name × ConstantInfo)) :
-    List (Name × Thunk (Array Name)) :=
-  constants.filterMap fun (name, info) =>
-    match info with
-    | .thmInfo _ => some (name, Thunk.mk fun _ => info.type.getUsedConstants)
-    | _ => none
-
-/-- Forcing the entries gives the original complete ordered list for every constant list. -/
-private theorem delayedTheoremDependencies_exact (constants : List (Name × ConstantInfo)) :
-    (delayedTheoremDependencies constants).map (fun (name, used) => (name, used.get)) =
-      theoremDependencies constants := by
-  induction constants with
-  | nil => rfl
-  | cons entry rest ih =>
-    rcases entry with ⟨name, info⟩
-    cases info <;>
-      simp [delayedTheoremDependencies, theoremDependencies, Thunk.get, ih] at *
-
-/-- Invocation-local theorem data tied to the exact captured environment. The equality is
-erased; production never forces the normalization map before searching the entries. -/
-private structure PreparedTheorems (env : Environment) where
-  entries : List (Name × Thunk (Array Name))
-  exact : entries.map (fun (name, used) => (name, used.get)) =
-    theoremDependencies env.constants.toList
-
-/-- Build the ordered lazy entries once, retaining their positional equality certificate. -/
-private def prepareTheorems (env : Environment) : PreparedTheorems env :=
-  { entries := delayedTheoremDependencies env.constants.toList
-    exact := delayedTheoremDependencies_exact env.constants.toList }
-
 /-- A theorem enters fallback search exactly when its type mentions both endpoints. -/
 private def correspondenceCandidate (reference replacement : Name)
     (entry : Name × Array Name) : Option Name :=
   if !entry.2.contains reference || !entry.2.contains replacement then none else some entry.1
-
-/-- The live fallback guard yields the same ordered attempt sequence, including duplicates. -/
-private theorem preparedTheorems_candidates (env : Environment)
-    (prepared : PreparedTheorems env) (reference replacement : Name) :
-    prepared.entries.filterMap (fun (name, used) =>
-      correspondenceCandidate reference replacement (name, used.get)) =
-      (theoremDependencies env.constants.toList).filterMap
-        (correspondenceCandidate reference replacement) := by
-  rw [← prepared.exact]
-  simp only [List.filterMap_map, Function.comp_def]
 
 /-- Require `∀ xs, reference.{us} xs = replacement.{us} xs`, where `us`
 are rigid universal level parameters and `xs` is the complete elaborated
 reference domain, including implicit, dependent, and proof parameters. The
 compiler's positional universe substitution must type-check at those same
 levels. Both definitional and theorem-backed evidence pass the same kernel gate.
-Theorem candidates, supplied then discovered, are tried before definitional
-unfolding, so a kernel-exhausting unfolding cannot consume the memory limit a
-supplied proof needs. A theorem is tried only when `admits` accepts it, which `environmentReport`
+Theorem candidates, supplied then discovered in `theorems` (`theoremDependencies` of the
+environment), are tried before definitional unfolding. A theorem is
+tried only when `admits` accepts it, which `environmentReport`
 gives for a theorem of a module that the environment's admission replayed or reused, or of an
 origin-checked module of the toolchain: the kernel then checked the theorem itself in this audit,
 or it is part of the toolchain's trusted base. A theorem of a dependency that the audit does not
@@ -366,12 +297,11 @@ answer completes it, and an attempt the kernel did not decide, or one that raise
 it built the reflexivity proof or read the answer, is unresolved, never trusted (standard §7.6).
 An elaborator resource limit reached while constructing the correspondence is rethrown rather
 than recorded as unresolved. -/
-private def replacementCorrespondence (env : Environment) (cached : Std.HashMap Name (Array Name))
-    (prepared : Thunk (PreparedTheorems env)) (admits : Name → Bool)
-    (reference replacement : Name)
-    (proofCandidates : Array Name := #[]) :
-    CommandElabM (Correspondence × Option String × Option CorrespondenceTerms) :=
-  liftTermElabM <| Meta.withoutModifyingMCtx do
+private def replacementCorrespondence (cached : Std.HashMap Name (Array Name))
+    (theorems : List (Name × Array Name)) (admits : Name → Bool) (memoryExhausted : IO.Ref Bool)
+    (reference replacement : Name) (proofCandidates : Array Name) :
+    MetaM (Correspondence × Option String × Option CorrespondenceTerms) :=
+  Meta.withoutModifyingMCtx do
     try
       let referenceInfo ← getConstInfo reference
       let replacementInfo ← getConstInfo replacement
@@ -389,23 +319,130 @@ private def replacementCorrespondence (env : Environment) (cached : Std.HashMap 
         let required ← Meta.mkForallFVars domain (← Meta.mkEq lhs rhs)
         for name in proofCandidates do
           if !admits name then continue
-          let evidence? ← theoremCorrespondence? cached levels ref impl domain required name
+          let evidence? ←
+            theoremCorrespondence? cached memoryExhausted levels ref impl domain required name
           if let some (evidence, terms) := evidence? then
             return (.checked, some evidence, some terms)
-        for (name, used) in prepared.get.entries do
-          let some name := correspondenceCandidate reference replacement (name, used.get)
-            | continue
+        for entry in theorems do
+          let some name := correspondenceCandidate reference replacement entry | continue
           if !admits name then continue
-          let evidence? ← theoremCorrespondence? cached levels ref impl domain required name
+          let evidence? ←
+            theoremCorrespondence? cached memoryExhausted levels ref impl domain required name
           if let some (evidence, terms) := evidence? then
             return (.checked, some evidence, some terms)
         let outcome ← comparison do
-          kernelAnswer cached levels required
+          kernelAnswer cached memoryExhausted levels required
             (← Meta.mkLambdaFVars domain (← Meta.mkEqRefl lhs))
         return (outcome.classify.1, outcome.classify.2, outcome.terms?)
     catch _ =>
       return (.unresolved,
           some s!"cannot construct exact correspondence for {reference} and {replacement}", none)
+
+/-- The verdict of one correspondence check: whether it is checked, trusted or unresolved, its
+evidence text and the terms the kernel checked. -/
+abbrev CheckVerdict := Correspondence × Option String × Option CorrespondenceTerms
+
+/-- What the task of one correspondence check returns (`runCheck`): the thread it ran on, whether
+a runtime memory limit ended one of its kernel admissions, and the check's own result, or the
+message of the elaborator resource limit that ended it. -/
+structure CheckRun where
+  /-- The identifier of the thread the check ran on. -/
+  thread : UInt64
+  /-- Whether a runtime memory limit ended a kernel admission of the check. -/
+  memoryExhausted : Bool
+  /-- The check's result, or the message of the elaborator limit that ended it. -/
+  result : Except String CheckVerdict
+
+/-- The verdict of a check's own result: the result itself, or, when an elaborator resource limit
+(heartbeats or recursion depth) ended the check, `unresolved` with that limit's message. It reads
+the result alone. -/
+def checkVerdict : Except String CheckVerdict → CheckVerdict
+  | .ok verdict => verdict
+  | .error message => (.unresolved, some s!"the check reached an elaborator limit: {message}", none)
+
+/-- The verdict the walk publishes for a check of `reference` and `replacement` that ran as `run`,
+from a caller on thread `caller`: no verdict, and the error that ends the report, when the check
+ran on the caller's thread or a runtime memory limit ended one of its kernel admissions; otherwise
+`checkVerdict` of its own result (`publishCheck_ok_iff`, `publishCheck_error_iff`). -/
+def publishCheck (caller : UInt64) (reference replacement : Name) (run : CheckRun) :
+    Except String CheckVerdict :=
+  if run.thread = caller then
+    .error s!"the correspondence check of {reference} and {replacement} ran on the report's \
+      thread, so its heartbeat count did not start at zero: Lean has no task manager"
+  else if run.memoryExhausted then
+    .error s!"a runtime memory limit ended a kernel admission of the correspondence check of \
+      {reference} and {replacement}"
+  else .ok (checkVerdict run.result)
+
+/-- The walk publishes a verdict exactly when the check ran on a thread of its own and no runtime
+memory limit ended one of its kernel admissions, and the verdict is then the one its own result
+gives. -/
+theorem publishCheck_ok_iff (caller : UInt64) (reference replacement : Name) (run : CheckRun)
+    (verdict : CheckVerdict) :
+    publishCheck caller reference replacement run = .ok verdict ↔
+      run.thread ≠ caller ∧ run.memoryExhausted = false ∧ verdict = checkVerdict run.result := by
+  unfold publishCheck
+  by_cases thread : run.thread = caller <;> cases exhausted : run.memoryExhausted <;>
+    simp [thread, eq_comm]
+
+/-- The walk publishes no verdict exactly when the check ran on the caller's thread or a runtime
+memory limit ended one of its kernel admissions. -/
+theorem publishCheck_error_iff (caller : UInt64) (reference replacement : Name) (run : CheckRun) :
+    (∃ message, publishCheck caller reference replacement run = .error message) ↔
+      run.thread = caller ∨ run.memoryExhausted = true := by
+  unfold publishCheck
+  by_cases thread : run.thread = caller <;> cases exhausted : run.memoryExhausted <;>
+    simp [thread]
+
+/-- Run one correspondence check of `reference` and `replacement`, with the supplied theorems
+`proofs` tried first, on a task of its own (`Task.Priority.dedicated`), and return what it gives
+(`CheckRun`). Its inputs are the environment and the report's data about it (`cached`, `theorems`
+and `admits`), the check itself, and the fixed options and heartbeat budgets (`checkOptions`,
+`correspondenceHeartbeats`): the task starts its own Core and Meta states on `env`, and no state of
+an earlier check reaches it. An elaborator resource limit that ends the check is its result's
+error message (`checkVerdict`).
+
+Assumes: Lean 4.34.1 counts the kernel's heartbeats in a counter of the thread, one at each system
+check, and ends an admission when the count exceeds the budget (`check_heartbeat`,
+`src/runtime/interrupt.cpp:18`, `51-55`); `addDeclCore` sets the budget and not the count
+(`lean_add_decl`, `src/kernel/environment.cpp:287-295`); a task of priority above
+`LEAN_MAX_PRIO` runs on a new thread, which sets that count to zero before it runs the task
+(`enqueue`, `spawn_dedicated_worker` and `run_task`, `src/runtime/object.cpp:808-810`,
+`884-903`); without a task manager, Lean runs a task on the caller's thread
+(`lean_task_spawn_core`, `src/runtime/object.cpp:1200-1206`), which `publishCheck` refuses; the
+elaborator's heartbeats are counted from the value at the start of the check (`CoreM.toIO`,
+`src/Lean/CoreM.lean:440-449`); and elaboration and kernel admission, under fixed options, are
+functions of the environment and the check. Trusted: the operating system's scheduling and memory;
+a process that runs out of memory ends, and the run's deadline ends a check that runs too long. -/
+def runCheck (env : Environment) (cached : Std.HashMap Name (Array Name))
+    (theorems : List (Name × Array Name)) (admits : Name → Bool)
+    (reference replacement : Name) (proofs : Array Name) : IO CheckRun := do
+  let task ← IO.asTask (prio := .dedicated) do
+    let thread ← IO.getTID
+    let memoryExhausted ← IO.mkRef false
+    let context : Core.Context := {
+      fileName := "<correspondence>"
+      fileMap := default
+      options := checkOptions
+      maxRecDepth := maxRecDepth.get checkOptions }
+    let result ← try
+        let (verdict, _, _) ← (replacementCorrespondence cached theorems admits memoryExhausted
+          reference replacement proofs).toIO context { env }
+        pure (.ok verdict)
+      catch error => pure (.error error.toString)
+    return { thread, memoryExhausted := ← memoryExhausted.get, result : CheckRun }
+  IO.ofExcept (← IO.wait task)
+
+/-- Refuse, before any correspondence check, a process in which a task of priority
+`Task.Priority.dedicated` runs on the caller's thread: Lean then has no task manager
+(`lean_task_spawn_core`, `src/runtime/object.cpp:1200-1206` at v4.34.1), and a check's heartbeat
+count would not start at zero (`runCheck`). The report then ends with this error. -/
+def requireDedicatedThreads : IO Unit := do
+  let caller ← IO.getTID
+  let thread ← IO.ofExcept (← IO.wait (← IO.asTask (prio := .dedicated) IO.getTID))
+  if thread == caller then
+    throw <| IO.userError "a dedicated task ran on the report's thread: Lean has no task manager, \
+      so no correspondence check can count its heartbeats from zero"
 
 /-- The pinned `CSimp.isConstantReplacement?` shape, indexed independently of
 the final scoped attribute state. This conservative candidate set includes
@@ -518,6 +555,78 @@ private theorem compilerDependenciesLookup_frame (env : Environment) (name other
   cases h : cache.get? name <;>
     simp [compilerDependenciesLookup, h, Std.DHashMap.get?_insert, different]
 
+/-- Every `@[export]` entry of `env`, a declaration with its export name: the entries of each
+imported module, then those of the current one.
+
+Assumes: Lean 4.34.1 stores the `@[export]` name of a declaration of an imported module among the
+entries of that module, and of a declaration of the current module in the attribute's state
+(`getParamFromExt?`, `src/Lean/Attributes.lean:306-318`). -/
+private def exportEntries (env : Environment) : List (Name × Name) :=
+  ((List.range env.header.moduleNames.size).flatMap fun idx =>
+      (Lean.exportAttr.ext.getModuleEntries env idx).toList) ++
+    (Lean.exportAttr.ext.getState env).2.toList
+
+/-- The declarations among `entries` whose export name is the C symbol `symbol`, each once: the
+export name `.str .anonymous s` is the C name `s`, and Lean refuses to emit code for any other
+export name (`toCName`, `src/Lean/Compiler/LCNF/EmitC.lean:244-250`). The match reads the
+attribute names alone: it does not decide which body, if any, runs under that symbol
+(`mem_exportersOf_iff`). -/
+def exportersOf (entries : List (Name × Name)) (symbol : String) : List Name :=
+  (entries.filterMap fun (declaration, exportName) =>
+    if exportName == .str .anonymous symbol then some declaration else none).eraseDups
+
+/-- A declaration is listed exactly when one of the entries gives it the export name of the
+symbol. -/
+theorem mem_exportersOf_iff (entries : List (Name × Name)) (symbol : String) (declaration : Name) :
+    declaration ∈ exportersOf entries symbol ↔
+      (declaration, Name.str .anonymous symbol) ∈ entries := by
+  simp only [exportersOf, List.mem_eraseDups, List.mem_filterMap]
+  constructor
+  · rintro ⟨⟨found, exportName⟩, member, matched⟩
+    by_cases same : exportName = .str .anonymous symbol
+    · simp only [same, beq_self_eq_true, ite_true, Option.some.injEq] at matched
+      exact matched ▸ same ▸ member
+    · simp [same] at matched
+  · intro member
+    exact ⟨_, member, by simp⟩
+
+/-- What the compiler runs for a constant, as the walk classifies it before its value: external
+code (`extern`), the value an initializer returned (`initialized`), or neither (`ordinary`). -/
+inductive Lowering where
+  /-- An `extern`. -/
+  | extern
+  /-- A constant whose compiled code reads the value initializer `action` returned. -/
+  | initialized (action : Name)
+  /-- Neither. -/
+  | ordinary
+  deriving DecidableEq
+
+/-- The classification of a constant from what Lean records of it: whether it is an `extern`
+(`isExtern`), whether it has an `implemented_by` target (`implemented`), whether Lean holds
+compiled IR for it (`compiled`), and its initializer (`initializer`). A constant with an
+initializer is an initialized value unless it has an `implemented_by` target and no IR: Lean
+generated no code for it, so no initializer of it runs, and every call of it calls the target. A
+constant with an initializer, a target and IR, whose target was added after it was compiled, is
+an initialized value too, since a call compiled before the target was added, the target's own
+included, still reads the initializer's value (`lowering_initialized_iff`). -/
+def lowering (isExtern implemented compiled : Bool) (initializer : Option Name) : Lowering :=
+  if isExtern then .extern
+  else if implemented && !compiled then .ordinary
+  else match initializer with
+    | some action => .initialized action
+    | none => .ordinary
+
+/-- A constant is classified as an initialized value exactly when it is not an `extern`, has no
+`implemented_by` target or has compiled IR, and Lean records an initializer for it. -/
+theorem lowering_initialized_iff (isExtern implemented compiled : Bool)
+    (initializer : Option Name) (action : Name) :
+    lowering isExtern implemented compiled initializer = .initialized action ↔
+      isExtern = false ∧ (implemented = false ∨ compiled = true) ∧
+        initializer = some action := by
+  unfold lowering
+  cases isExtern <;> cases implemented <;> cases compiled <;> cases initializer <;> simp
+
+
 /-- What a walk observes of one name `name`: the targets of the edges from the name, its
 boundaries and unresolved paths, and its retained compiler body
 (`RegulaPolicy.ExecutionWalk.NodeRecord`). It does not receive the walk's root, so the record is
@@ -527,7 +636,12 @@ definition of the targets (`NodeRecord.successors`). The record reads source val
 compiler IR, all supported equality candidates, and observed implementation choices. Compiler
 metadata supplements source dependencies; neither alone retains all earlier replacements after
 inlining. Equality candidates are not a claim that the compiler selected them. Extern reference
-bodies remain boundary leaves.
+bodies remain boundary leaves. Every `extern` is a trusted boundary. One of a project or
+dependency names the declarations whose `@[export]` name is its C symbol (`exportersOf`), with no
+claim that they run; that match adds no edge, and the extern's simplification candidates stay
+edges, as for any constant. A constant with an `implemented_by` target is a runtime replacement,
+an `extern` included, and a constant with an initializer is an initialized value unless it has
+such a target and no compiled IR (`lowering`); one with an initializer, a target and IR is both.
 
 An opaque constant gets a helper edge to the constant `Lean.Compiler.mkUnsafeRecName` names for it
 when the environment has that constant and it is `partial`. The edge is how the policy pairs a
@@ -543,7 +657,27 @@ Assumes:
   that name with `partial` definition safety, in one command (`addAndCompilePartial`,
   `src/lean/Lean/Elab/PreDefinition/Main.lean:20-36`; `addAndCompilePartialRec`,
   `src/lean/Lean/Elab/PreDefinition/Basic.lean:280-294`), so the two share a declaring module and
-  so a toolchain origin. -/
+  so a toolchain origin.
+- Lean 4.34.1 compiles a constant with an `extern` attribute from that attribute alone, and any
+  other constant with an initializer (`getInitFnNameFor?`) to an extern declaration with no
+  entries (`toDecl`, `src/Lean/Compiler/LCNF/ToDecl.lean:148-155`), which its IR replaces with a
+  body that is `unreachable` (`lowerDecl`, `src/Lean/Compiler/IR/ToIR.lean:194-200`;
+  `mkDummyExternDecl`, `src/Lean/Compiler/IR/Basic.lean:386-388`); the module's initialization
+  sets the constant to the value its initializer returned (`emitDeclInit`,
+  `src/Lean/Compiler/LCNF/EmitC.lean:986-1004`), and the initializer is a retained call of the
+  constant's IR (`collectDecl`, `src/Lean/Compiler/IR/EmitUtil.lean:52-60`).
+- Lean 4.34.1 generates code for every `extern`, and for no other constant that has an
+  `implemented_by` target when it is compiled (`shouldGenerateCode`,
+  `src/lean/Lean/Compiler/LCNF/Main.lean:34`, `:40`); a target added after the constant was
+  compiled, as `attribute [implemented_by]` after `initialize` adds one, leaves its IR and
+  initializer in place, and Lean's IR environment extension still holds that IR (`findEnvDecl`,
+  `src/lean/Lean/Compiler/IR/CompilerM.lean:142`). The module's initialization runs the
+  initializers of its IR declarations alone (`emitInitFn`,
+  `src/lean/Lean/Compiler/LCNF/EmitC.lean:1047-1049`). Its simplifier replaces a call of any
+  constant with an `implemented_by` target, an `extern` included, by a call of the target
+  (`applyImplementedBy?`, `src/lean/Lean/Compiler/LCNF/Simp/SimpValue.lean:55-59`, enabled at
+  `src/lean/Lean/Compiler/LCNF/Passes.lean:107`), so a call compiled after the target was added
+  never reads the constant's value, and a call compiled before still does. -/
 private def observeNode (env : Environment) (ownedModules : List Name)
     (toolchainModules : NameMap RegulaPolicy.ToolchainOrigin)
     (cached : Std.HashMap Name (Array Name))
@@ -552,7 +686,7 @@ private def observeNode (env : Environment) (ownedModules : List Name)
     (proofCache : IO.Ref
       (Std.HashMap (Name × Name) (Correspondence × Option String × Option CorrespondenceTerms)))
     (dependencyCache : IO.Ref (CompilerDependenciesCache env))
-    (preparedTheorems : Thunk (PreparedTheorems env)) (admits : Name → Bool)
+    (theorems : IO.Ref (Option (List (Name × Array Name)))) (admits : Name → Bool)
     (timing : Bool)
     (name : Name) : CommandElabM (RegulaPolicy.ExecutionWalk.NodeRecord name) := do
   let moduleOf (name : Name) : Option Name :=
@@ -561,10 +695,22 @@ private def observeNode (env : Environment) (ownedModules : List Name)
     if let some result := (← liftIO proofCache.get)[(reference, target)]? then return result
     let proofs := ((candidates.find? reference).getD #[]).filterMap fun candidate =>
       if candidate.toDeclName == target then some candidate.thmName else none
-    let result ← reportPhase timing s!"correspondence {reference} -> {target}" <|
-      replacementCorrespondence env cached preparedTheorems admits reference target proofs
-    liftIO <| proofCache.modify (·.insert (reference, target) result)
-    return result
+    -- The theorem index is built here, before the first check, so no check pays for it.
+    let index ← match ← liftIO theorems.get with
+      | some index => pure index
+      | none => do
+        let index ← IO.lazyPure fun _ => theoremDependencies env.constants.toList
+        liftIO <| theorems.set (some index)
+        pure index
+    let caller ← IO.getTID
+    let run ← reportPhase timing s!"correspondence {reference} -> {target}" <| liftIO <|
+      runCheck env cached index admits reference target proofs
+    -- A check that ran on this thread or met a runtime memory limit ends the report: no verdict.
+    match publishCheck caller reference target run with
+    | .ok result =>
+      liftIO <| proofCache.modify (·.insert (reference, target) result)
+      return result
+    | .error message => throwError message
   let code : RegulaPolicy.ExecutionWalk.CodeStatus := match Lean.IR.findEnvDecl env name with
     | some (.fdecl ..) => .function
     | some (.extern ..) => if Lean.isExtern env name then .externBody else .placeholder
@@ -588,7 +734,7 @@ private def observeNode (env : Environment) (ownedModules : List Name)
   | return note record s!"{name}: module attribution is unavailable"
   let owned := ownedModules.contains moduleName
   -- The admitted origin of the constant's module when it is the toolchain's own compiled
-  -- `Init`, `Std` or `Lean` module. A trusted boundary of an ownable kind there belongs to
+  -- `Init`, `Std`, `Lean` or `Lake` module. A trusted boundary of an ownable kind there belongs to
   -- the toolchain's trusted base; `implemented_by` and `extern` data can only be set in the
   -- declaring module, so the declaration's module decides who owns the boundary.
   let toolchain := toolchainModules.find? moduleName
@@ -622,11 +768,37 @@ private def observeNode (env : Environment) (ownedModules : List Name)
       (some s!"conservative constant-equality candidate={simplification.thmName}; \
         {evidence.getD ""}") terms
     record := { record with boundaries := record.boundaries.push boundary }
-  if Lean.isExtern env name then
+  let implemented := Lean.Compiler.getImplementedBy? env name
+  match lowering (Lean.isExtern env name) implemented.isSome (code != .missing)
+      (Lean.getInitFnNameFor? env name) with
+  | .extern =>
+    -- Every `extern` is a trusted boundary. An `extern` outside the toolchain names the
+    -- declarations whose `@[export]` name is its C symbol, read from the attribute names alone:
+    -- which body runs under the symbol is not decided, and the match adds no edge. The
+    -- simplification candidates above stay edges. Lean calls of an `extern` with an
+    -- `implemented_by` target call the target, so it is a runtime replacement too.
+    let exporters := match toolchain, Lean.getExternNameFor env `c name with
+      | none, some symbol => (symbol, exportersOf (exportEntries env) symbol)
+      | _, _ => ("", [])
+    let evidence := if exporters.2.isEmpty then none else
+      some s!"the symbol {exporters.1} is also exported by \
+        {", ".intercalate (exporters.2.map (·.toString))}"
     let boundary ←
-      entry (if toolchain.isSome then .nativeRuntime else .external) .trusted none none
-    return { record with boundaries := record.boundaries.push boundary }
-  if let some target := Lean.Compiler.getImplementedBy? env name then
+      entry (if toolchain.isSome then .nativeRuntime else .external) .trusted none evidence
+    record := { record with boundaries := record.boundaries.push boundary }
+    if implemented.isNone then return record
+  | .initialized action =>
+    -- A constant with an initializer and compiled IR, or with no `implemented_by` target, is
+    -- compiled to a stub that is never run, and compiled code reads the value its initializer
+    -- action returned at module initialization. The action is a retained compiler call of the
+    -- record (`compilerDependencies`), so the walk follows it. Calls compiled after an
+    -- `implemented_by` target was added call the target, so it is a runtime replacement too.
+    let boundary ← entry .initializedValue .trusted none
+      (some s!"compiled code reads the value that initializer {action} returned")
+    record := { record with boundaries := record.boundaries.push boundary }
+    if implemented.isNone then return record
+  | .ordinary => pure ()
+  if let some target := implemented then
     record := { record with
       currentReplacementTargets := record.currentReplacementTargets.push target }
     -- Which implementation a toolchain replacement runs is part of the toolchain's trusted
@@ -736,7 +908,7 @@ private def executionWalk (env : Environment) (ownedModules : List Name)
       (Std.HashMap (Name × Name) (Correspondence × Option String × Option CorrespondenceTerms)))
     (dependencyCache : IO.Ref (CompilerDependenciesCache env))
     (recordCache : IO.Ref NodeRecordCache)
-    (preparedTheorems : Thunk (PreparedTheorems env)) (admits : Name → Bool)
+    (theorems : IO.Ref (Option (List (Name × Array Name)))) (admits : Name → Bool)
     (recursorHelpers : Array Name) (root : Name) (timing : Bool) : CommandElabM
     (Array Regula.Report.ExecutionBoundary ×
       Array String × Array (Name × Name) × RegulaPolicy.ExecutionClosure) := do
@@ -774,7 +946,7 @@ private def executionWalk (env : Environment) (ownedModules : List Name)
             loaded.modify (·.push moduleName)
             loadReplacementHistory moduleName
           let record ← observeNode env ownedModules toolchainModules cached load
-            candidates proofCache dependencyCache preparedTheorems admits timing name
+            candidates proofCache dependencyCache theorems admits timing name
           let histories ← liftIO loaded.get
           liftIO <| recordCache.modify (·.insert name (record, histories))
           pure record
@@ -816,25 +988,37 @@ private def initializerActions (env : Environment) (modules : List Name) : Array
           actions := actions.push action
   return actions
 
-/-- Owned executable roots: computable, non-proposition, safe, non-partial,
-non-internal definitions and opaque constants whose result is not a `Sort`
-(types are erased before execution, like propositions), and the action of each initializer that
-an owned module records (`initializerActions`), whatever its name, safety or computability: Lean
-runs that action at startup or import, where no other root need reference it. Role metadata never
-removes an otherwise eligible root, including unused tagged declarations. -/
+/-- Owned executable roots: the definitions and opaque constants that
+`RegulaPolicy.ExecutionWalk.RootFacts.root` admits, and the action of each initializer that an
+owned module records (`initializerActions`), whatever its name, safety or computability: Lean
+runs that action at startup or import, where no other root need reference it. A constant is a
+root when it is the program's entry point, whatever its safety, or when it is computable, safe,
+non-partial and non-internal and execution does not erase it (its type is no proposition and its
+result is no `Sort`). Role metadata never removes an otherwise eligible root, including unused
+tagged declarations. Erasure is read only where it decides the answer
+(`RootFacts.root_erased`).
+
+Assumes: Lean 4.34.1 emits the C `main` function of a module from the compiled function body
+named `main` that the module itself holds, whatever the declaration's safety
+(`emitMainFnIfNeeded`, `src/Lean/Compiler/LCNF/EmitC.lean:1084-1092`); an imported module's
+compiled bodies are the ones `Lean.IR.findEnvDecl` returns. -/
 private def executableRoots (env : Environment) (modules : List Name)
     (own : Array (Name × ConstantInfo)) : CommandElabM (Array Name) := do
   let mut roots : Array Name := #[]
   for (name, info) in own do
     match info with
     | .defnInfo _ | .opaqueInfo _ =>
-        if name.isInternal || info.isUnsafe || info.isPartial
-            || Lean.isNoncomputable env name then continue
-        let eligible ← observing env name "executable-root classification" do
-          if ← liftTermElabM <| Meta.isProp info.type then return false
-          return !(← liftTermElabM <| Regula.Collect.returnsSort info.type)
-        if !eligible then continue
-        roots := roots.push name
+        let facts : RegulaPolicy.ExecutionWalk.RootFacts := {
+          entryPoint := name == `main &&
+            (match Lean.IR.findEnvDecl env name with | some (.fdecl ..) => true | _ => false)
+          internal := name.isInternal, isUnsafe := info.isUnsafe, isPartial := info.isPartial
+          isNoncomputable := Lean.isNoncomputable env name, erased := false }
+        let facts ← if facts.entryPoint || !facts.root then pure facts else do
+          let erased ← observing env name "executable-root classification" do
+            if ← liftTermElabM <| Meta.isProp info.type then return true
+            liftTermElabM <| Regula.Collect.returnsSort info.type
+          pure { facts with erased }
+        if facts.root then roots := roots.push name
     | _ => continue
   for action in initializerActions env modules do
     unless roots.contains action do
@@ -853,8 +1037,8 @@ prefix's record is a snapshot, which has no replay and so is never a native role
 as a prefix and then reached as an axiom has its snapshot replaced by a replay candidate, so
 whichever of the two is reached first, every reached axiom is replayed. Records are in the order
 of their first insertion, prefix snapshots included: a replaced snapshot keeps its position. The
-axioms of both are those Lean's `collectAxioms` reports, since no kernel of this audit replayed an
-imported module.
+axioms of both are those it reaches in the environment (`KernelAxioms.reachedAxioms`), since no
+kernel of this audit replayed an imported module.
 
 Assumes:
 - Lean v4.34.1 maps each imported constant to the module that declares it
@@ -905,7 +1089,8 @@ private def importedNativeRecords (env : Environment) (inspected : List Name)
 runner calls this function directly, without parsing a command in the audited
 module's frontend extension environment. Each declaration record has the axioms `replayed` holds
 for it, those it reaches in the kernel that replayed it (`Admission.validate`), with the axioms
-Lean's `collectAxioms` omits of them, or, with no `replayed`, those `collectAxioms` reports. The
+Lean's `collectAxioms` omits of them, or, with no `replayed`, those it reaches in the environment
+(`KernelAxioms.reachedAxioms`). The
 kernel walks of the correspondence proofs the execution account builds stop at the names
 `replayed` holds (`kernelAnswer`). `replayedModules` names the modules whose declarations the
 kernel checked in this audit, those the environment's admission replayed or reused: the execution
@@ -917,7 +1102,10 @@ axioms its declarations rest on, outside those modules (`importedNativeRecords`)
 the first answer that `loadReplacementHistory` returns for each module and gives it to every later
 history request of the report, from any root, so a node record kept for a later root is the record
 its pass would make again. A loader that throws returns no answer, and no record is kept from that
-request. -/
+request. The report refuses an environment whose `propext`, `Quot.sound` or `Classical.choice` is
+not the toolchain's (`Collect.authenticateFoundation`). Each correspondence check runs on a task
+of its own (`runCheck`), and a report whose process cannot run one there ends with an error before
+any check (`requireDedicatedThreads`). -/
 def environmentReport (modules : List Name)
     (loadReplacementHistory : Name → IO (Except String (Array (Name × Name))) :=
       fun _ => pure (.error "trusted source-history loader was not supplied"))
@@ -934,6 +1122,9 @@ def environmentReport (modules : List Name)
   let compilerCapability ← liftIO Regula.Collect.compilerCapability
   let _ ← IO.ofExcept (RegulaPolicy.Compiler.admitCapability compilerCapability)
   let env ← getEnv
+  -- The profiles permit `propext`, `Quot.sound` and `Classical.choice` by name: refuse an
+  -- environment whose constants of those names are not the toolchain's.
+  liftIO <| Regula.Collect.authenticateFoundation env
   -- Execution trust checks always need canonical origins. Logical-only
   -- documentation inspection may omit this otherwise unused report payload.
   let moduleOrigins ← if includeExecution || includeModuleOrigins then
@@ -1003,7 +1194,7 @@ def environmentReport (modules : List Name)
       let answer ← loadReplacementHistory name
       historyAnswers.modify (·.insert name answer)
       return answer
-    let preparedTheorems := Thunk.mk fun _ => prepareTheorems env
+    let theorems ← liftIO <| IO.mkRef (none : Option (List (Name × Array Name)))
     -- A correspondence theorem counts only from a module whose declarations the kernel checked
     -- in this audit (`replayedModules`) or from an origin-checked toolchain module.
     let admits (candidate : Name) : Bool := match env.getModuleIdxFor? candidate with
@@ -1011,6 +1202,7 @@ def environmentReport (modules : List Name)
           let moduleName := env.header.modules[(idx : Nat)]!.module
           replayedModules.contains moduleName || toolchainModules.contains moduleName
       | none => false
+    unless roots.isEmpty do liftIO requireDedicatedThreads
     roots.mapM fun (moduleName, root) => do
       let (boundaries, unresolved, compilerEdges, closure) ←
         reportPhase timing s!"execution walk {root}" <| observing env root "execution walk" <|
@@ -1018,7 +1210,7 @@ def environmentReport (modules : List Name)
             historyRequests.modify fun requests =>
               if requests.contains (root, name) then requests else requests.push (root, name)
             loadHistoryOnce name) candidates proofCache dependencyCache recordCache
-            preparedTheorems admits recursorHelpers root timing
+            theorems admits recursorHelpers root timing
       return ({
         name := root
         «module» := moduleName
