@@ -23,8 +23,7 @@ as for the private observation of issue 261.
 
 The observer's reads are public: `ownPath` and `ownRoot` give the path at which a removal is
 decided, and `requireOwnDirectory` and `requireNoLinkedEntries` check a place before a program
-makes or loads something there. `readFileIfPresent` reads the text of a file that may be absent,
-and reports absence only for the error that says that nothing is there.
+makes or loads something there.
 
 Each operation is `@[noinline]`, so its call of the library's operation stays in its own compiled
 code and is not copied into a caller's. On Windows, Lean 4.34.1's
@@ -32,7 +31,10 @@ code and is not copied into a caller's. On Windows, Lean 4.34.1's
 allow, and `IO.FS.removeDirAll` uses it on each entry. Its `IO.FS.realPath` gives the path itself
 when it cannot resolve it (`runtime/io.cpp#L1032-L1033`), which `ReadsReal` does not allow. So on
 Windows the observer's read of an entry, its read of a real path and its removal of a directory
-fail without acting, and every removal and move, which read the entry first, fails. -/
+fail without acting, and every removal and move, which read the entry first, fails.
+
+`readFileIfPresent` is not an operation of the observer: it calls `IO.FS.readFile` directly, and
+gives `none` only for the error that says that nothing is at the path (`present`). -/
 
 namespace Regula.Filesystem
 
