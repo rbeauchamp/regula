@@ -1710,7 +1710,11 @@ def Build.runObserved (build : Build) (repo : FilePath) (targets : Array Target)
         let observed (mod : _root_.Lake.Module) :=
           let regula := regula? == some mod.pkg.keyName
           (mod.pkg.isRoot || regula) && !(regula && mod.lib.name == Observer.observerLibrary)
-        let ws := ws.addModuleFacetConfig (Observer.observerPresetup plugin observed)
+        -- Every other module keeps the workspace's own facet, so its trace is that of an ordinary
+        -- build and Lake replays it, a dependency's module included.
+        let existing := (ws.findModuleFacetConfig? _root_.Lake.Module.presetupFacet).getD
+          _root_.Lake.Module.presetupFacetConfig
+        let ws := ws.addModuleFacetConfig (Observer.observerPresetup existing plugin observed)
         let fetch := observedFetch ws jobLogs (_root_.Lake.buildSpecs specs) (fun built => store.set (some built))
         ws.runBuild fetch {
           out := .stream out, ansiMode := .noAnsi, showSuccess := true, leanOptOverrides,

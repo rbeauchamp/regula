@@ -18,11 +18,12 @@ The `presetup` facet of a module decides the plugins Lean loads while elaboratin
 (`Lake/Build/Module.lean` lines 545 to 622, `ModulePreSetup.plugins`), and Lake fetches it
 through the workspace's facet table, so a facet that a package declares replaces Lake's own.
 `observerPresetup` wraps Lake's own facet: it adds the observer's shared library to the plugins
-of each module of the root package and of Regula outside the observer's own library, and mixes
-that library's trace into the module's trace, which Lake compares to decide whether to replay the
-module (`Lake/Build/Module.lean` lines 1008 and 1062). A module replayed under that trace was
-elaborated with that plugin. Regula's `lakefile.lean` declares the same facet for ordinary
-builds, and the audit's builds install it themselves (`Regula.Checker.Lake.Build.runObserved`). -/
+of each module of the root package and of the running Regula outside the observer's own library,
+and mixes that library's trace into the module's trace, which Lake compares to decide whether to
+replay the module (`Lake/Build/Module.lean` lines 1008 and 1062). A module replayed under that
+trace was elaborated with that plugin. Every other module keeps the facet the workspace
+configures. Regula's `lakefile.lean` declares the same facet for ordinary builds, and the
+audit's builds install it themselves (`Regula.Checker.Lake.Build.runObserved`). -/
 
 namespace Regula.Checker.Observer
 
@@ -40,16 +41,19 @@ def runningPackageDir : IO (Option FilePath) := do
   let app ← IO.FS.realPath (← IO.appPath)
   return (app.parent.bind (·.parent)).bind (·.parent) |>.bind (·.parent)
 
-/-- The `presetup` facet of a module with Regula's observer: Lake's own facet
-(`Lake.Module.presetupFacetConfig`), and for a module for which `observed` holds, the observer's
-shared library that `plugin` fetches added to the module's plugins, with that library's trace mixed
-into the module's trace. -/
-def observerPresetup (plugin : _root_.Lake.FetchM (_root_.Lake.Job _root_.Lake.Dynlib))
+/-- The `presetup` facet of a module with Regula's observer. For a module for which `observed`
+holds, it is Lake's own facet (`Lake.Module.presetupFacetConfig`) with the observer's shared
+library that `plugin` fetches added to the module's plugins, and with that library's trace mixed
+into the module's trace. Every other module keeps the facet `existing` that the workspace
+configures, so the build gives it the plugins and trace of an ordinary build of the workspace, and
+Lake does not rebuild it, a dependency's module included, for the audit's facet. -/
+def observerPresetup (existing : _root_.Lake.ModuleFacetConfig _root_.Lake.Module.presetupFacet)
+    (plugin : _root_.Lake.FetchM (_root_.Lake.Job _root_.Lake.Dynlib))
     (observed : _root_.Lake.Module → Bool) :
     _root_.Lake.ModuleFacetConfig _root_.Lake.Module.presetupFacet :=
   _root_.Lake.mkFacetJobConfig (buildable := false) fun (mod : _root_.Lake.Module) => do
+    if !observed mod then return ← existing.run mod
     let job ← _root_.Lake.Module.presetupFacetConfig.run mod
-    if !observed mod then return job
     let shared ← plugin
     job.bindM (sync := true) fun setup => shared.mapM (sync := true) fun dynlib =>
       return { setup with

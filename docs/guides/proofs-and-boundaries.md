@@ -366,7 +366,9 @@ Regula by path does not build its modules again.
 The observer imports only Lean, prints nothing and reads no option that the marker sets. So a
 build with the marker and a build without it write the same record. The audit's own builds install
 the same facet in the process with `Observer.observerPresetup`, over whatever the workspace
-declares.
+declares. It acts there on the modules of the root package and of the running Regula, and each
+other module keeps the facet of the workspace. So the audit does not build again the modules of
+a different Regula checkout, such as the copy that a rule-example producer requires.
 
 
 The facet writes the record with `weakLeanArgsRecord`, a copy of `weakArgsRecordJson` in the
