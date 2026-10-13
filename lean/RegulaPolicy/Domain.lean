@@ -2187,7 +2187,8 @@ structure ExecutionBoundary.ToolchainObserved where
 evidence and the constant run in its place. `@[implemented_by]` and `@[extern]` decide the kind of
 the boundary that each makes, and for `@[extern]` the toolchain origin of the module chooses
 `native-runtime` over `external`. An initializer (`initialize`, `@[init]`) makes an
-`initialized-value` boundary. A constant whose type is an equality of two constants with the
+`initialized-value` boundary, unless an `@[implemented_by]` target leaves its constant with no
+compiled IR. A constant whose type is an equality of two constants with the
 same list of distinct universe parameters makes a `compiler-simplification` boundary, registered
 with `@[csimp]` or not, and an attribute such as `@[simp]` makes Lean generate equation lemmas of
 that shape. The name of an axiom decides the `compiler-trusted-proof` kind
