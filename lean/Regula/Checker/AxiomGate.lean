@@ -474,9 +474,9 @@ structure Copied where
 
 /-- Copy the project at `repo`, with each path dependency it owns, into the new scratch directory
 `scratch`, which holds no build output (`copyProject`). -/
-private def isolatedCopy (repo scratch : FilePath) : IO Copied := do
+private def isolatedCopy (repo scratch : FilePath) (manifest : Option FilePath) : IO Copied := do
   let copy ← timedPhase "isolated source copy" <| Lake.copyProject repo (scratch / "project")
-    scratch (facets := .replaced)
+    scratch (facets := .replaced) (policy := manifest)
   return ⟨copy.project, copy.root, some copy.selection, some copy.configurationInputs⟩
 
 /-- The copy of the project at `repo` that the verification driver made at `path`
@@ -1250,7 +1250,7 @@ private unsafe def auditSurface (repo : FilePath) (manifest : Option FilePath)
     -- passes what this process can observe, or else a copy this process makes now.
     let origin ← match driverCopy with
       | some path => Origin.driverCopy <$> AxiomGate.driverCopy repo path
-      | none => Origin.copied <$> isolatedCopy repo scratch
+      | none => Origin.copied <$> isolatedCopy repo scratch manifest
     let copy := match origin with
       | .copied copied | .driverCopy copied => copied.project
       | .incremental => repo

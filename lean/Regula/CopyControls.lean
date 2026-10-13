@@ -42,6 +42,40 @@ run_cmd do
       unless positive.length == 2 &&
           (← IO.FS.readFile (base / "positive/plain")) == "source bytes" do
         throw <| IO.userError "plain copy lost its source receipt or bytes"
+      let policies := base / "policies"
+      let selected := [".lake/policy.json", "tmp/policy.json", ".cache/policy.json", "policy.olean"]
+      construct policies (Construction.layout (
+        selected.map (fun path => ⟨(FilePath.mk path).components, .file "policy".toUTF8⟩) ++
+        [⟨[".lake", "stale"], .file "stale".toUTF8⟩,
+         ⟨[".cache", "stale"], .file "stale".toUTF8⟩,
+         ⟨["tmp", "stale"], .file "stale".toUTF8⟩,
+         ⟨["plain"], .file "ordinary".toUTF8⟩]))
+      let selectedCopy := base / "selected-copy"
+      discard <| Construction.sourceMain (["project", policies.toString, selectedCopy.toString] ++ selected)
+      for path in selected do
+        unless (← readFile (selectedCopy / path)) == "policy" do
+          throw <| IO.userError "cold project copy lost selected policy bytes"
+      unless (← readFile (selectedCopy / "plain")) == "ordinary" do
+        throw <| IO.userError "cold project copy lost ordinary source bytes"
+      for directory in [".lake", ".cache", "tmp"] do
+        unless !(← (selectedCopy / directory / "stale").pathExists) do
+          throw <| IO.userError "cold project selection included an unselected pruned sibling"
+      fixture "ln" #["-s", "../plain", (policies / ".cache/link").toString]
+      refused "selected policy link" "selected entry is not a regular file" <|
+        discard <| Construction.sourceMain
+          ["project", policies.toString, (base / "selected-link-output").toString, ".cache/link"]
+      fixture "ln" #["-s", "..", (policies / ".cache/ancestor").toString]
+      refused "selected policy ancestor link" "selected ancestor is not a directory" <|
+        discard <| Construction.sourceMain
+          ["project", policies.toString, (base / "selected-ancestor-output").toString, ".cache/ancestor/plain"]
+      if ← (policies / ".CACHE/POLICY.json").pathExists then
+        let foldedCopy := base / "folded-policy-copy"
+        discard <| Construction.sourceMain
+          ["project", policies.toString, foldedCopy.toString, ".CACHE/POLICY.json"]
+        unless (← readFile (foldedCopy / ".CACHE/POLICY.json")) == "policy" do
+          throw <| IO.userError "cold project copy lost a selected policy's stored spelling"
+      refused "removed all domain" "unknown construction domain" <|
+        discard <| Construction.sourceMain ["all", source.toString, (base / "all-output").toString]
       let slot := base / "conflicting-slot"
       construct slot []
       refused "conflicting source occurrences" "conflicting captured bytes" <|
@@ -97,15 +131,23 @@ run_cmd do
     withOwnTempDir fun base => do
       IO.eprintln "construction controls: Git target-text representation"
       let source := base / "git-source"
-      construct source [⟨["plain"], .file "tracked file\n".toUTF8⟩]
+      construct source (Construction.layout [
+        ⟨["plain"], .file "tracked file\n".toUTF8⟩,
+        ⟨[".gitignore"], .file ".lake/\n".toUTF8⟩,
+        ⟨[".lake", "build", "lib", "Cached.olean"], .file "reusable build output".toUTF8⟩,
+        ⟨[".lake", "cache"], .file "unselected cache".toUTF8⟩,
+        ⟨["untracked"], .file "unselected source".toUTF8⟩])
       fixture "git" #["-C", source.toString, "init", "--quiet"]
       fixture "ln" #["-s", "plain", (source / "tracked-link").toString]
-      fixture "git" #["-C", source.toString, "-c", "core.symlinks=true", "add", "plain", "tracked-link"]
+      fixture "git" #["-C", source.toString, "-c", "core.symlinks=true", "add", "plain", "tracked-link", ".gitignore"]
       fixture "git" #["-C", source.toString, "-c", "user.name=Construction Control",
         "-c", "user.email=construction@example.invalid", "-c", "commit.gpgsign=false",
         "commit", "--quiet", "-m", "controlled index"]
       let target := base / "git-target"
       discard <| Construction.copyGit source target
+      unless (← readFile (target / ".lake/build/lib/Cached.olean")) == "reusable build output" &&
+          !(← (target / ".lake/cache").pathExists) && !(← (target / "untracked").pathExists) do
+        throw <| IO.userError "Git copy did not retain exactly its reusable untracked build outputs"
       unless (← observeMetadata (target / "tracked-link")).type == .file &&
           (← readBytes (target / "tracked-link")) == "plain".toUTF8 do
         throw <| IO.userError "tracked Git link was not its target-text regular representation"
@@ -206,6 +248,10 @@ run_cmd do
       refused "Git slot common alternates" "alternates are outside" <|
         Regula.Qualification.Slot.materializeGit (base / "alternate-slot-output") (linked / ".git")
       removeOwn .file (source / ".git/objects/info/alternates")
+      fixture "ln" #["-s", "../../../plain", (source / ".lake/build/untracked-link").toString]
+      refused "untracked Git build link" "not a directory or" <|
+        discard <| Construction.copyGit source (base / "untracked-build-output")
+      removeOwn .link (source / ".lake/build/untracked-link")
       fixture "ln" #["-s", "plain", (source / "untracked-link").toString]
       refused "untracked Git source link" "not a directory or" <|
         discard <| Construction.copyGit source (base / "untracked-output")
@@ -272,20 +318,46 @@ def checkWorkspace : IO Unit := do
       IO.println "construction external manifest: incremental audit and exact external account PASS"
       -- A fresh audit relocates a project-contained absolute selection. Qualification consumes
       -- the actual public result and request, rather than a duplicated expected-account model.
-      Construction.appendFileWith Construction.observer source "foundation_manifest.json" policy.toUTF8
-      let freshOutput := base / "fresh-manifest-result.json"
-      let fresh ← IO.Process.output {
-        cmd := binary.toString, cwd := some source,
-        args := #["--project", source.toString, "--manifest",
-          (source / "foundation_manifest.json").toString, "--json-out", freshOutput.toString],
-        env := #[("LEAN_PATH", none), ("LEAN_SRC_PATH", none)] }
-      unless fresh.exitCode == 0 do
-        throw <| IO.userError s!"absolute selected fresh manifest audit failed: {fresh.stdout}{fresh.stderr}"
-      let freshResult ← Regula.Checker.ResultProtocol.readDocument freshOutput
-      let request : Regula.Website.ExampleRequest ← IO.ofExcept
-        (fromJson? (← IO.ofExcept (freshResult.getObjVal? "request")))
-      IO.ofExcept (Regula.Checker.RuleExampleQualification.effectiveAccount freshResult request)
-      IO.println "construction selected manifest: fresh audit and rule-example account PASS"
+      let policies := ["foundation_manifest.json", ".lake/policy.json", "tmp/policy.json",
+          ".cache/policy.json", ".regula-scratch/policy.json", "nested/.cache/policy.json",
+          ".git/policy.json", "policy.olean"]
+      for selected in policies do
+        let path := source / selected
+        Construction.appendFileWith Construction.observer (path.parent.getD source)
+          (path.fileName.getD "policy.json") policy.toUTF8
+      let policies := if ← (source / ".CACHE/POLICY.json").pathExists then
+          policies ++ [".CACHE/POLICY.json", ".LAKE/policy.json"]
+        else policies
+      for selected in policies do
+        let path := source / selected
+        let freshOutput := base / "fresh-manifest-result.json"
+        let fresh ← IO.Process.output {
+          cmd := binary.toString, cwd := some source,
+          args := #["--project", source.toString, "--manifest", path.toString,
+            "--json-out", freshOutput.toString],
+          env := #[("LEAN_PATH", none), ("LEAN_SRC_PATH", none)] }
+        unless fresh.exitCode == 0 do
+          throw <| IO.userError s!"selected fresh manifest {selected} audit failed: {fresh.stdout}{fresh.stderr}"
+        let freshResult ← Regula.Checker.ResultProtocol.readDocument freshOutput
+        let request : Regula.Website.ExampleRequest ← IO.ofExcept
+          (fromJson? (← IO.ofExcept (freshResult.getObjVal? "request")))
+        if selected == "foundation_manifest.json" then
+          IO.ofExcept (Regula.Checker.RuleExampleQualification.effectiveAccount freshResult request)
+        let effective ← IO.ofExcept (freshResult.getObjVal? "effective")
+        let root : String ← IO.ofExcept (effective.getObjValAs? _ "root")
+        let configuration : Regula.CopyConfiguration.Files ← IO.ofExcept
+          (effective.getObjValAs? _ "configuration")
+        let actual ← IO.ofExcept (Regula.Checker.Lake.configurationAccount root configuration)
+        let requested ← IO.ofExcept
+          (Regula.Checker.Lake.configurationAccount request.project request.configuration)
+        let expected ← match request.copyConfiguration with
+          | none => pure requested
+          | some inputs =>
+            IO.ofExcept (Regula.Checker.Lake.expectedConfiguration inputs (FilePath.mk root) requested)
+        IO.ofExcept (Regula.CopyConfiguration.check (expected, actual))
+        unless requested.contains (selected, some policy) && actual.contains (selected, some policy) do
+          throw <| IO.userError s!"selected policy {selected} lost its requested path or bytes"
+      IO.println "construction selected manifest: fresh audits and exact configuration accounts PASS"
       if ← (source / "VENDOR").isDir then
         -- A deliberate configuration mutation exercises Lake's stored-spelling boundary.
         IO.FS.writeFile (source / "lakefile.lean") (lakefile.replace "vendor" "VENDOR")
@@ -298,5 +370,41 @@ def checkWorkspace : IO Unit := do
             (← Regula.Filesystem.readFile (folded.project / "lake-manifest.json")) == manifest do
           throw <| IO.userError "case-folded packages or manifest location was not retained correctly"
       IO.println "construction workspace: configured packagesDir and captured manifest PASS"
+      for packages in ["vendor", ".lake/packages"] do
+        let source := base / (if packages == "vendor" then "owned-vendor" else "owned-default")
+        let dependency := (FilePath.mk packages).components ++ ["dep"]
+        let lakefile := lakefile.replace "vendor" packages |>.replace "lean_lib Solo"
+          ("require dep from \"" ++ packages ++ "/dep\"\nlean_lib Solo")
+        let manifest := (Json.mkObj [
+          ("version", toJson "1.1.0"), ("name", toJson "construction_control"),
+          ("lakeDir", toJson ".lake"), ("packagesDir", toJson packages),
+          ("packages", toJson #[Json.mkObj [
+            ("name", toJson "dep"), ("scope", toJson ""), ("inherited", toJson false),
+            ("configFile", toJson "lakefile.toml"), ("manifestFile", toJson "lake-manifest.json"),
+            ("type", toJson "path"), ("dir", toJson (packages ++ "/dep"))]])]).pretty ++ "\n"
+        construct source (Construction.layout (toolchain ++ [
+          ⟨["lakefile.lean"], .file lakefile.toUTF8⟩,
+          ⟨["lake-manifest.json"], .file manifest.toUTF8⟩,
+          ⟨["Solo.lean"], .file "/-! Owned layout control. -/\n".toUTF8⟩,
+          ⟨dependency ++ ["lakefile.toml"], .file
+            "name = \"dep\"\n[[lean_lib]]\nname = \"Dep\"\n".toUTF8⟩,
+          ⟨dependency ++ ["Dep.lean"], .file "/-! Owned dependency. -/\n".toUTF8⟩,
+          ⟨dependency ++ [".lake", "policy.json"], .file policy.toUTF8⟩,
+          ⟨(FilePath.mk packages).components ++ ["stale"], .file "unselected".toUTF8⟩]))
+        fixture "git" #["-C", source.toString, "init", "--quiet"]
+        let target := source / ".lake/copied"
+        let selected := source / packages / "dep/.lake/policy.json"
+        let result ← Regula.Checker.Lake.copyProject source target target (policy := some selected)
+        let copiedPolicy := Regula.Checker.Lake.relocateConfigurationPath source result.project selected
+        unless result.selection.dependencies.any (fun dependency =>
+            dependency.package == "dep" && dependency.owned &&
+            dependency.dir == result.project / packages / "dep") &&
+            (← readFile (result.project / packages / "dep/Dep.lean")) == "/-! Owned dependency. -/\n" &&
+            (← readFile copiedPolicy) == policy &&
+            !(← (result.project / packages / "stale").pathExists) do
+          throw <| IO.userError "owned package copy lost its selected policy or retained stale package state"
+        let inventory ← Regula.Checker.Lake.surfaceInventory result.project
+        discard <| Regula.Checker.Lake.checkCopiedWorkspace result.root (some result.selection) inventory
+      IO.println "construction owned packages: configured and default package layouts PASS"
 
 end Regula.CopyControls

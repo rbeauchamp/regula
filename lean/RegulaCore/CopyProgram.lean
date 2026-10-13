@@ -289,6 +289,55 @@ instance (relative : List String) : Decidable (ProjectRelative relative) :=
 /-- Decide exactly the cold project's source domain. -/
 def projectRelative (relative : List String) : Bool := decide (ProjectRelative relative)
 
+/-- An explicit file selection includes every ancestor needed by no-follow capture. -/
+def RequiredPath (required : List (List String)) (relative : List String) : Prop :=
+  ∃ path ∈ required, relative.IsPrefix path
+
+instance (required : List (List String)) (relative : List String) :
+    Decidable (RequiredPath required relative) :=
+  inferInstanceAs (Decidable (∃ path ∈ required, relative.IsPrefix path))
+
+/-- Select exactly the named files and their ancestors, without selecting their siblings. -/
+def requiredPath (required : List (List String)) (relative : List String) : Bool :=
+  decide (RequiredPath required relative)
+
+/-- Observe stored spellings for explicit relative file selections. Every requested ancestor
+is admitted as a directory and each leaf as a regular file through no-follow metadata before
+canonical observation. The later shared capture still admits every selected source entry.
+Requested spellings remain selected too; configuration accounting keeps those original paths.
+
+Assumes: the same stable source and POSIX metadata/realpath observations as `capture` and
+`observeRealPath`. Stored spellings are observations, not consequences of the prefix proofs. -/
+def requiredPaths (source : FilePath) (required : List (List String)) : IO (List (List String)) := do
+  let mut stored := []
+  for relative in required do
+    unless !relative.isEmpty && decide (Relative relative) do
+      throw <| IO.userError "explicit file selection is not a nonempty relative path"
+    let mut path := source
+    for name in relative do
+      unless (← observeMetadata path).type == .dir do
+        throw <| IO.userError s!"copy refused {path}: selected ancestor is not a directory"
+      path := path / name
+    unless (← observeMetadata path).type == .file do
+      throw <| IO.userError s!"copy refused {path}: selected entry is not a regular file"
+    let root ← observeRealPath source
+    let actual ← observeRealPath path
+    unless root.components.isPrefixOf actual.components do
+      throw <| IO.userError "explicit file selection is outside its source root"
+    stored := actual.components.drop root.components.length :: stored
+  return required ++ stored
+
+/-- A package-store entry is source when the current capture root is itself in that store. -/
+def PackageSource (source packages path : List String) : Prop :=
+  ¬ packages.IsPrefix path ∨ packages.IsPrefix source
+
+instance (source packages path : List String) : Decidable (PackageSource source packages path) :=
+  inferInstanceAs (Decidable (¬ packages.IsPrefix path ∨ packages.IsPrefix source))
+
+/-- Prune a packages subtree only from a capture rooted outside that subtree. -/
+def packageSource (source packages path : List String) : Bool :=
+  decide (PackageSource source packages path)
+
 /-- Observe Git's repository-local environment names, then remove them for a child in another
 repository. System/global configuration is disabled and namespaces are also removed. The query
 itself removes command-configuration injection and performs no repository setup or repository
@@ -444,6 +493,14 @@ def gitFiles (captured : List Item) : List GitEntry → Except IO.Error (List It
     let item ← gitItem captured entry
     return item :: (← gitFiles captured rest)
 
+/-- Retain captured regular build outputs of this package only. Indexed paths are supplied by
+`gitFiles`, so they are not emitted twice. All other untracked files remain excluded. -/
+def gitBuildFiles (captured : List Item) (entries : List GitEntry) : List Item :=
+  captured.filter fun item => match item.payload with
+    | .directory => false
+    | .file .. => [".lake", "build"].isPrefixOf item.relative &&
+        !entries.any (fun entry => entry.relative == item.relative)
+
 /-- A final local core section selects Git's target-text representation for every tracked link.
 Two leading newlines also terminate a trailing config continuation before the new section. -/
 def gitConfigBytes (bytes : ByteArray) : ByteArray :=
@@ -456,10 +513,11 @@ def gitMetadata (metadata : List Item) : List Item := metadata.map fun item =>
     | .directory => item
   else item
 
-/-- The clone account is the captured Git metadata and precisely the indexed worktree.
-Untracked regular files are admitted as sources but are not emitted. Untracked links refuse
-before this function runs. A missing regular Git configuration refuses rather than omit the
-target-text setting. -/
+/-- The clone account is the captured Git metadata, indexed worktree and untracked regular
+files beneath this package's own `.lake/build`. General no-follow capture admits those build
+outputs before this selection. Other untracked files are not emitted; untracked links and
+special entries refuse before this function runs. A missing regular Git configuration refuses
+rather than omit the target-text setting. -/
 def prepareGit (metadata captured : List Item) (entries : List GitEntry) :
     Except IO.Error (List Item) := do
   let some config := metadata.find? (fun item => item.relative == [".git", "config"])
@@ -467,10 +525,10 @@ def prepareGit (metadata captured : List Item) (entries : List GitEntry) :
   let .file .. := config.payload
     | throw <| IO.userError "Git source configuration is not regular"
   let files ← gitFiles captured entries
-  return layout (gitMetadata metadata ++ files)
+  return layout (gitMetadata metadata ++ files ++ gitBuildFiles captured entries)
 
 /-- The Git adapter's executed writer, over the same operations as all other copies.
-It derives its complete indexed account before creating any destination entry, then uses only
+It derives its complete index/build account before creating any destination entry, then uses only
 the shared constructor. `gitConstruct_io` states its exact plain-tree contract. -/
 def gitConstructWith {m : Type → Type} [Monad m] [MonadExceptOf IO.Error m] (ops : Ops m)
     (target : FilePath) (metadata captured : List Item) (entries : List GitEntry) : m (List Item) := do
@@ -500,7 +558,7 @@ def readGitBlob (source : FilePath) (object : String) : IO ByteArray := do
 /-- Observe a complete supported index after no-follow admission of its Git metadata.
 Tracked links are represented by Git's own blobs. Every other source entry is admitted through
 the general capture, so an untracked link or special entry is still refused before construction.
-Only indexed worktree files and captured Git metadata are emitted.
+Indexed files, captured Git metadata and admitted untracked regular `.lake/build` files are emitted.
 After Git confirms that the common directory is the source's own .git, its captured commondir
 instruction is omitted using the observer's stored name, including case-folded spellings.
 
@@ -567,16 +625,19 @@ def copyGit (source target : FilePath) : IO (List Item) := do
   let captured ← capture source [] selected
   gitConstructWith observer target metadata captured entries
 
-/-- The cold drivers' source entrypoint. `project` prunes VCS/build/scratch directories; `all`
-copies every entry. `git` uses `copyGit`'s indexed regular-file representation and metadata.
+/-- The cold drivers' source entrypoint. `project` prunes VCS/build/scratch directories, except
+explicit relative file selections after TARGET and the ancestors needed to capture them.
+`git` uses `copyGit`'s regular-file representation, build outputs and metadata.
 It prints the regular-file receipt as a JSON array. Lean interprets this
 same source before package artifacts exist; it does not use another copy implementation.
 
 Assumes: `copyGit` names the installed Git 2.54.0 index/blob/config facts, its source stability
 and the pinned Lake cleanliness observation. Git parsing and object fidelity remain trusted. -/
 def sourceMain (args : List String) : IO UInt32 := do
-  let [domain, source, target] := args
+  let domain :: source :: target :: required := args
     | throw <| IO.userError "construction requires DOMAIN SOURCE TARGET"
+  unless domain == "project" || required.isEmpty do
+    throw <| IO.userError "explicit file selections require the project domain"
   if domain == "git-environment" then
     IO.println (Lean.toJson (← gitEnvironment)).compress
     return 0
@@ -606,16 +667,17 @@ def sourceMain (args : List String) : IO UInt32 := do
       | .file .. => some ("/".intercalate item.relative)
     IO.println (Lean.toJson files).compress
     return 0
-  unless domain == "all" || domain == "project" do
+  unless domain == "project" do
     throw <| IO.userError s!"unknown construction domain: {domain}"
   let source := FilePath.mk source
   let base := source.components.length
-  let selected := fun (path : FilePath) => domain != "project" ||
-    projectRelative (path.components.drop base)
+  let required ← requiredPaths source (required.map (FilePath.mk · |>.components))
+  let selected := fun (path : FilePath) =>
+    requiredPath required (path.components.drop base) || projectRelative (path.components.drop base)
   let items ← capture source [] selected
   -- Reserve the exact Lake state spelling by exclusive creation. A case-folded source spelling
   -- cannot silently carry old state into an ordinary load: its creation collides and fails.
-  let generated := if domain == "project" then [⟨[".lake"], .directory⟩] else []
+  let generated := [⟨[".lake"], .directory⟩]
   construct target (layout (items ++ generated))
   let files := items.filterMap fun item => match item.payload with
     | .directory => none

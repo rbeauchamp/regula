@@ -614,7 +614,9 @@ Assumes: Exclusive creation fails for any occupied final destination and follows
 
 Filesystem modes are not preserved. Copied files receive 0644 and directories receive 0755. Provisioning's Git adapter gives indexed executable files 0755. Other sites that execute a copied program explicitly request 0755, with the reason where they copy it. Lake sets modes on the programs it builds. No filesystem-permission-reading program participates in construction.
 
-The Git clone adapter emits the indexed worktree and its captured `.git` metadata. Mode `100755` files receive executable rights. Mode `120000` entries become regular files with their target text. Generated Git configuration sets `core.symlinks=false`. Untracked links, special entries and other index modes refuse before writing. Untracked regular files are admitted but are not emitted.
+The Git clone adapter emits the indexed worktree and its captured `.git` metadata. Mode `100755` files receive executable rights. Mode `120000` entries become regular files with their target text. Generated Git configuration sets `core.symlinks=false`. Untracked links, special entries and other index modes refuse before writing.
+
+The adapter also emits untracked regular files beneath the package's own `.lake/build`, admitted by the same no-follow capture. Other untracked files are not emitted. Thus provisioned dependencies retain their reusable build outputs. `Construction.gitBuildFiles_mem` states the exact selection, including exclusion of paths already supplied by the index.
 
 The Git adapter has a closed source domain. Git decodes the configuration and resolves metadata paths. Extension settings, includes, `core.worktree` redirects and alternate object stores refuse before destination creation. The clone requires a plain, self-contained `.git` directory.
 
@@ -624,7 +626,7 @@ After Git confirms that the source common directory is its own metadata, the clo
 
 The qualification slot asks Git to resolve pointer files and `commondir`. It constructs common metadata beneath its own Git directory. It refuses alternates at the path Git resolves for the effective object store. It parses no alternate entry and has no fallback path resolver.
 
-`Construction.gitFiles_sound` relates each index entry to its regular-file instruction. `Construction.gitConstruct_io` states the exact plain tree of the executed writer. The tree has those indexed files, their directories and admitted Git metadata. The generated configuration and omitted common instruction determine that metadata. It contains no link. Destination byte fidelity remains trusted.
+`Construction.gitFiles_sound` relates each index entry to its regular-file instruction. `Construction.gitConstruct_io` states the exact plain tree of the executed writer. The tree has those indexed files, admitted build outputs, their directories and admitted Git metadata. The generated configuration and omitted common instruction determine that metadata. It contains no link. Destination byte fidelity remains trusted.
 
 Assumes: Trusted Git reports complete index modes, paths and object identifiers with `ls-files --format/-z`. Installed Git `2.54.0` documents this protocol in `git-ls-files(1)`. See `--format`, `-z` and `FIELD NAMES`. The source index and worktree have no writer. The adapter admits `.git` through no-follow capture before Git reads it.
 
@@ -658,6 +660,8 @@ Assumes: Lake `v4.34.1` tests cleanliness with `git diff --exit-code HEAD` (`Uti
 
 `copyProject` captures the manifest at Lake's loaded `ws.manifestFile`. Its packages fallback is `ws.relPkgsDir`. Each resolved dependency receives a typed path override, including inherited and transitive dependencies. Owned dependencies point into the copy, and trusted dependencies point to their original roots. The copy always retains the captured manifest and runs ordinary loads.
 
+Package-directory pruning is relative to the current capture root, for both configured and resolved spellings. `Construction.packageSource_owned` proves that explicitly owned roots inside that directory survive its pruning.
+
 Assumes: Lake `v4.34.1`, `Load/Resolve.lean:590-627`, applies overrides during ordinary materialization. `Load/Resolve.lean:201-235` traverses dependencies transitively. Path entries do not clone packages (`Load/Materialize.lean:239-277`).
 
 Assumes: A full update or a missing manifest bypasses overrides (`Load/Workspace.lean:64-69`, `Load/Resolve.lean:269-333`). Existing-project copies do neither. Generated update fixtures state their closed input domain where they create it.
@@ -670,7 +674,11 @@ An explicitly selected policy manifest outside the project keeps its exact absol
 
 The account makes a filename relative only when its project-relative components have no navigation or redirect. `configurationAccount_navigation` states preservation for an absolute path with navigation components. The external-manifest control selects such a path.
 
-An explicitly selected manifest inside the project relocates into the fresh copy. `configurationRelative` supplies the same path decision for relocation and the account. `relocateConfigurationPath_relative` and `configurationAccount_relative` state the two results. A fresh-audit control uses an absolute selection and checks its rule-example configuration comparison.
+An explicitly selected manifest inside the project relocates into the fresh copy. Its selection includes ancestors beneath otherwise pruned directories and files with compiled-artifact extensions. `Construction.requiredPath_ancestor` proves that each ancestor survives selection. The shared capture still refuses links and special entries before construction.
+
+`Construction.requiredPaths` observes stored spellings after no-follow admission of each requested ancestor and file. This preserves case aliases without resolving away a source link. The observation assumes stable source entries and the stated POSIX metadata and realpath behavior.
+
+`configurationRelative` supplies the same path decision for relocation and the account. `relocateConfigurationPath_relative` and `configurationAccount_relative` state the two results. Fresh-audit controls check exact configuration accounts for absolute selections, including pruned paths. The default-policy control also checks the rule-example comparison, whose project case requires `foundation_manifest.json`.
 
 The cold drivers embed the shared constructor's source with Lean's `include_str` and interpret that source before package artifacts exist. Assumes: Lean `v4.34.1`, `Lean/Elab/BuiltinTerm.lean:437-445`, `elabIncludeStr`, reads those bytes during elaboration. The compiler and interpreter remain trusted. The constructor has one source implementation, with checked correspondence to its filesystem model.
 

@@ -37,6 +37,28 @@ theorem checked_projectRelative : Regula.ExecutableContract projectRelative
 
 attribute [regula_decision] projectRelative
 
+/-- The explicit-selection decision includes exactly prefixes of its selected paths. -/
+theorem checked_requiredPath : Regula.ExecutableContract requiredPath
+    (fun f => ∀ required relative, f required relative = true ↔ RequiredPath required relative) :=
+  ⟨fun _ _ => ⟨of_decide_eq_true, decide_eq_true⟩⟩
+
+/-- Every ancestor of an explicitly selected path survives the executed selection decision. -/
+theorem requiredPath_ancestor (required : List (List String)) (path relative : List String)
+    (selected : path ∈ required) (ancestor : relative.IsPrefix path) :
+    requiredPath required relative = true :=
+  decide_eq_true ⟨path, selected, ancestor⟩
+
+/-- The package pruning decision is relative to the current capture root on every input. -/
+theorem checked_packageSource : Regula.ExecutableContract packageSource
+    (fun f => ∀ source packages path,
+      f source packages path = true ↔ PackageSource source packages path) :=
+  ⟨fun _ _ _ => ⟨of_decide_eq_true, decide_eq_true⟩⟩
+
+/-- An explicitly captured root inside the packages tree loses no entry to package pruning. -/
+theorem packageSource_owned (source packages path : List String)
+    (owned : packages.IsPrefix source) : packageSource source packages path = true :=
+  decide_eq_true (Or.inr owned)
+
 /-- The entry kind of a construction instruction. -/
 def Payload.kind : Payload → IO.FS.FileType
   | .directory => .dir
@@ -845,13 +867,31 @@ theorem gitFiles_sound (captured : List Item) (entries : List GitEntry) (items :
         cases ran
         exact .cons (gitItem_sound captured entry item first) (ih tail remaining)
 
-/-- A successful preparation consists of exactly the indexed worktree and its captured Git
-metadata, whose config instruction receives the target-text setting. Directory layout adds
+/-- The build-output selection retains exactly captured regular files beneath this package's
+own build directory whose paths are absent from the index. -/
+theorem gitBuildFiles_mem (captured : List Item) (entries : List GitEntry) (item : Item) :
+    item ∈ gitBuildFiles captured entries ↔ item ∈ captured ∧
+      (∃ bytes rights, item.payload = .file bytes rights) ∧
+      [".lake", "build"].IsPrefix item.relative ∧
+      ∀ entry ∈ entries, entry.relative ≠ item.relative := by
+  rcases item with ⟨relative, payload⟩
+  cases payload <;> simp [gitBuildFiles, List.isPrefixOf_iff_prefix]
+
+/-- The executed build-output selector has the complete membership contract above. -/
+theorem checked_gitBuildFiles : Regula.ExecutableContract gitBuildFiles
+    (fun f => ∀ captured entries item, item ∈ f captured entries ↔ item ∈ captured ∧
+      (∃ bytes rights, item.payload = .file bytes rights) ∧
+      [".lake", "build"].IsPrefix item.relative ∧
+      ∀ entry ∈ entries, entry.relative ≠ item.relative) :=
+  ⟨gitBuildFiles_mem⟩
+
+/-- A successful preparation consists of exactly the indexed worktree, admitted untracked
+build outputs and captured Git metadata, whose config receives the target-text setting. Directory layout adds
 only the parents of those instructions. Git's snapshot/blob fidelity is an external boundary. -/
 theorem prepareGit_sound (metadata captured : List Item) (entries : List GitEntry)
     (items : List Item) (ran : prepareGit metadata captured entries = .ok items) :
     ∃ files, GitRepresentations captured entries files ∧
-      items = layout (gitMetadata metadata ++ files) := by
+      items = layout (gitMetadata metadata ++ files ++ gitBuildFiles captured entries) := by
   cases found : metadata.find? (fun item => item.relative == [".git", "config"]) with
   | none => simp [prepareGit, found] at ran
   | some config =>
@@ -866,12 +906,13 @@ theorem prepareGit_sound (metadata captured : List Item) (entries : List GitEntr
         cases ran
       | ok files =>
         simp [prepareGit, found, prepared] at ran
-        change Except.ok (layout (gitMetadata metadata ++ files)) = .ok items at ran
+        change Except.ok (layout (gitMetadata metadata ++ (files ++ gitBuildFiles captured entries))) =
+          .ok items at ran
         cases ran
-        exact ⟨files, gitFiles_sound captured entries files prepared, rfl⟩
+        exact ⟨files, gitFiles_sound captured entries files prepared, by simp only [List.append_assoc]⟩
 
-/-- The Git writer the cold clone adapter actually runs constructs exactly the indexed account
-and required Git metadata. Each indexed link has a target-text regular-file instruction. The
+/-- The Git writer the cold clone adapter actually runs constructs exactly the indexed account,
+admitted untracked build files and required Git metadata. Each indexed link has a target-text regular-file instruction. The
 filesystem-model guarantee establishes kinds and placement, including absence of all links.
 Destination byte fidelity and Git index/blob completeness remain trusted observations, not
 consequences of this entry-kind model. No hypothesis asserts that a completed copy is safe. -/
@@ -884,7 +925,7 @@ theorem gitConstruct_io {ops : Ops IO} {C : CopyModel}
     RunsTo view (gitConstructWith ops target metadata captured entries w)
       (fun items after =>
         (∃ indexed, GitRepresentations captured entries indexed ∧
-          items = layout (gitMetadata metadata ++ indexed)) ∧
+          items = layout (gitMetadata metadata ++ indexed ++ gitBuildFiles captured entries)) ∧
         Holds C.filesystem target items after) (fun _ _ => True) := by
   cases prepared : prepareGit metadata captured entries with
   | error error =>

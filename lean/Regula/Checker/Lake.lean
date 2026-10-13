@@ -660,7 +660,9 @@ def captureManifest (ws : _root_.Lake.Workspace) :
 
 /-- Copy a checked project and its owned path dependencies through the shared no-follow
 directory/file constructor. Every selected source entry must be plain. Compiled modules, VCS,
-build/cache/scratch trees and root tmp trees are excluded before descent. Paths relative to their
+build/cache/scratch trees and root tmp trees are excluded before descent, except an explicitly
+selected project-contained policy and its ancestors. Owned packages survive package-store pruning
+in their own capture pass. Paths relative to their
 common ancestor are retained. The captured loaded manifest is installed at its loaded path, and
 every resolved dependency gets a typed path override: an owned package in the copy, a trusted
 package at its original root. There is no packages link. This copy is for ordinary loads only;
@@ -670,7 +672,7 @@ prints the facet report that `facets` requests.
 Assumes: the shared constructor's native primitive contracts and no concurrent source or
 destination writer. Lake's loaded workspace and manifest stay fixed while captured. -/
 def copyProject (repo target exclude : FilePath)
-    (facets : FacetReport.Output := .silent) : IO ProjectCopy :=
+    (facets : FacetReport.Output := .silent) (policy : Option FilePath := none) : IO ProjectCopy :=
   Workspace.withRootWorkspace repo fun ws => do
     let root ← IO.FS.realPath repo
     let original ← surfaceInventoryOf repo ws facets
@@ -692,6 +694,10 @@ def copyProject (repo target exclude : FilePath)
       if dependency.root == root || dirs.contains dependency.root then dirs
       else dirs.push dependency.root) #[]
     let directories := #[root] ++ owned
+    let required ← Regula.Filesystem.Construction.requiredPaths root
+      ((policy.bind fun path => configurationRelative repo.toString path.toString).toList.map
+        (FilePath.mk · |>.components))
+    let required := required.map (root.normalize.components ++ ·)
     let base := configurationBase inputs
     let relative := fun (dir : FilePath) => dir.normalize.components.drop base.length
     let place := fun (dir : FilePath) => Regula.Filesystem.Construction.location target (relative dir)
@@ -707,19 +713,20 @@ def copyProject (repo target exclude : FilePath)
       let otherRoots := (directories.filter (· != top)).map (·.normalize.components)
       let selected := fun (path : FilePath) =>
         let components := path.normalize.components
-        !excluded.isPrefixOf components && !excludedReal.isPrefixOf components &&
-        !(source ++ ["tmp"]).isPrefixOf components &&
         -- Owned package roots are captured by their own iteration, including roots within packages.
         !(otherRoots.any fun other => source.length < other.length && other.isPrefixOf components) &&
+        path.normalize != ws.manifestFile.normalize && path.normalize != manifestReal.normalize &&
+        (Regula.Filesystem.Construction.requiredPath required components ||
+        (!excluded.isPrefixOf components && !excludedReal.isPrefixOf components &&
+        !(source ++ ["tmp"]).isPrefixOf components &&
         -- Documentation discovery consumes cache-named subdirectories too; capture those
         -- directly before constructing the copy rather than overwriting a finished copy.
         ((components.drop source.length).head? == some "docs" ||
           !(components.drop source.length).any pruned) &&
-        !((packages.isPrefixOf components || packagesReal.any (·.isPrefixOf components)) &&
-          !directories.any (fun dir => dir.normalize.components == packages ||
-            packagesReal == some dir.normalize.components)) &&
-        path.normalize != ws.manifestFile.normalize && path.normalize != manifestReal.normalize &&
-        !isModulePart (path.fileName.getD "")
+        Regula.Filesystem.Construction.packageSource source packages components &&
+        packagesReal.all (fun packages =>
+          Regula.Filesystem.Construction.packageSource source packages components) &&
+        !isModulePart (path.fileName.getD "")))
       instructions := instructions ++
         (← Regula.Filesystem.Construction.capture top (relative top) selected)
       -- Reserve fresh build state for each copied package. A case alias retained by source

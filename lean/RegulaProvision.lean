@@ -462,7 +462,7 @@ private def runConstruction (parent : FilePath) (domain source : String) (target
       throw <| IO.userError s!"provisioning construction failed: {result.stdout}{result.stderr}"
   finally IO.FS.removeFile wrapper
 
-/-- Install an independently writable indexed worktree and its plain Git metadata through the
+/-- Install an independently writable indexed worktree, its regular `.lake/build` outputs and plain Git metadata through the
 shared constructor. Untracked links and special source entries fail before installation. Tracked
 index mode 120000 entries become target-text regular files, and the generated Git config sets
 core.symlinks=false. Every provisioner Git command removes the shared observer's repository-local
@@ -470,7 +470,7 @@ environment and disables system/global config, with command-scope core.symlinks=
 includes, redirects, alternates and indexed/stored spelling differences refuse. Files use 0644
 except indexed 100755 files use 0755; directories use 0755.
 Index modes and target text come from Git's ls-files and blob protocols, never a followed link.
-`Construction.gitConstruct_io` describes the executed indexed account's exact plain tree.
+`Construction.gitConstruct_io` describes the executed index/build account's exact plain tree.
 This does not place
 a packages link. `installLink` is the separate shared-cache registration mechanism, outside this
 copy operation; its temporary-link creation race is tracked separately. -/
