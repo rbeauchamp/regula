@@ -15,8 +15,9 @@ the copy reads it. The control copies `examples/fixtures/copy-relocation`, with 
 - `git-project` keeps its dependencies' checkouts in `vendor` and requires `gdep` by Git, in the
   subdirectory `package` (`subDir`). The control commits `gdep` to a Git repository of its own,
   which Lake clones without a network, and which holds a file outside that subdirectory. Two of the
-  project's libraries have owned sources in `vendor` (`ownedSources`). After the first load, the
-  control moves the checkout outside `vendor` and links it back there.
+  project's libraries have owned sources in `vendor` (`ownedSources`). It requires `pdep` by the
+  path `vendor/pdep/`, with a final separator (`pathDependency`). A fresh copy of it links its
+  `vendor/gdep` to the first copy's checkout.
 - `lake-source` has a library whose source directory `.lake/packages/src` lies in Lake's default
   packages directory, where the control places its module from `placed`.
 - `cache-config` requires the package `cdep` by path, in its own directory. The manifest entry for
@@ -91,17 +92,24 @@ private def commitRepository (dir : FilePath) : IO (String × String) := do
 requirement names it. -/
 def subDir : FilePath := "package"
 
-/-- Write the manifest of the Git project at `project`: one entry, which gives `gdep` by Git at the
-commit `rev` of the repository `repository`, in its subdirectory `subDir`, and no packages
-directory, so that Lake's load takes the configuration's `vendor` (`LakeSelection.packagesDir`). -/
+/-- The directory, written with a final separator, at which the Git project requires `pdep` by path. -/
+def pathDependency : FilePath := "vendor/pdep/"
+
+/-- Write the manifest of the Git project at `project`: an entry that gives `gdep` by Git at the
+commit `rev` of the repository `repository`, in its subdirectory `subDir`, an entry that gives
+`pdep` by the path `pathDependency`, and no packages directory, so that Lake's load takes the
+configuration's `vendor` (`LakeSelection.packagesDir`). -/
 def writeManifest (project : FilePath) (repository rev : String) : IO Unit := do
   let entry : _root_.Lake.PackageEntry :=
     { name := `gdep, scope := "", inherited := false, configFile := "lakefile.toml"
       manifestFile? := some _root_.Lake.defaultManifestFile
       src := .git repository rev none (some subDir) }
+  let pathEntry : _root_.Lake.PackageEntry :=
+    { name := `pdep, scope := "", inherited := false, configFile := "lakefile.toml"
+      manifestFile? := some _root_.Lake.defaultManifestFile, src := .path pathDependency }
   let manifest : _root_.Lake.Manifest :=
     { name := `git_project, lakeDir := _root_.Lake.defaultLakeDir, fixedToolchain := false
-      packagesDir? := none, packages := #[entry] }
+      packagesDir? := none, packages := #[entry, pathEntry] }
   manifest.save (LakeSelection.ownRootFiles project).1
 
 /-- The owned sources of the Git project that lie in its packages directory `vendor`: the module
@@ -116,8 +124,8 @@ def ownedSources : Array String :=
 gives it (`workerEnvironment`): the dependency inventory of the Git project at `project`
 (`Lake.surfaceInventory`), and a copy of the project below `copies` (`copied`). It prints, as one
 JSON object, each dependency with its real directory, each override of the copy with the directory
-it names, whether the copy holds `vendor/gdep`, and which of the owned sources in `vendor`
-(`ownedSources`) it holds. -/
+it names, whether the copy holds `vendor/gdep` or `vendor/pdep`, and which of the owned sources in
+`vendor` (`ownedSources`) it holds. -/
 def loadWorker (project copies : String) : IO Unit := do
   let inventory ← Lake.surfaceInventory project
   let (copy, _, overrides) ← copied project copies "copy" "gdep"
@@ -129,12 +137,14 @@ def loadWorker (project copies : String) : IO Unit := do
   let sources ← ownedSources.filterM fun (path : String) => (copy / path).pathExists
   IO.println (Json.mkObj [("dependencies", toJson dependencies), ("overrides", toJson overrides),
     ("checkout", toJson (← (copy / "vendor" / "gdep").pathExists)),
+    ("pathDependency", toJson (← (copy / "vendor" / "pdep").pathExists)),
     ("sources", toJson sources)]).compress
 
 /-- Check the answer `output` that the worker (`loadWorker`) printed for the Git project at
 `project`: Lake's load took the configuration's `vendor` and loaded `gdep` from its subdirectory
-`subDir` of the checkout `vendor/gdep`. The copy leaves out that whole checkout, which holds a file
-outside the subdirectory, and has an override that names the package. It keeps each of the owned
+`subDir` of the checkout `vendor/gdep`, and `pdep` from `pathDependency`. The copy leaves out that
+whole checkout, which holds a file outside the subdirectory, and the directory of `pdep`, and has an
+override that names each package. It keeps each of the owned
 sources in `vendor` (`ownedSources`), and Lake's load of the copy selects the libraries `Vendored`
 and `Packaged` as the project's does (`copied`). -/
 def checkAnswer (project : FilePath) (output : String) : IO Unit := do
@@ -144,14 +154,18 @@ def checkAnswer (project : FilePath) (output : String) : IO Unit := do
   let dependencies ← IO.ofExcept (answer.getObjValAs? (Array (String × String)) "dependencies")
   let overrides ← IO.ofExcept (answer.getObjValAs? (Array (String × String)) "overrides")
   let checkout ← IO.ofExcept (answer.getObjValAs? Bool "checkout")
+  let pathCopied ← IO.ofExcept (answer.getObjValAs? Bool "pathDependency")
   let sources ← IO.ofExcept (answer.getObjValAs? (Array String) "sources")
-  let vendored := (← IO.FS.realPath (project / "vendor" / "gdep" / subDir)).toString
+  let expected := #[("gdep", (← IO.FS.realPath (project / "vendor" / "gdep" / subDir)).toString),
+    ("pdep", (← IO.FS.realPath (project / pathDependency)).toString)]
+  let sorted := fun (pairs : Array (String × String)) => pairs.qsort (·.1 < ·.1)
   requireChecks [
-    ⟨s!"Lake loads gdep from vendor/gdep/{subDir}: {dependencies}",
-      dependencies == #[("gdep", vendored)]⟩,
-    ⟨s!"the copy's override names vendor/gdep/{subDir} of the project: {overrides}",
-      overrides == #[("gdep", vendored)]⟩,
+    ⟨s!"Lake loads gdep from vendor/gdep/{subDir} and pdep from {pathDependency}: {dependencies}",
+      sorted dependencies == expected⟩,
+    ⟨s!"the copy's overrides name those directories of the project: {overrides}",
+      sorted overrides == expected⟩,
     ⟨"the copy leaves out the whole checkout vendor/gdep", !checkout⟩,
+    ⟨s!"the copy leaves out the directory {pathDependency}", !pathCopied⟩,
     ⟨s!"the copy keeps the owned sources in vendor: {sources}", sources == ownedSources⟩]
 
 /-- The environment of a worker (`loadWorker`) that the control starts from its scratch directory
@@ -181,11 +195,11 @@ SCRATCH`, in the scratch directory `scratch` that holds the control's copy of th
   Lake's load of the project clones `gdep` into the configuration's `vendor`. The selection takes
   that directory, and a selection that took Lake's default `.lake/packages` would not agree with the
   load (`LakeSelection.checkSelection`). The copy leaves out the whole checkout, though the package
-  lies in its subdirectory `subDir`, names the package in an override, and keeps the owned sources
-  in `vendor` (`ownedSources`).
-- With that checkout moved outside `vendor` and linked back at `vendor/gdep`, Lake's load of the
-  project loads `gdep` through the link. The copy prunes the link without a refusal, and Lake's load
-  of the copy loads `gdep` through its override (`checkAnswer`).
+  lies in its subdirectory `subDir`, and the directory `pathDependency` of `pdep`. It names each
+  package in an override and keeps the owned sources in `vendor` (`ownedSources`).
+- In a fresh copy of `git-project`, whose `vendor/gdep` is a link to that checkout, outside its own
+  `vendor`, Lake's load of the project loads `gdep` through the link. The copy prunes the link
+  without a refusal, and Lake's load of the copy loads `gdep` through its override (`checkAnswer`).
 - Without a manifest, in a copy of `git-project` and with `LAKE_PKG_URL_MAP` mapping `gdep` to the
   local repository, Lake's load resolves the requirement anew. It records the remote URL of the
   requirement's URL for `gdep` and writes the local repository into its entry, and the inventory
@@ -202,12 +216,12 @@ def gitSteps (scratch : String) : IO Unit := do
   writeManifest gitProject repository rev
   loadInWorker root scratch gitProject (scratch / "copies-vendor") #[]
   IO.println "copy relocation packages directory of the configuration: PASS"
-  let linked := (← IO.FS.realPath scratch) / "linked-gdep"
-  succeeded "move of the checkout of gdep" (← run (gitProject / "vendor") "mv"
-    #["gdep", linked.toString])
-  succeeded "link of the checkout of gdep" (← run (gitProject / "vendor") "ln"
-    #["-s", linked.toString, "gdep"])
-  loadInWorker root scratch gitProject (scratch / "copies-linked") #[]
+  let linked := scratch / "linked-checkout"
+  copyFixture (fixture / "git-project") linked
+  writeManifest linked repository rev
+  succeeded "link of the checkout of gdep" (← run (linked / "vendor") "ln"
+    #["-s", (← IO.FS.realPath (gitProject / "vendor" / "gdep")).toString, "gdep"])
+  loadInWorker root scratch linked (scratch / "copies-linked") #[]
   IO.println "copy relocation linked checkout: PASS"
   let unlocked := scratch / "url-map"
   copyFixture (fixture / "git-project") unlocked

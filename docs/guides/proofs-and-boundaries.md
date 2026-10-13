@@ -660,7 +660,7 @@ Assumes: Lake `v4.34.1` tests cleanliness with `git diff --exit-code HEAD` (`Uti
 
 `copyProject` captures the manifest at Lake's loaded `ws.manifestFile`. Its packages fallback is `ws.relPkgsDir`. Each resolved dependency receives a typed path override, including inherited and transitive dependencies. Owned dependencies point into the copy, and trusted dependencies point to their original roots. The copy always retains the captured manifest and runs ordinary loads.
 
-Package-directory pruning leaves out exactly the checkout of each Git dependency and the directory of each path dependency in the packages directory. It spells each as the observed real path of the packages directory and the entry's own name, without following a link there. `Construction.CopyFilter.omission_pruned` proves that a capture pass prunes no other entry, and `Construction.CopyFilter.omission_other` that the same exclusions decide each other entry there. `Construction.packageSource_owned` proves that a capture root, such as an owned package's in that directory, survives its own pass.
+Package-directory pruning leaves out exactly the checkout of each Git dependency and the directory of each path dependency in the packages directory. It spells each as the observed real path of the packages directory and the entry's own name, without following a link there. The name is the last component of the recorded directory after the copy drops its empty and `.` components. The copy refuses by name a directory in the packages directory that then ends in `..` or in no component. `Construction.CopyFilter.omission_pruned` proves that a capture pass prunes no other entry, and `Construction.CopyFilter.omission_other` that the same exclusions decide each other entry there. `Construction.packageSource_owned` proves that a capture root, such as an owned package's in that directory, survives its own pass.
 
 The copy keeps the exclusions of names such as `.lake` and `.cache`, and checks one domain against the files it writes instead. That domain is each file that Lake's load reads for the root package and each owned dependency. These files are the source of each module that Lake can build, the loaded configuration file and an owned dependency's recorded manifest when present. Lake's load of the copy reads each at the path it joins to the package's directory, such as the recorded `relConfigFile`. Before it writes anything, the copy refuses the first such path that none of the files it would write has, with exactly that spelling. It names the file and what left it out, such as an excluded directory or a compiled-module file name.
 
@@ -5120,8 +5120,10 @@ The `qualify` campaigns and what they observe:
     no glob names. Without a manifest, Lake's load through `LAKE_PKG_URL_MAP` writes the local
     repository into the entry, and the inventory accepts it. A worker process loads these, and Git
     searches for no repository above the control's scratch directory.
-  - After the first load, the control moves the Git project's checkout outside `vendor` and links it
-    back there. The copy prunes the link without a refusal, and Lake's load of the copy loads the
+  - The Git project also requires a package by the path `vendor/pdep/`, with a final separator. The
+    copy leaves out that directory.
+  - A fresh copy of the Git project links its `vendor/gdep` to the first copy's checkout, outside its
+    own `vendor`. The copy prunes the link without a refusal, and Lake's load of the copy loads the
     package through its override.
   - A copy of a project with a library that has its source directory below `.lake` refuses before
     it writes anything. The refusal names the module and the `.lake` directory. A copy of a project

@@ -1,0 +1,3 @@
+# A package that the Git project of the `qualify copy-relocation` control requires by path, written
+# with a final separator, `vendor/pdep/`. A copy of the project must leave out this directory.
+name = "pdep"

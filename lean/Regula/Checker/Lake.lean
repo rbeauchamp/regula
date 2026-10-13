@@ -685,7 +685,10 @@ materialized each from (`LakeSelection.effectiveEntry`, `LakeSelection.checkoutD
 every other entry there (`Construction.CopyFilter.omission_pruned`,
 `Construction.CopyFilter.omission_other`). Each pruned entry is spelled as the observed real path
 of the packages directory and the entry's own name, without following a link at the entry, so a
-linked checkout is pruned as a cloned one is. A packages directory that is itself a link is
+linked checkout is pruned as a cloned one is. That name is the last component of the recorded
+directory once empty and `.` components are dropped. A recorded directory that then ends in `..`
+or in no component, and that lies directly in the packages directory, is refused by name, since it
+has no name to prune it by. A packages directory that is itself a link is
 refused when the capture walks it, as each link that the capture walks is. An owned package there
 keeps its own capture pass (`Construction.packageSource_owned`). The copy's domain is
 each file that Lake's load reads for the root package or an owned dependency: the source of each
@@ -723,6 +726,11 @@ the package's joined with the library's (`Lake/Config/LeanLib.lean:34-35`,
 (`Lake/Config/LeanExe.lean:45-51`). Lean v4.34.1 `FilePath.join` gives an absolute right operand
 as it stands (`Init/System/FilePath.lean:126-130`).
 
+Assumes: Lake v4.34.1 records a path requirement's directory as its text is written, joined to the
+requiring package's directory (`Lake/Load/Materialize.lean:180-182`), so it can end in a separator,
+`.` or `..`. Lean v4.34.1 `FilePath.fileName` gives no name for such a last part
+(`Init/System/FilePath.lean:176-180`), which is why the copy drops empty and `.` components first.
+
 Assumes: POSIX path resolution, under which a `.` component names the directory before it. The copy
 holds no link, since the constructor creates none, so a read below a package's directory in the copy
 reaches the instruction at its entries. -/
@@ -749,19 +757,30 @@ def copyProject (repo target exclude : FilePath)
     -- directly in the packages directory: the only entries that pruning leaves out
     -- (`Construction.CopyFilter.omission_pruned`). Each is spelled as the observed real path of
     -- the packages directory and the entry's own name, without following a link at the entry,
-    -- so a linked checkout is pruned as a cloned one is. A Git dependency's package lies at its
-    -- checkout, or below it at the subdirectory its entry names. Each has its path override.
+    -- so a linked checkout is pruned as a cloned one is. The name is the last component of the
+    -- recorded directory once empty and `.` components are dropped. A recorded directory that
+    -- then ends in `..` or in no component, and that lies directly in the packages directory, is
+    -- refused by name. A Git dependency's package lies at its checkout, or below it at the
+    -- subdirectory its entry names. Each has its path override.
     let dependencyDirectories ← match packagesReal with
       | none => pure []
       | some packages => ws.packages.toList.filterMapM fun package => do
         if package.isRoot then return none
         let some entry := LakeSelection.effectiveEntry selection.entries package.baseName
           | return none
-        let dir := _root_.Lake.joinRelative ws.dir
-          (LakeSelection.checkoutDir selection.packagesDir entry)
-        let (some parent, some name) := (dir.parent, dir.fileName) | return none
-        let parent := (← Regula.Filesystem.observeRealPath parent).normalize.components
-        return if parent == packages then some (packages ++ [name]) else none
+        let recorded := LakeSelection.checkoutDir selection.packagesDir entry
+        let dir := _root_.Lake.joinRelative ws.dir recorded
+        let named := System.mkFilePath <| match dir.components with
+          | "" :: rest => "" :: rest.filter (fun part => part != "" && part != ".")
+          | parts => parts.filter (fun part => part != "" && part != ".")
+        if let (some parent, some name) := (named.parent, named.fileName) then
+          let parent := (← Regula.Filesystem.observeRealPath parent).normalize.components
+          return if parent == packages then some (packages ++ [name]) else none
+        unless (← Regula.Filesystem.observeRealPath dir).normalize.components.dropLast == packages do
+          return none
+        throw <| IO.userError s!"copy refused: package '{package.baseName}' has the recorded \
+          directory {recorded}, which lies directly in the packages directory but does not end in \
+          a name of its own, the name by which the copy prunes it"
     let owned := (original.dependencies.filter (·.owned)).foldl (fun dirs dependency =>
       if dependency.root == root || dirs.contains dependency.root then dirs
       else dirs.push dependency.root) #[]
