@@ -1747,15 +1747,20 @@ def guide : RuleId → Guide
           could not set at that value, with two exceptions. The first is \
           `set_option linter.NAME false in` before one declaration, which turns a community \
           linter off for it (standard §6.2); before any other command, such as a `section` of \
-          several declarations, it is rejected. The second is an option that a macro of Lean's \
-          own libraries wrote, such as `smartUnfolding` in `rfl'`, when the audit finds the \
-          macro's module as an `.olean` of the toolchain's library or the macro among the builtins of \
-          the Lean that elaborated the module, such as `match.ignoreUnusedAlts` in `deriving BEq`; \
-          a project's own module named `Lean.…` is not one, and neither is an option under an \
-          elaborator of Lean that evaluates the project's code, such as `run_cmd` or `run_elab` \
-          (`RegulaPolicy.Community.evaluators`). So the source cannot turn one of Lean's default warnings off, set \
-          `linter.all` or `autoImplicit`, or set a `debug.` or `trace.` option, and an option \
-          whose value is not a literal is rejected. The finding names each option with its \
+          several declarations, it is rejected. The second is a setting that the pinned Lean's \
+          own generated code writes as `set_option` syntax \
+          (`RegulaPolicy.Community.generatedSettings`): `match.ignoreUnusedAlts true` in \
+          `deriving BEq` and `deriving Ord`, `smartUnfolding false` in `rfl'`, \
+          `tactic.hygienic false` in `unhygienic` and `trace.grind.ematch.instance true` in \
+          `grind_lint inspect`. The rule accepts it wherever it occurs and does not read who \
+          wrote it, so a project may write it too; for `match.ignoreUnusedAlts true`, which \
+          hides Lean's \"Redundant alternative\" error, that is an open limit (issue #422). \
+          So the source cannot turn one of Lean's default warnings off, set \
+          `linter.all` or `autoImplicit`, or set a `debug.` option or a `trace.` option outside \
+          that set, and an option whose value is not a literal is rejected. Code of the project \
+          that Lean runs while it elaborates the module, such as `run_cmd`, `run_elab`, a \
+          `try_suggestion` generator or a simproc, gets the same decision as the source text. \
+          The finding names each option with its \
           module, line and column.",
         "The rule reads the options that Lean's `set_option` elaborator \
           (`Lean.Elab.elabSetOption`) set. Of Lean v4.34.1's builtin commands, one other assigns \

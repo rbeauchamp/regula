@@ -38,12 +38,6 @@ def SurfaceInventory.moduleSources (inventory : SurfaceInventory) : Array (Name 
     (source.«module», source.source)) ++
     inventory.executables.map (fun executable => (executable.root, executable.source))
 
-/-- The search path Lake gives a compilation in the workspace (`lake env`, with an inherited
-`LEAN_PATH` removed): the workspace's `leanPath`, which `SurfaceInventory.leanPath` holds after
-`leanLibDir`. -/
-def SurfaceInventory.compileLeanPath (inventory : SurfaceInventory) : System.SearchPath :=
-  (inventory.leanPath.extract 1 inventory.leanPath.size).toList
-
 /-- What the audit owns beyond the requested modules: the compiled-module output directories of
 the owned packages (the root package's, then each owned dependency's), the root package and the
 owned dependencies with the modules each provides by its own module resolution
@@ -1535,11 +1529,11 @@ returns, so this runs `build` under the same capture (`withLoggedIO`, `Lake/Util
 437) and records that job's log afterwards: the rest of this writes nothing to standard output or
 error, so Lake's capture adds no entry. A module of the build whose messages
 `unparsedCompilerOutput_ofSerialMessage` does not cover (`Workspace.lineBreakSourcePaths`) is
-logged as an error of the job that runs the build, which fails it. `onStore` gets the build's
-store once every job of it has completed. -/
+logged as an error of the job that runs the build, which fails it. The source file of each module
+is that of its completed `presetup` in `presetups` (`Observer.presetupSource?`), which every job of
+that facet writes whether or not Lake stores the job. -/
 def observedFetch (ws : _root_.Lake.Workspace) (record : IO.Ref (Array JobLog))
-    (build : _root_.Lake.FetchM (_root_.Lake.Job Unit))
-    (onStore : _root_.Lake.BuildStore → BaseIO Unit := fun _ => pure ()) :
+    (presetups : Observer.Presetups) (build : _root_.Lake.FetchM (_root_.Lake.Job Unit)) :
     _root_.Lake.FetchM (_root_.Lake.Job Unit) :=
   _root_.Lake.FetchM.ofFn fun fetch pkg? stack store context log => do
     let own ← IO.mkRef #[]
@@ -1550,8 +1544,8 @@ def observedFetch (ws : _root_.Lake.Workspace) (record : IO.Ref (Array JobLog))
       discard <| IO.wait job.task
       jobs ← forwardJobs own context.registeredJobs jobs
     let built ← store.get
-    onStore built
-    let lineBreaks := Workspace.lineBreakSourcePaths ws built (Workspace.presetupSource? built)
+    let completed ← presetups.completed.get
+    let lineBreaks := Workspace.lineBreakSourcePaths ws built (Observer.presetupSource? completed)
     let addErrors (log : _root_.Lake.Log) := lineBreaks.foldl (init := log) fun log reason =>
       log.push (.error s!"{reason}, so its log cannot tell those messages from other output of \
         the compiler")
@@ -1713,9 +1707,9 @@ def Build.runObserved (build : Build) (repo : FilePath) (targets : Array Target)
         -- build and Lake replays it, a dependency's module included.
         let existing := (ws.findModuleFacetConfig? _root_.Lake.Module.presetupFacet).getD
           _root_.Lake.Module.presetupFacetConfig
-        let presetups ← IO.mkRef ({} : Observer.PresetupCache)
+        let presetups ← Observer.Presetups.new
         let ws := ws.addModuleFacetConfig (Observer.observerPresetup existing plugin observed presetups)
-        let fetch := observedFetch ws jobLogs (_root_.Lake.buildSpecs specs)
+        let fetch := observedFetch ws jobLogs presetups (_root_.Lake.buildSpecs specs)
         ws.runBuild fetch {
           out := .stream out, ansiMode := .noAnsi, showSuccess := true, leanOptOverrides,
           failLv := build.failLv }
@@ -1728,14 +1722,11 @@ def Build.runObserved (build : Build) (repo : FilePath) (targets : Array Target)
               so its messages were not observed"
           if recordsOwn && text.any (Workspace.traceRecords (ownRecord mod.lib)) then
             recorded.modify (·.push mod.name)
-        let presetups ← presetups.get
+        let completed ← presetups.completed.get
         for mod in modules do
-          let plugins := Observer.presetupPlugins? presetups mod.pkg.keyName mod.name
+          let plugins := Observer.presetupPlugins? completed mod.pkg.keyName mod.name
           let loaded ← Observer.pluginLoaded pluginFile plugins
-          -- Lake compiles each module with `LEAN_PATH` set to the workspace's library directories
-          -- (`Lake/Build/Module.lean` lines 988 and 989, `Lake/Build/Actions.lean` line 63).
           let verdict ← Observer.decideRecord mod.name.toString loaded mod.oleanFile
-            (Observer.resolveOLean ws.leanPath)
           verdicts.modify (·.push (mod.name, verdict))
         let jobs ← jobLogs.get
         if let some elaborated := elaborated then

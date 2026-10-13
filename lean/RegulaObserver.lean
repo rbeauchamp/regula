@@ -90,10 +90,6 @@ def sameOccurrence (a b : Syntax) : Bool :=
   a.structEq b && a.getPos? (canonicalOnly := false) == b.getPos? (canonicalOnly := false) &&
     a.getTailPos? (canonicalOnly := false) == b.getTailPos? (canonicalOnly := false)
 
-/-- Whether `stx` contains the occurrence `id` (`sameOccurrence`). -/
-def mentions (stx id : Syntax) : Bool :=
-  (stx.find? (sameOccurrence · id)).isSome
-
 /-- The `set_option` syntax that wrote the occurrence `id` of an option name: the first node of a
 kind in `setOptionKinds` whose second argument is `id`, in the syntax of the innermost of the
 nodes `ancestors` above it that contains one. -/
@@ -128,8 +124,8 @@ def formOf (setter : Option Syntax) (ancestors : List Syntax) : Form × Option N
 structure Found where
   /-- The recorded name. -/
   info : OptionInfo
-  /-- The elaborators and syntax of the nodes above it, innermost first. -/
-  ancestors : List (Name × Syntax)
+  /-- The syntax of the nodes above it, innermost first. -/
+  ancestors : List Syntax
 
 /-- What one walk of a command's info trees collects. -/
 structure Walk where
@@ -138,9 +134,9 @@ structure Walk where
   /-- Each command elaborated as `#guard_msgs` or `#guard_panic`. -/
   guards : Array Syntax := #[]
 
-/-- Walk an info tree, with `ancestors` the elaborator and syntax of each command, tactic and term
-node above, innermost first. -/
-partial def walk (ancestors : List (Name × Syntax)) (acc : Walk) : InfoTree → Walk
+/-- Walk an info tree, with `ancestors` the syntax of each command, tactic and term node above,
+innermost first. -/
+partial def walk (ancestors : List Syntax) (acc : Walk) : InfoTree → Walk
   | .context _ tree => walk ancestors acc tree
   | .hole _ => acc
   | .node info children =>
@@ -150,47 +146,32 @@ partial def walk (ancestors : List (Name × Syntax)) (acc : Walk) : InfoTree →
       | .ofOptionInfo i => { acc with options := acc.options.push { info := i, ancestors } }
       | _ => acc
     let ancestors := match info with
-      | .ofCommandInfo i => (i.elaborator, i.stx) :: ancestors
+      | .ofCommandInfo i => i.stx :: ancestors
       | other => match other.toElabInfo? with
-        | some i => (i.elaborator, i.stx) :: ancestors
+        | some i => i.stx :: ancestors
         | none => ancestors
     children.foldl (walk ancestors) acc
 
 /-- The setting that `found` records: its value and form from its `set_option` syntax
-(`setterOf`), and, when its name is not in the module's source text, its origin, the innermost
-node above whose syntax does not contain the name, the macro that wrote it, with `builtins` the
-builtin declarations of the running Lean (`Lean.builtinDeclRanges`). -/
-def settingOf (env : Environment) (decls : OptionDecls) (builtins : NameMap DeclarationRanges)
-    (fileMap : FileMap) (found : Found) : Setting :=
+(`setterOf`). Who wrote the syntax is not recorded: RG2006 decides on the setting alone. -/
+def settingOf (decls : OptionDecls) (fileMap : FileMap) (found : Found) : Setting :=
   let id := found.info.stx
-  let source := id.getHeadInfo matches .original ..
-  let origin := if source then none else
-    (found.ancestors.find? fun (_, stx) => !mentions stx id).map fun (declaration, _) =>
-      { declaration
-        «module» := ((env.getModuleIdxFor? declaration).bind fun idx =>
-            env.header.moduleNames[idx.toNat]?).getD
-          (if env.contains declaration then env.mainModule else .anonymous)
-        builtin := !env.contains declaration && builtins.contains declaration : Origin }
-  let syntaxes := found.ancestors.map (·.2)
-  let setter := setterOf id syntaxes
-  let (form, wrapped) := formOf setter syntaxes
+  let setter := setterOf id found.ancestors
+  let (form, wrapped) := formOf setter found.ancestors
   { name := found.info.optionName
     value := setter.bind fun setter => literal setter[3]
     registeredDefault := (decls.find? found.info.optionName).map (·.defValue)
-    form, wrapped, origin
-    under := (found.ancestors.filterMap fun (e, _) => if e.isAnonymous then none else some e).toArray
+    form, wrapped
     position := positionOf fileMap id }
 
 /-- The observations of the command `stx`, appended to `fold`. -/
 def observe (stx : Syntax) (fold : Fold) : CommandElabM Fold := do
   let fileMap ← getFileMap
-  let env ← getEnv
   let decls ← getOptionDecls
   let mut acc : Walk := {}
   for tree in (← getInfoTrees) do
-    acc := walk [(.anonymous, stx)] acc tree
-  let builtins ← builtinDeclRanges.get
-  let settings := acc.options.map (settingOf env decls builtins fileMap)
+    acc := walk [stx] acc tree
+  let settings := acc.options.map (settingOf decls fileMap)
   let mut fold := { fold with settings := fold.settings ++ settings }
   for guard in acc.guards do
     let observed : Guard := { kind := guard.getKind, position := positionOf fileMap guard }

@@ -4,8 +4,6 @@ import Lake.Build.Common
 import RegulaObserver.Record
 import RegulaPolicy.Community
 import RegulaPolicy.Elaboration
-import Regula.Probe
-import Regula.ToolchainProgram
 
 /-! # Regula's elaboration observer in a Lake build
 
@@ -41,37 +39,53 @@ def runningPackageDir : IO (Option FilePath) := do
   let app ← IO.FS.realPath (← IO.appPath)
   return (app.parent.bind (·.parent)).bind (·.parent) |>.bind (·.parent)
 
-/-- The `presetup` jobs of the observed modules of a build, by package and module. -/
-abbrev PresetupCache :=
-  Std.HashMap (Name × Name) (_root_.Lake.Job _root_.Lake.ModulePreSetup)
+/-- What the audit keeps of a build's `presetup` facets, by package and module, whatever Lake
+stores: the job of each observed module, which the facet shares among the fetches of that module,
+and the completed result of each module, observed or not, from which the audit reads the module's
+plugins (`presetupPlugins?`) and source file (`presetupSource?`). -/
+structure Presetups where
+  /-- The job of each observed module. -/
+  jobs : IO.Ref (Std.HashMap (Name × Name) (_root_.Lake.Job _root_.Lake.ModulePreSetup))
+  /-- The result of each module's completed `presetup`, the latest when the facet ran again. -/
+  completed : IO.Ref (Std.HashMap (Name × Name) _root_.Lake.ModulePreSetup)
+
+/-- Empty records for one build. -/
+def Presetups.new : BaseIO Presetups :=
+  return { jobs := ← IO.mkRef {}, completed := ← IO.mkRef {} }
 
 /-- The `presetup` facet of a module with Regula's observer. For a module for which `observed`
 holds, it is Lake's own facet (`Lake.Module.presetupFacetConfig`) with the observer's shared
 library that `plugin` fetches added to the module's plugins, and with that library's trace mixed
-into the module's trace. Every other module keeps the facet `existing` that the workspace
-configures, so the build gives it the plugins and trace of an ordinary build of the workspace, and
-Lake does not rebuild it, a dependency's module included, for the audit's facet. The facet keeps
+into the module's trace; its job is kept in `records` and shared by every fetch of the module.
+Every other module runs the facet `existing` that the workspace configures each time Lake fetches
+it, so the build gives it the plugins and trace of an ordinary build of the workspace, and Lake
+does not rebuild it, a dependency's module included, for the audit's facet. The facet keeps
 whether `existing` lets Lake store its jobs (`memoize`, `Lake/Build/Index.lean` lines 43 to 49),
-so such a module's `presetup` runs as often as in an ordinary build. The job of an observed module
-is stored in `cache` by package and module, whatever Lake stores, and the audit reads its plugins
-there (`presetupPlugins?`). -/
+so such a module's `presetup` runs as often as in an ordinary build. Each job, of either kind,
+writes its result into `records` when it completes, whatever Lake stores. -/
 def observerPresetup (existing : _root_.Lake.ModuleFacetConfig _root_.Lake.Module.presetupFacet)
     (plugin : _root_.Lake.FetchM (_root_.Lake.Job _root_.Lake.Dynlib))
-    (observed : _root_.Lake.Module → Bool) (cache : IO.Ref PresetupCache) :
+    (observed : _root_.Lake.Module → Bool) (records : Presetups) :
     _root_.Lake.ModuleFacetConfig _root_.Lake.Module.presetupFacet :=
   _root_.Lake.mkFacetJobConfig (buildable := false) (memoize := existing.memoize)
     fun (mod : _root_.Lake.Module) => do
-      if !observed mod then return ← existing.run mod
       let key := (mod.pkg.keyName, mod.name)
-      if let some job := (← cache.get)[key]? then return job
+      let record (job : _root_.Lake.Job _root_.Lake.ModulePreSetup) :=
+        job.mapM (sync := true) fun setup => do
+          records.completed.modify (·.insert key setup)
+          return setup
+      if !observed mod then return ← record (← existing.run mod)
+      if let some job := (← records.jobs.get)[key]? then return job
       let job ← _root_.Lake.Module.presetupFacetConfig.run mod
       let shared ← plugin
       let job ← job.bindM (sync := true) fun setup => shared.mapM (sync := true) fun dynlib =>
         return { setup with
           plugins := setup.plugins.push dynlib
           trace := setup.trace.mix (shared.getTrace.withCaption "Regula's elaboration observer") }
-      cache.modify (·.insert key job)
+      let job ← record job
+      records.jobs.modify (·.insert key job)
       return job
+
 
 /-- The observer's shared library that the running Regula's build wrote, which its `Regula` library
 needs, whichever `presetup` facet Lake runs:
@@ -106,10 +120,19 @@ def observerPlugin (ws : _root_.Lake.Workspace) :
   return (fetch, file, none)
 
 
-/-- The plugins of the completed `presetup` of `module` of `package` that `observerPresetup` stored
-in `cache`, or none when it stored none or the job failed. -/
-def presetupPlugins? (cache : PresetupCache) (package module : Name) : Option (Array FilePath) :=
-  cache[(package, module)]?.bind fun job => job.task.get.result?.map (·.plugins.map (·.path))
+/-- The plugins of the completed `presetup` of `module` of `package` in `completed`
+(`Presetups.completed`), or none when no such job completed. -/
+def presetupPlugins? (completed : Std.HashMap (Name × Name) _root_.Lake.ModulePreSetup)
+    (package module : Name) : Option (Array FilePath) :=
+  completed[(package, module)]?.map (·.plugins.map (·.path))
+
+/-- The source file of the completed `presetup` of `module` of `package` in `completed`
+(`Presetups.completed`), the file that Lake's `leanArts` facet compiles the module from
+(`Module.recBuildLean`, `Lake/Build/Module.lean` lines 1006 to 1009), or none when no such job
+completed. -/
+def presetupSource? (completed : Std.HashMap (Name × Name) _root_.Lake.ModulePreSetup)
+    (package module : Name) : Option FilePath :=
+  completed[(package, module)]?.map (·.srcFile)
 
 private unsafe def recordEntriesImpl (data : ModuleData) : Array RegulaObserver.Record :=
   match data.entries.find? (·.1 == RegulaObserver.records.name) with
@@ -183,10 +206,8 @@ def form : RegulaObserver.Form → RegulaPolicy.Community.SourceForm
   | .tactic => .tactic
   | .elaborated => .elaborated
 
-/-- The options a record says the module's source set, as RG2006 reads them, with `toolchain` the
-receipt for each module that declares a macro (`toolchainReceipts`). -/
-def settings (toolchain : Name → Option RegulaPolicy.ToolchainOrigin)
-    (record : RegulaObserver.Record) : List RegulaPolicy.Community.SourceSetting :=
+/-- The options a record says the module's source set, as RG2006 reads them. -/
+def settings (record : RegulaObserver.Record) : List RegulaPolicy.Community.SourceSetting :=
   match record.fold with
   | none => []
   | some fold => fold.settings.toList.map fun s => ({
@@ -195,30 +216,7 @@ def settings (toolchain : Name → Option RegulaPolicy.ToolchainOrigin)
       registeredDefault := s.registeredDefault.bind optionValue
       form := form s.form
       wrapped := s.wrapped
-      origin := s.origin.map (·.«module»)
-      toolchain := s.origin.bind (toolchain ·.«module»)
-      builtin := s.origin.any (·.builtin)
-      under := s.under.toList
       location := location s.position })
-
-/-- The receipt (`Regula.Probe.toolchainOrigin?`) for each module that declares a macro that wrote
-an option in `record`, with `resolve` the `.olean` file that the compilation loaded each module
-from, checked against the library directory of the toolchain whose `lean` reports the pinned
-identity (`Regula.Toolchain.sysroot`). A module that `resolve` does not find gets none. -/
-def toolchainReceipts (resolve : Name → IO (Option FilePath)) (record : RegulaObserver.Record) :
-    IO (Name → Option RegulaPolicy.ToolchainOrigin) := do
-  let some fold := record.fold | return fun _ => none
-  unless fold.settings.any (·.origin.isSome) do return fun _ => none
-  let toolchainLib ← Lean.getLibDir (← Regula.Toolchain.sysroot)
-  let mut receipts : Std.HashMap Name RegulaPolicy.ToolchainOrigin := {}
-  for setting in fold.settings do
-    let some origin := setting.origin | continue
-    let m := origin.«module»
-    if receipts.contains m then continue
-    let some olean ← resolve m | continue
-    if let some receipt ← Regula.Probe.toolchainOrigin? toolchainLib m olean then
-      receipts := receipts.insert m receipt
-  return (receipts[·]?)
 
 /-- One RG2003 failure of a module's record, as a line of the build's report that names the module
 `module`: its name, or the file that a standalone compilation compiled. -/
@@ -259,16 +257,14 @@ def hiddenReport (subject : String) (lines : Array String) : Array String :=
 
 /-- What the audit decides from the observer's record of one module. Only `decideRecord` makes
 one, so a path that reads a record has both decisions: RG2003's failures, and the options the
-source set with each macro's module authenticated, which RG2006 decides under the options of the
-target (`Verdict.sourceDetail`). -/
+source set, which RG2006 decides under the options of the target (`Verdict.sourceDetail`). -/
 structure Verdict where
   private mk ::
   /-- The RG2003 failures (`elaborationFailures`), as lines of the report. -/
   hidden : Array String
   /-- Whether the module's `.olean` holds a record. -/
   recorded : Bool
-  /-- The options the record says the source set (`settings`), with the toolchain receipt of each
-  macro's module (`toolchainReceipts`). -/
+  /-- The options the record says the source set (`settings`). -/
   settings : List RegulaPolicy.Community.SourceSetting
 
 /-- The detail of the RG2006 finding for the module that `module` names, under the target options
@@ -285,30 +281,16 @@ def Verdict.sourceDetail (verdict : Verdict) (module : String)
     | failed => some (RegulaPolicy.Community.sourceDetail module failed)
 
 /-- The one decision on the observer's record in the `.olean` file `olean` of the module that
-`subject` names, with `loaded` whether Lean loaded the observer for it and `resolve` the `.olean`
-file that its compilation loaded each module from: Lean's own resolution over the search path of
-that compilation. Every path of the audit that reads a record calls it: a claimed build and a file
+`subject` names, with `loaded` whether Lean loaded the observer for it. Every path of the audit that reads a record calls it: a claimed build and a file
 audit. A missing file, or one without exactly one record, gives no record. -/
-def decideRecord (subject : String) (loaded : Bool) (olean : FilePath)
-    (resolve : Name → IO (Option FilePath)) : IO Verdict := do
+def decideRecord (subject : String) (loaded : Bool) (olean : FilePath) : IO Verdict := do
   let record ← if ← olean.pathExists then
       match ← (readRecord olean).toBaseIO with
       | .ok record => pure record
       | .error _ => pure none
     else pure none
-  let toolchain ← match record with
-    | some record => toolchainReceipts resolve record
-    | none => pure fun _ => none
   return ⟨elaborationFailures subject loaded record, record.isSome,
-    (record.map (settings toolchain)).getD []⟩
-
-/-- The `.olean` file of the module `module` that Lean's own resolution
-(`SearchPath.findModuleWithExt`) finds in the search path `searchPath`, then in the library of the
-toolchain whose `lean` reports the pinned identity, which a compilation searches last
-(`Lean.initSearchPath`); none when neither has it. -/
-def resolveOLean (searchPath : System.SearchPath) (module : Name) : IO (Option FilePath) := do
-  let toolchainLib ← Lean.getLibDir (← Regula.Toolchain.sysroot)
-  Lean.SearchPath.findModuleWithExt (searchPath ++ [toolchainLib]) "olean" module
+    (record.map settings).getD []⟩
 
 end Regula.Checker.Observer
 

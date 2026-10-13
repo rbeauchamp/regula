@@ -739,20 +739,20 @@ foundation finding. What the build's messages do not show is incomplete with
 and the macro's own definition, which contains one, a `#guard_panic`, and a silent warning, which
 `run_cmd` logs, so the module imports `Lean.Elab.Command`. Each source form of `set_option` that
 RG2006 does not accept is a violation that names it at the option's name: a command, a command's
-`in`, a term's, a tactic's, and one that a macro of the module writes. A `#guard_msgs` around a
-command with an unused `have` is no control: Lean 4.34.1 elaborates the guarded command with
-`elabCommandTopLevel` (`Lean/Elab/GuardMsgs.lean` line 200), which lints it, since only a command
-that contains `#guard_msgs` goes unlinted (`Lean/Elab/Command.lean` line 868), and the warning
-the docstring does not expect fails the build with an error (`Lean/Elab/GuardMsgs.lean` line
-248). A one-declaration disable of `linter.missingDocs`, a community linter, is accepted; the same
-disable before a section of two definitions is a violation, as is the option that a macro of the
-adopter's own module `Lean.Adopter` writes, which only the toolchain's authenticated `.olean`
-would license. A `set_option linter.missingDocs false` that `run_cmd` or `run_elab` elaborates
-from the project's own syntax is a violation that names the evaluating elaborator, with
-`Lean.Elab.Command` imported and with `Lean`. The `grind` tactic's `set_option` at an accepted value is accepted, as is the
-restored module. The file audit (`axiomGate --file`) decides its compilation's record with the same
-function (`Observer.decideRecord`): a `#guard_msgs` that drops a warning fails with the same
-`FAIL[elaboration-hidden]`, and `set_option linter.unusedVariables false` is an RG2006 violation. -/
+`in`, a term's, a tactic's, and one that a macro of the module writes; the decision reads the
+setting alone. A `#guard_msgs` around a command with an unused `have` is no control: Lean 4.34.1
+elaborates the guarded command with `elabCommandTopLevel` (`Lean/Elab/GuardMsgs.lean` line 200),
+which lints it, since only a command that contains `#guard_msgs` goes unlinted
+(`Lean/Elab/Command.lean` line 868), and the warning the docstring does not expect fails the build
+with an error (`Lean/Elab/GuardMsgs.lean` line 248). A one-declaration disable of `linter.missingDocs`, a community linter, is accepted; the same
+disable before a section of two definitions is a violation. So is `set_option linter.missingDocs
+false` that the project's code elaborates through `run_cmd`, `run_elab`, a `try_suggestion`
+generator or a simproc. A setting of `RegulaPolicy.Community.generatedSettings` that the module
+writes itself is accepted, as is the `grind` tactic's `set_option` at an accepted value and the
+restored module, and the restored module with a dependency whose `presetup` facet Lake does not
+store (`memoize := false`). The file audit (`axiomGate --file`) decides its compilation's
+record with the same function (`Observer.decideRecord`): a `#guard_msgs` that drops a warning
+fails with the same `FAIL[elaboration-hidden]`, and `set_option linter.unusedVariables false` is an RG2006 violation. -/
 private def observerEscapes (repo adopter : FilePath) : IO (Array String) := do
   BuildLintQualification.setup repo adopter
   let originals ← leanOriginals adopter
@@ -796,8 +796,7 @@ private def observerEscapes (repo adopter : FilePath) : IO (Array String) := do
         "Widget.Additional:11:11: set_option pp.all true",
         "Widget.Additional:16:32: set_option pp.all true",
         "Widget.Additional:20:13: set_option pp.all true",
-        "Widget.Additional:26:0: set_option autoImplicit true, written by a macro of \
-          Widget.Additional",
+        "Widget.Additional:26:0: set_option autoImplicit true",
         "regula lint: VIOLATION (exit 1)"],
       excludes := #["FAIL[elaboration-hidden]"] })
   write <| "-- The control's reason: a declaration the documentation linter may skip.\n\
@@ -813,55 +812,76 @@ private def observerEscapes (repo adopter : FilePath) : IO (Array String) := do
       contains := #["RG2006", "Widget.Additional:10:11: set_option linter.missingDocs false",
         "regula lint: VIOLATION (exit 1)"],
       excludes := #["FAIL[elaboration-hidden]"] })
-  -- A module of the adopter under the toolchain's root name is not the toolchain: the macro's
-  -- module has no `.olean` in the toolchain's library. The adopter's build output supplies the
-  -- toolchain's `Lean` modules beside it (`exposeToolchainRoot`); without them its `Lean` directory
-  -- hides the toolchain's, and the audit's worker cannot load `Lean.Elab.Command` (RG2001).
-  let impostor := adopter / "Lean" / "Adopter.lean"
-  write "adopterLoose theorem loosened : True := trivial"
-  IO.FS.createDirAll (adopter / "Lean")
-  IO.FS.writeFile impostor "/-! An adopter module under the toolchain's root name. -/\n\n\
-    /-- Sets `autoImplicit` for a command. -/\nmacro \"adopterLoose \" c:command : command =>\n  \
-    `(command| set_option autoImplicit true in $c)\n"
-  mutate (adopter / "lakefile.lean") "globs := #[.andSubmodules `Widget]"
-    "globs := #[.andSubmodules `Widget, .one `Lean.Adopter]"
-  mutate additional "/-! A configured module" "import Lean.Adopter\n/-! A configured module"
-  exposeToolchainRoot adopter (adopter / ".lake" / "build" / "lib" / "lean") "Lean"
+  -- RG2006 decides on the setting alone, so code of the project that Lean evaluates while it
+  -- elaborates the module writes the record that the source text would: `run_cmd`, `run_elab`, a
+  -- `try_suggestion` generator that `try?` runs and a simproc that `simp` runs, each elaborating
+  -- `set_option linter.missingDocs false`, are violations where Lean ran that code.
+  write <| "run_cmd Lean.Elab.Command.elabCommand \
+      (← `(command| set_option linter.missingDocs false))\n\n\
+    run_elab discard <| Lean.Elab.Term.elabTerm \
+      (← `(set_option linter.missingDocs false in (0 : Nat))) none\n\n\
+    open Lean Elab in\n/-- Elaborates a disable and suggests nothing. -/\n\
+    @[try_suggestion] def quietSuggestion : Tactic.Try.TrySuggestionGenerator := fun _ _ => do\n  \
+    liftCommandElabM do Command.elabCommand (← `(command| set_option linter.missingDocs false))\n  \
+    return #[]\n\n/-- A control. -/\ntheorem viaTry : True := by try?\n\n\
+    /-- A marker the simproc rewrites. -/\ndef marker (n : Nat) : Nat := n\n\n\
+    open Lean Meta Simp Elab in\n/-- Elaborates a disable and rewrites `marker n` to `n`. -/\n\
+    simproc quietSimproc (marker _) := fun e => do\n  \
+    liftCommandElabM do Command.elabCommand (← `(command| set_option linter.missingDocs false))\n  \
+    return .done { expr := e.appArg! }\n\n\
+    /-- A control. -/\ntheorem viaSimp : marker 0 = 0 := by simp only [quietSimproc]"
+  mutate additional "/-! A configured module" "import Lean\n/-! A configured module"
+  let disabled := ": set_option linter.missingDocs false"
   failures := failures ++ (← expect adopter {
-      label := "observer/name-only-toolchain", exitCode := 1,
-      contains := #["RG2006",
-        "Widget.Additional:10:0: set_option autoImplicit true, written by a macro of Lean.Adopter",
-        "regula lint: VIOLATION (exit 1)"],
+      label := "observer/evaluated-options", exitCode := 1,
+      contains := #["RG2006", s!"Widget.Additional:10:0{disabled}",
+        s!"Widget.Additional:12:0{disabled}", s!"Widget.Additional:21:28{disabled}",
+        s!"Widget.Additional:33:37{disabled}", "regula lint: VIOLATION (exit 1)"],
       excludes := #["FAIL[elaboration-hidden]"] })
-  Regula.Filesystem.removePath .directory (adopter / "Lean")
-  -- An option that the project's code builds under an elaborator that evaluates it is the
-  -- project's (`RegulaPolicy.Community.evaluators`): with `Lean.Elab.Command` alone the builtin
-  -- elaborator is outside the environment, and with `Lean` the toolchain's `.olean` holds it.
-  for imported in ["Lean.Elab.Command", "Lean"] do
-    write "run_cmd Lean.Elab.Command.elabCommand \
-      (← `(command| set_option linter.missingDocs false))\n\ndef undocumented : Nat := 0"
-    mutate additional "/-! A configured module" s!"import {imported}\n/-! A configured module"
-    failures := failures ++ (← expect adopter {
-        label := s!"observer/run-cmd-option/{imported}", exitCode := 1,
-        contains := #["RG2006", "set_option linter.missingDocs false, written under \
-            Lean.Elab.Command.elabRunCmd, which evaluates the project's code",
-          "regula lint: VIOLATION (exit 1)"],
-        excludes := #["FAIL[elaboration-hidden]"] })
-    write "run_elab discard <| Lean.Elab.Term.elabTerm \
-      (← `(set_option linter.missingDocs false in (0 : Nat))) none"
-    mutate additional "/-! A configured module" s!"import {imported}\n/-! A configured module"
-    failures := failures ++ (← expect adopter {
-        label := s!"observer/run-elab-option/{imported}", exitCode := 1,
-        contains := #["RG2006", "set_option linter.missingDocs false, written under \
-            Lean.Elab.Command.elabRunElab, which evaluates the project's code",
-          "regula lint: VIOLATION (exit 1)"],
-        excludes := #["FAIL[elaboration-hidden]"] })
+  -- A setting of `RegulaPolicy.Community.generatedSettings` passes wherever it occurs, so the
+  -- project may write it itself; for `match.ignoreUnusedAlts true` that is an open limit (#422).
+  write "set_option match.ignoreUnusedAlts true in\n/-- A control. -/\n\
+    def firstCase : Nat → Nat\n  | 0 => 0\n  | _ => 1"
+  failures := failures ++ (← expect adopter (accepted "observer/generated-setting"))
   -- The `grind` tactic's own `set_option` form, at a value RG2006 accepts.
   write "/-- A control. -/\ntheorem grindSet (a : Nat) : a + 0 = a := by\n  \
     grind => set_option maxHeartbeats 400000 in skip"
   failures := failures ++ (← expect adopter (accepted "observer/grind-option"))
   restore adopter originals
   failures := failures ++ (← expect adopter (accepted "observer/restored"))
+  -- A dependency, required after `regula`, whose `presetup` facet runs Lake's own with
+  -- `memoize := false`, so Lake stores no `presetup` job (`Lake/Build/Index.lean` lines 43 to 49).
+  -- The audit reads each module's source file and plugins from the jobs that completed
+  -- (`Observer.Presetups`), so the run is accepted. The facet writes a file as it runs, which shows
+  -- that the workspace configured it. The dependency is a Git repository of its own, as `regula` is.
+  let manifestFile := adopter / "lake-manifest.json"
+  let manifest ← IO.FS.readFile manifestFile
+  let setupDep := adopter / "setupdep"
+  let ran := setupDep / "presetup-ran"
+  IO.FS.createDirAll setupDep
+  IO.FS.writeFile (setupDep / "lakefile.lean") s!"import Lake\nopen Lake DSL\n\npackage setupdep\n\n\
+    @[«module_facet»] def unmemoizedSetup : ModuleFacetDecl := .mk Module.presetupFacet <|\n  \
+    mkFacetJobConfig (buildable := false) (memoize := false) fun mod => do\n    \
+    IO.FS.writeFile {(toJson ran.toString).compress} \"\"\n    \
+    Module.presetupFacetConfig.run mod\n"
+  let initialized ← runProcess setupDep "git" #["init", "-q"]
+  unless initialized.succeeded do throw <| IO.userError initialized.output
+  IO.FS.writeFile (adopter / "lakefile.lean") <| (← IO.FS.readFile (adopter / "lakefile.lean")) ++
+    s!"\nrequire setupdep from {(toJson setupDep.toString).compress}\n"
+  let parsed ← readJson manifestFile
+  let packages : Array Json ← IO.ofExcept <| parsed.getObjValAs? (Array Json) "packages"
+  writeJson manifestFile <| parsed.setObjVal! "packages" <| toJson <| packages.push <| Json.mkObj [
+    ("name", toJson "setupdep"), ("scope", toJson ""), ("configFile", toJson "lakefile.lean"),
+    ("manifestFile", toJson "lake-manifest.json"), ("inherited", toJson false),
+    ("type", toJson "path"), ("dir", toJson setupDep.toString)]
+  failures := failures ++ (← expect adopter (accepted "observer/unmemoized-dependency-presetup"))
+  unless ← ran.pathExists do
+    failures := failures.push "lake-lint/observer/unmemoized-dependency-presetup: the \
+      dependency's presetup facet did not run, so the workspace did not configure it"
+  Regula.Filesystem.removePath .directory setupDep
+  IO.FS.writeFile manifestFile manifest
+  restore adopter originals
+
   -- The file audit's compilation loads the observer too, and its record decides the same way. The
   -- file is outside the claimed library, so the claimed build that precedes it passes.
   let standalone := adopter / "Standalone.lean"

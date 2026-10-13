@@ -7,7 +7,7 @@ import Regula.Website
 import RegulaCore.Guidance
 import Regula.Campaigns.Workflow
 import Regula.Checker.Lake
-import Regula.Checker.EvaluatorSearch
+import Regula.Checker.GeneratedSettingSearch
 
 /-! # Registry transport qualification
 
@@ -637,10 +637,17 @@ def main : IO Unit := do
       (!succeeded
           (Website.validateExample (.compilerRejection "error") (.incomplete "worker crashed")))
     "crash cannot satisfy negative example"
-  -- RG2006's list of Lean's evaluating elaborators is the search's result for the pinned
-  -- toolchain, so a toolchain change that adds or removes one cannot leave the list behind.
-  let found ← Regula.Checker.EvaluatorSearch.search
-  let listed := RegulaPolicy.Community.evaluators.mergeSort (·.toString ≤ ·.toString)
-  require (found == listed)
-    s!"RegulaPolicy.Community.evaluators is the evaluator search's result {found}"
+  -- RG2006's closed set of the settings Lean's generated code writes is the search's result for
+  -- the pinned toolchain, so a toolchain change cannot leave the set behind; the constructions
+  -- with no literal setting and the other functions applied to a `set_option` kind are the stated
+  -- ones, so a construction the search does not read fails here.
+  let found ← Checker.GeneratedSettingSearch.search
+  let text := Checker.GeneratedSettingSearch.pairText
+  let expected : Checker.GeneratedSettingSearch.Result := {
+    pairs := RegulaPolicy.Community.generatedSettings.mergeSort (text · ≤ text ·)
+    nonLiteral := Checker.GeneratedSettingSearch.nonLiteral
+    readers := Checker.GeneratedSettingSearch.readers }
+  require (found == expected)
+    s!"RegulaPolicy.Community.generatedSettings and the stated sites are the search's result \
+      {repr found}"
   IO.println "registry qualification: PASS (closed metadata, transport, source and mode boundaries)"

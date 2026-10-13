@@ -1,9 +1,8 @@
 module
 
+meta import Regula.Decision
 import all Init.Meta.Defs
 public import RegulaPolicy.Compiler
-public import RegulaPolicy.Domain
-meta import Regula.Decision
 
 /-! # Community build configuration decision
 
@@ -1489,17 +1488,17 @@ the one permission that standard §6.2 gives: a community linter turned off for 
 `set_option linter.NAME false in` before a declaration command (`declarationKind`). Lean's default
 warnings, the `linter.` and `warn.` options Lean registers (`leanWarningSettings`) whose registered
 default is not `false`, are never community linters, and neither are `linter.all` and
-`linter.mathlibStandardSet`, which switch many linters at once. An option that a macro of the
-pinned toolchain wrote, such as `smartUnfolding` in `rfl'`, is that macro's implementation and
-passes, when the operational adapter authenticated the macro's module as the toolchain's own
-artifact (`toolchain`), or when the observer found the macro among the builtins of the Lean that
-elaborated the module (`builtin`), such as `match.ignoreUnusedAlts` in `deriving BEq`; a module's
-name gives no such receipt. The source sets no `debug.` or
-`trace.` option, since the accepted set lists none. An option that elaborator code changes without
-`set_option` is not recorded: of Lean's builtin commands only `unlock_limits` also assigns the
-options of the enclosing scope, and RG2006 accepts what it sets (`unlockLimits_accepted`); a
-temporary change through `withScope`, as in a deriving handler or a `local notation`, is
-elaborator code. -/
+`linter.mathlibStandardSet`, which switch many linters at once. The decision reads the setting
+alone, never who wrote it. A setting that the pinned Lean's own generated code writes as
+`set_option` syntax (`generatedSettings`), such as `match.ignoreUnusedAlts true` in `deriving BEq`,
+passes wherever it occurs, so a project may write it too. Of those, `match.ignoreUnusedAlts true`
+hides Lean's "Redundant alternative" error, an open limit of this decision (issue #422). Apart from
+`trace.grind.ematch.instance true` in that set, the source sets no `debug.` or `trace.` option,
+since the accepted set lists none. An option that elaborator code
+changes without `set_option` is not recorded: of Lean's builtin commands only `unlock_limits` also
+assigns the options of the enclosing scope, and RG2006 accepts what it sets
+(`unlockLimits_accepted`); a temporary change through `withScope`, as in a deriving handler or a
+`local notation`, is elaborator code. -/
 
 
 /-- How a claimed module's source set an option (`RegulaObserver.Form`). -/
@@ -1530,19 +1529,6 @@ structure SourceSetting where
   /-- For the form before one command, the syntax kind of the command that `set_option … in`
   wraps, through each further `set_option … in`; none otherwise. -/
   wrapped : Option Name := none
-  /-- The module that declares the macro whose expansion wrote the option's name, or none when the
-  name is in the module's source text. -/
-  origin : Option Name
-  /-- The operational adapter's receipt that a module was loaded from its own `.olean` in the
-  pinned toolchain's library directory (`admitToolchainOrigin`), when it gave one for `origin`;
-  the module's name alone gives none. -/
-  toolchain : Option ToolchainOrigin := none
-  /-- Whether the observer found the macro's declaration among the builtins of the Lean that
-  elaborated the module, outside the module's environment, so that no module of it names one. -/
-  builtin : Bool := false
-  /-- The elaborators of the nodes above the option's name, innermost first, as the observer recorded
-  them. -/
-  under : List Name := []
   /-- Where the option's name is in the module, line and column, as Lean reports them; only the
   report reads it. -/
   location : Nat × Nat := (0, 0)
@@ -1598,74 +1584,49 @@ theorem communityDisable_iff (s : SourceSetting) :
   cases hv : s.value <;>
     simp [communityDisable, CommunityDisable, hv, ← hd, ← OptionValue.readsAs_iff, and_assoc]
 
-/-- The builtin elaborators of Lean v4.34.1 that evaluate code the project supplies, so that syntax
-they elaborate may have been built by that code: each builtin command, term and tactic elaborator
-and macro (`Lean.Elab.Command.commandElabAttribute`, `Lean.Elab.Term.termElabAttribute`,
-`Lean.Elab.Tactic.tacticElabAttribute`, `Lean.Elab.macroAttribute`) whose compiled code reaches
-`Lean.Elab.Term.evalTerm`, `Lean.Meta.evalExprCore` (under `evalExpr` and `evalExpr'`) or the
-`#eval` core `Lean.Elab.Command.elabEvalCoreUnsafe`, through the constants that definitions use and
-their `implemented_by` targets. `Regula.Checker.EvaluatorSearch.search` computes that set from the
-pinned toolchain and the registry checks refuse unless it is this list. The elaborators are `#eval`,
-`#eval!`, `run_cmd`, `run_elab`, `run_meta` (`Lean/Elab/BuiltinEvalCommand.lean` lines 265 to
-291), `register_error_explanation` (`Lean/Elab/ErrorExplanation.lean` line 98), `#guard`
-(`Lean/Elab/Tactic/Guard.lean` line 156), `include_str` (`Lean/Elab/BuiltinTerm.lean` line 437),
-`by_elab` (`Lean/Elab/BuiltinNotation.lean` line 583) and `run_tac`
-(`Lean/Elab/Tactic/BuiltinTactic.lean` line 680). -/
-def evaluators : List Name :=
-  [`Lean.Elab.Command.elabEval, `Lean.Elab.Command.elabEvalBang, `Lean.Elab.Command.elabRunCmd,
-    `Lean.Elab.Command.elabRunElab, `Lean.Elab.Command.elabRunMeta,
-    `Lean.Elab.ErrorExplanation.elabRegisterErrorExplanation,
-    `Lean.Elab.Tactic.GuardExpr.evalGuardCmd, `Lean.Elab.Term.elabIncludeStr,
-    `Lean.Elab.Term.elabRunElab, `Lean.Elab.Tactic.evalRunTac]
+/-- The settings that the pinned Lean's own code writes as `set_option` syntax into the code it
+generates, as (option, value) pairs: `match.ignoreUnusedAlts` set to `true` by the `deriving BEq`
+and `deriving Ord` handlers (`Lean/Elab/Deriving/BEq.lean` line 205, `Lean/Elab/Deriving/Ord.lean`
+line 161), `smartUnfolding` set to `false` by `rfl'` (`Init/Tactics.lean` line 444),
+`tactic.hygienic` set to `false` by `unhygienic` (`Init/Tactics.lean` line 1238) and
+`trace.grind.ematch.instance` set to `true` in the suggestion of `grind_lint inspect`
+(`Lean/Elab/Tactic/Grind/Lint.lean` line 149). `Regula.Checker.GeneratedSettingSearch.search`
+computes these pairs from the compiled code of the modules `Lean` and `Lake`, and the registry
+checks refuse unless its result is this list.
 
-/-- A macro of the pinned toolchain wrote the option's name, and no elaborator above it evaluates
-code the project supplies (`evaluators`): the adapter gave a receipt for the module `origin` names,
-or the macro is a builtin of the Lean that elaborated the module. Under such an elaborator, the
-project's code may have built the syntax, so the option counts as the source's own. -/
-def toolchainWritten (s : SourceSetting) : Bool :=
-  !s.under.any (evaluators.contains ·) &&
-    ((match s.origin, s.toolchain with
-      | some m, some r => r.moduleName == m
-      | _, _ => false) ||
-      (s.origin.isSome && s.builtin))
+The pairs other than `match.ignoreUnusedAlts` silence nothing that a default reports. That one
+hides the "Redundant alternative" error (`Lean/Elab/Match.lean` line 1056), so accepting it where
+a project writes it is an open limit (issue #422): the setting alone cannot tell the `deriving`
+handlers' use from a project's. -/
+def generatedSettings : List (Name × OptionValue) :=
+  [(`match.ignoreUnusedAlts, .bool true), (`smartUnfolding, .bool false),
+    (`tactic.hygienic, .bool false), (`trace.grind.ematch.instance, .bool true)]
 
-/-- `toolchainWritten`, stated by its evidence: no elaborator above the name is one of
-`evaluators`, and some toolchain receipt names the macro's module, or a macro wrote the name and
-the observer found it among the running Lean's builtins. -/
-def ToolchainWritten (s : SourceSetting) : Prop :=
-  (∀ e ∈ s.under, e ∉ evaluators) ∧
-    ((∃ r, s.toolchain = some r ∧ s.origin = some r.moduleName) ∨
-      (s.origin ≠ none ∧ s.builtin = true))
+/-- The setting is one of `generatedSettings`: its name is the pair's option, and its value reads
+as the pair's value. -/
+def generated (s : SourceSetting) : Bool :=
+  match s.value with
+  | some v => generatedSettings.any fun g => g.1 == s.name && v.readsAs g.2
+  | none => false
 
-/-- `toolchainWritten` decides exactly `ToolchainWritten`. -/
-theorem toolchainWritten_iff (s : SourceSetting) :
-    toolchainWritten s = true ↔ ToolchainWritten s := by
-  unfold toolchainWritten ToolchainWritten
-  rw [Bool.and_eq_true, Bool.or_eq_true]
-  refine and_congr (by simp) (or_congr ?_ (by cases s.origin <;> simp))
-  cases s.origin with
+/-- `generated`, stated by its witnesses: a literal value and a pair of `generatedSettings` with the
+setting's name whose value the literal reads as. -/
+def Generated (s : SourceSetting) : Prop :=
+  ∃ v, s.value = some v ∧ ∃ g ∈ generatedSettings, g.1 = s.name ∧ v.ReadsAs g.2
+
+/-- `generated` decides exactly `Generated`. -/
+theorem generated_iff (s : SourceSetting) : generated s = true ↔ Generated s := by
+  unfold generated Generated
+  cases s.value with
   | none => simp
-  | some m =>
-    cases s.toolchain with
-    | none => simp
-    | some r =>
-      simp only [beq_iff_eq, Option.some.injEq, exists_eq_left']
-      exact ⟨Eq.symm, Eq.symm⟩
-
-/-- An option with one of `evaluators` above its name is never toolchain-written, whatever its
-origin and receipt. -/
-theorem evaluated_not_toolchainWritten (s : SourceSetting)
-    (h : ∃ e ∈ s.under, e ∈ evaluators) : toolchainWritten s = false := by
-  obtain ⟨e, he, hm⟩ := h
-  simp only [toolchainWritten, Bool.and_eq_false_iff, Bool.not_eq_false']
-  exact .inl (List.any_eq_true.mpr ⟨e, he, by simpa using hm⟩)
+  | some v => simp [← OptionValue.readsAs_iff]
 
 /-- RG2006 accepts the option a claimed module's source set, for a target with options `o` that
-imports Mathlib when `mathlib`: a toolchain macro wrote it, it turns a community linter off for
-one command, or its value is one the requirement admits for a required option and otherwise one
-`Accepted` admits. -/
+imports Mathlib when `mathlib`: it is one of `generatedSettings`, wherever it occurs, it turns a
+community linter off for one command, or its value is one the requirement admits for a required
+option and otherwise one `Accepted` admits. Who wrote the setting does not enter the decision. -/
 def sourceAccepted (o : BuildOptions) (mathlib : Bool) (s : SourceSetting) : Bool :=
-  toolchainWritten s || communityDisable s ||
+  generated s || communityDisable s ||
     match s.value with
     | none => false
     | some v =>
@@ -1675,7 +1636,7 @@ def sourceAccepted (o : BuildOptions) (mathlib : Bool) (s : SourceSetting) : Boo
 
 /-- The relation `sourceAccepted` decides, stated without the executed decisions on the value. -/
 def SourceAccepted (o : BuildOptions) (mathlib : Bool) (s : SourceSetting) : Prop :=
-  ToolchainWritten s ∨ CommunityDisable s ∨
+  Generated s ∨ CommunityDisable s ∨
     ∃ v, s.value = some v ∧
       ((∃ r ∈ required mathlib, r.1 = s.name ∧
           (∀ r' ∈ required mathlib, r'.1 = s.name → r' = r) ∧
@@ -1692,7 +1653,7 @@ theorem sourceAccepted_iff (o : BuildOptions) (mathlib : Bool) (s : SourceSettin
     sourceAccepted o mathlib s = true ↔ SourceAccepted o mathlib s := by
   unfold sourceAccepted SourceAccepted
   simp only [Bool.or_eq_true, or_assoc]
-  refine or_congr (toolchainWritten_iff s) (or_congr (communityDisable_iff s) ?_)
+  refine or_congr (generated_iff s) (or_congr (communityDisable_iff s) ?_)
   cases hv : s.value with
   | none => simp
   | some v =>
@@ -1733,18 +1694,13 @@ theorem sourceFailures_eq_nil_iff (o : BuildOptions) (mathlib : Bool)
   simp [sourceFailures, List.filter_eq_nil_iff, sourceAccepted_iff]
 
 /-- One option a module's source set that RG2006 does not accept, as the report names it: where
-it is, in `module` (a module's name, or the file a standalone compilation compiled), the option,
-its value, and the innermost of `evaluators` above it, or else the macro's module when a macro
-wrote it. -/
+it is, in `module` (a module's name, or the file a standalone compilation compiled), the option and
+its value. -/
 def SourceSetting.text (module : String) (s : SourceSetting) : String :=
   let value := match s.value with
     | some v => s!" {v.text}"
     | none => " (a value that is not a literal)"
-  let origin := match s.under.find? (evaluators.contains ·), s.origin with
-    | some e, _ => s!", written under {e}, which evaluates the project's code"
-    | none, some m => s!", written by a macro of {m}"
-    | none, none => ""
-  s!"{module}:{s.location.1}:{s.location.2}: set_option {s.name}{value}{origin}"
+  s!"{module}:{s.location.1}:{s.location.2}: set_option {s.name}{value}"
 
 /-- The detail of the RG2006 finding for the source options `failures` of `module`. -/
 def sourceDetail (module : String) (failures : List SourceSetting) : String :=
@@ -1753,7 +1709,7 @@ def sourceDetail (module : String) (failures : List SourceSetting) : String :=
 
 /-- A setting the source wrote, with value `v`, by command form `form`. -/
 def written (name : Name) (v : OptionValue) (form : SourceForm) : SourceSetting :=
-  { name, value := some v, registeredDefault := none, form, origin := none }
+  { name, value := some v, registeredDefault := none, form }
 
 /-- `set_option autoImplicit true` in a claimed module fails, whatever the target sets. -/
 theorem autoImplicit_source_fails (o : BuildOptions) (mathlib : Bool) :
@@ -1761,7 +1717,8 @@ theorem autoImplicit_source_fails (o : BuildOptions) (mathlib : Bool) :
   cases mathlib <;> rfl
 
 /-- `set_option linter.missingDocs false` as a command fails: only the form before one command
-turns a community linter off. -/
+turns a community linter off. A setting has no field for who wrote it, so the same setting that
+`run_cmd`, `run_elab`, a `try_suggestion` generator or a simproc elaborates fails too. -/
 theorem missingDocs_command_fails (o : BuildOptions) (mathlib : Bool) :
     sourceAccepted o mathlib (written `linter.missingDocs (.bool false) .command) = false := by
   cases mathlib <;> rfl
@@ -1814,66 +1771,19 @@ theorem debug_trace_source_fail (o : BuildOptions) (mathlib : Bool) :
         false := by
   cases mathlib <;> exact ⟨rfl, rfl⟩
 
-/-- An option whose value the observer did not read fails, unless a toolchain macro wrote it. -/
+/-- An option whose value the observer did not read fails. -/
 theorem unread_source_fails (o : BuildOptions) (mathlib : Bool) (name : Name)
     (form : SourceForm) :
-    sourceAccepted o mathlib
-      { name, value := none, registeredDefault := none, form, origin := none } = false := by
-  simp [sourceAccepted, toolchainWritten, communityDisable]
+    sourceAccepted o mathlib { name, value := none, registeredDefault := none, form } = false := by
+  simp [sourceAccepted, generated, communityDisable]
 
-/-- `smartUnfolding` set to `false` by a macro that `Init.Tactics` declares, as `rfl'` does,
-passes when the adapter gave a receipt for `Init.Tactics`. -/
-theorem toolchain_macro_passes (o : BuildOptions) (mathlib : Bool) :
-    sourceAccepted o mathlib { written `smartUnfolding (.bool false) .tactic with
-      origin := some `Init.Tactics,
-      toolchain := some ⟨`Init.Tactics, "Init/Tactics.olean", "Init/Tactics.olean",
-        by decide, by decide, rfl⟩ } = true := by
-  rfl
-
-/-- `set_option autoImplicit true in`, written by a macro that a module named `Lean.Adopter`
-declares, fails without a receipt for that module: a module's name does not make it the
-toolchain's. -/
-theorem nameOnly_macro_fails (o : BuildOptions) (mathlib : Bool) :
-    sourceAccepted o mathlib { written `autoImplicit (.bool true) .commandIn with
-      origin := some `Lean.Adopter, wrapped := some declarationKind } = false := by
-  cases mathlib <;> rfl
-
-/-- `set_option match.ignoreUnusedAlts true`, which Lean's builtin `deriving BEq` handler writes
-under the builtin `Lean.Elab.Command.elabDeclaration` (`Lean/Elab/Deriving/BEq.lean` line 205),
-passes in a module that does not import that handler's module, where the observer names no module
-for the macro and finds it among the running Lean's builtins. -/
-theorem builtin_macro_accepted (o : BuildOptions) (mathlib : Bool) :
-    sourceAccepted o mathlib { written `match.ignoreUnusedAlts (.bool true) .command with
-      origin := some .anonymous, builtin := true
-      under := [`Lean.Elab.Command.elabSetOption, `Lean.Elab.Command.expandMutualPreamble,
-        `Lean.Elab.Command.elabDeclaration] } = true := by
-  cases mathlib <;> rfl
-
-/-- `set_option linter.missingDocs false` that `run_cmd` built and elaborated (`run_cmd
-Lean.Elab.Command.elabCommand (← \`(command| set_option linter.missingDocs false))`) fails, though
-the observer finds a builtin above it: `Lean.Elab.Command.elabRunCmd` evaluated the code that built
-it. -/
-theorem runCmd_builtin_fails (o : BuildOptions) (mathlib : Bool) :
-    sourceAccepted o mathlib { written `linter.missingDocs (.bool false) .command with
-      origin := some .anonymous, builtin := true
-      under := [`Lean.Elab.Command.elabSetOption, `Lean.Elab.Command.elabRunCmd] } = false := by
-  cases mathlib <;> rfl
-
-/-- The same option built by `run_elab`, in a module that imports Lean, where the adapter gave a
-receipt for the module that declares `Lean.Elab.Command.elabRunElab`, fails too. -/
-theorem runElab_receipt_fails (o : BuildOptions) (mathlib : Bool) (r : ToolchainOrigin) :
-    sourceAccepted o mathlib { written `linter.missingDocs (.bool false) .command with
-      origin := some `Lean.Elab.BuiltinEvalCommand, toolchain := some r
-      under := [`Lean.Elab.Command.elabSetOption, `Lean.Elab.Command.elabRunElab] } = false := by
-  unfold sourceAccepted
-  rw [evaluated_not_toolchainWritten _ ⟨`Lean.Elab.Command.elabRunElab, by simp, by decide⟩]
-  cases mathlib <;> rfl
-
-/-- The same option with no builtin evidence and no receipt fails. -/
-theorem unauthenticated_macro_fails (o : BuildOptions) (mathlib : Bool) :
-    sourceAccepted o mathlib { written `match.ignoreUnusedAlts (.bool true) .command with
-      origin := some .anonymous } = false := by
-  cases mathlib <;> rfl
+/-- Each pair of `generatedSettings` passes in each form: the decision accepts the setting that the
+pinned Lean's generated code writes wherever it occurs, so a project may write it too. -/
+theorem generated_accepted (o : BuildOptions) (mathlib : Bool) (form : SourceForm) :
+    ∀ g ∈ generatedSettings, sourceAccepted o mathlib (written g.1 g.2 form) = true := by
+  intro g h
+  simp only [generatedSettings, List.mem_cons, List.not_mem_nil, or_false] at h
+  rcases h with rfl | rfl | rfl | rfl <;> cases mathlib <;> cases form <;> rfl
 
 /-- The options that `unlock_limits` sets, each to `0` (`Lean/Elab/BuiltinCommand.lean` lines 522
 to 527), pass. -/

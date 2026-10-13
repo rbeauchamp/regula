@@ -40,20 +40,6 @@ inductive Form where
   | elaborated
   deriving Inhabited, BEq, Repr
 
-/-- The macro whose expansion produced syntax: the declaration that implements it and the module
-that declares it, anonymous when the environment does not know it. -/
-structure Origin where
-  /-- The macro's declaration, the elaborator of the node that the expansion is under. -/
-  declaration : Name
-  /-- The module that declares it. -/
-  «module» : Name
-  /-- Whether the environment does not contain the declaration and the running Lean registered it
-  as one of its builtins (`Lean.builtinDeclRanges`): code compiled into the Lean that elaborated
-  the module, such as `Lean.Elab.Command.elabDeclaration`, which runs Lean's own `deriving`
-  handlers, in a module that does not import it. -/
-  builtin : Bool := false
-  deriving Inhabited
-
 /-- One option that the module's source set, as Lean elaborated it. -/
 structure Setting where
   /-- The option, as Lean's `set_option` elaborator named it (`Lean.Elab.OptionInfo`). -/
@@ -68,14 +54,6 @@ structure Setting where
   /-- For the form before one command, the syntax kind of the command that `set_option … in`
   wraps, through each further `set_option … in`; none for the other forms. -/
   wrapped : Option Name
-  /-- The macro whose expansion wrote the option's name, or none when the name is in the module's
-  source text. -/
-  origin : Option Origin
-  /-- The elaborators of the nodes above the option's name in the command's info trees, innermost
-  first, each command, term and tactic node with a named elaborator: those that ran while Lean
-  elaborated the syntax that set it, such as `Lean.Elab.Command.elabRunCmd` when evaluated code
-  built that syntax. -/
-  under : Array Name := #[]
   /-- Where the option's name is. -/
   position : Position
   deriving Inhabited

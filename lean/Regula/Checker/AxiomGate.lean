@@ -1422,7 +1422,7 @@ private unsafe def auditFile (repo path : FilePath) (claim : Option Profile)
         -- (`Compilation.observe`), as a claimed build's: RG2003 here, what the compilation's
         -- messages do not show, and RG2006 with the declarations below, the options its source set.
         let verdict ← if claim.isSome && SourceAudit.compilationPassed compilation then
-            some <$> compilation.observe path.toString inventory.compileLeanPath
+            some <$> compilation.observe path.toString
           else pure none
         if let some verdict := verdict then
           unless verdict.hidden.isEmpty do
