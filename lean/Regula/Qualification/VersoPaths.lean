@@ -121,7 +121,8 @@ and not its `lakefile.toml`. Then, one at a time:
   (`LakeSelection.checkSelection`), and the selection of the load is not.
 - A Git entry for `recorded` that the Verso package's overrides file replaces by the path entry is
   a local package to both checks.
-- With `recorded` as the accepted project, its Lake inputs are still captured.
+- With `recorded` as the accepted project, its Lake inputs are still captured, except the package
+  overrides file of its own workspace, which a copy of the project writes anew.
 - A change of `package.toml` changes the capture, and a change of `lakefile.toml` does not.
 - A `package.lean` beside `package.toml` leaves the capture as it was. For the configuration name
   `package`, which has no extension, the capture binds both files.
@@ -228,11 +229,14 @@ def check : IO Unit := do
       ⟨s!"the capture binds the overridden package's configuration: {overridePaths}",
         overridePaths.contains "../recorded/package.toml"⟩]
     IO.println "verso recorded paths Git entry overridden by a path: PASS"
-    let accepted := capturedPaths dir
-      (← Documentation.captureVersoPackage recorded verso)
+    let accepted ← withOverrides (recorded / ".lake" / "package-overrides.json")
+        #[gitEntry "shared" other] do
+      return capturedPaths dir (← Documentation.captureVersoPackage recorded verso)
     requireChecks [⟨s!"the accepted project's Lake inputs are captured: {accepted}",
-      ["../recorded/package.toml", "../recorded/pins.json",
-        "../recorded/lake-manifest.json"].all accepted.contains⟩]
+        ["../recorded/package.toml", "../recorded/pins.json",
+          "../recorded/lake-manifest.json"].all accepted.contains⟩,
+      ⟨s!"the capture leaves out the accepted project's own overrides file: {accepted}",
+        !accepted.contains "../recorded/.lake/package-overrides.json"⟩]
     IO.println "verso recorded paths accepted project: PASS"
     let changed ← withChanged (recorded / "package.toml") (· ++ "# changed\n") capture
     requireChecks [⟨"a change of the recorded configuration changes the capture",

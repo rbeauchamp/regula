@@ -440,8 +440,8 @@ structure CopyFilter where
   copies : List (List String)
   /-- The names of the directories that the pass leaves out below its root, outside its `docs`. -/
   names : List String
-  /-- The directory of each dependency package that Lake's loaded workspace records in the packages
-  directory. -/
+  /-- The checkout of each Git dependency and the directory of each path dependency that lie
+  directly in the packages directory. -/
   dependencies : List (List String)
 
 /-- The exclusion that leaves out the entry at `path`, if any. Another root and the manifest come

@@ -8,15 +8,16 @@ the entries it materialized the packages from (`withRootSelection`). So one read
 workspace's manifest and package overrides file gives the entries (`RootSelection`), and Lake's
 one load corroborates each field that it records (`agrees`). From these follow the entry that each
 dependency is materialized from (`lastEntry`, `effectiveEntry`), the packages directory
-(`packagesDir`, `entryDir`), the packages taken from a path entry (`pathPackages`), and the files
-that decide a package's configuration and pins (`configCandidates`, `ownRootFiles`, `rootEntries`,
-`lakeInputs`). The files are read by Lake's own readers (`Lake.Manifest.load?`,
-`Lake.Manifest.tryLoadEntries`). Where Lake has no function for a rule, the definition here is a
-copy of the rule alone, and its docstring cites the Lake lines in an `Assumes:` entry. The
-documentation check's pin comparison and input capture (`Documentation.sharedPinMismatch`,
-`Documentation.captureVersoPackage`), the dependency inventory (`Lake.surfaceInventoryOf`), which a
-copy of the project takes too (`Lake.copyProject`), and the copy's packages directory
-(`Lake.relocateDependencies`) use it. -/
+(`packagesDir`, `checkoutDir`, `entryDir`), the packages taken from a path entry
+(`pathPackages`), and the files that decide a package's configuration and pins
+(`configCandidates`, `ownRootFiles`, `rootEntries`, `lakeInputs`). The files are read by Lake's
+own readers (`Lake.Manifest.load?`, `Lake.Manifest.tryLoadEntries`). Where Lake has no function
+for a rule, the definition here is a copy of the rule alone, and its docstring cites the Lake lines
+in an `Assumes:` entry. The documentation check's pin comparison and input capture
+(`Documentation.sharedPinMismatch`, `Documentation.captureVersoPackage`), the dependency inventory
+(`Lake.surfaceInventoryOf`), which a copy of the project takes too (`Lake.copyProject`), and the
+copy's packages directory and the checkouts it prunes (`Lake.relocateDependencies`,
+`Lake.copyProject`) use it. -/
 
 namespace Regula.Checker.LakeSelection
 open Lean System
@@ -189,23 +190,33 @@ Assumes:
 def packagesDir (recorded : Option FilePath) (relPkgsDir : FilePath) : FilePath :=
   recorded.getD relPkgsDir
 
-/-- The directory, relative to the workspace's directory, that Lake materializes `entry` into,
-given the workspace's packages directory `packagesDir` (`packagesDir`): a path entry's directory,
-and a Git entry's checkout `packagesDir / dirName`, below its subdirectory when it names one.
+/-- The directory, relative to the workspace's directory, that Lake materializes `entry` at before
+it takes the entry's subdirectory, given the workspace's packages directory `packagesDir`
+(`packagesDir`): a path entry's directory, and a Git entry's checkout `packagesDir / dirName`.
 
 Assumes:
-- Lake v4.34.1 materializes a path entry at its directory and a Git entry at that checkout
-  (`Lake/Load/Materialize.lean:241-266`), joined as Lake joins paths
+- Lake v4.34.1 materializes a path entry at its directory and clones a Git entry at that checkout
+  (`Lake/Load/Materialize.lean:241-246`), joined as Lake joins paths
+  (`Lake/Util/FilePath.lean:42-48`). -/
+def checkoutDir (packagesDir : FilePath) (entry : _root_.Lake.PackageEntry) : FilePath :=
+  match entry.src with
+  | .path dir => dir
+  | .git .. => _root_.Lake.joinRelative packagesDir entry.dirName
+
+/-- The directory, relative to the workspace's directory, that Lake materializes `entry` into,
+given the workspace's packages directory `packagesDir` (`packagesDir`): its `checkoutDir`, below a
+Git entry's subdirectory when it names one.
+
+Assumes:
+- Lake v4.34.1 materializes a Git entry that names a subdirectory below its checkout
+  (`Lake/Load/Materialize.lean:264`), joined as Lake joins paths
   (`Lake/Util/FilePath.lean:42-48`), and gives the package that directory as its `relDir`
   (`Lake/Load/Resolve.lean:42`, `Lake/Load/Package.lean:35-51`). -/
 def entryDir (packagesDir : FilePath) (entry : _root_.Lake.PackageEntry) : FilePath :=
   match entry.src with
-  | .path dir => dir
-  | .git (subDir? := subDir?) .. =>
-    let checkout := _root_.Lake.joinRelative packagesDir entry.dirName
-    match subDir? with
-    | some subDir => _root_.Lake.joinRelative checkout subDir
-    | none => checkout
+  | .git (subDir? := some subDir) .. =>
+    _root_.Lake.joinRelative (checkoutDir packagesDir entry) subDir
+  | _ => checkoutDir packagesDir entry
 
 /-- The remote URL that Lake records for a package that it materializes from `entry`: empty for a
 path entry, and for a Git entry its URL as `Lake.Git.filterUrl?` gives it, or empty when that

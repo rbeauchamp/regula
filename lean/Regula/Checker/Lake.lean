@@ -679,10 +679,11 @@ before descent. VCS and build/cache/scratch trees are excluded outside each capt
 Consumer-selected files, an explicitly selected project-contained policy, and their ancestors
 survive these exclusions. Compiled-module exclusions apply only to
 captured regular files. The final instructions must contain every selected file before construction.
-Package pruning leaves out exactly the directory of each dependency package that Lake's loaded
-workspace records in the packages directory, and keeps every other entry there
-(`Construction.CopyFilter.omission_pruned`, `Construction.CopyFilter.omission_other`). An owned
-package there keeps its own capture pass (`Construction.packageSource_owned`). The copy's domain is
+Package pruning leaves out exactly the checkout of each Git dependency and the directory of each
+path dependency that lie directly in the packages directory, by the entry that Lake's load
+materialized each from (`LakeSelection.effectiveEntry`, `LakeSelection.checkoutDir`), and keeps
+every other entry there (`Construction.CopyFilter.omission_pruned`,
+`Construction.CopyFilter.omission_other`). An owned package there keeps its own capture pass (`Construction.packageSource_owned`). The copy's domain is
 each file that Lake's load reads for the root package or an owned dependency: the source of each
 module that Lake can build (`packageModules`), the loaded configuration file and an owned
 dependency's recorded manifest when present. Lake's load of the copy reads each at the path that it
@@ -704,7 +705,8 @@ Assumes: the shared constructor's native primitive contracts and no concurrent s
 destination writer. Lake's loaded workspace and manifest stay fixed while captured.
 
 Assumes: Lake v4.34.1 materializes a Git entry at its name in the packages directory
-(`Lake/Load/Materialize.lean:246`). It loads a package's configuration file and the manifest that
+(`Lake/Load/Materialize.lean:246`), and puts the package below that checkout at the subdirectory
+that the entry names, when it names one (`Lake/Load/Materialize.lean:264`). It loads a package's configuration file and the manifest that
 its entry records at their recorded paths, joined to the package's directory
 (`Lake/Load/Package.lean:96-117`, `Lake/Load/Materialize.lean:272-277`), and the override that
 `relocateDependencies` writes records the loaded `relConfigFile` and `relManifestFile`. A library's
@@ -739,14 +741,19 @@ def copyProject (repo target exclude : FilePath)
       catch
         | .noFileOrDirectory .. => pure none
         | error => throw error
-    -- The directory of each dependency package that Lake's loaded workspace records in the
-    -- packages directory, at its stored spelling: the only entries that package pruning leaves
-    -- out (`Construction.CopyFilter.omission_pruned`). Each has its path override.
+    -- The checkout of each Git dependency and the directory of each path dependency that lie
+    -- directly in the packages directory, at their stored spelling: the only entries that pruning
+    -- leaves out (`Construction.CopyFilter.omission_pruned`). A Git dependency's package lies at
+    -- its checkout, or below it at the subdirectory its entry names. Each has its path override.
     let dependencyDirectories ← match packagesReal with
       | none => pure []
       | some packages => ws.packages.toList.filterMapM fun package => do
         if package.isRoot then return none
-        let dir := (← Regula.Filesystem.observeRealPath package.dir).normalize.components
+        let dir := match LakeSelection.effectiveEntry selection.entries package.baseName with
+          | some (entry@{ src := .git .., .. }) =>
+            _root_.Lake.joinRelative ws.dir (LakeSelection.checkoutDir selection.packagesDir entry)
+          | _ => package.dir
+        let dir := (← Regula.Filesystem.observeRealPath dir).normalize.components
         return if dir.dropLast == packages then some dir else none
     let owned := (original.dependencies.filter (·.owned)).foldl (fun dirs dependency =>
       if dependency.root == root || dirs.contains dependency.root then dirs

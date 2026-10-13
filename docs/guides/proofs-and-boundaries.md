@@ -660,7 +660,7 @@ Assumes: Lake `v4.34.1` tests cleanliness with `git diff --exit-code HEAD` (`Uti
 
 `copyProject` captures the manifest at Lake's loaded `ws.manifestFile`. Its packages fallback is `ws.relPkgsDir`. Each resolved dependency receives a typed path override, including inherited and transitive dependencies. Owned dependencies point into the copy, and trusted dependencies point to their original roots. The copy always retains the captured manifest and runs ordinary loads.
 
-Package-directory pruning leaves out exactly the directory of each dependency package that Lake's loaded workspace records in the packages directory, at its stored spelling. `Construction.CopyFilter.omission_pruned` proves that a capture pass prunes no other entry, and `Construction.CopyFilter.omission_other` that the same exclusions decide each other entry there. `Construction.packageSource_owned` proves that a capture root, such as an owned package's in that directory, survives its own pass.
+Package-directory pruning leaves out exactly the checkout of each Git dependency and the directory of each path dependency in the packages directory. It finds each at its stored spelling. `Construction.CopyFilter.omission_pruned` proves that a capture pass prunes no other entry, and `Construction.CopyFilter.omission_other` that the same exclusions decide each other entry there. `Construction.packageSource_owned` proves that a capture root, such as an owned package's in that directory, survives its own pass.
 
 The copy keeps the exclusions of names such as `.lake` and `.cache`, and checks one domain against the files it writes instead. That domain is each file that Lake's load reads for the root package and each owned dependency. These files are the source of each module that Lake can build, the loaded configuration file and an owned dependency's recorded manifest when present. Lake's load of the copy reads each at the path it joins to the package's directory, such as the recorded `relConfigFile`. Before it writes anything, the copy refuses the first such path that none of the files it would write has, with exactly that spelling. It names the file and what left it out, such as an excluded directory or a compiled-module file name.
 
@@ -668,7 +668,7 @@ The copy keeps the exclusions of names such as `.lake` and `.cache`, and checks 
 
 Assumes: Lake `v4.34.1`, `Load/Resolve.lean:590-627`, applies overrides during ordinary materialization. `Load/Resolve.lean:201-235` traverses dependencies transitively. Path entries do not clone packages (`Load/Materialize.lean:239-277`).
 
-Assumes: Lake `v4.34.1` materializes a Git entry at its directory name in the packages directory (`Load/Materialize.lean:246`). It loads a package's configuration file and the manifest that its entry records at their recorded paths, joined to the package's directory (`Load/Package.lean:96-117`, `Load/Materialize.lean:272-277`).
+Assumes: Lake `v4.34.1` materializes a Git entry at its directory name in the packages directory (`Load/Materialize.lean:246`). It puts the package below that checkout at the subdirectory that the entry names (`Load/Materialize.lean:264`). It loads a package's configuration file and the manifest that its entry records at their recorded paths, joined to the package's directory (`Load/Package.lean:96-117`, `Load/Materialize.lean:272-277`).
 
 Assumes: POSIX path resolution, under which a `.` component names the directory before it. The copy holds no link, since the constructor creates none.
 
@@ -5100,8 +5100,11 @@ The `qualify` campaigns and what they observe:
     no overrides file. The check ignores the recorded manifest and a path entry that Lake does not
     load. It follows a Git entry that an overrides file replaces by a path.
   - The capture binds the recorded configuration and manifest, the overrides files and the
-    accepted project's Lake inputs. It binds no `lakefile.toml` or `package.lean` that Lake does
-    not load. For a configuration name without an extension, it binds the two candidate files.
+    accepted project's Lake inputs except its own overrides file. The copy of a project with a
+    dependency writes a generated overrides file. The audit compares the copy's capture with the
+    original's, and acceptance's source binding binds the original's file. The capture binds no
+    `lakefile.toml` or `package.lean` that Lake does not load. For a configuration name without an
+    extension, it binds the two candidate files.
   - The two checks refuse a Verso package without a manifest, before Lake's load writes one. A
     selection that names a configuration Lake did not load is refused.
 - `copy-relocation`: the copy of a project (`Lake.copyProject`).
@@ -5109,9 +5112,10 @@ The `qualify` campaigns and what they observe:
     the configuration of the first. The copy's override for the dependency names that
     configuration. Lake's load of the copy then selects what its load of the project selects.
     Without the overrides file, the copy's override names the configuration of the last entry.
-  - A project keeps its checkouts in `vendor` and requires a package by Git, which the control
-    commits to a local repository. With a manifest that records no packages directory, Lake loads
-    the package from `vendor`. The copy leaves out that checkout and names it in an override. It
+  - A project keeps its checkouts in `vendor` and requires by Git a package in a subdirectory of a
+    local repository that the control makes. With a manifest that records no packages directory,
+    Lake loads the package from its checkout in `vendor`. The copy leaves out that whole checkout,
+    including a file outside the subdirectory, and names the package in an override. It
     keeps the other entries of `vendor`, such as a library's source directory and a submodule that
     no glob names. Without a manifest, Lake's load through `LAKE_PKG_URL_MAP` writes the local
     repository into the entry, and the inventory accepts it. A worker process loads these, and Git

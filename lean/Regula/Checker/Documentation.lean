@@ -673,7 +673,11 @@ accepted project `project` among them: for each, the configuration files that de
 loads, by the name that its entry gives (the Verso package's by `LakeSelection.rootConfigFile`),
 the manifest that its entry records, and the manifest, package overrides file and toolchain file of
 the workspace it roots. Lake's load of the Verso package reads the recorded manifest when it
-materializes the package, and a build of the package as a root reads the rest. They are also the
+materializes the package, and a build of the package as a root reads the rest. The accepted
+project's own package overrides file is left out: `Lake.copyProject` writes a generated one at the
+copy's root whenever the root has a dependency, `DocFenceAudit.prepareVerso` compares the copy's
+capture with the original's, and acceptance's source binding (`SourceBinding.configuration`)
+already binds the original root's overrides file, present or absent. They are also the
 surface manifest of each of these packages other than the accepted project and, discovered through
 Lake, the modules reachable by import from the library's modules, from the root of each executable
 the library `needs` and from the root of the render executable. Modules are followed in the Verso
@@ -702,7 +706,9 @@ def captureVersoPackage (project : FilePath) (verso : VersoPackage) :
     let mut inputs : List FilePath := LakeSelection.lakeInputs LakeSelection.rootConfigFile none dir
     for (pkg, entry, accepted) in locals do
       let anchor := dir / pkg.relDir
-      inputs := inputs ++ LakeSelection.lakeInputs entry.configFile entry.manifestFile? anchor
+      let own := LakeSelection.lakeInputs entry.configFile entry.manifestFile? anchor
+      inputs := inputs ++
+        if accepted then own.filter (· != (LakeSelection.ownRootFiles anchor).2) else own
       unless accepted do anchors := anchors.push (pkg.keyName, anchor)
     let captured := fun (pkg : _root_.Lake.Package) => anchors.any (·.1 == pkg.keyName)
     let mut roots ← lib.getModuleArray

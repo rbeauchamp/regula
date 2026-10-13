@@ -1,3 +1,0 @@
-# The package that the Git project of the `qualify copy-relocation` control requires by Git. The
-# control commits it to a Git repository of its own.
-name = "gdep"
