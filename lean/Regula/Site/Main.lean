@@ -46,8 +46,9 @@ def siteMain (args : List String) : IO UInt32 := do
       delayed render, and after a refused run with the same options a resumed render stops; the \
       refusals of regula-site and regula-standard remove the saved state, the word count and the \
       pages, and keep what a resumed render reads; each stops before it removes anything on a \
-      symbolic link at a file that it reads, an empty output directory, and a saved state or word \
-      count in its output directory or at a file that it reads)"
+      symbolic link at a file that it reads, an empty output directory, a saved state or word \
+      count that may be in its output directory, by spelling or case, and a word count that is a \
+      file that it reads, by path or by identity)"
     return 0
   | none, _ =>
     IO.eprintln "usage: lake exe site build --out DIR --evidence SHARD.json [SHARD.json ...]"

@@ -156,7 +156,8 @@ and `regula-standard`, and a delayed render of the standard and a resumed render
 After a refused run with the same options, a resumed render must stop. The refusals of the two
 programs must also remove the saved state, the word count and the pages. A run must stop before it
 removes anything if its output directory is empty, or if a file that it reads is a symbolic link.
-It must also stop if a file that it writes is in its output directory or is a file that it reads.
+It must also stop if its saved state or word count can be in its output directory, or can be a
+file that it reads.
 
 The website package requires the root `regula` package and the `audit/` package by relative
 path, because the standard's examples import modules of both. Neither requires Mathlib, and no

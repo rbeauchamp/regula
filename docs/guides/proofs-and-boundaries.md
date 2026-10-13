@@ -803,18 +803,28 @@ operates `RegulaRender.begin` in place of the run, thus a refused run and a run 
 
 A resumed render reads its saved state and the table of cross-references in its directory of
 pages, and `RegulaRender.begin` keeps that table. Before any removal, `RegulaRender.resolvePlan`
-resolves each path of the options into a plan of absolute paths, through the observer of the file
-system. It refuses an empty output directory, a symbolic link at a path of the plan, and an entry of
-the wrong kind there. The function `RegulaRender.refusal` then admits the plan, and the theorem
-`RegulaRender.removals_admitted` states what an admitted plan removes. Each removal is in a
-directory of pages below the output directory, or is a file that the render writes. No removal is
-or contains a file that the render reads.
+resolves each path of the configuration into a plan of absolute paths, through the observer of the
+file system. It refuses an empty output directory, a symbolic link at a path of the plan, and an
+entry of the wrong kind there. The files that the render reads are its saved states, its tables of
+cross-references, the files that it copies and its remote configuration. Then
+`RegulaRender.invalidate` observes the device and the number of the file at each removal and each
+read. The function `RegulaRender.refusal` admits that observation.
 
-The removals and the configuration of the render come from the plan alone. The theorem is about
-the paths of the plan, not about the file system. That these paths name the files that Verso reads
-rests on the checks of the observer, if no other process changes the files after the checks. Each
-removal goes through the observer. The command `lake exe site renderer-refusal` examines the two
-programs after the site build of `./scripts/verify.sh site`.
+The theorem `RegulaRender.removals_admitted` states that each removal is in a directory of pages
+below the output directory, or is a file that the render writes. No present removal is, or
+contains, a file that the render reads, by the identity of the files. The theorem
+`RegulaRender.written_admitted` states that a saved state or a word count is not in the output
+directory. For paths that do not exist yet, it compares the names. Two names that a volume can take
+for one name count as equal.
+
+The theorems are about the observation, not about the file system. The program `/usr/bin/stat`
+gives the identities, because Lean 4.34.1 does not give them, and that program is trusted. That
+the observation shows the file system rests on the checks of the observer, if no other process
+changes the files after the checks. Verso also reads the files that the content of a remote
+configuration names, and the theorems do not include them. Each removal goes through the observer.
+The command `lake exe site renderer-refusal` examines the two programs after the site build of
+`./scripts/verify.sh site`.
+
 
 The check `Regula.TaskManagerCheck.checkProgram` operates at the end of the root module of each
 executable. It examines `main` if the compiled code of `main` calls a function of the runtime that

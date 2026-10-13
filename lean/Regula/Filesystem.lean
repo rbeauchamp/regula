@@ -23,7 +23,8 @@ as for the private observation of issue 261.
 
 The observer's reads are public: `ownPath` and `ownRoot` give the path at which a removal is
 decided, and `requireOwnDirectory`, `requireOwnFile` and `requireNoLinkedEntries` check a place
-before a program makes, writes or loads something there.
+before a program makes, writes or loads something there. `identities` gives the file that each of
+several paths names, by a trusted program.
 
 Each operation is `@[noinline]`, so its call of the library's operation stays in its own compiled
 code and is not copied into a caller's. On Windows, Lean 4.34.1's
@@ -322,6 +323,47 @@ def requireOwnFile (path : FilePath) : IO Unit := do
   if removal .file (← observe observer path) == .refuse then
     throw <| IO.userError s!"{path} is not a file at its own place (a symbolic link, a directory, \
       an entry of another kind, or a path through a symbolic link is there)"
+
+/-- The identity (`FileId`) of the entry at each path of `paths`, by a read that follows no
+symbolic link at the path, or `none` when nothing is there. Lean 4.34.1's `IO.FS.Metadata` has no
+identity (`Init/System/IO.lean#L1115-L1129`), so it runs `/usr/bin/stat` one time over the paths
+where something is there. That program prints `st_dev` and `st_ino` of `lstat(2)` for each path,
+with `-f '%d %i'` on macOS and `-c '%d %i'` elsewhere, and it is trusted. It starts the process
+with no captured error output, so it starts no task, also in a process without Lean's task manager
+(`IO.Process.output` starts one). It stops on Windows, where the observer reads no entry, and when
+`stat` fails or does not print one pair of decimal numbers for each such path. -/
+def identities (paths : List FilePath) : IO (List (Option FileId)) := do
+  let found ← paths.mapM fun path => return (path, (← entryType observer path).isSome)
+  let present := found.filterMap fun (path, here) => if here then some path else none
+  let mut read : List FileId := []
+  unless present.isEmpty do
+    let format := if System.Platform.isOSX then #["-f", "%d %i"] else #["-c", "%d %i"]
+    let child ← IO.Process.spawn
+      { cmd := "/usr/bin/stat", args := format ++ #["--"] ++ present.toArray.map (·.toString),
+        stdin := .null, stdout := .piped, stderr := .null }
+    let output ← child.stdout.readToEnd
+    let exitCode ← child.wait
+    let parse (line : String) : Option FileId :=
+      match line.splitOn " " with
+      | [device, inode] => do return { device := (← device.toNat?), inode := (← inode.toNat?) }
+      | _ => none
+    match exitCode, ((output.splitOn "\n").filter (!·.isEmpty)).mapM parse with
+    | 0, some ids =>
+      unless ids.length == present.length do
+        throw <| IO.userError s!"/usr/bin/stat printed {ids.length} identities for \
+          {present.length} paths"
+      read := ids
+    | _, _ => throw <| IO.userError s!"/usr/bin/stat did not print the identities of {present} \
+      (exit {exitCode})"
+  let mut result : List (Option FileId) := []
+  for (_, here) in found do
+    if here then
+      let id :: more := read | throw <| IO.userError "/usr/bin/stat printed too few identities"
+      result := some id :: result
+      read := more
+    else
+      result := none :: result
+  return result.reverse
 
 /-- Stop unless nothing is at `path`, or a directory is there at its own place
 (`requireOwnDirectory`) and each of its entries is a directory or a file, by a read that follows no

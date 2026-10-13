@@ -10,8 +10,10 @@ program invalidates these places before it renders, and its refusal in a process
 task manager invalidates them in a run's place (`RegulaRender.begin` and `RegulaRender.refuse` in
 the website package). Without that, a refused run left an earlier run's saved state in place, and
 `--resume-html-multi FILE` rendered from it (issue 424). Each program first resolves these places
-into a plan and admits it, so it stops before it removes anything when the plan could remove or
-write through a file that the render reads (`RegulaRender.resolvePlan`, `RegulaRender.refusal`).
+into a plan, observes the files of its removals and reads by their identity and admits that
+observation. So it stops before it removes anything when a removal could reach a file that the
+render reads, or a saved state or a word count could be in the output directory
+(`RegulaRender.resolvePlan`, `RegulaRender.refusal`).
 
 `control` builds the two programs in the website package and runs them. The processes, Verso and
 the filesystem are its subject, an external boundary: it observes this build's programs and proves
@@ -118,7 +120,7 @@ private def refusals (website program scratch : FilePath) (name : String)
     inside.toString] env
   requireChecks [⟨s!"a run of {name} with its saved state in its output directory did not stop \
     with the reason before it removed or rendered anything {shown confined}",
-    confined.exitCode != 0 && (confined.stderr.splitOn "is in the output directory").length > 1 &&
+    confined.exitCode != 0 && (confined.stderr.splitOn "may be in the output directory").length > 1 &&
       (← present (pages / "index.html")) && !(← present inside)⟩]
 
 /-- Whether the run `output` stopped with a nonzero exit code and `reason` on standard error. -/
@@ -126,12 +128,19 @@ private def stoppedWith (output : IO.Process.Output) (reason : String) : Bool :=
   output.exitCode != 0 && (output.stderr.splitOn reason).length > 1
 
 /-- The runs of the program `name` at `program`, in the directory `scratch`, that stop with the
-reason before they remove or render anything, one for each case that the resolved plan of a render
-refuses (`RegulaRender.resolvePlan`, `RegulaRender.refusal`): a kept cross-reference table that is
-a symbolic link, through which Verso would write a file outside the output directory; an empty
-output directory; an output directory with a trailing separator and a saved state in it; a saved
-state that is a symbolic link to a file in the output directory; and a word count at the saved state
-that a resumed render reads. -/
+reason before they remove or render anything, one for each case that the resolution of a render or
+the admission of its observation refuses (`RegulaRender.resolvePlan`, `RegulaRender.refusal`):
+
+- a kept cross-reference table that is a symbolic link, through which Verso would write a file
+  outside the output directory;
+- an empty output directory;
+- an output directory with a trailing separator and a saved state in it;
+- a saved state that is a symbolic link to a file in the output directory;
+- a word count at the saved state that a resumed render reads;
+- a saved state in an absent output directory spelled in another case;
+- a word count that is a hard link of the saved state that a resumed render reads, the same file
+  by its identity;
+- a word count at the remote configuration. -/
 private def stops (website program scratch : FilePath) (name : String)
     (env : Array (String × Option String)) : IO Unit := do
   let base := scratch / s!"{name}-stops"
@@ -159,7 +168,7 @@ private def stops (website program scratch : FilePath) (name : String)
     "--delay-html-multi", (fresh / "state.json").toString] env
   requireChecks [⟨s!"a run of {name} with a trailing separator in its output directory and its \
     saved state there did not stop before it made anything {shown trailing}",
-    stoppedWith trailing "is in the output directory" && !(← present fresh)⟩]
+    stoppedWith trailing "may be in the output directory" && !(← present fresh)⟩]
   let out := base / "linked-state"
   let saved := out / "html-multi" / "saved" / "state.json"
   let linkedState := base / "linked-state.json"
@@ -177,14 +186,56 @@ private def stops (website program scratch : FilePath) (name : String)
     state.toString] env
   requireChecks [⟨s!"a resumed render of {name} whose word count is its saved state did not stop \
     before it removed the saved state {shown same}",
-    stoppedWith same "which the render writes, is or contains a file that it reads" &&
+    stoppedWith same "which the render removes first, may be or contain" &&
       (← present state)⟩]
+  let lower := base / "lower"
+  let upper := base / "LOWER" / "state.json"
+  let cased ← run website program.toString #["--output", lower.toString, "--delay-html-multi",
+    upper.toString] env
+  requireChecks [⟨s!"a run of {name} whose saved state differs from a path in its absent output \
+    directory only in case did not stop before it made anything {shown cased}",
+    stoppedWith cased "may be in the output directory" && !(← present lower) &&
+      !(← present (base / "LOWER"))⟩]
+  let state := base / "hard-state.json"
+  let hard := base / "hard-count.txt"
+  seed state
+  let linkedHard ← run base "ln" #[state.toString, hard.toString]
+  requireChecks [⟨s!"ln {state} {hard} {shown linkedHard}", linkedHard.exitCode == 0⟩]
+  let identical ← run website program.toString #["--output", (base / "hard").toString,
+    "--resume-html-multi", state.toString, "--with-word-count", hard.toString] env
+  requireChecks [⟨s!"a resumed render of {name} whose word count is a hard link of its saved state \
+    did not stop before it removed the link {shown identical}",
+    stoppedWith identical "which the render removes first, may be or contain" &&
+      (← present state) && (← present hard)⟩]
+  let remotes := base / "remotes.json"
+  seed remotes "{}"
+  let remote ← run website program.toString #["--output", (base / "remote").toString,
+    "--remote-config", remotes.toString, "--with-word-count", remotes.toString] env
+  requireChecks [⟨s!"a run of {name} whose word count is its remote configuration did not stop \
+    before it removed the configuration {shown remote}",
+    stoppedWith remote "which the render removes first, may be or contain" &&
+      (← present remotes)⟩]
+
+/-- The run of `regula-site` at `program`, in the website package `website`, whose word count is the
+stylesheet that its configuration copies (`Generated/regula.css`): it stops with the reason before
+it removes anything, and the stylesheet stays as it was. -/
+private def copySource (website program scratch : FilePath)
+    (env : Array (String × Option String)) : IO Unit := do
+  let stylesheet := website / "Generated" / "regula.css"
+  let before ← present stylesheet
+  let copied ← run website program.toString #["--output", (scratch / "copy-source").toString,
+    "--with-word-count", "Generated/regula.css"] env
+  requireChecks [⟨s!"a run of regula-site whose word count is the stylesheet that it copies did \
+    not stop before it removed the stylesheet {shown copied}",
+    stoppedWith copied "which the render removes first, may be or contain" &&
+      (← present stylesheet) == before⟩]
 
 /-- Build `regula-site` and `regula-standard` in the website package of the repository at
-`root`, then run the issue's reproduction with `regula-standard` (`reproduction`), and the refusals
-(`refusals`) and the stopped runs (`stops`) of both programs, in a fresh scratch directory. The
-first failure stops it. It runs after `lake exe site build`, which builds the website package and
-generates the sources of `regula-site`. -/
+`root`, then run the issue's reproduction with `regula-standard` (`reproduction`), the refusals
+(`refusals`) and the stopped runs (`stops`) of both programs, and the stopped run of `regula-site`
+on the file that it copies (`copySource`), in a fresh scratch directory. The first failure stops
+it. It runs after `lake exe site build`, which builds the website package and generates the sources
+of `regula-site`. -/
 def control (root : FilePath) : IO Unit := do
   let website := root / "website"
   let built ← run website "lake" #["build", "regula-site", "regula-standard"] cleanEnv
@@ -197,5 +248,6 @@ def control (root : FilePath) : IO Unit := do
     for name in ["regula-standard", "regula-site"] do
       refusals website (program name) scratch name cleanEnv refusing
       stops website (program name) scratch name cleanEnv
+    copySource website (program "regula-site") scratch cleanEnv
 
 end Regula.Site.RendererRefusal

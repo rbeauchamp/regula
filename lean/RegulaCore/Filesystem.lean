@@ -23,8 +23,9 @@ operations as actions on the state:
   component and no symbolic link;
 * `Model.ident`: the file that a path names (`FileId`), its device and its number on the device,
   as `lstat(2)` reports them. Lean 4.34.1's `IO.FS.Metadata` has neither
-  (`Init/System/IO.lean#L1115-L1129`), so no operation reads it and no decision depends on it: it
-  names the files that the frame of a removal speaks about (`Model.Unchanged`).
+  (`Init/System/IO.lean#L1115-L1129`), so no operation of `Ops` reads it and no decision of
+  `RegulaCore.Removal` depends on it: it names the files that the frame of a removal speaks about
+  (`Model.Unchanged`). `Regula.Filesystem.identities` reads it through a trusted program.
 
 ## The assumptions
 
@@ -124,6 +125,7 @@ structure FileId where
   device : Nat
   /-- The number of the file on its device: `st_ino`. -/
   inode : Nat
+  deriving DecidableEq, Repr
 
 /-- A model of the filesystem: its states, what the three reads report in each state, and the
 operations as actions on the state that can fail with an `IO.Error`. -/
@@ -140,8 +142,9 @@ structure Model where
   /-- The file that a path names in a state, as `lstat(2)` reports its device and number: a
   symbolic link at the path's last component is the file, not followed. `none` when nothing is
   there. Lean 4.34.1's `IO.FS.Metadata` has no device or inode field
-  (`Init/System/IO.lean#L1115-L1129`), so no operation reads it and no decision depends on it: it
-  names the files that the frame of a removal speaks about (`Model.Unchanged`). -/
+  (`Init/System/IO.lean#L1115-L1129`), so no operation of `Ops` reads it and no decision of
+  `RegulaCore.Removal` depends on it: it names the files that the frame of a removal speaks about
+  (`Model.Unchanged`). -/
   ident : World → FilePath → Option FileId
   /-- The operations, as actions on the state. -/
   ops : Ops (EStateM IO.Error World)

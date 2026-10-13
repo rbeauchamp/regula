@@ -36,6 +36,8 @@ planted initializer never runs. The planted removals below are the calls of a re
   `requireNoLinkedEntries` refuses a directory with a symbolic link among its entries.
 - A symbolic link, also one whose target is absent, a path through one and a directory where a file
   is checked: `requireOwnFile` refuses each, and accepts a file at its own place and an absent path.
+- A hard link and a symbolic link: `identities` gives the identity of the file for its hard link,
+  a different one for the symbolic link than for its target, and none for an absent path.
 - A URL of `Regula.Site.Deployment.fetch` that starts with `-`: curl does not read it as an
   option.
 
@@ -101,6 +103,16 @@ run_cmd do
         throwError "requireOwnFile accepted {refused}"
     Regula.Filesystem.requireOwnFile (base / "target" / "out" / "keep")
     Regula.Filesystem.requireOwnFile (base / "absent")
+    let kept := base / "target" / "out" / "keep"
+    let hard ← IO.Process.output { cmd := "ln", args := #[kept.toString, (base / "hard").toString] }
+    unless hard.exitCode == 0 do throwError "ln failed: {hard.stderr}"
+    match ← Regula.Filesystem.identities [kept, base / "hard",
+        base / "linked", base / "target", base / "absent"] with
+    | [some keep, some hard, some linked, some target, none] =>
+      unless keep == hard && linked != target do
+        throwError "identities did not give one file for a hard link and its file, or gave one \
+          file for a symbolic link and its target"
+    | ids => throwError "identities gave {repr ids} for three files, a link and an absent path"
     unless ← (base / "target" / "out" / "keep").pathExists do
       throwError "removeOwn removed an entry below a linked component"
     -- Moves: a file over a file and to an absent path; none through the link, of a directory, or
