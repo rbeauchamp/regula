@@ -6,17 +6,21 @@ import Regula.TaskManager
 `regula-site` and `regula-standard`, the programs of the website package, render through Verso's
 `manualMain`, which writes the places that their options name: the pages below `--output DIR`, the
 saved state of `--delay-html-multi FILE` and the word count of `--with-word-count FILE`. Each
-program refuses a process without Lean's task manager before Verso starts. Before issue 424, that
-refusal left an earlier run's saved state in place, and `--resume-html-multi FILE` rendered from it.
+program refuses a process without Lean's task manager before Verso starts, and `regula-standard`
+also refuses a standard that lacks a section the rule registry cites. Before issue 424, a refusal
+left an earlier run's saved state in place, and `--resume-html-multi FILE` rendered from it.
 
-Regula invalidates the destinations of the runs it refuses itself; a run Verso starts keeps Verso's
-write behaviour. The refusal reads the options with Verso's own parser and moves each destination
-that they name and where something is into a new directory beside it, under its own name
-(`RegulaRender.refuse` in the website package, `Regula.Filesystem.moveAside`). It removes nothing.
+Regula invalidates the destinations of the runs it refuses itself, the guard's refusals and the
+missing-sections refusal; a run Verso starts keeps Verso's write behaviour. Each refusal reads the
+options with Verso's own parser and moves each destination that they name and where something is
+into a new directory beside it, under its own name (`RegulaRender.refuse` in the website package,
+`Regula.Filesystem.moveAside`). It removes nothing.
 
 `control` builds the two programs in the website package and runs them. The processes, Verso and
 the filesystem are its subject, an external boundary: it observes this build's programs and proves
-nothing. `lake exe site renderer-refusal` runs it, after `lake exe site build` in
+nothing. It runs the guard's refusals only: the missing-sections refusal needs a standard that
+lacks a cited section, and it is covered by the shared `RegulaRender.refuse` path, not by this
+control. `lake exe site renderer-refusal` runs it, after `lake exe site build` in
 `./scripts/verify.sh site`. -/
 
 namespace Regula.Site.RendererRefusal

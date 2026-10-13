@@ -159,6 +159,11 @@ directories beside them. A refusal must keep the saved state that a resumed rend
 a symbolic link itself. It must report an output directory `.` or empty, and a destination that it
 cannot move.
 
+The control examines the refusals that `Regula.TaskManager.guard` gives in a process without the
+task manager of Lean. `regula-standard` also refuses a run when the standard does not contain a
+section that the rules cite. The control does not examine that refusal, but that refusal calls the
+same function `RegulaRender.refuse`.
+
 A refused run leaves its copies beside the destinations, and the renderers do not delete them.
 Delete them by hand when they are not necessary.
 

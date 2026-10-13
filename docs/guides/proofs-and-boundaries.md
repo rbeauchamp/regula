@@ -794,9 +794,13 @@ render and the word count of `regula-site` and `regula-standard`. Before
 [issue 424](https://github.com/rbeauchamp/regula/issues/424), a refused run left these files in
 place, and a later render with `--resume-html-multi` used the saved state of an earlier run.
 
-Regula invalidates the destinations of the runs that it refuses itself. A run that Verso starts
-keeps the write behaviour of Verso, and Regula removes nothing before it. The refusal of each
-program reads its options with the parser of Verso, `manualMain.opts`. That parser is private to
+Regula invalidates the destinations of the runs that it refuses itself. The guard refuses a run of
+the two programs in a process without the task manager of Lean. `regula-standard` also refuses a
+run when the standard does not contain a section that the rules cite. Each of these refusals calls
+the function `RegulaRender.refuse`. A run that Verso starts keeps the write behaviour of Verso, and
+Regula removes nothing before it.
+
+The refusal of each program reads its options with the parser of Verso, `manualMain.opts`. That parser is private to
 its module, and the module `RegulaRender.Options` gets it with `import all`. The destinations of
 the options are the output directory, the saved state of each delayed mode and the word count.
 
@@ -820,8 +824,13 @@ In Lean 4.34.1, `IO.FS.createDir` calls `mkdir` and `IO.FS.rename` calls `rename
 `mkdir` is exclusive and that `rename` moves a symbolic link itself are assumptions about POSIX. On
 Windows, `IO.FS.rename` replaces what is at its destination, thus the refusal moves nothing there
 and reports each destination. The assumptions do not include a process that changes a destination
-while the refusal operates. The command `lake exe site renderer-refusal` examines the two programs
-after the site build of `./scripts/verify.sh site`.
+while the refusal operates.
+
+The command `lake exe site renderer-refusal` examines the two programs after the site build of
+`./scripts/verify.sh site`. It examines `RegulaRender.refuse` through the refusals of the guard. To
+cause the refusal of a missing section, the command must use a standard that does not contain a
+cited section. Thus the command does not examine that refusal, but that refusal calls the same
+function `RegulaRender.refuse`.
 
 
 The check `Regula.TaskManagerCheck.checkProgram` operates at the end of the root module of each

@@ -44,9 +44,9 @@ def siteMain (args : List String) : IO UInt32 := do
     Regula.Site.RendererRefusal.control (← Regula.Qualification.rootDirectory)
     IO.println "site renderer-refusal: PASS (regula-standard renders from the saved state of a \
       delayed render, which keeps a file of its output directory, and after a refused run with the \
-      same options a resumed render stops; the refusals of regula-site and regula-standard move \
-      the saved state, the word count and the output directory aside whole, a symbolic link \
-      itself, and keep the saved state that a resumed render reads; each reports and keeps an \
+      same options a resumed render stops; the refusals of regula-site and regula-standard without \
+      Lean's task manager move the saved state, the word count and the output directory aside \
+      whole, a symbolic link itself, and keep the saved state that a resumed render reads; each reports and keeps an \
       output directory `.` or empty and a word count whose new directory's name is longer than \
       NAME_MAX, and moves nothing for options that Verso's parser refuses)"
     return 0

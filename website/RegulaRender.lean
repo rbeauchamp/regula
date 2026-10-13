@@ -8,12 +8,14 @@ import Regula.Filesystem
 that its options name: the output directory (`--output DIR`), the saved state of a delayed render
 (`--delay-html-multi FILE`, `--delay-html-single FILE`) and the word count
 (`--with-word-count FILE`). Each program refuses a process without Lean's task manager before
-Verso starts (`Regula.TaskManager.guard`). Before issue 424, that refusal left an earlier run's
-files in place, and a later reader accepted them: `--resume-html-multi FILE` rendered from an
+Verso starts (`Regula.TaskManager.guard`), and `regula-standard` also refuses a standard that lacks
+a section the rule registry cites (`renderStandard`). Before issue 424, a refusal left an earlier
+run's files in place, and a later reader accepted them: `--resume-html-multi FILE` rendered from an
 earlier saved state.
 
-Regula invalidates the destinations of the runs it refuses itself; a run Verso starts keeps Verso's
-write behaviour. The refusal (`refuse`) reads the options with Verso's own parser (`versoOptions`),
+Regula invalidates the destinations of the runs it refuses itself, the guard's refusals and the
+missing-sections refusal; a run Verso starts keeps Verso's write behaviour. The refusal (`refuse`)
+reads the options with Verso's own parser (`versoOptions`),
 takes the destinations of that reading (`destinations`), and moves each where something is into a
 new directory beside it (`invalidate`, `Regula.Filesystem.moveAside`). It removes nothing, it moves
 only the paths that the options name as destinations, and the copies that it moves aside stay
@@ -103,9 +105,11 @@ def invalidate (paths : List FilePath) : IO (List String) := do
     catch error => lines := lines ++ [s!"{path} was not moved aside: {error}"]
   return lines
 
-/-- The refusal of the program `program`, whose configuration is `config`, in a process without
-Lean's task manager (`Regula.TaskManager.guard`): it reads `args` with Verso's own parser
-(`versoOptions`) and moves the destinations of that reading aside (`destinations`, `invalidate`),
+/-- The refusal of the program `program`, whose configuration is `config`, of a run that the program
+refuses before Verso starts: the refusal of a process without Lean's task manager by the guard of
+`regula-site` and `regula-standard` (`Regula.TaskManager.guard`), and the refusal of a standard that
+lacks a cited section by `regula-standard` (`renderStandard`). It reads `args` with Verso's own
+parser (`versoOptions`) and moves the destinations of that reading aside (`destinations`, `invalidate`),
 printing a line for each, and returns 1. When the parser refuses the options, it prints why and
 moves nothing: a run with those options writes nothing either, since `manualMain` parses them
 before it writes anything.
