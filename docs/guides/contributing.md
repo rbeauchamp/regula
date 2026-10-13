@@ -554,8 +554,8 @@ The self-audit also refuses a one-sided comparison of `Json` values, the defect 
 except `Fixtures`, and each executable root that no library contains. Lake builds them first, and a
 worker imports each module alone, with its private declarations. It refuses a declaration if its
 type or value names the instance `Lean.Json.instBEq`. It also refuses one that compares texts of
-`Json.compress`, directly or through `let` bindings. The module `RegulaCore.JsonAgreement` is
-exempt, and so is each entry of `SelfAudit.jsonComparisonAllowlist`, which states its reason.
+`Json.compress`, directly or through `let` bindings. Each entry of
+`SelfAudit.jsonComparisonAllowlist` is exempt, and states its reason.
 
 Each use of that instance names it, so the check finds each such use in the inspected modules. It
 does not find texts that a named helper or a function argument renders before a comparison. It also
@@ -563,9 +563,10 @@ misses a comparison through an instance that Lean or a dependency declares for a
 field.
 
 The self-audit refuses an allowlist entry if its declaration compares no `Json` values, so each
-entry is a control of the check. Three fixed controls run too. A declaration named under
-`Regula.JsonAgreement` in a different module is found, and so are `compress` texts compared through
-`let` bindings. A `compress` that no comparison reads is not found.
+entry is a control of the check. It also refuses an entry if it does not inspect the module of the
+entry, such as a module that was renamed. Three fixed controls run too. A declaration named `main`,
+which the allowlist names only in `Regula.RegistryChecks`, is found in a different module. So are
+`compress` texts compared through `let` bindings. A `compress` that no comparison reads is not found.
 
 `./scripts/verify.sh diagnostics self-audit 1/4` to `4/4` each run one shard of the self-audit.
 The campaign sorts each list of modules that it inspects by name, and it deals the list to the

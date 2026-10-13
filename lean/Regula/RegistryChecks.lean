@@ -150,7 +150,9 @@ private def succeeded {ε : Type u} {α : Type v} : Except ε α → Bool
   | .ok _ => true | .error _ => false
 
 /-- Observe legacy result transport and current version, request and configuration admission
-through the production codecs. These controls do not establish a conforming audit. -/
+through the production codecs. A decoded schema version is compared with its number through
+`JsonAgreement.conforms`, which accepts exactly that number (`JsonAgreement.conforms_num_iff`).
+These controls do not establish a conforming audit. -/
 def resultSchemaChecks : IO Unit := do
   let request : Website.ExampleRequest :=
     ⟨"file", "/control", "/control/Example.lean", some "kernel-only", some "report",
@@ -182,7 +184,7 @@ def resultSchemaChecks : IO Unit := do
     let written ← IO.ofExcept (Checker.PolicyCodec.parse text)
     IO.ofExcept (Checker.ResultProtocol.admitDocument written)
   let legacy ← decode legacy
-  require (legacy.getObjValD "schemaVersion" == toJson (19 : Nat) &&
+  require (JsonAgreement.conforms (legacy.getObjValD "schemaVersion") (toJson (19 : Nat)) &&
       !succeeded ((legacy.getObjValD "request").getObjVal? "copyConfiguration") &&
       !succeeded ((legacy.getObjValD "effective").getObjVal? "configurationOrigins"))
     "schema 19 decodes without schema 20 configuration fields"
@@ -196,7 +198,7 @@ def resultSchemaChecks : IO Unit := do
     (Checker.ResultProtocol.requestJson request.kind request.project request.subject
       request.claim request.execution (System.FilePath.mk request.policy) #[])).setObjVal!
         "effective" (oldEffective.setObjVal! "configurationOrigins" origins))
-  require (current.getObjValD "schemaVersion" == toJson (21 : Nat) &&
+  require (JsonAgreement.conforms (current.getObjValD "schemaVersion") (toJson (21 : Nat)) &&
       succeeded (Checker.ResultProtocol.admitGuidance current) &&
       succeeded (Checker.RuleExampleQualification.requestAccount current bound))
     "schema 21 producer and canonical request/configuration readers agree"
