@@ -913,7 +913,10 @@ private def linkProbeOverlay (overlay selfLib : FilePath) (searchPath : List Fil
         then continue
         sources := sources.insert module source
         order := order.push module
-  -- One `ln` for each destination directory links every part there.
+  -- This read-only import overlay is never a Lake workspace. Its links preserve the artifact's
+  -- real origin for attributeLoaded; byte copies would falsely attribute a module to the overlay.
+  -- Thus the directory/file workspace constructor cannot represent this view. Lake never runs
+  -- here, and no removal is admitted through these aliases.
   let mut byDirectory : Std.HashMap FilePath (Array String) := {}
   for module in order do
     let some source := sources[module]? | continue

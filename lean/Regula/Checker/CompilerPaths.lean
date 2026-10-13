@@ -258,7 +258,7 @@ private def phase (repo scratch : FilePath) (test : Case) (negative : Bool) : IO
   IO.FS.writeFile (scratch / "Wrapper.lean")
     s!"import {test.supportModule}\n/-! Execution-path qualification consumer. -/\n/-- Runs the \
       imported entry. -/\ndef callsImported (n : Nat) := CompilerPath.entry n\n"
-  IO.FS.writeFile (scratch / "lean-toolchain") (← IO.FS.readFile (repo / "lean-toolchain"))
+  Regula.Filesystem.copyFile (repo / "lean-toolchain") (scratch / "lean-toolchain")
   -- `linter.missingDocs` goes on each claimed library (RG2006): the support library is
   -- claimed only in the project cases.
   let supportOptions := if test.project then "leanOptions.linter.missingDocs = true\n" else ""
@@ -269,6 +269,7 @@ private def phase (repo scratch : FilePath) (test : Case) (negative : Bool) : IO
   -- Resolve configuration before the checker captures its immutable source
   -- binding. A later first Lake invocation would otherwise create the manifest
   -- inside the checked interval, correctly invalidating that binding.
+  -- This closed generated package has no dependencies; update only writes its initial manifest.
   let configured ← runProcess scratch "lake" #["update"]
   if !configured.succeeded then
     return #[s!"{test.name}: configuration setup failed:\n{configured.output}"]
@@ -283,7 +284,8 @@ private def phase (repo scratch : FilePath) (test : Case) (negative : Bool) : IO
     let output := scratch / ".lake" / "build" / "lib" / "lean"
     let prefixDirectory := lookalikeRoot.toString
     IO.FS.createDirAll (output / prefixDirectory)
-    -- One `ln` per directory links every source under its own file name.
+    -- This control deliberately exposes the real toolchain through aliases; it is an input
+    -- to the compiler-path classifier, not a project copy accepted for a Lake build.
     let link (sources : Array FilePath) (directory : FilePath) := do
       unless sources.isEmpty do
         let result ← runProcess scratch "ln"

@@ -312,7 +312,7 @@ private def compileIn (repo scratch : FilePath) (spec : SourceSpec)
   let sourcePath := scratch / s!"{spec.«module»}.lean"
   let oleanPath := scratch / s!"{spec.«module»}.olean"
   let ileanPath := scratch / s!"{spec.«module»}.ilean"
-  if !insideLakeEnv then IO.FS.writeFile sourcePath spec.source
+  if !insideLakeEnv then Regula.Filesystem.writeFile sourcePath spec.source
   SourceBinding.withUnchanged #[{
     moduleName := spec.module.toName, path := sourcePath.toString, content := spec.source }] #[] do
     if spec.captureRejection then
@@ -397,7 +397,7 @@ def compileBatch (repo scratch : FilePath) (jobs : Nat) (specs : Array SourceSpe
     IO (Except ProducerReport.AdmissionFailure (Array Compilation)) := do
   let sources ← specs.mapM fun spec => do
     let path := scratch / s!"{spec.module}.lean"
-    IO.FS.writeFile path spec.source
+    Regula.Filesystem.writeFile path spec.source
     pure ({ moduleName := spec.module.toName, path := path.toString, content := spec.source } :
         ProducerReport.SourceBinding)
   SourceBinding.withUnchanged sources #[] do

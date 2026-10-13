@@ -35,9 +35,9 @@ def check : IO Unit := do
         "foundation_manifest.json"] : Array String).filterM
           (fun (name : String) => (root / name).pathExists)
       let rootConfigs ← configNames.mapM (fun (name : String) => do
-        pure (root / name, ← IO.FS.readBinFile (root / name)))
+        pure (root / name, ← Regula.Filesystem.readBytes (root / name)))
       let rootSources ← modulePaths.mapM (fun path => do
-        pure (path, ← IO.FS.readBinFile path))
+        pure (path, ← Regula.Filesystem.readBytes path))
       IO.println s!"prep phase: input capture: root sources={rootSources.size} \
         configs={rootConfigs.size} deps={deps.size}"
       let totalStart ← IO.monoMsNow

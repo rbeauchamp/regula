@@ -1,4 +1,5 @@
 import Regula.Checker.Common
+import Regula.Checker.Lake
 import Regula.Checker.SelftestArguments
 
 /-!
@@ -209,18 +210,7 @@ dependencies inherited as Lake resolves them and their already-built checkouts s
 adopter a Git repository of its own, as an adopter is, so the audit trusts `regula` instead of
 owning it. The adopter's lakefile requires `regula` from this checkout's path. -/
 def requireCheckout (repo adopter : FilePath) : IO Unit := do
-  let base ← readJson (repo / "lake-manifest.json")
-  let packages : Array Json ← IO.ofExcept <| base.getObjValAs? (Array Json) "packages"
-  let dependency := Json.mkObj [
-    ("name", toJson "regula"), ("scope", toJson ""),
-    ("configFile", toJson "lakefile.lean"), ("manifestFile", toJson "lake-manifest.json"),
-    ("inherited", toJson false), ("type", toJson "path"), ("dir", toJson repo.toString)]
-  writeJson (adopter / "lake-manifest.json") <| base.setObjVal! "packages" <|
-    toJson (#[dependency] ++ packages.map (·.setObjVal! "inherited" (toJson true)))
-  IO.FS.createDirAll (adopter / ".lake")
-  let linked ← runProcess adopter "ln" #["-s", (repo / ".lake" / "packages").toString,
-    (adopter / ".lake" / "packages").toString]
-  if !linked.succeeded then throw <| IO.userError linked.output
+  Lake.pinAdopter repo adopter
   -- An adopter is a repository of its own, so `regula`, which it requires from this checkout, is
   -- a dependency in a different Git work tree, which the audit trusts, as an adopter's is.
   let initialized ← runProcess adopter "git" #["init", "-q"]
@@ -232,11 +222,10 @@ def setup (repo adopter : FilePath) (exampleDir : String := "build-lint")
     (sources : Array String := #["Widget.lean", "Widget/Additional.lean"])
     (lakefileName : String := "lakefile.lean") : IO Unit := do
   let template := repo / "examples" / exampleDir
-  for name in sources ++ #["lean-toolchain", "foundation_manifest.json"] do
-    if let some parent := (adopter / name).parent then IO.FS.createDirAll parent
-    IO.FS.writeFile (adopter / name) (← IO.FS.readFile (template / name))
-  let lakefile ← IO.FS.readFile (template / lakefileName)
-  IO.FS.writeFile (adopter / lakefileName)
+  for name in (sources ++ #["lean-toolchain", "foundation_manifest.json"]).toList.eraseDups do
+    Regula.Filesystem.copyFile (template / name) (adopter / name)
+  let lakefile ← Regula.Filesystem.readFile (template / lakefileName)
+  Regula.Filesystem.writeFile (adopter / lakefileName)
     (lakefile.replace "\"../..\"" (Json.compress (toJson repo.toString)))
   requireCheckout repo adopter
 
@@ -264,9 +253,9 @@ def addSupport (adopter : FilePath) (source : String) (owned : Bool := false) : 
   unless owned do
     let initialized ← runProcess support "git" #["init", "-q"]
     if !initialized.succeeded then throw <| IO.userError initialized.output
-  IO.FS.writeFile (support / "Support.lean") source
-  IO.FS.writeFile (support / "lean-toolchain") (← IO.FS.readFile (adopter / "lean-toolchain"))
-  IO.FS.writeFile (support / "lakefile.toml")
+  Regula.Filesystem.writeFile (support / "Support.lean") source
+  Regula.Filesystem.copyFile (adopter / "lean-toolchain") (support / "lean-toolchain")
+  Regula.Filesystem.writeFile (support / "lakefile.toml")
     "name = \"build_lint_support\"\n[[lean_lib]]\nname = \"Support\"\n"
   let path := adopter / "lakefile.lean"
   IO.FS.writeFile path

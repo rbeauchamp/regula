@@ -22,7 +22,10 @@ open RegulaPolicy.Guards (bind_eq_ok)
 /-- This checker build's producer identity, written into every result envelope. -/
 abbrev producer := Regula.Checker.Producer.identity
 
-/-- Result schema 19 records the native-proof axioms of modules an environment does not inspect:
+/-- Result schema 20 adds `request.copyConfiguration`, the captured loaded selections used to
+relocate a project copy, or `null` for another route, and `effective.configurationOrigins` for a
+non-null effective account, separating captured configuration from generated overrides.
+Schema 19 records the native-proof axioms of modules an environment does not inspect:
 each environment report carries `imported`, the records of such axioms that its declarations rest
 on, each with the declaration of that module its name is generated under. Earlier schemas wrote no
 such member.
@@ -159,7 +162,7 @@ frozen configuration and dependency text from the snapshot (`snapshotJson`: a cl
 dependency is identified by its pinned revision, a dirty one only by package and `dirty`
 status) and imported-environment module lists (`acceptedJson`,
 `ProducerReport.Environment.resultJson`); schema 1 embedded them. -/
-def schemaVersion : Nat := 19
+def schemaVersion : Nat := 20
 
 /-- Envelope identity of every result file. -/
 def identityFields : List (String × Json) := RegistryCodec.identityFields producer schemaVersion
@@ -867,9 +870,10 @@ theorem admitGuidance_completed_diagnostics {j : Json} (h : admitGuidance j = .o
 /-- The JSON record of the request a result answers: its kind, project, subject, optional
 claim and execution mode, and each configuration file path with its text, if read. -/
 def requestJson (kind project subject : String) (claim execution : Option String)
-    (configuration : Array (System.FilePath × Option String)) : Json :=
+    (configuration : Array (System.FilePath × Option String))
+    (copyConfiguration : Option Regula.CopyConfiguration.Inputs := none) : Json :=
   toJson (⟨kind, project, subject, claim, execution,
-    configuration.map fun (path, source) => (path.toString, source)⟩ : Website.ExampleRequest)
+    configuration.map (fun (path, source) => (path.toString, source)), copyConfiguration⟩ : Website.ExampleRequest)
 
 /-- The text of a result file for `document`: the `SharedExecution.write` of `document` in the
 form the JSON parser builds (`JsonCanon.canon`; its `SharedExecution.intern` with the proposals of

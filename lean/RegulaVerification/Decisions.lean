@@ -54,16 +54,6 @@ theorem checked_passed : Regula.ExecutableContract passed
       (fun ends : List (Option UInt32) => ∀ ended ∈ ends, ended = some 0)) :=
   ⟨.of_iff passed_iff ⟨[some 0], by decide⟩ ⟨[some 1], by decide⟩⟩
 
-/-- `walked` accepts exactly the paths below the project root that the copy of the first
-acceptance step holds (`walked_iff`): the path does not start with `tmp`, and none of its
-components is a name that an isolated copy of a project leaves out. It accepts `lean` and
-refuses `tmp`. That this is the rule of the checker's isolated copy is not claimed. -/
-theorem checked_walked : Regula.ExecutableContract walked
-    (Regula.Decides (· = true) (fun relative => relative.head? ≠ some "tmp" ∧
-      ∀ component ∈ relative, component ≠ ".git" ∧ component ≠ ".lake" ∧ component ≠ ".cache" ∧
-        component ≠ ".regula-scratch")) :=
-  ⟨.of_iff walked_iff ⟨["lean"], by decide⟩ ⟨["tmp"], by decide⟩⟩
-
 /-- `removal` decides to remove exactly when a directory is at the path and its real path is that
 path (`removal_remove_iff`). It removes for a directory at its own place and does not remove when
 nothing is there. With a symbolic link at the path the place is not a directory, so it does not
@@ -112,6 +102,6 @@ theorem checked_prebuildCovers : Regula.ExecutableContract prebuildCovers
     ⟨Lean.Json.mkObj [("surfaces", Lean.Json.arr #[])], by decide +kernel⟩
     ⟨Lean.Json.null, by decide +kernel⟩⟩
 
-attribute [regula_decision] parseMode dependencyFree select passed walked removal prebuildCovers
+attribute [regula_decision] parseMode dependencyFree select passed removal prebuildCovers
 
 end RegulaVerification

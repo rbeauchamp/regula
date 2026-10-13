@@ -23,43 +23,35 @@ def nameJson (name : String) : Json := Regula.RegistryCodec.printedNameJson name
 of its own, so `regula`, which it requires from `root`, is a trusted dependency in a different Git
 work tree, as an adopter's is. -/
 def prepareProject (root project : FilePath) (packageName claim rationale : String) : IO Unit := do
-  IO.FS.writeBinFile (project / "lean-toolchain") (← IO.FS.readBinFile (root / "lean-toolchain"))
-  IO.FS.writeFile (project / "lakefile.lean")
+  let toolchain ← Regula.Filesystem.Construction.capture (root / "lean-toolchain") ["lean-toolchain"]
+  Regula.Filesystem.construct project (Regula.Filesystem.Construction.layout toolchain)
+  Regula.Filesystem.writeFile (project / "lakefile.lean")
     s!"import Lake\nopen Lake DSL\npackage {packageName} where\n  leanOptions := #[⟨`autoImplicit, \
       false⟩, ⟨`relaxedAutoImplicit, false⟩, ⟨`linter.missingDocs, true⟩]\nrequire regula \
       from {toJson root.toString |>.compress}\n@[default_target] lean_lib Example\n"
-  writeJson (project / "foundation_manifest.json") (Json.mkObj [
+  Regula.Filesystem.writeJson (project / "foundation_manifest.json") (Json.mkObj [
     ("schema-version", toJson (2 : Nat)), ("surfaces", toJson #[Json.mkObj [
       ("library", .str "Example"), ("claim", .str claim), ("execution", .str "checked"),
       ("rationale", .str rationale)]]),
     ("excluded-libraries", toJson (#[] : Array Json)),
     ("excluded-executables", toJson (#[] : Array Json))])
-  let manifest ← readJson (root / "lake-manifest.json")
-  let packages ← IO.ofExcept (manifest.getObjValAs? (Array Json) "packages")
-  let packages := packages.map (·.setObjVal! "inherited" (.bool true)) |>.push (Json.mkObj [
-    ("name", .str "regula"), ("scope", .str ""), ("type", .str "path"),
-    ("dir", .str root.toString), ("configFile", .str "lakefile.lean"),
-    ("manifestFile", .str "lake-manifest.json"), ("inherited", .bool false)])
-  writeJson (project / "lake-manifest.json") (manifest.setObjVal! "packages" (toJson packages))
-  IO.FS.createDirAll (project / ".lake")
-  let result ← run root "ln"
-      #["-s", (root / ".lake/packages").toString, (project / ".lake/packages").toString]
+  Regula.Checker.Lake.pinAdopter root project
   let initialized ← run project "git" #["init", "-q"]
-  requireChecks [⟨"pinned dependency link", result.exitCode == 0⟩,
-    ⟨"adopter repository", initialized.exitCode == 0⟩]
+  requireChecks [⟨"adopter repository", initialized.exitCode == 0⟩]
 
 /-- Core-only adopter for source/evidence controls. No checker dependency is imported
 into the observed surface, matching the original standalone qualification path. -/
 def prepareCoreProject (root project : FilePath) (packageName claim : String) : IO Unit := do
-  IO.FS.writeBinFile (project / "lean-toolchain") (← IO.FS.readBinFile (root / "lean-toolchain"))
-  IO.FS.writeFile (project / "lakefile.toml") s!"name = \
+  let toolchain ← Regula.Filesystem.Construction.capture (root / "lean-toolchain") ["lean-toolchain"]
+  Regula.Filesystem.construct project (Regula.Filesystem.Construction.layout toolchain)
+  Regula.Filesystem.writeFile (project / "lakefile.toml") s!"name = \
     \"{packageName}\"\n[leanOptions]\nautoImplicit = false\nrelaxedAutoImplicit = \
     false\nlinter.missingDocs = true\n[[lean_lib]]\nname = \"Example\"\n"
-  let manifest ← readJson (root / "lake-manifest.json")
-  writeJson (project / "lake-manifest.json")
+  let manifest ← IO.ofExcept <| Json.parse (← Regula.Filesystem.readFile (root / "lake-manifest.json"))
+  Regula.Filesystem.writeJson (project / "lake-manifest.json")
     ((manifest.setObjVal! "packages" (toJson (#[] : Array Json))).setObjVal! "name"
         (.str packageName))
-  writeJson (project / "foundation_manifest.json") (Json.mkObj [
+  Regula.Filesystem.writeJson (project / "foundation_manifest.json") (Json.mkObj [
     ("schema-version", toJson (2 : Nat)), ("surfaces", toJson #[Json.mkObj [
       ("library", .str "Example"), ("claim", .str claim),
       ("rationale", .str "The same fixed mathematical claim in positive and restored phases.")]]),
@@ -116,12 +108,11 @@ def rootImportsGuardControl (root scratch : FilePath) (sources : Array String) :
       unless base.isPrefixOf components && components.length > base.length do
         throw <| IO.userError s!"the build directory {place} is not inside {ws.root.dir}"
       unless ← place.isDir do continue
-      for path in ← place.walkDir do
-        if ← path.isDir then continue
-        let destination :=
-          (path.normalize.components.drop base.length).foldl (· / FilePath.mk ·) copy
-        if let some parent := destination.parent then IO.FS.createDirAll parent
-        IO.FS.writeBinFile destination (← IO.FS.readBinFile path)
+      let destination := Regula.Filesystem.Construction.location copy
+        (components.drop base.length)
+      let some parent := destination.parent | throw <| IO.userError "build copy has no parent"
+      Regula.Filesystem.Construction.ensureDirectory 4096 parent
+      discard <| Regula.Filesystem.copy place destination
   requireRootImportsBuilt copy sources
   let some (name, file) := (← rootImports copy sources)[0]?
     | throw <| IO.userError "the guard control's sources import no module of the root package"

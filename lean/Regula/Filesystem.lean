@@ -1,4 +1,5 @@
 import RegulaCore.Removal
+import RegulaCore.CopyConstruction
 
 /-! # The observer of the filesystem, and the removals and moves that Regula runs
 
@@ -47,15 +48,12 @@ def linkFollowed : String :=
 /-- `System.FilePath.symlinkMetadata`, which fails on Windows. -/
 @[noinline, regula_observer filesystem]
 def observeMetadata (path : FilePath) : IO IO.FS.Metadata :=
-  if System.Platform.isWindows then throw (windowsRefusal "lstat" path linkFollowed)
-  else path.symlinkMetadata
+  Construction.observeMetadata path
 
 /-- `IO.FS.realPath`, which fails on Windows. -/
 @[noinline, regula_observer filesystem]
 def observeRealPath (path : FilePath) : IO FilePath :=
-  if System.Platform.isWindows then
-    throw (windowsRefusal "realpath" path "IO.FS.realPath gives a path it did not resolve")
-  else IO.FS.realPath path
+  Construction.observeRealPath path
 
 /-- `IO.FS.removeDirAll`, which fails on Windows. -/
 @[noinline, regula_observer filesystem]
@@ -81,6 +79,139 @@ private def observer : Ops IO where
   removeDirAll := observeRemoveDirAll
   removeFile := observeRemoveFile
   rename := observeRename
+
+/-! ## Construction -/
+
+/-- Capture selected source directories and regular files through the no-follow observer and
+construct them exclusively. Links and special entries are refused before they can be opened.
+`observer_copy` describes the exact resulting tree, under native primitive hypotheses.
+
+Assumes: Lean v4.34.1 lstat (`Init/System/IO.lean:1151-1156`, `runtime/io.cpp:1160-1179`),
+readDir (`Init/System/IO.lean:1141-1142`, `runtime/io.cpp:1076-1098`) reaches EOF without a readdir
+error (trusted: the core wrapper does not distinguish them), exclusive mkdir (`runtime/io.cpp:1181-1195`),
+and exclusive file creation (`Init/System/IO.lean:651-660`, `runtime/io.cpp:409`). The source
+and private destination have no concurrent writer. Windows is refused. Modes are not preserved:
+copied regular files receive 0644; callers explicitly set 0755 for a copied executable they run.
+Lake creates and sets modes on programs it builds. -/
+def copy (source target : FilePath) (selected : FilePath → Bool := fun _ => true) :
+    IO (List Construction.Item) := Construction.copy source target selected
+
+/-- Construct a generated workspace through the same exclusive directory/file writer as `copy`.
+The root is absent or privately owned and empty; its parent is at its own real path. -/
+def construct (target : FilePath) (items : List Construction.Item) : IO Unit :=
+  Construction.construct target items
+
+/-- Copy a regular file through no-follow source admission and exclusive destination creation.
+The parent is admitted at its real path before the common instruction writer runs. -/
+def copyFile (source target : FilePath) (rights : UInt32 := 420) : IO Unit :=
+  Construction.copyFile source target rights
+
+/-- Read a regular source through the shared no-follow capture program before transforming it
+into a generated fixture. Neither links nor special entries are consumed as source bytes. -/
+def readBytes (source : FilePath) : IO ByteArray := do
+  let [⟨_, .file bytes _⟩] ← Construction.capture source
+    | throw <| IO.userError s!"source text is not one regular file: {source}"
+  return bytes
+
+/-- Decode bytes captured by the shared no-follow source reader as UTF-8. -/
+def readFile (source : FilePath) : IO String := do
+  let bytes ← readBytes source
+  let some text := String.fromUTF8? bytes
+    | throw <| IO.userError s!"source text is not UTF-8: {source}"
+  return text
+
+/-- Create a generated regular file through the exclusive writer. The destination's parent is
+admitted through primitive observations before writing; an existing entry is refused. -/
+def writeFile (target : FilePath) (text : String) : IO Unit := do
+  let some parent := target.parent | throw <| IO.userError "generated file has no parent"
+  let some name := target.fileName | throw <| IO.userError "generated file has no name"
+  Construction.appendFileWith Construction.observer parent name text.toUTF8
+
+/-- Create generated JSON bytes through the same exclusive writer. -/
+def writeJson (target : FilePath) (json : Lean.Json) : IO Unit :=
+  writeFile target (json.pretty ++ "\n")
+
+/-- Grant 0755 to a known copied program before executing it. Refuse any non-regular entry or
+path through an alias. The private destination has no concurrent writer during chmod.
+
+Assumes: Lean v4.34.1 `Init/System/IO.lean:1650` sets the regular file's access rights. -/
+def makeExecutable (path : FilePath) : IO Unit := do
+  unless (← observeMetadata path).type == .file && (← observeRealPath path) == path do
+    throw <| IO.userError s!"copied executable is not a regular file at its own place: {path}"
+  IO.Prim.setAccessRights path 493
+
+/-- The construction observer over precisely the existing filesystem model's IO worlds. -/
+abbrev observedConstruction (entry : Void IO.RealWorld → FilePath → Option IO.FS.FileType)
+    (real : Void IO.RealWorld → FilePath → Option FilePath)
+    (ident : Void IO.RealWorld → FilePath → Option FileId)
+    (names : Void IO.RealWorld → FilePath → List String) : Construction.CopyModel :=
+  Construction.CopyModel.ofIO observer Construction.observer rfl rfl entry real ident names
+
+/-- The exact plain destination and complete selected source receipt of the actual copy callers
+run. All hypotheses describe native reads and exclusive creations; none asserts copy correctness.
+Errors may leave a partial private destination and are never accepted. -/
+theorem observer_copy
+    (entry : Void IO.RealWorld → FilePath → Option IO.FS.FileType)
+    (real : Void IO.RealWorld → FilePath → Option FilePath)
+    (ident : Void IO.RealWorld → FilePath → Option FileId)
+    (names : Void IO.RealWorld → FilePath → List String)
+    (readsEntry : ReadsEntry (observedConstruction entry real ident names).filesystem)
+    (readsReal : ReadsReal (observedConstruction entry real ident names).filesystem)
+    (readsNames : Construction.ReadsNames (observedConstruction entry real ident names))
+    (readsBytes : Construction.ReadsBytes (observedConstruction entry real ident names))
+    (directories : Construction.CreatesDirectories (observedConstruction entry real ident names))
+    (files : Construction.CreatesFiles (observedConstruction entry real ident names))
+    (source target : FilePath) (selected : FilePath → Bool) (w : Void IO.RealWorld) :
+    RunsTo id (copy source target selected w)
+      (fun items after =>
+        Construction.Captured (observedConstruction entry real ident names) w selected source [] items ∧
+        Construction.Holds (observedConstruction entry real ident names).filesystem target items after)
+      (fun _ _ => True) :=
+  Construction.copy_io
+    (Construction.copy_corresponds_ofIO observer Construction.observer rfl rfl entry real ident names)
+    readsEntry readsReal readsNames readsBytes directories files source target selected 4096 w
+
+/-- The exact plain tree of the generated-workspace function callers run, under the same native
+primitive hypotheses as `observer_copy`. -/
+theorem observer_construct
+    (entry : Void IO.RealWorld → FilePath → Option IO.FS.FileType)
+    (real : Void IO.RealWorld → FilePath → Option FilePath)
+    (ident : Void IO.RealWorld → FilePath → Option FileId)
+    (names : Void IO.RealWorld → FilePath → List String)
+    (readsEntry : ReadsEntry (observedConstruction entry real ident names).filesystem)
+    (readsReal : ReadsReal (observedConstruction entry real ident names).filesystem)
+    (readsNames : Construction.ReadsNames (observedConstruction entry real ident names))
+    (directories : Construction.CreatesDirectories (observedConstruction entry real ident names))
+    (files : Construction.CreatesFiles (observedConstruction entry real ident names))
+    (target : FilePath) (items : List Construction.Item) (w : Void IO.RealWorld) :
+    RunsTo id (construct target items w)
+      (fun _ after => Construction.Holds
+        (observedConstruction entry real ident names).filesystem target items after) (fun _ _ => True) :=
+  Construction.construct_io
+    (Construction.copy_corresponds_ofIO observer Construction.observer rfl rfl entry real ident names)
+    readsEntry readsReal readsNames directories files target items w
+
+/-- The actual writer that copyFile and writeFile run retains an established plain parent and
+adds exactly its regular-file instruction. The initial tree is an explicit precondition;
+an arbitrary pre-existing directory is not authenticated by this theorem. -/
+theorem observer_appendFile
+    (entry : Void IO.RealWorld → FilePath → Option IO.FS.FileType)
+    (real : Void IO.RealWorld → FilePath → Option FilePath)
+    (ident : Void IO.RealWorld → FilePath → Option FileId)
+    (names : Void IO.RealWorld → FilePath → List String)
+    (readsEntry : ReadsEntry (observedConstruction entry real ident names).filesystem)
+    (readsReal : ReadsReal (observedConstruction entry real ident names).filesystem)
+    (directories : Construction.CreatesDirectories (observedConstruction entry real ident names))
+    (files : Construction.CreatesFiles (observedConstruction entry real ident names))
+    (parent : FilePath) (name : String) (bytes : ByteArray) (rights : UInt32)
+    (done : List Construction.Item) (w : Void IO.RealWorld)
+    (initial : Construction.Holds (observedConstruction entry real ident names).filesystem parent done w) :
+    RunsTo id (Construction.appendFileWith Construction.observer parent name bytes rights w)
+      (fun _ after => Construction.Holds (observedConstruction entry real ident names).filesystem
+        parent (done ++ [⟨[name], .file bytes rights⟩]) after) (fun _ _ => True) :=
+  Construction.appendFile_io
+    (Construction.copy_corresponds_ofIO observer Construction.observer rfl rfl entry real ident names)
+    readsEntry readsReal directories files parent name bytes rights done w initial
 
 /-! ## Removal and move -/
 

@@ -363,7 +363,7 @@ def otherTargets : List String :=
     "+Regula.RegistryChecks:olean", "+Regula.Linter:olean", "+Regula.Checker.LintMain:olean",
     "+Regula.Checker.RuleExamples:olean", "+Regula.Checker.RuleExampleQualificationMain:olean",
     "+Regula.Cli.Main:olean", "+Regula.Release:olean", "+Regula.DiagnosticsGate:olean",
-    "+Regula.RemovalControls:olean", "+Regula.Campaigns.Verification:olean",
+    "+Regula.RemovalControls:olean", "+Regula.CopyControls:olean", "+Regula.Campaigns.Verification:olean",
     "+Regula.Campaigns.Diagnostics:olean"]
 
 /-- A `qualify` selection under the driver's deadline. -/
@@ -746,6 +746,31 @@ def Command.launch (command : Command) : Priority → String × Array String
   | .normal => (command.program, command.args)
   | .low => ("nice", #["-n", "19", command.program] ++ command.args)
 
+/-- The shared constructor's exact source, embedded by Lean before any root artifact exists.
+Assumes: Lean v4.34.1 `Lean/Elab/BuiltinTerm.lean:437-445` elabIncludeStr reads this source at elaboration;
+the pinned Lean interpreter executes it. There is no second tree-walk implementation. -/
+def constructionSource : String := include_str "RegulaCore/CopyProgram.lean"
+
+/-- Obtain the same Git environment policy as construction before cold artifacts exist.
+The preliminary Git commands use this observer; Lake's own Git children remain outside it.
+
+Assumes: Lean v4.34.1 `IO.Process.output` supplies stdin and waits for the child
+(`Init/System/IO.lean:1544-1557`);
+`Lean/Util/Path.lean:85-86` identifies the interpreter. `--stdin --run`
+(`Lean/Shell.lean:497-518,552-560`) executes the embedded source without a temporary file or
+removal; interpreter execution is trusted.
+Construction.gitEnvironment names its pinned Git and OS assumptions. -/
+private def gitEnvironment : IO (Array (String × Option String)) := do
+  let out ← IO.Process.output {
+    cmd := ((← Lean.getBuildDir) / "bin/lean").toString
+    args := #["--stdin", "--run", "GitEnvironment.lean", "git-environment", "", ""]
+    env := #[("LEAN_PATH", none), ("LEAN_SRC_PATH", none)] }
+    (constructionSource ++ "\n/-- Cold environment entrypoint. -/\n" ++
+      "def main := Regula.Filesystem.Construction.sourceMain\n")
+  unless out.exitCode == 0 do
+    throw <| IO.userError s!"verification Git environment unavailable: {out.stderr}"
+  IO.ofExcept (Lean.fromJson? (← IO.ofExcept (Lean.Json.parse out.stdout)))
+
 /-- Start `command` at `priority` without waiting for it; `none`, with a report, when it could not
 be started. It cannot raise. The child stays in the driver's process group, so the outer
 deadline's kill reaches it. The inherited Lean search paths are removed, so a Lake command
@@ -754,18 +779,24 @@ Lake's artifact cache is off for each package whose own configuration does not t
 builds are not the checker's: the gate's own build of the claimed surface uses no artifact cache
 whatever the configuration says (`Regula.Checker.Lake.Build.run`). An inherited
 `REGULA_ORDINARY_LAKEFILES` is removed, so only a command that gives it (`ownerAssertion`) runs
-with the owner's assertion; each variable of the command's `env` is set last. Process execution
+with the owner's assertion. Each variable of the command's `env` is set before the shared Git
+observer's removals. Git commands select command-scope core.symlinks=false before priority
+wrapping; no Git policy is duplicated here. Lake-owned Git calls inherit the caller's environment.
+Process execution
 and signal delivery remain trusted. -/
 def start (priority : Priority) (command : Command) :
     BaseIO (Option (IO.Process.Child stdio)) := do
   announce s!"start {priority.display}{command.display}"
-  let (program, args) := command.launch priority
-  let spawn : IO (IO.Process.Child stdio) := IO.Process.spawn {
-    stdio with
-    cmd := program, args := args, cwd := some command.dir,
-    env := #[("GHCR_TOKEN", none), ("LEAN_PATH", none), ("LEAN_SRC_PATH", none),
+  let spawn : IO (IO.Process.Child stdio) := do
+    let isolated := if command.program == "git" then
+        {command with args := #["-c", "core.symlinks=false"] ++ command.args}
+      else command
+    let (program, args) := isolated.launch priority
+    let env := #[("GHCR_TOKEN", none), ("LEAN_PATH", none), ("LEAN_SRC_PATH", none),
       ("LAKE_ARTIFACT_CACHE", some "false"), ("REGULA_ORDINARY_LAKEFILES", none)] ++
-      command.env.map fun (name, value) => (name, some value) }
+      command.env.map fun (name, value) => (name, some value)
+    let env ← if command.program == "git" then pure (env ++ (← gitEnvironment)) else pure env
+    IO.Process.spawn { stdio with cmd := program, args, cwd := some command.dir, env }
   match ← spawn.toBaseIO with
   | .ok child => return some child
   | .error error =>
@@ -959,59 +990,28 @@ the copy holds only what the commands of this step made, the build reads files t
 process is given, and the step removes nothing of the checkout. The acceptance gate cannot
 observe that this driver made the copy new in this run; that statement rests on `makeCopy`. -/
 
-/-- Whether a path below the project root, given by its components from the root, is part of
-the copy. It is the rule by which the checker makes an isolated copy of a project
-(`Regula.Checker.Lake.copyProject`): VCS data, Lake's directory, artifact caches and the checker's old
-scratch directory are left out at every depth, and so is the root `tmp` directory. The two
-modules cannot import one another, so the rule is written twice. The checker's copy also leaves
-out every compiled module part; this one copies any outside Lake's directory, and that the copy
-held no build output before the driver's build is what a driver-copy audit trusts
-(`AxiomGate.driverCopy`). The copy is the project that the gate audits, whatever this rule copied,
-and a missing file fails the build. -/
-def walked : List String → Bool
-  | "tmp" :: _ => false
-  | relative => relative.all fun component =>
-      !([".git", ".lake", ".cache", ".regula-scratch"].contains component)
 
-/-- `walked` accepts exactly the paths that do not start with `tmp` and have none of the four
-left-out names as a component. -/
-theorem walked_iff (relative : List String) :
-    walked relative = true ↔ relative.head? ≠ some "tmp" ∧ ∀ component ∈ relative,
-      component ≠ ".git" ∧ component ≠ ".lake" ∧ component ≠ ".cache" ∧
-        component ≠ ".regula-scratch" := by
-  unfold walked
-  split
-  · simp
-  · next notTmp =>
-    have head : relative.head? ≠ some "tmp" := by
-      cases relative with
-      | nil => simp
-      | cons first rest =>
-        intro isTmp
-        simp only [List.head?_cons, Option.some.injEq] at isTmp
-        exact notTmp rest (isTmp ▸ rfl)
-    simp [head]
-
-/-- Copy each walked entry of the project at `root` (`walked`) to the same place below `target`,
-and return the path of each file it wrote, relative to `target` and written with `/`.
-A file's bytes are copied; a symbolic link is followed, as `Regula.Checker.Lake.copyProject` follows
-it. Every write is below `target`. -/
+/-- Construct the cold copy before any prebuild through the shared no-follow/exclusive routine.
+The bootstrap wrapper only supplies its main entrypoint. Its regular-file receipt identifies the
+files the same constructor emitted. `Construction.projectRelative` owns ordinary source selection;
+`Construction.sourceMain` also retains the original Markdown domain and reserves the root `.lake`.
+Regular files use 0644. The driver runs freshly built programs, whose executable modes Lake sets. -/
 def copyTree (root target : System.FilePath) : IO (List String) := do
-  let rootComponents := root.normalize.components
-  let included := fun (path : System.FilePath) =>
-    walked (path.normalize.components.drop rootComponents.length)
-  IO.FS.createDirAll target
-  let mut written := #[]
-  for path in ← root.walkDir (fun path => pure (included path)) do
-    unless included path do continue
-    let relative := path.normalize.components.drop rootComponents.length
-    let destination := relative.foldl (· / System.FilePath.mk ·) target
-    if ← path.isDir then IO.FS.createDirAll destination
-    else
-      if let some parent := destination.parent then IO.FS.createDirAll parent
-      IO.FS.writeBinFile destination (← IO.FS.readBinFile path)
-      written := written.push ("/".intercalate relative)
-  return written.toList
+  let some parent := target.parent | throw <| IO.userError "copy target has no parent"
+  let wrapper := parent / "regula-copy.lean"
+  let handle ← IO.FS.Handle.mk wrapper .writeNew
+  handle.putStr (constructionSource ++ "\n/-- Cold construction entrypoint. -/\n" ++
+    "def main := Regula.Filesystem.Construction.sourceMain\n")
+  handle.flush
+  let result ← IO.Process.output {
+    cmd := ((← Lean.getBuildDir) / "bin/lean").toString
+    args := #["--run", wrapper.toString, "project", root.toString, target.toString]
+    env := #[("LEAN_PATH", none), ("LEAN_SRC_PATH", none)] }
+  IO.FS.removeFile wrapper
+  unless result.exitCode == 0 do
+    throw <| IO.userError s!"project construction failed: {result.stdout}{result.stderr}"
+  let json ← IO.ofExcept (Lean.Json.parse result.stdout)
+  IO.ofExcept (Lean.fromJson? json)
 
 /-- The copy of the project that the first acceptance step builds and audits. -/
 structure Copy where
@@ -1069,7 +1069,7 @@ taken exclusively, no scratch owner lives, and the marked directories are remove
 exclusively, create the directory of that name, which must not exist, and copy the project into
 its directory `project` (`copyTree`). So the checker's reclamation and that of a later driver
 remove the directory of a driver that died, and remove none while this driver holds the lock.
-The copy has no `.lake`, so it has no build output.
+The copy reserves an empty root `.lake`, excluding the original root's default build state.
 
 After a reclamation the exclusive lock is converted to the shared one without an `unlock`
 between them, as in `Regula.Scratch`. Safety does not depend on the conversion: `flock(2)` does

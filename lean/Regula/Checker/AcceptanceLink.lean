@@ -234,8 +234,7 @@ def placeRetained (repo copy scratch link : FilePath) (identity : String)
               | .error _ => pure false
             unless regular do continue
             let target := staging / path
-            if let some parent := target.parent then IO.FS.createDirAll parent
-            IO.FS.writeBinFile target (← IO.FS.readBinFile source)
+            Regula.Filesystem.copyFile source target
             present := present.push path
           digests staging present.toList
         else pure []

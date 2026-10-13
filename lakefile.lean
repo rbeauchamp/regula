@@ -86,11 +86,13 @@ lean_lib «RegulaPolicy» where
 @[default_target]
 lean_lib «RegulaVerification» where
   globs := #[.andSubmodules `RegulaVerification]
+  needs := #[`@/copyConstructionSource]
 
 -- Dependency setup.
 @[default_target]
 lean_lib «RegulaProvision» where
   globs := #[.andSubmodules `RegulaProvision]
+  needs := #[`@/copyConstructionSource]
 
 @[default_target]
 lean_lib «RegulaQualification» where
@@ -106,6 +108,11 @@ input_dir ruleExampleSources where
 -- The standalone compiler probe embeds this source with include_str.
 input_file compilerObservationSource where
   path := "lean/Regula/CompilerObservation.lean"
+  text := true
+
+-- Cold drivers interpret this shared source before package artifacts exist.
+input_file copyConstructionSource where
+  path := "lean/RegulaCore/CopyProgram.lean"
   text := true
 
 @[default_target]
