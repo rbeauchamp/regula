@@ -89,12 +89,20 @@ private def renderedHtml (root : FilePath) : IO (List (String × String)) := do
 is written by the library's own code block. The copy's library sources and Verso package inputs
 must be exactly the audited and linked ones (`linked`), and the Verso package must pin every Git
 dependency it shares with a package it requires by path at the same revision
-(`Documentation.sharedPinMismatch`). -/
+(`Documentation.sharedPinMismatch`).
+
+The pin check reads the original Verso package at `repo`, not the copy, since it concerns the
+audited project's configuration. The copy's generated overrides file (`Lake.copyProject`, from
+`Lake.relocateDependencies`) makes each dependency of the accepted project a path entry, so on the
+copy the check would compare no Git pin of the accepted project. The original holds each package's
+own manifest and overrides file as a build in its directory reads them. The capture comparison
+binds the inputs of the Verso package and of the other local packages, and acceptance's source
+binding (`SourceBinding.configuration`) binds the accepted project's overrides file. -/
 private def prepareVerso (repo copy : FilePath) (verso : VersoPackage)
     (linked : Array RegulaPolicy.SourceSnapshot) : IO (Option String) := do
   let package := copy / verso.dir.toString
   let versoDir := repo / verso.dir.toString
-  if let some mismatch ← sharedPinMismatch package then
+  if let some mismatch ← sharedPinMismatch versoDir then
     return some s!"the Verso package pins {mismatch} differently from a package it requires by path"
   let library ← captureVerso { verso with dir := versoDir }
   let copied := (← captureVerso { verso with dir := package }) ++

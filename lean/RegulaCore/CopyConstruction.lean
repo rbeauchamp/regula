@@ -73,9 +73,9 @@ theorem packageSource_dependency (source : List String) (dependencies : List (Li
   have kept : ¬ PackageSource source dependencies path := of_decide_eq_false pruned
   ⟨Decidable.of_not_not fun absent => kept (Or.inl absent), fun same => kept (Or.inr same)⟩
 
-/-- The executed selection of a capture pass prunes an entry only when it is the directory of a
-dependency package that Lake's loaded workspace records in the packages directory, and not the
-pass's own root. -/
+/-- The executed selection of a capture pass prunes an entry only when it is the checkout of a Git
+dependency or the directory of a path dependency in the packages directory, one of the filter's
+`dependencies`, and not the pass's own root. -/
 theorem CopyFilter.omission_pruned (filter : CopyFilter) (path : List String)
     (pruned : filter.omission path = some .pruned) :
     path ∈ filter.dependencies ∧ path ≠ filter.source := by

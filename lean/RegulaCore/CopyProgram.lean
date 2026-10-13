@@ -377,9 +377,9 @@ def markdownPaths (root : FilePath) : IO (Array FilePath) := do
   return ((← root.walkDir enter).filter (·.extension == some "md")).qsort
     (fun left right => left.toString < right.toString)
 
-/-- An entry is source unless it is the directory of a dependency package that Lake's loaded
-workspace records in the packages directory, one of `dependencies`. The capture root `source` is
-always source, so an owned package that the packages directory holds keeps its own capture pass. -/
+/-- An entry is source unless it is the checkout of a Git dependency or the directory of a path
+dependency in the packages directory, one of `dependencies`. The capture root `source` is always
+source, so an owned package that the packages directory holds keeps its own capture pass. -/
 def PackageSource (source : List String) (dependencies : List (List String))
     (path : List String) : Prop :=
   path ∉ dependencies ∨ path = source
@@ -423,7 +423,8 @@ def Omission.describe : Omission → String
   | .excluded (.copy dir) => s!"the directory {"/".intercalate dir}, which holds the copy"
   | .excluded .tmp => "the project's tmp directory"
   | .excluded (.named name) => s!"a directory named {name}"
-  | .pruned => "the directory of a dependency package in the packages directory"
+  | .pruned =>
+    "the checkout of a Git dependency or the directory of a path dependency in the packages directory"
 
 /-- One capture pass of a project copy, all as normalized path components. -/
 structure CopyFilter where
