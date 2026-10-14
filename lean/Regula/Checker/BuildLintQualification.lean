@@ -1,6 +1,7 @@
 import Regula.Checker.Common
 import Regula.Checker.Lake
 import Regula.Checker.SelftestArguments
+import RegulaQualification.Member
 
 /-!
 # Build-policy path qualification
@@ -262,7 +263,9 @@ def addSupport (adopter : FilePath) (source : String) (owned : Bool := false) : 
       ((← IO.FS.readFile path) ++ "\nrequire build_lint_support from \"support\"\n")
   let path := adopter / "lake-manifest.json"
   let value ← readJson path
-  let packages : Array Json ← IO.ofExcept <| value.getObjValAs? (Array Json) "packages"
+  let packages : Array Json ← IO.ofExcept <|
+    RegulaQualification.Member.within path
+      (RegulaQualification.Member.array value "packages")
   let dependency := Json.mkObj [
     ("name", toJson "build_lint_support"), ("scope", toJson ""),
     ("configFile", toJson "lakefile.toml"), ("manifestFile", toJson "lake-manifest.json"),

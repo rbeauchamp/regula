@@ -34,7 +34,7 @@ def checkValidators (root : FilePath) : IO Unit := do
     unless exported.exitCode == 0 do
       throw <| IO.userError s!"--registry-out failed\n{exported.stdout}{exported.stderr}"
     let manifest ← readJson registry
-    let rules ← IO.ofExcept (manifest.getObjValAs? (Array Json) "rules")
+    let rules ← readMember registry (RegulaQualification.Member.array manifest "rules")
     let firstRule (f : Json → Json) : Json :=
       manifest.setObjVal! "rules" (toJson (rules.modify 0 f))
     let candidate := scratch / "candidate.json"

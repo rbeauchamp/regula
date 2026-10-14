@@ -43,7 +43,7 @@ def check (sourceReadOnly : Bool) : IO Unit := do
         "  leanOptions := #[⟨`autoImplicit, false⟩, ⟨`relaxedAutoImplicit, false⟩,\n" ++
         "    ⟨`linter.missingDocs, true⟩]\n" ++ Regula.Checker.observerPluginLean ++
         s!"\nrequire regula from {(Lean.Json.str root.toString).compress}\n" ++
-        "\nlean_lib Example where\n" ++ Regula.Checker.observerNeedLean ++ facet
+        "\n" ++ Regula.Checker.observedTargetLean .library "Example" ++ facet
     IO.FS.writeFile (project / "Example.lean") source
     let manifest ← IO.FS.readFile (project / "foundation_manifest.json")
     -- What this runtime reports for reads that fail the two ways the controls cause: a file that

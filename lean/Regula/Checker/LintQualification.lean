@@ -1033,7 +1033,9 @@ private def observerEscapes (repo adopter : FilePath) : IO (Array String) := do
     if before then mutate lakefile "\nrequire regula from" s!"\n{line}\nrequire regula from"
     else IO.FS.writeFile lakefile (lakefileText ++ s!"\n{line}\n")
     let parsed ← readJson manifestFile
-    let packages : Array Json ← IO.ofExcept <| parsed.getObjValAs? (Array Json) "packages"
+    let packages : Array Json ← IO.ofExcept <|
+      RegulaQualification.Member.within manifestFile
+        (RegulaQualification.Member.array parsed "packages")
     writeJson manifestFile <| parsed.setObjVal! "packages" <| toJson <| packages.push <|
       Json.mkObj [("name", toJson "setupdep"), ("scope", toJson ""),
         ("configFile", toJson "lakefile.lean"), ("manifestFile", toJson "lake-manifest.json"),
@@ -1281,10 +1283,10 @@ private def tomlTargets (repo adopter : FilePath) : IO (Array String) := do
       "surface «gadget-extra»: claim"],
     excludes := #[s!"regula lint: {acceptanceLabel}", "manifest-"] }
   IO.FS.writeFile lakefile <| (← IO.FS.readFile lakefile) ++
-    "\n[[lean_lib]]\nname = \"gadget-extra\"\nroots = [\"Extra\"]\n" ++
-    observerPluginToml ++ observerNeedToml ++
-    "\n[[lean_exe]]\nname = \"gadget-tool\"\nroot = \"Gadget.Cli\"\n" ++
-    observerPluginToml ++ observerNeedToml
+    "\n" ++ observedTargetToml .library "gadget-extra"
+      ("roots = [\"Extra\"]\n" ++ observerPluginToml) ++
+    "\n" ++ observedTargetToml .executable "gadget-tool"
+      ("root = \"Gadget.Cli\"\n" ++ observerPluginToml)
   IO.FS.writeFile cli
     "/-! The adopter's command. -/\n\n/-- Does nothing. -/\ndef main : IO Unit := pure ()\n"
   IO.FS.writeFile extra
@@ -1774,7 +1776,9 @@ private def dependencyCachedWarning (repo adopter : FilePath) : IO (Array String
   mutate (adopter / "lakefile.lean") "require regula from"
     "require dep from \"dep\"\n\nrequire regula from"
   let manifest ← readJson (adopter / "lake-manifest.json")
-  let packages : Array Json ← IO.ofExcept <| manifest.getObjValAs? (Array Json) "packages"
+  let packages : Array Json ← IO.ofExcept <|
+    RegulaQualification.Member.within (adopter / "lake-manifest.json")
+      (RegulaQualification.Member.array manifest "packages")
   writeJson (adopter / "lake-manifest.json") <| manifest.setObjVal! "packages" <|
     toJson (#[Json.mkObj [
       ("name", toJson "dep"), ("scope", toJson ""), ("configFile", toJson "lakefile.lean"),
@@ -1881,7 +1885,9 @@ private def escapedNameWarning (repo adopter : FilePath) : IO (Array String) := 
     "name = \"«foo\"\n\n[[lean_lib]]\nname = \"bar»\"\ndefaultFacets = []\n"
   IO.FS.writeFile (dependency / "bar».lean") "/-! A dependency module that no build needs. -/\n"
   let lakeManifest ← readJson (adopter / "lake-manifest.json")
-  let packages : Array Json ← IO.ofExcept <| lakeManifest.getObjValAs? (Array Json) "packages"
+  let packages : Array Json ← IO.ofExcept <|
+    RegulaQualification.Member.within (adopter / "lake-manifest.json")
+      (RegulaQualification.Member.array lakeManifest "packages")
   writeJson (adopter / "lake-manifest.json") <| lakeManifest.setObjVal! "packages" <|
     toJson (#[Json.mkObj [
       -- Lean writes the package name `«foo` escaped, as `««foo»`, and reads it back.
@@ -2122,7 +2128,9 @@ private def pathConfig (repo adopter : FilePath) : IO (Array String) := do
     "/-- An axiom that nothing uses. -/\naxiom Support.unused : False\n"
   let configManifestPath := adopter / "lake-manifest.json"
   let configManifest ← readJson configManifestPath
-  let configEntries ← IO.ofExcept <| configManifest.getObjValAs? (Array Json) "packages"
+  let configEntries ← IO.ofExcept <|
+    RegulaQualification.Member.within configManifestPath
+      (RegulaQualification.Member.array configManifest "packages")
   let some configEntry := configEntries.find? isSupportEntry
     | return failures.push "lake-lint/path: the manifest has no build_lint_support entry"
   let relative := configEntry.setObjVal! "dir" (toJson "support")
@@ -2188,7 +2196,9 @@ private def pathReserved (repo adopter : FilePath) : IO (Array String) := do
     "name = \"regula\"\n[[lean_lib]]\nname = \"Regula\"\nsrcDir = \"lean\"\nroots = [\"Regula.Contract\"]\n"
   let vendorManifestPath := adopter / "lake-manifest.json"
   let vendorManifest ← readJson vendorManifestPath
-  let vendorEntries ← IO.ofExcept <| vendorManifest.getObjValAs? (Array Json) "packages"
+  let vendorEntries ← IO.ofExcept <|
+    RegulaQualification.Member.within vendorManifestPath
+      (RegulaQualification.Member.array vendorManifest "packages")
   writeJson vendorManifestPath <| vendorManifest.setObjVal! "packages" <| toJson <|
     vendorEntries.map fun item =>
       if JsonAgreement.conforms (item.getObjValD "name") (toJson "regula") then
@@ -2247,7 +2257,9 @@ private def pathEscapes (repo adopter : FilePath) : IO (Array String) := do
     "name = \"build_lint_support_two\"\n[[lean_lib]]\nname = \"Support\"\n"
   let manifestPath := adopter / "lake-manifest.json"
   let projectManifest ← readJson manifestPath
-  let entries ← IO.ofExcept <| projectManifest.getObjValAs? (Array Json) "packages"
+  let entries ← IO.ofExcept <|
+    RegulaQualification.Member.within manifestPath
+      (RegulaQualification.Member.array projectManifest "packages")
   let some supportEntry := entries.find? isSupportEntry
     | return failures.push "lake-lint/path: the manifest has no build_lint_support entry"
   writeJson manifestPath <| projectManifest.setObjVal! "packages" <| toJson <| entries.push <|
@@ -2377,7 +2389,9 @@ private def pathOverrides (repo adopter : FilePath) : IO (Array String) := do
     return failures.push s!"lake-lint/path: git init failed: {initialized.output}"
   let manifestPath := adopter / "lake-manifest.json"
   let manifest ← readJson manifestPath
-  let entries ← IO.ofExcept <| manifest.getObjValAs? (Array Json) "packages"
+  let entries ← IO.ofExcept <|
+    RegulaQualification.Member.within manifestPath
+      (RegulaQualification.Member.array manifest "packages")
   let some entry := entries.find? isSupportEntry
     | return failures.push "lake-lint/path: the manifest has no build_lint_support entry"
   writeJson manifestPath <| manifest.setObjVal! "packages" <| toJson <| entries.map fun item =>

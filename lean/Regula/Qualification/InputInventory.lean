@@ -66,11 +66,9 @@ def lakefile (regula : FilePath) : String := "\n".intercalate [
   "    IO.FS.writeFile record (Lean.Json.mkObj [(\"fault\", Lean.toJson fault),",
   "      (\"buildSucceeded\", Lean.toJson true), (\"addedBuilt\", Lean.toJson added)]).compress",
   "",
-  "lean_lib Example where",
-  "  globs := #[.andSubmodules `Example]",
-  "  needs := #[`@regula/RegulaObserver:shared]",
-  "  defaultFacets := #[LeanLib.facetKind ++ `inventoryFault]",
-  ""]
+  Regula.Checker.observedTargetLean .library "Example"
+    ("  globs := #[.andSubmodules `Example]\n" ++
+      "  defaultFacets := #[LeanLib.facetKind ++ `inventoryFault]\n")]
 
 /-- The record the facet of `lakefile` writes for a fault that it injected and after which the
 library's Lean artifacts built: the fault's name, `buildSucceeded`, and whether `Example.New` was

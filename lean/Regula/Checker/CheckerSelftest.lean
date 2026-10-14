@@ -2072,8 +2072,8 @@ private unsafe def structuralPartB (layout : SourceLayout) (executables : Bool)
       (do IO.FS.writeBinFile library ((← IO.FS.readBinFile library).push 0)) (pure ())
   else
     let exeDecl :=
-      "\nlean_exe «selftestTool» where\n  root := `SelftestMain\n" ++ observerPluginOwn ++
-        observerNeedOwn
+      "\n" ++ observedTargetLean .executable "«selftestTool»" "  root := `SelftestMain\n"
+        (own := true)
     let claimedManifest := copy / "claimed-exe.json"
     -- The claimed-exe controls claim the added executable beside the application's: both roots
     -- define `main`, so the positive control also requires each root to be inspected in an
@@ -2729,8 +2729,8 @@ private unsafe def structuralCorrespondence (layout : SourceLayout) (mutation : 
   -- Boundary evidence text is printed only in verbose mode.
   let gate := runBinaryFrom repo copy "axiomGate" #["--verbose"]
   withReplacedFile lakefile
-      (originalLakefile ++ "\nlean_lib CorrespondenceControl where\n" ++ observerPluginOwn ++
-        observerNeedOwn) do
+      (originalLakefile ++ "\n" ++
+        observedTargetLean .library "CorrespondenceControl" (own := true)) do
     withReplacedFile manifest checkedManifest do
       withNewFile source positive do
         if !mutation then
@@ -2973,8 +2973,8 @@ private unsafe def fenceEnvironmentControl (layout : SourceLayout) (repo : FileP
           unit\n"
     let lakefile := dir / "lakefile.lean"
     IO.FS.writeFile lakefile ((← IO.FS.readFile lakefile) ++
-      "\nlean_lib FreshControl where\n  globs := #[.submodules `FreshControl]\n" ++
-        observerPluginOwn ++ observerNeedOwn)
+      "\n" ++ observedTargetLean .library "FreshControl"
+        "  globs := #[.submodules `FreshControl]\n" (own := true))
     let manifest := dir / "foundation_manifest.json"
     writeJson manifest (freshControlManifest (← parsedManifest manifest))
     -- A counterexample aid at the process boundary: the workspace provides a `leanchecker` in the
@@ -3005,19 +3005,17 @@ private unsafe def fenceEnvironmentControl (layout : SourceLayout) (repo : FileP
       -- Reconcile the actual run against the modules written above: each is a
       -- maximal root, and every root's successful check must cover it.
       let report ← readJson reportPath
-      let status ← IO.ofExcept <| report.getObjValAs? String "status"
-      let modules ← jsonStringArray "fresh control modules" <| ← IO.ofExcept <|
-        report.getObjVal? "modules"
-      let roots ← jsonStringArray "fresh control roots" <| ← IO.ofExcept <|
-        report.getObjVal? "roots"
-      let checks ← IO.ofExcept <| report.getObjValAs? (Array Json) "checks"
+      let read {α : Type} (decoded : Except String α) := IO.ofExcept (RegulaQualification.Member.within reportPath decoded)
+      let status ← read (RegulaQualification.Member.text report "status")
+      let modules ← read (memberStrings report "modules")
+      let roots ← read (memberStrings report "roots")
+      let checks ← read (RegulaQualification.Member.array report "checks")
       let mut checked : Array String := #[]
       for check in checks do
-        let exitCode ← IO.ofExcept <| check.getObjValAs? Nat "exitCode"
+        let exitCode ← read (RegulaQualification.Member.get Nat check "exitCode")
         if exitCode != 0 then
           failures.modify (·.push "fence-env/fresh-checker: a root was not checked successfully")
-        let covered ← jsonStringArray "fresh control coveredModules" <| ← IO.ofExcept <|
-          check.getObjVal? "coveredModules"
+        let covered ← read (memberStrings check "coveredModules")
         checked := checked ++ covered
       if status != "completed" || checks.size != expected.size
           || uniqueSorted modules != uniqueSorted expected || uniqueSorted roots !=
@@ -3077,9 +3075,9 @@ private def adopterTomlLakefile (checkerPath : String) : String :=
     true\n\n" ++
   "[[require]]\nname = \"regula\"\n" ++
   s!"path = \"{checkerPath}\"\n\n" ++
-  "[[lean_lib]]\nname = \"Widget\"\nglobs = [\"Widget\", \"Widget.+\"]\n" ++ observerNeedToml ++
+  observedTargetToml .library "Widget" "globs = [\"Widget\", \"Widget.+\"]\n" ++
   "\n" ++
-  "[[lean_exe]]\nname = \"widget_tool\"\nroot = \"Main\"\n" ++ observerNeedToml
+  observedTargetToml .executable "widget_tool" "root = \"Main\"\n"
 
 private def adopterLeanLakefile (checkerPath : String) : String :=
   "import Lake\nopen Lake DSL\n\n" ++
@@ -3088,8 +3086,9 @@ private def adopterLeanLakefile (checkerPath : String) : String :=
   "  leanOptions := #[⟨`autoImplicit, false⟩, ⟨`relaxedAutoImplicit, false⟩, ⟨`linter.missingDocs, \
     true⟩]\n\n" ++
   s!"require «regula» from \"{checkerPath}\"\n\n" ++
-  "@[default_target]\nlean_lib «Widget» where\n  globs := #[.andSubmodules `Widget]\n" ++
-  observerNeedLean ++ "\nlean_exe «widget_tool» where\n  root := `Main\n" ++ observerNeedLean
+  "@[default_target]\n" ++
+  observedTargetLean .library "«Widget»" "  globs := #[.andSubmodules `Widget]\n" ++ "\n" ++
+  observedTargetLean .executable "«widget_tool»" "  root := `Main\n"
 
 /-- The adopting workspace inherits every transitive dependency through the
 checker package's own `require`, pinned exactly as in this repository. -/
@@ -3358,8 +3357,8 @@ private def libraryCycleControl (repo : FilePath) : IO (Array String) :=
     "name = \"library_cycle_control\"\n" ++ observerPluginToml ++
       "[leanOptions]\nautoImplicit = false\n" ++
       "relaxedAutoImplicit = false\nlinter.missingDocs = true\n" ++
-      "[[lean_lib]]\nname = \"Left\"\nglobs = [\"Left.+\"]\n" ++ observerNeedToml ++
-      "[[lean_lib]]\nname = \"Right\"\nglobs = [\"Right.+\"]\n" ++ observerNeedToml ++
+      observedTargetToml .library "Left" "globs = [\"Left.+\"]\n" ++
+      observedTargetToml .library "Right" "globs = [\"Right.+\"]\n" ++
       regulaRequireToml repo
   let surface (library : String) : String :=
     "{\"library\":\"" ++ library ++ "\",\"executables\":[],\"claim\":\"standard-logical\"," ++
@@ -3387,15 +3386,14 @@ private def libraryCycleControl (repo : FilePath) : IO (Array String) :=
   unless gate.succeeded do return #[s!"library-cycle/accepted: expected PASS:\n{gate.output}"]
   let modules := #["Left.Base", "Left.Top", "Right.Base", "Right.Top"]
   let json ← requireAuditDocument (← IO.ofExcept (Json.parse (← IO.FS.readFile result)))
-  let surfaces ← IO.ofExcept <|
-    (json.getObjVal? "scope").bind (·.getObjValAs? (Array Json) "surfaces")
+  let read {α : Type} (decoded : Except String α) := IO.ofExcept (RegulaQualification.Member.within result decoded)
+  let surfaces ← read do RegulaQualification.Member.array (← RegulaQualification.Member.object json "scope") "surfaces"
   let mut found : Array (String × Array String × Array String × Array (String × String)) := #[]
   for surface in surfaces do
-    let library ← IO.ofExcept <| surface.getObjValAs? String "library"
-    let admission ← IO.ofExcept <|
-      (surface.getObjVal? "report").bind (·.getObjVal? "admission")
-    let reused ← IO.ofExcept <| admission.getObjValAs? (Array String) "reused"
-    let required ← IO.ofExcept <| admission.getObjValAs? (Array (String × String)) "required"
+    let library ← read (RegulaQualification.Member.text surface "library")
+    let admission ← read do RegulaQualification.Member.object (← RegulaQualification.Member.object surface "report") "admission"
+    let reused ← read (RegulaQualification.Member.get (Array String) admission "reused")
+    let required ← read (RegulaQualification.Member.get (Array (String × String)) admission "required")
     let replayed := modules.filter fun m => !reused.contains m && required.any (·.1 == m)
     found := found.push (library, replayed, modules.filter reused.contains, required)
   let expected : Array (String × Array String × Array String) := #[
@@ -3475,7 +3473,7 @@ private def observerIdentityControl (repo : FilePath) : IO (Array String) :=
     "name = \"observer_identity_control\"\n" ++ observerPluginToml ++
       "[leanOptions]\nautoImplicit = false\n" ++
       "relaxedAutoImplicit = false\nlinter.missingDocs = true\n" ++
-      "[[lean_lib]]\nname = \"Example\"\n" ++ observerNeedToml ++ regulaRequireToml tool
+      observedTargetToml .library "Example" ++ regulaRequireToml tool
   IO.FS.writeFile (Manifest.defaultPath project) <|
     "{\"schema-version\":2,\"surfaces\":[{\"library\":\"Example\",\"executables\":[]," ++
       "\"claim\":\"kernel-only\",\"execution\":\"report\"," ++
@@ -3545,8 +3543,8 @@ private def sharedCopiesControl (repo : FilePath) : IO (Array String) :=
     "name = \"shared_copies_control\"\n" ++ observerPluginToml ++
       "[leanOptions]\nautoImplicit = false\n" ++
       "relaxedAutoImplicit = false\nlinter.missingDocs = true\n" ++
-      "[[lean_lib]]\nname = \"Lib\"\nglobs = [\"Lib.+\"]\n" ++ observerNeedToml ++
-      "[[lean_lib]]\nname = \"App\"\nglobs = [\"App.+\"]\n" ++ observerNeedToml ++
+      observedTargetToml .library "Lib" "globs = [\"Lib.+\"]\n" ++
+      observedTargetToml .library "App" "globs = [\"App.+\"]\n" ++
       regulaRequireToml repo
   let surface (library : String) : String :=
     "{\"library\":\"" ++ library ++ "\",\"executables\":[],\"claim\":\"standard-logical\"," ++
@@ -3603,17 +3601,16 @@ private def sharedCopiesControl (repo : FilePath) : IO (Array String) :=
   let modules := #["Lib.Base", "Lib.Down", "Lib.Even", "Lib.Far", "Lib.Left", "Lib.Near", "Lib.Odd",
     "Lib.Right", "Lib.Up", "App.Main"]
   let json ← requireAuditDocument (← IO.ofExcept (Json.parse (← IO.FS.readFile result)))
-  let surfaces ← IO.ofExcept <|
-    (json.getObjVal? "scope").bind (·.getObjValAs? (Array Json) "surfaces")
+  let read {α : Type} (decoded : Except String α) := IO.ofExcept (RegulaQualification.Member.within result decoded)
+  let surfaces ← read do RegulaQualification.Member.array (← RegulaQualification.Member.object json "scope") "surfaces"
   let mut found : Array (String × Array String × Array String × Array String) := #[]
   let mut required : Array (String × String) := #[]
   for surface in surfaces do
-    let library ← IO.ofExcept <| surface.getObjValAs? String "library"
-    let admission ← IO.ofExcept <|
-      (surface.getObjVal? "report").bind (·.getObjVal? "admission")
-    let reused ← IO.ofExcept <| admission.getObjValAs? (Array String) "reused"
-    let shared ← IO.ofExcept <| admission.getObjValAs? (Array String) "shared"
-    let keys ← IO.ofExcept <| admission.getObjValAs? (Array (String × String)) "required"
+    let library ← read (RegulaQualification.Member.text surface "library")
+    let admission ← read do RegulaQualification.Member.object (← RegulaQualification.Member.object surface "report") "admission"
+    let reused ← read (RegulaQualification.Member.get (Array String) admission "reused")
+    let shared ← read (RegulaQualification.Member.get (Array String) admission "shared")
+    let keys ← read (RegulaQualification.Member.get (Array (String × String)) admission "required")
     let replayed := modules.filter fun m => !reused.contains m && keys.any (·.1 == m)
     found := found.push (library, replayed, modules.filter reused.contains,
       modules.filter shared.contains)
@@ -3651,9 +3648,8 @@ private def writeCrossSurfaceProject (repo project : FilePath) (relation decided
       "[leanOptions]\nautoImplicit = false\n" ++
       "relaxedAutoImplicit = false\nlinter.missingDocs = true\n" ++
       s!"[[require]]\nname = \"regula\"\npath = {(Json.str repo.toString).compress}\n" ++
-      "[[lean_lib]]\nname = \"Exec\"\nglobs = [\"Exec.+\"]\n" ++ observerNeedToml ++
-      "[[lean_lib]]\nname = \"Proofs\"\nglobs = [\"Proofs.+\"]\n" ++
-        observerNeedToml
+      observedTargetToml .library "Exec" "globs = [\"Exec.+\"]\n" ++
+      observedTargetToml .library "Proofs" "globs = [\"Proofs.+\"]\n"
   writeJson (project / "lake-manifest.json") <|
     (← adopterLakeManifest repo repo.toString).setObjVal! "name" (Json.str "cross_surface_control")
   IO.FS.createDirAll (project / "Exec")
@@ -3708,8 +3704,8 @@ private def crossSurfaceDecisionControl (refusals : Bool) (repo : FilePath) :
         if !accepted.succeeded then
           return some s!"cross-surface/related: expected PASS:\n{accepted.output}"
         let json ← requireAuditDocument (← IO.ofExcept (Json.parse (← IO.FS.readFile result)))
-        let counted ← IO.ofExcept <| (json.getObjVal? "acceptance").bind fun acceptance =>
-          (acceptance.getObjVal? "account").bind (·.getObjValAs? (Array Json) "countedContracts")
+        let counted ← IO.ofExcept <| RegulaQualification.Member.within result do
+          RegulaQualification.Member.array (← RegulaQualification.Member.object (← RegulaQualification.Member.object json "acceptance") "account") "countedContracts"
         let named (entry : Json) : Bool :=
           (entry.getObjValAs? String "surface").toOption == some "Exec" &&
             (entry.getObjValAs? String "source").toOption == some "Proofs" &&
@@ -4002,8 +3998,8 @@ private def retainedBuildControl (repo : FilePath) : IO (Array String) :=
       "  leanOptions := #[⟨`autoImplicit, false⟩, ⟨`relaxedAutoImplicit, false⟩,\n" ++
       "    ⟨`linter.missingDocs, true⟩]\n" ++ observerPluginLean ++
       s!"\nrequire regula from {(Json.str repo.toString).compress}\n\n" ++
-      "lean_lib Solo where\n  globs := #[.submodules `Solo]\n" ++ observerNeedLean ++
-      "\nlean_lib Extra where\n  globs := #[.submodules `Extra]\n" ++ observerNeedLean ++ facet
+      observedTargetLean .library "Solo" "  globs := #[.submodules `Solo]\n" ++ "\n" ++
+      observedTargetLean .library "Extra" "  globs := #[.submodules `Extra]\n" ++ facet
   IO.FS.writeFile (Manifest.defaultPath project) <|
     "{\"schema-version\":2,\"surfaces\":[{\"library\":\"Solo\",\"executables\":[]," ++
       "\"claim\":\"standard-logical\",\"execution\":\"report\"," ++
@@ -5189,9 +5185,9 @@ private def combinedSnapshotQualification (repo : FilePath) : IO (Array String) 
     IO.FS.writeFile (project / "lakefile.toml") <|
       "name = \"snapshot_control\"\n" ++ observerPluginToml ++
         "[leanOptions]\nautoImplicit = false\n" ++
-        "relaxedAutoImplicit = false\nlinter.missingDocs = true\n[[lean_lib]]\nname = \
-          \"Snapshot\"\n" ++ observerNeedToml ++
-        "[[lean_lib]]\nname = \"Companion\"\n" ++ observerNeedToml ++
+        "relaxedAutoImplicit = false\nlinter.missingDocs = true\n" ++
+        observedTargetToml .library "Snapshot" ++
+        observedTargetToml .library "Companion" ++
         regulaRequireToml repo
     IO.FS.writeFile (Manifest.defaultPath project)
       "{\"schema-version\":2,\"surfaces\":[{\"library\":\"Snapshot\",\"executables\":[],\"claim\":\
