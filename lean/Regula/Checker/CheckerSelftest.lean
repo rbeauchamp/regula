@@ -4875,7 +4875,9 @@ unsafe def run (args : List String) : IO UInt32 := do
     return 0
   IO.println <| s!"checker self-test: PASS ({fixtures.size} fixed fixtures in-process; " ++
     (if options.buildBound then
-        s!"{fixtures.size} real-CLI controls (including all smoke controls); "
+        s!"{(fixtures.filter (·.fileAuditExclusion.isNone)).size} real-CLI controls \
+          (including all smoke controls; \
+          {(fixtures.filter (·.fileAuditExclusion.isSome)).size} excluded from the file audits); "
       else s!"{smokeFixtureNames.size} real-CLI smoke controls; ") ++
     s!"{(fenceCorpusCases "" "").size + publicOnlyFenceCases.size} Markdown cases plus import-setup \
       controls; 9 manifest cases; structural controls including explicit contract mutations; " ++
