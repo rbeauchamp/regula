@@ -215,8 +215,8 @@ def check (group : String) : IO Unit := do
       "name = \"snapshot_control\"\n" ++ Regula.Checker.observerPluginToml ++
       "[leanOptions]\nautoImplicit = false\nrelaxedAutoImplicit = false\n" ++
       "linter.missingDocs = true\n[[require]]\nname = \"dep\"\npath = \"../dependency\"\n" ++
-      Regula.Checker.regulaRequireToml root ++ "[[lean_lib]]\nname = \"Example\"\n" ++
-      Regula.Checker.observerNeedToml
+      Regula.Checker.regulaRequireToml root ++
+      Regula.Checker.observedTargetToml .library "Example"
     IO.FS.writeFile (project / "Example.lean") "import Dep\n/-! Snapshot control. -/\n"
     -- The complete generated requirement graph is this one path dependency, with no Git source.
     success (← run project "lake" #["update"] cleanEnv)
@@ -246,7 +246,7 @@ def check (group : String) : IO Unit := do
       "name = \"history_control\"\n" ++ Regula.Checker.observerPluginToml ++
       "[leanOptions]\nautoImplicit = false\nrelaxedAutoImplicit = false\n" ++
       "linter.missingDocs = true\n" ++ Regula.Checker.regulaRequireToml root ++
-      "[[lean_lib]]\nname = \"Example\"\n" ++ Regula.Checker.observerNeedToml
+      Regula.Checker.observedTargetToml .library "Example"
     removeFile (project / "lake-manifest.json")
     -- The replacement generated configuration has no requirements; update creates its manifest.
     success (← run project "lake" #["update"] cleanEnv)
@@ -259,12 +259,13 @@ def check (group : String) : IO Unit := do
         IO.FS.writeBinFile (project / "Example.lean")
             (← Regula.Filesystem.readBytes (root / "examples/rules/RG3001" / fixture))
         if phase != "negative" then clearBuild project
-        let (result, packet) ← observeProject root project (scratch / s!"{mode}-{phase}.json") flags
+        let output := scratch / s!"{mode}-{phase}.json"
+        let (result, packet) ← observeProject root project output flags
         if phase != "negative" then
           success result
           requireChecks [⟨"accepted history", accepted packet⟩]
         else
-          let findings ← IO.ofExcept (packet.getObjValAs? (Array Json) "diagnostics")
+          let findings ← readMember output (RegulaQualification.Member.array packet "diagnostics")
           let historyFindings := findings.filter
               (fun d => (d.getObjValAs? String "id").toOption == some "RG3001")
           requireChecks [⟨"history incomplete", result.exitCode != 0 &&

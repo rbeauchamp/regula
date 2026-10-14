@@ -7,6 +7,7 @@ import Regula.Scratch
 import Regula.Destination
 import RegulaPolicy.ResultState
 import RegulaPolicy.Guards
+import RegulaQualification.Member
 import Lean
 import Lake.Load.Manifest
 import Std.Sync.Mutex
@@ -511,6 +512,56 @@ def observerNeedLean : String := "  needs := #[`@regula/RegulaObserver:shared]\n
 /-- `observerNeedLean` in a configuration of the package `regula` itself (`observerPluginOwn`). -/
 def observerNeedOwn : String := "  needs := #[`@/RegulaObserver:shared]\n"
 
+/-- The kind of a target that a generated Lake configuration declares. -/
+inductive TargetKind where
+  /-- A `lean_lib`. -/
+  | library
+  /-- A `lean_exe`. -/
+  | executable
+  deriving DecidableEq
+
+/-- The `lakefile.lean` keyword that declares a target of the kind. -/
+def TargetKind.leanKeyword : TargetKind → String
+  | .library => "lean_lib"
+  | .executable => "lean_exe"
+
+/-- The `lakefile.toml` table of a target of the kind. -/
+def TargetKind.tomlTable : TargetKind → String
+  | .library => "[[lean_lib]]"
+  | .executable => "[[lean_exe]]"
+
+/-- The `lakefile.lean` declaration of the target `name` of the kind `kind` that a control or
+qualification generator writes for an audit to elaborate: its fields `fields`, each a line indented
+as a declaration's field, then the observer's `needs` entry (`observerNeedLean`), which RG2006
+requires of each such target. A target that this function or `observedTargetToml` writes has the
+entry; that is a property of their output, not of every generated configuration. Two kinds of
+generated target do not go through them: the self-test's reconstruction of the repository's own
+package (`CheckerSelftest.structuralProject`), which keeps the observer's `plugins` and `needs`
+entries of each library and executable in the repository's Lake configuration and leaves out
+every other `needs` entry on purpose, such as the input file of the library `Regula`, since the
+project holds only the modules that its targets build (`CheckerSelftest.renderNeeds`); and the refusal controls, whose targets omit or remove the entry on purpose
+(the RG2006 negative controls) or must be refused for another reason. Its package loads the
+observer as a plugin
+(`observerPluginLean`), which Lake gives each of its targets, so the declaration names no plugin of
+its own: Lake would load the observer twice. With `own`, the configuration is one of the package
+`regula` itself, whose package loads no plugin, as its checkout's `lakefile.lean`: the target loads
+its own observer (`observerPluginOwn`) and lists it in `needs` (`observerNeedOwn`).
+
+Assumes: Lake v4.34.1 `Lake/Config/LeanLib.lean:183-184` gives a library's modules the package's
+plugins followed by the library's own, with no removal of a repeated one, and
+`Lake/Config/Module.lean:188-189` gives a module its library's. An executable's root is a module of
+the library that `Lake/Config/LeanExe.lean:29-50` makes from the executable's configuration, with
+its `needs`, so an executable without the entry has none (`Lake/Config/LeanExeConfig.lean:46`). -/
+def observedTargetLean (kind : TargetKind) (name : String) (fields : String := "")
+    (own : Bool := false) : String :=
+  s!"{kind.leanKeyword} {name} where\n" ++ fields ++
+    if own then observerPluginOwn ++ observerNeedOwn else observerNeedLean
+
+/-- `observedTargetLean` in a `lakefile.toml`: the table of the target `name` of the kind `kind`,
+its keys `fields`, each a line, and then `observerNeedToml`. -/
+def observedTargetToml (kind : TargetKind) (name : String) (fields : String := "") : String :=
+  s!"{kind.tomlTable}\nname = \"{name}\"\n" ++ fields ++ observerNeedToml
+
 /-- The `lakefile.toml` table that requires `regula` from the checkout at `repo`. -/
 def regulaRequireToml (repo : FilePath) : String :=
   s!"[[require]]\nname = \"regula\"\npath = {(Json.str repo.toString).compress}\n"
@@ -552,6 +603,11 @@ def stringArray (what : String) (value : Json) : Except String (Array String) :=
 naming `what`. -/
 def jsonStringArray (what : String) (value : Json) : IO (Array String) :=
   IO.ofExcept (stringArray what value)
+
+/-- The required member `key` of `value`, an array of unique nonempty strings (`stringArray`), read
+with its decoding inside `RegulaQualification.Member.decoded`, so a refusal names the member. -/
+def memberStrings (value : Json) (key : String) : Except String (Array String) :=
+  RegulaQualification.Member.decoded (stringArray "its value") value key
 
 /-- Run `lake query TARGET --json` in `repo` and return its parsed JSON output. -/
 def lakeQuery (repo : FilePath) (target : String) : IO Json := do

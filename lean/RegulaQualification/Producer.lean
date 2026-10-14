@@ -2,20 +2,23 @@ import RegulaQualification.Json
 import Regula.StructuralName
 import Regula.Decision
 import RegulaCore.JsonAgreement
+import RegulaQualification.Member
 
 /-! # Producer observation requirements
 
 Exact producer-observation requirements for RG5001/RG5002 and standalone roots.
-Every mandatory JSON access may refuse. The required census, source, documentation,
+Every mandatory JSON access may refuse, through `RegulaQualification.Member`, with the name of the
+member it lacks. The required census, source, documentation,
 foundation fields, diagnostics, and ranges are compared, not inferred from a PASS label.
 The proofs concern these supplied observations, not Lean/OS authenticity. -/
 namespace RegulaQualification.Producer
 open Lean
 open Regula.JsonAgreement (Conforms)
 
-private def field (j : Json) (key : String) := j.getObjVal? key
-private def array (j : Json) (key : String) := j.getObjValAs? (Array Json) key
-private def text (j : Json) (key : String) := j.getObjValAs? String key
+private def object (j : Json) (key : String) := Member.object j key
+private def value (j : Json) (key : String) := Member.value j key
+private def array (j : Json) (key : String) := Member.array j key
+private def text (j : Json) (key : String) := Member.text j key
 /-- A dotted Lean name as result documents write it (`Regula.RegistryCodec.printedNameJson`). -/
 private def nameJson (name : String) : Json := Regula.RegistryCodec.printedNameJson name.toName
 private def first (values : Array Json) : Except String Json :=
@@ -23,14 +26,14 @@ private def first (values : Array Json) : Except String Json :=
 
 /-- Mandatory surface report selected by the public project protocol. -/
 def account (report : Json) : Except String Json := do
-  field (← first (← array (← field report "scope") "surfaces")) "report"
+  object (← first (← array (← object report "scope") "surfaces")) "report"
 
 /-- The report of the first surface's first claimed executable, which the public project
 protocol lists in that surface's `executables`: each executable root is inspected in an
 environment of its own. -/
 def executableAccount (report : Json) : Except String Json := do
-  let surface ← first (← array (← field report "scope") "surfaces")
-  field (← first (← array surface "executables")) "report"
+  let surface ← first (← array (← object report "scope") "surfaces")
+  object (← first (← array surface "executables")) "report"
 
 /-- Exact byte offset of the prefix before the first occurrence. Callers separately
 require the expected source fragments; this helper alone does not promise a match. -/
@@ -57,12 +60,12 @@ def requirements (report : Json) (code : Nat) (rule mode source : String)
   let account ← account report
   let diagnostics ← array report "diagnostics"
   let ids ← diagnostics.toList.mapM (fun d => text d "id")
-  let receipt ← field account "admission"
+  let receipt ← object account "admission"
   let key := declarationKey
   let required ← array receipt "required"
-  let snapshots ← array (← field report "scope") "sources"
+  let snapshots ← array (← object report "scope") "sources"
   let snapshot ← first snapshots
-  let docs ← field account "documentation"
+  let docs ← object account "documentation"
   let declarations ← array account "declarations"
   let declaration ← first declarations
   let material := if rule == "RG5002" then #[key] else #[]
@@ -85,32 +88,32 @@ def requirements (report : Json) (code : Nat) (rule mode source : String)
     ⟨"exact exit", code == (if fixed then 0 else 1)⟩,
     ⟨"exact status", (← text report "status") == (if fixed then "completed" else "rejected")⟩,
     ⟨"admission receipt complete",
-      decide (Conforms (← field receipt "required") (← field receipt "admitted"))⟩,
+      decide (Conforms (.arr required) (.arr (← array receipt "admitted")))⟩,
     ⟨"exact mode", (← text report "mode") == mode⟩,
     ⟨"no unresolved evidence", (← array report "unresolved").isEmpty⟩,
-    ⟨"exact census", decide (Conforms (← field account "census") censusJson)⟩,
+    ⟨"exact census", decide (Conforms (← object account "census") censusJson)⟩,
     ⟨"reflexivity admitted", required.any (decide <| Conforms · key)⟩,
     ⟨"one source snapshot", snapshots.size == 1⟩,
-    ⟨"snapshot module", decide (Conforms (← field snapshot "module") (nameJson "Example"))⟩,
+    ⟨"snapshot module", decide (Conforms (← value snapshot "module") (nameJson "Example"))⟩,
     ⟨"exact source bytes", (← text snapshot "sourceText") == source⟩,
     ⟨"snapshot filename", (System.FilePath.mk (← text snapshot "path")).fileName ==
         some "Example.lean"⟩,
     ⟨"module documentation",
-      decide (Conforms (← field docs "modules")
+      decide (Conforms (.arr (← array docs "modules"))
         (toJson #[toJson #[nameJson "Example", header]]))⟩,
-    ⟨"material selection", decide (Conforms (← field docs "materialDeclarations")
+    ⟨"material selection", decide (Conforms (.arr (← array docs "materialDeclarations"))
         (toJson material))⟩,
-    ⟨"declaration documentation", decide (Conforms (← field docs "declarations")
+    ⟨"declaration documentation", decide (Conforms (.arr (← array docs "declarations"))
         (toJson (if material.isEmpty then #[] else #[toJson #[key, doc]])))⟩,
     ⟨"one declaration", declarations.size == 1⟩,
     ⟨"no axioms", (← array declaration "axioms").isEmpty⟩,
-    ⟨"safe declaration", !(← declaration.getObjValAs? Bool "isUnsafe")⟩,
-    ⟨"total declaration", !(← declaration.getObjValAs? Bool "isPartial")⟩,
-    ⟨"unchanged elaborated theorem", decide (Conforms (← field declaration "type")
+    ⟨"safe declaration", !(← Member.bool declaration "isUnsafe")⟩,
+    ⟨"total declaration", !(← Member.bool declaration "isPartial")⟩,
+    ⟨"unchanged elaborated theorem", decide (Conforms (← value declaration "type")
         theoremType)⟩]
   if !fixed then
     let finding ← first diagnostics
-    let location ← field finding "location"
+    let location ← object finding "location"
     checks := checks ++ [
       ⟨"violation impact", (← text finding "impact") == "violation"⟩,
       ⟨"location kind", (← text location "kind") ==
@@ -123,7 +126,7 @@ def requirements (report : Json) (code : Nat) (rule mode source : String)
       checks := checks ++ [
         ⟨"exact module location", decide (Conforms location (Json.mkObj
             [("kind", .str "module"), ("name", nameJson "Example")]))⟩,
-        ⟨"module arguments", decide (Conforms (← field finding "arguments")
+        ⟨"module arguments", decide (Conforms (← object finding "arguments")
             (Json.mkObj [("subject", .str "Example"),
           ("detail",
               .str "module-documentation: add a module doc comment describing this module")]))⟩]
@@ -133,16 +136,16 @@ def requirements (report : Json) (code : Nat) (rule mode source : String)
       checks := checks ++ [
         ⟨"source contains expected selection", source.contains "theorem reflexive" &&
             source.contains "@["⟩,
-        ⟨"material arguments", decide (Conforms (← field finding "arguments")
+        ⟨"material arguments", decide (Conforms (← object finding "arguments")
             (Json.mkObj [("declaration", nameJson "reflexive"), ("sourceDeclaration", .null),
           ("detail", .str "material-documentation: document the claim, assumptions and evidence at \
             this declaration")]))⟩,
         ⟨"location binds source", (← text location "sourceText") == source⟩,
         ⟨"location filename", (System.FilePath.mk (← text location "uri")).fileName ==
             some "Example.lean"⟩,
-        ⟨"selection byte range", decide (Conforms (← field location "selectionRange")
+        ⟨"selection byte range", decide (Conforms (← object location "selectionRange")
             (Json.mkObj [("startByte", toJson start), ("endByte", toJson (start + 9))]))⟩,
-        ⟨"declaration byte range", decide (Conforms (← field location "range")
+        ⟨"declaration byte range", decide (Conforms (← object location "range")
             (Json.mkObj [("startByte", toJson (beforeBytes source "@[")),
           ("endByte", toJson (source.utf8ByteSize - 1))]))⟩]
   return checks
@@ -209,7 +212,7 @@ theorem requirements_census_type {report : Json} {code : Nat} {rule mode source 
   unfold requirements at h
   simp only [RegulaPolicy.Guards.bind_eq_ok] at h
   obtain ⟨acc, hacc, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, declarations, hdecls,
-    declaration, hdecl, _, _, _, _, _, _, _, _, _, _, census, hcensus, rest⟩ := h
+    declaration, hdecl, _, _, _, _, _, _, _, _, census, hcensus, rest⟩ := h
   obtain ⟨_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, type, htype, rest⟩ := rest
   have firstDeclaration : declarations[0]? = some declaration := by
     unfold first at hdecl
@@ -218,8 +221,9 @@ theorem requirements_census_type {report : Json} {code : Nat} {rule mode source 
       cases hdecl
       exact found
     · cases hdecl
-  refine ⟨acc, census, declarations, declaration, type, hacc, hcensus, hdecls, firstDeclaration,
-    htype, ?_⟩
+  refine ⟨acc, census, declarations, declaration, type, hacc,
+    ((Member.object_eq_ok_iff _ _ _).mp hcensus).1, (Member.array_eq_ok_iff _ _ _).mp hdecls,
+    firstDeclaration, (Member.value_eq_ok_iff _ _ _).mp htype, ?_⟩
   split at rest
   · simp only [RegulaPolicy.Guards.bind_eq_ok] at rest
     obtain ⟨_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, rest⟩ := rest
@@ -271,11 +275,11 @@ def standaloneRequirements (report : Json) (code : Nat) (mutated : Bool) : Excep
     ⟨"standalone diagnostics", ids == (if mutated then ["RG1001"] else [])⟩,
     ⟨"standalone status", (← text report "status") ==
         (if mutated then "rejected" else "completed")⟩,
-    ⟨"standalone documentation", (← array (← field account "documentation") "modules").any
+    ⟨"standalone documentation", (← array (← object account "documentation") "modules").any
       (decide <| Conforms · (toJson #[nameJson "SelftestMain",
         Json.mkObj [("documented", .bool true), ("documentationFirst", .bool true),
           ("imports", toJson (#[] : Array Json))]]))⟩,
-    ⟨"standalone main root", (← array (← field account "census") "executionRoots").any
+    ⟨"standalone main root", (← array (← object account "census") "executionRoots").any
       (decide <| Conforms · (toJson #[nameJson "SelftestMain", nameJson "main"]))⟩]
 
 end RegulaQualification.Producer

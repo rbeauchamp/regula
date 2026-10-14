@@ -29,8 +29,8 @@ def prepareProject (root project : FilePath) (packageName claim rationale : Stri
     s!"import Lake\nopen Lake DSL\npackage {packageName} where\n  leanOptions := #[⟨`autoImplicit, \
       false⟩, ⟨`relaxedAutoImplicit, false⟩, ⟨`linter.missingDocs, true⟩]\n  \
       plugins := #[`@regula/RegulaObserver:shared]\nrequire regula from \
-      {toJson root.toString |>.compress}\n@[default_target] lean_lib Example where\n\
-      {Regula.Checker.observerNeedLean}"
+      {toJson root.toString |>.compress}\n@[default_target] \
+      {Regula.Checker.observedTargetLean .library "Example"}"
   Regula.Filesystem.writeJson (project / "foundation_manifest.json") (Json.mkObj [
     ("schema-version", toJson (2 : Nat)), ("surfaces", toJson #[Json.mkObj [
       ("library", .str "Example"), ("claim", .str claim), ("execution", .str "checked"),
@@ -52,8 +52,8 @@ def prepareCoreProject (root project : FilePath) (packageName claim : String) : 
   Regula.Filesystem.writeFile (project / "lakefile.toml") <| s!"name = \"{packageName}\"\n" ++
     Regula.Checker.observerPluginToml ++ Regula.Checker.regulaRequireToml root ++
     "[leanOptions]\nautoImplicit = false\nrelaxedAutoImplicit = false\n" ++
-    "linter.missingDocs = true\n[[lean_lib]]\nname = \"Example\"\n" ++
-    Regula.Checker.observerNeedToml
+    "linter.missingDocs = true\n" ++
+    Regula.Checker.observedTargetToml .library "Example"
   let manifest ← IO.ofExcept <| Json.parse (← Regula.Filesystem.readFile (root / "lake-manifest.json"))
   let packages := toJson #[Regula.Checker.regulaManifestEntry root]
   Regula.Filesystem.writeJson (project / "lake-manifest.json")

@@ -152,11 +152,14 @@ def checkAnswer (project : FilePath) (output : String) : IO Unit := do
   let some line := (output.splitOn "\n").filter (!·.isEmpty) |>.getLast?
     | throw <| IO.userError s!"the worker's load of {project} printed nothing"
   let answer ← IO.ofExcept (Json.parse line)
-  let dependencies ← IO.ofExcept (answer.getObjValAs? (Array (String × String)) "dependencies")
-  let overrides ← IO.ofExcept (answer.getObjValAs? (Array (String × String)) "overrides")
-  let checkout ← IO.ofExcept (answer.getObjValAs? Bool "checkout")
-  let pathCopied ← IO.ofExcept (answer.getObjValAs? Bool "pathDependency")
-  let sources ← IO.ofExcept (answer.getObjValAs? (Array String) "sources")
+  let source := s!"the worker's answer for {project}"
+  let dependencies ← readMember source
+    (RegulaQualification.Member.get (Array (String × String)) answer "dependencies")
+  let overrides ← readMember source
+    (RegulaQualification.Member.get (Array (String × String)) answer "overrides")
+  let checkout ← readMember source (RegulaQualification.Member.bool answer "checkout")
+  let pathCopied ← readMember source (RegulaQualification.Member.bool answer "pathDependency")
+  let sources ← readMember source (RegulaQualification.Member.get (Array String) answer "sources")
   let expected := #[("gdep", (← IO.FS.realPath (project / "vendor" / "gdep" / subDir)).toString),
     ("pdep", (← IO.FS.realPath (project / pathDependency)).toString)]
   let sorted := fun (pairs : Array (String × String)) => pairs.qsort (·.1 < ·.1)
