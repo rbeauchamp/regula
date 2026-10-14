@@ -1,5 +1,6 @@
 import Regula.Qualification.Support
 import Regula.Checker.Workspace
+import Regula.TaskManager
 
 /-! # Git isolation of Lake's own Git commands
 
@@ -32,7 +33,9 @@ and that commit, and the link is a regular file that holds the link's target tex
   builds for it (`Regula.GitIsolation.runsAs`).
 * A program that the Lean frontend runs (`lean --run`) through the guard refuses with that
   environment, before its program runs, and names the variables to set. With the isolation
-  applied after it, its program runs.
+  applied after it, its program runs. In each run its refusal runs first with the reason that the
+  run has not completed (`Regula.TaskManager.startedReason`), as the guard marks the destinations
+  of each run before it enters the isolation.
 
 They are counterexample aids and observations of Lake, Git, Lean and the operating system, not
 proofs. The decisions that the start under isolation rests on are proved
@@ -125,7 +128,8 @@ private def intended (root url : FilePath) (rev : String) : IO Bool := do
   catch _ => return false
 
 /-- The program that the Lean frontend runs in the interpreted controls: its guarded `main` prints
-`ran` when its program runs, and its refusal prints the reason and returns 7. -/
+`ran` when its program runs, and its refusal prints the reason and returns 7. The guard runs the
+refusal before each run too, with `Regula.TaskManager.startedReason`. -/
 private def interpreted : String := "\n".intercalate [
   "import Regula.TaskManager",
   "def refuse (reason : String) (_ : List String) : IO UInt32 := do",
@@ -236,6 +240,7 @@ def check : IO Unit := do
       requireChecks [⟨s!"an interpreted program refuses without isolation: \
           {frontend.stdout}{frontend.stderr}",
         frontend.exitCode == 7 && !frontend.stdout.contains "ran" &&
+          frontend.stdout.startsWith s!"refused: {Regula.TaskManager.startedReason}\nrefused: " &&
           frontend.stdout.contains s!"refused: Git isolation is missing, and this process is not \
             the `{Regula.GitIsolation.executableFile "interpreted"}` executable that Lake builds, \
             so it cannot start again under it; start it with: " &&
@@ -243,11 +248,13 @@ def check : IO Unit := do
           frontend.stdout.contains "unset GIT_CONFIG_PARAMETERS" &&
           frontend.stdout.contains "GIT_CONFIG_VALUE_0=false" &&
           !frontend.stdout.contains "GIT_CONFIG_NOSYSTEM"⟩]
+      -- Under isolation the program runs after the refusal that marks its destinations, and no
+      -- other refusal runs.
       let isolated ← run scratch lean #["--run", source] (leanEnv ++ isolation)
       requireChecks [⟨s!"an interpreted program runs under isolation: \
           {isolated.stdout}{isolated.stderr}",
-        isolated.exitCode == 0 && isolated.stdout.contains "ran" &&
-          !isolated.stdout.contains "refused"⟩]
+        isolated.exitCode == 0 &&
+          isolated.stdout == s!"refused: {Regula.TaskManager.startedReason}\nran\n"⟩]
       IO.println "Lake Git isolation: isolated Lake child, symbolic-link mutation, exposed Lake \
         child, restarted in-process load, refused second start, renamed refusal and interpreted \
         refusal PASS"
