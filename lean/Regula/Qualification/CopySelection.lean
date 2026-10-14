@@ -21,8 +21,8 @@ private def refused (reason : String) (action : IO Unit) : IO Unit := do
     unless error.toString.contains reason do
       throw <| IO.userError s!"wrong selected-domain refusal: {error}"
 
-/-- Make a deliberate source link through Git's indexed-link checkout. No copy implementation
-uses this operation. Git and native link creation are trusted fixture mechanisms. -/
+/-- Make a deliberate source link through Git's indexed-link checkout (`indexLink`). No copy
+implementation uses this operation. Git and native link creation are trusted fixture mechanisms. -/
 private def sourceLink (project : FilePath) (relative target : String) : IO Unit := do
   let git (args : Array String) : IO String := do
     let result ← IO.Process.output (← Construction.gitProcessArgs {
@@ -31,8 +31,7 @@ private def sourceLink (project : FilePath) (relative target : String) : IO Unit
     return result.stdout.trimAscii.toString
   discard <| git #["init", "--quiet"]
   IO.FS.writeFile (project / "link-target") target
-  let object ← git #["hash-object", "-w", "link-target"]
-  discard <| git #["update-index", "--add", "--cacheinfo", "120000," ++ object ++ "," ++ relative]
+  indexLink git relative (project / "link-target")
   discard <| git #["-c", "core.symlinks=true", "checkout-index", "--force", "--", relative]
   unless (← Construction.observeMetadata (project / relative)).type == .symlink do
     throw <| IO.userError "Git fixture did not create the intended source link"

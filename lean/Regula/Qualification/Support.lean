@@ -128,4 +128,22 @@ directory. -/
 def copyFixture (source target : FilePath) : IO Unit :=
   discard <| Regula.Filesystem.copy source target
 
+/-- Index, in the repository whose fixture Git commands `git` runs, each giving its standard output
+without surrounding white space, a symbolic link at the path `link` whose target is the text of
+the file `target`, with no entry in the work tree. The link's mode comes from the index entry that
+this function writes, so no setting of Git, such as `core.symlinks`, decides it. A checkout makes
+the entry a symbolic link or, with `core.symlinks` false, a regular file that holds the target
+text.
+
+Assumes: installed Git 2.54.0 git-hash-object(1), DESCRIPTION and `-w`, writes the bytes of the
+named file, which can be outside the work tree, as a blob and prints its object ID.
+git-update-index(1), `--cacheinfo` and USING --CACHEINFO OR --INFO-ONLY, inserts an index entry
+with the given mode, object and path without reading the work tree. gitformat-index(5), the
+32-bit mode, gives object type 1010 (mode `120000`) to a symbolic link, and git-config(1),
+`core.symlinks`, checks such an entry out as a link or, when false, as a small plain file that
+holds the link text. -/
+def indexLink (git : Array String → IO String) (link : String) (target : FilePath) : IO Unit := do
+  let object ← git #["hash-object", "-w", "--", target.toString]
+  discard <| git #["update-index", "--add", "--cacheinfo", s!"120000,{object},{link}"]
+
 end Regula.Qualification

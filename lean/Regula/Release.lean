@@ -1569,24 +1569,42 @@ private def ghGet (path : String) : IO Json := do
 
 private def str (j : Json) (key : String) : IO String := IO.ofExcept (j.getObjValAs? String key)
 
-/-- The same Git environment observer as project construction, executed from embedded source
-because this cold workflow imports only the toolchain. No Git policy is reimplemented here.
+/-- Run the shared construction source's entrypoint (`Construction.sourceMain`) on the domain
+`domain`, executed from embedded source because this cold workflow imports only the toolchain, and
+decode the JSON it prints; `what` names the observation in an error. No Git policy is
+reimplemented here.
 
 Assumes: Lean v4.34.1 `Lean/Elab/BuiltinTerm.lean:437-445` captures include_str source;
 `IO.Process.output` supplies stdin and waits for the child (`Init/System/IO.lean:1544-1557`);
 `Lean/Util/Path.lean:85-86` identifies the interpreter. `--stdin --run`
 (`Lean/Shell.lean:497-518,552-560`) executes the embedded source without a temporary file or
-removal; interpreter execution is trusted.
-Construction.gitEnvironment names the pinned Git and OS assumptions. -/
-private def gitEnvironment : IO (Array (String × Option String)) := do
+removal; interpreter execution is trusted. -/
+private def construction (what domain : String) : IO (Array (String × Option String)) := do
   let out ← IO.Process.output {
     cmd := ((← Lean.getBuildDir) / "bin/lean").toString
-    args := #["--stdin", "--run", "GitEnvironment.lean", "git-environment", "", ""]
+    args := #["--stdin", "--run", "GitEnvironment.lean", domain, "", ""]
     env := #[("LEAN_PATH", none), ("LEAN_SRC_PATH", none)] }
     ((include_str "../RegulaCore/CopyProgram.lean") ++
       "\n/-- Cold environment entrypoint. -/\ndef main := Regula.Filesystem.Construction.sourceMain\n")
-  unless out.exitCode == 0 do fail s!"Git environment unavailable: {out.stderr}"
+  unless out.exitCode == 0 do fail s!"{what} unavailable: {out.stderr}"
   IO.ofExcept (fromJson? (← IO.ofExcept (Json.parse out.stdout)))
+
+/-- The same Git environment observer as project construction, from the embedded source
+(`construction`).
+
+Assumes: as for `construction`; Construction.gitEnvironment names the pinned Git and OS
+assumptions. -/
+private def gitEnvironment : IO (Array (String × Option String)) :=
+  construction "Git environment" "git-environment"
+
+/-- The Git isolation of a Lake command (`Regula.Filesystem.Construction.isolationEnvironment`),
+obtained as `gitEnvironment` obtains the Git environment, from the same embedded source, so the
+Git commands that Lake starts for it inherit it.
+
+Assumes: as for `gitEnvironment`; Construction.isolationEnvironment names the pinned Git and OS
+assumptions. -/
+private def isolationEnvironment : IO (Array (String × Option String)) :=
+  construction "Git isolation" "process-environment"
 
 /-- Run `git` with `args` in the checkout; its standard output without surrounding whitespace, or
 a failure with its standard error. -/
@@ -1802,9 +1820,10 @@ private def messagesSince (prev : Version) : IO (List String) := do
     if m.isEmpty then none else some m
 
 /-- The version Lake reads from `lakefile.lean`: `lake reservoir-config`, whose `version` is what
-Reservoir indexes a version tag with. -/
+Reservoir indexes a version tag with. Lake runs under the Git isolation (`isolationEnvironment`). -/
 private def lakeVersion : IO Version := do
-  let out ← IO.Process.output { cmd := "lake", args := #["reservoir-config"] }
+  let out ← IO.Process.output {
+    cmd := "lake", args := #["reservoir-config"], env := ← isolationEnvironment }
   unless out.exitCode == 0 do fail s!"lake reservoir-config: {out.stderr}"
   let json ← IO.ofExcept (Json.parse out.stdout)
   let text ← IO.ofExcept (json.getObjValAs? String "version")
