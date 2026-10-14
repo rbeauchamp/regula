@@ -3441,7 +3441,7 @@ private def observerIdentityControl (repo : FilePath) : IO (Array String) :=
   -- package (`checkSource`).
   let sources := (repo / "lean").normalize.components.length
   for path in ← Regula.Filesystem.Construction.walkDirectory (repo / "lean") do
-    if ← path.isDir then continue
+    if ← Regula.Filesystem.isDirectory path then continue
     let destination :=
       (path.normalize.components.drop sources).foldl (· / FilePath.mk ·) (tool / "lean")
     if let some parent := destination.parent then IO.FS.createDirAll parent

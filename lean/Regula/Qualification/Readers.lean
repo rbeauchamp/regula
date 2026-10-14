@@ -111,7 +111,7 @@ def gitDependencies (workspace : _root_.Lake.Workspace) : IO (List (String × Fi
 after provisioning, which checks the dependencies out. -/
 def requireProvisioned (workspace : _root_.Lake.Workspace) : IO Unit := do
   for (name, directory) in ← gitDependencies workspace do
-    unless ← directory.isDir do
+    unless ← Regula.Filesystem.isDirectory directory do
       throw <| IO.userError s!"its dependency {name} is not checked out at {directory}: provision \
         the dependencies first (scripts/provision.sh, then lean --run \
         lean/RegulaProvision.lean verso or mathlib)"

@@ -1032,7 +1032,7 @@ private def observerEscapes (repo adopter : FilePath) : IO (Array String) := do
     let label := s!"observer/unmemoized-dependency-presetup-{order}"
     requireDependency "Module.presetupFacetConfig.run mod" before
     failures := failures ++ (← expect adopter (accepted label))
-    unless ← ran.pathExists do
+    unless ← Regula.Filesystem.isPresent ran do
       failures := failures.push s!"lake-lint/{label}: the dependency's presetup facet did not \
         run, so the workspace did not configure it"
     removeDependency
@@ -1044,7 +1044,7 @@ private def observerEscapes (repo adopter : FilePath) : IO (Array String) := do
         "not observed: Regula's elaboration observer was not among the plugins Lean loaded to \
           elaborate Widget", "regula lint: INCOMPLETE (exit 3)"],
       excludes := #[s!"regula lint: {acceptanceLabel}"] })
-  unless ← ran.pathExists do
+  unless ← Regula.Filesystem.isPresent ran do
     failures := failures.push "lake-lint/observer/dependency-drops-plugins: the dependency's \
       presetup facet did not run, so the workspace did not configure it"
   removeDependency

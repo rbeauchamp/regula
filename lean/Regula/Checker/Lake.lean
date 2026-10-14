@@ -745,12 +745,13 @@ Package pruning leaves out exactly each entry of the packages directory, by the 
 the capture walks, whose observed real path is the observed real path of a recorded dependency
 directory: the checkout of a Git dependency or the directory of a path dependency, by the entry
 that Lake's load materialized it from (`LakeSelection.effectiveEntry`,
-`LakeSelection.checkoutDir`). It keeps every other entry there, one whose real path cannot be
-observed included (`mem_prunedEntries`, `Construction.CopyFilter.omission_pruned`,
-`Construction.CopyFilter.omission_other`). So a linked checkout is pruned as a cloned one is, and
-so is a directory that its recorded path names in another case or Unicode form that the
-filesystem folds. A packages directory that is itself a link is not listed, and is refused when the
-capture walks it, as each link that the capture walks is. An owned package there
+`LakeSelection.checkoutDir`). It keeps every other entry there, one where nothing is at the end
+of its links included (`mem_prunedEntries`, `Construction.CopyFilter.omission_pruned`,
+`Construction.CopyFilter.omission_other`), and a failure to read or resolve an entry is thrown.
+So a linked checkout is pruned as a cloned one is, and so is a directory that its recorded path
+names in another case or Unicode form that the filesystem folds. A packages directory that is
+itself a link is not listed, and is refused when the capture walks it, as each link that the
+capture walks is. An owned package there
 keeps its own capture pass (`Construction.packageSource_owned`). The copy's domain is
 each file that Lake's load reads for the root package or an owned dependency: the source of each
 module that Lake can build (`packageModules`), the loaded configuration file and an owned
@@ -815,9 +816,10 @@ def copyProject (repo target exclude : FilePath)
     -- `Construction.CopyFilter.omission_pruned`): each stored name that the capture walks whose
     -- observed real path is that of a recorded dependency directory, the checkout of a Git
     -- dependency or the directory of a path dependency. A Git dependency's package lies at its
-    -- checkout, or below it at the subdirectory its entry names. An entry whose real path cannot
-    -- be observed is kept, and the capture walks it. A packages directory that is a link is not
-    -- listed, and the capture refuses it. Each dependency has its path override.
+    -- checkout, or below it at the subdirectory its entry names. An entry where nothing is at the
+    -- end of its links is kept, and the capture walks it; a failure to read or resolve one is
+    -- thrown. A packages directory that is a link is not listed, and the capture refuses it. Each
+    -- dependency has its path override.
     let packagesPath := root / packagesDir
     let packagesKind ← try pure (some (← Regula.Filesystem.observeMetadata packagesPath).type) catch
       | .noFileOrDirectory .. => pure none
@@ -832,9 +834,12 @@ def copyProject (repo target exclude : FilePath)
         return some (← Regula.Filesystem.observeRealPath dir).normalize.components
       let names ← Regula.Filesystem.Construction.observer.names packagesPath
       let listing ← names.mapM fun (name : String) => do
-        let real ← try
-            pure (some (← Regula.Filesystem.observeRealPath (packagesPath / name)).normalize.components)
-          catch _ => pure none
+        -- `IO.FS.realPath` reports each failure as `noFileOrDirectory`, so `isPresent` decides
+        -- that nothing is at an entry, and a failure to read or resolve one is thrown.
+        let entry := packagesPath / name
+        let real ← if ← Regula.Filesystem.isPresent entry then
+            pure (some (← Regula.Filesystem.observeRealPath entry).normalize.components)
+          else pure none
         return (name, real)
       let packages := (← Regula.Filesystem.observeRealPath packagesPath).normalize.components
       pure (prunedEntries packages listing recorded)
@@ -904,13 +909,9 @@ def copyProject (repo target exclude : FilePath)
         (if package.isRoot then [] else
           [("the manifest", package.manifestFile, package.relManifestFile.normalize.components)])
       for (what, file, access) in packageReads do
-        let present ← try
-            discard <| Regula.Filesystem.observeRealPath file
-            pure true
-          catch
-            | .noFileOrDirectory .. => pure false
-            | error => throw error
-        unless present do continue
+        -- `IO.FS.realPath` reports each failure as `noFileOrDirectory`, so `isPresent` decides
+        -- that the original has no file there, and a file that cannot be read is a failure.
+        unless ← Regula.Filesystem.isPresent file do continue
         let refusal := s!"copy refused: {what} of package '{package.baseName}' at {file}"
         let some entries := Regula.Filesystem.Construction.packageEntries access
           | throw <| IO.userError s!"{refusal}: Lake's load of the copy reads it at \

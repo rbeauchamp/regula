@@ -70,7 +70,7 @@ private def refusedCopy (project copies : FilePath) (name : String) :
       discard <| Lake.copyProject project (exclude / "tree") exclude
       pure (none : Option String)
     catch error => pure (some error.toString)
-  return (refusal, ← (exclude / "tree").pathExists)
+  return (refusal, ← Regula.Filesystem.isPresent (exclude / "tree"))
 
 /-- Throws, labelled with `what` and the process's combined output, unless it exited with code 0. -/
 private def succeeded (what : String) (result : IO.Process.Output) : IO Unit :=
@@ -134,10 +134,11 @@ def loadWorker (project copies : String) : IO Unit := do
   let overrides := overrides.map fun entry => (entry.name.toString, match entry.src with
     | .path dir => dir.toString
     | .git url .. => url)
-  let sources ← ownedSources.filterM fun (path : String) => (copy / path).pathExists
+  let sources ← ownedSources.filterM fun (path : String) =>
+    Regula.Filesystem.isPresent (copy / path)
   IO.println (Json.mkObj [("dependencies", toJson dependencies), ("overrides", toJson overrides),
-    ("checkout", toJson (← (copy / "vendor" / "gdep").pathExists)),
-    ("pathDependency", toJson (← (copy / "vendor" / "pdep").pathExists)),
+    ("checkout", toJson (← Regula.Filesystem.isPresent (copy / "vendor" / "gdep"))),
+    ("pathDependency", toJson (← Regula.Filesystem.isPresent (copy / "vendor" / "pdep"))),
     ("sources", toJson sources)]).compress
 
 /-- Check the answer `output` that the worker (`loadWorker`) printed for the Git project at
@@ -233,7 +234,7 @@ def gitSteps (scratch : String) : IO Unit := do
   Regula.Filesystem.Construction.copyFile (fixture / "git-project" / "vendor" / "pdep" / "lakefile.toml")
     (folded / "vendor" / "PDEP" / "lakefile.toml")
   writeManifest folded repository rev
-  if ← (folded / "vendor" / "pdep" / "lakefile.toml").pathExists then
+  if ← Regula.Filesystem.isPresent (folded / "vendor" / "pdep" / "lakefile.toml") then
     loadInWorker root scratch folded (scratch / "copies-folded") #[]
     IO.println "copy relocation path dependency stored in another case: PASS"
   else
@@ -294,7 +295,7 @@ def check : IO Unit := do
     let copies := scratch / "copies"
     let overridesFile := (LakeSelection.ownRootFiles project).2
     requireChecks [⟨s!"{overridesFile} does not exist before the control writes it",
-      !(← overridesFile.pathExists)⟩]
+      !(← Regula.Filesystem.isPresent overridesFile)⟩]
     if let some parent := overridesFile.parent then IO.FS.createDirAll parent
     _root_.Lake.Manifest.saveEntries overridesFile #[firstEntry]
     let overriddenCopy := do

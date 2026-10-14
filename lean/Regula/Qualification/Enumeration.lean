@@ -136,7 +136,8 @@ def check : IO Unit := do
       requireChecks [⟨s!"{mode}: the copy is refused", result.exitCode != 0⟩,
         ⟨s!"{mode}: the refusal is the listing's", result.stderr.contains reason⟩,
         ⟨s!"{mode}: no receipt is printed", result.stdout.isEmpty⟩,
-        ⟨s!"{mode}: nothing is written at the destination", !(← target.pathExists)⟩]
+        ⟨s!"{mode}: nothing is written at the destination",
+          !(← Regula.Filesystem.isPresent target)⟩]
       IO.println s!"enumeration {mode}: refused before any receipt or write: PASS"
     let target := scratch / "target-complete"
     let result ← copyThroughStandin root bin source target "complete"
@@ -144,7 +145,8 @@ def check : IO Unit := do
       (fromJson? · |>.toOption)
     requireChecks [⟨"complete: the copy succeeds", result.exitCode == 0⟩,
       ⟨"complete: the receipt holds the stand-in's names", printed == some (receipt listed)⟩,
-      ⟨"complete: the unlisted file is not copied", !(← (target / unlisted).pathExists)⟩]
+      ⟨"complete: the unlisted file is not copied",
+        !(← Regula.Filesystem.isPresent (target / unlisted))⟩]
     for name in listed do
       requireChecks [⟨s!"complete: {name} is copied",
         (← IO.FS.readFile (target / name)) == s!"{name}\n"⟩]
@@ -278,7 +280,7 @@ def failure : IO Unit := do
           | .error error => toString error
         requireChecks [⟨s!"the copy refuses with the listing's failure: {outcome}",
             copied matches .error _ && outcome.contains "failed with exit code"⟩,
-          ⟨"nothing is written at the destination", !(← target.pathExists)⟩]
+          ⟨"nothing is written at the destination", !(← Regula.Filesystem.isPresent target)⟩]
         IO.println "enumeration-failure copy: refused before any receipt or write: PASS"
       let whole := s!"0 {sectors} linear {loop} 0\n"
       withMapping root s!"{name}-whole" whole mount do

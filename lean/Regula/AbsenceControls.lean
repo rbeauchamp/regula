@@ -241,7 +241,7 @@ def pruneKeeps (parent locked store registry : FilePath) : IO Bool := do
     finally
       if (← Regula.Filesystem.entryIfPresent locked).isSome then
         IO.Prim.setAccessRights locked 448
-      for entry in ← parent.readDir do
+      for entry in ← Regula.Filesystem.Construction.listDirectory parent do
         if (← Regula.Filesystem.entryIfPresent entry.path) == some .dir then
           if (← Regula.Filesystem.entryIfPresent (entry.path / ".lake")) == some .dir then
             IO.Prim.setAccessRights (entry.path / ".lake") 448

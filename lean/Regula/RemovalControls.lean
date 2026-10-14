@@ -142,7 +142,8 @@ run_cmd do
     IO.FS.writeFile (base / "pages" / "index") "index"
     let some pages ← Regula.Filesystem.moveAside (base / "pages")
       | throwError "moveAside did not move a directory"
-    unless (← (pages / "index").pathExists) && !(← (base / "pages").pathExists) &&
+    unless (← Regula.Filesystem.isPresent (pages / "index")) &&
+        !(← Regula.Filesystem.isPresent (base / "pages")) &&
         pages.fileName == some "pages" &&
         (pages.parent.bind (·.parent)) == some base &&
         ((pages.parent.bind (·.fileName)).map (·.startsWith "pages.regula-refused-")) ==
@@ -154,7 +155,8 @@ run_cmd do
     let some alias ← Regula.Filesystem.moveAside (base / "alias")
       | throwError "moveAside did not move a symbolic link"
     unless (← alias.symlinkMetadata).type == .symlink &&
-        (← (base / "target").isDir) && !(← (base / "alias").pathExists) do
+        (← Regula.Filesystem.isDirectory (base / "target")) &&
+        !(← Regula.Filesystem.isPresent (base / "alias")) do
       throwError "moveAside did not move a symbolic link itself"
     if (← Regula.Filesystem.moveAside (base / "absent")).isSome then
       throwError "moveAside moved an absent entry"
