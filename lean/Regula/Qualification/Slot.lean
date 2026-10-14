@@ -163,7 +163,8 @@ def checkContainment (slot : ProducerSlot) (copy : FilePath)
         throw <| IO.userError s!"slot git resolution escapes slot: {entry}"
   if (← (copy / "lake-manifest.json").pathExists) then
     let manifest ← readJson (copy / "lake-manifest.json")
-    let packages ← IO.ofExcept (manifest.getObjValAs? (Array Json) "packages")
+    let packages ← readMember (copy / "lake-manifest.json")
+      (RegulaQualification.Member.array manifest "packages")
     for entry in packages do
       match entry.getObjVal? "dir" with
       | .error _ => pure ()

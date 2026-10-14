@@ -3,6 +3,7 @@ import RegulaCore.JsonAgreement
 import RegulaPolicy.Guards
 import Regula.StructuralName
 import Regula.Decision
+import RegulaQualification.Member
 
 /-! # History observation requirements
 
@@ -14,10 +15,10 @@ namespace RegulaQualification.History
 open Lean RegulaPolicy.Guards
 open Regula.JsonAgreement (Conforms Regular)
 
-private def field (value : Json) (name : String) : Except String Json := value.getObjVal? name
+private def field (value : Json) (name : String) : Except String Json := Member.field value name
 private def array (value : Json) (name : String) : Except String (Array Json) :=
-    value.getObjValAs? _ name
-private def text (value : Json) (name : String) : Except String String := value.getObjValAs? _ name
+    Member.array value name
+private def text (value : Json) (name : String) : Except String String := Member.text value name
 /-- A dotted Lean name as result documents write it (`Regula.RegistryCodec.printedNameJson`). -/
 private def nameJson (name : String) : Json := Regula.RegistryCodec.printedNameJson name.toName
 
@@ -154,7 +155,7 @@ def closureRequirements (account ownModule : Json) (source : String) (unsupporte
   let [unregistered] := unregistered | throw "missing or repeated private unregistered root"
   let hidden ← field unregistered "name"
   let execution ← array account "execution"
-  let isPrivate ← unregistered.getObjValAs? Bool "private"
+  let isPrivate ← Member.bool unregistered "private"
   let fixed := [
     Check.mk "exact source snapshot" (snapshots == [source]),
     ⟨"registered private root executed", execution.any
@@ -307,7 +308,7 @@ theorem closureRequirements_imported {account ownModule : Json} {source : String
     split at h
     · simp only [bind_eq_ok, pure_eq_ok] at h
       obtain ⟨_, _, execution, hexec, _, _, _, _, rfl⟩ := h
-      exact ⟨execution, hexec, by simp⟩
+      exact ⟨execution, (Member.array_eq_ok_iff _ _ _).mp hexec, by simp⟩
     · simp at h
   · simp at h
 
@@ -322,7 +323,7 @@ theorem unsupportedRequirements_unresolved {account ownModule history : Json}
   unfold unsupportedRequirements at h
   simp only [bind_eq_ok, pure_eq_ok] at h
   obtain ⟨execution, hexec, coverage, hcov, _, _, _, _, _, _, rfl⟩ := h
-  exact ⟨execution, coverage, hexec, hcov, by simp⟩
+  exact ⟨execution, coverage, (Member.array_eq_ok_iff _ _ _).mp hexec, hcov, by simp⟩
 
 /-- An admitted requirement list contains the closure checks and, for an unsupported
 evaluator, the unsupported-evaluator checks. -/
@@ -344,7 +345,9 @@ theorem requirements_parts {report : Json} {code : Nat} {mode source : String}
   simp only [bind_eq_ok] at h
   obtain ⟨acc, hacc, census, hcensus, requests, hrequests, own, hown, _, _, owned, _, h⟩ := h
   refine
-      ⟨acc, own, requests, hacc, hown, by simpa [bind_eq_ok] using ⟨census, hcensus, hrequests⟩, ?_⟩
+      ⟨acc, own, requests, hacc, hown, by
+        simpa [bind_eq_ok] using ⟨census, (Member.field_eq_ok_iff _ _ _).mp hcensus,
+          (Member.array_eq_ok_iff _ _ _).mp hrequests⟩, ?_⟩
   split at h
   next history _ =>
     simp only [bind_eq_ok] at h

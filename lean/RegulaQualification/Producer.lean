@@ -2,20 +2,22 @@ import RegulaQualification.Json
 import Regula.StructuralName
 import Regula.Decision
 import RegulaCore.JsonAgreement
+import RegulaQualification.Member
 
 /-! # Producer observation requirements
 
 Exact producer-observation requirements for RG5001/RG5002 and standalone roots.
-Every mandatory JSON access may refuse. The required census, source, documentation,
+Every mandatory JSON access may refuse, through `RegulaQualification.Member`, with the name of the
+member it lacks. The required census, source, documentation,
 foundation fields, diagnostics, and ranges are compared, not inferred from a PASS label.
 The proofs concern these supplied observations, not Lean/OS authenticity. -/
 namespace RegulaQualification.Producer
 open Lean
 open Regula.JsonAgreement (Conforms)
 
-private def field (j : Json) (key : String) := j.getObjVal? key
-private def array (j : Json) (key : String) := j.getObjValAs? (Array Json) key
-private def text (j : Json) (key : String) := j.getObjValAs? String key
+private def field (j : Json) (key : String) := Member.field j key
+private def array (j : Json) (key : String) := Member.array j key
+private def text (j : Json) (key : String) := Member.text j key
 /-- A dotted Lean name as result documents write it (`Regula.RegistryCodec.printedNameJson`). -/
 private def nameJson (name : String) : Json := Regula.RegistryCodec.printedNameJson name.toName
 private def first (values : Array Json) : Except String Json :=
@@ -104,8 +106,8 @@ def requirements (report : Json) (code : Nat) (rule mode source : String)
         (toJson (if material.isEmpty then #[] else #[toJson #[key, doc]])))⟩,
     ⟨"one declaration", declarations.size == 1⟩,
     ⟨"no axioms", (← array declaration "axioms").isEmpty⟩,
-    ⟨"safe declaration", !(← declaration.getObjValAs? Bool "isUnsafe")⟩,
-    ⟨"total declaration", !(← declaration.getObjValAs? Bool "isPartial")⟩,
+    ⟨"safe declaration", !(← Member.bool declaration "isUnsafe")⟩,
+    ⟨"total declaration", !(← Member.bool declaration "isPartial")⟩,
     ⟨"unchanged elaborated theorem", decide (Conforms (← field declaration "type")
         theoremType)⟩]
   if !fixed then
@@ -218,8 +220,9 @@ theorem requirements_census_type {report : Json} {code : Nat} {rule mode source 
       cases hdecl
       exact found
     · cases hdecl
-  refine ⟨acc, census, declarations, declaration, type, hacc, hcensus, hdecls, firstDeclaration,
-    htype, ?_⟩
+  refine ⟨acc, census, declarations, declaration, type, hacc,
+    (Member.field_eq_ok_iff _ _ _).mp hcensus, (Member.array_eq_ok_iff _ _ _).mp hdecls,
+    firstDeclaration, (Member.field_eq_ok_iff _ _ _).mp htype, ?_⟩
   split at rest
   · simp only [RegulaPolicy.Guards.bind_eq_ok] at rest
     obtain ⟨_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, rest⟩ := rest

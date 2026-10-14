@@ -1,5 +1,6 @@
 import RegulaQualification.Json
 import Regula.Decision
+import RegulaQualification.Member
 
 /-! # Source-bound evidence contracts
 
@@ -10,11 +11,11 @@ namespace RegulaQualification.Evidence
 open Lean
 
 /-- Required JSON field; unavailable evidence refuses rather than defaulting. -/
-def field (j : Json) (key : String) : Except String Json := j.getObjVal? key
+def field (j : Json) (key : String) : Except String Json := Member.field j key
 /-- Required text field. -/
-def text (j : Json) (key : String) : Except String String := j.getObjValAs? _ key
+def text (j : Json) (key : String) : Except String String := Member.text j key
 /-- Required array field. -/
-def array (j : Json) (key : String) : Except String (Array Json) := j.getObjValAs? _ key
+def array (j : Json) (key : String) : Except String (Array Json) := Member.array j key
 /-- Required nested object text. -/
 def detail (j : Json) : Except String String := do text (← field j "arguments") "detail"
 /-- Diagnostic IDs in their actual order, retaining duplicates. -/

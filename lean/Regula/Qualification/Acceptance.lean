@@ -10,8 +10,6 @@ mutate. IO/process observations remain trusted boundaries. -/
 namespace Regula.Qualification.Acceptance
 open Lean System DependencySnapshot
 
-private def array (j : Json) (key : String) : IO (Array Json) := IO.ofExcept
-    (j.getObjValAs? (Array Json) key)
 private def first (xs : Array Json) : IO Json := do
   let some x := xs[0]? | throw <| IO.userError "mutation requires a nonempty array"
   return x
@@ -34,7 +32,7 @@ def worker (args : List String) : IO UInt32 := do
   if compilation && #["fence-missing", "fence-duplicate", "fence-misindexed"].contains mode then
     let some path := args[2]? | throw <| IO.userError "missing compilation output"
     let packet ← readJson ⟨path⟩
-    let mut payload ← array packet "payload"
+    let mut payload ← readMember path (RegulaQualification.Member.array packet "payload")
     if mode == "fence-missing" then payload := payload.pop
     else if mode == "fence-duplicate" then payload := payload.push (← first payload)
     else

@@ -259,12 +259,13 @@ def check (group : String) : IO Unit := do
         IO.FS.writeBinFile (project / "Example.lean")
             (← Regula.Filesystem.readBytes (root / "examples/rules/RG3001" / fixture))
         if phase != "negative" then clearBuild project
-        let (result, packet) ← observeProject root project (scratch / s!"{mode}-{phase}.json") flags
+        let output := scratch / s!"{mode}-{phase}.json"
+        let (result, packet) ← observeProject root project output flags
         if phase != "negative" then
           success result
           requireChecks [⟨"accepted history", accepted packet⟩]
         else
-          let findings ← IO.ofExcept (packet.getObjValAs? (Array Json) "diagnostics")
+          let findings ← readMember output (RegulaQualification.Member.array packet "diagnostics")
           let historyFindings := findings.filter
               (fun d => (d.getObjValAs? String "id").toOption == some "RG3001")
           requireChecks [⟨"history incomplete", result.exitCode != 0 &&

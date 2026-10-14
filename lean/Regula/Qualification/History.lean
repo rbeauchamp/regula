@@ -61,7 +61,7 @@ private def control (root scratch : System.FilePath)
       result.exitCode.toNat (result.stdout ++ result.stderr) (some report))
     requireChecks [⟨"exact history evidence exit", result.exitCode == 3⟩]
     if phase == "admission" then
-      let ds ← IO.ofExcept (report.getObjValAs? (Array Json) "diagnostics")
+      let ds ← readMember output (RegulaQualification.Member.array report "diagnostics")
       for d in ds do
         requireChecks
             [⟨"intended unchecked theorem",
@@ -81,9 +81,9 @@ private def control (root scratch : System.FilePath)
   requireChecks [⟨"execution account stored once, every root derived",
     Regula.SharedExecution.derivedOnly written⟩]
   if invocation == "file" && phase == "positive" then
-    let scope ← IO.ofExcept (report.getObjVal? "scope")
-    let account ← IO.ofExcept (scope.getObjVal? "report")
-    let execution ← IO.ofExcept (account.getObjValAs? (Array Json) "execution")
+    let scope ← readMember output (RegulaQualification.Member.field report "scope")
+    let account ← readMember output (RegulaQualification.Member.field scope "report")
+    let execution ← readMember output (RegulaQualification.Member.array account "execution")
     let importedName := nameJson "Nat.add"
     let imported := execution.filter
         (fun entry => (entry.getObjVal? "name").toOption.any
