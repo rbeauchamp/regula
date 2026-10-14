@@ -24,8 +24,10 @@ wrapper of each libuv environment binding, or an `extern` of another name bound 
 process start or to a libuv environment read. The public declarations include
 `Lake.GitRepo.clone`, `Lake.LeanInstall.get` with `collocated := false` and `Lake.getSearchPath`
 with a variable of the caller's choice, and each refusal names the library's own call of the
-primitive. So do such a read in a local module whose name starts with `Lake`, and a process
-observer's role given in this module. The same start through `Regula.Process.output`, the same read
+primitive. So do such a read in a local module whose name starts with `Lake`, a process observer's
+role given in this module, and a declaration of this module named as a specialization of
+`Regula.Process.lakeEnvironment` that calls `Lake.LeanInstall.get` with `collocated := false`: the
+compiler recorded no such specialization. The same start through `Regula.Process.output`, the same read
 through `Regula.Process.readEnv`, and the listed entries `Regula.Process.lakeEnvironment`,
 `Regula.Process.initSearchPath`, `Regula.Process.srcSearchPath` and the workspace load of
 `Regula.Checker.Workspace.withRootWorkspace` pass it. These controls compile each program, and start
@@ -320,6 +322,17 @@ run_cmd do
     modifyEnv (·.setMainModule `Lake.PlantedControl)
   unless refused.any (·.contains "calls IO.getEnv") do
     throwError "a locally authored Lake-rooted module borrowed a library exemption: {refused}"
+
+-- A declaration named as a specialization of a listed caller is not one that the compiler recorded,
+-- so its call of the entry admits nothing below it.
+run_cmd do
+  let lookalike := `Regula.Process.lakeEnvironment ++ `_at_ ++ `Planted ++ `spec_0
+  let refused ← refusal (mkConst lookalike) do
+    elabCommand (← `(command|
+      @[noinline] def $(mkIdent (`_root_ ++ lookalike)) : IO Unit := do
+        discard <| Lake.LeanInstall.get "/planted" (collocated := false)))
+  unless refused.any (·.contains "Lake.LeanInstall.get.getGithash calls IO.Process.output") do
+    throwError "a declaration named as a specialization borrowed a listed entry: {refused}"
 
 -- An arbitrary extern name bound to the process runtime symbol is detected as the same boundary.
 run_cmd do

@@ -5926,6 +5926,12 @@ Assumes: on POSIX, libuv reads `HOME` for the home directory, and `TMPDIR`, `TMP
 
 Each observer role is admitted only in the module named by its row. A library's own process start or environment read is admitted only below a listed entry or on a path from the toolchain's initializers. A listed entry pairs a public Lake, Lean or Verso declaration with the one Regula declaration that calls it, with a sourced reason. A call of the same declaration by a different caller gets no admission, and neither does a different path into the library. The toolchain's initializers have their own sourced pairs, such as the solver start of `bv_decide`. The module that owns a declaration does not give it an admission.
 
+Below a Lake or Lean entry, the path admits each start or read of the entry's row. Below Verso's `manualMain`, the path admits only four sourced pairs. In the process row, `Verso.Multi.fetchRemote` starts its fixed `curl` command with `IO.Process.output`. In the environment row, `Verso.Multi.findProject` reads the current directory with `IO.currentDir`. `Std.Time.Database.TZdb.resolveLocalPath` and `resolveZonesPaths` read `TZ` and `TZDIR` with `IO.getEnv`. The check refuses any other start or read below `manualMain`.
+
+A compiled specialization of an entry or of its Regula caller counts as that declaration. The check takes this from the specialization cache that Lean's compiler writes in the module that holds the specialization ([`Specialize.lean#L30-L42`](https://github.com/leanprover/lean4/blob/v4.34.1/src/Lean/Compiler/LCNF/Specialize.lean#L30-L42)). The name of a declaration does not make it a specialization, and a declaration that a source defines is not one.
+
+Assumes: only the compiler writes the specialization cache of Regula's modules. A command that changes the environment on purpose can add an entry, and it is outside this boundary.
+
 Assumes: the check guards Regula's own executables from its committed lakefile and `lake-manifest.json`. It trusts build configuration, package selection, module names and artifact loading. It does not authenticate those inputs.
 
 Lean `v4.34.1` records the requested import name. Its [`ModuleData`](https://github.com/leanprover/lean4/blob/v4.34.1/src/Lean/Environment.lean#L109-L129) stores no name for the artifact's original module. The [importer](https://github.com/leanprover/lean4/blob/v4.34.1/src/Lean/Environment.lean#L2225-L2228) retains the requested name. Artifact substitution and module renaming are outside this claim.

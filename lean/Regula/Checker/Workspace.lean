@@ -41,8 +41,8 @@ configuration of `loadConfig`. -/
   _root_.Lake.loadWorkspaceRoot config
 
 /-- Lake's resolution of the dependencies of `root` from `manifest`,
-`Lake.Workspace.materializeDeps`, with the options of `config`: a listed entry of the process row
-of `Regula.Removal.boundaries`. Its caller passes a configuration of `loadConfig`. -/
+`Lake.Workspace.materializeDeps`, with the options of `config`: a listed entry of the process and
+environment rows of `Regula.Removal.boundaries`. Its caller passes a configuration of `loadConfig`. -/
 @[noinline] private def materializeDeps (root : _root_.Lake.Workspace)
     (manifest : _root_.Lake.Manifest) (config : _root_.Lake.LoadConfig) :
     _root_.Lake.LoggerIO _root_.Lake.Workspace :=

@@ -33,9 +33,12 @@ def missingClauses (doc : Part Manual) : List Regula.Clause :=
 def standardConfig : RenderConfig :=
   { emitTeX := false, emitHtmlSingle := .no, emitHtmlMulti := .immediately, htmlDepth := 1 }
 
+set_option compiler.small 0 in
 /-- Verso's renderer, `manualMain`, on the standard with the command-line options `args` and the
 configuration `standardConfig`. The one call of `manualMain` in this program is here: a listed entry
-of the process and environment rows of `Regula.Removal.boundaries`. -/
+of the process and environment rows of `Regula.Removal.boundaries`, which admits only that row's
+renderer pairs below it. It is compiled without small-function inlining (`compiler.small` 0), so
+its compiled code keeps that call. -/
 @[noinline] def renderManual (args : List String) : IO UInt32 :=
   manualMain (%doc RegulaStandard) (options := args) (config := standardConfig)
 
