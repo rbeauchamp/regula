@@ -51,6 +51,12 @@ private def obj (j : Json) (key : String) : IO Json := IO.ofExcept (object j key
 /-- The required member `key` of `j`, decoded as `α` (`Member.get`). -/
 private def typed (α : Type) [FromJson α] (j : Json) (key : String) : IO α :=
   IO.ofExcept (RegulaQualification.Member.get α j key)
+/-- The optional text member `key` of `j`: `none` when it is absent or `null`, and its text when it
+is a string. Any other value is refused, and the refusal names the member (`Member.get`). -/
+private def optionalStr (j : Json) (key : String) : IO (Option String) :=
+  match value j key with
+  | .error _ => pure none
+  | .ok _ => typed (Option String) j key
 private def str (j : Json) (key : String) : IO String := IO.ofExcept (text j key)
 private def arr (j : Json) (key : String) : IO (Array Json) := IO.ofExcept (array j key)
 private def has (j : Json) (key : String) (expected : Json) : Bool :=
@@ -166,12 +172,12 @@ private def ruleOf (s : String) : IO RuleId := do
 def findingOf (project : String) (d : Json) : IO FindingView := do
   let rule ← ruleOf (← str d "id")
   let args ← obj d "arguments"
-  let (subjectKind, subject) := match value args "declaration", value args "root",
-      value args "subject" with
+  let subjectText ← optionalStr args "subject"
+  let (subjectKind, subject) := match value args "declaration", value args "root", subjectText with
     | .ok n, _, _ => ("Declaration", nameText n)
     | _, .ok n, _ => ("Execution root", nameText n)
-    | _, _, .ok (.str s) => ("Subject", displayText project s)
-    | _, _, _ => ("Finding", "")
+    | _, _, some s => ("Subject", displayText project s)
+    | _, _, none => ("Finding", "")
   let location ← obj d "location"
   let place ← match (← str location "kind") with
     | "source" => do
@@ -191,7 +197,7 @@ def findingOf (project : String) (d : Json) : IO FindingView := do
       pure s!"{path}, line {line}, column {column}"
     | "module" => pure s!"module `{nameText (← IO.ofExcept (value location "name"))}`"
     | _ => pure ("project " ++ displayText project (← str location "identity"))
-  let claim := match value d "claim" with | .ok (.str c) => some c | _ => none
+  let claim ← optionalStr d "claim"
   return { rule, severity := ← str d "severity", impact := ← str d "impact", mode := ← str d "mode",
            claim, subjectKind, subject, detail := displayText project
                (← str (← obj d "arguments") "detail"), location := place }
@@ -212,8 +218,8 @@ private def requestText (request : Json) : IO String := do
   let kind ← str request "kind"
   let project ← str request "project"
   let subject := displayText project (← str request "subject")
-  let claim := match value request "claim" with | .ok (.str c) => c | _ => "none"
-  let execution := match value request "execution" with | .ok (.str e) => e | _ => "report"
+  let claim := (← optionalStr request "claim").getD "none"
+  let execution := (← optionalStr request "execution").getD "report"
   return match kind with
     | "file" => s!"a fresh single-file audit of `{subject}` (`axiomGate --file`, claim `{claim}`, \
       execution `{execution}`)"
