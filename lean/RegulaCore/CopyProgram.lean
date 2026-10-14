@@ -742,20 +742,19 @@ def firstUnwritten {α : Type} (items : List Item) (reads : List (α × List Str
     Option (α × List String) :=
   reads.find? fun read => !covers [read.2] items
 
-/-- Observe Git's repository-local environment names, then remove them for a child in another
-repository. System/global configuration is disabled and namespaces are also removed. The query
-itself removes command-configuration injection and performs no repository setup or repository
-configuration read. The final overrides must follow caller environment changes.
+/-- Git's repository-local environment names, as the `git` found on this process's `PATH` prints
+them. The query itself removes command-configuration injection and performs no repository setup
+or repository configuration read. Each name is admitted as `GIT_` followed by ASCII letters,
+digits and `_`, so no name is empty or holds `=` or NUL.
 
-Assumes: Git 2.54.0 `builtin/rev-parse.c:717-722,734-740` prints `local_repo_env` without
-repository setup or the subsequent repository config read; `environment.c:99-118` and
-`environment.h:73-78` define that list. Command configuration uses GIT_CONFIG_COUNT and
-GIT_CONFIG_PARAMETERS (`config.c:667-720`), which are removed before this query. Removing
-GIT_CONFIG_COUNT makes its KEY/VALUE variables inert (`config.c:676-707`). GIT_NAMESPACE selects
-reference namespaces (`environment.c:141-175`). `config.c:1411-1427,1455-1468` skips system config
-and both global files with these settings. POSIX /dev/null supplies an empty configuration
-(trusted OS device). Lean v4.34.1 `Init/System/IO.lean:1441-1448` applies env changes in order. -/
-def gitEnvironment : IO (Array (String × Option String)) := do
+Assumes: Git 2.54.0 `builtin/rev-parse.c:757-762` prints `local_repo_env` before any repository
+setup, which `git.c:647` does not request for `rev-parse`; `environment.c:109-126` and
+`environment.h:7-85` define that list. Command configuration uses GIT_CONFIG_COUNT and
+GIT_CONFIG_PARAMETERS (`config.c:711-779`), which are removed before this query. Removing
+GIT_CONFIG_COUNT makes its KEY/VALUE variables inert (`config.c:721-758`). `config.c:1498-1512`
+skips system config and both global files with the settings of the query. POSIX /dev/null supplies
+an empty configuration (trusted OS device). -/
+def gitLocalNames : IO (Array String) := do
   let out ← IO.Process.output {
     cmd := "git", args := #["-c", "core.symlinks=false", "rev-parse", "--local-env-vars"]
     env := #[("GIT_CONFIG_COUNT", none), ("GIT_CONFIG_PARAMETERS", none),
@@ -768,14 +767,64 @@ def gitEnvironment : IO (Array (String × Option String)) := do
       name != "GIT_CONFIG_NOSYSTEM" && name != "GIT_CONFIG_GLOBAL" &&
       name.toList.all (fun c => c.toNat < 128 && (c.isAlphanum || c == '_'))) do
     throw <| IO.userError "Git repository environment list is malformed"
-  return (names.map fun name => (name, none)).toArray ++ #[("GIT_NAMESPACE", none),
+  return names.toArray
+
+/-- Remove Git's repository-local names for a child in another repository. System/global
+configuration is disabled and namespaces are also removed. The final overrides must follow caller
+environment changes.
+
+Assumes: Git 2.54.0 `environment.c:151-187` reads GIT_NAMESPACE as a reference namespace;
+`config.c:1498-1512` skips system config and both global files with these settings. Lean v4.34.1
+`Init/System/IO.lean:1441-1448` applies env changes in order. -/
+def repositoryEnvironment (names : Array String) : Array (String × Option String) :=
+  names.map (fun name => (name, none)) ++ #[("GIT_NAMESPACE", none),
     ("GIT_CONFIG_NOSYSTEM", some "1"), ("GIT_CONFIG_GLOBAL", some "/dev/null")]
+
+/-- The removals and settings of `repositoryEnvironment`, from Git's own list (`gitLocalNames`).
+It is private to the Git commands of this module (`gitProcessArgs`) and to the Git commands of the
+cold drivers that ask `sourceMain` for it (`git-environment`): Git's list names `GIT_CONFIG_COUNT`,
+so the array removes the command-scope `core.symlinks=false` that `isolationEnvironment` gives a
+process tree. Another child, such as Lake, takes `isolationEnvironment`, and so do the Git commands
+of the verification driver (`RegulaVerification.start`). -/
+private def gitEnvironment : IO (Array (String × Option String)) :=
+  return repositoryEnvironment (← gitLocalNames)
+
+/-- The settings of an isolated process tree: no namespace, no system or global configuration, and
+command-scope `core.symlinks=false` carried by Git's environment-carried command configuration.
+
+Assumes: Git 2.54.0 `config.c:711-779` reads GIT_CONFIG_COUNT and each GIT_CONFIG_KEY_n and
+GIT_CONFIG_VALUE_n below it in command scope (`config.c:622-628`), and `config.c:1515-1581`
+reads command scope after system, global, local and worktree configuration, so this value wins by
+Git's own precedence; `environment.c:332-333` consumes core.symlinks. `run-command.c:1979-1994`
+keeps GIT_CONFIG_COUNT for the children Git starts in another repository. Git 2.31.0 introduced
+these variables and Git 2.32.0 GIT_CONFIG_GLOBAL. -/
+def isolationSettings : Array (String × Option String) :=
+  #[("GIT_NAMESPACE", none), ("GIT_CONFIG_NOSYSTEM", some "1"),
+    ("GIT_CONFIG_GLOBAL", some "/dev/null"), ("GIT_CONFIG_COUNT", some "1"),
+    ("GIT_CONFIG_KEY_0", some "core.symlinks"), ("GIT_CONFIG_VALUE_0", some "false")]
+
+/-- The environment of a process tree whose Git commands run isolated, also those that another
+program in the tree starts with no environment of its own, as Lake does: Git's repository-local
+names removed and `isolationSettings` set, each name once. A Git name that a setting also names
+takes the setting (`GIT_CONFIG_COUNT`), so applying the array twice changes nothing
+(`Regula.GitIsolation.processEnvironment_isolated`).
+
+Assumes: Lake v4.34.1 `Lake/Util/Git.lean:87-100` starts each Git command through
+`Lake/Util/Proc.lean:29-34,61-80` with no `env` and the default `inheritEnv := true`
+(`Init/System/IO.lean:1434-1450`), so it receives its starter's environment unchanged. -/
+def processEnvironment (names : Array String) : Array (String × Option String) :=
+  (names.filter fun name => !isolationSettings.any (·.1 == name)).map (fun name => (name, none)) ++
+    isolationSettings
+
+/-- `processEnvironment` from Git's own list (`gitLocalNames`). -/
+def isolationEnvironment : IO (Array (String × Option String)) :=
+  return processEnvironment (← gitLocalNames)
 
 /-- Apply the same Git policy to text and binary process observations. The command name and
 launcher stay as the current repository uses them; process-start observation is separate work.
 
-Assumes: Git 2.54.0 `config.c:1470-1483` reads command-scope settings after local/worktree settings;
-`environment.c:313-316` consumes core.symlinks. Product callers supply no competing command-scope
+Assumes: Git 2.54.0 `config.c:1515-1581` reads command-scope settings after local/worktree settings;
+`environment.c:332-333` consumes core.symlinks. Product callers supply no competing command-scope
 core.symlinks setting. Repository-local variables are removed by `gitEnvironment`. -/
 def gitProcessArgs (options : IO.Process.SpawnArgs) : IO IO.Process.SpawnArgs := do
   if options.cmd != "git" then return options
@@ -1049,8 +1098,10 @@ the ancestors needed to capture them. The instruction guard refuses any missing 
 `git` uses `copyGit`'s regular-file representation, build outputs and metadata.
 It prints the regular-file receipt as a JSON array. `list` prints the names of the directory SOURCE
 (`listNames`) and `walk` the paths below it (`walkDirectory`), each as a JSON array; TARGET is
-unused there. Lean interprets this same source before package artifacts exist; it does not use
-another copy implementation.
+unused there. `git-environment` prints the environment of a Regula-authored Git command
+(`gitEnvironment`) and `process-environment` the Git isolation of a process tree
+(`isolationEnvironment`), each as a JSON array of changes. Lean interprets this same source before
+package artifacts exist; it does not use another copy implementation.
 
 Assumes: `copyGit` names the installed Git 2.54.0 index/blob/config facts, its source stability
 and the pinned Lake cleanliness observation. Git parsing and object fidelity remain trusted. -/
@@ -1061,6 +1112,9 @@ def sourceMain (args : List String) : IO UInt32 := do
     throw <| IO.userError "explicit file selections require the project domain"
   if domain == "git-environment" then
     IO.println (Lean.toJson (← gitEnvironment)).compress
+    return 0
+  if domain == "process-environment" then
+    IO.println (Lean.toJson (← isolationEnvironment)).compress
     return 0
   if domain == "list" then
     IO.println (Lean.toJson (← listNames (FilePath.mk source))).compress

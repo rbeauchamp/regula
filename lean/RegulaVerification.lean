@@ -792,11 +792,15 @@ private def construction {α : Type} [Lean.FromJson α] (what : String) (args : 
     throw <| IO.userError s!"verification {what} unavailable: {out.stderr}"
   IO.ofExcept (Lean.fromJson? (← IO.ofExcept (Lean.Json.parse out.stdout)))
 
-/-- Obtain the same Git environment policy as construction before cold artifacts exist.
-The preliminary Git commands use this observer; Lake's own Git children remain outside it.
-Construction.gitEnvironment names its pinned Git and OS assumptions. -/
-private def gitEnvironment : IO (Array (String × Option String)) :=
-  construction "Git environment" #["git-environment", "", ""]
+/-- The Git isolation of the commands this driver starts
+(`Regula.Filesystem.Construction.isolationEnvironment`), obtained before cold artifacts exist by
+running the shared constructor's source with the interpreter (`construction`). The driver obtains
+it once, before its first command (`run`), and gives it to every command it starts (`start`), so
+each Git and Lake command, and every Git command that Lake starts for it, inherits it, and a
+compiled program that a command runs finds its environment isolated and does not start again.
+Construction.isolationEnvironment names its pinned Git and OS assumptions. -/
+def isolationEnvironment : IO (Array (String × Option String)) :=
+  construction "Git isolation" #["process-environment", "", ""]
 
 /-- The entries of the directory `path`, listed by the shared construction source
 (`Construction.listNames`), so a failed read of the directory stops instead of returning fewer
@@ -820,12 +824,12 @@ Lake's artifact cache is off for each package whose own configuration does not t
 builds are not the checker's: the gate's own build of the claimed surface uses no artifact cache
 whatever the configuration says (`Regula.Checker.Lake.Build.run`). An inherited
 `REGULA_ORDINARY_LAKEFILES` is removed, so only a command that gives it (`ownerAssertion`) runs
-with the owner's assertion. Each variable of the command's `env` is set before the shared Git
-observer's removals. Git commands select command-scope core.symlinks=false before priority
-wrapping; no Git policy is duplicated here. Lake-owned Git calls inherit the caller's environment.
-Process execution
-and signal delivery remain trusted. -/
-def start (priority : Priority) (command : Command) :
+with the owner's assertion. Each variable of the command's `env` is set before `isolation`, the
+shared Git isolation (`isolationEnvironment`), which every command receives last, so the Git
+commands that Lake starts for it, and those of the programs it runs, inherit it. A Git command
+also selects command-scope `core.symlinks=false` on its command line before priority wrapping; no
+Git policy is duplicated here. Process execution and signal delivery remain trusted. -/
+def start (isolation : Array (String × Option String)) (priority : Priority) (command : Command) :
     BaseIO (Option (IO.Process.Child stdio)) := do
   announce s!"start {priority.display}{command.display}"
   let spawn : IO (IO.Process.Child stdio) := do
@@ -835,8 +839,7 @@ def start (priority : Priority) (command : Command) :
     let (program, args) := isolated.launch priority
     let env := #[("GHCR_TOKEN", none), ("LEAN_PATH", none), ("LEAN_SRC_PATH", none),
       ("LAKE_ARTIFACT_CACHE", some "false"), ("REGULA_ORDINARY_LAKEFILES", none)] ++
-      command.env.map fun (name, value) => (name, some value)
-    let env ← if command.program == "git" then pure (env ++ (← gitEnvironment)) else pure env
+      command.env.map (fun (name, value) => (name, some value)) ++ isolation
     IO.Process.spawn { stdio with cmd := program, args, cwd := some command.dir, env }
   match ← spawn.toBaseIO with
   | .ok child => return some child
@@ -854,9 +857,10 @@ def await (command : Command) (child : IO.Process.Child stdio) : BaseIO (Option 
       return none
 
 /-- Run one command at `priority` to its end and return how it ended. It cannot raise. -/
-def execute (priority : Priority) (command : Command) : BaseIO (Option UInt32) := do
+def execute (isolation : Array (String × Option String)) (priority : Priority) (command : Command) :
+    BaseIO (Option UInt32) := do
   let started ← IO.monoMsNow
-  let some child ← start priority command | return none
+  let some child ← start isolation priority command | return none
   let ended ← await command child
   let seconds := ((← IO.monoMsNow) - started) / 1000
   if passed [ended] then announce s!"done in {seconds} s: {command.display}"
@@ -866,12 +870,13 @@ def execute (priority : Priority) (command : Command) : BaseIO (Option UInt32) :
 /-- Run `commands` one after another, each at `priority`, and return how each ended. A command
 runs only while everything that has ended so far passed: `known` holds the ends known before it.
 A command after a failure is not run and has no end. It cannot raise. -/
-def executeInOrder (priority : Priority) : (known : List (Option UInt32)) →
+def executeInOrder (isolation : Array (String × Option String)) (priority : Priority) :
+    (known : List (Option UInt32)) →
     (commands : List Command) → BaseIO (Ends commands)
   | _, [] => return ⟨[], rfl⟩
   | known, command :: rest => do
-      let ended ← if passed known then execute priority command else pure none
-      let later ← executeInOrder priority (ended :: known) rest
+      let ended ← if passed known then execute isolation priority command else pure none
+      let later ← executeInOrder isolation priority (ended :: known) rest
       return ⟨(command, ended) :: later.ends, by simp [later.complete]⟩
 
 /-- Start each of `beside` as a process of its own, run `inOrder` one after another meanwhile,
@@ -887,14 +892,15 @@ driver's own priority, and the commands of `inOrder` then run at low priority, b
 while it does. With no command in `beside`, they run at the priority the caller gives. That
 priority is chosen once, before the first command of `inOrder`, and a command of `inOrder` keeps
 it to its end, also after every command of `beside` ended. -/
-def executeBeside (priority : Priority) : (known : List (Option UInt32)) →
+def executeBeside (isolation : Array (String × Option String)) (priority : Priority) :
+    (known : List (Option UInt32)) →
     (beside inOrder : List Command) → BaseIO (Ends inOrder × Ends beside)
-  | known, [], inOrder => return (← executeInOrder priority known inOrder, ⟨[], rfl⟩)
+  | known, [], inOrder => return (← executeInOrder isolation priority known inOrder, ⟨[], rfl⟩)
   | known, command :: rest, inOrder => do
       let started ← IO.monoMsNow
-      let child ← if passed known then start .normal command else pure none
+      let child ← if passed known then start isolation .normal command else pure none
       let (others, later) ←
-        executeBeside .low (if child.isSome then known else none :: known) rest inOrder
+        executeBeside isolation .low (if child.isSome then known else none :: known) rest inOrder
       let ended ← match child with
         | none => pure none
         | some child => do
@@ -1626,7 +1632,9 @@ that the run may replace (`promote`). It refuses a surface manifest that claims 
 prebuild does not build (`prebuildCovers`), makes its copy after the preliminary checks
 (`makeCopy`), runs its prebuild and its commands for that copy (`ordinary_places`), gives the
 copy's build output to a project that has none when the step passed (`Copy.adopt`) and then
-records it (`Copy.recordBuild`), and removes the copy in each case (`Copy.remove`). -/
+records it (`Copy.recordBuild`), and removes the copy in each case (`Copy.remove`). It obtains the
+Git isolation once, before its first command (`isolationEnvironment`), and starts every command
+under it (`start`). -/
 def run (args : List String) : IO Unit := do
   let some selection := select args | throw <| IO.userError usage
   if selection.val == .ordinary then
@@ -1641,7 +1649,8 @@ def run (args : List String) : IO Unit := do
         the first acceptance step does not build, or its surfaces cannot be read: the gate would \
         build that target beside the rest of the step's build; add it to \
         RegulaVerification.gateTargets (the prebuild builds {gateTargets})"
-  let early ← executeInOrder .normal []
+  let isolation ← isolationEnvironment
+  let early ← executeInOrder isolation .normal []
     [({ program := "git", args := #["diff", "--check"] } : Command),
       { program := "git", args := #["diff", "--cached", "--check"] },
       { program := "shellcheck", args := #["scripts/verify.sh", "scripts/provision.sh"] }]
@@ -1660,8 +1669,8 @@ def run (args : List String) : IO Unit := do
           pure none
   let place := (copy.map (·.project.toString)).getD "."
   let pending := (copy.map (·.pending.toString)).getD ""
-  let prebuilt ← executeInOrder .normal early.statuses (prebuild place selection.val)
-  let (others, gates) ← executeBeside .normal (early.statuses ++ prebuilt.statuses)
+  let prebuilt ← executeInOrder isolation .normal early.statuses (prebuild place selection.val)
+  let (others, gates) ← executeBeside isolation .normal (early.statuses ++ prebuilt.statuses)
     (beside place pending selection.val) (inOrder place pending selection.val)
   let all := ((early.append prebuilt).append others).append gates
   if let some copy := copy then

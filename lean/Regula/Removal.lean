@@ -9,17 +9,17 @@ import Lean.Elab.Command
 A removal primitive of Lean's library is an operation that removes or replaces an entry
 (`primitives`, `removalSymbols`). `rawRemovalsFrom` follows the compiled code of a program from
 every compiled declaration of the modules it links outside Lean's toolchain, its `main` and the
-initializers of the toolchain's modules that it links (`rawRemovals`). It finds each call of a
-removal primitive that a declaration makes other than a declaration of `Regula.Filesystem` with the
-filesystem observer's role (`@[regula_observer filesystem]`, `filesystemObservers`) or a call of
-Lean's library that `libraryRemovals` or `tacticRemovals` lists. The role given in another module
-admits nothing, and the check of a program refuses it (`foreignObservers`). The observer's removals
-and its move are private to `Regula.Filesystem`. Its exported operations `removeOwn`,
-`removeFound`, `replace` and `withOwnTempDir` observe the place and act only on what the decisions
-of `RegulaCore.Removal` decide. `moveAside` moves an entry into a directory that it makes new, so
-it replaces and removes nothing, with no `ownPath` resolution and no `Regula.Removal.replacement`
-decision: a symbolic link or a `..` among the components above the entry is followed as the
-operating system resolves it, as a run of Verso writes through it too.
+code that initializes the toolchain's modules that it links (`rawRemovals`, `initializersOf`). It
+finds each call of a removal primitive that a declaration makes other than a declaration of
+`Regula.Filesystem` with the filesystem observer's role (`@[regula_observer filesystem]`,
+`filesystemObservers`) or a call of Lean's library that `libraryRemovals` or `tacticRemovals`
+lists. The role given in another module admits nothing, and the check of a program refuses it
+(`foreignObservers`). The observer's removals and its move are private to `Regula.Filesystem`. Its
+exported operations `removeOwn`, `removeFound`, `replace` and `withOwnTempDir` observe the place
+and act only on what the decisions of `RegulaCore.Removal` decide. `moveAside` moves an entry into
+a directory that it makes new, so it replaces and removes nothing, with no `ownPath` resolution and
+no `Regula.Removal.replacement` decision: a symbolic link or a `..` among the components above the
+entry is followed as the operating system resolves it, as a run of Verso writes through it too.
 
 The same walk finds each call of a primitive that writes a file or makes an entry
 (`writePrimitives`, `writeSymbols`). An opening of a file by `IO.FS.Handle.mk` is such a call when
@@ -601,20 +601,48 @@ def linked (env : Environment) (root : Name) : Std.HashSet Name := Id.run do
         work := work.push imported
   return seen
 
-/-- The declarations that run when a program that links the modules `modules` starts: each
+/-- The declarations whose compiled code runs when a program that links the modules `modules`
+initializes them, by the rule with which the compiler emits the initializer of a module: each
 declaration of each of them with an `[init]` or `[builtin_init]` attribute when it is the action
-that runs, and otherwise the function that computes its value. -/
+that runs, and otherwise the function that computes its value; and each compiled declaration of
+each of them with no parameter, whose value the initializer computes. Each name appears once.
+
+The rule also takes a closed term and a ground value, which the initializer does not compute: the
+code that first reads a closed term computes it, and a ground value is static data. So the
+declarations are a superset of those that the initializers run.
+
+Assumes: Lean v4.34.1 `src/Lean/Compiler/LCNF/EmitC.lean:986-1004` emits, for each compiled
+declaration of the module in turn (`:1047-1049`), a call of the action of an `[init]` or
+`[builtin_init]` declaration, a call of the initialization function that a declaration with no
+parameter names, and otherwise the evaluation of a declaration with no parameter that is neither
+a closed term nor a ground value; a closed term is computed when it is first read (`:476-477`,
+`:629-635`), and a ground value is static data (`:474-475`). The compiled declarations of an
+imported module are its entries of `Lean.IR.declMapExt`, and those of the module being elaborated
+are `Lean.IR.getDecls`. -/
 def initializersOf (env : Environment) (modules : Std.HashSet Name) : Array Name := Id.run do
+  let current := modules.contains env.mainModule
   let mut roots := #[]
+  let mut seen : Std.HashSet Name := {}
   for attr in [regularInitAttr, builtinInitAttr] do
-    let mut entries := if modules.contains env.mainModule then
-      (attr.ext.getState env).2.toList.toArray else #[]
+    let mut entries := if current then (attr.ext.getState env).2.toList.toArray else #[]
     for h : index in [:env.header.moduleNames.size] do
       if modules.contains env.header.moduleNames[index] then
         entries := entries ++ attr.ext.getModuleEntries env index
           ++ attr.ext.getModuleIREntries env index
     for (decl, initDecl) in entries do
-      roots := roots.push (if initDecl.isAnonymous then decl else initDecl)
+      let root := if initDecl.isAnonymous then decl else initDecl
+      unless seen.contains root do
+        seen := seen.insert root
+        roots := roots.push root
+  let mut decls := if current then (getDecls env).toArray else #[]
+  for h : index in [:env.header.moduleNames.size] do
+    if modules.contains env.header.moduleNames[index] then
+      decls := decls ++ declMapExt.getModuleEntries env index
+        ++ declMapExt.getModuleIREntries env index
+  for decl in decls do
+    if decl.params.isEmpty && !seen.contains decl.name then
+      seen := seen.insert decl.name
+      roots := roots.push decl.name
   return roots
 
 /-- The declarations that run when a program built from `env` starts, of every module of `env`
@@ -743,10 +771,10 @@ def programRoots (env : Environment) (root : Name) : Array Name :=
   (modules.toArray.filter (!toolchain.contains ·)).flatMap (compiledDeclarations env) |>.push `main
 
 /-- `rawRemovalsFrom` for a program whose `main` is `main` in the module `root`: from every
-compiled declaration of its modules outside the toolchain (`programRoots`), and from each
-initializer of the toolchain's modules that it links (`linked`, `initializersOf`), with the
-filesystem observers of `env` and the calls `named`, and with the declarations of other modules
-that have the filesystem observer's role (`foreignObservers`). -/
+compiled declaration of its modules outside the toolchain (`programRoots`), and from the code that
+initializes the modules that it links (`linked`, `initializersOf`), with the filesystem observers
+of `env` and the calls `named`, and with the declarations of other modules that have the
+filesystem observer's role (`foreignObservers`). -/
 def rawRemovals (env : Environment) (root : Name) (named : List (Name × Name) := []) : Reach :=
   let roots := programRoots env root ++ initializersOf env (linked env root)
   { rawRemovalsFrom env (filesystemObservers env) roots named with
