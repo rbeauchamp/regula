@@ -213,8 +213,8 @@ def documentationDependencies : IO Unit := do
       "name = \"documentation_dependency\"\n" ++ Regula.Checker.observerPluginToml ++
       "[leanOptions]\nautoImplicit = false\nrelaxedAutoImplicit = false\n" ++
       "linter.missingDocs = true\n[[require]]\nname = \"dep\"\npath = \"../dependency\"\n" ++
-      Regula.Checker.regulaRequireToml root ++ "[[lean_lib]]\nname = \"Example\"\n" ++
-      Regula.Checker.observerNeedToml
+      Regula.Checker.regulaRequireToml root ++
+      Regula.Checker.observedTargetToml .library "Example"
     manifest project "kernel-only"
     let source := "import Lean\nimport Dep\n/-! Documentation prerequisite. -/\ntheorem value : \
       Dep.n = 1 := rfl\n"

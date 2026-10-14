@@ -55,8 +55,8 @@ def checkAt (root base : FilePath) : IO Unit := do
       "  packagesDir := \"" ++ packages ++ "\"\n" ++
       "  leanOptions := #[⟨`autoImplicit, false⟩, ⟨`relaxedAutoImplicit, false⟩, " ++
       "⟨`linter.missingDocs, true⟩]\n" ++ Regula.Checker.observerPluginLean ++
-      "require regula from " ++ (toJson root.toString).compress ++ "\nlean_lib Solo where\n" ++
-      Regula.Checker.observerNeedLean
+      "require regula from " ++ (toJson root.toString).compress ++ "\n" ++
+      Regula.Checker.observedTargetLean .library "Solo"
     let manifest := (Json.mkObj [
       ("version", toJson "1.1.0"), ("name", toJson "copy_selection"),
       ("lakeDir", toJson ".lake"), ("packagesDir", toJson packages),

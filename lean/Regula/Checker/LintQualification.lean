@@ -1284,10 +1284,10 @@ private def tomlTargets (repo adopter : FilePath) : IO (Array String) := do
       "surface «gadget-extra»: claim"],
     excludes := #[s!"regula lint: {acceptanceLabel}", "manifest-"] }
   IO.FS.writeFile lakefile <| (← IO.FS.readFile lakefile) ++
-    "\n[[lean_lib]]\nname = \"gadget-extra\"\nroots = [\"Extra\"]\n" ++
-    observerPluginToml ++ observerNeedToml ++
-    "\n[[lean_exe]]\nname = \"gadget-tool\"\nroot = \"Gadget.Cli\"\n" ++
-    observerPluginToml ++ observerNeedToml
+    "\n" ++ observedTargetToml .library "gadget-extra"
+      ("roots = [\"Extra\"]\n" ++ observerPluginToml) ++
+    "\n" ++ observedTargetToml .executable "gadget-tool"
+      ("root = \"Gadget.Cli\"\n" ++ observerPluginToml)
   IO.FS.writeFile cli
     "/-! The adopter's command. -/\n\n/-- Does nothing. -/\ndef main : IO Unit := pure ()\n"
   IO.FS.writeFile extra

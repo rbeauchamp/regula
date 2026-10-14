@@ -209,7 +209,9 @@ selection of the timeout, and again with the error's text when that selection or
 or when the start ends without running the command (`runBounded`, `markEvidence`). A command under
 the deadline that its arguments refuse before a campaign begins (`commandOf`) marks the evidence
 that its leading arguments name with the error's text, for the attempt that the wrapper gives or
-otherwise for one fresh attempt that the campaign then uses too. -/
+otherwise for one fresh attempt that the campaign then uses too. A campaign under the deadline that
+stops prints `qualify COMMAND: refused: ERROR` on standard error and exits with 1, instead of
+leaving the error to Lean's top-level handler. -/
 unsafe def qualifyMain (args : List String) : IO UInt32 := do
   match ← Invocation.of args with
   | .receiptTimer => Regula.Qualification.ReceiptBoundary.worker args
@@ -221,7 +223,15 @@ unsafe def qualifyMain (args : List String) : IO UInt32 := do
     if let some reason ← evidenceRefusal rest then throw <| IO.userError s!"refused: {reason}"
     let attempt ← attempt.getDM Regula.Qualification.freshAttempt
     match commandOf rest with
-    | .ok command => runCommand (some attempt) command; return 0
+    | .ok command =>
+      -- A campaign that stops is refused with its error, which names what it lacks (a reader of
+      -- `RegulaQualification.Member` names the document and the member), and exit code 1. An
+      -- evidence document it names keeps the incomplete mark written before the campaign ran
+      -- (`markEvidence` names the writers); `Producer.check` marks its export again with the error.
+      try runCommand (some attempt) command; return 0
+      catch error =>
+        IO.eprintln s!"qualify {" ".intercalate rest}: refused: {error}"
+        return 1
     | .error error =>
       discard <| (markEvidence rest attempt (some error)).toBaseIO
       throw <| IO.userError error

@@ -511,6 +511,49 @@ def observerNeedLean : String := "  needs := #[`@regula/RegulaObserver:shared]\n
 /-- `observerNeedLean` in a configuration of the package `regula` itself (`observerPluginOwn`). -/
 def observerNeedOwn : String := "  needs := #[`@/RegulaObserver:shared]\n"
 
+/-- The kind of a target that a generated Lake configuration declares. -/
+inductive TargetKind where
+  /-- A `lean_lib`. -/
+  | library
+  /-- A `lean_exe`. -/
+  | executable
+  deriving DecidableEq
+
+/-- The `lakefile.lean` keyword that declares a target of the kind. -/
+def TargetKind.leanKeyword : TargetKind → String
+  | .library => "lean_lib"
+  | .executable => "lean_exe"
+
+/-- The `lakefile.toml` table of a target of the kind. -/
+def TargetKind.tomlTable : TargetKind → String
+  | .library => "[[lean_lib]]"
+  | .executable => "[[lean_exe]]"
+
+/-- The `lakefile.lean` declaration of the target `name` of the kind `kind` that a control or
+qualification generator writes for an audit to elaborate: its fields `fields`, each a line indented
+as a declaration's field, then the observer's `needs` entry (`observerNeedLean`), which RG2006
+requires of each such target. Every generated target goes through this function or
+`observedTargetToml`, so none can lack the entry. Its package loads the observer as a plugin
+(`observerPluginLean`), which Lake gives each of its targets, so the declaration names no plugin of
+its own: Lake would load the observer twice. With `own`, the configuration is one of the package
+`regula` itself, whose package loads no plugin, as its checkout's `lakefile.lean`: the target loads
+its own observer (`observerPluginOwn`) and lists it in `needs` (`observerNeedOwn`).
+
+Assumes: Lake v4.34.1 `Lake/Config/LeanLib.lean:183-184` gives a library's modules the package's
+plugins followed by the library's own, with no removal of a repeated one, and
+`Lake/Config/Module.lean:188-189` gives a module its library's. An executable's root is a module of
+the library that `Lake/Config/LeanExe.lean:29-50` makes from the executable's configuration, with
+its `needs`, so an executable without the entry has none (`Lake/Config/LeanExeConfig.lean:46`). -/
+def observedTargetLean (kind : TargetKind) (name : String) (fields : String := "")
+    (own : Bool := false) : String :=
+  s!"{kind.leanKeyword} {name} where\n" ++ fields ++
+    if own then observerPluginOwn ++ observerNeedOwn else observerNeedLean
+
+/-- `observedTargetLean` in a `lakefile.toml`: the table of the target `name` of the kind `kind`,
+its keys `fields`, each a line, and then `observerNeedToml`. -/
+def observedTargetToml (kind : TargetKind) (name : String) (fields : String := "") : String :=
+  s!"{kind.tomlTable}\nname = \"{name}\"\n" ++ fields ++ observerNeedToml
+
 /-- The `lakefile.toml` table that requires `regula` from the checkout at `repo`. -/
 def regulaRequireToml (repo : FilePath) : String :=
   s!"[[require]]\nname = \"regula\"\npath = {(Json.str repo.toString).compress}\n"

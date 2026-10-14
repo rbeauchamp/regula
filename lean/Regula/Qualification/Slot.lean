@@ -382,7 +382,7 @@ def prepareSlotProject (slot : ProducerSlot) (project : FilePath)
       false⟩, ⟨`relaxedAutoImplicit, false⟩, ⟨`linter.missingDocs, true⟩]\n  \
       plugins := #[`@regula/RegulaObserver:shared]\nrequire regula from \
       {toJson (slot.root / "root").toString |>.compress}\n\
-      @[default_target] lean_lib Example where\n{Regula.Checker.observerNeedLean}"
+      @[default_target] {Regula.Checker.observedTargetLean .library "Example"}"
   Regula.Filesystem.writeJson (project / "foundation_manifest.json") (Json.mkObj [
     ("schema-version", toJson (2 : Nat)), ("surfaces", toJson #[Json.mkObj [
       ("library", .str "Example"), ("claim", .str claim), ("execution", .str "checked"),

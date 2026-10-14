@@ -215,8 +215,8 @@ def check (group : String) : IO Unit := do
       "name = \"snapshot_control\"\n" ++ Regula.Checker.observerPluginToml ++
       "[leanOptions]\nautoImplicit = false\nrelaxedAutoImplicit = false\n" ++
       "linter.missingDocs = true\n[[require]]\nname = \"dep\"\npath = \"../dependency\"\n" ++
-      Regula.Checker.regulaRequireToml root ++ "[[lean_lib]]\nname = \"Example\"\n" ++
-      Regula.Checker.observerNeedToml
+      Regula.Checker.regulaRequireToml root ++
+      Regula.Checker.observedTargetToml .library "Example"
     IO.FS.writeFile (project / "Example.lean") "import Dep\n/-! Snapshot control. -/\n"
     -- The complete generated requirement graph is this one path dependency, with no Git source.
     success (← run project "lake" #["update"] cleanEnv)
@@ -246,7 +246,7 @@ def check (group : String) : IO Unit := do
       "name = \"history_control\"\n" ++ Regula.Checker.observerPluginToml ++
       "[leanOptions]\nautoImplicit = false\nrelaxedAutoImplicit = false\n" ++
       "linter.missingDocs = true\n" ++ Regula.Checker.regulaRequireToml root ++
-      "[[lean_lib]]\nname = \"Example\"\n" ++ Regula.Checker.observerNeedToml
+      Regula.Checker.observedTargetToml .library "Example"
     removeFile (project / "lake-manifest.json")
     -- The replacement generated configuration has no requirements; update creates its manifest.
     success (← run project "lake" #["update"] cleanEnv)

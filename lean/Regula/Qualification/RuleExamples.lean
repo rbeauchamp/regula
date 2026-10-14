@@ -267,12 +267,13 @@ private def produce (ctx : Context) (slot : Slot.ProducerSlot) (rule phase : Str
       -- among them `Example.Cli`, the root of `lean_exe cli`.
       let config := project / "lakefile.lean"
       let text ← IO.FS.readFile config
-      let declared := "lean_lib Example where\n" ++ Regula.Checker.observerNeedLean
+      let declared := Regula.Checker.observedTargetLean .library "Example"
       requireChecks
           [⟨"RG2002 fixture library declaration", (text.splitOn declared).length == 2⟩]
       IO.FS.writeFile config (text.replace declared <|
-        declared ++ "  globs := #[.andSubmodules `Example]\nlean_exe cli where\n  root := \
-          `Example.Cli\n" ++ Regula.Checker.observerNeedLean)
+        Regula.Checker.observedTargetLean .library "Example"
+            "  globs := #[.andSubmodules `Example]\n" ++
+          Regula.Checker.observedTargetLean .executable "cli" "  root := `Example.Cli\n")
       IO.FS.createDir (project / "Example")
       Regula.Filesystem.copyFile (folder / "Cli.lean") (project / "Example/Cli.lean")
       paths := paths.push (project / "Example/Cli.lean")
