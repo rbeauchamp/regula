@@ -327,6 +327,7 @@ run_cmd Regula.Removal.checkProgram (elaborates := true) (named := [
   (`Regula.Qualification.RuleExamples.produce, ``IO.FS.writeBinFile),
   (`Regula.Qualification.RuleExamples.produce, ``IO.FS.writeFile),
   (``Regula.Qualification.RuleExamples.check, ``IO.FS.createDirAll),
+  (``Regula.Qualification.SelfAudit.absenceFixtureControls, ``IO.FS.createDirAll),
   (``Regula.Qualification.Slot.prepareSlot, ``IO.FS.writeFile),
   (``Regula.Qualification.SourceEvidence.closure, ``IO.FS.writeFile),
   (``Regula.Qualification.SourceEvidence.configuration, ``IO.FS.createDir),
