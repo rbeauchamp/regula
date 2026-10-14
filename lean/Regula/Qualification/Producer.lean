@@ -111,8 +111,11 @@ private def standalone (root : FilePath) (fresh : String → IO FilePath) (phase
   let project ← fresh s!"standalone-{phase}"
   Regula.Filesystem.copyFile (root / standaloneExample) (project / "Example.lean")
   let config := project / "lakefile.lean"
-  IO.FS.writeFile config
-      ((← IO.FS.readFile config) ++ "\nlean_exe sampleTool where\n  root := `SelftestMain\n")
+  -- The executable lists Regula's elaboration observer in `needs`, as `prepareProject`'s library
+  -- does: the package loads it as a plugin, and an audit refuses a claimed module that it did not
+  -- observe (RG2003, with the target's missing `needs` named as RG2006).
+  IO.FS.writeFile config ((← IO.FS.readFile config) ++
+    "\nlean_exe sampleTool where\n  root := `SelftestMain\n" ++ Regula.Checker.observerNeedLean)
   let manifestPath := project / "foundation_manifest.json"
   let manifest ← readJson manifestPath
   let surfaces ← readMember manifestPath (RegulaQualification.Member.array manifest "surfaces")
