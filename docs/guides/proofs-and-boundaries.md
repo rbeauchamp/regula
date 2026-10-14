@@ -5406,9 +5406,11 @@ The `qualify` campaigns and what they observe:
     project with an owned dependency that records the manifest `pins.olean` refuses it by its
     compiled-module name. A copy of a project with a library that sets `srcDir` to an absolute path
     refuses that setting by name.
-  - The Git project's steps run in a process that inherits a `GIT_DIR` and an absolute
-    `GIT_INDEX_FILE` outside the scratch directory. The control's Git commands and its workers run
-    without them, and the two stay untouched.
+  - The child `qualify` that runs the Git project's steps starts with a `GIT_DIR` and an absolute
+    `GIT_INDEX_FILE` outside the scratch directory. Its guard starts it again under the isolation,
+    which removes the two variables before the steps run. The steps must pass, and the outside
+    repository stays the same. The interpreted control of `Regula.CopyControls` covers the removal
+    of `Construction.gitProcessArgs` itself.
 - `documentation-source`: both public documentation paths with changed and missing
   dependency/configuration inputs and fresh restored positives. Its `--source-read-only`
   selection adds original-file and declaration-build read failures, initial setup classification
