@@ -174,8 +174,8 @@ def Compilation.observation (compilation : Compilation) : RegulaPolicy.BuildObse
 (`Observer.decideRecord`).
 `compileIn` loads the observer into every compilation it runs with `lean`, so Lean loaded it; a
 compilation without an `.olean`, or whose `.olean` holds no complete record, is decided as one
-without a record. The decision names the compiled source as `subject`, since the module name is
-the compilation's own. -/
+without a record, and a failure to read an `.olean` that is there is thrown. The decision names
+the compiled source as `subject`, since the module name is the compilation's own. -/
 def Compilation.observe (compilation : Compilation) (subject : String) : IO Observer.Verdict :=
   Observer.decideRecord subject true compilation.oleanPath
 

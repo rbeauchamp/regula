@@ -640,15 +640,13 @@ Assumes: Lake v4.34.1 selects the language from `relConfigFile`, not the resolve
 (`Lake/Load/Package.lean:100`), under `LakeConfig.language`'s assumptions. -/
 def observe (root : FilePath) : IO Project := do
   -- Without a manifest every root target is claimed, as in the starter `init` writes; a target the
-  -- manifest that loads excludes is not. A manifest that does not load or classify every root
-  -- target claims none for the option edits until it does (`doctor` reports it as RG2002).
+  -- manifest that loads excludes is not. A manifest that does not parse or classify every root
+  -- target claims none for the option edits until it does (`doctor` reports it as RG2002). A
+  -- manifest that is there but cannot be read is a failure, never read as one that does not parse.
   let manifestPath := Manifest.defaultPath root
   let manifestExists ← Regula.Filesystem.isPresent manifestPath
   let manifest ← if manifestExists then
-      try
-        let text ← IO.FS.readFile manifestPath
-        some <$> IO.ofExcept (Manifest.parse manifestPath.toString text)
-      catch _ => pure none
+      pure (Manifest.parse manifestPath.toString (← IO.FS.readFile manifestPath)).toOption
     else pure none
   let invalid ← if manifestExists then
       try validManifest root *> pure false catch _ => pure true

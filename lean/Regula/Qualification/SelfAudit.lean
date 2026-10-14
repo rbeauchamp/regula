@@ -312,10 +312,12 @@ campaign refuses each declaration whose type or value names one of Lean's two re
 nothing, because it only selects a cleanup or a report.
 
 What the check finds: each declaration of an inspected module that names either reader, in its
-elaborated type or value, completely, since a call, a partial application and a point-free use
-each name it. It does not find a read inside a function of Lean's library or of another package
-that a declaration calls, such as `System.SearchPath.findWithExt`, `System.FilePath.walkDir` or
-`Lean.findOLean`, which read with these two themselves
+elaborated type or value, since a call, a partial application and a point-free use each name it.
+That it finds each such name rests on Lean's native traversal behind `Expr.find?`, which no theorem
+reaches (the `Assumes:` entry of `readsAbsence`). It does not find a read inside a function of
+Lean's library or of another package that a declaration calls, such as
+`System.SearchPath.findWithExt`, `System.FilePath.walkDir` or `Lean.findOLean`, which read with
+these two themselves
 (https://github.com/rbeauchamp/regula/issues/441), and it inspects no module of the `markdown` and
 `website` packages (https://github.com/rbeauchamp/regula/issues/442). Its controls are the modules
 of a committed fixture package outside every library, which the campaign compiles and gives to the
@@ -331,7 +333,16 @@ declares its own `main`. Every read of the package goes through the shared obser
 none. -/
 def absenceReadAllowlist : Array (Name × Name × String) := #[]
 
-/-- Whether the term `e` names one of `absenceReaders`. -/
+/-- Whether the term `e` names one of `absenceReaders`, by Lean's `Expr.find?`.
+
+Assumes: Lean v4.34.1's `Expr.find?` is `findImpl?` (`src/lean/Lean/Util/FindExpr.lean:16-19`),
+an `opaque` with `@[extern "lean_find_expr"]`, so its logical body is not the traversal that runs
+and no theorem about it reaches that traversal. Its C++ (`src/kernel/for_each_fn.cpp:164-185`)
+runs `for_each_fn<true>` (`:21-90`), which applies the predicate to each `.const` subterm and
+descends into both parts of each application, partial applications included, the domain and body
+of each binder, the type, value and body of each `let`, and the term of each `mdata` and `proj`,
+each shared subterm other than a constant visited once, until the predicate holds. So the result
+is `true` exactly when a constant of `absenceReaders` occurs in `e`. -/
 def readsAbsence (e : Expr) : Bool :=
   (e.find? fun e => absenceReaders.any e.isConstOf).isSome
 
@@ -358,8 +369,10 @@ def absenceReads (allowlist : Array (Name × Name × String)) (moduleName : Name
   owned.filterMap fun entry =>
     if !allowedIn allowlist moduleName entry.1 && readsAbsenceIn entry.2 then some entry.1 else none
 
-/-- With no allowlist entry for its module, the check finds exactly the declarations whose type or
-value names one of Lean's readers. -/
+/-- With no allowlist entry for its module, the check finds exactly the declarations for which
+`readsAbsenceIn` holds. That this is each declaration whose type or value names one of Lean's
+readers rests on the native traversal of `Expr.find?` (the `Assumes:` entry of `readsAbsence`),
+which this theorem does not reach. -/
 theorem mem_absenceReads {allowlist : Array (Name × Name × String)} {moduleName name : Name}
     {owned : Array (Name × ConstantInfo)}
     (unlisted : ∀ entry ∈ allowlist, entry.1 ≠ moduleName) :

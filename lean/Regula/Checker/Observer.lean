@@ -396,13 +396,12 @@ observer's bytes (`pluginLoaded`) and its target lists the observer's key in `ne
 (`observerKey`): the observer library's job trace is then in the module's trace through the
 target's `extraDep` job (`Lake/Build/Library.lean` lines 162 to 169, `Lake/Build/Module.lean`
 lines 600 to 603), so an `.olean` Lake replays was built under the library whose bytes
-`matchingPlugins` matched. A module without `loaded`, a missing file, or one without exactly one
-record gives no record. -/
+`matchingPlugins` matched. A module without `loaded`, a file where nothing is
+(`Regula.Filesystem.isPresent`), or a file read whole without exactly one record gives no record.
+A failure to observe the file or to read one that is there, such as a denied permission, is
+thrown, never read as no record. -/
 def decideRecord (subject : String) (loaded : Bool) (olean : FilePath) : IO Verdict := do
-  let record ← if loaded && (← Regula.Filesystem.isPresent olean) then
-      match ← (readRecord olean).toBaseIO with
-      | .ok record => pure record
-      | .error _ => pure none
+  let record ← if loaded && (← Regula.Filesystem.isPresent olean) then readRecord olean
     else pure none
   return ⟨elaborationFailures subject loaded record, record.isSome,
     (record.map settings).getD []⟩
