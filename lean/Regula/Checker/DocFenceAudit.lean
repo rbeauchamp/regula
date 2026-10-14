@@ -113,8 +113,8 @@ private def prepareVerso (repo copy : FilePath) (verso : VersoPackage)
   unless copied.map (relative package) == original.map (relative versoDir) &&
       original.all linked.contains do
     return some "the isolated copy's Verso sources and package inputs are not the audited ones"
-  let (_, failure) ← timedPhase "Verso documentation build" <|
-    Lake.buildCheckedObservation package
+  let failure ← timedPhase "Verso documentation build" <|
+    Lake.buildDocumentation package
       #[.library (Manifest.targetSpelling verso.library), .executable verso.render] "fresh"
   if let some lines := failure then return some ("\n".intercalate lines.toList)
   return none
@@ -234,8 +234,8 @@ unsafe def run (args : List String) : IO UInt32 := do
       let placed ← match options.acceptanceLink.map (resolve repo) with
         | none => pure (.error "no acceptance link was given")
         | some link => do
-          let digest ← AcceptanceLink.identity scratch copy docsRoot sources configuration
-              dependencies linked
+          let digest ← AcceptanceLink.identity scratch copy copied.root docsRoot sources
+              configuration dependencies linked
           AcceptanceLink.require link digest
           IO.println
               s!"acceptance link: documentation inputs equal the accepted ordinary inputs ({digest})"
@@ -248,6 +248,8 @@ unsafe def run (args : List String) : IO UInt32 := do
           | some closure =>
             timedPhase "retained build placement" <|
               AcceptanceLink.placeRetained repo copy scratch link digest targets modules closure
+      -- After that placement, which requires the copy to hold no `.lake/build`.
+      copied.placeObservers
       SourceBinding.withUnchanged sources configuration do
         SourceBinding.configurationUnchanged configuration
         let (buildProcess, buildResult) ← Lake.buildCheckedObservation copy

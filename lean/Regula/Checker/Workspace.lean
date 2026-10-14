@@ -506,26 +506,12 @@ facet compiles from its `presetup` facet's result. -/
 def messageFileName (pkg : _root_.Lake.Package) (srcFile : System.FilePath) : String :=
   _root_.Lake.mkRelPathString (_root_.Lake.relPathFrom pkg.dir srcFile)
 
-/-- The source file of the completed `presetup` job of module `module` of package `package` in the
-build `store`, the file that Lake's `leanArts` facet compiles the module from
-(`Module.recBuildLean`, `Lake/Build/Module.lean` lines 1006 to 1009), or none when the store holds
-no such job or the job failed. The store's job has that facet's data type by unfolding
-`BuildData`, and Lake's `ofFamily` casts it to the presetup result through Lake's facet axiom, so
-no proof of this module rests on that axiom. -/
-def presetupSource? (store : _root_.Lake.BuildStore) (package module : Name) :
-    Option System.FilePath :=
-  let job? : Option (_root_.Lake.Job (_root_.Lake.FacetOut _root_.Lake.Module.presetupFacet)) :=
-    store.get? (_root_.Lake.BuildKey.packageModuleFacet package module
-      _root_.Lake.Module.presetupFacet)
-  job?.bind fun job => job.task.get.result?.map fun data =>
-    (_root_.Lake.ofFamily data : _root_.Lake.ModulePreSetup).srcFile
-
 /-- Why the messages of the module that the build key `key` compiles, if any, are not covered by
 `unparsedCompilerOutput_ofSerialMessage`, or none when they are or `key` compiles nothing, with
-`source?` giving the source file of each module's completed `presetup` result (`presetupSource?`
-of the build's store). A key compiles a module when it is the module's `leanArts` job. Its
-messages are covered when a package of `ws` has the key's package name and the file name Lake gives
-them (`messageFileName`, from that source file) has no line break. -/
+`source?` giving the source file of each module's completed `presetup` result. A key compiles a
+module when it is the module's `leanArts` job. Its messages are covered when a package of `ws` has
+the key's package name and the file name Lake gives them (`messageFileName`, from that source
+file) has no line break. -/
 def sourcePathFailure? (ws : _root_.Lake.Workspace)
     (source? : Name → Name → Option System.FilePath)
     (key : _root_.Lake.BuildKey) : Option String :=
@@ -562,8 +548,8 @@ theorem sourcePathFailure?_eq_none {ws : _root_.Lake.Workspace}
     refine ⟨pkg, srcFile, hPkg, hSrc, fun hBreak => ?_⟩
     simp [hBreak] at h
 
-/-- Each `sourcePathFailure?` of the keys of the build `store` of `ws`, with `source?` the
-`presetupSource?` of `store`. -/
+/-- Each `sourcePathFailure?` of the keys of the build `store` of `ws`, with `source?` giving the
+source file of each module's completed `presetup` result. -/
 def lineBreakSourcePaths (ws : _root_.Lake.Workspace) (store : _root_.Lake.BuildStore)
     (source? : Name → Name → Option System.FilePath) : Array String :=
   store.keys.toArray.filterMap (sourcePathFailure? ws source?)

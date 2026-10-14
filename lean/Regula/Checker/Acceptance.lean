@@ -78,15 +78,17 @@ warning or error, since Lake failed it otherwise (`Lake.buildCheckedObservation`
 Any other build keeps its exit code, the warning and error lines of its output, which are read only
 to report it, and those entries as errors, names each claimed module whose log a build without
 Regula's audit-build marker reused from before the audit under weak arguments that its trace does
-not record (`Lake.CheckedBuild.reused`), whose result it does not establish, and is an error when
+not record (`Lake.CheckedBuild.reused`), whose result it does not establish, adds each RG2003 failure of
+Regula's elaboration observer (`Lake.CheckedBuild.observer`), and is an error when
 it ran at another failure level, since its warnings did not fail it. That Lake fails such a build
 is read from Lake's source, not proved. -/
 def buildObservation (build : Lake.CheckedBuild) : BuildObservation :=
   if build.failLv = .warning ∧ build.process.exitCode = 0 ∧ build.unparsed = #[] ∧
-      build.reused = #[] then ⟨0, #[], #[]⟩
+      build.reused = #[] ∧ build.observer = #[] then ⟨0, #[], #[]⟩
   else ⟨build.process.exitCode.toNat, warningLines build.process.output,
     errorLines build.process.output ++ build.unparsed ++
       build.reused.map (s!"RG2003 not established for reused module {·}") ++
+      build.observer ++
       (if build.failLv = .warning then #[] else
         #["the build did not run with Lake's failure level at warning, so its warnings were not \
           checked"])⟩
@@ -95,14 +97,16 @@ def buildObservation (build : Lake.CheckedBuild) : BuildObservation :=
 `warning`, exited 0, no job that Lake's build monitor judged and that is not optional logged an
 entry Lake can have made from compiler output that is not a Lean message, whatever its output says,
 and it reused no claimed module's log without a record of its weak arguments
-(`Lake.mem_reusedModules_iff` states which modules `build.reused` holds). That
+(`Lake.mem_reusedModules_iff` states which modules `build.reused` holds), and Regula's
+elaboration observer reported no RG2003 failure (`Lake.CheckedBuild.observer`). That
 `build.jobs` holds the logs of exactly the jobs Lake's monitor judged is `Lake.observedFetch`'s
 construction. -/
 theorem buildObservation_ok_iff (build : Lake.CheckedBuild) :
     BuildOK (buildObservation build) ↔
       build.failLv = .warning ∧ build.process.exitCode = 0 ∧ (∀ job ∈ build.jobs,
         job.optional = false → ∀ entry ∈ job.entries,
-          Workspace.unparsedCompilerOutput entry = false) ∧ build.reused = #[] := by
+          Workspace.unparsedCompilerOutput entry = false) ∧ build.reused = #[] ∧
+        build.observer = #[] := by
   rw [← Lake.unparsedOutput_eq_empty_iff, ← Lake.CheckedBuild.unparsed]
   unfold buildObservation BuildOK
   split
@@ -110,9 +114,10 @@ theorem buildObservation_ok_iff (build : Lake.CheckedBuild) :
   · rename_i h
     refine ⟨fun ⟨exit, _, errors⟩ => absurd ?_ h, fun ok => absurd ok h⟩
     obtain ⟨front, level⟩ := Array.append_eq_empty_iff.mp errors
+    obtain ⟨front, observer⟩ := Array.append_eq_empty_iff.mp front
     obtain ⟨front, reused⟩ := Array.append_eq_empty_iff.mp front
     refine ⟨?_, UInt32.toNat_inj.mp (by simpa using exit), (Array.append_eq_empty_iff.mp front).2,
-      by simpa using reused⟩
+      by simpa using reused, observer⟩
     by_cases other : build.failLv = .warning
     · exact other
     · simp [other] at level

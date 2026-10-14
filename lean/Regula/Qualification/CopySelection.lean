@@ -50,14 +50,18 @@ def checkAt (root base : FilePath) : IO Unit := do
       ("artifact-directory", ".lake/packages", "docs/lowering.ir/guide.md"),
       ("documentation-packages", "docs/vendor", "docs/vendor/guide.md")] do
     let project := base / label
+    -- `Solo` loads Regula's elaboration observer, which it requires from `root` by path, so that
+    -- RG2003 is decided and each audit reaches the documentation stage these phases exercise.
     let lakefile := "import Lake\nopen Lake DSL\npackage copy_selection where\n" ++
       "  packagesDir := \"" ++ packages ++ "\"\n" ++
       "  leanOptions := #[⟨`autoImplicit, false⟩, ⟨`relaxedAutoImplicit, false⟩, " ++
-      "⟨`linter.missingDocs, true⟩]\nlean_lib Solo\n"
+      "⟨`linter.missingDocs, true⟩]\n" ++ Regula.Checker.observerPluginLean ++
+      "require regula from " ++ (toJson root.toString).compress ++ "\nlean_lib Solo where\n" ++
+      Regula.Checker.observerNeedLean
     let manifest := (Json.mkObj [
       ("version", toJson "1.1.0"), ("name", toJson "copy_selection"),
       ("lakeDir", toJson ".lake"), ("packagesDir", toJson packages),
-      ("packages", toJson (#[] : Array Json))]).pretty ++ "\n"
+      ("packages", toJson #[Regula.Checker.regulaManifestEntry root])]).pretty ++ "\n"
     construct project (Construction.layout (toolchain ++ [
       ⟨["lakefile.lean"], .file lakefile.toUTF8⟩,
       ⟨["lake-manifest.json"], .file manifest.toUTF8⟩,

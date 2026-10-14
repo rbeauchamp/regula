@@ -28,6 +28,11 @@ lean_lib «MathlibAudit» where
   -- inventory is the semantic inventory consumed by the declaration gate.
   globs := #[.andSubmodules `MathlibAudit]
   leanOptions := mathlibLinters
+  -- Regula's elaboration observer, which each claimed target loads (RG2003, RG2006) and lists in
+  -- `needs` (RG2006), so that a fresh build builds it once and a replayed module was elaborated
+  -- with it.
+  plugins := #[`@regula/RegulaObserver:shared]
+  needs := #[`@regula/RegulaObserver:shared]
 
 require regula from "../.."
 

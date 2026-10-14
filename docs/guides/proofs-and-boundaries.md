@@ -167,7 +167,7 @@ configuration and frozen-artifact checks before the unchanged full inspection an
 freshness checks.
 
 A facet that a later dependency declares can replace Regula's. So a build without the marker
-counts no record when a dependency other than Regula declares a library facet, as
+counts no record when a dependency other than Regula declares a library or module facet, as
 `Lake.onlyRegulaFacets` decides. The record is part of the build traces that Lake recorded in the
 checkout, which the incremental gate trusts. A record counts as written by Regula's facet when
 Lake built the module, as `Lake.traceRecords_ownRecord_iff` assumes. A facet that forged the record
@@ -328,8 +328,8 @@ marker.
 A library can change its source directory, roots, globs, `needs` and Lean options. An executable
 can also change its root, its file name and its interpreter support. An input target can change
 its path and its text mode. Each `needs` entry must name an `input_file` or an `input_dir` of the
-same package. A package can change its source directory, its Lean options, its lint and test
-drivers and its metadata.
+same package, or the observer below. A package can change its source directory, its Lean options,
+its lint and test drivers and its metadata.
 
 Lake runs no code from these fields in a build. The function `nativeFacets` of a library or an
 executable and the filter of an `input_dir` are also fields. Regula reads them from the compiled
@@ -363,6 +363,58 @@ of the shipped file as equal to `weakArgsRecordJson` (`lakefileEncoderAgrees`, r
 `Regula.RegistryChecks`). This catches a drift between that file and the proved encoder. It
 establishes nothing about a configuration that an adopter or a dependency changes, which is a
 forged facet outside the evidence of the incremental gate.
+
+A target of the plain shape may name one plugin only, Regula's elaboration observer, as
+`isObserverPlugin` decides. That plugin is `@regula/RegulaObserver:shared`, or `@/RegulaObserver:shared`
+in the `lakefile.lean` of Regula that the driver admits by identity. Lake's own `presetup` facet
+builds that shared library and adds it to the plugins that Lean loads. Unless the target sets
+`platformIndependent := true`, it also mixes the trace of the library into the module's trace. The
+observer imports only Lean, prints nothing and reads no
+option that the marker sets. So a build with the marker and a build without it write the same
+record.
+
+A `needs` entry of a target of the plain shape may also name that shared library, as
+`isObserverNeed` decides. [RG2006] requires each target that loads the observer to list it there.
+The entry builds the library that the plugin entry names, and nothing else. Without it, Lake
+v4.34.1 can build the library several times at the same time in a fresh build. Those builds write
+the same files.
+
+With the entry, Lake builds the library before the modules of the target fetch their plugins. Lake
+also mixes the trace of the target's `needs` into each module's trace, whatever the target's
+`platformIndependent` (`Lake/Build/Module.lean` lines 591 and 600 to 603). So a module that Lake
+replays was elaborated with the observer that the build has.
+
+Regula declares no `presetup` facet. The audit's own builds run the facet that the workspace
+configures, without a change, through `Observer.recordingPresetup`. That wrapper keeps the
+`buildable` and `memoize` settings of the facet. Each `presetup` job writes its result to
+`Observer.Presetups` when it completes. The audit reads the plugins and the source file of each
+module from there. The build store of Lake does not keep the job of a facet with
+`memoize := false`, so the audit does not read them from that store.
+
+A claimed module counts as observed only when two conditions hold. Its completed `presetup` loaded
+the observer of the running Regula, as `Observer.pluginLoaded` decides. Its target also lists the
+observer's key in `needs`. The audit reads the record of the module only then. The record is read
+with an unchecked cast to the running observer's type (`Observer.recordEntries`).
+
+With the key in `needs`, the observer's trace is in the module's trace. So an `.olean` that Lake
+replays was written under the library with the bytes that `matchingPlugins` matched. Without the
+key, Lake can replay an `.olean` that a different observer wrote, so the audit reads no record. A
+dependency's facet that drops the plugin, or a target without the `needs` entry, leaves the module
+refused under [RG2003]. [RG2006] requires the two entries in the configuration of each claimed
+target.
+
+Each Regula process reads the bytes of its own observer library one time, `Observer.running`. It
+does so when it starts, before it loads a workspace, copies a project or runs a build. A loaded
+plugin counts only when its bytes equal that snapshot. Its path counts for nothing, since a build
+can write other bytes at any path.
+
+The comparison reads each plugin file after the build. A file
+that changes after Lean loaded it and before that read is outside this guarantee. The cause is
+that Lake reports a plugin by its path, not by the bytes that Lean read.
+
+A fresh audit writes that snapshot into each copied package `regula` with the observer library,
+`Observer.placeRunning`. Lake reuses it when the copy's observer source compiles to the same
+objects. Otherwise Lake links a new file with other bytes, and the audit does not admit it.
 
 A file `lakefile.lean` must also declare only what the commands of Lake generate. These are the
 definitions of the package, its targets and their configurations, `require` and the name of the
@@ -1154,7 +1206,7 @@ The empty-glob control uses the auditor because the same glob prevents Lake from
 
 The `weak-args-probes` group, also in `diagnostics lint-driver 1/5`, links a `lakefile.lean` to a Lean configuration named `configuration.toml`.
 Its decision probe of the plain shape keeps the marker for the facet of that configuration.
-As a dependency, the same configuration adds its facet to the count of `Lake.otherLibraryFacets`.
+As a dependency, the same configuration adds its facet to the count of `Lake.otherFacets`.
 The `lake-new` group, in `diagnostics lint-driver 4/5`, links the `lakefile.lean` of its Lean project in the same way.
 Then `regula doctor` names `lakefile.lean` and reports the setup complete.
 A decision that used the extension of the resolved target would read TOML in these three controls.
@@ -1482,6 +1534,95 @@ gives it (`licensed_iff`); a `-D` extra argument that gives it a value can only 
 fail. That the linter compares the header with that option is read from Mathlib's source and
 assumed.
 
+The decision on the target's configuration also requires the observer. If the plugins of a target
+do not name `@regula/RegulaObserver:shared`, the target fails with `Failure.observer`
+(`observer_unloaded_fails`). The finding names the line to add. The adapter reads the plugins
+that Lake resolves for the target with `Observer.observerKey`: the package's, then the target's.
+
+The decision also requires the same key in the target's `needs`. If the plugins of a target name
+the observer and its `needs` do not, the target fails with `Failure.observerNeed`
+(`observer_unneeded_fails`). The finding names the entry to add. The adapter reads the target's own
+`needs` with `Observer.observerKey`. Lake has no `needs` setting for a package.
+
+Lake mixes the trace of the `needs` into the trace of each module of the target, whatever its
+`platformIndependent`. So a module that Lake replays was elaborated with the observer that the
+build has. A fresh build of a target without the entry can also build the observer several times
+at the same time.
+
+[RG2006] also decides the options that each claimed module's source sets, as Regula's elaboration
+observer recorded them, with `RegulaPolicy.Community.sourceFailures` (`sourceFailures_eq_nil_iff`,
+`checked_sourceFailures`). The same accepted set decides them, with two more admissions.
+
+The first admission is a community linter turned off by `set_option linter.NAME false in` before
+one declaration. The observer records the kinds of the commands that Lean elaborates for the wrapped
+command when all macros have expanded it. `oneDeclaration` admits the setting only if exactly one
+kind is a declaration and the others are `namespace`, `end` or `end_local_scope`. So a declaration
+with a namespace in its name passes, but a `section` of several declarations fails. A macro that
+expands to two declarations fails, and so does a command with an elaborator of its own. The
+theorems `oneDeclaration_iff`, `communityDisable_iff`, `missingDocs_in_namespaced_passes` and
+`missingDocs_in_two_declarations_fails` state this.
+
+The second admission is a closed set of settings, `RegulaPolicy.Community.generatedSettings`. These
+are the settings that the code of the pinned Lean writes as `set_option` syntax into the code it
+generates. The decision accepts each of them wherever it occurs, as `generated_accepted` states.
+It reads the setting alone and not who wrote it. So a project may write such a setting itself.
+
+The set is the result of a search, `Regula.Checker.GeneratedSettingSearch.search`. It reads the
+compiled code of the modules `Lean` and `Lake` for each syntax node of a `set_option` kind. The
+registry checks run it and refuse unless its result is that set. In Lean v4.34.1 the set has
+four settings:
+
+| Setting | Written by |
+| --- | --- |
+| `match.ignoreUnusedAlts true` | the `deriving BEq` and `deriving Ord` handlers |
+| `smartUnfolding false` | `rfl'` |
+| `tactic.hygienic false` | `unhygienic` |
+| `trace.grind.ematch.instance true` | the suggestion of `grind_lint inspect` |
+
+The search also names the one construction that has no literal option, in the message of
+`#where`. It also names each other function that the code applies to a `set_option` kind, such as a
+parser or a formatter. The registry checks refuse unless those lists are the stated ones too. A
+kind name that the code computes instead of writing it is outside the search.
+
+The setting `match.ignoreUnusedAlts true` hides Lean's "Redundant alternative" error. So a project
+that writes it hides that error, and [RG2006] accepts it. This is an open limit, which issue
+[#422](https://github.com/rbeauchamp/regula/issues/422) tracks. The other three settings hide
+nothing that a default reports. A `trace.` option is not accepted, apart from the setting in the
+table.
+
+Code of the project that Lean runs during elaboration writes the same record as source text.
+Examples are `run_cmd`, `run_elab`, a `try_suggestion` generator and a simproc. So a setting
+that such code elaborates gets the same decision.
+
+The observer records the options that Lean's `set_option` elaborator set. Of the builtin commands
+of Lean v4.34.1, only `unlock_limits` also assigns the options of the enclosing scope. It sets three
+resource limits to `0`, which [RG2006] accepts, as `unlockLimits_accepted` states. Elaborator code
+can change an option for its own commands, through `withScope`. Examples are `autoImplicit` in the
+`ToExpr` deriving handler and `quotPrecheck.allowSectionVars` in a `local notation`. Such a change
+is outside the record.
+
+Lean records an option's name in four places, which `GeneratedSettingSearch.producers` lists.
+The registry checks require that list to be the search's result. The `set_option` forms record a
+setting. The documentation command `{set_option name value}` records one too, for the rest of its
+comment.
+
+The observer leaves out the other two, since neither sets an option of the scope. The
+documentation role `{option}` only refers to an option. A `simp` user option such as
+`simp +user.name` sets the option in the tactic's own configuration.
+
+[RG2003] decides each claimed module's record with `RegulaPolicy.Elaboration.failures`
+(`failures_eq_nil_iff`, `checked_failures`). The two theorems are about the decisions over the
+recorded data. Lean's source at the pinned release shows that the observer records each `set_option`,
+`#guard_msgs` and `#guard_panic` and each silent message that Lean elaborated. It also shows that
+the frontend writes the record after all linters finished, which standard §7.3 states as an
+assumption. Code that runs in the module's own elaboration can forge the record or remove a
+message, and that is outside the evidence.
+
+A stateful linter that an imported module registers runs after the observer's linter on each
+command, since Lean loads the plugin first. Lean gives a plugin no later point to read the
+messages, so a silent message from such a linter is outside the record too. A file audit with a
+claim loads the observer into its compilation and decides on that record.
+
 Each other option that a target sets in `leanOptions` or with `-D` must be in the closed accepted
 set `RegulaPolicy.Community.Accepted`, at an accepted value. The function `accepts` decides that
 set (`accepts_iff`). The accepted values were read from the option registrations at Lean
@@ -1659,6 +1800,8 @@ Two-way decisions (`Regula.Decides`), each with an accepted and a refused input:
 | `RegulaPolicy.boundaryFailures`, `executionFailureRecords`, `executionFindings` (accept on `#[]`) | `BoundaryOK`, `ExecutionOK` | [RG3001], [RG3002], for one supplied boundary and for an admitted inventory. |
 | `RegulaPolicy.Intent.hasIntentSection`, `RegulaPolicy.materialDocumentationFailure` | `IntentSection`, `MaterialDocumentationOK` | [RG5002], [RG5003]. |
 | `RegulaPolicy.ModuleHeader.failures`, `RegulaPolicy.Community.failures` (accept on `[]`) | `ModuleHeader.OK`, `Conforming` | [RG5001], [RG2006]. |
+| `RegulaPolicy.Community.sourceFailures` (accepts on `[]`) | Each recorded source option is `SourceAccepted` (`sourceFailures_eq_nil_iff`) | [RG2006], over the options that the elaboration observer recorded for one claimed module. |
+| `RegulaPolicy.Elaboration.failures` (accepts on `[]`) | `Complete`: the observer was loaded, its record is there, no `#guard_msgs` or `#guard_panic`, no silent warning or error, and each command was linted (`failures_eq_nil_iff`) | [RG2003], over one claimed module's record. |
 | `admitSnapshot`, `admitClaim`, `admitInventory`, `admitExecution`, `admitJobKey`, `admitInfrastructureOrigin`, `admitIdentity`, `admitToolchainOrigin`, `admitToolchainAxioms`, `Compiler.admitCapability`, and the scope admission `admitScopeImpl` (accept on `.ok`) | The validity relation each names (`Snapshot.Valid`, `ClaimCandidate.Valid`, `InventoryValid`, `ExecutionValid` and so on) | Admission of decoded records. Which value is returned is each function's `_exact` theorem. |
 | `Compiler.accepts` | `Compiler.Supports` | The compiler-identity guard. |
 | `Regula.Checker.Frontend.coordinateCheck` (accepts on `.ok`) | `CoordinatesAgree` | Transcript coordinates, checked before inventory admission (`checked_scope`). |
@@ -3763,7 +3906,9 @@ directory a configuration gives for build output, and the reporter's overlay can
 coordinator builds each such module in the copy, and the worker refuses one that still resolves
 elsewhere. No build of the copy uses Lake's artifact cache, so Lake does not restore a module into
 the copy without compiling its source. **Trusted:** the filesystem resolves the real paths, and
-only the copy's build writes compiled modules into the copy.
+only the copy's build writes compiled modules into the copy. The one exception is the observer
+shared library with its `.trace` and `.hash` files, which `ProjectCopy.placeObservers` writes before
+the copy's build.
 
 The force-imported reporter loads modules of the prefixes `Regula` and `RegulaPolicy`, and Lean
 resolves a whole prefix at the first search directory that has it. So a copy that builds a part of

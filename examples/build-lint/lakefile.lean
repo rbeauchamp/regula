@@ -12,6 +12,11 @@ package build_lint_adopter where
 require regula from "../.."
 
 lean_lib Widget where
+  -- Regula's elaboration observer records the options the source sets and the messages a build
+  -- does not show (RG2003, RG2006); every claimed target loads it, and lists it in `needs` (RG2006)
+  -- so that a fresh build builds it once and a replayed module was elaborated with it.
+  plugins := #[`@regula/RegulaObserver:shared]
+  needs := #[`@regula/RegulaObserver:shared]
   globs := #[.andSubmodules `Widget]
 
 /-- The sole default target: build the tool, then build and inspect every

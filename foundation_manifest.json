@@ -47,6 +47,10 @@
       "rationale": "Positive controls and intentionally invalid mutations are queryable for exact contamination checks but are not part of the conforming Audit surface."
     },
     {
+      "library": "RegulaObserver",
+      "rationale": "Regula's elaboration observer: a Lean plugin, loaded into the elaboration of each module of the root package, that records in the module's .olean the options its source set, the #guard_msgs and #guard_panic commands it ran and the messages Lean kept out of the build's output. It decides nothing and imports only Lean, so it is not elaborated with itself; the audit reads its record and decides RG2003 with the proved RegulaPolicy.Elaboration.failures and RG2006 with RegulaPolicy.Community.sourceFailures. Its reading of Lean's info trees and messages is trusted at the pinned Lean, not proved."
+    },
+    {
       "library": "Regula",
       "rationale": "Operational Lean checker code is not a conforming proof surface; acceptance does not re-elaborate or report its declarations. It holds the adapters around the claimed RegulaPolicy and RegulaCore decisions: Lake and environment observation, frontend transcripts, Lean's LSP UTF-16 column conversion, compiler and worker processes, JSON transport, filesystem provenance and text rendering. Its external observation paths are mutation-qualified separately; its proved transport-admission theorems are kernel-checked by the warning-as-error lake build and bounded to Standard-Logical by an in-module ceiling over the axioms each reaches (RegulaPolicy.KernelAxioms.reachedAxioms). Outside acceptance, the self-audit diagnostic (./scripts/verify.sh diagnostics self-audit) kernel-admits every module and decides every declaration with the proved operational decision RegulaPolicy.operationalFailure: the Standard-Logical declaration rules, with authored unsafe/partial declarations and the pinned toolchain's Lake axioms in non-proposition definitions reported rather than failed, and module documentation required."
     }
