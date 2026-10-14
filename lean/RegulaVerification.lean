@@ -1480,7 +1480,7 @@ def siteRefusal (out : System.FilePath) : IO (Option String) := do
       the attempt removes nothing"
   | .ok metadata =>
     unless metadata.type == .dir do return refuse
-    if (← out.readDir).isEmpty then return none
+    if (← listDirectory out).isEmpty then return none
     if ← regularFile (out / siteAssemblingMarker) then return none
     unless ← regularFile (out / "build.json") do return refuse
     match Lean.Json.parse (← IO.FS.readFile (out / "build.json")) with

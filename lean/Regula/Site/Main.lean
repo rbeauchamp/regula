@@ -92,19 +92,16 @@ run_cmd Regula.Removal.checkProgram (elaborates := true) (named := [
   (``Regula.Site.Build.generate, ``IO.FS.writeFile),
   (``Regula.Site.Build.writeTree, ``IO.FS.createDirAll),
   (``Regula.Site.Build.writeTree, ``IO.FS.writeBinFile),
+  -- The destinations that the control of the renderers' refusals seeds, in its scratch directory
+  -- (`Regula.Site.RendererRefusal.control`).
+  (`Regula.Site.RendererRefusal.seed, ``IO.FS.createDirAll),
+  (`Regula.Site.RendererRefusal.seed, ``IO.FS.writeFile),
   -- The writes of the campaigns that `qualify` runs and names (`Regula.Qualification.Main`), in
   -- the modules of them that this program links: their projects and slots, and the raw
   -- observations of a rule-example production beside its evidence
   -- (`Regula.Qualification.RuleExamples`). The compiled code of those modules is among the
   -- program's roots (`Regula.Removal.programRoots`).
   (``Regula.Qualification.prepareCoreProject, ``IO.FS.createDirAll),
-  (``Regula.Qualification.prepareCoreProject, ``IO.FS.writeBinFile),
-  (``Regula.Qualification.prepareCoreProject, ``IO.FS.writeFile),
-  (``Regula.Qualification.prepareProject, ``IO.FS.createDirAll),
-  (``Regula.Qualification.prepareProject, ``IO.FS.writeBinFile),
-  (``Regula.Qualification.prepareProject, ``IO.FS.writeFile),
-  (``Regula.Qualification.rootImportsGuardControl, ``IO.FS.createDirAll),
-  (``Regula.Qualification.rootImportsGuardControl, ``IO.FS.writeBinFile),
   (``Regula.Qualification.rootImportsGuardControl, ``IO.FS.writeFile),
   (`Regula.Qualification.RuleExamples.observe, ``IO.FS.Handle.mk),
   (`Regula.Qualification.RuleExamples.produce, ``IO.FS.createDir),
@@ -112,15 +109,7 @@ run_cmd Regula.Removal.checkProgram (elaborates := true) (named := [
   (`Regula.Qualification.RuleExamples.produce, ``IO.FS.writeBinFile),
   (`Regula.Qualification.RuleExamples.produce, ``IO.FS.writeFile),
   (``Regula.Qualification.RuleExamples.check, ``IO.FS.createDirAll),
-  (``Regula.Qualification.Slot.copyFile, ``IO.FS.createDirAll),
-  (``Regula.Qualification.Slot.copyFile, ``IO.FS.writeBinFile),
-  (``Regula.Qualification.Slot.copyTree, ``IO.FS.createDirAll),
-  (``Regula.Qualification.Slot.materializeGit, ``IO.FS.writeFile),
-  (``Regula.Qualification.Slot.prepareSlot, ``IO.FS.createDirAll),
-  (``Regula.Qualification.Slot.prepareSlot, ``IO.FS.writeFile),
-  (``Regula.Qualification.Slot.prepareSlotProject, ``IO.FS.createDirAll),
-  (``Regula.Qualification.Slot.prepareSlotProject, ``IO.FS.writeBinFile),
-  (``Regula.Qualification.Slot.prepareSlotProject, ``IO.FS.writeFile)])
+  (``Regula.Qualification.Slot.prepareSlot, ``IO.FS.writeFile)])
 
 -- A program that needs Lean's task manager starts through its guard (`Regula.TaskManager.guard`),
 -- and its refusal needs none: the build of this module fails otherwise

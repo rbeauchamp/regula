@@ -441,11 +441,19 @@ def tacticRemovals : List (Name × Name) :=
       ``IO.FS.removeFile)]
 
 /-- The writes of the writer of `Regula.Filesystem`, which the check admits in every program: the
-opening of the new file beside a destination in `Regula.Filesystem.writeReplacing`, and the making
-of the directory of a destination in `Regula.Filesystem.ownRoot`. -/
+opening of the new file beside a destination in `Regula.Filesystem.writeReplacing`, the making of
+the directory of a destination in `Regula.Filesystem.ownRoot`, the making of the new directory
+into which `Regula.Filesystem.moveAside` moves an entry, in `Regula.Filesystem.runAside`, and the
+making of each file and directory of a constructed tree in
+`Regula.Filesystem.Construction.writeNew` and `Regula.Filesystem.Construction.createDirectory`.
+The last three are exclusive: each fails when anything is at the path, as their assumptions state,
+so none of them replaces or writes into an entry. -/
 def writers : List (Name × Name) :=
   [(``Regula.Filesystem.writeReplacing, ``IO.FS.Handle.mk),
-    (``Regula.Filesystem.ownRoot, ``IO.FS.createDirAll)]
+    (``Regula.Filesystem.ownRoot, ``IO.FS.createDirAll),
+    (`Regula.Filesystem.runAside, ``IO.FS.createDir),
+    (``Regula.Filesystem.Construction.writeNew, ``IO.FS.Handle.mk),
+    (``Regula.Filesystem.Construction.createDirectory, ``IO.FS.createDir)]
 
 /-- The calls of a primitive that writes in Lean's library that a program of the package reaches,
 each with the declaration of a source that makes it (`sourceDeclaration`), for Lean 4.34.1. The
@@ -461,10 +469,10 @@ check admits each of them without establishing what it writes.
   entries of its artifact cache and an unpacked release archive (`Lake/Build/Actions.lean:29`,
   `:121` and `:186`, `Lake/Build/Common.lean:177`, `:376`, `:401`, `:454` and `:648`,
   `Lake/Build/Library.lean`, `Lake/Config/Cache.lean:183` and `:434`, `Lake/Util/IO.lean:18`,
-  `:31`, `:41` and `:70`). Regula's own code also calls `Lake.Manifest.saveEntries`, to write the
-  overrides of the packages of a project that it made for its run
-  (`Regula.Checker.Lake.relocateDependencies`, `Regula.Checker.LintQualification`), which the same
-  pair admits, as it admits every caller (`admitted`).
+  `:31`, `:41` and `:70`). Regula's own code also calls `Lake.Manifest.saveEntries` and
+  `Lake.Manifest.save`, to write the overrides of the packages and the manifest of a project that
+  it made for its run (`Regula.Checker.LintQualification`, `Regula.Qualification.CopyRelocation`),
+  which the same pairs admit, as they admit every caller (`admitted`).
 
 The writes of a tactic of Lean's library are listed apart (`tacticWrites`). -/
 def libraryWrites : List (Name × Name) :=
@@ -517,40 +525,35 @@ program made for its own run, never at a destination that its arguments name:
 
 - the lock of the scratch area, the marker of a scratch directory and the directory, in
   `Regula.Scratch.withScratch`;
-- the copy of a project below the directory that the caller gives, and the overrides of its
-  packages, in `Regula.Checker.Lake.copyProject` and `Regula.Checker.Lake.relocateDependencies`;
-- the sources of the modules that an audit compiles, below its scratch directory, in
-  `Regula.Checker.SourceAudit.compileBatch` and `Regula.Checker.SourceAudit.compileIn`;
 - the identity document of an acceptance link, below the scratch directory, which it removes after
   reading its digest, in `Regula.Checker.AcceptanceLink.identity`;
-- the retained build output of an acceptance link, staged below the scratch directory, and the
-  directories of the copy's `.lake/build`, which did not exist, where the observer moves it, in
-  `Regula.Checker.AcceptanceLink.placeRetained`;
-- the copy of a project's Markdown and the scratch of its fences, below the copy, in
-  `Regula.Checker.Documentation.snapshotMarkdown` and
+- the directories of the copy's `.lake/build`, which did not exist, where the observer moves the
+  retained build output of an acceptance link, in `Regula.Checker.AcceptanceLink.placeRetained`;
+- the scratch of a project's fences, below the copy, in
   `Regula.Checker.Documentation.auditBuiltProject`;
 - the claim of a memoized history worker's output and the directories of a probe's overlay, below
   the directories of the run, in `Regula.Checker.Environment.historyWorkerOutput` and
-  `Regula.Checker.Environment.linkProbeOverlay`. -/
+  `Regula.Checker.Environment.linkProbeOverlay`;
+- the running observer library, with its trace and hash files, in the build directory of a copy of
+  Regula's package, in `Regula.Checker.Observer.Snapshot.write`;
+- the directory of a module root in the build output of a control's project, in
+  `Regula.Checker.exposeToolchainRoot`.
+
+The copies of projects and the sources of the modules that an audit compiles are written by the
+shared constructor, whose writes are those of the writer of `Regula.Filesystem` (`writers`). -/
 def packageWrites : List (Name × Name) :=
   [(`Regula.Scratch.withScratch, ``IO.FS.Handle.mk),
     (`Regula.Scratch.withScratch, ``IO.FS.createDir),
-    (`Regula.Checker.Lake.copyProject, ``IO.FS.createDirAll),
-    (`Regula.Checker.Lake.copyProject, ``IO.FS.writeBinFile),
-    (`Regula.Checker.Lake.relocateDependencies, ``IO.FS.createDirAll),
-    (`Regula.Checker.SourceAudit.compileBatch, ``IO.FS.writeFile),
-    (mkPrivateNameCore `Regula.Checker.SourceAudit `Regula.Checker.SourceAudit.compileIn,
-      ``IO.FS.writeFile),
     (`Regula.Checker.AcceptanceLink.identity, ``IO.FS.writeFile),
     (`Regula.Checker.AcceptanceLink.placeRetained, ``IO.FS.createDirAll),
-    (`Regula.Checker.AcceptanceLink.placeRetained, ``IO.FS.writeBinFile),
-    (`Regula.Checker.Documentation.snapshotMarkdown, ``IO.FS.createDirAll),
-    (`Regula.Checker.Documentation.snapshotMarkdown, ``IO.FS.writeFile),
     (`Regula.Checker.Documentation.auditBuiltProject, ``IO.FS.createDirAll),
     (mkPrivateNameCore `Regula.Checker.Environment
         `Regula.Checker.Environment.historyWorkerOutput, ``IO.FS.Handle.mk),
     (mkPrivateNameCore `Regula.Checker.Environment `Regula.Checker.Environment.linkProbeOverlay,
-      ``IO.FS.createDirAll)]
+      ``IO.FS.createDirAll),
+    (`Regula.Checker.Observer.Snapshot.write, ``IO.FS.createDirAll),
+    (`Regula.Checker.Observer.Snapshot.write, ``IO.FS.writeBinFile),
+    (`Regula.Checker.exposeToolchainRoot, ``IO.FS.createDirAll)]
 
 /-- The pair of `pairs` that admits the call of `primitive` by `caller`, if one does: the pair of
 `caller`, of the declaration of a source in whose compiled code it is (`sourceDeclaration`), or of

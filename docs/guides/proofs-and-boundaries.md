@@ -954,14 +954,17 @@ declaration bound to the same function of the runtime is always a write, and so 
 Such a call fails the build unless the writer of `Regula.Filesystem` makes it, or a list names its
 caller.
 
-The lists of `Regula.Removal` hold the writes of Lake, of Lean's `bv_decide` and of Regula's scratch
-directories, which several programs reach (`sharedPairs`). The list of a program holds the calls
-that it makes alone, and a pair of it that admits no call fails the build too. So a new direct
-write at a destination fails the build of its program, such as `qualify`, `ruleExamples`, `site`,
-`regula-markdown` or the verification driver. The check does not find a write through an open
-handle, a write by a started process, or a temporary file of the system. A pair permits the call of
-its function by its caller for each path to that caller, thus also Regula's own call of
-`Lake.Manifest.saveEntries`.
+The writer of `Regula.Filesystem` also makes each file and directory of a tree that the shared
+constructor builds, only where nothing is. The lists of `Regula.Removal` hold the writes of Lake, of
+Lean's `bv_decide` and of Regula's scratch directories, which several programs reach
+(`sharedPairs`). The list of a program holds the calls that it makes alone, and a pair of it that
+admits no call fails the build too.
+
+So a new direct write at a destination fails the build of its program, such as `qualify`,
+`ruleExamples`, `site`, `regula-markdown` or the verification driver. The check does not find a
+write through an open handle, a write by a started process, or a temporary file of the system. A
+pair permits the call of its function by its caller for each path to that caller, thus also
+Regula's own call of `Lake.Manifest.saveEntries`.
 
 Nine programs elaborate Lean source, such as the Lake configuration of a project: `axiomGate`,
 `lint`, `ruleExamples`, `freshChecker`, `docFenceAudit`, `checkerSelftest`, `qualify`, `regula` and
