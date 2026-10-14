@@ -21,38 +21,27 @@ def compilerEnv : Array (String × Option String) :=
     "LAKE", "LAKE_HOME", "LAKE_OVERRIDE_LEAN", "DYLD_LIBRARY_PATH", "LD_LIBRARY_PATH"].map
       (fun name => (name, none))
 
-/-- The `elan` the doctor runs and the search path its commands receive. The path is the
-inherited `PATH` after its last entry that is the selected toolchain's binary directory
-(`Regula.Process.sysroot`), compared by real path, or the whole `PATH` when no entry is. `elan` is
-the first file of that name in an absolute entry of it. Lake puts each workspace package's binary
-directory before that entry, so no workspace `elan` is selected or found by a command elan starts.
-Assumes: Lake v4.34.1 composes the `PATH` of `lake exe` and `lake env` as the workspace packages'
-binary directories, then Lake's and Lean's, then the inherited path
-(`Lake/Config/Workspace.lean:352-353`, `Lake/Config/Workspace.lean:381-385`,
-`Lake/Config/Env.lean:237-241`). Elan v4.1.2 `src/elan/toolchain.rs` (`create_command`, `set_env`,
-`set_path`) runs an absolute command as given, sets `ELAN_HOME` and `ELAN_TOOLCHAIN`, and prepends
-`ELAN_HOME/bin` to `PATH`, and on Windows also the toolchain's binary directory. Execute permission
-is not observed: an earlier `elan` without it is selected and fails to start. -/
-def elanSelection : IO (FilePath × String) := do
-  let entries := SearchPath.parse ((← Regula.Process.readEnv "PATH").getD "")
-  let bin ← IO.FS.realPath ((← Regula.Process.sysroot) / "bin")
-  let mut rest := entries
-  for (entry, index) in entries.zipIdx do
-    if let .ok real ← (IO.FS.realPath entry).toBaseIO then
-      if real == bin then rest := entries.drop (index + 1)
-  for entry in rest do
-    let elan := (entry / "elan").addExtension FilePath.exeExtension
-    if entry.isAbsolute && (← elan.pathExists) && !(← elan.isDir) then
-      return (elan, SearchPath.toString rest)
-  throw <| IO.userError "cannot find elan on PATH after the selected toolchain's binary directory"
+/-- The `elan` the doctor runs: `bin/elan` of the Elan installation at `home`, by its absolute path.
+No PATH entry is read or searched, so a workspace package's binary directory, which Lake puts first
+in the `PATH` of `lake exe` and `lake env`, supplies no `elan`.
+Assumes: Lean v4.34.1 `Lake/Config/InstallPath.lean:30-35` places Elan's executables in its home's
+`bin`. Elan v4.1.2 `src/elan/toolchain.rs` (`create_command`, `set_env`) runs an absolute command
+as given and sets `ELAN_HOME` and `ELAN_TOOLCHAIN` for it. The installed Elan, its listing and its
+toolchains are trusted. -/
+def elanExecutable (home : FilePath) : IO FilePath := do
+  let elan := (home / "bin" / "elan").addExtension FilePath.exeExtension
+  unless ← elan.pathExists do
+    throw <| IO.userError s!"cannot find elan at {elan}, the Elan installation's binary directory"
+  return elan
 
 /-- The `lean` executable of the installed toolchain `selector` names (`installedName?` over
-`elan toolchain list`), from directory `root`. Each Elan command runs the `elan` of `elanSelection`
-by its path, with that search path. Only that listed name is given to `elan run`, without
-`--install`. -/
+`elan toolchain list`), from directory `root`. Each Elan command runs the doctor's `elan`
+(`elanExecutable`) of the Elan home `Regula.Process.elanHome` by its path, with that home. Only that
+listed name is given to `elan run`, without `--install`. -/
 def selectedLean (root : FilePath) (selector : String) : IO FilePath := do
-  let (elan, path) ← elanSelection
-  let env := compilerEnv.push ("PATH", some path)
+  let home := (← Regula.Process.elanHome).val
+  let elan ← elanExecutable home
+  let env := compilerEnv.push ("ELAN_HOME", some home.toString)
   let listed ← Regula.Process.output (.stated elan "Elan lists the explicitly selected installed compilers") {
     cmd := elan.toString, args := #["toolchain", "list"], cwd := some root, env }
   unless listed.exitCode == 0 do

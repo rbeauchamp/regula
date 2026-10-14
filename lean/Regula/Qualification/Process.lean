@@ -81,16 +81,18 @@ private def importedProjectControl (directory : FilePath) : IO Unit := do
     | throw <| IO.userError "imported project control: caller was not imported"
   requireChecks [⟨"imported project control: actual caller module is recorded",
       env.header.moduleNames[index.toNat]! == `Regula.ProjectCaller⟩,
-    ⟨"imported project control: genuine named Lake library remains admitted",
-      Regula.Removal.libraryCaller env [`Lake] `Lake.captureProc'⟩,
-    ⟨"imported project control: project module is outside library policy domains",
-      !Regula.Removal.libraryCaller env [`Init, `Lean, `Lake, `Std, `MultiVerso] caller⟩]
-  for (root, primitive) in [(caller, ``IO.getEnv), (`Regula.ProjectCaller.start, ``Lake.captureProc'),
-      (`Std.Time.Database.TZdb.resolveLocalPath, ``IO.getEnv)] do
+    ⟨"imported project control: genuine Lake module is a toolchain module",
+      Regula.Removal.libraryCaller env Regula.Removal.toolchainRoots `Lake.captureProc'⟩,
+    ⟨"imported project control: project module is outside the toolchain's modules",
+      !Regula.Removal.libraryCaller env Regula.Removal.toolchainRoots caller⟩]
+  for (root, maker, primitive) in [(caller, caller, ``IO.getEnv),
+      (`Regula.ProjectCaller.start, ``Lake.captureProc', ``IO.Process.output),
+      (`Std.Time.Database.TZdb.resolveLocalPath, `Std.Time.Database.TZdb.resolveLocalPath,
+        ``IO.getEnv)] do
     let reach := Regula.Removal.rawRemovalsFrom env #[] #[root]
     requireChecks [⟨"imported project control: intended compiled action is refused",
       reach.unknown.isEmpty && reach.calls.any fun call =>
-        call.caller == root && Regula.Removal.observerVariant env #[primitive] call.primitive⟩]
+        call.caller == maker && Regula.Removal.observerVariant env #[primitive] call.primitive⟩]
 
 /-- Exercise Lake's actual override resolution before testing the renderer's shared refusal.
 The baseline must select the stated local package; a failed load cannot satisfy it. The guarded
@@ -180,7 +182,7 @@ def nativeFallbackWorker (mode : String) (directory : FilePath) : IO UInt32 := d
 /-- Resolve the pin of the project at `directory` with the doctor's own resolution
 (`Regula.Cli.Setup.pinned`) in a fresh worker, after the `elan` it selects. -/
 def doctorWorker (directory : FilePath) : IO UInt32 := do
-  IO.println (← Regula.Toolchain.elanSelection).1
+  IO.println (← Regula.Toolchain.elanExecutable (← Regula.Process.elanHome).val)
   match ← Regula.Cli.Setup.pinned directory with
   | .compiler _ version commit =>
     IO.println version

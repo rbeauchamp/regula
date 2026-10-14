@@ -1,9 +1,11 @@
 module
 
 public import Lake.Config.InstallPath
+public import Lake.Config.Env
 public import Lean
 public import Regula.Assumption
 public import RegulaPolicy.StateTriple
+public import RegulaPolicy.Compiler
 import all RegulaPolicy.StateTriple
 public meta import Lake.Config.InstallPath
 public meta import Lean
@@ -57,6 +59,34 @@ sat.solver option directly, so the checked initial option avoids its sibling/PAT
 while source leaves it unset. Issue 411 owns source-option refusal after issue 279's observer. -/
 def leanOptions : IO Lean.Options := do
   return ({} : Lean.Options).set `sat.solver (← toolPath .cadical).toString
+
+/-- The Lake environment of the toolchain's identity-checked installation (`lakeSysroot`), with the
+Lake installed beside its Lean (`LakeInstall.ofLean`), as the toolchain's `lake` command computes it
+for itself: a listed entry of the process and environment rows of `Regula.Removal.boundaries` for
+each of its three Lake calls. Lake's own `findInstall?` is not run: it reads the running program as
+a `lake`, so a `lean` beside this checker's executable would select the checker's build directory
+as the installation, and it reads `LAKE_HOME`, which a parent `lake` sets to the toolchain's root,
+as the root of a Lake build tree. The installation's commit is the one `identified` checked its
+`lean` reports. -/
+@[noinline] def lakeEnvironment : IO _root_.Lake.Env := do
+  let sysroot ← lakeSysroot
+  let elan? ← _root_.Lake.findElanInstall?
+  let lean ← _root_.Lake.LeanInstall.get sysroot (collocated := true)
+  let lean := { lean with githash := RegulaPolicy.Compiler.commit }
+  let lake := _root_.Lake.LakeInstall.ofLean lean
+  match ← EIO.toIO' (_root_.Lake.Env.compute lake lean elan?) with
+  | .ok env => return env
+  | .error error => throw <| IO.userError s!"lake-workspace-load-failed: {error}"
+
+/-- Initialize Lean's module search path, `Lean.initSearchPath`, at the identity-checked
+installation (`sysroot`): a listed entry of the environment row of `Regula.Removal.boundaries`. -/
+@[noinline] def initSearchPath : IO Unit := do
+  Lean.initSearchPath (← sysroot)
+
+/-- Lean's source search path, `Lean.getSrcSearchPath`: a listed entry of the environment row of
+`Regula.Removal.boundaries`. -/
+@[noinline] def srcSearchPath : IO System.SearchPath :=
+  Lean.getSrcSearchPath
 
 open Regula.StateTriple
 

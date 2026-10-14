@@ -22,9 +22,11 @@ and `withOwnTempDir` observe the place and act only on what the decisions of `Re
 decide. `moveAside` moves an entry into a directory that it makes new, so it replaces and removes
 nothing, with no `ownPath` resolution and no `Regula.Removal.replacement` decision: a symbolic link
 or a `..` among the components above the entry is followed as the operating system resolves it, as
-a run of Verso writes through it too. Sourced library pairs, imported toolchain environment
-observations and explicitly named bootstrap pairs are trusted exemptions. The cold drivers
-elaborate the same process source as the compiled observer, with no second policy.
+a run of Verso writes through it too. Sourced filesystem library pairs, listed public library
+entries, the startup pairs of the toolchain's initializers and explicitly named bootstrap pairs are
+trusted exemptions. A library's process start or environment read on any other path is refused,
+whoever owns the module that makes it. The cold drivers elaborate the same process source as the
+compiled observer, with no second policy.
 
 `checkProgram` refuses a program at build time and records every accepted program under `reached`.
 The existing `qualify observers` campaign checks those records for each executable and standalone
@@ -36,8 +38,9 @@ in self-audit shard 4/4.
 This is the honest-code boundary of `SECURITY.md` and `CONTEXT.md`: deliberate compiler or
 environment mutation, private-declaration access and arbitrary trusted plugins remain outside it.
 Each named pair admits its whole caller/primitive pair, including a second call of that primitive
-inside the same caller. Issue 389 owns the drivers' filesystem decisions. Lake's source
-configuration, builds and dependent programs remain trusted library behavior.
+inside the same caller. A listed entry admits its row's primitives on every path below its call.
+Issue 389 owns the drivers' filesystem decisions. Lake's source configuration, builds and dependent
+programs remain trusted library behavior.
 
 Assumes: this check guards Regula's own executables built from its committed lakefile and
 lake-manifest.json. The build configuration, package selection, module naming and artifact loading
@@ -202,78 +205,106 @@ structure Boundary where
   symbols : List String
   /-- The only module that can supply an observer for this boundary. -/
   observer : Name
-  /-- Sourced library exemptions, each a caller and primitive pair. -/
+  /-- Sourced library exemptions admitted on every path, each a caller and primitive pair. -/
   library : List (Name × Name) := []
-  /-- Exported library launch entrypoints that project callers may not use directly. -/
-  entrypoints : List Name := []
-  /-- Imported module roots trusted for named library pairs and their entrypoints. Module naming
-  and artifact loading are trusted build inputs; this is a policy domain, not authentication. -/
+  /-- Imported module roots of the callers of `library`. Module naming and artifact loading are
+  trusted build inputs; this is a policy domain, not authentication. -/
   libraryRoots : List Name := []
-  /-- Imported library roots trusted to observe this system's primitives. -/
-  libraryCallers : List Name := []
+  /-- Listed public library entries, each a Regula declaration and the library declaration that it
+  calls. A path through that call admits this row's primitives below it. -/
+  entries : List (Name × Name) := []
+  /-- Library caller and primitive pairs admitted only on a path from an initializer of a module of
+  the toolchain (`toolchainRoots`). -/
+  startup : List (Name × Name) := []
 
-/-- Lake and Lean v4.34.1 start their own processes at these library boundaries.
-Assumes: the caller constructs Lake's environment from the checked installation and refuses
-nonabsolute compiler/archiver overrides before loading or building a workspace. Lake's Git,
-download, extraction and build mechanisms remain trusted, as the workspace's own configuration
-does. Sources: `Lake/Util/Proc.lean:29-91`, `Lake/Build/Actions.lean` and
-`Lake/Config/InstallPath.lean:278-318`. The private updateToolchain specialization delegates an
-alternative-toolchain restart to Elan (`Lake/Load/Resolve.lean:368-430`); Regula's in-process load
-configuration supplies no lakeArgs for that restart. This whole library pair remains trusted.
-Lean's builtin solver start is a trusted library boundary. Regula supplies its checked cadical
-through the initial sat.solver before in-process source elaboration, covering the default solver
-only while source leaves that option unset. A source setting it, including resetting it to empty,
-selects its own program and remains uncovered (issue 411, after issue 279's observer). Sources:
-`Lean/Meta/Tactic/BVDecide/TacticContext.lean:55-66`, `External.lean:98-122`. -/
-def libraryStarts : List (Name × Name) :=
-  [(`Lean.Meta.Tactic.BVDecide.External.runInterruptible, ``IO.Process.spawn),
-    (`Lake.rawProc, ``IO.Process.output),
-    (`Lake.proc, ``IO.Process.output),
-    (`Lake.captureProc?, ``IO.Process.output),
-    (`Lake.captureProc', ``IO.Process.output),
-    (`Lake.compileLeanModule, ``IO.Process.output),
-    (mkPrivateNameCore `Lake.Config.InstallPath `Lake.LeanInstall.get.getGithash, ``IO.Process.output),
-    (mkPrivateNameCore `Lake.Load.Resolve `Lake.Workspace.updateToolchain ++ `_at_ ++
-      mkPrivateNameCore `Lake.Load.Resolve `Lake.Workspace.updateAndMaterializeCore ++ `spec_7,
-      ``IO.Process.spawn),
-    (`Lake.testProc, ``IO.Process.spawn)]
+/-- The private declaration `name` of `Regula.Checker.Workspace`. -/
+def workspace (name : Name) : Name :=
+  mkPrivateNameCore `Regula.Checker.Workspace (`Regula.Checker.Workspace ++ name)
 
-/-- Verso's renderer fetches remote cross-reference data with its fixed curl command. This is a
-trusted library download mechanism, not a checked toolchain selection. Regula's renderers enter
-through `Verso.Genre.Manual.manualMain`; their own audit code never calls this private fetcher.
+/-- The workspace loads of Lake that Regula runs in its own process, each with the private
+declaration of `Regula.Checker.Workspace` that alone calls it, with a configuration of its
+`loadConfig`, computed by `Regula.Process.lakeEnvironment`. Below them Lake starts Git to clone,
+fetch and test a dependency's repository, `curl` (or the program that CURL names) and `tar` to
+fetch and unpack a release archive, `lean` to compile a module, and Elan to restart in a
+dependency's toolchain. It reads CURL and the variables of `Lake.Env`. Trusted exemption: each
+acts on the workspace that the caller asked Lake to load, as `lake build` or `lake update` would
+there, and rests on its own configuration and dependencies, which its adopter trusts as Lake does.
+Regula's load supplies no lakeArgs for the toolchain restart.
+Sources: Lean v4.34.1 `Lake/Load/Workspace.lean:31-67`, `Lake/Load/Resolve.lean:369-430` and
+`:587-625`, `Lake/Util/Git.lean:95-100`, `Lake/Util/Proc.lean:29-72`, `Lake/Util/Url.lean:105-150`,
+`Lake/Build/Actions.lean:29` and `:174-185`. -/
+def workspaceEntries : List (Name × Name) :=
+  [(workspace `loadWorkspace, `Lake.loadWorkspace),
+    (workspace `loadWorkspaceRoot, `Lake.loadWorkspaceRoot),
+    (workspace `materializeDeps, `Lake.Workspace.materializeDeps)]
+
+/-- Lake's installation and environment detection, called by `Regula.Process.lakeEnvironment` with
+the identity-checked installation (`Regula.Process.lakeSysroot`). Trusted exemption:
+`Lake.LeanInstall.get` with `collocated := true` takes the commit from Lake's own build and does
+not start the `lean --githash` that its compiled code holds
+(`Lake/Config/InstallPath.lean:272-287`).
+It reads LEAN_AR, AR, LEAN_CC and CC (`:289-310`), whose values `lakeSysroot` admits first.
+`Lake.findElanInstall?` reads ELAN_HOME and ELAN (`:212-225`), and `Lake.Env.compute` reads the
+variables of Lake's environment (`Lake/Config/Env.lean:90-215`), as the toolchain's `lake` does. -/
+def installationEntries : List (Name × Name) :=
+  [(`Regula.Process.lakeEnvironment, `Lake.LeanInstall.get),
+    (`Regula.Process.lakeEnvironment, `Lake.findElanInstall?),
+    (`Regula.Process.lakeEnvironment, `Lake.Env.compute)]
+
+/-- Lean's search paths and Lake's build runner, each with the Regula declaration that alone calls
+it. Trusted exemption, as the `lean` and `lake` commands read the same variables:
+`Lean.initSearchPath` at the identity-checked installation reads LEAN_PATH
+(`Lean/Util/Path.lean:98-110`). `Lean.getSrcSearchPath` reads LEAN_SRC_PATH and the directory of
+the running executable (`:137-143`, `Init/System/IO.lean:1305-1309`). `Lake.Workspace.runBuild`
+reads MACOSX_DEPLOYMENT_TARGET on macOS (`Lake/Build/Run.lean:335-349`, `:427-435`). The build
+function is its caller's, so the reach check follows it from that caller. -/
+def searchPathEntries : List (Name × Name) :=
+  [(`Regula.Process.initSearchPath, `Lean.initSearchPath),
+    (`Regula.Process.srcSearchPath, `Lean.getSrcSearchPath),
+    (`Regula.Checker.Workspace.runBuild, `Lake.Workspace.runBuild)]
+
+/-- Verso's renderer, `manualMain`, each with the declaration of a renderer's root module that alone
+calls it. Below it Verso fetches remote cross-reference data with its fixed curl command, reads the
+current directory to find the project, and Lean's `Std` reads TZ and TZDIR to resolve timezone
+files. Trusted exemption: this is the imported library's download mechanism, not a checked
+toolchain selection. The renderer refuses override selectors for Verso before Lake resolves them
+(`Regula.ProgramCheck.Renderer.requireCommittedSelection`).
 Assumes: pinned Verso cad4b633e75ea769b851f12f9ca3b4f0dfcc625f
-`src/multi-verso/MultiVerso.lean:398-408` fixes the program to curl and varies its URL and working
-directory; `:580-674` selects remote sources from Verso's configuration.
-`src/verso-manual/VersoManual.lean:750`, `:839` and `:1049-1075` connect rendering to that mechanism.
-The imported library and its download behavior remain trusted. -/
-def rendererStarts : List (Name × Name) :=
-  [(mkPrivateNameCore `MultiVerso `Verso.Multi.fetchRemote, ``IO.Process.output)]
+`src/multi-verso/MultiVerso.lean:384-408` and `:580-674`, and
+`src/verso-manual/VersoManual.lean:750`, `:839` and `:1049-1075`. Lean v4.34.1
+`Std/Time/Zoned/Database/TZdb.lean:123-139` and `:153-158`. The imported library, its configuration and its download behavior remain trusted. -/
+def rendererEntries : List (Name × Name) :=
+  [(`renderSite, `Verso.Genre.Manual.manualMain), (`renderManual, `Verso.Genre.Manual.manualMain)]
 
-/-- Narrow environment exemptions used by the renderer's own libraries. They admit no arbitrary
-environment key or tool selection. Their callers are also entrypoints in the same boundary row,
-so a Regula call of one is refused before it can borrow the primitive exemption.
-Assumes: Lean v4.34.1 `Std/Time/Zoned/Database/TZdb.lean:123-139` and `:153-158` read only TZ and
-TZDIR to resolve timezone files. Pinned Verso cad4b633e75ea769b851f12f9ca3b4f0dfcc625f
-`src/multi-verso/MultiVerso.lean:384-396` reads the current directory to find the project;
-`:580-581` enters that search from its own `updateRemotes`. The imported library's filesystem
-observations and configuration remain trusted. -/
-def rendererEnvironment : List (Name × Name) :=
-  [(`Std.Time.Database.TZdb.resolveLocalPath, ``IO.getEnv),
-    (`Std.Time.Database.TZdb.resolveZonesPaths, ``IO.getEnv),
-    (mkPrivateNameCore `MultiVerso `Verso.Multi.findProject, ``IO.currentDir)]
+/-- The module roots of the toolchain's libraries, whose initializers start a path with the
+`startup` pairs of each row. A project module's initializer starts an ordinary path.
+Assumes: Regula's committed build configuration selects the toolchain's libraries, and module
+naming and artifact loading are trusted. -/
+def toolchainRoots : List Name :=
+  [`Init, `Lean, `Lake, `Std]
 
-/-- Every launcher whose raw primitive pair is exempted is also an entrypoint boundary,
-derived from that same source inventory. Additional exported forwarding APIs accept the same
-unchecked native program argument. Project calls stop here instead of borrowing a library's
-internal exemption. Assumes: Lean v4.34.1 `Lake/Util/Proc.lean:29-91`,
-`Lake/Build/Actions.lean:29-170`, `Lean/Meta/Tactic/BVDecide/External.lean:147-166` and
-`LRAT/Cert.lean:98-111` define these launchers. Imported Lean and Lake callers retain their
-sourced library mechanisms; toolchain origin and deliberate private access remain trusted. -/
-def libraryLaunchers : List Name :=
-  (libraryStarts ++ rendererStarts).map Prod.fst ++
-    [``Lake.captureProc, ``Lake.compileO, ``Lake.compileStaticLib, ``Lake.compileSharedLib,
-      ``Lake.compileExe, ``Lean.Meta.Tactic.BVDecide.External.satQuery,
-      ``Lean.Meta.Tactic.BVDecide.runExternal]
+/-- The process start that a path from an initializer of the toolchain reaches: Lean's builtin
+`bv_decide`, which the initializer that registers it reaches, starts its SAT solver
+(`Lean/Meta/Tactic/BVDecide/External.lean:98-122`). Regula supplies its checked cadical through the
+initial `sat.solver` before in-process source elaboration (`Regula.Process.leanOptions`), covering
+the default solver only while source leaves that option unset. A source setting it, including
+resetting it to empty, selects its own program and remains uncovered (issue 411, after issue 279's
+observer). -/
+def processStartup : List (Name × Name) :=
+  [(`Lean.Meta.Tactic.BVDecide.External.runInterruptible, ``IO.Process.spawn)]
+
+/-- The environment reads that a path from an initializer of the toolchain reaches. The initializer
+of `Lean.manualRoot` reads LEAN_MANUAL_ROOT (`Lean/DocString/Links.lean:35-37`). Without a
+`sat.solver`, `bv_decide` looks for cadical beside the running executable
+(`Lean/Meta/Tactic/BVDecide/TacticContext.lean:55-66`). `Lean.getSrcSearchPath` reads
+LEAN_SRC_PATH (`Lean/Util/Path.lean:137-143`), and `IO.appDir`, which it calls to find Lean's
+sources, reads the path of the running executable (`Init/System/IO.lean:1305-1309`). -/
+def environmentStartup : List (Name × Name) :=
+  [(`Lean.manualRoot, ``IO.getEnv),
+    (mkPrivateNameCore `Lean.Meta.Tactic.BVDecide.TacticContext
+      `Lean.Meta.Tactic.BVDecide.TacticContext.new.determineSolver, ``IO.appPath),
+    (`Lean.getSrcSearchPath, ``IO.getEnv),
+    (`IO.appDir, ``IO.appPath)]
 
 /-- The runtime symbols of Lean 4.34.1 that read or change the process environment: its variables,
 working directory and executable path. Lean binds the first five in `Init/System/IO.lean` (`:951`,
@@ -295,15 +326,21 @@ def environmentSymbols : List String :=
 /-- The single primitive table: filesystem replacement, process starts and environment
 observations. A wrapper around output or run is controlled at that operation, while an extern
 alias is controlled by its runtime binding, as are `Std`'s libuv environment bindings and their
-public wrappers. Other systems have no entries yet. -/
+public wrappers. A library's own process start or environment read is admitted only below a listed
+entry or on a path from the toolchain's initializers. Other systems have no entries yet. -/
 def boundaries : List Boundary :=
-  [⟨.filesystem, primitives, removalSymbols, observerModule, libraryRemovals, [], [`Lean, `Lake], []⟩,
-    ⟨.process, [``IO.Process.spawn, ``IO.Process.output, ``IO.Process.run],
-      ["lean_io_process_spawn"], `Regula.Process, libraryStarts ++ rendererStarts, libraryLaunchers,
-      [`Lean, `Lake, `MultiVerso], []⟩,
-    ⟨.environment, [``IO.getEnv, ``IO.currentDir, ``IO.Process.getCurrentDir, ``IO.appPath, ``IO.Process.setCurrentDir],
-      environmentSymbols, `Regula.Process, rendererEnvironment, rendererEnvironment.map Prod.fst,
-      [`Std, `MultiVerso], [`Init, `Lean, `Lake]⟩]
+  [{ system := .filesystem, primitives, symbols := removalSymbols, observer := observerModule,
+      library := libraryRemovals, libraryRoots := [`Lean, `Lake] },
+    { system := .process, primitives := [``IO.Process.spawn, ``IO.Process.output, ``IO.Process.run],
+      symbols := ["lean_io_process_spawn"], observer := `Regula.Process,
+      entries := workspaceEntries ++ installationEntries ++ rendererEntries,
+      startup := processStartup },
+    { system := .environment,
+      primitives := [``IO.getEnv, ``IO.currentDir, ``IO.Process.getCurrentDir, ``IO.appPath,
+        ``IO.Process.setCurrentDir],
+      symbols := environmentSymbols, observer := `Regula.Process,
+      entries := workspaceEntries ++ installationEntries ++ searchPathEntries ++ rendererEntries,
+      startup := environmentStartup }]
 
 /-- The cold-start source's native boundaries, instantiated for the driver module and namespace.
 Each driver elaborates the same `ProcessSource.inc`, uses its typed selection and override
@@ -330,7 +367,7 @@ No second primitive list or admission rule is written here. -/
 def primitiveIndex (env : Environment) : Std.HashMap Name Boundary := Id.run do
   let mut index := {}
   for boundary in boundaries do
-    for primitive in boundary.primitives ++ boundary.entrypoints do
+    for primitive in boundary.primitives do
       for suffix in compilerSuffixes do
         let variant := primitive ++ suffix
         if observerVariant env #[primitive] variant then index := index.insert variant boundary
@@ -345,7 +382,7 @@ def boundaryOf (env : Environment) (index : Std.HashMap Name Boundary) (name : N
       boundary.symbols.any fun symbol => data.entries.any (bindsTo symbol)
     | _ => none
 
-/-- Whether an imported caller belongs to the row's library policy domain.
+/-- Whether an imported caller belongs to one of the module roots `roots`.
 Assumes: Regula's committed build configuration selects the stated libraries, and module naming
 and artifact loading are trusted. Lean v4.34.1 Environment.lean:2225-2228 records the requested
 import name, not a certified compiled-as name. This predicate does not authenticate artifacts. -/
@@ -354,17 +391,67 @@ def libraryCaller (env : Environment) (roots : List Name) (caller : Name) : Bool
   | some index => roots.contains env.header.moduleNames[index.toNat]!.getRoot
   | none => false
 
-/-- The one admission decision for a caller and primitive, parameterized by its system's row.
-A named bootstrap exemption and a library pair admit that whole caller/primitive pair. -/
+/-- Whether the call of `callee` by `caller` is one of `pairs`, each up to the compiled variants of
+its two declarations. A first component that has an initializer stands for that initializer. -/
+def listed (env : Environment) (pairs : List (Name × Name)) (caller callee : Name) : Bool :=
+  pairs.any fun (source, target) =>
+    observerVariant env #[(getInitFnNameFor? env source).getD source] caller &&
+      observerVariant env #[target] callee
+
+/-- What a path from a root has entered: the systems whose listed entries it passed through
+(`Boundary.entries`), and whether it starts at an initializer of the toolchain
+(`toolchainRoots`). -/
+structure PathContext where
+  /-- The systems of the listed entries on the path. -/
+  entered : List RegulaPolicy.External.System := []
+  /-- Whether the path starts at an initializer of a module of the toolchain. -/
+  startup : Bool := false
+  deriving BEq, Hashable
+
+/-- The declaration of which `name` is a compiled specialization: Lean's compiler names the
+specialization of `f` that it makes in `g` `f._at_.g.spec_n`, and its variants after that. A name
+without `_at_` is none. -/
+def specializationOf? : Name → Option Name
+  | .anonymous => none
+  | .str parent component => (specializationOf? parent).orElse fun _ =>
+    if component == "_at_" then some parent else none
+  | .num parent _ => specializationOf? parent
+
+/-- Index the listed entries by their library declaration and its compiled variants, each with its
+row's system and the Regula declaration that calls it. No second entry list is written here. -/
+def entryIndex (env : Environment) :
+    Std.HashMap Name (List (RegulaPolicy.External.System × Name)) := Id.run do
+  let mut index := {}
+  for boundary in boundaries do
+    for (source, entry) in boundary.entries do
+      for suffix in compilerSuffixes do
+        let variant := entry ++ suffix
+        if observerVariant env #[entry] variant then
+          index := index.insert variant ((boundary.system, source) :: index.getD variant [])
+  return index
+
+/-- The context of the call of `callee` by `caller` on a path in `context`: each row that lists the
+call as an entry (`entryIndex`) adds its system. A compiled specialization of the entry or of its
+caller (`specializationOf?`) is that declaration, made for the caller's arguments. -/
+def PathContext.enter (env : Environment)
+    (index : Std.HashMap Name (List (RegulaPolicy.External.System × Name))) (context : PathContext)
+    (caller callee : Name) : PathContext :=
+  (index.getD ((specializationOf? callee).getD callee) []).foldl (init := context)
+    fun context (system, source) =>
+      if !context.entered.contains system &&
+          (observerVariant env #[source] caller || specializationOf? caller == some source) then
+        { context with entered := context.entered ++ [system] }
+      else context
+
+/-- The one admission decision for a caller and primitive on a path in `context`, parameterized by
+its system's row: the row's observers, a named bootstrap pair, a path below a listed entry of the
+row, a startup pair on a path from the toolchain's initializers, or a sourced library pair. -/
 def admitted (env : Environment) (boundary : Boundary) (observers : Array Name)
-    (named : List (Name × Name)) (caller primitive : Name) : Bool :=
-  observerVariant env observers caller || named.any (fun (source, operation) =>
-    observerVariant env #[source] caller && observerVariant env #[operation] primitive) ||
-    (libraryCaller env boundary.libraryRoots caller && boundary.library.any (fun (source, operation) =>
-      observerVariant env #[source] caller && observerVariant env #[operation] primitive)) ||
-    (libraryCaller env boundary.libraryRoots caller &&
-      observerVariant env boundary.entrypoints.toArray primitive) ||
-    libraryCaller env boundary.libraryCallers caller
+    (named : List (Name × Name)) (context : PathContext) (caller primitive : Name) : Bool :=
+  observerVariant env observers caller || listed env named caller primitive ||
+    context.entered.contains boundary.system ||
+    (context.startup && listed env boundary.startup caller primitive) ||
+    (libraryCaller env boundary.libraryRoots caller && listed env boundary.library caller primitive)
 
 /-- The modules that a program whose `main` is in the module `root` links: `root` and each module
 that it imports, directly or through another. -/
@@ -411,6 +498,11 @@ def initializers (env : Environment) : Array Name :=
   initializersOf env (env.header.moduleNames.foldl (·.insert ·)
     (({} : Std.HashSet Name).insert env.mainModule))
 
+/-- The initializers `initializers`, split into those of the toolchain's modules (`toolchainRoots`),
+which start paths with the rows' `startup` pairs, and the others, which start ordinary paths. -/
+def splitInitializers (env : Environment) (initializers : Array Name) : Array Name × Array Name :=
+  initializers.partition (libraryCaller env toolchainRoots)
+
 /-- A raw call retains its system with the caller and primitive by construction. -/
 structure Call where
   /-- The system whose observer was bypassed. -/
@@ -433,29 +525,33 @@ structure Reach where
 def Reach.raw (reach : Reach) : Array (Name × Name) :=
   reach.calls.map fun call => (call.caller, call.primitive)
 
-/-- Every primitive call reached from `roots` and refused by the single per-system decision,
-plus missing compiled bodies. Runtime-bound aliases use the same table as named primitives.
-The filesystem observers parameter retains the existing control API; other rows obtain their
-observers from the same role mechanism. Native C bodies are not followed. -/
+/-- Every primitive call reached from `roots`, and from `startup` on paths from the toolchain's
+initializers, and refused by the single per-system decision, plus missing compiled bodies. A
+declaration is followed once in each context in which a path reaches it (`PathContext`), so a call
+of a listed entry by another caller admits nothing below it. A constant with an initializer is not
+followed where it is referenced: the reference reads the value that its initializer, a root of the
+program, stored when the program started. Runtime-bound aliases use the same table as named
+primitives. The filesystem observers parameter retains the existing control API; other rows obtain
+their observers from the same role mechanism. Native C bodies are not followed. -/
 def rawRemovalsFrom (env : Environment) (observers : Array Name) (roots : Array Name)
-    (named : List (Name × Name) := []) : Reach :=
+    (named : List (Name × Name) := []) (startup : Array Name := #[]) : Reach :=
   Id.run do
   let index := primitiveIndex env
+  let entries := entryIndex env
   let mut classified : Std.HashMap Name (Option Boundary) := {}
   let own := boundaries.foldl (fun own boundary =>
     own.insert boundary.system (if boundary.system == .filesystem then observers
       else (observerRoles env boundary.system boundary.observer).1))
     ({} : Std.HashMap RegulaPolicy.External.System (Array Name))
-  let mut seen : Std.HashSet Name := {}
-  for root in roots do seen := seen.insert root
-  let mut work := roots
+  let mut work := roots.map ((·, ({} : PathContext))) ++ startup.map ((·, { startup := true }))
+  let mut seen : Std.HashSet (Name × PathContext) := work.foldl (·.insert ·) {}
   let mut calls := #[]
   let mut unknown := #[]
-  -- Each declaration is added to `work` at most once. The bound is far above the number of
-  -- compiled declarations that a program of this toolchain reaches (about 200,000); a declaration
-  -- left in `work` at the bound is unknown, so the check fails closed.
+  -- Each declaration is added to `work` at most once in each context. The bound is far above the
+  -- number of compiled declarations that a program of this toolchain reaches (about 200,000) in its
+  -- few contexts; a declaration left in `work` at the bound is unknown, so the check fails closed.
   for _ in [:maxDeclarations] do
-    let some name := work.back? | break
+    let some (name, context) := work.back? | break
     work := work.pop
     match findEnvDecl env name with
     | some decl@(.fdecl ..) =>
@@ -466,26 +562,33 @@ def rawRemovalsFrom (env : Environment) (observers : Array Name) (roots : Array 
           | none => boundaryOf env index used
         classified := classified.insert used boundary
         if let some boundary := boundary then
-          unless admitted env boundary (own[boundary.system]?.getD #[]) named name used do
+          unless admitted env boundary (own[boundary.system]?.getD #[]) named context name used ||
+              calls.any (fun call => call.caller == name && call.primitive == used) do
             calls := calls.push ⟨boundary.system, name, used⟩
-        else if !seen.contains used then
-          seen := seen.insert used
-          work := work.push used
+        else if (getInitFnNameFor? env used).isNone then
+          let next := (used, context.enter env entries name used)
+          unless seen.contains next do
+            seen := seen.insert next
+            work := work.push next
     | some (.extern _ _ _ data) =>
-      if data.entries.any (· matches .opaque) then unknown := unknown.push name
+      if data.entries.any (· matches .opaque) && !unknown.contains name then
+        unknown := unknown.push name
       for boundary in boundaries do
         if let some symbol := boundPrimitive env boundary name then
-          calls := calls.push ⟨boundary.system, name, Name.mkSimple symbol⟩
-    | none => unknown := unknown.push name
-  return { calls, unknown := unknown ++ work }
+          let primitive := Name.mkSimple symbol
+          unless calls.any (fun call => call.caller == name && call.primitive == primitive) do
+            calls := calls.push ⟨boundary.system, name, primitive⟩
+    | none => unless unknown.contains name do unknown := unknown.push name
+  return { calls, unknown := unknown ++ work.map (·.1) }
 
 /-- `rawRemovalsFrom` for a program whose `main` is `main` in the module `root`: from `main` and
-from each initializer of the modules that it links (`linked`, `initializersOf`). Each row supplies
-its own observers and sourced exemptions; `named` supplies the cold driver's explicit pairs.
-Roles outside each row's boundary module are retained as foreign declarations. -/
+from each initializer of the modules that it links (`linked`, `initializersOf`), split by
+`splitInitializers`. Each row supplies its own observers and sourced exemptions; `named` supplies
+the cold driver's explicit pairs. Roles outside each row's boundary module are retained as foreign
+declarations. -/
 def rawRemovals (env : Environment) (root : Name) (named : List (Name × Name) := []) : Reach :=
-  let roots := (initializersOf env (linked env root)).push `main
-  { rawRemovalsFrom env (filesystemObservers env) roots named with
+  let (startup, roots) := splitInitializers env (initializersOf env (linked env root))
+  { rawRemovalsFrom env (filesystemObservers env) (roots.push `main) named startup with
     foreign := boundaries.foldl (fun found boundary =>
       found ++ ((observerRoles env boundary.system boundary.observer).2.map
         fun name => (boundary.system, name))) #[] }

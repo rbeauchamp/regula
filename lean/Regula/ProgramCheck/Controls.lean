@@ -1,5 +1,8 @@
 import Regula.Removal
 import Regula.TaskManagerCheck
+import Regula.Checker.Workspace
+import Lake.Util.Git
+import Lake.Util.NativeLib
 import Std.Async.Process
 import Std.Async.System
 import Std.Time.Zoned.Database.TZdb
@@ -15,13 +18,18 @@ admits nothing, and the check refuses a program while one is declared outside `R
 
 A planted program whose `main` starts a process or reads the environment outside `Regula.Process`
 fails the same check: through `IO.Process.spawn`, a wrapper of `IO.Process.output`,
-`IO.Process.run`, the PATH fallback of `Lean.findSysroot`, `IO.getEnv`, a public launcher of Lake
-or Lean, a timezone read of `Std`, the public `Std` wrapper of each libuv environment binding, or
-an `extern` of another name bound to the runtime's process start or to a libuv environment read.
-So do such a read in a local module whose name starts with `Lake`, and a process observer's role
-given in this module.
-The same start through `Regula.Process.output` and the same read through `Regula.Process.readEnv`
-pass it. These controls compile each program, and start no process and read no variable.
+`IO.Process.run`, the PATH fallback of `Lean.findSysroot`, `IO.getEnv`, a public declaration of
+Lake, Lean or `Std` whose own code starts a process or reads the environment, the public `Std`
+wrapper of each libuv environment binding, or an `extern` of another name bound to the runtime's
+process start or to a libuv environment read. The public declarations include
+`Lake.GitRepo.clone`, `Lake.LeanInstall.get` with `collocated := false` and `Lake.getSearchPath`
+with a variable of the caller's choice, and each refusal names the library's own call of the
+primitive. So do such a read in a local module whose name starts with `Lake`, and a process
+observer's role given in this module. The same start through `Regula.Process.output`, the same read
+through `Regula.Process.readEnv`, and the listed entries `Regula.Process.lakeEnvironment`,
+`Regula.Process.initSearchPath`, `Regula.Process.srcSearchPath` and the workspace load of
+`Regula.Checker.Workspace.withRootWorkspace` pass it. These controls compile each program, and start
+no process and read no variable.
 
 A planted program whose `main` starts a task, creates a promise or captures a process's output
 fails the check that a compiled program needing Lean's task manager starts through the guard
@@ -260,26 +268,51 @@ run_cmd do
     unless refused.any (·.contains s!"calls Std.Internal.UV.System.{binding}") do
       throwError "{label}: the reach check did not refuse the intended libuv binding: {refused}"
 
--- Public library launch APIs are boundaries too: a project caller cannot borrow an exemption
--- for a library's own starts. These controls inspect compiled calls without running a child.
+-- A library's own process start or environment read is refused on a project path into the
+-- library, whoever owns the module that makes it: neither a listed entry nor a startup pair of the
+-- toolchain's initializers admits it there. Each refusal names the library's own call of the
+-- primitive. These controls inspect compiled calls without running a child or reading a variable.
 run_cmd do
-  for (label, body, primitive) in [
-      ("Lake.proc", ← `(do discard <| (Lake.proc { cmd := "planted" }).toBaseIO), "Lake.proc"),
-      ("Lake.captureProc", ← `(do discard <| (Lake.captureProc { cmd := "planted" }).toBaseIO), "Lake.captureProc'"),
+  for (label, body, cause) in [
+      ("Lake.proc", ← `(do discard <| (Lake.proc { cmd := "planted" }).toBaseIO),
+        "Lake.proc calls IO.Process.output"),
+      ("Lake.captureProc", ← `(do discard <| (Lake.captureProc { cmd := "planted" }).toBaseIO),
+        "Lake.captureProc' calls IO.Process.output"),
+      ("Lake.GitRepo.clone", ← `(do
+        discard <| (Lake.GitRepo.clone "planted" { dir := "planted" }).toBaseIO),
+        "Lake.proc calls IO.Process.output"),
+      ("Lake.LeanInstall.get", ← `(do
+        discard <| Lake.LeanInstall.get "/planted" (collocated := false)),
+        "Lake.LeanInstall.get.getGithash calls IO.Process.output"),
+      ("Lake.getSearchPath", ← `(do discard <| Lake.getSearchPath "REGULA_UNOBSERVED"),
+        "Lake.getSearchPath calls IO.getEnv"),
       ("Lean solver launcher", ← `(do
         let env ← Lean.mkEmptyEnvironment
         discard <| (Lean.Meta.Tactic.BVDecide.External.runInterruptible 1 { cmd := "planted" }).toIO'
           { fileName := "planted", fileMap := Lean.FileMap.ofString "" } { env }),
-        "Lean.Meta.Tactic.BVDecide.External.runInterruptible"),
+        "Lean.Meta.Tactic.BVDecide.External.runInterruptible calls IO.Process.spawn"),
+      ("Lean source search path", ← `(do discard <| Lean.getSrcSearchPath),
+        "Lean.getSrcSearchPath calls IO.getEnv"),
       ("Std timezone file", ← `(do
         discard <| Std.Time.Database.TZdb.resolveLocalPath #[]),
-        "Std.Time.Database.TZdb.resolveLocalPath"),
+        "Std.Time.Database.TZdb.resolveLocalPath calls IO.getEnv"),
       ("Std timezone directories", ← `(do
         discard <| Std.Time.Database.TZdb.resolveZonesPaths Std.Time.Database.TZdb.default),
-        "Std.Time.Database.TZdb.resolveZonesPaths")] do
+        "Std.Time.Database.TZdb.resolveZonesPaths calls IO.getEnv")] do
     let refused ← bodyRefusal body
-    unless refused.any (·.contains s!"calls {primitive}") do
-      throwError "{label}: a project call borrowed a library-launch exemption: {refused}"
+    unless refused.any (·.contains cause) do
+      throwError "{label}: a project path into the library was not refused at its own call: \
+        {refused}"
+
+-- Each listed entry admits the library's own starts and reads below its call by its listed caller.
+run_cmd do
+  for (label, body) in [
+      ("Lake environment", ← `(do discard <| Regula.Process.lakeEnvironment)),
+      ("module search path", ← `(Regula.Process.initSearchPath)),
+      ("source search path", ← `(do discard <| Regula.Process.srcSearchPath)),
+      ("workspace load", ← `(Regula.Checker.Workspace.withRootWorkspace "." fun _ => pure ()))] do
+    if let some refused ← bodyRefusal body then
+      throwError "{label}: the reach check refused a listed entry: {refused}"
 
 -- A local module name rooted at Lake still receives no imported-library exemption.
 run_cmd do

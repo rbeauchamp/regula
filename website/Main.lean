@@ -33,8 +33,10 @@ def siteConfig : RenderConfig := {
   issueLink := some "https://github.com/rbeauchamp/regula/issues" }
 
 /-- Renders the site with Verso's command-line options `options` and the configuration `siteConfig`,
-which its refusal reads them with too (`refuseSite`). -/
-def renderSite (options : List String) : IO UInt32 :=
+which its refusal reads them with too (`refuseSite`). The one call of Verso's `manualMain` in this
+program is here: a listed entry of the process and environment rows of `Regula.Removal.boundaries`.
+-/
+@[noinline] def renderSite (options : List String) : IO UInt32 :=
   manualMain (%doc Generated) (options := options) (config := siteConfig)
 
 /-- The refusal of the renderer in a process without Lean's task manager

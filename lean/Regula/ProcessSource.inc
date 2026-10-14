@@ -175,6 +175,18 @@ def requireOverrides (changes : Array (String × Option String) := #[]) : IO Uni
   requireChanges changes
   requireAbsoluteOverrides (nativeOverrides.map fun (_, first, _) => first) changes
 
+/-- The absolute home of the Elan installation: ELAN_HOME, or HOME/.elan without it. No PATH entry
+is read. Assumes: Lean v4.34.1 `Lake/Config/InstallPath.lean:30-35` places Elan's executables in
+the home's `bin` and its toolchains in its `toolchains`. -/
+def elanHome : IO AbsolutePath := do
+  let home ← match ← readEnv "ELAN_HOME" with
+    | some home => pure (FilePath.mk home)
+    | none =>
+      let some home ← readEnv "HOME"
+        | throw <| IO.userError "process selection needs LEAN_SYSROOT or an absolute Elan home"
+      pure (FilePath.mk home / ".elan")
+  IO.ofExcept (absolute home)
+
 /-- Select the installation without starting a PATH-resolved Lean. A Lake environment supplies
 an absolute LEAN_SYSROOT. Otherwise Lake's own Elan toolchain-directory construction resolves
 ELAN_TOOLCHAIN under ELAN_HOME (or HOME/.elan), defaulting to the release that built this program.
@@ -182,13 +194,7 @@ Assumes: Lean v4.34.1 `Lake/Config/InstallPath.lean:32-58` describes the Elan in
 the named installed toolchain and its contents are trusted. No PATH fallback or installation runs. -/
 private def candidateRoot : IO AbsolutePath := do
   if let some root ← readEnv "LEAN_SYSROOT" then return ← IO.ofExcept (absolute root)
-  let home ← match ← readEnv "ELAN_HOME" with
-    | some home => pure (FilePath.mk home)
-    | none =>
-      let some home ← readEnv "HOME"
-        | throw <| IO.userError "process selection needs LEAN_SYSROOT or an absolute Elan home"
-      pure (FilePath.mk home / ".elan")
-  let home ← IO.ofExcept (absolute home)
+  let home ← elanHome
   let selector := (← readEnv "ELAN_TOOLCHAIN").getD s!"leanprover/lean4:v{Lean.versionString}"
   let elan : _root_.Lake.ElanInstall := { home := home.val, elan := home.val / "bin" / "elan" }
   let root := elan.toolchainDir selector

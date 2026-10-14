@@ -251,7 +251,7 @@ def repoRoot : IO FilePath := do
 /-- Initialize dynamic module lookup from Lake's `LEAN_PATH`. Compiled checker
 executables do not receive the `lean` driver's search-path initialization. -/
 def initializeLeanSearchPath : IO Unit := do
-  Lean.initSearchPath (← Regula.Process.sysroot)
+  Regula.Process.initSearchPath
 
 /-- The compiled library directory of the running checker executable's own
 package, when it follows Lake's standard layout. The trusted probe module

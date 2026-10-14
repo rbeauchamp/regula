@@ -45,8 +45,7 @@ private def report (messages : Array Message) (code : Highlighted) : IO Unit := 
   IO.println (Json.mkObj [("messages", .arr messages), ("code", code.exportCode.toJson)]).compress
 
 unsafe def run (path : System.FilePath) : IO UInt32 := do
-  let sysroot ← Regula.Process.sysroot
-  initSearchPath sysroot
+  Regula.Process.initSearchPath
   let opts := exampleOptions (← Regula.Process.leanOptions)
   let contents ← IO.FS.readFile path
   let ictx := Parser.mkInputContext contents path.toString

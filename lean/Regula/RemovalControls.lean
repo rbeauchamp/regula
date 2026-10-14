@@ -256,8 +256,9 @@ run_cmd do
 -- The planted initializer is found, and no other initializer of this module's imports removes.
 run_cmd do
   let env ← getEnv
-  let reach := Regula.Removal.rawRemovalsFrom env (Regula.Removal.filesystemObservers env)
-    (Regula.Removal.initializers env)
+  let (startup, roots) := Regula.Removal.splitInitializers env (Regula.Removal.initializers env)
+  let reach := Regula.Removal.rawRemovalsFrom env (Regula.Removal.filesystemObservers env) roots
+    (startup := startup)
   unless reach.unknown.isEmpty do
     throwError "initializers with unknown compiled code: {reach.unknown}"
   unless reach.raw.size == 1 && reach.raw.all fun (caller, primitive) =>

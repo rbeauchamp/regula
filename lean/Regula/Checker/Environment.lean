@@ -687,7 +687,7 @@ private def replacementHistory (sourceRoots : Array FilePath)
     let source ← if let some (_, source) := moduleSources.find? (·.1 == moduleName) then
         pure source
       else if ← alongside.pathExists then pure alongside else
-        Lean.findLean (sourceRoots.toList ++ (← Lean.getSrcSearchPath) ++
+        Lean.findLean (sourceRoots.toList ++ (← Regula.Process.srcSearchPath) ++
           [(← Regula.Process.sysroot) / "src" / "lean"])
           moduleName
     let some bin := (← Regula.Process.appPath).parent

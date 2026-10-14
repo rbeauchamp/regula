@@ -1657,7 +1657,7 @@ def Build.runObserved (build : Build) (repo : FilePath) (targets : Array Target)
             pure (ws.addLibraryFacetConfig (weakArgsExtraDep existing),
               ({} : NameMap LeanOptions).insert ws.root.baseName options)
           | none => pure (ws, {})
-        ws.runBuild (observedFetch ws jobLogs (_root_.Lake.buildSpecs specs)) {
+        Regula.Checker.Workspace.runBuild ws (observedFetch ws jobLogs (_root_.Lake.buildSpecs specs)) {
           out := .stream out, ansiMode := .noAnsi, showSuccess := true, leanOptOverrides,
           failLv := build.failLv }
         for mod in modules do
