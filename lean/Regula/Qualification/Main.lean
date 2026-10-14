@@ -7,6 +7,8 @@ import Regula.Qualification.NativeLinter
 import Regula.Qualification.Producer
 import Regula.Qualification.History
 import Regula.Qualification.DocumentationSource
+import Regula.Qualification.VersoPaths
+import Regula.Qualification.CopyRelocation
 import Regula.Qualification.FrozenExit
 import Regula.Qualification.RuleExamples
 import Regula.Qualification.EnvironmentCensus
@@ -77,6 +79,11 @@ private unsafe def runCommand (attempt : Option String) : Command → IO Unit
   | .configurationCapture => do
       Regula.Qualification.SourceEvidence.configuration
       Regula.Qualification.SourceEvidence.selectedPolicy
+  | .versoRecordedPaths => Regula.Qualification.VersoPaths.check
+  | .copyRelocation => Regula.Qualification.CopyRelocation.check
+  | .copyRelocationLoad project copies =>
+      Regula.Qualification.CopyRelocation.loadWorker project copies
+  | .copyRelocationGit scratch => Regula.Qualification.CopyRelocation.gitSteps scratch
   | .fenceEvidence => Regula.Qualification.SourceEvidence.fences
   | .frozenExits => Regula.Qualification.FrozenExit.check
   | .documentationSource => Regula.Qualification.DocumentationSource.check false
@@ -94,7 +101,8 @@ private unsafe def dispatch (args : List String) (attempt : Option String := non
     dependencies|history|git-status|all|history|self-audit [--shard K/4]|\
     documentation-dependencies|input-inventory|receipt-boundaries|observers|prep-measure|\
     closure-evidence|\
-    configuration-capture|fence-evidence|frozen-exits|documentation-source [--source-read-only]|\
+    configuration-capture|verso-recorded-paths|copy-relocation|fence-evidence|frozen-exits|\
+    documentation-source [--source-read-only]|\
     rule-examples --evidence PATH [--rules RULE ... | --shard K/N]"
 
 /-- Mark the evidence document that `args` names incomplete for the attempt `attempt`, through the
