@@ -1,0 +1,32 @@
+# The Git project of the `qualify copy-relocation` control. It keeps its dependencies' checkouts in
+# `vendor` and requires the package `gdep` by Git, at a URL that the control never fetches, in the
+# subdirectory `package`. The control makes a Git repository of `../gdep`, and Lake clones it from
+# there: through the URL of a manifest entry that records no packages directory, or through
+# `LAKE_PKG_URL_MAP` when the project has no manifest. It also requires `pdep` by the path
+# `vendor/pdep/`, with a final separator. A copy of the project must leave out the checkout
+# `vendor/gdep` and the directory `vendor/pdep`, and keep the owned sources in `vendor`: the source
+# directory `vendor/src` of the library `Vendored`, and the module `vendor.Packaged` of the library
+# `Packaged` with its submodule `vendor.Packaged.Child`, below the project's source directory.
+name = "git_project"
+packagesDir = "vendor"
+
+[[require]]
+name = "gdep"
+git = "https://example.invalid/gdep.git"
+subDir = "package"
+
+[[require]]
+name = "pdep"
+path = "vendor/pdep/"
+
+[[lean_lib]]
+name = "GitProject"
+
+[[lean_lib]]
+name = "Vendored"
+srcDir = "vendor/src"
+roots = ["Example"]
+
+[[lean_lib]]
+name = "Packaged"
+roots = ["vendor.Packaged"]

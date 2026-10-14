@@ -1,0 +1,3 @@
+# A configuration at Lake's default name, which Lake does not load for this package: the Verso
+# package's manifest entry for it records `package.toml`.
+name = "recorded"

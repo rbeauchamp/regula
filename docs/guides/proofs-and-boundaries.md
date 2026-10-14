@@ -721,9 +721,25 @@ Assumes: Lake `v4.34.1` tests cleanliness with `git diff --exit-code HEAD` (`Uti
 
 `copyProject` captures the manifest at Lake's loaded `ws.manifestFile`. Its packages fallback is `ws.relPkgsDir`. Each resolved dependency receives a typed path override, including inherited and transitive dependencies. Owned dependencies point into the copy, and trusted dependencies point to their original roots. The copy always retains the captured manifest and runs ordinary loads.
 
-Package-directory pruning is relative to the current capture root, for the configured and resolved spellings. `Construction.packageSource_owned` proves that explicitly owned roots inside that directory survive its pruning.
+Package-directory pruning leaves out exactly the entries of the packages directory that are recorded dependency directories. An entry is one when its observed real path is the observed real path of a Git dependency's checkout or a path dependency's directory. The copy lists the entries by the stored names that its capture walks. Thus a linked checkout is pruned as a cloned one is. So is a directory that its recorded path names in a case or Unicode form that the volume folds. The copy keeps an entry when it cannot observe the entry's real path, and the capture walks that entry.
+
+`Lake.mem_prunedEntries` proves this selection, and `Lake.prunedEntries_witness` shows that it prunes an entry with a real path outside the packages directory. `Construction.CopyFilter.omission_pruned` proves that a capture pass prunes no other entry, and `Construction.CopyFilter.omission_other` that the same exclusions decide each other entry there. `Construction.packageSource_owned` proves that a capture root, such as an owned package's in that directory, survives its own pass.
+
+The copy keeps the exclusions of names such as `.lake` and `.cache`, and checks one domain against the files it writes instead. That domain is each file that Lake's load reads for the root package and each owned dependency. These files are the source of each module that Lake can build, the loaded configuration file and an owned dependency's recorded manifest when present. Lake's load of the copy reads each at the path it joins to the package's directory, such as the recorded `relConfigFile`. Before it writes anything, the copy refuses the first such path that none of the files it would write has, with exactly that spelling. It names the file and what left it out, such as an excluded directory or a compiled-module file name.
+
+`Construction.firstUnwritten_eq_none` proves that the copy refuses none exactly when the files it would write cover each such path (`Construction.Covers`). The constructor's own guard requires the same paths, so `Construction.constructSelected_io` states that a successful construction holds a regular file at each. `Construction.packageEntries_eq_some` states the path: the recorded components without `.`. Before it captures anything, the copy refuses a package, library or executable with an absolute `srcDir`, since Lake joins it unchanged. The copy also refuses a packages directory that it captures and that is itself a link, as it refuses each link that it captures.
 
 Assumes: Lake `v4.34.1`, `Load/Resolve.lean:590-627`, applies overrides during ordinary materialization. `Load/Resolve.lean:201-235` traverses dependencies transitively. Path entries do not clone packages (`Load/Materialize.lean:239-277`).
+
+Assumes: Lake `v4.34.1` materializes a Git entry at its directory name in the packages directory (`Load/Materialize.lean:246`). It puts the package below that checkout at the subdirectory that the entry names (`Load/Materialize.lean:264`). It loads a package's configuration file and the manifest that its entry records at their recorded paths, joined to the package's directory (`Load/Package.lean:96-117`, `Load/Materialize.lean:272-277`).
+
+Assumes: `IO.FS.realPath` is POSIX `realpath(3)`, which resolves each link and each `.`, `..` and empty component. On Darwin it gives each component at the name that the volume keeps (`ReadsReal`). So each spelling of one entry that a folding volume admits has one real path. A `realpath(3)` that keeps the spelling it gets, as on a folding volume elsewhere, leaves an entry that a different spelling names unpruned.
+
+Assumes: POSIX path resolution, under which a `.` component names the directory before it. The copy holds no link, since the constructor creates none.
+
+Assumes: Lean `v4.34.1` `FilePath.join` gives an absolute right operand as it stands (`Init/System/FilePath.lean:126-130`).
+
+Assumes: Lake `v4.34.1` can build each module that `LeanLibConfig.isBuildableModule` admits (`Config/LeanLibConfig.lean:128-130`), which `Lake.packageModules` lists. It reads the module's source below its library's `srcDir` (`Config/Module.lean:83-90`, `Config/LeanLib.lean:34-35`). A build reaches only the modules that a glob selects and their imports (`Build/Library.lean:36-60`, `:67-72`), so the copy's domain can exceed what a build reads.
 
 Assumes: A full update or a missing manifest bypasses overrides (`Load/Workspace.lean:64-69`, `Load/Resolve.lean:269-333`). Existing-project copies do neither. Generated update fixtures state their closed input domain where they create it.
 
@@ -1468,6 +1484,7 @@ other rules still check it.
 | `executionFindings`, `executionFailures`, `executionSummary`, `toolchainBase` | `checked_executionFailures` (line `k` renders finding `k`, none added or dropped, so the lines are empty iff `ExecutionOK`), `executionRule_injective`, `checked_summary` (the boundary counts range over the boundaries reported on their own: a later record of one trusted boundary of a root, and a `partial` implementation reported with the boundary that runs it, are counted with that boundary, not again), `checked_toolchainBase` | Root collection, retained compiler edges, correspondence admission, source history, module origins and the text and JSON rendering of the toolchain trusted base. The records of the execution walk are observed. `ExecutionWalk.assemble_account` states the account that `assemble` builds from them, the unresolved paths included. |
 | `Probe.replacementCorrespondence` | `DefeqComparison.classify` of `DefeqComparison.ofAttempt` (an attempt that the kernel did not decide, or that raised an error, is unresolved and not trusted) | The kernel decision itself, the record of its answer (`Probe.kernelAnswer`), the capture of an error (`Probe.comparison`) and the incomplete theorem-candidate search. Lean's Core-based monads rethrow a runtime resource exception or an interruption. Such an exception records no comparison and stops the report. |
 | `Checker/Common.admitIndexedWorkerResults`, `mapWorkQueue`, `Documentation.auditTasks` | `checked_indexedResults` over `ResultState.collect` | Child completion, strict packet decoding, task scheduling and exact request and source binding. |
+| `Documentation.sharedPinMismatch`, `Documentation.captureVersoPackage`, `Lake.surfaceInventoryOf`, `Lake.copyProject`, `Lake.relocateDependencies` | `LakeSelection.agrees_fields` (an agreeing package has the entry's directory, manifest and, unless Lake's load wrote the entry, remote URL, and a configuration among its candidates), `LakeSelection.lastEntry_eq_some` and `LakeSelection.effectiveEntry_eq_some` (Lake's entry for a name is the last one), `LakeSelection.pinMismatch_eq_none` (no mismatch exactly when the two workspaces pin alike each package that the two pin by Git), `LakeSelection.ownRootFiles_lake` (the files read are those of the workspace a package roots), `LakeSelection.rootConfigFile_lake` (the Verso package's configuration name is the one that Lake's load gives it), `LakeSelection.lakeInputs_cover` (the capture binds the configuration candidates, the recorded manifest and the pin check's files, except the accepted project's overrides file, which acceptance binds) | Lake's load of the workspace, Lake's manifest reader and the files read. The Lake facts that the `Assumes:` entries cite, and the copies of Lake's rules in `LakeSelection` that they name. That no process writes the manifest or the overrides file during one check is trusted. |
 | `Checker/FenceScan.scanLines`, `scanVersoLines`, `matchesPattern` | `checked_scanLines`, `checked_scanVersoLines` (no violation exactly for a clean document), `fence_of_leanShaped`, `example_of_leanShaped` (a returned fence for each line of Lean shape), `scanLines_fence`, `scanVersoLines_fence`, `Scanned.bytes` (where each returned fence lies, and the bytes of its ranges), `toList_linesOf` (the lines of a text), `scanLines_marker` (a Lean fence after a marker line carries that marker, in a clean document), `matchesPattern` | Pattern diagnostic text and effective-error extraction. |
 | `AxiomGate.auditSurfaceAt`, `FreshChecker`, the file gate | `checked_surfaceAssignments` (with `surfaceAssignments_covers`), `checked_conformingProfile`, `checked_histories`, `checked_environmentJob`, `checked_environmentEvidence` (claimed `RegulaCore.Assembly`) | Manifest parsing, Lake loading and producer history; the contracts concern the decoded records. |
 | `Checker/Acceptance.finish`, `Documentation.finishDocuments`, `FreshChecker.finishGraph` | `finalize`, `finalize_iff`, `accepted_report_identity`, `accepted_covers_slot` | The independently supplied census and the truth of the observations; each finalizer supplies all derived jobs and returns `AcceptedRun`. |
@@ -5290,6 +5307,52 @@ The `qualify` campaigns and what they observe:
   protocols. It also gives the result of a fresh audit with the policy manifest `policy.json` to
   the project-surface comparison. That comparison refuses the result with a missing selection,
   an absent selected file or an ambiguous selection.
+- `verso-recorded-paths`: a Verso package requires a package by path. Its manifest entry for that
+  package records a configuration file and a manifest under names that are not Lake's defaults.
+  - The shared-pin check compares the pins of the two packages' own manifests and overrides
+    files, the last entry for a name deciding. A required package without its own manifest reads
+    no overrides file. The check ignores the recorded manifest and a path entry that Lake does not
+    load. It follows a Git entry that an overrides file replaces by a path.
+  - The capture binds the recorded configuration and manifest, the overrides files and the
+    accepted project's Lake inputs except its own overrides file. The copy of a project with a
+    dependency writes a generated overrides file. The audit compares the copy's capture with the
+    original's, and acceptance's source binding binds the original's file. The capture binds no
+    `lakefile.toml` or `package.lean` that Lake does not load. For a configuration name without an
+    extension, it binds the two candidate files.
+  - The two checks refuse a Verso package without a manifest, before Lake's load writes one. A
+    selection that names a configuration Lake did not load is refused.
+- `copy-relocation`: the copy of a project (`Lake.copyProject`).
+  - A project's manifest has two entries for one path dependency, and its overrides file selects
+    the configuration of the first. The copy's override for the dependency names that
+    configuration. Lake's load of the copy then selects what its load of the project selects.
+    Without the overrides file, the copy's override names the configuration of the last entry.
+  - A project keeps its checkouts in `vendor` and requires by Git a package in a subdirectory of a
+    local repository that the control makes. With a manifest that records no packages directory,
+    Lake loads the package from its checkout in `vendor`. The copy leaves out that whole checkout,
+    including a file outside the subdirectory, and names the package in an override. It
+    keeps the other entries of `vendor`, such as a library's source directory and a submodule that
+    no glob names. Without a manifest, Lake's load through `LAKE_PKG_URL_MAP` writes the local
+    repository into the entry, and the inventory accepts it. A worker process loads these, and Git
+    searches for no repository above the control's scratch directory.
+  - The Git project also requires a package by the path `vendor/pdep/`, with a final separator. The
+    copy leaves out that directory.
+  - A fresh copy of the Git project links its `vendor/gdep` to the first copy's checkout, outside its
+    own `vendor`. The copy prunes the link without a refusal, and Lake's load of the copy loads the
+    package through its override.
+  - A fresh copy of the Git project stores `vendor/pdep` as `vendor/PDEP`. The control observes if
+    `vendor/pdep` names that directory, as it does on a volume that folds case. Then the copy
+    prunes `vendor/PDEP` by its observed real path. Otherwise Lake's load of the project refuses
+    the package, since it finds no directory at `vendor/pdep/`.
+  - A copy of a project with a library that has its source directory below `.lake` refuses before
+    it writes anything. The refusal names the module and the `.lake` directory. A copy of a project
+    with an owned dependency that has its configuration below `.cache` refuses that file by name.
+    It refuses it too when that configuration is a link to a file outside `.cache`. A copy of a
+    project with an owned dependency that records the manifest `pins.olean` refuses it by its
+    compiled-module name. A copy of a project with a library that sets `srcDir` to an absolute path
+    refuses that setting by name.
+  - The Git project's steps run in a process that inherits a `GIT_DIR` and an absolute
+    `GIT_INDEX_FILE` outside the scratch directory. The control's Git commands and its workers run
+    without them, and the two stay untouched.
 - `documentation-source`: both public documentation paths with changed and missing
   dependency/configuration inputs and fresh restored positives. Its `--source-read-only`
   selection adds original-file and declaration-build read failures, initial setup classification

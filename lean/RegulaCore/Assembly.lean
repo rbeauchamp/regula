@@ -133,8 +133,8 @@ structure DependencyInventory where
   package : String
   /-- The package's directory. -/
   root : FilePath
-  /-- The paths of its Lake configuration, manifest and `lean-toolchain` files, including both
-  lakefile names. -/
+  /-- The paths of its Lake configuration, manifest and `lean-toolchain` files, with each
+  configuration file whose presence decides the one Lake loads. -/
   configurationPaths : Array FilePath
   /-- The source file of each of its modules that its library globs select, and of each
   executable root whose source exists. -/

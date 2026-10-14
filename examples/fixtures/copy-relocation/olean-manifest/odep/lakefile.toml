@@ -1,0 +1,6 @@
+# The configuration of the package `odep` of the `olean-manifest` project of the
+# `qualify copy-relocation` control. Its manifest is `pins.olean`, which the control places.
+name = "odep"
+
+[[lean_lib]]
+name = "Odep"

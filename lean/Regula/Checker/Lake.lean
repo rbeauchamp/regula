@@ -1,6 +1,7 @@
 import Regula.Checker.Common
 import Regula.Checker.Manifest
 import Regula.Checker.Workspace
+import Regula.Checker.LakeSelection
 import Regula.Checker.FacetReport
 import Regula.Checker.Observer
 import RegulaCore.EditorPolicy
@@ -302,9 +303,12 @@ loaded workspace `ws` of the project at `repo`. It prints the facet report that 
 the source guard, when the provider guard passes over those inventories. The report precedes the
 error of the first failed package inventory, which is raised before the provider guard's refusal,
 and the validation of other source existence. An overridden facet may have generated a missing
-source or glob directory. -/
+source or glob directory. The selection `selection` gives the entries that Lake materialized the
+workspace's dependencies from and its packages directory (`LakeSelection.withRootSelection`): each
+dependency's entry decides the configuration files and the manifest that its inventory binds. -/
 def surfaceInventoryOf (repo : FilePath) (ws : _root_.Lake.Workspace)
-    (facets : FacetReport.Output := .silent) : IO SurfaceInventory := do
+    (selection : LakeSelection.RootSelection) (facets : FacetReport.Output := .silent) :
+    IO SurfaceInventory := do
     let pkg := ws.root
     -- No path is built from a module name before each name that a package's configuration gives is
     -- a safe module name (`checkModuleNames`); a resolved module is placed by `modulePath?`.
@@ -394,9 +398,13 @@ def surfaceInventoryOf (repo : FilePath) (ws : _root_.Lake.Workspace)
           exe.root.name.toString exe.root.leanFile.toString
         sources := sources.push { «module» := exe.root.name, source }
       let root := provider.root
-      let configurationPaths := #[package.configFile, package.manifestFile,
-        package.dir / "lean-toolchain", package.dir / "lakefile.lean",
-            package.dir / "lakefile.toml"]
+      -- The configuration files whose presence decides the one Lake loads, and the manifest that
+      -- Lake reads, as the entry that Lake materialized the package from names them.
+      let some entry := LakeSelection.effectiveEntry selection.entries package.baseName
+        | throw <| IO.userError s!"lake-query-malformed: {package.baseName} has no manifest entry"
+      let configurationPaths := (#[package.configFile] ++
+          ((LakeSelection.configCandidates entry.configFile ++ entry.manifestFile?.toList).map
+            (package.dir / ·)).toArray ++ #[package.dir / _root_.Lake.toolchainFileName])
         |>.toList.eraseDups.toArray
       let owned := provider.owned
       if owned && package.leanLibDir.toString.isEmpty then
@@ -419,13 +427,15 @@ def surfaceInventoryOf (repo : FilePath) (ws : _root_.Lake.Workspace)
 the project at `repo`, with the facet report that `facets` requests. -/
 def surfaceInventory (repo : FilePath) (facets : FacetReport.Output := .silent) :
     IO SurfaceInventory :=
-  Workspace.withRootWorkspace repo fun ws => surfaceInventoryOf repo ws facets
+  LakeSelection.withRootSelection repo fun ws selection =>
+    surfaceInventoryOf repo ws selection facets
 
 /-- The inventory (`surfaceInventoryOf`) of the root package of the project at `repo`, which must
 declare no dependency (`Workspace.withRootPackage`). It is the inventory that `surfaceInventory`
 gives for such a project, and no loader that removes a directory is in its compiled code. -/
 def rootSurfaceInventory (repo : FilePath) : IO SurfaceInventory :=
-  Workspace.withRootPackage repo (surfaceInventoryOf repo)
+  Workspace.withRootPackage repo fun ws =>
+    surfaceInventoryOf repo ws { entries := #[], packagesDir := ws.relPkgsDir }
 
 /-- What Lake's load of a workspace selects for one dependency package: its name, directory and
 ownership, the configuration and manifest files it reads, the text of that configuration, the
@@ -524,9 +534,9 @@ def configurationBase (inputs : Regula.CopyConfiguration.Inputs) : List String :
 /-- Capture loaded relocation inputs before a producer starts. Loading and inventory observation
 use Lake itself, exactly as `copyProject`; these are trusted IO observations, not JSON inference. -/
 def captureConfigurationInputs (repo : FilePath) : IO Regula.CopyConfiguration.Inputs :=
-  Workspace.withRootWorkspace repo fun ws => do
+  LakeSelection.withRootSelection repo fun ws selection => do
     let root ← IO.FS.realPath repo
-    let inventory ← surfaceInventoryOf repo ws
+    let inventory ← surfaceInventoryOf repo ws selection
     return configurationInputs root ws inventory.dependencies
 
 /-- A path override for every resolved dependency, including inherited and transitive ones.
@@ -548,7 +558,8 @@ def relocateDependencies (inputs : Regula.CopyConfiguration.Inputs) (manifest : 
     throw "copied project does not retain its source package layout"
   let target := System.mkFilePath (project.normalize.components.take
     (project.normalize.components.length - relative.length))
-  return (manifest.packagesDir?.getD (FilePath.mk inputs.packagesDir), inputs.dependencies.map fun dependency =>
+  return (LakeSelection.packagesDir manifest.packagesDir? (FilePath.mk inputs.packagesDir),
+    inputs.dependencies.map fun dependency =>
     let entry := manifest.packages.find? (·.name.toString == dependency.package)
     let dir := if dependency.owned then Regula.Filesystem.Construction.location target
       ((FilePath.mk dependency.root).normalize.components.drop base.length)
@@ -687,15 +698,71 @@ def captureManifest (ws : _root_.Lake.Workspace) :
   let manifest ← IO.ofExcept (_root_.Lake.Manifest.parse text)
   return (manifest, items)
 
+/-- The entries of the packages directory, spelled `packages`, that a copy of the project prunes:
+each stored name in `listing` whose observed real path is one of `recorded`, the observed real
+paths of the recorded dependency directories. An entry with no observed real path is kept. -/
+def prunedEntries (packages : List String) (listing : List (String × Option (List String)))
+    (recorded : List (List String)) : List (List String) :=
+  listing.filterMap fun (name, real) =>
+    if real.any recorded.contains then some (packages ++ [name]) else none
+
+/-- A copy prunes `path` exactly when it is the packages directory's spelling of a listed name whose
+observed real path is the observed real path of a recorded dependency directory. -/
+theorem mem_prunedEntries (packages : List String) (listing : List (String × Option (List String)))
+    (recorded : List (List String)) (path : List String) :
+    path ∈ prunedEntries packages listing recorded ↔
+      ∃ name real, (name, some real) ∈ listing ∧ real ∈ recorded ∧ path = packages ++ [name] := by
+  simp only [prunedEntries, List.mem_filterMap, Prod.exists]
+  constructor
+  · rintro ⟨name, real, listed, selected⟩
+    cases real with
+    | none => simp at selected
+    | some real =>
+      by_cases recordedReal : real ∈ recorded
+      · simp [recordedReal] at selected
+        exact ⟨name, real, listed, recordedReal, selected.symm⟩
+      · simp [recordedReal] at selected
+  · rintro ⟨name, real, listed, recordedReal, rfl⟩
+    exact ⟨name, some real, listed, by simp [recordedReal]⟩
+
+/-- `mem_prunedEntries` is not vacuous: an entry whose observed real path is a recorded dependency
+directory elsewhere, as a link's is, is pruned, and an entry whose observed real path is its own or
+none is kept. -/
+theorem prunedEntries_witness :
+    prunedEntries ["", "p", "vendor"]
+      [("dep", some ["", "shared", "dep"]), ("src", some ["", "p", "vendor", "src"]), ("gone", none)]
+      [["", "shared", "dep"]] = [["", "p", "vendor", "dep"]] := by
+  decide
+
 /-- Copy a checked project and its owned path dependencies through the shared no-follow
 directory/file constructor. Every selected source entry must be plain. Root tmp trees are excluded
 before descent. VCS and build/cache/scratch trees are excluded outside each capture root's docs tree.
 Consumer-selected files, an explicitly selected project-contained policy, and their ancestors
 survive these exclusions. Compiled-module exclusions apply only to
 captured regular files. The final instructions must contain every selected file before construction.
-Owned packages survive package-store pruning
-in their own capture pass. Paths relative to their
-common ancestor are retained. The captured loaded manifest is installed at its loaded path, and
+Package pruning leaves out exactly each entry of the packages directory, by the stored name that
+the capture walks, whose observed real path is the observed real path of a recorded dependency
+directory: the checkout of a Git dependency or the directory of a path dependency, by the entry
+that Lake's load materialized it from (`LakeSelection.effectiveEntry`,
+`LakeSelection.checkoutDir`). It keeps every other entry there, one whose real path cannot be
+observed included (`mem_prunedEntries`, `Construction.CopyFilter.omission_pruned`,
+`Construction.CopyFilter.omission_other`). So a linked checkout is pruned as a cloned one is, and
+so is a directory that its recorded path names in another case or Unicode form that the
+filesystem folds. A packages directory that is itself a link is not listed, and is refused when the
+capture walks it, as each link that the capture walks is. An owned package there
+keeps its own capture pass (`Construction.packageSource_owned`). The copy's domain is
+each file that Lake's load reads for the root package or an owned dependency: the source of each
+module that Lake can build (`packageModules`), the loaded configuration file and an owned
+dependency's recorded manifest when present. Lake's load of the copy reads each at the path that it
+joins to the package's directory there: the recorded `relConfigFile` or `relManifestFile`, or the
+module's source below the package's directory, each without `.` components
+(`Construction.packageEntries_eq_some`). After the copy's whole file selection is computed and
+before anything is written, the copy refuses the first of these paths that no regular-file
+instruction has with exactly that spelling, and names the file and what left it out
+(`Construction.firstUnwritten_eq_none`). The constructor's guard requires the same paths
+(`Construction.constructSelected_io`). Before that, the copy refuses a copied package, library or
+executable whose `srcDir` is absolute, since Lake's load of the copy would read the original's
+sources there. Paths relative to their common ancestor are retained. The captured loaded manifest is installed at its loaded path, and
 every resolved dependency gets a typed path override: an owned package in the copy, a trusted
 package at its original root. There is no packages link. This copy is for ordinary loads only;
 a full update is outside this adapter's domain (`relocateDependencies`). The copy records each copied
@@ -703,27 +770,73 @@ package `regula` that declares the observer library (`ProjectCopy.observers`) an
 it. That load of the project prints the facet report that `facets` requests.
 
 Assumes: the shared constructor's native primitive contracts and no concurrent source or
-destination writer. Lake's loaded workspace and manifest stay fixed while captured. -/
+destination writer. Lake's loaded workspace and manifest stay fixed while captured.
+
+Assumes: Lake v4.34.1 materializes a Git entry at its name in the packages directory
+(`Lake/Load/Materialize.lean:246`), and puts the package below that checkout at the subdirectory
+that the entry names, when it names one (`Lake/Load/Materialize.lean:264`). It loads a package's configuration file and the manifest that
+its entry records at their recorded paths, joined to the package's directory
+(`Lake/Load/Package.lean:96-117`, `Lake/Load/Materialize.lean:272-277`), and the override that
+`relocateDependencies` writes records the loaded `relConfigFile` and `relManifestFile`. A library's
+module is one that Lake can build when `isBuildableModule` admits it (`Lake/Config/LeanLibConfig.lean:128-130`), which `buildableModules`
+enumerates. Lake builds only the modules that a glob selects and their imports
+(`Lake/Build/Library.lean:36-60`, `:67-72`), a subset of these. It reads a module's Lean source at
+`Lean.modToFilePath` of its library's `srcDir` (`Lake/Config/Module.lean:83-90`). That `srcDir` is
+the package's joined with the library's (`Lake/Config/LeanLib.lean:34-35`,
+`Lake/Config/Package.lean:352-353`), and an executable's root module has the executable's own
+(`Lake/Config/LeanExe.lean:45-51`). Lean v4.34.1 `FilePath.join` gives an absolute right operand
+as it stands (`Init/System/FilePath.lean:126-130`).
+
+Assumes: `IO.FS.realPath` is POSIX realpath(3) (`Init/System/IO.lean:873-879`,
+`runtime/io.cpp:1054-1066`), which resolves each link and each `.`, `..` and empty component. On
+Darwin it gives each component at the name the volume stores for it (Apple Libc-1752.120.2
+`stdlib/FreeBSD/realpath.c:216-243`, `:348-358`), so each spelling of one entry that a folding
+volume admits observes one real path, and that of the packages directory is the spelling the
+capture walks. A realpath(3) that keeps the spelling it is given, as on a folding volume
+elsewhere, leaves an entry that another spelling names unpruned.
+
+Assumes: POSIX path resolution, under which a `.` component names the directory before it. The copy
+holds no link, since the constructor creates none, so a read below a package's directory in the copy
+reaches the instruction at its entries. -/
 def copyProject (repo target exclude : FilePath)
     (facets : FacetReport.Output := .silent) (policy : Option FilePath := none)
     (selectedFiles : List FilePath := []) : IO ProjectCopy :=
-  Workspace.withRootWorkspace repo fun ws => do
+  LakeSelection.withRootSelection repo fun ws selection => do
     let root ← IO.FS.realPath repo
-    let original ← surfaceInventoryOf repo ws facets
+    let original ← surfaceInventoryOf repo ws selection facets
     let inputs := configurationInputs root ws original.dependencies
     let (manifest, rootManifest) ← captureManifest ws
     -- The manifest may have a different stored case spelling on a folding filesystem.
     -- Capture above refuses links; canonical observation identifies that same regular file.
     let manifestReal ← Regula.Filesystem.observeRealPath ws.manifestFile
     let (packagesDir, _) ← IO.ofExcept <| relocateDependencies inputs manifest root
-    let packages := (root / packagesDir).normalize.components
-    -- Resolve a present packages directory through the observer, so a configured VENDOR
-    -- also excludes the stored vendor spelling on a case-folding filesystem.
-    let packagesReal ← try
-        pure (some (← Regula.Filesystem.observeRealPath (root / packagesDir)).components)
-      catch
-        | .noFileOrDirectory .. => pure none
-        | error => throw error
+    -- The entries of the packages directory that pruning leaves out (`mem_prunedEntries`,
+    -- `Construction.CopyFilter.omission_pruned`): each stored name that the capture walks whose
+    -- observed real path is that of a recorded dependency directory, the checkout of a Git
+    -- dependency or the directory of a path dependency. A Git dependency's package lies at its
+    -- checkout, or below it at the subdirectory its entry names. An entry whose real path cannot
+    -- be observed is kept, and the capture walks it. A packages directory that is a link is not
+    -- listed, and the capture refuses it. Each dependency has its path override.
+    let packagesPath := root / packagesDir
+    let packagesKind ← try pure (some (← Regula.Filesystem.observeMetadata packagesPath).type) catch
+      | .noFileOrDirectory .. => pure none
+      | error => throw error
+    let dependencyDirectories ← if packagesKind != some .dir then pure [] else do
+      let recorded ← ws.packages.toList.filterMapM fun package => do
+        if package.isRoot then return none
+        let some entry := LakeSelection.effectiveEntry selection.entries package.baseName
+          | return none
+        let dir := _root_.Lake.joinRelative ws.dir
+          (LakeSelection.checkoutDir selection.packagesDir entry)
+        return some (← Regula.Filesystem.observeRealPath dir).normalize.components
+      let names ← Regula.Filesystem.Construction.observer.names packagesPath
+      let listing ← names.mapM fun (name : String) => do
+        let real ← try
+            pure (some (← Regula.Filesystem.observeRealPath (packagesPath / name)).normalize.components)
+          catch _ => pure none
+        return (name, real)
+      let packages := (← Regula.Filesystem.observeRealPath packagesPath).normalize.components
+      pure (prunedEntries packages listing recorded)
     let owned := (original.dependencies.filter (·.owned)).foldl (fun dirs dependency =>
       if dependency.root == root || dirs.contains dependency.root then dirs
       else dirs.push dependency.root) #[]
@@ -744,27 +857,67 @@ def copyProject (repo target exclude : FilePath)
     let excludedReal ← try pure (← IO.FS.realPath exclude).normalize.components catch
       | .noFileOrDirectory .. => pure exclude.normalize.components
       | error => throw error
-    let pruned := fun (name : String) =>
-      [".git", _root_.Lake.defaultLakeDir.toString, ".cache", Regula.Scratch.legacyDirName].contains name
+    -- The capture pass rooted at `top`. Documentation discovery consumes cache-named
+    -- subdirectories too; the pass captures those directly before constructing the copy rather
+    -- than overwriting a finished copy.
+    let filterOf := fun (top : FilePath) => ({
+      source := top.normalize.components
+      roots := (directories.filter (· != top)).toList.map (·.normalize.components)
+      manifests := [ws.manifestFile.normalize.components, manifestReal.normalize.components]
+      required, copies := [excluded, excludedReal]
+      names := [".git", _root_.Lake.defaultLakeDir.toString, ".cache", Regula.Scratch.legacyDirName]
+      dependencies := dependencyDirectories } : Regula.Filesystem.Construction.CopyFilter)
+    -- Lake's load of the copy reads, for the root package and each owned dependency, the source of
+    -- each module that Lake can build (`packageModules`), the loaded configuration file and an
+    -- owned dependency's recorded manifest when present. The root's manifest is installed from its
+    -- own capture. Each is read at the path that Lake joins to the package's directory in the copy:
+    -- its recorded `relConfigFile` or `relManifestFile`, or the module's source path below the
+    -- package's directory. A read is in the domain when the original has a file there.
+    let ownedPackages := ws.packages.filter fun package => package.isRoot ||
+      original.dependencies.any fun dependency =>
+        dependency.owned && dependency.package == package.baseName.toString
+    let mut reads : List (String × List String) := []
+    for package in ownedPackages do
+      let some dir := if package.isRoot then some root else
+          (original.dependencies.find? (·.package == package.baseName.toString)).map (·.root)
+        | throw <| IO.userError s!"copy refused: package '{package.baseName}' has no inventory"
+      -- Lake joins an absolute source directory as it stands, so Lake's load of the copy would
+      -- read the original's sources there, not the copy's.
+      let settings := [(s!"package '{package.baseName}'", package.config.srcDir)] ++
+        package.leanLibs.toList.map (fun library =>
+          (s!"library {library.name} of package '{package.baseName}'", library.config.srcDir)) ++
+        package.leanExes.toList.map (fun exe =>
+          (s!"executable {exe.name} of package '{package.baseName}'", exe.config.srcDir))
+      if let some (owner, setting) := settings.find? (·.2.isAbsolute) then
+        throw <| IO.userError s!"copy refused: {owner} sets srcDir to the absolute path \
+          {setting}, which Lake's load of the copy reads as it stands, outside the copy"
+      let (_, modules) ← packageModules package
+      let below := fun (file : FilePath) =>
+        let components := file.normalize.components
+        let start := package.dir.normalize.components
+        if start.isPrefixOf components then components.drop start.length else components
+      let packageReads := modules.toList.map (fun (name, file) =>
+          (s!"the source of module {name}", file, below file)) ++
+        [("the configuration file", package.configFile, package.relConfigFile.normalize.components)] ++
+        (if package.isRoot then [] else
+          [("the manifest", package.manifestFile, package.relManifestFile.normalize.components)])
+      for (what, file, access) in packageReads do
+        let present ← try
+            discard <| Regula.Filesystem.observeRealPath file
+            pure true
+          catch
+            | .noFileOrDirectory .. => pure false
+            | error => throw error
+        unless present do continue
+        let refusal := s!"copy refused: {what} of package '{package.baseName}' at {file}"
+        let some entries := Regula.Filesystem.Construction.packageEntries access
+          | throw <| IO.userError s!"{refusal}: Lake's load of the copy reads it at \
+              {"/".intercalate access}, which names no entries below the package's directory"
+        reads := reads ++ [(refusal, relative dir ++ entries)]
     let mut instructions := []
     for top in directories do
-      let source := top.normalize.components
-      let otherRoots := (directories.filter (· != top)).map (·.normalize.components)
-      let selected := fun (path : FilePath) =>
-        let components := path.normalize.components
-        -- Owned package roots are captured by their own iteration, including roots within packages.
-        !(otherRoots.any fun other => source.length < other.length && other.isPrefixOf components) &&
-        path.normalize != ws.manifestFile.normalize && path.normalize != manifestReal.normalize &&
-        (Regula.Filesystem.Construction.requiredPath required components ||
-        (!excluded.isPrefixOf components && !excludedReal.isPrefixOf components &&
-        !(source ++ ["tmp"]).isPrefixOf components &&
-        -- Documentation discovery consumes cache-named subdirectories too; capture those
-        -- directly before constructing the copy rather than overwriting a finished copy.
-        ((components.drop source.length).head? == some "docs" ||
-          !(components.drop source.length).any pruned) &&
-        Regula.Filesystem.Construction.packageSource source packages components &&
-        packagesReal.all (fun packages =>
-          Regula.Filesystem.Construction.packageSource source packages components)))
+      let filter := filterOf top
+      let selected := fun (path : FilePath) => (filter.omission path.normalize.components).isNone
       let captured ← Regula.Filesystem.Construction.capture top (relative top) selected
       instructions := instructions ++ Regula.Filesystem.Construction.selectFiles
         (fun path => Regula.Filesystem.Construction.requiredPath required (base ++ path) ||
@@ -794,9 +947,28 @@ def copyProject (repo target exclude : FilePath)
         throw <| IO.userError "Lake package overrides file is outside its project"
       instructions := instructions ++ [⟨relative root ++ overrideRelative,
         .file text.toUTF8⟩]
+    -- The tree that the copy writes. Before anything is written, each read must have a
+    -- regular-file instruction at exactly its path (`Construction.firstUnwritten_eq_none`), which the
+    -- constructor's own guard requires too (`Construction.constructSelected_io`).
+    let items := Regula.Filesystem.Construction.layout instructions
+    if let some (refusal, path) := Regula.Filesystem.Construction.firstUnwritten items reads then
+      let source := base ++ path
+      let top := (directories.filter (·.normalize.components.isPrefixOf source)).foldl
+        (fun best dir => if best.all (·.normalize.components.length <
+          dir.normalize.components.length) then some dir else best) (none : Option FilePath)
+      let reason := match top.map fun top => (filterOf top).firstOmission source with
+        | none => "that path lies outside each directory that the copy captures"
+        | some (some (entry, omission)) => s!"{"/".intercalate entry} is an entry that a copy of \
+            the project leaves out as {omission.describe}"
+        | some none => if isModulePart (path.getLast?.getD "") then
+            "its name is a compiled-module file name, which a copy of the project leaves out"
+          else "the copy captures no regular file at that path"
+      throw <| IO.userError s!"{refusal}: Lake's load of the copy reads it at \
+        {"/".intercalate path} below the copy, and no file that the copy writes has exactly that \
+        path, since {reason}"
     Regula.Filesystem.Construction.constructSelectedWith
-      Regula.Filesystem.Construction.observer target (stored.map (relative root ++ ·))
-      (Regula.Filesystem.Construction.layout instructions)
+      Regula.Filesystem.Construction.observer target
+      (stored.map (relative root ++ ·) ++ reads.map (·.2)) items
     let copiedRoot ← IO.FS.realPath target
     return {
       project

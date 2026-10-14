@@ -1,0 +1,3 @@
+# The configuration that Lake loads for this package: the Verso package's manifest entry for it
+# records this file.
+name = "recorded"

@@ -67,7 +67,8 @@ inductive Group where
   /-- `qualify acceptance fences`, the `dependencies` and `git-status` snapshot groups,
   `receipt-boundaries` and `prep-measure`. -/
   | acceptanceControls
-  /-- `qualify documentation-dependencies` and `configuration-capture`. -/
+  /-- `qualify documentation-dependencies`, `configuration-capture`, `verso-recorded-paths` and
+  `copy-relocation`. -/
   | documentationControls
   /-- The self-test's focused native-adopter, combined-snapshot and policy-transport controls. -/
   | focusedControls
@@ -393,7 +394,9 @@ def Group.commands : Group → List Command
   | .documentationControls => [
       lake #["build", "axiomGate", "docFenceAudit", "ruleExamples", "qualify"],
       qualify #["documentation-dependencies"],
-      qualify #["configuration-capture"]]
+      qualify #["configuration-capture"],
+      qualify #["verso-recorded-paths"],
+      qualify #["copy-relocation"]]
   | .focusedControls => [lake #["build", "checkerSelftest", "axiomGate", "Regula.Linter"],
       lake #["exe", "checkerSelftest", "--native-adopter-only"],
       lake #["exe", "checkerSelftest", "--combined-snapshot-only"],
