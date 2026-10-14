@@ -174,7 +174,9 @@ def checkAnswer (project : FilePath) (output : String) : IO Unit := do
 process tree (`Construction.isolationEnvironment`), which removes Git's repository variables, so
 it is isolated when it starts and does not start again (`Regula.TaskManager.guard`), and Git
 searches for no repository above `scratch` (`GIT_CEILING_DIRECTORIES`). That ceiling does not
-bound a `GIT_DIR`, so the removal is what keeps an inherited one from selecting its repository. -/
+bound a `GIT_DIR`. The control (`check`) gives one to the child `qualify` that runs `gitSteps`,
+which starts again under the guard's isolation (`Regula.TaskManager.guard`,
+`Regula.GitIsolation.restart`) and so runs `gitSteps` without it. -/
 def workerEnvironment (scratch : FilePath) (env : Array (String × Option String)) :
     IO (Array (String × Option String)) := do
   let ceiling ← IO.FS.realPath scratch
@@ -282,10 +284,14 @@ private def snapshot (dir : FilePath) : IO (List (List String × Option (List UI
   refuses that manifest by name and by its compiled-module name, and writes nothing.
 - A copy of `absolute-source`, whose library sets `srcDir` to the package's `src` directory as an
   absolute path, refuses that setting by name, and writes nothing.
-- The steps that run Git and Lake (`gitSteps`) run in a process that inherits a `GIT_DIR` of a
-  repository and an absolute `GIT_INDEX_FILE`, both in a temporary directory outside the scratch
-  directory. The steps must pass, and that directory must hold the same entries and bytes after
-  them. -/
+- The child `qualify` that runs the steps that run Git and Lake (`gitSteps`) starts with a
+  `GIT_DIR` of a repository and an absolute `GIT_INDEX_FILE`, both in a temporary directory
+  outside the scratch directory. Its guard starts it again under the isolation
+  (`Regula.TaskManager.guard`, `Regula.GitIsolation.restart`), which removes the two variables
+  before `gitSteps` runs. The control observes the steps after that restart and the outside
+  repository: the steps must pass, and that directory must hold the same entries and bytes after
+  them. The interpreted `lean --run` control of `Regula.CopyControls`, which no guard starts
+  again, covers the removal of `Construction.gitProcessArgs` itself. -/
 def check : IO Unit := do
   let root ← rootDirectory
   withScratch root "copy-relocation" fun scratch => do
@@ -389,6 +395,7 @@ def check : IO Unit := do
         ⟨"the inherited GIT_DIR and GIT_INDEX_FILE are left untouched", before == after⟩,
         ⟨s!"the steps that run Git and Lake: {result.stdout}{result.stderr}",
           result.exitCode == 0⟩]
-      IO.println "copy relocation inherited Git repository variables untouched: PASS"
+      IO.println "copy relocation inherited Git repository variables removed by the guard's \
+        restart, outside repository untouched: PASS"
 
 end Regula.Qualification.CopyRelocation
