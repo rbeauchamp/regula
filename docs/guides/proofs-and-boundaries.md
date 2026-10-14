@@ -394,8 +394,9 @@ module from there. The build store of Lake does not keep the job of a facet with
 A claimed module counts as observed only when two conditions hold. Its completed `presetup` loaded
 the observer of the running Regula, as `Observer.pluginLoaded` decides. Its target also lists the
 observer's key in `needs`. The audit reads the record of the module only then.
-`Observer.recordEntries` reads the record as Lean reads the entries of an imported module. Thus
-Lean, not Regula, gives the entries the type of the record of the running observer.
+`Observer.recordEntries` reads the record as Lean reads the entries of an imported module.
+Lean's `getModuleEntries` gives the record its type with an unchecked cast, which is sound only for
+entries that the running observer wrote.
 
 With the key in `needs`, the observer's trace is in the module's trace. So an `.olean` that Lake
 replays was written under the library with the bytes that `matchingPlugins` matched. Without the
