@@ -33,7 +33,7 @@ Each finding gives the rule, the location and the fix. The [rule reference](http
 
 ## Try it
 
-Regula `v0.11.1` is for the Lean toolchain `leanprover/lean4:v4.34.1`. With [elan](https://lean-lang.org/install/) installed, make a project. Regula also needs GNU coreutils `ls` (see [A program that lists directories](docs/guides/adoption.md#a-program-that-lists-directories)); on macOS, run `brew install coreutils`. Then add Regula:
+Regula `v0.11.1` is for the Lean toolchain `leanprover/lean4:v4.34.1`. With [elan](https://lean-lang.org/install/) installed, make a project. Regula also requires GNU coreutils `ls` (see [A program that lists directories](docs/guides/adoption.md#a-program-that-lists-directories)). On macOS, run `brew install coreutils`. Then add Regula:
 
 ```sh
 lake +leanprover/lean4:v4.34.1 new demo
