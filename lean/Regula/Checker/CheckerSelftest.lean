@@ -4623,31 +4623,47 @@ private def earlyStopControl (repo : FilePath) : IO (Option String) :=
     IO.FS.writeFile (project / "lakefile.lean") ""
     IO.FS.writeFile (project / "lean-toolchain") (← IO.FS.readFile (repo / "lean-toolchain"))
     let project ← IO.FS.realPath project
-    -- An empty directory as the whole `PATH`, so no `lean` is found, and no `LEAN_SYSROOT`.
+    -- The first file named one of `names` in an entry of this process's `PATH` that runs with
+    -- `--version`, exits 0 and prints a text that `accepted` admits.
+    let onPath (names : List String) (accepted : String → Bool) : IO (Option FilePath) := do
+      let mut found : Option FilePath := none
+      for name in names do
+        for directory in ((← IO.getEnv "PATH").getD "").splitOn ":" do
+          let candidate := FilePath.mk directory / name
+          if found.isNone && !directory.isEmpty && (← candidate.pathExists) then
+            if let .ok version ← (runProcess scratch candidate.toString #["--version"]).toBaseIO then
+              if version.exitCode == 0 && accepted version.stdout then
+                found := some candidate
+      return found
+    -- `directory/name` as a link to `target`, or why it could not be made.
+    let link (target directory : FilePath) (name : String) : IO (Option String) := do
+      IO.FS.createDirAll directory
+      let linked ← runProcess scratch "ln" #["-s", target.toString, (directory / name).toString]
+      if linked.exitCode == 0 then return none
+      return some s!"early stop: could not link {target} as {directory / name}:\n{linked.output}"
+    -- The guard of each started program queries Git before the program runs
+    -- (`Regula.TaskManager.guard`), so each `PATH` below holds a link to the Git of this process's
+    -- `PATH`: the run then passes the guard and stops at the failure that its `PATH` plants.
+    let some git ← onPath ["git"] fun _ => true
+      | return some "early stop: no git on PATH that runs with --version, which the guard of each \
+          started program queries before the program runs"
+    -- A directory that holds only Git as the whole `PATH`, so no `lean` is found, and no
+    -- `LEAN_SYSROOT`.
     let noLean := scratch / "no-lean"
-    IO.FS.createDirAll noLean
+    if let some failure ← link git noLean "git" then return some failure
     let plain : Array (String × Option String) := #[("REGULA_TIMING", none),
       ("REGULA_QUALIFICATION_WRAPPER", none), ("REGULA_RECEIPT_TIMER", none)]
     let withoutLean := plain ++ #[("PATH", some noLean.toString), ("LEAN_SYSROOT", none)]
-    -- GNU coreutils `env` as the one `timeout` of the whole `PATH`: the bounded start selects it,
-    -- since its `--version` names GNU coreutils (`Regula.Qualification.timeoutCommand`), and it
-    -- ends with status 125 at the option `--signal=KILL` before it runs the command.
-    let mut found : Option FilePath := none
-    for name in ["genv", "env"] do
-      for directory in ((← IO.getEnv "PATH").getD "").splitOn ":" do
-        let candidate := FilePath.mk directory / name
-        if found.isNone && !directory.isEmpty && (← candidate.pathExists) then
-          if let .ok version ← (runProcess scratch candidate.toString #["--version"]).toBaseIO then
-            if version.exitCode == 0 && version.stdout.contains "GNU coreutils" then
-              found := some candidate
-    let some gnuEnv := found
+    -- GNU coreutils `env` as the one `timeout` of the whole `PATH`, beside Git: the bounded start
+    -- selects it, since its `--version` names GNU coreutils
+    -- (`Regula.Qualification.timeoutCommand`), and it ends with status 125 at the option
+    -- `--signal=KILL` before it runs the command.
+    let some gnuEnv ← onPath ["genv", "env"] (·.contains "GNU coreutils")
       | return some "early stop: no GNU coreutils env (genv or env) on PATH, which installs GNU \
           coreutils timeout beside it, to stand in for the timeout of a bounded start"
     let standIn := scratch / "stand-in"
-    IO.FS.createDirAll standIn
-    let linked ← runProcess scratch "ln" #["-s", gnuEnv.toString, (standIn / "timeout").toString]
-    unless linked.exitCode == 0 do
-      return some s!"early stop: could not link {gnuEnv} as {standIn / "timeout"}:\n{linked.output}"
+    if let some failure ← link gnuEnv standIn "timeout" then return some failure
+    if let some failure ← link git standIn "git" then return some failure
     let withStandIn := plain ++ #[("PATH", some standIn.toString)]
     -- The export of a bounded start that ended without running its command: its reason must give
     -- the status and the standard error of the stand-in, which names the option it refused.

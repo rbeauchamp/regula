@@ -1335,9 +1335,10 @@ those of the control of `--write-baseline` (`runWriteControl`), and the reader o
 (`baselineOf`) admits that file. A run whose arguments add `--unknown`, which the parser refuses
 (issue 436), must fail and leave the mark of the guard (`markBaseline`), with the guard's reason
 (`Regula.TaskManager.startedReason`) and the earlier baseline, and the reader must refuse it. A
-run of this program with an empty directory as its `PATH`, so with no `git`, stops when it lists
-the tracked files, and the file must then hold the same mark, which keeps the earlier baseline
-that the first mark holds. A run with the inherited `PATH` must then write the
+run of this program while Git's index of the repository holds bytes that are not an index stops
+when it lists the tracked files, after its guard, whose query of Git reads no repository
+(`Regula.TaskManager.guard`). The file must then hold the same mark, which keeps the earlier
+baseline that the first mark holds. With the index restored, a run must then write the
 expected baseline, with the entries of the earlier baseline that the mark kept. A baseline file
 that is not UTF-8 text is not a document that Regula wrote (`Regula.Destination.write`): a run
 must then fail with that reason, and the file must keep its bytes.
@@ -1356,14 +1357,10 @@ def runWriteEarlyStopControl : IO (List String) :=
       recordEntry]
     let expected := controlBaseline [semicolonEntry "a.md" 1, madeEntry, recordEntry]
     let file := repository / baselineFile
-    let noGit := directory / "no-git"
-    IO.FS.createDirAll noGit
     let program := (← IO.appPath).toString
-    let run (path : Option System.FilePath) (more : Array String) :
-        IO IO.Process.Output :=
+    let run (more : Array String) : IO IO.Process.Output :=
       IO.Process.output {
-        cmd := program, args := #[repository.toString, "--write-baseline"] ++ more,
-        env := (path.map fun path => #[("PATH", some path.toString)]).getD #[] }
+        cmd := program, args := #[repository.toString, "--write-baseline"] ++ more }
     let text : IO (Option String) := do return (← (IO.FS.readFile file).toBaseIO).toOption
     let admitted : IO Bool := do
       return (← text).any fun text => (baselineOf baselineFile text).isOk
@@ -1374,7 +1371,7 @@ def runWriteEarlyStopControl : IO (List String) :=
     IO.FS.writeFile file earlier
     unless ← admitted do
       return [s!"--write-baseline that stops early: baselineOf refuses the seed {earlier.quote}"]
-    let refused ← run none #["--unknown"]
+    let refused ← run #["--unknown"]
     unless refused.exitCode != 0 && (← held "status") == some "incomplete" &&
         (← held "reason") == some Regula.TaskManager.startedReason &&
         (← held "earlier") == some earlier && !(← admitted) do
@@ -1382,22 +1379,30 @@ def runWriteEarlyStopControl : IO (List String) :=
         code other than 0 and the mark with the guard's reason and the earlier baseline, which \
         baselineOf refuses; got the exit code {refused.exitCode}, the error output \
         {refused.stderr.quote} and the file {← shown}"]
-    let stopped ← run (some noGit) #[]
-    unless stopped.exitCode != 0 && (← held "status") == some "incomplete" &&
+    -- Git's index of the repository, as bytes that are not an index: `git ls-files` then fails
+    -- (observed: Git 2.54 exits 128, "index file smaller than expected"), and the guard's query of
+    -- Git (`Regula.Filesystem.Construction.gitLocalNames`) reads no index.
+    let index := repository / ".git" / "index"
+    let listable ← IO.FS.readBinFile index
+    IO.FS.writeBinFile index "not an index of Git\n".toUTF8
+    let stopped ← run #[]
+    IO.FS.writeBinFile index listable
+    unless stopped.exitCode != 0 && stopped.stderr.contains "`git ls-files` failed" &&
+        (← held "status") == some "incomplete" &&
         (← held "reason") == some Regula.TaskManager.startedReason &&
         (← held "earlier") == some earlier && !(← admitted) do
-      return [s!"--write-baseline with no git: expected an exit code other than 0 and the mark \
-        with the guard's reason and the earlier baseline, which baselineOf refuses; got the exit \
-        code {stopped.exitCode}, the error output {stopped.stderr.quote} and the file \
-        {← shown}"]
-    let rerun ← run none #[]
+      return [s!"--write-baseline whose listing of the tracked files fails: expected an exit code \
+        other than 0, the failed `git ls-files` and the mark with the guard's reason and the \
+        earlier baseline, which baselineOf refuses; got the exit code {stopped.exitCode}, the \
+        error output {stopped.stderr.quote} and the file {← shown}"]
+    let rerun ← run #[]
     unless rerun.exitCode == 0 && (← text) == some expected do
       return [s!"--write-baseline after a run that stopped early: expected the file \
         {expected.quote}, got the exit code {rerun.exitCode}, the error output \
         {rerun.stderr.quote} and the file {← shown}"]
     let undecodable := ByteArray.mk #[0xff, 0xfe, 0x0a]
     IO.FS.writeBinFile file undecodable
-    let undecoded ← run none #[]
+    let undecoded ← run #[]
     unless undecoded.exitCode != 0 &&
         undecoded.stderr.contains "not a document that Regula wrote" &&
         (← IO.FS.readBinFile file).data == undecodable.data do
@@ -1552,7 +1557,6 @@ run_cmd Regula.Removal.checkProgram (elaborates := true) (named := [
   (``Regula.Controlled.Run.makeRepository, ``IO.FS.createDirAll),
   (``Regula.Controlled.Run.makeRepository, ``IO.FS.writeFile),
   (``Regula.Controlled.Run.runWriteControl, ``IO.FS.writeFile),
-  (``Regula.Controlled.Run.runWriteEarlyStopControl, ``IO.FS.createDirAll),
   (``Regula.Controlled.Run.runWriteEarlyStopControl, ``IO.FS.writeFile),
   (``Regula.Controlled.Run.runWriteEarlyStopControl, ``IO.FS.writeBinFile)])
 
