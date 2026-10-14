@@ -6,8 +6,14 @@ The one reader through which a qualification driver takes a required member of a
 or a manifest. Lean's `Json.getObjValAs?` decodes `Json.getObjValD`, which is `null` both for an
 absent member and for a parent that is not an object, so for a required array it refuses with
 `expected JSON array, got 'null'` and names neither the member nor the document (issue #458).
-`get` refuses with the member's name, and says whether the member is absent, its parent is not an
-object, or its value does not decode as the required type; `within` adds the document's path.
+
+Each reader here finds the member and decodes it at its required shape in one step, so a refusal
+names the member, and says whether the member is absent, its parent is not an object, or its
+value does not decode: `object` for a parent of further members, `array`, `text`, `bool` and `get`
+at a `FromJson` type, and `decoded` with a caller's decoder, such as one that also requires unique
+nonempty strings. `value` hands out a member whole, for a caller that compares it by agreement or
+keeps it as an expected value; a member of a known shape goes through the reader of that shape,
+not through `value` and a later decoder. `within` adds the document's path.
 
 `get` admits exactly what `getObjValAs?` admits whenever the required type does not decode `null`
 (`get_eq_ok_iff_getObjValAs?`), as for an array (`array_eq_ok_iff`), a string and a Boolean: only
@@ -15,20 +21,34 @@ the refusal's text differs. -/
 namespace RegulaQualification.Member
 open Lean
 
-/-- The member `key` of `value`, which must be an object that has it. -/
-def field (value : Json) (key : String) : Except String Json :=
-  match value with
+/-- The required member `key` of `parent`, whole, for a caller that compares it by agreement or
+keeps it as an expected value; `parent` must be an object that has it. A member of a known shape is
+read with `object`, `array`, `text`, `bool`, `get` or `decoded` instead, which decode it in the same
+step, so that its refusal names it. -/
+def value (parent : Json) (key : String) : Except String Json :=
+  match parent with
   | .obj members => match members.get? key with
     | some member => .ok member
     | none => .error s!"member '{key}' is absent"
   | _ => .error s!"member '{key}' is absent: its parent is not an object"
 
-/-- The member `key` of `value`, decoded as `α`; a refusal names the member. -/
-def get (α : Type) [FromJson α] (value : Json) (key : String) : Except String α := do
-  let member ← field value key
-  match (fromJson? member : Except String α) with
-  | .ok decoded => .ok decoded
+/-- The required member `key` of `value`, decoded by `decode`; a refusal names the member. -/
+def decoded {α : Type} (decode : Json → Except String α) (value : Json) (key : String) :
+    Except String α := do
+  let member ← Member.value value key
+  match decode member with
+  | .ok result => .ok result
   | .error reason => .error s!"member '{key}': {reason}"
+
+/-- The required object member `key` of `value`, the parent of further required members. -/
+def object (value : Json) (key : String) : Except String Json :=
+  decoded (fun member => match member with
+    | .obj _ => .ok member
+    | _ => .error "expected a JSON object") value key
+
+/-- The member `key` of `value`, decoded as `α`; a refusal names the member. -/
+def get (α : Type) [FromJson α] (value : Json) (key : String) : Except String α :=
+  decoded fromJson? value key
 
 /-- The required array member `key` of `value`. -/
 def array (value : Json) (key : String) : Except String (Array Json) := get (Array Json) value key
@@ -47,28 +67,29 @@ def within {α σ : Type} [ToString σ] (source : σ) (decoded : Except String �
   | .ok value => .ok value
   | .error reason => .error s!"{source}: {reason}"
 
-/-- `field` admits exactly the members Lean's `Json.getObjVal?` admits. -/
-theorem field_eq_ok_iff (value member : Json) (key : String) :
-    field value key = .ok member ↔ value.getObjVal? key = .ok member := by
-  unfold field Json.getObjVal?
+/-- `value` admits exactly the members Lean's `Json.getObjVal?` admits. -/
+theorem value_eq_ok_iff (value member : Json) (key : String) :
+    Member.value value key = .ok member ↔ value.getObjVal? key = .ok member := by
+  unfold Member.value Json.getObjVal?
   split
   · split <;> simp_all [pure, Except.pure, throw, throwThe, MonadExceptOf.throw]
   · simp [throw, throwThe, MonadExceptOf.throw]
 
-/-- `get` admits `decoded` exactly when the member is present and decodes to it. -/
-theorem get_eq_ok_iff (α : Type) [FromJson α] (value : Json) (key : String) (decoded : α) :
-    get α value key = .ok decoded ↔
-      ∃ member, value.getObjVal? key = .ok member ∧ fromJson? member = .ok decoded := by
-  unfold get
-  cases hfield : field value key with
+/-- `decoded` admits `result` exactly when the member is present and `decode` gives it. -/
+theorem decoded_eq_ok_iff {α : Type} (decode : Json → Except String α) (value : Json)
+    (key : String) (result : α) :
+    decoded decode value key = .ok result ↔
+      ∃ member, value.getObjVal? key = .ok member ∧ decode member = .ok result := by
+  unfold decoded
+  cases hfield : Member.value value key with
   | error reason =>
     simp only [bind, Except.bind, reduceCtorEq, false_iff, not_exists, not_and]
     intro member hmember
-    rw [← field_eq_ok_iff] at hmember
+    rw [← value_eq_ok_iff] at hmember
     rw [hfield] at hmember
     cases hmember
   | ok member =>
-    have hmember := (field_eq_ok_iff value member key).mp hfield
+    have hmember := (value_eq_ok_iff value member key).mp hfield
     simp only [bind, Except.bind]
     constructor
     · intro h
@@ -83,19 +104,41 @@ theorem get_eq_ok_iff (α : Type) [FromJson α] (value : Json) (key : String) (d
       cases hother
       rw [hdecoded]
 
+/-- `object` admits exactly a present member that is an object. -/
+theorem object_eq_ok_iff (value member : Json) (key : String) :
+    object value key = .ok member ↔
+      value.getObjVal? key = .ok member ∧ ∃ members, member = .obj members := by
+  unfold object
+  rw [decoded_eq_ok_iff]
+  constructor
+  · rintro ⟨found, hfound, hdecode⟩
+    split at hdecode
+    · rename_i members
+      cases hdecode
+      exact ⟨hfound, members, rfl⟩
+    · cases hdecode
+  · rintro ⟨hfound, members, rfl⟩
+    exact ⟨_, hfound, rfl⟩
+
+/-- `get` admits `result` exactly when the member is present and decodes to it. -/
+theorem get_eq_ok_iff (α : Type) [FromJson α] (value : Json) (key : String) (result : α) :
+    get α value key = .ok result ↔
+      ∃ member, value.getObjVal? key = .ok member ∧ fromJson? member = .ok result :=
+  decoded_eq_ok_iff fromJson? value key result
+
 /-- For a type that does not decode `null`, `get` admits exactly what `Json.getObjValAs?` admits:
 the two differ only in the text of a refusal. -/
 theorem get_eq_ok_iff_getObjValAs? (α : Type) [FromJson α]
-    (refusesNull : ∀ decoded : α, (fromJson? Json.null : Except String α) ≠ .ok decoded)
-    (value : Json) (key : String) (decoded : α) :
-    get α value key = .ok decoded ↔ value.getObjValAs? α key = .ok decoded := by
+    (refusesNull : ∀ result : α, (fromJson? Json.null : Except String α) ≠ .ok result)
+    (value : Json) (key : String) (result : α) :
+    get α value key = .ok result ↔ value.getObjValAs? α key = .ok result := by
   rw [get_eq_ok_iff]
   unfold Json.getObjValAs? Json.getObjValD
   cases hmember : value.getObjVal? key with
   | error reason =>
     simp only [Except.toOption, Option.getD_none, reduceCtorEq, false_and, exists_false,
       false_iff]
-    exact refusesNull decoded
+    exact refusesNull result
   | ok member => simp [Except.toOption]
 
 /-- `array` admits exactly what `Json.getObjValAs? (Array Json)` admits. -/
@@ -104,20 +147,21 @@ theorem array_eq_ok_iff (value : Json) (key : String) (items : Array Json) :
   get_eq_ok_iff_getObjValAs? (Array Json) (fun _ h => by cases h) value key items
 
 /-- `text` admits exactly what `Json.getObjValAs? String` admits. -/
-theorem text_eq_ok_iff (value : Json) (key : String) (decoded : String) :
-    text value key = .ok decoded ↔ value.getObjValAs? String key = .ok decoded :=
-  get_eq_ok_iff_getObjValAs? String (fun _ h => by cases h) value key decoded
+theorem text_eq_ok_iff (value : Json) (key : String) (result : String) :
+    text value key = .ok result ↔ value.getObjValAs? String key = .ok result :=
+  get_eq_ok_iff_getObjValAs? String (fun _ h => by cases h) value key result
 
 /-- `bool` admits exactly what `Json.getObjValAs? Bool` admits. -/
-theorem bool_eq_ok_iff (value : Json) (key : String) (decoded : Bool) :
-    bool value key = .ok decoded ↔ value.getObjValAs? Bool key = .ok decoded :=
-  get_eq_ok_iff_getObjValAs? Bool (fun _ h => by cases h) value key decoded
+theorem bool_eq_ok_iff (value : Json) (key : String) (result : Bool) :
+    bool value key = .ok result ↔ value.getObjValAs? Bool key = .ok result :=
+  get_eq_ok_iff_getObjValAs? Bool (fun _ h => by cases h) value key result
 
-/-- Each refusal of `get` names the member. -/
-theorem get_refusal_names (α : Type) [FromJson α] (value : Json) (key reason : String)
-    (h : get α value key = .error reason) :
+/-- Each refusal of `decoded` names the member, whichever decoder it runs; so does each refusal
+of `object`, `get`, `array`, `text` and `bool`, which are `decoded` at their decoders. -/
+theorem decoded_refusal_names {α : Type} (decode : Json → Except String α) (value : Json)
+    (key reason : String) (h : decoded decode value key = .error reason) :
     ∃ detail, reason = "member '" ++ (key ++ detail) := by
-  unfold get field at h
+  unfold decoded Member.value at h
   split at h
   · rename_i members
     split at h
@@ -126,6 +170,19 @@ theorem get_refusal_names (α : Type) [FromJson α] (value : Json) (key reason :
       · cases h
       · cases h
         exact ⟨_, by simp only [String.append_assoc]; rfl⟩
+    · cases h
+      exact ⟨_, by simp only [String.append_assoc]; rfl⟩
+  · cases h
+    exact ⟨_, by simp only [String.append_assoc]; rfl⟩
+
+/-- Each refusal of `value` names the member. -/
+theorem value_refusal_names (value : Json) (key reason : String)
+    (h : Member.value value key = .error reason) :
+    ∃ detail, reason = "member '" ++ (key ++ detail) := by
+  unfold Member.value at h
+  split at h
+  · split at h
+    · cases h
     · cases h
       exact ⟨_, by simp only [String.append_assoc]; rfl⟩
   · cases h

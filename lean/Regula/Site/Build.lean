@@ -46,11 +46,11 @@ namespace Regula.Site.Build
 
 open Lean System Regula.Site Regula.Qualification RegulaQualification.Evidence
 
-private def get (j : Json) (key : String) : IO Json := IO.ofExcept (field j key)
+private def get (j : Json) (key : String) : IO Json := IO.ofExcept (value j key)
 private def str (j : Json) (key : String) : IO String := IO.ofExcept (text j key)
 private def arr (j : Json) (key : String) : IO (Array Json) := IO.ofExcept (array j key)
-private def has (j : Json) (key : String) (value : Json) : Bool :=
-  (field j key).toOption.any (Regula.JsonAgreement.conforms · value)
+private def has (j : Json) (key : String) (expected : Json) : Bool :=
+  (value j key).toOption.any (Regula.JsonAgreement.conforms · expected)
 
 /-- The pinned Verso revision of the website package. -/
 def versoRevision (root : FilePath) : IO String := do
@@ -163,8 +163,8 @@ private def ruleOf (s : String) : IO RuleId := do
 def findingOf (project : String) (d : Json) : IO FindingView := do
   let rule ← ruleOf (← str d "id")
   let args ← get d "arguments"
-  let (subjectKind, subject) := match field args "declaration", field args "root",
-      field args "subject" with
+  let (subjectKind, subject) := match value args "declaration", value args "root",
+      value args "subject" with
     | .ok n, _, _ => ("Declaration", nameText n)
     | _, .ok n, _ => ("Execution root", nameText n)
     | _, _, .ok (.str s) => ("Subject", displayText project s)
@@ -188,7 +188,7 @@ def findingOf (project : String) (d : Json) : IO FindingView := do
       pure s!"{path}, line {line}, column {column}"
     | "module" => pure s!"module `{nameText (← get location "name")}`"
     | _ => pure ("project " ++ displayText project (← str location "identity"))
-  let claim := match field d "claim" with | .ok (.str c) => some c | _ => none
+  let claim := match value d "claim" with | .ok (.str c) => some c | _ => none
   return { rule, severity := ← str d "severity", impact := ← str d "impact", mode := ← str d "mode",
            claim, subjectKind, subject, detail := displayText project
                (← str (← get d "arguments") "detail"), location := place }
@@ -209,8 +209,8 @@ private def requestText (request : Json) : IO String := do
   let kind ← str request "kind"
   let project ← str request "project"
   let subject := displayText project (← str request "subject")
-  let claim := match field request "claim" with | .ok (.str c) => c | _ => "none"
-  let execution := match field request "execution" with | .ok (.str e) => e | _ => "report"
+  let claim := match value request "claim" with | .ok (.str c) => c | _ => "none"
+  let execution := match value request "execution" with | .ok (.str e) => e | _ => "report"
   return match kind with
     | "file" => s!"a fresh single-file audit of `{subject}` (`axiomGate --file`, claim `{claim}`, \
       execution `{execution}`)"

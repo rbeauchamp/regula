@@ -82,7 +82,7 @@ def checkAt (root base : FilePath) : IO Unit := do
         let some report := report | throw <| IO.userError "missing public refusal result"
         let [diagnostic] := (← IO.ofExcept (array report "diagnostics")).toList
           | throw <| IO.userError "expected the single positive-fence refusal"
-        let subject ← IO.ofExcept do text (← field diagnostic "arguments") "subject"
+        let subject ← IO.ofExcept do text (← object diagnostic "arguments") "subject"
         unless subject == "/".intercalate ((FilePath.mk hidden).components.drop 1) ++ ":3" do
           throw <| IO.userError "the refusal did not identify the originally selected document"
       IO.println s!"copy selection {label}/{phase}: PASS"

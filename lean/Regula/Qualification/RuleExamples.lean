@@ -28,13 +28,13 @@ tasks stay uncached. -/
 namespace Regula.Qualification.RuleExamples
 open Lean System RegulaQualification.Evidence
 
-private def get (j : Json) (key : String) : IO Json := IO.ofExcept (field j key)
+private def get (j : Json) (key : String) : IO Json := IO.ofExcept (value j key)
 private def string (j : Json) (key : String) : IO String := IO.ofExcept (text j key)
 private def entries (j : Json) (key : String) : IO (Array Json) := IO.ofExcept (array j key)
 private def optionalText (j : Json) (key fallback : String) : IO String :=
-  match field j key with
+  match value j key with
   | .error _ => pure fallback
-  | .ok value => IO.ofExcept value.getStr?
+  | .ok found => IO.ofExcept found.getStr?
 
 /-- Producer-window environment: the scrub plus no-optional-write Git and an empty
 `LAKE_CACHE_DIR`, which confines Lake's artifact cache to each workspace's own `.lake/cache`,
@@ -397,7 +397,7 @@ private def produce (ctx : Context) (slot : Slot.ProducerSlot) (rule phase : Str
     ("$SOURCE_TEXT", ← IO.FS.readFile sourcePath),
     ("$DOCS", (project / "docs").toString)]
   if mode == "project" then
-    let captured ← match field observed "sourceAccount" with
+    let captured ← match value observed "sourceAccount" with
       | .ok value => IO.ofExcept value.getArr?
       | .error _ => pure #[]
     -- The audited sources, by module and path: the source account's, or else the scope's.
@@ -430,7 +430,7 @@ private def produce (ctx : Context) (slot : Slot.ProducerSlot) (rule phase : Str
     before := before.setObjVal! "sources" (toJson (originalSources ++ aliases))
     after := after.setObjVal! "sources" (toJson ((← entries after "sources") ++ aliases))
   if mode == "documentation" && case == "Violation" then
-    if let .ok raw := field spec "snippet" then
+    if let .ok raw := value spec "snippet" then
       let values ← IO.ofExcept raw.getArr?
       let #[start, stop, origin] := values | throw <| IO.userError "invalid snippet range"
       let start ← IO.ofExcept start.getNat?
@@ -458,7 +458,7 @@ private def produce (ctx : Context) (slot : Slot.ProducerSlot) (rule phase : Str
     ("before", before), ("after", after), ("request", request), ("expected", expected),
     ("rawObservation", rawObservation),
     ("unresolvedPatterns", if case == "Fixed" then toJson (#[] : Array Json) else
-                                                    (field spec "unresolvedPatterns").toOption.getD
+                                                    (value spec "unresolvedPatterns").toOption.getD
                                                     (toJson (#[] : Array Json))),
     ("stdout", .str execution.stdout), ("stderr", .str execution.stderr),
     ("detectorMillis", toJson elapsed)]
@@ -735,7 +735,7 @@ def check (evidence : FilePath) (selection : Option (Array String))
       theoremType := some expectedType
       let phase ← string record "phase"
       IO.ofExcept (RegulaQualification.Producer.checked_validation.run report
-        (← IO.ofExcept (← get record "exitCode").getNat?) rule "freshProject"
+        (← IO.ofExcept (RegulaQualification.Member.get Nat record "exitCode")) rule "freshProject"
         (← string record "source")
         (phase == "Fixed") expectedType)
       IO.println s!"fresh project producer {rule}/{phase}: PASS"

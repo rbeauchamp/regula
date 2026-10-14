@@ -184,7 +184,7 @@ private def checkControls (evidence : Option FilePath) (jobs : Nat) : IO Unit :=
       let declaration ← fromReport do
         let some declaration := declarations[0]? | throw "missing theorem declaration"
         pure declaration
-      let observedType ← fromReport (RegulaQualification.Member.field declaration "type")
+      let observedType ← fromReport (RegulaQualification.Member.value declaration "type")
       let expectedType := theoremType.getD observedType
       theoremType := some expectedType
       fromReport

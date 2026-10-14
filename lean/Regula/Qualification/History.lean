@@ -81,8 +81,8 @@ private def control (root scratch : System.FilePath)
   requireChecks [⟨"execution account stored once, every root derived",
     Regula.SharedExecution.derivedOnly written⟩]
   if invocation == "file" && phase == "positive" then
-    let scope ← readMember output (RegulaQualification.Member.field report "scope")
-    let account ← readMember output (RegulaQualification.Member.field scope "report")
+    let scope ← readMember output (RegulaQualification.Member.object report "scope")
+    let account ← readMember output (RegulaQualification.Member.object scope "report")
     let execution ← readMember output (RegulaQualification.Member.array account "execution")
     let importedName := nameJson "Nat.add"
     let imported := execution.filter

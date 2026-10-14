@@ -3006,16 +3006,15 @@ private unsafe def fenceEnvironmentControl (layout : SourceLayout) (repo : FileP
       let report ← readJson reportPath
       let read {α : Type} (decoded : Except String α) := IO.ofExcept (RegulaQualification.Member.within reportPath decoded)
       let status ← read (RegulaQualification.Member.text report "status")
-      let modules ← jsonStringArray "fresh control modules" <| ← read (RegulaQualification.Member.field report "modules")
-      let roots ← jsonStringArray "fresh control roots" <| ← read (RegulaQualification.Member.field report "roots")
+      let modules ← read (memberStrings report "modules")
+      let roots ← read (memberStrings report "roots")
       let checks ← read (RegulaQualification.Member.array report "checks")
       let mut checked : Array String := #[]
       for check in checks do
         let exitCode ← read (RegulaQualification.Member.get Nat check "exitCode")
         if exitCode != 0 then
           failures.modify (·.push "fence-env/fresh-checker: a root was not checked successfully")
-        let covered ← jsonStringArray "fresh control coveredModules" <| ← IO.ofExcept <|
-          check.getObjVal? "coveredModules"
+        let covered ← read (memberStrings check "coveredModules")
         checked := checked ++ covered
       if status != "completed" || checks.size != expected.size
           || uniqueSorted modules != uniqueSorted expected || uniqueSorted roots !=
@@ -3385,11 +3384,11 @@ private def libraryCycleControl (repo : FilePath) : IO (Array String) :=
   let modules := #["Left.Base", "Left.Top", "Right.Base", "Right.Top"]
   let json ← requireAuditDocument (← IO.ofExcept (Json.parse (← IO.FS.readFile result)))
   let read {α : Type} (decoded : Except String α) := IO.ofExcept (RegulaQualification.Member.within result decoded)
-  let surfaces ← read do RegulaQualification.Member.array (← RegulaQualification.Member.field json "scope") "surfaces"
+  let surfaces ← read do RegulaQualification.Member.array (← RegulaQualification.Member.object json "scope") "surfaces"
   let mut found : Array (String × Array String × Array String × Array (String × String)) := #[]
   for surface in surfaces do
     let library ← read (RegulaQualification.Member.text surface "library")
-    let admission ← read do RegulaQualification.Member.field (← RegulaQualification.Member.field surface "report") "admission"
+    let admission ← read do RegulaQualification.Member.object (← RegulaQualification.Member.object surface "report") "admission"
     let reused ← read (RegulaQualification.Member.get (Array String) admission "reused")
     let required ← read (RegulaQualification.Member.get (Array (String × String)) admission "required")
     let replayed := modules.filter fun m => !reused.contains m && required.any (·.1 == m)
@@ -3600,12 +3599,12 @@ private def sharedCopiesControl (repo : FilePath) : IO (Array String) :=
     "Lib.Right", "Lib.Up", "App.Main"]
   let json ← requireAuditDocument (← IO.ofExcept (Json.parse (← IO.FS.readFile result)))
   let read {α : Type} (decoded : Except String α) := IO.ofExcept (RegulaQualification.Member.within result decoded)
-  let surfaces ← read do RegulaQualification.Member.array (← RegulaQualification.Member.field json "scope") "surfaces"
+  let surfaces ← read do RegulaQualification.Member.array (← RegulaQualification.Member.object json "scope") "surfaces"
   let mut found : Array (String × Array String × Array String × Array String) := #[]
   let mut required : Array (String × String) := #[]
   for surface in surfaces do
     let library ← read (RegulaQualification.Member.text surface "library")
-    let admission ← read do RegulaQualification.Member.field (← RegulaQualification.Member.field surface "report") "admission"
+    let admission ← read do RegulaQualification.Member.object (← RegulaQualification.Member.object surface "report") "admission"
     let reused ← read (RegulaQualification.Member.get (Array String) admission "reused")
     let shared ← read (RegulaQualification.Member.get (Array String) admission "shared")
     let keys ← read (RegulaQualification.Member.get (Array (String × String)) admission "required")
@@ -3703,7 +3702,7 @@ private def crossSurfaceDecisionControl (refusals : Bool) (repo : FilePath) :
           return some s!"cross-surface/related: expected PASS:\n{accepted.output}"
         let json ← requireAuditDocument (← IO.ofExcept (Json.parse (← IO.FS.readFile result)))
         let counted ← IO.ofExcept <| RegulaQualification.Member.within result do
-          RegulaQualification.Member.array (← RegulaQualification.Member.field (← RegulaQualification.Member.field json "acceptance") "account") "countedContracts"
+          RegulaQualification.Member.array (← RegulaQualification.Member.object (← RegulaQualification.Member.object json "acceptance") "account") "countedContracts"
         let named (entry : Json) : Bool :=
           (entry.getObjValAs? String "surface").toOption == some "Exec" &&
             (entry.getObjValAs? String "source").toOption == some "Proofs" &&

@@ -7,6 +7,7 @@ import Regula.Scratch
 import Regula.Destination
 import RegulaPolicy.ResultState
 import RegulaPolicy.Guards
+import RegulaQualification.Member
 import Lean
 import Lake.Load.Manifest
 import Std.Sync.Mutex
@@ -532,8 +533,14 @@ def TargetKind.tomlTable : TargetKind → String
 /-- The `lakefile.lean` declaration of the target `name` of the kind `kind` that a control or
 qualification generator writes for an audit to elaborate: its fields `fields`, each a line indented
 as a declaration's field, then the observer's `needs` entry (`observerNeedLean`), which RG2006
-requires of each such target. Every generated target goes through this function or
-`observedTargetToml`, so none can lack the entry. Its package loads the observer as a plugin
+requires of each such target. A target that this function or `observedTargetToml` writes has the
+entry; that is a property of their output, not of every generated configuration. Two kinds of
+generated target do not go through them: the self-test's reconstruction of the repository's own
+package (`CheckerSelftest.structuralProject`), which copies each library's and executable's own
+`needs` and plugins from the repository's Lake configuration, so that it reproduces them rather
+than restating them; and the refusal controls, whose targets omit or remove the entry on purpose
+(the RG2006 negative controls) or must be refused for another reason. Its package loads the
+observer as a plugin
 (`observerPluginLean`), which Lake gives each of its targets, so the declaration names no plugin of
 its own: Lake would load the observer twice. With `own`, the configuration is one of the package
 `regula` itself, whose package loads no plugin, as its checkout's `lakefile.lean`: the target loads
@@ -595,6 +602,11 @@ def stringArray (what : String) (value : Json) : Except String (Array String) :=
 naming `what`. -/
 def jsonStringArray (what : String) (value : Json) : IO (Array String) :=
   IO.ofExcept (stringArray what value)
+
+/-- The required member `key` of `value`, an array of unique nonempty strings (`stringArray`), read
+with its decoding inside `RegulaQualification.Member.decoded`, so a refusal names the member. -/
+def memberStrings (value : Json) (key : String) : Except String (Array String) :=
+  RegulaQualification.Member.decoded (stringArray "its value") value key
 
 /-- Run `lake query TARGET --json` in `repo` and return its parsed JSON output. -/
 def lakeQuery (repo : FilePath) (target : String) : IO Json := do
