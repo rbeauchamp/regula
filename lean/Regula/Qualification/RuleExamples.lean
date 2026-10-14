@@ -511,15 +511,17 @@ def rootConfigNames : Array String :=
 
 /-- The checker, corpus and configuration sources whose exact bytes a campaign records before
 and after production (`checkerBefore`, `checkerAfter`): the Lake-discovered root-package module
-sources, each present configuration file that the campaign copies (`rootConfigNames`), and every
-corpus file. The site builder recomputes this set to require that exported evidence belongs to the
-current sources (`Site.Build.currentSources`). -/
+sources, each present configuration file that the campaign copies (`rootConfigNames`), the files of
+the root package's declared inputs that it copies too (`Slot.rootInputs`), and every corpus file.
+The site builder recomputes this set to require that exported evidence belongs to the current
+sources (`Site.Build.currentSources`). -/
 def sourcePaths (root : FilePath) (modulePaths : Array FilePath) : IO (Array FilePath) := do
   let corpusPaths ← (← Regula.Filesystem.Construction.walkDirectory (root / "examples/rules")).filterM
     fun path => return !(← Regula.Filesystem.isDirectory path)
   let configPaths ← (rootConfigNames.map fun (name : String) => root / name).filterM
     Regula.Filesystem.isPresent
-  return (modulePaths ++ configPaths ++ corpusPaths).toList.eraseDups.toArray
+  let inputPaths ← Slot.rootInputs root
+  return (modulePaths ++ configPaths ++ inputPaths ++ corpusPaths).toList.eraseDups.toArray
 
 /-- The rule whose corpus position decides `key`'s shard: the first rule of
 `sharedTheoremTypeRules` for the second when the first is in the corpus, otherwise `key`. -/
@@ -636,7 +638,8 @@ def check (evidence : FilePath) (selection : Option (Array String))
       Regula.Filesystem.isPresent (root / name)
     let rootConfigs ← configNames.mapM (fun (name : String) => do
       pure (root / name, ← Regula.Filesystem.readBytes (root / name)))
-    let rootSources ← modulePaths.mapM fun path => do
+    -- The module sources and the files of the declared inputs that the root's libraries need.
+    let rootSources ← (modulePaths ++ (← Slot.rootInputs root)).mapM fun path => do
       pure (path, ← Regula.Filesystem.readBytes path)
     let depObservations ← Regula.Checker.Snapshot.dependencies inventory
     let _ ← Slot.prepareSlot root slot rootSources rootConfigs depObservations

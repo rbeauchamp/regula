@@ -277,6 +277,35 @@ def SharedIdentity.difference (before after : SharedIdentity) : String := Id.run
       if x != y then return s!"{b.1}/{x.relative} vs {y.relative}"
   return "no difference"
 
+/-- The files that the root package of the checkout at `root` declares as build inputs, from Lake's
+load of that package alone (`Workspace.withRootPackage`): the path of each of its `input_file`
+targets, then each file below the path of each of its `input_dir` targets that the target's
+filter admits. A library of a ROOT copy that needs such a target reads those files in each build
+there, so the copy holds them beside the module sources (`RuleExamples.run`), and a campaign
+records them among its sources (`RuleExamples.sourcePaths`). Each directory is walked as
+`System.FilePath.walkDir` walks it (`Construction.walkDirectory`), and each entry is observed
+strictly (`Regula.Filesystem.isDirectory`): a failure of that read other than a missing file
+throws, where Lake's filter reads it as no directory.
+
+Assumes:
+- Lake v4.34.1 gives an `input_file` target the file `pkg.dir / path`
+  (`Lake/Config/InputFile.lean:21-22`), and an `input_dir` target each file that
+  `System.FilePath.walkDir` finds below `pkg.dir / path`, other than a directory, whose path, as
+  that walk gives it, its filter admits (`Lake/Config/InputFile.lean:35-36`, `:43-44`,
+  `Lake/Build/InputFile.lean:42-44`, `Lake/Build/Common.lean:812-823`).
+- `Package.configTargets` gives each target of the package of the kind it names
+  (`Lake/Config/ConfigTarget.lean:36-42`), and the root package's directory is the directory that
+  its load configuration names, the real path of `root` (`loadConfig`). -/
+def rootInputs (root : FilePath) : IO (Array FilePath) :=
+  Regula.Checker.Workspace.withRootPackage root fun ws => do
+    let mut found :=
+      (ws.root.configTargets _root_.Lake.InputFile.configKind).map _root_.Lake.InputFile.path
+    for dir in ws.root.configTargets _root_.Lake.InputDir.configKind do
+      for path in ← Regula.Filesystem.Construction.walkDirectory (_root_.Lake.InputDir.path dir) do
+        if _root_.Lake.InputDir.filter dir path && !(← Regula.Filesystem.isDirectory path) then
+          found := found.push path
+    return found
+
 /-- Prepare one complete slot: the writable ROOT package copy. The ROOT copy's
 `lake-manifest.json` is truthfully relocated so that every package entry names
 its captured shared dependency root (a manifest package without a captured

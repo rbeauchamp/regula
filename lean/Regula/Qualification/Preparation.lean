@@ -36,7 +36,7 @@ def check : IO Unit := do
           (fun (name : String) => Regula.Filesystem.isPresent (root / name))
       let rootConfigs ← configNames.mapM (fun (name : String) => do
         pure (root / name, ← Regula.Filesystem.readBytes (root / name)))
-      let rootSources ← modulePaths.mapM (fun path => do
+      let rootSources ← (modulePaths ++ (← Slot.rootInputs root)).mapM (fun path => do
         pure (path, ← Regula.Filesystem.readBytes path))
       IO.println s!"prep phase: input capture: root sources={rootSources.size} \
         configs={rootConfigs.size} deps={deps.size}"

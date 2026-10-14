@@ -59,32 +59,39 @@ candidate is observed too, and its failure refuses. -/
 def requireConfigCandidates (dir relConfigFile : FilePath) : IO Unit :=
   discard <| configChoice dir relConfigFile
 
-/-- Refuse a package that Lake loaded from a configuration file other than the one that
-`configChoice` gives for its directory, naming the package and the two remedies. Lake takes a
-dependency's configuration file from its entry when the entry names the file with its extension
-(`MaterializedDep.relConfigFile`, `Lake/Load/Materialize.lean:136-137`, then
-`Lake/Load/Package.lean:96-102`). The entry is the workspace's manifest's, unless the workspace's
-package overrides, `overrides` (`.lake/package-overrides.json` by default), have one for the
-package, which replaces it after the manifest is read (`Lake/Load/Resolve.lean:603-605`); the
-loaders set no other override. Lake writes each manifest entry with the file it chose when it last
-resolved the package (`Workspace.writeManifest`, `Lake/Load/Resolve.lean:520-528`). A choice that
-a failed resolution made, in this load or in an earlier one that recorded it, is therefore refused
-here, as is each other choice that an entry records and the rule does not give now. The loaded
-package does not record which entry gave its file, so the refusal names both remedies:
-`lake update`, which resolves the package again and records the choice in the manifest, and a
-correction or removal of the package's entry in `overrides`, which `lake update` leaves in force. -/
-def requireConfigChoice (overrides : FilePath) (package : _root_.Lake.Package) : IO Unit := do
+/-- Refuse a package that Lake loaded unless each candidate of its configuration's name is absent
+or resolves (`configChoice`), and refuse the root package unless Lake loaded it from the file
+that `configChoice` gives for its directory, naming the package.
+
+Regula observes what Lake builds, so it checks a choice only where Lake makes one in this load.
+Lake chooses between the two candidates only for a name without an extension
+(`Lake/Load/Package.lean:107-119`): the root's under these loaders, whose load configuration names
+`lakefile` (`loadConfig`), and a dependency's whose entry names one, such as the entry of a
+requirement that Lake resolves anew (`Lake/Load/Manifest.lean:90`). Lake resolves each candidate
+with `Lake.resolvePath?` (`Lake/Util/IO.lean:75-89`), which gives a path exactly when `realPath`
+succeeds and the path it gives is present. When neither strict observation fails, that is exactly
+when `Regula.Filesystem.realPathIfPresent` gives one, so Lake's choice is the one that
+`configChoice` gives, unless a process changes a candidate between the two reads, which is outside
+this model; a failure that Lake would read as absence is thrown here. For a name with an
+extension, Lake chooses nothing in this load: it reads that file alone and fails when it cannot
+resolve it (`Lake/Load/Package.lean:100-106`), so no failed read of this load can make a wrong
+choice there. Such a name can still record a choice that an earlier, lossy resolution made, since
+Lake writes each manifest entry with the file it chose when it last resolved the package
+(`Workspace.writeManifest`, `Lake/Load/Resolve.lean:520-528`); that is Lake's history, outside
+the reads that Regula makes, and its refusal would refuse a workspace that Lake builds. The loaded
+package does not record the name that its entry gave (`Lake/Load/Resolve.lean:33-46`), so the
+comparison is made for the root, whose name is known, and a dependency's choice rests on the
+strict observation of both candidates, as argued above. -/
+def requireConfigChoice (package : _root_.Lake.Package) : IO Unit := do
   let choice ← configChoice package.dir package.relConfigFile
-  unless choice == some package.relConfigFile do
+  if package.isRoot && choice != some package.relConfigFile then
     let rule := match choice with
       | some file => s!"its candidates give {file}"
       | none => "neither candidate is present"
-    throw <| IO.userError s!"lake-workspace-load-failed: Lake loaded package \
+    throw <| IO.userError s!"lake-workspace-load-failed: Lake loaded the root package \
       '{package.prettyName}' from {package.relConfigFile} in {package.dir}, but {rule}: a choice \
-      that Lake's rule does not give now, such as one recorded while a candidate could not be \
-      resolved. When the manifest records it, run `lake update` to resolve the package's \
-      configuration again; when the package's entry in {overrides} gives it, correct or remove \
-      that entry, which `lake update` leaves in force"
+      that Lake's rule does not give now, such as one made while a process changed a candidate \
+      during the load"
 
 /-- The configuration with which the workspace rooted at `repo` is loaded, after the observation
 of the root package's configuration candidates (`requireConfigCandidates`). With
@@ -98,15 +105,15 @@ private def loadConfig (repo : FilePath) (scrubSearchPath : Bool) : IO _root_.La
     else lakeEnv
   return { lakeEnv, wsDir }
 
-/-- Pass the workspace that a load gave to `action`, after each package's configuration file is
-checked against the strict observation of its candidates (`requireConfigChoice`), or fail with
-the messages of its log. -/
+/-- Pass the workspace that a load gave to `action`, after each package's configuration candidates
+are observed strictly and the root's configuration file is checked against them
+(`requireConfigChoice`), or fail with the messages of its log. -/
 private def withLoaded {α : Type} (ws? : Option _root_.Lake.Workspace) (log : _root_.Lake.Log)
     (action : _root_.Lake.Workspace → IO α) : IO α :=
   match ws? with
   | some ws => do
       for package in ws.packages do
-        requireConfigChoice ws.packageOverridesFile package
+        requireConfigChoice package
       action ws
   | none =>
       let messages := log.entries.map (·.message)

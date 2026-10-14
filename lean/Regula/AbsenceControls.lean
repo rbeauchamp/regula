@@ -47,13 +47,15 @@ file system calls, and they prove nothing.
   path and whose `lakefile.toml` can be read: Lake would pass over the first for the second.
   `withRootWorkspace` also loads `withdep`, whose root can be read and whose dependency `dep` has
   the shape of `configured`. Lake loads `dep` from its `lakefile.toml` and records that choice
-  in the manifest, and the check of each loaded package (`requireConfigChoice`) must fail at the
-  link. Each other changed site binds an observer's result in `IO` in the same way, so the error
-  propagates there too, unless a caller catches it; this control does not run them.
-- The loaders once the path can be read again (`loaderControls`): `withRootWorkspace` must refuse
-  `withdep`, whose manifest records the choice of `lakefile.toml` for `dep`, naming the package
-  and `lake update`. With the links removed, both loaders must load `configured`, and
-  `withRootWorkspace` must load `withdep` with its dependency.
+  in the manifest, and the strict observation of each loaded package's candidates
+  (`requireConfigChoice`) must fail at the link. Each other changed site binds an observer's
+  result in `IO` in the same way, so the error propagates there too, unless a caller catches it;
+  this control does not run them.
+- The loaders once the path can be read again (`loaderControls`): `withRootWorkspace` must load
+  `withdep` with `dep` from the `lakefile.toml` that its manifest records, as Lake reads a name
+  with an extension alone, though the link `lakefile.lean` beside it now resolves. With the links
+  removed, both loaders must load `configured`, and `withRootWorkspace` must load `withdep` with
+  its dependency.
 - `Removal.observe` at operations (`resolving`) whose entry reads each give a directory and whose
   resolution of the path alone fails (`resolutionFailure`), which no control on the unreadable path
   can make: it must fail with that same error, not observe a directory at another place. At the same
@@ -169,28 +171,28 @@ def makeLink (target place : FilePath) : IO Unit := do
 /-- The loaders of `Checker.Workspace` once the path can be read again, each with whether it gave
 the expected result. The refused load of `withdep` wrote its manifest with the configuration file
 that Lake chose for `dep` while the link `dep/lakefile.lean` could not be resolved,
-`lakefile.toml`, so the next load must refuse that recorded choice, naming the package and
-`lake update`. With the two links removed, both loaders must load `configured`, and
-`withRootWorkspace` must load `withdep` with its dependency. A `lakefile.lean` cannot stay for
-these loads: Lake elaborates it, which needs the native initialization of Lake that the
-elaboration of this module does not have. -/
+`lakefile.toml`. Lake reads that recorded name alone, so the next load must load `dep` from it,
+though the link now resolves: Regula observes the choice that Lake's build makes. With the two
+links removed, both loaders must load `configured`, and `withRootWorkspace` must load `withdep`
+with its dependency. A `lakefile.lean` that Lake loads cannot stay for these loads: Lake
+elaborates it, which needs the native initialization of Lake that the elaboration of this module
+does not have. -/
 def loaderControls (base : FilePath) : IO (List (String × Bool)) := do
   let configured := base / "configured"
   let withdep := base / "withdep"
-  let recorded := match ← (Regula.Checker.Workspace.withRootWorkspace withdep fun _ =>
-      pure ()).toBaseIO with
-    | .error error =>
-        let text := toString error
-        (text.splitOn "Lake loaded package 'dep' from lakefile.toml").length > 1 &&
-          (text.splitOn "lake update").length > 1
-    | .ok () => false
-  Regula.Filesystem.removePath .link (withdep / "dep" / "lakefile.lean")
-  Regula.Filesystem.removePath .link (configured / "lakefile.lean")
   let loads (load : IO Nat) (count : Nat) : IO Bool := do
     return match ← load.toBaseIO with
       | .ok loaded => loaded == count
       | .error _ => false
   let size (ws : _root_.Lake.Workspace) : IO Nat := pure ws.packages.size
+  -- The number of packages, or none when no dependency was loaded from `lakefile.toml`.
+  let fromRecorded (ws : _root_.Lake.Workspace) : IO Nat := pure <|
+    if ws.packages.any fun package =>
+        !package.isRoot && package.relConfigFile == ("lakefile.toml" : FilePath)
+    then ws.packages.size else 0
+  let recorded ← loads (Regula.Checker.Workspace.withRootWorkspace withdep fromRecorded) 2
+  Regula.Filesystem.removePath .link (withdep / "dep" / "lakefile.lean")
+  Regula.Filesystem.removePath .link (configured / "lakefile.lean")
   return [
     ("Regula.Checker.Workspace.withRootWorkspace with a recorded choice of lakefile.toml",
       recorded),
@@ -283,7 +285,7 @@ def check : IO Unit :=
     -- A project whose `lakefile.lean` is a link to a file below the path, beside a
     -- `lakefile.toml` that can be read, and a project with a dependency of that shape. Lake
     -- never reads the linked file's text: each load either fails at the link or takes the
-    -- recorded `lakefile.toml`, and the link is removed before the loads that succeed.
+    -- recorded `lakefile.toml`, and the link is removed before the other loads.
     IO.FS.writeFile (path / "lakefile.lean") "-- the control's configuration\n"
     let configured := base / "configured"
     IO.FS.createDirAll configured

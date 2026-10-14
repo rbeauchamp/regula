@@ -610,8 +610,9 @@ refuse the two. When a model of the file system fails to resolve one path, the r
 observation of that path must fail with that error.
 
 After the permissions are given back, the manifest records the choice of `lakefile.toml` that Lake
-made for the dependency. The loaders must refuse that recorded choice. When the links are removed,
-they must load the projects.
+made for the dependency. Lake reads that recorded file alone, so the loader must load the
+dependency from it, as Lake's build does. When the links are removed, the loaders must load the
+projects.
 
 `./scripts/verify.sh diagnostics self-audit 1/4` to `4/4` each run one shard of the self-audit.
 The campaign sorts each list of modules that it inspects by name, and it deals the list to the
