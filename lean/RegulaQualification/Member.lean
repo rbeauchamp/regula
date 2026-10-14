@@ -70,10 +70,21 @@ def within {α σ : Type} [ToString σ] (source : σ) (decoded : Except String �
 /-- `value` admits exactly the members Lean's `Json.getObjVal?` admits. -/
 theorem value_eq_ok_iff (value member : Json) (key : String) :
     Member.value value key = .ok member ↔ value.getObjVal? key = .ok member := by
-  unfold Member.value Json.getObjVal?
-  split
-  · split <;> simp_all [pure, Except.pure, throw, throwThe, MonadExceptOf.throw]
-  · simp [throw, throwThe, MonadExceptOf.throw]
+  -- Each side is reduced by definition, not rewritten with the equations of `Json.getObjVal?`,
+  -- which would declare them here a second time beside another module (`qualify combined`'s
+  -- `unique-constants`).
+  cases value with
+  | obj members =>
+    show (match members.get? key with
+        | some found => Except.ok found
+        | none => Except.error s!"member '{key}' is absent") = Except.ok member ↔
+      (match members.get? key with
+        | some found => Except.ok found
+        | none => Except.error s!"property not found: {key}") = Except.ok member
+    cases members.get? key with
+    | some found => exact Iff.rfl
+    | none => exact ⟨(fun h => nomatch h), (fun h => nomatch h)⟩
+  | _ => exact ⟨(fun h => nomatch h), (fun h => nomatch h)⟩
 
 /-- `decoded` admits `result` exactly when the member is present and `decode` gives it. -/
 theorem decoded_eq_ok_iff {α : Type} (decode : Json → Except String α) (value : Json)
@@ -133,13 +144,15 @@ theorem get_eq_ok_iff_getObjValAs? (α : Type) [FromJson α]
     (value : Json) (key : String) (result : α) :
     get α value key = .ok result ↔ value.getObjValAs? α key = .ok result := by
   rw [get_eq_ok_iff]
-  unfold Json.getObjValAs? Json.getObjValD
-  cases hmember : value.getObjVal? key with
+  -- `Json.getObjValAs?` is `fromJson?` of `(value.getObjVal? key).toOption.getD null`, reduced by
+  -- definition below, so that no equation of `Except.toOption` is declared here (see
+  -- `value_eq_ok_iff`).
+  show _ ↔ (fromJson? ((value.getObjVal? key).toOption.getD Json.null) : Except String α) = _
+  cases value.getObjVal? key with
   | error reason =>
-    simp only [Except.toOption, Option.getD_none, reduceCtorEq, false_and, exists_false,
-      false_iff]
-    exact refusesNull result
-  | ok member => simp [Except.toOption]
+    exact ⟨(fun ⟨_, found, _⟩ => nomatch found), (fun h => absurd h (refusesNull result))⟩
+  | ok member =>
+    exact ⟨fun ⟨_, found, decodes⟩ => by cases found; exact decodes, fun h => ⟨member, rfl, h⟩⟩
 
 /-- `array` admits exactly what `Json.getObjValAs? (Array Json)` admits. -/
 theorem array_eq_ok_iff (value : Json) (key : String) (items : Array Json) :
