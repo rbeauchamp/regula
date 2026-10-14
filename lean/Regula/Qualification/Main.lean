@@ -244,14 +244,15 @@ unsafe def qualifyMain (args : List String) : IO UInt32 := do
     | .ok status => return status
     | .error reason => fail (IO.userError reason)
 
-/-- The refusal of an invocation in a process without Lean's task manager, which the guard of the
-executable runs (`Regula.TaskManager.guard`). It reads the invocation as `qualifyMain` does
-(`Invocation.of`) and marks its destinations incomplete with `reason` through the writers that a
-run uses. The proxy of `axiomGate` is refused as the gate refuses, with the gate's exit code
-(`AxiomGate.refuseWithoutTaskManager`). A command marks its evidence document (`markEvidence`),
-for the attempt that the wrapper's arguments give or otherwise for a fresh one, printing a line
-when it cannot, and returns 1, as do the receipt boundary's worker, the stand-in listing program,
-the Lake Git isolation worker and an unknown wrapper mode, which write no file. No command runs. -/
+/-- The refusal of an invocation, which the guard of the executable runs before each run and, in a
+process without Lean's task manager, in the run's place (`Regula.TaskManager.guard`). It reads the
+invocation as `qualifyMain` does (`Invocation.of`) and marks its destinations incomplete with
+`reason` through the writers that a run uses. The proxy of `axiomGate` is refused as the gate
+refuses, with the gate's exit code (`AxiomGate.refuseWithoutTaskManager`). A command marks its
+evidence document (`markEvidence`), for the attempt that the wrapper's arguments give or otherwise
+for a fresh one, printing a line when it cannot, and returns 1, as do the receipt boundary's
+worker, the stand-in listing program, the Lake Git isolation worker and an unknown wrapper mode,
+which write no file. No command runs. -/
 private def refuseQualification (reason : String) (args : List String) : IO UInt32 := do
   let mark (rest : List String) (attempt : Option String) : IO Unit := do
     try markEvidence rest (← attempt.getDM Regula.Qualification.freshAttempt) reason

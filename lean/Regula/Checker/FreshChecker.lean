@@ -341,10 +341,10 @@ private def refusalOf (read : List (Lint.Arg Setting)) (root : Except IO.Error F
     IO (Option String) :=
   Regula.Destination.refusal ((targetsOf read root).filterMap fun (_, target) => target.toOption)
 
-/-- The refusal of a run in a process without Lean's task manager, which the guard of the
-executable runs (`Regula.TaskManager.guard`): it reads the arguments once and finds their root
-once, as `run` does, marks every `--json-out` destination of that reading incomplete with
-`reason`, and returns `1`. No check runs. -/
+/-- The refusal of a run, which the guard of the executable runs before each run and, in a process
+without Lean's task manager, in the run's place (`Regula.TaskManager.guard`): it reads the
+arguments once and finds their root once, as `run` does, marks every `--json-out` destination of
+that reading incomplete with `reason`, and returns `1`. No check runs. -/
 def refuseWithoutTaskManager (reason : String) (args : List String) : IO UInt32 := do
   let read := arguments args
   let root ← (rootOf read).toBaseIO

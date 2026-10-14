@@ -5466,11 +5466,12 @@ unsafe def checkerSelftestMain (args : List String) : IO UInt32 := do
     IO.eprintln s!"FAIL: {error}"
     return 1
 
-/-- The refusal of the self-test in a process without Lean's task manager
-(`Regula.TaskManager.guard`): it reads the arguments as `run` does (`Selection.parse`), marks the
-files of that selection incomplete with `reason` (`markIncomplete`): the transcript worker's output
-and the digest of a shard of the structural partition that writes one. A packet file that is not
-Regula's keeps its bytes (`Regula.Destination.write`). It returns 1. -/
+/-- The refusal of the self-test, which the guard runs before each run and, in a process without
+Lean's task manager, in the run's place (`Regula.TaskManager.guard`): it reads the arguments as
+`run` does (`Selection.parse`), marks the files of that selection incomplete with `reason`
+(`markIncomplete`): the transcript worker's output and the digest of a shard of the structural
+partition that writes one. A packet file that is not Regula's keeps its bytes
+(`Regula.Destination.write`). It returns 1. -/
 def refuseCheckerSelftest (reason : String) (args : List String) : IO UInt32 := do
   if let .ok selection := Regula.Checker.SelftestArguments.Selection.parse args then
     Regula.Checker.CheckerSelftest.markIncomplete selection reason

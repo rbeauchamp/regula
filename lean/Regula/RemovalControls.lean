@@ -255,11 +255,11 @@ run_cmd do
   let found := [``IO.FS.rename, ``Lean.writeModule, ``IO.FS.writeFile]
   unless reach.raw.size == 3 && found.all (fun primitive => reach.raw.contains
       (``callsReplacements, primitive)) && reach.unknown.isEmpty do
-    throwError "the planted replacements and write are not raw: {reach.raw}, unknown 
+    throwError "the planted replacements and write are not raw: {reach.raw}, unknown \
       {reach.unknown}"
   let named := Regula.Removal.rawRemovalsFrom env observers #[``callsReplacements] [write]
   unless named.raw.size == 2 && !named.raw.contains write && named.unused.isEmpty do
-    throwError "the planted write is not admitted by its named caller alone: {named.raw}, 
+    throwError "the planted write is not admitted by its named caller alone: {named.raw}, \
       unused {named.unused}"
 
 /-- The planted opening of a file to write it. No program calls it. -/
@@ -297,15 +297,15 @@ run_cmd do
   for root in [``opensToWrite, ``opensInGivenMode, ``appendsWithFile] do
     let reach := reachOf root []
     unless sources reach == #[(root, ``IO.FS.Handle.mk)] && reach.unknown.isEmpty do
-      throwError "the planted opening {root} is not found as a write: {reach.raw}, unknown 
+      throwError "the planted opening {root} is not found as a write: {reach.raw}, unknown \
         {reach.unknown}"
     let named := reachOf root [(root, ``IO.FS.Handle.mk)]
     unless named.raw.isEmpty && named.unused.isEmpty do
-      throwError "the planted opening {root} is not admitted by its named caller: {named.raw}, 
+      throwError "the planted opening {root} is not admitted by its named caller: {named.raw}, \
         unused {named.unused}"
   let read := reachOf ``opensToRead []
   unless read.raw.isEmpty && read.unknown.isEmpty do
-    throwError "the planted opening to read is found as a write: {read.raw}, unknown 
+    throwError "the planted opening to read is found as a write: {read.raw}, unknown \
       {read.unknown}"
   let pair := (``opensToRead, ``IO.FS.Handle.mk)
   let unused := reachOf ``opensToRead [pair]
@@ -314,7 +314,7 @@ run_cmd do
   let truncated := reachOf ``truncates []
   unless sources truncated == #[(``truncates, ``IO.FS.Handle.truncate)] &&
       truncated.unknown.isEmpty do
-    throwError "the planted truncation is not found as the only write: {truncated.raw}, unknown 
+    throwError "the planted truncation is not found as the only write: {truncated.raw}, unknown \
       {truncated.unknown}"
 
 /-- The planted binding of the C function of `IO.FS.Handle.mk` with an inline pattern that opens the
@@ -348,7 +348,7 @@ run_cmd do
     let sources := reach.raw.map fun (caller, primitive) =>
       (Regula.Removal.sourceDeclaration env caller, primitive)
     unless sources == #[(root, binding)] && reach.unknown.isEmpty do
-      throwError "the planted opening {root} is not found as a write: {reach.raw}, unknown 
+      throwError "the planted opening {root} is not found as a write: {reach.raw}, unknown \
         {reach.unknown}"
 
 -- The planted initializer is found, and no other initializer of this module's imports removes.
