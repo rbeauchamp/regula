@@ -556,7 +556,9 @@ library directory declares). `operationalFailure_none_iff` states the exact succ
 without a reported fact. The self-audit claims no proof surface and no execution result, and
 applies the linter's collector and decisions to completed modules rather than attaching its
 editor hooks. Lean's import and kernel replay, the collector's observations, toolchain artifact
-paths, the worker processes and their JSON transport are trusted.
+paths, the worker processes and their JSON transport are trusted. The unchecked cast in Lean's
+`getModuleEntries` that gives the elaboration observer's record its type is trusted too. It is
+sound only for entries that the running Regula's observer wrote.
 
 The self-audit also refuses a one-sided comparison of `Json` values, the defect of
 [#269](https://github.com/rbeauchamp/regula/issues/269). It inspects each module of each library
