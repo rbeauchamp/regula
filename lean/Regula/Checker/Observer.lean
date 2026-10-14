@@ -208,18 +208,36 @@ def presetupSource? (completed : Std.HashMap (Name × Name) _root_.Lake.ModulePr
     (package module : Name) : Option FilePath :=
   completed[(package, module)]?.map (·.srcFile)
 
-private unsafe def recordEntriesImpl (data : ModuleData) : Array RegulaObserver.Record :=
-  match data.entries.find? (·.1 == RegulaObserver.records.name) with
-  | some (_, entries) => entries.map unsafeCast
-  | none => #[]
-
 /-- The entries of the observer's extension (`RegulaObserver.records`) that the module data
-`data` holds. Lean stores each entry as the value the extension exported, and its import casts it
-to the extension's entry type the same way (`Lean.setImportedEntries`). The cast is sound only for
-data that the running Regula's observer wrote, which `decideRecord` reads alone; an entry another
-extension of that name wrote is outside what the record establishes. -/
-@[implemented_by recordEntriesImpl]
-opaque recordEntries (data : ModuleData) : Array RegulaObserver.Record
+`data` holds, read as Lean's import reads a module's entries: Lean, not Regula, gives them the
+extension's entry type, through the cast its import of any module's entries makes
+(`PersistentEnvExtension.getModuleEntries`), and Regula declares no cast. Lean keeps each
+registered persistent extension in `persistentEnvExtensionsRef` at a type that erases its entries
+to the type at which module data holds them. The one there with the index of
+`RegulaObserver.records` places the entries that `data` holds under its name in the state at that
+index of an empty environment, as those of module 0, and `getModuleEntries` reads them from the
+same state at the entry type of `RegulaObserver.records`. The entries are the observer's records
+only when the running Regula's observer wrote them, which `decideRecord` reads alone; an entry
+that another extension of that name wrote is outside what the record establishes. An error when
+the running process registered no extension for the record.
+
+Assumes: in Lean v4.34.1, a module's data holds, under each registered persistent extension's
+name, the entries its `exportEntriesFn` returned (`computeExtEntries`, `Lean/Environment.lean`
+lines 1837 to 1856), an import places them in the state of the extension of that name as the
+module's entries (`setImportedEntries`, lines 1931 to 1949), and `getModuleEntries` returns a
+module's entries from the state at the extension's index at the extension's entry type (lines
+1671 to 1680). An empty environment holds the initial state of each registered extension (lines
+1530 to 1545), and `EnvExtension.modifyState` with `asyncMode := .local` writes the state at the
+extension's index in the array that `getModuleEntries` reads at its default level (lines 1406,
+1416 and 1417, and 1360 to 1369). -/
+def recordEntries (data : ModuleData) : IO (Array RegulaObserver.Record) := do
+  let some view := (← persistentEnvExtensionsRef.get).find?
+      (·.toEnvExtension.idx == RegulaObserver.records.toEnvExtension.idx)
+    | throw <| IO.userError "the running Regula registered no extension for its observer's record"
+  let some (_, entries) := data.entries.find? (·.1 == view.name) | return #[]
+  let env := view.toEnvExtension.modifyState (asyncMode := .local) (← mkEmptyEnvironment)
+    fun state => { state with importedEntries := #[entries] }
+  return RegulaObserver.records.getModuleEntries env (0 : Nat)
 
 /-- The record the observer wrote into the `.olean` file `olean`, or none when the file holds no
 entry of the observer's extension or several. The file is read alone (`readModuleData`), so none
@@ -227,7 +245,7 @@ of its imports is loaded and nothing of the module runs. The region that holds t
 stays mapped for the life of the process, since the record refers into it. -/
 private def readRecord (olean : FilePath) : IO (Option RegulaObserver.Record) := do
   let (data, _) ← readModuleData olean
-  return match recordEntries data with
+  return match ← recordEntries data with
     | #[record] => some record
     | _ => none
 
