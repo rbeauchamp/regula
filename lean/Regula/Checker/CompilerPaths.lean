@@ -262,10 +262,15 @@ private def phase (repo scratch : FilePath) (test : Case) (negative : Bool) : IO
   -- `linter.missingDocs` goes on each claimed library (RG2006): the support library is
   -- claimed only in the project cases.
   let supportOptions := if test.project then "leanOptions.linter.missingDocs = true\n" else ""
-  IO.FS.writeFile (scratch / "lakefile.toml")
-    s!"name = \"compiler_path_control\"\n[leanOptions]\nautoImplicit = false\nrelaxedAutoImplicit \
-      = false\n[[lean_lib]]\nname = \"{test.supportModule}\"\n{supportOptions}[[lean_lib]]\nname = \
-      \"Wrapper\"\nleanOptions.linter.missingDocs = true\n"
+  -- Every claimed library loads Regula's elaboration observer (RG2006) through the package-level
+  -- `plugins`, and each library lists it in `needs`, so that a fresh build builds it once.
+  IO.FS.writeFile (scratch / "lakefile.toml") <|
+    "name = \"compiler_path_control\"\n" ++ observerPluginToml ++
+    s!"[leanOptions]\nautoImplicit = false\nrelaxedAutoImplicit \
+      = false\n[[lean_lib]]\nname = \"{test.supportModule}\"\n{observerNeedToml}{supportOptions}\
+      [[lean_lib]]\nname = \"Wrapper\"\n{observerNeedToml}\
+      leanOptions.linter.missingDocs = true\n" ++
+      regulaRequireToml repo
   -- Resolve configuration before the checker captures its immutable source
   -- binding. A later first Lake invocation would otherwise create the manifest
   -- inside the checked interval, correctly invalidating that binding.
@@ -273,28 +278,16 @@ private def phase (repo scratch : FilePath) (test : Case) (negative : Bool) : IO
   let configured ← runProcess scratch "lake" #["update"]
   if !configured.succeeded then
     return #[s!"{test.name}: configuration setup failed:\n{configured.output}"]
-  -- Lean resolves an entire module prefix from one search directory. Supply the unchanged
-  -- toolchain artifacts of the lookalike's root (`Init` or `Lean`) by symlink alongside the
-  -- isolated adopter module; never write into the actual toolchain. Each phase starts in a
-  -- new scratch tree, including the restored control.
+  -- Supply the toolchain's artifacts of the lookalike's root beside the isolated adopter module
+  -- (`exposeToolchainRoot`). Each phase starts in a new scratch tree, including the restored
+  -- control.
   let lookalikeRoot := supportName.getRoot
   let lookalike := decide (RegulaPolicy.ToolchainRoot lookalikeRoot)
   if lookalike then
-    let toolchainLib ← Lean.getLibDir (← Lean.findSysroot)
-    let output := scratch / ".lake" / "build" / "lib" / "lean"
-    let prefixDirectory := lookalikeRoot.toString
-    IO.FS.createDirAll (output / prefixDirectory)
     -- This control deliberately exposes the real toolchain through aliases; it is an input
     -- to the compiler-path classifier, not a project copy accepted for a Lake build.
-    let link (sources : Array FilePath) (directory : FilePath) := do
-      unless sources.isEmpty do
-        let result ← runProcess scratch "ln"
-          (#["-s"] ++ sources.map (·.toString) ++ #[directory.toString])
-        if !result.succeeded then
-          throw <| IO.userError s!"could not expose toolchain control: {result.output}"
-    link (((← toolchainLib.readDir).filter
-      (·.fileName.startsWith s!"{prefixDirectory}.")).map (·.path)) output
-    link ((← (toolchainLib / prefixDirectory).readDir).map (·.path)) (output / prefixDirectory)
+    exposeToolchainRoot scratch (scratch / ".lake" / "build" / "lib" / "lean")
+      lookalikeRoot.toString
   let binary := (repo / ".lake" / "build" / "bin" / "axiomGate").toString
   let check (result : ProcessResult) : Array String := Id.run do
     if negative then
@@ -319,10 +312,8 @@ private def phase (repo scratch : FilePath) (test : Case) (negative : Bool) : IO
           support\"},{\"library\":\"Wrapper\",\"claim\":\"standard-logical\"," ++
         "\"execution\":\"checked\",\"rationale\":\"checked consumer\"}]," ++
         "\"excluded-libraries\":[],\"excluded-executables\":[]}")
-    -- This project does not require Regula, so its traces lack the `weakLeanArgs` record of
-    -- Regula's `extraDep` facet, and each checked build reports a claimed module that it replays
-    -- from an earlier build as not established (RG2003). The project audit runs first, and the
-    -- file audit's claimed module `Wrapper` loses its trace before that audit builds it again.
+    -- The project audit runs first, and the file audit's claimed module `Wrapper` loses its trace
+    -- before that audit builds it again, so that audit elaborates `Wrapper` afresh.
     -- Preserve the toolchain-only symlink overlay in this case. The claimed
     -- adopter sources are still built afresh in each independent phase.
     -- Boundary evidence lines are printed only in verbose mode.

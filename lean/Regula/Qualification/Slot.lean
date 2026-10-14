@@ -375,8 +375,10 @@ def prepareSlotProject (slot : ProducerSlot) (project : FilePath)
   Regula.Filesystem.construct project (Regula.Filesystem.Construction.layout toolchain)
   Regula.Filesystem.writeFile (project / "lakefile.lean")
     s!"import Lake\nopen Lake DSL\npackage {packageName} where\n  leanOptions := #[⟨`autoImplicit, \
-      false⟩, ⟨`relaxedAutoImplicit, false⟩, ⟨`linter.missingDocs, true⟩]\nrequire regula \
-      from {toJson (slot.root / "root").toString |>.compress}\n@[default_target] lean_lib Example\n"
+      false⟩, ⟨`relaxedAutoImplicit, false⟩, ⟨`linter.missingDocs, true⟩]\n  \
+      plugins := #[`@regula/RegulaObserver:shared]\nrequire regula from \
+      {toJson (slot.root / "root").toString |>.compress}\n\
+      @[default_target] lean_lib Example where\n{Regula.Checker.observerNeedLean}"
   Regula.Filesystem.writeJson (project / "foundation_manifest.json") (Json.mkObj [
     ("schema-version", toJson (2 : Nat)), ("surfaces", toJson #[Json.mkObj [
       ("library", .str "Example"), ("claim", .str claim), ("execution", .str "checked"),

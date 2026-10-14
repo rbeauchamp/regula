@@ -259,6 +259,26 @@ run_cmd do
         discard <| Construction.copyGit source (base / "untracked-output")
       IO.eprintln "construction controls: tracked Git link regular and clean; untracked link refused"
 
+/-- The one outcome of an audit of a fixture whose target loads no elaboration observer: RG2003
+cannot be decided without the observer's records, so the run is incomplete (exit 3), its result's
+status is `incomplete`, and its only finding is RG2003, incomplete, reporting `module` as not
+observed. Anything else, a violation or another finding included, fails the control. -/
+def onlyUnobserved (label module : String) (audit : IO.Process.Output) (result : Json) :
+    IO Unit := do
+  let findings ← IO.ofExcept (Regula.Checker.ResultProtocol.readFindings result)
+  let status ← IO.ofExcept (Regula.Checker.ResultProtocol.readStatus result)
+  let unobserved := s!"not observed: Regula's elaboration observer was not among the plugins \
+    Lean loaded to elaborate {module}"
+  unless audit.exitCode == Regula.Checker.Lint.Outcome.incomplete.exitCode &&
+      status == "incomplete" &&
+      (match findings with
+        | [f] => f.1 == .sourceBuild && f.2.impact == .incomplete
+        | _ => false) &&
+      audit.stdout.contains unobserved do
+    throw <| IO.userError s!"{label} audit was not exactly incomplete with {module} not observed \
+      (exit {audit.exitCode}, status {status}, {findings.length} finding(s)): \
+      {audit.stdout}{audit.stderr}"
+
 /-- Loaded-workspace control: the lakefile sets packagesDir, while its loaded default manifest
 omits that field. An entry of `vendor` that no loaded package records is copied like any other
 entry. Package pruning leaves out only a recorded dependency's directory there.
@@ -296,6 +316,9 @@ def checkWorkspace : IO Unit := do
           throw <| IO.userError "ordinary copied load lost the loaded workspace configuration"
       -- The public audit and its serialized configuration account are an external compiler/CLI
       -- boundary. This selected policy is deliberately outside the project, and is not relocated.
+      -- `Solo` loads no elaboration observer and has no regula dependency, so each audit below is
+      -- exactly incomplete with Solo not observed (`onlyUnobserved`); the configuration account
+      -- each audit exists for is checked on that result.
       let policy := (Json.mkObj [("schema-version", toJson (2 : Nat)),
         ("surfaces", toJson #[Json.mkObj [("library", .str "Solo"), ("claim", .str "kernel-only"),
           ("rationale", .str "The same reflexivity theorem with no logical axioms.")]]),
@@ -310,15 +333,14 @@ def checkWorkspace : IO Unit := do
         args := #["--project", source.toString, "--manifest", external.toString,
           "--incremental", "--json-out", output.toString]
         env := #[("LEAN_PATH", none), ("LEAN_SRC_PATH", none)] }
-      unless audit.exitCode == 0 do
-        throw <| IO.userError s!"selected external manifest audit failed: {audit.stdout}{audit.stderr}"
-      let account ← IO.ofExcept (Json.parse (← readFile output))
+      let account ← Regula.Checker.ResultProtocol.readDocument output
+      onlyUnobserved "selected external manifest" "Solo" audit account
       let effective ← IO.ofExcept (account.getObjVal? "effective")
       let origins ← IO.ofExcept (effective.getObjVal? "configurationOrigins")
       let captured : Regula.CopyConfiguration.Files ← IO.ofExcept (origins.getObjValAs? _ "captured")
       unless captured.contains (external.toString, some policy) do
         throw <| IO.userError "selected external manifest lost its exact path or text in the account"
-      IO.println "construction external manifest: incremental audit and exact external account PASS"
+      IO.println "construction external manifest: incremental audit incomplete as unobserved, exact external account PASS"
       -- A fresh audit relocates a project-contained absolute selection. Qualification consumes
       -- the actual public result and request, rather than a duplicated expected-account model.
       let policies := ["foundation_manifest.json", ".lake/policy.json", "tmp/policy.json",
@@ -339,9 +361,8 @@ def checkWorkspace : IO Unit := do
           args := #["--project", source.toString, "--manifest", path.toString,
             "--json-out", freshOutput.toString],
           env := #[("LEAN_PATH", none), ("LEAN_SRC_PATH", none)] }
-        unless fresh.exitCode == 0 do
-          throw <| IO.userError s!"selected fresh manifest {selected} audit failed: {fresh.stdout}{fresh.stderr}"
         let freshResult ← Regula.Checker.ResultProtocol.readDocument freshOutput
+        onlyUnobserved s!"selected fresh manifest {selected}" "Solo" fresh freshResult
         let request : Regula.Website.ExampleRequest ← IO.ofExcept
           (fromJson? (← IO.ofExcept (freshResult.getObjVal? "request")))
         IO.ofExcept (Regula.Checker.RuleExampleQualification.effectiveAccount freshResult request)
@@ -359,7 +380,7 @@ def checkWorkspace : IO Unit := do
         IO.ofExcept (Regula.CopyConfiguration.check (expected, actual))
         unless requested.contains (selected, some policy) && actual.contains (selected, some policy) do
           throw <| IO.userError s!"selected policy {selected} lost its requested path or bytes"
-      IO.println "construction selected manifest: fresh audits and exact configuration accounts PASS"
+      IO.println "construction selected manifest: fresh audits incomplete as unobserved, exact configuration accounts PASS"
       if ← (source / "VENDOR").isDir then
         -- A deliberate configuration mutation exercises Lake's stored-spelling boundary.
         IO.FS.writeFile (source / "lakefile.lean") (lakefile.replace "vendor" "VENDOR")

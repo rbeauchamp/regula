@@ -6,4 +6,6 @@ package rule_examples where
     ⟨`relaxedAutoImplicit, false⟩]
 
 @[default_target]
-lean_lib Example
+lean_lib Example where
+  plugins := #[`@regula/RegulaObserver:shared]
+  needs := #[`@regula/RegulaObserver:shared]

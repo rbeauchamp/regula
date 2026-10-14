@@ -70,6 +70,25 @@ def runProcess (repo : FilePath) (cmd : String) (args : Array String)
     { cmd, args, cwd := some repo, env })
   return { exitCode := result.exitCode, stdout := result.stdout, stderr := result.stderr }
 
+/-- Supply the toolchain's artifacts under the module root `root` (`Init` or `Lean`) by symlink in
+the build output `output` of a project at `cwd`, beside the project's own modules under that root
+that a control places there. Lean resolves a module from the first search directory that has a
+directory or file of its root's name (`SearchPath.findWithExt`, `Lean/Util/Path.lean` lines 61 to
+65), so such a module hides the toolchain's modules under that root unless they are there too.
+Nothing is written into the toolchain, and `Regula.Filesystem.removeOwn` removes each link, not
+the file it points to. -/
+def exposeToolchainRoot (cwd output : FilePath) (root : String) : IO Unit := do
+  let toolchainLib ← Lean.getLibDir (← Lean.findSysroot)
+  IO.FS.createDirAll (output / root)
+  -- One `ln` per directory links every source under its own file name.
+  let link (sources : Array FilePath) (directory : FilePath) := do
+    unless sources.isEmpty do
+      let result ← runProcess cwd "ln" (#["-s"] ++ sources.map (·.toString) ++ #[directory.toString])
+      if !result.succeeded then
+        throw <| IO.userError s!"could not expose toolchain control: {result.output}"
+  link (((← toolchainLib.readDir).filter (·.fileName.startsWith s!"{root}.")).map (·.path)) output
+  link ((← (toolchainLib / root).readDir).map (·.path)) (output / root)
+
 /-- The SHA-256 digest of the file at `path`, as 64 lowercase hexadecimal digits, computed in `cwd`
 by the trusted external `shasum -a 256`; any other output fails. -/
 def sha256File (cwd path : FilePath) : IO String := do
@@ -462,6 +481,42 @@ def writeJson (path : FilePath) (value : Json) : IO Unit := do
   let writeStart ← IO.monoMsNow
   IO.FS.writeFile path encoded
   timingSpan s!"diagnostic span: writeJson write {path}: {(← IO.monoMsNow) - writeStart}ms"
+
+/-- The top-level `lakefile.toml` key with which a package loads Regula's elaboration observer
+into each of its libraries and executables (RG2003, RG2006). A top-level key precedes the file's
+first table. -/
+def observerPluginToml : String := "plugins = [\"@regula/RegulaObserver:shared\"]\n"
+
+/-- The field of a `lakefile.lean` `package` or target declaration with which it loads Regula's
+elaboration observer (`observerPluginToml`), indented as a declaration's field. -/
+def observerPluginLean : String := "  plugins := #[`@regula/RegulaObserver:shared]\n"
+
+/-- `observerPluginLean` in a configuration of the package `regula` itself, such as a copy of
+Regula's checkout, which names its own observer library. -/
+def observerPluginOwn : String := "  plugins := #[`@/RegulaObserver:shared]\n"
+
+/-- The `lakefile.toml` key of a `[[lean_lib]]` or `[[lean_exe]]` table with which the target builds
+Regula's elaboration observer before its modules fetch their plugins, so that Lake builds the
+observer once (`Lake.isObserverNeed`). RG2006 requires it of each target that loads the observer
+(`RegulaPolicy.Community.BuildOptions.observerNeed`). -/
+def observerNeedToml : String := "needs = [\"@regula/RegulaObserver:shared\"]\n"
+
+/-- `observerNeedToml` as a field of a `lakefile.lean` `lean_lib` or `lean_exe` declaration. -/
+def observerNeedLean : String := "  needs := #[`@regula/RegulaObserver:shared]\n"
+
+/-- `observerNeedLean` in a configuration of the package `regula` itself (`observerPluginOwn`). -/
+def observerNeedOwn : String := "  needs := #[`@/RegulaObserver:shared]\n"
+
+/-- The `lakefile.toml` table that requires `regula` from the checkout at `repo`. -/
+def regulaRequireToml (repo : FilePath) : String :=
+  s!"[[require]]\nname = \"regula\"\npath = {(Json.str repo.toString).compress}\n"
+
+/-- The Lake manifest entry of `regula` at the checkout `repo`, which a project that requires it
+by path (`regulaRequireToml`) records; Regula requires no package of its own. -/
+def regulaManifestEntry (repo : FilePath) : Json :=
+  Json.mkObj [("name", .str "regula"), ("scope", .str ""), ("configFile", .str "lakefile.lean"),
+    ("manifestFile", .str "lake-manifest.json"), ("inherited", .bool false),
+    ("type", .str "path"), ("dir", .str repo.toString)]
 
 /-- The JSON on a succeeded process's standard output, parsed strictly; a failed process or
 malformed output throws an error that names `what`. -/
