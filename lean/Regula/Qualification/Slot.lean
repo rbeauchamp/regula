@@ -281,7 +281,7 @@ def SharedIdentity.difference (before after : SharedIdentity) : String := Id.run
 load of that package alone (`Workspace.withRootPackage`): the path of each of its `input_file`
 targets, then each file below the path of each of its `input_dir` targets that the target's
 filter admits. A library of a ROOT copy that needs such a target reads those files in each build
-there, so the copy holds them beside the module sources (`RuleExamples.run`), and a campaign
+there, so the copy holds them beside the module sources (`RuleExamples.check`), and a campaign
 records them among its sources (`RuleExamples.sourcePaths`). Each directory is walked as
 `System.FilePath.walkDir` walks it (`Construction.walkDirectory`), and each entry is observed
 strictly (`Regula.Filesystem.isDirectory`): a failure of that read other than a missing file

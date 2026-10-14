@@ -612,7 +612,9 @@ observation of that path must fail with that error.
 After the permissions are given back, the manifest records the choice of `lakefile.toml` that Lake
 made for the dependency. Lake reads that recorded file alone, so the loader must load the
 dependency from it, as Lake's build does. When the links are removed, the loaders must load the
-projects.
+projects. A `lakefile.lean` is then written beside each `lakefile.toml` that a load read. The
+check of the loaded workspace must refuse each package with a configuration name that has no
+extension.
 
 `./scripts/verify.sh diagnostics self-audit 1/4` to `4/4` each run one shard of the self-audit.
 The campaign sorts each list of modules that it inspects by name, and it deals the list to the

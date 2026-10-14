@@ -55,7 +55,11 @@ file system calls, and they prove nothing.
   `withdep` with `dep` from the `lakefile.toml` that its manifest records, as Lake reads a name
   with an extension alone, though the link `lakefile.lean` beside it now resolves. With the links
   removed, both loaders must load `configured`, and `withRootWorkspace` must load `withdep` with
-  its dependency.
+  its dependency. With a `lakefile.lean` written after a load beside the `lakefile.toml` that Lake
+  loaded, the check of the loaded workspace (`requireConfigChoices`) must refuse each package
+  whose configuration name has no extension, the root's and a dependency's that a package
+  overrides entry names `lakefile`, and accept a dependency whose recorded name is
+  `lakefile.toml`.
 - `Removal.observe` at operations (`resolving`) whose entry reads each give a directory and whose
   resolution of the path alone fails (`resolutionFailure`), which no control on the unreadable path
   can make: it must fail with that same error, not observe a directory at another place. At the same
@@ -176,7 +180,15 @@ though the link now resolves: Regula observes the choice that Lake's build makes
 links removed, both loaders must load `configured`, and `withRootWorkspace` must load `withdep`
 with its dependency. A `lakefile.lean` that Lake loads cannot stay for these loads: Lake
 elaborates it, which needs the native initialization of Lake that the elaboration of this module
-does not have. -/
+does not have.
+
+Then the comparison of a choice that a load made, which no failed read here can make, since the
+read that fails is Lake's own: each load below writes a readable `lakefile.lean` after Lake loaded
+`lakefile.toml` beside it, and runs the check of the loaded workspace (`requireConfigChoices`)
+with the entries that the load materialized from. It must refuse the root `configured`, whose name
+is `lakefile`, naming the package; accept `withdep`, whose manifest names `dep`'s
+`lakefile.toml`; and refuse `withdep` with a package overrides file whose entry for `dep` names
+`lakefile`, naming `dep`. -/
 def loaderControls (base : FilePath) : IO (List (String × Bool)) := do
   let configured := base / "configured"
   let withdep := base / "withdep"
@@ -193,7 +205,7 @@ def loaderControls (base : FilePath) : IO (List (String × Bool)) := do
   let recorded ← loads (Regula.Checker.Workspace.withRootWorkspace withdep fromRecorded) 2
   Regula.Filesystem.removePath .link (withdep / "dep" / "lakefile.lean")
   Regula.Filesystem.removePath .link (configured / "lakefile.lean")
-  return [
+  let loaded := [
     ("Regula.Checker.Workspace.withRootWorkspace with a recorded choice of lakefile.toml",
       recorded),
     ("Regula.Checker.Workspace.withRootWorkspace with one configuration",
@@ -202,6 +214,46 @@ def loaderControls (base : FilePath) : IO (List (String × Bool)) := do
       ← loads (Regula.Checker.Workspace.withRootPackage configured size) 1),
     ("Regula.Checker.Workspace.withRootWorkspace with a dependency",
       ← loads (Regula.Checker.Workspace.withRootWorkspace withdep size) 2)]
+  -- The check of a loaded workspace (`requireConfigChoices`), run on the load of `dir` after
+  -- `written`, a `lakefile.lean`, is written beside the `lakefile.toml` that Lake loaded, with the
+  -- entries that the load materialized from (`configRequests`).
+  let afterLoad (dir written : FilePath) : IO (Except String Unit) := do
+    let checked ← (Regula.Checker.Workspace.withRootWorkspace dir fun ws => do
+      IO.FS.writeFile written "-- written after the load\n"
+      try
+        let files := Regula.Checker.Workspace.rootFiles ws.root.dir
+        let entries ← Regula.Checker.Workspace.configRequests files
+        (Regula.Checker.Workspace.requireConfigChoices entries ws).toBaseIO
+      finally
+        Regula.Filesystem.removePath .file written).toBaseIO
+    return match checked with
+      | .ok (.ok ()) => .ok ()
+      | .ok (.error error) | .error error => .error (toString error)
+  let refusedFor (name : String) : Except String Unit → Bool
+    | .error text =>
+        (text.splitOn s!"Lake loaded package '{name}' from lakefile.toml").length > 1 &&
+          (text.splitOn "its candidates give lakefile.lean").length > 1
+    | .ok () => false
+  -- The root's name is `lakefile`, so Lake chose its file in the load.
+  let root ← afterLoad configured (configured / "lakefile.lean")
+  -- `dep`'s entry in the manifest names `lakefile.toml`, so Lake chose nothing for it.
+  let named ← afterLoad withdep (withdep / "dep" / "lakefile.lean")
+  -- With `dep`'s entry in the package overrides file naming `lakefile`, Lake chose its file.
+  let overrides := withdep / ".lake" / "package-overrides.json"
+  IO.FS.createDirAll (withdep / ".lake")
+  IO.FS.writeFile overrides <| Json.pretty <| Json.mkObj [("version", "1.2.0"), ("packages",
+    Json.arr #[Json.mkObj [("type", "path"), ("scope", ""), ("name", "dep"),
+      ("manifestFile", "lake-manifest.json"), ("inherited", false), ("dir", "dep"),
+      ("configFile", "lakefile")]])]
+  let unnamed ← tryFinally (afterLoad withdep (withdep / "dep" / "lakefile.lean"))
+    (Regula.Filesystem.removePath .file overrides)
+  return loaded ++ [
+    ("Regula.Checker.Workspace.requireConfigChoices with the root's lakefile.lean written after \
+      the load", refusedFor "control" root),
+    ("Regula.Checker.Workspace.requireConfigChoices with lakefile.lean written beside a \
+      dependency's recorded lakefile.toml", named matches .ok ()),
+    ("Regula.Checker.Workspace.requireConfigChoices with lakefile.lean written beside the \
+      lakefile.toml of a dependency whose entry names lakefile", refusedFor "dep" unnamed)]
 
 /-- `Slot.sharedIdentity` of `root`, which holds a symbolic link to the path `path`, run while
 `path` cannot be read: whether it failed with the error of the resolution. -/

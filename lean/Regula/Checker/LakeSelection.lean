@@ -146,9 +146,7 @@ Assumes:
   `lake` command names no other manifest (`Lake/CLI/Main.lean:116-130`), nor does
   `Workspace.withRootWorkspace`. -/
 def ownRootFiles (dir : FilePath) : FilePath × FilePath :=
-  (_root_.Lake.joinRelative dir _root_.Lake.defaultManifestFile,
-    _root_.Lake.joinRelative (_root_.Lake.joinRelative dir _root_.Lake.defaultLakeDir)
-      "package-overrides.json")
+  Workspace.rootFiles dir
 
 /-- For a workspace whose root has the manifest that a load configuration naming no manifest gives
 it, `ownRootFiles` of the root's directory are the workspace's manifest and package overrides
@@ -157,8 +155,9 @@ theorem ownRootFiles_lake (ws : _root_.Lake.Workspace) (env : _root_.Lake.Env)
     (h : ws.root.relManifestFile =
       ({ lakeEnv := env, wsDir := ws.root.dir } : _root_.Lake.LoadConfig).relManifestFile) :
     ownRootFiles ws.root.dir = (ws.manifestFile, ws.packageOverridesFile) := by
-  simp only [ownRootFiles, _root_.Lake.Workspace.manifestFile, _root_.Lake.Package.manifestFile,
-    h, _root_.Lake.Workspace.packageOverridesFile, _root_.Lake.Workspace.lakeDir,
+  simp only [ownRootFiles, Workspace.rootFiles, _root_.Lake.Workspace.manifestFile,
+    _root_.Lake.Package.manifestFile, h, _root_.Lake.Workspace.packageOverridesFile,
+    _root_.Lake.Workspace.lakeDir,
     _root_.Lake.Package.lakeDir, _root_.Lake.Package.relLakeDir]
   rfl
 
