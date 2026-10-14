@@ -378,7 +378,7 @@ def otherTargets : List String :=
     "+Regula.Cli.Main:olean", "+Regula.Release:olean", "+Regula.DiagnosticsGate:olean",
     "+Regula.RemovalControls:olean", "+Regula.CopyControls:olean", "+Regula.ProvisionControls:olean",
     "+Regula.AbsenceControls:olean", "+Regula.Campaigns.Verification:olean",
-    "+Regula.Campaigns.Diagnostics:olean"]
+    "+Regula.Campaigns.Diagnostics:olean", "+Regula.ProgramCheck.Verification:olean"]
 
 /-- A `qualify` selection under the driver's deadline. -/
 private def qualify (selection : Array String) : Command :=
@@ -916,8 +916,9 @@ def executeBeside (isolation : Array (String × Option String)) (priority : Prio
 
 /-! ## Places the driver removes
 
-The driver removes two directories: the site artifact of an earlier run (`siteOutput`), and the
-scratch directory of the copy it made (`Copy.remove`). `IO.FS.removeDirAll` reads the entries of
+The driver removes two directories: the site artifact of an earlier run (`siteOutput`), only when
+it is one that the site's build may replace (`siteRefusal`), and the scratch directory of the copy
+it made (`Copy.remove`). `IO.FS.removeDirAll` reads the entries of
 the path it is given, also when that path is a symbolic link to a directory, and then removes
 the entries of the link's target. So the driver removes a directory only after `removal` decided
 it from an observation that follows no link at the path.
@@ -981,9 +982,19 @@ theorem removal_nothing_iff (observed : Observed) :
   obtain ⟨place, sameLocation⟩ := observed
   cases place <;> cases sameLocation <;> simp [removal]
 
-/-- What is at `path`, by a read that does not follow a symbolic link at `path` itself. -/
+/-- The metadata of the entry at `path`, by a read that does not follow a symbolic link at `path`
+itself: `System.FilePath.symlinkMetadata`, refused on Windows, where that function of Lean 4.34.1
+follows such a link, as the package's observer refuses it (`Regula.Filesystem.observeMetadata`). -/
+def entryMetadata (path : System.FilePath) : IO IO.FS.Metadata :=
+  if System.Platform.isWindows then
+    throw <| IO.userError s!"lstat {path}: refused on Windows, where Lean 4.34.1's \
+      System.FilePath.symlinkMetadata follows a symbolic link at the path"
+  else path.symlinkMetadata
+
+/-- What is at `path`, by a read that does not follow a symbolic link at `path` itself
+(`entryMetadata`). -/
 def place (path : System.FilePath) : IO Place := do
-  match ← path.symlinkMetadata.toBaseIO with
+  match ← (entryMetadata path).toBaseIO with
   | .ok metadata => return if metadata.type == .dir then .directory else .other
   | .error (.noFileOrDirectory ..) => return .absent
   | .error error => throw error
@@ -1098,7 +1109,7 @@ def reclaim (area : System.FilePath) : BaseIO Unit := do
       let some name := entry.path.fileStem | continue
       let path := area / name
       let one : IO Unit := do
-        unless (← entry.path.symlinkMetadata).type == .file do return
+        unless (← entryMetadata entry.path).type == .file do return
         let observed ← observe path
         match decided : removal observed with
         | .remove =>
@@ -1227,7 +1238,7 @@ def buildFiles (build : System.FilePath) : IO (List String) := do
   for part in ["lib", "ir"] do
     unless (← place (build / part)) == .directory do continue
     for path in ← walkDirectory (build / part) do
-      if (← path.symlinkMetadata).type == .file then
+      if (← entryMetadata path).type == .file then
         files := files.push ("/".intercalate (path.normalize.components.drop prefixLength))
   return files.toList
 
@@ -1264,6 +1275,276 @@ def Copy.remove (copy : Copy) : BaseIO Unit := do
   if let .error error ← remove.toBaseIO then
     announce s!"could not remove the copy {copy.scratch}: {error}"
 
+/-! ## The destinations the driver writes
+
+The driver writes three kinds of file in the project's `tmp` directory: the acceptance link
+(`linkPath`), the receipt of the whole rule-example corpus (`corpusEvidence`), and the export of
+each of the corpus's shards (`shardEvidence`). It writes each by the rules of the destinations of
+the package's programs (`Regula.Destination`), which this module cannot import, so the rules are
+written a second time here:
+
+- It finds the entry that a destination names before it makes anything, as the real path of its
+  longest present prefix and the names below it, and stops when one of those names is `..`
+  (`destinationAt`). So the entry that it checks is the one that it replaces.
+- It replaces only nothing, an empty regular file, or a regular file whose text is a document of
+  Regula of any kind (`regulaDocument`), by a read that follows no link at the destination
+  (`ownershipRefusal`). Regula can make each document that it wrote again; the rule reads the
+  members of a file, not who wrote it, so a file in one of Regula's forms that Regula did not
+  write is replaced too.
+- It makes a new file beside the destination and renames that file there (`writeDocument`), so it
+  replaces the entry at the destination and does not write into the file that the entry names.
+
+In the module `RegulaVerification.Decisions`, theorems relate the driver's pure decisions to the
+programs': `regulaDocument_shared` its identification of a document of Regula,
+`ownershipDecision_shared` its decision to replace an entry, `plainNames_shared` its names below a
+present prefix, and `identifiesSiteBuild_shared`, `siteAssemblingMarker_shared`,
+`holdsSiteArtifact_shared` and `siteArtifactDecision_shared` its decision on the site artifact that
+it removes (`siteRefusal`). The reads, the writes and the renames around these decisions are
+written twice and related by no theorem; a control of the checker self-test runs the driver's
+begin-attempt against files that are not Regula's, and `Regula.ProgramCheck.Verification` runs its
+writer and its promotion against one. The module
+`Regula.ProgramCheck.Verification` admits a write, a rename or a removal of a file in the driver
+only at the places that it names, among them `writeDocument` and `promote`. -/
+
+/-- The members that identify a kind of document: `Regula.Destination.Signature`. -/
+abbrev Signature := List String × List (String × String)
+
+/-- The signature of each kind of completed document: `Regula.Destination.completedSignatures`
+(`regulaDocument_shared`). -/
+def completedSignatures : List Signature :=
+  [(["schemaVersion", "producerVersion", "toolchain", "sourceRevision", "scope", "mode", "status",
+      "diagnostics", "unresolved", "sourceTexts", "stages", "stagesCompleted", "complete",
+      "stagesNotRun", "rules"], []),
+    (["schemaVersion", "producerVersion", "toolchain", "sourceRevision", "rules"], []),
+    (["schemaVersion", "status", "identity"], []),
+    (["schema", "producer", "request", "payload"], []),
+    (["receipt", "origins"], []),
+    (["outcome", "schemaVersion", "selected", "completeCorpus", "checkerBefore", "checkerAfter",
+      "records"], []),
+    (["version", "checks", "documents"], []),
+    (["status", "moduleSets", "modules", "roots", "coverage", "checks"],
+      [("mode", "serializedGraph")]),
+    (["schemaVersion", "examples"], []),
+    (["attemptId", "schemaVersion", "status", "packets", "controls"], []),
+    (["attemptId", "status", "group", "inputs", "records"], []),
+    (["outcome", "equivalent", "totalMillis"], [])]
+
+/-- The signature of each kind of mark: `Regula.Destination.markSignatures`
+(`regulaDocument_shared`). -/
+def markSignatures : List Signature :=
+  [(["reason"], [("status", "incomplete")]),
+    (["schemaVersion"], [("status", "incomplete")]),
+    (["unresolved"], [("status", "incomplete"), ("mode", "serializedGraph")]),
+    (["attempt", "rawDirectory"], [("outcome", "INCOMPLETE")]),
+    (["phase"], [("outcome", "INCOMPLETE")]),
+    (["equivalent"], [("outcome", "INCOMPLETE")])]
+
+/-- Whether `value` is an object with the member `name`, whatever its value. -/
+def has (value : Lean.Json) (name : String) : Bool :=
+  (value.getObjVal? name).isOk
+
+/-- Whether `value` is an object whose member `name` is the string `text`. -/
+def holds (value : Lean.Json) (name text : String) : Bool :=
+  (value.getObjValAs? String name).toOption == some text
+
+/-- Whether `value` has the signature `signature`: it holds each member that the signature names
+and each string value that it gives. -/
+def hasSignature (value : Lean.Json) (signature : Signature) : Bool :=
+  signature.1.all (has value) && signature.2.all fun member => holds value member.1 member.2
+
+/-- Whether `value` is a document of Regula of some kind, completed (`completedSignatures`) or a
+mark (`markSignatures`). It is `Regula.Destination.regulaDocument` (`regulaDocument_shared`). -/
+def regulaDocument (value : Lean.Json) : Bool :=
+  completedSignatures.any (hasSignature value) || markSignatures.any (hasSignature value)
+
+/-- The name of a kind of entry in a reason to refuse a destination. -/
+private def entryName : IO.FS.FileType → String
+  | .dir => "a directory"
+  | .file => "a regular file"
+  | .symlink => "a symbolic link"
+  | .other => "an entry that is not a directory, a regular file or a symbolic link"
+
+/-- The reason to refuse to write at `path`, if there is one, decided from what the reads of a
+writer observe there: `Regula.Destination.ownershipDecision` (`ownershipDecision_shared`). -/
+def ownershipDecision (path : System.FilePath) (entry : Except IO.Error IO.FS.FileType)
+    (contents : Except IO.Error ByteArray) : Option String :=
+  let refuse (what : String) : Option String := some s!"{path} is {what}, not a document that \
+    Regula wrote, so the run does not replace it"
+  match entry with
+  | .error (.noFileOrDirectory ..) => none
+  | .error error => some s!"{path} cannot be read without following a link ({error}), so the \
+      run does not replace it"
+  | .ok type =>
+    if type != .file then refuse (entryName type)
+    else match contents with
+      | .error error => refuse s!"a regular file that cannot be read ({error})"
+      | .ok bytes =>
+        if bytes.isEmpty then none
+        else match String.fromUTF8? bytes with
+          | none => refuse "a file that is not UTF-8 text"
+          | some text => match Lean.Json.parse text with
+            | .ok value => if regulaDocument value then none else refuse "a JSON document"
+            | .error _ => refuse "a file that is not a JSON document"
+
+/-- The reason to refuse writing at `path`, if there is one (`ownershipDecision`): something is at
+`path`, by a read that follows no link at `path` itself (`entryMetadata`), and it is not a regular
+file that is empty or whose text is a JSON document of Regula (`regulaDocument`). An error of that
+read other than the absence of the entry is a reason too. It reads the bytes of a regular file
+alone. Its decision is the programs' (`ownershipDecision_shared`), and its reads are those of
+`Regula.Destination.ownershipRefusal`, written a second time with the driver's read of an entry. -/
+def ownershipRefusal (path : System.FilePath) : IO (Option String) := do
+  let entry ← (IO.FS.Metadata.type <$> entryMetadata path).toBaseIO
+  let contents ←
+    (if entry matches .ok .file then IO.FS.readBinFile path else pure .empty).toBaseIO
+  return ownershipDecision path entry contents
+
+/-- The names below the longest present prefix of a destination, as a write makes them, or `none`
+when one of them is `..`: `Regula.Destination.plainNames` (`plainNames_shared`). -/
+def plainNames (names : List String) : Option (List String) :=
+  if names.contains ".." then none else some (names.filter fun name => name != "." && name != "")
+
+/-- The entry that `path` names, found without making anything: the real path of the longest
+prefix of its directory that is present, and the names below it (`plainNames`). It stops when the
+last component of `path` names no file (`System.FilePath.fileName`), read before any name is
+dropped; when a name below the prefix is `..`, whose entry depends on what the run makes; or when a
+prefix cannot be resolved, with the error of each read. It is `Regula.Destination.place` written a
+second time. -/
+def destinationAt (path : System.FilePath) : IO System.FilePath := do
+  if path.fileName.isNone then
+    throw <| IO.userError s!"{path} names no file, so the run writes nothing there"
+  let path ← if path.isAbsolute then pure path else pure ((← IO.currentDir) / path)
+  let components := path.components
+  let below (real : System.FilePath) (names : List String) : IO System.FilePath :=
+    match plainNames names with
+    | some names@(_ :: _) =>
+      pure (names.foldl (fun directory (name : String) => directory / name) real)
+    | some [] => throw <| IO.userError s!"{path} names no file, so the run writes nothing there"
+    | none => throw <| IO.userError s!"{path} has a `..` component below {real}, its longest \
+        prefix that is present, so the entry that it names depends on what the run makes; the \
+        run writes nothing there"
+  for count in (List.range (components.length - 1)).reverse do
+    let ancestor := System.mkFilePath (components.take (count + 1))
+    let ancestor : System.FilePath := if ancestor.toString.isEmpty then ⟨"/"⟩ else ancestor
+    match ← (IO.FS.realPath ancestor).toBaseIO with
+    | .ok real => return ← below real (components.drop (count + 1))
+    | .error absent@(.noFileOrDirectory ..) =>
+      match ← (entryMetadata ancestor).toBaseIO with
+      | .error (.noFileOrDirectory ..) => continue
+      | .ok metadata =>
+        if metadata.type == .symlink then
+          throw <| IO.userError s!"{ancestor}, a prefix of {path}, is a symbolic link whose \
+            target is absent ({absent}), so the run writes nothing there"
+        throw <| IO.userError s!"{ancestor}, a prefix of {path}, is {entryName metadata.type} \
+          that cannot be resolved ({absent}), so the run writes nothing there"
+      | .error error => throw <| IO.userError s!"{ancestor}, a prefix of {path}, cannot be \
+          resolved ({absent}) and cannot be read without following a link ({error}), so the run \
+          writes nothing there"
+    | .error error => throw <| IO.userError s!"{ancestor}, a prefix of {path}, cannot be resolved \
+        ({error}), so the run writes nothing there"
+  below ⟨"/"⟩ (components.drop 1)
+
+/-- Write `text` at `path`: stop with nothing made or written when the entry at `path`
+(`destinationAt`) holds a file that the run may not replace (`ownershipRefusal`). Otherwise make the
+entry's directory, make a new file in it and rename that file to the entry. The new file's name is
+`.regula-`, the process's id, a random number and `.pending`, and it is created only where no entry
+is, so the write replaces the entry at `path` and does not write into the file that the entry
+names. It removes the new file when it stops after making it. It follows `Regula.Destination.write`,
+whose decisions it shares (`ownershipDecision_shared`, `plainNames_shared`), except at the rename:
+the programs move the new file with the filesystem observer (`Regula.Filesystem.replace`), which
+observes the destination again at the move and refuses a symbolic link or a directory there, and
+this rename observes nothing again after `ownershipRefusal`, so it rests on no process making an
+entry at the destination in between. -/
+def writeDocument (path : System.FilePath) (text : String) : IO Unit := do
+  let destination ← destinationAt path
+  if let some reason ← ownershipRefusal destination then throw (IO.userError reason)
+  let directory := destination.parent.getD "."
+  IO.FS.createDirAll directory
+  let random := (← IO.getRandomBytes 8).foldl (fun value byte => value * 256 + byte.toNat) 0
+  let pending := directory / s!".regula-{← IO.Process.getPID}-{random}.pending"
+  let handle ← IO.FS.Handle.mk pending .writeNew
+  -- No `try`: its handler would be a closure of its own, which the removal check names apart.
+  let written ← (handle.putStr text *> handle.flush *> IO.FS.rename pending destination).toBaseIO
+  if let .error error := written then
+    discard <| (IO.FS.removeFile pending).toBaseIO
+    throw error
+
+/-- Rename the file at `source`, a record that only this run has the path of, to `path`: stop with
+nothing made or renamed when the entry at `path` (`destinationAt`) holds a file that the run may not
+replace (`ownershipRefusal`); otherwise make the entry's directory and rename the record there, as
+`writeDocument` renames, with no second observation of `path`. It does not read the record. -/
+def promote (source path : System.FilePath) : IO Unit := do
+  let destination ← destinationAt path
+  if let some reason ← ownershipRefusal destination then throw (IO.userError reason)
+  IO.FS.createDirAll (destination.parent.getD ".")
+  IO.FS.rename source destination
+
+/-- The file that marks a directory that a build of the site is assembling:
+`Regula.Destination.siteAssemblingMarker` (`siteAssemblingMarker_shared`). -/
+def siteAssemblingMarker : String := ".regula-site-assembling"
+
+/-- The members of the `build.json` of a site artifact whose presence identifies it, whatever
+their values: `Regula.Destination.siteBuildMembers`. -/
+def siteBuildMembers : List String := ["schemaVersion", "site", "producerVersion"]
+
+/-- Whether `value` is the `build.json` of a site artifact: it holds each member of
+`siteBuildMembers`, whatever its value (`identifiesSiteBuild_shared`). -/
+def identifiesSiteBuild (value : Lean.Json) : Bool :=
+  siteBuildMembers.all (has value)
+
+/-- Whether a regular file is at `path`, by a read that follows no link at `path` itself
+(`entryMetadata`): `false` when another kind of entry or nothing is there, and every other failure
+of the read is thrown, as `Regula.Filesystem.entryIfPresent` reads. -/
+def regularFile (path : System.FilePath) : IO Bool := do
+  match ← (entryMetadata path).toBaseIO with
+  | .ok metadata => return metadata.type == .file
+  | .error (.noFileOrDirectory ..) => return false
+  | .error error => throw error
+
+/-- Whether a directory holds a site artifact, decided from what reads that follow no link observe
+in it: `Regula.Destination.holdsSiteArtifact` (`holdsSiteArtifact_shared`). -/
+def holdsSiteArtifact (marker : Bool) (build : Option String) : Bool :=
+  marker || build.any fun text => (Lean.Json.parse text).toOption.any identifiesSiteBuild
+
+/-- The reason to refuse to replace or remove what is at `out`, the directory of a site artifact,
+decided from what reads that follow no link at `out` observe:
+`Regula.Destination.siteArtifactDecision` (`siteArtifactDecision_shared`). -/
+def siteArtifactDecision (out : System.FilePath) (consequence : String)
+    (entry : Except IO.Error IO.FS.FileType) (holds empty : Bool) : Option String :=
+  match entry with
+  | .error (.noFileOrDirectory ..) => none
+  | .error error => some s!"{out} cannot be read without following a link ({error}), so \
+      {consequence}"
+  | .ok type =>
+    if type != .dir then
+      some s!"{out} is not a directory (a file, a symbolic link or a different kind of entry is \
+        there), so {consequence}"
+    else if holds || empty then none
+    else some s!"{out} is not empty and holds neither a build.json of a site that Regula built \
+      nor the marker {siteAssemblingMarker} of an assembly, so {consequence}"
+
+/-- The reason to refuse removing the site artifact at `out`, if there is one
+(`siteArtifactDecision`): something is at `out`, by a read that follows no link at `out` itself,
+and it is not a directory that is empty, that holds the marker of an assembly
+(`siteAssemblingMarker`), or that holds a `build.json` of an artifact (`identifiesSiteBuild`), each
+a regular file (`holdsSiteArtifact`). A directory that holds anything else, such as the
+documentation of a repository, is thus not removed. Its decisions are those of
+`Regula.Site.Build.artifactRefusal` (`holdsSiteArtifact_shared`, `siteArtifactDecision_shared`),
+and its reads are that function's, written a second time with the driver's read of an entry and
+listing of a directory: each reads the marker and the `build.json` of a directory before it lists
+the directory. -/
+def siteRefusal (out : System.FilePath) : IO (Option String) := do
+  let entry ← (IO.FS.Metadata.type <$> entryMetadata out).toBaseIO
+  let mut holds := false
+  if entry matches .ok .dir then
+    let marker ← regularFile (out / siteAssemblingMarker)
+    let mut build := none
+    if ← regularFile (out / "build.json") then
+      build := String.fromUTF8? (← IO.FS.readBinFile (out / "build.json"))
+    holds := holdsSiteArtifact marker build
+  let empty ← if (entry matches .ok .dir) && !holds then (·.isEmpty) <$> listDirectory out
+    else pure false
+  return siteArtifactDecision out "the attempt removes nothing" entry holds empty
+
 /-- The failure report: each command that did not end with exit status 0, with how it ended. -/
 def report (ends : List (Command × Option UInt32)) : String :=
   "\n".intercalate ("verification failed:" :: ends.filterMap fun (command, ended) =>
@@ -1280,15 +1561,20 @@ private def usage : String :=
   Lake can update or fetch a dependency there; run it after provisioning (lean --run \
   lean/RegulaProvision.lean verso and mathlib) and ./scripts/verify.sh site"
 
-/-- The earlier verdicts an attempt of `mode` invalidates, each with the constant text recording
-it as incomplete. Ordinary acceptance invalidates the accepted link, so it is not accepted from
-then on unless a run promotes the pending record of its own gate to it. -/
+/-- The receipt of the whole rule-example corpus, which `diagnostics rule-examples` writes and
+which each attempt marks (`beginAttempt`). -/
+def corpusEvidence : String := "tmp/rule-examples.json"
+
+/-- The constant text that records rule-example evidence as incomplete before setup. -/
+def setupMark : String := "{\"outcome\":\"INCOMPLETE\",\"phase\":\"setup\"}\n"
+
+/-- The earlier verdicts an attempt of `mode` invalidates beside the corpus receipt
+(`corpusEvidence`), which each attempt invalidates, each with the constant text recording it as
+incomplete. Ordinary acceptance invalidates the accepted link, so it is not
+accepted from then on unless a run promotes the pending record of its own gate to it. -/
 def invalidated : Mode → List (String × String)
   | .ordinary => [(linkPath, incompleteLink)]
-  | .ruleExamples =>
-      [("tmp/rule-examples.json", "{\"outcome\":\"INCOMPLETE\",\"phase\":\"setup\"}\n")]
-  | .ruleExamplesShard index =>
-      [(shardEvidence (index.val + 1), "{\"outcome\":\"INCOMPLETE\",\"phase\":\"setup\"}\n")]
+  | .ruleExamplesShard index => [(shardEvidence (index.val + 1), setupMark)]
   | _ => []
 
 /-- The package adopters require stays dependency-free: its lock manifest records no package. Lake
@@ -1344,18 +1630,46 @@ theorem prebuildCovers_iff (manifest : Lean.Json) :
   · next targets h => simp [h, List.all_eq_true]
   · next h => simp [h]
 
-/-- Begin an attempt: invalidate the selected mode's earlier PASS or accepted link, and remove
-an earlier site artifact. `scripts/verify.sh` runs this toolchain-only step before provisioning
-and before any checker is built, so a failed setup or build cannot leave either in place. The
-site artifact is removed only when a directory is at its own place (`removeOwn`): with a symbolic
-link at `_site` the attempt stops and removes nothing. -/
+/-- Begin an attempt: mark the corpus receipt (`corpusEvidence`) incomplete, whatever the
+arguments, then invalidate the selected mode's earlier PASS or accepted link (`invalidated`), and
+remove an earlier site artifact. Each mark is written as `writeDocument` writes, so it replaces
+only nothing, an empty file or a document of Regula. `scripts/verify.sh` runs this
+toolchain-only step before provisioning and before any checker is built, so a failed setup or
+build cannot leave either in place. The site artifact is removed only when it is one that the
+site's build may replace (`siteRefusal`) and a directory is at its own place (`removeOwn`): with
+a symbolic link or a directory of something else at `_site` the attempt removes nothing. A
+destination that the attempt may not replace keeps what it holds; the attempt marks the others,
+and then stops with each reason. With arguments of no mode it marks the corpus receipt alone and
+stops with that receipt's reason, if any, and the usage.
+
+An attempt that stops before this step, such as one with no `lean` to run, has run no code of its
+own and leaves the earlier verdicts of its mode and the corpus receipt.
+Assumes: each reader that admits one of those verdicts admits it only for the current inputs, so it
+is the verdict for those inputs. `AcceptanceLink.require` admits the acceptance link (`linkPath`)
+only when its identity is the digest of the current inputs. `Site.Build.admitShard` admits a shard
+export (`shardEvidence`) only when it records the current sources of the checker
+(`Site.Build.currentSources`), and then runs `ruleExampleQualification` on it. Only the attempt
+of `diagnostics rule-examples` that writes the corpus receipt reads it, and that attempt marks it
+here first. `Regula.Site.Deployment.gate` admits the site artifact (`siteOutput`) only for a clean
+build of the commit it deploys. The gate of the diagnostics workflow reads the self-hosted digests
+only from the artifacts of the jobs of its commit (`Regula.DiagnosticsGate.digestPath`). No reader
+in this repository reads `tmp/environment-census.json` or `tmp/acceptance-fences.json`. -/
 def beginAttempt (args : List String) : IO Unit := do
-  let some selection := select args | throw <| IO.userError usage
+  let mut refused : Array String := #[]
+  if let .error error ← (writeDocument corpusEvidence setupMark).toBaseIO then
+    refused := refused.push (toString error)
+  let some selection := select args |
+    throw <| IO.userError ("\n".intercalate (refused.push usage).toList)
   for (path, text) in invalidated selection.val do
-    IO.FS.createDirAll "tmp"
-    IO.FS.writeFile path text
+    if let .error error ← (writeDocument path text).toBaseIO then
+      refused := refused.push (toString error)
   if selection.val == .site then
-    removeOwn ((← IO.FS.realPath ".") / siteOutput)
+    let remove : IO Unit := do
+      let out := (← IO.FS.realPath ".") / siteOutput
+      if let some reason ← siteRefusal out then throw (IO.userError reason)
+      removeOwn out
+    if let .error error ← remove.toBaseIO then refused := refused.push (toString error)
+  unless refused.isEmpty do throw <| IO.userError ("\n".intercalate refused.toList)
 
 /-- Cold-start driver; all builds and checks stay within the inherited outer deadline. After the
 preliminary checks and the mode's `prebuild`, it schedules every command of the mode
@@ -1363,12 +1677,15 @@ preliminary checks and the mode's `prebuild`, it schedules every command of the 
 one it started, and reports success only when `passed` accepts how every one of those commands
 and of the prebuilds ended (`passed_covers`). The first acceptance step promotes the pending
 record of its own gate to the accepted link only then, before the removal of its copy and before
-the success line. It refuses a surface manifest that claims a target its prebuild does not build
-(`prebuildCovers`), makes its copy after the preliminary checks (`makeCopy`), runs its prebuild
-and its commands for that copy (`ordinary_places`), gives the copy's build output to a project
-that has none when the step passed (`Copy.adopt`) and then records it (`Copy.recordBuild`), and
-removes the copy in each case (`Copy.remove`). It obtains the Git isolation once, before its first
-command (`isolationEnvironment`), and starts every command under it (`start`). -/
+the success line, and only when the file at `linkPath` is one that the run may replace (`promote`):
+the record is the pending record of the copy's scratch directory, which `promote` does not read.
+It refuses a surface manifest that claims a target its prebuild does not build
+(`prebuildCovers`), makes its copy after the preliminary checks
+(`makeCopy`), runs its prebuild and its commands for that copy (`ordinary_places`), gives the
+copy's build output to a project that has none when the step passed (`Copy.adopt`) and then
+records it (`Copy.recordBuild`), and removes the copy in each case (`Copy.remove`). It obtains the
+Git isolation once, before its first command (`isolationEnvironment`), and starts every command
+under it (`start`). -/
 def run (args : List String) : IO Unit := do
   let some selection := select args | throw <| IO.userError usage
   if selection.val == .ordinary then
@@ -1414,7 +1731,7 @@ def run (args : List String) : IO Unit := do
       if passed all.statuses then
         if (← copy.adopt root) then
           if let some tree := tree then copy.recordBuild root tree
-        IO.FS.rename copy.pending linkPath
+        promote copy.pending linkPath
         announce s!"every command exited 0: moved {copy.pending} to {linkPath}"
     finally copy.remove
   unless passed all.statuses do

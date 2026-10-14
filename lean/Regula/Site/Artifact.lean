@@ -1,4 +1,5 @@
 import Regula.Site.Build
+import RegulaCore.Destination
 import RegulaCore.Markdown
 
 /-! # Rule-reference artifact assembly and check
@@ -53,6 +54,7 @@ Deployment is verified separately against the live site (`Regula.Site.Deployment
 namespace Regula.Site.Build
 
 open Lean System Regula.Site Regula.Qualification
+open Regula.Destination (siteAssemblingMarker holdsSiteArtifact siteArtifactDecision)
 
 /-- Render the generated manual. The website package pins its own Verso lock; the root
 package's search path is removed so the two workspaces never mix. The standard's `lean`
@@ -236,13 +238,15 @@ def stableFiles (copy : List (String × ByteArray)) : List (String × ByteArray)
   (stablePages (copy.map (·.1))).map fun path => (path, (stableRedirect path).toUTF8)
 
 /-- Write the artifact tree: the rendered edition as `dev/`, each release's published edition as
-`v/<version>/`, and the stable routes `stable` below the site root. -/
+`v/<version>/`, and the stable routes `stable` below the site root. The marker of an assembly
+(`siteAssemblingMarker`) is in the directory from its creation until `build.json` is written. -/
 def assemble (out : FilePath) (g : Generated) (tag : TagState)
     (sources : List (ReleaseVersion × ReleaseSource)) (edition : List (String × ByteArray))
     (editions : List (ReleaseVersion × List (String × ByteArray)))
     (stable : List (String × ByteArray)) : IO Unit := do
   Regula.Filesystem.removeOwn .directory out
   IO.FS.createDirAll out
+  IO.FS.writeFile (out / siteAssemblingMarker) ""
   writeTree (out / Edition.dev.root) edition
   for (v, files) in editions do
     writeTree (out / (Edition.release v).root) files
@@ -251,6 +255,7 @@ def assemble (out : FilePath) (g : Generated) (tag : TagState)
   IO.FS.writeFile (out / "404.html") (notFound g.ident)
   IO.FS.writeFile (out / "build.json")
     ((buildJson g tag sources (stable.map (·.1))).pretty ++ "\n")
+  Regula.Filesystem.removeOwn .file (out / siteAssemblingMarker)
 
 private def utf8 (path : String) (bytes : ByteArray) : IO String :=
   match String.fromUTF8? bytes with
@@ -372,19 +377,96 @@ def checkArtifact (root out : FilePath) (g : Generated) (tag : TagState)
 def releasePackage (root : FilePath) (v : ReleaseVersion) : FilePath :=
   root / "tmp/site-release" / releaseAsset v
 
-/-- Invalidate the artifact that a build into `out` writes, before anything that can fail: remove
-the directory `out`, and for a build labelled with a release, that release's asset
-(`releasePackage`), so neither an earlier artifact nor an earlier asset remains where it could be
-served or uploaded. It is what `build` runs first, and what a refused build runs in its place
-(`refuseSiteBuild`). A relative `out` is taken from the real path of the working directory, and a
-link, `.` or `..` among its components stops it before it removes anything
-(`Regula.Filesystem.ownPath`). Returns the absolute `out`. -/
-def invalidateArtifact (out : FilePath) : IO FilePath := do
-  let out ← Regula.Filesystem.ownPath out
-  Regula.Filesystem.removeOwn .directory out
+/-- Whether a regular file is at `path`, by a read that follows no link
+(`Regula.Filesystem.entryIfPresent`): `false` when another kind of entry or nothing is there, and
+every other failure of the read is thrown. -/
+private def regularFile (path : FilePath) : IO Bool := do
+  return (← Regula.Filesystem.entryIfPresent path) == some .file
+
+/-- Whether the directory `out` holds an artifact of a build or one that a build assembles
+(`holdsSiteArtifact`): the marker of an assembly (`siteAssemblingMarker`), or a `build.json` that
+identifies a build (`identifiesSiteBuild`), each a regular file by a read that follows no link. A
+`build.json` that is not UTF-8 text identifies nothing; a failure to read an entry that is there is
+thrown, never read as no artifact. It lists no directory, so the refusal of a run without Lean's
+task manager can call it (`invalidateRefused`). -/
+def holdsArtifact (out : FilePath) : IO Bool := do
+  let marker ← regularFile (out / siteAssemblingMarker)
+  let mut build := none
+  if ← regularFile (out / "build.json") then
+    build := String.fromUTF8? (← IO.FS.readBinFile (out / "build.json"))
+  return holdsSiteArtifact marker build
+
+/-- The reason to refuse to replace what is at `out` with an artifact, if there is one
+(`siteArtifactDecision`): something is at `out`, by a read that follows no link, and it is not a
+directory that holds an artifact (`holdsArtifact`) or that is empty. So `invalidateArtifact`
+removes no directory that holds anything else, such as the documentation of a repository. A
+directory that holds an artifact is removed whole, with anything else in it. The later removals
+of `out`, when `assemble` replaces it and when `build` removes an unchecked artifact, do not decide
+this again: they rest on this decision at the start of the build, with no other process changing
+`out` in between. It lists the directory through the shared enumerator
+(`Regula.Filesystem.Construction.listDirectory`), which reads the output of a listing program in a
+task, so only a run with Lean's task manager calls it. -/
+def artifactRefusal (out : FilePath) : IO (Option String) := do
+  let entry ← (IO.FS.Metadata.type <$> Regula.Filesystem.observeMetadata out).toBaseIO
+  let holds ← if entry matches .ok .dir then holdsArtifact out else pure false
+  let empty ← if (entry matches .ok .dir) && !holds then
+      (·.isEmpty) <$> Regula.Filesystem.Construction.listDirectory out
+    else pure false
+  return siteArtifactDecision out "the build does not replace it" entry holds empty
+
+/-- Remove the asset of the release of this build (`releasePackage`) when it is labelled with one.
+It resolves the package root (`rootDirectory`), which fails outside it. -/
+private def removeAsset : IO Unit := do
   if let .release v := installed then
     Regula.Filesystem.removeOwn .file (releasePackage (← rootDirectory) v)
+
+/-- Invalidate the artifact that a build into `out` writes, before anything that can fail other
+than the reading of `out`: remove the directory `out`, then for a build labelled with a release
+that release's asset (`releasePackage`), so neither an earlier artifact nor an earlier asset
+remains where it could be served or uploaded. It is what `build` runs first. A relative `out` is
+taken from the real path of the working directory, and a link, `.` or `..` among its components
+stops it before it removes anything (`Regula.Filesystem.ownPath`). When something at `out` is not
+an artifact that a build may replace (`artifactRefusal`), or that decision fails, it removes the
+release's asset alone and stops with that reason. `out` is removed before the asset, whose
+removal resolves the package root, so a build outside the package root still removes an earlier
+artifact. Returns the absolute `out`. -/
+def invalidateArtifact (out : FilePath) : IO FilePath := do
+  let out ← Regula.Filesystem.ownPath out
+  let refused ← match ← (artifactRefusal out).toBaseIO with
+    | .ok refused => pure refused
+    | .error error => pure (some error.toString)
+  if refused.isNone then Regula.Filesystem.removeOwn .directory out
+  removeAsset
+  if let some reason := refused then throw (IO.userError reason)
   return out
+
+/-- Invalidate the artifact at `out` for a build that is refused (`refuseSiteBuild`): remove the
+directory `out` only when it holds an artifact (`holdsArtifact`), then the release's asset as
+`invalidateArtifact` does. What `invalidateArtifact` would also remove, an empty directory, holds
+no artifact, and anything else stays where it is. When what is at `out` cannot be read without
+following a link, or a directory there holds an entry that `holdsArtifact` cannot read, it removes
+nothing there and stops with that reason after it removes the asset.
+It does not use the shared enumerator (`Regula.Filesystem.Construction.listDirectory`), which
+reads a listing program's output in a task: it decides by `holdsArtifact`, and its removal of
+`out` (`Regula.Filesystem.removeOwn`) traverses the directory with Lean's synchronous
+`IO.FS.removeDirAll`. So a process without Lean's task manager can run it, as the check of the
+program's refusal requires (`Regula.TaskManagerCheck.checkProgram`). -/
+def invalidateRefused (out : FilePath) : IO Unit := do
+  let out ← Regula.Filesystem.ownPath out
+  let refused ← match ← (Regula.Filesystem.observeMetadata out).toBaseIO with
+    | .error (.noFileOrDirectory ..) => pure none
+    | .error error => pure (some s!"{out} cannot be read without following a link ({error}), so \
+        the refusal removes nothing there")
+    | .ok metadata =>
+      if metadata.type != .dir then pure none
+      else match ← (holdsArtifact out).toBaseIO with
+        | .ok holds =>
+          if holds then Regula.Filesystem.removeOwn .directory out
+          pure none
+        | .error error => pure (some s!"{out} holds an entry that cannot be read ({error}), so the \
+            refusal removes nothing there")
+  removeAsset
+  if let some reason := refused then throw (IO.userError reason)
 
 /-- Complete build: refuse a release label whose tag names another commit, decide each release
 edition's source, admit evidence, generate, render, collect the release editions, assemble and

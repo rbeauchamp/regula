@@ -85,7 +85,14 @@ private def toolchainLibraryDirectory : IO System.FilePath := do
 /-- Whether Lean loaded the module `moduleName` from the toolchain library directory `library`:
 its `.olean` file is that module's file in `library`, by canonical path. A module's name does not
 establish this, since a project or a dependency can supply a module under `Init`, `Std` or
-`Lean`. That the path identifies the toolchain's own artifact is a filesystem observation. -/
+`Lean`. That the path identifies the toolchain's own artifact is a filesystem observation.
+
+Assumes: Lean read the module through its search path at the import, as an import with no
+artifacts supplied does (`Regula.Probe.loadedModuleOrigins`), and as the import of a module under
+`Init`, `Std`, `Lean` or `Lake` does in a build by Lake, under the hypothesis of
+`Regula.Removal.toolchainModules`; and nothing that the lookup reads changed since the import: the
+search path, and the files, directories and symbolic links on it that name the module's root and
+the module (`Lean/Util/Path.lean:61-65`). -/
 private def loadedFromLibrary (library : System.FilePath) (moduleName : Name) : IO Bool := do
   let expected := Lean.modToFilePath library moduleName "olean"
   unless ← isPresent expected do return false
@@ -102,7 +109,9 @@ does not hold has no observation, and no declaration of `env` reaches it.
 
 Assumes: Lean 4.34.1 loads each imported module from the `.olean` that `findOLean` resolves on the
 search path and, for a module of the module system, the `.olean.server` and `.olean.private` beside
-it (`Lean/Environment.lean:2077-2090`, `Lean/Util/Path.lean:117-125`), the files this reads. -/
+it (`Lean/Environment.lean:2077-2090`, `Lean/Util/Path.lean:117-125`), the files this reads. That
+holds under the hypotheses of `loadedFromLibrary`: Lean read the module through its search path,
+and nothing that the lookup reads changed since the import. -/
 def foundationObservations (env : Environment) : IO (Array RegulaPolicy.FoundationObservation) := do
   let library ← toolchainLibraryDirectory
   RegulaPolicy.foundationStatements.filterMapM fun statement => do

@@ -37,9 +37,13 @@ def renderSite (options : List String) : IO UInt32 :=
 
 /-- The refusal of the renderer in a process without Lean's task manager
 (`Regula.TaskManager.guard`): it moves aside each destination that the arguments name for a render
-with `siteConfig` (`RegulaRender.refuse`), and returns 1. -/
-def refuseSite (_reason : String) (args : List String) : IO UInt32 :=
-  RegulaRender.refuse "regula-site" siteConfig args
+with `siteConfig` (`RegulaRender.refuse`), and returns 1. For the reason that the guard gives before
+each run (`Regula.TaskManager.startedReason`), it moves nothing and returns 1: a run that Verso
+starts keeps Verso's write behaviour, and a resumed render reads the saved state of an earlier
+one. -/
+def refuseSite (reason : String) (args : List String) : IO UInt32 :=
+  if reason == Regula.TaskManager.startedReason then pure 1
+  else RegulaRender.refuse "regula-site" siteConfig args
 
 /-- Renders the site; a process without Lean's task manager is refused before rendering starts,
 with exit code 1 (`Regula.TaskManager.guard`). -/

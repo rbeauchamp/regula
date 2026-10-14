@@ -40,7 +40,8 @@ def worker (args : List String) : IO UInt32 := do
     else
       let entry ← IO.ofExcept ((← first payload).getArr?)
       payload := payload.set! 0 (toJson (entry.set! 0 (toJson (999999 : Nat))))
-    writeJson ⟨path⟩ (packet.setObjVal! "payload" (toJson payload))
+    -- The mutated packet replaces the worker's, which the destination writer identifies.
+    writeEvidence ⟨path⟩ (packet.setObjVal! "payload" (toJson payload))
   return 0
 
 private def faults : String → Array (String × String)
@@ -49,15 +50,9 @@ private def faults : String → Array (String × String)
           ("fence-misindexed", "unknownKey")]
   | _ => #[]
 
-private def save (path : FilePath) (receipt : Json) : IO Unit := do
-  let suffix ← IO.getRandomBytes 12
-  let temporary := FilePath.mk
-      (path.toString ++ "." ++ suffix.foldl (fun s b => s ++ s!"{b.toNat}-") "")
-  try
-    writeJson temporary receipt
-    Regula.Filesystem.replacePath temporary path
-  finally
-    removeFile temporary
+/-- Write `receipt` at the destination `path` (`writeEvidence`). -/
+private def save (path : FilePath) (receipt : Json) : IO Unit :=
+  writeEvidence path receipt
 
 private def qualify (group : String) (evidence : FilePath) (receipt : IO.Ref Json) : IO Unit := do
   let root ← rootDirectory
@@ -167,7 +162,6 @@ ordinary exceptions retain failure and the active case. Filesystem atomicity is 
 `reason`, the receipt records why the attempt stops before its setup. -/
 def beginAttempt (group : String) (evidence : FilePath) (attempt : String)
     (reason : Option String := none) : IO Json := do
-  if let some parent := evidence.parent then IO.FS.createDirAll parent
   let receipt := Json.mkObj ([("attemptId", toJson attempt),
     ("status", toJson "incomplete"), ("group", toJson group), ("inputs", Json.mkObj []),
     ("records", toJson (#[] : Array Json))] ++

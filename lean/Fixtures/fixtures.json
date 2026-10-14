@@ -76,6 +76,7 @@
  "Fixtures.Positive.ReducibilityChange": {
   "expect": "pass",
   "claim": "standard-logical",
+  "fileAuditExclusion": "sets allowUnsafeReducibility true, which RG2006 (https://rbeauchamp.github.io/regula/dev/rules/RG2006/) refuses in a source; the reducibility changes it controls, after a definition or for one definition, are ones Lean's reducibility validation admits only under that option",
   "output": [
    "[OK] fixtures_local_irreducible._unsafe_rec",
    "[OK] fixtures_later_irreducible._unsafe_rec",
@@ -646,6 +647,7 @@
  "Fixtures.Positive.ReducibleAfter": {
   "expect": "pass",
   "claim": "standard-logical",
+  "fileAuditExclusion": "sets allowUnsafeReducibility true and warn.classDefReducibility false, which RG2006 (https://rbeauchamp.github.io/regula/dev/rules/RG2006/) refuses in a source; the reducibility changes it controls, after a definition or for one definition, need allowUnsafeReducibility for Lean's reducibility validation, and a def of class type that is semireducible where it is defined draws the warning warn.classDefReducibility false turns off",
   "output": [
    "[OK] fixtures_reducible_fixed._unsafe_rec",
    "[OK] fixtures_reducible_structural._unsafe_rec",
@@ -665,6 +667,7 @@
  "Fixtures.Positive.ReducibleWhereCompiled": {
   "expect": "pass",
   "claim": "standard-logical",
+  "fileAuditExclusion": "sets allowUnsafeReducibility true and warn.classDefReducibility false, which RG2006 (https://rbeauchamp.github.io/regula/dev/rules/RG2006/) refuses in a source; the reducibility changes it controls, after a definition or for one definition, need allowUnsafeReducibility for Lean's reducibility validation, and a def of class type that is semireducible where it is defined draws the warning warn.classDefReducibility false turns off",
   "output": [
    "[OK] fixtures_where_local._unsafe_rec",
    "[OK] fixtures_where_unreduced._unsafe_rec",

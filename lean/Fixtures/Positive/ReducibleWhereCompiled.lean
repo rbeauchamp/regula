@@ -186,7 +186,9 @@ definition (`fixtures_bound_searched`, `fixtures_where_seven`,
   does only for a definition whose type is a proposition (its structural
   compiler gives the motive of such a recursion the universe of propositions,
   Lean 4.34.0's `Structural/BRecOn.lean:247`, read from its source), and pass
-  each of seven parameters through its own function. In the first the functions are
+  each of seven parameters through its own function. Both are `abbrev`s, which
+  Lean's `linter.defProp` skips, so it need not be turned off; Lean gives them
+  the same helpers as the `def`s (observed). In the first the functions are
   made `reducible` afterwards, and the regeneration in the inspected
   environment already reproduces the base (observed, before and after). In
   the second they are `reducible` only for that definition, so its base keeps
@@ -569,8 +571,7 @@ def fixtures_predicate_sixth (a : Nat) : Nat := a
 
 def fixtures_predicate_seventh (a : Nat) : Nat := a
 
-set_option linter.defProp false in
-def fixtures_where_predicate (a b c d e f g n : Nat) (h : FixturesWhereEven n) :
+abbrev fixtures_where_predicate (a b c d e f g n : Nat) (h : FixturesWhereEven n) :
     a + b + c + d + e + f + g = a + b + c + d + e + f + g ∨ n = n :=
   match n, h with
   | _, .zero => .inl rfl
@@ -599,11 +600,10 @@ def fixtures_local_sixth (a : Nat) : Nat := a
 
 def fixtures_local_seventh (a : Nat) : Nat := a
 
-set_option linter.defProp false in
 set_option allowUnsafeReducibility true in
 attribute [local reducible] fixtures_local_first fixtures_local_second fixtures_local_third
   fixtures_local_fourth fixtures_local_fifth fixtures_local_sixth fixtures_local_seventh in
-def fixtures_where_predicate_local (a b c d e f g n : Nat) (h : FixturesWhereEven n) :
+abbrev fixtures_where_predicate_local (a b c d e f g n : Nat) (h : FixturesWhereEven n) :
     a + b + c + d + e + f + g = a + b + c + d + e + f + g ∨ n = n :=
   match n, h with
   | _, .zero => .inl rfl

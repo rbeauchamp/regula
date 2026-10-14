@@ -140,7 +140,8 @@ names its own module. Other declaration findings carry no attribution: a documen
 example's, a material-documentation one and the editor linter's record `null` and their
 declaration's own location (`Findings.declarationLocation`).
 Schema 5 attributes the toolchain's own boundaries to it: a boundary a toolchain
-module (`Init`, `Std`, `Lean` or `Lake`, loaded from the toolchain's library) owns carries its
+module (`Init`, `Std`, `Lean` or `Lake`, loaded from the toolchain's library, under the hypotheses
+of `Regula.Probe.loadedModuleOrigins`) owns carries its
 `toolchainOrigin` (formerly `nativeOrigin`, which only native-runtime boundaries carried), and
 each `axiomGate` project and file result's `scope.toolchainBase` lists every such boundary once
 for the whole audit, with the environments and roots that reach it (until schema 18 named a
@@ -894,17 +895,18 @@ def encodeDocument (document : Json) : Except String String := do
   return PolicyCodec.compress written ++ "\n"
 
 /-- Write a result document to `path`: the text `encodeDocument` gives it, creating the parent
-directories. A document `encodeDocument` refuses is an error and nothing is written. `span` names
-the write in timing output (`timingSpan`). That `IO.FS.readFile` of the file returns the text
-`IO.FS.writeFile` wrote is trusted file-system behavior, not proved. -/
+directories, by replacing the entry at `path`, and stopping with nothing written at a file that is
+not empty or a document of Regula (`Regula.Destination.write`). A document `encodeDocument` refuses
+is an error and nothing is written. `span` names the write in timing output (`timingSpan`). That
+`IO.FS.readFile` of the file returns the text written is trusted file-system behavior, not proved.
+-/
 def writeDocument (path : System.FilePath) (document : Json) (span : String := "writeDocument") :
     IO Unit := do
-  if let some parent := path.parent then IO.FS.createDirAll parent
   let spanStart ← IO.monoMsNow
   let encoded ← IO.ofExcept (encodeDocument document)
   timingSpan s!"diagnostic span: {span} encode: {(← IO.monoMsNow) - spanStart}ms"
   let writeStart ← IO.monoMsNow
-  IO.FS.writeFile path encoded
+  Regula.Destination.write path encoded
   timingSpan s!"diagnostic span: {span} write: {(← IO.monoMsNow) - writeStart}ms"
 
 /-- Applying `g` to the members named `key` of what applying `f` to them wrote is applying `g`

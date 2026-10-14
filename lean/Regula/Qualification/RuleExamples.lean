@@ -115,18 +115,18 @@ def configuration (paths : Array FilePath) : IO Json := do
       | some _ => pure (some (← IO.FS.readFile path))
     pure (path.toString, value))
 
-private def save (path : FilePath) (value : Json) : IO Unit := do
-  let temporary := FilePath.mk (path.toString ++ ".pending")
-  IO.FS.writeFile temporary (value.compress ++ "\n")
-  Regula.Filesystem.replacePath temporary path
+/-- Write a raw observation of the attempt at `path`, below its raw directory, which is not a
+destination: the evidence itself is written by `Regula.Destination.writeJson`. -/
+private def save (path : FilePath) (value : Json) : IO Unit :=
+  Regula.Filesystem.writeReplacing path (value.compress ++ "\n").toUTF8
 
 /-- Invalidate the previous verdict before any campaign setup or timer acquisition. With `reason`,
-the evidence records why the attempt stops there. -/
+the evidence records why the attempt stops there. It stops with nothing written at a file that the
+run may not replace (`Regula.Destination.write`). -/
 def beginAttempt (evidence : FilePath) (attempt : String) (reason : Option String := none) :
     IO Unit := do
-  if let some parent := evidence.parent then IO.FS.createDirAll parent
-  save evidence (Json.mkObj ([("outcome", .str "INCOMPLETE"), ("attempt", .str attempt),
-    ("rawDirectory", .str (evidence.toString ++ ".raw/" ++ attempt))] ++
+  Regula.Destination.writeJson evidence (Json.mkObj ([("outcome", .str "INCOMPLETE"),
+    ("attempt", .str attempt), ("rawDirectory", .str (evidence.toString ++ ".raw/" ++ attempt))] ++
       (reason.map fun reason => [("reason", .str reason)]).getD []))
 
 private def digest (root path : FilePath) : IO Json := do
@@ -494,16 +494,23 @@ private def admitRecord (ctx : Context) (record : Json) (refusal : Option String
     | none => checked.exitCode == 0
     | some reason => checked.exitCode != 0 && (checked.stdout ++ checked.stderr).contains reason⟩]
 
+/-- The configuration files of the checkout that a corpus campaign copies into its private ROOT copy
+(`Slot.prepareSlot`) and records among its sources (`sourcePaths`), each when it is present: the
+toolchain, the Lake configuration, its manifest and the foundation manifest. -/
+def rootConfigNames : Array String :=
+  #["lean-toolchain", "lakefile.lean", "lake-manifest.json", "foundation_manifest.json"]
+
 /-- The checker, corpus and configuration sources whose exact bytes a campaign records before
 and after production (`checkerBefore`, `checkerAfter`): the Lake-discovered root-package module
-sources, the toolchain, Lake configuration and manifest, and every corpus file. The site builder
-recomputes this set to require that exported evidence belongs to the current sources. -/
+sources, each present configuration file that the campaign copies (`rootConfigNames`), and every
+corpus file. The site builder recomputes this set to require that exported evidence belongs to the
+current sources (`Site.Build.currentSources`). -/
 def sourcePaths (root : FilePath) (modulePaths : Array FilePath) : IO (Array FilePath) := do
   let corpusPaths ← (← Regula.Filesystem.Construction.walkDirectory (root / "examples/rules")).filterM
     fun path => return !(← Regula.Filesystem.isDirectory path)
-  return (modulePaths ++
-      #[root / "lean-toolchain", root / "lakefile.lean", root / "lake-manifest.json"] ++
-          corpusPaths).toList.eraseDups.toArray
+  let configPaths ← (rootConfigNames.map fun (name : String) => root / name).filterM
+    Regula.Filesystem.isPresent
+  return (modulePaths ++ configPaths ++ corpusPaths).toList.eraseDups.toArray
 
 /-- The rule whose corpus position decides `key`'s shard: the first rule of
 `sharedTheoremTypeRules` for the second when the first is in the corpus, otherwise `key`. -/
@@ -568,7 +575,7 @@ removal have returned. It records what finished, not a run verdict: the run's ve
 is its exit status, and a deadline kill after this save still fails the run. -/
 private def saveCompleted (evidence : FilePath) (fields : List (String × Json))
     (records : Array Json) (_cleaned : Cleaned) : IO Unit :=
-  save evidence (Regula.Checker.RuleExampleProjection.corpus
+  Regula.Destination.writeJson evidence (Regula.Checker.RuleExampleProjection.corpus
     (("outcome", .str "COMPLETED") :: fields) records)
 
 /-- Full corpus, explicit scoped selection, or one corpus shard; all records and admission
@@ -604,7 +611,7 @@ def check (evidence : FilePath) (selection : Option (Array String))
   let checkerBefore ← snapshotCached cache checkerPaths
   let complete := selection.isNone && shard.isNone
   let shardField := toJson (shard.map fun (index, count) => s!"{index}/{count}")
-  save evidence (Json.mkObj [("outcome", .str "INCOMPLETE"),
+  Regula.Destination.writeJson evidence (Json.mkObj [("outcome", .str "INCOMPLETE"),
     ("schemaVersion", toJson (1 : Nat)), ("completeCorpus", .bool complete), ("shard", shardField),
     ("attempt", .str attempt), ("rawDirectory", .str rawDirectory.toString),
     ("selected", toJson selected), ("checkerBefore", checkerBefore)])
@@ -616,9 +623,8 @@ def check (evidence : FilePath) (selection : Option (Array String))
     -- the end equals the content before any producer started.
     let slot : Slot.ProducerSlot := ⟨scratch / "slot"⟩
     IO.FS.createDirAll slot.root
-    let configNames ← (#["lean-toolchain", "lakefile.lean", "lake-manifest.json",
-      "foundation_manifest.json"] : Array String).filterM
-        (fun (name : String) => Regula.Filesystem.isPresent (root / name))
+    let configNames ← rootConfigNames.filterM fun (name : String) =>
+      Regula.Filesystem.isPresent (root / name)
     let rootConfigs ← configNames.mapM (fun (name : String) => do
       pure (root / name, ← Regula.Filesystem.readBytes (root / name)))
     let rootSources ← modulePaths.mapM fun path => do
@@ -745,7 +751,7 @@ def check (evidence : FilePath) (selection : Option (Array String))
       ("rawDirectory", .str rawDirectory.toString),
       ("selected", toJson selected), ("checkerBefore", checkerBefore),
       ("checkerAfter", ← snapshotCached cache checkerPaths), ("admissionControls", toJson controls)]
-    save evidence
+    Regula.Destination.writeJson evidence
         (Regula.Checker.RuleExampleProjection.corpus
             (("outcome", .str "INCOMPLETE") :: finalFields) records)
     -- The single admission of every canonical record: the terminal corpus qualifier.

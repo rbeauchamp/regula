@@ -13,13 +13,14 @@ process (`processSymbol`), it requires `main` to have the closed form of the gua
 `Regula.TaskManager.guard` applied to a string literal, the program's refusal and the program
 itself, each of the two a constant. Lean evaluates the arguments of an application before the call,
 and none of these three runs code of the program when it is evaluated. The refusal, which the guard
-runs in a process without a task manager or without Git isolation, must reach none of those
-functions. The program then refuses to start without a task manager, with its exit code of a run
-that established no result and its result destinations marked incomplete, instead of running its
-tasks on one thread, ending with a panic or reading no task manager. And it runs only in an
-environment under Git isolation (`Regula.GitIsolation.enter`), so the Git commands that Lake
-starts for it, in its own process or in a process it starts, inherit that isolation. A program
-whose compiled code reaches none of those functions passes without the guard, as `auditApp` does.
+runs before each run and, in a process without a task manager or without Git isolation, in the
+run's place, must reach none of those functions. The program then refuses to start without a task
+manager, with its exit code of a run that established no result and its result destinations marked
+incomplete, instead of running its tasks on one thread, ending with a panic or reading no task
+manager. And it runs only in an environment under Git isolation (`Regula.GitIsolation.enter`), so
+the Git commands that Lake starts for it, in its own process or in a process it starts, inherit
+that isolation. A program whose compiled code reaches none of those functions passes without the
+guard, as `auditApp` does.
 
 The code that initializes the modules that a program links runs before `main`, so before the
 guard: the actions of `[init]` declarations and the values of declarations with no parameter

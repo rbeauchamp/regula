@@ -84,7 +84,8 @@ graph permits inspection to continue; this observation grants no acceptance auth
 structure ModuleGraph where
   /-- Every loaded module, in the complete report's canonical name order. -/
   modules : Array Name
-  /-- The canonical artifact and recorded direct imports of every loaded module. -/
+  /-- The canonical artifact and recorded direct imports of every loaded module, under the
+  hypotheses of `Regula.Probe.loadedModuleOrigins`. -/
   moduleOrigins : Array Regula.Report.ModuleOrigin
   deriving ToJson
 
@@ -588,7 +589,8 @@ def ModuleGraph.importDetails (graph : ModuleGraph) (ordinary excluded configure
 /-- Authenticate the narrow infrastructure partition against the running checker's
 canonical artifacts, retaining the request snapshot. Import restrictions are subsequently
 rechecked over the complete census by `InfrastructureOK`; these receipts alone do not
-allow a source import of a reporter or change any replay ownership. -/
+allow a source import of a reporter or change any replay ownership. The loaded path of each module
+is the report's, which rests on the hypotheses of `Regula.Probe.loadedModuleOrigins`. -/
 def infrastructureOrigins (snapshot : RegulaPolicy.AdmittedSnapshot)
     (report : ProducerReport.Environment) : IO (Array RegulaPolicy.InfrastructureOrigin) := do
   let some lib ← checkerPackageLibDir
@@ -656,9 +658,7 @@ private def historyWorkerOutput (memo : Option FilePath) (inputs : HistoryMemo)
       if let some output ← (reuse <|> pure none) then return output
       let output ← run
       try
-        let staged := directory / s!"{key}.staged"
-        IO.FS.writeFile staged (toJson { inputs with output }).compress
-        Regula.Filesystem.replacePath staged record
+        Regula.Filesystem.writeReplacing record (toJson { inputs with output }).compress.toUTF8
       catch _ => pure ()
       return output
     finally
@@ -805,12 +805,11 @@ private unsafe def loadReportCoreAtSearchPath (modules : Array Name)
     let admission := admitted.receipt
     -- Later environments of the audit may start from this admission while the report below is
     -- still being built; the coordinator compares it with the finished report
-    -- (`Inspection.inspect`). The rename makes the file appear complete or not at all.
+    -- (`Inspection.inspect`). The rename makes the file appear complete or not at all, and it
+    -- replaces only an empty file or a document of Regula (`Regula.Destination.writeJson`).
     if let some path := publish then
-      let staged := path.addExtension "staged"
-      IO.FS.writeFile staged
-        (toJson ({ receipt := admission, origins } : Admission.Completed)).compress
-      Regula.Filesystem.replacePath staged path
+      Regula.Destination.writeJson path (render := Json.compress)
+        (toJson ({ receipt := admission, origins } : Admission.Completed))
     -- In a project audit, the modules of owned dependencies that the environment owns are
     -- inspected with the requested ones (`EnvironmentOwnership.dependencies`), each of them owned
     -- and so replayed above: their declarations, roots, documentation and sources.

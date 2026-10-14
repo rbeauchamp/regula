@@ -184,10 +184,12 @@ private def markIncomplete (targets : List (String × Except IO.Error FilePath))
     if let .error error := marked then failed := failed ++ [s!"{path}: {error}"]
   return failed
 
-/-- The refusal of a run in a process without Lean's task manager, which the guard of the
-executable runs (`Regula.TaskManager.guard`): it reads the arguments once (`read`) and finds the
-working directory's project root once, as `lint` does, marks each result destination of the
-reading incomplete with `reason`, and returns the incomplete class. No audit runs. -/
+/-- The refusal of a run, which the guard of the executable runs before each run and, in a process
+without Lean's task manager, in the run's place (`Regula.TaskManager.guard`): it reads the
+arguments once (`read`) and finds the working directory's project root once, as `lint` does, marks
+each result destination of the reading incomplete with `reason`, and returns the incomplete class.
+A mark stops with nothing written at a file that is not empty or a document of Regula
+(`AxiomGate.invalidateResult`). No audit runs. -/
 def refuseWithoutTaskManager (reason : String) (args : List String) : IO UInt32 := do
   for line in ← markIncomplete (targets (read args) (← repoRoot.toBaseIO)) reason do
     IO.eprintln s!"regula lint: could not mark the result destination {line} incomplete"

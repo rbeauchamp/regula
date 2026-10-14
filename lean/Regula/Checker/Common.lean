@@ -4,6 +4,7 @@ import Regula.Checker.PolicyCodec
 import RegulaCore.JsonAgreement
 import RegulaCore.CopyProgram
 import Regula.Scratch
+import Regula.Destination
 import RegulaPolicy.ResultState
 import RegulaPolicy.Guards
 import Lean
@@ -486,14 +487,15 @@ def readJson (path : FilePath) : IO Json := do
   requireAuditDocument (← IO.ofExcept <| Regula.Checker.PolicyCodec.parse text)
 
 /-- Write `value` as compact JSON and a final newline to `path`, creating its parent
-directories, and report how long encoding and writing took when timing output is on. -/
+directories, by replacing the entry at `path` (`Regula.Filesystem.writeReplacing`), so the file
+that entry named keeps its bytes, and report how long encoding and writing took when timing output
+is on. -/
 def writeJson (path : FilePath) (value : Json) : IO Unit := do
-  if let some parent := path.parent then IO.FS.createDirAll parent
   let encodeStart ← IO.monoMsNow
   let encoded := Json.compress value ++ "\n"
   timingSpan s!"diagnostic span: writeJson encode {path}: {(← IO.monoMsNow) - encodeStart}ms"
   let writeStart ← IO.monoMsNow
-  IO.FS.writeFile path encoded
+  Regula.Filesystem.writeReplacing path encoded.toUTF8
   timingSpan s!"diagnostic span: writeJson write {path}: {(← IO.monoMsNow) - writeStart}ms"
 
 /-- The top-level `lakefile.toml` key with which a package loads Regula's elaboration observer
@@ -531,6 +533,13 @@ def regulaManifestEntry (repo : FilePath) : Json :=
   Json.mkObj [("name", .str "regula"), ("scope", .str ""), ("configFile", .str "lakefile.lean"),
     ("manifestFile", .str "lake-manifest.json"), ("inherited", .bool false),
     ("type", .str "path"), ("dir", .str repo.toString)]
+
+/-- Write `value` as compact JSON and a final newline at the destination `path`
+(`Regula.Destination.writeJson`), and report how long the write took when timing output is on. -/
+def writeDestination (path : FilePath) (value : Json) : IO Unit := do
+  let start ← IO.monoMsNow
+  Regula.Destination.writeJson path value
+  timingSpan s!"diagnostic span: writeDestination {path}: {(← IO.monoMsNow) - start}ms"
 
 /-- The JSON on a succeeded process's standard output, parsed strictly; a failed process or
 malformed output throws an error that names `what`. -/
@@ -697,9 +706,14 @@ def workerPacket (request payload : Json) : Json := Json.mkObj [
 
 /-- Mark the file at `out`, which an internal job of a checker writes, incomplete with `reason`, so
 an earlier completed output there cannot be mistaken for the current attempt's. The record has no
-member `payload`, so the reader of a worker packet refuses it (`readWorkerPacket`). -/
+member `payload`, so the reader of a worker packet refuses it (`readWorkerPacket`), and none of
+the registry's members, so the registry's reader refuses it too
+(`Regula.RegistryCodec.validateRegistry`). Its status and reason identify it as a document of
+Regula, so a later run replaces it (`Regula.Destination.regulaDocument`). It stops with nothing
+written at a file that the job may not replace (`Regula.Destination.write`). -/
 def invalidateOutput (out : FilePath) (reason : String) : IO Unit :=
-  writeJson out (Json.mkObj [("status", .str "incomplete"), ("reason", .str reason)])
+  Regula.Destination.writeJson out
+    (Json.mkObj [("status", .str "incomplete"), ("reason", .str reason)])
 
 /-- The payload of a worker packet whose schema is 1 and whose producer, toolchain commit and
 request are this checker's and `request`; otherwise an error naming the mismatch. The received

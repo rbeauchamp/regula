@@ -1977,10 +1977,11 @@ def guide : RuleId → Guide
         "The toolchain owns a replacement, `extern`, unsafe or partial computation, or initialized \
           value declared in one of its own `Init`, `Std`, `Lean` or `Lake` modules, decided by \
           where Lean loaded that module from (the pinned toolchain's library, an observation of \
-          the probe), not by its name. Such a boundary is the toolchain's trusted base: it passes \
-          and is reported for the whole audit in the audit's toolchain trusted base, as one entry \
-          with every environment and root that reaches it or as a `partial` implementation that \
-          such an entry names.",
+          the probe after the import, which rests on no change to the files of Lean's search \
+          path in between), not by its name. Such a boundary is the toolchain's trusted base: it \
+          passes and is reported for the whole audit in the audit's toolchain trusted base, as \
+          one entry with every environment and root that reaches it or as a `partial` \
+          implementation that such an entry names.",
         "A `partial` implementation that a trusted boundary names as the code run in its place \
           is reported with that boundary where both are trusted and have the same owner (both \
           the toolchain's, or neither): the coverage counts take the two as one boundary, and \

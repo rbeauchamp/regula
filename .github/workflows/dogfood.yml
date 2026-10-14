@@ -12,6 +12,7 @@ on:
     paths:
       - lean/**
       - audit/**
+      - markdown/**
       - lakefile.lean
       - lake-manifest.json
       - lean-toolchain
@@ -54,6 +55,10 @@ jobs:
           persist-credentials: false
 
       - uses: ./.github/actions/provision
+        with:
+          # The shard 4/4 runs `qualify observers`, which loads the `markdown/` workspace and
+          # refuses unless its pinned MD4Lean is checked out: the Verso provisioning acquires it.
+          verso: ${{ matrix.campaign == 'diagnostics self-audit 4/4' && 'true' || 'false' }}
 
       - name: Check (same command and seven-minute limit as local)
         run: ./scripts/verify.sh ${{ matrix.campaign }}

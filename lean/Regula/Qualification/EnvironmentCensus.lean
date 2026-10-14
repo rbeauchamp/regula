@@ -15,14 +15,16 @@ namespace Regula.Qualification.EnvironmentCensus
 open Lean System Regula.Checker RegulaPolicy
 open scoped Regula.Report
 
-private def atomicWrite (path : FilePath) (value : Json) : IO Unit := do
-  let temporary := path.addExtension "pending"
-  IO.FS.writeFile temporary (value.compress ++ "\n")
-  Regula.Filesystem.replacePath temporary path
+/-- Write the packet of an environment at `path` beside the census, which is not a destination. -/
+private def atomicWrite (path : FilePath) (value : Json) : IO Unit :=
+  Regula.Filesystem.writeReplacing path (value.compress ++ "\n").toUTF8
 
+/-- Write the census of the attempt `attempt` at its destination `path`, with its packets, controls,
+status and, when one is given, the reason that the attempt stops. It stops with nothing written at
+a file that the run may not replace (`Regula.Destination.writeJson`). -/
 private def save (attempt : String) (path : FilePath) (packets records : Array Json)
     (status : String) (reason : Option String := none) : IO Unit :=
-  atomicWrite path <| Json.mkObj <| [
+  Regula.Destination.writeJson path <| Json.mkObj <| [
     ("attemptId", toJson attempt), ("schemaVersion", toJson (1 : Nat)), ("status", toJson status),
     ("packets", toJson packets), ("controls", toJson records)] ++
       (reason.map fun reason => [("reason", toJson reason)]).getD []
@@ -31,7 +33,6 @@ private def save (attempt : String) (path : FilePath) (packets records : Array J
 destination records why the attempt stops there. -/
 def beginAttempt (path : FilePath) (attempt : String) (reason : Option String := none) :
     IO Unit := do
-  if let some parent := path.parent then IO.FS.createDirAll parent
   save attempt path #[] #[] "incomplete" reason
 
 /-- Exercise actual native acquisition and the public freeze/finalization adapters.
@@ -40,7 +41,6 @@ Every report comes from the project audit's own acquisition (`Inspection.inspect
 checks run under a resource limit an earlier environment's process fixed (`Regula.Probe`).
 The command owns one existing outer deadline, including its incremental build observation. -/
 private unsafe def checkCore (attempt : String) (path : FilePath) : IO Unit := do
-  if let some parent := path.parent then IO.FS.createDirAll parent
   save attempt path #[] #[] "incomplete"
   let root ← rootDirectory
   -- The same search-path initialization as the audit's coordinator (`AxiomGate.entry`); the
@@ -276,7 +276,7 @@ unsafe def check (path : FilePath) (attempt : Option String := none) : IO Unit :
   try checkCore attempt path
   catch error =>
     let evidence ← Regula.Qualification.readJson path
-    atomicWrite path ((evidence.setObjVal! "status" (toJson "failed")).setObjVal!
+    Regula.Destination.writeJson path ((evidence.setObjVal! "status" (toJson "failed")).setObjVal!
       "failure" (toJson error.toString))
     throw error
 

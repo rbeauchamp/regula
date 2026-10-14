@@ -9,8 +9,10 @@ a file over another (`replacement`), and the operations that observe a place, de
 written once for the filesystem's operations in any monad (`Regula.Filesystem.Ops`). Regula runs
 them at the observer (`Regula.Filesystem`). No other code of Regula calls a removal primitive
 (`Regula.Removal.rawRemovals`), except the calls of Lean's library that
-`Regula.Removal.libraryRemovals` lists and the removals and moves of the two drivers that
-`Regula.ProgramCheck.Verification` and `Regula.ProgramCheck.Provision` name.
+`Regula.Removal.libraryRemovals` lists, the removals of `bv_decide` that
+`Regula.Removal.tacticRemovals` lists, which run as trusted active effects of a program that runs
+the tactic, and the removals and moves of the two drivers that `Regula.ProgramCheck.Verification`
+and `Regula.ProgramCheck.Provision` name.
 
 `IO.FS.removeDirAll` reads the entries of the path it is given, also when that path is a symbolic
 link to a directory, and then removes the entries of the link's target. A removal that first asks

@@ -110,7 +110,7 @@ run_cmd do
 
 -- The statements of the foundation axioms are the toolchain's: the constants this module was
 -- compiled against, loaded from the toolchain's library, are admitted (`admitFoundation`), and
--- each of the three is observed.
+-- each of the three is observed, under the hypotheses of `Regula.Collect.foundationObservations`.
 run_cmd do
   let observed ← Regula.Collect.foundationObservations (← Lean.getEnv)
   unless observed.size == RegulaPolicy.foundationStatements.size do
