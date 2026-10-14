@@ -661,13 +661,13 @@ act on the workspace that it was given, thus the same reason holds.
 
 Regula constructs its copies through `Regula.Filesystem`. The general routine refuses selected source links and special entries through metadata reads that follow no final link. It creates directories and regular files exclusively at their exact destinations. It places no packages link. This construction removes the limit about links preserved or placed by Regula's copies.
 
-`observer_copy` states the complete selected source receipt and the exact destination tree over the observer's filesystem model. `observer_construct` states the exact tree of generated instructions. `Construction.capture_io` connects captured subtrees to that model.
+`observer_copy` states the complete selected source receipt and the exact destination tree over the observer's filesystem model. Its observer lists through the program that `copy` locates one time (`copy_locates`). `observer_construct` states the exact tree of generated instructions. `Construction.capture_io` connects captured subtrees to that model.
 
 `observer_appendFile` includes ancestor admission when the leaf writer extends an established plain parent. Its initial tree is a precondition, not an authentication of arbitrary old entries. Errors can leave partial private output. Callers refuse that output before a Lake load. These theorems state entry kinds and locations, not byte fidelity, permissions or later process effects.
 
 Assumes: Lean `v4.34.1` uses POSIX lstat for `symlinkMetadata` (`Init/System/IO.lean:1151-1156`, `runtime/io.cpp:1160-1179`). Windows is refused because this read follows links there.
 
-Assumes: Directory enumeration reaches EOF without error (`Init/System/IO.lean:1141-1142`, `runtime/io.cpp:1076-1098`). This is trusted: the core wrapper does not distinguish EOF from an enumeration error.
+Assumes: An admitted listing program exits with a nonzero code after a failed read of a directory. [Assumptions of directory enumeration](#assumptions-of-directory-enumeration) gives the admitted programs, their sources and the controls.
 
 Assumes: Exclusive mkdir creates one empty directory (`runtime/io.cpp:1181-1195`). `Mode.writeNew` uses `O_EXCL` (`Init/System/IO.lean:651-660`, `runtime/io.cpp:409`).
 
@@ -6075,6 +6075,43 @@ The assumptions are for a POSIX system. On Windows, `symlinkMetadata` of Lean 4.
 symbolic link. Also, `realPath` gives the path that it got when it cannot find the real path
 ([`runtime/io.cpp#L1032-L1033`](https://github.com/leanprover/lean4/blob/v4.34.1/src/runtime/io.cpp#L1032-L1033)).
 Thus the observer refuses these two reads and each removal of a directory on Windows.
+
+### Assumptions of directory enumeration
+
+Lean `v4.34.1` reads a directory with `readdir` until it gives null, and then it returns the names that it has read ([`runtime/io.cpp#L1076-L1098`](https://github.com/leanprover/lean4/blob/v4.34.1/src/runtime/io.cpp#L1076-L1098)). A failed read also gives null, so `System.FilePath.readDir` can return fewer names and no error. Regula lists each directory through an admitted `ls` program instead, which `Construction.locate` selects. An admitted `ls` examines `errno` after each `readdir`, and it exits with a nonzero code after a failed read. `Construction.Enumerator.names` refuses unless the program exits with code 0 and writes no error text.
+
+A copy, the capture of a directory and a Git copy each locate the program one time and list each directory through it.
+
+The names of a listing decode exactly. `decodeListing_zero` states that the names that `ls --zero` writes decode to the stored names. `decodeListing_gnu` states the same for the escaped names of GNU `ls` 8.32. These theorems are about encoders written from the source of each program, not about the programs. `Enumerator.names` also refuses a name that is not UTF-8, a name with `/` or NUL, and the names `.` and `..`.
+
+`Construction.ReadsNames` is the hypothesis of the copy theorems about the names of a directory. It names these programs and sources:
+
+| Program | Options | Sources |
+| --- | --- | --- |
+| GNU coreutils `ls` 9.0 to 9.12 | `-A -U --zero` | `src/ls.c`: `print_dir`, `file_failure` and the `ZERO_OPTION` case, at [`v9.0`](https://github.com/coreutils/coreutils/blob/v9.0/src/ls.c#L3008-L3068) and [`v9.12`](https://github.com/coreutils/coreutils/blob/v9.12/src/ls.c#L3024-L3077) |
+| GNU coreutils `ls` 8.32 | `-1 -A -U --quoting-style=escape --show-control-chars --color=never --indicator-style=none` | [`src/ls.c`](https://github.com/coreutils/coreutils/blob/v8.32/src/ls.c#L2966-L3036) lines 2318-2319, 2847-2867 and 2966-3036, and gnulib `lib/quotearg.c` at `d279bc6d` |
+
+Regula admits a program only when its completeness and its report of a failed read rest on the source of the program itself. That source must be the source of the release that the first line of `ls --version` names exactly, as `gnuRelease?_sound` states. Regula refuses a later release with the reason, until a later Regula release reads it. Regula does not admit the `ls` of macOS, which reads directories through the `fts` functions of the system C library. Nothing that it reports names the release of that library. The [adoption guide](adoption.md#a-program-that-lists-directories) tells an adopter which program to install.
+
+Assumes: The program that Regula finds is the release that it identifies as. GNU `ls` gives its release in the first line of `ls --version`.
+
+Assumes: The kernel and the file system report each failed read of a directory to `readdir`, with an error other than `ENOENT`. POSIX.1-2024 `readdir()` sets `errno` on an error and keeps it unchanged at the end of a directory. Linux v6.8 ext4 reports a failed read of a block. It skips a block that fails its checksum and writes only a message to the kernel log.
+
+Regula trusts the exclusion of `ENOENT` because some releases of GNU `ls` do not report it. GNU `ls` 9.12 takes `ENOENT` as the end of a directory. GNU `ls` 9.6 to 9.11 do the same without glibc 2.3 or later. GNU `ls` 9.5 clears `ENOENT` after each `readdir`, at [`src/ls.c#L3064-L3066`](https://github.com/coreutils/coreutils/blob/v9.5/src/ls.c#L3064-L3066). Also, glibc 2.39 takes `ENOENT` as the end of a removed directory, at `sysdeps/unix/sysv/linux/readdir.c` lines 39-48. A removed directory has no names to miss.
+
+Three checks run the real code. `qualify enumeration` runs `Regula.Filesystem.copy` in a process that finds a stand-in `ls` first on `PATH`. The stand-in fails as GNU `ls` does after a failed read, or it exits with code 2 and writes no error text. Or it leaves out the last NUL, writes error text with exit code 0, or lists `..` or a name that is not UTF-8. The copy refuses each of these before it returns a receipt or writes at the destination. A complete listing of the stand-in is the receipt, and the real `ls` copies each file.
+
+`qualify enumeration-failure` makes a real failed read on a GitHub-hosted Linux runner. A device-mapper error target replaces one block of a large directory of an ext4 image. Then `ls` exits with a nonzero code, `readDir` returns fewer names without an error, and the copy refuses. Without the error target, the copy is complete. On other machines it reports that it is not supported, and it does not pass.
+
+`qualify readers` refuses if a declaration of a module of a package of the repository refers to `System.FilePath.readDir` or `System.FilePath.walkDir`. The packages are the directories of the Lake configuration files that Git tracks. Lake gives the modules of each library and executable of a package, also a module that no module imports, and builds them. The check then reads each compiled module. It does not read the root package's `Fixtures` library or a package below `examples/fixtures`, which are inputs of controls. Before it reads the packages, its controls refuse a planted reference in a package with no executable and in a module that no module imports.
+
+The step is a diagnostic of the repository's own checkout, and it runs after provisioning. It builds the modules of each package with Lake, as the other steps of `./scripts/verify.sh` do. So Lake can update or fetch a dependency there, as it does in those steps. Before it builds, the check refuses a package with a Git dependency that is not checked out. Each Lake process runs without the repository environment of Git, so an inherited `GIT_DIR` cannot select a different repository for Lake's Git commands.
+
+Assumes: Lean's native traversal of an expression, `Expr.foldConsts`, finds each constant in it ([`Lean/Util/FoldConsts.lean#L24-L53`](https://github.com/leanprover/lean4/blob/v4.34.1/src/Lean/Util/FoldConsts.lean#L24-L53)). Its logical body returns its initial value, so the theorem `readerReferences_eq_nil_iff` is about the filter over its result and not about the traversal.
+
+Lean and Lake read directories in two more places. `IO.FS.removeDirAll` lists a directory with `readDir` before it removes the directory ([`Init/System/IO.lean#L1335-L1342`](https://github.com/leanprover/lean4/blob/v4.34.1/src/Init/System/IO.lean#L1335-L1342)). After a failed read, entries remain, so its last `removeDir` fails and the removal stops with an error.
+
+Lake finds the modules of a glob with Lean's `forEachModuleInDir`, which uses `readDir`. Lake also reads the files of an `inputDir` target with `walkDir`. A failed read there gives Lake fewer modules or files without an error, and Regula trusts these reads of Lake.
 
 ### What the checker shows
 

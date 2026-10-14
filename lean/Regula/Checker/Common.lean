@@ -86,8 +86,10 @@ def exposeToolchainRoot (cwd output : FilePath) (root : String) : IO Unit := do
       let result ← runProcess cwd "ln" (#["-s"] ++ sources.map (·.toString) ++ #[directory.toString])
       if !result.succeeded then
         throw <| IO.userError s!"could not expose toolchain control: {result.output}"
-  link (((← toolchainLib.readDir).filter (·.fileName.startsWith s!"{root}.")).map (·.path)) output
-  link ((← (toolchainLib / root).readDir).map (·.path)) (output / root)
+  link (((← Regula.Filesystem.Construction.listDirectory toolchainLib).filter
+    (·.fileName.startsWith s!"{root}.")).map (·.path)) output
+  link ((← Regula.Filesystem.Construction.listDirectory (toolchainLib / root)).map (·.path))
+    (output / root)
 
 /-- The SHA-256 digest of the file at `path`, as 64 lowercase hexadecimal digits, computed in `cwd`
 by the trusted external `shasum -a 256`; any other output fails. -/

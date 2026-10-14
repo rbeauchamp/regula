@@ -1110,7 +1110,8 @@ private def bvCheckCertificates (repo scratch : FilePath) : IO (FilePath × File
     let result ← runProcess repo "lake" #["env", "lean", source.toString]
     unless result.succeeded do
       throw <| IO.userError s!"{name} LRAT setup failed: {result.output}"
-    let files := (← dir.readDir).filter (·.path.extension == some "lrat")
+    let files := (← Regula.Filesystem.Construction.listDirectory dir).filter
+      (·.path.extension == some "lrat")
     let [entry] := files.toList
       | throw <| IO.userError s!"{name} LRAT setup requires exactly one generated certificate"
     let path := entry.path
@@ -1767,7 +1768,8 @@ private def freshInput (project snapshot : FilePath) :
   let own (path : FilePath) : List String := path.normalize.components.drop base.length
   let lake := _root_.Lake.defaultLakeDir.toString
   let mut entries : Array (String × Option ByteArray) := #[]
-  for path in ← snapshot.walkDir (fun path => pure (own path != [lake])) do
+  for path in ← Regula.Filesystem.Construction.walkDirectory snapshot
+      (fun path => pure (own path != [lake])) do
     if own path == [lake] then continue
     let content ← if ← path.isDir then pure none else some <$> IO.FS.readBinFile path
     entries := entries.push ("/".intercalate (own path), content)
@@ -3034,7 +3036,8 @@ private unsafe def fenceEnvironmentQualification (layout : SourceLayout) (repo s
       IO.FS.createDirAll dir
       let placed ← prepareScratchRepo repo dir
       let build := dir / ".lake" / "build"
-      let outputs ← if ← build.pathExists then build.walkDir else pure #[]
+      let outputs ← if ← build.pathExists then Regula.Filesystem.Construction.walkDirectory build
+        else pure #[]
       let mut unexpected := #[]
       for path in outputs do
         unless (← path.isDir) || placed.contains path do unexpected := unexpected.push path
@@ -3434,7 +3437,7 @@ private def observerIdentityControl (repo : FilePath) : IO (Array String) :=
   -- The sources are copies: the audit admits a dependency's source only at a real path inside the
   -- package (`checkSource`).
   let sources := (repo / "lean").normalize.components.length
-  for path in ← (repo / "lean").walkDir do
+  for path in ← Regula.Filesystem.Construction.walkDirectory (repo / "lean") do
     if ← path.isDir then continue
     let destination :=
       (path.normalize.components.drop sources).foldl (· / FilePath.mk ·) (tool / "lean")
@@ -3442,7 +3445,8 @@ private def observerIdentityControl (repo : FilePath) : IO (Array String) :=
     IO.FS.writeBinFile destination (← IO.FS.readBinFile path)
   let compiled := tool / ".lake" / "build" / "lib" / "lean"
   IO.FS.createDirAll compiled
-  for entry in ← (repo / ".lake" / "build" / "lib" / "lean").readDir do
+  for entry in ← Regula.Filesystem.Construction.listDirectory
+      (repo / ".lake" / "build" / "lib" / "lean") do
     unless observerEntry entry.fileName do link entry.path (compiled / entry.fileName)
   Observer.placeRunning tool
   let snapshot ← Observer.running
@@ -3803,7 +3807,7 @@ private def driverCopyControl (repo : FilePath) : IO (Array String) :=
   failures := failures ++ expect "copy: a file of the project is missing"
     (← (copy / "Solo" / "Base.lean").pathExists)
   failures := failures ++ expect "copy: Lake state is not initially empty"
-    (← (copy / ".lake").readDir).isEmpty
+    (← Regula.Filesystem.Construction.listDirectory (copy / ".lake")).isEmpty
   failures := failures ++ expect "copy: no ownership marker" (← marker.pathExists)
   failures := failures ++ expect "copy: the run has no pending record of its own beside its copy"
     ((← IO.FS.readFile ((copy.parent.getD copy) / "acceptance-link.pending.json")).contains
@@ -3998,7 +4002,7 @@ private def retainedBuildControl (repo : FilePath) : IO (Array String) :=
   let mut artifacts := #[]
   for part in ["lib", "ir"] do
     unless ← (build / part).isDir do continue
-    for path in ← (build / part).walkDir do
+    for path in ← Regula.Filesystem.Construction.walkDirectory (build / part) do
       if (← path.symlinkMetadata).type == .file then
         artifacts := artifacts.push ("/".intercalate
           (path.normalize.components.drop build.normalize.components.length))

@@ -79,6 +79,26 @@ requires nothing beyond the Lean toolchain (no Mathlib, no Batteries) and import
 core libraries, so it never pins a package your project also uses, and a project with Mathlib
 keeps the Mathlib revision it pins.
 
+### A program that lists directories
+
+Regula reads the names in a directory through an `ls` program. Lean's `System.FilePath.readDir` cannot tell the end of a directory from a failed read. An admitted `ls` stops with a nonzero exit code after a failed read, and then Regula stops too. Regula admits a program only when the source of the program itself shows that it lists all names and reports a failed read. That source must be the source of the release that the first line of `ls --version` names exactly. Regula uses the first program of this table that it finds:
+
+| Platform | Program | Where to get it |
+| --- | --- | --- |
+| Linux and macOS | GNU coreutils `ls` 9.0 to 9.12, as `ls` or `gls` on `PATH` | Ubuntu 24.04 and Debian 12 have it. On macOS, `brew install coreutils` gives `gls`. |
+| Linux | GNU coreutils `ls` 8.32, as `ls` or `gls` on `PATH` | Ubuntu 22.04 and Debian 11 have it. |
+
+Regula does not admit the `ls` of macOS. It reads directories through the `fts` functions of the system C library, and nothing that it reports names the release of that library. On macOS, install GNU coreutils with Homebrew. If Regula finds no admitted program, it stops and gives the reason for each program that it examined. The [assumptions of the construction](proofs-and-boundaries.md#assumptions-of-directory-enumeration) give the source lines of each admitted release.
+
+Regula does not admit the default `ls` of these platforms. On them, install GNU coreutils `ls` of an admitted release, as `ls` or `gls` on `PATH`:
+
+- Ubuntu 25.10 and later. Their default `ls` is the `ls` of uutils coreutils.
+- Ubuntu 20.04 and RHEL 8. They have GNU coreutils 8.30.
+- Alpine Linux and the other systems that get `ls` from BusyBox.
+- macOS.
+
+Regula refuses a release of GNU coreutils that is later than `9.12`, the latest admitted release. Its reason gives the first line of `ls --version` that it refused. Use an admitted release until a later Regula release admits the new one.
+
 ### Load the elaboration observer
 
 Regula's elaboration observer is a Lean plugin. It records in each module's `.olean` the options

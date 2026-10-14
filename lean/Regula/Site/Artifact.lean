@@ -65,7 +65,7 @@ def render (root : FilePath) (destination : FilePath) (revision : String) : IO
   Regula.Filesystem.removeOwn .directory destination
   for dir in [website / ".lake/build/lib/lean", website / ".lake/build/ir"] do
     if ← dir.pathExists then
-      for entry in ← dir.readDir do
+      for entry in ← Regula.Filesystem.Construction.listDirectory dir do
         if entry.fileName.startsWith "RegulaStandard" then
           Regula.Filesystem.removeFound entry.path
   let built ← run website "lake" #["build"] cleanEnv

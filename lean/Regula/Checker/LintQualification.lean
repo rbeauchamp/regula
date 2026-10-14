@@ -1180,7 +1180,7 @@ private def tomlAudit (repo adopter : FilePath) : IO (Array String) := do
         "regula lint: INVALID CONFIGURATION"],
       excludes := #[s!"regula lint: {acceptanceLabel}"] }
     #["-d", adopter.toString, "--", "--bogus"])
-  let written := (← foreign.readDir).map (·.fileName) |>.filter
+  let written := (← Regula.Filesystem.Construction.listDirectory foreign).map (·.fileName) |>.filter
     (· ∉ ["lakefile.toml", "lean-toolchain"])
   unless written.isEmpty do
     failures := failures.push s!"lake-lint/toml/foreign-dir-unwritten: the driver wrote {written} \
@@ -2329,7 +2329,7 @@ private def pathEscapes (repo adopter : FilePath) : IO (Array String) := do
   IO.FS.writeFile claimed claimedSource
   -- The payloads' sources, and any compiled part a build left beside them.
   for directory in #[support, adopter] do
-    for entry in ← directory.readDir do
+    for entry in ← Regula.Filesystem.Construction.listDirectory directory do
       if entry.fileName.startsWith "Payload." then Regula.Filesystem.removePath .file entry.path
   -- The owned dependency's library selects its modules with `.submodules` of the anonymous name,
   -- the modules of its source directory `src`, and has no root: the glob names no module, so the

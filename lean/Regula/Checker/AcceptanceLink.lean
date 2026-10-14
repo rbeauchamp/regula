@@ -216,7 +216,7 @@ def treeFiles (root : FilePath) : IO (List String) := do
   let prefixLength := root.normalize.components.length
   let enter (path : FilePath) : IO Bool := pure (path.fileName != some ".lake")
   let mut files := #[]
-  for path in ← root.walkDir enter do
+  for path in ← Regula.Filesystem.Construction.walkDirectory root enter do
     let relative := path.normalize.components.drop prefixLength
     if relative.contains ".lake" then continue
     if (← path.symlinkMetadata).type == .file then

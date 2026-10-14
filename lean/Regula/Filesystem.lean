@@ -90,13 +90,14 @@ private def observer : Ops IO where
 construct them exclusively. Links and special entries are refused before they can be opened.
 `observer_copy` describes the exact resulting tree, under native primitive hypotheses.
 
-Assumes: Lean v4.34.1 lstat (`Init/System/IO.lean:1151-1156`, `runtime/io.cpp:1160-1179`),
-readDir (`Init/System/IO.lean:1141-1142`, `runtime/io.cpp:1076-1098`) reaches EOF without a readdir
-error (trusted: the core wrapper does not distinguish them), exclusive mkdir (`runtime/io.cpp:1181-1195`),
-and exclusive file creation (`Init/System/IO.lean:651-660`, `runtime/io.cpp:409`). The source
-and private destination have no concurrent writer. Windows is refused. Modes are not preserved:
-copied regular files receive 0644; callers explicitly set 0755 for a copied executable they run.
-Lake creates and sets modes on programs it builds. -/
+Assumes: Lean v4.34.1 lstat (`Init/System/IO.lean:1151-1156`, `runtime/io.cpp:1160-1179`), an
+admitted listing program that exits nonzero after a failed read of a directory
+(`Construction.ReadsNames` names each program `Construction.locate` admits, with its source),
+exclusive mkdir (`runtime/io.cpp:1181-1195`), and exclusive file creation
+(`Init/System/IO.lean:651-660`, `runtime/io.cpp:409`). The source and private destination have no
+concurrent writer. Windows is refused. Modes are not preserved: copied regular files receive 0644;
+callers explicitly set 0755 for a copied executable they run. Lake creates and sets modes on
+programs it builds. -/
 def copy (source target : FilePath) (selected : FilePath → Bool := fun _ => true) :
     IO (List Construction.Item) := Construction.copy source target selected
 
@@ -151,28 +152,47 @@ abbrev observedConstruction (entry : Void IO.RealWorld → FilePath → Option I
     (names : Void IO.RealWorld → FilePath → List String) : Construction.CopyModel :=
   Construction.CopyModel.ofIO observer Construction.observer rfl rfl entry real ident names
 
+/-- The construction observer that lists through `enumerator`, over precisely the existing
+filesystem model's IO worlds. -/
+abbrev locatedConstruction (enumerator : Construction.Enumerator)
+    (entry : Void IO.RealWorld → FilePath → Option IO.FS.FileType)
+    (real : Void IO.RealWorld → FilePath → Option FilePath)
+    (ident : Void IO.RealWorld → FilePath → Option FileId)
+    (names : Void IO.RealWorld → FilePath → List String) : Construction.CopyModel :=
+  Construction.CopyModel.ofIO observer enumerator.observer rfl rfl entry real ident names
+
+/-- `copy` locates its listing program once and runs the shared copy through it. -/
+theorem copy_locates (source target : FilePath) (selected : FilePath → Bool) :
+    copy source target selected =
+      (do Construction.copyWith (← Construction.locate).observer source target selected 4096) :=
+  rfl
+
 /-- The exact plain destination and complete selected source receipt of the actual copy callers
-run. All hypotheses describe native reads and exclusive creations; none asserts copy correctness.
+run, from the world that `Construction.locate` leaves once it gives `enumerator` (`copy_locates`).
+All hypotheses describe native reads and exclusive creations; none asserts copy correctness.
 Errors may leave a partial private destination and are never accepted. -/
-theorem observer_copy
+theorem observer_copy (enumerator : Construction.Enumerator)
     (entry : Void IO.RealWorld → FilePath → Option IO.FS.FileType)
     (real : Void IO.RealWorld → FilePath → Option FilePath)
     (ident : Void IO.RealWorld → FilePath → Option FileId)
     (names : Void IO.RealWorld → FilePath → List String)
-    (readsEntry : ReadsEntry (observedConstruction entry real ident names).filesystem)
-    (readsReal : ReadsReal (observedConstruction entry real ident names).filesystem)
-    (readsNames : Construction.ReadsNames (observedConstruction entry real ident names))
-    (readsBytes : Construction.ReadsBytes (observedConstruction entry real ident names))
-    (directories : Construction.CreatesDirectories (observedConstruction entry real ident names))
-    (files : Construction.CreatesFiles (observedConstruction entry real ident names))
+    (readsEntry : ReadsEntry (locatedConstruction enumerator entry real ident names).filesystem)
+    (readsReal : ReadsReal (locatedConstruction enumerator entry real ident names).filesystem)
+    (readsNames : Construction.ReadsNames (locatedConstruction enumerator entry real ident names))
+    (readsBytes : Construction.ReadsBytes (locatedConstruction enumerator entry real ident names))
+    (directories :
+      Construction.CreatesDirectories (locatedConstruction enumerator entry real ident names))
+    (files : Construction.CreatesFiles (locatedConstruction enumerator entry real ident names))
     (source target : FilePath) (selected : FilePath → Bool) (w : Void IO.RealWorld) :
-    RunsTo id (copy source target selected w)
+    RunsTo id (Construction.copyWith enumerator.observer source target selected 4096 w)
       (fun items after =>
-        Construction.Captured (observedConstruction entry real ident names) w selected source [] items ∧
-        Construction.Holds (observedConstruction entry real ident names).filesystem target items after)
+        Construction.Captured (locatedConstruction enumerator entry real ident names) w selected
+          source [] items ∧
+        Construction.Holds (locatedConstruction enumerator entry real ident names).filesystem target
+          items after)
       (fun _ _ => True) :=
   Construction.copy_io
-    (Construction.copy_corresponds_ofIO observer Construction.observer rfl rfl entry real ident names)
+    (Construction.copy_corresponds_ofIO observer enumerator.observer rfl rfl entry real ident names)
     readsEntry readsReal readsNames readsBytes directories files source target selected 4096 w
 
 /-- The exact plain tree of the generated-workspace function callers run, under the same native
@@ -463,7 +483,7 @@ a link, when no process makes one after this check, which is trusted. -/
 def requireNoLinkedEntries (path : FilePath) : IO Unit := do
   requireOwnDirectory path
   unless (← place path) matches .present .directory do return
-  for entry in ← path.readDir do
+  for entry in ← Regula.Filesystem.Construction.listDirectory path do
     unless (← place entry.path) matches .present .directory | .present .file do
       throw <| IO.userError s!"{entry.path} is not a directory or a file (a symbolic link or \
         another kind of entry is there)"

@@ -49,9 +49,11 @@ private def linkText (path : FilePath) : IO String := do
   unless out.exitCode == 0 do throw <| IO.userError s!"readlink {path} failed: {out.stderr}"
   return out.stdout
 
-/-- The names in the directory `path`, sorted. -/
+/-- The names in the directory `path`, sorted, listed through the admitted enumerator
+(`Regula.Filesystem.Construction.listNames`), so a failed read of the directory fails the control
+instead of returning fewer names. -/
 private def names (path : FilePath) : IO (List String) := do
-  return ((← path.readDir).map (·.fileName)).toList.mergeSort (· ≤ ·)
+  return (← Regula.Filesystem.Construction.listNames path).mergeSort (· ≤ ·)
 
 /-- Fail with `label` and `what` unless `holds`. -/
 private def require (label what : String) (holds : Bool) : IO Unit :=

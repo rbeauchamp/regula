@@ -683,7 +683,7 @@ def observe (root : FilePath) : IO Project := do
         for r in lib.roots do
           let dir := Lean.modToFilePath lib.srcDir r ""
           unless ← dir.isDir do continue
-          for path in ← dir.walkDir do
+          for path in ← Regula.Filesystem.Construction.walkDirectory dir do
             if path.extension != some "lean" || (← path.isDir) then continue
             let parts := (path.withExtension "").components.drop dir.components.length
             let name := parts.foldl Name.str r

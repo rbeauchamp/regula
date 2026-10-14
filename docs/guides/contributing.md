@@ -33,9 +33,10 @@ do not establish audit ownership.
 
 Provision [elan](https://github.com/leanprover/elan), the pinned toolchain
 and the website package's pinned Verso
-(`lean --run lean/RegulaProvision.lean verso`). Every copy also needs GNU coreutils timeout and ShellCheck
-before verification. On macOS, `brew install coreutils shellcheck` supplies the
-last two tools. Verification runs offline against those pinned dependencies. None of the
+(`lean --run lean/RegulaProvision.lean verso`). Before verification, each copy also requires GNU
+coreutils timeout, ShellCheck and an admitted `ls` program, which the
+[adoption guide](adoption.md#a-program-that-lists-directories) lists. On macOS,
+`brew install coreutils shellcheck` supplies these tools. Verification runs offline against those pinned dependencies. None of the
 commands below downloads, caches, imports or builds Mathlib; the
 [Mathlib integration check](#mathlib-integration-check) is a separate command with its own setup.
 
@@ -269,10 +270,12 @@ checker behavior:
 | `input-inventory` | Root additions and Markdown edits or removals during the prerequisite build of the checker, an actual new-module build and restored fresh controls (`qualify input-inventory`). |
 | `environment-census` | This repository's claimed environments and their mutations (`qualify environments`). |
 | `snapshot-history` | Fresh, incremental and build-lint history refusal and restoration over the dependency snapshot (`qualify acceptance-snapshots history`). |
-| `acceptance-controls` | Fence-compilation packet mutations with positive restoration, and the `dependencies` and `git-status` snapshot groups. Also timeout-selection and spawn failures, and the preparation of a shared producer slot. The commands are `qualify acceptance fences`, `acceptance-snapshots dependencies` and `git-status`, `receipt-boundaries` and `prep-measure`. |
+| `acceptance-controls` | Fence-compilation packet mutations with positive restoration, and the `dependencies` and `git-status` snapshot groups. Also timeout-selection and spawn failures, and the preparation of a shared producer slot. A stand-in listing program fails a listing, and the copy routine refuses before any receipt or write. The commands are `qualify acceptance fences`, `acceptance-snapshots dependencies` and `git-status`, `receipt-boundaries`, `prep-measure` and `enumeration`. |
 | `documentation-controls` | The two documentation commands keep their pre-build dependency observations. An initial configuration IO failure goes through the project and file result protocols. A fresh audit with the policy manifest `policy.json` passes the project-surface comparison. That comparison refuses a missing selection, an absent selected file and an ambiguous selection. The Verso package's pin check and input capture follow the packages Lake loads by path and the files Lake reads for them. A project's copy leaves out only the dependency directories in its packages directory, loads each through an override and refuses a file it would lose. The dependency inventory accepts a load that `LAKE_PKG_URL_MAP` redirects. The commands are `qualify documentation-dependencies`, `configuration-capture`, `verso-recorded-paths` and `copy-relocation`. |
 | `focused-controls` | The self-test's focused native-adopter, combined-snapshot and policy-transport controls (`checkerSelftest --native-adopter-only`, `--combined-snapshot-only`, `--policy-transport-only`). |
 | `policy-domain` | The self-test's focused policy-domain controls, the policy transport and the public paths (`checkerSelftest --policy-domain-only`). |
+| `enumeration-failure` | A failed read of a directory on a real ext4 file system, through a device-mapper error target (`qualify enumeration-failure`). `ls` reports it, Lean's `readDir` returns fewer entries, and the copy routine refuses. It runs only on a GitHub-hosted Linux runner, and elsewhere it reports that it is not supported. |
+| `readers` | Lake selects and builds each module of each package of the repository. Then `qualify readers` refuses a declaration that refers to `readDir` or `walkDir` ([proofs and boundaries](proofs-and-boundaries.md#assumptions-of-directory-enumeration)). Lake builds them as in the other steps, so it can update or fetch a dependency there. Scratch packages control the check first. Run it after `./scripts/verify.sh site`, with Verso and Mathlib provisioned: it refuses a package with a Git dependency that is not checked out. |
 
 The `environments` clean-checkout `freshChecker` control claims two import-free modules
 written into a copy with no build directory. It establishes that `freshChecker` builds its
@@ -314,8 +317,9 @@ every push to `main`, nightly and on dispatch. Its first job, `applies`
 decides which jobs apply. It runs the
 invocations that `Regula.DiagnosticsGate.campaigns` lists, and `applies` writes them for the matrix
 of the `campaign` job. These are `producers`, `history`, the shards of the structural, execution and
-lint-driver partitions of the self-test, and four groups of qualification controls. The other
-partitions and groups are too long for a job, and the table of
+lint-driver partitions of the self-test, and five groups of qualification controls. The other
+partitions and groups are too long for a job, except `readers`. No job has the generated website
+sources, Verso and a provisioned Mathlib together, which `readers` builds on. The table of
 [campaigns no workflow runs](#campaigns-no-workflow-runs) names them. They run as parallel jobs, each with its own hard 420-second limit, on a pull
 request exactly when it changes one of the paths `Regula.DiagnosticsGate.inputs` lists (the checker, rules, rule examples, the
 adopter fixtures in `examples/lake-lint-toml` and `examples/build-lint`, the Lake configuration
@@ -403,6 +407,7 @@ campaign that does not run. For a reason that names part of them, its text names
 | `./scripts/verify.sh diagnostics environment-census` | Too long for a job. Its check took 172 s, and a check of more than 85 s does not leave a quarter of the 420-second deadline. [Issue 391](https://github.com/rbeauchamp/regula/issues/391) is the work to divide it into shards. |
 | `./scripts/verify.sh diagnostics snapshot-history` | Too long for a job. Its check took 104 s, and a check of more than 85 s does not leave a quarter of the 420-second deadline. [Issue 391](https://github.com/rbeauchamp/regula/issues/391) is the work to divide it into shards. |
 | `./scripts/verify.sh diagnostics policy-domain` | Too long for a job. Its check took 158 s, and a check of more than 85 s does not leave a quarter of the 420-second deadline. [Issue 391](https://github.com/rbeauchamp/regula/issues/391) is the work to divide it into shards. |
+| `./scripts/verify.sh diagnostics readers` | No job has the three things that it builds on: the website sources that `./scripts/verify.sh site` generates, Verso and a provisioned Mathlib. |
 | `lake exe qualify registry` | Its controls run in `lake exe qualify combined`: `combined` runs `registry` first. |
 | `lake exe qualify native` | Its controls run in `lake exe qualify combined`: `combined` includes the `native` controls. |
 | `lake exe qualify unique-constants` | Its controls run in `lake exe qualify combined`: `combined` runs `unique-constants` beside `native`. |
@@ -424,6 +429,8 @@ campaign that does not run. For a reason that names part of them, its text names
 | `lake exe qualify frozen-exits` | Too long for a job. Its check took 240 s, and a check of more than 85 s does not leave a quarter of the 420-second deadline. [Issue 391](https://github.com/rbeauchamp/regula/issues/391) is the work to divide it into shards. |
 | `lake exe qualify documentation-source` | Too long for a job. Its check took 182 s, and a check of more than 85 s does not leave a quarter of the 420-second deadline. [Issue 391](https://github.com/rbeauchamp/regula/issues/391) is the work to divide it into shards. |
 | `lake exe qualify documentation-source --source-read-only` | Too long for a job. Its check took 202 s, and a check of more than 85 s does not leave a quarter of the 420-second deadline. [Issue 391](https://github.com/rbeauchamp/regula/issues/391) is the work to divide it into shards. |
+| `lake exe qualify enumeration-copy SOURCE TARGET` | An internal entry point that `lake exe qualify enumeration` starts. |
+| `lake exe qualify readers` | No job has the three things that it builds on: the website sources that `./scripts/verify.sh site` generates, Verso and a provisioned Mathlib. |
 | `lake exe checkerSelftest --forced-collector-only` | Too long for a job. Its check took 336 s, and a check of more than 85 s does not leave a quarter of the 420-second deadline. [Issue 391](https://github.com/rbeauchamp/regula/issues/391) is the work to divide it into shards. |
 | `lake exe checkerSelftest --policy-domain-only` | Too long for a job. Its check took 158 s, and a check of more than 85 s does not leave a quarter of the 420-second deadline. [Issue 391](https://github.com/rbeauchamp/regula/issues/391) is the work to divide it into shards. |
 | `lake exe checkerSelftest --fences-only` | The focused controls include the combined snapshot. The in-process and public fence corpora are controls of the fixtures and environments partitions. The shards of those partitions are too long for a job. |

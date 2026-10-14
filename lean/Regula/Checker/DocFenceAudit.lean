@@ -80,7 +80,7 @@ private def resolve (repo path : FilePath) : FilePath :=
 /-- The rendered HTML files below `root`, each by its path below it with its text. -/
 private def renderedHtml (root : FilePath) : IO (List (String × String)) := do
   let components := root.normalize.components
-  (← root.walkDir).toList.filterMapM fun path => do
+  (← Regula.Filesystem.Construction.walkDirectory root).toList.filterMapM fun path => do
     if path.extension != some "html" then return none
     let relative := "/".intercalate (path.normalize.components.drop components.length)
     return some (relative, ← IO.FS.readFile path)

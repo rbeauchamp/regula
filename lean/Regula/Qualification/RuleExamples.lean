@@ -494,7 +494,8 @@ and after production (`checkerBefore`, `checkerAfter`): the Lake-discovered root
 sources, the toolchain, Lake configuration and manifest, and every corpus file. The site builder
 recomputes this set to require that exported evidence belongs to the current sources. -/
 def sourcePaths (root : FilePath) (modulePaths : Array FilePath) : IO (Array FilePath) := do
-  let corpusPaths ← (← (root / "examples/rules").walkDir).filterM fun path => return !(← path.isDir)
+  let corpusPaths ← (← Regula.Filesystem.Construction.walkDirectory (root / "examples/rules")).filterM
+    fun path => return !(← path.isDir)
   return (modulePaths ++
       #[root / "lean-toolchain", root / "lakefile.lean", root / "lake-manifest.json"] ++
           corpusPaths).toList.eraseDups.toArray

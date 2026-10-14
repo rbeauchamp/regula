@@ -71,7 +71,7 @@ directory (`Regula.Filesystem.ownRoot`), then its marker, never following a link
 is reported, not fatal. -/
 private def reclaim (dir : FilePath) : IO Unit := do
   let mut reclaimed := 0
-  for entry in ← dir.readDir do
+  for entry in ← Regula.Filesystem.Construction.listDirectory dir do
     unless entry.path.extension == some markerExtension do continue
     let some name := entry.path.fileStem | continue
     let path := dir / name

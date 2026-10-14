@@ -137,6 +137,15 @@ inductive Command where
   | documentationSource
   /-- `documentation-source --source-read-only`. -/
   | documentationSourceReadOnly
+  /-- `enumeration`: the constructor refuses each failed listing of a stand-in program. -/
+  | enumeration
+  /-- `enumeration-copy SOURCE TARGET`: the worker of `enumeration`, one copy. -/
+  | enumerationCopy (source target : String)
+  /-- `enumeration-failure`: a failed read of a directory, injected through device-mapper. -/
+  | enumerationFailure
+  /-- `readers`: no declaration of a module of a package of the repository refers to Lean's
+  directory readers. -/
+  | readers
   deriving DecidableEq, Repr
 
 /-- The argument list of each selection. -/
@@ -176,6 +185,35 @@ def Command.arguments : Command → List String
   | .frozenExits => ["frozen-exits"]
   | .documentationSource => ["documentation-source"]
   | .documentationSourceReadOnly => ["documentation-source", "--source-read-only"]
+  | .enumeration => ["enumeration"]
+  | .enumerationCopy source target => ["enumeration-copy", source, target]
+  | .enumerationFailure => ["enumeration-failure"]
+  | .readers => ["readers"]
+
+/-- The selections from `prep-measure` on, which `Command.parse` tries after its own forms. A
+second match keeps each `split` of the proof `Command.parse_sound` within Lean's default heartbeat
+limit; together the two matches try the forms in the order of `Command`. -/
+def Command.parseLater : List String → Option Command
+  | ["prep-measure"] => some .prepMeasure
+  | ["documentation-dependencies"] => some .documentationDependencies
+  | ["input-inventory"] => some .inputInventory
+  | ["receipt-boundaries"] => some .receiptBoundaries
+  | ["observers"] => some .observers
+  | ["closure-evidence"] => some .closureEvidence
+  | ["configuration-capture"] => some .configurationCapture
+  | ["verso-recorded-paths"] => some .versoRecordedPaths
+  | ["copy-relocation"] => some .copyRelocation
+  | ["copy-relocation-load", project, copies] => some (.copyRelocationLoad project copies)
+  | ["copy-relocation-git", scratch] => some (.copyRelocationGit scratch)
+  | ["fence-evidence"] => some .fenceEvidence
+  | ["frozen-exits"] => some .frozenExits
+  | ["documentation-source"] => some .documentationSource
+  | ["documentation-source", "--source-read-only"] => some .documentationSourceReadOnly
+  | ["enumeration"] => some .enumeration
+  | ["enumeration-copy", source, target] => some (.enumerationCopy source target)
+  | ["enumeration-failure"] => some .enumerationFailure
+  | ["readers"] => some .readers
+  | _ => none
 
 /-- The selection an argument list names, the only parser of the dispatcher: unknown or extra
 arguments select nothing. -/
@@ -202,22 +240,7 @@ def Command.parse : List String → Option Command
   | ["acceptance", group, "--evidence", evidence] =>
       (AcceptanceGroup.parse group).map (.acceptance · evidence)
   | ["acceptance-snapshots", group] => (SnapshotGroup.parse group).map .acceptanceSnapshots
-  | ["prep-measure"] => some .prepMeasure
-  | ["documentation-dependencies"] => some .documentationDependencies
-  | ["input-inventory"] => some .inputInventory
-  | ["receipt-boundaries"] => some .receiptBoundaries
-  | ["observers"] => some .observers
-  | ["closure-evidence"] => some .closureEvidence
-  | ["configuration-capture"] => some .configurationCapture
-  | ["verso-recorded-paths"] => some .versoRecordedPaths
-  | ["copy-relocation"] => some .copyRelocation
-  | ["copy-relocation-load", project, copies] => some (.copyRelocationLoad project copies)
-  | ["copy-relocation-git", scratch] => some (.copyRelocationGit scratch)
-  | ["fence-evidence"] => some .fenceEvidence
-  | ["frozen-exits"] => some .frozenExits
-  | ["documentation-source"] => some .documentationSource
-  | ["documentation-source", "--source-read-only"] => some .documentationSourceReadOnly
-  | _ => none
+  | args => parseLater args
 
 /-- Every selection's argument list is accepted, as that selection. -/
 theorem Command.parse_arguments (command : Command) : parse command.arguments = some command := by
@@ -231,6 +254,13 @@ theorem SnapshotGroup.parse_sound {text : String} {group : SnapshotGroup}
     (h : parse text = some group) : text = group.spelling := by
   unfold parse at h; split at h <;> first | (cases h; rfl) | cases h
 
+/-- The later forms' parser accepts an argument list only as the list of the selection it returns.
+-/
+theorem Command.parseLater_sound {args : List String} {command : Command}
+    (h : parseLater args = some command) : args = command.arguments := by
+  unfold parseLater at h
+  split at h <;> first | (cases h; rfl) | cases h
+
 /-- The parser accepts an argument list only as the list of the selection it returns, so the
 dispatcher accepts nothing beyond `Command`'s forms. -/
 theorem Command.parse_sound {args : List String} {command : Command}
@@ -241,7 +271,7 @@ theorem Command.parse_sound {args : List String} {command : Command}
     simp [arguments, AcceptanceGroup.parse_sound hg]
   · obtain ⟨group, hg, rfl⟩ := Option.map_eq_some_iff.mp h
     simp [arguments, SnapshotGroup.parse_sound hg]
-  · cases h
+  · exact parseLater_sound h
 
 
 /-- The evidence document that a selection writes, by its format: the path that `--evidence`
@@ -275,9 +305,8 @@ def Command.evidence : Command → Option Evidence
   | .selfAuditJsonModule _ | .acceptanceSnapshots _ | .prepMeasure | .documentationDependencies
   | .inputInventory | .receiptBoundaries | .observers | .closureEvidence | .configurationCapture
   | .versoRecordedPaths | .copyRelocation | .copyRelocationLoad _ _ | .copyRelocationGit _
-  | .fenceEvidence | .frozenExits
-  | .documentationSource
-  | .documentationSourceReadOnly => none
+  | .fenceEvidence | .frozenExits | .documentationSource | .documentationSourceReadOnly
+  | .enumeration | .enumerationCopy _ _ | .enumerationFailure | .readers => none
 
 /-- The evidence document that an argument list names from its leading arguments, so that one the
 parser refuses for a later argument still has its document recognized: a selection's name, then

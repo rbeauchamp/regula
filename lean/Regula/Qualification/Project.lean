@@ -127,7 +127,7 @@ def rootImportsGuardControl (root scratch : FilePath) (sources : Array String) :
       else
         -- The directory holds `leanLibDir`, already copied; its own files join it one by one.
         Regula.Filesystem.Construction.ensureDirectory 4096 destination
-        for entry in ← place.readDir do
+        for entry in ← Regula.Filesystem.Construction.listDirectory place do
           unless ← entry.path.isDir do
             Regula.Filesystem.copyFile entry.path (destination / entry.fileName) 0o755
   requireRootImportsBuilt copy sources
