@@ -49,8 +49,9 @@ def run (root : FilePath) (command : String) (args : Array String)
 GNU timeout's own failure (125), a command that it found but could not run (126) or did not find
 (127), and 255, with which Lean's runtime ends a spawned process whose program it could not
 execute. The command that `qualify` starts is `qualify` itself, which ends with 0 or 1, or by a
-signal, which GNU timeout reports as 128 plus the signal's number (at most 192), or as 124 at the
-deadline. -/
+signal, which GNU timeout reports as 128 plus the signal's number (at most 192). At the deadline
+GNU timeout sends `SIGKILL` to its own process group, itself included (`--signal=KILL`), so the
+start ends by that signal, 137, and not with timeout's own status 124. -/
 def startupFailureStatuses : List UInt32 := [125, 126, 127, 255]
 
 /-- How many bytes of a bounded start's standard error `runBounded` keeps, from its start. -/
@@ -60,8 +61,10 @@ def keptErrorBytes : Nat := 16384
 the outer boundary, never for commands already under acceptance. SIGKILL terminates
 the timer, child, and descendants in its group, closing inherited output handles. The standard
 error of the start is forwarded as it arrives, and its first `keptErrorBytes` bytes are kept. A
-start that ends with one of `startupFailureStatuses` ran no command: the result is the error with
-that status and the kept text. Otherwise it is the command's exit status. -/
+write to this process's standard error that fails loses only that copy: the pipe is still read to
+its end and its text kept, so the start never waits on a full pipe. A start that ends with one of
+`startupFailureStatuses` ran no command: the result is the error with that status and the kept
+text. Otherwise it is the command's exit status. -/
 def runBounded (root : FilePath) (seconds : Nat) (command : String) (args : Array String) :
     IO (Except String UInt32) := do
   let timer ← timeoutCommand
@@ -76,8 +79,10 @@ def runBounded (root : FilePath) (seconds : Nat) (command : String) (args : Arra
     repeat
       let chunk ← child.stderr.read 4096
       if chunk.isEmpty then break
-      out.write chunk
-      out.flush
+      try
+        out.write chunk
+        out.flush
+      catch _ => pure ()
       kept := kept ++ chunk.extract 0 (keptErrorBytes - kept.size)
     return kept
   let status ← child.wait

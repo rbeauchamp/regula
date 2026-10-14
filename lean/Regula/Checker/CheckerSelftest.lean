@@ -3753,7 +3753,10 @@ lean/RegulaVerification.lean --copy-control`), in a project with one library and
 * With a symbolic link at `_site`, the driver's `--begin-attempt site` stops and the marked
   content of the target stays; a `_site` directory that holds no `build.json` of a build of the
   site makes it stop and keeps its files; and a `_site` directory whose `build.json` identifies
-  a build is removed (`RegulaVerification.siteRefusal`). -/
+  a build is removed (`RegulaVerification.siteRefusal`).
+* With a file that is not a document of Regula at `tmp/rule-examples.json` and at
+  `tmp/acceptance-link.json`, the driver's `--begin-attempt` stops with the reason of each and
+  each keeps its bytes (`RegulaVerification.ownershipRefusal`). -/
 private def driverCopyControl (repo : FilePath) : IO (Array String) :=
   withScratch repo "driver-copy-control" fun scratch => do
   let project := scratch / "project"
@@ -3937,6 +3940,22 @@ private def driverCopyControl (repo : FilePath) : IO (Array String) :=
     scrubbedLeanPathEnv
   failures := failures ++ expect "site: an earlier artifact was not removed"
     (removed.succeeded && !(← site.pathExists))
+  -- 5. Files that are not documents of Regula at the corpus receipt and at the acceptance link,
+  -- which the begin-attempt of the first acceptance step marks: it refuses each and keeps its
+  -- bytes.
+  let foreign := "# Notes\n\nNot a document of Regula.\n"
+  let receipt := project / "tmp" / "rule-examples.json"
+  let accepted := project / "tmp" / "acceptance-link.json"
+  IO.FS.createDirAll (project / "tmp")
+  IO.FS.writeFile receipt foreign
+  IO.FS.writeFile accepted foreign
+  let begun ← runProcess project "lean" #["--run", driver, "--begin-attempt"] scrubbedLeanPathEnv
+  failures := failures ++ expect "begin-attempt: a file that is not a document of Regula was \
+    replaced or not refused"
+    (!begun.succeeded &&
+      begun.output.contains "rule-examples.json is a file that is not a JSON document" &&
+      begun.output.contains "acceptance-link.json is a file that is not a JSON document" &&
+      (← IO.FS.readFile receipt) == foreign && (← IO.FS.readFile accepted) == foreign)
   return failures
 
 /-- External-boundary controls of the documentation step's reuse of the first acceptance step's
@@ -4511,8 +4530,9 @@ program runs (`Regula.TaskManager.guard`, `Regula.TaskManager.startedReason`).
 The verification wrapper, `scripts/verify.sh`, runs in a copy of its files with no `lean` on its
 `PATH`, after the export of the first corpus shard was recorded against the current sources with
 the text of `foundation_manifest.json` changed. Its attempt must stop with Bash's exit 127 before
-the driver runs, and leave that export, which the site's reader (`Site.Build.admitShard`) must then
-refuse.
+the driver runs, and leave that export and the corpus receipt `tmp/rule-examples.json` with their
+bytes, since no code of the attempt ran. The site's reader (`Site.Build.admitShard`) must then
+refuse the export.
 
 A run whose destination holds a file that is not a document of Regula is refused, and its mark
 writes nothing there (`Regula.Destination.write`, `Regula.Destination.refusal`), so the guard's mark
@@ -4744,10 +4764,11 @@ private def earlyStopControl (repo : FilePath) : IO (Option String) :=
             {result.output}"
     -- The verification wrapper, `scripts/verify.sh`, in a copy of its files, so that its `tmp` is
     -- the copy's. With no `lean` on its `PATH`, the first corpus shard's attempt stops before the
-    -- driver's begin-attempt (`RegulaVerification.beginAttempt`), so the export of an earlier
-    -- attempt stays. The export was recorded before `foundation_manifest.json` changed: the
-    -- current sources (`Site.Build.sourcePathsAt`) with that manifest's text changed. Right after
-    -- the stopped attempt, the site's reader (`Site.Build.admitShard`) must refuse it.
+    -- driver's begin-attempt (`RegulaVerification.beginAttempt`), so no code of the attempt runs:
+    -- the export of an earlier attempt and the corpus receipt (`RegulaVerification.corpusEvidence`)
+    -- each keep their bytes. The export was recorded before `foundation_manifest.json` changed:
+    -- the current sources (`Site.Build.sourcePathsAt`) with that manifest's text changed. Right
+    -- after the stopped attempt, the site's reader (`Site.Build.admitShard`) must refuse it.
     let wrapper := scratch / "wrapper"
     IO.FS.createDirAll (wrapper / "scripts")
     IO.FS.createDirAll (wrapper / "lean")
@@ -4768,6 +4789,9 @@ private def earlyStopControl (repo : FilePath) : IO (Option String) :=
       ("completeCorpus", .bool false), ("checkerBefore", earlier), ("checkerAfter", earlier),
       ("records", toJson (#[] : Array Json))])
     let seeded ← IO.FS.readBinFile shard
+    let receipt := wrapper / "tmp" / "rule-examples.json"
+    writeShard receipt
+    let receipted ← IO.FS.readBinFile receipt
     let shellPath := "/usr/bin:/bin"
     for directory in ["/usr/bin", "/bin"] do
       if ← (FilePath.mk directory / "lean").pathExists then
@@ -4776,10 +4800,11 @@ private def earlyStopControl (repo : FilePath) : IO (Option String) :=
     let stopped ← runProcess wrapper "/bin/bash"
       #[(wrapper / "scripts" / "verify.sh").toString, "diagnostics", "rule-examples", "1/3"]
       (env := #[("PATH", some shellPath)])
-    unless stopped.exitCode == 127 && (← IO.FS.readBinFile shard).data == seeded.data do
+    unless stopped.exitCode == 127 && (← IO.FS.readBinFile shard).data == seeded.data &&
+        (← IO.FS.readBinFile receipt).data == receipted.data do
       return some s!"early stop: scripts/verify.sh diagnostics rule-examples 1/3 with no lean on \
-        its PATH did not stop with exit 127 and leave the earlier shard export (exit \
-        {stopped.exitCode}):\n{stopped.output}"
+        its PATH did not stop with exit 127 and leave the earlier shard export and corpus receipt \
+        (exit {stopped.exitCode}):\n{stopped.output}"
     if ← shardAdmitted shard then
       return some s!"early stop: right after scripts/verify.sh stopped without lean, the site's \
         reader admitted a shard export recorded before {manifestPath} changed"

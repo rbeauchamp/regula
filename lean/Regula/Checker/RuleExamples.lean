@@ -215,7 +215,8 @@ private def productionIncomplete : UInt32 := 4
 return its exit code. An error stops it with the exit code of an incomplete production, and marks
 its result file incomplete with the error's text (`Production.markIncomplete`). The guard of the
 program marked that file before the program started (`Regula.TaskManager.guard`), so a production
-that stops before it writes leaves no earlier completed result there. -/
+that stops before it writes leaves no earlier completed result there, unless the writer refused
+that file (`Regula.Destination`): a symbolic link there, for one, keeps its target. -/
 private unsafe def ruleExamplesEntry (production : Option Regula.Checker.RuleExamples.Production) :
     IO UInt32 := do
   try

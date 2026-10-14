@@ -2038,10 +2038,10 @@ private unsafe def audit (plan : Plan) (failed : List String) : IO UInt32 := do
 /-- Run one `axiomGate` invocation and return its exit code. It reads its arguments once
 (`Invocation.of`) and marks each file of that reading incomplete, whether or not the invocation is
 admitted (`Invocation.markIncomplete`), so a run that stops before its write leaves no earlier
-completed output there. The internal forms then do only their job; any other invocation is an
-audit of its plan (`audit`), which refuses an invalid invocation whatever marking failed. An
-invocation that `Invocation.of` refuses marks the files that it may replace and returns the exit
-code of an invalid configuration, 2. A mark writes nothing at a file that is not Regula's
+completed output at a file that it marked. The internal forms then do only their job; any other
+invocation is an audit of its plan (`audit`), which refuses an invalid invocation whatever marking
+failed. An invocation that `Invocation.of` refuses marks the files that it may replace and returns
+the exit code of an invalid configuration, 2. A mark writes nothing at a file that is not Regula's
 (`Regula.Destination.write`). An audit returns the exit code of the result it recorded
 (`Lint.gateExitCode`), and `--help` and the internal forms 0 when they succeed. -/
 unsafe def run (args : List String) : IO UInt32 := do

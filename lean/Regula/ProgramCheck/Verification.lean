@@ -94,3 +94,42 @@ run_cmd do
   match outcome with
   | .ok () => pure ()
   | .error error => throwError "the control of a destination that names no file failed: {error}"
+
+-- A file that is not a document of Regula at the corpus receipt and at the acceptance link: the
+-- driver's writer (`RegulaVerification.writeDocument`) and its promotion of the pending record
+-- (`RegulaVerification.promote`) each refuse it and keep its bytes, and the promotion keeps the
+-- record. A mark of Regula there is replaced by each. The checker self-test runs the driver's
+-- begin-attempt, which writes the marks, against the same files (`driverCopyControl`).
+run_cmd do
+  let base ← Regula.Filesystem.ownTempDir
+  let outcome ← (do
+    let foreign := "# Notes\n\nNot a document of Regula.\n"
+    let receipt := base / "tmp" / "rule-examples.json"
+    let link := base / "tmp" / "acceptance-link.json"
+    let record := base / "acceptance-link.pending.json"
+    IO.FS.createDirAll (base / "tmp")
+    IO.FS.writeFile receipt foreign
+    IO.FS.writeFile link foreign
+    IO.FS.writeFile record RegulaVerification.incompleteLink
+    let refused (attempt : Except IO.Error Unit) : Bool := match attempt with
+      | .error error => (toString error).contains "is a file that is not a JSON document"
+      | .ok () => false
+    let written ← (RegulaVerification.writeDocument receipt RegulaVerification.setupMark).toBaseIO
+    let promoted ← (RegulaVerification.promote record link).toBaseIO
+    unless refused written && refused promoted && (← IO.FS.readFile receipt) == foreign &&
+        (← IO.FS.readFile link) == foreign && (← record.pathExists) do
+      throw <| IO.userError "the driver replaced, or did not refuse, a file that is not a \
+        document of Regula"
+    IO.FS.writeFile receipt RegulaVerification.incompleteLink
+    IO.FS.writeFile link RegulaVerification.setupMark
+    RegulaVerification.writeDocument receipt RegulaVerification.setupMark
+    RegulaVerification.promote record link
+    unless (← IO.FS.readFile receipt) == RegulaVerification.setupMark &&
+        (← IO.FS.readFile link) == RegulaVerification.incompleteLink && !(← record.pathExists) do
+      throw <| IO.userError "the driver did not replace a mark of Regula"
+    ).toBaseIO
+  Regula.Filesystem.removeOwn .directory base
+  match outcome with
+  | .ok () => pure ()
+  | .error error => throwError "the control of the driver's writes at a file that is not a \
+      document of Regula failed: {error}"

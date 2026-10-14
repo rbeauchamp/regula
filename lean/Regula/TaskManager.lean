@@ -30,11 +30,13 @@ starts through `guard`, and its refusal does neither (`Regula.TaskManagerCheck.c
 A run that has a task manager can stop early too, before it writes or marks a destination. So
 `guard` runs the refusal before every run as well, with the reason that the run has not completed
 (`startedReason`), before it enters the isolation: no code of the program runs before each
-destination is marked, and an earlier completed result never remains where a run that stopped
-early names one (issue 423). A program that starts again under the isolation marks them again in
-the same way. The renderers of the website are the exception: their refusals move nothing for
-`startedReason`, since a run that Verso starts keeps Verso's write behaviour and a resumed render
-reads the saved state of an earlier one. -/
+destination is marked, and an earlier completed result does not remain at a destination that a run
+which stopped early marked (issue 423). A destination that the writer refuses
+(`Regula.Destination`), such as a symbolic link, keeps what it holds, and a reader that follows the
+link still reads its target, which may hold an earlier completed result. A program that starts
+again under the isolation marks them again in the same way. The renderers of the website are the
+exception: their refusals move nothing for `startedReason`, since a run that Verso starts keeps
+Verso's write behaviour and a resumed render reads the saved state of an earlier one. -/
 
 namespace Regula.TaskManager
 
@@ -52,7 +54,10 @@ to standard error (`refusalLine`) and returns what `refuse` returns on the reaso
 `refuse` is the program's refusal: it marks each result destination of `args` incomplete, with the
 reason, and returns the program's exit code of a run that established no result. Otherwise `guard`
 runs `refuse` on `startedReason` and `args`, and discards the exit code that it returns, so each
-result destination of `args` is marked incomplete before any code of the program runs. Then it
+result destination of `args` that its writer admits (`Regula.Destination`) is marked incomplete
+before any code of the program runs. Two refusals are the exception: those of the website's
+renderers, `regula-site` and `regula-standard`, move nothing for `startedReason`, so an earlier
+render's output stays until Verso writes over it. Then it
 runs `run` on `args` under Git isolation (`Regula.GitIsolation.enter`), with `program` as the Lake
 executable name of the program: it returns what `run` returns when it runs here, or the exit status
 of the program started again under the isolation. When isolation is missing and the running
@@ -60,9 +65,9 @@ executable is not the one that Lake builds for `program`, such as under the Lean
 (`lean --run`), or when isolation is unavailable or did not take effect, it returns the same
 refusal with that reason. A leading `Regula.GitIsolation.restarted` is removed from `args` first
 (`Regula.GitIsolation.strip`), so neither `run` nor `refuse` reads it. A run that stops before it
-writes a destination, whatever stops it, thus leaves that destination marked incomplete, and a
-refusal, an early stop and a completed run take each destination from one reading, the refusal's,
-and mark it through one writer.
+writes a destination that `refuse` marked, whatever stops it, thus leaves it marked incomplete,
+and a refusal, an early stop and a completed run take each destination from one reading, the
+refusal's, and mark it through one writer.
 
 `Regula.TaskManagerCheck.checkProgram` requires a compiled program that needs the task manager or
 starts a process to define `main` as `guard` applied to a string literal and two constants, and its

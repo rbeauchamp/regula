@@ -15,8 +15,11 @@ Regula's own document. A mark is recognized by a signature of its own
 (`markSignatures`): the members that it holds and the value that marks it incomplete. Values are not
 read otherwise, except the mode `serializedGraph` of a serialized-graph result, so a document of an
 earlier version of Regula with these members stays recognized. A document of any kind is
-recognized, not only one of the kind that the destination holds: Regula regenerates each of its
-documents, so replacing one loses nothing that a later run cannot make again. -/
+recognized, not only one of the kind that the destination holds: Regula can make each document
+that it wrote again. The recognition reads the members of a file, not who wrote it, so a file in
+one of these forms that Regula did not write, such as a tracked fixture of the repository
+(`lean/Fixtures/ControlledProse/B1.refuse-entry.json`), is replaced too when a destination names
+it. -/
 
 namespace Regula.Destination
 
@@ -104,6 +107,39 @@ its kind (`completedSignatures`), or a mark (`markSignatures`). -/
 def regulaDocument (value : Json) : Bool :=
   completedSignatures.any (hasSignature value) || markSignatures.any (hasSignature value)
 
+/-- The name of a kind of entry in a reason to refuse a destination. -/
+def entryName : IO.FS.FileType → String
+  | .dir => "a directory"
+  | .file => "a regular file"
+  | .symlink => "a symbolic link"
+  | .other => "an entry that is not a directory, a regular file or a symbolic link"
+
+/-- The reason to refuse to write at `path`, if there is one, decided from what the reads of a
+writer observe there, each without following a link at `path`: `entry`, the type of the entry or
+the error of its read, and `contents`, the bytes of the regular file there or the error of their
+read, which a writer reads only for a regular file. It is the reason when something is at `path`
+and it is not a regular file that is empty or whose text is a JSON document of Regula
+(`regulaDocument`), or when the read of the entry fails other than for its absence. -/
+def ownershipDecision (path : System.FilePath) (entry : Except IO.Error IO.FS.FileType)
+    (contents : Except IO.Error ByteArray) : Option String :=
+  let refuse (what : String) : Option String := some s!"{path} is {what}, not a document that \
+    Regula wrote, so the run does not replace it"
+  match entry with
+  | .error (.noFileOrDirectory ..) => none
+  | .error error => some s!"{path} cannot be read without following a link ({error}), so the \
+      run does not replace it"
+  | .ok type =>
+    if type != .file then refuse (entryName type)
+    else match contents with
+      | .error error => refuse s!"a regular file that cannot be read ({error})"
+      | .ok bytes =>
+        if bytes.isEmpty then none
+        else match String.fromUTF8? bytes with
+          | none => refuse "a file that is not UTF-8 text"
+          | some text => match Json.parse text with
+            | .ok value => if regulaDocument value then none else refuse "a JSON document"
+            | .error _ => refuse "a file that is not a JSON document"
+
 /-- The names below the longest present prefix of a destination, as a write makes them: without
 `.` and empty names, each of which names the directory that it is in, or `none` when one of them is
 `..`. A `..` below an absent directory names a place that depends on what the run makes there, so a
@@ -125,5 +161,33 @@ def siteBuildMembers : List String := ["schemaVersion", "site", "producerVersion
 `siteBuildMembers`, whatever its value. -/
 def identifiesSiteBuild (value : Json) : Bool :=
   siteBuildMembers.all (has value)
+
+/-- Whether a directory holds an artifact of a build of the site or one that a build assembles,
+decided from what reads that follow no link observe in it: `marker`, whether the marker of an
+assembly (`siteAssemblingMarker`) is a regular file there, and `build`, the text of its
+`build.json` when that is a regular file that can be read, which identifies a build
+(`identifiesSiteBuild`). -/
+def holdsSiteArtifact (marker : Bool) (build : Option String) : Bool :=
+  marker || build.any fun text => (Json.parse text).toOption.any identifiesSiteBuild
+
+/-- The reason to refuse to replace or remove what is at `out`, the directory of a site artifact,
+if there is one, decided from what reads that follow no link at `out` observe: `entry`, the type of
+the entry or the error of its read; `holds`, whether the directory there holds an artifact
+(`holdsSiteArtifact`); and `empty`, whether it has no entry. It is the reason when something is at
+`out` and it is not a directory that holds an artifact or that is empty, or when the read of the
+entry fails other than for its absence. `consequence` is what the caller then does not do. -/
+def siteArtifactDecision (out : System.FilePath) (consequence : String)
+    (entry : Except IO.Error IO.FS.FileType) (holds empty : Bool) : Option String :=
+  match entry with
+  | .error (.noFileOrDirectory ..) => none
+  | .error error => some s!"{out} cannot be read without following a link ({error}), so \
+      {consequence}"
+  | .ok type =>
+    if type != .dir then
+      some s!"{out} is not a directory (a file, a symbolic link or a different kind of entry is \
+        there), so {consequence}"
+    else if holds || empty then none
+    else some s!"{out} is not empty and holds neither a build.json of a site that Regula built \
+      nor the marker {siteAssemblingMarker} of an assembly, so {consequence}"
 
 end Regula.Destination

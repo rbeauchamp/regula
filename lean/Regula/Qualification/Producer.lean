@@ -185,8 +185,9 @@ private def checkControls (evidence : Option FilePath) (jobs : Nat) : IO Unit :=
 /-- Run all source-bound producer controls (`checkControls`), on `jobs` workers. With `evidence`,
 the export there is first marked incomplete for the attempt `attempt`, or a fresh one
 (`beginAttempt`), as the other campaigns begin theirs; a run that fails marks it again with the
-error's text and then fails with that error. So no earlier completed export remains after a run
-that does not complete. -/
+error's text and then fails with that error. So no earlier completed export remains at `evidence`
+after a run that does not complete, unless the writer refuses `evidence` (`writeEvidence`): a
+symbolic link there, for one, keeps its target, which a reader that follows it still reads. -/
 def check (evidence : Option FilePath) (attempt : Option String := none) (jobs : Nat := 4) :
     IO Unit := do
   let some path := evidence | checkControls none jobs

@@ -127,7 +127,7 @@ Assumes:
 - `env` was imported in this process by `importModules` with no artifacts supplied, as
   `Regula.Checker.Environment.importReportEnvironment` imports the environment of each caller.
   Lean then read each module from the file that `Lean.findOLean` gave at the import
-  (`Lean/Environment.lean:2244-2246`).
+  (`loadData`, `Lean/Environment.lean:2231-2238`, and `readModuleDataPartsOfMod`, `:2078-2082`).
 - Between the import and this lookup, nothing changed that the lookup reads: the search path, and
   in each of its directories the directory or `.olean` file of the module's root, the module's
   `.olean` and the symbolic links on their paths. `Lean.SearchPath.findWithExt` reads the

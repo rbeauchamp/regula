@@ -911,10 +911,11 @@ at fixed paths that a selection writes. Examples are the report of `qualify nati
 the digest of a structural shard of the self-test.
 
 The refusal then marks each file of that reading incomplete, with the reason. It uses the writer
-that a run of the program operates first. Thus a result of an earlier run does not stay in place.
-A self-hosted digest has no incomplete form, thus the refusal removes it, as the run does first.
-The `diagnostics` gate then refuses it as missing. The refusal of `site build` removes the asset of
-a release, as the build does first, and the output directory only if it holds an artifact.
+that a run of the program operates first. Thus a result of an earlier run does not stay at a
+destination that the writer marks. A self-hosted digest has no incomplete form, thus the refusal
+removes it, as the run does first. The `diagnostics` gate then refuses it as missing. The refusal
+of `site build` removes the asset of a release, as the build does, and the output directory only if
+it holds an artifact.
 
 The refusal then gives the exit code of an incomplete run. For `axiomGate` and `lint`, that
 code is 3. A program that writes no result file marks no file.
@@ -922,9 +923,9 @@ code is 3. A program that writes no result file marks no file.
 A run with a task manager can also stop early. An example is a run that cannot find `lean` to
 initialize the search path of Lean. Thus the guard also operates the refusal before each run, with
 the reason that `Regula.TaskManager.startedReason` gives. It discards the exit code of the
-refusal, and then it operates the program. Thus each destination is marked incomplete before code
-of the program operates. If the run then stops before it writes a destination, the reader of the
-destination refuses the marked document.
+refusal, and then it operates the program. Thus each destination that the writer accepts is marked
+incomplete before code of the program operates. If the run then stops before it writes a
+destination, the reader of the destination refuses the marked document.
 
 The refusals of `regula-site` and `regula-standard` move nothing for that reason, since a run that
 Verso starts keeps the write behaviour of Verso.
@@ -940,7 +941,8 @@ A command of `qualify` without `--under-deadline` marks its evidence, and then i
 timeout and starts the command under it. If that selection or that start fails, the command marks
 its evidence again with the text of the error. A start can also end with a status that shows that
 no command operated. GNU timeout gives 125, 126 or 127, and Lean gives 255 when it cannot operate
-GNU timeout. The command itself ends with 0, 1, the status of a signal or 124 at the deadline. So
+GNU timeout. The command itself ends with 0, 1 or the status of a signal, for example 137 when GNU
+timeout kills it at the deadline. So
 for the four other statuses the program marks its evidence with the status and the standard error.
 
 A command of `qualify` with `--under-deadline` marks its evidence first too. If the rest of its
@@ -955,7 +957,9 @@ also stays whole until the move.
 Second, a write stops with nothing written if the destination holds a file that the run may not
 replace. The run may replace an empty regular file or a JSON document of Regula of any kind. An
 empty file holds no bytes to lose, so a destination that `mktemp` made stays usable. A symbolic
-link, a directory, a source file, a configuration file and a Markdown document keep their bytes.
+link, a directory, a source file, a configuration file and a Markdown document keep their bytes. A
+reader that follows a refused symbolic link still reads the file at its target, which can hold an
+earlier completed result.
 
 The function `Regula.Destination.regulaDocument` decides if a JSON document is Regula's. Each kind
 of completed document has a signature in `completedSignatures`: the members that its readers
@@ -970,8 +974,9 @@ result requires `request` when `mode` is not `null`. The gate writes a result wi
 adds its request, and then replaces that result through the same check. So the signature of a
 result leaves `request` out, since it would refuse the gate's own result.
 
-A run may replace a document of Regula of a different kind from the one that it writes. Regula
-regenerates each of its documents, so a later run can make the replaced document again. The third
+A run may replace a document of Regula of a different kind from the one that it writes. Regula can
+make each document that it wrote again. But the check reads only the members of a file, so a
+tracked fixture in a format of Regula is replaceable too. The third
 rule keeps the destinations of one run from replacing each other. A few kinds are identified by two
 or three members, such as `receipt` and `origins` for a published admission. A JSON file of a
 different tool with those members is thus replaceable too.
@@ -1036,8 +1041,8 @@ compares the entries that `Regula.Destination.place` finds, folding ASCII case. 
 present prefix holds a character outside ASCII, the check compares the prefixes alone. It decides
 overlap before ownership, so two names of one entry get that reason whatever the entry holds. A
 program first marks each destination that it may replace, and then it refuses the run if a rule
-refuses a destination. Thus a refused run leaves no earlier result at a destination, and a file that
-is not a document of Regula keeps its bytes.
+refuses a destination. Thus a refused run leaves no earlier result at a destination that it marked,
+and a destination that a rule refuses keeps what it holds.
 
 These rules take the place of lists of the files that each program reads. Such lists missed the
 build outputs that Lake names and the modules that Lake loads later. Thus no program refuses a
@@ -1045,10 +1050,10 @@ destination by its extension. The rules assume that no other process changes a d
 the check and the move.
 
 The option `--out` of `site build` names a directory that the build removes and then writes. The
-build refuses an `--out` that holds a file, or a directory that holds something other than an
-artifact of a build. An artifact holds a `build.json` with the identity of a build. While a build
-assembles it, it holds the marker `.regula-site-assembling` instead. The build replaces an empty
-directory.
+build refuses an `--out` that holds a file, or a directory that is not empty and holds no artifact
+of a build. An artifact holds a `build.json` with the identity of a build. While a build assembles
+it, it holds the marker `.regula-site-assembling` instead. The build replaces an empty directory,
+and it replaces a directory with an artifact as a whole, with all other content in it.
 
 The option `--write-baseline` of `regula-markdown` writes `prose-baseline.json`, but first it reads
 the earlier baseline in that file. Thus the mark of that file holds the text of the earlier

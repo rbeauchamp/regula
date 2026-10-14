@@ -8,7 +8,10 @@ A planted program whose `main` calls a removal primitive fails the check that ea
 package runs at the end of its root module or of a module that imports it
 (`Regula.Removal.checkProgram`), and the same program with its removal made by the filesystem
 observer passes it. A planted program that writes a file fails it too, and so does one that opens a
-file to write it; one that opens a file to read it passes it. A planted declaration with the
+file to write it; one that opens a file to read it passes it. Of two planted declarations with the
+same loop, the second calls the specialization that the compiler made for the first: naming the
+first for the loop's removal leaves the second's call refused, and naming both admits the program
+(`Regula.Removal.attributions`). A planted declaration with the
 filesystem observer's role admits nothing, and the check refuses a program while one is
 declared outside `Regula.Filesystem` (`Regula.Removal.foreignObservers`). A planted program whose
 `main` refers to Lean's elaborator in its compiled code, without calling it, fails the check that
@@ -70,7 +73,8 @@ which needs the execution of initializers enabled. Lean runs the initializers of
 once in a process (`Lean/Compiler/InitAttr.lean:176-180`), so those of the modules that this build
 already imported do not run again. -/
 unsafe def refusal (value : Expr) (setup : CommandElabM Unit := pure ())
-    (elaborates : Bool := false) : CommandElabM (Option String) := do
+    (elaborates : Bool := false) (named : List (Name × Name) := []) :
+    CommandElabM (Option String) := do
   enableInitializersExecution
   let planted ← liftM <| importModules plantedImports {} 0 (loadExts := true)
   withoutModifyingEnv do
@@ -81,7 +85,7 @@ unsafe def refusal (value : Expr) (setup : CommandElabM Unit := pure ())
         name := `main, levelParams := [], type := mkApp (mkConst ``IO) (mkConst ``Unit), value,
         hints := .opaque, safety := .safe })
     try
-      Regula.Removal.checkProgram (elaborates := elaborates)
+      Regula.Removal.checkProgram named elaborates
       return none
     catch error => return some (← error.toMessageData.toString)
 
@@ -111,6 +115,40 @@ run_cmd do
   if let some refused ← refusal planted (plant (← `(discard <| IO.FS.Handle.mk "planted" .read)))
   then
     throwError "the check refused a program whose main opens a file to read it: {refused}"
+
+-- Two declarations with the same loop share the specialization that the compiler made for the
+-- first: the second calls it. Naming the first for the loop's removal admits its call and not the
+-- second's, which the check refuses; naming the second too admits the program, and neither pair is
+-- unused.
+run_cmd do
+  let current ← getCurrNamespace
+  let first := current ++ `plantedNamed
+  let second := current ++ `plantedOther
+  let plant : CommandElabM Unit := do
+    for name in [`plantedNamed, `plantedOther] do
+      elabCommand (← `(command|
+        @[noinline] def $(mkIdent name) (paths : List System.FilePath) : IO Unit := do
+          for path in paths do IO.FS.removeFile (path / "planted-shared")))
+    elabCommand (← `(command| def $(mkIdent `plantedShared) : IO Unit := do
+      $(mkIdent `plantedNamed):ident ["planted"]
+      $(mkIdent `plantedOther):ident ["planted"]))
+    let env ← getEnv
+    let some decl := Lean.IR.findEnvDecl env second
+      | throwError "the compiled code of {second} is not available"
+    unless (Lean.IR.collectUsedDecls env [decl]).any
+        (Regula.Removal.auxiliarySource env · == some first) do
+      throwError "{second} calls no specialization made in {first}, so this control does not \
+        exercise shared code: {Lean.IR.collectUsedDecls env [decl]}"
+  let planted := mkConst (current ++ `plantedShared)
+  let shared ← refusal planted plant (named := [(first, ``IO.FS.removeFile)])
+  unless shared.any (·.contains s!"{second} calls IO.FS.removeFile") &&
+      !shared.any (·.contains s!"{first} calls") do
+    throwError "the check did not refuse, as the call of {second} alone, the removal in the \
+      specialization that {second} shares with the named {first}: {shared}"
+  if let some refused ← refusal planted plant
+      (named := [(first, ``IO.FS.removeFile), (second, ``IO.FS.removeFile)]) then
+    throwError "the check refused a program that names each declaration that reaches a shared \
+      specialization's removal: {refused}"
 
 -- A `main` whose compiled code refers to Lean's elaborator, storing it without calling it, fails the
 -- check that states that it does not elaborate, and passes the one that states that it does: the

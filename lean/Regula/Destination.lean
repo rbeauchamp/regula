@@ -19,14 +19,17 @@ from losing a file that is not Regula's, whatever files the run reads:
   than nothing, an empty regular file, or a regular file whose text is a document that one of
   Regula's readers identifies as Regula's (`ownershipRefusal`, `regulaDocument`). A file that holds
   bytes and is not such a document, such as a source, a configuration file or a Markdown document,
-  is thus never replaced. The program marks its other destinations, then refuses the run
-  (`refusal`).
+  is thus never replaced. A symbolic link there is refused too, so nothing is written through it,
+  and a reader that follows it still reads the file at its target, which may be an earlier
+  completed result. The program marks its other destinations, then refuses the run (`refusal`).
 - A program refuses an invocation two of whose destinations may be one entry (`sameEntry`), after
   it marks them.
 
 A document of Regula of any kind is replaceable, not only one of the kind that the destination
-holds: Regula regenerates each of its documents, so replacing one loses nothing that a later run
-cannot make again. The last rule keeps the destinations of one run from replacing each other. An
+holds: Regula can make each document that it wrote again. The rules read the members of a file,
+not who wrote it, so a file in one of Regula's forms that Regula did not write, such as a tracked
+fixture of the repository, is replaced too when a destination names it. The last rule keeps the
+destinations of one run from replacing each other. An
 empty file is replaced: it holds no bytes to lose, and a destination that `mktemp` made is such a
 file. -/
 
@@ -44,36 +47,18 @@ def earlierResult : String :=
     \"status\":\"completed\",\"diagnostics\":[],\"unresolved\":[],\"sourceTexts\":[],\
     \"stages\":[],\"stagesCompleted\":[],\"complete\":true,\"stagesNotRun\":[],\"rules\":[]}\n"
 
-/-- The name of a kind of entry in a reason to refuse a destination. -/
-private def entryName : IO.FS.FileType → String
-  | .dir => "a directory"
-  | .file => "a regular file"
-  | .symlink => "a symbolic link"
-  | .other => "an entry that is not a directory, a regular file or a symbolic link"
-
-/-- The reason to refuse to write at `path`, if there is one: something is there, by a read that
-follows no link (`Regula.Filesystem.observeMetadata`), and it is not a regular file that is empty
-or whose text is a JSON document that one of Regula's readers identifies as Regula's
-(`regulaDocument`). An error of that read other than the absence of the entry is a reason too. An
-empty file holds no bytes to lose, so a destination that `mktemp` made is replaced; an empty input
-named as a destination is replaced as well. -/
+/-- The reason to refuse to write at `path`, if there is one (`ownershipDecision`): something is
+there, by a read that follows no link (`Regula.Filesystem.observeMetadata`), and it is not a
+regular file that is empty or whose text is a JSON document that one of Regula's readers identifies
+as Regula's (`regulaDocument`). An error of that read other than the absence of the entry is a
+reason too. It reads the bytes of a regular file alone. An empty file holds no bytes to lose, so a
+destination that `mktemp` made is replaced; an empty input named as a destination is replaced as
+well. -/
 def ownershipRefusal (path : FilePath) : IO (Option String) := do
-  let refuse (what : String) : Option String := some s!"{path} is {what}, not a document that \
-    Regula wrote, so the run does not replace it"
-  match ← (Regula.Filesystem.observeMetadata path).toBaseIO with
-  | .error (.noFileOrDirectory ..) => return none
-  | .error error => return some s!"{path} cannot be read without following a link ({error}), \
-      so the run does not replace it"
-  | .ok metadata =>
-    unless metadata.type == .file do return refuse (entryName metadata.type)
-    match ← (IO.FS.readBinFile path).toBaseIO with
-    | .error error => return refuse s!"a regular file that cannot be read ({error})"
-    | .ok bytes =>
-      if bytes.isEmpty then return none
-      let some text := String.fromUTF8? bytes | return refuse "a file that is not UTF-8 text"
-      match Json.parse text with
-      | .ok value => return if regulaDocument value then none else refuse "a JSON document"
-      | .error _ => return refuse "a file that is not a JSON document"
+  let entry ← (IO.FS.Metadata.type <$> Regula.Filesystem.observeMetadata path).toBaseIO
+  let contents ←
+    (if entry matches .ok .file then IO.FS.readBinFile path else pure .empty).toBaseIO
+  return ownershipDecision path entry contents
 
 /-- The entry that a destination names, by `place`: the real path of its longest present prefix and
 the names below it. -/
