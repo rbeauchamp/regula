@@ -442,8 +442,11 @@ def invalidateArtifact (out : FilePath) : IO FilePath := do
 release's asset as `invalidateArtifact` does, and remove the directory `out` only when it holds an
 artifact (`holdsArtifact`). What `invalidateArtifact` would also remove, an empty directory, holds
 no artifact, and anything else stays where it is. It stops with nothing removed at `out` when what
-is there cannot be read without following a link. It lists no directory, so a process without
-Lean's task manager can run it, as the check of the program's refusal requires
+is there cannot be read without following a link. It does not use the shared enumerator
+(`Regula.Filesystem.Construction.listDirectory`), which reads a listing program's output in a
+task: it decides by `holdsArtifact`, and its removal of `out` (`Regula.Filesystem.removeOwn`)
+traverses the directory with Lean's synchronous `IO.FS.removeDirAll`. So a process without Lean's
+task manager can run it, as the check of the program's refusal requires
 (`Regula.TaskManagerCheck.checkProgram`). -/
 def invalidateRefused (out : FilePath) : IO Unit := do
   let out ← invalidateAsset out
