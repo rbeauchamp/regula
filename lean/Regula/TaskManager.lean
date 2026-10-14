@@ -1,6 +1,7 @@
 import Regula.Probe
+import Regula.GitIsolation
 
-/-! # The refusal of a program without Lean's task manager
+/-! # The refusal of a program without Lean's task manager, and its start under Git isolation
 
 A Lean program runs its tasks on the threads of Lean's task manager. A compiled program starts the
 task manager after the initializers of its modules and before `main`, with the number of threads
@@ -14,9 +15,17 @@ that no completed run established (issue 393).
 own scheduling of a task. `guard` runs a program only when it has one. Otherwise it refuses before
 the program starts: it prints one reason line and runs the program's own refusal, which marks each
 result destination that the arguments name incomplete, with the reason, and returns the program's
-exit code of a run that established no result. Each compiled program of the package whose code
-reaches a function of the runtime that needs the task manager starts through `guard`, and its
-refusal needs no task manager (`Regula.TaskManagerCheck.checkProgram`). -/
+exit code of a run that established no result.
+
+With a task manager, `guard` starts the program under Git isolation (`Regula.GitIsolation.enter`):
+it runs here when its environment is isolated. When isolation is missing and the running executable
+is the file that Lake builds for the program, it starts again once under the isolation, which the
+Git commands of Lake in this process and in every process it starts inherit. When isolation is
+missing in any other process, such as one that the Lean frontend runs (`lean --run`), a plugin of
+`lean` or a renamed copy of the executable, or when isolation is unavailable or does not take
+effect, `guard` refuses the same way, with that reason. Each compiled program of the package whose
+code reaches a function of the runtime that needs the task manager, or that starts a process,
+starts through `guard`, and its refusal does neither (`Regula.TaskManagerCheck.checkProgram`). -/
 
 namespace Regula.TaskManager
 
@@ -29,11 +38,19 @@ no task manager (`Regula.Probe.taskManagerMissing`): `guard` then prints the rea
 to standard error (`refusalLine`) and returns what `refuse` returns on the reason and `args`.
 `refuse` is the program's refusal: it marks each result destination of `args` incomplete, with the
 reason, and returns the program's exit code of a run that established no result. Otherwise `guard`
-returns what `run` returns on `args`.
+runs `run` on `args` under Git isolation (`Regula.GitIsolation.enter`), with `program` as the Lake
+executable name of the program: it returns what `run` returns when it runs here, or the exit status
+of the program started again under the isolation. When isolation is missing and the running
+executable is not the one that Lake builds for `program`, such as under the Lean frontend
+(`lean --run`), or when isolation is unavailable or did not take effect, it returns the same
+refusal with that reason. A leading `Regula.GitIsolation.restarted` is removed from `args` first
+(`Regula.GitIsolation.strip`), so neither `run` nor `refuse` reads it.
 
-`Regula.TaskManagerCheck.checkProgram` requires a compiled program that needs the task manager to
-define `main` as `guard` applied to a string literal and two constants, and its refusal to need no
-task manager.
+`Regula.TaskManagerCheck.checkProgram` requires a compiled program that needs the task manager or
+starts a process to define `main` as `guard` applied to a string literal and two constants, and its
+refusal to need no task manager and to start no process. The qualification of the package's
+programs (`Regula.Qualification.Observers`) requires that literal to be the executable name that
+Lake's loaded workspace declares for the program's root.
 
 Assumes: Lean 4.34.1's compiled `main` runs the initializer of the program's root module, which
 runs those of the modules it imports, then `lean_io_mark_end_initialization` and only then
@@ -47,10 +64,15 @@ initializer's thread before the call returns (`lean_task_spawn_core`,
 completed, and `LEAN_NUM_THREADS` changes nothing that runs before it. -/
 def guard (program : String) (refuse : String → List String → IO UInt32)
     (run : List String → IO UInt32) (args : List String) : IO UInt32 := do
+  let (again, args) := Regula.GitIsolation.strip args
   if let some reason ← Regula.Probe.taskManagerMissing then
     IO.eprintln (refusalLine program reason)
     refuse reason args
   else
-    run args
+    match ← Regula.GitIsolation.enter program again run args with
+    | .ok status => return status
+    | .error reason =>
+      IO.eprintln (refusalLine program reason)
+      refuse reason args
 
 end Regula.TaskManager

@@ -387,14 +387,23 @@ private def require (cwd : FilePath) (cmd : String) (args : Array String) : IO S
       failed ({ran.exitCode}): {ran.stderr.trimAscii}"
   return ran.stdout
 
-/-- Run with inherited output, for long steps whose progress the user should see. -/
-private def stream (cwd : FilePath) (cmd : String) (args : Array String)
-    (env : Array (String × Option String) := #[]) : IO Unit := do
-  let (args, env) ← if cmd == "git" then
-      pure (#["-c", "core.symlinks=false"] ++ args, env ++ (← gitEnvironment))
-    else pure (args, env)
+/-- The Git isolation of the Lake commands this program starts
+(`Regula.Filesystem.Construction.isolationEnvironment`), obtained as `gitEnvironment` obtains the
+Git environment, from the same embedded source (`construction`). Each Lake command receives it
+(`stream`), so the Git commands that Lake starts for it, and those of the programs it runs,
+inherit it.
+
+Assumes: as for `gitEnvironment`; Construction.isolationEnvironment documents the Git and OS
+assumptions. -/
+private def isolationEnvironment : IO (Array (String × Option String)) :=
+  construction "Git isolation" #["process-environment", "", ""]
+
+/-- Run a Lake command with inherited output, for long steps whose progress the user should see,
+under the Git isolation `isolation` (`isolationEnvironment`). -/
+private def stream (isolation : Array (String × Option String)) (cwd : FilePath) (cmd : String)
+    (args : Array String) : IO Unit := do
   let child ← IO.Process.spawn {
-    cmd, args, env := env.push ("GHCR_TOKEN", none), cwd := some cwd,
+    cmd, args, env := isolation.push ("GHCR_TOKEN", none), cwd := some cwd,
     stdin := .null, stdout := .inherit, stderr := .inherit }
   let exit ← child.wait
   unless exit == 0 do
@@ -410,8 +419,9 @@ private def nonce : IO String := do
 
 /-- Execute the released Mathlib plan in the workspace whose packages receive the artifacts. -/
 private def buildMathlib (cwd : FilePath) (readOnly : Bool) : IO Unit := do
+  let isolation ← isolationEnvironment
   for command in mathlibCommands readOnly do
-    stream cwd "lake" command
+    stream isolation cwd "lake" command
 
 private def admitComponent (what text : String) : IO Component := do
   let some name := component? text
@@ -1065,7 +1075,7 @@ def provisionVerso (repo : FilePath) : IO Unit := do
     throw <| IO.userError s!"provisioning: markdown/lake-manifest.json pins MD4Lean {reader} \
       and website/lake-manifest.json pins MD4Lean {verso}; the two packages keep one checkout, \
       so pin the same commit in the two manifests"
-  stream (repo / "website") "lake" #["build", "verso/VersoManual"]
+  stream (← isolationEnvironment) (repo / "website") "lake" #["build", "verso/VersoManual"]
 
 /-- Check the exact supported compiler before provisioning any dependency artifacts. -/
 def requireReleasedCompiler (repo : FilePath) : IO Unit := do

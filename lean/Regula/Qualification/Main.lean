@@ -22,6 +22,7 @@ import Regula.Qualification.Command
 import Regula.Qualification.Observers
 import Regula.Qualification.Enumeration
 import Regula.Qualification.Readers
+import Regula.Qualification.LakeGit
 import Regula.Checker.AxiomGate
 
 /-! # Qualification executable dispatcher
@@ -39,6 +40,7 @@ private unsafe def runCommand (attempt : Option String) : Command → IO Unit
   | .combined => do
       Regula.Qualification.RegistryCli.check
       Regula.CopyControls.checkWorkspace
+      Regula.Qualification.LakeGit.check
       Regula.Qualification.CopySelection.check
       -- Beside the native controls; both must pass.
       let unique ← IO.asTask Regula.Qualification.UniqueConstants.check
@@ -130,7 +132,7 @@ private def markEvidence (args : List String) (attempt : String) (reason : Optio
   | some .launcherReport => Regula.Qualification.NativeLinter.beginReport reason
   | none => pure ()
 
-/-- The form of one `qualify` invocation, read from its arguments, the three variables of its
+/-- The form of one `qualify` invocation, read from its arguments, the four variables of its
 environment that select a mode and the name of the running program (`Invocation.of`). -/
 private inductive Invocation where
   /-- `REGULA_RECEIPT_TIMER=1` with `--version`: the receipt boundary's worker. -/
@@ -138,6 +140,9 @@ private inductive Invocation where
   /-- `REGULA_LISTING_STANDIN=MODE` in a copy of `qualify` named as `Construction.locate` looks
   for GNU `ls`: the stand-in listing program of the enumeration control (`Enumeration.standin`). -/
   | listingStandin (mode : String)
+  /-- `REGULA_LAKE_GIT_WORKER=1`: the worker of the Lake Git isolation controls, with a
+  workspace path (`Regula.Qualification.LakeGit.worker`). -/
+  | lakeGitWorker
   /-- `REGULA_QUALIFICATION_WRAPPER=acceptance`: the test-only proxy of `axiomGate`, with the
   gate's arguments. -/
   | acceptanceProxy
@@ -157,6 +162,8 @@ private def Invocation.of (args : List String) : BaseIO Invocation := do
     if let .ok path := ← IO.appPath.toBaseIO then
       if path.fileName == some Regula.Qualification.Enumeration.standinName then
         return .listingStandin mode
+  if (← IO.getEnv Regula.Qualification.LakeGit.workerVariable) == some "1" then
+    return .lakeGitWorker
   match ← IO.getEnv "REGULA_QUALIFICATION_WRAPPER" with
   | some "acceptance" => return .acceptanceProxy
   | some _ => return .unknownWrapper
@@ -173,6 +180,7 @@ unsafe def qualifyMain (args : List String) : IO UInt32 := do
   match ← Invocation.of args with
   | .receiptTimer => Regula.Qualification.ReceiptBoundary.worker args
   | .listingStandin mode => Regula.Qualification.Enumeration.standin mode args
+  | .lakeGitWorker => Regula.Qualification.LakeGit.worker args
   | .acceptanceProxy => Regula.Qualification.Acceptance.worker args
   | .unknownWrapper => throw <| IO.userError "unknown qualification wrapper mode"
   | .underDeadline attempt rest => dispatch rest attempt; return 0
@@ -190,8 +198,8 @@ executable runs (`Regula.TaskManager.guard`). It reads the invocation as `qualif
 run uses. The proxy of `axiomGate` is refused as the gate refuses, with the gate's exit code
 (`AxiomGate.refuseWithoutTaskManager`). A command marks its evidence document (`markEvidence`),
 for the attempt that the wrapper's arguments give or otherwise for a fresh one, printing a line
-when it cannot, and returns 1, as do the receipt boundary's worker, the stand-in listing program
-and an unknown wrapper mode, which write no file. No command runs. -/
+when it cannot, and returns 1, as do the receipt boundary's worker, the stand-in listing program,
+the Lake Git isolation worker and an unknown wrapper mode, which write no file. No command runs. -/
 private def refuseQualification (reason : String) (args : List String) : IO UInt32 := do
   let mark (rest : List String) (attempt : Option String) : IO Unit := do
     try markEvidence rest (← attempt.getDM Regula.Qualification.freshAttempt) reason
@@ -200,7 +208,7 @@ private def refuseQualification (reason : String) (args : List String) : IO UInt
   match ← Invocation.of args with
   | .acceptanceProxy =>
     return ← Regula.Checker.AxiomGate.refuseWithoutTaskManager reason args
-  | .receiptTimer | .listingStandin _ | .unknownWrapper => pure ()
+  | .receiptTimer | .listingStandin _ | .lakeGitWorker | .unknownWrapper => pure ()
   | .underDeadline attempt rest => mark rest attempt
   | .bounded rest => mark rest none
   return 1

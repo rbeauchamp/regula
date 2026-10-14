@@ -3,6 +3,7 @@ import Lake.Load
 import Regula.Checker.Common
 import Regula.ToolchainProgram
 import Regula.Filesystem
+import Regula.GitIsolation
 
 /-!
 # In-process Lake workspace loading
@@ -62,9 +63,15 @@ workspace state beyond its return value. With `scrubSearchPath`, the inherited
 Lake's loader removes and replaces entries of the workspace itself, as `lake build` and
 `lake update` would there: the compiled configuration of each package, and the clones of its
 dependencies. Those removals act on the workspace that the caller asked Lake to load, and they rest
-on its own contents, which its adopter trusts as Lake does (`Regula.Removal.libraryRemovals`). -/
+on its own contents, which its adopter trusts as Lake does (`Regula.Removal.libraryRemovals`).
+
+The Git commands that Lake runs here, to materialize a dependency or, in a build that `action`
+runs, to look up a prebuilt archive, inherit this process's environment. Before it loads anything,
+the function refuses unless that environment is Git-isolated (`Regula.GitIsolation.requireIsolated`),
+which `Regula.TaskManager.guard` gives every compiled Regula program. -/
 def withRootWorkspace {α : Type} (repo : FilePath) (action : _root_.Lake.Workspace → IO α)
     (scrubSearchPath := false) (resolveDependencies := true) : IO α := do
+  Regula.GitIsolation.requireIsolated "lake-workspace-load-failed: nothing was loaded"
   let config ← loadConfig repo scrubSearchPath
   let (ws?, log) ← (if resolveDependencies then _root_.Lake.loadWorkspace config
     else _root_.Lake.loadWorkspaceRoot config).captureLog
@@ -76,7 +83,8 @@ none, `Lake.loadWorkspace` loads no other package, so `action` gets the packages
 `withRootWorkspace` gives it. The compiled code of this function calls no loader that resolves or
 materializes a dependency, which removes directories (`Regula.Removal.checkProgram`).
 
-Its prerequisite: before the loader runs, it refuses when `.lake` or `.lake/config` below the
+Its prerequisites: before the loader runs, it refuses unless this process's environment is
+Git-isolated, as `withRootWorkspace` does, and it refuses when `.lake` or `.lake/config` below the
 checkout is there and is not a directory at its own place
 (`Regula.Filesystem.requireOwnDirectory`). It also refuses when the directory of the root
 package's compiled configuration (`Lake.LoadConfig.configDir`, `.lake/config/0`) is not such a
@@ -90,6 +98,7 @@ existing file for writing follows a final link, so with this check each file tha
 writes there is the checkout's own. -/
 def withRootPackage {α : Type} (repo : FilePath) (action : _root_.Lake.Workspace → IO α) :
     IO α := do
+  Regula.GitIsolation.requireIsolated "lake-workspace-load-failed: nothing was loaded"
   let config ← loadConfig repo false
   let lake := config.wsDir / _root_.Lake.defaultLakeDir
   let refuse {β : Type} (error : IO.Error) : IO β := throw <| IO.userError
