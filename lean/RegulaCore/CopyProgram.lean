@@ -852,8 +852,9 @@ before reading that entry or exempting a tracked link from general capture. Inte
 refuse. String equality compares the complete stored UTF-8 spelling; no core.ignoreCase
 interpretation participates. `listings` holds, by path, the names of each directory that an earlier
 index path of the same Git copy listed; this path reuses them and adds the directories it lists, so
-each directory is listed once per Git copy. Source ancestors and entries have no concurrent writer
-until the copy ends, so a reused listing is still the directory's stored names. -/
+the index admission lists each directory once per Git copy. The copy's captures of the worktree and
+of `.git` list directories again. Source ancestors and entries have no concurrent writer until the
+copy ends, so a reused listing is still the directory's stored names. -/
 def admitGitPath (enumerator : Enumerator) (listings : Std.HashMap String (List String))
     (source : FilePath) (relative : List String) : IO (Std.HashMap String (List String)) := do
   let mut listings := listings
