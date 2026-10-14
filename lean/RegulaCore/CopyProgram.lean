@@ -178,6 +178,241 @@ def copyWith {m : Type → Type} [Monad m] [MonadExceptOf IO.Error m] (ops : Ops
   constructWith ops target items
   return items
 
+/-! ## Directory enumeration
+
+Lean v4.34.1's `System.FilePath.readDir` cannot tell the end of a directory from a failed read: its
+native loop (`runtime/io.cpp:1076-1098`) stops at the first null `readdir` result and returns the
+names it has read. Regula lists a directory through an admitted GNU coreutils `ls` instead. A program
+is admitted only when its own source, at the release that its identity line names, establishes that
+it reads each entry and exits nonzero after a failed read; each admitted release checks `errno`
+after every `readdir`. Its listing decodes exactly (`decodeListing_zero` and `decodeListing_gnu` in
+`RegulaCore.CopyConstruction`). -/
+
+/-- The byte that ends each name that `ls --zero` writes. -/
+def nul : UInt8 := 0
+
+/-- The byte that ends each name of an escaped listing. -/
+def newline : UInt8 := 10
+
+/-- The byte that starts an escape of an escaped listing. -/
+def backslash : UInt8 := 92
+
+/-- The records of a listing whose records each end with `separator`, the current record held
+reversed in `acc`: `none` unless the listing ends with `separator` and no record is empty. -/
+def splitRecords (separator : UInt8) : List UInt8 → List UInt8 → Option (List (List UInt8))
+  | [], [] => some []
+  | [], _ :: _ => none
+  | byte :: rest, acc =>
+    if byte = separator then
+      if acc.isEmpty then none else (splitRecords separator rest []).map (acc.reverse :: ·)
+    else splitRecords separator rest (byte :: acc)
+
+/-- A printable ASCII byte other than the backslash, which an escaped listing writes as itself. -/
+def literalByte (byte : UInt8) : Bool :=
+  decide (32 ≤ byte.toNat ∧ byte.toNat ≤ 126 ∧ byte ≠ backslash)
+
+/-- The value of an octal digit. -/
+def octalDigit (byte : UInt8) : Option Nat :=
+  if 48 ≤ byte.toNat ∧ byte.toNat ≤ 55 then some (byte.toNat - 48) else none
+
+/-- The byte that a backslash and `letter` stand for, when `letter` is not an octal digit: one of
+the seven control characters for its C letter, a printable ASCII byte other than a letter or a
+digit for itself, and nothing for any other byte. -/
+def escapeMeaning (letter : UInt8) : Option UInt8 :=
+  match letter.toNat with
+  | 97 => some 7
+  | 98 => some 8
+  | 102 => some 12
+  | 110 => some 10
+  | 114 => some 13
+  | 116 => some 9
+  | 118 => some 11
+  | n => if (32 ≤ n ∧ n ≤ 47) ∨ (58 ≤ n ∧ n ≤ 64) ∨ (91 ≤ n ∧ n ≤ 96) ∨ (123 ≤ n ∧ n ≤ 126)
+      then some letter else none
+
+/-- The bytes of a name that an escaped listing writes as `line`: a literal byte for itself, a
+backslash and three octal digits, the first at most 3, for the byte they give, and a backslash and
+another byte for what `escapeMeaning` gives. `none` for every other line. -/
+def unescape : List UInt8 → Option (List UInt8)
+  | [] => some []
+  | byte :: rest =>
+    if byte ≠ backslash then
+      if literalByte byte then (unescape rest).map (byte :: ·) else none
+    else match rest with
+      | [] => none
+      | letter :: rest =>
+        match octalDigit letter with
+        | some high =>
+          if high ≤ 3 then
+            match rest with
+            | middle :: low :: rest =>
+              match octalDigit middle, octalDigit low with
+              | some middle, some low =>
+                (unescape rest).map (UInt8.ofNat (64 * high + 8 * middle + low) :: ·)
+              | _, _ => none
+            | _ => none
+          else none
+        | none => (escapeMeaning letter).bind fun meaning => (unescape rest).map (meaning :: ·)
+
+/-- How an admitted listing program writes the names of a directory. -/
+inductive ListingForm where
+  /-- Each name as it is stored, ended by a NUL byte: GNU `ls --zero`. -/
+  | zero
+  /-- Each name escaped as `unescape` reads it, ended by a newline: GNU `ls --quoting-style=escape`.
+  -/
+  | escaped
+  deriving DecidableEq, Repr
+
+/-- The names of a listing written in `form`: `none` unless every record decodes. -/
+def decodeListing : ListingForm → List UInt8 → Option (List (List UInt8))
+  | .zero, bytes => splitRecords nul bytes []
+  | .escaped, bytes => (splitRecords newline bytes []).bind fun lines => lines.mapM unescape
+
+/-- An admitted directory-listing program. -/
+structure Enumerator where
+  /-- The program, a name looked up on `PATH` or an absolute path. -/
+  program : String
+  /-- The options written before `--` and the directory. -/
+  options : Array String
+  /-- How the program writes names. -/
+  form : ListingForm
+  /-- What the program identified itself as, for messages. -/
+  identity : String
+
+/-- The environment changes of each run of a listing program: the C locale, so every byte outside
+printable ASCII is escaped, and none of the variables that change what `ls` writes or how it reads
+its options. -/
+def listingEnvironment : Array (String × Option String) :=
+  #[("LC_ALL", some "C"), ("POSIXLY_CORRECT", none), ("QUOTING_STYLE", none), ("LS_COLORS", none),
+    ("CLICOLOR", none), ("CLICOLOR_FORCE", none), ("LSCOLORS", none), ("COLUMNS", none)]
+
+/-- Listing effects supplied by the shared process observer. The constructor imports only the
+toolchain and starts no process; installed and cold contexts supply the same adapter. -/
+class ListingProcesses where
+  /-- Run the stated listing program, capturing binary stdout and text stderr. -/
+  output : String → IO.Process.SpawnArgs → IO (UInt32 × ByteArray × String)
+
+variable [ListingProcesses]
+
+/-- Run the stated listing program through the supplied process adapter, preserving the listing
+environment and binary output. The adapter documents the trusted process and stream effects. -/
+def listingOutput (program : String) (args : Array String) : IO (UInt32 × ByteArray × String) :=
+  ListingProcesses.output program
+    { cmd := "", args, env := listingEnvironment, stdin := .null, stdout := .piped,
+      stderr := .piped }
+
+/-- The GNU coreutils releases whose `ls` source Regula has read, as major and minor version: 9.0 to
+9.12 and 8.32. Regula refuses any other release until it reads that release's source too. -/
+def gnuReleases : List (Nat × Nat) := (List.range 13).map (9, ·) ++ [(8, 32)]
+
+/-- The first line that GNU `ls --version` of `release` writes. -/
+def gnuIdentity (release : Nat × Nat) : String := s!"ls (GNU coreutils) {release.1}.{release.2}"
+
+/-- The first line of a program's output. -/
+def firstLine (text : String) : String := (text.splitOn "\n").headD ""
+
+/-- The admitted release whose identity line is exactly the first line of `text`, the output of
+`ls --version`; `none` for any other line, a later patch release such as `9.12.1` among them. -/
+def gnuRelease? (text : String) : Option (Nat × Nat) :=
+  gnuReleases.find? (gnuIdentity · == firstLine text)
+
+/-- The enumerator of the admitted GNU release `release` run as `program`: release 9 lists with
+`--zero`, which writes each name as stored, and 8.32 with its escape quoting style. -/
+def gnuEnumerator (program : String) (release : Nat × Nat) : Enumerator :=
+  let identity := s!"{program} ({gnuIdentity release})"
+  if release.1 = 9 then ⟨program, #["-A", "-U", "--zero"], .zero, identity⟩
+  else ⟨program, #["-1", "-A", "-U", "--quoting-style=escape", "--show-control-chars",
+    "--color=never", "--indicator-style=none"], .escaped, identity⟩
+
+/-- The first admitted listing program: an admitted GNU `ls` 9 release as `gls` or `ls` on `PATH`
+(`gls` first on macOS, whose `ls` is Apple's), otherwise GNU `ls` 8.32 there. Otherwise it refuses
+with the reason for each program it tried, the identity line it refused among them. Apple's `ls` is
+not admitted: its listing comes from the fts of the system's C library, whose release its identity
+does not name.
+
+Assumes: the program found is the release it identifies as. -/
+def locate : IO Enumerator := do
+  let mut reasons : Array String := #[]
+  let mut escaped : Option Enumerator := none
+  let programs := if System.Platform.isOSX then ["gls", "ls"] else ["ls", "gls"]
+  for program in programs do
+    match ← (listingOutput program #["--version"]).toBaseIO with
+    | .error error => reasons := reasons.push s!"{program}: {error}"
+    | .ok (exitCode, bytes, _) =>
+      let text := (String.fromUTF8? bytes).getD ""
+      match (if exitCode == 0 then gnuRelease? text else none) with
+      | some release =>
+        let enumerator := gnuEnumerator program release
+        if enumerator.form == .zero then return enumerator
+        if escaped.isNone then escaped := some enumerator
+      | none =>
+        reasons := reasons.push
+          s!"{program}: --version exited with {exitCode} and the first line '{firstLine text}'"
+  if let some enumerator := escaped then return enumerator
+  throw <| IO.userError s!"no admitted directory-listing program: Regula lists directories through \
+    GNU coreutils ls 9.0 to 9.12 or 8.32, as gls or ls on PATH ({"; ".intercalate reasons.toList})"
+
+/-- A stored name that names one entry of its directory: not `.` or `..`, and holding neither `/`
+nor NUL. -/
+def entryName (name : String) : Bool :=
+  name != "." && name != ".." && name.toList.all fun c => c != '/' && c != '\x00'
+
+/-- The stored names of the directory `path`, read through `enumerator`. It refuses unless the
+program exits 0 with no error text and its listing decodes to UTF-8 names that each name one entry,
+so a failed read of the directory refuses instead of truncating the names. The trailing `/` makes
+`ls` list a link's target directory, as `readDir` does, and refuse anything but a directory; an empty
+path, which with that `/` would name the root directory, refuses. -/
+def Enumerator.names (enumerator : Enumerator) (path : FilePath) : IO (List String) := do
+  if path.toString.isEmpty then throw <| IO.userError "listing refused: the directory path is empty"
+  let (exitCode, bytes, stderr) ← listingOutput enumerator.program
+    (enumerator.options ++ #["--", path.toString ++ "/"])
+  unless exitCode == 0 && stderr.isEmpty do
+    throw <| IO.userError s!"listing {path} through {enumerator.identity} failed with exit code \
+      {exitCode}: {stderr}"
+  let some names := decodeListing enumerator.form bytes.toList
+    | throw <| IO.userError s!"the listing of {path} by {enumerator.identity} does not decode"
+  names.mapM fun name => do
+    let some text := String.fromUTF8? (ByteArray.mk name.toArray)
+      | throw <| IO.userError s!"a name in {path} is not UTF-8"
+    unless entryName text do throw <| IO.userError s!"{path} lists an invalid name: {text}"
+    return text
+
+/-- The stored names of the directory `path`, through the program that `locate` admits. -/
+def listNames (path : FilePath) : IO (List String) := do
+  (← locate).names path
+
+/-- The entries of the directory `path`, in the shape that `System.FilePath.readDir` returns, read
+through the program that `locate` admits. -/
+def listDirectory (path : FilePath) : IO (Array IO.FS.DirEntry) := do
+  return ((← listNames path).map fun name => { root := path, fileName := name }).toArray
+
+/-- Each path below `root`, parents before their children, descending into each directory that
+`enter` admits. It is `System.FilePath.walkDir` of Lean v4.34.1 (`Init/System/IO.lean:1174-1200`),
+written again here so that each directory is listed through `enumerator`. Like `walkDir`, it
+follows links to directories and ignores an entry that vanishes during the walk. Unlike it, `depth`
+bounds the nesting and its exhaustion refuses, so a cycle of links fails instead of running
+forever. -/
+def walkWith (enumerator : Enumerator) (enter : FilePath → IO Bool) :
+    Nat → FilePath → Array FilePath → IO (Array FilePath)
+  | 0, path, _ => throw <| IO.userError s!"walk depth exhausted at {path}"
+  | depth + 1, path, found => do
+    unless (← enter path) do return found
+    let mut found := found
+    for name in ← enumerator.names path do
+      let child := path / name
+      found := found.push child
+      match ← child.metadata.toBaseIO with
+      | .ok { type := .dir, .. } => found ← walkWith enumerator enter depth child found
+      | .ok _ => pure ()
+      | .error (.noFileOrDirectory ..) => pure ()
+      | .error error => throw error
+    return found
+
+/-- `walkWith` from `root`, through the program that `locate` admits. -/
+def walkDirectory (root : FilePath) (enter : FilePath → IO Bool := fun _ => pure true)
+    (depth : Nat := 4096) : IO (Array FilePath) := do
+  walkWith (← locate) enter depth root #[]
+
 /-- The no-follow observer. Lean 4.34.1 follows links on Windows, so it refuses there.
 
 Assumes: Lean v4.34.1 `Init/System/IO.lean:1151-1156` and `runtime/io.cpp:1160-1179`
@@ -219,20 +454,29 @@ def createDirectory (target : FilePath) : IO Unit := do
 /-- The real operations. The modeled code and bootstrap source both use this value. -/
 def observer : Ops IO where
   metadata := observeMetadata
-  names := fun path => return (← path.readDir).toList.map (·.fileName)
+  names := listNames
   realPath := observeRealPath
   bytes := fun path => return (← IO.FS.readBinFile path, 420)
   directory := createDirectory
   file := fun target bytes rights => writeNew target bytes rights
+
+/-- `observer`, listing each directory through `enumerator`: the operations of one copy or capture
+that locates its listing program once (`locate`) and lists every directory it reads through that
+one program. -/
+def Enumerator.observer (enumerator : Enumerator) : Ops IO :=
+  { Construction.observer with names := enumerator.names }
 
 /-- The shared copy routine, through the observer. It refuses links and special entries at
 each selected source entry, and constructs no links. The destination parent exists at its own
 place and the destination is absent or privately owned and empty. Source and destination have
 no concurrent writer. Modes are not preserved: regular source files use 0644, directories use
 0755; sites that execute a copied file explicitly set its required
-rights. Lake-built programs receive their modes from Lake. The receipt is the ordered list of entries the routine constructed. -/
+rights. Lake-built programs receive their modes from Lake. The receipt is the ordered list of entries the routine constructed.
+It locates its listing program once and lists each directory it reads, the destination among
+them, through that program. -/
 def copy (source target : FilePath) (selected : FilePath → Bool := fun _ => true) :
-    IO (List Item) := copyWith observer source target selected
+    IO (List Item) := do
+  copyWith (← locate).observer source target selected
 
 /-- Construct a generated workspace from directory/file instructions, with no source traversal.
 The same destination preconditions as `copy` apply. -/
@@ -261,10 +505,14 @@ def layout (items : List Item) : List Item := Id.run do
   return result.reverse
 
 /-- Capture one file or subtree through precisely the shared no-follow capture program. The
-relative prefix is admitted by that program before it reads a selected source entry. -/
+relative prefix is admitted by that program before it reads a selected source entry. The capture
+of a directory locates its listing program once and lists each directory below it through that
+program; the capture of any other entry lists no directory, so it locates none. -/
 def capture (source : FilePath) (relative : List String := [])
-    (selected : FilePath → Bool := fun _ => true) : IO (List Item) :=
-  captureWith observer selected 4096 source relative
+    (selected : FilePath → Bool := fun _ => true) : IO (List Item) := do
+  if (← kindWith observer source) == some .dir then
+    captureWith (← locate).observer selected 4096 source relative
+  else captureWith observer selected 4096 source relative
 
 /-- Admit an existing directory as a construction ancestor, or create it exclusively. This is
 a primitive admission before writing, not a walk of a finished copy. Every ancestor is admitted
@@ -366,27 +614,132 @@ def requiredFiles (source : FilePath) (required : List (List String)) : IO (List
 
 /-- The documentation consumer's original `.md` discovery domain, in path order. The same
 discovery supplies the audit census and cold-copy requirements. It must precede construction.
-The existing walker admits each directory through no-follow metadata before descent, so a
-directory link cannot redirect or cycle discovery. `requiredFiles` admits the selected leaves. -/
+The walk admits each directory through no-follow metadata before descent, so a directory link
+cannot redirect or cycle discovery. `requiredFiles` admits the selected leaves. -/
 def markdownPaths (root : FilePath) : IO (Array FilePath) := do
   unless ← root.isDir do throw <| IO.userError s!"documentation root is not a directory: {root}"
   let enter (path : FilePath) : IO Bool := do
     unless (← observeMetadata path).type == .dir do
       throw <| IO.userError s!"copy refused {path}: selected ancestor is not a directory"
     return true
-  return ((← root.walkDir enter).filter (·.extension == some "md")).qsort
+  return ((← walkDirectory root enter).filter (·.extension == some "md")).qsort
     (fun left right => left.toString < right.toString)
 
-/-- A package-store entry is source when the current capture root is itself in that store. -/
-def PackageSource (source packages path : List String) : Prop :=
-  ¬ packages.IsPrefix path ∨ packages.IsPrefix source
+/-- An entry is source unless it is the checkout of a Git dependency or the directory of a path
+dependency in the packages directory, one of `dependencies`. The capture root `source` is always
+source, so an owned package that the packages directory holds keeps its own capture pass. -/
+def PackageSource (source : List String) (dependencies : List (List String))
+    (path : List String) : Prop :=
+  path ∉ dependencies ∨ path = source
 
-instance (source packages path : List String) : Decidable (PackageSource source packages path) :=
-  inferInstanceAs (Decidable (¬ packages.IsPrefix path ∨ packages.IsPrefix source))
+instance (source : List String) (dependencies : List (List String)) (path : List String) :
+    Decidable (PackageSource source dependencies path) :=
+  inferInstanceAs (Decidable (path ∉ dependencies ∨ path = source))
 
-/-- Prune a packages subtree only from a capture rooted outside that subtree. -/
-def packageSource (source packages path : List String) : Bool :=
-  decide (PackageSource source packages path)
+/-- Prune exactly the recorded dependency directories other than the capture root. -/
+def packageSource (source : List String) (dependencies : List (List String))
+    (path : List String) : Bool :=
+  decide (PackageSource source dependencies path)
+
+/-- Why a capture pass of a project copy (`CopyFilter`) leaves out an entry, other than package
+pruning. -/
+inductive Exclusion where
+  /-- The entry lies in another capture root below this pass's, which its own pass captures. -/
+  | otherRoot (root : List String)
+  /-- The entry is the loaded manifest, which the copy installs from its own capture. -/
+  | manifest
+  /-- The entry lies in the directory `dir` that holds the copy. -/
+  | copy (dir : List String)
+  /-- The entry lies in the capture root's `tmp` directory. -/
+  | tmp
+  /-- The entry lies, outside the capture root's `docs` directory, in a directory named `name`. -/
+  | named (name : String)
+  deriving DecidableEq, Repr
+
+/-- Why a capture pass of a project copy leaves out an entry. -/
+inductive Omission where
+  /-- An exclusion leaves it out. -/
+  | excluded (exclusion : Exclusion)
+  /-- Package pruning leaves it out (`packageSource`). -/
+  | pruned
+  deriving DecidableEq, Repr
+
+/-- The text that names an omission in a refusal. -/
+def Omission.describe : Omission → String
+  | .excluded (.otherRoot root) => s!"the capture of the owned package at {"/".intercalate root}"
+  | .excluded .manifest => "the loaded manifest, which the copy installs separately"
+  | .excluded (.copy dir) => s!"the directory {"/".intercalate dir}, which holds the copy"
+  | .excluded .tmp => "the project's tmp directory"
+  | .excluded (.named name) => s!"a directory named {name}"
+  | .pruned =>
+    "the checkout of a Git dependency or the directory of a path dependency in the packages directory"
+
+/-- One capture pass of a project copy, all as normalized path components. -/
+structure CopyFilter where
+  /-- The capture root. -/
+  source : List String
+  /-- The other capture roots, which their own passes capture. -/
+  roots : List (List String)
+  /-- The paths of the loaded manifest. -/
+  manifests : List (List String)
+  /-- The consumer-selected files, which survive with their ancestors every exclusion other than
+  another root and the manifest. -/
+  required : List (List String)
+  /-- The directory that holds the copy, at each of its spellings. -/
+  copies : List (List String)
+  /-- The names of the directories that the pass leaves out below its root, outside its `docs`. -/
+  names : List String
+  /-- The entries of the packages directory that are, by their observed real paths, the checkout of
+  a Git dependency or the directory of a path dependency. -/
+  dependencies : List (List String)
+
+/-- The exclusion that leaves out the entry at `path`, if any. Another root and the manifest come
+before the consumer's selection, and the other exclusions after it. -/
+def CopyFilter.exclusion (filter : CopyFilter) (path : List String) : Option Exclusion :=
+  match filter.roots.find? fun root => filter.source.length < root.length && root.isPrefixOf path with
+  | some root => some (.otherRoot root)
+  | none =>
+    if filter.manifests.contains path then some .manifest
+    else if requiredPath filter.required path then none
+    else match filter.copies.find? (·.isPrefixOf path) with
+      | some dir => some (.copy dir)
+      | none =>
+        if (filter.source ++ ["tmp"]).isPrefixOf path then some .tmp
+        else
+          let below := path.drop filter.source.length
+          if below.head? == some "docs" then none
+          else (below.find? filter.names.contains).map .named
+
+/-- Why the pass leaves out the entry at `path`, or `none` when it selects that entry. Package
+pruning applies only to an entry that no exclusion leaves out and the consumer did not select. -/
+def CopyFilter.omission (filter : CopyFilter) (path : List String) : Option Omission :=
+  match filter.exclusion path with
+  | some exclusion => some (.excluded exclusion)
+  | none =>
+    if requiredPath filter.required path || packageSource filter.source filter.dependencies path then
+      none
+    else some .pruned
+
+/-- The first entry on the way from the capture root to `path`, `path` included, that the pass
+leaves out, with its omission. It is `none` exactly when the pass selects each of these entries
+(`CopyFilter.firstOmission_eq_none`), which `captureWith` requires before it reads `path`. -/
+def CopyFilter.firstOmission (filter : CopyFilter) (path : List String) :
+    Option (List String × Omission) :=
+  (List.range' filter.source.length (path.length + 1 - filter.source.length)).findSome?
+    fun length => (filter.omission (path.take length)).map (path.take length, ·)
+
+/-- The entries that a relative path names below the directory it is joined to: its components
+without `.`, when there is one and each names one entry (`Relative`). An absolute path, an empty
+component and `..` give `none`. -/
+def packageEntries (path : List String) : Option (List String) :=
+  let entries := path.filter (· != ".")
+  if !entries.isEmpty && decide (Relative entries) then some entries else none
+
+/-- The first of `reads` for which no regular-file instruction in `items` has exactly that path
+spelling (`firstUnwritten_eq_none`). -/
+def firstUnwritten {α : Type} (items : List Item) (reads : List (α × List String)) :
+    Option (α × List String) :=
+  reads.find? fun read => !covers [read.2] items
 
 /-- The Git effects supplied by the process observer. This toolchain-only source starts no
 process itself; the package and cold interpreter supply the same `Regula.Process` adapter.
@@ -498,18 +851,28 @@ def admitGitName (pair : String × List String) : Except IO.Error Unit :=
   if pair.1 ∈ pair.2 then .ok () else
     .error (IO.userError s!"copy Git index spelling differs from stored entry: {pair.1}")
 
-/-- Match each index path component to the observer's stored directory-entry name before
-reading that entry or exempting a tracked link from general capture. Intermediate links refuse.
-String equality compares the complete stored UTF-8 spelling; no core.ignoreCase interpretation
-participates. Source ancestors and entries have no concurrent writer. -/
-def admitGitPath (source : FilePath) (relative : List String) : IO Unit := do
+/-- Match each index path component to the stored directory-entry names that `enumerator` lists
+before reading that entry or exempting a tracked link from general capture. Intermediate links
+refuse. String equality compares the complete stored UTF-8 spelling; no core.ignoreCase
+interpretation participates. `listings` holds, by path, the names of each directory that an earlier
+index path of the same Git copy listed; this path reuses them and adds the directories it lists, so
+the index admission lists each directory once per Git copy. The copy's captures of the worktree and
+of `.git` list directories again. Source ancestors and entries have no concurrent writer until the
+copy ends, so a reused listing is still the directory's stored names. -/
+def admitGitPath (enumerator : Enumerator) (listings : Std.HashMap String (List String))
+    (source : FilePath) (relative : List String) : IO (Std.HashMap String (List String)) := do
+  let mut listings := listings
   let mut parent := source
   for name in relative do
     unless (← observeMetadata parent).type == .dir do
       throw <| IO.userError s!"copy Git index ancestor is not a directory: {parent}"
-    let names ← observer.names parent
+    let names ← match listings[parent.toString]? with
+      | some names => pure names
+      | none => enumerator.names parent
+    listings := listings.insert parent.toString names
     IO.ofExcept (admitGitName (name, names))
     parent := parent / name
+  return listings
 
 /-- The supported Git index modes. A tracked link has a regular-file representation, never
 a link instruction. Its bytes are obtained from the index's Git blob without following it. -/
@@ -627,9 +990,12 @@ for byte. Git environment/config observations use `gitProcessArgs`, `admitGitCon
 `admitGitObjects`; their Assumes entries name the trusted sources. Git status remains trusted.
 Lean/Lake v4.34.1
 `Lake/Util/Git.lean:198-203` tests cleanliness with `git diff --exit-code HEAD`;
-`Lake/Load/Materialize.lean:255-258` warns if a matching-revision checkout has that diff. -/
+`Lake/Load/Materialize.lean:255-258` warns if a matching-revision checkout has that diff.
+The copy locates its listing program once and lists each directory it reads through that program;
+`admitGitPath` lists each directory once for the whole index. -/
 def copyGit [GitProcesses] (source target : FilePath) : IO (List Item) := do
-  let metadata ← capture (source / ".git") [".git"]
+  let enumerator ← locate
+  let metadata ← captureWith enumerator.observer (fun _ => true) 4096 (source / ".git") [".git"]
   let ⟨_, .directory⟩ :: _ := metadata
     | throw <| IO.userError "Git source metadata is not a plain directory"
   admitGitConfig source (source / ".git/config")
@@ -653,6 +1019,7 @@ def copyGit [GitProcesses] (source target : FilePath) : IO (List Item) := do
   unless index.isEmpty || index.endsWith "\x00" do
     throw <| IO.userError "copy Git index output is not NUL-terminated"
   let mut entries : List GitEntry := []
+  let mut listings : Std.HashMap String (List String) := {}
   for record in index.splitOn "\x00" do
     if record.isEmpty then continue
     let mode :: stage :: object :: pathParts := record.splitOn "\t"
@@ -661,7 +1028,7 @@ def copyGit [GitProcesses] (source target : FilePath) : IO (List Item) := do
     let relative := ("\t".intercalate pathParts).splitOn "/"
     unless Relative relative && relative.head? != some ".git" do
       throw <| IO.userError "copy Git index path is not a worktree-relative path"
-    admitGitPath source relative
+    listings ← admitGitPath enumerator listings source relative
     let mode ← match mode with
       | "100644" => pure GitMode.regular
       | "100755" => pure GitMode.executable
@@ -677,15 +1044,17 @@ def copyGit [GitProcesses] (source target : FilePath) : IO (List Item) := do
     let relative := path.components.drop base
     relative.head? != some ".git" && !entries.any (fun entry =>
       entry.relative == relative && match entry.mode with | .link _ => true | _ => false)
-  let captured ← capture source [] selected
-  gitConstructWith observer target metadata captured entries
+  let captured ← captureWith enumerator.observer selected 4096 source []
+  gitConstructWith enumerator.observer target metadata captured entries
 
 /-- The cold drivers' source entrypoint. `project` prunes VCS/build/scratch directories, except
 explicit relative file selections after TARGET, the original Markdown discovery domain, and
 the ancestors needed to capture them. The instruction guard refuses any missing selected file.
 `git` uses `copyGit`'s regular-file representation, build outputs and metadata.
-It prints the regular-file receipt as a JSON array. Lean interprets this
-same source before package artifacts exist; it does not use another copy implementation.
+It prints the regular-file receipt as a JSON array. `list` prints the names of the directory SOURCE
+(`listNames`) and `walk` the paths below it (`walkDirectory`), each as a JSON array; TARGET is
+unused there. Lean interprets this same source before package artifacts exist; it does not use
+another copy implementation.
 
 Assumes: `copyGit` names the installed Git 2.54.0 index/blob/config facts, its source stability
 and the pinned Lake cleanliness observation. Git parsing and object fidelity remain trusted. -/
@@ -696,6 +1065,12 @@ def sourceMain [GitProcesses] (args : List String) : IO UInt32 := do
     throw <| IO.userError "explicit file selections require the project domain"
   if domain == "git-environment" then
     IO.println (Lean.toJson (← gitEnvironment)).compress
+    return 0
+  if domain == "list" then
+    IO.println (Lean.toJson (← listNames (FilePath.mk source))).compress
+    return 0
+  if domain == "walk" then
+    IO.println (Lean.toJson ((← walkDirectory (FilePath.mk source)).map (·.toString))).compress
     return 0
   if domain == "generated" then
     let captured ← capture source ["instructions"]

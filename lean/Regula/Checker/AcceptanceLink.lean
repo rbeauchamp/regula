@@ -25,24 +25,78 @@ output that its claimed build compiles in its copy only as `BuildReuse.reuse` de
 namespace Regula.Checker.AcceptanceLink
 open Lean System
 
-/-- Root-relative display of a path inside an isolated copy or the documentation root. -/
+/-- Root-relative display of a path inside an isolated copy or the documentation root: `.` for the
+root itself. -/
 def relative (root : FilePath) (path : String) : String :=
   let stem := root.toString ++ "/"
-  if path.startsWith stem then (path.drop stem.length).toString else path
+  if path == root.toString then "."
+  else if path.startsWith stem then (path.drop stem.length).toString else path
+
+/-- The text of a copy's `.lake/package-overrides.json` as the identity records it, where the copy
+names each copied owned path dependency by its directory in the copy (`Lake.relocateDependencies`).
+Lake's own decoder of the file reads its entries (`Lake.Manifest.parseEntries`, which Lake's load
+applies to it through `tryLoadEntries`, `Lake/Load/Resolve.lean` line 603). The directory of each
+`path` entry is made relative to `copyRoot` when it is `copyRoot` or a path below it (`relative`),
+and the entries are serialized again as `Lake.Manifest.saveEntries` writes them. A path that only
+begins with the same characters as `copyRoot` stays as it is. A text that Lake does not decode
+stays as it is too, and its copy path then makes two copies' identities differ. -/
+def overridesText (copyRoot : FilePath) (text : String) : String :=
+  match _root_.Lake.Manifest.parseEntries text with
+  | .error _ => text
+  | .ok entries =>
+    let entries := entries.map fun entry => match entry.src with
+      | .path dir => { entry with src := .path (relative copyRoot dir.toString) }
+      | .git .. => entry
+    (Json.mkObj [("schemaVersion", toJson _root_.Lake.Manifest.version),
+      ("packages", toJson entries)]).pretty
+
+/-- The overrides that Lake writes for one `path` entry of the package `regula` at `dir`. -/
+private def overridesAt (dir : String) : String :=
+  (Json.mkObj [("schemaVersion", toJson _root_.Lake.Manifest.version),
+    ("packages", toJson #[({ name := `regula, inherited := false, src := .path dir } :
+      _root_.Lake.PackageEntry)])]).pretty
+
+/-- The directories of the `path` entries that Lake decodes from the overrides `text`. -/
+private def overrideDirectories (text : String) : Array String :=
+  match _root_.Lake.Manifest.parseEntries text with
+  | .error _ => #[]
+  | .ok entries => entries.filterMap fun entry => match entry.src with
+    | .path dir => some dir.toString
+    | .git .. => none
+
+-- Two copies at roots whose names hold a double quote, which Lake's JSON escapes, record the same
+-- text for the same place of the dependency below each, and the copy root itself as `.`.
+#guard overridesText "/scratch/a\"1" (overridesAt "/scratch/a\"1/dep") ==
+  overridesText "/scratch/b\"2" (overridesAt "/scratch/b\"2/dep")
+#guard overrideDirectories (overridesText "/scratch/a\"1" (overridesAt "/scratch/a\"1/dep")) ==
+  #["dep"]
+#guard overrideDirectories (overridesText "/scratch/a\"1" (overridesAt "/scratch/a\"1")) == #["."]
+-- A directory that only shares a prefix of characters with the copy root stays as it is.
+#guard overrideDirectories (overridesText "/scratch/a" (overridesAt "/scratch/ab/dep")) ==
+  #["/scratch/ab/dep"]
 
 /-- The captured inputs, with every copy-root or documentation-root path made relative
-so that two isolated copies of the same checkout have equal identities. -/
-def identityJson (projectRoot docsRoot : FilePath)
+so that two isolated copies of the same checkout have equal identities: a path below the copied
+project `projectRoot` relative to it, and any other path below the real directory of the copy
+`copyRoot` (`Lake.ProjectCopy.root`) relative to that, such as a source of an owned path dependency
+that holds the project, and the copy's `.lake/package-overrides.json` as `overridesText` records
+it. -/
+def identityJson (projectRoot copyRoot docsRoot : FilePath)
     (sources : Array ProducerReport.SourceBinding)
     (configuration : Array (FilePath × Option String))
     (dependencies : Array Snapshot.DependencyObservation)
     (documents : Array RegulaPolicy.SourceSnapshot) : Json :=
-  let rel := relative projectRoot
+  let rel (path : String) : String :=
+    let below := relative projectRoot path
+    if below != path then below else relative copyRoot path
   Json.mkObj [
     ("toolchain", toJson (Lean.versionString, Lean.githash)),
     ("sources", toJson (sources.map fun source =>
       (source.moduleName.toString, rel source.path, source.content))),
-    ("configuration", toJson (configuration.map fun (path, text) => (rel path.toString, text))),
+    ("configuration", toJson (configuration.map fun (path, text) =>
+      let shown := rel path.toString
+      (shown, if shown == ".lake/package-overrides.json" then text.map (overridesText copyRoot)
+        else text))),
     ("dependencies", toJson (dependencies.map fun dependency => Json.mkObj [
       ("package", toJson dependency.package), ("root", toJson (rel dependency.root.toString)),
       ("revision", toJson dependency.revision), ("dirty", toJson dependency.dirty),
@@ -61,14 +115,15 @@ def identityJson (projectRoot docsRoot : FilePath)
         document.source)))]
 
 /-- SHA-256 of the compact identity bytes, computed by the external `shasum` tool. -/
-def identity (scratch projectRoot docsRoot : FilePath)
+def identity (scratch projectRoot copyRoot docsRoot : FilePath)
     (sources : Array ProducerReport.SourceBinding)
     (configuration : Array (FilePath × Option String))
     (dependencies : Array Snapshot.DependencyObservation)
     (documents : Array RegulaPolicy.SourceSnapshot) : IO String := do
   let path := scratch / "acceptance-link-identity.json"
   IO.FS.writeFile path
-    (identityJson projectRoot docsRoot sources configuration dependencies documents).compress
+    (identityJson projectRoot copyRoot docsRoot sources configuration dependencies
+      documents).compress
   try sha256File scratch path finally Regula.Filesystem.removePath .file path
 
 /-- Replace any earlier record before the ordinary audit starts. A run that stops before its audit
@@ -161,7 +216,7 @@ def treeFiles (root : FilePath) : IO (List String) := do
   let prefixLength := root.normalize.components.length
   let enter (path : FilePath) : IO Bool := pure (path.fileName != some ".lake")
   let mut files := #[]
-  for path in ← root.walkDir enter do
+  for path in ← Regula.Filesystem.Construction.walkDirectory root enter do
     let relative := path.normalize.components.drop prefixLength
     if relative.contains ".lake" then continue
     if (← path.symlinkMetadata).type == .file then

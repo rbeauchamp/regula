@@ -888,7 +888,7 @@ private def compiledModules (dir : FilePath) (pre : String) : IO (Array (List St
   let root := if ← ((dir / pre).addExtension "olean").pathExists then #[[pre]] else #[]
   unless ← (dir / pre).isDir do return root
   let base := dir.normalize.components.length
-  return root ++ (← (dir / pre).walkDir).filterMap fun path =>
+  return root ++ (← Regula.Filesystem.Construction.walkDirectory (dir / pre)).filterMap fun path =>
     if path.extension == some "olean" then
       some (((path.withExtension "").normalize.components.drop base))
     else none

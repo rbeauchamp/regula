@@ -474,11 +474,13 @@ structure Copied where
   configurationInputs : Option Regula.CopyConfiguration.Inputs
 
 /-- Copy the project at `repo`, with each path dependency it owns, into the new scratch directory
-`scratch`, which holds no build output (`copyProject`). -/
+`scratch`, which holds no build output (`copyProject`) but the running Regula's observer library
+(`ProjectCopy.placeObservers`). -/
 private def isolatedCopy (repo scratch : FilePath) (manifest : Option FilePath)
     (selectedFiles : List FilePath) : IO Copied := do
   let copy ← timedPhase "isolated source copy" <| Lake.copyProject repo (scratch / "project")
     scratch (facets := .replaced) (policy := manifest) (selectedFiles := selectedFiles)
+  copy.placeObservers
   return ⟨copy.project, copy.root, some copy.selection, some copy.configurationInputs⟩
 
 /-- The copy of the project at `repo` that the verification driver made at `path`
@@ -898,6 +900,7 @@ private unsafe def auditSurfaceAt (repo manifestPath : FilePath)
       let mut findings : Array Regula.Finding := #[]
       let mut totalDeclarations := 0
       let mut reportedImports : Std.HashSet (String × String) := {}
+      let mut sourceReported : Std.HashSet Name := {}
       -- Each surface's library entry, with the entries of its executables' environments.
       let mut resultSurfaces : Array (Json × Array Json) := #[]
       -- Every environment's execution account, labeled, for the audit's toolchain trusted base.
@@ -1004,6 +1007,24 @@ private unsafe def auditSurfaceAt (repo manifestPath : FilePath)
             (some surface.claim.toString) .violation
           findings := findings.push ⟨.communityConfiguration, finding⟩
           failures := failures.push s!"community-configuration: {target}"
+        -- RG2006: the options that the source of each module of this environment set, from the
+        -- claimed build's decision on its record (`Observer.decideRecord`), decided by the proved
+        -- `RegulaPolicy.Community.sourceFailures` (`sourceFailures_eq_nil_iff`) under the
+        -- target's options. A module that several environments inspect is decided once, under
+        -- the first. A module without a record fails, since what its source set is unknown.
+        for moduleName in info.modules do
+          if sourceReported.contains moduleName then continue
+          sourceReported := sourceReported.insert moduleName
+          let detail := match buildProcess.verdicts.find? (·.1 == moduleName) with
+            | some (_, verdict) => verdict.sourceDetail moduleName.toString options mathlib
+            | none => some s!"community-configuration: {moduleName} has no record of \
+                Regula's elaboration observer, so the options its source set are unknown"
+          if let some detail := detail then
+            let finding ← IO.ofExcept <| Regula.makeDiagnostic .communityConfiguration
+              ⟨target, detail⟩ (.project reportRoot.toString) mode (some surface.claim.toString)
+              .violation
+            findings := findings.push ⟨.communityConfiguration, finding⟩
+            failures := failures.push s!"community-configuration: {moduleName}"
         for (key, docstring) in documentation.declarations do
           -- The proved classification (`materialDocumentationFailure_eq_none_iff`) of the
           -- recorded docstring decides RG5002 (none attached) or RG5003 (no Intent section).
@@ -1258,6 +1279,9 @@ private unsafe def auditSurface (repo : FilePath) (manifest : Option FilePath)
     let copy := match origin with
       | .copied copied | .driverCopy copied => copied.project
       | .incremental => repo
+    let copyRoot := match origin with
+      | .copied copied | .driverCopy copied => copied.root
+      | .incremental => repo
     let manifestPath := (manifest.map (Lake.relocateConfigurationPath repo copy)).getD
       (Manifest.defaultPath copy)
     let inputs := match origin with
@@ -1276,8 +1300,8 @@ private unsafe def auditSurface (repo : FilePath) (manifest : Option FilePath)
       project.set (some evidence)
       if acceptanceLink then
         linkedSources.checkLinked repo linkedDocuments
-        let digest ← AcceptanceLink.identity scratch copy (repo / "docs") evidence.sources
-          evidence.configuration evidence.dependencies linkedDocuments
+        let digest ← AcceptanceLink.identity scratch copy copyRoot (repo / "docs")
+          evidence.sources evidence.configuration evidence.dependencies linkedDocuments
         linked.set (some {
           digest, account := Account.account evidence.accepted, origin := origin.spelling })
     let result ← timedPhase "complete declaration audit" <|
@@ -1400,6 +1424,19 @@ private unsafe def auditFile (repo path : FilePath) (claim : Option Profile)
           return 1
         let .ok compilation := compilationOutcome
           | throw <| IO.userError "unreachable compilation outcome"
+        -- The decision on the record of Regula's elaboration observer, which the compilation loaded
+        -- (`Compilation.observe`), as a claimed build's: RG2003 here, what the compilation's
+        -- messages do not show, and RG2006 with the declarations below, the options its source set.
+        let verdict ← if claim.isSome && SourceAudit.compilationPassed compilation then
+            some <$> compilation.observe path.toString
+          else pure none
+        if let some verdict := verdict then
+          unless verdict.hidden.isEmpty do
+            reportContextFailure .sourceBuild path.toString .freshFile .incomplete [.discovery]
+              ("\n".intercalate
+                (Observer.hiddenReport s!"the compilation of {path}" verdict.hidden).toList)
+              composed resultOut sources
+            return 1
         let sourceRejected := !SourceAudit.compilationPassed compilation &&
             SourceAudit.sourceDiagnosticFailure compilation
         -- `none` when the source does not elaborate; otherwise the inspection's outcome, or the
@@ -1489,6 +1526,20 @@ private unsafe def auditFile (repo path : FilePath) (claim : Option Profile)
               let finding ← IO.ofExcept <| RuleDiagnostics.executionFinding failure location
                   .freshFile execution
               findings := findings.push finding
+            -- RG2006: the options the file's source set, decided by the proved
+            -- `RegulaPolicy.Community.sourceFailures` as a claimed module's are. The file belongs to
+            -- no target, so no target option licenses Mathlib's header linter; the file imports
+            -- Mathlib when its environment contains a `Mathlib` module. The file audit loads the
+            -- observer itself, with `--plugin`.
+            if let some verdict := verdict then
+              let mathlib := inspected.report.modules.any (·.getRoot == `Mathlib)
+              if let some detail :=
+                  verdict.sourceDetail path.toString ⟨[], [], true, true⟩ mathlib then
+                let finding ← IO.ofExcept <| Regula.makeDiagnostic .communityConfiguration
+                  ⟨path.toString, detail⟩ (.project path.toString) .freshFile
+                  (claim.map Profile.toString) .violation
+                findings := findings.push ⟨.communityConfiguration, finding⟩
+                reasons := reasons.push (Regula.descriptor .communityConfiguration).applicability
             RunFeedback.emitAll IO.println findings
             let summary := Policy.executionSummary executionInventory
             let toolchainBase := Policy.toolchainBase #[(path.toString, executionInventory)]

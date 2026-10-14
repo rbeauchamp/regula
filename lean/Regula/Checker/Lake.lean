@@ -2,7 +2,9 @@ import Regula.Checker.Common
 import Regula.Process
 import Regula.Checker.Manifest
 import Regula.Checker.Workspace
+import Regula.Checker.LakeSelection
 import Regula.Checker.FacetReport
+import Regula.Checker.Observer
 import RegulaCore.EditorPolicy
 import Lake.CLI.Build
 import RegulaCore.CopyConfiguration
@@ -170,21 +172,30 @@ private def checkSource (repo : FilePath) (what : String)
   return ← IO.FS.realPath source
 
 /-- The options Lake builds a target's modules with, exactly as Lake resolves them for the
-target (`leanOptions`: build type, package, then target), and the extra `lean` arguments it
-passes (`weakLeanArgs`, then `leanArgs`, the order of Lake's module build). -/
-def buildOptions (options : Lean.LeanOptions) (weakArgs args : Array String) :
+target (`leanOptions`: build type, package, then target), the extra `lean` arguments it passes
+(`weakLeanArgs`, then `leanArgs`, the order of Lake's module build), and whether one of its
+plugins `plugins`, and one of its `needs`, which the package `declaring` declares, is Regula's
+elaboration observer (`Observer.observerKey`). -/
+def buildOptions (options : Lean.LeanOptions) (weakArgs args : Array String)
+    (declaring : Name) (plugins needs : Array _root_.Lake.PartialBuildKey) :
     RegulaPolicy.Community.BuildOptions where
   options := options.values.toList.map fun (name, value) => (name, match value with
     | .ofString s => .string s | .ofBool b => .bool b | .ofNat n => .nat n)
   arguments := (weakArgs ++ args).toList
+  observer := plugins.any (Observer.observerKey declaring)
+  observerNeed := needs.any (Observer.observerKey declaring)
 
-/-- The options and extra `lean` arguments Lake builds the modules of library `lib` with. -/
+/-- The options and extra `lean` arguments Lake builds the modules of library `lib` with, and
+whether its plugins and its `needs` name Regula's elaboration observer. -/
 def libraryOptions (lib : _root_.Lake.LeanLib) : RegulaPolicy.Community.BuildOptions :=
-  buildOptions lib.leanOptions lib.weakLeanArgs lib.leanArgs
+  buildOptions lib.leanOptions lib.weakLeanArgs lib.leanArgs lib.pkg.baseName
+    (lib.plugins.map (·.key)) lib.config.needs
 
-/-- The options and extra `lean` arguments Lake builds the root of executable `exe` with. -/
+/-- The options and extra `lean` arguments Lake builds the root of executable `exe` with, and
+whether its plugins and its `needs` name Regula's elaboration observer. -/
 def executableOptions (exe : _root_.Lake.LeanExe) : RegulaPolicy.Community.BuildOptions :=
-  buildOptions exe.root.leanOptions exe.root.weakLeanArgs exe.root.leanArgs
+  buildOptions exe.root.leanOptions exe.root.weakLeanArgs exe.root.leanArgs exe.pkg.baseName
+    (exe.root.plugins.map (·.key)) exe.config.needs
 
 /-- The modules Lake can build as part of `library`, found in its source directory with Lake's
 glob reader: those its globs match, and the submodules of each root that a glob matches, which
@@ -293,9 +304,12 @@ loaded workspace `ws` of the project at `repo`. It prints the facet report that 
 the source guard, when the provider guard passes over those inventories. The report precedes the
 error of the first failed package inventory, which is raised before the provider guard's refusal,
 and the validation of other source existence. An overridden facet may have generated a missing
-source or glob directory. -/
+source or glob directory. The selection `selection` gives the entries that Lake materialized the
+workspace's dependencies from and its packages directory (`LakeSelection.withRootSelection`): each
+dependency's entry decides the configuration files and the manifest that its inventory binds. -/
 def surfaceInventoryOf (repo : FilePath) (ws : _root_.Lake.Workspace)
-    (facets : FacetReport.Output := .silent) : IO SurfaceInventory := do
+    (selection : LakeSelection.RootSelection) (facets : FacetReport.Output := .silent) :
+    IO SurfaceInventory := do
     let pkg := ws.root
     -- No path is built from a module name before each name that a package's configuration gives is
     -- a safe module name (`checkModuleNames`); a resolved module is placed by `modulePath?`.
@@ -385,9 +399,13 @@ def surfaceInventoryOf (repo : FilePath) (ws : _root_.Lake.Workspace)
           exe.root.name.toString exe.root.leanFile.toString
         sources := sources.push { «module» := exe.root.name, source }
       let root := provider.root
-      let configurationPaths := #[package.configFile, package.manifestFile,
-        package.dir / "lean-toolchain", package.dir / "lakefile.lean",
-            package.dir / "lakefile.toml"]
+      -- The configuration files whose presence decides the one Lake loads, and the manifest that
+      -- Lake reads, as the entry that Lake materialized the package from names them.
+      let some entry := LakeSelection.effectiveEntry selection.entries package.baseName
+        | throw <| IO.userError s!"lake-query-malformed: {package.baseName} has no manifest entry"
+      let configurationPaths := (#[package.configFile] ++
+          ((LakeSelection.configCandidates entry.configFile ++ entry.manifestFile?.toList).map
+            (package.dir / ·)).toArray ++ #[package.dir / _root_.Lake.toolchainFileName])
         |>.toList.eraseDups.toArray
       let owned := provider.owned
       if owned && package.leanLibDir.toString.isEmpty then
@@ -410,13 +428,15 @@ def surfaceInventoryOf (repo : FilePath) (ws : _root_.Lake.Workspace)
 the project at `repo`, with the facet report that `facets` requests. -/
 def surfaceInventory (repo : FilePath) (facets : FacetReport.Output := .silent) :
     IO SurfaceInventory :=
-  Workspace.withRootWorkspace repo fun ws => surfaceInventoryOf repo ws facets
+  LakeSelection.withRootSelection repo fun ws selection =>
+    surfaceInventoryOf repo ws selection facets
 
 /-- The inventory (`surfaceInventoryOf`) of the root package of the project at `repo`, which must
 declare no dependency (`Workspace.withRootPackage`). It is the inventory that `surfaceInventory`
 gives for such a project, and no loader that removes a directory is in its compiled code. -/
 def rootSurfaceInventory (repo : FilePath) : IO SurfaceInventory :=
-  Workspace.withRootPackage repo (surfaceInventoryOf repo)
+  Workspace.withRootPackage repo fun ws =>
+    surfaceInventoryOf repo ws { entries := #[], packagesDir := ws.relPkgsDir }
 
 /-- What Lake's load of a workspace selects for one dependency package: its name, directory and
 ownership, the configuration and manifest files it reads, the text of that configuration, the
@@ -477,6 +497,21 @@ structure ProjectCopy where
   selection : CopySelection
   /-- The loaded original selections used to derive generated configuration. -/
   configurationInputs : Regula.CopyConfiguration.Inputs
+  /-- The directory in the copy of each copied package `regula` that declares the observer library,
+  the root package or an owned dependency, where `placeObservers` places the running Regula's
+  observer library. -/
+  observers : Array FilePath := #[]
+
+/-- Place the running Regula's observer library in each package of `copy.observers`
+(`Observer.placeRunning`), so that their builds load that file unchanged when their observer
+source compiles to the same objects. A caller that places other build output in the copy first,
+such as the documentation step's `AcceptanceLink.placeRetained`, places these after it. -/
+def ProjectCopy.placeObservers (copy : ProjectCopy) : IO Unit :=
+  copy.observers.forM Observer.placeRunning
+
+/-- The exact paths that `placeObservers` writes in the copy (`Observer.placedPaths`). -/
+def ProjectCopy.placedPaths (copy : ProjectCopy) : Array FilePath :=
+  copy.observers.flatMap Observer.placedPaths
 
 /-- Capture precisely the loaded values that both construction and its request account use.
 The root and dependency directories have already been resolved by the workspace inventory. -/
@@ -500,9 +535,9 @@ def configurationBase (inputs : Regula.CopyConfiguration.Inputs) : List String :
 /-- Capture loaded relocation inputs before a producer starts. Loading and inventory observation
 use Lake itself, exactly as `copyProject`; these are trusted IO observations, not JSON inference. -/
 def captureConfigurationInputs (repo : FilePath) : IO Regula.CopyConfiguration.Inputs :=
-  Workspace.withRootWorkspace repo fun ws => do
+  LakeSelection.withRootSelection repo fun ws selection => do
     let root ← IO.FS.realPath repo
-    let inventory ← surfaceInventoryOf repo ws
+    let inventory ← surfaceInventoryOf repo ws selection
     return configurationInputs root ws inventory.dependencies
 
 /-- A path override for every resolved dependency, including inherited and transitive ones.
@@ -524,7 +559,8 @@ def relocateDependencies (inputs : Regula.CopyConfiguration.Inputs) (manifest : 
     throw "copied project does not retain its source package layout"
   let target := System.mkFilePath (project.normalize.components.take
     (project.normalize.components.length - relative.length))
-  return (manifest.packagesDir?.getD (FilePath.mk inputs.packagesDir), inputs.dependencies.map fun dependency =>
+  return (LakeSelection.packagesDir manifest.packagesDir? (FilePath.mk inputs.packagesDir),
+    inputs.dependencies.map fun dependency =>
     let entry := manifest.packages.find? (·.name.toString == dependency.package)
     let dir := if dependency.owned then Regula.Filesystem.Construction.location target
       ((FilePath.mk dependency.root).normalize.components.drop base.length)
@@ -663,42 +699,145 @@ def captureManifest (ws : _root_.Lake.Workspace) :
   let manifest ← IO.ofExcept (_root_.Lake.Manifest.parse text)
   return (manifest, items)
 
+/-- The entries of the packages directory, spelled `packages`, that a copy of the project prunes:
+each stored name in `listing` whose observed real path is one of `recorded`, the observed real
+paths of the recorded dependency directories. An entry with no observed real path is kept. -/
+def prunedEntries (packages : List String) (listing : List (String × Option (List String)))
+    (recorded : List (List String)) : List (List String) :=
+  listing.filterMap fun (name, real) =>
+    if real.any recorded.contains then some (packages ++ [name]) else none
+
+/-- A copy prunes `path` exactly when it is the packages directory's spelling of a listed name whose
+observed real path is the observed real path of a recorded dependency directory. -/
+theorem mem_prunedEntries (packages : List String) (listing : List (String × Option (List String)))
+    (recorded : List (List String)) (path : List String) :
+    path ∈ prunedEntries packages listing recorded ↔
+      ∃ name real, (name, some real) ∈ listing ∧ real ∈ recorded ∧ path = packages ++ [name] := by
+  simp only [prunedEntries, List.mem_filterMap, Prod.exists]
+  constructor
+  · rintro ⟨name, real, listed, selected⟩
+    cases real with
+    | none => simp at selected
+    | some real =>
+      by_cases recordedReal : real ∈ recorded
+      · simp [recordedReal] at selected
+        exact ⟨name, real, listed, recordedReal, selected.symm⟩
+      · simp [recordedReal] at selected
+  · rintro ⟨name, real, listed, recordedReal, rfl⟩
+    exact ⟨name, some real, listed, by simp [recordedReal]⟩
+
+/-- `mem_prunedEntries` is not vacuous: an entry whose observed real path is a recorded dependency
+directory elsewhere, as a link's is, is pruned, and an entry whose observed real path is its own or
+none is kept. -/
+theorem prunedEntries_witness :
+    prunedEntries ["", "p", "vendor"]
+      [("dep", some ["", "shared", "dep"]), ("src", some ["", "p", "vendor", "src"]), ("gone", none)]
+      [["", "shared", "dep"]] = [["", "p", "vendor", "dep"]] := by
+  decide
+
 /-- Copy a checked project and its owned path dependencies through the shared no-follow
 directory/file constructor. Every selected source entry must be plain. Root tmp trees are excluded
 before descent. VCS and build/cache/scratch trees are excluded outside each capture root's docs tree.
 Consumer-selected files, an explicitly selected project-contained policy, and their ancestors
 survive these exclusions. Compiled-module exclusions apply only to
 captured regular files. The final instructions must contain every selected file before construction.
-Owned packages survive package-store pruning
-in their own capture pass. Paths relative to their
-common ancestor are retained. The captured loaded manifest is installed at its loaded path, and
+Package pruning leaves out exactly each entry of the packages directory, by the stored name that
+the capture walks, whose observed real path is the observed real path of a recorded dependency
+directory: the checkout of a Git dependency or the directory of a path dependency, by the entry
+that Lake's load materialized it from (`LakeSelection.effectiveEntry`,
+`LakeSelection.checkoutDir`). It keeps every other entry there, one whose real path cannot be
+observed included (`mem_prunedEntries`, `Construction.CopyFilter.omission_pruned`,
+`Construction.CopyFilter.omission_other`). So a linked checkout is pruned as a cloned one is, and
+so is a directory that its recorded path names in another case or Unicode form that the
+filesystem folds. A packages directory that is itself a link is not listed, and is refused when the
+capture walks it, as each link that the capture walks is. An owned package there
+keeps its own capture pass (`Construction.packageSource_owned`). The copy's domain is
+each file that Lake's load reads for the root package or an owned dependency: the source of each
+module that Lake can build (`packageModules`), the loaded configuration file and an owned
+dependency's recorded manifest when present. Lake's load of the copy reads each at the path that it
+joins to the package's directory there: the recorded `relConfigFile` or `relManifestFile`, or the
+module's source below the package's directory, each without `.` components
+(`Construction.packageEntries_eq_some`). After the copy's whole file selection is computed and
+before anything is written, the copy refuses the first of these paths that no regular-file
+instruction has with exactly that spelling, and names the file and what left it out
+(`Construction.firstUnwritten_eq_none`). The constructor's guard requires the same paths
+(`Construction.constructSelected_io`). Before that, the copy refuses a copied package, library or
+executable whose `srcDir` is absolute, since Lake's load of the copy would read the original's
+sources there. Paths relative to their common ancestor are retained. The captured loaded manifest is installed at its loaded path, and
 every resolved dependency gets a typed path override: an owned package in the copy, a trusted
 package at its original root. There is no packages link. This copy is for ordinary loads only;
-a full update is outside this adapter's domain (`relocateDependencies`). That load of the project
-prints the facet report that `facets` requests.
+a full update is outside this adapter's domain (`relocateDependencies`). The copy records each copied
+package `regula` that declares the observer library (`ProjectCopy.observers`) and places nothing in
+it. That load of the project prints the facet report that `facets` requests.
 
 Assumes: the shared constructor's native primitive contracts and no concurrent source or
-destination writer. Lake's loaded workspace and manifest stay fixed while captured. -/
+destination writer. Lake's loaded workspace and manifest stay fixed while captured.
+
+Assumes: Lake v4.34.1 materializes a Git entry at its name in the packages directory
+(`Lake/Load/Materialize.lean:246`), and puts the package below that checkout at the subdirectory
+that the entry names, when it names one (`Lake/Load/Materialize.lean:264`). It loads a package's configuration file and the manifest that
+its entry records at their recorded paths, joined to the package's directory
+(`Lake/Load/Package.lean:96-117`, `Lake/Load/Materialize.lean:272-277`), and the override that
+`relocateDependencies` writes records the loaded `relConfigFile` and `relManifestFile`. A library's
+module is one that Lake can build when `isBuildableModule` admits it (`Lake/Config/LeanLibConfig.lean:128-130`), which `buildableModules`
+enumerates. Lake builds only the modules that a glob selects and their imports
+(`Lake/Build/Library.lean:36-60`, `:67-72`), a subset of these. It reads a module's Lean source at
+`Lean.modToFilePath` of its library's `srcDir` (`Lake/Config/Module.lean:83-90`). That `srcDir` is
+the package's joined with the library's (`Lake/Config/LeanLib.lean:34-35`,
+`Lake/Config/Package.lean:352-353`), and an executable's root module has the executable's own
+(`Lake/Config/LeanExe.lean:45-51`). Lean v4.34.1 `FilePath.join` gives an absolute right operand
+as it stands (`Init/System/FilePath.lean:126-130`).
+
+Assumes: `IO.FS.realPath` is POSIX realpath(3) (`Init/System/IO.lean:873-879`,
+`runtime/io.cpp:1054-1066`), which resolves each link and each `.`, `..` and empty component. On
+Darwin it gives each component at the name the volume stores for it (Apple Libc-1752.120.2
+`stdlib/FreeBSD/realpath.c:216-243`, `:348-358`), so each spelling of one entry that a folding
+volume admits observes one real path, and that of the packages directory is the spelling the
+capture walks. A realpath(3) that keeps the spelling it is given, as on a folding volume
+elsewhere, leaves an entry that another spelling names unpruned.
+
+Assumes: POSIX path resolution, under which a `.` component names the directory before it. The copy
+holds no link, since the constructor creates none, so a read below a package's directory in the copy
+reaches the instruction at its entries. -/
 def copyProject (repo target exclude : FilePath)
     (facets : FacetReport.Output := .silent) (policy : Option FilePath := none)
     (selectedFiles : List FilePath := []) : IO ProjectCopy :=
-  Workspace.withRootWorkspace repo fun ws => do
+  LakeSelection.withRootSelection repo fun ws selection => do
     let root ← IO.FS.realPath repo
-    let original ← surfaceInventoryOf repo ws facets
+    let original ← surfaceInventoryOf repo ws selection facets
     let inputs := configurationInputs root ws original.dependencies
     let (manifest, rootManifest) ← captureManifest ws
     -- The manifest may have a different stored case spelling on a folding filesystem.
     -- Capture above refuses links; canonical observation identifies that same regular file.
     let manifestReal ← Regula.Filesystem.observeRealPath ws.manifestFile
     let (packagesDir, _) ← IO.ofExcept <| relocateDependencies inputs manifest root
-    let packages := (root / packagesDir).normalize.components
-    -- Resolve a present packages directory through the observer, so a configured VENDOR
-    -- also excludes the stored vendor spelling on a case-folding filesystem.
-    let packagesReal ← try
-        pure (some (← Regula.Filesystem.observeRealPath (root / packagesDir)).components)
-      catch
-        | .noFileOrDirectory .. => pure none
-        | error => throw error
+    -- The entries of the packages directory that pruning leaves out (`mem_prunedEntries`,
+    -- `Construction.CopyFilter.omission_pruned`): each stored name that the capture walks whose
+    -- observed real path is that of a recorded dependency directory, the checkout of a Git
+    -- dependency or the directory of a path dependency. A Git dependency's package lies at its
+    -- checkout, or below it at the subdirectory its entry names. An entry whose real path cannot
+    -- be observed is kept, and the capture walks it. A packages directory that is a link is not
+    -- listed, and the capture refuses it. Each dependency has its path override.
+    let packagesPath := root / packagesDir
+    let packagesKind ← try pure (some (← Regula.Filesystem.observeMetadata packagesPath).type) catch
+      | .noFileOrDirectory .. => pure none
+      | error => throw error
+    let dependencyDirectories ← if packagesKind != some .dir then pure [] else do
+      let recorded ← ws.packages.toList.filterMapM fun package => do
+        if package.isRoot then return none
+        let some entry := LakeSelection.effectiveEntry selection.entries package.baseName
+          | return none
+        let dir := _root_.Lake.joinRelative ws.dir
+          (LakeSelection.checkoutDir selection.packagesDir entry)
+        return some (← Regula.Filesystem.observeRealPath dir).normalize.components
+      let names ← Regula.Filesystem.Construction.observer.names packagesPath
+      let listing ← names.mapM fun (name : String) => do
+        let real ← try
+            pure (some (← Regula.Filesystem.observeRealPath (packagesPath / name)).normalize.components)
+          catch _ => pure none
+        return (name, real)
+      let packages := (← Regula.Filesystem.observeRealPath packagesPath).normalize.components
+      pure (prunedEntries packages listing recorded)
     let owned := (original.dependencies.filter (·.owned)).foldl (fun dirs dependency =>
       if dependency.root == root || dirs.contains dependency.root then dirs
       else dirs.push dependency.root) #[]
@@ -719,27 +858,67 @@ def copyProject (repo target exclude : FilePath)
     let excludedReal ← try pure (← IO.FS.realPath exclude).normalize.components catch
       | .noFileOrDirectory .. => pure exclude.normalize.components
       | error => throw error
-    let pruned := fun (name : String) =>
-      [".git", _root_.Lake.defaultLakeDir.toString, ".cache", Regula.Scratch.legacyDirName].contains name
+    -- The capture pass rooted at `top`. Documentation discovery consumes cache-named
+    -- subdirectories too; the pass captures those directly before constructing the copy rather
+    -- than overwriting a finished copy.
+    let filterOf := fun (top : FilePath) => ({
+      source := top.normalize.components
+      roots := (directories.filter (· != top)).toList.map (·.normalize.components)
+      manifests := [ws.manifestFile.normalize.components, manifestReal.normalize.components]
+      required, copies := [excluded, excludedReal]
+      names := [".git", _root_.Lake.defaultLakeDir.toString, ".cache", Regula.Scratch.legacyDirName]
+      dependencies := dependencyDirectories } : Regula.Filesystem.Construction.CopyFilter)
+    -- Lake's load of the copy reads, for the root package and each owned dependency, the source of
+    -- each module that Lake can build (`packageModules`), the loaded configuration file and an
+    -- owned dependency's recorded manifest when present. The root's manifest is installed from its
+    -- own capture. Each is read at the path that Lake joins to the package's directory in the copy:
+    -- its recorded `relConfigFile` or `relManifestFile`, or the module's source path below the
+    -- package's directory. A read is in the domain when the original has a file there.
+    let ownedPackages := ws.packages.filter fun package => package.isRoot ||
+      original.dependencies.any fun dependency =>
+        dependency.owned && dependency.package == package.baseName.toString
+    let mut reads : List (String × List String) := []
+    for package in ownedPackages do
+      let some dir := if package.isRoot then some root else
+          (original.dependencies.find? (·.package == package.baseName.toString)).map (·.root)
+        | throw <| IO.userError s!"copy refused: package '{package.baseName}' has no inventory"
+      -- Lake joins an absolute source directory as it stands, so Lake's load of the copy would
+      -- read the original's sources there, not the copy's.
+      let settings := [(s!"package '{package.baseName}'", package.config.srcDir)] ++
+        package.leanLibs.toList.map (fun library =>
+          (s!"library {library.name} of package '{package.baseName}'", library.config.srcDir)) ++
+        package.leanExes.toList.map (fun exe =>
+          (s!"executable {exe.name} of package '{package.baseName}'", exe.config.srcDir))
+      if let some (owner, setting) := settings.find? (·.2.isAbsolute) then
+        throw <| IO.userError s!"copy refused: {owner} sets srcDir to the absolute path \
+          {setting}, which Lake's load of the copy reads as it stands, outside the copy"
+      let (_, modules) ← packageModules package
+      let below := fun (file : FilePath) =>
+        let components := file.normalize.components
+        let start := package.dir.normalize.components
+        if start.isPrefixOf components then components.drop start.length else components
+      let packageReads := modules.toList.map (fun (name, file) =>
+          (s!"the source of module {name}", file, below file)) ++
+        [("the configuration file", package.configFile, package.relConfigFile.normalize.components)] ++
+        (if package.isRoot then [] else
+          [("the manifest", package.manifestFile, package.relManifestFile.normalize.components)])
+      for (what, file, access) in packageReads do
+        let present ← try
+            discard <| Regula.Filesystem.observeRealPath file
+            pure true
+          catch
+            | .noFileOrDirectory .. => pure false
+            | error => throw error
+        unless present do continue
+        let refusal := s!"copy refused: {what} of package '{package.baseName}' at {file}"
+        let some entries := Regula.Filesystem.Construction.packageEntries access
+          | throw <| IO.userError s!"{refusal}: Lake's load of the copy reads it at \
+              {"/".intercalate access}, which names no entries below the package's directory"
+        reads := reads ++ [(refusal, relative dir ++ entries)]
     let mut instructions := []
     for top in directories do
-      let source := top.normalize.components
-      let otherRoots := (directories.filter (· != top)).map (·.normalize.components)
-      let selected := fun (path : FilePath) =>
-        let components := path.normalize.components
-        -- Owned package roots are captured by their own iteration, including roots within packages.
-        !(otherRoots.any fun other => source.length < other.length && other.isPrefixOf components) &&
-        path.normalize != ws.manifestFile.normalize && path.normalize != manifestReal.normalize &&
-        (Regula.Filesystem.Construction.requiredPath required components ||
-        (!excluded.isPrefixOf components && !excludedReal.isPrefixOf components &&
-        !(source ++ ["tmp"]).isPrefixOf components &&
-        -- Documentation discovery consumes cache-named subdirectories too; capture those
-        -- directly before constructing the copy rather than overwriting a finished copy.
-        ((components.drop source.length).head? == some "docs" ||
-          !(components.drop source.length).any pruned) &&
-        Regula.Filesystem.Construction.packageSource source packages components &&
-        packagesReal.all (fun packages =>
-          Regula.Filesystem.Construction.packageSource source packages components)))
+      let filter := filterOf top
+      let selected := fun (path : FilePath) => (filter.omission path.normalize.components).isNone
       let captured ← Regula.Filesystem.Construction.capture top (relative top) selected
       instructions := instructions ++ Regula.Filesystem.Construction.selectFiles
         (fun path => Regula.Filesystem.Construction.requiredPath required (base ++ path) ||
@@ -750,6 +929,14 @@ def copyProject (repo target exclude : FilePath)
     let project := place root
     let dependencies := original.dependencies.map fun dependency =>
       (dependency, if dependency.owned then place dependency.root else dependency.root)
+    let observerTarget := s!"lean_lib {Observer.observerLibrary}"
+    let declaresObserver (package : String) (targets : Array TargetInventory) : Bool :=
+      package == Observer.regulaPackage && targets.any (·.target == observerTarget)
+    let observers :=
+      (if declaresObserver original.package original.targets then #[project] else #[]) ++
+        ((original.dependencies.filter fun dependency =>
+          dependency.owned && declaresObserver dependency.package dependency.targets).map
+            (place ·.root))
     instructions := instructions ++ rootManifest.map fun item =>
       { item with relative := relative root ++ item.relative }
     let generated ← IO.ofExcept <| generatedConfiguration inputs manifest project
@@ -761,14 +948,34 @@ def copyProject (repo target exclude : FilePath)
         throw <| IO.userError "Lake package overrides file is outside its project"
       instructions := instructions ++ [⟨relative root ++ overrideRelative,
         .file text.toUTF8⟩]
+    -- The tree that the copy writes. Before anything is written, each read must have a
+    -- regular-file instruction at exactly its path (`Construction.firstUnwritten_eq_none`), which the
+    -- constructor's own guard requires too (`Construction.constructSelected_io`).
+    let items := Regula.Filesystem.Construction.layout instructions
+    if let some (refusal, path) := Regula.Filesystem.Construction.firstUnwritten items reads then
+      let source := base ++ path
+      let top := (directories.filter (·.normalize.components.isPrefixOf source)).foldl
+        (fun best dir => if best.all (·.normalize.components.length <
+          dir.normalize.components.length) then some dir else best) (none : Option FilePath)
+      let reason := match top.map fun top => (filterOf top).firstOmission source with
+        | none => "that path lies outside each directory that the copy captures"
+        | some (some (entry, omission)) => s!"{"/".intercalate entry} is an entry that a copy of \
+            the project leaves out as {omission.describe}"
+        | some none => if isModulePart (path.getLast?.getD "") then
+            "its name is a compiled-module file name, which a copy of the project leaves out"
+          else "the copy captures no regular file at that path"
+      throw <| IO.userError s!"{refusal}: Lake's load of the copy reads it at \
+        {"/".intercalate path} below the copy, and no file that the copy writes has exactly that \
+        path, since {reason}"
     Regula.Filesystem.Construction.constructSelectedWith
-      Regula.Filesystem.Construction.observer target (stored.map (relative root ++ ·))
-      (Regula.Filesystem.Construction.layout instructions)
+      Regula.Filesystem.Construction.observer target
+      (stored.map (relative root ++ ·) ++ reads.map (·.2)) items
     let copiedRoot ← IO.FS.realPath target
     return {
       project
       root := copiedRoot
       configurationInputs := inputs
+      observers
       selection := {
         root := original.targets
         dependencies := dependencies.map fun (dependency, dir) =>
@@ -1237,16 +1444,25 @@ def lakefileEncoderName : Name := `weakLeanArgsRecord
 break before it. -/
 def weakArgsDeclarationsMarker : String := "\n-- Regula's weak-arguments record."
 
+/-- The line that closes the weak-arguments declarations of Regula's `lakefile.lean`, with the line
+break before it. -/
+def weakArgsDeclarationsEnd : String := "\n-- End of Regula's weak-arguments record."
+
 /-- The weak-arguments declarations of the text `shipped` of Regula's `lakefile.lean`: everything
-from `weakArgsDeclarationsMarker` to the end of the file, which declares the encoder
-`lakefileEncoderName` and the facet `regulaFacetName`, or none when the marker is not there exactly
-once. The facet records the weak arguments of the root package's libraries, so a fixture project
-whose own `lakefile.lean` ends with this text records them in each module's trace as Regula's own
-build does, and an unmarked audit can establish a module it replays from that build. -/
+from `weakArgsDeclarationsMarker` to `weakArgsDeclarationsEnd`, both included, with a final line
+break, which declares the encoder `lakefileEncoderName` and the facet `regulaFacetName` and nothing
+after them, or none unless each marker is there exactly once, the end after the start. The facet
+records the weak arguments of the root package's libraries, so a fixture project whose own
+`lakefile.lean` ends with this text records them in each module's trace as Regula's own build does,
+and an unmarked audit can establish a module it replays from that build. -/
 def weakArgsDeclarations (shipped : String) : Option String :=
-  match shipped.splitOn weakArgsDeclarationsMarker with
-  | [_, declarations] => some (weakArgsDeclarationsMarker ++ declarations)
-  | _ => none
+  match shipped.splitOn weakArgsDeclarationsMarker, shipped.splitOn weakArgsDeclarationsEnd with
+  | [_, rest], [_, _] =>
+    match rest.splitOn weakArgsDeclarationsEnd with
+    | [declarations, _] =>
+      some (weakArgsDeclarationsMarker ++ declarations ++ weakArgsDeclarationsEnd ++ "\n")
+    | _ => none
+  | _, _ => none
 
 /-- Whether the kernel admits `value`, of type `type`, as equal to `weakArgsRecordJson` by
 `Eq.refl`: it adds `value` to `env` as a definition, then that theorem, and discards the result. A
@@ -1326,26 +1542,26 @@ theorem regulaFacetAdmitted_iff (text running : Option String) (ownLibraryFacets
       · rintro ⟨⟨rfl, h1⟩, h2⟩; exact ⟨_, rfl, rfl, h1, h2⟩
       · rintro ⟨_, rfl, rfl, h1, h2⟩; exact ⟨⟨rfl, h1⟩, h2⟩
 
+
 /-- The text of the `lakefile.lean` of the package whose build directory holds the running
-executable, `<package>/.lake/build/bin/<executable>`, or none when it cannot be read. -/
+executable (`Observer.runningPackageDir`), or none when it cannot be read. -/
 def runningLakefile : IO (Option String) := do
-  let app ← IO.FS.realPath (← Regula.Process.appPath)
-  let some package := (app.parent.bind (·.parent)).bind (·.parent) |>.bind (·.parent)
-    | return none
+  let some package ← Observer.runningPackageDir | return none
   match ← (IO.FS.readFile (package / "lakefile.lean")).toBaseIO with
   | .ok text => return some text
   | .error _ => return none
 
-/-- The number of library facets that the compiled configuration of `package` declares, itself or
-through its imports, other than Regula's own `extraDep` facet when the file is the running Regula's
-`lakefile.lean` (`regulaFacetAdmitted`, with `running` its text). Lake inserts each into the
-workspace's facets in turn (`Workspace.addFacetDecls`), so one named `extraDep` replaces the facet
-that Regula's `lakefile.lean` declares when its package is resolved later. A `lakefile.toml`
-declares none. A configuration file that cannot be read fails.
+/-- The number of library and module facets that the compiled configuration of `package`
+declares, itself or through its imports, other than Regula's own `extraDep` facet when the file is
+the running Regula's `lakefile.lean` (`regulaFacetAdmitted`, with `running` its text). Lake inserts
+each into the workspace's facets in turn (`Workspace.addFacetDecls`), so one named `extraDep`
+replaces the facet that Regula's `lakefile.lean` declares when its package is resolved later, and a
+module facet can replace a step of each module's build, such as the `presetup` facet that loads
+the plugins. A `lakefile.toml` declares none. A configuration file that cannot be read fails.
 
 Assumes: Lake v4.34.1 selects the language from `relConfigFile`, not the resolved `configFile`
 (`Lake/Load/Package.lean:100`), under `LakeConfig.language`'s assumptions. -/
-def otherLibraryFacets (ws : _root_.Lake.Workspace) (running : Option String)
+def otherFacets (ws : _root_.Lake.Workspace) (running : Option String)
     (package : _root_.Lake.Package) : IO Nat := do
   if (← IO.ofExcept (LakeConfig.language package.relConfigFile)) == .toml then return 0
   let some file := package.configFile.fileName
@@ -1356,18 +1572,22 @@ def otherLibraryFacets (ws : _root_.Lake.Workspace) (running : Option String)
   -- An entry of module names: the import lines of a Lean configuration.
   requireSafeModuleNames s!"the configuration {package.configFile}" (config.imports.map (·.module))
   let imported ← _root_.Lake.importModulesUsingCache config.imports {} 1024
-  let own := ((config.entries.find? (·.1 == _root_.Lake.libraryFacetAttr.ext.name)).map
-    (·.2.size)).getD 0
+  let own (extension : Name) : Nat :=
+    ((config.entries.find? (·.1 == extension)).map (·.2.size)).getD 0
+  let ownLibrary := own _root_.Lake.libraryFacetAttr.ext.name
+  let ownModule := own _root_.Lake.moduleFacetAttr.ext.name
   let text ← match ← (IO.FS.readFile package.configFile).toBaseIO with
     | .ok text => pure (some text)
     | .error _ => pure none
-  let admitted := regulaFacetAdmitted text running own (config.constants.map (·.name))
-  return (_root_.Lake.libraryFacetAttr.getAllEntries imported).size + own -
+  let admitted :=
+    regulaFacetAdmitted text running ownLibrary (config.constants.map (·.name))
+  return (_root_.Lake.libraryFacetAttr.getAllEntries imported).size +
+    (_root_.Lake.moduleFacetAttr.getAllEntries imported).size + ownLibrary + ownModule -
     if admitted then 1 else 0
 
-/-- Whether no dependency can have replaced the `extraDep` facet of Regula's `lakefile.lean`: no
-package other than the root declares a library facet other than Regula's own
-(`otherLibraryFacets`). Lake inserts the root's facets before those of its dependencies
+/-- Whether no dependency can have replaced a facet of Regula's `lakefile.lean` or a step of a
+module's build: no package other than the root declares a library or module facet other than
+Regula's own (`otherFacets`). Lake inserts the root's facets before those of its dependencies
 (`Lake/Load/Workspace.lean`, line 39), so a facet of the root replaces none that a dependency
 declares. It is in effect only where no dependency declares one, and a record that it writes is
 then the root configuration's own, which the incremental gate trusts as it trusts the traces Lake
@@ -1377,7 +1597,7 @@ def onlyRegulaFacets (ws : _root_.Lake.Workspace) : IO Bool := do
   try
     let running ← runningLakefile
     let dependencies := ws.packages.filter (!·.isRoot)
-    return (← dependencies.mapM (otherLibraryFacets ws running)).all (· == 0)
+    return (← dependencies.mapM (otherFacets ws running)).all (· == 0)
   catch _ => return false
 
 /-- The `extraDep` facet of a library that the workspace configures, `existing` (Lake's own,
@@ -1509,9 +1729,11 @@ returns, so this runs `build` under the same capture (`withLoggedIO`, `Lake/Util
 437) and records that job's log afterwards: the rest of this writes nothing to standard output or
 error, so Lake's capture adds no entry. A module of the build whose messages
 `unparsedCompilerOutput_ofSerialMessage` does not cover (`Workspace.lineBreakSourcePaths`) is
-logged as an error of the job that runs the build, which fails it. -/
+logged as an error of the job that runs the build, which fails it. The source file of each module
+is that of its completed `presetup` in `presetups` (`Observer.presetupSource?`), which every job of
+that facet writes whether or not Lake stores the job. -/
 def observedFetch (ws : _root_.Lake.Workspace) (record : IO.Ref (Array JobLog))
-    (build : _root_.Lake.FetchM (_root_.Lake.Job Unit)) :
+    (presetups : Observer.Presetups) (build : _root_.Lake.FetchM (_root_.Lake.Job Unit)) :
     _root_.Lake.FetchM (_root_.Lake.Job Unit) :=
   _root_.Lake.FetchM.ofFn fun fetch pkg? stack store context log => do
     let own ← IO.mkRef #[]
@@ -1522,7 +1744,8 @@ def observedFetch (ws : _root_.Lake.Workspace) (record : IO.Ref (Array JobLog))
       discard <| IO.wait job.task
       jobs ← forwardJobs own context.registeredJobs jobs
     let built ← store.get
-    let lineBreaks := Workspace.lineBreakSourcePaths ws built (Workspace.presetupSource? built)
+    let completed ← presetups.completed.get
+    let lineBreaks := Workspace.lineBreakSourcePaths ws built (Observer.presetupSource? completed)
     let addErrors (log : _root_.Lake.Log) := lineBreaks.foldl (init := log) fun log reason =>
       log.push (.error s!"{reason}, so its log cannot tell those messages from other output of \
         the compiler")
@@ -1559,8 +1782,18 @@ structure CheckedBuild where
   earlier : Array Name
   /-- The claimed modules whose trace file, read after the build, records a current record of the
   module's own library among its inputs (`traceRecords_ownRecord_iff`), when no dependency
-  declares a library facet other than Regula's (`onlyRegulaFacets`); none otherwise. -/
+  declares a library or module facet other than Regula's (`onlyRegulaFacets`); none otherwise. -/
   recorded : Array Name := #[]
+  /-- The decision on the record that Regula's elaboration observer wrote into the `.olean` of each
+  claimed module (`Observer.decideRecord`), made after the build: its RG2003 failures, which every
+  build reports (`CheckedBuild.observer`), and the options its source set, which RG2006 decides
+  under the target's options. -/
+  verdicts : Array (Name × Observer.Verdict) := #[]
+
+/-- The RG2003 failures of the claimed modules of `build` (`Observer.Verdict.hidden`), as lines of
+the build's report; every build decides them. -/
+def CheckedBuild.observer (build : CheckedBuild) : Array String :=
+  build.verdicts.foldl (· ++ ·.2.hidden) #[]
 
 /-- Each entry of a job of `build` that is not optional which Lake can have made from compiler
 output that is not a Lean message (`unparsedOutput`), such as a warning whose line other output
@@ -1571,9 +1804,9 @@ def CheckedBuild.unparsed (build : CheckedBuild) : Array String :=
 /-- The claimed modules of `build` whose RG2003 result is not established: the build has no
 audit-build marker, and it replayed their clean log from an elaboration before the audit whose
 trace does not record the current weak arguments of the module's own library (`reusedModules`),
-or a dependency declares a library facet other than Regula's (`onlyRegulaFacets`). Every
-checked build decides this, whatever reads its output. A build in a fresh copy elaborates each
-claimed module itself, so it has none. -/
+or a dependency declares a library or module facet other than Regula's (`onlyRegulaFacets`).
+Every checked build decides this, whatever reads its output. A build in a fresh copy elaborates
+each claimed module itself, so it has none. -/
 def CheckedBuild.reused (build : CheckedBuild) : Array Name :=
   reusedModules build.marked build.earlier build.recorded build.jobs build.claimed
 
@@ -1612,7 +1845,16 @@ as the working directory, as a `lake build` run there does. Lake's loader sets t
 path (`Lean.searchPathRef`), which the checker's workers inherit. The run restores both, so like a
 child `lake build` it leaves the checker's own state as it was. Both are process-wide, so no other
 task of the process may build or read them while it runs; the checker runs its builds one at a
-time. -/
+time. A module loads Regula's elaboration observer through its target's `plugins`, and its target
+lists the same key in `needs`, whose job's trace Lake mixes into the module's trace whatever the
+target's `platformIndependent` (RG2006, `RegulaPolicy.Community.BuildOptions.observerNeed`); the
+build runs the `presetup` facet that the workspace configures unchanged and keeps each completed
+result (`Observer.recordingPresetup`). Every build then reads, for each claimed module, whether
+its completed `presetup` loaded the running Regula's observer (`Observer.pluginLoaded`) under a
+target that lists the observer's key in its `needs` (`Observer.observerKey`) and, when both hold,
+the record the observer wrote into its `.olean`, and decides on them (`Observer.decideRecord`).
+Without the key in `needs`, Lake can replay an `.olean` that another observer wrote, so the record
+is not read and RG2003 refuses the module as not observed. -/
 def Build.runObserved (build : Build) (repo : FilePath) (targets : Array Target)
     (elaborated : Option Elaborated := none) : IO CheckedBuild := do
   let buffer ← IO.mkRef ({} : IO.FS.Stream.Buffer)
@@ -1624,6 +1866,7 @@ def Build.runObserved (build : Build) (repo : FilePath) (targets : Array Target)
   let claimed ← IO.mkRef (#[] : Array Name)
   let earlier ← IO.mkRef (#[] : Array Name)
   let recorded ← IO.mkRef (#[] : Array Name)
+  let verdicts ← IO.mkRef (#[] : Array (Name × Observer.Verdict))
   let exitCode ← try
       Workspace.withRootWorkspace repo (scrubSearchPath := true) fun loaded => do
         let ws := Workspace.uncachedWorkspace loaded
@@ -1647,8 +1890,9 @@ def Build.runObserved (build : Build) (repo : FilePath) (targets : Array Target)
         claimed.set (modules.map (·.name))
         if let some elaborated := elaborated then earlier.set (← elaborated.get)
         Workspace.dropRestoredTraces ws
-        -- A record counts only when no dependency declares a library facet that can replace
-        -- Regula's `extraDep` facet; the marked build settles replayed logs without one.
+        -- A record counts only when no dependency declares a library or module facet, which can
+        -- replace Regula's `extraDep` facet or a step of a module's build; the marked build
+        -- settles replayed logs without one.
         let recordsOwn ← if rootOptions.isSome then pure false else onlyRegulaFacets ws
         let (ws, leanOptOverrides) ← match rootOptions with
           | some options =>
@@ -1657,7 +1901,18 @@ def Build.runObserved (build : Build) (repo : FilePath) (targets : Array Target)
             pure (ws.addLibraryFacetConfig (weakArgsExtraDep existing),
               ({} : NameMap LeanOptions).insert ws.root.baseName options)
           | none => pure (ws, {})
-        Regula.Checker.Workspace.runBuild ws (observedFetch ws jobLogs (_root_.Lake.buildSpecs specs)) {
+        -- A claimed module loads Regula's elaboration observer through its target's own `plugins`,
+        -- and the target's `needs` lists the same key, which puts the observer's trace into the
+        -- module's trace, so a module Lake replays was elaborated with the observer this build
+        -- has (RG2006). The build runs the `presetup` facet that the workspace configures
+        -- unchanged, so each module's trace is that of an ordinary build and Lake replays it, a
+        -- dependency's module included, and only records each completed result.
+        let existing := (ws.findModuleFacetConfig? _root_.Lake.Module.presetupFacet).getD
+          _root_.Lake.Module.presetupFacetConfig
+        let presetups ← Observer.Presetups.new
+        let ws := ws.addModuleFacetConfig (Observer.recordingPresetup existing presetups)
+        let fetch := observedFetch ws jobLogs presetups (_root_.Lake.buildSpecs specs)
+        Regula.Checker.Workspace.runBuild ws fetch {
           out := .stream out, ansiMode := .noAnsi, showSuccess := true, leanOptOverrides,
           failLv := build.failLv }
         for mod in modules do
@@ -1669,6 +1924,18 @@ def Build.runObserved (build : Build) (repo : FilePath) (targets : Array Target)
               so its messages were not observed"
           if recordsOwn && text.any (Workspace.traceRecords (ownRecord mod.lib)) then
             recorded.modify (·.push mod.name)
+        let completed ← presetups.completed.get
+        let observer : Observer.Snapshot ←
+          if modules.isEmpty then pure default else Observer.running
+        let plugins := modules.map fun mod =>
+          if mod.lib.config.needs.any (Observer.observerKey mod.pkg.baseName) then
+            Observer.presetupPlugins? completed mod.pkg.keyName mod.name
+          else none
+        let matching ← Observer.matchingPlugins observer (plugins.flatMap (·.getD #[]))
+        for mod in modules, presetup in plugins do
+          let loaded := Observer.pluginLoaded matching presetup
+          let verdict ← Observer.decideRecord mod.name.toString loaded mod.oleanFile
+          verdicts.modify (·.push (mod.name, verdict))
         let jobs ← jobLogs.get
         if let some elaborated := elaborated then
           elaborated.modify (· ++ (modules.map (·.name)).filter (elaboratedIn jobs))
@@ -1685,7 +1952,8 @@ def Build.runObserved (build : Build) (repo : FilePath) (targets : Array Target)
     let claimed ← claimed.get
     let earlier ← earlier.get
     let recorded ← recorded.get
-    return { process, failLv := build.failLv, jobs, marked, claimed, earlier, recorded }
+    let verdicts ← verdicts.get
+    return { process, failLv := build.failLv, jobs, marked, claimed, earlier, recorded, verdicts }
   let some stdout := String.fromUTF8? (← buffer.get).data
     | observed { exitCode := 1, stdout := "", stderr := "error: build output is not UTF-8" }
   observed { exitCode, stdout, stderr := "" }
@@ -1737,37 +2005,29 @@ package resolves to its one source and none imports the marker's reader
 (`AxiomGate.claimedBuild`). -/
 def auditLeanOptions : LeanOptions := .ofArray #[⟨Regula.Linter.auditBuildOption, .ofBool true⟩]
 
-/-- Build the claimed Lake targets and require success with no warnings: the build runs with
-Lake's failure level at `warning`, so it succeeds only when no required job logged a warning or an
-error. Lake gives each message of a module's elaboration the level of its Lean severity
-(`LogLevel.ofMessageSeverity`), so an information message, whatever its text, never fails the
-build. The build is also refused when a job that Lake's build monitor judged holds an entry Lake
-can have made from compiler output that is not a Lean message (`CheckedBuild.unparsed`), since Lake
-logs it as information whatever it held. When the build has no audit-build marker, a claimed
-module whose log it replayed from an elaboration before the audit, under weak arguments that its
-trace does not record (`CheckedBuild.reused`), has no established result, and each such module is
-reported. `elaborated` holds the modules that earlier builds of the same audit elaborated, and
-the build adds its own. The output is read only to report a failure. Returns the diagnostic lines
-to report on failure. -/
-def buildCheckedObservation (repo : FilePath) (targets : Array SurfaceTarget)
-    (mode : String) (build : Build := buildTargets) (elaborated : Option Elaborated := none) :
-    IO (CheckedBuild × Option (Array String)) := do
-  let build ← Build.runObserved { build with failLv := .warning } repo (targets.map .surface)
-    elaborated
+/-- The decision of `buildCheckedObservation` on a build that `Build.runObserved` ran with Lake's
+failure level at `warning`: none when it succeeded with no unparsed output, no reused module and no
+RG2003 failure of Regula's elaboration observer, or the diagnostic lines to report. -/
+def checkedFailure (build : CheckedBuild) (mode : String) : Option (Array String) := Id.run do
   let process := build.process
-  if process.succeeded && build.unparsed.isEmpty && build.reused.isEmpty then
-    return (build, none)
+  if process.succeeded && build.unparsed.isEmpty && build.reused.isEmpty &&
+      build.observer.isEmpty then
+    return none
   if process.succeeded && build.unparsed.isEmpty then
-    return (build, some (#[s!"FAIL[build-reused]: the claimed build {mode} without Regula's \
+    let reused := if build.reused.isEmpty then #[] else
+      #[s!"FAIL[build-reused]: the claimed build {mode} without Regula's \
         audit-build marker reused the log of an elaboration from before this run for each \
         module below, and its trace does not record the current `weakLeanArgs` of the module's \
         library. Lake's own module trace omits them, and only the `extraDep` facet of Regula's \
         `lakefile.lean` records them, so that log can come from weak arguments since removed, \
         and the module's result is not established. A record counts only when no dependency \
-        declares a library facet other than Regula's, since one can replace Regula's. A build \
-        with the marker (`lake lint` without REGULA_ORDINARY_LAKEFILES=1) or a fresh audit \
-        elaborates it again."] ++
-      build.reused.map (s!"not established: {·}")))
+        declares a library or module facet other than Regula's, since one can replace Regula's. \
+        A build with the marker (`lake lint` without REGULA_ORDINARY_LAKEFILES=1) or a fresh \
+        audit elaborates it again."] ++
+      build.reused.map (s!"not established: {·}")
+    let hidden := if build.observer.isEmpty then #[] else
+      Observer.hiddenReport s!"the claimed build {mode}" build.observer
+    return some (reused ++ hidden)
   let diagnostics :=
     if !build.unparsed.isEmpty then
       #["the compiler printed output that is not a Lean message, which Lake logs as \
@@ -1780,9 +2040,42 @@ def buildCheckedObservation (repo : FilePath) (targets : Array SurfaceTarget)
     -- that context so public-gate qualification can identify the obligation.
     else if !(errorLines process.output).isEmpty then outputLines process.output
     else takeLast 20 (outputLines process.output)
-  return (build, some
+  return some
       (#[s!"FAIL[build-failed]: positive surface did not build {mode} and warning-free"]
-    ++ diagnostics))
+    ++ diagnostics)
+
+/-- Build the claimed Lake targets and require success with no warnings: the build runs with
+Lake's failure level at `warning`, so it succeeds only when no required job logged a warning or an
+error. Lake gives each message of a module's elaboration the level of its Lean severity
+(`LogLevel.ofMessageSeverity`), so an information message, whatever its text, never fails the
+build. The build is also refused when a job that Lake's build monitor judged holds an entry Lake
+can have made from compiler output that is not a Lean message (`CheckedBuild.unparsed`), since Lake
+logs it as information whatever it held. When the build has no audit-build marker, a claimed
+module whose log it replayed from an elaboration before the audit, under weak arguments that its
+trace does not record (`CheckedBuild.reused`), has no established result, and each such module is
+reported. `elaborated` holds the modules that earlier builds of the same audit elaborated, and
+the build adds its own. A claimed module whose record from Regula's elaboration
+observer fails RG2003, or that the observer did not observe (`CheckedBuild.observer`), fails it too.
+The output is read only to report a failure. Returns the diagnostic lines
+to report on failure. -/
+def buildCheckedObservation (repo : FilePath) (targets : Array SurfaceTarget)
+    (mode : String) (build : Build := buildTargets) (elaborated : Option Elaborated := none) :
+    IO (CheckedBuild × Option (Array String)) := do
+  let build ← Build.runObserved { build with failLv := .warning } repo (targets.map .surface)
+    elaborated
+  return (build, checkedFailure build mode)
+
+/-- Build the targets of a documentation package that is no claimed surface, such as the Verso
+package of Regula's own standard, whose `lean` blocks show Lean's messages with `#guard_msgs`, and
+return the lines to report on failure: the decision of `buildCheckedObservation`, except that the
+RG2003 failures of Regula's elaboration observer are not counted. It returns no `CheckedBuild`, so
+no acceptance observation (`Acceptance.buildObservation`) and no audit decision reads such a
+build: every build of a claimed surface goes through `buildCheckedObservation`. -/
+def buildDocumentation (repo : FilePath) (targets : Array SurfaceTarget) (mode : String) :
+    IO (Option (Array String)) := do
+  let build ← Build.runObserved { buildTargets with failLv := .warning } repo
+    (targets.map .surface)
+  return checkedFailure { build with verdicts := #[] } mode
 
 /-- Compatibility diagnostic projection. Acceptance callers retain the process observation. -/
 def buildChecked (repo : FilePath) (targets : Array SurfaceTarget)

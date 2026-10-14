@@ -1,0 +1,18 @@
+# The Verso package of the `qualify verso-recorded-paths` control. It requires the package
+# `recorded` by local path. The manifest entry of `recorded` in lake-manifest.json records the
+# configuration file `package.toml` and the manifest `pins.json`, not Lake's default names.
+# `pins.json` pins `shared` at another revision than this manifest and `recorded`'s own
+# `lake-manifest.json` do: Lake reads it when it loads `recorded`, but takes only its fixed
+# toolchain from it.
+name = "verso_fixture"
+
+[[require]]
+name = "recorded"
+path = "../recorded"
+
+[[lean_lib]]
+name = "Doc"
+
+[[lean_exe]]
+name = "render"
+root = "Render"

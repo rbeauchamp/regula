@@ -183,7 +183,8 @@ def findingOf (project : String) (d : Json) : IO FindingView := do
 /-- The fixture of rule `id` whose exact text is `text`, if any. -/
 def fixtureOf (root : FilePath) (id : RuleId) (text : String) : IO (Option String) := do
   let folder := root / "examples/rules" / id.spelling
-  let files ← (← folder.readDir).qsort (fun a b => a.fileName < b.fileName) |>.filterM fun e =>
+  let files ← (← Regula.Filesystem.Construction.listDirectory folder).qsort
+    (fun a b => a.fileName < b.fileName) |>.filterM fun e =>
       return !(← e.path.isDir)
   for entry in files do
     if (← IO.FS.readFile entry.path) == text then
@@ -254,7 +255,7 @@ private def writeModule (dir : FilePath) (name : String) (content : String) : IO
 def snapshotTree (root : FilePath) : IO (List (String × ByteArray)) := do
   let root ← IO.FS.realPath root
   let mut files := []
-  for path in ← root.walkDir do
+  for path in ← Regula.Filesystem.Construction.walkDirectory root do
     if !(← path.isDir) then
       let relative := String.intercalate "/" (path.components.drop root.components.length)
       files := (relative, ← IO.FS.readBinFile path) :: files
@@ -324,7 +325,7 @@ def extractRelease (root : FilePath) (v : ReleaseVersion) : IO (List (String × 
   let extracted ← run root (.stated "tar" "The external archive utility handles the stated archive") #["-xzf", archive.toString, "-C", dir.toString]
   requireChecks [⟨s!"release {v.spelling}: extract {releaseAsset v}\n{extracted.stderr}",
     extracted.exitCode == 0⟩]
-  for path in ← dir.walkDir do
+  for path in ← Regula.Filesystem.Construction.walkDirectory dir do
     requireChecks [⟨s!"release {v.spelling}: {path} is a symbolic link",
       (← path.symlinkMetadata).type != .symlink⟩]
   let files ← snapshotTree dir

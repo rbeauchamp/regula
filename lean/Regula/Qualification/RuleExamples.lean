@@ -267,12 +267,12 @@ private def produce (ctx : Context) (slot : Slot.ProducerSlot) (rule phase : Str
       -- among them `Example.Cli`, the root of `lean_exe cli`.
       let config := project / "lakefile.lean"
       let text ← IO.FS.readFile config
-      let declared := "lean_lib Example\n"
+      let declared := "lean_lib Example where\n" ++ Regula.Checker.observerNeedLean
       requireChecks
           [⟨"RG2002 fixture library declaration", (text.splitOn declared).length == 2⟩]
-      IO.FS.writeFile config (text.replace declared
-        "lean_lib Example where\n  globs := #[.andSubmodules `Example]\n\
-          lean_exe cli where\n  root := `Example.Cli\n")
+      IO.FS.writeFile config (text.replace declared <|
+        declared ++ "  globs := #[.andSubmodules `Example]\nlean_exe cli where\n  root := \
+          `Example.Cli\n" ++ Regula.Checker.observerNeedLean)
       IO.FS.createDir (project / "Example")
       Regula.Filesystem.copyFile (folder / "Cli.lean") (project / "Example/Cli.lean")
       paths := paths.push (project / "Example/Cli.lean")
@@ -494,7 +494,8 @@ and after production (`checkerBefore`, `checkerAfter`): the Lake-discovered root
 sources, the toolchain, Lake configuration and manifest, and every corpus file. The site builder
 recomputes this set to require that exported evidence belongs to the current sources. -/
 def sourcePaths (root : FilePath) (modulePaths : Array FilePath) : IO (Array FilePath) := do
-  let corpusPaths ← (← (root / "examples/rules").walkDir).filterM fun path => return !(← path.isDir)
+  let corpusPaths ← (← Regula.Filesystem.Construction.walkDirectory (root / "examples/rules")).filterM
+    fun path => return !(← path.isDir)
   return (modulePaths ++
       #[root / "lean-toolchain", root / "lakefile.lean", root / "lake-manifest.json"] ++
           corpusPaths).toList.eraseDups.toArray

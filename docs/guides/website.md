@@ -172,7 +172,9 @@ path, because the standard's examples import modules of both. Neither requires M
 example imports it, so building the standard and the site needs only the pinned Verso. The
 website names the root `.lake/packages` as its packages directory (`packagesDir`); its Git pins
 must equal those of the packages it requires by path (the documentation check refuses a
-difference). The website
+difference). On each side, these are the pins of the package's own `lake-manifest.json` and,
+when that exists, `.lake/package-overrides.json`, as a build in its directory reads them. The
+documentation check refuses a website package without its own `lake-manifest.json`. The website
 package and the checker and examples use the same supported Lean release. Verso setup is
 also required before `./scripts/verify.sh docs`, which builds the standard. That step also reads
 the tracked Markdown documents with md4c. The `markdown/` package requires MD4Lean at the same

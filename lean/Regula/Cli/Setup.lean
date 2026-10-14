@@ -684,7 +684,7 @@ def observe (root : FilePath) : IO Project := do
         for r in lib.roots do
           let dir := Lean.modToFilePath lib.srcDir r ""
           unless ← dir.isDir do continue
-          for path in ← dir.walkDir do
+          for path in ← Regula.Filesystem.Construction.walkDirectory dir do
             if path.extension != some "lean" || (← path.isDir) then continue
             let parts := (path.withExtension "").components.drop dir.components.length
             let name := parts.foldl Name.str r
@@ -722,7 +722,7 @@ def observe (root : FilePath) : IO Project := do
         unless hit.isEmpty do uncovered := uncovered ++ [(library, roots, sorted hit)]
         unless rest.isEmpty do unimported := unimported ++ [(library, roots, sorted rest)]
       let own (options : Array Lean.LeanOption) :=
-        (Lake.buildOptions (.ofArray options) #[] #[]).options
+        (Lake.buildOptions (.ofArray options) #[] #[] .anonymous #[] #[]).options
       let libs := pkg.leanLibs.filter fun lib =>
         !excludedLibraries.contains (Manifest.targetSpelling lib.name)
       let exes := pkg.leanExes.filter fun exe =>
@@ -742,11 +742,11 @@ def observe (root : FilePath) : IO Project := do
         | .lean => Lakefile.lean
       let addedNames := added.foldl (fun s (m, _) => s.insert m) ({} : NameSet)
       return (kind, pkg.configFile, pkg.lintDriver,
-        (Lake.buildOptions pkg.leanOptions #[] #[]).options, targets,
+        (Lake.buildOptions pkg.leanOptions #[] #[] .anonymous #[] #[]).options, targets,
         !invalid && libs.size == pkg.leanLibs.size && exes.size == pkg.leanExes.size,
         !pkg.leanLibs.isEmpty,
         ws.packages.any (·.baseName == `mathlib), uncovered, unimported, candidate,
-        added.toList, imported.filter fun (m, _) => addedNames.contains m)
+        added.toList, imported.filter (fun (m, _) => addedNames.contains m))
   -- The configuration file is read only when the glob could apply: a library with modules for its
   -- glob to add.
   let sole ← match candidate with
@@ -835,9 +835,10 @@ def manifestText (m : Manifest) : String :=
 
 /-- The linter's configuration findings for a project with a manifest: RG2002 when the manifest
 does not parse or does not classify every root target, and otherwise RG2006 for each claimed
-target, decided by `RegulaPolicy.Community.failures` exactly as the audit decides it. Targets with
-the same claim and the same failures share one finding naming them all, in manifest order, where
-the linter prints one per target: a `-D` in the package's arguments fails every target alike. -/
+target, decided by `RegulaPolicy.Community.failures` exactly as the audit decides it. Targets
+with the same claim and the same failures share one finding naming them all, in manifest order,
+where the linter prints one per target: a `-D` in the package's arguments fails every target
+alike. -/
 def configurationFindings (project : Project) : IO (Array Regula.Finding) := do
   let root := project.root
   let mode : EvidenceMode := .incrementalProject

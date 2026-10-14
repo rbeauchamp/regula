@@ -799,9 +799,13 @@ def descriptor : (id : RuleId) → RuleDescriptor id
         "Remove dead bindings or rename intentionally unused ones only when the name was genuinely \
           unused; do not rename a variable that should have been used.",
         "Do not add `set_option linter.… false` for a Lean default warning such as \
-          `linter.unusedVariables`. A declaration-scoped `set_option linter.NAME false in` or \
-          `@[nolint NAME]` is only for a community linter, enabled by a dependency or the project, \
-          where its guidance allows, and establishes nothing the linter checks."]
+          `linter.unusedVariables`; RG2006 rejects it. A declaration-scoped \
+          `set_option linter.NAME false in` is only for a community linter, enabled by a \
+          dependency or the project, where its guidance allows, and establishes nothing the \
+          linter checks.",
+        "Move a `#guard_msgs` or `#guard_panic` check out of the claimed modules, into a test or \
+          documentation module outside the claimed surface: in a claimed module it hides the \
+          messages this rule reads."]
       examples := {
         language := .lean
         audience := .adopter
@@ -871,25 +875,26 @@ def descriptor : (id : RuleId) → RuleDescriptor id
       category := .configuration
       normativeClauses := [.elaborationEnvironment, .communityConventions, .linterDiscipline]
       applicability := "community-configuration"
-      evidenceModes := [.incrementalProject, .freshProject]
+      evidenceModes := [.incrementalProject, .freshProject, .freshFile]
       requirement := "Targets' `leanOptions`: auto-implicits off, `linter.missingDocs` on, with \
-        Mathlib its standard set, header linter off or licensed; any other option, also by \
-        `-D`, only in RG2006's accepted set."
+        Mathlib its standard set, header linter off or licensed; other options, in `-D` \
+        or source too, only in the accepted set."
       rationale := "An automatic implicit adds a binder the source does not show, so the \
         elaborated statement can quantify over more than the text a reviewer compares with the \
         intent. A linter or warning reports only where it is on, and a target-wide option can \
         turn one off, so the warning-free build (RG2003) never sees it. The rule accepts only \
         options that cannot stop a default warning, besides a raised `exponentiation.threshold`, \
         in `leanOptions` or a `-D` extra `lean` argument."
-      remedy := "Set the target's Lake `leanOptions`: `autoImplicit` and `relaxedAutoImplicit` \
-        false, `linter.missingDocs` true and, with Mathlib, the standard set and its three §6.7 \
-        exclusions; delete each other option, or `-D` extra `lean` argument, outside the \
-        accepted set."
+      remedy := "Set `leanOptions`: `autoImplicit` and `relaxedAutoImplicit` false, \
+        `linter.missingDocs` true and, with Mathlib, the standard set and §6.7 exclusions; \
+        delete other options, `-D`s and `set_option`s outside the accepted set, bar a \
+        community linter's `… false in` on a declaration or a macro for one."
       rewrites := [
         "Add ``⟨`autoImplicit, false⟩, ⟨`relaxedAutoImplicit, false⟩, \
           ⟨`linter.missingDocs, true⟩`` to `leanOptions` (the same keys under `[leanOptions]` in \
-          `lakefile.toml`), then declare each universe and implicit the build reports as unknown \
-          and document each declaration it reports.",
+          `lakefile.toml`), and ``plugins := #[`@regula/RegulaObserver:shared]`` and the same key \
+          in `needs` to each claimed target, then declare each universe and implicit the build \
+          reports as unknown and document each declaration it reports.",
         "With Mathlib, also set `weak.linter.mathlibStandardSet` to true, `weak.linter.hashCommand` \
           false, `weak.linter.style.longFile` 0 and `weak.linter.style.header` false, or true \
           with `weak.linter.style.header.license` set to your license line.",
@@ -899,11 +904,11 @@ def descriptor : (id : RuleId) → RuleDescriptor id
           ``⟨`warn.sorry, false⟩`` or ``⟨`doc.verso.suggestions, false⟩``. A `pp.*` option \
           changes the text some linters compare: put a non-default one in an editor or user \
           setting.",
-        "Keep only accepted options: a listed linter or `warn.*` option at its listed value \
-          (`true` for most), `warningAsError` or `debugAssertions` at true, a `pp.*` option at its \
+        "Keep only accepted options: a listed linter or `warn.*` option at its listed value, \
+          `warningAsError` or `debugAssertions` at true, a `pp.*` option at its \
           default, or a number for `maxHeartbeats`, `synthInstance.maxHeartbeats`, \
-          `maxRecDepth`, `maxSynthPendingDepth` or `exponentiation.threshold`, which lets Lean \
-          do work it would skip. Delete other \
+          `synthInstance.maxSize`, `maxRecDepth`, `maxSynthPendingDepth` or \
+          `exponentiation.threshold`, which lets Lean do work it would skip. Delete other \
           `-D name=value` arguments and `weak.` entries, even undeclared ones; non-option \
           arguments may stay."]
       examples := {

@@ -61,14 +61,30 @@ package «regula» where
   leanOptions := #[⟨`warningAsError, true⟩, ⟨`autoImplicit, false⟩,
     ⟨`relaxedAutoImplicit, false⟩, ⟨`linter.missingDocs, true⟩]
 
+-- Every target of this package but the observer's own library loads Regula's elaboration
+-- observer (the `RegulaObserver` library below) into the elaboration of its modules through Lake's
+-- own `plugins` setting, which Lake's `presetup` facet fetches, passes to `lean --plugin` and mixes
+-- into each module's trace. `@/` names this package whether it is the root or a dependency, so an
+-- adopter that requires it builds its modules as this checkout does. Each target also lists the
+-- same key in `needs`: Lake v4.34.1 can build a `plugins` key several times at once in a fresh
+-- build (`Lake/Build/Target/Fetch.lean` lines 54 to 66), and it builds a target's `needs` before
+-- its modules fetch their plugins (`Lake/Build/Module.lean` lines 546 to 557, lean4#13598), so the
+-- observer is built once, and mixes the trace of the `needs` into each module's trace whatever the
+-- target's `platformIndependent`, so a replayed module was elaborated with the observer the build
+-- has. An adopter's claimed targets load the observer the same way, as
+-- `@regula/RegulaObserver:shared` in both settings; RG2006 requires both entries.
 @[default_target]
 lean_lib «AuditApp» where
+  plugins := #[`@/RegulaObserver:shared]
+  needs := #[`@/RegulaObserver:shared]
   -- The complete-application dogfooding surface: a bounded-slot limiter whose
   -- admission, update, and composition contracts are proved about the same
   -- computable definitions the `auditApp` executable runs. Core-only.
   globs := #[.andSubmodules `AuditApp]
 
 lean_lib «Fixtures» where
+  plugins := #[`@/RegulaObserver:shared]
+  needs := #[`@/RegulaObserver:shared]
   -- Queryable exact inventory for isolated controls and mutations. This is
   -- deliberately not a default target: many modules are meant not to build.
   globs := #[.submodules `Fixtures]
@@ -78,6 +94,8 @@ lean_lib «Fixtures» where
 
 @[default_target]
 lean_lib «RegulaPolicy» where
+  plugins := #[`@/RegulaObserver:shared]
+  needs := #[`@/RegulaObserver:shared]
   globs := #[.andSubmodules `RegulaPolicy]
 
 -- The two standalone programs run with `lean --run` before the package is built
@@ -86,17 +104,23 @@ lean_lib «RegulaPolicy» where
 -- registers the program's decisions (RG1008); no program imports it.
 @[default_target]
 lean_lib «RegulaVerification» where
+  plugins := #[`@/RegulaObserver:shared]
+  needs := #[`@/processSource, `@/gitProcessSource, `@/copyConstructionSource,
+    `@/RegulaObserver:shared]
   globs := #[.andSubmodules `RegulaVerification]
-  needs := #[`@/processSource, `@/gitProcessSource, `@/copyConstructionSource]
 
 -- Dependency setup.
 @[default_target]
 lean_lib «RegulaProvision» where
+  plugins := #[`@/RegulaObserver:shared]
+  needs := #[`@/processSource, `@/gitProcessSource, `@/copyConstructionSource,
+    `@/RegulaObserver:shared]
   globs := #[.andSubmodules `RegulaProvision]
-  needs := #[`@/processSource, `@/gitProcessSource, `@/copyConstructionSource]
 
 @[default_target]
 lean_lib «RegulaQualification» where
+  plugins := #[`@/RegulaObserver:shared]
+  needs := #[`@/RegulaObserver:shared]
   -- Pure, proof-backed observation contracts; no process or filesystem drivers.
   globs := #[.submodules `RegulaQualification]
 
@@ -116,7 +140,7 @@ input_file processSource where
   path := "lean/Regula/ProcessSource.inc"
   text := true
 
--- The shared adapter routes the constructor's Git effects through Process.
+-- The shared adapters route the constructor's Git and listing effects through Process.
 input_file gitProcessSource where
   path := "lean/Regula/GitProcessSource.inc"
   text := true
@@ -133,62 +157,87 @@ input_file copyConstructionSource where
 
 @[default_target]
 lean_lib «RegulaCore» where
+  plugins := #[`@/RegulaObserver:shared]
   -- The rule registry and the pure checker projections of policy decisions that the
   -- operational checker executes; claimed, so the gate audits their declarations.
   globs := #[.submodules `RegulaCore]
-  needs := #[`@/ruleExampleSources]
+  needs := #[`@/ruleExampleSources, `@/RegulaObserver:shared]
 
 lean_lib «Regula» where
+  plugins := #[`@/RegulaObserver:shared]
   -- Lean-only checker implementation. Operational checker modules are
   -- separately qualified; they are not part of the conforming proof surface.
   globs := #[.submodules `Regula]
+  -- The observer's shared library is also loaded by standalone source compilation.
   needs := #[`@/compilerObservationSource, `@/processSource, `@/gitProcessSource,
-    `@/processFixtureSources]
+    `@/processFixtureSources, `@/RegulaObserver:shared]
 
 lean_exe «axiomGate» where
+  plugins := #[`@/RegulaObserver:shared]
+  needs := #[`@/RegulaObserver:shared]
   root := `Regula.Checker.AxiomGateMain
   supportInterpreter := true
 
 lean_exe «lint» where
+  plugins := #[`@/RegulaObserver:shared]
+  needs := #[`@/RegulaObserver:shared]
   -- Lake lint driver: `lintDriver = "regula/lint"` in an adopting package and in this one.
   root := `Regula.Checker.LintMain
   supportInterpreter := true
 
 lean_exe «docFenceAudit» where
+  plugins := #[`@/RegulaObserver:shared]
+  needs := #[`@/RegulaObserver:shared]
   root := `Regula.Checker.DocFenceAudit
   supportInterpreter := true
 
 lean_exe «freshChecker» where
+  plugins := #[`@/RegulaObserver:shared]
+  needs := #[`@/RegulaObserver:shared]
   root := `Regula.Checker.FreshChecker
   supportInterpreter := true
 
 lean_exe «checkerSelftest» where
+  plugins := #[`@/RegulaObserver:shared]
+  needs := #[`@/RegulaObserver:shared]
   root := `Regula.Checker.CheckerSelftest
   supportInterpreter := true
 
 lean_exe «qualify» where
+  plugins := #[`@/RegulaObserver:shared]
+  needs := #[`@/RegulaObserver:shared]
   root := `Regula.Qualification.Main
   supportInterpreter := true
 
 lean_exe «ruleExamples» where
+  plugins := #[`@/RegulaObserver:shared]
+  needs := #[`@/RegulaObserver:shared]
   root := `Regula.Checker.RuleExamples
   supportInterpreter := true
 
 lean_exe «ruleExampleQualification» where
+  plugins := #[`@/RegulaObserver:shared]
+  needs := #[`@/RegulaObserver:shared]
   root := `Regula.Checker.RuleExampleQualificationMain
 
 lean_exe «regula» where
+  plugins := #[`@/RegulaObserver:shared]
+  needs := #[`@/RegulaObserver:shared]
   -- Project setup (`init`, `doctor`) and offline rule guidance (`explain <RULE-ID>`, `rules`,
   -- `agent-guide`, `skill`). Loading an adopter's `lakefile.lean` needs the interpreter.
   root := `Regula.Cli.Main
   supportInterpreter := true
 
 lean_exe «site» where
+  plugins := #[`@/RegulaObserver:shared]
+  needs := #[`@/RegulaObserver:shared]
   -- Rule-reference site builder: generates, renders, assembles and checks the Pages artifact.
   root := `Regula.Site.Main
   supportInterpreter := true
 
 lean_exe «auditApp» where
+  plugins := #[`@/RegulaObserver:shared]
+  needs := #[`@/RegulaObserver:shared]
   root := `Main
   supportInterpreter := true
 
@@ -204,7 +253,7 @@ lean_exe «auditApp» where
 -- dependencies' traces stay unchanged. A dependency resolved after this package that declares an
 -- `extraDep` facet replaces this one: Lake resolves a package's `require` lines from the last to
 -- the first, then their dependencies. The audit counts no record when a dependency declares
--- another library facet.
+-- a library or module facet.
 
 /-- The record of the weak arguments `args` of the library `libraryName` of the package
 `packageName`, each name written by its components, so that distinct names give distinct records.
@@ -228,3 +277,13 @@ def weakLeanArgsRecord (packageName libraryName : Lean.Name) (args : Array Strin
       (weakLeanArgsRecord library.pkg.baseName library.name library.weakLeanArgs).compress
     return job.mix <| Job.ofTask <| .pure <| .ok () {
       trace := BuildTrace.ofHash (pureHash record) record }
+
+-- End of Regula's weak-arguments record.
+
+-- Regula's elaboration observer: a Lean plugin that records in each module's `.olean` what a
+-- build's messages do not show (the options its source set, `#guard_msgs` and `#guard_panic`,
+-- silent messages), from which the audit decides RG2003 and RG2006. Its one root module and the
+-- default library name make it a plugin that Lean can load (`LeanLib.isPlugin`). It imports only
+-- Lean, so no module of it is elaborated with it.
+lean_lib «RegulaObserver» where
+  globs := #[.andSubmodules `RegulaObserver]

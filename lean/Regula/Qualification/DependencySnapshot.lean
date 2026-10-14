@@ -45,7 +45,9 @@ private def control (project dependency : FilePath) : IO Unit := do
     ⟨"buildable unimported module", observed.sourcePaths.any (·.1 == `Dep.Unimported)⟩]
   let unchanged := Regula.Checker.Snapshot.inputsUnchanged inventory before
   unchanged
-  let snapshot ← IO.ofExcept <| Regula.Checker.Snapshot.make inventory.root #[] #[] before
+  -- The snapshot of `dep` alone: the captured sources of the `regula` dependency hold this
+  -- module, whose text names the marker.
+  let snapshot ← IO.ofExcept <| Regula.Checker.Snapshot.make inventory.root #[] #[] #[observed]
   let marker := "R4_SYNTHETIC_UNRELATED"
   let encoded := (toJson (marker.toUTF8.toList.map UInt8.toNat)).compress
   requireChecks [⟨"unrelated bytes excluded", !snapshot.val.configuration.source.contains marker &&
@@ -207,10 +209,14 @@ def check (group : String) : IO Unit := do
     IO.FS.createDirAll project
     success (← run project (.stated "git" "Git is the caller-selected repository mechanism") #["init", "-q"])
     toolchain root project
-    IO.FS.writeFile (project / "lakefile.toml")
-      "name = \"snapshot_control\"\n[leanOptions]\nautoImplicit = false\nrelaxedAutoImplicit = \
-        false\nlinter.missingDocs = true\n[[require]]\nname = \"dep\"\npath = \
-        \"../dependency\"\n[[lean_lib]]\nname = \"Example\"\n"
+    -- Its library loads Regula's elaboration observer (RG2006) and lists it in `needs`, so it
+    -- requires `regula` too.
+    IO.FS.writeFile (project / "lakefile.toml") <|
+      "name = \"snapshot_control\"\n" ++ Regula.Checker.observerPluginToml ++
+      "[leanOptions]\nautoImplicit = false\nrelaxedAutoImplicit = false\n" ++
+      "linter.missingDocs = true\n[[require]]\nname = \"dep\"\npath = \"../dependency\"\n" ++
+      Regula.Checker.regulaRequireToml root ++ "[[lean_lib]]\nname = \"Example\"\n" ++
+      Regula.Checker.observerNeedToml
     IO.FS.writeFile (project / "Example.lean") "import Dep\n/-! Snapshot control. -/\n"
     -- The complete generated requirement graph is this one path dependency, with no Git source.
     success (← run project (.toolchain .lake) #["update"] cleanEnv)
@@ -236,9 +242,11 @@ def check (group : String) : IO Unit := do
             !encoded.contains (toJson (marker.toUTF8.toList.map UInt8.toNat)).compress⟩]
         IO.println s!"dependency snapshot {kind}: PASS"
     if group == "dependencies" then return
-    IO.FS.writeFile (project / "lakefile.toml") "name = \
-      \"history_control\"\n[leanOptions]\nautoImplicit = false\nrelaxedAutoImplicit = \
-      false\nlinter.missingDocs = true\n[[lean_lib]]\nname = \"Example\"\n"
+    IO.FS.writeFile (project / "lakefile.toml") <|
+      "name = \"history_control\"\n" ++ Regula.Checker.observerPluginToml ++
+      "[leanOptions]\nautoImplicit = false\nrelaxedAutoImplicit = false\n" ++
+      "linter.missingDocs = true\n" ++ Regula.Checker.regulaRequireToml root ++
+      "[[lean_lib]]\nname = \"Example\"\n" ++ Regula.Checker.observerNeedToml
     removeFile (project / "lake-manifest.json")
     -- The replacement generated configuration has no requirements; update creates its manifest.
     success (← run project (.toolchain .lake) #["update"] cleanEnv)

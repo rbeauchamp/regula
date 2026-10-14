@@ -96,8 +96,8 @@ structure LibraryInventory where
   modules : Array Name
   /-- The source file of each module. -/
   sources : Array SourceEntry
-  /-- The Lean options and extra `lean` arguments Lake builds the library's modules with
-  (RG2006). -/
+  /-- The Lean options and extra `lean` arguments Lake builds the library's modules with, and
+  whether its plugins and its `needs` name Regula's elaboration observer (RG2006). -/
   options : RegulaPolicy.Community.BuildOptions
   deriving Repr, BEq
 
@@ -109,7 +109,8 @@ structure ExecutableInventory where
   root : Name
   /-- The root module's source file. -/
   source : FilePath
-  /-- The Lean options and extra `lean` arguments Lake builds the root module with (RG2006). -/
+  /-- The Lean options and extra `lean` arguments Lake builds the root module with, and whether
+  its plugins and its `needs` name Regula's elaboration observer (RG2006). -/
   options : RegulaPolicy.Community.BuildOptions
   deriving Repr, BEq
 
@@ -121,7 +122,8 @@ structure TargetInventory where
   target : String
   /-- The modules the target provides, in `Name.quickLt` order. -/
   modules : Array Name
-  /-- The Lean options and extra `lean` arguments Lake builds the target's modules with. -/
+  /-- The Lean options and extra `lean` arguments Lake builds the target's modules with, and
+  whether its plugins and its `needs` name Regula's elaboration observer. -/
   options : RegulaPolicy.Community.BuildOptions
   deriving Repr, BEq
 
@@ -131,8 +133,8 @@ structure DependencyInventory where
   package : String
   /-- The package's directory. -/
   root : FilePath
-  /-- The paths of its Lake configuration, manifest and `lean-toolchain` files, including both
-  lakefile names. -/
+  /-- The paths of its Lake configuration, manifest and `lean-toolchain` files, with each
+  configuration file whose presence decides the one Lake loads. -/
   configurationPaths : Array FilePath
   /-- The source file of each of its modules that its library globs select, and of each
   executable root whose source exists. -/

@@ -19,6 +19,7 @@ imports no Mathlib. Its libraries (`lakefile.lean`, `foundation_manifest.json`):
 | `RegulaVerification`, `RegulaProvision` | Toolchain-only acceptance runner and dependency provisioning for the pinned release. Pure decision contracts surround trusted build, process and filesystem effects. Each library's `Decisions` module, which no program imports, registers those decisions' kinds with the checker's two interfaces. | Claimed |
 | `AuditApp` (with standalone root `Main`) | A complete application whose admission, update and composition contracts are proved about the definitions its executable runs. | Claimed |
 | `Regula` | The operational checker: Lake loading, probes, workers, transport, CLI and project setup, linter hooks, qualification drivers, the site builder and the release steps. | Excluded; self-audited ([contributing](contributing.md#repository-conformance)) |
+| `RegulaObserver` | The elaboration observer: a Lean plugin that each other target of the package loads through Lake's `plugins` setting. It records in each module's `.olean` what the build's messages do not show, from which the audit decides [RG2003] and [RG2006] ([adoption](adoption.md#load-the-elaboration-observer)). It imports only Lean. | Excluded and trusted at the pinned Lean |
 | `Fixtures` | Isolated positive controls and intended-failure mutations. | Excluded; never imported by a claimed surface |
 
 The `regula_audit` package in [`audit/`](../../audit/lakefile.lean) holds the `Audit` library of

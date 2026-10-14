@@ -5,6 +5,10 @@ points of Regula:
 
 - **`lake lint`**: `lintDriver = "regula/lint"` runs the project audit over every
   manifested surface (here the `Gadget` library, choice-free, `report` execution).
+  The `Gadget` library loads Regula's elaboration observer with
+  `plugins = ["@regula/RegulaObserver:shared"]` and lists the same key in `needs`. Each claimed
+  target must load it
+  ([adoption guide](../../docs/guides/adoption.md#load-the-elaboration-observer)).
 - **Editor feedback**: `Gadget/Double.lean` imports `Regula.Linter`, so VS Code with the
   Lean 4 extension shows `Regula.RG…` warnings at their declaration ranges, with a
   **View explanation** link in the infoview and the rule URL in the message text.

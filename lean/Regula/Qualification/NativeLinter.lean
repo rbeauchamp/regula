@@ -108,8 +108,10 @@ private def forgedPrelude (root scratch : FilePath) (launcher : Launcher.State) 
       { cmd := "", args := #["-s"] ++ sources.map (·.toString) ++ #[directory.toString] }
     requireChecks [⟨s!"forged prelude: link toolchain artifacts into {directory}",
       output.exitCode == 0⟩]
-  link (((← library.readDir).filter (·.fileName.startsWith "Init.")).map (·.path)) lib
-  link (((← (library / "Init").readDir).filter (!·.fileName.startsWith "Prelude.")).map
+  link (((← Regula.Filesystem.Construction.listDirectory library).filter
+    (·.fileName.startsWith "Init.")).map (·.path)) lib
+  link (((← Regula.Filesystem.Construction.listDirectory (library / "Init")).filter
+    (!·.fileName.startsWith "Prelude.")).map
     (·.path)) (lib / "Init")
   let compiled ← Launcher.runLean root launcher
     #["-R", (forged / "src").toString, "-o", (lib / "Init" / "Prelude.olean").toString,

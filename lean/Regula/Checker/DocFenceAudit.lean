@@ -77,30 +77,10 @@ private def parseArgs : List String → Options → IO Options
 private def resolve (repo path : FilePath) : FilePath :=
   if path.isAbsolute then path else repo / path.toString
 
-/-- The first package that the Verso package at `package` and a package it requires by local path
-both pin by Git at different revisions or sources, with that package's recorded directory. Where
-the two share one packages directory, such a pin would make one build check out another revision
-of a shared dependency. Each manifest is read by Lake's own reader (`Lake.Manifest.loadEntries`),
-so an entry that Lake refuses, such as a Git entry without `url` or `rev`, is refused here too. -/
-private def sharedPinMismatch (package : FilePath) : IO (Option String) := do
-  let entries (dir : FilePath) := _root_.Lake.Manifest.loadEntries (dir / "lake-manifest.json")
-  let pins (dir : FilePath) : IO (Array (Name × String × String)) := do
-    return (← entries dir).filterMap fun entry => match entry.src with
-      | .git url rev _ _ => some (entry.name, url, rev)
-      | .path _ => none
-  let versoPins ← pins package
-  for entry in ← entries package do
-    let .path dir := entry.src | continue
-    let requiredPins ← pins (package / dir)
-    for (name, url, rev) in versoPins do
-      if let some (_, url', rev') := requiredPins.find? (·.1 == name) then
-        unless url == url' && rev == rev' do return some s!"{name} (against {dir})"
-  return none
-
 /-- The rendered HTML files below `root`, each by its path below it with its text. -/
 private def renderedHtml (root : FilePath) : IO (List (String × String)) := do
   let components := root.normalize.components
-  (← root.walkDir).toList.filterMapM fun path => do
+  (← Regula.Filesystem.Construction.walkDirectory root).toList.filterMapM fun path => do
     if path.extension != some "html" then return none
     let relative := "/".intercalate (path.normalize.components.drop components.length)
     return some (relative, ← IO.FS.readFile path)
@@ -108,12 +88,21 @@ private def renderedHtml (root : FilePath) : IO (List (String × String)) := do
 /-- Build the Verso library in the isolated copy, where every `lean` block is elaborated where it
 is written by the library's own code block. The copy's library sources and Verso package inputs
 must be exactly the audited and linked ones (`linked`), and the Verso package must pin every Git
-dependency it shares with a package it requires by path at the same revision. -/
+dependency it shares with a package it requires by path at the same revision
+(`Documentation.sharedPinMismatch`).
+
+The pin check reads the original Verso package at `repo`, not the copy, since it concerns the
+audited project's configuration. The copy's generated overrides file (`Lake.copyProject`, from
+`Lake.relocateDependencies`) makes each dependency of the accepted project a path entry, so on the
+copy the check would compare no Git pin of the accepted project. The original holds each package's
+own manifest and overrides file as a build in its directory reads them. The capture comparison
+binds the inputs of the Verso package and of the other local packages, and acceptance's source
+binding (`SourceBinding.configuration`) binds the accepted project's overrides file. -/
 private def prepareVerso (repo copy : FilePath) (verso : VersoPackage)
     (linked : Array RegulaPolicy.SourceSnapshot) : IO (Option String) := do
   let package := copy / verso.dir.toString
   let versoDir := repo / verso.dir.toString
-  if let some mismatch ← sharedPinMismatch package then
+  if let some mismatch ← sharedPinMismatch versoDir then
     return some s!"the Verso package pins {mismatch} differently from a package it requires by path"
   let library ← captureVerso { verso with dir := versoDir }
   let copied := (← captureVerso { verso with dir := package }) ++
@@ -124,8 +113,8 @@ private def prepareVerso (repo copy : FilePath) (verso : VersoPackage)
   unless copied.map (relative package) == original.map (relative versoDir) &&
       original.all linked.contains do
     return some "the isolated copy's Verso sources and package inputs are not the audited ones"
-  let (_, failure) ← timedPhase "Verso documentation build" <|
-    Lake.buildCheckedObservation package
+  let failure ← timedPhase "Verso documentation build" <|
+    Lake.buildDocumentation package
       #[.library (Manifest.targetSpelling verso.library), .executable verso.render] "fresh"
   if let some lines := failure then return some ("\n".intercalate lines.toList)
   return none
@@ -245,8 +234,8 @@ unsafe def run (args : List String) : IO UInt32 := do
       let placed ← match options.acceptanceLink.map (resolve repo) with
         | none => pure (.error "no acceptance link was given")
         | some link => do
-          let digest ← AcceptanceLink.identity scratch copy docsRoot sources configuration
-              dependencies linked
+          let digest ← AcceptanceLink.identity scratch copy copied.root docsRoot sources
+              configuration dependencies linked
           AcceptanceLink.require link digest
           IO.println
               s!"acceptance link: documentation inputs equal the accepted ordinary inputs ({digest})"
@@ -259,6 +248,8 @@ unsafe def run (args : List String) : IO UInt32 := do
           | some closure =>
             timedPhase "retained build placement" <|
               AcceptanceLink.placeRetained repo copy scratch link digest targets modules closure
+      -- After that placement, which requires the copy to hold no `.lake/build`.
+      copied.placeObservers
       SourceBinding.withUnchanged sources configuration do
         SourceBinding.configurationUnchanged configuration
         let (buildProcess, buildResult) ← Lake.buildCheckedObservation copy

@@ -87,9 +87,16 @@ private def qualify (group : String) (evidence : FilePath) (receipt : IO.Ref Jso
     let bin := tool / ".lake/build/bin"
     -- checkerPackageDir requires the real .lake/build/lib/lean suffix (Checker/Lake.lean),
     -- and checkerSource/checkReservedModules read matching sources below package/lean.
-    -- Neither requires loading this proxy package's Lake configuration.
+    -- Neither requires loading this proxy package's Lake configuration. The copied gate also
+    -- finds the elaboration observer's library that its build loads in that layout, beside its
+    -- `bin`, written from the library this process read at its start
+    -- (`Regula.Checker.Observer.running`).
     let library ← Regula.Filesystem.Construction.capture (root / ".lake/build/lib/lean")
       [".lake", "build", "lib", "lean"]
+    let observer ← Regula.Checker.Observer.running
+    let observerLibrary : List Regula.Filesystem.Construction.Item :=
+      ((#[("", observer.library)] ++ observer.companions).toList.map fun (suffix, bytes) =>
+        ⟨[".lake", "build", "lib", observer.fileName ++ suffix], .file bytes 493⟩)
     let sources ← Regula.Filesystem.Construction.capture (root / "lean") ["lean"]
     let programs ← #[(executable, "axiomGate-real"), (← Regula.Process.appPath, "axiomGate")].toList.flatMapM
       fun (source, name) => do
@@ -98,7 +105,7 @@ private def qualify (group : String) (evidence : FilePath) (receipt : IO.Ref Jso
           | .file bytes _ => {item with payload := .file bytes 493}
           | .directory => item)
     Regula.Filesystem.construct tool
-      (Regula.Filesystem.Construction.layout (library ++ sources ++ programs))
+      (Regula.Filesystem.Construction.layout (library ++ observerLibrary ++ sources ++ programs))
     let mut sources : List (String × Json) := []
     for name in
         #["lean-toolchain", "lakefile.lean", "lake-manifest.json", "foundation_manifest.json",
@@ -187,12 +194,14 @@ def check (group : String) (evidence : FilePath) (attempt : Option String := non
   save evidence (← receipt.get)
 
 /-- Documentation dependency-freeze control, run in a scratch project that requires a local
-`dep` package. The project is a Git repository of its own, so `dep` lies in a different Git work
-tree and is a trusted dependency: each isolated copy loads it from its original directory
+`dep` package, and `regula` for the elaboration observer its library loads (RG2006). The
+project is a Git repository of its own, so `dep` lies in a different Git work tree and is a
+trusted dependency: each isolated copy loads it from its original directory
 (`Lake.relocateDependencies`) instead of copying it. Through both `docFenceAudit` and
-`ruleExamples` it checks that a fence over `Dep` passes when the dependency is unchanged, is refused with "dependency snapshot changed:"
-and no acceptance when the build itself rewrites `Dep.lean`, and passes again once restored;
-then a combined `--with-docs` run must accept both code and documentation on one snapshot.
+`ruleExamples` it checks that a fence over `Dep` passes when the dependency is unchanged, is
+refused with "dependency snapshot changed:" and no acceptance when the build itself rewrites
+`Dep.lean`, and passes again once restored; then a combined `--with-docs` run must accept both
+code and documentation on one snapshot.
 Any failed check throws. -/
 def documentationDependencies : IO Unit := do
   let root ← rootDirectory
@@ -209,10 +218,12 @@ def documentationDependencies : IO Unit := do
     IO.FS.createDirAll (project / "docs")
     success (← run project (.stated "git" "Git is the caller-selected repository mechanism") #["init", "-q"])
     toolchain root project
-    IO.FS.writeFile (project / "lakefile.toml")
-      "name = \"documentation_dependency\"\n[leanOptions]\nautoImplicit = \
-        false\nrelaxedAutoImplicit = false\nlinter.missingDocs = true\n[[require]]\nname = \
-        \"dep\"\npath = \"../dependency\"\n[[lean_lib]]\nname = \"Example\"\n"
+    IO.FS.writeFile (project / "lakefile.toml") <|
+      "name = \"documentation_dependency\"\n" ++ Regula.Checker.observerPluginToml ++
+      "[leanOptions]\nautoImplicit = false\nrelaxedAutoImplicit = false\n" ++
+      "linter.missingDocs = true\n[[require]]\nname = \"dep\"\npath = \"../dependency\"\n" ++
+      Regula.Checker.regulaRequireToml root ++ "[[lean_lib]]\nname = \"Example\"\n" ++
+      Regula.Checker.observerNeedToml
     manifest project "kernel-only"
     let source := "import Lean\nimport Dep\n/-! Documentation prerequisite. -/\ntheorem value : \
       Dep.n = 1 := rfl\n"

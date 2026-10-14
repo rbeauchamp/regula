@@ -27,8 +27,10 @@ def prepareProject (root project : FilePath) (packageName claim rationale : Stri
   Regula.Filesystem.construct project (Regula.Filesystem.Construction.layout toolchain)
   Regula.Filesystem.writeFile (project / "lakefile.lean")
     s!"import Lake\nopen Lake DSL\npackage {packageName} where\n  leanOptions := #[⟨`autoImplicit, \
-      false⟩, ⟨`relaxedAutoImplicit, false⟩, ⟨`linter.missingDocs, true⟩]\nrequire regula \
-      from {toJson root.toString |>.compress}\n@[default_target] lean_lib Example\n"
+      false⟩, ⟨`relaxedAutoImplicit, false⟩, ⟨`linter.missingDocs, true⟩]\n  \
+      plugins := #[`@regula/RegulaObserver:shared]\nrequire regula from \
+      {toJson root.toString |>.compress}\n@[default_target] lean_lib Example where\n\
+      {Regula.Checker.observerNeedLean}"
   Regula.Filesystem.writeJson (project / "foundation_manifest.json") (Json.mkObj [
     ("schema-version", toJson (2 : Nat)), ("surfaces", toJson #[Json.mkObj [
       ("library", .str "Example"), ("claim", .str claim), ("execution", .str "checked"),
@@ -39,18 +41,23 @@ def prepareProject (root project : FilePath) (packageName claim rationale : Stri
   let initialized ← run project (.stated "git" "Git is the stated repository mechanism") #["init", "-q"]
   requireChecks [⟨"adopter repository", initialized.exitCode == 0⟩]
 
-/-- Core-only adopter for source/evidence controls. No checker dependency is imported
-into the observed surface, matching the original standalone qualification path. -/
+/-- Core-only adopter for source/evidence controls. No checker module is imported into the
+observed surface, matching the original standalone qualification path; the project requires
+`regula` from `root` only so that its library loads Regula's elaboration observer as a plugin
+(`Regula.Checker.observerPluginToml`), as RG2006 requires, and lists it in `needs`
+(`Regula.Checker.observerNeedToml`). -/
 def prepareCoreProject (root project : FilePath) (packageName claim : String) : IO Unit := do
   let toolchain ← Regula.Filesystem.Construction.capture (root / "lean-toolchain") ["lean-toolchain"]
   Regula.Filesystem.construct project (Regula.Filesystem.Construction.layout toolchain)
-  Regula.Filesystem.writeFile (project / "lakefile.toml") s!"name = \
-    \"{packageName}\"\n[leanOptions]\nautoImplicit = false\nrelaxedAutoImplicit = \
-    false\nlinter.missingDocs = true\n[[lean_lib]]\nname = \"Example\"\n"
+  Regula.Filesystem.writeFile (project / "lakefile.toml") <| s!"name = \"{packageName}\"\n" ++
+    Regula.Checker.observerPluginToml ++ Regula.Checker.regulaRequireToml root ++
+    "[leanOptions]\nautoImplicit = false\nrelaxedAutoImplicit = false\n" ++
+    "linter.missingDocs = true\n[[lean_lib]]\nname = \"Example\"\n" ++
+    Regula.Checker.observerNeedToml
   let manifest ← IO.ofExcept <| Json.parse (← Regula.Filesystem.readFile (root / "lake-manifest.json"))
+  let packages := toJson #[Regula.Checker.regulaManifestEntry root]
   Regula.Filesystem.writeJson (project / "lake-manifest.json")
-    ((manifest.setObjVal! "packages" (toJson (#[] : Array Json))).setObjVal! "name"
-        (.str packageName))
+    ((manifest.setObjVal! "packages" packages).setObjVal! "name" (.str packageName))
   Regula.Filesystem.writeJson (project / "foundation_manifest.json") (Json.mkObj [
     ("schema-version", toJson (2 : Nat)), ("surfaces", toJson #[Json.mkObj [
       ("library", .str "Example"), ("claim", .str claim),
@@ -95,24 +102,34 @@ def requireRootImportsBuilt (root : FilePath) (sources : Array String) : IO Unit
 
 /-- The control of `requireRootImportsBuilt`, in a copy below `scratch` of the repository at
 `root` (`Lake.copyProject`) given the module artifacts of its build, the files below the root
-package's `leanLibDir` and `irDir`: the guard passes on that copy for `sources`, and refuses,
-naming it, once the source of the first root module they import (`rootImports`) has changed after
-its build. -/
+package's `leanLibDir` and `irDir` and the files in its `sharedLibDir`: the guard passes on that
+copy for `sources`, and refuses, naming it, once the source of the first root module they import
+(`rootImports`) has changed after its build. -/
 def rootImportsGuardControl (root scratch : FilePath) (sources : Array String) : IO Unit := do
   let copy := scratch / "root-imports-guard"
   discard <| Regula.Checker.Lake.copyProject root copy copy
   Regula.Checker.Workspace.withRootWorkspace root (scrubSearchPath := true) fun ws => do
     let base := ws.root.dir.normalize.components
-    for place in #[ws.root.leanLibDir, ws.root.irDir] do
+    -- Of the shared library directory, only its own files: the elaboration observer's library,
+    -- which the `needs` entry of each target builds before its modules (`Lake.isObserverNeed`).
+    for (place, below) in #[(ws.root.leanLibDir, true), (ws.root.irDir, true),
+        (ws.root.sharedLibDir, false)] do
       let components := place.normalize.components
       unless base.isPrefixOf components && components.length > base.length do
         throw <| IO.userError s!"the build directory {place} is not inside {ws.root.dir}"
       unless ← place.isDir do continue
       let destination := Regula.Filesystem.Construction.location copy
         (components.drop base.length)
-      let some parent := destination.parent | throw <| IO.userError "build copy has no parent"
-      Regula.Filesystem.Construction.ensureDirectory 4096 parent
-      discard <| Regula.Filesystem.copy place destination
+      if below then
+        let some parent := destination.parent | throw <| IO.userError "build copy has no parent"
+        Regula.Filesystem.Construction.ensureDirectory 4096 parent
+        discard <| Regula.Filesystem.copy place destination
+      else
+        -- The directory holds `leanLibDir`, already copied; its own files join it one by one.
+        Regula.Filesystem.Construction.ensureDirectory 4096 destination
+        for entry in ← Regula.Filesystem.Construction.listDirectory place do
+          unless ← entry.path.isDir do
+            Regula.Filesystem.copyFile entry.path (destination / entry.fileName) 0o755
   requireRootImportsBuilt copy sources
   let some (name, file) := (← rootImports copy sources)[0]?
     | throw <| IO.userError "the guard control's sources import no module of the root package"

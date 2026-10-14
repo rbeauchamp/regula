@@ -8,6 +8,8 @@ import Regula.Qualification.NativeLinter
 import Regula.Qualification.Producer
 import Regula.Qualification.History
 import Regula.Qualification.DocumentationSource
+import Regula.Qualification.VersoPaths
+import Regula.Qualification.CopyRelocation
 import Regula.Qualification.FrozenExit
 import Regula.Qualification.RuleExamples
 import Regula.Qualification.EnvironmentCensus
@@ -19,6 +21,8 @@ import Regula.Qualification.SelfAudit
 import Regula.Qualification.UniqueConstants
 import Regula.Qualification.Command
 import Regula.Qualification.Observers
+import Regula.Qualification.Enumeration
+import Regula.Qualification.Readers
 import Regula.Checker.AxiomGate
 
 /-! # Qualification executable dispatcher
@@ -78,10 +82,19 @@ private unsafe def runCommand (attempt : Option String) : Command → IO Unit
   | .configurationCapture => do
       Regula.Qualification.SourceEvidence.configuration
       Regula.Qualification.SourceEvidence.selectedPolicy
+  | .versoRecordedPaths => Regula.Qualification.VersoPaths.check
+  | .copyRelocation => Regula.Qualification.CopyRelocation.check
+  | .copyRelocationLoad project copies =>
+      Regula.Qualification.CopyRelocation.loadWorker project copies
+  | .copyRelocationGit scratch => Regula.Qualification.CopyRelocation.gitSteps scratch
   | .fenceEvidence => Regula.Qualification.SourceEvidence.fences
   | .frozenExits => Regula.Qualification.FrozenExit.check
   | .documentationSource => Regula.Qualification.DocumentationSource.check false
   | .documentationSourceReadOnly => Regula.Qualification.DocumentationSource.check true
+  | .enumeration => Regula.Qualification.Enumeration.check
+  | .enumerationCopy source target => Regula.Qualification.Enumeration.copyChild source target
+  | .enumerationFailure => Regula.Qualification.Enumeration.failure
+  | .readers => Regula.Qualification.Readers.check
 
 /-- Explicit commands, parsed by `Command.parse`; unknown or extra arguments refuse instead of
 silently skipping work. -/
@@ -95,7 +108,8 @@ private unsafe def dispatch (args : List String) (attempt : Option String := non
     dependencies|history|git-status|all|history|self-audit [--shard K/4]|\
     documentation-dependencies|input-inventory|receipt-boundaries|observers|prep-measure|\
     closure-evidence|\
-    configuration-capture|fence-evidence|frozen-exits|documentation-source [--source-read-only]|\
+    configuration-capture|verso-recorded-paths|copy-relocation|fence-evidence|frozen-exits|\
+    documentation-source [--source-read-only]|enumeration|enumeration-failure|readers|\
     rule-examples --evidence PATH [--rules RULE ... | --shard K/N]"
 
 /-- Mark the evidence document that `args` names incomplete for the attempt `attempt`, through the
@@ -117,8 +131,8 @@ private def markEvidence (args : List String) (attempt : String) (reason : Optio
   | some .launcherReport => Regula.Qualification.NativeLinter.beginReport reason
   | none => pure ()
 
-/-- The form of one `qualify` invocation, read from its arguments and the two variables of its
-environment that select a mode (`Invocation.of`). -/
+/-- The form of one `qualify` invocation, read from its arguments, the three variables of its
+environment that select a mode and the name of the running program (`Invocation.of`). -/
 private inductive Invocation where
   /-- `--process-cadical-raw` or `--process-cadical-reader ROUTE`: the solver control's
   elaboration of its owned source, raw or through the checked reader `route`
@@ -132,6 +146,9 @@ private inductive Invocation where
   | processDoctor (directory : String)
   /-- `REGULA_RECEIPT_TIMER=1` with `--version`: the receipt boundary's worker. -/
   | receiptTimer
+  /-- `REGULA_LISTING_STANDIN=MODE` in a copy of `qualify` named as `Construction.locate` looks
+  for GNU `ls`: the stand-in listing program of the enumeration control (`Enumeration.standin`). -/
+  | listingStandin (mode : String)
   /-- `REGULA_QUALIFICATION_WRAPPER=acceptance`: the test-only proxy of `axiomGate`, with the
   gate's arguments. -/
   | acceptanceProxy
@@ -158,6 +175,10 @@ private def Invocation.of (args : List String) : BaseIO Invocation := do
   | _ => pure ()
   if (← Regula.Process.readEnv "REGULA_RECEIPT_TIMER") == some "1" && args == ["--version"] then
     return .receiptTimer
+  if let some mode := ← Regula.Process.readEnv Regula.Qualification.Enumeration.standinVariable then
+    if let .ok path := ← Regula.Process.appPath.toBaseIO then
+      if path.fileName == some Regula.Qualification.Enumeration.standinName then
+        return .listingStandin mode
   match ← Regula.Process.readEnv "REGULA_QUALIFICATION_WRAPPER" with
   | some "acceptance" => return .acceptanceProxy
   | some "process" => return .processShadow
@@ -178,6 +199,7 @@ unsafe def qualifyMain (args : List String) : IO UInt32 := do
     Regula.Qualification.Process.nativeFallbackWorker mode directory
   | .processDoctor directory => Regula.Qualification.Process.doctorWorker directory
   | .receiptTimer => Regula.Qualification.ReceiptBoundary.worker args
+  | .listingStandin mode => Regula.Qualification.Enumeration.standin mode args
   | .acceptanceProxy => Regula.Qualification.Acceptance.worker args
   | .processShadow => Regula.Qualification.Process.worker args
   | .unknownWrapper => throw <| IO.userError "unknown qualification wrapper mode"
@@ -196,9 +218,8 @@ executable runs (`Regula.TaskManager.guard`). It reads the invocation as `qualif
 run uses. The proxy of `axiomGate` is refused as the gate refuses, with the gate's exit code
 (`AxiomGate.refuseWithoutTaskManager`). A command marks its evidence document (`markEvidence`),
 for the attempt that the wrapper's arguments give or otherwise for a fresh one, printing a line
-when it cannot, and returns 1, as do the receipt boundary's worker, the process controls' workers
-and an unknown wrapper mode, which write no file. No command
-runs. -/
+when it cannot, and returns 1, as do the receipt boundary's worker, the stand-in listing program
+and process controls' workers and an unknown wrapper mode, which write no file. No command runs. -/
 private def refuseQualification (reason : String) (args : List String) : IO UInt32 := do
   let mark (rest : List String) (attempt : Option String) : IO Unit := do
     try markEvidence rest (← attempt.getDM Regula.Qualification.freshAttempt) reason
@@ -208,7 +229,7 @@ private def refuseQualification (reason : String) (args : List String) : IO UInt
   | .acceptanceProxy =>
     return ← Regula.Checker.AxiomGate.refuseWithoutTaskManager reason args
   | .processCadical _ | .processNativeFallback _ _ | .processDoctor _ | .receiptTimer
-    | .processShadow | .unknownWrapper => pure ()
+    | .processShadow | .listingStandin _ | .unknownWrapper => pure ()
   | .underDeadline attempt rest => mark rest attempt
   | .bounded rest => mark rest none
   return 1

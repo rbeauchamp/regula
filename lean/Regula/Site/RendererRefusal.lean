@@ -60,10 +60,12 @@ private def requireRefused (program : String) (output : IO.Process.Output) : IO 
     output.exitCode == 1 && (output.stderr.splitOn "\n").contains line⟩]
 
 /-- The new directories beside `path` into which a refusal moved it: the entries of the directory
-where `path` is whose names are its own name followed by `.regula-refused-`. -/
+where `path` is whose names are its own name followed by `.regula-refused-`. The directory is listed
+through the admitted enumerator (`Regula.Filesystem.Construction.listDirectory`), so a failed read
+fails the control instead of hiding an aside. -/
 private def asides (path : FilePath) : IO (List FilePath) := do
   let some name := path.fileName | return []
-  let entries ← (path.parent.getD ".").readDir
+  let entries ← Regula.Filesystem.Construction.listDirectory (path.parent.getD ".")
   return (entries.filter (·.fileName.startsWith s!"{name}.regula-refused-")).toList.map (·.path)
 
 /-- Require that the refused run `output` moved `path` aside whole, and give where it is now:

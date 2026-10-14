@@ -261,8 +261,29 @@ run_cmd do
         discard <| Construction.copyGit source (base / "untracked-output")
       IO.eprintln "construction controls: tracked Git link regular and clean; untracked link refused"
 
+/-- The one outcome of an audit of a fixture whose target loads no elaboration observer: RG2003
+cannot be decided without the observer's records, so the run is incomplete (exit 3), its result's
+status is `incomplete`, and its only finding is RG2003, incomplete, reporting `module` as not
+observed. Anything else, a violation or another finding included, fails the control. -/
+def onlyUnobserved (label module : String) (audit : IO.Process.Output) (result : Json) :
+    IO Unit := do
+  let findings ← IO.ofExcept (Regula.Checker.ResultProtocol.readFindings result)
+  let status ← IO.ofExcept (Regula.Checker.ResultProtocol.readStatus result)
+  let unobserved := s!"not observed: Regula's elaboration observer was not among the plugins \
+    Lean loaded to elaborate {module}"
+  unless audit.exitCode == Regula.Checker.Lint.Outcome.incomplete.exitCode &&
+      status == "incomplete" &&
+      (match findings with
+        | [f] => f.1 == .sourceBuild && f.2.impact == .incomplete
+        | _ => false) &&
+      audit.stdout.contains unobserved do
+    throw <| IO.userError s!"{label} audit was not exactly incomplete with {module} not observed \
+      (exit {audit.exitCode}, status {status}, {findings.length} finding(s)): \
+      {audit.stdout}{audit.stderr}"
+
 /-- Loaded-workspace control: the lakefile sets packagesDir, while its loaded default manifest
-omits that field. The source vendor entry is build state, not a directory to copy or link into.
+omits that field. An entry of `vendor` that no loaded package records is copied like any other
+entry. Package pruning leaves out only a recorded dependency's directory there.
 Run in the native qualification executable because Lake's loader needs its initialized native
 state; source elaboration tests the independent directory/file refusals above. -/
 def checkWorkspace : IO Unit := do
@@ -283,12 +304,12 @@ def checkWorkspace : IO Unit := do
         ⟨["Solo.lean"], .file ("/-! Plain source control. -/\n" ++
           "/-- Natural equality is reflexive. -/\ntheorem reflexive (n : Nat) : n = n := rfl\n").toUTF8⟩,
         ⟨["lake-manifest.json"], .file manifest.toUTF8⟩,
-        ⟨["vendor", "stale"], .file "must not be copied as project source".toUTF8⟩]))
+        ⟨["vendor", "stale"], .file "recorded by no package, so copied as project source".toUTF8⟩]))
       let target := base / "copied"
       let result ← Regula.Checker.Lake.copyProject source target target
-      unless !(← (result.project / "vendor/stale").pathExists) &&
+      unless (← (result.project / "vendor/stale").pathExists) &&
           (← IO.FS.readFile (result.project / "lake-manifest.json")) == manifest do
-        throw <| IO.userError "copy used a manifest/default packages directory instead of Lake's workspace"
+        throw <| IO.userError "copy lost an unrecorded vendor entry or used a manifest other than Lake's"
       unless !(← (result.project / ".lake/package-overrides.json").pathExists) do
         throw <| IO.userError "empty dependency graph changed captured configuration presence"
       Regula.Checker.Workspace.withRootWorkspace result.project fun ws => do
@@ -297,6 +318,9 @@ def checkWorkspace : IO Unit := do
           throw <| IO.userError "ordinary copied load lost the loaded workspace configuration"
       -- The public audit and its serialized configuration account are an external compiler/CLI
       -- boundary. This selected policy is deliberately outside the project, and is not relocated.
+      -- `Solo` loads no elaboration observer and has no regula dependency, so each audit below is
+      -- exactly incomplete with Solo not observed (`onlyUnobserved`); the configuration account
+      -- each audit exists for is checked on that result.
       let policy := (Json.mkObj [("schema-version", toJson (2 : Nat)),
         ("surfaces", toJson #[Json.mkObj [("library", .str "Solo"), ("claim", .str "kernel-only"),
           ("rationale", .str "The same reflexivity theorem with no logical axioms.")]]),
@@ -312,15 +336,14 @@ def checkWorkspace : IO Unit := do
         args := #["--project", source.toString, "--manifest", external.toString,
           "--incremental", "--json-out", output.toString]
         env := #[("LEAN_PATH", none), ("LEAN_SRC_PATH", none)] }
-      unless audit.exitCode == 0 do
-        throw <| IO.userError s!"selected external manifest audit failed: {audit.stdout}{audit.stderr}"
-      let account ← IO.ofExcept (Json.parse (← readFile output))
+      let account ← Regula.Checker.ResultProtocol.readDocument output
+      onlyUnobserved "selected external manifest" "Solo" audit account
       let effective ← IO.ofExcept (account.getObjVal? "effective")
       let origins ← IO.ofExcept (effective.getObjVal? "configurationOrigins")
       let captured : Regula.CopyConfiguration.Files ← IO.ofExcept (origins.getObjValAs? _ "captured")
       unless captured.contains (external.toString, some policy) do
         throw <| IO.userError "selected external manifest lost its exact path or text in the account"
-      IO.println "construction external manifest: incremental audit and exact external account PASS"
+      IO.println "construction external manifest: incremental audit incomplete as unobserved, exact external account PASS"
       -- A fresh audit relocates a project-contained absolute selection. Qualification consumes
       -- the actual public result and request, rather than a duplicated expected-account model.
       let policies := ["foundation_manifest.json", ".lake/policy.json", "tmp/policy.json",
@@ -342,9 +365,8 @@ def checkWorkspace : IO Unit := do
           args := #["--project", source.toString, "--manifest", path.toString,
             "--json-out", freshOutput.toString],
           env := #[("LEAN_PATH", none), ("LEAN_SRC_PATH", none)] }
-        unless fresh.exitCode == 0 do
-          throw <| IO.userError s!"selected fresh manifest {selected} audit failed: {fresh.stdout}{fresh.stderr}"
         let freshResult ← Regula.Checker.ResultProtocol.readDocument freshOutput
+        onlyUnobserved s!"selected fresh manifest {selected}" "Solo" fresh freshResult
         let request : Regula.Website.ExampleRequest ← IO.ofExcept
           (fromJson? (← IO.ofExcept (freshResult.getObjVal? "request")))
         IO.ofExcept (Regula.Checker.RuleExampleQualification.effectiveAccount freshResult request)
@@ -362,7 +384,7 @@ def checkWorkspace : IO Unit := do
         IO.ofExcept (Regula.CopyConfiguration.check (expected, actual))
         unless requested.contains (selected, some policy) && actual.contains (selected, some policy) do
           throw <| IO.userError s!"selected policy {selected} lost its requested path or bytes"
-      IO.println "construction selected manifest: fresh audits and exact configuration accounts PASS"
+      IO.println "construction selected manifest: fresh audits incomplete as unobserved, exact configuration accounts PASS"
       if ← (source / "VENDOR").isDir then
         -- A deliberate configuration mutation exercises Lake's stored-spelling boundary.
         IO.FS.writeFile (source / "lakefile.lean") (lakefile.replace "vendor" "VENDOR")
@@ -371,22 +393,29 @@ def checkWorkspace : IO Unit := do
         replacePath (source / "lake-manifest.json") (source / "manifest-renaming")
         replacePath (source / "manifest-renaming") (source / "LAKE-MANIFEST.JSON")
         let folded ← Regula.Checker.Lake.copyProject source (base / "folded") (base / "folded")
-        unless !(← (folded.project / "vendor/stale").pathExists) &&
+        unless (← (folded.project / "vendor/stale").pathExists) &&
             (← Regula.Filesystem.readFile (folded.project / "lake-manifest.json")) == manifest do
           throw <| IO.userError "case-folded packages or manifest location was not retained correctly"
       IO.println "construction workspace: configured packagesDir and captured manifest PASS"
       for packages in ["vendor", ".lake/packages"] do
         let source := base / (if packages == "vendor" then "owned-vendor" else "owned-default")
         let dependency := (FilePath.mk packages).components ++ ["dep"]
+        -- A trusted dependency recorded in the packages directory: its own Git repository.
+        let trusted := (FilePath.mk packages).components ++ ["trusted"]
         let lakefile := lakefile.replace "vendor" packages |>.replace "lean_lib Solo"
-          ("require dep from \"" ++ packages ++ "/dep\"\nlean_lib Solo")
+          ("require dep from \"" ++ packages ++ "/dep\"\nrequire trusted from \"" ++ packages ++
+            "/trusted\"\nlean_lib Solo")
         let manifest := (Json.mkObj [
           ("version", toJson "1.1.0"), ("name", toJson "construction_control"),
           ("lakeDir", toJson ".lake"), ("packagesDir", toJson packages),
           ("packages", toJson #[Json.mkObj [
             ("name", toJson "dep"), ("scope", toJson ""), ("inherited", toJson false),
             ("configFile", toJson "lakefile.toml"), ("manifestFile", toJson "lake-manifest.json"),
-            ("type", toJson "path"), ("dir", toJson (packages ++ "/dep"))]])]).pretty ++ "\n"
+            ("type", toJson "path"), ("dir", toJson (packages ++ "/dep"))],
+            Json.mkObj [
+            ("name", toJson "trusted"), ("scope", toJson ""), ("inherited", toJson false),
+            ("configFile", toJson "lakefile.toml"), ("manifestFile", toJson "lake-manifest.json"),
+            ("type", toJson "path"), ("dir", toJson (packages ++ "/trusted"))]])]).pretty ++ "\n"
         construct source (Construction.layout (toolchain ++ [
           ⟨["lakefile.lean"], .file lakefile.toUTF8⟩,
           ⟨["lake-manifest.json"], .file manifest.toUTF8⟩,
@@ -395,8 +424,13 @@ def checkWorkspace : IO Unit := do
             "name = \"dep\"\n[[lean_lib]]\nname = \"Dep\"\n".toUTF8⟩,
           ⟨dependency ++ ["Dep.lean"], .file "/-! Owned dependency. -/\n".toUTF8⟩,
           ⟨dependency ++ [".lake", "policy.json"], .file policy.toUTF8⟩,
+          ⟨trusted ++ ["lakefile.toml"], .file
+            "name = \"trusted\"\n[[lean_lib]]\nname = \"Trusted\"\n".toUTF8⟩,
+          ⟨trusted ++ ["Trusted.lean"], .file "/-! Trusted dependency. -/\n".toUTF8⟩,
           ⟨(FilePath.mk packages).components ++ ["stale"], .file "unselected".toUTF8⟩]))
         fixture (.stated "git" "Git creates this deliberate repository fixture") #["-C", source.toString, "init", "--quiet"]
+        fixture (.stated "git" "Git creates this deliberate repository fixture")
+          #["-C", (source / packages / "trusted").toString, "init", "--quiet"]
         let target := source / ".lake/copied"
         let selected := source / packages / "dep/.lake/policy.json"
         let result ← Regula.Checker.Lake.copyProject source target target (policy := some selected)
@@ -406,8 +440,13 @@ def checkWorkspace : IO Unit := do
             dependency.dir == result.project / packages / "dep") &&
             (← readFile (result.project / packages / "dep/Dep.lean")) == "/-! Owned dependency. -/\n" &&
             (← readFile copiedPolicy) == policy &&
-            !(← (result.project / packages / "stale").pathExists) do
-          throw <| IO.userError "owned package copy lost its selected policy or retained stale package state"
+            result.selection.dependencies.any (fun dependency =>
+              dependency.package == "trusted" && !dependency.owned) &&
+            !(← (result.project / packages / "trusted").pathExists) &&
+            -- An entry that no package records is copied, unless a name such as `.lake` excludes it.
+            (← (result.project / packages / "stale").pathExists) == (packages == "vendor") do
+          throw <| IO.userError "owned package copy lost its selected policy or an unrecorded \
+            packages entry, or kept a recorded trusted checkout"
         let inventory ← Regula.Checker.Lake.surfaceInventory result.project
         discard <| Regula.Checker.Lake.checkCopiedWorkspace result.root (some result.selection) inventory
       IO.println "construction owned packages: configured and default package layouts PASS"

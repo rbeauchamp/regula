@@ -127,4 +127,10 @@ def rootDirectory : IO FilePath := do
     (← (root / "lean-toolchain").pathExists) && (← (root / "lakefile.lean").pathExists)⟩]
   return root
 
+/-- Copy the fixture tree at `source` to `target`, an absent or empty directory, through the shared
+no-follow copy (`Regula.Filesystem.copy`), as a control copies a fixture into its scratch
+directory. -/
+def copyFixture (source target : FilePath) : IO Unit :=
+  discard <| Regula.Filesystem.copy source target
+
 end Regula.Qualification

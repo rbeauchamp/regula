@@ -167,7 +167,7 @@ configuration and frozen-artifact checks before the unchanged full inspection an
 freshness checks.
 
 A facet that a later dependency declares can replace Regula's. So a build without the marker
-counts no record when a dependency other than Regula declares a library facet, as
+counts no record when a dependency other than Regula declares a library or module facet, as
 `Lake.onlyRegulaFacets` decides. The record is part of the build traces that Lake recorded in the
 checkout, which the incremental gate trusts. A record counts as written by Regula's facet when
 Lake built the module, as `Lake.traceRecords_ownRecord_iff` assumes. A facet that forged the record
@@ -328,8 +328,8 @@ marker.
 A library can change its source directory, roots, globs, `needs` and Lean options. An executable
 can also change its root, its file name and its interpreter support. An input target can change
 its path and its text mode. Each `needs` entry must name an `input_file` or an `input_dir` of the
-same package. A package can change its source directory, its Lean options, its lint and test
-drivers and its metadata.
+same package, or the observer below. A package can change its source directory, its Lean options,
+its lint and test drivers and its metadata.
 
 Lake runs no code from these fields in a build. The function `nativeFacets` of a library or an
 executable and the filter of an `input_dir` are also fields. Regula reads them from the compiled
@@ -363,6 +363,58 @@ of the shipped file as equal to `weakArgsRecordJson` (`lakefileEncoderAgrees`, r
 `Regula.RegistryChecks`). This catches a drift between that file and the proved encoder. It
 establishes nothing about a configuration that an adopter or a dependency changes, which is a
 forged facet outside the evidence of the incremental gate.
+
+A target of the plain shape may name one plugin only, Regula's elaboration observer, as
+`isObserverPlugin` decides. That plugin is `@regula/RegulaObserver:shared`, or `@/RegulaObserver:shared`
+in the `lakefile.lean` of Regula that the driver admits by identity. Lake's own `presetup` facet
+builds that shared library and adds it to the plugins that Lean loads. Unless the target sets
+`platformIndependent := true`, it also mixes the trace of the library into the module's trace. The
+observer imports only Lean, prints nothing and reads no
+option that the marker sets. So a build with the marker and a build without it write the same
+record.
+
+A `needs` entry of a target of the plain shape may also name that shared library, as
+`isObserverNeed` decides. [RG2006] requires each target that loads the observer to list it there.
+The entry builds the library that the plugin entry names, and nothing else. Without it, Lake
+v4.34.1 can build the library several times at the same time in a fresh build. Those builds write
+the same files.
+
+With the entry, Lake builds the library before the modules of the target fetch their plugins. Lake
+also mixes the trace of the target's `needs` into each module's trace, whatever the target's
+`platformIndependent` (`Lake/Build/Module.lean` lines 591 and 600 to 603). So a module that Lake
+replays was elaborated with the observer that the build has.
+
+Regula declares no `presetup` facet. The audit's own builds run the facet that the workspace
+configures, without a change, through `Observer.recordingPresetup`. That wrapper keeps the
+`buildable` and `memoize` settings of the facet. Each `presetup` job writes its result to
+`Observer.Presetups` when it completes. The audit reads the plugins and the source file of each
+module from there. The build store of Lake does not keep the job of a facet with
+`memoize := false`, so the audit does not read them from that store.
+
+A claimed module counts as observed only when two conditions hold. Its completed `presetup` loaded
+the observer of the running Regula, as `Observer.pluginLoaded` decides. Its target also lists the
+observer's key in `needs`. The audit reads the record of the module only then. The record is read
+with an unchecked cast to the running observer's type (`Observer.recordEntries`).
+
+With the key in `needs`, the observer's trace is in the module's trace. So an `.olean` that Lake
+replays was written under the library with the bytes that `matchingPlugins` matched. Without the
+key, Lake can replay an `.olean` that a different observer wrote, so the audit reads no record. A
+dependency's facet that drops the plugin, or a target without the `needs` entry, leaves the module
+refused under [RG2003]. [RG2006] requires the two entries in the configuration of each claimed
+target.
+
+Each Regula process reads the bytes of its own observer library one time, `Observer.running`. It
+does so when it starts, before it loads a workspace, copies a project or runs a build. A loaded
+plugin counts only when its bytes equal that snapshot. Its path counts for nothing, since a build
+can write other bytes at any path.
+
+The comparison reads each plugin file after the build. A file
+that changes after Lean loaded it and before that read is outside this guarantee. The cause is
+that Lake reports a plugin by its path, not by the bytes that Lean read.
+
+A fresh audit writes that snapshot into each copied package `regula` with the observer library,
+`Observer.placeRunning`. Lake reuses it when the copy's observer source compiles to the same
+objects. Otherwise Lake links a new file with other bytes, and the audit does not admit it.
 
 A file `lakefile.lean` must also declare only what the commands of Lake generate. These are the
 definitions of the package, its targets and their configurations, `require` and the name of the
@@ -609,13 +661,13 @@ act on the workspace that it was given, thus the same reason holds.
 
 Regula constructs its copies through `Regula.Filesystem`. The general routine refuses selected source links and special entries through metadata reads that follow no final link. It creates directories and regular files exclusively at their exact destinations. It places no packages link. This construction removes the limit about links preserved or placed by Regula's copies.
 
-`observer_copy` states the complete selected source receipt and the exact destination tree over the observer's filesystem model. `observer_construct` states the exact tree of generated instructions. `Construction.capture_io` connects captured subtrees to that model.
+`observer_copy` states the complete selected source receipt and the exact destination tree over the observer's filesystem model. Its observer lists through the program that `copy` locates one time (`copy_locates`). `observer_construct` states the exact tree of generated instructions. `Construction.capture_io` connects captured subtrees to that model.
 
 `observer_appendFile` includes ancestor admission when the leaf writer extends an established plain parent. Its initial tree is a precondition, not an authentication of arbitrary old entries. Errors can leave partial private output. Callers refuse that output before a Lake load. These theorems state entry kinds and locations, not byte fidelity, permissions or later process effects.
 
 Assumes: Lean `v4.34.1` uses POSIX lstat for `symlinkMetadata` (`Init/System/IO.lean:1151-1156`, `runtime/io.cpp:1160-1179`). Windows is refused because this read follows links there.
 
-Assumes: Directory enumeration reaches EOF without error (`Init/System/IO.lean:1141-1142`, `runtime/io.cpp:1076-1098`). This is trusted: the core wrapper does not distinguish EOF from an enumeration error.
+Assumes: An admitted listing program exits with a nonzero code after a failed read of a directory. [Assumptions of directory enumeration](#assumptions-of-directory-enumeration) gives the admitted programs, their sources and the controls.
 
 Assumes: Exclusive mkdir creates one empty directory (`runtime/io.cpp:1181-1195`). `Mode.writeNew` uses `O_EXCL` (`Init/System/IO.lean:651-660`, `runtime/io.cpp:409`).
 
@@ -669,9 +721,25 @@ Assumes: Lake `v4.34.1` tests cleanliness with `git diff --exit-code HEAD` (`Uti
 
 `copyProject` captures the manifest at Lake's loaded `ws.manifestFile`. Its packages fallback is `ws.relPkgsDir`. Each resolved dependency receives a typed path override, including inherited and transitive dependencies. Owned dependencies point into the copy, and trusted dependencies point to their original roots. The copy always retains the captured manifest and runs ordinary loads.
 
-Package-directory pruning is relative to the current capture root, for the configured and resolved spellings. `Construction.packageSource_owned` proves that explicitly owned roots inside that directory survive its pruning.
+Package-directory pruning leaves out exactly the entries of the packages directory that are recorded dependency directories. An entry is one when its observed real path is the observed real path of a Git dependency's checkout or a path dependency's directory. The copy lists the entries by the stored names that its capture walks. Thus a linked checkout is pruned as a cloned one is. So is a directory that its recorded path names in a case or Unicode form that the volume folds. The copy keeps an entry when it cannot observe the entry's real path, and the capture walks that entry.
+
+`Lake.mem_prunedEntries` proves this selection, and `Lake.prunedEntries_witness` shows that it prunes an entry with a real path outside the packages directory. `Construction.CopyFilter.omission_pruned` proves that a capture pass prunes no other entry, and `Construction.CopyFilter.omission_other` that the same exclusions decide each other entry there. `Construction.packageSource_owned` proves that a capture root, such as an owned package's in that directory, survives its own pass.
+
+The copy keeps the exclusions of names such as `.lake` and `.cache`, and checks one domain against the files it writes instead. That domain is each file that Lake's load reads for the root package and each owned dependency. These files are the source of each module that Lake can build, the loaded configuration file and an owned dependency's recorded manifest when present. Lake's load of the copy reads each at the path it joins to the package's directory, such as the recorded `relConfigFile`. Before it writes anything, the copy refuses the first such path that none of the files it would write has, with exactly that spelling. It names the file and what left it out, such as an excluded directory or a compiled-module file name.
+
+`Construction.firstUnwritten_eq_none` proves that the copy refuses none exactly when the files it would write cover each such path (`Construction.Covers`). The constructor's own guard requires the same paths, so `Construction.constructSelected_io` states that a successful construction holds a regular file at each. `Construction.packageEntries_eq_some` states the path: the recorded components without `.`. Before it captures anything, the copy refuses a package, library or executable with an absolute `srcDir`, since Lake joins it unchanged. The copy also refuses a packages directory that it captures and that is itself a link, as it refuses each link that it captures.
 
 Assumes: Lake `v4.34.1`, `Load/Resolve.lean:590-627`, applies overrides during ordinary materialization. `Load/Resolve.lean:201-235` traverses dependencies transitively. Path entries do not clone packages (`Load/Materialize.lean:239-277`).
+
+Assumes: Lake `v4.34.1` materializes a Git entry at its directory name in the packages directory (`Load/Materialize.lean:246`). It puts the package below that checkout at the subdirectory that the entry names (`Load/Materialize.lean:264`). It loads a package's configuration file and the manifest that its entry records at their recorded paths, joined to the package's directory (`Load/Package.lean:96-117`, `Load/Materialize.lean:272-277`).
+
+Assumes: `IO.FS.realPath` is POSIX `realpath(3)`, which resolves each link and each `.`, `..` and empty component. On Darwin it gives each component at the name that the volume keeps (`ReadsReal`). So each spelling of one entry that a folding volume admits has one real path. A `realpath(3)` that keeps the spelling it gets, as on a folding volume elsewhere, leaves an entry that a different spelling names unpruned.
+
+Assumes: POSIX path resolution, under which a `.` component names the directory before it. The copy holds no link, since the constructor creates none.
+
+Assumes: Lean `v4.34.1` `FilePath.join` gives an absolute right operand as it stands (`Init/System/FilePath.lean:126-130`).
+
+Assumes: Lake `v4.34.1` can build each module that `LeanLibConfig.isBuildableModule` admits (`Config/LeanLibConfig.lean:128-130`), which `Lake.packageModules` lists. It reads the module's source below its library's `srcDir` (`Config/Module.lean:83-90`, `Config/LeanLib.lean:34-35`). A build reaches only the modules that a glob selects and their imports (`Build/Library.lean:36-60`, `:67-72`), so the copy's domain can exceed what a build reads.
 
 Assumes: A full update or a missing manifest bypasses overrides (`Load/Workspace.lean:64-69`, `Load/Resolve.lean:269-333`). Existing-project copies do neither. Generated update fixtures state their closed input domain where they create it.
 
@@ -1138,7 +1206,7 @@ The empty-glob control uses the auditor because the same glob prevents Lake from
 
 The `weak-args-probes` group, also in `diagnostics lint-driver 1/5`, links a `lakefile.lean` to a Lean configuration named `configuration.toml`.
 Its decision probe of the plain shape keeps the marker for the facet of that configuration.
-As a dependency, the same configuration adds its facet to the count of `Lake.otherLibraryFacets`.
+As a dependency, the same configuration adds its facet to the count of `Lake.otherFacets`.
 The `lake-new` group, in `diagnostics lint-driver 4/5`, links the `lakefile.lean` of its Lean project in the same way.
 Then `regula doctor` names `lakefile.lean` and reports the setup complete.
 A decision that used the extension of the resolved target would read TOML in these three controls.
@@ -1416,6 +1484,7 @@ other rules still check it.
 | `executionFindings`, `executionFailures`, `executionSummary`, `toolchainBase` | `checked_executionFailures` (line `k` renders finding `k`, none added or dropped, so the lines are empty iff `ExecutionOK`), `executionRule_injective`, `checked_summary` (the boundary counts range over the boundaries reported on their own: a later record of one trusted boundary of a root, and a `partial` implementation reported with the boundary that runs it, are counted with that boundary, not again), `checked_toolchainBase` | Root collection, retained compiler edges, correspondence admission, source history, module origins and the text and JSON rendering of the toolchain trusted base. The records of the execution walk are observed. `ExecutionWalk.assemble_account` states the account that `assemble` builds from them, the unresolved paths included. |
 | `Probe.replacementCorrespondence` | `DefeqComparison.classify` of `DefeqComparison.ofAttempt` (an attempt that the kernel did not decide, or that raised an error, is unresolved and not trusted) | The kernel decision itself, the record of its answer (`Probe.kernelAnswer`), the capture of an error (`Probe.comparison`) and the incomplete theorem-candidate search. Lean's Core-based monads rethrow a runtime resource exception or an interruption. Such an exception records no comparison and stops the report. |
 | `Checker/Common.admitIndexedWorkerResults`, `mapWorkQueue`, `Documentation.auditTasks` | `checked_indexedResults` over `ResultState.collect` | Child completion, strict packet decoding, task scheduling and exact request and source binding. |
+| `Documentation.sharedPinMismatch`, `Documentation.captureVersoPackage`, `Lake.surfaceInventoryOf`, `Lake.copyProject`, `Lake.relocateDependencies` | `LakeSelection.agrees_fields` (an agreeing package has the entry's directory, manifest and, unless Lake's load wrote the entry, remote URL, and a configuration among its candidates), `LakeSelection.lastEntry_eq_some` and `LakeSelection.effectiveEntry_eq_some` (Lake's entry for a name is the last one), `LakeSelection.pinMismatch_eq_none` (no mismatch exactly when the two workspaces pin alike each package that the two pin by Git), `LakeSelection.ownRootFiles_lake` (the files read are those of the workspace a package roots), `LakeSelection.rootConfigFile_lake` (the Verso package's configuration name is the one that Lake's load gives it), `LakeSelection.lakeInputs_cover` (the capture binds the configuration candidates, the recorded manifest and the pin check's files, except the accepted project's overrides file, which acceptance binds) | Lake's load of the workspace, Lake's manifest reader and the files read. The Lake facts that the `Assumes:` entries cite, and the copies of Lake's rules in `LakeSelection` that they name. That no process writes the manifest or the overrides file during one check is trusted. |
 | `Checker/FenceScan.scanLines`, `scanVersoLines`, `matchesPattern` | `checked_scanLines`, `checked_scanVersoLines` (no violation exactly for a clean document), `fence_of_leanShaped`, `example_of_leanShaped` (a returned fence for each line of Lean shape), `scanLines_fence`, `scanVersoLines_fence`, `Scanned.bytes` (where each returned fence lies, and the bytes of its ranges), `toList_linesOf` (the lines of a text), `scanLines_marker` (a Lean fence after a marker line carries that marker, in a clean document), `matchesPattern` | Pattern diagnostic text and effective-error extraction. |
 | `AxiomGate.auditSurfaceAt`, `FreshChecker`, the file gate | `checked_surfaceAssignments` (with `surfaceAssignments_covers`), `checked_conformingProfile`, `checked_histories`, `checked_environmentJob`, `checked_environmentEvidence` (claimed `RegulaCore.Assembly`) | Manifest parsing, Lake loading and producer history; the contracts concern the decoded records. |
 | `Checker/Acceptance.finish`, `Documentation.finishDocuments`, `FreshChecker.finishGraph` | `finalize`, `finalize_iff`, `accepted_report_identity`, `accepted_covers_slot` | The independently supplied census and the truth of the observations; each finalizer supplies all derived jobs and returns `AcceptedRun`. |
@@ -1464,6 +1533,95 @@ required value (`admits_of_ne`). The license option counts as configured only wh
 gives it (`licensed_iff`); a `-D` extra argument that gives it a value can only make the target
 fail. That the linter compares the header with that option is read from Mathlib's source and
 assumed.
+
+The decision on the target's configuration also requires the observer. If the plugins of a target
+do not name `@regula/RegulaObserver:shared`, the target fails with `Failure.observer`
+(`observer_unloaded_fails`). The finding names the line to add. The adapter reads the plugins
+that Lake resolves for the target with `Observer.observerKey`: the package's, then the target's.
+
+The decision also requires the same key in the target's `needs`. If the plugins of a target name
+the observer and its `needs` do not, the target fails with `Failure.observerNeed`
+(`observer_unneeded_fails`). The finding names the entry to add. The adapter reads the target's own
+`needs` with `Observer.observerKey`. Lake has no `needs` setting for a package.
+
+Lake mixes the trace of the `needs` into the trace of each module of the target, whatever its
+`platformIndependent`. So a module that Lake replays was elaborated with the observer that the
+build has. A fresh build of a target without the entry can also build the observer several times
+at the same time.
+
+[RG2006] also decides the options that each claimed module's source sets, as Regula's elaboration
+observer recorded them, with `RegulaPolicy.Community.sourceFailures` (`sourceFailures_eq_nil_iff`,
+`checked_sourceFailures`). The same accepted set decides them, with two more admissions.
+
+The first admission is a community linter turned off by `set_option linter.NAME false in` before
+one declaration. The observer records the kinds of the commands that Lean elaborates for the wrapped
+command when all macros have expanded it. `oneDeclaration` admits the setting only if exactly one
+kind is a declaration and the others are `namespace`, `end` or `end_local_scope`. So a declaration
+with a namespace in its name passes, but a `section` of several declarations fails. A macro that
+expands to two declarations fails, and so does a command with an elaborator of its own. The
+theorems `oneDeclaration_iff`, `communityDisable_iff`, `missingDocs_in_namespaced_passes` and
+`missingDocs_in_two_declarations_fails` state this.
+
+The second admission is a closed set of settings, `RegulaPolicy.Community.generatedSettings`. These
+are the settings that the code of the pinned Lean writes as `set_option` syntax into the code it
+generates. The decision accepts each of them wherever it occurs, as `generated_accepted` states.
+It reads the setting alone and not who wrote it. So a project may write such a setting itself.
+
+The set is the result of a search, `Regula.Checker.GeneratedSettingSearch.search`. It reads the
+compiled code of the modules `Lean` and `Lake` for each syntax node of a `set_option` kind. The
+registry checks run it and refuse unless its result is that set. In Lean v4.34.1 the set has
+four settings:
+
+| Setting | Written by |
+| --- | --- |
+| `match.ignoreUnusedAlts true` | the `deriving BEq` and `deriving Ord` handlers |
+| `smartUnfolding false` | `rfl'` |
+| `tactic.hygienic false` | `unhygienic` |
+| `trace.grind.ematch.instance true` | the suggestion of `grind_lint inspect` |
+
+The search also names the one construction that has no literal option, in the message of
+`#where`. It also names each other function that the code applies to a `set_option` kind, such as a
+parser or a formatter. The registry checks refuse unless those lists are the stated ones too. A
+kind name that the code computes instead of writing it is outside the search.
+
+The setting `match.ignoreUnusedAlts true` hides Lean's "Redundant alternative" error. So a project
+that writes it hides that error, and [RG2006] accepts it. This is an open limit, which issue
+[#422](https://github.com/rbeauchamp/regula/issues/422) tracks. The other three settings hide
+nothing that a default reports. A `trace.` option is not accepted, apart from the setting in the
+table.
+
+Code of the project that Lean runs during elaboration writes the same record as source text.
+Examples are `run_cmd`, `run_elab`, a `try_suggestion` generator and a simproc. So a setting
+that such code elaborates gets the same decision.
+
+The observer records the options that Lean's `set_option` elaborator set. Of the builtin commands
+of Lean v4.34.1, only `unlock_limits` also assigns the options of the enclosing scope. It sets three
+resource limits to `0`, which [RG2006] accepts, as `unlockLimits_accepted` states. Elaborator code
+can change an option for its own commands, through `withScope`. Examples are `autoImplicit` in the
+`ToExpr` deriving handler and `quotPrecheck.allowSectionVars` in a `local notation`. Such a change
+is outside the record.
+
+Lean records an option's name in four places, which `GeneratedSettingSearch.producers` lists.
+The registry checks require that list to be the search's result. The `set_option` forms record a
+setting. The documentation command `{set_option name value}` records one too, for the rest of its
+comment.
+
+The observer leaves out the other two, since neither sets an option of the scope. The
+documentation role `{option}` only refers to an option. A `simp` user option such as
+`simp +user.name` sets the option in the tactic's own configuration.
+
+[RG2003] decides each claimed module's record with `RegulaPolicy.Elaboration.failures`
+(`failures_eq_nil_iff`, `checked_failures`). The two theorems are about the decisions over the
+recorded data. Lean's source at the pinned release shows that the observer records each `set_option`,
+`#guard_msgs` and `#guard_panic` and each silent message that Lean elaborated. It also shows that
+the frontend writes the record after all linters finished, which standard §7.3 states as an
+assumption. Code that runs in the module's own elaboration can forge the record or remove a
+message, and that is outside the evidence.
+
+A stateful linter that an imported module registers runs after the observer's linter on each
+command, since Lean loads the plugin first. Lean gives a plugin no later point to read the
+messages, so a silent message from such a linter is outside the record too. A file audit with a
+claim loads the observer into its compilation and decides on that record.
 
 Each other option that a target sets in `leanOptions` or with `-D` must be in the closed accepted
 set `RegulaPolicy.Community.Accepted`, at an accepted value. The function `accepts` decides that
@@ -1642,6 +1800,8 @@ Two-way decisions (`Regula.Decides`), each with an accepted and a refused input:
 | `RegulaPolicy.boundaryFailures`, `executionFailureRecords`, `executionFindings` (accept on `#[]`) | `BoundaryOK`, `ExecutionOK` | [RG3001], [RG3002], for one supplied boundary and for an admitted inventory. |
 | `RegulaPolicy.Intent.hasIntentSection`, `RegulaPolicy.materialDocumentationFailure` | `IntentSection`, `MaterialDocumentationOK` | [RG5002], [RG5003]. |
 | `RegulaPolicy.ModuleHeader.failures`, `RegulaPolicy.Community.failures` (accept on `[]`) | `ModuleHeader.OK`, `Conforming` | [RG5001], [RG2006]. |
+| `RegulaPolicy.Community.sourceFailures` (accepts on `[]`) | Each recorded source option is `SourceAccepted` (`sourceFailures_eq_nil_iff`) | [RG2006], over the options that the elaboration observer recorded for one claimed module. |
+| `RegulaPolicy.Elaboration.failures` (accepts on `[]`) | `Complete`: the observer was loaded, its record is there, no `#guard_msgs` or `#guard_panic`, no silent warning or error, and each command was linted (`failures_eq_nil_iff`) | [RG2003], over one claimed module's record. |
 | `admitSnapshot`, `admitClaim`, `admitInventory`, `admitExecution`, `admitJobKey`, `admitInfrastructureOrigin`, `admitIdentity`, `admitToolchainOrigin`, `admitToolchainAxioms`, `Compiler.admitCapability`, and the scope admission `admitScopeImpl` (accept on `.ok`) | The validity relation each names (`Snapshot.Valid`, `ClaimCandidate.Valid`, `InventoryValid`, `ExecutionValid` and so on) | Admission of decoded records. Which value is returned is each function's `_exact` theorem. |
 | `Compiler.accepts` | `Compiler.Supports` | The compiler-identity guard. |
 | `Regula.Checker.Frontend.coordinateCheck` (accepts on `.ok`) | `CoordinatesAgree` | Transcript coordinates, checked before inventory admission (`checked_scope`). |
@@ -3746,7 +3906,9 @@ directory a configuration gives for build output, and the reporter's overlay can
 coordinator builds each such module in the copy, and the worker refuses one that still resolves
 elsewhere. No build of the copy uses Lake's artifact cache, so Lake does not restore a module into
 the copy without compiling its source. **Trusted:** the filesystem resolves the real paths, and
-only the copy's build writes compiled modules into the copy.
+only the copy's build writes compiled modules into the copy. The one exception is the observer
+shared library with its `.trace` and `.hash` files, which `ProjectCopy.placeObservers` writes before
+the copy's build.
 
 The force-imported reporter loads modules of the prefixes `Regula` and `RegulaPolicy`, and Lean
 resolves a whole prefix at the first search directory that has it. So a copy that builds a part of
@@ -5146,6 +5308,52 @@ The `qualify` campaigns and what they observe:
   protocols. It also gives the result of a fresh audit with the policy manifest `policy.json` to
   the project-surface comparison. That comparison refuses the result with a missing selection,
   an absent selected file or an ambiguous selection.
+- `verso-recorded-paths`: a Verso package requires a package by path. Its manifest entry for that
+  package records a configuration file and a manifest under names that are not Lake's defaults.
+  - The shared-pin check compares the pins of the two packages' own manifests and overrides
+    files, the last entry for a name deciding. A required package without its own manifest reads
+    no overrides file. The check ignores the recorded manifest and a path entry that Lake does not
+    load. It follows a Git entry that an overrides file replaces by a path.
+  - The capture binds the recorded configuration and manifest, the overrides files and the
+    accepted project's Lake inputs except its own overrides file. The copy of a project with a
+    dependency writes a generated overrides file. The audit compares the copy's capture with the
+    original's, and acceptance's source binding binds the original's file. The capture binds no
+    `lakefile.toml` or `package.lean` that Lake does not load. For a configuration name without an
+    extension, it binds the two candidate files.
+  - The two checks refuse a Verso package without a manifest, before Lake's load writes one. A
+    selection that names a configuration Lake did not load is refused.
+- `copy-relocation`: the copy of a project (`Lake.copyProject`).
+  - A project's manifest has two entries for one path dependency, and its overrides file selects
+    the configuration of the first. The copy's override for the dependency names that
+    configuration. Lake's load of the copy then selects what its load of the project selects.
+    Without the overrides file, the copy's override names the configuration of the last entry.
+  - A project keeps its checkouts in `vendor` and requires by Git a package in a subdirectory of a
+    local repository that the control makes. With a manifest that records no packages directory,
+    Lake loads the package from its checkout in `vendor`. The copy leaves out that whole checkout,
+    including a file outside the subdirectory, and names the package in an override. It
+    keeps the other entries of `vendor`, such as a library's source directory and a submodule that
+    no glob names. Without a manifest, Lake's load through `LAKE_PKG_URL_MAP` writes the local
+    repository into the entry, and the inventory accepts it. A worker process loads these, and Git
+    searches for no repository above the control's scratch directory.
+  - The Git project also requires a package by the path `vendor/pdep/`, with a final separator. The
+    copy leaves out that directory.
+  - A fresh copy of the Git project links its `vendor/gdep` to the first copy's checkout, outside its
+    own `vendor`. The copy prunes the link without a refusal, and Lake's load of the copy loads the
+    package through its override.
+  - A fresh copy of the Git project stores `vendor/pdep` as `vendor/PDEP`. The control observes if
+    `vendor/pdep` names that directory, as it does on a volume that folds case. Then the copy
+    prunes `vendor/PDEP` by its observed real path. Otherwise Lake's load of the project refuses
+    the package, since it finds no directory at `vendor/pdep/`.
+  - A copy of a project with a library that has its source directory below `.lake` refuses before
+    it writes anything. The refusal names the module and the `.lake` directory. A copy of a project
+    with an owned dependency that has its configuration below `.cache` refuses that file by name.
+    It refuses it too when that configuration is a link to a file outside `.cache`. A copy of a
+    project with an owned dependency that records the manifest `pins.olean` refuses it by its
+    compiled-module name. A copy of a project with a library that sets `srcDir` to an absolute path
+    refuses that setting by name.
+  - The Git project's steps run in a process that inherits a `GIT_DIR` and an absolute
+    `GIT_INDEX_FILE` outside the scratch directory. The control's Git commands and its workers run
+    without them, and the two stay untouched.
 - `documentation-source`: both public documentation paths with changed and missing
   dependency/configuration inputs and fresh restored positives. Its `--source-read-only`
   selection adds original-file and declaration-build read failures, initial setup classification
@@ -5947,6 +6155,42 @@ Regula supplies the checked `cadical` path through the initial `sat.solver` opti
 The cold drivers elaborate the same process source before package artifacts exist. Their named bootstrap pairs are explicit exemptions. Imported Lean and Lake environment observations also remain trusted library behavior. The drivers' filesystem exemptions remain the scope of issue 389.
 
 `qualify observers` checks the program records and exercises live tool, script, solver and override controls. It stays in self-audit shard `4/4`. Each native shadow first writes a marker and returns its distinct result. The protected route must run its intended tool or give its intended refusal without that marker. These are external observations, not proofs of the operating system. Windows native execution remains unqualified here.
+### Assumptions of directory enumeration
+
+Lean `v4.34.1` reads a directory with `readdir` until it gives null, and then it returns the names that it has read ([`runtime/io.cpp#L1076-L1098`](https://github.com/leanprover/lean4/blob/v4.34.1/src/runtime/io.cpp#L1076-L1098)). A failed read also gives null, so `System.FilePath.readDir` can return fewer names and no error. Regula lists each directory through an admitted `ls` program instead, which `Construction.locate` selects. An admitted `ls` examines `errno` after each `readdir`, and it exits with a nonzero code after a failed read. `Construction.Enumerator.names` refuses unless the program exits with code 0 and writes no error text.
+
+A copy, the capture of a directory and a Git copy each locate the program one time and list each directory through it.
+
+The names of a listing decode exactly. `decodeListing_zero` states that the names that `ls --zero` writes decode to the stored names. `decodeListing_gnu` states the same for the escaped names of GNU `ls` 8.32. These theorems are about encoders written from the source of each program, not about the programs. `Enumerator.names` also refuses a name that is not UTF-8, a name with `/` or NUL, and the names `.` and `..`.
+
+`Construction.ReadsNames` is the hypothesis of the copy theorems about the names of a directory. It names these programs and sources:
+
+| Program | Options | Sources |
+| --- | --- | --- |
+| GNU coreutils `ls` 9.0 to 9.12 | `-A -U --zero` | `src/ls.c`: `print_dir`, `file_failure` and the `ZERO_OPTION` case, at [`v9.0`](https://github.com/coreutils/coreutils/blob/v9.0/src/ls.c#L3008-L3068) and [`v9.12`](https://github.com/coreutils/coreutils/blob/v9.12/src/ls.c#L3024-L3077) |
+| GNU coreutils `ls` 8.32 | `-1 -A -U --quoting-style=escape --show-control-chars --color=never --indicator-style=none` | [`src/ls.c`](https://github.com/coreutils/coreutils/blob/v8.32/src/ls.c#L2966-L3036) lines 2318-2319, 2847-2867 and 2966-3036, and gnulib `lib/quotearg.c` at `d279bc6d` |
+
+Regula admits a program only when its completeness and its report of a failed read rest on the source of the program itself. That source must be the source of the release that the first line of `ls --version` names exactly, as `gnuRelease?_sound` states. Regula refuses a later release with the reason, until a later Regula release reads it. Regula does not admit the `ls` of macOS, which reads directories through the `fts` functions of the system C library. Nothing that it reports names the release of that library. The [adoption guide](adoption.md#a-program-that-lists-directories) tells an adopter which program to install.
+
+Assumes: The program that Regula finds is the release that it identifies as. GNU `ls` gives its release in the first line of `ls --version`.
+
+Assumes: The kernel and the file system report each failed read of a directory to `readdir`, with an error other than `ENOENT`. POSIX.1-2024 `readdir()` sets `errno` on an error and keeps it unchanged at the end of a directory. Linux v6.8 ext4 reports a failed read of a block. It skips a block that fails its checksum and writes only a message to the kernel log.
+
+Regula trusts the exclusion of `ENOENT` because some releases of GNU `ls` do not report it. GNU `ls` 9.12 takes `ENOENT` as the end of a directory. GNU `ls` 9.6 to 9.11 do the same without glibc 2.3 or later. GNU `ls` 9.5 clears `ENOENT` after each `readdir`, at [`src/ls.c#L3064-L3066`](https://github.com/coreutils/coreutils/blob/v9.5/src/ls.c#L3064-L3066). Also, glibc 2.39 takes `ENOENT` as the end of a removed directory, at `sysdeps/unix/sysv/linux/readdir.c` lines 39-48. A removed directory has no names to miss.
+
+Three checks run the real code. `qualify enumeration` runs `Regula.Filesystem.copy` in a process that finds a stand-in `ls` first on `PATH`. The stand-in fails as GNU `ls` does after a failed read, or it exits with code 2 and writes no error text. Or it leaves out the last NUL, writes error text with exit code 0, or lists `..` or a name that is not UTF-8. The copy refuses each of these before it returns a receipt or writes at the destination. A complete listing of the stand-in is the receipt, and the real `ls` copies each file.
+
+`qualify enumeration-failure` makes a real failed read on a GitHub-hosted Linux runner. A device-mapper error target replaces one block of a large directory of an ext4 image. Then `ls` exits with a nonzero code, `readDir` returns fewer names without an error, and the copy refuses. Without the error target, the copy is complete. On other machines it reports that it is not supported, and it does not pass.
+
+`qualify readers` refuses if a declaration of a module of a package of the repository refers to `System.FilePath.readDir` or `System.FilePath.walkDir`. The packages are the directories of the Lake configuration files that Git tracks. Lake gives the modules of each library and executable of a package, also a module that no module imports, and builds them. The check then reads each compiled module. It does not read the root package's `Fixtures` library or a package below `examples/fixtures`, which are inputs of controls. Before it reads the packages, its controls refuse a planted reference in a package with no executable and in a module that no module imports.
+
+The step is a diagnostic of the repository's own checkout, and it runs after provisioning. It builds the modules of each package with Lake, as the other steps of `./scripts/verify.sh` do. So Lake can update or fetch a dependency there, as it does in those steps. Before it builds, the check refuses a package with a Git dependency that is not checked out. Each Lake process runs without the repository environment of Git, so an inherited `GIT_DIR` cannot select a different repository for Lake's Git commands.
+
+Assumes: Lean's native traversal of an expression, `Expr.foldConsts`, finds each constant in it ([`Lean/Util/FoldConsts.lean#L24-L53`](https://github.com/leanprover/lean4/blob/v4.34.1/src/Lean/Util/FoldConsts.lean#L24-L53)). Its logical body returns its initial value, so the theorem `readerReferences_eq_nil_iff` is about the filter over its result and not about the traversal.
+
+Lean and Lake read directories in two more places. `IO.FS.removeDirAll` lists a directory with `readDir` before it removes the directory ([`Init/System/IO.lean#L1335-L1342`](https://github.com/leanprover/lean4/blob/v4.34.1/src/Init/System/IO.lean#L1335-L1342)). After a failed read, entries remain, so its last `removeDir` fails and the removal stops with an error.
+
+Lake finds the modules of a glob with Lean's `forEachModuleInDir`, which uses `readDir`. Lake also reads the files of an `inputDir` target with `walkDir`. A failed read there gives Lake fewer modules or files without an error, and Regula trusts these reads of Lake.
 
 ### What the checker shows
 

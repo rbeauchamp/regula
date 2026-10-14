@@ -45,8 +45,11 @@ def form : Command → Command
   | .selfAuditShard _ => .selfAuditShard "K/4"
   | .selfAuditModule _ _ => .selfAuditModule "MODULE" "SOURCE"
   | .selfAuditJsonModule _ => .selfAuditJsonModule "MODULE"
+  | .copyRelocationLoad _ _ => .copyRelocationLoad "PROJECT" "COPIES"
+  | .copyRelocationGit _ => .copyRelocationGit "SCRATCH"
   | .environments _ => .environments "PATH"
   | .acceptance group _ => .acceptance group "PATH"
+  | .enumerationCopy _ _ => .enumerationCopy "SOURCE" "TARGET"
   | command => command
 
 /-- Every form of `qualify` selection once. -/
@@ -58,8 +61,10 @@ def qualifyForms : List Command :=
     form (.acceptance .fences ""), .acceptanceSnapshots .dependencies,
     .acceptanceSnapshots .history, .acceptanceSnapshots .gitStatus, .acceptanceSnapshots .all,
     .prepMeasure, .documentationDependencies, .inputInventory, .receiptBoundaries, .observers,
-    .closureEvidence, .configurationCapture, .fenceEvidence, .frozenExits, .documentationSource,
-    .documentationSourceReadOnly]
+    .closureEvidence, .configurationCapture, .versoRecordedPaths, .copyRelocation,
+    form (.copyRelocationLoad "" ""), form (.copyRelocationGit ""), .fenceEvidence, .frozenExits,
+    .documentationSource, .documentationSourceReadOnly, .enumeration,
+    form (.enumerationCopy "" ""), .enumerationFailure, .readers]
 
 /-- Every selection's form is listed. -/
 theorem form_mem (command : Command) : form command ∈ qualifyForms := by
@@ -161,7 +166,8 @@ def shardInvocations (name : String) (count : Nat) : List (List String) :=
 /-- The groups of qualification controls that `./scripts/verify.sh diagnostics GROUP` runs. -/
 def groups : List String :=
   ["input-inventory", "environment-census", "snapshot-history", "acceptance-controls",
-    "documentation-controls", "focused-controls", "policy-domain"]
+    "documentation-controls", "focused-controls", "policy-domain", "enumeration-failure",
+    "readers"]
 
 /-- Every invocation of `./scripts/verify.sh`, in the order of the driver's modes
 (`Regula.Campaigns.Verification.verifyInvocations_eq`). -/
@@ -212,13 +218,16 @@ def runsOf : List String → List Campaign
   | ["diagnostics", "acceptance-controls"] =>
       [.qualify (form (.acceptance .fences "")), .qualify (.acceptanceSnapshots .dependencies),
         .qualify (.acceptanceSnapshots .gitStatus), .qualify .receiptBoundaries,
-        .qualify .prepMeasure]
+        .qualify .prepMeasure, .qualify .enumeration]
   | ["diagnostics", "documentation-controls"] =>
-      [.qualify .documentationDependencies, .qualify .configurationCapture]
+      [.qualify .documentationDependencies, .qualify .configurationCapture,
+        .qualify .versoRecordedPaths, .qualify .copyRelocation]
   | ["diagnostics", "focused-controls"] =>
       [.selftest (.focused .nativeAdopter), .selftest (.focused .combinedSnapshot),
         .selftest (.focused .policyTransport)]
   | ["diagnostics", "policy-domain"] => [.selftest (.focused .policyDomain)]
+  | ["diagnostics", "enumeration-failure"] => [.qualify .enumerationFailure]
+  | ["diagnostics", "readers"] => [.qualify .readers]
   | ["diagnostics", name] =>
       match Partition.parse name with
       | some partition => [.selftest (.partition partition)]
@@ -237,9 +246,11 @@ def overBudgetShard : Partition → Option String
   | .structural | .execution | .lintDriver => none
 
 /-- The groups of `groups` a job runs. `environment-census`, `snapshot-history` and `policy-domain`
-are too long for a job (`reason`). -/
+are too long for a job, and no job has the generated website sources, Verso and a provisioned
+Mathlib together that `readers` needs (`reason`). -/
 def jobGroups : List String :=
-  ["input-inventory", "acceptance-controls", "documentation-controls", "focused-controls"]
+  ["input-inventory", "acceptance-controls", "documentation-controls", "focused-controls",
+    "enumeration-failure"]
 
 /-- The partitions whose shards a job runs. -/
 def jobPartitions : List Partition := [.lintDriver, .structural, .execution]
@@ -371,6 +382,12 @@ private def otherPartitions : String :=
   "The shards of the structural, execution and lint-driver partitions run. The shards of the \
     fixtures, cli, environments and build-policy partitions are too long for a job."
 
+/-- Why no job runs the reader check of every package (`qualify readers`): it builds on what no
+job has together. -/
+private def readersNotRun : Reason :=
+  .notRun "No job has the three things that it builds on: the website sources that \
+    `./scripts/verify.sh site` generates, Verso and a provisioned Mathlib."
+
 /-- The reason no job runs a campaign; none for a campaign that some job runs. -/
 def reason : Campaign → Option Reason
   | .verify ["serialized-graph"] => some <| .notRun "The optional serialized-graph claim (§7.9), \
@@ -387,6 +404,7 @@ def reason : Campaign → Option Reason
   | .verify ["diagnostics", "environment-census"] => some (overBudget 172)
   | .verify ["diagnostics", "snapshot-history"] => some (overBudget 104)
   | .verify ["diagnostics", "policy-domain"] => some (overBudget 158)
+  | .verify ["diagnostics", "readers"] => some readersNotRun
   | .verify ["diagnostics", name] => (Partition.parse name).map partitionReason
   | .verify ["diagnostics", name, _] => (Partition.parse name).bind fun partition =>
       (overBudgetShard partition).map (partitionOverBudget partition)
@@ -408,6 +426,10 @@ def reason : Campaign → Option Reason
       "the four shards together audit all modules."
   | .qualify (.selfAuditModule "MODULE" "SOURCE") | .qualify (.selfAuditJsonModule "MODULE") =>
       some (.worker (.qualify (form (.selfAuditShard ""))))
+  | .qualify (.enumerationCopy "SOURCE" "TARGET") => some (.worker (.qualify .enumeration))
+  | .qualify .readers => some readersNotRun
+  | .qualify (.copyRelocationLoad "PROJECT" "COPIES") | .qualify (.copyRelocationGit "SCRATCH") =>
+      some (.worker (.qualify .copyRelocation))
   | .qualify (.acceptanceSnapshots .all) => some <| .partly
       [.qualify (.acceptanceSnapshots .dependencies), .qualify (.acceptanceSnapshots .gitStatus)]
       "Its groups `dependencies` and `git-status` run. Its group `history` is too long for a job."

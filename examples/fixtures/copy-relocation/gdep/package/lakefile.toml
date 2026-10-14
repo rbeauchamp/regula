@@ -1,0 +1,3 @@
+# The package that the Git project of the `qualify copy-relocation` control requires by Git, in the
+# subdirectory `package` of a Git repository that the control makes of `..`.
+name = "gdep"

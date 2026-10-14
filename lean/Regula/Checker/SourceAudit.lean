@@ -3,6 +3,7 @@ import Regula.Process
 import Regula.Checker.Environment
 import Regula.Checker.Frontend
 import Regula.Checker.Policy
+import Regula.Checker.Observer
 
 /-! # Verbatim source audit
 
@@ -169,6 +170,15 @@ compiler's messages report by their severity (`Compilation.diagnostics`). -/
 def Compilation.observation (compilation : Compilation) : RegulaPolicy.BuildObservation :=
   ⟨compilation.process.exitCode.toNat, compilation.diagnostics.warnings,
     compilation.diagnostics.errors⟩
+
+/-- The decision on the record of Regula's elaboration observer in the compilation's `.olean`
+(`Observer.decideRecord`).
+`compileIn` loads the observer into every compilation it runs with `lean`, so Lean loaded it; a
+compilation without an `.olean`, or whose `.olean` holds no complete record, is decided as one
+without a record. The decision names the compiled source as `subject`, since the module name is
+the compilation's own. -/
+def Compilation.observe (compilation : Compilation) (subject : String) : IO Observer.Verdict :=
+  Observer.decideRecord subject true compilation.oleanPath
 
 /-- A compiled source together with the typed environment report and frontend transcripts
 read from it. -/
@@ -344,7 +354,11 @@ private def compileIn (repo scratch : FilePath) (spec : SourceSpec)
     -- `--json` gives each message's severity, which the diagnostics read, not its text: Lean
     -- prints an information message without position or severity, so its text can read as a
     -- warning.
-    let args := warningArgs ++ #["--json", "-R", scratch.toString,
+    -- Regula's elaboration observer is loaded into the compilation, as into a claimed build, so
+    -- the `.olean` holds its record (`Compilation.observe`). Lean loads the library the process
+    -- read at its start (`Observer.running`), written into a directory of this compilation's own.
+    let observer ← (← Observer.running).write (scratch / s!"{spec.«module»}.observer")
+    let args := warningArgs ++ #["--json", s!"--plugin={observer}", "-R", scratch.toString,
       "-o", oleanPath.toString, "-i", ileanPath.toString, sourcePath.toString]
     -- The worker sees only the workspace's own search path: an import of a
     -- root-package module fails here unless the workspace's own build output

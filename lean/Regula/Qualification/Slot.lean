@@ -213,21 +213,23 @@ structure SharedIdentity where
 /-- `lstat` walk of one shared root, threading one accumulator. Directories are
 recursed without following symlinks; every entry is recorded. `depth` is the
 number of directory levels still allowed below `dir` (structural fuel, started at
-`maxWalkDepth`); a deeper tree fails closed. -/
-private def sharedWalk (root dir : FilePath) (acc : Array SharedEntry) :
-    (depth : Nat) → IO (Array SharedEntry)
+`maxWalkDepth`); a deeper tree fails closed. Each directory is listed through `enumerator`, which
+`sharedIdentity` locates once. -/
+private def sharedWalk (enumerator : Regula.Filesystem.Construction.Enumerator)
+    (root dir : FilePath) (acc : Array SharedEntry) : (depth : Nat) → IO (Array SharedEntry)
   | 0 => throw <| IO.userError s!"shared-root walk exceeds {maxWalkDepth} directory levels: {dir}"
   | depth + 1 => do
     let mut acc := acc
-    for d in (← dir.readDir) do
-      let relative := (relativeOf root d.path).toString
-      match (← d.path.symlinkMetadata).type with
+    for name in ← enumerator.names dir do
+      let path := dir / name
+      let relative := (relativeOf root path).toString
+      match (← path.symlinkMetadata).type with
       | .dir =>
         acc := acc.push ⟨relative, "dir", 0, 0, ""⟩
-        acc ← sharedWalk root d.path acc depth
+        acc ← sharedWalk enumerator root path acc depth
       | .file => acc := acc.push ⟨relative, "file", 0, 0, ""⟩
       | .symlink =>
-        let target ← try pure (← IO.FS.realPath d.path).toString
+        let target ← try pure (← IO.FS.realPath path).toString
           catch _ => pure "<unresolvable>"
         acc := acc.push ⟨relative, "symlink", 0, 0, target⟩
       | .other => acc := acc.push ⟨relative, "other", 0, 0, ""⟩
@@ -245,9 +247,10 @@ dedicated tasks; every task is joined before the first (lowest-chunk) error is
 rethrown verbatim. Read-only: nothing under a shared root is written. -/
 def sharedIdentity (roots : Array FilePath) (width : Nat := 8) : IO SharedIdentity := do
   let width := max width 1
+  let enumerator ← Regula.Filesystem.Construction.locate
   let mut result := #[]
   for root in roots do
-    let walked ← sharedWalk root root #[] maxWalkDepth
+    let walked ← sharedWalk enumerator root root #[] maxWalkDepth
     let chunk := (walked.size + width - 1) / width
     let tasks ← (Array.range width).mapM fun k =>
       IO.asTask ((walked.extract (k * chunk) ((k + 1) * chunk)).mapM (fileDigest root))
@@ -375,8 +378,10 @@ def prepareSlotProject (slot : ProducerSlot) (project : FilePath)
   Regula.Filesystem.construct project (Regula.Filesystem.Construction.layout toolchain)
   Regula.Filesystem.writeFile (project / "lakefile.lean")
     s!"import Lake\nopen Lake DSL\npackage {packageName} where\n  leanOptions := #[⟨`autoImplicit, \
-      false⟩, ⟨`relaxedAutoImplicit, false⟩, ⟨`linter.missingDocs, true⟩]\nrequire regula \
-      from {toJson (slot.root / "root").toString |>.compress}\n@[default_target] lean_lib Example\n"
+      false⟩, ⟨`relaxedAutoImplicit, false⟩, ⟨`linter.missingDocs, true⟩]\n  \
+      plugins := #[`@regula/RegulaObserver:shared]\nrequire regula from \
+      {toJson (slot.root / "root").toString |>.compress}\n\
+      @[default_target] lean_lib Example where\n{Regula.Checker.observerNeedLean}"
   Regula.Filesystem.writeJson (project / "foundation_manifest.json") (Json.mkObj [
     ("schema-version", toJson (2 : Nat)), ("surfaces", toJson #[Json.mkObj [
       ("library", .str "Example"), ("claim", .str claim), ("execution", .str "checked"),

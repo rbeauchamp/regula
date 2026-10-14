@@ -201,7 +201,7 @@ def campaigns : List String :=
   ["diagnostics producers", "diagnostics history"] ++ shards "lint-driver" 5 ++
     shards "structural" 5 ++ shards "execution" 4 ++
     ["input-inventory", "acceptance-controls", "documentation-controls",
-      "focused-controls"].map ("diagnostics " ++ ·)
+      "focused-controls", "enumeration-failure"].map ("diagnostics " ++ ·)
 
 /-- Which partition jobs apply to a run of `event` whose changed paths are `changed`, by job id:
 the decision `applies` writes and each partition job's `if:` reads. -/
