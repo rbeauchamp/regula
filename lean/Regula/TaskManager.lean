@@ -21,7 +21,10 @@ refusal needs no task manager (`Regula.TaskManagerCheck.checkProgram`).
 A run that has a task manager can stop early too, before it writes or marks a destination. So
 `guard` runs the refusal before every run as well, with the reason that the run has not completed
 (`startedReason`): no code of the program runs before each destination is marked, and an earlier
-completed result never remains where a run that stopped early names one (issue 423). -/
+completed result never remains where a run that stopped early names one (issue 423). The
+renderers of the website are the exception: their refusals move nothing for `startedReason`, since
+a run that Verso starts keeps Verso's write behaviour and a resumed render reads the saved state of
+an earlier one. -/
 
 namespace Regula.TaskManager
 

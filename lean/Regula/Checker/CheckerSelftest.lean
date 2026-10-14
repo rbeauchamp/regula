@@ -3745,7 +3745,9 @@ lean/RegulaVerification.lean --copy-control`), in a project with one library and
 * A driver that is killed leaves the directory and its marker. The next scratch user of the
   checker removes both, and so does the next driver, before it makes its own copy.
 * With a symbolic link at `_site`, the driver's `--begin-attempt site` stops and the marked
-  content of the target stays; a real `_site` directory is removed. -/
+  content of the target stays; a `_site` directory that holds no `build.json` of a build of the
+  site makes it stop and keeps its files; and a `_site` directory whose `build.json` identifies
+  a build is removed (`RegulaVerification.siteRefusal`). -/
 private def driverCopyControl (repo : FilePath) : IO (Array String) :=
   withScratch repo "driver-copy-control" fun scratch => do
   let project := scratch / "project"
@@ -3905,17 +3907,26 @@ private def driverCopyControl (repo : FilePath) : IO (Array String) :=
   input.flush
   failures := failures ++ expect "remove: the driver did not end with exit code 0 after adopt"
     ((← child.wait) == 0 && !(← copy.pathExists))
-  -- 4. The site artifact of an earlier run.
+  -- 4. The site artifact of an earlier run. The attempt removes `_site` only when it holds an
+  -- artifact that a build of the site identifies (`siteRefusal`): a link there and a directory
+  -- that holds anything else keep what they hold.
   let site := project / "_site"
   link marked site
   let stopped ← runProcess project "lean" #["--run", driver, "--begin-attempt", "site"]
     scrubbedLeanPathEnv
   failures := failures ++ expect "site: a link at _site was followed or removed"
-    (!stopped.succeeded && stopped.output.contains "nothing was removed" &&
+    (!stopped.succeeded && stopped.output.contains "so the attempt removes nothing" &&
       (← (marked / "kept.txt").pathExists) && (← site.symlinkMetadata).type == .symlink)
   Regula.Filesystem.removePath .link site
   IO.FS.createDirAll (site / "pages")
   IO.FS.writeFile (site / "pages" / "old.html") "an earlier artifact"
+  let kept ← runProcess project "lean" #["--run", driver, "--begin-attempt", "site"]
+    scrubbedLeanPathEnv
+  failures := failures ++ expect "site: a directory that holds no build.json was removed"
+    (!kept.succeeded && kept.output.contains "holds neither a build.json" &&
+      (← (site / "pages" / "old.html").pathExists))
+  IO.FS.writeFile (site / "build.json")
+    "{\"schemaVersion\":2,\"site\":\"seed\",\"producerVersion\":\"0.0.0\"}\n"
   let removed ← runProcess project "lean" #["--run", driver, "--begin-attempt", "site"]
     scrubbedLeanPathEnv
   failures := failures ++ expect "site: an earlier artifact was not removed"
@@ -4512,7 +4523,9 @@ refusal's code and the reason, and each file must keep its bytes, or stay absent
 admission that the report worker's request names must then hold a mark that the reader of an
 admission refuses. The gate with two destinations whose names differ only in case, the first holding
 a completed result, must mark them and refuse.
-`site build --out` a directory that holds a Markdown document must refuse and keep it
+`site build --out` a directory that holds a Markdown document must fail and keep it: without its
+evidence the guard's refusal removes no directory that holds no artifact
+(`Regula.Site.Build.invalidateRefused`), and with evidence the build refuses it
 (`Regula.Site.Build.artifactRefusal`). An empty file, a hard link to a completed result, a completed
 result at a name of 255 bytes, and a mark that an earlier version of Regula wrote at a worker's
 output are each replaced by the guard's mark when the gate stops early. The other name of the
@@ -4878,18 +4891,24 @@ private def earlyStopControl (repo : FilePath) : IO (Option String) :=
         return some s!"early stop: axiomGate with --registry-out {named} was not refused by its \
           name before it made {unnamed} (exit {refused.exitCode}):\n{refused.output}"
     -- A directory at the `--out` of `site build` that holds something other than an artifact of a
-    -- build, such as the documentation of a repository, is refused and keeps its files
+    -- build, such as the documentation of a repository, keeps its files. Without its evidence the
+    -- parser refuses the run, and the guard's refusal removes no directory that holds no artifact
+    -- (`Regula.Site.Build.invalidateRefused`). With evidence the build's first step refuses it
     -- (`Regula.Site.Build.artifactRefusal`).
     let foreignSite := scratch / "foreign-site"
     IO.FS.createDirAll foreignSite
     IO.FS.writeFile (foreignSite / "README.md") "# Documentation\n"
-    let built ← runProcess repo (← toolPath repo "site").toString
-      #["build", "--out", foreignSite.toString] (env := plain)
-    let readme ← (IO.FS.readFile (foreignSite / "README.md")).toBaseIO
-    unless built.exitCode != 0 && built.stderr.contains "holds neither a build.json" &&
-        readme.toOption == some "# Documentation\n" do
-      return some s!"early stop: site build --out {foreignSite} was not refused with its files \
-        kept (exit {built.exitCode}):\n{built.output}"
+    let missing := (scratch / "missing-evidence.json").toString
+    let runs : List (Array String × Option String) :=
+      [(#[], none), (#["--evidence", missing], some "holds neither a build.json")]
+    for (args, refusal) in runs do
+      let built ← runProcess repo (← toolPath repo "site").toString
+        (#["build", "--out", foreignSite.toString] ++ args) (env := plain)
+      let readme ← (IO.FS.readFile (foreignSite / "README.md")).toBaseIO
+      unless built.exitCode != 0 && refusal.all (fun text => built.stderr.contains text) &&
+          readme.toOption == some "# Documentation\n" do
+        return some s!"early stop: site build --out {foreignSite} {args} was not refused with its \
+          files kept (exit {built.exitCode}):\n{built.output}"
     -- An empty file holds no bytes to lose, and a hard link to a result of Regula names a file
     -- that another name shares: each is replaced, and the other name keeps its bytes.
     let empty := scratch / "empty.json"

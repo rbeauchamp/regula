@@ -872,8 +872,8 @@ the digest of a structural shard of the self-test.
 The refusal then marks each file of that reading incomplete, with the reason. It uses the writer
 that a run of the program operates first. Thus a result of an earlier run does not stay in place.
 A self-hosted digest has no incomplete form, thus the refusal removes it, as the run does first.
-The `diagnostics` gate then refuses it as missing. The refusal of `site build` removes the output
-directory and the asset of a release, as the build does first.
+The `diagnostics` gate then refuses it as missing. The refusal of `site build` removes the asset of
+a release, as the build does first, and the output directory only if it holds an artifact.
 
 The refusal then gives the exit code of an incomplete run. For `axiomGate` and `lint`, that
 code is 3. A program that writes no result file marks no file.
@@ -883,7 +883,8 @@ initialize the search path of Lean. Thus the guard also operates the refusal bef
 the reason that `Regula.TaskManager.startedReason` gives. It discards the exit code of the
 refusal, and then it operates the program. Thus each destination is marked incomplete before code
 of the program operates. If the run then stops before it writes a destination, the reader of the
-destination refuses the marked document.
+destination refuses the marked document. The refusals of `regula-site` and `regula-standard` move
+nothing for that reason, since a run that Verso starts keeps the write behaviour of Verso.
 
 The run of a program also marks its destinations when it starts, with the same writer. The guard
 marks them earlier, before the first step of the program that can fail
@@ -1009,8 +1010,10 @@ directory.
 The option `--write-baseline` of `regula-markdown` writes `prose-baseline.json`, but first it reads
 the earlier baseline in that file. Thus the mark of that file holds the text of the earlier
 baseline, and check B1 refuses the mark. The run then reads the earlier baseline from the mark. If
-the program cannot read the earlier baseline, the mark holds the reason and no text, and the run
-fails.
+the file is a mark that holds no earlier text, the new mark holds the reason and no text, and the
+run fails. A file that is not UTF-8 text is not a document that Regula wrote, so the program refuses
+to mark it and keeps its bytes. The program also marks the baseline when a later argument is one
+that its parser refuses.
 
 The begin-attempt of `RegulaVerification` marks `tmp/rule-examples.json` in each mode, and then
 the other verdicts of the selected mode. An attempt can stop before that begin-attempt, for example
@@ -1127,9 +1130,10 @@ each one, and each file must keep its bytes. Two destinations that differ in cas
 refused. An empty file and a hard link to a result must be marked, and the other name of the link
 must keep its bytes.
 
-The controls of `regula-markdown`, which the documentation step operates, also stop a run of
-`--write-baseline` without `git`. A later run must then write the baseline with the earlier entries.
-A baseline that is not UTF-8 text must be refused and keep its bytes.
+The controls of `regula-markdown`, which the documentation step operates, also refuse a run of
+`--write-baseline` with a later argument that the parser refuses, and stop one without `git`.
+Each must leave the mark of the guard. A later run must then write the baseline with the earlier
+entries. A baseline that is not UTF-8 text must be refused and keep its bytes.
 
 The driver moves the pending record to `tmp/acceptance-link.json` only if
 `RegulaVerification.passed` accepts the exit status of each command. The driver does that move

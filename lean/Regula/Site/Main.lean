@@ -56,14 +56,16 @@ def siteMain (args : List String) : IO UInt32 := do
     IO.eprintln "       lake exe site renderer-refusal"
     return 2
 
-/-- The refusal of the build in a process without Lean's task manager
-(`Regula.TaskManager.guard`): it invalidates the artifact of the directory that the arguments name
-(`siteOutputNamed`) as a build does before its first step (`Regula.Site.Build.invalidateArtifact`),
-printing a line when it cannot, and returns 1. Arguments that name no directory invalidate
-nothing. -/
+/-- The refusal of the build in a process without Lean's task manager, which the guard also runs
+before each run (`Regula.TaskManager.guard`): it invalidates the artifact of the directory that the
+arguments name (`siteOutputNamed`), removing it only when it holds an artifact
+(`Regula.Site.Build.invalidateRefused`), printing a line when it cannot, and returns 1. Arguments
+that name no directory invalidate nothing. It starts no task: the listing that the build's own
+first step makes (`Regula.Site.Build.invalidateArtifact`) reads its program's output in a task,
+so the refusal does not make it. -/
 def refuseSiteBuild (_reason : String) (args : List String) : IO UInt32 := do
   if let some out := siteOutputNamed args then
-    try discard <| Regula.Site.Build.invalidateArtifact out
+    try Regula.Site.Build.invalidateRefused out
     catch error => IO.eprintln s!"site: could not invalidate the artifact at {out}: {error}"
   return 1
 

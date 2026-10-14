@@ -1470,7 +1470,8 @@ def regularFile (path : System.FilePath) : BaseIO Bool := do
 that holds the marker of an assembly (`siteAssemblingMarker`), or that holds a `build.json` of an
 artifact (`identifiesSiteBuild`), each a regular file. A directory that holds anything else, such
 as the documentation of a repository, is thus not removed. It is
-`Regula.Site.Build.artifactRefusal` written a second time. -/
+`Regula.Site.Build.artifactRefusal` written a second time: each reads the marker and the
+`build.json` before it lists the directory. -/
 def siteRefusal (out : System.FilePath) : IO (Option String) := do
   let refuse := some s!"{out} is not empty and holds neither a build.json of a site that Regula \
     built nor the marker {siteAssemblingMarker} of an assembly, so the attempt removes nothing"
@@ -1479,13 +1480,15 @@ def siteRefusal (out : System.FilePath) : IO (Option String) := do
   | .error error => return some s!"{out} cannot be read without following a link ({error}), so \
       the attempt removes nothing"
   | .ok metadata =>
-    unless metadata.type == .dir do return refuse
-    if (← listDirectory out).isEmpty then return none
+    unless metadata.type == .dir do
+      return some s!"{out} is not a directory (a file, a symbolic link or a different kind of \
+        entry is there), so the attempt removes nothing"
     if ← regularFile (out / siteAssemblingMarker) then return none
-    unless ← regularFile (out / "build.json") do return refuse
-    match Lean.Json.parse (← IO.FS.readFile (out / "build.json")) with
-    | .ok value => return if identifiesSiteBuild value then none else refuse
-    | .error _ => return refuse
+    if ← regularFile (out / "build.json") then
+      if let .ok text ← (IO.FS.readFile (out / "build.json")).toBaseIO then
+        if (Lean.Json.parse text).toOption.any identifiesSiteBuild then return none
+    if (← listDirectory out).isEmpty then return none
+    return refuse
 
 /-- The failure report: each command that did not end with exit status 0, with how it ended. -/
 def report (ends : List (Command × Option UInt32)) : String :=

@@ -383,11 +383,24 @@ private def regularFile (path : FilePath) : IO Bool := do
   | .ok metadata => return metadata.type == .file
   | .error _ => return false
 
+/-- Whether the directory `out` holds an artifact of a build or one that a build assembles: the
+marker of an assembly (`siteAssemblingMarker`), or a `build.json` that identifies a build
+(`identifiesSiteBuild`), each a regular file by a read that follows no link. A `build.json` that
+cannot be read as text identifies nothing. It lists no directory, so the refusal of a run without
+Lean's task manager can call it (`invalidateRefused`). -/
+def holdsArtifact (out : FilePath) : IO Bool := do
+  if ← regularFile (out / siteAssemblingMarker) then return true
+  unless ← regularFile (out / "build.json") do return false
+  match ← (IO.FS.readFile (out / "build.json")).toBaseIO with
+  | .ok text => return (Json.parse text).toOption.any identifiesSiteBuild
+  | .error _ => return false
+
 /-- The reason to refuse to replace what is at `out` with an artifact, if there is one: something
-is at `out`, by a read that follows no link, and it is not a directory that is empty, that holds
-the marker of an assembly (`siteAssemblingMarker`), or that holds a `build.json` of an artifact
-(`identifiesSiteBuild`), each a regular file. A directory that holds anything else, such as the
-documentation of a repository, is thus never removed. -/
+is at `out`, by a read that follows no link, and it is not a directory that holds an artifact
+(`holdsArtifact`) or that is empty. A directory that holds anything else, such as the
+documentation of a repository, is thus never removed. It lists the directory through the
+shared enumerator (`Regula.Filesystem.Construction.listDirectory`), which reads the output of a
+listing program in a task, so only a run with Lean's task manager calls it. -/
 def artifactRefusal (out : FilePath) : IO (Option String) := do
   let refuse := some s!"{out} is not empty and holds neither a build.json of a site that Regula \
     built nor the marker {siteAssemblingMarker} of an assembly, so the build does not replace it"
@@ -396,29 +409,51 @@ def artifactRefusal (out : FilePath) : IO (Option String) := do
   | .error error => return some s!"{out} cannot be read without following a link ({error}), so \
       the build does not replace it"
   | .ok metadata =>
-    unless metadata.type == .dir do return refuse
+    unless metadata.type == .dir do
+      return some s!"{out} is not a directory (a file, a symbolic link or a different kind of \
+        entry is there), so the build does not replace it"
+    if ← holdsArtifact out then return none
     if (← Regula.Filesystem.Construction.listDirectory out).isEmpty then return none
-    if ← regularFile (out / siteAssemblingMarker) then return none
-    unless ← regularFile (out / "build.json") do return refuse
-    match Json.parse (← IO.FS.readFile (out / "build.json")) with
-    | .ok value => return if identifiesSiteBuild value then none else refuse
-    | .error _ => return refuse
+    return refuse
+
+/-- The absolute `out` (`Regula.Filesystem.ownPath`), after the removal of the asset of the
+release of this build (`releasePackage`) when it is labelled with one. -/
+private def invalidateAsset (out : FilePath) : IO FilePath := do
+  let out ← Regula.Filesystem.ownPath out
+  if let .release v := installed then
+    Regula.Filesystem.removeOwn .file (releasePackage (← rootDirectory) v)
+  return out
 
 /-- Invalidate the artifact that a build into `out` writes, before anything that can fail: remove
 the directory `out`, and for a build labelled with a release, that release's asset
 (`releasePackage`), so neither an earlier artifact nor an earlier asset remains where it could be
-served or uploaded. It is what `build` runs first, and what a refused build runs in its place
-(`refuseSiteBuild`). A relative `out` is taken from the real path of the working directory, and a
-link, `.` or `..` among its components stops it before it removes anything
-(`Regula.Filesystem.ownPath`). When something at `out` is not an artifact that a build may replace
-(`artifactRefusal`), it removes the release's asset alone and stops. Returns the absolute `out`. -/
+served or uploaded. It is what `build` runs first. A relative `out` is taken from the real path of
+the working directory, and a link, `.` or `..` among its components stops it before it removes
+anything (`Regula.Filesystem.ownPath`). When something at `out` is not an artifact that a build
+may replace (`artifactRefusal`), it removes the release's asset alone and stops. Returns the
+absolute `out`. -/
 def invalidateArtifact (out : FilePath) : IO FilePath := do
-  let out ← Regula.Filesystem.ownPath out
-  if let .release v := installed then
-    Regula.Filesystem.removeOwn .file (releasePackage (← rootDirectory) v)
+  let out ← invalidateAsset out
   if let some reason ← artifactRefusal out then throw (IO.userError reason)
   Regula.Filesystem.removeOwn .directory out
   return out
+
+/-- Invalidate the artifact at `out` for a build that is refused (`refuseSiteBuild`): remove the
+release's asset as `invalidateArtifact` does, and remove the directory `out` only when it holds an
+artifact (`holdsArtifact`). What `invalidateArtifact` would also remove, an empty directory, holds
+no artifact, and anything else stays where it is. It stops with nothing removed at `out` when what
+is there cannot be read without following a link. It lists no directory, so a process without
+Lean's task manager can run it, as the check of the program's refusal requires
+(`Regula.TaskManagerCheck.checkProgram`). -/
+def invalidateRefused (out : FilePath) : IO Unit := do
+  let out ← invalidateAsset out
+  match ← (Regula.Filesystem.observeMetadata out).toBaseIO with
+  | .error (.noFileOrDirectory ..) => return
+  | .error error => throw <| IO.userError s!"{out} cannot be read without following a link \
+      ({error}), so the refusal removes nothing there"
+  | .ok metadata =>
+    if metadata.type == .dir && (← holdsArtifact out) then
+      Regula.Filesystem.removeOwn .directory out
 
 /-- Complete build: refuse a release label whose tag names another commit, decide each release
 edition's source, admit evidence, generate, render, collect the release editions, assemble and

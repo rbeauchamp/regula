@@ -904,11 +904,12 @@ One more control is a repository with a baseline that Git does not track. The op
 `--write-baseline` must keep the `frozen` entry and the `generated` entry of a document. It
 must write no entry that has no document.
 
-A last control operates the program with `--write-baseline` and a `PATH` without `git`, so the run
-stops early. The file `prose-baseline.json` must then hold the mark of the guard, with the earlier
-baseline, and check B1 must refuse it. A later run must write the baseline with the entries that
-the mark holds. A baseline that is not UTF-8 text must give a mark with the reason and no earlier
-baseline.
+A last control operates the program with `--write-baseline`. First a later argument that the
+parser refuses makes the run fail, and then a `PATH` without `git` makes the run stop early. Each
+time the file `prose-baseline.json` must hold the mark of the guard, with the earlier baseline,
+and check B1 must refuse it. A later run must write the baseline with the entries that
+the mark holds. A baseline that is not UTF-8 text is not a document that Regula wrote, so the
+run must refuse it with that reason and keep its bytes.
 
 The controls of these checks are in the same directory as the controls of the vocabulary. A
 control of C1 to C8 is a document with the extension `text`. A control of B1 or B2 is a baseline

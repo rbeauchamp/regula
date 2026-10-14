@@ -88,19 +88,42 @@ structure Options where
   /-- Print every finding of this document instead of checking the repository. -/
   list : Option String := none
 
-/-- The options of the arguments `args`, if they are a root and known options. `environment` is
-the value of the environment variable `REGULA_PROSE_START`, if it is set. The start of the
-check is what that value gives (`Start.read`). -/
-def Options.parse (environment : Option String) : List String → Option Options
+/-- `options` with the known options of `args` read in order, up to the first argument that is not
+a known option with its value, and whether every argument was read. -/
+def Options.read (options : Options) : List String → Options × Bool
+  | [] => (options, true)
+  | "--shared" :: path :: rest => Options.read { options with shared := some path } rest
+  | "--write-baseline" :: rest => Options.read { options with write := true } rest
+  | "--list" :: path :: rest => Options.read { options with list := some path } rest
+  | _ => (options, false)
+
+/-- The options that the arguments `args` give when they start with a root: the root and the known
+options up to the first argument that is not one (`Options.read`), and whether every argument was
+read. `environment` is the value of the environment variable `REGULA_PROSE_START`, if it is set.
+The start of the check is what that value gives (`Start.read`). A refused run and the mark before
+a run read the destination from these options (`refuseMarkdown`), so arguments that select
+`--write-baseline` before an argument that the program refuses still name the baseline. An
+argument after the first refused one is not read: no option of the program reads it, so it has no
+meaning. -/
+def Options.recognized (environment : Option String) : List String → Option (Options × Bool)
   | root :: rest =>
-    let rec go (options : Options) : List String → Option Options
-      | [] => some options
-      | "--shared" :: path :: rest => go { options with shared := some path } rest
-      | "--write-baseline" :: rest => go { options with write := true } rest
-      | "--list" :: path :: rest => go { options with list := some path } rest
-      | _ => none
-    if root.startsWith "--" then none else go { root, start := Start.read environment } rest
+    if root.startsWith "--" then none
+    else some (Options.read { root, start := Start.read environment } rest)
   | [] => none
+
+/-- The options of the arguments `args`, if they are a root and known options: the options that
+they give (`Options.recognized`) when every argument was read. -/
+def Options.parse (environment : Option String) (args : List String) : Option Options :=
+  match Options.recognized environment args with
+  | some (options, true) => some options
+  | _ => none
+
+/-- A selected `--write-baseline` is kept whatever arguments follow it, so the options that a
+refused run reads (`Options.recognized`) still name the baseline when a later argument is
+refused. -/
+theorem Options.read_keeps_write (options : Options) (args : List String)
+    (selected : options.write = true) : (Options.read options args).1.write = true := by
+  fun_induction Options.read options args <;> simp_all
 
 -- The variable gives the start through `Start.read`: a developer's run for `origin/main`, the
 -- commit before the change, or the head of a pull request. An empty variable gives no base.
@@ -109,6 +132,11 @@ def Options.parse (environment : Option String) : List String → Option Options
 #guard (Options.parse (some "before:c") ["r"]).map (·.start) == some (.before "c")
 #guard (Options.parse (some "pull:h") ["r"]).map (·.start) == some (.pull "h")
 #guard (Options.parse (some "") ["r"]).map (·.start) == some (.unknown "")
+-- A refused argument after `--write-baseline` makes the arguments refused, and the refusal still
+-- reads the baseline as their destination.
+#guard (Options.parse none ["r", "--write-baseline", "--unknown"]).isNone
+#guard
+  (Options.recognized none ["r", "--write-baseline", "--unknown"]).map (·.1.write) == some true
 
 /-- Run `git` with `args` in `directory`. -/
 def git (directory : System.FilePath) (args : Array String) : IO IO.Process.Output :=
@@ -1304,10 +1332,12 @@ def runWriteControl : IO (List String) :=
 /-- The result of the control of a run of `--write-baseline` that stops early (issue 423): what
 this program gave, when it is not the expected result. The repository and its baseline file are
 those of the control of `--write-baseline` (`runWriteControl`), and the reader of a baseline
-(`baselineOf`) admits that file. A run of this program with an empty directory as its `PATH`, so
-with no `git`, stops when it lists the tracked files. The file must then hold the mark of the guard
-(`markBaseline`), with the guard's reason (`Regula.TaskManager.startedReason`) and the earlier
-baseline, and the reader must refuse it. A run with the inherited `PATH` must then write the
+(`baselineOf`) admits that file. A run whose arguments add `--unknown`, which the parser refuses
+(issue 436), must fail and leave the mark of the guard (`markBaseline`), with the guard's reason
+(`Regula.TaskManager.startedReason`) and the earlier baseline, and the reader must refuse it. A
+run of this program with an empty directory as its `PATH`, so with no `git`, stops when it lists
+the tracked files, and the file must then hold the same mark, which keeps the earlier baseline
+that the first mark holds. A run with the inherited `PATH` must then write the
 expected baseline, with the entries of the earlier baseline that the mark kept. A baseline file
 that is not UTF-8 text is not a document that Regula wrote (`Regula.Destination.write`): a run
 must then fail with that reason, and the file must keep its bytes.
@@ -1329,9 +1359,10 @@ def runWriteEarlyStopControl : IO (List String) :=
     let noGit := directory / "no-git"
     IO.FS.createDirAll noGit
     let program := (← IO.appPath).toString
-    let run (path : Option System.FilePath) : IO IO.Process.Output :=
+    let run (path : Option System.FilePath) (more : Array String) :
+        IO IO.Process.Output :=
       IO.Process.output {
-        cmd := program, args := #[repository.toString, "--write-baseline"],
+        cmd := program, args := #[repository.toString, "--write-baseline"] ++ more,
         env := (path.map fun path => #[("PATH", some path.toString)]).getD #[] }
     let text : IO (Option String) := do return (← (IO.FS.readFile file).toBaseIO).toOption
     let admitted : IO Bool := do
@@ -1343,7 +1374,15 @@ def runWriteEarlyStopControl : IO (List String) :=
     IO.FS.writeFile file earlier
     unless ← admitted do
       return [s!"--write-baseline that stops early: baselineOf refuses the seed {earlier.quote}"]
-    let stopped ← run (some noGit)
+    let refused ← run none #["--unknown"]
+    unless refused.exitCode != 0 && (← held "status") == some "incomplete" &&
+        (← held "reason") == some Regula.TaskManager.startedReason &&
+        (← held "earlier") == some earlier && !(← admitted) do
+      return [s!"--write-baseline with a later argument that the parser refuses: expected an exit \
+        code other than 0 and the mark with the guard's reason and the earlier baseline, which \
+        baselineOf refuses; got the exit code {refused.exitCode}, the error output \
+        {refused.stderr.quote} and the file {← shown}"]
+    let stopped ← run (some noGit) #[]
     unless stopped.exitCode != 0 && (← held "status") == some "incomplete" &&
         (← held "reason") == some Regula.TaskManager.startedReason &&
         (← held "earlier") == some earlier && !(← admitted) do
@@ -1351,14 +1390,14 @@ def runWriteEarlyStopControl : IO (List String) :=
         with the guard's reason and the earlier baseline, which baselineOf refuses; got the exit \
         code {stopped.exitCode}, the error output {stopped.stderr.quote} and the file \
         {← shown}"]
-    let rerun ← run none
+    let rerun ← run none #[]
     unless rerun.exitCode == 0 && (← text) == some expected do
       return [s!"--write-baseline after a run that stopped early: expected the file \
         {expected.quote}, got the exit code {rerun.exitCode}, the error output \
         {rerun.stderr.quote} and the file {← shown}"]
     let undecodable := ByteArray.mk #[0xff, 0xfe, 0x0a]
     IO.FS.writeBinFile file undecodable
-    let undecoded ← run none
+    let undecoded ← run none #[]
     unless undecoded.exitCode != 0 &&
         undecoded.stderr.contains "not a document that Regula wrote" &&
         (← IO.FS.readBinFile file).data == undecodable.data do
@@ -1478,13 +1517,15 @@ def markdownMain (args : List String) : IO UInt32 := do
 
 open Regula.Controlled.Run in
 /-- The refusal of the program, which the guard runs before each run and, in a process without
-Lean's task manager, in the run's place (`Regula.TaskManager.guard`). It reads the arguments as
-`markdownMain` does (`Options.parse`). With `--write-baseline` it decodes the earlier baseline
-(`earlierBaseline`) and marks the baseline file incomplete with `reason` (`markBaseline`), printing
-a line when it cannot. Each other form names no result destination, so it marks none. It returns
-1. -/
+Lean's task manager, in the run's place (`Regula.TaskManager.guard`). It reads the arguments with
+the parser of `markdownMain` up to the first argument that the parser refuses
+(`Options.recognized`), so arguments that select `--write-baseline` and then something that the
+program refuses still name the baseline (`Options.read_keeps_write`). With `--write-baseline` and no
+`--list` it decodes the earlier baseline (`earlierBaseline`) and marks the baseline file incomplete
+with `reason` (`markBaseline`), printing a line when it cannot. Each other form names no result
+destination, so it marks none. It returns 1. -/
 def refuseMarkdown (reason : String) (args : List String) : IO UInt32 := do
-  if let some options := Options.parse (← IO.getEnv startVariable) args then
+  if let some (options, _) := Options.recognized (← IO.getEnv startVariable) args then
     if options.write && options.list.isNone then
       try markBaseline options.root reason (← earlierBaseline options.root)
       catch error =>
