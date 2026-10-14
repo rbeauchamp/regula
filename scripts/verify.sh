@@ -4,13 +4,6 @@
 # process-group deadline.
 set -euo pipefail
 cd "$(dirname "$0")/.."
-# Invalidate the rule-examples verdict unconditionally once at wrapper entry,
-# after the project cd and before any prerequisite check or exec, mirroring the
-# driver's begin-attempt. This constant INCOMPLETE cannot create a PASS and
-# decides no policy; a write failure fails closed under `set -e`. Scope: this
-# receipt only; other verdict artifacts are owned by their own drivers.
-mkdir -p tmp
-printf '{"outcome":"INCOMPLETE","phase":"setup"}\n' > tmp/rule-examples.json
 # The toolchain-only driver invalidates the selected mode's earlier verdicts before setup,
 # so a failed or timed-out provisioning cannot leave an accepted one in place.
 lean --run lean/RegulaVerification.lean --begin-attempt "$@"

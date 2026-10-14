@@ -462,8 +462,7 @@ def incompleteReport (reason : Option String) : Json :=
 `qualify native-launcher` runs in its place, with its reason. -/
 def beginReport (reason : Option String := none) : IO Unit := do
   let root ← rootDirectory
-  IO.FS.createDirAll (root / "tmp")
-  writeJson (reportPath root) (incompleteReport reason)
+  writeEvidence (reportPath root) (incompleteReport reason)
 
 /-- Paired baseline-first diagnostic with the same scratch path, source, argv, observed
 outputs, environment and executable. Measurements describe only these actual runs. Each run's
@@ -517,6 +516,7 @@ def paired : IO Unit := do
     report.modify (·.setObjVal! "outcome" (.str "FAIL"))
     throw e
   finally
-    writeJson output ((← report.get).setObjVal! "totalMillis" (toJson ((← IO.monoMsNow) - started)))
+    writeEvidence output
+      ((← report.get).setObjVal! "totalMillis" (toJson ((← IO.monoMsNow) - started)))
 
 end Regula.Qualification.NativeLinter

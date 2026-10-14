@@ -17,10 +17,12 @@ entry into a directory that it makes new, so it replaces and removes nothing. Th
 end state, under the assumptions they name, what each does. The reach check
 `Regula.Removal.rawRemovals` refuses each call of a removal primitive outside a declaration with
 the observer's role, so no code of Regula calls one other than through this module, except the
-calls of Lean's library that `Regula.Removal.libraryRemovals` lists and the removals and moves of
-the two drivers that `Regula.ProgramCheck.Verification` and `Regula.ProgramCheck.Provision` name. A
-deliberate use of the private declarations, with `open private` or a hand-written name, is outside
-that criterion, as for the private observation of issue 261.
+calls of Lean's library that `Regula.Removal.libraryRemovals` lists, the removals of `bv_decide`
+that `Regula.Removal.tacticRemovals` lists, which run as trusted active effects of a program that
+runs the tactic, and the removals and moves of the two drivers that
+`Regula.ProgramCheck.Verification` and `Regula.ProgramCheck.Provision` name. A deliberate use of
+the private declarations, with `open private` or a hand-written name, is outside that criterion,
+as for the private observation of issue 261.
 
 The observer's reads are public: `ownPath` and `ownRoot` give the path at which a removal is
 decided, and `requireOwnDirectory` and `requireNoLinkedEntries` check a place before a program
@@ -465,6 +467,31 @@ def removePath (kind : Kind) (path : FilePath) : IO Unit := do
 /-- `replace` at `ownPath source` and `ownPath destination`. -/
 def replacePath (source destination : FilePath) : IO Unit := do
   replace (← ownPath source) (← ownPath destination)
+
+/-- Write `contents` to the file `path` names by making a new file beside it and moving that file
+there (`replace`). The new file is in the real path of the directory of `path`, which `ownRoot`
+makes, and nothing was at its name: `IO.FS.Mode.writeNew` creates a file only where no entry is.
+Its name is `.regula-`, the process's id, a random number and `.pending`, at most 47 bytes and none
+of the destination's, so any destination name that the directory admits has a new file beside it.
+So the write replaces the entry at `path` and never writes into the file that entry names. A file
+that is also a hard link at another path keeps its bytes there, and a reader of `path` reads the
+earlier file or the whole new one. It stops with nothing moved when a symbolic link, a directory
+or another kind of entry is at `path`, and it removes the new file when it stops after making it.
+It stops on Windows, where the observer reads no real path. -/
+def writeReplacing (path : FilePath) (contents : ByteArray) : IO Unit := do
+  let some name := path.fileName
+    | throw <| IO.userError s!"nothing was written: {path} names no file"
+  let directory ← ownRoot (path.parent.getD ⟨"."⟩)
+  let random := (← IO.getRandomBytes 8).foldl (fun value byte => value * 256 + byte.toNat) 0
+  let pending := directory / s!".regula-{← IO.Process.getPID}-{random}.pending"
+  let handle ← IO.FS.Handle.mk pending .writeNew
+  try
+    handle.write contents
+    handle.flush
+    replace pending (directory / name)
+  catch error =>
+    discard <| (removeOwn .file pending).toBaseIO
+    throw error
 
 /-- Stop unless nothing is at `path` or a directory is there at its own place, by the observation
 that `removeOwn` makes. These are the places on which `removal .directory` does not refuse

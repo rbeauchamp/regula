@@ -49,10 +49,19 @@ task manager is refused before the invocation runs, with exit code 1
 def main : List String → IO UInt32 :=
   Regula.TaskManager.guard "regula" refuseRegula regulaMain
 
--- The removals that the compiled code of `main`, and of the initializers of the modules it links,
--- reaches are the filesystem observer's and those that `Regula.Removal.libraryRemovals` lists: the
--- build of this module fails otherwise (`Regula.Removal.checkProgram`).
-run_cmd Regula.Removal.checkProgram
+-- The removals and the writes that the compiled code of the program reaches from its roots
+-- (`Regula.Removal.rawRemovals`) are those of the filesystem observer and those that
+-- `Regula.Removal.sharedPairs` lists, and those named here, each by the declaration of a source
+-- that makes it: the build of this module fails otherwise, and when a name here admits no call
+-- (`Regula.Removal.checkProgram`). The program elaborates Lean source, so its check states it.
+run_cmd Regula.Removal.checkProgram (elaborates := true) (named := [
+  -- The configuration that `regula setup` writes in the project that it sets up, and its
+  -- restoration when the setup stops.
+  (`Regula.Cli.Setup.restore, ``IO.FS.writeFile),
+  (`Regula.Cli.Setup.write, ``IO.FS.createDirAll),
+  (`Regula.Cli.Setup.write, ``IO.FS.writeFile),
+  -- The source of the compiler probe, in its temporary directory.
+  (``Regula.Toolchain.probe, ``IO.FS.writeFile)])
 
 -- A program that needs Lean's task manager starts through its guard (`Regula.TaskManager.guard`),
 -- and its refusal needs none: the build of this module fails otherwise

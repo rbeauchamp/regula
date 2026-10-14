@@ -257,7 +257,7 @@ checker behavior:
 | `fixtures`, `fixtures 1/5` to `fixtures 5/5` | Positive controls and intentionally invalid Lean declarations, then the Markdown scanner controls and the in-process fence corpus. A shard checks one fixture in five, by its position in module-name order, not the file order of `fixtures.json`. The last shard also runs the scanner controls and the fence corpus. |
 | `structural`, `structural 1/5` to `structural 5/5` | Surface discovery, ownership, contamination, required application contracts, decision contracts that one surface counts for a different surface, and admission reuse between environments; a shard runs part of the controls. The shards together run all of them but the self-hosted identity. Shards 1/5 and 5/5 write its two digests, `tmp/self-hosted-digest/positive.sha256` and `restored.sha256`. Only the CI `diagnostics` gate compares them, so a local claim rests on the unsharded `structural` run or a comparison of the two files. |
 | `execution`, `execution 1/4` to `execution 4/4` | Execution evidence: each compiler-path mutation and correspondence control with its positive and fresh restoration; a shard runs part of the controls, and the shards together run all of them. |
-| `cli`, `cli 1/6` to `cli 6/6` | Command-line behavior and diagnostics: each fixture through a real `axiomGate --file` run, then the source-attribution controls. A fixture with a `fileAuditExclusion` in its manifest entry is left out and named with its reason. The fixtures partition still checks it. A shard checks one fixture in six, by its position in module-name order. The last shard also runs the source-attribution controls and the control of a process without a task manager, for which it builds `qualify` and `site`. |
+| `cli`, `cli 1/6` to `cli 6/6` | Command-line behavior and diagnostics: each fixture through a real `axiomGate --file` run, then the source-attribution controls. A fixture with a `fileAuditExclusion` in its manifest entry is left out and named with its reason. The fixtures partition still checks it. A shard checks one fixture in six, by its position in module-name order. The last shard also runs the source-attribution controls. Then it runs the control of a process without a task manager and the control of a run that stops early. For those two controls it builds `qualify`, `site`, `ruleExamples` and `ruleExampleQualification`. |
 | `environments`, `environments 1/6` to `environments 6/6` | Isolated environments, documentation scanning, and external adopters. Shard 1/6 runs the public fence corpus. Shard 2/6 runs the `lakefile.toml` adopter, and 3/6 runs the `lakefile.lean` and relative-path adopters. Shard 4/6 runs the clean-checkout documentation fences and `freshChecker`. Shard 5/6 runs the clean-checkout `--file` control, and 6/6 runs the public surface. |
 | `build-policy`, `build-policy 1/3` to `build-policy 3/3` | Enforcement through the example's ordinary Lake build. A shard runs one mutation case in three. The last shard also runs the disabled-policy control. |
 | `lint-driver`, `lint-driver 1/5` to `lint-driver 5/5` | `lake lint` dispatch and exit classes in both shipped adopters, and the cold compiler guard of `lakefile.lean`: refusal of an inherited `LEAN_SYSROOT` child that fails and of one that succeeds without reporting the running compiler's identity, then a restored load. In a plain workspace the driver keeps the audit-build marker without `REGULA_ORDINARY_LAKEFILES=1`, and with it omits the marker, reports it and reuses the ordinary build. Under the assertion, an import of `Regula.Linter` keeps the marker, and the driver reports the reason. Decision probes of the guard load a changed adopter in the process and check its decision and reason without an audit. A custom target, a library in `needs`, a facet of Lake declared again and a library field outside the list keep the marker. So do a different `nativeFacets`, a lakefile declaration, a theorem that equates two functions, a TOML filter other than `"*"` and an import of `Regula.Linter`. An input file in `needs` and the filter `"*"` keep the plain shape. Lake's artifact cache is on in a private directory, and a claimed module warns. Then two identical `--fresh` runs and an incremental audit of the module that Lake restored from the cache each report [RG2003]. The same holds when only a path dependency turns the cache on in its own configuration, and its module warns. It also holds when the claimed library builds no module by default, and the module was elaborated or restored by an ordinary build. The claimed library can also have the name `foo/bar`, and Lake target syntax reads its spelling `«foo/bar»` as a library of a dependency. Then an incremental audit also reports it. Without the warning, a fresh run is accepted. An adopter's path dependency is replayed in its Git work tree, also with `--fresh`, and trusted and named in a work tree of its own. An adopter in the checker's own work tree owns `regula` and imports `Regula.Linter`. Its fresh audit owns no `Regula` or `RegulaPolicy` module of `regula` and accepts the adopter. On a project from `lake new` in each format, `regula init` writes the glob of its library, and a second run writes nothing. In the `lakefile.toml` project, `lake lint` then reports the missing docstrings, and it accepts the project when they are written. A shard runs part of the control groups, and the five shards together run all of them. |
@@ -588,10 +588,16 @@ list that the single run audits. The dogfood workflow runs the four shards, and 
 
 The shard `self-audit 4/4` also builds each library of the package except `Fixtures`, and the
 executable `auditApp`. Then it runs `lake exe qualify observers`, which refuses unless each
-program records its removal check and each executable its task-manager check. The single run does
-the same. On the slower CI runners, the
+program records its removal check and each executable its task-manager check. It also refuses a
+module named under `Init`, `Std`, `Lean` or `Lake` in a package of the root, `markdown/` or `audit/`
+workspace. The single run does the same. On the slower CI runners, the
 shard 4/4 has the shortest audit of the four. Thus this check runs there, and not in the first
 acceptance step.
+
+`qualify observers` refuses to load the `markdown/` workspace until the pinned MD4Lean is in
+`.lake/packages`. Run `lean --run lean/RegulaProvision.lean verso` first. The dogfood workflow does
+this for the shard 4/4. Thus the check acquires no dependency if no other process changes the
+checkout or the manifest during the check.
 
 Before its `lake lint` in the root package, `diagnostics self-lint` builds the `lint` driver, its
 worker `axiomGate` and the claimed targets in one `lake build`. Lake's lint dispatch, the driver
@@ -899,6 +905,14 @@ of these commits, at the line of the entry.
 One more control is a repository with a baseline that Git does not track. The option
 `--write-baseline` must keep the `frozen` entry and the `generated` entry of a document. It
 must write no entry that has no document.
+
+A last control operates the program with `--write-baseline`. First a later argument that the
+parser refuses makes the run fail. Then the repository's Git index holds bytes that are not an
+index, so the run stops early when Git lists the tracked files. Each time the file
+`prose-baseline.json` must hold the mark of the guard, with the earlier baseline, and check B1
+must refuse it. A later run must write the baseline with the entries that the mark holds. The run
+must refuse a baseline that is not UTF-8 text, as a file that Regula did not write, and keep its
+bytes.
 
 The controls of these checks are in the same directory as the controls of the vocabulary. A
 control of C1 to C8 is a document with the extension `text`. A control of B1 or B2 is a baseline

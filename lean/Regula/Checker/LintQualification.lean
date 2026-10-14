@@ -587,7 +587,7 @@ private def leanArguments (probes : Std.Mutex Unit) (repo adopter : FilePath) :
   -- `--json-out` is the one marked incomplete before the refusal.
   IO.FS.writeFile lakefile (plain.replace "lintDriver := \"regula/lint\""
     "lintDriver := \"regula/lint\"\n  lintDriverArgs := #[\"--manifest\", \"--json-out\"]")
-  IO.FS.writeFile (adopter / "stale.json") "{\"status\":\"completed\"}\n"
+  IO.FS.writeFile (adopter / "stale.json") Regula.Destination.earlierResult
   failures := failures ++ (← expect adopter {
       label := "lean/option-like-value-refused", exitCode := 2,
       contains := #["the package's lintDriverArgs give --manifest",
@@ -618,7 +618,7 @@ private def leanArguments (probes : Std.Mutex Unit) (repo adopter : FilePath) :
       excludes := #[s!"regula lint: {acceptanceLabel}"] } #["--", "--help", "--json-out", "/"])
   IO.FS.writeFile lakefile (plain.replace "lintDriver := \"regula/lint\""
     "lintDriver := \"regula/lint\"\n  lintDriverArgs := #[\"--json-out\", \"/\"]")
-  IO.FS.writeFile (adopter / "stale.json") "{\"status\":\"completed\"}\n"
+  IO.FS.writeFile (adopter / "stale.json") Regula.Destination.earlierResult
   failures := failures ++ (← expect adopter {
       label := "lean/each-destination-marked", exitCode := 2,
       contains := #["duplicate --json-out option", "regula lint: INVALID CONFIGURATION"],
@@ -627,6 +627,21 @@ private def leanArguments (probes : Std.Mutex Unit) (repo adopter : FilePath) :
   unless JsonAgreement.conforms stale (toJson "incomplete") do
     failures := failures.push s!"lake-lint/lean/each-destination-marked: stale.json has status \
       {stale.compress}"
+  Regula.Filesystem.removePath .file (adopter / "stale.json")
+  -- A destination that holds a file other than a document of Regula, such as an input of the
+  -- audit, is not marked and keeps its bytes (`Regula.Destination.write`), so the run
+  -- stops incomplete before the audit.
+  IO.FS.writeFile lakefile plain
+  let foreign := "{\"status\":\"completed\"}\n"
+  IO.FS.writeFile (adopter / "stale.json") foreign
+  failures := failures ++ (← expect adopter {
+      label := "lean/foreign-destination-refused", exitCode := 3,
+      contains := #["is a JSON document, not a document that Regula wrote",
+        "could not mark the result destination stale.json",
+        "regula lint: INCOMPLETE: a result destination could not be marked incomplete"],
+      excludes := #[s!"regula lint: {acceptanceLabel}"] } #["--", "--json-out", "stale.json"])
+  unless (← IO.FS.readFile (adopter / "stale.json")) == foreign do
+    failures := failures.push "lake-lint/lean/foreign-destination-refused: stale.json was changed"
   Regula.Filesystem.removePath .file (adopter / "stale.json")
   -- The audit reads its arguments once too: a manifest named `--json-out` is the manifest, not
   -- a destination, so the run reads it and writes only the command line's `--json-out`.

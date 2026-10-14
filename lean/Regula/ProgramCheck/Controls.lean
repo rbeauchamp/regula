@@ -1,14 +1,35 @@
 import Regula.Removal
 import Regula.TaskManagerCheck
+import Std.Tactic.BVDecide.LRAT.Parser
 
 /-! # Controls of the check that each program runs
 
 A planted program whose `main` calls a removal primitive fails the check that each program of the
 package runs at the end of its root module or of a module that imports it
 (`Regula.Removal.checkProgram`), and the same program with its removal made by the filesystem
-observer passes it. A planted declaration of this module with the filesystem observer's role
-admits nothing, and the check refuses a program while one is declared outside `Regula.Filesystem`
-(`Regula.Removal.foreignObservers`).
+observer passes it. A planted program that writes a file fails it too, and so does one that opens a
+file to write it; one that opens a file to read it passes it. Of two planted declarations with the
+same loop, the second calls the specialization that the compiler made for the first: naming the
+first for the loop's removal leaves the second's call refused, and naming both admits the program
+(`Regula.Removal.attributions`). A planted declaration with the
+filesystem observer's role admits nothing, and the check refuses a program while one is
+declared outside `Regula.Filesystem` (`Regula.Removal.foreignObservers`). A planted program whose
+`main` refers to Lean's elaborator in its compiled code, without calling it, fails the check that
+states that it does not elaborate, and passes the one that states that it does: the class is the
+reachability of the compiled code, which a reference makes. A planted program whose `main` does
+nothing and whose module's initializer calls a tactic's write
+(`Std.Tactic.BVDecide.LRAT.dumpLRATProof`) is classified by that write in the same way, since the
+check walks every compiled declaration of the modules outside Lean's toolchain, the initializers
+among them (`Regula.Removal.programRoots`). So is a planted program whose `main` does nothing and
+whose module declares a constant whose value calls that write and that nothing refers to, which
+the program computes when it starts. A module is of Lean's toolchain by its name
+(`Regula.Removal.toolchainModules`): the modules of Lean's elaborator and of `bv_decide` are, and
+those of this package are not. A planted program that does not elaborate fails the check that
+states that it does (`Regula.Removal.elaborationRefusal`). Each of these planted programs is in an
+environment of its own, which imports Lean's library, the filesystem observer, the LRAT parser of
+`bv_decide` and Lean's command elaborator, in the module `Planted` (`refusal`). This module links
+the checks, whose compiled code reaches Lean's elaborator, so a program planted in it would
+elaborate by that code.
 
 A planted program whose `main` starts a task, creates a promise or captures a process's output
 fails the check that a compiled program needing Lean's task manager starts through the guard
@@ -35,17 +56,36 @@ namespace Regula.ProgramCheck.Controls
 
 open Lean Elab Command
 
+/-- The modules that the environment of a planted program imports: Lean's library, the filesystem
+observer, the LRAT parser of `bv_decide` and Lean's command elaborator, to which the controls
+refer. -/
+def plantedImports : Array Import :=
+  #[`Init, `Regula.Filesystem, `Std.Tactic.BVDecide.LRAT.Parser, `Lean.Elab.Command].map
+    ({ module := · })
+
 /-- The refusal of `checkProgram` for the program whose `main` is `value`, of type `IO Unit`, added
-to the environment for this control alone after `setup`; `none` when it accepts the program. -/
-def refusal (value : Expr) (setup : CommandElabM Unit := pure ()) : CommandElabM (Option String) :=
+after `setup` to an environment of its own, for this control alone: `plantedImports` imported, in
+the module `Planted`. The compiled code of the program is then what the control plants and the code
+of the imported modules, and not the code of this module, which links the checks and so Lean's
+elaborator (`Regula.Removal.programRoots`). `none` when the check accepts the program. The import
+loads the state of each environment extension, so the controls elaborate their declarations there,
+which needs the execution of initializers enabled. Lean runs the initializers of a module at most
+once in a process (`Lean/Compiler/InitAttr.lean:176-180`), so those of the modules that this build
+already imported do not run again. -/
+unsafe def refusal (value : Expr) (setup : CommandElabM Unit := pure ())
+    (elaborates : Bool := false) (named : List (Name × Name) := []) :
+    CommandElabM (Option String) := do
+  enableInitializersExecution
+  let planted ← liftM <| importModules plantedImports {} 0 (loadExts := true)
   withoutModifyingEnv do
+    setEnv (planted.setMainModule `Planted)
     setup
     liftTermElabM do
       addAndCompile (.defnDecl {
         name := `main, levelParams := [], type := mkApp (mkConst ``IO) (mkConst ``Unit), value,
         hints := .opaque, safety := .safe })
     try
-      Regula.Removal.checkProgram
+      Regula.Removal.checkProgram named elaborates
       return none
     catch error => return some (← error.toMessageData.toString)
 
@@ -60,6 +100,120 @@ run_cmd do
     (mkApp (mkConst ``System.FilePath.mk) path)
   if let some refused ← refusal routed then
     throwError "the check refused a program whose main removes with the observer: {refused}"
+
+-- A `main` that writes a file with the library's primitive fails the check, and so does one that
+-- opens a file to write it; one that opens a file to read it passes it.
+run_cmd do
+  let plant (body : Term) : CommandElabM Unit := do
+    elabCommand (← `(command| def $(mkIdent `plantedWrite) : IO Unit := $body))
+  let planted := mkConst ((← getCurrNamespace) ++ `plantedWrite)
+  for (body, primitive) in [((← `(IO.FS.writeFile "planted" "")), ``IO.FS.writeFile),
+      ((← `(discard <| IO.FS.Handle.mk "planted" .write)), ``IO.FS.Handle.mk)] do
+    let refused ← refusal planted (plant body)
+    unless refused.any (·.contains s!"plantedWrite calls {primitive}") do
+      throwError "the check accepted a program whose main calls {primitive} to write: {refused}"
+  if let some refused ← refusal planted (plant (← `(discard <| IO.FS.Handle.mk "planted" .read)))
+  then
+    throwError "the check refused a program whose main opens a file to read it: {refused}"
+
+-- Two declarations with the same loop share the specialization that the compiler made for the
+-- first: the second calls it. Naming the first for the loop's removal admits its call and not the
+-- second's, which the check refuses; naming the second too admits the program, and neither pair is
+-- unused.
+run_cmd do
+  let current ← getCurrNamespace
+  let first := current ++ `plantedNamed
+  let second := current ++ `plantedOther
+  let plant : CommandElabM Unit := do
+    for name in [`plantedNamed, `plantedOther] do
+      elabCommand (← `(command|
+        @[noinline] def $(mkIdent name) (paths : List System.FilePath) : IO Unit := do
+          for path in paths do IO.FS.removeFile (path / "planted-shared")))
+    elabCommand (← `(command| def $(mkIdent `plantedShared) : IO Unit := do
+      $(mkIdent `plantedNamed):ident ["planted"]
+      $(mkIdent `plantedOther):ident ["planted"]))
+    let env ← getEnv
+    let some decl := Lean.IR.findEnvDecl env second
+      | throwError "the compiled code of {second} is not available"
+    unless (Lean.IR.collectUsedDecls env [decl]).any
+        (Regula.Removal.auxiliarySource env · == some first) do
+      throwError "{second} calls no specialization made in {first}, so this control does not \
+        exercise shared code: {Lean.IR.collectUsedDecls env [decl]}"
+  let planted := mkConst (current ++ `plantedShared)
+  let shared ← refusal planted plant (named := [(first, ``IO.FS.removeFile)])
+  unless shared.any (·.contains s!"{second} calls IO.FS.removeFile") &&
+      !shared.any (·.contains s!"{first} calls") do
+    throwError "the check did not refuse, as the call of {second} alone, the removal in the \
+      specialization that {second} shares with the named {first}: {shared}"
+  if let some refused ← refusal planted plant
+      (named := [(first, ``IO.FS.removeFile), (second, ``IO.FS.removeFile)]) then
+    throwError "the check refused a program that names each declaration that reaches a shared \
+      specialization's removal: {refused}"
+
+-- A `main` whose compiled code refers to Lean's elaborator, storing it without calling it, fails the
+-- check that states that it does not elaborate, and passes the one that states that it does: the
+-- class is reachability in the compiled code, not a run of the elaborator. A `main` that does not
+-- elaborate fails the check that states that it does.
+run_cmd do
+  let plant (body : Term) : CommandElabM Unit := do
+    elabCommand (← `(command| def $(mkIdent `plantedElaboration) : IO Unit := $body))
+  let planted := mkConst ((← getCurrNamespace) ++ `plantedElaboration)
+  let elaborating ← `(discard <| IO.mkRef Lean.Elab.Command.elabCommand)
+  let undeclared ← refusal planted (plant elaborating)
+  unless undeclared.any (·.contains "reaches Lean's elaborator") do
+    throwError "the check accepted a program that elaborates and states that it does not: \
+      {undeclared}"
+  if let some refused ← refusal planted (plant elaborating) (elaborates := true) then
+    throwError "the check refused a program that elaborates and states that it does: {refused}"
+  let idle ← refusal planted (plant (← `(pure ()))) (elaborates := true)
+  unless idle.any (·.contains "reaches one of") do
+    throwError "the check accepted a program that does not elaborate and states that it does: \
+      {idle}"
+
+-- A module is of Lean's toolchain by its name: the modules of Lean's elaborator and of
+-- `bv_decide` are, and none of this package is.
+run_cmd do
+  let env ← getEnv
+  let toolchain := Regula.Removal.toolchainModules (Regula.Removal.linked env env.mainModule)
+  for module in [`Init.Prelude, `Lean.Elab.Command, `Std.Tactic.BVDecide.LRAT.Parser] do
+    unless toolchain.contains module do
+      throwError "{module} is not among the modules of Lean's toolchain"
+  for module in [`Regula.Removal, `Regula.Filesystem, env.mainModule] do
+    if toolchain.contains module then
+      throwError "{module} is among the modules of Lean's toolchain"
+
+-- A `main` that does nothing, in a module whose initializer calls a tactic's write, fails the check
+-- that states that it does not elaborate, and passes the one that states that it does: the check
+-- walks every compiled declaration of the modules outside Lean's toolchain, the initializer among
+-- them, where it finds the write.
+run_cmd do
+  let plant : CommandElabM Unit := do
+    elabCommand (← `(command| def $(mkIdent `plantedIdle) : IO Unit := pure ()))
+    elabCommand (← `(command|
+      initialize Std.Tactic.BVDecide.LRAT.dumpLRATProof "planted" #[] true))
+  let planted := mkConst ((← getCurrNamespace) ++ `plantedIdle)
+  let undeclared ← refusal planted plant
+  unless undeclared.any (·.contains "Std.Tactic.BVDecide.LRAT.dumpLRATProof") do
+    throwError "the check accepted, as a program that does not elaborate, one whose initializer \
+      calls a tactic's write: {undeclared}"
+  if let some refused ← refusal planted plant (elaborates := true) then
+    throwError "the check refused a program whose initializer calls a tactic's write and that \
+      states that it elaborates: {refused}"
+
+-- A `main` that does nothing, in a module that declares a constant whose value calls a tactic's
+-- write and that nothing refers to, fails the check that states that it does not elaborate: the
+-- program computes the constant when it starts, and the check walks every compiled declaration of
+-- the modules outside Lean's toolchain, the constant among them.
+run_cmd do
+  let plant : CommandElabM Unit := do
+    elabCommand (← `(command| def $(mkIdent `plantedIdle) : IO Unit := pure ()))
+    elabCommand (← `(command| unsafe def $(mkIdent `plantedConstant) : Except IO.Error Unit :=
+      unsafeIO (Std.Tactic.BVDecide.LRAT.dumpLRATProof "planted" #[] true)))
+  let planted := mkConst ((← getCurrNamespace) ++ `plantedIdle)
+  let undeclared ← refusal planted plant
+  unless undeclared.any (·.contains "Std.Tactic.BVDecide.LRAT.dumpLRATProof") do
+    throwError "the check accepted, as a program that does not elaborate, one with a constant \
+      that calls a tactic's write: {undeclared}"
 
 -- The filesystem observer's role, given in this module: a planted observer that calls the library's
 -- primitive does not make its call admitted, and a planted observer that removes nothing makes the

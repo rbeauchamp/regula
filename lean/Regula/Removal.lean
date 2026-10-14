@@ -1,24 +1,39 @@
 import Regula.Filesystem
+import RegulaPolicy.Domain
 import Lean.Compiler.IR.EmitUtil
 import Lean.Compiler.InitAttr
 import Lean.Elab.Command
 
-/-! # The check that every removal of a program goes through the observer
+/-! # The check that every removal of a program goes through the observer, and of its writes
 
 A removal primitive of Lean's library is an operation that removes or replaces an entry
-(`primitives`, `removalSymbols`). `rawRemovalsFrom` follows the compiled code of a program from its
-`main` and from the code that initializes the modules it links (`initializersOf`), and finds each
-call of a removal primitive that a declaration makes other than a declaration of
+(`primitives`, `removalSymbols`). `rawRemovalsFrom` follows the compiled code of a program from
+every compiled declaration of the modules it links outside Lean's toolchain, its `main` and the
+code that initializes the toolchain's modules that it links (`rawRemovals`, `initializersOf`). It
+finds each call of a removal primitive that a declaration makes other than a declaration of
 `Regula.Filesystem` with the filesystem observer's role (`@[regula_observer filesystem]`,
-`filesystemObservers`) or a call of Lean's library that `libraryRemovals` lists. The role given in
-another module admits nothing, and the check of a
-program refuses it (`foreignObservers`). The observer's removals and its move are private to
-`Regula.Filesystem`. Its exported operations `removeOwn`, `removeFound`, `replace` and
-`withOwnTempDir` observe the place and act only on what the decisions of `RegulaCore.Removal`
-decide. `moveAside` moves an entry into a directory that it makes new, so it replaces and removes
-nothing, with no `ownPath` resolution and no `Regula.Removal.replacement` decision: a symbolic link
-or a `..` among the components above the entry is followed as the operating system resolves it, as
-a run of Verso writes through it too.
+`filesystemObservers`) or a call of Lean's library that `libraryRemovals` or `tacticRemovals`
+lists. The role given in another module admits nothing, and the check of a program refuses it
+(`foreignObservers`). The observer's removals and its move are private to `Regula.Filesystem`. Its
+exported operations `removeOwn`, `removeFound`, `replace` and `withOwnTempDir` observe the place
+and act only on what the decisions of `RegulaCore.Removal` decide. `moveAside` moves an entry into
+a directory that it makes new, so it replaces and removes nothing, with no `ownPath` resolution and
+no `Regula.Removal.replacement` decision: a symbolic link or a `..` among the components above the
+entry is followed as the operating system resolves it, as a run of Verso writes through it too.
+
+The same walk finds each call of a primitive that writes a file or makes an entry
+(`writePrimitives`, `writeSymbols`). An opening of a file by `IO.FS.Handle.mk` is such a call when
+its mode is not the literal `IO.FS.Mode.read` (`opensToWrite`), and a call of any other declaration
+bound to its C function always is (`readableOpening`). It admits such a call, as it admits a
+removal, only in a declaration with the filesystem observer's role, in the writer of
+`Regula.Filesystem` (`writers`), at a call that `libraryWrites`, `tacticWrites` or `packageWrites`
+lists, or at a call that the program names to `checkProgram`, each by its source declaration
+(`sourceDeclaration`). A call in code that Lean's compiler made in one declaration and may give to
+others, a specialization, a lifted lambda or a closed term (`auxiliarySource`), is the call of each
+declaration that reaches that code from outside the code of the one that made it too, and is
+admitted only when it is admitted for each of them (`attributions`). So a later declaration that
+reuses the specialization of a named caller is not admitted by that caller's pair. A pair that a
+program names and that admits no call fails the check, so the list of each program is exact.
 
 `checkProgram` runs the check for the program whose `main` the environment declares, fails the
 build of the module that runs it when the check finds a call, and records the program in the
@@ -34,24 +49,88 @@ The criterion is honest code, as `SECURITY.md` and `CONTEXT.md` define it: code 
 deliberately change Lean's environment, compiler or build to make a check pass. Honest code in a
 checked program cannot reach a removal outside the observer, except the library removals that
 `libraryRemovals` lists, each a trusted exemption of Lake or resting on an assumption, as it states,
-and the removals of the two programs that `scripts/verify.sh` and `scripts/provision.sh` run, which
-are admitted by name where they are checked (`Regula.ProgramCheck.Verification`,
-`Regula.ProgramCheck.Provision`). Deliberate circumvention by Regula's own authors is outside it
+the removals of `bv_decide` that `tacticRemovals` lists, trusted active effects of a program that
+runs the tactic (see "Programs that elaborate"), and the removals of the two programs that
+`scripts/verify.sh` and `scripts/provision.sh` run, which are admitted by name where they are
+checked (`Regula.ProgramCheck.Verification`, `Regula.ProgramCheck.Provision`). Deliberate
+circumvention by Regula's own authors is outside it
 (issue 286), for example a hand-written `extern` bound to a C function of the runtime that removes
-other than `removalSymbols`, or a use of the private declarations of `Regula.Filesystem`.
+other than `removalSymbols`, or a use of the private declarations of `Regula.Filesystem`. Honest
+code in a checked program writes a file or makes an entry only at the calls that these lists and
+its own list name, each again as a whole for its caller and primitive.
 
-The check admits a removal of `libraryRemovals` or of a driver by the pair of its caller and the
-primitive that it calls (`admitted`), not by its path or by the call site in the caller. So each
-admitted pair is a trusted exception as a whole, together with any further call of the same
-primitive inside the same caller: a second `IO.FS.removeDirAll` in a removal of the verification
-driver passes the check. Issue 389 tracks deciding the drivers' removals with a decision that a
+The check admits a removal or a write of a list or of a driver by the pair of its caller and the
+primitive that it calls (`admitted`), not by its path, by the call site in the caller or by the
+path through which the program reaches the caller. So each admitted pair is a trusted exception as
+a whole. It admits any further call of the same primitive inside the same caller: a second
+`IO.FS.removeDirAll` in a removal of the verification driver passes the check. It admits the call
+whoever calls the caller, `main`, an initializer or the program's own code: a program that calls
+`Lake.Manifest.saveEntries` or `Std.Tactic.BVDecide.LRAT.dumpLRATProof` itself writes where it
+asks, admitted by the pair of `libraryWrites` or `tacticWrites`. The caller of a call in code that
+the compiler may share between declarations is each declaration that reaches that code
+(`attributions`), so a call there is admitted for its caller's pair only while that caller's own
+code alone reaches it. Issue 389 tracks deciding the drivers' removals with a decision that a
 theorem relates to `RegulaCore.Removal`.
+
+## Programs that elaborate
+
+The check of a program states whether the program elaborates (`checkProgram`), and fails when the
+statement is wrong (`elaborationRefusal`). The statement is about the compiled code that the
+program may run: every compiled declaration of the modules that it links outside Lean's toolchain,
+and `main` (`programRoots`). Those hold its initializers and the constants that it computes when it
+starts. The program elaborates when that code reaches Lean's elaborator (`elaborationEntries`) or a
+declaration that makes a write or a removal of a tactic (`tacticWrites`, `tacticRemovals`). This is
+conservative reachability in the compiled code, not a proof that elaboration runs: a declaration
+that the program never runs counts, and `Lean.IR.collectUsedDecls` collects a constant and a partial
+application too, so a reference to an elaborator that the program never calls counts. The compiled
+code of Lean's toolchain is followed from those roots, and its own initializers are not roots. Each
+registers what its module defines, and the registration of an elaborator or a tactic refers to it,
+so a walk of them would reach every tactic in every program that links Lean's elaborator. They are
+trusted to run none. A module is the toolchain's by its name, under the hypothesis that
+`toolchainModules` states and `lake exe qualify observers` checks.
+
+Nine programs elaborate, and their checks state it: `axiomGate`, `lint`, `ruleExamples`,
+`freshChecker`, `docFenceAudit`, `checkerSelftest`, `qualify`, `regula` and `site`. Each elaborates
+the Lake configuration of a project when it loads its workspace (`Lake.importConfigFile`). Some also
+elaborate the project's modules in Regula's frontend, in their own process or in a worker of
+`axiomGate`, or regenerate the recursion of a declaration that they audit, which runs its
+`decreasing_by` tactics. Three more state it by the conservative reachability alone: they link code
+that elaborates and that their `main` does not run. `ruleExampleQualification`, and the registry
+checks that the first acceptance step runs with `lean --run`, link Regula's frontend
+(`Regula.Checker.Frontend`) and Lake's loader of a configuration. `regula-markdown` links
+`Regula.Collect` through the guard of Lean's task manager (`Regula.TaskManager`, which imports
+`Regula.Probe`), where the regeneration of a declaration's recursion runs its `decreasing_by`
+tactics. So the check classes every program that starts through that guard as one that
+elaborates.
+
+Elaboration runs the commands, terms and tactics of the source, with their effects, as `lake
+build` runs them on the same source. They are trusted active effects of the program, which the
+check neither finds nor bounds. Such an effect writes or removes what the source or the tactic
+names, as the process may, also through a symbolic link and also at a destination of the program:
+the writer of `Regula.Filesystem` does not protect a destination against it, as it does not
+against `lake build` on the same source. Such are the writes and removals of `bv_decide`, whose
+compiled code Lean's library holds, so that the check finds and admits them by their pairs in every
+program: the `aig.gv` that its option `graphviz` writes in the working directory, through a
+symbolic link there too, the LRAT proof that `bv_decide?` writes beside the source file, and the
+temporary files that it removes. In a program that does not elaborate, no compiled declaration of
+its modules outside the toolchain reaches them. The initializers of the toolchain reach them by
+registering the tactic, which only an elaborator runs.
+
+A program elaborates in the working directory in which it was started. Each worker that a program
+of Regula starts runs in the program's working directory or in the project's root, and writes its
+packet in a directory that the program made for the run below it: a scratch directory below
+`.lake/regula-scratch` (`Regula.Scratch.withScratch`), or `tmp/fence-build` of the workspace of a
+documentation audit. So no worker's working directory is the directory of its packet. A
+destination of the program that started it may be in that working directory, where an effect of
+the elaboration reaches it as above.
 
 ## Boundaries
 
 The C functions of the runtime are not followed: `removalSymbols` lists the ones that remove or
-replace an entry. A removal by another program that a program starts, such as `rm`, is not a call
-that the check finds. The check reads the compiled code that the environment holds; a declaration
+replace an entry, and `writeSymbols` the ones that write a file or make an entry. A removal or a
+write by another program that a program starts, such as `rm`, is not a call that the check finds,
+nor a write through a handle that an admitted opening made or that the runtime gave as a standard
+stream. The check reads the compiled code that the environment holds; a declaration
 whose compiled code it does not hold is unknown, and the check fails. -/
 
 namespace Regula.Removal
@@ -70,6 +149,33 @@ def primitives : List Name :=
   [``IO.FS.removeFile, ``IO.FS.removeDir, ``IO.FS.removeDirAll, ``IO.FS.rename,
     ``Lean.writeModule, ``Lean.saveModuleData, ``Lean.saveModuleDataParts]
 
+/-- The declarations of Lean's library that write a file or make a directory for their caller,
+each through a C function of `writeSymbols`. The check finds a call of one by its name, so it
+names the caller, not the declaration of the library. A call of `IO.FS.withFile` is a write
+whatever its mode, which the check does not read there; the compiler copies its body into each
+caller (`@[inline]`), where the check reads the mode of its opening (`opensToWrite`). -/
+def writePrimitives : List Name :=
+  [``IO.FS.writeFile, ``IO.FS.writeBinFile, ``IO.FS.createDirAll, ``IO.FS.withFile]
+
+/-- The C functions of the Lean 4.34.1 runtime that write a file or make an entry, by a search of
+the `extern` declarations of its library (`src/lean`) for the functions of the filesystem: the
+opening of a file (`IO.FS.Handle.mk`), the truncation of an open file (`IO.FS.Handle.truncate`), the
+making of a directory (`IO.FS.createDir`) and of a hard link (`IO.FS.hardLink`), and the writes of
+LLVM's output. A declaration of any name that is bound to one of them writes. Those not on this
+list: `lean_chmod`, which changes the access rights of an entry and not its contents;
+`lean_io_create_tempfile` and `lean_io_create_tempdir`, which make an entry at a new name in the
+system's temporary directory, so no entry that a program names; and the writes through a handle,
+which an opening of `IO.FS.Handle.mk` made or the runtime gave as a standard stream. -/
+def writeSymbols : List String :=
+  ["lean_io_prim_handle_mk", "lean_io_prim_handle_truncate", "lean_io_create_dir",
+    "lean_io_hard_link", "lean_emit_llvm", "lean_llvm_print_module_to_file",
+    "lean_llvm_target_machine_emit_to_file", "lean_llvm_write_bitcode_to_file"]
+
+/-- The C function of `writeSymbols` that opens a file in the mode that its second argument
+gives (`IO.FS.Handle.mk`). Only the mode `IO.FS.Mode.read`, the number 0, opens it without
+writing. -/
+def openSymbol : String := "lean_io_prim_handle_mk"
+
 /-- The C functions of the Lean 4.34.1 runtime that remove or replace an entry, by a search of its
 sources (`src/runtime`, `src/library`) for `unlink`, `rmdir`, `rename` and `remove`. They are the
 functions that `IO.FS.removeFile`, `IO.FS.removeDir` and `IO.FS.rename` are bound to
@@ -86,13 +192,98 @@ def bindsTo (symbol : String) : ExternEntry → Bool
   | .inline _ pattern => (pattern.splitOn symbol).length > 1
   | _ => false
 
+/-- The C function of `symbols` that `name` is bound to, when it is an `extern` declaration bound
+to one. -/
+def boundAmong (env : Environment) (symbols : List String) (name : Name) : Option String :=
+  match findEnvDecl env name with
+  | some (.extern _ _ _ data) =>
+    symbols.find? fun symbol => data.entries.any (bindsTo symbol)
+  | _ => none
+
 /-- The C function of `removalSymbols` that `name` is bound to, when it is an `extern`
 declaration bound to one. -/
 def boundRemoval (env : Environment) (name : Name) : Option String :=
-  match findEnvDecl env name with
-  | some (.extern _ _ _ data) =>
-    removalSymbols.find? fun symbol => data.entries.any (bindsTo symbol)
-  | _ => none
+  boundAmong env removalSymbols name
+
+/-- The C function of `writeSymbols` that `name` is bound to, when it is an `extern` declaration
+bound to one. -/
+def boundWrite (env : Environment) (name : Name) : Option String :=
+  boundAmong env writeSymbols name
+
+/-- What the check reads of a compiled body: each variable that the body binds to a literal
+number, with the number, and each call that it makes, with its arguments and whether it is a
+partial application. -/
+abbrev Calls := Array (VarId × Nat) × Array (Name × Array Arg × Bool)
+
+/-- The facts of two parts of a body, together. -/
+def Calls.join (first second : Calls) : Calls :=
+  (first.1 ++ second.1, first.2 ++ second.2)
+
+mutual
+/-- The facts that the check reads of the compiled body `body` (`Calls`), from each of its
+branches and join points. -/
+def bodyCalls : FnBody → Calls
+  | .vdecl x _ e rest =>
+    let (literals, calls) := bodyCalls rest
+    match e with
+    | .lit (.num n) => (literals.push (x, n), calls)
+    | .fap f ys => (literals, calls.push (f, ys, false))
+    | .pap f ys => (literals, calls.push (f, ys, true))
+    | _ => (literals, calls)
+  | .jdecl _ _ v rest => (bodyCalls v).join (bodyCalls rest)
+  | .set _ _ _ rest | .setTag _ _ rest | .uset _ _ _ rest | .sset _ _ _ _ _ rest
+  | .inc _ _ _ _ rest | .dec _ _ _ _ rest | .del _ rest => bodyCalls rest
+  | .case _ _ _ alts => altsCalls alts
+  | .ret _ | .jmp _ _ | .unreachable => (#[], #[])
+/-- The facts of the branches `alts` of a `case`. -/
+def altsCalls : Array Alt → Calls
+  | ⟨alts⟩ => altListCalls alts
+/-- The facts of the branches `alts`, in order. -/
+def altListCalls : List Alt → Calls
+  | [] => (#[], #[])
+  | alt :: rest => (altCalls alt).join (altListCalls rest)
+/-- The facts of the body of the branch `alt`. -/
+def altCalls : Alt → Calls
+  | .ctor _ rest | .default rest => bodyCalls rest
+end
+
+/-- The binding of `IO.FS.Handle.mk` whose C call the check has read, as Lean 4.34.1 declares it
+(`Init/System/IO.lean:795`): one standard entry for every backend, which calls `openSymbol` with
+the arguments of the declaration in order. -/
+def readableOpen : ExternAttrData := { entries := [.standard `all openSymbol] }
+
+/-- The compiled parameters of that binding in Lean 4.34.1: the path, borrowed, the mode as one
+byte, and the world, which the C function does not take. -/
+def readableOpenParams : Array IRType := #[.object, .uint8, .void]
+
+/-- Whether the check reads the mode of a call of `name` (`opensToWrite`): `name` is
+`IO.FS.Handle.mk`, bound as `readableOpen` with the parameters `readableOpenParams`, so that its
+second argument is the mode that the C function receives. Any other declaration bound to
+`openSymbol` opens a file to write it at each call: one with an inline pattern can give the C
+function a mode of its own whatever its arguments, and one of another name or with other
+parameters has an order of arguments that the check has not read. -/
+def readableOpening (env : Environment) (name : Name) : Bool :=
+  name == ``IO.FS.Handle.mk && match findEnvDecl env name with
+    | some (.extern _ params _ data) =>
+      data == readableOpen && params.map (·.ty) == readableOpenParams &&
+        (params[0]?.map (·.borrow)).getD false
+    | _ => false
+
+/-- Whether the call of `IO.FS.Handle.mk` (`readableOpening`) with the arguments `args` opens a file
+to write it: the call is a partial application, or its mode, the second argument, is not a variable
+that the body binds to the literal 0 (`IO.FS.Mode.read`), among `literals`. -/
+def opensToWrite (literals : Array (VarId × Nat)) (args : Array Arg) (partialCall : Bool) : Bool :=
+  match args[1]? with
+  | some (Arg.var mode) => partialCall || !literals.contains (mode, 0)
+  | _ => true
+
+/-- The calls of `IO.FS.Handle.mk` (`readableOpening`) that the compiled body `body` makes to write
+a file (`opensToWrite`), each by its callee. -/
+def writingOpens (env : Environment) (body : FnBody) : Array Name :=
+  let (literals, calls) := bodyCalls body
+  calls.filterMap fun (callee, args, partialCall) =>
+    if readableOpening env callee && opensToWrite literals args partialCall then some callee
+    else none
 
 /-- The suffixes that Lean's compiler appends to the name of a declaration for the compiled
 variants it makes of it: one without its irrelevant arguments, and the boxed form of each. -/
@@ -136,6 +327,74 @@ def observerVariant (env : Environment) (observers : Array Name) (name : Name) :
   observers.any fun observer => compilerSuffixes.any fun suffix =>
     name == observer ++ suffix && (suffix.isAnonymous || !env.contains name)
 
+/-- Whether the check finds a call of `name` as a call of a primitive: `name` is one of `watched`,
+or is bound to a C function of `removalSymbols` or `writeSymbols` (`boundRemoval`, `boundWrite`). -/
+def isPrimitive (env : Environment) (watched : List Name) (name : Name) : Bool :=
+  watched.contains name || (boundRemoval env name).isSome || (boundWrite env name).isSome
+
+/-- The primitive that a call of `name` calls, if it calls one (`isPrimitive`): `name` itself, or
+the primitive that `name` is a compiled variant of (`observerVariant`), such as the boxed form that
+a program calls when it passes the primitive as a value. -/
+def calledPrimitive (env : Environment) (watched : List Name) (name : Name) : Option Name :=
+  if isPrimitive env watched name then some name
+  else
+    let base := if name matches .str _ "_boxed" then name.getPrefix else name
+    let base := if base matches .str _ "_redArg" then base.getPrefix else base
+    if base != name && observerVariant env #[base] name && isPrimitive env watched base then
+      some base
+    else none
+
+/-- Whether `component` is a name that Lean's compiler appends to a declaration for a part of its
+compiled code: `_redArg`, `_boxed`, or `_lam_`, `_elam_`, `_closed_` or `spec_` with a number. -/
+def compiledPart (component : Name) : Bool :=
+  match component with
+  | .str .anonymous text =>
+    text == "_redArg" || text == "_boxed" || ["_lam_", "_elam_", "_closed_", "spec_"].any
+      fun stem => text.startsWith stem && text.length > stem.length &&
+        (text.toList.drop stem.length).all Char.isDigit
+  | _ => false
+
+/-- The name after the last `_at_` of the compiled declaration `name`, a specialization made in
+that declaration, without the parts that `compiledPart` names: `D` for the loop
+`Array.forIn'Unsafe.loop._at_.D.spec_5` and for the function `D._lam_2`. It reads the name alone,
+not the environment, and joins its parts as they stand (`Name.appendCore`): `++` moves the macro
+scopes of a hygienic part, and panics when both of its arguments have some. -/
+def compiledSource (name : Name) : Name :=
+  let made := (name.components.reverse.takeWhile (· != `_at_)).reverse
+  (made.reverse.dropWhile compiledPart).reverse.foldl Name.appendCore .anonymous
+
+/-- The declaration of a source in whose compiled code Lean's compiler made the compiled declaration
+`name`: `name` when a source declares it, and otherwise its `compiledSource` when a source declares
+that. So the loop `Array.forIn'Unsafe.loop._at_.D.spec_5` and the function `D._lam_2` are the code
+of `D`. A name of another form is its own. -/
+def sourceDeclaration (env : Environment) (name : Name) : Name :=
+  if env.contains name then name
+  else
+    let source := compiledSource name
+    if env.contains source then source else name
+
+/-- Whether the compiled declaration `name` is code that Lean's compiler may give to more than one
+declaration: a specialization (`spec_`), a lifted lambda (`_lam_`, `_elam_`) or a closed term
+(`_closed_`), or a variant `_redArg` or `_boxed` of one, that no source declares. The compiler gives
+a specialization to each later declaration that needs the same one, from a cache of every module
+that the environment imports (`Lean/Compiler/LCNF/Specialize.lean:416-418`), and a lifted lambda
+and a closed term from a cache of the module (`Lean/Compiler/LCNF/LambdaLifting.lean:105`,
+`Lean/Compiler/LCNF/ExtractClosed.lean:223-224`). The variants `_redArg` and `_boxed` of a
+declaration of a source are its own code, which each caller of the declaration calls, so they are
+not such code. -/
+def shareable (env : Environment) (name : Name) : Bool :=
+  let base := if name matches .str _ "_boxed" then name.getPrefix else name
+  let base := if base matches .str _ "_redArg" then base.getPrefix else base
+  match base with
+  | .str _ part => compiledPart (.mkSimple part) && !env.contains name
+  | _ => false
+
+/-- The declaration in whose compiled code Lean's compiler made the compiled declaration `name`
+(`sourceDeclaration`), when the compiler may give `name` to other declarations too (`shareable`).
+-/
+def auxiliarySource (env : Environment) (name : Name) : Option Name :=
+  if shareable env name then some (sourceDeclaration env name) else none
+
 /-- The calls of a removal primitive in Lean's library that a program of the package reaches, each
 with the declaration that makes it, for Lean 4.34.1. The check admits each of them without
 establishing what it removes.
@@ -175,13 +434,17 @@ refuses an entry already at its place (`RegulaProvision.installLink_refused`).
 - `Lake.updateGitRepo`, specialized at `Lake.materializeGitRepo`, with `IO.FS.removeDirAll`.
   Trusted exemption, for the reason above: it removes the clone of a dependency,
   `<workspace>/<packages>/<name>`, when a directory is there whose remote is not the dependency's
-  URL (`Lake/Load/Materialize.lean:64-82` and `:251-261`).
+  URL (`Lake/Load/Materialize.lean:64-82` and `:251-261`). The declarations that materialize a Git
+  dependency reach that removal through specializations that Lake's compiler shares, so each makes
+  it too (`attributions`): `Lake.Dependency.materialize`, its local `materializeGit`, and
+  `Lake.PackageEntry.materialize` (`Lake/Load/Materialize.lean:174-260`).
 - `Lake.reuseManifest`, specialized at `Lake.Workspace.updateAndMaterializeCore`, with
   `IO.FS.rename`. Trusted exemption, for the reason above: it moves the packages directory that a
   loaded manifest names to the workspace's (`Lake/Load/Resolve.lean:252-283`).
-- The three variants of `IO.FS.withTempFile` in `bv_decide`. Assumes: the program elaborates no
-  `bv_decide` proof, so these, which the tactic's initializers reach, do not run; each removes the
-  temporary file that `withTempFile` made (`Init/System/IO.lean:1353`). -/
+  `Lake.Workspace.updateAndMaterialize` reaches that move through its specialization of
+  `Lake.Workspace.updateAndMaterializeCore`, so it makes it too (`Lake/Load/Resolve.lean:551-560`).
+
+The removals of a tactic of Lean's library are listed apart (`tacticRemovals`). -/
 def libraryRemovals : List (Name × Name) :=
   [(`Lake.importConfigFile, ``IO.FS.removeFile),
     (`Lake.importConfigFile, ``Lean.writeModule),
@@ -191,23 +454,173 @@ def libraryRemovals : List (Name × Name) :=
     (mkPrivateNameCore `Lake.Load.Materialize `Lake.updateGitRepo ++ `_at_ ++
         mkPrivateNameCore `Lake.Load.Materialize `Lake.materializeGitRepo ++ `spec_0,
       ``IO.FS.removeDirAll),
+    (`Lake.Dependency.materialize, ``IO.FS.removeDirAll),
+    (mkPrivateNameCore `Lake.Load.Materialize `Lake.Dependency.materialize.materializeGit,
+      ``IO.FS.removeDirAll),
+    (`Lake.PackageEntry.materialize, ``IO.FS.removeDirAll),
     (mkPrivateNameCore `Lake.Load.Resolve `Lake.reuseManifest ++ `_at_ ++
         mkPrivateNameCore `Lake.Load.Resolve `Lake.Workspace.updateAndMaterializeCore ++ `spec_3,
       ``IO.FS.rename),
-    (`IO.FS.withTempFile._at_.Lean.Meta.Tactic.BVDecide.runExternal.spec_3._redArg._lam_0,
+    (`Lake.Workspace.updateAndMaterialize, ``IO.FS.rename)]
+
+/-- The removals of `bv_decide`, a tactic of Lean's library, for Lean 4.34.1: the three variants of
+`IO.FS.withTempFile` in its frontends, each of which removes the temporary file that `withTempFile`
+made in the system's temporary directory (`Init/System/IO.lean:1353`), holding the problem that it
+gives a SAT solver or the proof that the solver writes. The tactic's initializers reach them, so
+every program that links the tactic reaches them. The check admits them in every program, as
+trusted active effects of a program that runs the tactic, and the class of the program states
+whether it may (`elaborationRefusal`): a program that elaborates runs the tactics of the source
+that it elaborates. In one that does not, only the initializers of Lean's toolchain reach them, by
+registering the tactic, which only an elaborator runs (`programRoots`). -/
+def tacticRemovals : List (Name × Name) :=
+  [(`IO.FS.withTempFile._at_.Lean.Meta.Tactic.BVDecide.runExternal.spec_3._redArg._lam_0,
       ``IO.FS.removeFile),
     ((`IO.FS.withTempFile._at_._private.Lean.Elab.Tactic.Grind.BVDecide).num 0 ++
         `Lean.Elab.Tactic.Grind.evalBvDecide.spec_1._redArg._lam_0, ``IO.FS.removeFile),
     (`IO.FS.withTempFile._at_.Lean.Elab.Tactic.BVDecide.evalBvDecide.spec_1._redArg._lam_0,
       ``IO.FS.removeFile)]
 
-/-- Whether the call of `primitive` by `caller` is a removal that the check admits: a call by one of
-`observers` or a compiled variant of one (`observerVariant`), or one of `libraryRemovals` or of
-`named`, the removals that a program which cannot import `Regula.Filesystem` names, each as the
-pair of its caller and the primitive that it calls. -/
+/-- The writes of the writer of `Regula.Filesystem`, which the check admits in every program: the
+opening of the new file beside a destination in `Regula.Filesystem.writeReplacing`, the making of
+the directory of a destination in `Regula.Filesystem.ownRoot`, the making of the new directory
+into which `Regula.Filesystem.moveAside` moves an entry, in `Regula.Filesystem.runAside`, and the
+making of each file and directory of a constructed tree in
+`Regula.Filesystem.Construction.writeNew` and `Regula.Filesystem.Construction.createDirectory`.
+The last three are exclusive: each fails when anything is at the path, as their assumptions state,
+so none of them replaces or writes into an entry. -/
+def writers : List (Name × Name) :=
+  [(``Regula.Filesystem.writeReplacing, ``IO.FS.Handle.mk),
+    (``Regula.Filesystem.ownRoot, ``IO.FS.createDirAll),
+    (`Regula.Filesystem.runAside, ``IO.FS.createDir),
+    (``Regula.Filesystem.Construction.writeNew, ``IO.FS.Handle.mk),
+    (``Regula.Filesystem.Construction.createDirectory, ``IO.FS.createDir)]
+
+/-- The calls of a primitive that writes in Lean's library that a program of the package reaches,
+each with the declaration of a source that makes it (`sourceDeclaration`), for Lean 4.34.1. The
+check admits each of them without establishing what it writes.
+
+- Lake's writes, a trusted exemption for the reason of Lake's removals in `libraryRemovals`: each
+  acts on the workspace that the program asked Lake to load or build, as `lake build` or
+  `lake update` would there. They write a compiled configuration and its lock
+  (`Lake.importConfigFile`, `Lake/Load/Lean/Elab.lean:180`), a manifest and the overrides of its
+  packages (`Lake.Manifest.save`, `Lake.Manifest.saveEntries`, `Lake/Load/Manifest.lean:275` and
+  `:308`), the toolchain file of an update (`Lake.Workspace.updateAndMaterializeCore`, and
+  `Lake.Workspace.updateAndMaterialize` through its specialization of it,
+  `Lake/Load/Resolve.lean:551-560`), and in a build its outputs, traces, hashes and metadata, the
+  arguments of a compiler or an archiver, the entries of its artifact cache and an unpacked release
+  archive (`Lake/Build/Actions.lean:29`, `:121` and `:186`, `Lake/Build/Common.lean:177`, `:376`,
+  `:401`, `:454` and `:648`, `Lake/Build/Library.lean`, whose two facets of a static library share
+  compiled code, `:119-124`, `Lake/Config/Cache.lean:183` and `:434`, `Lake/Util/IO.lean:18`,
+  `:31`, `:41` and `:70`). Regula's own code also calls `Lake.Manifest.saveEntries` and
+  `Lake.Manifest.save`, to write the overrides of the packages and the manifest of a project that
+  it made for its run (`Regula.Checker.LintQualification`, `Regula.Qualification.CopyRelocation`),
+  which the same pairs admit, as they admit every caller (`admitted`).
+
+The writes of a tactic of Lean's library are listed apart (`tacticWrites`). -/
+def libraryWrites : List (Name × Name) :=
+  [(`Lake.importConfigFile, ``IO.FS.Handle.mk),
+    (`Lake.importConfigFile, ``IO.FS.Handle.truncate),
+    (`Lake.importConfigFile, ``IO.FS.createDirAll),
+    (`Lake.Manifest.save, ``IO.FS.writeFile),
+    (`Lake.Manifest.saveEntries, ``IO.FS.writeFile),
+    (mkPrivateNameCore `Lake.Load.Resolve `Lake.Workspace.updateAndMaterializeCore,
+      ``IO.FS.writeFile),
+    (`Lake.Workspace.updateAndMaterialize, ``IO.FS.writeFile),
+    (`Lake.compileLeanModule, ``IO.FS.writeFile),
+    (`Lake.mkArgs, ``IO.FS.Handle.mk),
+    (`Lake.untar, ``IO.FS.createDirAll),
+    (`Lake.BuildMetadata.writeFile, ``IO.FS.writeFile),
+    (`Lake.writeFileHash, ``IO.FS.writeFile),
+    (`Lake.fetchFileHash, ``IO.FS.writeFile),
+    (`Lake.Cache.saveArtifact, ``IO.FS.hardLink),
+    (`Lake.restoreArtifact, ``IO.FS.hardLink),
+    (`Lake.LeanLib.staticFacetConfig, ``IO.FS.Handle.mk),
+    (`Lake.LeanLib.staticExportFacetConfig, ``IO.FS.Handle.mk),
+    (`Lake.CacheMap.writeFile, ``IO.FS.Handle.mk),
+    (mkPrivateNameCore `Lake.Config.Cache `Lake.Cache.writeOutputsCore, ``IO.FS.writeFile),
+    (`Lake.createParentDirs, ``IO.FS.createDirAll),
+    (`Lake.writeFileIfNew, ``IO.FS.Handle.mk),
+    (`Lake.writeBinFileIfNew, ``IO.FS.Handle.mk),
+    (`Lake.copyFile, ``IO.FS.writeBinFile)]
+
+/-- The writes of `bv_decide`, a tactic of Lean's library, for Lean 4.34.1, admitted as its
+removals are (`tacticRemovals`):
+
+- the graph of a problem, which `lratBitblaster` writes at `aig.gv` in the working directory of the
+  process when the proof sets the option `graphviz`
+  (`Lean/Meta/Tactic/BVDecide/Prover/Bitblast.lean:75`), with `IO.FS.writeFile`, which follows a
+  symbolic link at that name, so that it writes the file at the link's target, a destination of
+  the program too;
+- the LRAT proof that `bv_decide?` trims, which `dumpLRATProof` writes over the one that the SAT
+  solver wrote (`Std/Tactic/BVDecide/LRAT/Parser.lean:420`, `Lean/Elab/Tactic/BVDecide.lean:181`),
+  in the directory of the source file that the process elaborates, named after that file, the
+  declaration and the position of the tactic (`Lean/Elab/Tactic/BVDecide.lean:113-148`).
+
+Each is outside the protection of the writer of `Regula.Filesystem`, as every effect of an
+elaboration is (`Regula.Removal`, "Programs that elaborate"). The SAT solver is a program that the
+tactic starts, outside the check. -/
+def tacticWrites : List (Name × Name) :=
+  [(`Std.Tactic.BVDecide.LRAT.dumpLRATProof, ``IO.FS.writeBinFile),
+    (`Lean.Meta.Tactic.BVDecide.lratBitblaster, ``IO.FS.writeFile)]
+
+/-- The writes of Regula's own declarations that more than one program reaches, each with the
+declaration of a source that makes it (`sourceDeclaration`). Each writes below a directory that the
+program made for its own run, never at a destination that its arguments name:
+
+- the lock of the scratch area, the marker of a scratch directory and the directory, in
+  `Regula.Scratch.withScratch`;
+- the identity document of an acceptance link, below the scratch directory, which it removes after
+  reading its digest, in `Regula.Checker.AcceptanceLink.identity`;
+- the directories of the copy's `.lake/build`, which did not exist, where the observer moves the
+  retained build output of an acceptance link, in `Regula.Checker.AcceptanceLink.placeRetained`;
+- the scratch of a project's fences, below the copy, in
+  `Regula.Checker.Documentation.auditBuiltProject`;
+- the claim of a memoized history worker's output and the directories of a probe's overlay, below
+  the directories of the run, in `Regula.Checker.Environment.historyWorkerOutput` and
+  `Regula.Checker.Environment.linkProbeOverlay`;
+- the running observer library, with its trace and hash files, in the build directory of a copy of
+  Regula's package, in `Regula.Checker.Observer.Snapshot.write`;
+- the directory of a module root in the build output of a control's project, in
+  `Regula.Checker.exposeToolchainRoot`.
+
+The copies of projects and the sources of the modules that an audit compiles are written by the
+shared constructor, whose writes are those of the writer of `Regula.Filesystem` (`writers`). -/
+def packageWrites : List (Name × Name) :=
+  [(`Regula.Scratch.withScratch, ``IO.FS.Handle.mk),
+    (`Regula.Scratch.withScratch, ``IO.FS.createDir),
+    (`Regula.Checker.AcceptanceLink.identity, ``IO.FS.writeFile),
+    (`Regula.Checker.AcceptanceLink.placeRetained, ``IO.FS.createDirAll),
+    (`Regula.Checker.Documentation.auditBuiltProject, ``IO.FS.createDirAll),
+    (mkPrivateNameCore `Regula.Checker.Environment
+        `Regula.Checker.Environment.historyWorkerOutput, ``IO.FS.Handle.mk),
+    (mkPrivateNameCore `Regula.Checker.Environment `Regula.Checker.Environment.linkProbeOverlay,
+      ``IO.FS.createDirAll),
+    (`Regula.Checker.Observer.Snapshot.write, ``IO.FS.createDirAll),
+    (`Regula.Checker.Observer.Snapshot.write, ``IO.FS.writeBinFile),
+    (`Regula.Checker.exposeToolchainRoot, ``IO.FS.createDirAll)]
+
+/-- The pair of `pairs` that admits the call of `primitive` by `caller`, if one does: the pair of
+`caller`, of the declaration of a source in whose compiled code it is (`sourceDeclaration`), or of
+that declaration's name without its private prefix, a private declaration of another module having
+no name that a source can write, and `primitive`. -/
+def admittingPair (env : Environment) (pairs : List (Name × Name)) (caller primitive : Name) :
+    Option (Name × Name) :=
+  let source := sourceDeclaration env caller
+  let callers := [caller, source] ++ (privateToUserName? source).toList
+  pairs.find? fun (named, called) => called == primitive && callers.contains named
+
+/-- The removals and the writes that the check admits in every program: `libraryRemovals`,
+`tacticRemovals`, `writers`, `libraryWrites`, `tacticWrites` and `packageWrites`. -/
+def sharedPairs : List (Name × Name) :=
+  libraryRemovals ++ tacticRemovals ++ writers ++ libraryWrites ++ tacticWrites ++ packageWrites
+
+/-- Whether the call of `primitive` by `caller` is a removal or a write that the check admits: a
+call by one of `observers` or a compiled variant of one (`observerVariant`), or a call that a pair
+of `sharedPairs` or of `named` admits (`admittingPair`). -/
 def admitted (env : Environment) (observers : Array Name) (named : List (Name × Name))
     (caller primitive : Name) : Bool :=
-  observerVariant env observers caller || (libraryRemovals ++ named).contains (caller, primitive)
+  observerVariant env observers caller ||
+    (admittingPair env (sharedPairs ++ named) caller primitive).isSome
 
 /-- The modules that a program whose `main` is in the module `root` links: `root` and each module
 that it imports, directly or through another. -/
@@ -284,27 +697,69 @@ def initializers (env : Environment) : Array Name :=
 
 /-- What the compiled code of a set of roots reaches. -/
 structure Reach where
-  /-- Each call of a removal primitive that the check does not admit, with its caller. -/
+  /-- Each call of a primitive that the check does not admit, with its caller. -/
   raw : Array (Name × Name)
   /-- Each reached declaration whose compiled code the environment does not hold. -/
   unknown : Array Name
   /-- Each declaration of another module than `observerModule` with the filesystem observer's role
   (`foreignObservers`). -/
   foreign : Array Name := #[]
+  /-- Each pair of the calls that the program names that admits no call that it reaches. -/
+  unused : Array (Name × Name) := #[]
 
-/-- Each call of a removal primitive that the compiled code of `roots` reaches and that `admitted`
-does not admit, with the declaration that makes it; and each reached declaration whose compiled
-body `env` does not hold, so that what it calls is unknown. An `extern` declaration bound to a C
-function of `removalSymbols` (`boundRemoval`) is a removal primitive, whatever its name: a call of
-it is admitted or raw as a call of `primitives` is, and as a root it is raw. Every compiled
-declaration is followed, of this package, of Lean's library and of each other package; a C
-function of the runtime is not. -/
+/-- The primitives that the check finds by name: those that remove (`primitives`) and those that
+write (`writePrimitives`). -/
+def watched : List Name := primitives ++ writePrimitives
+
+/-- The declarations that make a call of a primitive in the compiled declaration `caller`, each of
+which the check admits the call for (`rawRemovalsFrom`): `caller`, and when the compiler may give
+its code to other declarations too (`auxiliarySource`), each declaration that reaches that code,
+directly or through more such code of its own declaration (`reachers`), other than that
+declaration's own code (its `sourceDeclaration`), with those that make the call for each of them
+in turn. So a call in the code of `D` is the call of `D` alone only while `D`'s own code alone
+reaches it. `reachers` maps each such compiled declaration to the declarations whose compiled code
+uses it.
+
+Only a declaration that has reachers is followed, so each followed declaration after `caller` is
+a different key of `reachers`, and the bound of one more than their number lets each be
+followed. -/
+def attributions (env : Environment) (reachers : Std.HashMap Name (Array Name)) (caller : Name) :
+    Array Name := Id.run do
+  let mut points := #[caller]
+  let mut followed : Std.HashSet Name := ({} : Std.HashSet Name).insert caller
+  let mut work := #[caller]
+  for _ in [:reachers.size + 1] do
+    let some current := work.back? | break
+    work := work.pop
+    let some source := auxiliarySource env current | continue
+    for reacher in reachers.getD current #[] do
+      unless sourceDeclaration env reacher == source || points.contains reacher do
+        points := points.push reacher
+      if reachers.contains reacher && !followed.contains reacher then
+        followed := followed.insert reacher
+        work := work.push reacher
+  return points
+
+/-- Each call of a primitive that the compiled code of `roots` reaches and that `admitted` does not
+admit, with a declaration that makes it (`attributions`); and each reached declaration whose
+compiled body `env` does not hold, so that what it calls is unknown. A primitive is a declaration of
+`watched`, or an `extern` declaration bound to a C function of `removalSymbols` or `writeSymbols`,
+whatever its name (`isPrimitive`), or a compiled variant of one (`calledPrimitive`). A call of
+`IO.FS.Handle.mk` (`readableOpening`) is found only when it opens a file to write it
+(`writingOpens`); a call of its variant, or of any other declaration bound to `openSymbol`, always
+is. A call is admitted only when it is admitted for each declaration that makes it, so a call in a
+specialization that a declaration shares with the one that made it is admitted for both, or
+refused. As a root, a primitive bound to a C function is raw. Every compiled declaration is
+followed, of this package, of Lean's library and of each other package; a C function of the
+runtime is not. -/
 def rawRemovalsFrom (env : Environment) (observers : Array Name) (roots : Array Name)
     (named : List (Name × Name) := []) : Reach :=
   Id.run do
   let mut seen : Std.HashSet Name := {}
   for root in roots do seen := seen.insert root
   let mut work := roots
+  let mut calls : Array (Name × Name) := #[]
+  let mut reachers : Std.HashMap Name (Array Name) := {}
   let mut raw := #[]
   let mut unknown := #[]
   -- Each declaration is added to `work` at most once. The bound is far above the number of
@@ -314,28 +769,164 @@ def rawRemovalsFrom (env : Environment) (observers : Array Name) (roots : Array 
     let some name := work.back? | break
     work := work.pop
     match findEnvDecl env name with
-    | some decl@(.fdecl ..) =>
+    | some decl@(.fdecl (body := body) ..) =>
+      let opens := writingOpens env body
       for used in collectUsedDecls env [decl] do
         if used == name then continue
-        if primitives.contains used || (boundRemoval env used).isSome then
-          unless admitted env observers named name used do raw := raw.push (name, used)
-        else if !seen.contains used then
-          seen := seen.insert used
-          work := work.push used
+        match calledPrimitive env watched used with
+        | some primitive =>
+          unless readableOpening env used && !opens.contains used do
+            calls := calls.push (name, primitive)
+        | none =>
+          if shareable env used then
+            reachers := reachers.alter used fun callers => some ((callers.getD #[]).push name)
+          if !seen.contains used then
+            seen := seen.insert used
+            work := work.push used
     | some (.extern _ _ _ data) =>
       if data.entries.any (· matches .opaque) then unknown := unknown.push name
-      if let some symbol := boundRemoval env name then raw := raw.push (name, Name.mkSimple symbol)
+      if let some symbol := (boundRemoval env name).orElse fun _ => boundWrite env name then
+        raw := raw.push (name, Name.mkSimple symbol)
     | none => unknown := unknown.push name
-  return { raw, unknown := unknown ++ work }
+  let mut exercised : Array (Name × Name) := #[]
+  for (caller, primitive) in calls do
+    for point in attributions env reachers caller do
+      unless admitted env observers named point primitive || raw.contains (point, primitive) do
+        raw := raw.push (point, primitive)
+      if let some pair := admittingPair env named point primitive then
+        unless exercised.contains pair do exercised := exercised.push pair
+  return {
+    raw, unknown := unknown ++ work, unused := named.toArray.filter (!exercised.contains ·) }
 
-/-- `rawRemovalsFrom` for a program whose `main` is `main` in the module `root`: from `main` and
-from the code that initializes the modules that it links (`linked`, `initializersOf`), with the
-filesystem observers of `env` and the removals `named`, and with the declarations of other
-modules that have the filesystem observer's role (`foreignObservers`). -/
+/-- The modules among `modules` under a root of the packages that Lean's toolchain ships as its own
+code, `Init`, `Std`, `Lean` and `Lake` (`RegulaPolicy.ToolchainRoot`), decided by the module's
+name: Lean 4.34.1 keeps no record of the file from which it read a module, so the check cannot
+read where an imported module came from (`EnvironmentHeader` holds no path, and the frontend
+passes the artifacts of `--setup` to the import alone, `Lean/Elab/Frontend.lean:294-304`).
+
+Assumes:
+- No package of the workspace that builds the checked program provides a module under these roots
+  by Lake's module lookup, and the library directory of none has the directory or the `.olean`
+  file of such a root. Lake supplies the artifact of an import only when the import is a module of
+  a package of the workspace (`Lake/Build/Module.lean:35-37` and `:243-276`). The `lean` process
+  of a module's build reads every other module through its search path
+  (`Lean/Environment.lean:2229-2246`): the library directory of each package of the workspace,
+  which Lake sets as `LEAN_PATH` (`Lake/Config/Monad.lean:138-139`,
+  `Lake/Build/Actions.lean:63`), then the toolchain's `lib/lean` (`Lean/Util/Path.lean:95-96`,
+  `:108-110`). It reads a module from the first of them that has its root's directory or `.olean`
+  file (`Lean/Util/Path.lean:61-65`). So a module under these roots is read from the toolchain's
+  `lib/lean`. `lake exe qualify observers` checks this hypothesis for three workspaces of this
+  repository whose builds run the check: the root package's, the `markdown/` package's and the
+  `audit/` package's. It loads each with Lake, and refuses a module under these roots that a
+  package of it provides, the root package or a dependency, and such an entry of a package's
+  library directory (`Regula.Qualification.Observers.checkToolchainWorkspaces`). A build of a
+  checked program in another workspace, the Mathlib integration's or an adopter's, rests on the
+  hypothesis unchecked.
+- The content of the toolchain's `lib/lean`, as the toolchain's release installs it, is the
+  toolchain's own code (`RegulaPolicy.ToolchainRoot`): trusted installation, not checked here. -/
+def toolchainModules (modules : Std.HashSet Name) : Std.HashSet Name :=
+  modules.filter fun module => decide (RegulaPolicy.ToolchainRoot module.getRoot)
+
+/-- The compiled declarations of the module `module` of `env`: each declaration whose compiled
+code the module holds (`Lean.IR.declMapExt`), the code of the environment's own commands for
+`env.mainModule`. -/
+def compiledDeclarations (env : Environment) (module : Name) : Array Name :=
+  if module == env.mainModule then (getDecls env).toArray.map (·.name)
+  else match env.getModuleIdx? module with
+    | some index =>
+      (declMapExt.getModuleIREntries env index ++ declMapExt.getModuleEntries env index).map
+        (·.name)
+    | none => #[]
+
+/-- The declarations from which the checks of the program whose `main` is in the module `root`
+walk (`rawRemovals`, `elaborationRefusal`): every compiled declaration of every module that the
+program links (`linked`) outside the toolchain (`toolchainModules`), and `main`. They hold every
+compiled code of the program's own modules and of its other dependencies that may run: `main`,
+what it calls, the initializers that the program's modules declare (`initializersOf`), and the
+zero-argument declarations whose values the compiled module computes when it starts
+(`Lean/Compiler/LCNF/EmitC.lean:1003-1005` and `:1047-1049`). So the walks need no model of which
+of them runs: they over-approximate it. The compiled code of the toolchain's modules is followed
+from these roots, and only its own roots are left out. -/
+def programRoots (env : Environment) (root : Name) : Array Name :=
+  let modules := linked env root
+  let toolchain := toolchainModules modules
+  (modules.toArray.filter (!toolchain.contains ·)).flatMap (compiledDeclarations env) |>.push `main
+
+/-- `rawRemovalsFrom` for a program whose `main` is `main` in the module `root`: from every
+compiled declaration of its modules outside the toolchain (`programRoots`), and from the code that
+initializes the modules that it links (`linked`, `initializersOf`), with the filesystem observers
+of `env` and the calls `named`, and with the declarations of other modules that have the
+filesystem observer's role (`foreignObservers`). -/
 def rawRemovals (env : Environment) (root : Name) (named : List (Name × Name) := []) : Reach :=
-  let roots := (initializersOf env (linked env root)).push `main
+  let roots := programRoots env root ++ initializersOf env (linked env root)
   { rawRemovalsFrom env (filesystemObservers env) roots named with
     foreign := foreignObservers env }
+
+/-- The declarations of Lean 4.34.1's library through which a program runs Lean's elaborator on
+source that it reads: its frontends (`Lean.Elab.runFrontend`, `Lean.Elab.IO.processCommands`,
+`Lean.Elab.Frontend.processCommand`, `Lean.Language.Lean.process`) and the dispatchers of its
+elaborators (`Lean.Elab.Command.elabCommandTopLevel`, `Lean.Elab.Command.elabCommand`,
+`Lean.Elab.Term.elabTerm`, `Lean.Elab.Term.elabTermAndSynthesize`,
+`Lean.Elab.Term.synthesizeSyntheticMVars`, `Lean.Elab.Term.runTactic`,
+`Lean.Elab.Tactic.evalTactic`). Assumes: Lean runs an elaborator of a command, a term or a tactic,
+each of which its initializers register, only from one of these dispatchers, which find it by the
+syntax that it elaborates. -/
+def elaborationEntries : List Name :=
+  [`Lean.Elab.runFrontend, `Lean.Elab.IO.processCommands, `Lean.Elab.Frontend.processCommand,
+    `Lean.Language.Lean.process, `Lean.Elab.Command.elabCommandTopLevel,
+    `Lean.Elab.Command.elabCommand, `Lean.Elab.Term.elabTerm,
+    `Lean.Elab.Term.elabTermAndSynthesize, `Lean.Elab.Term.synthesizeSyntheticMVars,
+    `Lean.Elab.Term.runTactic, `Lean.Elab.Tactic.evalTactic]
+
+/-- The declarations that the compiled code of `roots` reaches (`programRoots`), through which
+the program elaborates or a tactic writes or removes: each declaration of `elaborationEntries`, and
+each declaration that is, or whose `compiledSource` is, a declaration of `tacticRemovals` or
+`tacticWrites` that makes the call. This finds each declaration whose `sourceDeclaration` is one of
+them without a lookup in the environment for each declaration that the walk visits. Then the
+declarations that the walk left at its bound, each of which may reach one. A declaration is reached
+when the compiled code of one that is reached uses it (`collectUsedDecls`): a call, a constant or a
+partial application, so a reference that a run never calls is reached too. -/
+def elaborationReached (env : Environment) (roots : Array Name) : Array Name := Id.run do
+  let tacticCallers := (tacticRemovals ++ tacticWrites).map (·.1)
+  let mut seen : Std.HashSet Name := {}
+  for root in roots do seen := seen.insert root
+  let mut work := roots
+  let mut found := #[]
+  -- Each declaration is added to `work` at most once, as in `rawRemovalsFrom`.
+  for _ in [:maxDeclarations] do
+    let some name := work.back? | break
+    work := work.pop
+    if elaborationEntries.contains name || tacticCallers.contains name ||
+        tacticCallers.contains (compiledSource name) then
+      found := found.push name
+    if let some decl@(.fdecl ..) := findEnvDecl env name then
+      for used in collectUsedDecls env [decl] do
+        unless seen.contains used do
+          seen := seen.insert used
+          work := work.push used
+  return found ++ work
+
+/-- The reason to refuse the program whose `main` the environment declares, in the module `root`,
+when its check states the wrong class. `elaborates` states whether the compiled code of the
+program's own modules and of its dependencies outside the toolchain (`programRoots`) reaches Lean's
+elaborator or a tactic's write or removal: whether `elaborationReached` finds a declaration. This
+is conservative reachability in the compiled code, not a proof that the program elaborates: every
+compiled declaration of those modules is a root, run or not, and a reference to the elaborator
+that no run calls counts. A program that may run it states `elaborates := true`, so that the
+tactics of the source that it elaborates, with their writes, are trusted effects of the program. -/
+def elaborationRefusal (env : Environment) (root : Name) (elaborates : Bool) : Option String :=
+  let found := elaborationReached env (programRoots env root)
+  if elaborates && found.isEmpty then
+    some s!"the check of the program of {root} states that it elaborates source, but no compiled \
+      declaration of its modules outside Lean's toolchain reaches one of {elaborationEntries} or \
+      a tactic's write or removal: its check states `elaborates := false`"
+  else if !elaborates && !found.isEmpty then
+    some s!"the program of {root} reaches Lean's elaborator or a tactic's write or removal from \
+      a compiled declaration of its modules outside Lean's toolchain \
+      ({found.toList.take 5}), so the tactics of the source that it elaborates may run in its \
+      process: its check states `elaborates := true`, which makes their writes trusted effects of \
+      the program (`Regula.Removal`)"
+  else none
 
 /-- The prefix of the marker that `checkProgram` adds for each program that it checked: the
 definition `reached ++ root` of type `Unit`, where `root` is the program's root module. `lake exe
@@ -343,31 +934,47 @@ qualify observers` reads the markers from the module data of the package's modul
 def reached : Name := `Regula.Removal.reached
 
 /-- Why the check refuses the program whose root module is `root`, by what its compiled code
-reaches (`rawRemovals`): each call of a removal primitive that the check does not admit, and each
-reached declaration whose compiled code is unknown, and each declaration of another module than
-`observerModule` with the filesystem observer's role; `none` when there is none of them. -/
-def programRefusal (root : Name) (reach : Reach) : Option String :=
+reaches (`rawRemovals`): each call of a primitive that the check does not admit, with the
+declaration of a source of its caller (`sourceDeclaration` at `env`); each pair that the program
+names and that admits no call (`Reach.unused`), so that its list is exact; each reached declaration
+whose compiled code is unknown; and each declaration of another module than `observerModule` with
+the filesystem observer's role. It is `none` when there is none of them. -/
+def programRefusal (env : Environment) (root : Name) (reach : Reach) : Option String :=
   if !reach.raw.isEmpty then
-    some s!"the program of {root} removes without the observer `Regula.Filesystem`: \
-      {reach.raw.toList.map fun (caller, primitive) => s!"{caller} calls {primitive}"}"
+    some s!"the program of {root} removes or writes without the observer `Regula.Filesystem` \
+      and outside the places that its check names: \
+      {reach.raw.toList.map fun (caller, primitive) =>
+        let source := sourceDeclaration env caller
+        if source == caller then s!"{caller} calls {primitive}"
+        else s!"{caller}, of {source}, calls {primitive}"}"
+  else if !reach.unused.isEmpty then
+    some s!"the check of the program of {root} names calls that the program does not make: \
+      {reach.unused.toList}"
   else if !reach.unknown.isEmpty then
     some s!"the program of {root} reaches declarations whose compiled code is not available, so \
-      their removals are unknown: {reach.unknown.toList}"
+      their removals and writes are unknown: {reach.unknown.toList}"
   else if !reach.foreign.isEmpty then
     some s!"the filesystem observer's role is given outside `{observerModule}`, the only module \
       whose declarations remove: {reach.foreign.toList}"
   else none
 
 /-- Check the program whose `main` the environment declares: fail with the refusal of the
-program (`programRefusal`) when there is one, and otherwise record the program (`reached`).
-`named` admits the removals that a program which cannot import `Regula.Filesystem` names, each as
-the pair of its caller and the primitive that it calls (`admitted`). -/
-def checkProgram (named : List (Name × Name) := []) : Elab.Command.CommandElabM Unit := do
+program (`programRefusal`) or of its class (`elaborationRefusal`) when there is one, and otherwise
+record the program (`reached`). `named` admits the removals and the writes of the program that no
+list of this module admits, each as the pair of its caller and the primitive that it calls
+(`admitted`), so a call of a primitive at another place fails the build. `elaborates` states
+whether the compiled code of the program's modules outside the toolchain reaches Lean's elaborator
+(`elaborationRefusal`). -/
+def checkProgram (named : List (Name × Name) := []) (elaborates : Bool := false) :
+    Elab.Command.CommandElabM Unit := do
   let env ← getEnv
   unless env.contains `main do
     throwError "no `main` is declared here, so there is no program to check"
   let root := moduleOf env `main
-  if let some refused := programRefusal root (rawRemovals env root named) then throwError refused
+  if let some refused := programRefusal env root (rawRemovals env root named) then
+    throwError refused
+  if let some refused := elaborationRefusal env root elaborates then
+    throwError refused
   Elab.Command.liftCoreM <| addDecl (.defnDecl {
     name := reached ++ root, levelParams := [], type := mkConst ``Unit,
     value := mkConst ``Unit.unit, hints := .abbrev, safety := .safe })

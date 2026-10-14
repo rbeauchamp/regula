@@ -34,8 +34,9 @@ Each directory or file that the builder removes is removed by `Regula.Filesystem
 at its own place (`Regula.Removal.removal_remove_iff`); in every other case the build stops with
 nothing removed. `Regula.Site.Main` fails to build when its `main` or an initializer reaches
 another removal than the observer's and those of Lean's and Lake's libraries that
-`Regula.Removal.libraryRemovals` lists, a removal being a call that removes or replaces an entry
-(`Regula.Removal.checkProgram`).
+`Regula.Removal.libraryRemovals` and `Regula.Removal.tacticRemovals` list, a removal being a call
+that removes or replaces an entry (`Regula.Removal.checkProgram`). Those of `tacticRemovals` are
+the removals of `bv_decide`, trusted active effects of the elaboration that the program runs.
 Workspace paths of the
 disposable qualification projects are displayed as `<example>`, `<scratch>` and `<regula>`; the
 exact records remain in the corpus export this build consumed.
@@ -75,6 +76,18 @@ def identity (root : FilePath) : IO Identity := do
   return { revision, dirty, toolchain := producer.toolchain, producerVersion :=
              producer.producerVersion,
            versoRevision := ← versoRevision root }
+
+/-- The paths of the checker, corpus and configuration sources of the checkout at `root` that a
+corpus shard export records (`RuleExamples.sourcePaths`), over the root package's module sources. -/
+def sourcePathsAt (root : FilePath) : IO (Array FilePath) := do
+  let inventory ← Regula.Checker.Lake.rootSurfaceInventory root
+  Regula.Qualification.RuleExamples.sourcePaths root (inventory.moduleSources.map Prod.snd)
+
+/-- The checker, corpus and configuration sources of the checkout at `root` as they are now, in the
+form that a corpus shard export records them (`RuleExamples.snapshot`): the current sources that
+`admitShard` compares an export with. -/
+def currentSources (root : FilePath) : IO Json := do
+  Regula.Qualification.RuleExamples.snapshot (← sourcePathsAt root)
 
 /-- Admit one corpus shard export: completed, admitted by the proved qualifier executable,
 and recorded against exactly the current checker, corpus and configuration sources. -/
@@ -355,10 +368,7 @@ structure Generated where
 /-- Admit the shards and derive every rule's example. The shards must select disjoint
 rules whose union is the registry, and contain one fix and one violation record per rule. -/
 def evidence (root : FilePath) (ident : Identity) (shardPaths : List FilePath) : IO Generated := do
-  let inventory ← Regula.Checker.Lake.rootSurfaceInventory root
-  let paths ← Regula.Qualification.RuleExamples.sourcePaths root
-      (inventory.moduleSources.map Prod.snd)
-  let current ← Regula.Qualification.RuleExamples.snapshot paths
+  let current ← currentSources root
   let shards ← shardPaths.mapM (admitShard root current)
   let selected ← shards.mapM fun s => do
     return (← IO.ofExcept (fromJson? (α := List String) (← get s "selected")))

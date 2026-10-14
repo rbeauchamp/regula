@@ -569,7 +569,8 @@ The driver uses that decision for its copy and for the directory `_site` of the 
 Before this decision, the site mode removed `_site` with no such read. With a link at `_site`,
 it deleted the content of the target of the link
 ([issue 260](https://github.com/rbeauchamp/regula/issues/260)). At this time, the site mode
-stops there and removes nothing.
+stops there and removes nothing. It also removes `_site` only if `site build` could replace it, as
+the option `--out` of that command describes below.
 
 One case stays outside that decision. A process can replace an entry in the directory with a
 link during the removal. `IO.FS.removeDirAll` examines an entry and then opens it by its path.
@@ -579,7 +580,9 @@ scratch directories with the same function.
 Each program of the package removes or moves an entry only through the filesystem observer,
 `Regula.Filesystem`. The exceptions are the library calls that `Regula.Removal.libraryRemovals`
 gives, and the removals and moves of the two drivers that `Regula.ProgramCheck.Verification` and
-`Regula.ProgramCheck.Provision` give. The observer removes an entry only by the decision
+`Regula.ProgramCheck.Provision` give. The removals of `bv_decide` that
+`Regula.Removal.tacticRemovals` gives are also exceptions, because they are trusted effects of a
+program that runs that tactic. The observer removes an entry only by the decision
 `Regula.Removal.removal` of `RegulaCore.Removal`. That decision uses the same read and the same
 comparison as the decision of the driver. It also gets the kind of entry that the caller removes:
 a directory, a file or a symbolic link.
@@ -640,12 +643,12 @@ programs declares `main`. Thus the decision has two implementations. The theorem
 `RegulaVerification.removal_shared` shows that the two implementations give the same result for a
 directory.
 
-The build of the root module of each executable reads the compiled code of `main` and of the
-initializers of the linked modules. It also reads the compiled code of each
-declaration that this code calls, in this package and in the libraries. Only the declarations of
+The build of the root module of each executable reads the compiled code of each declaration of the
+linked modules outside Lean's toolchain. It also reads the initializers of the toolchain's linked
+modules, and the code of each declaration that this code calls. Only the declarations of
 the observer and the variants of them that the compiler made can call a removal function of the
-Lean library. The calls that `Regula.Removal.libraryRemovals` gives are the only other calls that
-the check permits. The build fails for each different call.
+Lean library. The calls that `Regula.Removal.libraryRemovals` and `Regula.Removal.tacticRemovals`
+give are the only other calls that the check permits. The build fails for each different call.
 
 The check permits the role of the observer only for declarations of `Regula.Filesystem`. If a
 different module gives that role, the build fails.
@@ -908,19 +911,180 @@ at fixed paths that a selection writes. Examples are the report of `qualify nati
 the digest of a structural shard of the self-test.
 
 The refusal then marks each file of that reading incomplete, with the reason. It uses the writer
-that a run of the program operates first. Thus a result of an earlier run does not stay in place.
-A self-hosted digest has no incomplete form, thus the refusal removes it, as the run does first.
-The `diagnostics` gate then refuses it as missing. The refusal of `site build` removes the output
-directory and the asset of a release, as the build does first.
+that a run of the program operates first. Thus a result of an earlier run does not stay at a
+destination that the writer marks. A self-hosted digest has no incomplete form, thus the refusal
+removes it, as the run does first. The `diagnostics` gate then refuses it as missing. The refusal
+of `site build` removes the asset of a release, as the build does, and the output directory only if
+it holds an artifact.
 
 The refusal then gives the exit code of an incomplete run. For `axiomGate` and `lint`, that
 code is 3. A program that writes no result file marks no file.
 
-These refusals cover the destinations of the inventory of issue 393. The baseline that
-`regula-markdown --write-baseline` writes is not in it, and a refusal of that program leaves the
-baseline in place ([issue 436](https://github.com/rbeauchamp/regula/issues/436)). A library can also
-write a file. The function `manualMain` of Verso writes the pages, the saved state of a delayed
-render and the word count of `regula-site` and `regula-standard`. Before
+A run with a task manager can also stop early. An example is a run that cannot find `lean` to
+initialize the search path of Lean. Thus the guard also operates the refusal before each run, with
+the reason that `Regula.TaskManager.startedReason` gives. It discards the exit code of the
+refusal, and then it operates the program. Thus each destination that the writer accepts is marked
+incomplete before code of the program operates. If the run then stops before it writes a
+destination, the reader of the destination refuses the marked document.
+
+The refusals of `regula-site` and `regula-standard` move nothing for that reason, since a run that
+Verso starts keeps the write behaviour of Verso.
+
+The run of a program also marks its destinations when it starts, with the same writer. The guard
+marks them earlier, before the first step of the program that can fail
+([issue 423](https://github.com/rbeauchamp/regula/issues/423)). Thus a refusal, an early stop and a
+completed run read each destination with one parser and mark it with one writer. A production of
+`ruleExamples` that fails then marks its result again, with the text of the error. The export of
+`qualify producers --evidence` gets the text of the error in the same way.
+
+A command of `qualify` without `--under-deadline` marks its evidence, and then it selects GNU
+timeout and starts the command under it. If that selection or that start fails, the command marks
+its evidence again with the text of the error. A start can also end with a status that shows that
+no command operated. GNU timeout gives 125, 126 or 127, and Lean gives 255 when it cannot operate
+GNU timeout. The command itself ends with 0, 1 or the status of a signal, for example 137 when GNU
+timeout kills it at the deadline. So
+for the four other statuses the program marks its evidence with the status and the standard error.
+
+A command of `qualify` with `--under-deadline` marks its evidence first too. If the rest of its
+arguments name no command, it marks its evidence again with the text of that error and stops.
+
+The mark replaces a destination before the program reads its inputs. So three rules of the module
+`Regula.Destination` keep a mark or a write from losing a file that is not a document of Regula.
+First, a write makes a new file in the directory of the destination and then moves it onto the
+destination. Thus a hard link at the destination keeps the file that it shares. An earlier document
+also stays whole until the move.
+
+Second, a write stops with nothing written if the destination holds a file that the run may not
+replace. The run may replace an empty regular file or a JSON document of Regula of any kind. An
+empty file holds no bytes to lose, so a destination that `mktemp` made stays usable. A symbolic
+link, a directory, a source file, a configuration file and a Markdown document keep their bytes. A
+reader that follows a refused symbolic link still reads the file at its target, which can hold an
+earlier completed result.
+
+The function `Regula.Destination.regulaDocument` decides if a JSON document is Regula's. Each kind
+of completed document has a signature in `completedSignatures`: the members that its readers
+require and that each such document of Regula holds. For a kind that no reader reads, the signature
+holds the members that each such document holds. Each mark has a signature of its own in
+`markSignatures`, with the value that marks
+it incomplete. The function reads no other values, except the mode `serializedGraph` of a graph
+result. Thus a document of an earlier version of Regula stays replaceable.
+
+A reader may require a member only when a different member has some value. The guidance reader of a
+result requires `request` when `mode` is not `null`. The gate writes a result with a mode before it
+adds its request, and then replaces that result through the same check. So the signature of a
+result leaves `request` out, since it would refuse the gate's own result.
+
+A run may replace a document of Regula of a different kind from the one that it writes. Regula can
+make each document that it wrote again. But the check reads only the members of a file, so a
+tracked fixture in a format of Regula is replaceable too. The third
+rule keeps the destinations of one run from replacing each other. A few kinds are identified by two
+or three members, such as `receipt` and `origins` for a published admission. A JSON file of a
+different tool with those members is thus replaceable too.
+
+A program writes a destination through `Regula.Destination.write`, which applies the first two
+rules. It makes nothing before it checks the destination, and it refuses a destination if its last
+component names no file, such as `out/` or `out/.`. With `Regula.Destination.place`, it resolves
+the real path of the longest present prefix and reads the names below it. A `..` among those names
+is refused, because the entry would depend on what the run makes. So is a prefix that cannot be
+resolved, with the error of each read. Otherwise the entry is exactly that real path and those
+names, and the check and the move act on that entry.
+
+The verification driver imports only Lean, so it has its own code that writes its acceptance link
+and its rule-example evidence. In `RegulaVerification.Decisions`, five theorems prove that its pure
+decisions are those of the programs. They are `regulaDocument_shared`, `plainNames_shared`,
+`ownershipDecision_shared`, `holdsSiteArtifact_shared` and `siteArtifactDecision_shared`. The
+reads, the writes and the renames around these decisions are written two times, and no theorem
+relates them. Unlike `Regula.Filesystem.replace` of the programs, the driver's rename does not
+observe the destination again before the move. It trusts that no process makes an entry there
+between its check and the move.
+
+Each program of the package checks the writes of its compiled code when it is built, as it checks
+its removals with `Regula.Removal.checkProgram`. A write is a call of `IO.FS.writeFile`,
+`IO.FS.writeBinFile`, `IO.FS.createDirAll` or `IO.FS.withFile`. It is also a call bound to a
+function of the runtime that writes a file or makes an entry, as `writeSymbols` lists. An opening by
+`IO.FS.Handle.mk` is a write unless its mode is the literal `IO.FS.Mode.read`. A call of a different
+declaration bound to the same function of the runtime is always a write, and so is a truncation.
+Such a call fails the build unless the writer of `Regula.Filesystem` makes it, or a list names its
+caller.
+
+The writer of `Regula.Filesystem` also makes each file and directory of a tree that the shared
+constructor builds, only where nothing is. The lists of `Regula.Removal` hold the writes of Lake, of
+Lean's `bv_decide` and of Regula's scratch directories, which several programs reach
+(`sharedPairs`). The list of a program holds the calls that it makes alone, and a pair of it that
+admits no call fails the build too.
+
+So a new direct write at a destination fails the build of its program, such as `qualify`,
+`ruleExamples`, `site`, `regula-markdown` or the verification driver. The check does not find a
+write through an open handle, a write by a started process, or a temporary file of the system. A
+pair permits the call of its function by its caller for each path to that caller, thus also
+Regula's own call of `Lake.Manifest.saveEntries`.
+
+Nine programs elaborate Lean source, such as the Lake configuration of a project: `axiomGate`,
+`lint`, `ruleExamples`, `freshChecker`, `docFenceAudit`, `checkerSelftest`, `qualify`, `regula` and
+`site`. Their check states this with `elaborates := true`, and it fails if the compiled code of the
+linked modules outside Lean's toolchain disagrees. This is conservative reachability in the compiled
+code. A declaration that the program does not run counts, and so does a reference to the elaborator
+that it does not call. Three more programs state it because they link such code:
+`ruleExampleQualification`, `regula-markdown` and the registry checks.
+
+The check takes a module as part of Lean's toolchain by its name: `Init`, `Std`, `Lean` or `Lake`.
+`lake exe qualify observers` checks that no package of the root, `markdown/` or `audit/` workspace
+provides a module under these names. The builds in the Mathlib integration's workspace and in an
+adopter's rely on this unchecked.
+
+The tactics of the elaborated source run with their effects, as `lake build` runs them. These are
+trusted effects that the check does not find or limit, such as the `aig.gv` and LRAT files of
+`bv_decide`. They can write a destination of the program, also through a symbolic link, and the
+writer of `Regula.Filesystem` does not prevent this. In a program that does not elaborate, only the
+initializers of Lean's toolchain reach those writes. Regula trusts that these initializers only
+register the tactic. Each worker that a program starts writes its packet below its working
+directory, in a directory that the program made for the run.
+
+Third, a program refuses an invocation if two of its destinations may name one entry. The check
+compares the entries that `Regula.Destination.place` finds, folding ASCII case. If a name below a
+present prefix holds a character outside ASCII, the check compares the prefixes alone. It decides
+overlap before ownership, so two names of one entry get that reason whatever the entry holds. A
+program first marks each destination that it may replace, and then it refuses the run if a rule
+refuses a destination. Thus a refused run leaves no earlier result at a destination that it marked,
+and a destination that a rule refuses keeps what it holds.
+
+These rules take the place of lists of the files that each program reads. Such lists missed the
+build outputs that Lake names and the modules that Lake loads later. Thus no program refuses a
+destination by its extension. The rules assume that no other process changes a destination between
+the check and the move.
+
+The option `--out` of `site build` names a directory that the build removes and then writes. The
+build refuses an `--out` that holds a file, or a directory that is not empty and holds no artifact
+of a build. An artifact holds a `build.json` with the identity of a build. While a build assembles
+it, it holds the marker `.regula-site-assembling` instead. The build replaces an empty directory,
+and it replaces a directory with an artifact as a whole, with all other content in it.
+
+The option `--write-baseline` of `regula-markdown` writes `prose-baseline.json`, but first it reads
+the earlier baseline in that file. Thus the mark of that file holds the text of the earlier
+baseline, and check B1 refuses the mark. The run then reads the earlier baseline from the mark. If
+the file is a mark that holds no earlier text, the new mark holds the reason and no text, and the
+run fails. A file that is not UTF-8 text is not a document that Regula wrote, so the program refuses
+to mark it and keeps its bytes. The program also marks the baseline when a later argument is one
+that its parser refuses.
+
+The begin-attempt of `RegulaVerification` marks `tmp/rule-examples.json` in each mode, and then
+the other verdicts of the selected mode. An attempt can stop before that begin-attempt, for example
+without `lean`. Then the earlier verdicts stay, and no code of the attempt has operated. Each reader
+of these verdicts admits one only for the current inputs, so it is still the verdict for those
+inputs. The campaign `qualify rule-examples` and its qualifier alone read `tmp/rule-examples.json`,
+and the campaign marks it first.
+
+The reader `AcceptanceLink.require` admits an acceptance link only if its identity is the digest of
+the current inputs. The reader `Site.Build.admitShard` admits a shard export only for the current
+sources of the checker, and then the qualifier checks the export again. The deployment gate admits
+`_site` only for a clean build of the commit that it deploys. The gate of the diagnostics workflow
+reads the digests of the self-hosted input only from the jobs of its commit. No reader in this
+repository reads `tmp/environment-census.json` or `tmp/acceptance-fences.json`.
+
+These marks and rules cover each destination that the source of Regula writes, also the baseline of
+`regula-markdown --write-baseline` ([issue 436](https://github.com/rbeauchamp/regula/issues/436)).
+A library can also write a file. The function `manualMain` of Verso writes the pages, the saved
+state of a delayed render and the word count of `regula-site` and `regula-standard`. Before
 [issue 424](https://github.com/rbeauchamp/regula/issues/424), a refused run left these files in
 place, and a later render with `--resume-html-multi` used the saved state of an earlier run.
 
@@ -1016,6 +1180,31 @@ Before each run, each destination holds a completed document of its format, and 
 accepts it. After the run, each destination must be marked incomplete, with the
 reason, or removed for a digest or the site artifact. Its reader must then refuse it as a
 completed document.
+
+The last cli shard also operates the control of an early stop. It operates `ruleExamples`,
+`axiomGate`, `freshChecker`, `qualify`, `site` and the self-test with a task manager. An injected
+failure stops each run early. Examples are a `PATH` without `lean`, a facts file that does not
+exist and `site build` without its evidence. Each destination must then be marked incomplete, with
+the reason, or removed for the site artifact. For a production of `ruleExamples` and the export of
+`qualify producers`, the reason is the text of the error.
+
+The same control operates a bounded `qualify` with GNU `env` as its only `timeout`, which ends with
+status 125 before the command operates. The mark must then hold the status and the option that
+`env` refused. Each restricted `PATH` of the control also holds a link to Git, because the guard of
+each program queries Git before the program operates.
+
+The control also names files that are not documents of Regula as destinations. These are a request,
+a source, a hard link to a manifest, a Markdown document, a symbolic link and the configuration of a
+dependency. For `site build`, it names a directory with a Markdown document. The program must refuse
+each one, and each file must keep its bytes. Two destinations that differ in case must be marked and
+refused. An empty file and a hard link to a result must be marked, and the other name of the link
+must keep its bytes.
+
+The controls of `regula-markdown`, which the documentation step operates, also refuse a run of
+`--write-baseline` with a later argument that the parser refuses. They also stop one after its
+guard, with a Git index of the repository that is not an index. Each must leave the mark of the
+guard. With the index restored, a later run must then write the baseline with the earlier entries.
+A baseline that is not UTF-8 text must be refused and keep its bytes.
 
 The driver moves the pending record to `tmp/acceptance-link.json` only if
 `RegulaVerification.passed` accepts the exit status of each command. The driver does that move
@@ -1905,7 +2094,7 @@ Two-way decisions (`Regula.Decides`), each with an accepted and a refused input:
 | `RegulaVerification.passed` | Each command of a step ended with exit status 0 (`passed_iff`). | The driver of `scripts/verify.sh` uses it before it operates one more command, before its success line and before it moves the acceptance record. |
 | `Construction.projectRelative` | No root `tmp`. Documentation includes cache-named directories. Elsewhere no component is `.git`, `.lake`, `.cache` or `.regula-scratch` (`checked_projectRelative`). | The selection that the shared cold constructor executes. The constructor's filesystem theorems name their primitive hypotheses. |
 | `RegulaVerification.removal` (accepts on `.remove`) | A directory is at the place by a read that follows no link, and its real path is the place (`removal_remove_iff`). | The driver removes its copy and the `_site` directory only by this decision. The two reads of the file system are trusted. |
-| `Regula.Removal.removal` (accepts on `.remove`) | A read that follows no link finds an entry of the given kind at the place. Its real path is the place, or a symbolic link is a name in a directory at its own place (`removal_remove_iff`). | Each program of the package removes a directory, a file or a symbolic link only by this decision, through `Regula.Filesystem`. The exceptions are the library calls that `Regula.Removal.libraryRemovals` gives, and the removals of the two drivers that `Regula.ProgramCheck.Verification` and `Regula.ProgramCheck.Provision` give. The reads of the file system are trusted. |
+| `Regula.Removal.removal` (accepts on `.remove`) | A read that follows no link finds an entry of the given kind at the place. Its real path is the place, or a symbolic link is a name in a directory at its own place (`removal_remove_iff`). | Each program of the package removes a directory, a file or a symbolic link only by this decision, through `Regula.Filesystem`. The exceptions are the library calls that `Regula.Removal.libraryRemovals` gives, and the removals of the two drivers that `Regula.ProgramCheck.Verification` and `Regula.ProgramCheck.Provision` give. The removals of `bv_decide` that `Regula.Removal.tacticRemovals` gives are also exceptions. The reads of the file system are trusted. |
 | `Regula.Removal.replacement` (accepts on `true`) | A read that follows no link finds a file at the source, at its own place. Nothing is at the destination, or a file is there at its own place. The destination is a name in a directory at its own place (`replacement_iff`). | Each program of the package moves a file only by this decision, through `Regula.Filesystem`. The exceptions are the library calls that `Regula.Removal.libraryRemovals` gives, and the moves of the two drivers that `Regula.ProgramCheck.Verification` and `Regula.ProgramCheck.Provision` give. The operation `Regula.Filesystem.moveAside` also moves an entry with no such decision, into a new directory beside it. The reads of the file system are trusted. |
 | `RegulaVerification.prebuildCovers` | The surface manifest has the shape that `claimedTargets` reads, and each target it claims is in `gateTargets` (`prebuildCovers_iff`). | The driver runs the first acceptance step only on such a manifest. Thus the gate does not build a claimed target beside the step's build. No theorem relates `claimedTargets` to the manifest reader of the checker. |
 | `ScratchCopy.name?` (accepts on `some`) | The path is the scratch area, then one name, then `project` (`name?_eq_some_iff`). | The gate admits a copy of the driver only at such a path. The components come from real paths, which the file system gives. |
@@ -3239,6 +3428,8 @@ inferred from any pure proof.
   decision accepts exactly when each such constant is an axiom with the toolchain's universe
   parameters and type, from the toolchain's declaring module, loaded from that module's files in
   the toolchain library. **Trusted:** that the observed canonical paths are the files Lean loaded.
+  `Collect.foundationObservations` finds them after the import, so it also trusts that nothing that
+  its lookup reads changed in between.
 
   The checks of proofs that the checker makes use `KernelAxioms.axiomsWith`: the recursion equation
   of a recursion helper and an execution correspondence. It starts at the new theorem, stops at
@@ -5431,8 +5622,10 @@ The `qualify` campaigns and what they observe:
   guard of a started program cannot query that Git with the `PATH` of the control.
 - `observers`: the record of the removal check of each program of the package, and the check of
   `Main`, the root of `auditApp`. It also refuses an executable with no record of the task-manager
-  check. It also refuses a guard name that is not the Lake name of its executable, or that names a
-  program of the Lean toolchain.
+  check. It refuses a module under `Init`, `Std`, `Lean` or `Lake` in a package of the root,
+  `markdown/` or `audit/` workspace (`checkToolchainWorkspaces`), after its control. It also
+  refuses a guard name that is not the Lake name of its executable, or that names a program of the
+  Lean toolchain.
 - `acceptance fences`: fence-compilation packet mutations with positive restoration.
 - `acceptance-snapshots`: `dependencies` (ignored Git and non-Git dependency input coverage and
   mutation), `history` ([RG3001] fresh, incremental and build-lint history refusal and restoration)

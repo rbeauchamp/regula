@@ -26,8 +26,15 @@ planted initializer never runs. The planted removals below are the calls of a re
   (`initializersOf`), so it finds a removal that no call from `main` reaches.
 - A declaration of another name bound to a C function of the runtime that removes: a call of it is
   a raw removal (`removalSymbols`).
-- A rename and the writing of a module, which replace an entry: each call is a raw removal
-  (`primitives`). A write of a file is not a removal, and the check does not refuse it.
+- A rename and the writing of a module, which replace an entry, and a write of a file: each call
+  is raw (`primitives`, `writePrimitives`), and a caller that the check names admits its call.
+- An opening of a file that writes: the check finds an opening to write, an opening in a mode that
+  its caller gives, and the opening of `IO.FS.withFile` to append, and not an opening to read
+  (`opensToWrite`). It finds the truncation of a file opened to read. A pair that the check names
+  and that admits no call is reported (`Reach.unused`), so a named opening to read is.
+- A declaration other than `IO.FS.Handle.mk` bound to its C function: a call of one is a write
+  whatever its arguments (`readableOpening`). The check finds an inline binding that gives its own
+  mode, called with the literal 0, and a standard binding of another name called to read.
 - An absent output below a linked ancestor, and an output with a `.` or `..` component after the
   first: `ownPath` refuses each before anything is made. It drops the leading `.` of a relative
   path.
@@ -238,16 +245,111 @@ def callsReplacements (env : Environment) (source target : FilePath) : IO Unit :
   Lean.writeModule env target
   IO.FS.writeFile target ""
 
--- A rename and the writing of a module are removals that the check finds; the write is not.
+-- A rename and the writing of a module are removals that the check finds, and the write of a file
+-- is a write that it finds. Naming the caller of the write admits it, and only it.
 run_cmd do
   let env ← getEnv
-  let reach := Regula.Removal.rawRemovalsFrom env (Regula.Removal.filesystemObservers env)
-    #[``callsReplacements]
-  let replacements := [``IO.FS.rename, ``Lean.writeModule]
-  unless reach.raw.size == 2 && replacements.all (fun replacement => reach.raw.contains
-      (``callsReplacements, replacement)) && reach.unknown.isEmpty do
-    throwError "the planted replacements are not raw removals: {reach.raw}, unknown \
+  let observers := Regula.Removal.filesystemObservers env
+  let write := (``callsReplacements, ``IO.FS.writeFile)
+  let reach := Regula.Removal.rawRemovalsFrom env observers #[``callsReplacements]
+  let found := [``IO.FS.rename, ``Lean.writeModule, ``IO.FS.writeFile]
+  unless reach.raw.size == 3 && found.all (fun primitive => reach.raw.contains
+      (``callsReplacements, primitive)) && reach.unknown.isEmpty do
+    throwError "the planted replacements and write are not raw: {reach.raw}, unknown \
       {reach.unknown}"
+  let named := Regula.Removal.rawRemovalsFrom env observers #[``callsReplacements] [write]
+  unless named.raw.size == 2 && !named.raw.contains write && named.unused.isEmpty do
+    throwError "the planted write is not admitted by its named caller alone: {named.raw}, \
+      unused {named.unused}"
+
+/-- The planted opening of a file to write it. No program calls it. -/
+def opensToWrite (path : FilePath) : IO Unit :=
+  discard <| IO.FS.Handle.mk path .write
+
+/-- The planted opening of a file in the mode that its caller gives. No program calls it. -/
+def opensInGivenMode (path : FilePath) (mode : IO.FS.Mode) : IO Unit :=
+  discard <| IO.FS.Handle.mk path mode
+
+/-- The planted opening of a file by `IO.FS.withFile` to append to it. No program calls it. -/
+def appendsWithFile (path : FilePath) : IO Unit :=
+  IO.FS.withFile path .append fun handle => handle.putStr ""
+
+/-- The planted opening of a file to read it. No program calls it. -/
+def opensToRead (path : FilePath) : IO Unit :=
+  discard <| IO.FS.Handle.mk path .read
+
+/-- The planted truncation of a file opened to read. No program calls it. -/
+def truncates (path : FilePath) : IO Unit := do
+  let handle ← IO.FS.Handle.mk path .read
+  handle.truncate
+
+-- An opening of a file is a write unless its mode is the literal `IO.FS.Mode.read`: the openings
+-- to write, in a given mode and by `IO.FS.withFile` to append are found, and naming each admits it.
+-- The opening to read is not found, and a pair that names it is unused. The truncation is found.
+run_cmd do
+  let env ← getEnv
+  let observers := Regula.Removal.filesystemObservers env
+  let reachOf (root : Name) (named : List (Name × Name)) :=
+    Regula.Removal.rawRemovalsFrom env observers #[root] named
+  let sources (reach : Regula.Removal.Reach) :=
+    reach.raw.map fun (caller, primitive) =>
+      (Regula.Removal.sourceDeclaration env caller, primitive)
+  for root in [``opensToWrite, ``opensInGivenMode, ``appendsWithFile] do
+    let reach := reachOf root []
+    unless sources reach == #[(root, ``IO.FS.Handle.mk)] && reach.unknown.isEmpty do
+      throwError "the planted opening {root} is not found as a write: {reach.raw}, unknown \
+        {reach.unknown}"
+    let named := reachOf root [(root, ``IO.FS.Handle.mk)]
+    unless named.raw.isEmpty && named.unused.isEmpty do
+      throwError "the planted opening {root} is not admitted by its named caller: {named.raw}, \
+        unused {named.unused}"
+  let read := reachOf ``opensToRead []
+  unless read.raw.isEmpty && read.unknown.isEmpty do
+    throwError "the planted opening to read is found as a write: {read.raw}, unknown \
+      {read.unknown}"
+  let pair := (``opensToRead, ``IO.FS.Handle.mk)
+  let unused := reachOf ``opensToRead [pair]
+  unless unused.raw.isEmpty && unused.unused == #[pair] do
+    throwError "a named opening to read is not reported unused: {unused.unused}"
+  let truncated := reachOf ``truncates []
+  unless sources truncated == #[(``truncates, ``IO.FS.Handle.truncate)] &&
+      truncated.unknown.isEmpty do
+    throwError "the planted truncation is not found as the only write: {truncated.raw}, unknown \
+      {truncated.unknown}"
+
+/-- The planted binding of the C function of `IO.FS.Handle.mk` with an inline pattern that opens the
+file to write it, the mode 1, whatever its second argument. No program calls it. -/
+@[extern c inline "lean_io_prim_handle_mk(#1, 1)"]
+opaque plantedInlineOpen (path : @& FilePath) (tag : UInt8) : IO IO.FS.Handle
+
+/-- The planted call of `plantedInlineOpen` with the literal 0, the mode of
+`IO.FS.Mode.read`. No program calls it. -/
+def opensInline (path : FilePath) : IO Unit :=
+  discard <| plantedInlineOpen path 0
+
+/-- The planted binding of the C function of `IO.FS.Handle.mk` under another name, with its
+arguments. No program calls it. -/
+@[extern "lean_io_prim_handle_mk"]
+opaque plantedOpen (path : @& FilePath) (mode : IO.FS.Mode) : IO IO.FS.Handle
+
+/-- The planted call of `plantedOpen` to read. No program calls it. -/
+def opensThroughBinding (path : FilePath) : IO Unit :=
+  discard <| plantedOpen path .read
+
+-- A call of a declaration other than `IO.FS.Handle.mk` that is bound to its C function is a write
+-- whatever its arguments: the inline binding called with the literal 0 and the standard binding of
+-- another name called to read are each found, by the binding that the caller calls.
+run_cmd do
+  let env ← getEnv
+  let observers := Regula.Removal.filesystemObservers env
+  for (root, binding) in [(``opensInline, ``plantedInlineOpen),
+      (``opensThroughBinding, ``plantedOpen)] do
+    let reach := Regula.Removal.rawRemovalsFrom env observers #[root] []
+    let sources := reach.raw.map fun (caller, primitive) =>
+      (Regula.Removal.sourceDeclaration env caller, primitive)
+    unless sources == #[(root, binding)] && reach.unknown.isEmpty do
+      throwError "the planted opening {root} is not found as a write: {reach.raw}, unknown \
+        {reach.unknown}"
 
 -- The planted initializer is found, and no other initializer of this module's imports removes.
 run_cmd do

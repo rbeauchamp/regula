@@ -2,16 +2,25 @@ import RegulaVerification
 import Regula.Contract
 import Regula.Decision
 import RegulaCore.Removal
+import RegulaCore.Destination
 
 /-! # Decision contracts of the verification driver
 
-The decision kind of each pure decision `RegulaVerification` runs, with its
-`@[regula_decision]` registration. The driver imports only the toolchain, because
-`scripts/verify.sh` runs it with `lean --run` before the package is built. This second module of
-its library imports it together with the two checker interfaces and the removal decision of the
-filesystem observer (`RegulaCore.Removal`), and nothing the driver runs imports this module. Each
-kind restates theorems of the driver about the same definition and adds the witnesses a kind
-requires. -/
+The decision kind of each pure decision `RegulaVerification` registers with `@[regula_decision]`,
+and the theorems that relate the pure decisions of the driver's copy of the destination rules to
+those of `RegulaCore.Destination`: the identification of a document of Regula, the decision to
+replace an entry from what is read of it, the names below a present prefix, and the decision on a
+site artifact. The reads, the writes and the renames around those decisions are written twice,
+and no theorem relates them.
+The driver imports only the toolchain, because `scripts/verify.sh` runs it with `lean --run` before
+the package is built. This second module of its library imports it together with the two checker
+interfaces, the removal decision of the filesystem observer (`RegulaCore.Removal`) and the
+identification of a document of Regula (`RegulaCore.Destination`), and nothing the driver runs
+imports this module. Each kind restates theorems of the driver about the same definition and adds
+the witnesses a kind requires. It imports no module of the excluded `Regula` library, so the
+control that runs the driver's reading of a destination beside the programs' is in
+`Regula.ProgramCheck.Verification`. -/
+
 namespace RegulaVerification
 
 /-- `parseMode` accepts exactly the argument lists of the supported invocations
@@ -101,6 +110,61 @@ theorem checked_prebuildCovers : Regula.ExecutableContract prebuildCovers
   ⟨.of_iff prebuildCovers_iff
     ⟨Lean.Json.mkObj [("surfaces", Lean.Json.arr #[])], by decide +kernel⟩
     ⟨Lean.Json.null, by decide +kernel⟩⟩
+
+/-- The driver identifies a document of Regula (`regulaDocument`) exactly as the package's
+programs do (`Regula.Destination.regulaDocument`), for every JSON value. The driver cannot import
+that identification, because `scripts/verify.sh` runs it with `lean --run` before the package is
+built, so it is written twice, and this theorem relates the two. -/
+theorem regulaDocument_shared (value : Lean.Json) :
+    regulaDocument value = Regula.Destination.regulaDocument value :=
+  rfl
+
+/-- The driver decides whether to replace the entry at a destination from what it reads there
+(`ownershipDecision`) exactly as the package's programs do
+(`Regula.Destination.ownershipDecision`), for every path and every observation of the entry and of
+its bytes. The reads are trusted effects in each: the driver's `ownershipRefusal` and the programs'
+`Regula.Destination.ownershipRefusal` read the type of the entry without following a link, and
+the bytes of a regular file alone. -/
+theorem ownershipDecision_shared (path : System.FilePath)
+    (entry : Except IO.Error IO.FS.FileType) (contents : Except IO.Error ByteArray) :
+    ownershipDecision path entry contents =
+      Regula.Destination.ownershipDecision path entry contents :=
+  rfl
+
+/-- The driver decides whether a directory holds a site artifact (`holdsSiteArtifact`) exactly as
+the site's build does (`Regula.Destination.holdsSiteArtifact`), for every observation of the marker
+and of `build.json`. -/
+theorem holdsSiteArtifact_shared (marker : Bool) (build : Option String) :
+    holdsSiteArtifact marker build = Regula.Destination.holdsSiteArtifact marker build :=
+  rfl
+
+/-- The driver decides whether to remove what is at the directory of the site artifact
+(`siteArtifactDecision`) exactly as the site's build decides whether to replace it
+(`Regula.Destination.siteArtifactDecision`), for every observation and every consequence that the
+reason states. -/
+theorem siteArtifactDecision_shared (out : System.FilePath) (consequence : String)
+    (entry : Except IO.Error IO.FS.FileType) (holds empty : Bool) :
+    siteArtifactDecision out consequence entry holds empty =
+      Regula.Destination.siteArtifactDecision out consequence entry holds empty :=
+  rfl
+
+/-- The driver reads the names below the longest present prefix of a destination (`plainNames`)
+exactly as the package's programs do (`Regula.Destination.plainNames`), for every list of names. -/
+theorem plainNames_shared (names : List String) :
+    plainNames names = Regula.Destination.plainNames names :=
+  rfl
+
+/-- The driver identifies the `build.json` of a site artifact (`identifiesSiteBuild`) exactly as
+the site's build does (`Regula.Destination.identifiesSiteBuild`), for every JSON value. -/
+theorem identifiesSiteBuild_shared (value : Lean.Json) :
+    identifiesSiteBuild value = Regula.Destination.identifiesSiteBuild value :=
+  rfl
+
+/-- The driver reads the marker of an assembly of the site at the name that the site's build
+writes it at (`Regula.Destination.siteAssemblingMarker`). -/
+theorem siteAssemblingMarker_shared :
+    siteAssemblingMarker = Regula.Destination.siteAssemblingMarker :=
+  rfl
 
 attribute [regula_decision] parseMode dependencyFree select passed removal prebuildCovers
 

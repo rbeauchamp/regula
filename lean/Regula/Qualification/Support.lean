@@ -45,18 +45,53 @@ def run (root : FilePath) (command : String) (args : Array String)
           out: {command} {args}\n{result.stdout}{result.stderr}"
   return result
 
+/-- The exit statuses with which a bounded start (`runBounded`) ends without running its command:
+GNU timeout's own failure (125), a command that it found but could not run (126) or did not find
+(127), and 255, with which Lean's runtime ends a spawned process whose program it could not
+execute. The command that `qualify` starts is `qualify` itself, which ends with 0 or 1, or by a
+signal, which GNU timeout reports as 128 plus the signal's number (at most 192). At the deadline
+GNU timeout sends `SIGKILL` to its own process group, itself included (`--signal=KILL`), so the
+start ends by that signal, 137, and not with timeout's own status 124. -/
+def startupFailureStatuses : List UInt32 := [125, 126, 127, 255]
+
+/-- How many bytes of a bounded start's standard error `runBounded` keeps, from its start. -/
+def keptErrorBytes : Nat := 16384
+
 /-- One group-wide deadline for a standalone public entrypoint. This is only used at
 the outer boundary, never for commands already under acceptance. SIGKILL terminates
-the timer, child, and descendants in its group, closing inherited output handles. -/
+the timer, child, and descendants in its group, closing inherited output handles. The standard
+error of the start is forwarded as it arrives, and its first `keptErrorBytes` bytes are kept. A
+write to this process's standard error that fails loses only that copy: the pipe is still read to
+its end and its text kept, so the start never waits on a full pipe. A start that ends with one of
+`startupFailureStatuses` ran no command: the result is the error with that status and the kept
+text. Otherwise it is the command's exit status. -/
 def runBounded (root : FilePath) (seconds : Nat) (command : String) (args : Array String) :
-    IO UInt32 := do
+    IO (Except String UInt32) := do
   let timer ← timeoutCommand
   let options ← Regula.Filesystem.Construction.gitProcessArgs {cmd := command, args}
   let child ← IO.Process.spawn {
     cmd := timer, args := #["--signal=KILL", s!"{seconds}s", options.cmd] ++ options.args,
     env := options.env,
-    cwd := some root, stdin := .null, stdout := .inherit, stderr := .inherit }
-  child.wait
+    cwd := some root, stdin := .null, stdout := .inherit, stderr := .piped }
+  let forwarded ← IO.asTask (prio := .dedicated) do
+    let out ← IO.getStderr
+    let mut kept := ByteArray.empty
+    repeat
+      let chunk ← child.stderr.read 4096
+      if chunk.isEmpty then break
+      try
+        out.write chunk
+        out.flush
+      catch _ => pure ()
+      kept := kept ++ chunk.extract 0 (keptErrorBytes - kept.size)
+    return kept
+  let status ← child.wait
+  let kept ← IO.ofExcept (← IO.wait forwarded)
+  if startupFailureStatuses.contains status then
+    let text := (String.fromUTF8? kept).getD "(standard error that is not UTF-8 text)"
+    return .error s!"the bounded start of {command} by {timer} ended with exit status {status} \
+      before the command ran; its standard error: {text.trimAscii.toString}"
+  return .ok status
 
 /-- Witness that `withScratchCleaned` removed its owned scratch directory after the
 action returned normally. Only this module can construct it, so a value exists only
@@ -109,9 +144,15 @@ def readFailure (path : FilePath) : IO String := do
       requireChecks [⟨"runtime read failure has a reason", !line.isEmpty⟩]
       return line
 
-/-- Pretty JSON is an output format, not a claim of byte-canonical serialization. -/
+/-- Pretty JSON is an output format, not a claim of byte-canonical serialization. The write
+replaces the entry at `path` (`Regula.Filesystem.writeReplacing`). -/
 def writeJson (path : FilePath) (value : Json) : IO Unit :=
-  IO.FS.writeFile path (value.pretty ++ "\n")
+  Regula.Filesystem.writeReplacing path (value.pretty ++ "\n").toUTF8
+
+/-- Write `value` as pretty JSON at the destination `path` of an evidence document, which stops with
+nothing written at a file that the run may not replace (`Regula.Destination.writeJson`). -/
+def writeEvidence (path : FilePath) (value : Json) : IO Unit :=
+  Regula.Destination.writeJson path value (render := fun value => value.pretty ++ "\n")
 
 /-- Root-relative entrypoints must be run in the package root, never inferred from
 source-file text or another checkout's executable location. -/
