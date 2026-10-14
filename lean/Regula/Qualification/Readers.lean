@@ -20,8 +20,9 @@ not a module imports it, and the root of each executable. Lake builds these modu
 
 Two sets are not read, each with its reason, which the run prints: the root package's `Fixtures`
 library, whose modules are the inputs of the checker's controls and many of which are meant not to
-build, and the packages of `controlInputs`. A package that does not load, a module that does not
-build and a compiled module that cannot be read refuse the check.
+build, and each package below `controlInputs`, the Lake configuration fixtures of the controls. A
+package that does not load, a module that does not build and a compiled module that cannot be read
+refuse the check.
 
 The step is a diagnostic of the repository's own checkout, which runs after provisioning, as each
 step of `./scripts/verify.sh` does. It builds the modules of each package with Lake as those steps
@@ -53,12 +54,15 @@ open Lean System
 /-- The library of the root package whose modules are the inputs of the checker's controls. -/
 def fixtures : String := "Fixtures"
 
-/-- The packages of the repository that the check does not read, by their directory relative to
-the repository, each with the reason. -/
-def controlInputs : List (String × String) :=
-  [("examples/fixtures/generated-source", "the input of a refusal control of the lint driver: its \
-    configuration generates its one module, and it requires a sibling package that the control \
-    supplies, so it does not build in place")]
+/-- The directory of the repository, relative to it, that holds the Lake configuration fixtures of
+the controls (`Regula.DiagnosticsGate.inputs`): each package below it is the input of a control,
+which copies or generates what it needs, and many do not build in place. -/
+def controlInputs : String := "examples/fixtures"
+
+/-- Whether the package at `relative`, relative to the repository, is below `controlInputs`, so
+the check does not read it. -/
+def controlInput (relative : String) : Bool :=
+  relative.startsWith s!"{controlInputs}/"
 
 /-- The directories, relative to `repo` and without a repetition, of the Lake configuration files
 that Git tracks there, as `git ls-files` lists them, in order; `.` is the root package. -/
@@ -231,20 +235,10 @@ def check : IO Unit := do
     throw <| IO.userError s!"readers: {failure}"
   let repo ← Checker.repoRoot
   let directories ← packages repo
-  for (input, _) in controlInputs do
-    unless directories.contains input do
-      throw <| IO.userError s!"readers: the control input {input} is not a package Git tracks"
-    let listed ← Checker.runProcess repo "git"
-      #["ls-files", "-z", "--", s!":(glob){input}/**/*.lean"]
-    let sources := (listed.stdout.splitOn "\x00").filter fun path =>
-      !path.isEmpty && path != s!"{input}/lakefile.lean"
-    unless listed.succeeded && sources.isEmpty do
-      throw <| IO.userError s!"readers: the control input {input} holds the Lean sources \
-        {sources}, which the check does not read: {listed.output}"
   let mut selected := []
   for relative in directories do
-    if let some (_, why) := controlInputs.find? (·.1 == relative) then
-      IO.println s!"readers: {relative}: not read: {why}"
+    if controlInput relative then
+      IO.println s!"readers: {relative}: not read: a Lake configuration fixture of a control"
       continue
     let excluded := if relative == "." then [fixtures] else []
     let directory := if relative == "." then repo else repo / relative
@@ -267,7 +261,7 @@ def check : IO Unit := do
     declarations := declarations + outcome.declarations
   unless references.isEmpty do
     throw <| IO.userError s!"readers: {ReaderCheck.refusal references}"
-  IO.println s!"readers: PASS ({directories.length - controlInputs.length} packages, {modules} \
+  IO.println s!"readers: PASS ({selected.length} packages, {modules} \
     modules, {declarations} declarations)"
 
 end Regula.Qualification.Readers

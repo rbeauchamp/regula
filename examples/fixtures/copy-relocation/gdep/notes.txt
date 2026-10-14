@@ -1,0 +1,3 @@
+A file of the Git repository of the `qualify copy-relocation` control that lies outside the
+subdirectory `package` of the package `gdep`. A copy of the Git project leaves it out with the whole
+checkout.

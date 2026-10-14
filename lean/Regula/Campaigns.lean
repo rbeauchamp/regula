@@ -45,6 +45,8 @@ def form : Command → Command
   | .selfAuditShard _ => .selfAuditShard "K/4"
   | .selfAuditModule _ _ => .selfAuditModule "MODULE" "SOURCE"
   | .selfAuditJsonModule _ => .selfAuditJsonModule "MODULE"
+  | .copyRelocationLoad _ _ => .copyRelocationLoad "PROJECT" "COPIES"
+  | .copyRelocationGit _ => .copyRelocationGit "SCRATCH"
   | .environments _ => .environments "PATH"
   | .acceptance group _ => .acceptance group "PATH"
   | .enumerationCopy _ _ => .enumerationCopy "SOURCE" "TARGET"
@@ -59,9 +61,10 @@ def qualifyForms : List Command :=
     form (.acceptance .fences ""), .acceptanceSnapshots .dependencies,
     .acceptanceSnapshots .history, .acceptanceSnapshots .gitStatus, .acceptanceSnapshots .all,
     .prepMeasure, .documentationDependencies, .inputInventory, .receiptBoundaries, .observers,
-    .closureEvidence, .configurationCapture, .fenceEvidence, .frozenExits, .documentationSource,
-    .documentationSourceReadOnly, .enumeration, form (.enumerationCopy "" ""), .enumerationFailure,
-    .readers]
+    .closureEvidence, .configurationCapture, .versoRecordedPaths, .copyRelocation,
+    form (.copyRelocationLoad "" ""), form (.copyRelocationGit ""), .fenceEvidence, .frozenExits,
+    .documentationSource, .documentationSourceReadOnly, .enumeration,
+    form (.enumerationCopy "" ""), .enumerationFailure, .readers]
 
 /-- Every selection's form is listed. -/
 theorem form_mem (command : Command) : form command ∈ qualifyForms := by
@@ -217,7 +220,8 @@ def runsOf : List String → List Campaign
         .qualify (.acceptanceSnapshots .gitStatus), .qualify .receiptBoundaries,
         .qualify .prepMeasure, .qualify .enumeration]
   | ["diagnostics", "documentation-controls"] =>
-      [.qualify .documentationDependencies, .qualify .configurationCapture]
+      [.qualify .documentationDependencies, .qualify .configurationCapture,
+        .qualify .versoRecordedPaths, .qualify .copyRelocation]
   | ["diagnostics", "focused-controls"] =>
       [.selftest (.focused .nativeAdopter), .selftest (.focused .combinedSnapshot),
         .selftest (.focused .policyTransport)]
@@ -423,6 +427,8 @@ def reason : Campaign → Option Reason
       some (.worker (.qualify (form (.selfAuditShard ""))))
   | .qualify (.enumerationCopy "SOURCE" "TARGET") => some (.worker (.qualify .enumeration))
   | .qualify .readers => some readersNotRun
+  | .qualify (.copyRelocationLoad "PROJECT" "COPIES") | .qualify (.copyRelocationGit "SCRATCH") =>
+      some (.worker (.qualify .copyRelocation))
   | .qualify (.acceptanceSnapshots .all) => some <| .partly
       [.qualify (.acceptanceSnapshots .dependencies), .qualify (.acceptanceSnapshots .gitStatus)]
       "Its groups `dependencies` and `git-status` run. Its group `history` is too long for a job."

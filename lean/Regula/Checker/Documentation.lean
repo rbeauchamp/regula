@@ -3,6 +3,7 @@ import Regula.Checker.FenceScan
 import RegulaPolicy.Pattern
 import Regula.Checker.SourceAudit
 import Regula.Checker.Lake
+import Regula.Checker.LakeSelection
 import Regula.Checker.RuleDiagnostics
 import Regula.Checker.RunFeedback
 import RegulaCore.Account
@@ -600,69 +601,115 @@ private def localClosure (ws : _root_.Lake.Workspace) (captured : _root_.Lake.Pa
         if captured imported.pkg then pending := imported :: pending
   return closure
 
-/-- The packages the Verso package at `dir` requires by local path, other than the accepted
-project at `project`, whose sources the link accepts: each by its manifest name and the directory
-Lake actually loaded, relative to `dir`. This includes materialized copies and overrides. -/
-private def localPackages (project dir : FilePath) (ws : _root_.Lake.Workspace) :
-    IO (Array (Name × FilePath)) := do
-  let some manifest ← _root_.Lake.Manifest.load? (dir / "lake-manifest.json") | return #[]
+/-- The packages that the Verso package's loaded workspace `ws` took from a path entry, by the
+selection `selection` of that load (`LakeSelection.pathPackages`), each with that entry and whether
+it is the accepted project at `project`, whose sources the link accepts. This includes
+materialized copies and overrides. -/
+private def localPackages (project : FilePath) (ws : _root_.Lake.Workspace)
+    (selection : LakeSelection.RootSelection) :
+    IO (Array (_root_.Lake.Package × _root_.Lake.PackageEntry × Bool)) := do
   let accepted ← IO.FS.realPath project
-  manifest.packages.filterMapM fun entry => do
-    let .path .. := entry.src | return none
-    let some pkg := ws.findPackageByName? entry.name
-      | throw <| IO.userError s!"Verso package {dir} requires {entry.name}, which Lake did not load"
-    if (← IO.FS.realPath pkg.dir) == accepted then return none
-    return some (entry.name, pkg.relDir)
+  (LakeSelection.pathPackages ws selection).mapM fun (pkg, entry) => do
+    return (pkg, entry, (← IO.FS.realPath pkg.dir) == accepted)
 
-/-- Every library module of each package the Verso package requires by local path other than the
-accepted project (`localPackages`), with its source file: for this repository, the modules of the
-`audit/` package, whose `Audit` library the standard's examples import. The
+/-- The first package that the Verso package at `package` pins by Git at another source or
+revision than a package it requires by local path (`LakeSelection.pathPackages`) does, with that
+package's directory as Lake loaded it, relative to `package` (`LakeSelection.pinMismatch`,
+`LakeSelection.pinMismatch_eq_none`). Where the two share one packages directory, a build of that
+package as the root of its own workspace would check out another revision of a shared dependency
+than a build of the Verso package. So the Verso package's pins are those that Lake materialized its
+dependencies from (`LakeSelection.withRootSelection`), and the required package's are those of the
+workspace it roots (`LakeSelection.ownRootFiles`, `LakeSelection.rootEntries`). A package that
+either side takes by path, or does not pin, makes no difference. A required package's own manifest
+that does not exist pins nothing: a build of it would resolve its requirements anew, at revisions
+this check cannot know. A Verso package without a manifest is refused
+(`LakeSelection.withRootSelection`): its own pins would be unknown in the same way.
+
+The manifest that the Verso package's entry for a required package records (`manifestFile`) is not
+compared. Lake's load of the Verso package reads it when it materializes the package, but takes
+only the package's `fixedToolchain` from it, and materializes every dependency from the entries of
+the Verso workspace's root. `lake update` reads it, or `lake-manifest.json` when the entry records
+none, for packages that the Verso package does not pin yet, whose entries then become the Verso
+package's own. `captureVersoPackage` binds it as an input of the load.
+
+Assumes:
+- Lake v4.34.1 loads the manifest that a dependency's entry records when it materializes the
+  dependency (`Lake/Load/Materialize.lean:272-277`), takes only the dependency's `fixedToolchain`
+  from it (`Lake/Load/Materialize.lean:143-146`), and materializes every dependency of a workspace
+  from the entries of its root (`Lake/Load/Resolve.lean:599-613`). `lake update` adds the entries
+  of that manifest, or of `lake-manifest.json` when the entry records none, for names it has no
+  entry for, and writes them to the root's manifest (`Lake/Load/Materialize.lean:124-129`,
+  `Lake/Load/Resolve.lean:293-303`, `Lake/Load/Resolve.lean:521-536`). -/
+def sharedPinMismatch (package : FilePath) : IO (Option String) :=
+  LakeSelection.withRootSelection package (requireManifest := true) fun ws selection => do
+    for (pkg, _) in LakeSelection.pathPackages ws selection do
+      let own ← LakeSelection.rootEntries (LakeSelection.ownRootFiles pkg.dir)
+      if let some name := LakeSelection.pinMismatch selection.entries own then
+        return some s!"{name} (against {pkg.relDir})"
+    return none
+
+/-- Every library module of each package that the Verso package requires by local path other than
+the accepted project (`localPackages`), with its source file: for this repository, the modules of
+the `audit/` package, whose `Audit` library the standard's examples import. The
 documentation audit owns them alongside the project's claimed modules when examples elaborate in
 the Verso package's workspace, so an example's owned logical dependencies stay closed under
 import and pass kernel admission with it. -/
 def versoLocalModules (project : FilePath) (verso : VersoPackage) :
     IO (Array (Name × FilePath)) := do
-  Workspace.withRootWorkspace verso.dir fun ws => do
+  LakeSelection.withRootSelection verso.dir (requireManifest := true) fun ws selection => do
     Lake.checkWorkspaceModuleNames ws
-    let locals ← localPackages project verso.dir ws
     let mut modules := #[]
-    for (name, _) in locals do
-      let some pkg := ws.findPackageByName? name
-        | throw <| IO.userError s!"Verso package {verso.dir} requires {name}, which Lake did not load"
+    for (pkg, _, accepted) in ← localPackages project ws selection do
+      if accepted then continue
       for lib in pkg.leanLibs do
         for m in ← lib.getModuleArray do
           modules := modules.push (m.name, m.leanFile)
     return modules
 
 /-- The inputs of the Verso package that decide how its documentation library is checked and
-rendered, in path order: its Lake configuration and lock files and, discovered through Lake, the
-modules reachable by import from the library's modules, from the root of each executable the
-library `needs` and from the root of the render executable. Modules are followed in the Verso
-package itself and in each package it requires by local path other than the accepted project
-`project` (`localPackages`); for this repository that is the `audit/` package whose
-`Audit` library the standard's examples import, whose configuration and lock files, and surface
-manifest, are captured too. A target of a Git dependency is pinned and is not read, nor are the
-packages' other targets (the site's generated pages). Each path is anchored at the Verso
-directory as given (a local package's through its recorded relative directory), so the identity
-stays location-independent. The linked acceptance identity brackets these inputs together with
-the documentation itself. -/
+rendered, in path order. These are the Lake inputs (`LakeSelection.lakeInputs`) of the Verso
+package and of each package that its workspace loaded from a path entry (`localPackages`), the
+accepted project `project` among them: for each, the configuration files that decide the one Lake
+loads, by the name that its entry gives (the Verso package's by `LakeSelection.rootConfigFile`),
+the manifest that its entry records, and the manifest, package overrides file and toolchain file of
+the workspace it roots. Lake's load of the Verso package reads the recorded manifest when it
+materializes the package, and a build of the package as a root reads the rest. The accepted
+project's own package overrides file is left out: `Lake.copyProject` writes a generated one at the
+copy's root whenever the root has a dependency, `DocFenceAudit.prepareVerso` compares the copy's
+capture with the original's, and acceptance's source binding (`SourceBinding.configuration`)
+already binds the original root's overrides file, present or absent. They are also the
+surface manifest of each of these packages other than the accepted project and, discovered through
+Lake, the modules reachable by import from the library's modules, from the root of each executable
+the library `needs` and from the root of the render executable. Modules are followed in the Verso
+package itself and in each of those packages other than the accepted project, whose sources the
+link accepts. For this repository that is the `audit/` package, whose `Audit` library the
+standard's examples import. A Lake input or surface manifest that does not exist is not captured.
+A target of a Git dependency is pinned and is not read, nor are the packages' other targets (the
+site's generated pages). Each path is anchored at the Verso directory as given (a local package's
+through its recorded relative directory), so the identity stays location-independent. The linked
+acceptance identity brackets these inputs together with the documentation itself. -/
 def captureVersoPackage (project : FilePath) (verso : VersoPackage) :
     IO (Array RegulaPolicy.SourceSnapshot) := do
   let dir := verso.dir
-  let (locals, modules) ← Workspace.withRootWorkspace dir fun ws => do
+  let select := LakeSelection.withRootSelection dir (requireManifest := true)
+  let (anchors, inputs, modules) ← select fun ws selection => do
     Lake.checkWorkspaceModuleNames ws
-    let locals ← localPackages project dir ws
+    let locals ← localPackages project ws selection
     let some lib := ws.root.leanLibs.find? (·.name == verso.library)
       | throw <| IO.userError s!"Verso package {dir} has no library {verso.library}"
     let some render := ws.root.leanExes.find?
         (·.name == _root_.Lake.stringToLegalOrSimpleName verso.render)
       | throw <| IO.userError s!"Verso package {dir} has no executable {verso.render}"
-    -- Each captured package, by its key, with the directory its sources are anchored at.
+    -- Each package whose sources are captured, by its key, with the directory they are anchored
+    -- at, and the Lake inputs of each package, anchored at the directory that stands for its own.
     let mut anchors : Array (Name × FilePath) := #[(ws.root.keyName, dir)]
-    for (name, relative) in locals do
-      let some pkg := ws.findPackageByName? name
-        | throw <| IO.userError s!"Verso package {dir} requires {name}, which Lake did not load"
-      anchors := anchors.push (pkg.keyName, dir / relative)
+    let mut inputs : List FilePath := LakeSelection.lakeInputs LakeSelection.rootConfigFile none dir
+    for (pkg, entry, accepted) in locals do
+      let anchor := dir / pkg.relDir
+      let own := LakeSelection.lakeInputs entry.configFile entry.manifestFile? anchor
+      inputs := inputs ++
+        if accepted then own.filter (· != (LakeSelection.ownRootFiles anchor).2) else own
+      unless accepted do anchors := anchors.push (pkg.keyName, anchor)
     let captured := fun (pkg : _root_.Lake.Package) => anchors.any (·.1 == pkg.keyName)
     let mut roots ← lib.getModuleArray
     for key in lib.config.needs do roots := roots ++ (← neededModules ws captured key)
@@ -676,13 +723,8 @@ def captureVersoPackage (project : FilePath) (verso : VersoPackage) :
         throw <| IO.userError s!"Verso package source {m.leanFile} is outside its package {anchor}"
       return (components.drop real.length).foldl
           (fun (acc : FilePath) (part : String) => acc / part) anchor
-    return (locals, modules)
-  let packageDirs := #[dir] ++ locals.map fun (_, relative) => dir / relative
-  let config ← packageDirs.flatMapM fun (packageDir : FilePath) =>
-    (#["lakefile.toml", "lakefile.lean", "lake-manifest.json", "lean-toolchain",
-        "foundation_manifest.json"] : Array String).filterMapM fun (name : String) => do
-      let path : FilePath := packageDir / name
-      return if ← path.pathExists then some path else none
+    return (anchors.map (·.2), inputs, modules)
+  let config ← (inputs.toArray ++ anchors.map Manifest.defaultPath).filterM (·.pathExists)
   let paths := (modules ++ config).qsort (fun left right => left.toString < right.toString)
   let paths := paths.toList.eraseDups.toArray
   paths.mapM fun path => do pure ⟨path.toString, ← IO.FS.readFile path⟩
