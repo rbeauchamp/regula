@@ -306,8 +306,8 @@ unsafe def ruleExamplesMain (args : List String) : IO UInt32 := do
       -- marked only when it is a written result document (`ResultProtocol.readDocument`), and the
       -- marked document is written as every result document is (`ResultProtocol.writeDocument`).
       if let some path := output.filter (· != "") then
-        unless ← Regula.Filesystem.isPresent path do return code
         let marked ← (do
+          unless ← Regula.Filesystem.isPresent path do return
           let document ← Regula.Checker.ResultProtocol.readDocument path
           Regula.Checker.ResultProtocol.writeDocument path
             (document.setObjVal! "gitFacts" (.str "injected")) "injectedFactsMarker").toBaseIO

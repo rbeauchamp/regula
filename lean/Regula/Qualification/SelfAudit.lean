@@ -395,8 +395,8 @@ theorem mem_absenceReads {allowlist : Array (Name × Name × String)} {moduleNam
 def absenceReadText (name moduleName : Name) : String :=
   s!"absence-read: {privateToUserName name} ({moduleName}) reads whether a path is present with \
     System.FilePath.pathExists or isDir, which return false for every error of metadata; read with \
-    Regula.Filesystem.isPresent, isDirectory, metadataIfPresent, readFileIfPresent or \
-    entryIfPresent, or name the declaration in absenceReadAllowlist when its false decides nothing"
+    Regula.Filesystem.isPresent, isDirectory, metadataIfPresent, readFileIfPresent, \
+    realPathIfPresent or entryIfPresent, or name the declaration in absenceReadAllowlist when its false decides nothing"
 
 /-- The findings of the absence rule for the declarations `owned` of the module `moduleName`:
 each declaration that reads absence with one of Lean's readers (`absenceReads`), and each entry of

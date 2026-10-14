@@ -241,35 +241,35 @@ def diagnosticBlocks (output : String) (isHead : String → Bool) : Array String
   return blocks
 
 /-- The nearest ancestor of `start` (itself included) holding one Lake configuration file and
-a `lean-toolchain`, or `none` when nothing is at `start` or no ancestor holds them. A failure to
-read or resolve a path is thrown, never read as `none` (`Regula.Filesystem.realPathIfPresent`,
-`Regula.Filesystem.isPresent`), and so is an ancestor with both configuration files. The upward
-walk terminates on the byte length of the path. The length check cannot fail: `FilePath.parent`
-returns a proper prefix, cut at the last separator or after the root directory. Its
-`revFind?`-based definition has no lemmas in core to prove that, so the check states it. -/
-def findRepoRoot? (start : FilePath) : IO (Option FilePath) := do
-  let some root ← Regula.Filesystem.realPathIfPresent start | return none
-  let rec loop (path : FilePath) : IO (Option FilePath) := do
+a `lean-toolchain`, or the reason that it names none: nothing is at `start`, no ancestor holds
+them, or the walk reaches an ancestor with both configuration files first. A failure to read or
+resolve a path is thrown, never given as a reason (`Regula.Filesystem.realPathIfPresent`,
+`Regula.Filesystem.isPresent`). The upward walk terminates on the byte length of the path. The
+length check cannot fail: `FilePath.parent` returns a proper prefix, cut at the last separator or
+after the root directory. Its `revFind?`-based definition has no lemmas in core to prove that, so
+the check states it. -/
+def findRepoRoot? (start : FilePath) : IO (Except String FilePath) := do
+  let absent := s!"cannot find Lean project root above {start}"
+  let some root ← Regula.Filesystem.realPathIfPresent start | return .error absent
+  let rec loop (path : FilePath) : IO (Except String FilePath) := do
     let hasLean ← Regula.Filesystem.isPresent (path / "lakefile.lean")
     let hasToml ← Regula.Filesystem.isPresent (path / "lakefile.toml")
     if hasLean && hasToml then
-      throw <|
-          IO.userError s!"ambiguous Lean project root {path}: both lakefile.lean and lakefile.toml"
+      return .error s!"ambiguous Lean project root {path}: both lakefile.lean and lakefile.toml"
     if (hasLean || hasToml) && (← Regula.Filesystem.isPresent (path / "lean-toolchain")) then
-      return some path
+      return .ok path
     match path.parent with
     | some parent =>
       if parent.toString.utf8ByteSize < path.toString.utf8ByteSize then loop parent
       else throw <| IO.userError s!"parent of {path} is not a proper prefix"
-    | none => return none
+    | none => return .error absent
   termination_by path.toString.utf8ByteSize
   loop root
 
-/-- The project root that `findRepoRoot?` finds from `start`; it throws where that gives `none`. -/
+/-- The project root that `findRepoRoot?` finds from `start`; it throws the reason where that
+names none. -/
 def findRepoRoot (start : FilePath) : IO FilePath := do
-  let some root ← findRepoRoot? start
-    | throw <| IO.userError s!"cannot find Lean project root above {start}"
-  return root
+  IO.ofExcept (← findRepoRoot? start)
 
 /-- The project root that `findRepoRoot` finds from the current working directory. -/
 def repoRoot : IO FilePath := do

@@ -668,7 +668,7 @@ private def historyWorkerOutput (memo : Option FilePath) (inputs : HistoryMemo)
   let start ← IO.monoMsNow
   while (← IO.monoMsNow) - start < 600000 do
     if let some output ← (reuse <|> pure none) then return output
-    unless ← Regula.Filesystem.isPresent lock do
+    unless ← (Regula.Filesystem.isPresent lock <|> pure false) do
       if let some output ← (reuse <|> pure none) then return output
       break
     IO.sleep 50

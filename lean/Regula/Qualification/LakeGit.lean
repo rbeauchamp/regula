@@ -12,7 +12,7 @@ isolation (`GIT_CONFIG_COUNT` with `core.symlinks=true`) and a malformed one
 (`GIT_CONFIG_PARAMETERS`). They compare what Lake does with an intended private repository: the
 Git dependency of a fixture workspace, pinned to its last commit, which indexes one symbolic link.
 The dependency is intended when its clone is at the pinned commit, Lake's own manifest parser
-(`Lake.Manifest.load`) finds exactly one entry, a Git entry named `dep` with the dependency's URL
+(`Lake.Manifest.parse`) finds exactly one entry, a Git entry named `dep` with the dependency's URL
 and that commit, and the link is a regular file that holds the link's target text.
 
 * A Lake child started as Regula's cold drivers start one, with the isolation applied after the

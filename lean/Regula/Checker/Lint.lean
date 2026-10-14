@@ -133,8 +133,9 @@ dispatching workspace's `leanPath`, then the library directory of the toolchain-
 the dispatching workspace's, whatever was inherited, under the assumption of `dispatchedFrom`.
 Any other Lake layout, or a driver run outside Lake, fails the check. It also reads the
 `lintDriverArgs` of that workspace's default configuration,
-the project root of `project` (the parsed `--project`, `findRepoRoot?`), and the owner's
-assertion. -/
+the project root of `project` (the parsed `--project`, `findRepoRoot?`), `none` where that gives
+a reason that it names none, such as an ancestor with both configuration files, and the owner's
+assertion. A failure to read a path is the failure of the observation. -/
 private def observe (dispatching : FilePath) (project : Option String) : IO Observed := do
   let sysroot ← IO.getEnv "LEAN_SYSROOT"
   let received := (((← IO.getEnv "LEAN_PATH").map SearchPath.parse).getD []).map toString
@@ -145,7 +146,7 @@ private def observe (dispatching : FilePath) (project : Option String) : IO Obse
       dispatchedFrom root (FilePath.mk sysroot / "lib" / "lean").toString received
     | none => false
   let named ← match project with
-    | some dir => (·.map toString) <$> findRepoRoot? dir
+    | some dir => (·.toOption.map toString) <$> findRepoRoot? dir
     | none => pure none
   return { dispatching := dispatching.toString, dispatched, configured, named,
            owner := ← IO.getEnv ordinaryLakefilesVariable }
