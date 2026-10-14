@@ -317,8 +317,9 @@ every push to `main`, nightly and on dispatch. Its first job, `applies`
 decides which jobs apply. It runs the
 invocations that `Regula.DiagnosticsGate.campaigns` lists, and `applies` writes them for the matrix
 of the `campaign` job. These are `producers`, `history`, the shards of the structural, execution and
-lint-driver partitions of the self-test, and four groups of qualification controls. The other
-partitions and groups are too long for a job, and the table of
+lint-driver partitions of the self-test, and five groups of qualification controls. The other
+partitions and groups are too long for a job, except `readers`. No job has the generated website
+sources, Verso and a provisioned Mathlib together, which `readers` builds on. The table of
 [campaigns no workflow runs](#campaigns-no-workflow-runs) names them. They run as parallel jobs, each with its own hard 420-second limit, on a pull
 request exactly when it changes one of the paths `Regula.DiagnosticsGate.inputs` lists (the checker, rules, rule examples, the
 adopter fixtures in `examples/lake-lint-toml` and `examples/build-lint`, the Lake configuration

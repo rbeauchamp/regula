@@ -461,14 +461,23 @@ def observer : Ops IO where
   directory := createDirectory
   file := fun target bytes rights => writeNew target bytes rights
 
+/-- `observer`, listing each directory through `enumerator`: the operations of one copy or capture
+that locates its listing program once (`locate`) and lists every directory it reads through that
+one program. -/
+def Enumerator.observer (enumerator : Enumerator) : Ops IO :=
+  { Construction.observer with names := enumerator.names }
+
 /-- The shared copy routine, through the observer. It refuses links and special entries at
 each selected source entry, and constructs no links. The destination parent exists at its own
 place and the destination is absent or privately owned and empty. Source and destination have
 no concurrent writer. Modes are not preserved: regular source files use 0644, directories use
 0755; sites that execute a copied file explicitly set its required
-rights. Lake-built programs receive their modes from Lake. The receipt is the ordered list of entries the routine constructed. -/
+rights. Lake-built programs receive their modes from Lake. The receipt is the ordered list of entries the routine constructed.
+It locates its listing program once and lists each directory it reads, the destination among
+them, through that program. -/
 def copy (source target : FilePath) (selected : FilePath → Bool := fun _ => true) :
-    IO (List Item) := copyWith observer source target selected
+    IO (List Item) := do
+  copyWith (← locate).observer source target selected
 
 /-- Construct a generated workspace from directory/file instructions, with no source traversal.
 The same destination preconditions as `copy` apply. -/
@@ -497,10 +506,14 @@ def layout (items : List Item) : List Item := Id.run do
   return result.reverse
 
 /-- Capture one file or subtree through precisely the shared no-follow capture program. The
-relative prefix is admitted by that program before it reads a selected source entry. -/
+relative prefix is admitted by that program before it reads a selected source entry. The capture
+of a directory locates its listing program once and lists each directory below it through that
+program; the capture of any other entry lists no directory, so it locates none. -/
 def capture (source : FilePath) (relative : List String := [])
-    (selected : FilePath → Bool := fun _ => true) : IO (List Item) :=
-  captureWith observer selected 4096 source relative
+    (selected : FilePath → Bool := fun _ => true) : IO (List Item) := do
+  if (← kindWith observer source) == some .dir then
+    captureWith (← locate).observer selected 4096 source relative
+  else captureWith observer selected 4096 source relative
 
 /-- Admit an existing directory as a construction ancestor, or create it exclusively. This is
 a primitive admission before writing, not a walk of a finished copy. Every ancestor is admitted
@@ -834,18 +847,27 @@ def admitGitName (pair : String × List String) : Except IO.Error Unit :=
   if pair.1 ∈ pair.2 then .ok () else
     .error (IO.userError s!"copy Git index spelling differs from stored entry: {pair.1}")
 
-/-- Match each index path component to the observer's stored directory-entry name before
-reading that entry or exempting a tracked link from general capture. Intermediate links refuse.
-String equality compares the complete stored UTF-8 spelling; no core.ignoreCase interpretation
-participates. Source ancestors and entries have no concurrent writer. -/
-def admitGitPath (source : FilePath) (relative : List String) : IO Unit := do
+/-- Match each index path component to the stored directory-entry names that `enumerator` lists
+before reading that entry or exempting a tracked link from general capture. Intermediate links
+refuse. String equality compares the complete stored UTF-8 spelling; no core.ignoreCase
+interpretation participates. `listings` holds, by path, the names of each directory that an earlier
+index path of the same Git copy listed; this path reuses them and adds the directories it lists, so
+each directory is listed once per Git copy. Source ancestors and entries have no concurrent writer
+until the copy ends, so a reused listing is still the directory's stored names. -/
+def admitGitPath (enumerator : Enumerator) (listings : Std.HashMap String (List String))
+    (source : FilePath) (relative : List String) : IO (Std.HashMap String (List String)) := do
+  let mut listings := listings
   let mut parent := source
   for name in relative do
     unless (← observeMetadata parent).type == .dir do
       throw <| IO.userError s!"copy Git index ancestor is not a directory: {parent}"
-    let names ← observer.names parent
+    let names ← match listings[parent.toString]? with
+      | some names => pure names
+      | none => enumerator.names parent
+    listings := listings.insert parent.toString names
     IO.ofExcept (admitGitName (name, names))
     parent := parent / name
+  return listings
 
 /-- The supported Git index modes. A tracked link has a regular-file representation, never
 a link instruction. Its bytes are obtained from the index's Git blob without following it. -/
@@ -963,9 +985,12 @@ for byte. Git environment/config observations use `gitProcessArgs`, `admitGitCon
 `admitGitObjects`; their Assumes entries name the trusted sources. Git status remains trusted.
 Lean/Lake v4.34.1
 `Lake/Util/Git.lean:198-203` tests cleanliness with `git diff --exit-code HEAD`;
-`Lake/Load/Materialize.lean:255-258` warns if a matching-revision checkout has that diff. -/
+`Lake/Load/Materialize.lean:255-258` warns if a matching-revision checkout has that diff.
+The copy locates its listing program once and lists each directory it reads through that program;
+`admitGitPath` lists each directory once for the whole index. -/
 def copyGit (source target : FilePath) : IO (List Item) := do
-  let metadata ← capture (source / ".git") [".git"]
+  let enumerator ← locate
+  let metadata ← captureWith enumerator.observer (fun _ => true) 4096 (source / ".git") [".git"]
   let ⟨_, .directory⟩ :: _ := metadata
     | throw <| IO.userError "Git source metadata is not a plain directory"
   admitGitConfig source (source / ".git/config")
@@ -989,6 +1014,7 @@ def copyGit (source target : FilePath) : IO (List Item) := do
   unless index.isEmpty || index.endsWith "\x00" do
     throw <| IO.userError "copy Git index output is not NUL-terminated"
   let mut entries : List GitEntry := []
+  let mut listings : Std.HashMap String (List String) := {}
   for record in index.splitOn "\x00" do
     if record.isEmpty then continue
     let mode :: stage :: object :: pathParts := record.splitOn "\t"
@@ -997,7 +1023,7 @@ def copyGit (source target : FilePath) : IO (List Item) := do
     let relative := ("\t".intercalate pathParts).splitOn "/"
     unless Relative relative && relative.head? != some ".git" do
       throw <| IO.userError "copy Git index path is not a worktree-relative path"
-    admitGitPath source relative
+    listings ← admitGitPath enumerator listings source relative
     let mode ← match mode with
       | "100644" => pure GitMode.regular
       | "100755" => pure GitMode.executable
@@ -1013,8 +1039,8 @@ def copyGit (source target : FilePath) : IO (List Item) := do
     let relative := path.components.drop base
     relative.head? != some ".git" && !entries.any (fun entry =>
       entry.relative == relative && match entry.mode with | .link _ => true | _ => false)
-  let captured ← capture source [] selected
-  gitConstructWith observer target metadata captured entries
+  let captured ← captureWith enumerator.observer selected 4096 source []
+  gitConstructWith enumerator.observer target metadata captured entries
 
 /-- The cold drivers' source entrypoint. `project` prunes VCS/build/scratch directories, except
 explicit relative file selections after TARGET, the original Markdown discovery domain, and

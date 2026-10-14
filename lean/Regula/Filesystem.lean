@@ -152,28 +152,47 @@ abbrev observedConstruction (entry : Void IO.RealWorld → FilePath → Option I
     (names : Void IO.RealWorld → FilePath → List String) : Construction.CopyModel :=
   Construction.CopyModel.ofIO observer Construction.observer rfl rfl entry real ident names
 
+/-- The construction observer that lists through `enumerator`, over precisely the existing
+filesystem model's IO worlds. -/
+abbrev locatedConstruction (enumerator : Construction.Enumerator)
+    (entry : Void IO.RealWorld → FilePath → Option IO.FS.FileType)
+    (real : Void IO.RealWorld → FilePath → Option FilePath)
+    (ident : Void IO.RealWorld → FilePath → Option FileId)
+    (names : Void IO.RealWorld → FilePath → List String) : Construction.CopyModel :=
+  Construction.CopyModel.ofIO observer enumerator.observer rfl rfl entry real ident names
+
+/-- `copy` locates its listing program once and runs the shared copy through it. -/
+theorem copy_locates (source target : FilePath) (selected : FilePath → Bool) :
+    copy source target selected =
+      (do Construction.copyWith (← Construction.locate).observer source target selected 4096) :=
+  rfl
+
 /-- The exact plain destination and complete selected source receipt of the actual copy callers
-run. All hypotheses describe native reads and exclusive creations; none asserts copy correctness.
+run, from the world that `Construction.locate` leaves once it gives `enumerator` (`copy_locates`).
+All hypotheses describe native reads and exclusive creations; none asserts copy correctness.
 Errors may leave a partial private destination and are never accepted. -/
-theorem observer_copy
+theorem observer_copy (enumerator : Construction.Enumerator)
     (entry : Void IO.RealWorld → FilePath → Option IO.FS.FileType)
     (real : Void IO.RealWorld → FilePath → Option FilePath)
     (ident : Void IO.RealWorld → FilePath → Option FileId)
     (names : Void IO.RealWorld → FilePath → List String)
-    (readsEntry : ReadsEntry (observedConstruction entry real ident names).filesystem)
-    (readsReal : ReadsReal (observedConstruction entry real ident names).filesystem)
-    (readsNames : Construction.ReadsNames (observedConstruction entry real ident names))
-    (readsBytes : Construction.ReadsBytes (observedConstruction entry real ident names))
-    (directories : Construction.CreatesDirectories (observedConstruction entry real ident names))
-    (files : Construction.CreatesFiles (observedConstruction entry real ident names))
+    (readsEntry : ReadsEntry (locatedConstruction enumerator entry real ident names).filesystem)
+    (readsReal : ReadsReal (locatedConstruction enumerator entry real ident names).filesystem)
+    (readsNames : Construction.ReadsNames (locatedConstruction enumerator entry real ident names))
+    (readsBytes : Construction.ReadsBytes (locatedConstruction enumerator entry real ident names))
+    (directories :
+      Construction.CreatesDirectories (locatedConstruction enumerator entry real ident names))
+    (files : Construction.CreatesFiles (locatedConstruction enumerator entry real ident names))
     (source target : FilePath) (selected : FilePath → Bool) (w : Void IO.RealWorld) :
-    RunsTo id (copy source target selected w)
+    RunsTo id (Construction.copyWith enumerator.observer source target selected 4096 w)
       (fun items after =>
-        Construction.Captured (observedConstruction entry real ident names) w selected source [] items ∧
-        Construction.Holds (observedConstruction entry real ident names).filesystem target items after)
+        Construction.Captured (locatedConstruction enumerator entry real ident names) w selected
+          source [] items ∧
+        Construction.Holds (locatedConstruction enumerator entry real ident names).filesystem target
+          items after)
       (fun _ _ => True) :=
   Construction.copy_io
-    (Construction.copy_corresponds_ofIO observer Construction.observer rfl rfl entry real ident names)
+    (Construction.copy_corresponds_ofIO observer enumerator.observer rfl rfl entry real ident names)
     readsEntry readsReal readsNames readsBytes directories files source target selected 4096 w
 
 /-- The exact plain tree of the generated-workspace function callers run, under the same native

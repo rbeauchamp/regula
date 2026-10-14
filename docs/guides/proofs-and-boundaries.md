@@ -609,7 +609,7 @@ act on the workspace that it was given, thus the same reason holds.
 
 Regula constructs its copies through `Regula.Filesystem`. The general routine refuses selected source links and special entries through metadata reads that follow no final link. It creates directories and regular files exclusively at their exact destinations. It places no packages link. This construction removes the limit about links preserved or placed by Regula's copies.
 
-`observer_copy` states the complete selected source receipt and the exact destination tree over the observer's filesystem model. `observer_construct` states the exact tree of generated instructions. `Construction.capture_io` connects captured subtrees to that model.
+`observer_copy` states the complete selected source receipt and the exact destination tree over the observer's filesystem model. Its observer lists through the program that `copy` locates one time (`copy_locates`). `observer_construct` states the exact tree of generated instructions. `Construction.capture_io` connects captured subtrees to that model.
 
 `observer_appendFile` includes ancestor admission when the leaf writer extends an established plain parent. Its initial tree is a precondition, not an authentication of arbitrary old entries. Errors can leave partial private output. Callers refuse that output before a Lake load. These theorems state entry kinds and locations, not byte fidelity, permissions or later process effects.
 
@@ -5934,6 +5934,8 @@ Thus the observer refuses these two reads and each removal of a directory on Win
 ### Assumptions of directory enumeration
 
 Lean `v4.34.1` reads a directory with `readdir` until it gives null, and then it returns the names that it has read ([`runtime/io.cpp#L1076-L1098`](https://github.com/leanprover/lean4/blob/v4.34.1/src/runtime/io.cpp#L1076-L1098)). A failed read also gives null, so `System.FilePath.readDir` can return fewer names and no error. Regula lists each directory through an admitted `ls` program instead, which `Construction.locate` selects. An admitted `ls` examines `errno` after each `readdir`, and it exits with a nonzero code after a failed read. `Construction.Enumerator.names` refuses unless the program exits with code 0 and writes no error text.
+
+A copy, the capture of a directory and a Git copy each locate the program one time and list each directory through it.
 
 The names of a listing decode exactly. `decodeListing_zero` states that the names that `ls --zero` writes decode to the stored names. `decodeListing_gnu` states the same for the escaped names of GNU `ls` 8.32. These theorems are about encoders written from the source of each program, not about the programs. `Enumerator.names` also refuses a name that is not UTF-8, a name with `/` or NUL, and the names `.` and `..`.
 

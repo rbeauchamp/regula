@@ -3,9 +3,10 @@ name: Diagnostics
 # Capability-triggered qualification campaigns (standard §7.8): the producer and history
 # campaigns, the `lake lint` dispatch over the maintained adopter fixtures, which crosses
 # Lake, process and filesystem boundaries that the driver's proofs do not cover, the structural
-# and execution partitions of the checker self-test, each in shards, and four groups of `qualify`
+# and execution partitions of the checker self-test, each in shards, and five groups of `qualify`
 # and focused self-test controls; the controls of a partition's shards together are the
-# partition's. The other partitions and groups are too long for a job. The list is
+# partition's. The other partitions and groups are too long for a job, except `readers`, which
+# needs the generated website sources, Verso and a provisioned Mathlib together. The list is
 # Regula.DiagnosticsGate.campaigns, which the inventory of campaigns (Regula.Campaigns) counts. They
 # are diagnostics, not a partition of ordinary acceptance.
 #

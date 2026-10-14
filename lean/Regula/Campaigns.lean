@@ -246,7 +246,8 @@ def overBudgetShard : Partition → Option String
   | .structural | .execution | .lintDriver => none
 
 /-- The groups of `groups` a job runs. `environment-census`, `snapshot-history` and `policy-domain`
-are too long for a job (`reason`). -/
+are too long for a job, and no job has the generated website sources, Verso and a provisioned
+Mathlib together that `readers` needs (`reason`). -/
 def jobGroups : List String :=
   ["input-inventory", "acceptance-controls", "documentation-controls", "focused-controls",
     "enumeration-failure"]
