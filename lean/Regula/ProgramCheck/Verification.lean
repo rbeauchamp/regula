@@ -1,5 +1,6 @@
 import RegulaVerification
 import Regula.Removal
+import Regula.Destination
 
 /-! # The removal and write check of the verification driver
 
@@ -63,3 +64,33 @@ run_cmd Regula.Removal.checkProgram (named := [
   (``RegulaVerification.writeDocument, ``IO.FS.removeFile),
   (``RegulaVerification.promote, ``IO.FS.createDirAll),
   (``RegulaVerification.promote, ``IO.FS.rename)])
+
+-- A destination whose last component names no file, `new/` or `new/.`, names a directory and not
+-- a file in it: the driver (`RegulaVerification.destinationAt`) and the programs
+-- (`Regula.Destination.place`) refuse it by its name, before they drop a `.` or an empty name. The
+-- same destination with a file name is accepted, at the real path of its prefix. The driver's
+-- library is claimed and imports no module of the excluded `Regula` library, so this control is
+-- here, and the first acceptance step builds this module.
+run_cmd do
+  let base ← Regula.Filesystem.ownTempDir
+  let outcome ← (do
+    for named in [s!"{base / "new"}/", s!"{base / "new"}/."].map System.FilePath.mk do
+      let place ← Regula.Destination.place named
+      let driver ← (RegulaVerification.destinationAt named).toBaseIO
+      unless (match place with | .error reason => reason.endsWith "names no file, so the run \
+          writes nothing there" | .ok _ => false) &&
+          (match driver with | .error error => (toString error).endsWith "names no file, so \
+            the run writes nothing there" | .ok _ => false) do
+        throw <| IO.userError s!"{named} is not refused by its name"
+    let named : System.FilePath := base / "new" / "file.json"
+    let expected := (← IO.FS.realPath base) / "new" / "file.json"
+    let place ← Regula.Destination.place named
+    let driver ← RegulaVerification.destinationAt named
+    unless (place.toOption.map Regula.Destination.entryPath) == some expected &&
+        driver == expected do
+      throw <| IO.userError s!"{named} is not accepted at {expected}"
+    ).toBaseIO
+  Regula.Filesystem.removeOwn .directory base
+  match outcome with
+  | .ok () => pure ()
+  | .error error => throwError "the control of a destination that names no file failed: {error}"
