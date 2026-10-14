@@ -56,8 +56,8 @@ def worker (args : List String) : IO UInt32 := do
   IO.println s!"loaded {count} packages"
   return 0
 
-/-- Run a fixture Git command in `repo`, isolated as Regula's own Git commands are
-(`Construction.gitOutput`), with no automatic maintenance, so no detached writer outlives it. -/
+/-- Run a fixture Git command in `repo`, isolated as the Git commands of `Construction.gitOutput`
+are, with no automatic maintenance, so no detached writer outlives it. -/
 private def git (repo : FilePath) (args : Array String) : IO String := do
   let out ← Construction.gitOutput repo (#["-c", "maintenance.auto=false",
     "-c", "user.name=Regula", "-c", "user.email=regula@example.invalid"] ++ args)

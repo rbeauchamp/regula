@@ -781,10 +781,11 @@ def repositoryEnvironment (names : Array String) : Array (String × Option Strin
     ("GIT_CONFIG_NOSYSTEM", some "1"), ("GIT_CONFIG_GLOBAL", some "/dev/null")]
 
 /-- The removals and settings of `repositoryEnvironment`, from Git's own list (`gitLocalNames`).
-It is private to the Git commands of this module (`gitProcessArgs`) and to the cold drivers' own
-Git commands (`sourceMain`): Git's list names `GIT_CONFIG_COUNT`, so the array removes the
-command-scope `core.symlinks=false` that `isolationEnvironment` gives a process tree. Another
-child, such as Lake, takes `isolationEnvironment`. -/
+It is private to the Git commands of this module (`gitProcessArgs`) and to the Git commands of the
+cold drivers that ask `sourceMain` for it (`git-environment`): Git's list names `GIT_CONFIG_COUNT`,
+so the array removes the command-scope `core.symlinks=false` that `isolationEnvironment` gives a
+process tree. Another child, such as Lake, takes `isolationEnvironment`, and so do the Git commands
+of the verification driver (`RegulaVerification.start`). -/
 private def gitEnvironment : IO (Array (String × Option String)) :=
   return repositoryEnvironment (← gitLocalNames)
 
