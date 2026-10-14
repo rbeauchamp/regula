@@ -836,6 +836,16 @@ theorem Agree.eq_null {value : Json} (agree : Agree value .null) : value = .null
   cases agree
   rfl
 
+/-- A value conforms to a number exactly when it is that number: the same mantissa and the same
+exponent. So comparing a value with a number through `conforms` decides equality to it. -/
+theorem conforms_num_iff (value : Json) (number : JsonNumber) :
+    conforms value (.num number) = true ↔ value = .num number := by
+  rw [conforms_iff]
+  constructor
+  · exact fun ⟨_, agree⟩ => agree.eq_num
+  · rintro rfl
+    exact ⟨.num number, .num number⟩
+
 private theorem nodup_of_increasing {names : List String}
     (increasing : names.Pairwise fun earlier later => compare earlier later = .lt) :
     names.Nodup :=

@@ -536,10 +536,11 @@ own place. The decision removes the place only if an entry of the kind is there 
 place (`removal_remove_iff`). The theorem `checked_removal` is the decision contract of that
 function.
 
-The observer moves a file only by the decision `Regula.Removal.replacement`. It moves a file at
-its own place to a path where nothing is, or where a file is at its own place. The destination
-must be a name in a directory at its own place (`replacement_iff`). A move over a file removes
-that file, thus the decision examines the destination as it examines a removal of a file.
+The operation `Regula.Filesystem.replace` moves a file only by the decision
+`Regula.Removal.replacement`. It moves a file at its own place to a path where nothing is, or
+where a file is at its own place. The destination must be a name in a directory at its own place
+(`replacement_iff`). A move over a file removes that file, thus the decision examines the
+destination as it examines a removal of a file.
 
 Before this decision, the site executable removed its output directory, `tmp/site-render`,
 `tmp/site-releases` and `website/Generated` with no such read. With a link at one of these
@@ -549,10 +550,18 @@ code removed directories in the same way
 ([issue 361](https://github.com/rbeauchamp/regula/issues/361)). At this time, each program stops
 there and removes nothing.
 
-The observer joins a relative path to the real path of the working directory, and it resolves no
-component that the path gives. It drops the leading `.` components. Before it reads anything, it
-refuses each other `.` or `..` component. Before it makes anything, it refuses a link among the
-present components (`Regula.Filesystem.ownPath`).
+The function `Regula.Filesystem.ownPath` gives the path at which a removal is decided. It joins a
+relative path to the real path of the working directory, and it resolves no component that the
+path gives. It drops the leading `.` components, and before it reads anything, it refuses each
+other `.` or `..` component. Before it makes anything, it refuses a link among the present
+components. The operations `removeOwn`, `removeFound` and `replace` act only on an entry at its own
+place. Thus they also refuse a `.` or `..` component, or a link above the entry.
+
+The operation `Regula.Filesystem.moveAside` does not use `ownPath` or the decisions
+`Regula.Removal.removal` and `Regula.Removal.replacement`. It moves an entry into a new directory
+that `mkdir` makes beside it, and it removes and replaces nothing. The operating system resolves a
+symbolic link or a `..` among the components above the entry. A run of Verso also writes through
+such a component.
 
 A program resolves some directories to their real path one time (`Regula.Filesystem.ownRoot`).
 These are the scratch area under `.lake`, the build directory of the project and the directory of a
@@ -712,7 +721,19 @@ Workspace loading runs only in compiled executables, including its control in `q
 
 The interpreter refuses an uninitialized declaration with `Unreachable` (`src/library/ir_interpreter.cpp:919-928`). A seven-line cache observation aborts interpreted and passes compiled. That observation identifies a backend boundary, not a failure of the filesystem-model hypotheses.
 
-The provisioning registration link in the original integration workspace is separate from constructing a copy. Its creation race remains [issue 407](https://github.com/rbeauchamp/regula/issues/407). Lake-generated entries, original trusted dependencies and deliberately planted diagnostic aliases remain outside the plain-copy guarantee.
+The provisioning registration link in the original integration workspace is separate from constructing a copy. Lake-generated entries, original trusted dependencies and deliberately planted diagnostic aliases remain outside the plain-copy guarantee.
+
+Lean `v4.34.1` has no operation that makes a symbolic link. Thus `RegulaProvision.installLinkWith` makes the registration link with `ln -s` in a new directory beside the place of the link. It then moves the link to its place with one rename, and it removes the directory. The function `mkdir(2)` makes that directory. It fails if an entry of any type is at the place of the directory, and it follows no link there.
+
+No read of that place comes before the creation of the directory. Thus no check can become stale before the creation acts. The operand of `ln` is the only name in the new empty directory.
+
+`RegulaProvision.installLink_refused` states that a run of `installLinkWith` fails and changes nothing if an entry is at the place of that directory. It uses only the assumption `RefusesOccupied` about `mkdir`. `installLink_placed` states that after a run that succeeds, a link is at the path and no entry is at the place of the directory. It uses only `ReadsEntry`, because the run reads the two places after the move. `installLink_refused_io` and `installLink_placed_io` give the same results for the runs in `IO` that agree with a model. `linkOps_refused` and `linkOps_placed` give them for the operations of the driver.
+
+These theorems do not establish the text of the link or the other entries after a run that succeeds. They also do not establish what a failed run leaves after the directory exists. They concern only `installLinkWith`. The registration of the copy and, on a replacement, the removal of the old entry come before it and remain after a refusal. The removal or the replacement of the entry at the path before the installation is [issue 389](https://github.com/rbeauchamp/regula/issues/389).
+
+The module `Regula.ProvisionControls` has controls of the installation on the real file system, and the first acceptance step builds it. They prove nothing.
+
+Assumes: With two operands, `ln -s` makes the link with `symlink(2)` at the last operand if that operand names nothing. Apple `file_cmds-479` shows this in `ln/ln.c:145-146,253-265,307,353`. GNU coreutils `9.4` shows this in `src/ln.c:160-164,604-633`. The installed macOS `ln` is `file_cmds-487.0.1`, and Apple did not publish its source. Provisioning runs `ln` in the new directory, and the last operand is the name of the link alone. No different process writes in the new directory.
 
 The reporter's read-only import overlay is an import view. It retains artifact links because byte copies change the real origin that ownership attribution checks. Regula runs no Lake command in that overlay. Compiler-path workspaces deliberately plant toolchain aliases and run Lake to qualify origin classification. Those workspaces are diagnostic exceptions to the directory/file constructor.
 
@@ -802,9 +823,53 @@ directory and the asset of a release, as the build does first.
 The refusal then gives the exit code of an incomplete run. For `axiomGate` and `lint`, that
 code is 3. A program that writes no result file marks no file.
 
-These refusals cover each destination that the source of Regula writes. A library can also write a
-file, such as the `manualMain` function of Verso for `regula-site` and `regula-standard`. Such a
-file is outside these refusals.
+These refusals cover the destinations of the inventory of issue 393. The baseline that
+`regula-markdown --write-baseline` writes is not in it, and a refusal of that program leaves the
+baseline in place ([issue 436](https://github.com/rbeauchamp/regula/issues/436)). A library can also
+write a file. The function `manualMain` of Verso writes the pages, the saved state of a delayed
+render and the word count of `regula-site` and `regula-standard`. Before
+[issue 424](https://github.com/rbeauchamp/regula/issues/424), a refused run left these files in
+place, and a later render with `--resume-html-multi` used the saved state of an earlier run.
+
+Regula invalidates the destinations of the runs that it refuses itself. The guard refuses a run of
+the two programs in a process without the task manager of Lean. `regula-standard` also refuses a
+run when the standard does not contain a section that the rules cite. Each of these refusals calls
+the function `RegulaRender.refuse`. A run that Verso starts keeps the write behaviour of Verso, and
+Regula removes nothing before it.
+
+The refusal of each program reads its options with the parser of Verso, `manualMain.opts`. That
+parser is private to its module, and the module `RegulaRender.Options` gets it with `import all`.
+The destinations of the options are the output directory, the saved state of each delayed mode and
+the word count.
+
+For each destination where something is, the function `Regula.Filesystem.moveAside` makes a new
+directory beside it and moves the destination into it, under its own name. It takes the directory
+and the names from the path of the destination, and each name is the name of one entry. It makes
+the directory with `mkdir`, which fails if anything is at that path. It moves the destination with
+`rename`, which moves a symbolic link itself and not its target. Thus the refusal removes nothing,
+and it changes only the paths that the options name as destinations, with the entries below them.
+A saved state that a resumed render reads also moves if it is below the output directory.
+
+A later render finds nothing at these paths, and a resumed render stops. If a move fails, for
+example at a mount point, the refusal reports the destination and the error and returns 1. The
+copies stay beside their destinations, and each later refusal adds one copy for each destination
+that a run made again. The renderers of Regula do not delete these copies.
+
+The theorem `RegulaRender.moves_operations` is about the moves that the refusal operates. Their
+operations are one `mkdir` and one `rename` for each destination where something is, and they
+include no removal. The theorem is about the plan, not about the file system.
+
+In Lean 4.34.1, `IO.FS.createDir` calls `mkdir` and `IO.FS.rename` calls `rename` of POSIX. That
+`mkdir` is exclusive and that `rename` moves a symbolic link itself are assumptions about POSIX. On
+Windows, `IO.FS.rename` replaces what is at its destination, thus the refusal moves nothing there
+and reports each destination. The assumptions do not include a process that changes a destination
+while the refusal operates.
+
+The command `lake exe site renderer-refusal` examines the two programs after the site build of
+`./scripts/verify.sh site`. It examines `RegulaRender.refuse` through the refusals of the guard. To
+cause the refusal of a missing section, the command must use a standard that does not contain a
+cited section. Thus the command does not examine that refusal, but that refusal calls the same
+function `RegulaRender.refuse`.
 
 The check `Regula.TaskManagerCheck.checkProgram` operates at the end of the root module of each
 executable. It examines `main` if the compiled code of `main` calls a function of the runtime that
@@ -1640,7 +1705,7 @@ Two-way decisions (`Regula.Decides`), each with an accepted and a refused input:
 | `Construction.projectRelative` | No root `tmp`. Documentation includes cache-named directories. Elsewhere no component is `.git`, `.lake`, `.cache` or `.regula-scratch` (`checked_projectRelative`). | The selection that the shared cold constructor executes. The constructor's filesystem theorems name their primitive hypotheses. |
 | `RegulaVerification.removal` (accepts on `.remove`) | A directory is at the place by a read that follows no link, and its real path is the place (`removal_remove_iff`). | The driver removes its copy and the `_site` directory only by this decision. The two reads of the file system are trusted. |
 | `Regula.Removal.removal` (accepts on `.remove`) | A read that follows no link finds an entry of the given kind at the place. Its real path is the place, or a symbolic link is a name in a directory at its own place (`removal_remove_iff`). | Each program of the package removes a directory, a file or a symbolic link only by this decision, through `Regula.Filesystem`. The exceptions are the library calls that `Regula.Removal.libraryRemovals` gives, and the removals of the two drivers that `Regula.ProgramCheck.Verification` and `Regula.ProgramCheck.Provision` give. The reads of the file system are trusted. |
-| `Regula.Removal.replacement` (accepts on `true`) | A read that follows no link finds a file at the source, at its own place. Nothing is at the destination, or a file is there at its own place. The destination is a name in a directory at its own place (`replacement_iff`). | Each program of the package moves a file only by this decision, through `Regula.Filesystem`. The exceptions are the library calls that `Regula.Removal.libraryRemovals` gives, and the moves of the two drivers that `Regula.ProgramCheck.Verification` and `Regula.ProgramCheck.Provision` give. The reads of the file system are trusted. |
+| `Regula.Removal.replacement` (accepts on `true`) | A read that follows no link finds a file at the source, at its own place. Nothing is at the destination, or a file is there at its own place. The destination is a name in a directory at its own place (`replacement_iff`). | Each program of the package moves a file only by this decision, through `Regula.Filesystem`. The exceptions are the library calls that `Regula.Removal.libraryRemovals` gives, and the moves of the two drivers that `Regula.ProgramCheck.Verification` and `Regula.ProgramCheck.Provision` give. The operation `Regula.Filesystem.moveAside` also moves an entry with no such decision, into a new directory beside it. The reads of the file system are trusted. |
 | `RegulaVerification.prebuildCovers` | The surface manifest has the shape that `claimedTargets` reads, and each target it claims is in `gateTargets` (`prebuildCovers_iff`). | The driver runs the first acceptance step only on such a manifest. Thus the gate does not build a claimed target beside the step's build. No theorem relates `claimedTargets` to the manifest reader of the checker. |
 | `ScratchCopy.name?` (accepts on `some`) | The path is the scratch area, then one name, then `project` (`name?_eq_some_iff`). | The gate admits a copy of the driver only at such a path. The components come from real paths, which the file system gives. |
 | `ScratchCopy.inside` | The path is the directory with one or more components after it (`inside_iff`). | The gate requires its own executable in the build directory of a copy of the driver. |
@@ -2105,8 +2170,8 @@ these items:
   Regula read, the comparison runs `conforms` with that value first, or decides `Conforms`. A
   comparison with a constant `null`, Boolean or string matches its constructor or compares its
   text. The self-audit diagnostic refuses a declaration that names the equality of `Json` or
-  compares texts of `compress`, in each library except `Fixtures`. The module `RegulaCore.JsonAgreement` is
-  exempt, and so is an allowlist of comparisons of two values that Regula built, each with its reason. Only
+  compares texts of `compress`, in each library except `Fixtures`. An allowlist of comparisons of two values that Regula built is
+  exempt, each with its reason. Only
   the theorems in the table above say what one of these comparisons accepts.
 
 **The callers.** These paths give a value to the diagnostic decoder. They are read from the code

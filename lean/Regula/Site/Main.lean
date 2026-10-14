@@ -1,6 +1,7 @@
 import Regula.Removal
 import Regula.TaskManagerCheck
 import Regula.Site.Artifact
+import Regula.Site.RendererRefusal
 
 /-! # Site builder entry point
 
@@ -31,14 +32,28 @@ theorem siteOutputNamed_of_parse {args : List String} {out : FilePath} {evidence
   · cases h; rfl
   · cases h
 
-/-- `site build --out DIR --evidence SHARD...` builds and checks the Pages artifact. -/
+/-- `site build --out DIR --evidence SHARD...` builds and checks the Pages artifact, and
+`site renderer-refusal`, run after it, checks what the website's renderers leave when they render
+and when they refuse a run without Lean's task manager (`Regula.Site.RendererRefusal.control`). -/
 def siteMain (args : List String) : IO UInt32 := do
-  match parseSiteBuild args with
-  | some (out, evidence) =>
+  match parseSiteBuild args, args with
+  | some (out, evidence), _ =>
     Regula.Site.Build.build evidence out
     return 0
-  | none =>
+  | none, ["renderer-refusal"] =>
+    Regula.Site.RendererRefusal.control (← Regula.Qualification.rootDirectory)
+    IO.println "site renderer-refusal: PASS (regula-standard renders from the saved state of a \
+      delayed render, which keeps a file of its output directory, and after a refused run with the \
+      same options a resumed render stops; the refusals of regula-site and regula-standard without \
+      Lean's task manager move the saved state, the word count and the output directory aside \
+      whole, a symbolic link itself, and keep the saved state that a resumed render reads outside \
+      the output directory; each reports and keeps an output directory `.` or empty and a word \
+      count whose new directory's name is longer than NAME_MAX, and moves nothing for options \
+      that Verso's parser refuses)"
+    return 0
+  | none, _ =>
     IO.eprintln "usage: lake exe site build --out DIR --evidence SHARD.json [SHARD.json ...]"
+    IO.eprintln "       lake exe site renderer-refusal"
     return 2
 
 /-- The refusal of the build in a process without Lean's task manager

@@ -18,7 +18,9 @@ Existing upstream-cache receipts and directory names remain compatible. The rece
 has only the upstream-cache constructor: historical source receipts fail decoding and their
 stores are neither admitted nor pruned. Registered copies protect shared stores from removal.
 Git, Lake, Mathlib's cache tool, compiler reports, copying, locking and filesystem effects are
-trusted; the pure decisions below carry their execution-linked contracts.
+trusted; the pure decisions below carry their execution-linked contracts. The link installation
+(`installLinkWith`) is written over its operations, and `RegulaProvision.Link` states its runs in
+the filesystem model of `RegulaCore.Filesystem`.
 
 The integration preflight requires the integration package's toolchain to match the root and,
 with --require, requires provisioned Mathlib as the first step inside the timed integration check.
@@ -430,17 +432,160 @@ private def removeObserved (path : FilePath) : Observed → IO Unit
   | .directory .. => IO.FS.removeDirAll path
   | _ => pure ()
 
-/-- Replace `path` by a symbolic link to `target`: the link is made beside it and renamed
-over it, so readers see the old entry or the new link. -/
-private def installLink (path : FilePath) (target : String) : IO Unit := do
-  let some parent := path.parent | throw <| IO.userError s!"provisioning: {path} has no parent"
-  IO.FS.createDirAll parent
-  let staged := parent / s!".{path.fileName.getD "link"}.{← nonce}"
-  let _ ← require parent "ln" #["-s", target, staged.toString]
-  try IO.FS.rename staged path
-  catch error =>
-    if (← kind? staged) matches some _ then IO.FS.removeFile staged
+/-! ### The installation of a link
+
+`installLinkWith` is written once over the operations `LinkOps`. The driver runs it at `linkOps`,
+and `RegulaProvision.Link` states its runs in the filesystem model of `RegulaCore.Filesystem`. -/
+
+/-- The operations of a link installation in a monad `m`. The driver supplies them in `IO`
+(`linkOps`); a model supplies them as actions on its states (`RegulaProvision.LinkModel`). -/
+structure LinkOps (m : Type → Type) where
+  /-- What `lstat(2)` reports of a path, which follows no link at its last component. -/
+  metadata : FilePath → m IO.FS.Metadata
+  /-- Create an empty directory with `mkdir(2)`. -/
+  directory : FilePath → m Unit
+  /-- Make a symbolic link whose text is the first argument at the path. -/
+  link : String → FilePath → m Unit
+  /-- Move the entry at the first path to the second, replacing what is there: `rename(2)`. -/
+  rename : FilePath → FilePath → m Unit
+  /-- Remove the entry at the path, which is not a directory: `unlink(2)`. -/
+  removeFile : FilePath → m Unit
+  /-- Remove the directory at the path when it is empty: `rmdir(2)`. -/
+  removeDir : FilePath → m Unit
+
+/-- The type of the entry at `path`, read without following a link there, or `none` when nothing
+is there. Any other failure of the read is thrown, never read as absence. -/
+def entryKindWith {m : Type → Type} [Monad m] [MonadExceptOf IO.Error m] (ops : LinkOps m)
+    (path : FilePath) : m (Option IO.FS.FileType) :=
+  tryCatchThe IO.Error (do return some (← ops.metadata path).type) fun
+    | .noFileOrDirectory .. => pure none
+    | error => throw error
+
+/-- Where the link for `path` is made: the new directory, the hidden sibling of `path` that
+`nonce` names, and the link's place in it, under the name of `path`. `none` when `path` has no
+parent or no name. -/
+def linkStage (path : FilePath) (nonce : String) : Option (FilePath × FilePath) := do
+  let parent ← path.parent
+  let name ← path.fileName
+  let stage := parent / s!".{name}.{nonce}"
+  return (stage, stage / name)
+
+/-- Make the new directory `stage`, make the link to `target` at `staged` in it, move the link
+over `path`, and remove `stage`.
+
+The creation of `stage` is the step that refuses an occupied place: `mkdir(2)` fails when any
+entry is at `stage` and follows no link there. Nothing reads `stage` before it, so no earlier
+check can go stale, and nothing runs after it fails. The link is then made in the empty
+directory that this run made. When the link or the move fails, the link is removed when a link
+is at `staged`, and then `stage` is removed, which `rmdir(2)` does only when it is empty. A
+failure of that cleanup leaves them, and the first failure is reported. -/
+def placeLinkWith {m : Type → Type} [Monad m] [MonadExceptOf IO.Error m] (ops : LinkOps m)
+    (stage staged path : FilePath) (target : String) : m Unit := do
+  ops.directory stage
+  tryCatchThe IO.Error (do ops.link target staged; ops.rename staged path) fun error => do
+    tryCatchThe IO.Error
+      (do
+        if (← entryKindWith ops staged) == some .symlink then ops.removeFile staged
+        ops.removeDir stage)
+      fun _ => pure ()
     throw error
+  ops.removeDir stage
+
+/-- Fail unless a symbolic link is at `path` and nothing is at `stage`. -/
+def confirmLinkWith {m : Type → Type} [Monad m] [MonadExceptOf IO.Error m] (ops : LinkOps m)
+    (path stage : FilePath) : m Unit := do
+  let placed ← entryKindWith ops path
+  let left ← entryKindWith ops stage
+  match placed, left with
+  | some .symlink, none => pure ()
+  | _, _ => throw <| IO.userError s!"provisioning: after the link's installation, {path} is not \
+      a link or {stage} is still there"
+
+/-- Replace `path` by a symbolic link to `target`, so that readers see the old entry or the
+link. The link is made in a new directory beside `path` (`linkStage`), whose creation refuses
+any entry already at its place (`placeLinkWith`), and moved over `path` with one rename. The run
+then fails unless a link is at `path` and the directory is gone (`confirmLinkWith`).
+
+`RegulaProvision.installLink_refused` states that a run from a state where an entry is at the
+directory's place fails and changes nothing, under `RegulaProvision.RefusesOccupied`;
+`RegulaProvision.installLink_placed` states the result of a run that succeeds, under
+`Regula.Filesystem.ReadsEntry`. -/
+def installLinkWith {m : Type → Type} [Monad m] [MonadExceptOf IO.Error m] (ops : LinkOps m)
+    (path : FilePath) (target nonce : String) : m Unit := do
+  let some (stage, staged) := linkStage path nonce
+    | throw <| IO.userError s!"provisioning: {path} has no parent or no name"
+  placeLinkWith ops stage staged path target
+  confirmLinkWith ops path stage
+
+/-- `mkdir(2)` of the directory in which the link is made, and then its mode 0700, so that only
+this user can write in it.
+
+Assumes: Lean v4.34.1 `IO.FS.createDir` (`Init/System/IO.lean:895-900`) calls `mkdir` once and
+reports its error (`runtime/io.cpp:1181-1195`); `mkdir` fails with `EEXIST` when any entry is at
+the path, and follows no symbolic link there (POSIX.1-2024 `mkdir()`). This is
+`RegulaProvision.RefusesOccupied`. `IO.Prim.setAccessRights` (`Init/System/IO.lean:1650`,
+`runtime/io.cpp:381-392`) calls `chmod` only after `mkdir` made the directory, and no other process
+replaces it in between. -/
+@[noinline] private def makeStage (stage : FilePath) : IO Unit := do
+  IO.FS.createDir stage
+  IO.Prim.setAccessRights stage 448
+
+/-- `ln -s -- TARGET NAME`, run in the directory of `staged`, where `NAME` is the last component of
+`staged`: a symbolic link with the text `target` at `staged`. The operand is that name alone, so a
+relative `staged` is not resolved twice, once for the working directory and once for the operand.
+
+Assumes: with two operands, the last of which names nothing, `ln -s` makes the link at exactly
+that path with `symlink(2)`, which fails when an entry is there (POSIX.1-2024 `symlink()`). Apple
+file_cmds-479 `ln/ln.c:145-146,253-265,307,353` adds the source's name to the last operand only
+when that operand names a directory or ends in `/` or `/.`. GNU coreutils 9.4
+`src/ln.c:160-164,604-633` calls `symlinkat` at the operand first, and makes the link inside it
+only when that fails and a directory is there. Trusted: the installed macOS `/bin/ln` reports
+file_cmds-487.0.1, whose source is not published, and keeps this behaviour; `ln` is found on
+`PATH` (issue 388); `ln` starts in the directory of `staged`, which a relative path names from
+this process's working directory, as for `IO.FS.createDir`.
+`installLinkWith` gives `staged` a name in a directory that this run made, so it names nothing
+when no other process writes there. -/
+@[noinline] private def makeLink (target : String) (staged : FilePath) : IO Unit := do
+  let some name := staged.fileName
+    | throw <| IO.userError s!"provisioning: {staged} has no name"
+  let _ ← require (staged.parent.getD ".") "ln" #["-s", "--", target, name]
+
+/-- `IO.FS.rename`: the move of the link that `installLinkWith` made over its place.
+
+Assumes: Lean v4.34.1 `IO.FS.rename` (`Init/System/IO.lean:903-909`) calls `rename(2)`
+(`runtime/io.cpp:1209-1238`), which moves a symbolic link itself and replaces a link or a file at
+the destination, not its target. -/
+@[noinline] private def moveLink (source destination : FilePath) : IO Unit :=
+  IO.FS.rename source destination
+
+/-- `IO.FS.removeFile`: the removal of a link that `installLinkWith` made and did not move.
+
+Assumes: Lean v4.34.1 `IO.FS.removeFile` (`Init/System/IO.lean:881-886`) calls `unlink(2)`
+(`runtime/io.cpp:1351-1364`), which removes a symbolic link, not its target. -/
+@[noinline] private def removeLink (path : FilePath) : IO Unit :=
+  IO.FS.removeFile path
+
+/-- `IO.FS.removeDir`: the removal of the directory that `installLinkWith` made.
+
+Assumes: Lean v4.34.1 `IO.FS.removeDir` (`Init/System/IO.lean:888-894`) calls `rmdir(2)`
+(`runtime/io.cpp:1197-1207`), which removes only an empty directory. -/
+@[noinline] private def removeStage (path : FilePath) : IO Unit :=
+  IO.FS.removeDir path
+
+/-- The operations of the link installation that the driver runs. The driver provisions nothing
+on Windows (`main`), where `symlinkMetadata` follows a link at the path. -/
+def linkOps : LinkOps IO where
+  metadata := System.FilePath.symlinkMetadata
+  directory := makeStage
+  link := makeLink
+  rename := moveLink
+  removeFile := removeLink
+  removeDir := removeStage
+
+/-- Replace `path` by a symbolic link to `target` with `installLinkWith` at `linkOps`, in a
+directory named with a new nonce. -/
+private def installLink (path : FilePath) (target : String) : IO Unit := do
+  installLinkWith linkOps path target (← nonce)
 
 /-- Interpret the one shared constructor in a cold driver. The wrapper is this run's
 exclusive file in a private staging parent, and is removed when the interpreter ends.
@@ -473,7 +618,7 @@ Index modes and target text come from Git's ls-files and blob protocols, never a
 `Construction.gitConstruct_io` describes the executed index/build account's exact plain tree.
 This does not place
 a packages link. `installLink` is the separate shared-cache registration mechanism, outside this
-copy operation; its temporary-link creation race is tracked separately. -/
+copy operation. -/
 private def installClone (path source : FilePath) : IO Unit := do
   let some parent := path.parent | throw <| IO.userError s!"provisioning: {path} has no parent"
   let staged := parent / s!".{path.fileName.getD "clone"}.{← nonce}"

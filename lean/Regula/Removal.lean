@@ -12,8 +12,12 @@ that a declaration makes other than a declaration of `Regula.Filesystem` with th
 observer's role (`@[regula_observer filesystem]`, `filesystemObservers`) or a call of Lean's library
 that `libraryRemovals` lists. The role given in another module admits nothing, and the check of a
 program refuses it (`foreignObservers`). The observer's removals and its move are private to
-`Regula.Filesystem`, and the operations it exports observe the place and act only on what the
-decisions of `RegulaCore.Removal` decide.
+`Regula.Filesystem`. Its exported operations `removeOwn`, `removeFound`, `replace` and
+`withOwnTempDir` observe the place and act only on what the decisions of `RegulaCore.Removal`
+decide. `moveAside` moves an entry into a directory that it makes new, so it replaces and removes
+nothing, with no `ownPath` resolution and no `Regula.Removal.replacement` decision: a symbolic link
+or a `..` among the components above the entry is followed as the operating system resolves it, as
+a run of Verso writes through it too.
 
 `checkProgram` runs the check for the program whose `main` the environment declares, fails the
 build of the module that runs it when the check finds a call, and records the program in the
@@ -149,7 +153,8 @@ ordinary load uses a retained manifest and typed dependency path overrides. Thus
 no longer needs a limit for links preserved or placed by Regula's copies. Dependency originals,
 Lake-generated entries and deliberately planted diagnostic aliases remain trusted inputs. The
 provisioning registration link in the original integration workspace is separate from constructing
-a copy; its creation race is https://github.com/rbeauchamp/regula/issues/407.
+a copy. `RegulaProvision.installLinkWith` makes it in a directory that `mkdir` creates, which
+refuses an entry already at its place (`RegulaProvision.installLink_refused`).
 
 - `Lake.importConfigFile`, with `IO.FS.removeFile` and with `Lean.writeModule`. Trusted exemption,
   for the reason above: it removes the stale compiled configuration of a package and its trace in
