@@ -110,6 +110,9 @@ structure FixtureSpec where
   /-- For each named declaration, texts that its own record in the output must contain
   (`declarationRecord`). -/
   records : Array (String × Array String) := #[]
+  /-- Why the cli partition's real `axiomGate --file` sweep leaves the fixture out, when the entry
+  states a reason (`fileAuditExclusion`); the in-process fixtures partition still checks it. -/
+  fileAuditExclusion : Option String := none
   deriving Repr
 
 /-- The checker executables the self-test's controls run from the repository's build. -/
@@ -503,7 +506,7 @@ private def loadFixtureManifest (layout : SourceLayout) (repo : FilePath) : IO
   let object ← IO.ofExcept value.getObj?
   let allowed :=
       #["expect", "reason", "reasons", "claim", "execution", "label", "pattern", "output",
-        "records"]
+        "records", "fileAuditExclusion"]
   let mut fixtures : Array FixtureSpec := #[]
   for moduleName in object.keysArray.qsort (· < ·) do
     let some source := library.sources.find? (·.«module» == moduleName.toName)
@@ -559,9 +562,12 @@ private def loadFixtureManifest (layout : SourceLayout) (repo : FilePath) : IO
         object.keysArray.qsort (· < ·) |>.mapM fun declaration => do
           let texts ← IO.ofExcept <| value.getObjVal? declaration
           return (declaration, ← jsonStringArray s!"{moduleName}.records.{declaration}" texts)
+    let fileAuditExclusion ← optionalString spec "fileAuditExclusion" moduleName
+    if fileAuditExclusion == some "" then
+      throw <| IO.userError s!"{moduleName}: fileAuditExclusion must state a reason"
     fixtures := fixtures.push {
       moduleName, source := source.source, expectation, reasons, claim, execution, label,
-          pattern, output, records }
+          pattern, output, records, fileAuditExclusion }
   if library.modules.size != fixtures.size then
     throw <| IO.userError <|
       s!"fixture manifest/Lake module count mismatch: {fixtures.size}/{library.modules.size}"
@@ -4452,8 +4458,14 @@ private def runCli (repo : FilePath) (jobs : Nat) (fullCli : Bool)
   let smokeFixtures := fixtures.filter (smokeFixtureNames.contains ·.moduleName)
   if smokeFixtures.size != smokeFixtureNames.size then
     failures.modify (·.push "smoke: expected smoke fixtures are missing from the manifest")
-  -- The build-bound sweep contains every smoke control; each runs once.
-  let cliFixtures := if fullCli then fixturesOfShard (by decide) shard fixtures else smokeFixtures
+  for fixture in smokeFixtures do
+    if fixture.fileAuditExclusion.isSome then
+      failures.modify (·.push s!"smoke: {fixture.moduleName} is excluded from the file audits")
+  -- The build-bound sweep contains every smoke control; each runs once. A fixture whose entry
+  -- states a `fileAuditExclusion` keeps its shard, so the exclusion moves no other fixture.
+  let selected := if fullCli then fixturesOfShard (by decide) shard fixtures else smokeFixtures
+  let cliFixtures := selected.filter (·.fileAuditExclusion.isNone)
+  let excluded := selected.filter (·.fileAuditExclusion.isSome)
   let cliLabel := if fullCli then "full CLI sweep" else "CLI smoke"
   let cliResults ← loggedPhase cliLabel <|
     mapConcurrent jobs cliFixtures (checkFixtureCli repo)
@@ -4461,6 +4473,9 @@ private def runCli (repo : FilePath) (jobs : Nat) (fullCli : Bool)
   IO.println <| s!"self-test {cliLabel}: " ++
     (if cliResults.all (·.isNone) then "PASS" else "FAIL") ++
     s!" ({cliFixtures.size} real axiomGate --file invocations)" ++ shardNote shard
+  for fixture in excluded do
+    IO.println s!"self-test {cliLabel}: {fixture.moduleName} not run through axiomGate --file \
+      (the fixtures partition checks it): {fixture.fileAuditExclusion.getD ""}"
   if runsIn shard cliAttributionShard then
     let refused ← loggedPhase "task manager" (taskManagerControl repo)
     appendFailure failures refused
