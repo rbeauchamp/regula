@@ -697,17 +697,39 @@ Assumes: Git `2.54.0`, `git(1)`, defines `--no-lazy-fetch`, `--no-optional-locks
 
 Git commands use the shared `Construction.gitEnvironment` observation. It asks Git for its repository-local environment names, then removes those variables and `GIT_NAMESPACE`. It disables system and global configuration. Commands also select `-c core.symlinks=false`. Cold drivers interpret this same observer before their Git invocation.
 
-This Git isolation covers commands that Regula starts. Lake's own Git calls inherit the caller's environment. This includes Lake children and in-process workspace loading. Those two boundaries are outside this guarantee.
+Lake starts its own Git commands with the environment of the process that runs Lake. This occurs in a Lake child and also in Regula's own process. There, Lake's loader can clone and examine dependencies, and a build can look for a prebuilt archive. Thus Regula isolates the environment of each process tree that runs Lake. `Construction.isolationEnvironment` removes Git's repository-local names and `GIT_NAMESPACE`, and it disables system and global configuration. It also sets `core.symlinks=false` in command scope with `GIT_CONFIG_COUNT`, `GIT_CONFIG_KEY_0` and `GIT_CONFIG_VALUE_0`.
+
+Git's repository-local list includes `GIT_CONFIG_COUNT`. Thus the environment of Regula's own Git commands removes that setting, and only those commands get that environment. Each other process that Regula starts with Git changes, such as a Lake child, gets `Construction.isolationEnvironment`.
+
+`Regula.TaskManager.guard` gives this environment to each compiled Regula program before the program runs. If the environment of the program does not have it, the guard starts the same executable again one time. The second process gets the same arguments, standard streams and working directory, with the isolated environment. Each process that the program starts gets the environment too. `Regula.TaskManagerCheck.checkProgram` requires the guard for each compiled program that can start a process. Regula's calls of Lake's loader refuse an interpreted caller that is not isolated, and they name the variables to change.
+
+The guard starts a program again only if the executable that operates is the file that Lake builds for that program (`Regula.GitIsolation.runsAs`). The guard compares the file name of `IO.appPath` with the name that `main` gives to the guard, with the extension of the platform. In all other processes without isolation, the guard refuses before the program operates, and it names the variables to change. Examples are a program that `lean --run` operates, a plugin of `lean` and a renamed copy of an executable. Thus a renamed copy of a Regula executable refuses without isolation, and it does not start again.
+
+The command `lake exe qualify observers` fails if an executable of the root package gives the guard a name other than its Lake name (`misnamed`). It also fails if that name is the name of a program of the Lean toolchain, such as `lean` (`toolchainNamed`). The executables of the packages `website` and `markdown` are outside that command. If one of them gives an incorrect name, it refuses without isolation and does not start again.
+
+The file name does not show how the process started. Thus the comparison is a diagnostic with a limit, and the isolation does not depend on it. A frontend that starts with the file name of a Regula executable, such as a hard link to `lean`, can start again. It then gets the restart argument, and it stops with a code that is not 0. Thus no process operates the program without isolation.
+
+The cold drivers get the same environment from the embedded source. They give it to each Lake command that they start, after the other changes of its environment. The theorem `Regula.GitIsolation.unisolated_eq_empty_iff` proves that the guard finds exactly the entries that an environment does not have. The theorem `Regula.GitIsolation.processEnvironment_isolated` proves that a process started with the isolated environment, after other changes, has all of them. Thus the guard starts a program again a maximum of one time.
+
+The operating system and the Lean runtime give the second process its environment, arguments, streams and working directory. These are trusted. The first process returns the exit status of the second process. Lean's wait gives `128 + n` if signal `n` stopped the second process, and the first process does not stop. A signal that goes only to the process ID of the first process does not go to the second process. A signal to the process group goes to the two processes.
+
+Git variables that are not in Git's repository-local list stay in the environment. Examples are `GIT_TEMPLATE_DIR`, `GIT_EXEC_PATH` and `GIT_SSH_COMMAND`. Regula's own Git commands also keep them. A Lake that a user starts, for example for `lake exe axiomGate`, can run Git commands before Regula starts. These commands get the environment of the user.
+
+The isolation changes what Lake does. Lake's Git commands do not read system or global Git configuration. Thus a private dependency fails to clone if the clone is possible only with a credential helper or a URL rewrite from that configuration. Put such a dependency in place before you run Regula, for example with `lake update`. A new clone writes each tracked link as a regular file that contains the target text. Git is necessary to start each compiled Regula program that can start a process.
+
+The controls of `Regula.Qualification.LakeGit` run in `qualify combined`. They give Lake the selectors of a competing private repository, a command configuration with `core.symlinks=true` and a malformed command configuration. The intended dependency has one tracked link. With isolation, a Lake child and a compiled program each put that dependency in place at its pinned commit. Lake's own parser finds it in the manifest, and the link is a regular file with the target text. The competing repository stays the same.
+
+With `core.symlinks=true` after the isolation, the link is a symbolic link. Without isolation, the same Lake child does not get the intended result. A program that starts a second time without isolation refuses. A hard link to a compiled program with a different name refuses without isolation. A program that `lean --run` operates refuses without isolation, and it operates with isolation. These are observations of Lake, Git, Lean and the operating system, not proofs.
 
 The initial list query removes `GIT_CONFIG_COUNT` and `GIT_CONFIG_PARAMETERS`. It performs no repository setup or repository configuration read. A malformed command-configuration variable cannot prevent the initial list observation.
 
-Assumes: Git `2.54.0` prints its repository-local list without repository setup or the subsequent configuration read (`builtin/rev-parse.c:717-722,734-740`). The list is `local_repo_env` (`environment.c:99-118`, `environment.h:73-78`).
+Assumes: Git `2.54.0` prints its repository-local list without repository setup or the subsequent configuration read (`builtin/rev-parse.c:757-762`, `git.c:647`). The list is `local_repo_env` (`environment.c:109-126`, `environment.h:7-85`).
 
-Assumes: Git `2.54.0` uses the two removed variables for command configuration (`config.c:667-720`). Removing `GIT_CONFIG_COUNT` makes its numbered key/value variables inert (`config.c:676-707`).
+Assumes: Git `2.54.0` uses the two removed variables for command configuration (`config.c:711-779`). Removing `GIT_CONFIG_COUNT` makes its numbered key/value variables inert (`config.c:721-758`).
 
-Assumes: Git `2.54.0` uses `GIT_NAMESPACE` to select reference namespaces (`environment.c:141-175`). It disables system configuration with `GIT_CONFIG_NOSYSTEM`. `GIT_CONFIG_GLOBAL` replaces the two global configuration paths (`config.c:1411-1427,1454-1468`). The POSIX `/dev/null` device supplies an empty file, which is trusted.
+Assumes: Git `2.54.0` uses `GIT_NAMESPACE` to select reference namespaces (`environment.c:151-187`). It disables system configuration with `GIT_CONFIG_NOSYSTEM`. `GIT_CONFIG_GLOBAL` replaces the two global configuration paths (`config.c:1498-1512`). The POSIX `/dev/null` device supplies an empty file, which is trusted.
 
-Assumes: Git `2.54.0` reads command-scope configuration after local and worktree scopes (`config.c:1470-1483`). Product callers give no competing command-scope `core.symlinks` setting. `core.symlinks=false` selects target-text files with their index link type (`git-config(1)`). Git interprets checkout status.
+Assumes: Git `2.54.0` reads command-scope configuration after local and worktree scopes (`config.c:1515-1581`). Product callers give no competing command-scope `core.symlinks` setting. `core.symlinks=false` selects target-text files with their index link type (`git-config(1)`). Git interprets checkout status.
 
 Assumes: Git `2.54.0` decodes configuration keys through its own decoder (`builtin/config.c:74-104,487-591,1264-1266`, `config.c:1492-1523`). No matching key gives exit 1. The adapter refuses an extension setting even when its value is false.
 
@@ -716,6 +738,16 @@ Assumes: Git `2.54.0` resolves metadata paths through `--git-path` (`builtin/rev
 Assumes: Git `2.54.0` resolves pointer files and common directories (`builtin/rev-parse.c:723-731`, `setup.c:303-324`). All captured metadata has no writer.
 
 Assumes: Lean `v4.34.1` applies process environment changes in order (`Init/System/IO.lean:1441-1448`). The shared observer's removals follow caller settings. Cold Git adapters pass the embedded source through stdin (`IO.Process.output`, `Init/System/IO.lean:1544-1557`, `--stdin --run`, `Lean/Shell.lean:497-518,552-560`). Interpreter fidelity remains trusted.
+
+Assumes: Lake `v4.34.1` starts each Git command with no environment of its own (`Lake/Util/Git.lean:87-100`, `Lake/Util/Proc.lean:29-34,61-80`). Lean then gives the command the environment of the process that runs Lake (`Init/System/IO.lean:1434-1450`).
+
+Assumes: Git `2.54.0` reads `GIT_CONFIG_COUNT` and the numbered keys and values below it in command scope (`config.c:711-779`, `config.c:622-628`). Git reads command scope after the other scopes (`config.c:1515-1581`). Git `2.31.0` added these variables, and Git `2.32.0` added `GIT_CONFIG_GLOBAL`.
+
+Assumes: Git `2.54.0` keeps `GIT_CONFIG_COUNT` for a command that it starts in a different repository (`run-command.c:1979-1994`). Thus a Git command that a Git command starts also gets `core.symlinks=false`.
+
+Assumes: Lean `v4.34.1` names the executable that runs with `IO.appPath` (`Init/System/IO.lean:952-955`). A child gets the streams, the working directory and the environment of its parent, with changes in sequence (`runtime/process.cpp:436-515`). Lean's wait gives `128 + n` for a child that signal `n` stopped (`runtime/process.cpp:354-367`).
+
+Assumes: Lake `v4.34.1` names the file of an executable with its `exeName` and the extension of the platform (`Lake/Config/LeanExe.lean:66-69`). The guard compares that name with the file name of `IO.appPath`.
 
 Assumes: Lake `v4.34.1` tests cleanliness with `git diff --exit-code HEAD` (`Util/Git.lean:198-203`). Matching-revision dependencies with changes get a warning (`Load/Materialize.lean:255-258`).
 
@@ -860,6 +892,11 @@ manager. The guard then writes one line with the reason to the standard error. T
 the refusal of the program and gives its result. The docstring of `taskManagerMissing` gives the
 lines of the Lean runtime that this observation uses.
 
+If Lean has a task manager, the guard then makes sure that the environment of the process has Git
+isolation (`Regula.GitIsolation.enter`). If Git is not available, or if a second start does not
+give an isolated environment, the guard also operates the refusal. The guard also operates the
+refusal in a process without isolation that is not the executable of the program.
+
 The refusal of a program reads its arguments with the parser of the program. For `axiomGate`, that
 parser also reads the internal worker forms. For `qualify`, it also reads the modes that an
 environment variable selects, such as the proxy of `axiomGate`. The reading also gives the files
@@ -925,15 +962,32 @@ function `RegulaRender.refuse`.
 
 The check `Regula.TaskManagerCheck.checkProgram` operates at the end of the root module of each
 executable. It examines `main` if the compiled code of `main` calls a function of the runtime that
-uses the task manager. Then `main` must be the guard applied to a string, the refusal and the
+uses the task manager or starts a process. Then `main` must be the guard applied to a string, the refusal and the
 program, with constants for the last two. Lean calculates the arguments of a function before it
 calls it, and these arguments operate no code. Also, the compiled code of the refusal must not call
-a function that uses the task manager. If a condition is false, the build of the module fails.
+a function that uses the task manager or starts a process. If a condition is false, the build of the module fails.
 
 The functions of the runtime that use the task manager are those of tasks, of promises and of the
 asynchronous input and output (`symbols`, `uvPrefix`). For example, `IO.Process.output` operates a
-task. The compiled code of `auditApp` calls none of these functions, thus that program has no
-guard.
+task. The function of the runtime that starts a process is `lean_io_process_spawn`
+(`processSymbol`), which `IO.Process.spawn` calls. The compiled code of `auditApp` calls none of
+these functions, thus that program has no guard.
+
+The code that initializes the linked modules operates before `main`, thus before the guard. That
+code is the actions of `[init]` declarations and the values of declarations without parameters
+(`Regula.Removal.initializersOf`). The check finds this code from the same compiler data that the C
+emitter of Lean uses to initialize a module. It refuses the program, whatever form `main` has, if
+that code can start a process (`initializersReached?`).
+
+A declaration only makes a value if its compiled code applies no closure and calls only runtime
+functions that calculate a value (`valueExterns`). The check does not follow such a
+declaration (`evaluatesValue`). It follows each other declaration through the declarations that it
+refers to, closures included. If a traversal stops at its bound, the check inspects each root.
+
+Lean's library has four exceptions, which `registrations` names in full. They register the builtin
+`bv_decide` tactics, and they keep closures in a reference. The check accepts them only if they do
+nothing more. It assumes that no initialization code elaborates these tactics. The removal check
+of `Regula.Removal` examines the same initialization code.
 
 A compiled program operates all its initializers before it starts the task manager, in each run.
 The value of `LEAN_NUM_THREADS` does not change that order. Thus no initializer has a task manager,
@@ -5366,10 +5420,13 @@ The `qualify` campaigns and what they observe:
 - `documentation-dependencies`: both documentation commands retain pre-build dependency
   observations, and the combined project/documentation positive remains distinct.
 - `receipt-boundaries`: timeout-selection and spawn failures (see
-  [Operational assumptions](#operational-assumptions)).
+  [Operational assumptions](#operational-assumptions)). It stops as unsupported, not as a pass,
+  if the Git of its `PATH` is outside the cases that it models. It also stops as unsupported if the
+  guard of a started program cannot query that Git with the `PATH` of the control.
 - `observers`: the record of the removal check of each program of the package, and the check of
   `Main`, the root of `auditApp`. It also refuses an executable with no record of the task-manager
-  check.
+  check. It also refuses a guard name that is not the Lake name of its executable, or that names a
+  program of the Lean toolchain.
 - `acceptance fences`: fence-compilation packet mutations with positive restoration.
 - `acceptance-snapshots`: `dependencies` (ignored Git and non-Git dependency input coverage and
   mutation), `history` ([RG3001] fresh, incremental and build-lint history refusal and restoration)

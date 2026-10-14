@@ -26,8 +26,9 @@ the copy reads it. The control copies `examples/fixtures/copy-relocation`, with 
   `odep` names the manifest `pins.olean`, which the control places from `placed/pins.json`.
 - `absolute-source` has a library whose `srcDir` is `__dir__ / "src"`, an absolute path.
 
-The control's Git commands and its workers run without the Git repository variables that their
-process inherits (`Construction.gitEnvironment`).
+The control's Git commands run without the Git repository variables that their process inherits
+(`Construction.gitProcessArgs`), and its workers under the Git isolation of a process tree
+(`Construction.isolationEnvironment`).
 
 Lake's load of a project, its copy, Git and the files they read are trusted IO that the control
 observes, not proves. -/
@@ -169,14 +170,15 @@ def checkAnswer (project : FilePath) (output : String) : IO Unit := do
     ⟨s!"the copy keeps the owned sources in vendor: {sources}", sources == ownedSources⟩]
 
 /-- The environment of a worker (`loadWorker`) that the control starts from its scratch directory
-`scratch`, with the changes `env` applied last. Git's repository variables are removed
-(`Construction.gitEnvironment`), and Git searches for no repository above `scratch`
-(`GIT_CEILING_DIRECTORIES`). That ceiling does not bound a `GIT_DIR`, so the removal is what keeps
-an inherited one from selecting its repository. -/
+`scratch`, with the changes `env` applied last. The worker runs under the Git isolation of a
+process tree (`Construction.isolationEnvironment`), which removes Git's repository variables, so
+it is isolated when it starts and does not start again (`Regula.TaskManager.guard`), and Git
+searches for no repository above `scratch` (`GIT_CEILING_DIRECTORIES`). That ceiling does not
+bound a `GIT_DIR`, so the removal is what keeps an inherited one from selecting its repository. -/
 def workerEnvironment (scratch : FilePath) (env : Array (String × Option String)) :
     IO (Array (String × Option String)) := do
   let ceiling ← IO.FS.realPath scratch
-  return (← Regula.Filesystem.Construction.gitEnvironment) ++
+  return (← Regula.Filesystem.Construction.isolationEnvironment) ++
     #[("GIT_CEILING_DIRECTORIES", some ceiling.toString)] ++ env
 
 /-- Run the worker (`loadWorker`) on the Git project at `project`, with its copy below `copies`, in

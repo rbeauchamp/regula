@@ -1576,6 +1576,22 @@ private def gitEnvironment : IO (Array (String × Option String)) := do
   unless out.exitCode == 0 do fail s!"Git environment unavailable: {out.stderr}"
   IO.ofExcept (fromJson? (← IO.ofExcept (Json.parse out.stdout)))
 
+/-- The Git isolation of a Lake command (`Regula.Filesystem.Construction.isolationEnvironment`),
+obtained as `gitEnvironment` obtains the Git environment, from the same embedded source, so the
+Git commands that Lake starts for it inherit it.
+
+Assumes: as for `gitEnvironment`; Construction.isolationEnvironment names the pinned Git and OS
+assumptions. -/
+private def isolationEnvironment : IO (Array (String × Option String)) := do
+  let out ← IO.Process.output {
+    cmd := ((← Lean.getBuildDir) / "bin/lean").toString
+    args := #["--stdin", "--run", "GitEnvironment.lean", "process-environment", "", ""]
+    env := #[("LEAN_PATH", none), ("LEAN_SRC_PATH", none)] }
+    ((include_str "../RegulaCore/CopyProgram.lean") ++
+      "\n/-- Cold environment entrypoint. -/\ndef main := Regula.Filesystem.Construction.sourceMain\n")
+  unless out.exitCode == 0 do fail s!"Git isolation unavailable: {out.stderr}"
+  IO.ofExcept (fromJson? (← IO.ofExcept (Json.parse out.stdout)))
+
 /-- Run `git` with `args` in the checkout; its standard output without surrounding whitespace, or
 a failure with its standard error. -/
 private def git (args : Array String) : IO String := do
@@ -1790,9 +1806,10 @@ private def messagesSince (prev : Version) : IO (List String) := do
     if m.isEmpty then none else some m
 
 /-- The version Lake reads from `lakefile.lean`: `lake reservoir-config`, whose `version` is what
-Reservoir indexes a version tag with. -/
+Reservoir indexes a version tag with. Lake runs under the Git isolation (`isolationEnvironment`). -/
 private def lakeVersion : IO Version := do
-  let out ← IO.Process.output { cmd := "lake", args := #["reservoir-config"] }
+  let out ← IO.Process.output {
+    cmd := "lake", args := #["reservoir-config"], env := ← isolationEnvironment }
   unless out.exitCode == 0 do fail s!"lake reservoir-config: {out.stderr}"
   let json ← IO.ofExcept (Json.parse out.stdout)
   let text ← IO.ofExcept (json.getObjValAs? String "version")
