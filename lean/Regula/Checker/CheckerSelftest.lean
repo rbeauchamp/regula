@@ -5357,9 +5357,10 @@ def refusalOf (selection : Selection) : IO (Option String) :=
 /-- Runs the qualification suite: one of the focused `--…-only` controls or the internal
 transcript worker when the arguments name it (`Selection.parse`), otherwise the baseline build and
 then the selected tiers or partition. It marks the files that the selection writes incomplete
-(`markIncomplete`), so a run that stops before its write leaves no earlier packet or digest there,
-then refuses a selection whose packet file it may not replace (`refusalOf`). Prints each failure
-and returns `1` when any control fails, `0` otherwise. -/
+(`markIncomplete`), so a run that stops before its write leaves no earlier packet or digest at a
+destination that it marked. It then refuses a selection whose packet file it may not replace
+(`refusalOf`): a packet file that is a symbolic link, for one, is refused and keeps whatever it
+points to. Prints each failure and returns `1` when any control fails, `0` otherwise. -/
 unsafe def run (args : List String) : IO UInt32 := do
   let selection ← IO.ofExcept ((Selection.parse args).mapError IO.userError)
   markIncomplete selection "the job has not completed"

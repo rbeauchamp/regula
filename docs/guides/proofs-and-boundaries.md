@@ -989,10 +989,14 @@ is refused, because the entry would depend on what the run makes. So is a prefix
 resolved, with the error of each read. Otherwise the entry is exactly that real path and those
 names, and the check and the move act on that entry.
 
-The verification driver imports only Lean, so it holds a copy of that writer for its acceptance
-link and its rule-example evidence. In `RegulaVerification.Decisions`, the theorems
-`regulaDocument_shared` and `plainNames_shared` prove that the copy decides as `regulaDocument` and
-`plainNames` do.
+The verification driver imports only Lean, so it has its own code that writes its acceptance link
+and its rule-example evidence. In `RegulaVerification.Decisions`, five theorems prove that its pure
+decisions are those of the programs. They are `regulaDocument_shared`, `plainNames_shared`,
+`ownershipDecision_shared`, `holdsSiteArtifact_shared` and `siteArtifactDecision_shared`. The
+reads, the writes and the renames around these decisions are written two times, and no theorem
+relates them. Unlike `Regula.Filesystem.replace` of the programs, the driver's rename does not
+observe the destination again before the move. It trusts that no process makes an entry there
+between its check and the move.
 
 Each program of the package checks the writes of its compiled code when it is built, as it checks
 its removals with `Regula.Removal.checkProgram`. A write is a call of `IO.FS.writeFile`,
