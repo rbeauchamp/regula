@@ -39,8 +39,8 @@ in self-audit shard 4/4.
 This is the honest-code boundary of `SECURITY.md` and `CONTEXT.md`: deliberate compiler or
 environment mutation, private-declaration access and arbitrary trusted plugins remain outside it.
 Each named pair admits its whole caller/primitive pair, including a second call of that primitive
-inside the same caller. A listed entry admits, on every path below its call, the pairs that it
-lists or, when it lists none, every primitive of its row.
+inside the same caller. A listed entry admits, on every path below its call, the pairs of its
+`below` or, when its `below` is `none`, every primitive of its row; `some []` admits no pair.
 Issue 389 owns the drivers' filesystem decisions. Lake's source configuration, builds and dependent
 programs remain trusted library behavior.
 

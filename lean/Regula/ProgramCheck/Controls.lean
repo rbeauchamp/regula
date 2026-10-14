@@ -27,7 +27,10 @@ with a variable of the caller's choice, and each refusal names the library's own
 primitive. So do such a read in a local module whose name starts with `Lake`, a process observer's
 role given in this module, and a declaration of this module named as a specialization of
 `Regula.Process.lakeEnvironment` that calls `Lake.LeanInstall.get` with `collocated := false`: the
-compiler recorded no such specialization. The same start through `Regula.Process.output`, the same read
+compiler recorded no such specialization. Below a listed entry that lists its pairs, a root
+`renderSite`'s call of a `Verso.Genre.Manual.manualMain` planted in this module, an environment read
+and a process start outside those pairs fail it, and `Std`'s timezone read, one of them, passes.
+The same start through `Regula.Process.output`, the same read
 through `Regula.Process.readEnv`, and the listed entries `Regula.Process.lakeEnvironment`,
 `Regula.Process.initSearchPath`, `Regula.Process.srcSearchPath` and the workspace load of
 `Regula.Checker.Workspace.withRootWorkspace` pass it. These controls compile each program, and start
@@ -333,6 +336,28 @@ run_cmd do
         discard <| Lake.LeanInstall.get "/planted" (collocated := false)))
   unless refused.any (·.contains "Lake.LeanInstall.get.getGithash calls IO.Process.output") do
     throwError "a declaration named as a specialization borrowed a listed entry: {refused}"
+
+-- Below the renderer's listed entries, `renderSite`'s call of `Verso.Genre.Manual.manualMain`,
+-- which this module plants in place of Verso's, a start or read is admitted only when the entry
+-- lists it.
+run_cmd do
+  let renderer (body : Term) : CommandElabM Unit := do
+    elabCommand (← `(command|
+      @[noinline] def $(mkIdent `_root_.Verso.Genre.Manual.manualMain) : IO Unit := $body))
+    elabCommand (← `(command|
+      @[noinline] def $(mkIdent `_root_.renderSite) : IO Unit :=
+        $(mkIdent `Verso.Genre.Manual.manualMain)))
+  for (label, body, cause) in [
+      ("environment", ← `(do discard <| IO.getEnv "PLANTED"),
+        "Verso.Genre.Manual.manualMain calls IO.getEnv"),
+      ("process", ← `(do discard <| IO.Process.output { cmd := "planted" }),
+        "Verso.Genre.Manual.manualMain calls IO.Process.output")] do
+    let refused ← refusal (mkConst `renderSite) (renderer body)
+    unless refused.any (·.contains cause) do
+      throwError "{label}: a renderer entry admitted a call that it does not list: {refused}"
+  if let some refused ← refusal (mkConst `renderSite)
+      (renderer (← `(do discard <| Std.Time.Database.TZdb.resolveLocalPath #[]))) then
+    throwError "the reach check refused a call that the renderer entry lists: {refused}"
 
 -- An arbitrary extern name bound to the process runtime symbol is detected as the same boundary.
 run_cmd do
