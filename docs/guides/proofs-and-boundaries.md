@@ -922,8 +922,10 @@ initialize the search path of Lean. Thus the guard also operates the refusal bef
 the reason that `Regula.TaskManager.startedReason` gives. It discards the exit code of the
 refusal, and then it operates the program. Thus each destination is marked incomplete before code
 of the program operates. If the run then stops before it writes a destination, the reader of the
-destination refuses the marked document. The refusals of `regula-site` and `regula-standard` move
-nothing for that reason, since a run that Verso starts keeps the write behaviour of Verso.
+destination refuses the marked document.
+
+The refusals of `regula-site` and `regula-standard` move nothing for that reason, since a run that
+Verso starts keeps the write behaviour of Verso.
 
 The run of a program also marks its destinations when it starts, with the same writer. The guard
 marks them earlier, before the first step of the program that can fail
@@ -1177,7 +1179,8 @@ the reason, or removed for the site artifact. For a production of `ruleExamples`
 
 The same control operates a bounded `qualify` with GNU `env` as its only `timeout`, which ends with
 status 125 before the command operates. The mark must then hold the status and the option that
-`env` refused.
+`env` refused. Each restricted `PATH` of the control also holds a link to Git, because the guard of
+each program queries Git before the program operates.
 
 The control also names files that are not documents of Regula as destinations. These are a request,
 a source, a hard link to a manifest, a Markdown document, a symbolic link and the configuration of a
@@ -1187,9 +1190,10 @@ refused. An empty file and a hard link to a result must be marked, and the other
 must keep its bytes.
 
 The controls of `regula-markdown`, which the documentation step operates, also refuse a run of
-`--write-baseline` with a later argument that the parser refuses, and stop one without `git`.
-Each must leave the mark of the guard. A later run must then write the baseline with the earlier
-entries. A baseline that is not UTF-8 text must be refused and keep its bytes.
+`--write-baseline` with a later argument that the parser refuses. They also stop one after its
+guard, with a Git index of the repository that is not an index. Each must leave the mark of the
+guard. With the index restored, a later run must then write the baseline with the earlier entries.
+A baseline that is not UTF-8 text must be refused and keep its bytes.
 
 The driver moves the pending record to `tmp/acceptance-link.json` only if
 `RegulaVerification.passed` accepts the exit status of each command. The driver does that move

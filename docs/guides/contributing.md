@@ -905,11 +905,12 @@ One more control is a repository with a baseline that Git does not track. The op
 must write no entry that has no document.
 
 A last control operates the program with `--write-baseline`. First a later argument that the
-parser refuses makes the run fail, and then a `PATH` without `git` makes the run stop early. Each
-time the file `prose-baseline.json` must hold the mark of the guard, with the earlier baseline,
-and check B1 must refuse it. A later run must write the baseline with the entries that
-the mark holds. A baseline that is not UTF-8 text is not a document that Regula wrote, so the
-run must refuse it with that reason and keep its bytes.
+parser refuses makes the run fail. Then the repository's Git index holds bytes that are not an
+index, so the run stops early when Git lists the tracked files. Each time the file
+`prose-baseline.json` must hold the mark of the guard, with the earlier baseline, and check B1
+must refuse it. A later run must write the baseline with the entries that the mark holds. The run
+must refuse a baseline that is not UTF-8 text, as a file that Regula did not write, and keep its
+bytes.
 
 The controls of these checks are in the same directory as the controls of the vocabulary. A
 control of C1 to C8 is a document with the extension `text`. A control of B1 or B2 is a baseline
