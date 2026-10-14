@@ -1,5 +1,6 @@
 import VersoManual
 import RegulaPolicy.Pattern
+import RegulaCore.Presence
 import RegulaCore.Standard
 import Regula.Checker.PolicyCodec
 
