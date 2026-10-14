@@ -226,8 +226,8 @@ name, the entries its `exportEntriesFn` returned (`computeExtEntries`, `Lean/Env
 lines 1837 to 1856), an import places them in the state of the extension of that name as the
 module's entries (`setImportedEntries`, lines 1931 to 1949), and `getModuleEntries` returns a
 module's entries from the state at the extension's index at the extension's entry type (lines
-1671 to 1680). An empty environment holds the initial state of each registered extension (lines
-1530 to 1545), and `EnvExtension.modifyState` with `asyncMode := .local` writes the state at the
+1671 to 1677). An empty environment holds the initial state of each registered extension (lines
+1530 to 1544), and `EnvExtension.modifyState` with `asyncMode := .local` writes the state at the
 extension's index in the array that `getModuleEntries` reads at its default level (lines 1406,
 1416 and 1417, and 1360 to 1369). -/
 def recordEntries (data : ModuleData) : IO (Array RegulaObserver.Record) := do
