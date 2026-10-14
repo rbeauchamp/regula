@@ -28,13 +28,17 @@ tasks stay uncached. -/
 namespace Regula.Qualification.RuleExamples
 open Lean System RegulaQualification.Evidence
 
-private def get (j : Json) (key : String) : IO Json := IO.ofExcept (value j key)
+/-- The required member `key` of `j`, whole (`Member.value`): for a comparison by agreement, an
+expected value or a copy into a record. -/
+private def whole (j : Json) (key : String) : IO Json := IO.ofExcept (value j key)
+/-- The required object member `key` of `j` (`Member.object`). -/
+private def obj (j : Json) (key : String) : IO Json := IO.ofExcept (object j key)
 private def string (j : Json) (key : String) : IO String := IO.ofExcept (text j key)
 private def entries (j : Json) (key : String) : IO (Array Json) := IO.ofExcept (array j key)
 private def optionalText (j : Json) (key fallback : String) : IO String :=
   match value j key with
   | .error _ => pure fallback
-  | .ok found => IO.ofExcept found.getStr?
+  | .ok _ => IO.ofExcept (text j key)
 
 /-- Producer-window environment: the scrub plus no-optional-write Git and an empty
 `LAKE_CACHE_DIR`, which confines Lake's artifact cache to each workspace's own `.lake/cache`,
@@ -207,13 +211,19 @@ private structure Context where
   rawDirectory : FilePath
   cache : IO.Ref SnapshotCache
 
+/-- A documentation snippet range as a rule's specification writes it: `[start, stop, origin]`, the
+byte offsets of the snippet in the example's source and its document's path below `docs`. -/
+private def snippetRange (range : Json) : Except String (Nat × Nat × String) := do
+  let #[start, stop, origin] := (← range.getArr?) | throw "expected [start, stop, origin]"
+  return (← start.getNat?, ← stop.getNat?, ← origin.getStr?)
+
 /-- Produce one record in its own fresh workspace over the shared ROOT copy. Direct
 children are waited and stream holders closed before return (`observe`/`run`;
 joined-worker discipline, no universal grandchild claim). -/
 private def produce (ctx : Context) (slot : Slot.ProducerSlot) (rule phase : String)
     (sourceText : Option String := none) (producerClaim : Option String := none) : IO Json := do
   let root := ctx.root
-  let spec ← get ctx.specs rule
+  let spec ← obj ctx.specs rule
   let case := if phase == "Violation" then "Violation" else "Fixed"
   let project := ctx.scratch / s!"{rule}-{phase}"
   IO.FS.createDir project
@@ -398,17 +408,17 @@ private def produce (ctx : Context) (slot : Slot.ProducerSlot) (rule phase : Str
     ("$DOCS", (project / "docs").toString)]
   if mode == "project" then
     let captured ← match value observed "sourceAccount" with
-      | .ok value => IO.ofExcept value.getArr?
+      | .ok _ => entries observed "sourceAccount"
       | .error _ => pure #[]
     -- The audited sources, by module and path: the source account's, or else the scope's.
-    let listed ← if captured.isEmpty then entries (← get observed "scope") "sources"
+    let listed ← if captured.isEmpty then entries (← obj observed "scope") "sources"
       else pure captured
     let moduleKey := if captured.isEmpty then "module" else "moduleName"
     let account ← listed.mapM fun s => do
-      return Json.mkObj [("module", ← get s moduleKey), ("path", ← get s "path"),
-        ("source", ← get s "sourceText")]
+      return Json.mkObj [("module", ← whole s moduleKey), ("path", ← whole s "path"),
+        ("source", ← whole s "sourceText")]
     let candidates ← account.filterM fun s =>
-      return Regula.JsonAgreement.conforms (← get s "module") (nameJson "Example")
+      return Regula.JsonAgreement.conforms (← whole s "module") (nameJson "Example")
     let #[_] := candidates | throw <| IO.userError "project example source account mismatch"
     let originalSources ← entries before "sources"
     -- Each audited source is the fresh copy of exactly one frozen source: the same bytes at
@@ -424,34 +434,32 @@ private def produce (ctx : Context) (slot : Slot.ProducerSlot) (rule phase : Str
       requireChecks [⟨s!"project source binding {actualPath}", originals.size == 1⟩,
         ⟨"fresh project source belongs to owned copy", actualPath.startsWith
             ((Regula.Scratch.directory project).toString ++ "/")⟩]
-      if Regula.JsonAgreement.conforms (← get item "module") (nameJson "Example") then
+      if Regula.JsonAgreement.conforms (← whole item "module") (nameJson "Example") then
         replacements := ("$SOURCE", actualPath) :: replacements.filter (·.1 != "$SOURCE")
       aliases := aliases.push (Json.mkObj [("uri", .str actualPath), ("source", .str actualSource)])
     before := before.setObjVal! "sources" (toJson (originalSources ++ aliases))
     after := after.setObjVal! "sources" (toJson ((← entries after "sources") ++ aliases))
   if mode == "documentation" && case == "Violation" then
-    if let .ok raw := value spec "snippet" then
-      let values ← IO.ofExcept raw.getArr?
-      let #[start, stop, origin] := values | throw <| IO.userError "invalid snippet range"
-      let start ← IO.ofExcept start.getNat?
-      let stop ← IO.ofExcept stop.getNat?
+    if let .ok _ := value spec "snippet" then
+      let (start, stop, origin) ← IO.ofExcept (RegulaQualification.Member.decoded snippetRange spec
+        "snippet")
       let bytes ← IO.FS.readBinFile sourcePath
       requireChecks [⟨"snippet byte bounds", start ≤ stop && stop ≤ bytes.size⟩]
       let some snippet := String.fromUTF8? (bytes.extract start stop) | throw <|
                                                                          IO.userError
                                                                              "invalid UTF-8 snippet"
-      let uri := (project / "docs").toString ++ "/" ++ (← IO.ofExcept origin.getStr?) ++
+      let uri := (project / "docs").toString ++ "/" ++ origin ++
           "#lean-snippet"
       replacements := [("$SNIPPET_URI", uri), ("$SNIPPET_TEXT", snippet)] ++ replacements
       let sourceAlias := Json.mkObj [("uri", .str uri), ("source", .str snippet)]
       before := before.setObjVal! "sources" (toJson ((← entries before "sources").push sourceAlias))
       after := after.setObjVal! "sources" (toJson ((← entries after "sources").push sourceAlias))
   let expected ← if case == "Fixed" then pure (toJson (#[] : Array Json)) else do
-    let template ← get spec "diagnostics"
+    let template ← whole spec "diagnostics"
     pure (← IO.ofExcept (RegulaQualification.Template.instantiate
       (RegulaQualification.Template.replace replacements) 64 template)).val
   let record := Regula.Checker.RuleExampleProjection.record [
-    ("rule", .str rule), ("phase", .str phase), ("kind", .str kind), ("mode", ← get spec "mode"),
+    ("rule", .str rule), ("phase", .str phase), ("kind", .str kind), ("mode", ← whole spec "mode"),
     ("sourcePath", .str s!"examples/rules/{rule}/{sourceName}"), ("source", .str displayed),
     ("command", toJson (#[binary.toString] ++ command)),
     ("exitCode", toJson execution.exitCode.toNat),
@@ -706,14 +714,14 @@ def check (evidence : FilePath) (selection : Option (Array String))
           | some ("RG1005", "WrongClaim") =>
             requireChecks
                 [⟨"Standard-Logical producer control completes",
-                  Regula.JsonAgreement.conforms (← get record "exitCode") (toJson (0 : Nat)) &&
-                    (← string (← get record "result") "status") == "completed"⟩]
+                  Regula.JsonAgreement.conforms (← whole record "exitCode") (toJson (0 : Nat)) &&
+                    (← string (← obj record "result") "status") == "completed"⟩]
             admitRecord ctx record (some "producer request differs from frozen example request")
           | _ =>
             requireChecks
                 [⟨"nonpositive documentation classifies",
-                  Regula.JsonAgreement.conforms (← get record "exitCode") (toJson (0 : Nat)) &&
-                    (← string (← get record "result") "status") == "classified"⟩]
+                  Regula.JsonAgreement.conforms (← whole record "exitCode") (toJson (0 : Nat)) &&
+                    (← string (← obj record "result") "status") == "classified"⟩]
             admitRecord ctx record
                 (some "documentation correction requires completed positive fences")
     finally
@@ -727,14 +735,21 @@ def check (evidence : FilePath) (selection : Option (Array String))
     for record in records do
       let rule ← string record "rule"
       unless rule == sharedTheoremTypeRules.1 || rule == sharedTheoremTypeRules.2 do continue
-      let report ← get record "result"
-      let account ← IO.ofExcept (RegulaQualification.Producer.account report)
-      let declarations ← entries account "declarations"
-      let some declaration := declarations[0]? | throw <| IO.userError "missing theorem declaration"
-      let expectedType := theoremType.getD (← get declaration "type")
+      let report ← obj record "result"
+      -- A refusal of the result names the result file the producer wrote, as the producer
+      -- campaign's does (`readMember`).
+      let resultPath ← string (← obj (← obj record "rawObservation") "registration") "resultPath"
+      let fromResult {α : Type} (decoded : Except String α) : IO α := readMember resultPath decoded
+      let account ← fromResult (RegulaQualification.Producer.account report)
+      let declarations ← fromResult (RegulaQualification.Member.array account "declarations")
+      let declaration ← fromResult do
+        let some declaration := declarations[0]? | throw "missing theorem declaration"
+        pure declaration
+      let expectedType := theoremType.getD
+        (← fromResult (RegulaQualification.Member.value declaration "type"))
       theoremType := some expectedType
       let phase ← string record "phase"
-      IO.ofExcept (RegulaQualification.Producer.checked_validation.run report
+      fromResult (RegulaQualification.Producer.checked_validation.run report
         (← IO.ofExcept (RegulaQualification.Member.get Nat record "exitCode")) rule "freshProject"
         (← string record "source")
         (phase == "Fixed") expectedType)

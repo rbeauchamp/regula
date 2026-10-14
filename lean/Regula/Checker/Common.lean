@@ -536,9 +536,10 @@ as a declaration's field, then the observer's `needs` entry (`observerNeedLean`)
 requires of each such target. A target that this function or `observedTargetToml` writes has the
 entry; that is a property of their output, not of every generated configuration. Two kinds of
 generated target do not go through them: the self-test's reconstruction of the repository's own
-package (`CheckerSelftest.structuralProject`), which copies each library's and executable's own
-`needs` and plugins from the repository's Lake configuration, so that it reproduces them rather
-than restating them; and the refusal controls, whose targets omit or remove the entry on purpose
+package (`CheckerSelftest.structuralProject`), which keeps the observer's `plugins` and `needs`
+entries of each library and executable in the repository's Lake configuration and leaves out
+every other `needs` entry on purpose, such as the input file of the library `Regula`, since the
+project holds only the modules that its targets build (`CheckerSelftest.renderNeeds`); and the refusal controls, whose targets omit or remove the entry on purpose
 (the RG2006 negative controls) or must be refused for another reason. Its package loads the
 observer as a plugin
 (`observerPluginLean`), which Lake gives each of its targets, so the declaration names no plugin of

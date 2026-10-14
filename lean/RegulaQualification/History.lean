@@ -104,13 +104,14 @@ private def rootChecks (unsupported : Bool) (root : Json) : Except String (List 
           nodes.all (fun node => names.any (decide <| Conforms · node)))]
   for i in [:visits.size] do
     let visit := visits[i]!
-    let parent ← value visit "parent"
+    -- A root visit has the parent `null`; every other visit names its parent by index.
+    let parent ← Member.get (Option Nat) visit "parent"
     let name ← value visit "name"
-    if parent matches .null then
+    match parent with
+    | none =>
       checks := checks ++
         [⟨"root visit has no parent", i == 0 && decide (Conforms name (← value root "name"))⟩]
-    else
-      let index ← parent.getNat?
+    | some index =>
       let predecessor ← match visits[index]? with
         | some predecessor => value predecessor "name"
         | none => throw "parent outside traversal"
@@ -151,7 +152,7 @@ def closureRequirements (account ownModule : Json) (source : String) (unsupporte
   let privateRoot ← value (← object contract "executableContract") "root"
   let census ← array (← object account "census") "declarations"
   let unregistered ← declarations.toList.filterMapM fun entry => do
-    let name ← Regula.RegistryCodec.parsePrintedNameJson (← value entry "name")
+    let name ← Member.decoded Regula.RegistryCodec.parsePrintedNameJson entry "name"
     return if name matches .str _ "unregistered" then some entry else none
   let [unregistered] := unregistered | throw "missing or repeated private unregistered root"
   let hidden ← value unregistered "name"
