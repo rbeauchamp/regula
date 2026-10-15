@@ -1,6 +1,7 @@
 import Lean
 import Regula.Checker.ModuleName
 import Regula.Process
+import RegulaCore.Presence
 
 /-! # Frontend rejection diagnostics
 
@@ -10,23 +11,17 @@ namespace Regula.Checker.Diagnostics
 
 open Lean
 
-/-- Unlike `pathExists`, preserve permission and other setup errors. -/
-private def metadata? (path : System.FilePath) : IO (Option IO.FS.Metadata) := do
-  match ← path.metadata.toBaseIO with
-  | .ok data => return some data
-  | .error (.noFileOrDirectory ..) => return none
-  | .error error => throw error
-
-/-- Lean's first matching module-root resolution, with setup errors retained. -/
+/-- Lean's first matching module-root resolution (`Lean.SearchPath.findWithExt`), with setup errors
+retained: unlike Lean's, which reads with `System.FilePath.isDir` and `pathExists`, it reads with
+`Regula.Filesystem.isDirectory` and `isPresent`, which give absence only when nothing is there. -/
 private def sourceImportPath? (name : Name) : IO (Option System.FilePath) := do
   let root := name.getRoot.toString (escape := false)
   for directory in ← searchPathRef.get do
-    let rootData ← metadata? (directory / root)
-    let hasRoot ← if rootData.any (·.type == .dir) then pure true
-      else pure (← metadata? ((directory / root).addExtension "olean")).isSome
+    let hasRoot ← if ← Regula.Filesystem.isDirectory (directory / root) then pure true
+      else Regula.Filesystem.isPresent ((directory / root).addExtension "olean")
     if hasRoot then
       let path := Lean.modToFilePath directory name "olean"
-      return if (← metadata? path).isSome then some path else none
+      return if ← Regula.Filesystem.isPresent path then some path else none
   return none
 
 private def errorStrings (messages : MessageLog) : IO (Array String) := do

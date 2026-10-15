@@ -34,7 +34,7 @@ def checkValidators (root : FilePath) : IO Unit := do
     unless exported.exitCode == 0 do
       throw <| IO.userError s!"--registry-out failed\n{exported.stdout}{exported.stderr}"
     let manifest ← readJson registry
-    let rules ← IO.ofExcept (manifest.getObjValAs? (Array Json) "rules")
+    let rules ← readMember registry (RegulaQualification.Member.array manifest "rules")
     let firstRule (f : Json → Json) : Json :=
       manifest.setObjVal! "rules" (toJson (rules.modify 0 f))
     let candidate := scratch / "candidate.json"
@@ -79,7 +79,10 @@ def check : IO Unit := do
   withScratch root "registry-cli" fun scratch => do
     let output := scratch / "result.json"
     for arguments in cases root scratch output do
-      writeJson output (Json.mkObj [("status", .str "completed"), ("old", .bool true)])
+      -- A completed result of an earlier version, which the run may replace
+      -- (`Regula.Destination.regulaDocument`).
+      let earlier ← IO.ofExcept (Json.parse Regula.Destination.earlierResult)
+      writeJson output (earlier.setObjVal! "old" (.bool true))
       let result ← run root (.stated (root / ".lake/build/bin/axiomGate").toString "The caller selects this resolved non-toolchain executable")
         (#["--json-out", output.toString] ++ arguments)
       let report ← readJson output

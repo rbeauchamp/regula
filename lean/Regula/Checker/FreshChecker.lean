@@ -319,31 +319,44 @@ private def targetsOf (read : List (Lint.Arg Setting)) (root : Except IO.Error F
     (path, if path.isAbsolute then .ok path else root.map (resolve · path))
 
 /-- Mark each target incomplete with the unresolved reason `reason`, each on its own, so one
-failure leaves no other unmarked; return a line for each that could not be marked. -/
+failure leaves no other unmarked; return a line for each that could not be marked, such as a
+file that is not empty or a document of Regula (`Regula.Destination.writeJson`). -/
 private def markIncomplete (targets : List (FilePath × Except IO.Error FilePath))
     (reason : String) : IO (Array String) := do
   let mut failed := #[]
   for (path, target) in targets do
     let result ← match target with
-      | .ok target => (writeJson target (Json.mkObj [("mode", .str "serializedGraph"),
-          ("status", .str "incomplete"), ("unresolved", toJson #[reason])])).toBaseIO
+      | .ok target => (Regula.Destination.writeJson target (Json.mkObj
+          [("mode", .str "serializedGraph"), ("status", .str "incomplete"),
+            ("unresolved", toJson #[reason])])).toBaseIO
       | .error error => pure (.error error)
     if let .error error := result then failed := failed.push s!"{path}: {error}"
   return failed
 
-/-- The refusal of a run in a process without Lean's task manager, which the guard of the
-executable runs (`Regula.TaskManager.guard`): it reads the arguments once and finds their root
-once, as `run` does, marks every `--json-out` destination of that reading incomplete with
-`reason`, and returns `1`. No check runs. -/
+/-- The reason to refuse the reading `read` with its root `root`, if a `--json-out` destination
+holds something that the run may not replace, or two of them may be one entry
+(`Regula.Destination.refusal`). The guard marks each destination before the run reads its inputs
+(`Regula.TaskManager.guard`), and the mark replaces only an empty file or a document of Regula
+(`markIncomplete`), so a file that the run reads is never replaced otherwise. -/
+private def refusalOf (read : List (Lint.Arg Setting)) (root : Except IO.Error FilePath) :
+    IO (Option String) :=
+  Regula.Destination.refusal ((targetsOf read root).filterMap fun (_, target) => target.toOption)
+
+/-- The refusal of a run, which the guard of the executable runs before each run and, in a process
+without Lean's task manager, in the run's place (`Regula.TaskManager.guard`): it reads the
+arguments once and finds their root once, as `run` does, marks every `--json-out` destination of
+that reading incomplete with `reason`, and returns `1`. No check runs. -/
 def refuseWithoutTaskManager (reason : String) (args : List String) : IO UInt32 := do
   let read := arguments args
-  for line in ← markIncomplete (targetsOf read (← (rootOf read).toBaseIO)) reason do
+  let root ← (rootOf read).toBaseIO
+  for line in ← markIncomplete (targetsOf read root) reason do
     IO.eprintln s!"freshChecker: could not mark {line} incomplete"
   return 1
 
 /-- Runs the serialized-graph qualification: reads its arguments once, marks every `--json-out`
-destination of that reading incomplete, each on its own, and then refuses arguments that do not
-parse; otherwise it builds the plan, and unless `--plan-only` builds the positive targets, runs
+destination of that reading that it may replace incomplete, each on its own, then refuses a
+reading whose destinations it may not replace (`refusalOf`), and arguments that do not parse;
+otherwise it builds the plan, and unless `--plan-only` builds the positive targets, runs
 `leanchecker --fresh` on each root, rechecks the captured inputs and admits the result through
 `RegulaPolicy.finalize`, then writes the JSON result when requested. `lake` and `leanchecker` are
 the toolchain's own, run by their paths in its identity-checked installation
@@ -359,6 +372,7 @@ unsafe def run (args : List String) : IO UInt32 := do
   -- does not need project discovery; a relative one keeps the public repo-root meaning.
   let targets := targetsOf read root
   let failed ← markIncomplete targets "graph audit has not completed"
+  if let some reason ← refusalOf read root then throw <| IO.userError s!"refused: {reason}"
   let options ← IO.ofExcept (parsed.mapError IO.userError)
   unless failed.isEmpty do
     throw <| IO.userError s!"could not mark incomplete: {"; ".intercalate failed.toList}"
@@ -411,7 +425,7 @@ unsafe def run (args : List String) : IO UInt32 := do
           value.setObjVal! "status" (.str (if options.planOnly then "planned" else "incomplete"))
     -- The last destination of the reading, as `parseArgs` keeps it, where it was marked.
     match targets.find? (·.1 == path) with
-    | some (_, target) => writeJson (← IO.ofExcept target) value
+    | some (_, target) => writeDestination (← IO.ofExcept target) value
     | none => throw <| IO.userError s!"{path} was not marked incomplete"
   IO.println
       s!"Lake modules: {plan.modules.size}   fresh roots: {", ".intercalate plan.roots.toList}"
@@ -449,10 +463,11 @@ unsafe def main : List String → IO UInt32 :=
   Regula.TaskManager.guard "freshChecker" Regula.Checker.FreshChecker.refuseWithoutTaskManager
     freshCheckerMain
 
--- The removals that the compiled code of `main`, and of the initializers of the modules it links,
--- reaches are the filesystem observer's and those that `Regula.Removal.libraryRemovals` lists: the
--- build of this module fails otherwise (`Regula.Removal.checkProgram`).
-run_cmd Regula.Removal.checkProgram
+-- The removals and the writes that the compiled code of the program reaches from its roots
+-- (`Regula.Removal.rawRemovals`) are those of the filesystem observer and those that
+-- `Regula.Removal.sharedPairs` lists: the build of this module fails otherwise
+-- (`Regula.Removal.checkProgram`). The program elaborates Lean source, so its check states it.
+run_cmd Regula.Removal.checkProgram (elaborates := true)
 
 -- A program that needs Lean's task manager starts through its guard (`Regula.TaskManager.guard`),
 -- and its refusal needs none: the build of this module fails otherwise

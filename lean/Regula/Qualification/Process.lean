@@ -23,6 +23,15 @@ namespace Regula.Qualification.Process
 
 open Lean System
 
+/-- Write `text` at `path` through the writer of `Regula.Filesystem` (`writeReplacing`), which
+makes its directory. Each control writes only below a directory that it owns. -/
+private def writeText (path : FilePath) (text : String) : IO Unit :=
+  Regula.Filesystem.writeReplacing path text.toUTF8
+
+/-- Make the directory `path` and its absent ancestors (`Regula.Filesystem.ownRoot`). -/
+private def makeDirectory (path : FilePath) : IO Unit :=
+  discard <| Regula.Filesystem.ownRoot path
+
 namespace Sources
 
 /-- The committed Lake configuration; no run-time values are embedded in source. -/
@@ -66,8 +75,8 @@ regions as `Lean/ImportingFlag.lean:18-28` requires. Compiler and imports remain
 private def importedProjectControl (directory : FilePath) : IO Unit := do
   let source := directory / "Regula" / "ProjectCaller.lean"
   let artifact := source.withExtension "olean"
-  IO.FS.createDirAll (directory / "Regula")
-  IO.FS.writeFile source Sources.projectCaller
+  makeDirectory (directory / "Regula")
+  writeText source Sources.projectCaller
   let compiled ← run directory (.toolchain .lean)
     #["-R", directory.toString, "-o", artifact.toString, source.toString]
   requireChecks [⟨"imported project control: actual source compiled", compiled.exitCode == 0⟩]
@@ -82,9 +91,9 @@ private def importedProjectControl (directory : FilePath) : IO Unit := do
   requireChecks [⟨"imported project control: actual caller module is recorded",
       env.header.moduleNames[index.toNat]! == `Regula.ProjectCaller⟩,
     ⟨"imported project control: genuine Lake module is a toolchain module",
-      Regula.Removal.libraryCaller env Regula.Removal.toolchainRoots `Lake.captureProc'⟩,
+      Regula.Removal.toolchainCaller env `Lake.captureProc'⟩,
     ⟨"imported project control: project module is outside the toolchain's modules",
-      !Regula.Removal.libraryCaller env Regula.Removal.toolchainRoots caller⟩]
+      !Regula.Removal.toolchainCaller env caller⟩]
   for (root, maker, primitive) in [(caller, caller, ``IO.getEnv),
       (`Regula.ProjectCaller.start, ``Lake.captureProc', ``IO.Process.output),
       (`Std.Time.Database.TZdb.resolveLocalPath, `Std.Time.Database.TZdb.resolveLocalPath,
@@ -102,13 +111,13 @@ authentication or a proof of arbitrary package contents. Assumes: Lake v4.34.1
 `Load/Resolve.lean:603-607` overlays Manifest entries with the workspace override file, and
 `Load/Manifest.lean:300-317` supplies that file's decoder and encoder. No dependency is copied. -/
 private def manifestSelectionControl (directory : FilePath) : IO Unit := do
-  IO.FS.createDirAll directory
-  IO.FS.writeFile (directory / "lean-toolchain") s!"leanprover/lean4:v{Lean.versionString}\n"
-  IO.FS.writeFile (directory / "lakefile.lean") Sources.selection
+  makeDirectory directory
+  writeText (directory / "lean-toolchain") s!"leanprover/lean4:v{Lean.versionString}\n"
+  writeText (directory / "lakefile.lean") Sources.selection
   for name in ["committed", "overridden"] do
     let dependency := directory / name
-    IO.FS.createDirAll dependency
-    IO.FS.writeFile (dependency / "lakefile.lean") Sources.selectedDependency
+    makeDirectory dependency
+    writeText (dependency / "lakefile.lean") Sources.selectedDependency
   let committed : _root_.Lake.PackageEntry := {
     name := `verso, inherited := false, src := .path "committed" }
   let manifest : _root_.Lake.Manifest := {
@@ -157,8 +166,8 @@ def worker (args : List String := []) : IO UInt32 := do
     return 0
   let some marker ← Regula.Process.readEnv "REGULA_PROCESS_MARKER"
     | throw <| IO.userError "process control has no marker"
-  IO.FS.writeFile marker "shadow ran\n"
-  IO.FS.writeFile (System.FilePath.mk marker |>.addExtension "program")
+  writeText marker "shadow ran\n"
+  writeText (System.FilePath.mk marker |>.addExtension "program")
     (← IO.FS.realPath (← Regula.Process.appPath)).toString
   IO.println "regula process shadow ran"
   return 73
@@ -231,7 +240,7 @@ def cadicalWorker (route : Option String) : IO UInt32 := do
 /-- Make one owned native shadow from the current qualification executable.
 This is a filesystem/process control, not a proof that copying or chmod is correct. -/
 private def shadow (executable path : FilePath) : IO Unit := do
-  IO.FS.writeBinFile path (← IO.FS.readBinFile executable)
+  Regula.Filesystem.writeReplacing path (← IO.FS.readBinFile executable)
   let mode ← run (path.parent.getD ".")
     (.stated "/bin/chmod" "Make this owned native process fixture executable")
     #["755", path.toString]
@@ -245,10 +254,10 @@ private def marked (marker : FilePath) (expected : String) : IO Bool := do
 
 /-- One tiny native-build workspace, with no dependency or copied toolchain. -/
 private def nativeProject (project : FilePath) : IO Unit := do
-  IO.FS.createDirAll project
-  IO.FS.writeFile (project / "lean-toolchain") s!"leanprover/lean4:v{Lean.versionString}\n"
-  IO.FS.writeFile (project / "lakefile.lean") Sources.lakefile
-  IO.FS.writeFile (project / "ProcessFixture.lean") Sources.native
+  makeDirectory project
+  writeText (project / "lean-toolchain") s!"leanprover/lean4:v{Lean.versionString}\n"
+  writeText (project / "lakefile.lean") Sources.lakefile
+  writeText (project / "ProcessFixture.lean") Sources.native
 
 /-- One owned workspace's planted route, selected by Lake's package model and environment. -/
 private structure Fixture where
@@ -267,7 +276,7 @@ private def plant (root executable marker : FilePath) : IO Fixture := do
   let (bin, env) ← Regula.Checker.Workspace.withRootWorkspace root
     (fun workspace => pure (workspace.root.binDir, workspace.augmentedEnvVars))
     (resolveDependencies := false)
-  IO.FS.createDirAll bin
+  makeDirectory bin
   for tool in #[Regula.Process.Tool.lean, .lake, .leanchecker, .clang, .llvmAr, .cadical] do
     shadow executable (bin / tool.basename)
   return ⟨root, bin, marker, env ++ #[
@@ -309,16 +318,16 @@ Successful absolute-override preparation restores the boundary positive. -/
 private def missingNativeControl (fixture : Fixture) (executable : FilePath)
     (tool : Regula.Process.Tool) (fallback : String) : IO Unit := do
   let installation := fixture.root / "candidate"
-  IO.FS.createDirAll (installation / "bin")
+  makeDirectory (installation / "bin")
   shadow executable (installation / "bin" / "lean")
   -- The positive prepares this path but does not execute it.
-  IO.FS.writeFile (installation / "bin" / "lake") ""
+  writeText (installation / "bin" / "lake") ""
   let operation := if tool == .clang then "cc" else "ar"
   let image := fixture.bin / operation
   shadow executable image
   let source := fixture.root / "NativeFallback.lean"
-  IO.FS.writeFile source Sources.nativeFallback
-  IO.FS.writeFile (fixture.root / "control.c") "int control(void) { return 0; }\n"
+  writeText source Sources.nativeFallback
+  writeText (fixture.root / "control.c") "int control(void) { return 0; }\n"
   let cleared := fixture.env ++ Regula.Process.overrideVariables.map fun name => (name, none)
   let raw ← run fixture.root (.toolchain .lean)
     #["--run", source.toString, installation.toString, operation, fixture.root.toString] cleared
@@ -337,7 +346,7 @@ private def missingNativeControl (fixture : Fixture) (executable : FilePath)
       #["--process-native-fallback", mode, fixture.root.toString] env
     requireChecks [⟨"missing native bundle: intended installation refusal",
       result.exitCode == 2 && result.stderr.contains s!"installation has no bundled {tool.basename} and no stable absolute override; Lake's bare native-tool fallback is refused"⟩,
-      ⟨"missing native bundle: no workspace native tool started", !(← fixture.marker.pathExists)⟩]
+      ⟨"missing native bundle: no workspace native tool started", !(← Regula.Filesystem.isPresent fixture.marker)⟩]
   let bare := #[(fallback, some tool.basename)]
   let bareRun ← run fixture.root (.toolchain .lean)
     #["--run", source.toString, installation.toString, operation, fixture.root.toString]
@@ -351,7 +360,7 @@ private def missingNativeControl (fixture : Fixture) (executable : FilePath)
     requireChecks [⟨s!"missing native bundle: intended {fallback} refusal",
       result.exitCode == 2 && result.stderr.contains
         s!"invalid {fallback} override: process selection requires an absolute path: {tool.basename}"⟩,
-      ⟨s!"missing native bundle: no workspace {tool.basename} started", !(← fixture.marker.pathExists)⟩]
+      ⟨s!"missing native bundle: no workspace {tool.basename} started", !(← Regula.Filesystem.isPresent fixture.marker)⟩]
   let absoluteEnv := env ++ #[("LEAN_CC", some (← Regula.Process.toolPath .clang).toString),
     ("LEAN_AR", some (← Regula.Process.toolPath .llvmAr).toString)]
   for mode in ["prepare", "boundary"] do
@@ -366,20 +375,20 @@ No acceptance campaign runs here and no shell program is generated. -/
 private def scriptRoute (root scratch executable marker : FilePath) (script driver : String) : IO Unit := do
   let planted ← plant (scratch / script) executable marker
   let fixture := planted.root
-  IO.FS.createDirAll (fixture / "scripts")
-  IO.FS.createDirAll (fixture / "lean")
-  IO.FS.writeFile (fixture / "lean-toolchain") (← IO.FS.readFile (root / "lean-toolchain"))
-  IO.FS.writeFile (fixture / "scripts" / script) (← IO.FS.readFile (root / "scripts" / script))
+  makeDirectory (fixture / "scripts")
+  makeDirectory (fixture / "lean")
+  writeText (fixture / "lean-toolchain") (← IO.FS.readFile (root / "lean-toolchain"))
+  writeText (fixture / "scripts" / script) (← IO.FS.readFile (root / "scripts" / script))
   let driverMarker := fixture / "driver-ran"
   let beginMarker := fixture / "begin-ran"
   let setupMarker := fixture / "setup-ran"
   if script == "verify.sh" then
-    IO.FS.writeFile (fixture / "scripts" / "provision.sh") (← IO.FS.readFile (root / "scripts" / "provision.sh"))
+    writeText (fixture / "scripts" / "provision.sh") (← IO.FS.readFile (root / "scripts" / "provision.sh"))
     let mode ← run fixture (.stated "/bin/chmod" "Preserve the approved provisioning wrapper's executable mode in its control")
       #["755", (fixture / "scripts" / "provision.sh").toString]
     requireChecks [⟨"copied provisioning wrapper is executable", mode.exitCode == 0⟩]
-    IO.FS.writeFile (fixture / "lean" / "RegulaProvision.lean") Sources.setup
-  IO.FS.writeFile (fixture / "lean" / driver) Sources.driver
+    writeText (fixture / "lean" / "RegulaProvision.lean") Sources.setup
+  writeText (fixture / "lean" / driver) Sources.driver
   baseline planted "lean"
   let result ← run fixture (.stated "/bin/bash" "Invoke the exact operator-approved wrapper copied for this control")
     #[(fixture / "scripts" / script).toString] (planted.env ++ #[
@@ -388,7 +397,7 @@ private def scriptRoute (root scratch executable marker : FilePath) (script driv
       ("REGULA_PROCESS_DRIVER_MARKER", some driverMarker.toString)])
   requireChecks [⟨s!"{script}: real Lean elaborated the stub", result.exitCode == 37 &&
       (← IO.FS.readFile driverMarker) == "driver ran\n"⟩,
-    ⟨s!"{script}: workspace Lean was bypassed", !(← marker.pathExists)⟩]
+    ⟨s!"{script}: workspace Lean was bypassed", !(← Regula.Filesystem.isPresent marker)⟩]
   if script == "verify.sh" then
     requireChecks [⟨"verification wrapper really ran begin-attempt", (← IO.FS.readFile beginMarker) == "begin ran\n"⟩,
       ⟨"verification wrapper really completed setup before its timed driver", (← IO.FS.readFile setupMarker) == "setup ran\n"⟩]
@@ -408,7 +417,7 @@ private def doctorControl (fixture : Fixture) (executable : FilePath) : IO Unit 
     ⟨"doctor: selected elan is not the workspace elan", match lines.head? with
       | some elan => !elan.isEmpty && elan != planted.toString && elan != (fixture.bin / "elan").toString
       | none => false⟩,
-    ⟨"doctor: workspace elan was bypassed", !(← fixture.marker.pathExists)⟩]
+    ⟨"doctor: workspace elan was bypassed", !(← Regula.Filesystem.isPresent fixture.marker)⟩]
   IO.println s!"process control: doctor resolved the pin through {lines.headD ""}"
 
 /-- Qualify every substitution route with a Lake-constructed workspace and a specific action.
@@ -440,16 +449,16 @@ def check : IO Unit := do
         let result ← run fixture.root program arguments fixture.env
         requireChecks [⟨s!"{tool.basename}/{label}: tool actually ran", result.exitCode == 0 &&
             !result.stdout.isEmpty && !result.stdout.contains "regula process shadow ran"⟩,
-          ⟨s!"{tool.basename}/{label}: workspace program was bypassed", !(← marker.pathExists)⟩]
+          ⟨s!"{tool.basename}/{label}: workspace program was bypassed", !(← Regula.Filesystem.isPresent marker)⟩]
     doctorControl fixture executable
     scriptRoute root scratch executable marker "verify.sh" "RegulaVerification.lean"
     scriptRoute root scratch executable marker "provision.sh" "RegulaProvision.lean"
     let solver ← plant (scratch / "solver") executable marker
     let solverSource := solver.root / "Solver.lean"
-    IO.FS.writeFile solverSource Sources.solver
+    writeText solverSource Sources.solver
     let solverEnv := solver.env ++ #[("REGULA_CADICAL_SOURCE", some solverSource.toString)]
     let missingSibling := solver.root / "driver"
-    IO.FS.createDirAll missingSibling
+    makeDirectory missingSibling
     for (label, directory) in [("sibling", solver.bin), ("PATH fallback", missingSibling)] do
       let parent := directory / "solver-driver"
       shadow executable parent
@@ -463,7 +472,7 @@ def check : IO Unit := do
         let checked ← run solver.root (.stated parent "The owned qualifier exercises the actual source reader's checked solver")
           #["--process-cadical-reader", route] solverEnv
         requireChecks [⟨s!"checked solver/{label}/{route}: same source really elaborated", checked.exitCode == 0⟩,
-          ⟨s!"checked solver/{label}/{route}: workspace cadical was bypassed", !(← marker.pathExists)⟩]
+          ⟨s!"checked solver/{label}/{route}: workspace cadical was bypassed", !(← Regula.Filesystem.isPresent marker)⟩]
     let lake ← Regula.Process.toolPath .lake
     for (overrideName, tool) in [("LEAN_CC", Regula.Process.Tool.clang), ("CC", .clang),
         ("LEAN_AR", .llvmAr), ("AR", .llvmAr)] do
@@ -485,7 +494,7 @@ def check : IO Unit := do
       else
         let project := native.root
         let source := project / "Baseline.lean"
-        IO.FS.writeFile source Sources.baseline
+        writeText source Sources.baseline
         let attempted ← run project (.toolchain .lean)
           #["--run", source.toString, lake.toString, project.toString, overrideName, name] native.env
         requireChecks [⟨s!"{overrideName}: Lake really invoked the workspace native tool (exit {attempted.exitCode}, stdout {attempted.stdout}, stderr {attempted.stderr})",
@@ -497,7 +506,7 @@ def check : IO Unit := do
             | .error error => (toString error).contains s!"invalid {overrideName} override" &&
                 (toString error).contains s!"process selection requires an absolute path: {name}"
             | .ok _ => false⟩,
-          ⟨s!"{overrideName}: no workspace native tool started", !(← marker.pathExists)⟩]
+          ⟨s!"{overrideName}: no workspace native tool started", !(← Regula.Filesystem.isPresent marker)⟩]
     IO.println "process observers: PASS (live tool, wrapper and native-override controls; Windows unqualified)"
 
 end Regula.Qualification.Process

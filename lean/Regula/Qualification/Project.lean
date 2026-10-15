@@ -29,8 +29,8 @@ def prepareProject (root project : FilePath) (packageName claim rationale : Stri
     s!"import Lake\nopen Lake DSL\npackage {packageName} where\n  leanOptions := #[⟨`autoImplicit, \
       false⟩, ⟨`relaxedAutoImplicit, false⟩, ⟨`linter.missingDocs, true⟩]\n  \
       plugins := #[`@regula/RegulaObserver:shared]\nrequire regula from \
-      {toJson root.toString |>.compress}\n@[default_target] lean_lib Example where\n\
-      {Regula.Checker.observerNeedLean}"
+      {toJson root.toString |>.compress}\n@[default_target] \
+      {Regula.Checker.observedTargetLean .library "Example"}"
   Regula.Filesystem.writeJson (project / "foundation_manifest.json") (Json.mkObj [
     ("schema-version", toJson (2 : Nat)), ("surfaces", toJson #[Json.mkObj [
       ("library", .str "Example"), ("claim", .str claim), ("execution", .str "checked"),
@@ -52,8 +52,8 @@ def prepareCoreProject (root project : FilePath) (packageName claim : String) : 
   Regula.Filesystem.writeFile (project / "lakefile.toml") <| s!"name = \"{packageName}\"\n" ++
     Regula.Checker.observerPluginToml ++ Regula.Checker.regulaRequireToml root ++
     "[leanOptions]\nautoImplicit = false\nrelaxedAutoImplicit = false\n" ++
-    "linter.missingDocs = true\n[[lean_lib]]\nname = \"Example\"\n" ++
-    Regula.Checker.observerNeedToml
+    "linter.missingDocs = true\n" ++
+    Regula.Checker.observedTargetToml .library "Example"
   let manifest ← IO.ofExcept <| Json.parse (← Regula.Filesystem.readFile (root / "lake-manifest.json"))
   let packages := toJson #[Regula.Checker.regulaManifestEntry root]
   Regula.Filesystem.writeJson (project / "lake-manifest.json")
@@ -117,7 +117,7 @@ def rootImportsGuardControl (root scratch : FilePath) (sources : Array String) :
       let components := place.normalize.components
       unless base.isPrefixOf components && components.length > base.length do
         throw <| IO.userError s!"the build directory {place} is not inside {ws.root.dir}"
-      unless ← place.isDir do continue
+      unless ← Regula.Filesystem.isDirectory place do continue
       let destination := Regula.Filesystem.Construction.location copy
         (components.drop base.length)
       if below then
@@ -128,7 +128,7 @@ def rootImportsGuardControl (root scratch : FilePath) (sources : Array String) :
         -- The directory holds `leanLibDir`, already copied; its own files join it one by one.
         Regula.Filesystem.Construction.ensureDirectory 4096 destination
         for entry in ← Regula.Filesystem.Construction.listDirectory place do
-          unless ← entry.path.isDir do
+          unless ← Regula.Filesystem.isDirectory entry.path do
             Regula.Filesystem.copyFile entry.path (destination / entry.fileName) 0o755
   requireRootImportsBuilt copy sources
   let some (name, file) := (← rootImports copy sources)[0]?
@@ -145,7 +145,7 @@ def rootImportsGuardControl (root scratch : FilePath) (sources : Array String) :
 /-- Require a new result path and run the actual public checker. -/
 def observeProject (root project output : FilePath) (flags : Array String) : IO
     (IO.Process.Output × Json) := do
-  requireChecks [⟨"result path must be fresh", !(← output.pathExists)⟩]
+  requireChecks [⟨"result path must be fresh", !(← Regula.Filesystem.isPresent output)⟩]
   let result ← run project (.stated (root / ".lake/build/bin/axiomGate").toString "The caller selects this resolved non-toolchain executable")
     (#["--project", project.toString] ++ flags ++ #["--json-out", output.toString]) cleanEnv
   return (result, ← readResult output)

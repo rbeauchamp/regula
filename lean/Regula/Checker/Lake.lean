@@ -64,10 +64,11 @@ def SurfaceInventory.ownership (inventory : SurfaceInventory) : Ownership :=
 /-- The directory of the running checker's own package: the one whose Lake build holds the
 library the running checker loads its infrastructure from (`checkerPackageLibDir`), under Lake's
 default layout (`<package>/.lake/build/lib/lean`), on real paths. It is `none` when that library
-is not found or does not lie at that place. The checker's own build is Lake's default layout. -/
+is not found or does not lie at that place (`Regula.Filesystem.realPathIfPresent`), and a failure
+to read or resolve it is thrown. The checker's own build is Lake's default layout. -/
 def checkerPackageDir : IO (Option FilePath) := do
   let some lib ← checkerPackageLibDir | return none
-  let lib ← try IO.FS.realPath lib catch _ => return none
+  let some lib ← Regula.Filesystem.realPathIfPresent lib | return none
   let components := lib.components
   let layout := [_root_.Lake.defaultLakeDir.toString, "build", "lib", "lean"]
   unless layout.isSuffixOf components do return none
@@ -164,7 +165,7 @@ private def checkSource (repo : FilePath) (what : String)
     (moduleName sourceRaw : String) : IO FilePath := do
   let source := FilePath.mk sourceRaw
   let mut invalidSource := moduleName.isEmpty || sourceRaw.isEmpty
-    || source.extension != some "lean" || !(← source.pathExists)
+    || source.extension != some "lean" || !(← Regula.Filesystem.isPresent source)
   if !invalidSource then
     invalidSource := !(← pathWithin source repo)
   if invalidSource then
@@ -206,7 +207,7 @@ def buildableModules (library : _root_.Lake.LeanLib) : IO (Array Name) := do
   let mut globs := library.config.globs
   for root in library.roots do
     if library.config.globs.any (·.matches root) &&
-        (← (Lean.modToFilePath library.srcDir root "").isDir) then
+        (← Regula.Filesystem.isDirectory (Lean.modToFilePath library.srcDir root "")) then
       globs := globs.push (.submodules root)
   for glob in globs do
     glob.forEachModuleIn library.srcDir fun name => names.modify (·.push name)
@@ -394,7 +395,7 @@ def surfaceInventoryOf (repo : FilePath) (ws : _root_.Lake.Workspace)
         -- Dependencies may declare unused executables without shipping their
         -- sources. Capture existing roots; terminal rediscovery still detects
         -- their addition/removal. Claimed root-package targets remain required.
-        if !(← exe.root.leanFile.pathExists) then continue
+        if !(← Regula.Filesystem.isPresent exe.root.leanFile) then continue
         let source ← checkSource package.dir s!"dependency executable {exe.name}"
           exe.root.name.toString exe.root.leanFile.toString
         sources := sources.push { «module» := exe.root.name, source }
@@ -745,12 +746,13 @@ Package pruning leaves out exactly each entry of the packages directory, by the 
 the capture walks, whose observed real path is the observed real path of a recorded dependency
 directory: the checkout of a Git dependency or the directory of a path dependency, by the entry
 that Lake's load materialized it from (`LakeSelection.effectiveEntry`,
-`LakeSelection.checkoutDir`). It keeps every other entry there, one whose real path cannot be
-observed included (`mem_prunedEntries`, `Construction.CopyFilter.omission_pruned`,
-`Construction.CopyFilter.omission_other`). So a linked checkout is pruned as a cloned one is, and
-so is a directory that its recorded path names in another case or Unicode form that the
-filesystem folds. A packages directory that is itself a link is not listed, and is refused when the
-capture walks it, as each link that the capture walks is. An owned package there
+`LakeSelection.checkoutDir`). It keeps every other entry there, one where nothing is at the end
+of its links included (`mem_prunedEntries`, `Construction.CopyFilter.omission_pruned`,
+`Construction.CopyFilter.omission_other`), and a failure to read or resolve an entry is thrown.
+So a linked checkout is pruned as a cloned one is, and so is a directory that its recorded path
+names in another case or Unicode form that the filesystem folds. A packages directory that is
+itself a link is not listed, and is refused when the capture walks it, as each link that the
+capture walks is. An owned package there
 keeps its own capture pass (`Construction.packageSource_owned`). The copy's domain is
 each file that Lake's load reads for the root package or an owned dependency: the source of each
 module that Lake can build (`packageModules`), the loaded configuration file and an owned
@@ -815,9 +817,10 @@ def copyProject (repo target exclude : FilePath)
     -- `Construction.CopyFilter.omission_pruned`): each stored name that the capture walks whose
     -- observed real path is that of a recorded dependency directory, the checkout of a Git
     -- dependency or the directory of a path dependency. A Git dependency's package lies at its
-    -- checkout, or below it at the subdirectory its entry names. An entry whose real path cannot
-    -- be observed is kept, and the capture walks it. A packages directory that is a link is not
-    -- listed, and the capture refuses it. Each dependency has its path override.
+    -- checkout, or below it at the subdirectory its entry names. An entry where nothing is at the
+    -- end of its links is kept, and the capture walks it; a failure to read or resolve one is
+    -- thrown. A packages directory that is a link is not listed, and the capture refuses it. Each
+    -- dependency has its path override.
     let packagesPath := root / packagesDir
     let packagesKind ← try pure (some (← Regula.Filesystem.observeMetadata packagesPath).type) catch
       | .noFileOrDirectory .. => pure none
@@ -832,9 +835,12 @@ def copyProject (repo target exclude : FilePath)
         return some (← Regula.Filesystem.observeRealPath dir).normalize.components
       let names ← Regula.Filesystem.Construction.observer.names packagesPath
       let listing ← names.mapM fun (name : String) => do
-        let real ← try
-            pure (some (← Regula.Filesystem.observeRealPath (packagesPath / name)).normalize.components)
-          catch _ => pure none
+        -- `IO.FS.realPath` reports each failure as `noFileOrDirectory`, so `isPresent` decides
+        -- that nothing is at an entry, and a failure to read or resolve one is thrown.
+        let entry := packagesPath / name
+        let real ← if ← Regula.Filesystem.isPresent entry then
+            pure (some (← Regula.Filesystem.observeRealPath entry).normalize.components)
+          else pure none
         return (name, real)
       let packages := (← Regula.Filesystem.observeRealPath packagesPath).normalize.components
       pure (prunedEntries packages listing recorded)
@@ -855,9 +861,10 @@ def copyProject (repo target exclude : FilePath)
     let relative := fun (dir : FilePath) => dir.normalize.components.drop base.length
     let place := fun (dir : FilePath) => Regula.Filesystem.Construction.location target (relative dir)
     let excluded := exclude.normalize.components
-    let excludedReal ← try pure (← IO.FS.realPath exclude).normalize.components catch
-      | .noFileOrDirectory .. => pure exclude.normalize.components
-      | error => throw error
+    -- `IO.FS.realPath` reports each failure as `noFileOrDirectory`, so absence is decided by
+    -- `realPathIfPresent`, and an excluded directory that cannot be resolved is a failure.
+    let excludedReal :=
+      ((← Regula.Filesystem.realPathIfPresent exclude).getD exclude).normalize.components
     -- The capture pass rooted at `top`. Documentation discovery consumes cache-named
     -- subdirectories too; the pass captures those directly before constructing the copy rather
     -- than overwriting a finished copy.
@@ -903,13 +910,9 @@ def copyProject (repo target exclude : FilePath)
         (if package.isRoot then [] else
           [("the manifest", package.manifestFile, package.relManifestFile.normalize.components)])
       for (what, file, access) in packageReads do
-        let present ← try
-            discard <| Regula.Filesystem.observeRealPath file
-            pure true
-          catch
-            | .noFileOrDirectory .. => pure false
-            | error => throw error
-        unless present do continue
+        -- `IO.FS.realPath` reports each failure as `noFileOrDirectory`, so `isPresent` decides
+        -- that the original has no file there, and a file that cannot be read is a failure.
+        unless ← Regula.Filesystem.isPresent file do continue
         let refusal := s!"copy refused: {what} of package '{package.baseName}' at {file}"
         let some entries := Regula.Filesystem.Construction.packageEntries access
           | throw <| IO.userError s!"{refusal}: Lake's load of the copy reads it at \
@@ -1592,10 +1595,11 @@ Regula's own (`otherFacets`). Lake inserts the root's facets before those of its
 declares. It is in effect only where no dependency declares one, and a record that it writes is
 then the root configuration's own, which the incremental gate trusts as it trusts the traces Lake
 recorded (`traceRecords_ownRecord_iff`). The unmarked build counts no record otherwise
-(`Build.runObserved`). A failure to read a configuration counts as another facet. -/
+(`Build.runObserved`). A failure to read a configuration counts as another facet; a failure to
+resolve the running executable (`runningLakefile`) is thrown. -/
 def onlyRegulaFacets (ws : _root_.Lake.Workspace) : IO Bool := do
+  let running ← runningLakefile
   try
-    let running ← runningLakefile
     let dependencies := ws.packages.filter (!·.isRoot)
     return (← dependencies.mapM (otherFacets ws running)).all (· == 0)
   catch _ => return false
@@ -1978,7 +1982,7 @@ def runBuiltExecutable (repo : FilePath) (spelling : String) (args : Array Strin
     let some exe := ws.root.leanExes.find? (Manifest.targetSpelling ·.name == recorded)
       | throw <| IO.userError s!"'{spelling}' names no executable of the root package"
     pure (exe.file, ws.augmentedEnvVars)
-  unless ← file.pathExists do
+  unless ← Regula.Filesystem.isPresent file do
     throw <| IO.userError s!"executable {spelling} was not built: {file}"
   runProcess repo (.stated file "Lake resolved this explicitly requested package executable") args env
 

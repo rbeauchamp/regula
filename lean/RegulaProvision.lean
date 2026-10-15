@@ -404,14 +404,23 @@ private def require (cwd : FilePath) (cmd : Process.Program) (args : Array Strin
       failed ({ran.exitCode}): {ran.stderr.trimAscii}"
   return ran.stdout
 
-/-- Run with inherited output, for long steps whose progress the user should see. -/
-private def stream (cwd : FilePath) (cmd : Process.Program) (args : Array String)
-    (env : Array (String × Option String) := #[]) : IO Unit := do
-  let (args, env) ← if cmd.statedCommand == some "git" then
-      pure (#["-c", "core.symlinks=false"] ++ args, env ++ (← gitEnvironment))
-    else pure (args, env)
+/-- The Git isolation of the Lake commands this program starts
+(`Regula.Filesystem.Construction.isolationEnvironment`), obtained as `gitEnvironment` obtains the
+Git environment, from the same embedded source (`construction`). Each Lake command receives it
+(`stream`), so the Git commands that Lake starts for it, and those of the programs it runs,
+inherit it.
+
+Assumes: as for `gitEnvironment`; Construction.isolationEnvironment documents the Git and OS
+assumptions. -/
+private def isolationEnvironment : IO (Array (String × Option String)) :=
+  construction "Git isolation" #["process-environment", "", ""]
+
+/-- Run a Lake command with inherited output, for long steps whose progress the user should see,
+under the Git isolation `isolation` (`isolationEnvironment`). -/
+private def stream (isolation : Array (String × Option String)) (cwd : FilePath)
+    (cmd : Process.Program) (args : Array String) : IO Unit := do
   let child ← Process.spawn cmd {
-    cmd := "", args, env := env.push ("GHCR_TOKEN", none), cwd := some cwd,
+    cmd := "", args, env := isolation.push ("GHCR_TOKEN", none), cwd := some cwd,
     stdin := .null, stdout := .inherit, stderr := .inherit }
   let exit ← child.wait
   unless exit == 0 do
@@ -427,26 +436,50 @@ private def nonce : IO String := do
 
 /-- Execute the released Mathlib plan in the workspace whose packages receive the artifacts. -/
 private def buildMathlib (cwd : FilePath) (readOnly : Bool) : IO Unit := do
+  let isolation ← isolationEnvironment
   for command in mathlibCommands readOnly do
-    stream cwd (.toolchain .lake) command
+    stream isolation cwd (.toolchain .lake) command
 
 private def admitComponent (what text : String) : IO Component := do
   let some name := component? text
     | throw <| IO.userError s!"provisioning: {what} '{text}' is not a single path component"
   return name
 
-/-- Kind of the path itself, without following a final symbolic link. -/
+/-- Whether an entry is at `path`, following a symbolic link: `true` when `path.metadata` reads it,
+`false` when that read fails with `noFileOrDirectory`, and the read's error for every other error.
+Lean's `System.FilePath.pathExists` returns `false` for every error of `metadata`, so a path that
+cannot be read, such as one under a directory without search permission, would read as absent.
+This program cannot import `Regula.Filesystem`; `Regula.ProgramCheck.Provision.isPresent_eq`
+proves this equal to `Regula.Filesystem.isPresent`. -/
+def isPresent (path : System.FilePath) : IO Bool := do
+  match ← path.metadata.toBaseIO with
+  | .ok _ => return true
+  | .error (.noFileOrDirectory ..) => return false
+  | .error error => throw error
+
+/-- Kind of the path itself, without following a final symbolic link: `none` when reading it fails
+with `noFileOrDirectory`, and the read's error for every other error, so that a path that cannot be
+read is not taken for an absent one.
+
+Assumes: Lean v4.34.1 `symlinkMetadata` (`Init/System/IO.lean:1155-1156`) is
+`lean_io_symlink_metadata` (`runtime/io.cpp:1160-1179`), which calls `lstat(2)` through libuv and
+gives `noFileOrDirectory` for `ENOENT` and for no other error (`runtime/io.cpp:201`, `:276-279`). -/
 private def kind? (path : FilePath) : IO (Option IO.FS.FileType) := do
-  try return some (← path.symlinkMetadata).type catch _ => return none
+  match ← path.symlinkMetadata.toBaseIO with
+  | .ok metadata => return some metadata.type
+  | .error (.noFileOrDirectory ..) => return none
+  | .error error => throw error
 
 private def observe (path : FilePath) : IO Observed := do
   match ← kind? path with
   | none => return .absent
   | some .symlink =>
-    try return .link (← IO.FS.realPath path).toString catch _ => return .link ""
+    -- `IO.FS.realPath` reports each failure as `noFileOrDirectory`, so `isPresent`, which
+    -- follows the link, decides that its target is absent; any other failure is thrown.
+    if ← isPresent path then return .link (← IO.FS.realPath path).toString else return .link ""
   | some .dir =>
     -- Without its own `.git`, Git would answer for the enclosing repository instead.
-    unless ← (path / ".git").pathExists do return .directory none false
+    unless ← isPresent (path / ".git") do return .directory none false
     let head ← run path (.stated "git" "The provisioning plan selects this external git utility") #["rev-parse", "HEAD"]
     let reports ← [#["status", "--porcelain"], #["stash", "list"],
       #["rev-list", "-n", "1", "HEAD", "--branches", "--not", "--remotes"]].mapM (run path (.stated "git" "The provisioning plan selects this external git utility"))
@@ -867,7 +900,7 @@ private def registryPath (parent : FilePath) (name : String) : FilePath :=
 
 /-- A registry's copies: none registered when it is absent, `none` when it is unreadable. -/
 private def readRegistry (path : FilePath) : IO (Option (Array String)) := do
-  unless ← path.pathExists do return some #[]
+  unless ← isPresent path do return some #[]
   try
     let .ok json := Json.parse (← IO.FS.readFile path) | return none
     return (fromJson? json : Except String (Array String)).toOption
@@ -887,10 +920,13 @@ private def registerCopy (parent : FilePath) (name copy : String) : IO Unit := d
     | throw <| IO.userError s!"provisioning: the registry {path} is unreadable; repair or remove it"
   writeRegistry path (register copy registry)
 
-/-- Whether `copy` is a symbolic link that resolves to `target`. -/
-private def links (copy target : String) : IO Bool := do
+/-- Whether `copy` is a symbolic link that resolves to `target`: `false` when it is not a link or
+its target is absent (`isPresent`), and a failure to read or resolve it thrown, so that a link
+that cannot be resolved is not taken for one that links nothing. -/
+def links (copy target : String) : IO Bool := do
   unless (← kind? copy) == some .symlink do return false
-  try return (← IO.FS.realPath copy).toString == target catch _ => return false
+  unless ← isPresent copy do return false
+  return (← IO.FS.realPath copy).toString == target
 
 /-- Remove every shared directory under `parent`, other than `current`, that no registered
 copy still links, and finish every removal an interrupted run began; drop from each kept
@@ -899,7 +935,7 @@ where a registry records it and it still links that registry's directory (`retir
 keeps no directory; `link` is the link this run provisions. Only a symbolic link is removed from
 a copy, never a directory. Only directories that their receipt identifies are touched, and a
 failure is reported, not fatal. The caller holds the lock. -/
-private def prune (parent : FilePath) (current link retired : String) : IO Unit := do
+def prune (parent : FilePath) (current link retired : String) : IO Unit := do
   for entry in ← listDirectory parent do
     try
       if (← kind? entry.path) == some .dir then
@@ -910,9 +946,12 @@ private def prune (parent : FilePath) (current link retired : String) : IO Unit 
           let registry := registryPath parent entry.fileName
           let some copies ← readRegistry registry
             | say s!"left {entry.path} as it is: its registry {registry} is unreadable"
-          let target ← try
-              pure (some (← IO.FS.realPath (sharedPackages entry.path / "mathlib")).toString)
-            catch _ => pure none
+          -- A store whose Mathlib cannot be read or resolved fails here, so it and its registry
+          -- are kept; only an absent one (`isPresent`) is linked by no copy.
+          let mathlib := sharedPackages entry.path / "mathlib"
+          let target ← if ← isPresent mathlib then
+              pure (some (← IO.FS.realPath mathlib).toString)
+            else pure none
           let observed ← copies.mapM fun copy => do
             let linked ← match target with
               | some target => links copy target
@@ -922,7 +961,7 @@ private def prune (parent : FilePath) (current link retired : String) : IO Unit 
             say s!"removed the retired link {copy} to {entry.path}"
             return (copy, false)
           if prunes current entry.fileName observed then
-            if ← registry.pathExists then IO.FS.removeFile registry
+            if ← isPresent registry then IO.FS.removeFile registry
             let removing := parent / s!"{removingPrefix entry.fileName}{← nonce}"
             IO.FS.rename entry.path removing
             removeShared removing
@@ -956,7 +995,9 @@ private def requireStablePackageLink (path : FilePath) : IO Unit := do
   unless (← kind? path) == some .symlink do return
   let refusal := IO.userError s!"provisioning: preserving {path}: its link does not identify a \
     stable shared store; source-origin and unknown package links require manual disposition"
-  let target ← try IO.FS.realPath path catch _ => throw refusal
+  -- A link that cannot be resolved is preserved with the read's error, never read as absent.
+  let target ← try IO.FS.realPath path catch error =>
+    throw <| IO.userError s!"{refusal}; its target cannot be resolved: {error}"
   let store := target.parent.bind (·.parent) |>.bind (·.parent)
   let some store := store | throw refusal
   let some name := store.fileName | throw refusal
@@ -1083,7 +1124,7 @@ def provisionVerso (repo : FilePath) : IO Unit := do
     throw <| IO.userError s!"provisioning: markdown/lake-manifest.json pins MD4Lean {reader} \
       and website/lake-manifest.json pins MD4Lean {verso}; the two packages keep one checkout, \
       so pin the same commit in the two manifests"
-  stream (repo / "website") (.toolchain .lake) #["build", "verso/VersoManual"]
+  stream (← isolationEnvironment) (repo / "website") (.toolchain .lake) #["build", "verso/VersoManual"]
 
 /-- Check the exact supported compiler before provisioning any dependency artifacts. The process
 observer starts the policy guard only on a compiler that reports this program's identity. -/
@@ -1100,7 +1141,7 @@ def requireReleasedSetup (repo : FilePath) : IO Unit := do
   for path in #["dependency-build-mode", ".github/compiler-source.json",
       ".github/snapshot-preparation.json", ".github/snapshot-compiler.json",
       ".github/compiler-snapshot.json"] do
-    if ← (repo / path).pathExists then
+    if ← isPresent (repo / path) then
       throw <| IO.userError s!"provisioning: retired compiler setup {path}; use a clean released-toolchain checkout"
   requireReleasedCompiler repo
 
@@ -1110,7 +1151,7 @@ end RegulaProvision
 def main (args : List String) : IO Unit := do
   RegulaProvision.Process.requireNativeTools (← RegulaProvision.Process.identified)
   let repo ← IO.FS.realPath (← RegulaProvision.Process.currentDir)
-  unless ← (repo / "lakefile.lean").pathExists do
+  unless ← RegulaProvision.isPresent (repo / "lakefile.lean") do
     throw <| IO.userError "provisioning: run from the repository root"
   RegulaProvision.requireReleasedSetup repo
   match args with
@@ -1130,7 +1171,7 @@ def main (args : List String) : IO Unit := do
   | ["mathlib-applies", "--require"] =>
     RegulaProvision.requireMathlibApplies repo
     let mathlib := repo / RegulaProvision.mathlibPackage / ".lake" / "packages" / "mathlib"
-    unless ← mathlib.pathExists do
+    unless ← RegulaProvision.isPresent mathlib do
       throw <| IO.userError s!"provisioning: {mathlib} is absent; run \
         lean --run lean/RegulaProvision.lean mathlib before scripts/verify.sh mathlib"
   | ["verso"] => RegulaProvision.provisionVerso repo

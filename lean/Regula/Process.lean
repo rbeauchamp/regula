@@ -6,8 +6,10 @@ public import Lean
 public import Regula.Assumption
 public import RegulaPolicy.StateTriple
 public import RegulaPolicy.Compiler
+public import RegulaPolicy.EnvironmentChange
 import all RegulaPolicy.StateTriple
 public meta import Lake.Config.InstallPath
+public meta import Lake.Config.Env
 public meta import Lean
 meta import Regula.Assumption
 

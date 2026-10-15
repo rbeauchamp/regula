@@ -4,8 +4,10 @@ import Regula.Checker.PolicyCodec
 import RegulaCore.JsonAgreement
 import RegulaCore.CopyProgram
 import Regula.Scratch
+import Regula.Destination
 import RegulaPolicy.ResultState
 import RegulaPolicy.Guards
+import RegulaQualification.Member
 import Lean
 import Regula.Process
 import Lake.Load.Manifest
@@ -245,27 +247,35 @@ def diagnosticBlocks (output : String) (isHead : String → Bool) : Array String
   return blocks
 
 /-- The nearest ancestor of `start` (itself included) holding one Lake configuration file and
-a `lean-toolchain`. The upward walk terminates on the byte length of the path. The length
-check cannot fail: `FilePath.parent` returns a proper prefix, cut at the last separator or
-after the root directory. Its `revFind?`-based definition has no lemmas in core to prove
-that, so the check states it. -/
-def findRepoRoot (start : FilePath) : IO FilePath := do
-  let root ← IO.FS.realPath start
-  let rec loop (path : FilePath) : IO FilePath := do
-    let hasLean ← (path / "lakefile.lean").pathExists
-    let hasToml ← (path / "lakefile.toml").pathExists
+a `lean-toolchain`, or the reason that it names none: nothing is at `start`, no ancestor holds
+them, or the walk reaches an ancestor with both configuration files first. A failure to read or
+resolve a path is thrown, never given as a reason (`Regula.Filesystem.realPathIfPresent`,
+`Regula.Filesystem.isPresent`). The upward walk terminates on the byte length of the path. The
+length check cannot fail: `FilePath.parent` returns a proper prefix, cut at the last separator or
+after the root directory. Its `revFind?`-based definition has no lemmas in core to prove that, so
+the check states it. -/
+def findRepoRoot? (start : FilePath) : IO (Except String FilePath) := do
+  let absent := s!"cannot find Lean project root above {start}"
+  let some root ← Regula.Filesystem.realPathIfPresent start | return .error absent
+  let rec loop (path : FilePath) : IO (Except String FilePath) := do
+    let hasLean ← Regula.Filesystem.isPresent (path / "lakefile.lean")
+    let hasToml ← Regula.Filesystem.isPresent (path / "lakefile.toml")
     if hasLean && hasToml then
-      throw <|
-          IO.userError s!"ambiguous Lean project root {path}: both lakefile.lean and lakefile.toml"
-    if (hasLean || hasToml) && (← (path / "lean-toolchain").pathExists) then
-      return path
+      return .error s!"ambiguous Lean project root {path}: both lakefile.lean and lakefile.toml"
+    if (hasLean || hasToml) && (← Regula.Filesystem.isPresent (path / "lean-toolchain")) then
+      return .ok path
     match path.parent with
     | some parent =>
       if parent.toString.utf8ByteSize < path.toString.utf8ByteSize then loop parent
       else throw <| IO.userError s!"parent of {path} is not a proper prefix"
-    | none => throw <| IO.userError s!"cannot find Lean project root above {root}"
+    | none => return .error absent
   termination_by path.toString.utf8ByteSize
   loop root
+
+/-- The project root that `findRepoRoot?` finds from `start`; it throws the reason where that
+names none. -/
+def findRepoRoot (start : FilePath) : IO FilePath := do
+  IO.ofExcept (← findRepoRoot? start)
 
 /-- The project root that `findRepoRoot` finds from the current working directory. -/
 def repoRoot : IO FilePath := do
@@ -282,7 +292,7 @@ resolves from here even when no Lake-provided `LEAN_PATH` is in scope. -/
 def checkerPackageLibDir : IO (Option FilePath) := do
   let some bin := (← Regula.Process.appPath).parent | return none
   let libDir := bin / ".." / "lib" / "lean"
-  if ← (libDir / "Regula" / "Probe.olean").pathExists then
+  if ← Regula.Filesystem.isPresent (libDir / "Regula" / "Probe.olean") then
     return some libDir
   return none
 
@@ -294,10 +304,14 @@ def withScratch {α : Type} (repo : FilePath) (stem : String)
   return (← Regula.Scratch.withScratch repo stem action).1
 
 /-- The real path of the top level of the Git work tree that holds the directory `dir`, as
-`git rev-parse --show-toplevel` run in `dir` prints it, or `none` when that command fails, for
-example where Git finds no work tree, or when `dir` or the printed path cannot be resolved. Git
-runs without `GIT_DIR` and `GIT_WORK_TREE`, so the work tree is the one Git finds from `dir`
-itself. Git and the filesystem are trusted. -/
+`git rev-parse --show-toplevel` run in `dir` prints it with the spaces at its ends removed, or
+`none` when that command cannot start or fails, or when nothing is at the printed path
+(`Regula.Filesystem.realPathIfPresent`). A failure to read or resolve the printed path is thrown.
+A failure of the command is `none` whatever its cause, so a work tree that Git cannot read counts
+as no work tree, and the removed spaces can name a different path: issue
+https://github.com/rbeauchamp/regula/issues/444 tracks the two. Git runs without `GIT_DIR` and
+`GIT_WORK_TREE`, so the work tree is the one Git finds from `dir` itself. Git and the filesystem
+are trusted. -/
 def gitWorkTree (dir : FilePath) : IO (Option FilePath) := do
   let result ← try
       runProcess dir (.stated "git" "Git is the caller-selected repository mechanism") #["rev-parse", "--show-toplevel"]
@@ -305,7 +319,7 @@ def gitWorkTree (dir : FilePath) : IO (Option FilePath) := do
     catch _ => return none
   let top := result.stdout.trimAscii.toString
   if !result.succeeded || top.isEmpty then return none
-  try some <$> IO.FS.realPath (FilePath.mk top) catch _ => return none
+  Regula.Filesystem.realPathIfPresent (FilePath.mk top)
 
 /-- Whether a dependency whose directory is in the Git work tree `dependency` is in the work tree
 `root` of the root package: both are known and they are the same directory. -/
@@ -480,14 +494,15 @@ def readJson (path : FilePath) : IO Json := do
   requireAuditDocument (← IO.ofExcept <| Regula.Checker.PolicyCodec.parse text)
 
 /-- Write `value` as compact JSON and a final newline to `path`, creating its parent
-directories, and report how long encoding and writing took when timing output is on. -/
+directories, by replacing the entry at `path` (`Regula.Filesystem.writeReplacing`), so the file
+that entry named keeps its bytes, and report how long encoding and writing took when timing output
+is on. -/
 def writeJson (path : FilePath) (value : Json) : IO Unit := do
-  if let some parent := path.parent then IO.FS.createDirAll parent
   let encodeStart ← IO.monoMsNow
   let encoded := Json.compress value ++ "\n"
   timingSpan s!"diagnostic span: writeJson encode {path}: {(← IO.monoMsNow) - encodeStart}ms"
   let writeStart ← IO.monoMsNow
-  IO.FS.writeFile path encoded
+  Regula.Filesystem.writeReplacing path encoded.toUTF8
   timingSpan s!"diagnostic span: writeJson write {path}: {(← IO.monoMsNow) - writeStart}ms"
 
 /-- The top-level `lakefile.toml` key with which a package loads Regula's elaboration observer
@@ -515,6 +530,56 @@ def observerNeedLean : String := "  needs := #[`@regula/RegulaObserver:shared]\n
 /-- `observerNeedLean` in a configuration of the package `regula` itself (`observerPluginOwn`). -/
 def observerNeedOwn : String := "  needs := #[`@/RegulaObserver:shared]\n"
 
+/-- The kind of a target that a generated Lake configuration declares. -/
+inductive TargetKind where
+  /-- A `lean_lib`. -/
+  | library
+  /-- A `lean_exe`. -/
+  | executable
+  deriving DecidableEq
+
+/-- The `lakefile.lean` keyword that declares a target of the kind. -/
+def TargetKind.leanKeyword : TargetKind → String
+  | .library => "lean_lib"
+  | .executable => "lean_exe"
+
+/-- The `lakefile.toml` table of a target of the kind. -/
+def TargetKind.tomlTable : TargetKind → String
+  | .library => "[[lean_lib]]"
+  | .executable => "[[lean_exe]]"
+
+/-- The `lakefile.lean` declaration of the target `name` of the kind `kind` that a control or
+qualification generator writes for an audit to elaborate: its fields `fields`, each a line indented
+as a declaration's field, then the observer's `needs` entry (`observerNeedLean`), which RG2006
+requires of each such target. A target that this function or `observedTargetToml` writes has the
+entry; that is a property of their output, not of every generated configuration. Two kinds of
+generated target do not go through them: the self-test's reconstruction of the repository's own
+package (`CheckerSelftest.structuralProject`), which keeps the observer's `plugins` and `needs`
+entries of each library and executable in the repository's Lake configuration and leaves out
+every other `needs` entry on purpose, such as the input file of the library `Regula`, since the
+project holds only the modules that its targets build (`CheckerSelftest.renderNeeds`); and the refusal controls, whose targets omit or remove the entry on purpose
+(the RG2006 negative controls) or must be refused for another reason. Its package loads the
+observer as a plugin
+(`observerPluginLean`), which Lake gives each of its targets, so the declaration names no plugin of
+its own: Lake would load the observer twice. With `own`, the configuration is one of the package
+`regula` itself, whose package loads no plugin, as its checkout's `lakefile.lean`: the target loads
+its own observer (`observerPluginOwn`) and lists it in `needs` (`observerNeedOwn`).
+
+Assumes: Lake v4.34.1 `Lake/Config/LeanLib.lean:183-184` gives a library's modules the package's
+plugins followed by the library's own, with no removal of a repeated one, and
+`Lake/Config/Module.lean:188-189` gives a module its library's. An executable's root is a module of
+the library that `Lake/Config/LeanExe.lean:29-50` makes from the executable's configuration, with
+its `needs`, so an executable without the entry has none (`Lake/Config/LeanExeConfig.lean:46`). -/
+def observedTargetLean (kind : TargetKind) (name : String) (fields : String := "")
+    (own : Bool := false) : String :=
+  s!"{kind.leanKeyword} {name} where\n" ++ fields ++
+    if own then observerPluginOwn ++ observerNeedOwn else observerNeedLean
+
+/-- `observedTargetLean` in a `lakefile.toml`: the table of the target `name` of the kind `kind`,
+its keys `fields`, each a line, and then `observerNeedToml`. -/
+def observedTargetToml (kind : TargetKind) (name : String) (fields : String := "") : String :=
+  s!"{kind.tomlTable}\nname = \"{name}\"\n" ++ fields ++ observerNeedToml
+
 /-- The `lakefile.toml` table that requires `regula` from the checkout at `repo`. -/
 def regulaRequireToml (repo : FilePath) : String :=
   s!"[[require]]\nname = \"regula\"\npath = {(Json.str repo.toString).compress}\n"
@@ -525,6 +590,13 @@ def regulaManifestEntry (repo : FilePath) : Json :=
   Json.mkObj [("name", .str "regula"), ("scope", .str ""), ("configFile", .str "lakefile.lean"),
     ("manifestFile", .str "lake-manifest.json"), ("inherited", .bool false),
     ("type", .str "path"), ("dir", .str repo.toString)]
+
+/-- Write `value` as compact JSON and a final newline at the destination `path`
+(`Regula.Destination.writeJson`), and report how long the write took when timing output is on. -/
+def writeDestination (path : FilePath) (value : Json) : IO Unit := do
+  let start ← IO.monoMsNow
+  Regula.Destination.writeJson path value
+  timingSpan s!"diagnostic span: writeDestination {path}: {(← IO.monoMsNow) - start}ms"
 
 /-- The JSON on a succeeded process's standard output, parsed strictly; a failed process or
 malformed output throws an error that names `what`. -/
@@ -549,6 +621,11 @@ def stringArray (what : String) (value : Json) : Except String (Array String) :=
 naming `what`. -/
 def jsonStringArray (what : String) (value : Json) : IO (Array String) :=
   IO.ofExcept (stringArray what value)
+
+/-- The required member `key` of `value`, an array of unique nonempty strings (`stringArray`), read
+with its decoding inside `RegulaQualification.Member.decoded`, so a refusal names the member. -/
+def memberStrings (value : Json) (key : String) : Except String (Array String) :=
+  RegulaQualification.Member.decoded (stringArray "its value") value key
 
 /-- Run `lake query TARGET --json` in `repo` and return its parsed JSON output. -/
 def lakeQuery (repo : FilePath) (target : String) : IO Json := do
@@ -691,9 +768,14 @@ def workerPacket (request payload : Json) : Json := Json.mkObj [
 
 /-- Mark the file at `out`, which an internal job of a checker writes, incomplete with `reason`, so
 an earlier completed output there cannot be mistaken for the current attempt's. The record has no
-member `payload`, so the reader of a worker packet refuses it (`readWorkerPacket`). -/
+member `payload`, so the reader of a worker packet refuses it (`readWorkerPacket`), and none of
+the registry's members, so the registry's reader refuses it too
+(`Regula.RegistryCodec.validateRegistry`). Its status and reason identify it as a document of
+Regula, so a later run replaces it (`Regula.Destination.regulaDocument`). It stops with nothing
+written at a file that the job may not replace (`Regula.Destination.write`). -/
 def invalidateOutput (out : FilePath) (reason : String) : IO Unit :=
-  writeJson out (Json.mkObj [("status", .str "incomplete"), ("reason", .str reason)])
+  Regula.Destination.writeJson out
+    (Json.mkObj [("status", .str "incomplete"), ("reason", .str reason)])
 
 /-- The payload of a worker packet whose schema is 1 and whose producer, toolchain commit and
 request are this checker's and `request`; otherwise an error naming the mismatch. The received

@@ -27,9 +27,11 @@ namespace Regula.Site.RendererRefusal
 
 open System Regula.Qualification
 
-/-- Whether something is at `path`, by a read that follows no symbolic link. -/
-private def present (path : FilePath) : IO Bool := do
-  try discard (Regula.Filesystem.observeMetadata path); return true catch _ => return false
+/-- Whether something is at `path`, by a read that follows no symbolic link: `false` only when
+nothing is there, and every other failure of the read thrown
+(`Regula.Filesystem.entryIfPresent`). -/
+private def present (path : FilePath) : IO Bool :=
+  return (← Regula.Filesystem.entryIfPresent path).isSome
 
 /-- The output of a process, for a failure message. -/
 private def shown (output : IO.Process.Output) : String :=

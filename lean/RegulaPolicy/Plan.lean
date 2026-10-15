@@ -73,7 +73,9 @@ def infrastructureModuleNames : Array Name :=
 
 /-- Canonical-artifact equality for one exact infrastructure module and snapshot. The
 adapter obtains both paths independently from actual resolution and the checker library;
-this type proves equality of those observations, not filesystem or compiler authenticity. -/
+this type proves equality of those observations, not filesystem or compiler authenticity. That
+the resolved path is the file that Lean loaded rests on the hypotheses of
+`Regula.Probe.loadedModuleOrigins`. -/
 structure InfrastructureOrigin where
   /-- The infrastructure module this receipt is for. -/
   moduleKey : ModuleKey

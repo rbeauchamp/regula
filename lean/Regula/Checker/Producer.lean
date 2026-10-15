@@ -3,6 +3,7 @@ import Regula.Process
 import Regula.RegistryCodec
 import RegulaCore.CopyProgram
 import Regula.Filesystem
+import RegulaCore.Presence
 
 /-! # Producer build identity
 
@@ -15,7 +16,7 @@ elab "regula_build_revision" : term => do
   let some root := source.parent >>= (·.parent) >>= (·.parent) >>= (·.parent)
     | throwError "cannot identify checker package source directory"
   let root ← IO.FS.realPath root
-  unless ← (root / "lakefile.lean").pathExists do
+  unless ← Regula.Filesystem.isPresent (root / "lakefile.lean") do
       throwError "checker package configuration unavailable"
   let head ← Regula.Filesystem.Construction.gitOutput root #["rev-parse", "HEAD"]
   unless head.exitCode == 0 do throwError "cannot identify checker source revision"

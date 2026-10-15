@@ -28,7 +28,7 @@ The step is a diagnostic of the repository's own checkout, which runs after prov
 step of `./scripts/verify.sh` does. It builds the modules of each package with Lake as those steps
 build, so Lake can update or fetch a dependency there as it does in them. Before it builds anything,
 it refuses a package whose Git dependency is not checked out (`requireProvisioned`). Each Lake
-process runs without Git's repository environment (`read`).
+process runs under the Git isolation of a process tree (`read`).
 
 Before it reads the packages, `controls` runs the same reading of a package on packages that it
 writes in a scratch directory and Lake builds there: a package with no executable whose module calls
@@ -44,7 +44,7 @@ the website sources that `./scripts/verify.sh site` generates, and Mathlib for
 Its own assumptions are the `Assumes:` entries of `gitDependencies`, `select` and `read`. It reuses
 those of `Regula.Checker.readModuleCensus` (the parts of a compiled module),
 `Regula.ReaderCheck.readerReferences` (Lean's collector of the constants of a declaration),
-`Regula.Filesystem.Construction.gitEnvironment` (Git's repository environment) and
+`Regula.Filesystem.Construction.isolationEnvironment` (the Git isolation of a process tree) and
 `Regula.Filesystem.Construction.gitProcessArgs` (the isolated Git of `packages`). -/
 
 namespace Regula.Qualification.Readers
@@ -111,7 +111,7 @@ def gitDependencies (workspace : _root_.Lake.Workspace) : IO (List (String × Fi
 after provisioning, which checks the dependencies out. -/
 def requireProvisioned (workspace : _root_.Lake.Workspace) : IO Unit := do
   for (name, directory) in ← gitDependencies workspace do
-    unless ← directory.isDir do
+    unless ← Regula.Filesystem.isDirectory directory do
       throw <| IO.userError s!"its dependency {name} is not checked out at {directory}: provision \
         the dependencies first (scripts/provision.sh, then lean --run \
         lean/RegulaProvision.lean verso or mathlib)"
@@ -144,10 +144,11 @@ def select (directory : FilePath) (excluded : List String := []) : IO (FilePath 
 /-- Read the modules `modules` of the package at `directory` (`select`): build them there with
 Lake, as the other steps build, and collect the references of their compiled declarations, from
 `leanLibDir`. Lake runs without the inherited `LEAN_PATH` and `LEAN_SRC_PATH`
-(`Regula.Checker.scrubbedLeanPathEnv`) and without Git's repository environment
-(`Regula.Filesystem.Construction.gitEnvironment`), so a Git command of Lake cannot select another
-repository through an inherited `GIT_DIR`. Lake can still update or fetch a dependency, as it does
-in the other steps.
+(`Regula.Checker.scrubbedLeanPathEnv`) and under the Git isolation of a process tree
+(`Regula.Filesystem.Construction.isolationEnvironment`): without Git's repository environment, so
+a Git command of Lake cannot select another repository through an inherited `GIT_DIR`, and with
+command-scope `core.symlinks=false`. Lake can still update or fetch a dependency, as it does in the
+other steps.
 
 Assumes: Lake v4.34.1 resolves `+M` to the module `M` of the first package of the workspace that
 builds it (`src/lake/Lake/CLI/Build.lean:178-183`, `src/lake/Lake/Config/Workspace.lean:286-288`),
@@ -160,7 +161,7 @@ verified. -/
 def read (directory leanLibDir : FilePath) (modules : List Name) : IO Outcome := do
   let build ← Checker.runProcess directory (.toolchain .lake)
     (#["build"] ++ modules.toArray.map (s!"+{·}"))
-    (Checker.scrubbedLeanPathEnv ++ (← Regula.Filesystem.Construction.gitEnvironment))
+    (Checker.scrubbedLeanPathEnv ++ (← Regula.Filesystem.Construction.isolationEnvironment))
   unless build.succeeded do
     throw <| IO.userError s!"the build of its modules failed: {build.output}"
   let mut references := []

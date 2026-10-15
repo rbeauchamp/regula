@@ -208,7 +208,7 @@ private def facetReport (repo adopter : FilePath) : IO (Array String) := do
       label := "facet-report/generated-directory"
       contains := generatedReport.push "no such file or directory" }
     (← runElsewhere))
-  if ← (elsewhere / "Generated").pathExists then
+  if ← Regula.Filesystem.isPresent (elsewhere / "Generated") then
     failures := failures.push "facet-report/generated-source: a missing-source control created \
       the generated directory"
   failures := failures ++ (← expect repo { negative with label := "facet-report/dogfood" } args)
@@ -230,8 +230,7 @@ private def accepted (label : String) (fresh : Bool := false) : Expectation :=
 
 private def restore (adopter : FilePath) (files : Array (FilePath × String)) : IO Unit := do
   for (path, text) in files do IO.FS.writeFile path text
-  if ← (adopter / ".lake" / "build").pathExists then
-    Regula.Filesystem.removePath .directory (adopter / ".lake" / "build")
+  Regula.Filesystem.removePath .directory (adopter / ".lake" / "build")
 
 /-- A decision probe: after an ordinary `lake build` of `targets`, which leaves the compiled
 lakefile under `.lake/config`, the workspace at `adopter` is loaded in-process as the driver loads
@@ -588,7 +587,7 @@ private def leanArguments (probes : Std.Mutex Unit) (repo adopter : FilePath) :
   -- `--json-out` is the one marked incomplete before the refusal.
   IO.FS.writeFile lakefile (plain.replace "lintDriver := \"regula/lint\""
     "lintDriver := \"regula/lint\"\n  lintDriverArgs := #[\"--manifest\", \"--json-out\"]")
-  IO.FS.writeFile (adopter / "stale.json") "{\"status\":\"completed\"}\n"
+  IO.FS.writeFile (adopter / "stale.json") Regula.Destination.earlierResult
   failures := failures ++ (← expect adopter {
       label := "lean/option-like-value-refused", exitCode := 2,
       contains := #["the package's lintDriverArgs give --manifest",
@@ -598,7 +597,7 @@ private def leanArguments (probes : Std.Mutex Unit) (repo adopter : FilePath) :
   unless JsonAgreement.conforms stale (toJson "incomplete") do
     failures := failures.push s!"lake-lint/lean/option-like-value-refused: stale.json has status \
       {stale.compress}"
-  if ← (adopter / "--json-out").pathExists then
+  if ← Regula.Filesystem.isPresent (adopter / "--json-out") then
     failures := failures.push "lake-lint/lean/option-like-value-refused: the configured value \
       --json-out was written as a destination"
   Regula.Filesystem.removePath .file (adopter / "stale.json")
@@ -619,7 +618,7 @@ private def leanArguments (probes : Std.Mutex Unit) (repo adopter : FilePath) :
       excludes := #[s!"regula lint: {acceptanceLabel}"] } #["--", "--help", "--json-out", "/"])
   IO.FS.writeFile lakefile (plain.replace "lintDriver := \"regula/lint\""
     "lintDriver := \"regula/lint\"\n  lintDriverArgs := #[\"--json-out\", \"/\"]")
-  IO.FS.writeFile (adopter / "stale.json") "{\"status\":\"completed\"}\n"
+  IO.FS.writeFile (adopter / "stale.json") Regula.Destination.earlierResult
   failures := failures ++ (← expect adopter {
       label := "lean/each-destination-marked", exitCode := 2,
       contains := #["duplicate --json-out option", "regula lint: INVALID CONFIGURATION"],
@@ -628,6 +627,21 @@ private def leanArguments (probes : Std.Mutex Unit) (repo adopter : FilePath) :
   unless JsonAgreement.conforms stale (toJson "incomplete") do
     failures := failures.push s!"lake-lint/lean/each-destination-marked: stale.json has status \
       {stale.compress}"
+  Regula.Filesystem.removePath .file (adopter / "stale.json")
+  -- A destination that holds a file other than a document of Regula, such as an input of the
+  -- audit, is not marked and keeps its bytes (`Regula.Destination.write`), so the run
+  -- stops incomplete before the audit.
+  IO.FS.writeFile lakefile plain
+  let foreign := "{\"status\":\"completed\"}\n"
+  IO.FS.writeFile (adopter / "stale.json") foreign
+  failures := failures ++ (← expect adopter {
+      label := "lean/foreign-destination-refused", exitCode := 3,
+      contains := #["is a JSON document, not a document that Regula wrote",
+        "could not mark the result destination stale.json",
+        "regula lint: INCOMPLETE: a result destination could not be marked incomplete"],
+      excludes := #[s!"regula lint: {acceptanceLabel}"] } #["--", "--json-out", "stale.json"])
+  unless (← IO.FS.readFile (adopter / "stale.json")) == foreign do
+    failures := failures.push "lake-lint/lean/foreign-destination-refused: stale.json was changed"
   Regula.Filesystem.removePath .file (adopter / "stale.json")
   -- The audit reads its arguments once too: a manifest named `--json-out` is the manifest, not
   -- a destination, so the run reads it and writes only the command line's `--json-out`.
@@ -1021,7 +1035,9 @@ private def observerEscapes (repo adopter : FilePath) : IO (Array String) := do
     if before then mutate lakefile "\nrequire regula from" s!"\n{line}\nrequire regula from"
     else IO.FS.writeFile lakefile (lakefileText ++ s!"\n{line}\n")
     let parsed ← readJson manifestFile
-    let packages : Array Json ← IO.ofExcept <| parsed.getObjValAs? (Array Json) "packages"
+    let packages : Array Json ← IO.ofExcept <|
+      RegulaQualification.Member.within manifestFile
+        (RegulaQualification.Member.array parsed "packages")
     writeJson manifestFile <| parsed.setObjVal! "packages" <| toJson <| packages.push <|
       Json.mkObj [("name", toJson "setupdep"), ("scope", toJson ""),
         ("configFile", toJson "lakefile.lean"), ("manifestFile", toJson "lake-manifest.json"),
@@ -1035,7 +1051,7 @@ private def observerEscapes (repo adopter : FilePath) : IO (Array String) := do
     let label := s!"observer/unmemoized-dependency-presetup-{order}"
     requireDependency "Module.presetupFacetConfig.run mod" before
     failures := failures ++ (← expect adopter (accepted label))
-    unless ← ran.pathExists do
+    unless ← Regula.Filesystem.isPresent ran do
       failures := failures.push s!"lake-lint/{label}: the dependency's presetup facet did not \
         run, so the workspace did not configure it"
     removeDependency
@@ -1047,7 +1063,7 @@ private def observerEscapes (repo adopter : FilePath) : IO (Array String) := do
         "not observed: Regula's elaboration observer was not among the plugins Lean loaded to \
           elaborate Widget", "regula lint: INCOMPLETE (exit 3)"],
       excludes := #[s!"regula lint: {acceptanceLabel}"] })
-  unless ← ran.pathExists do
+  unless ← Regula.Filesystem.isPresent ran do
     failures := failures.push "lake-lint/observer/dependency-drops-plugins: the dependency's \
       presetup facet did not run, so the workspace did not configure it"
   removeDependency
@@ -1269,10 +1285,10 @@ private def tomlTargets (repo adopter : FilePath) : IO (Array String) := do
       "surface «gadget-extra»: claim"],
     excludes := #[s!"regula lint: {acceptanceLabel}", "manifest-"] }
   IO.FS.writeFile lakefile <| (← IO.FS.readFile lakefile) ++
-    "\n[[lean_lib]]\nname = \"gadget-extra\"\nroots = [\"Extra\"]\n" ++
-    observerPluginToml ++ observerNeedToml ++
-    "\n[[lean_exe]]\nname = \"gadget-tool\"\nroot = \"Gadget.Cli\"\n" ++
-    observerPluginToml ++ observerNeedToml
+    "\n" ++ observedTargetToml .library "gadget-extra"
+      ("roots = [\"Extra\"]\n" ++ observerPluginToml) ++
+    "\n" ++ observedTargetToml .executable "gadget-tool"
+      ("root = \"Gadget.Cli\"\n" ++ observerPluginToml)
   IO.FS.writeFile cli
     "/-! The adopter's command. -/\n\n/-- Does nothing. -/\ndef main : IO Unit := pure ()\n"
   IO.FS.writeFile extra
@@ -1762,7 +1778,9 @@ private def dependencyCachedWarning (repo adopter : FilePath) : IO (Array String
   mutate (adopter / "lakefile.lean") "require regula from"
     "require dep from \"dep\"\n\nrequire regula from"
   let manifest ← readJson (adopter / "lake-manifest.json")
-  let packages : Array Json ← IO.ofExcept <| manifest.getObjValAs? (Array Json) "packages"
+  let packages : Array Json ← IO.ofExcept <|
+    RegulaQualification.Member.within (adopter / "lake-manifest.json")
+      (RegulaQualification.Member.array manifest "packages")
   writeJson (adopter / "lake-manifest.json") <| manifest.setObjVal! "packages" <|
     toJson (#[Json.mkObj [
       ("name", toJson "dep"), ("scope", toJson ""), ("configFile", toJson "lakefile.lean"),
@@ -1776,8 +1794,7 @@ private def dependencyCachedWarning (repo adopter : FilePath) : IO (Array String
   let mut failures : Array String := #[]
   unless filled.succeeded && filled.output.contains warning do
     failures := failures.push s!"lake-lint/dependency-cache/fill: {filled.output}"
-  if ← (dependency / ".lake" / "build").pathExists then
-    Regula.Filesystem.removePath .directory (dependency / ".lake" / "build")
+  Regula.Filesystem.removePath .directory (dependency / ".lake" / "build")
   let fresh := runProcess adopter (.toolchain .lake) #["lint", "--", "--fresh"] env
   failures := failures ++ (← assess {
       label := "dependency-cache/fresh", exitCode := 3,
@@ -1870,7 +1887,9 @@ private def escapedNameWarning (repo adopter : FilePath) : IO (Array String) := 
     "name = \"«foo\"\n\n[[lean_lib]]\nname = \"bar»\"\ndefaultFacets = []\n"
   IO.FS.writeFile (dependency / "bar».lean") "/-! A dependency module that no build needs. -/\n"
   let lakeManifest ← readJson (adopter / "lake-manifest.json")
-  let packages : Array Json ← IO.ofExcept <| lakeManifest.getObjValAs? (Array Json) "packages"
+  let packages : Array Json ← IO.ofExcept <|
+    RegulaQualification.Member.within (adopter / "lake-manifest.json")
+      (RegulaQualification.Member.array lakeManifest "packages")
   writeJson (adopter / "lake-manifest.json") <| lakeManifest.setObjVal! "packages" <|
     toJson (#[Json.mkObj [
       -- Lean writes the package name `«foo` escaped, as `««foo»`, and reads it back.
@@ -2024,7 +2043,7 @@ private def pathOwned (repo adopter : FilePath) : IO (Array String) := do
   Regula.Filesystem.removePath .directory (support / ".lake" / "build")
   failures := failures ++
     (← expect adopter (ownedAccepted "path/owned-fresh" (fresh := true)) #["--", "--fresh"])
-  if ← (support / ".lake" / "build").pathExists then
+  if ← Regula.Filesystem.isPresent (support / ".lake" / "build") then
     failures := failures.push "lake-lint/path/owned-fresh: the fresh audit wrote the original \
       dependency's build output"
   return failures
@@ -2077,10 +2096,9 @@ private def pathForged (repo adopter : FilePath) : IO (Array String) := do
   IO.FS.writeFile supportLakefile <| supportConfiguration.replace "[[lean_lib]]"
     s!"leanLibDir = {toJson (support / ".lake" / "build" / "lib" / "lean").toString |>.compress}\n\
       [[lean_lib]]"
-  if ← (support / ".lake" / "build").pathExists then
-    Regula.Filesystem.removePath .directory (support / ".lake" / "build")
+  Regula.Filesystem.removePath .directory (support / ".lake" / "build")
   failures := failures ++ (← expect adopter (layout "path/owned-libdir-outside") #["--", "--fresh"])
-  if ← (support / ".lake" / "build").pathExists then
+  if ← Regula.Filesystem.isPresent (support / ".lake" / "build") then
     failures := failures.push "lake-lint/path/owned-libdir-outside: the fresh audit wrote the \
       original dependency's build output"
   failures := failures ++ (← expect adopter (layout "path/owned-libdir-incremental"))
@@ -2112,7 +2130,9 @@ private def pathConfig (repo adopter : FilePath) : IO (Array String) := do
     "/-- An axiom that nothing uses. -/\naxiom Support.unused : False\n"
   let configManifestPath := adopter / "lake-manifest.json"
   let configManifest ← readJson configManifestPath
-  let configEntries ← IO.ofExcept <| configManifest.getObjValAs? (Array Json) "packages"
+  let configEntries ← IO.ofExcept <|
+    RegulaQualification.Member.within configManifestPath
+      (RegulaQualification.Member.array configManifest "packages")
   let some configEntry := configEntries.find? isSupportEntry
     | return failures.push "lake-lint/path: the manifest has no build_lint_support entry"
   let relative := configEntry.setObjVal! "dir" (toJson "support")
@@ -2178,7 +2198,9 @@ private def pathReserved (repo adopter : FilePath) : IO (Array String) := do
     "name = \"regula\"\n[[lean_lib]]\nname = \"Regula\"\nsrcDir = \"lean\"\nroots = [\"Regula.Contract\"]\n"
   let vendorManifestPath := adopter / "lake-manifest.json"
   let vendorManifest ← readJson vendorManifestPath
-  let vendorEntries ← IO.ofExcept <| vendorManifest.getObjValAs? (Array Json) "packages"
+  let vendorEntries ← IO.ofExcept <|
+    RegulaQualification.Member.within vendorManifestPath
+      (RegulaQualification.Member.array vendorManifest "packages")
   writeJson vendorManifestPath <| vendorManifest.setObjVal! "packages" <| toJson <|
     vendorEntries.map fun item =>
       if JsonAgreement.conforms (item.getObjValD "name") (toJson "regula") then
@@ -2237,7 +2259,9 @@ private def pathEscapes (repo adopter : FilePath) : IO (Array String) := do
     "name = \"build_lint_support_two\"\n[[lean_lib]]\nname = \"Support\"\n"
   let manifestPath := adopter / "lake-manifest.json"
   let projectManifest ← readJson manifestPath
-  let entries ← IO.ofExcept <| projectManifest.getObjValAs? (Array Json) "packages"
+  let entries ← IO.ofExcept <|
+    RegulaQualification.Member.within manifestPath
+      (RegulaQualification.Member.array projectManifest "packages")
   let some supportEntry := entries.find? isSupportEntry
     | return failures.push "lake-lint/path: the manifest has no build_lint_support entry"
   writeJson manifestPath <| projectManifest.setObjVal! "packages" <| toJson <| entries.push <|
@@ -2367,7 +2391,9 @@ private def pathOverrides (repo adopter : FilePath) : IO (Array String) := do
     return failures.push s!"lake-lint/path: git init failed: {initialized.output}"
   let manifestPath := adopter / "lake-manifest.json"
   let manifest ← readJson manifestPath
-  let entries ← IO.ofExcept <| manifest.getObjValAs? (Array Json) "packages"
+  let entries ← IO.ofExcept <|
+    RegulaQualification.Member.within manifestPath
+      (RegulaQualification.Member.array manifest "packages")
   let some entry := entries.find? isSupportEntry
     | return failures.push "lake-lint/path: the manifest has no build_lint_support entry"
   writeJson manifestPath <| manifest.setObjVal! "packages" <| toJson <| entries.map fun item =>
@@ -2573,7 +2599,7 @@ which would itself try to identify the deliberately false compiler root. -/
 def compilerGuardWorker (mode : String) : IO UInt32 := do
   let some marker ← Regula.Process.readEnv "REGULA_COMPILER_CONTROL_MARKER"
     | throw <| IO.userError "compiler-guard control has no marker"
-  IO.FS.writeFile marker "compiler action ran\n"
+  Regula.Filesystem.writeReplacing marker "compiler action ran\n".toUTF8
   match mode with
   | "failing" => return 73
   | "unidentified" => return 0
@@ -2614,7 +2640,7 @@ private def compilerGuard (repo project : FilePath) : IO (Array String) := do
       exitCode := 1
       contains := #[lean.toString, "identity differs from this program"] }
     let failures ← assess expectation result
-    unless ← marker.pathExists do
+    unless ← Regula.Filesystem.isPresent marker do
       return failures.push s!"compiler-guard {label}: the guarded child action did not run"
     let ran ← IO.FS.readFile marker
     Regula.Filesystem.removePath .file marker

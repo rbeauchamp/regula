@@ -79,15 +79,14 @@ def excluded (relative : String) : Bool :=
     || relative == ".lake/packages" || relative.startsWith ".lake/packages/"
 
 /-- True when `path` resolves inside `root` (executed normalization check).
-Unresolvable paths are refused (fail closed): there is no lexical prefix
-fallback, so unresolved `..`/absolute joins cannot pass. -/
+A path where nothing is (`Regula.Filesystem.realPathIfPresent`) is refused (fail closed): there is
+no lexical prefix fallback, so unresolved `..`/absolute joins cannot pass. A failure to read or
+resolve either path is thrown. -/
 def contained (root path : FilePath) : IO Bool := do
-  try
-    let resolved ← IO.FS.realPath path
-    let base ← IO.FS.realPath root
-    return resolved.toString == base.toString ||
-      resolved.toString.startsWith (base.toString ++ "/")
-  catch _ => return false
+  let some resolved ← Regula.Filesystem.realPathIfPresent path | return false
+  let some base ← Regula.Filesystem.realPathIfPresent root | return false
+  return resolved.toString == base.toString ||
+    resolved.toString.startsWith (base.toString ++ "/")
 
 /-- Copy one source file through the shared no-follow/exclusive constructor. -/
 def copyFile (source target : FilePath) : IO Unit :=
@@ -150,7 +149,7 @@ def checkContainment (slot : ProducerSlot) (copy : FilePath)
     (shared : Array FilePath) : IO Unit := do
   unless (← contained slot.root copy) do
     throw <| IO.userError s!"slot package copy escapes slot: {copy}"
-  if (← (copy / ".git").pathExists) then
+  if (← Regula.Filesystem.isPresent (copy / ".git")) then
     let git ← run copy (.stated "git" "Git is the caller-selected repository mechanism") #["rev-parse", "--git-dir", "--git-common-dir", "--show-toplevel"]
     unless git.exitCode == 0 do
       throw <| IO.userError s!"slot git identity unavailable: {copy}\n{git.stdout}{git.stderr}"
@@ -161,9 +160,10 @@ def checkContainment (slot : ProducerSlot) (copy : FilePath)
         else copy / entry
       unless (← contained slot.root resolved) do
         throw <| IO.userError s!"slot git resolution escapes slot: {entry}"
-  if (← (copy / "lake-manifest.json").pathExists) then
+  if (← Regula.Filesystem.isPresent (copy / "lake-manifest.json")) then
     let manifest ← readJson (copy / "lake-manifest.json")
-    let packages ← IO.ofExcept (manifest.getObjValAs? (Array Json) "packages")
+    let packages ← readMember (copy / "lake-manifest.json")
+      (RegulaQualification.Member.array manifest "packages")
     for entry in packages do
       match entry.getObjVal? "dir" with
       | .error _ => pure ()
@@ -171,9 +171,9 @@ def checkContainment (slot : ProducerSlot) (copy : FilePath)
         let relative ← IO.ofExcept dir.getStr?
         let resolved := if FilePath.isAbsolute (FilePath.mk relative) then FilePath.mk relative
           else copy / relative
-        let sharedRoot ← try
-            pure (shared.contains (← IO.FS.realPath resolved))
-          catch _ => pure false
+        let sharedRoot := match ← Regula.Filesystem.realPathIfPresent resolved with
+          | some real => shared.contains real
+          | none => false
         unless sharedRoot || (← contained slot.root resolved) do
           throw <| IO.userError s!"slot manifest dir escapes slot: {relative}"
 
@@ -184,8 +184,8 @@ def compareBytes (target : FilePath) (expected : ByteArray) : IO Unit := do
 
 /-- One content-level entry under a shared dependency root: root-relative path,
 `lstat` kind and, for regular files, the exact byte length and the pinned native
-`ByteArray.hash` of the complete contents. Symlinks are never followed; their
-resolution (or its failure) is recorded instead. The digest is a 64-bit
+`ByteArray.hash` of the complete contents. Symlinks are never followed; the resolved path of
+each is recorded, and a link that cannot be resolved fails the walk. The digest is a 64-bit
 non-cryptographic hash: it detects accidental persisting content changes, not adversarial
 collisions. -/
 structure SharedEntry where
@@ -197,7 +197,8 @@ structure SharedEntry where
   bytes : Nat
   /-- `ByteArray.hash` of a regular file's contents; 0 for any other kind. -/
   digest : UInt64
-  /-- A symlink's resolved path, or `<unresolvable>`; empty for any other kind. -/
+  /-- A symlink's resolved path; empty for any other kind. A link that cannot be resolved fails
+  the walk. -/
   target : String
   deriving BEq, Inhabited
 
@@ -229,8 +230,9 @@ private def sharedWalk (enumerator : Regula.Filesystem.Construction.Enumerator)
         acc ← sharedWalk enumerator root path acc depth
       | .file => acc := acc.push ⟨relative, "file", 0, 0, ""⟩
       | .symlink =>
-        let target ← try pure (← IO.FS.realPath path).toString
-          catch _ => pure "<unresolvable>"
+        -- A link whose target cannot be resolved fails the walk, so no placeholder stands for
+        -- two different targets in the identity.
+        let target := (← IO.FS.realPath path).toString
         acc := acc.push ⟨relative, "symlink", 0, 0, target⟩
       | .other => acc := acc.push ⟨relative, "other", 0, 0, ""⟩
     return acc
@@ -274,6 +276,35 @@ def SharedIdentity.difference (before after : SharedIdentity) : String := Id.run
     for (x, y) in b.2.zip a.2 do
       if x != y then return s!"{b.1}/{x.relative} vs {y.relative}"
   return "no difference"
+
+/-- The files that the root package of the checkout at `root` declares as build inputs, from Lake's
+load of that package alone (`Workspace.withRootPackage`): the path of each of its `input_file`
+targets, then each file below the path of each of its `input_dir` targets that the target's
+filter admits. A library of a ROOT copy that needs such a target reads those files in each build
+there, so the copy holds them beside the module sources (`RuleExamples.check`), and a campaign
+records them among its sources (`RuleExamples.sourcePaths`). Each directory is walked as
+`System.FilePath.walkDir` walks it (`Construction.walkDirectory`), and each entry is observed
+strictly (`Regula.Filesystem.isDirectory`): a failure of that read other than a missing file
+throws, where Lake's filter reads it as no directory.
+
+Assumes:
+- Lake v4.34.1 gives an `input_file` target the file `pkg.dir / path`
+  (`Lake/Config/InputFile.lean:21-22`), and an `input_dir` target each file that
+  `System.FilePath.walkDir` finds below `pkg.dir / path`, other than a directory, whose path, as
+  that walk gives it, its filter admits (`Lake/Config/InputFile.lean:35-36`, `:43-44`,
+  `Lake/Build/InputFile.lean:42-44`, `Lake/Build/Common.lean:812-823`).
+- `Package.configTargets` gives each target of the package of the kind it names
+  (`Lake/Config/ConfigTarget.lean:36-42`), and the root package's directory is the directory that
+  its load configuration names, the real path of `root` (`loadConfig`). -/
+def rootInputs (root : FilePath) : IO (Array FilePath) :=
+  Regula.Checker.Workspace.withRootPackage root fun ws => do
+    let mut found :=
+      (ws.root.configTargets _root_.Lake.InputFile.configKind).map _root_.Lake.InputFile.path
+    for dir in ws.root.configTargets _root_.Lake.InputDir.configKind do
+      for path in ← Regula.Filesystem.Construction.walkDirectory (_root_.Lake.InputDir.path dir) do
+        if _root_.Lake.InputDir.filter dir path && !(← Regula.Filesystem.isDirectory path) then
+          found := found.push path
+    return found
 
 /-- Prepare one complete slot: the writable ROOT package copy. The ROOT copy's
 `lake-manifest.json` is truthfully relocated so that every package entry names
@@ -320,7 +351,7 @@ def prepareSlot (originalRoot : FilePath) (slot : ProducerSlot)
     _root_.Lake.Manifest.save {manifest with packages := relocated} manifestPath
     return "/".intercalate relative
   provenance := provenance.push ⟨s!"root/{relocatedManifest}", "config", "relocated"⟩
-  if (← (originalRoot / ".lake/build").pathExists) then
+  if (← Regula.Filesystem.isPresent (originalRoot / ".lake/build")) then
     let _ ← copyTree (originalRoot / ".lake/build") (copy / ".lake/build")
     -- Slot producers run the copied axiomGate/ruleExamples dispatchers by path, and Lake can
     -- invoke any declared executable. Grant 0755 precisely to the root's Lake-declared binaries.
@@ -334,7 +365,7 @@ def prepareSlot (originalRoot : FilePath) (slot : ProducerSlot)
         | none => pure ()
         | _ => throw <| IO.userError s!"slot executable is not regular: {path}"
     provenance := provenance.push ⟨"root/.lake/build", "build", "copy"⟩
-  if (← (originalRoot / ".git").pathExists) then
+  if (← Regula.Filesystem.isPresent (originalRoot / ".git")) then
     materializeGit (copy / ".git") (originalRoot / ".git")
     provenance := provenance.push ⟨"root/.git", "git", "copy"⟩
   for dep in deps do
@@ -381,7 +412,7 @@ def prepareSlotProject (slot : ProducerSlot) (project : FilePath)
       false⟩, ⟨`relaxedAutoImplicit, false⟩, ⟨`linter.missingDocs, true⟩]\n  \
       plugins := #[`@regula/RegulaObserver:shared]\nrequire regula from \
       {toJson (slot.root / "root").toString |>.compress}\n\
-      @[default_target] lean_lib Example where\n{Regula.Checker.observerNeedLean}"
+      @[default_target] {Regula.Checker.observedTargetLean .library "Example"}"
   Regula.Filesystem.writeJson (project / "foundation_manifest.json") (Json.mkObj [
     ("schema-version", toJson (2 : Nat)), ("surfaces", toJson #[Json.mkObj [
       ("library", .str "Example"), ("claim", .str claim), ("execution", .str "checked"),

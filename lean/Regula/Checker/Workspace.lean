@@ -3,6 +3,7 @@ import Lake.Load
 import Regula.Checker.Common
 import Regula.Process
 import Regula.Filesystem
+import Regula.GitIsolation
 
 /-!
 # In-process Lake workspace loading
@@ -17,14 +18,124 @@ namespace Regula.Checker.Workspace
 
 open Lean System
 
-/-- The configuration with which the workspace rooted at `repo` is loaded. With
+/-- The configuration file that Lake v4.34.1's rule gives the package at `dir` whose configuration
+is named `relConfigFile`, with each candidate observed strictly: `relConfigFile` with the extension
+`lean` when it is present, else with the extension `toml` when it is present, else none. Lake's
+`resolveConfigFile` takes the same order for a name without an extension
+(`Lake/Load/Package.lean:107-119`). Both candidates are observed through
+`Regula.Filesystem.realPathIfPresent`, so a failure of either observation other than a missing
+file is thrown with its error. Lake instead resolves each candidate with `Lake.resolvePath`
+(`Lake/Util/IO.lean:75-89`), which gives no path for every failure of `realPath`, so a
+`lakefile.lean` that cannot be resolved, such as a link into a directory without search
+permission, is passed over for a `lakefile.toml` beside it. -/
+def configChoice (dir relConfigFile : FilePath) : IO (Option FilePath) := do
+  let lean := relConfigFile.withExtension "lean"
+  let toml := relConfigFile.withExtension "toml"
+  let leanPath ← Regula.Filesystem.realPathIfPresent (dir / lean)
+  let tomlPath ← Regula.Filesystem.realPathIfPresent (dir / toml)
+  return if leanPath.isSome then some lean else tomlPath.map fun _ => toml
+
+/-- Refuse unless each candidate of `configChoice` is absent or resolves: a failure of either
+observation other than a missing file is thrown with its error. Where the configuration is named
+with its extension, Lake reads that file alone and fails when it cannot resolve it; the other
+candidate is observed too, and its failure refuses. -/
+def requireConfigCandidates (dir relConfigFile : FilePath) : IO Unit :=
+  discard <| configChoice dir relConfigFile
+
+/-- Refuse a package that Lake loaded unless each candidate of its configuration's name is absent
+or resolves (`configChoice`), and, unless `requested`, the configuration name that the load gave
+the package, is known and has an extension, unless Lake loaded it from the file that
+`configChoice` gives for its directory, naming the package.
+
+Regula observes what Lake builds, so it compares a choice wherever Lake may have made one in this
+load. Lake chooses between the two candidates only for a name without an extension
+(`Lake/Load/Package.lean:107-119`), and resolves each with `Lake.resolvePath?`
+(`Lake/Util/IO.lean:75-89`), which gives no path for each failure of `realPath`, and none when the
+path it gives cannot be read. A read of `lakefile.lean` that fails once, with any error, therefore
+makes Lake load `lakefile.toml`, and a strict read of the candidates after the load that succeeds
+does not show that Lake's read succeeded: only the comparison of the file that Lake loaded with the
+one that the rule gives over strictly observed candidates does. It refuses such a choice, as it
+refuses one made while a process changed a candidate during the load. Where the name is not known
+(`configRequests`), the comparison is made too. For a name with an extension, Lake chooses nothing
+in this load: it reads that file alone and fails when it cannot resolve it
+(`Lake/Load/Package.lean:100-106`), so no failed read of this load can make a wrong choice there.
+Such a name can still record a choice that an earlier, lossy resolution made, since Lake writes
+each manifest entry with the file it chose when it last resolved the package
+(`Workspace.writeManifest`, `Lake/Load/Resolve.lean:520-528`); that is Lake's history, outside the
+reads that Regula makes, and its refusal would refuse a workspace that Lake builds. -/
+def requireConfigChoice (package : _root_.Lake.Package) (requested : Option FilePath) :
+    IO Unit := do
+  let choice ← configChoice package.dir package.relConfigFile
+  unless requested.any (·.extension.isSome) || choice == some package.relConfigFile do
+    let rule := match choice with
+      | some file => s!"its candidates give {file}"
+      | none => "neither candidate is present"
+    throw <| IO.userError s!"lake-workspace-load-failed: Lake loaded package \
+      '{package.prettyName}' from {package.relConfigFile} in {package.dir}, but {rule}: a choice \
+      that this load made for a configuration name without an extension and that Lake's rule \
+      does not give now, such as one made while a read of a candidate failed or a process \
+      changed a candidate during the load"
+
+/-- The manifest and package overrides file of the workspace that Lake loads with `wsDir` as its
+root under `loadConfig`, as Lake joins them (`Workspace.manifestFile`,
+`Workspace.packageOverridesFile`); `configRequests` reads them, and `withRootWorkspace` refuses a
+load that read others. -/
+def rootFiles (wsDir : FilePath) : FilePath × FilePath :=
+  (_root_.Lake.joinRelative wsDir _root_.Lake.defaultManifestFile,
+    _root_.Lake.joinRelative (_root_.Lake.joinRelative wsDir _root_.Lake.defaultLakeDir)
+      "package-overrides.json")
+
+/-- The entries that Lake's load of the workspace whose manifest and package overrides file are
+`files` (`rootFiles`) materializes its dependencies from, read with Lake's own readers: the
+manifest's entries and then those of the overrides file, or `none` when the manifest does not
+exist. The last entry for a package's name is the one that Lake materializes the package from,
+and Lake loads the package from that entry's configuration name (`configRequest`).
+
+Assumes:
+- Lake v4.34.1's `loadWorkspace`, with neither `updateDeps` nor further overrides in its load
+  configuration, as `loadConfig` sets neither, materializes the dependencies from the manifest
+  when it exists (`Lake/Load/Workspace.lean:61-69`). It inserts the manifest's entries and then
+  the overrides file's into a name map, materializes each dependency from the entry for its name
+  (`Lake/Load/Resolve.lean:598-616`), and loads it from that entry's `configFile`
+  (`Lake/Load/Materialize.lean:136-137`, `Lake/Load/Resolve.lean:33-46`).
+- Without a manifest, Lake resolves the requirements anew: an entry that it makes names
+  `lakefile` (`Lake/Load/Materialize.lean:231`, `Lake/Load/Manifest.lean:90`), and an entry that
+  it takes from a dependency's manifest keeps that manifest's name
+  (`Lake/Load/Resolve.lean:293-302`, `:306-325`), in an order that this read does not follow, so no
+  name is known.
+- Trusted: no process writes the two files during one load, as for the checker's other reads. -/
+def configRequests (files : FilePath × FilePath) :
+    IO (Option (Array _root_.Lake.PackageEntry)) := do
+  let some manifest ← _root_.Lake.Manifest.load? files.1 | return none
+  return some (manifest.packages ++ (← _root_.Lake.Manifest.tryLoadEntries files.2))
+
+/-- The configuration name that the load gave `package`: `lakefile` for the root, whose load
+configuration names none (`loadConfig`), and otherwise the name of the last entry for its name
+among `entries` (`configRequests`), or `none` when that is not known. -/
+def configRequest (entries : Option (Array _root_.Lake.PackageEntry))
+    (package : _root_.Lake.Package) : Option FilePath :=
+  if package.isRoot then some _root_.Lake.defaultConfigFile
+  else (entries.bind (·.findRev? (·.name == package.baseName))).map (·.configFile)
+
+/-- Check each package of `ws` (`requireConfigChoice`) with the configuration name that the load
+gave it (`configRequest`), given the entries that the load materialized its dependencies from,
+`entries` (`configRequests`). -/
+def requireConfigChoices (entries : Option (Array _root_.Lake.PackageEntry))
+    (ws : _root_.Lake.Workspace) : IO Unit := do
+  for package in ws.packages do
+    requireConfigChoice package (configRequest entries package)
+
+/-- The configuration with which the workspace rooted at `repo` is loaded, after the observation
+of the root package's configuration candidates (`requireConfigCandidates`). With
 `scrubSearchPath`, the inherited `LEAN_PATH` and `LEAN_SRC_PATH` are ignored, as for
 `scrubbedLeanPathEnv`. -/
 private def loadConfig (repo : FilePath) (scrubSearchPath : Bool) : IO _root_.Lake.LoadConfig := do
+  let wsDir ← IO.FS.realPath repo
+  requireConfigCandidates wsDir _root_.Lake.defaultConfigFile
   let lakeEnv ← Regula.Process.lakeEnvironment
   let lakeEnv := if scrubSearchPath then { lakeEnv with initLeanPath := [], initLeanSrcPath := [] }
     else lakeEnv
-  return { lakeEnv, wsDir := ← IO.FS.realPath repo, leanOpts := ← Regula.Process.leanOptions }
+  return { lakeEnv, wsDir, leanOpts := ← Regula.Process.leanOptions }
 
 /-- Lake's loader of the workspace and its dependencies, `Lake.loadWorkspace`, for `config`: a
 listed entry of the process and environment rows of `Regula.Removal.boundaries`. Each caller
@@ -56,11 +167,21 @@ check follows it from the caller. -/
     IO α :=
   ws.runBuild build config
 
-/-- Pass the workspace that a load gave to `action`, or fail with the messages of its log. -/
-private def withLoaded {α : Type} (ws? : Option _root_.Lake.Workspace) (log : _root_.Lake.Log)
-    (action : _root_.Lake.Workspace → IO α) : IO α :=
+/-- Pass the workspace that a load gave to `action`, after each package's configuration file is
+checked against the strict observation of its candidates (`requireConfigChoices`), given the
+entries that the load materialized the dependencies from, `entries`, read from `files`
+(`configRequests`), or fail with the messages of its log. A load that read another manifest or
+overrides file than `files` is refused. -/
+private def withLoaded {α : Type} (files : FilePath × FilePath)
+    (entries : Option (Array _root_.Lake.PackageEntry)) (ws? : Option _root_.Lake.Workspace)
+    (log : _root_.Lake.Log) (action : _root_.Lake.Workspace → IO α) : IO α :=
   match ws? with
-  | some ws => action ws
+  | some ws => do
+      unless (ws.manifestFile, ws.packageOverridesFile) == files do
+        throw <| IO.userError s!"lake-workspace-load-failed: Lake's load read \
+          {ws.manifestFile} and {ws.packageOverridesFile}, not {files.1} and {files.2}"
+      requireConfigChoices entries ws
+      action ws
   | none =>
       let messages := log.entries.map (·.message)
       throw <| IO.userError <|
@@ -75,13 +196,22 @@ workspace state beyond its return value. With `scrubSearchPath`, the inherited
 Lake's loader removes and replaces entries of the workspace itself, as `lake build` and
 `lake update` would there: the compiled configuration of each package, and the clones of its
 dependencies. Those removals act on the workspace that the caller asked Lake to load, and they rest
-on its own contents, which its adopter trusts as Lake does (`Regula.Removal.libraryRemovals`). -/
+on its own contents, which its adopter trusts as Lake does (`Regula.Removal.libraryRemovals`).
+
+The Git commands that Lake runs here, to materialize a dependency or, in a build that `action`
+runs, to look up a prebuilt archive, inherit this process's environment. Before it loads anything,
+the function refuses unless that environment is Git-isolated (`Regula.GitIsolation.requireIsolated`),
+which `Regula.TaskManager.guard` gives every compiled Regula program. -/
 def withRootWorkspace {α : Type} (repo : FilePath) (action : _root_.Lake.Workspace → IO α)
     (scrubSearchPath := false) (resolveDependencies := true) : IO α := do
+  Regula.GitIsolation.requireIsolated "lake-workspace-load-failed: nothing was loaded"
   let config ← loadConfig repo scrubSearchPath
+  let files := rootFiles config.wsDir
+  -- Read before the load, which writes the manifest when there is none.
+  let entries ← if resolveDependencies then configRequests files else pure (some #[])
   let (ws?, log) ← (if resolveDependencies then loadWorkspace config
     else loadWorkspaceRoot config).captureLog
-  withLoaded ws? log action
+  withLoaded files entries ws? log action
 
 /-- Resolve the supplied committed manifest through Lake, refusing selector overrides for each
 dependency whose effects receive a sourced exemption. Root configuration, module naming and
@@ -94,13 +224,19 @@ override file and `Load/Materialize.lean:260-263` uses the environment's package
 `CLI/Main.lean:116-130,334-338,918-924` decodes explicit invoker options into the parent load's
 configuration; those choices are outside this check. The committed manifest/configuration and
 implicit selector inputs stay stable during resolution. This load retains the initial Lean
-options supplied by Regula.Process.leanOptions. -/
+options supplied by Regula.Process.leanOptions. Each load passes the checks of `withLoaded`: the
+root load gives only the root package, and the resolution materializes the dependencies from the
+entries of `manifest` and then those of the overrides file, as `configRequests` gives them for a
+manifest that Lake reads. As in `withRootWorkspace`, it refuses before the loader runs unless
+this process's environment is Git-isolated (`Regula.GitIsolation.requireIsolated`). -/
 def withManifestWorkspace {α : Type} (repo : FilePath) (manifest : _root_.Lake.Manifest)
     (exempted : Array Name) (action : _root_.Lake.Workspace → IO α) : IO α := do
+  Regula.GitIsolation.requireIsolated "lake-workspace-load-failed: nothing was loaded"
   let config ← loadConfig repo false
+  let files := rootFiles config.wsDir
   let load : _root_.Lake.LoggerIO _root_.Lake.Workspace := loadWorkspaceRoot config
   let (root?, rootLog) ← load.captureLog
-  withLoaded root? rootLog fun root => do
+  withLoaded files (some #[]) root? rootLog fun root => do
     let overrides ← _root_.Lake.Manifest.tryLoadEntries root.packageOverridesFile
     for name in exempted do
       unless manifest.packages.any (·.name == name) do
@@ -108,7 +244,7 @@ def withManifestWorkspace {α : Type} (repo : FilePath) (manifest : _root_.Lake.
       if overrides.any (·.name == name) || (root.lakeEnv.pkgUrlMap.find? name).isSome then
         throw <| IO.userError s!"observer reach check incomplete: exempted dependency {name} has an overridden selection; the committed manifest is required"
     let (resolved?, log) ← (materializeDeps root manifest config).captureLog
-    withLoaded resolved? log fun resolved => do
+    withLoaded files (some (manifest.packages ++ overrides)) resolved? log fun resolved => do
       for name in exempted do
         if (resolved.findPackageByName? name).isNone then
           throw <| IO.userError s!"observer reach check incomplete: exempted dependency {name} was not resolved"
@@ -120,7 +256,8 @@ none, `Lake.loadWorkspace` loads no other package, so `action` gets the packages
 `withRootWorkspace` gives it. The compiled code of this function calls no loader that resolves or
 materializes a dependency, which removes directories (`Regula.Removal.checkProgram`).
 
-Its prerequisite: before the loader runs, it refuses when `.lake` or `.lake/config` below the
+Its prerequisites: before the loader runs, it refuses unless this process's environment is
+Git-isolated, as `withRootWorkspace` does, and it refuses when `.lake` or `.lake/config` below the
 checkout is there and is not a directory at its own place
 (`Regula.Filesystem.requireOwnDirectory`). It also refuses when the directory of the root
 package's compiled configuration (`Lake.LoadConfig.configDir`, `.lake/config/0`) is not such a
@@ -134,6 +271,7 @@ existing file for writing follows a final link, so with this check each file tha
 writes there is the checkout's own. -/
 def withRootPackage {α : Type} (repo : FilePath) (action : _root_.Lake.Workspace → IO α) :
     IO α := do
+  Regula.GitIsolation.requireIsolated "lake-workspace-load-failed: nothing was loaded"
   let config ← loadConfig repo false
   let lake := config.wsDir / _root_.Lake.defaultLakeDir
   let refuse {β : Type} (error : IO.Error) : IO β := throw <| IO.userError
@@ -143,7 +281,7 @@ def withRootPackage {α : Type} (repo : FilePath) (action : _root_.Lake.Workspac
   try Regula.Filesystem.requireNoLinkedEntries config.configDir catch error => refuse error
   let load : _root_.Lake.LoggerIO _root_.Lake.Workspace := loadWorkspaceRoot config
   let (ws?, log) ← load.captureLog
-  withLoaded ws? log fun ws => do
+  withLoaded (rootFiles config.wsDir) (some #[]) ws? log fun ws => do
     unless ws.root.depConfigs.isEmpty do
       throw <| IO.userError s!"lake-workspace-load-failed: the root package at {repo} declares \
         a dependency, so its root package alone is not its workspace"

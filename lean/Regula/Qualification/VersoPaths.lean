@@ -61,7 +61,8 @@ private def withEntries {α : Type} (path : FilePath) (change : Array Json → A
 it. -/
 private def withWritten {α : Type} (path : FilePath) (text : String) (action : IO α) : IO α := do
   requireChecks
-    [⟨s!"{path} does not exist before the control writes it", !(← path.pathExists)⟩]
+    [⟨s!"{path} does not exist before the control writes it",
+      !(← Regula.Filesystem.isPresent path)⟩]
   if let some parent := path.parent then IO.FS.createDirAll parent
   IO.FS.writeFile path text
   try
@@ -173,7 +174,8 @@ def check : IO Unit := do
       let manifest := anchor / "lake-manifest.json"
       let (pins, captured, written) ← withRemoved manifest <|
         withOverrides overrides #[gitEntry "shared" other] do
-          return (← outcome mismatch, ← outcome (discard capture), ← manifest.pathExists)
+          return (← outcome mismatch, ← outcome (discard capture),
+            ← Regula.Filesystem.isPresent manifest)
       let refused := fun (found : Except String Unit) => match found with
         | .error message => (message.splitOn "no file records").length > 1
         | .ok _ => false

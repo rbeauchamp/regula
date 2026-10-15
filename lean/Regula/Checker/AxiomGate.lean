@@ -364,7 +364,7 @@ private def capturedSourceAccount (resultOut : Option FilePath)
     (sources : Array ProducerReport.SourceBinding) : IO Json := do
   if sources.isEmpty then
     if let some output := resultOut then
-      if ← output.pathExists then
+      if ← Regula.Filesystem.isPresent output then
         let value ← ResultProtocol.readDocument output
         if let .ok captured := value.getObjVal? "sourceAccount" then return captured
   return ProducerReport.sourceAccountJson sources
@@ -376,7 +376,7 @@ private def retainSourceAccount (resultOut : Option FilePath)
   | some _ => pure ()
   | none =>
     if let some output := resultOut then
-      if ← output.pathExists then
+      if ← Regula.Filesystem.isPresent output then
         let captured ← capturedSourceAccount resultOut sources
         let value ← ResultProtocol.readDocument output
         ResultProtocol.writeDocument output (value.setObjVal! "sourceAccount" captured)
@@ -500,23 +500,23 @@ So a result of this origin says that it rests on the driver (`Origin.qualificati
 private def driverCopy (repo path : FilePath) : IO Copied := do
   let refuse {α : Type} (reason : String) : IO α :=
     throw <| IO.userError s!"driver copy refused: {path} {reason}"
-  let area ← match ← (IO.FS.realPath (Regula.Scratch.directory repo)).toBaseIO with
-    | .ok area => pure area
-    | .error _ => refuse s!"is not in the scratch area of {repo}, which has none"
-  let copy ← match ← (IO.FS.realPath path).toBaseIO with
-    | .ok copy => pure copy
-    | .error _ => refuse "is not there"
+  -- Only `realPathIfPresent` decides that nothing is there; a failure to read or resolve is thrown.
+  let some area ← Regula.Filesystem.realPathIfPresent (Regula.Scratch.directory repo)
+    | refuse s!"is not in the scratch area of {repo}, which has none"
+  let some copy ← Regula.Filesystem.realPathIfPresent path | refuse "is not there"
   let some name := ScratchCopy.name? area.normalize.components copy.normalize.components
     | refuse s!"is not the directory `project` of a scratch directory of {area}"
   let marker := area / s!"{name}.{Regula.Scratch.markerExtension}"
-  let marked ← match ← marker.symlinkMetadata.toBaseIO with
-    | .ok metadata => pure (metadata.type == .file)
-    | .error _ => pure false
+  let marked ← match ← (Regula.Filesystem.entryIfPresent marker).toBaseIO with
+    | .ok kind => pure (kind == some .file)
+    | .error error => refuse s!"has an ownership marker {marker} that cannot be read ({error})"
   unless marked do refuse s!"has no ownership marker {marker}"
   let build ← match ← (Workspace.withRootWorkspace copy fun workspace =>
-      IO.FS.realPath workspace.root.buildDir).toBaseIO with
-    | .ok build => pure build
-    | .error error => refuse s!"has no build directory that Lake gives ({error})"
+      Regula.Filesystem.realPathIfPresent workspace.root.buildDir).toBaseIO with
+    | .ok (some build) => pure build
+    | .ok none => refuse "has no build directory that Lake gives"
+    | .error error => refuse s!"has a build directory that Lake does not give or that cannot be \
+      resolved ({error})"
   let own ← IO.FS.realPath (← Regula.Process.appPath)
   unless ScratchCopy.inside build.normalize.components own.normalize.components do
     refuse s!"did not build this gate: {own} is not below {build}"
@@ -1387,7 +1387,7 @@ private unsafe def auditFile (repo path : FilePath) (claim : Option Profile)
   let manifestPath := manifest.getD (Manifest.defaultPath repo)
   let configuration ← SourceBinding.configuration repo manifestPath
   observeConfiguration repo configuration none
-  if !(← path.pathExists) then
+  if !(← Regula.Filesystem.isPresent path) then
     reportContextFailure .environment path.toString .freshFile .incomplete []
       s!"missing source file {path}" composed resultOut
     return 1
@@ -1403,7 +1403,7 @@ private unsafe def auditFile (repo path : FilePath) (claim : Option Profile)
       observeSources (captured.push fileSource)
     let sources := dependencySources.push fileSource
     withSourceEvidence sources configuration path.toString .freshFile composed resultOut do
-      if manifest.isSome || (← manifestPath.pathExists) then
+      if manifest.isSome || (← Regula.Filesystem.isPresent manifestPath) then
         let claimed ← Manifest.loadFor manifestPath inventory
         let (_, buildResult) ← Lake.buildCheckedObservation repo
           (Lake.claimedTargets claimed) "incrementally" Lake.buildTargetsShowing
@@ -1812,9 +1812,13 @@ inductive Invocation where
   | replacementHistoryWorker (moduleWire source out : String)
   /-- Any other arguments: an audit, with the plan of its arguments. -/
   | audit (plan : Plan)
+  /-- The invocation `invocation`, one of whose files holds something that it may not replace, or
+  two of whose files may be one entry, refused with `reason` (`Invocation.of`): it marks each file
+  of `invocation` that it may replace, and does no job. -/
+  | refused (reason : String) (invocation : Invocation)
 
-/-- The invocation that `args` name, read once. -/
-def Invocation.of (args : List String) : BaseIO Invocation :=
+/-- The invocation that `args` name, read once, before the check of its files (`Invocation.of`). -/
+private def Invocation.read (args : List String) : BaseIO Invocation :=
   match args with
   | ["--validate-site", registry, artifact] => pure (.validateSite registry artifact)
   | ["--registry-out", output] => pure (.registryOut output)
@@ -1840,6 +1844,7 @@ file `publish` of its decoded request too. A form that writes none and an audit,
 its plan gives, give none. -/
 def Invocation.outputs : Invocation → List String
   | .validateSite .. | .validateRegistry _ | .audit _ => []
+  | .refused _ invocation => invocation.outputs
   | .registryOut output => [output]
   | .declarationReportWorker _ out request =>
     out :: match request with
@@ -1849,24 +1854,46 @@ def Invocation.outputs : Invocation → List String
   | .inspectionGroupWorker _ out | .diagnosticWorker _ _ out | .replacementHistoryWorker _ _ out =>
     [out]
 
+/-- Each file that `invocation` marks and writes, as the run resolves it: the files of an internal
+form (`outputs`), or each destination of an audit's plan that resolves (`Plan.targets`). -/
+def Invocation.destinations : Invocation → List FilePath
+  | .audit plan => plan.targets.filterMap fun (_, _, target) => target.toOption
+  | .refused _ invocation => invocation.destinations
+  | other => other.outputs.map (⟨·⟩)
+
+/-- The invocation that `args` name, read once (`Invocation.read`), or that invocation `refused`
+when one of the files that it writes holds something that it may not replace, or two of them may
+be one entry (`Regula.Destination.refusal`). The guard marks the files of this reading before the
+run reads an input (`Regula.TaskManager.guard`), and each mark replaces only a file that the run
+may replace (`Regula.Destination.write`), so a file that the run reads is never replaced unless it
+is empty or a document of Regula (`Regula.Destination.regulaDocument`). -/
+def Invocation.of (args : List String) : IO Invocation := do
+  let invocation ← Invocation.read args
+  if let some reason ← Regula.Destination.refusal invocation.destinations then
+    return .refused reason invocation
+  return invocation
+
 /-- Mark each file that `invocation` writes incomplete, each on its own, and return a line for each
 that could not be marked: an audit's destinations (`markIncomplete`), with `reason` when given,
-and each file of an internal form (`outputs`, `invalidateOutput`), with `reason` or else the reason
-that the job has not completed. -/
+and each file of an internal form (`destinations`, `invalidateOutput`), with `reason` or else the
+reason that the job has not completed. A refused invocation marks the files of the invocation that
+it refuses. Each mark stops, and its line says why, at a file that the run may not replace
+(`Regula.Destination.write`). -/
 def Invocation.markIncomplete (invocation : Invocation) (reason : Option String) :
     IO (List String) :=
   match invocation with
   | .audit plan => Regula.Checker.AxiomGate.markIncomplete plan reason
-  | other => other.outputs.filterMapM fun (out : String) => do
-    match ← (invalidateOutput ⟨out⟩ (reason.getD "the job has not completed")).toBaseIO with
+  | .refused _ invocation => invocation.markIncomplete reason
+  | other => other.destinations.filterMapM fun out => do
+    match ← (invalidateOutput out (reason.getD "the job has not completed")).toBaseIO with
     | .ok () => pure none
     | .error error => pure (some s!"{out}: {error}")
 
-/-- The refusal of an invocation in a process without Lean's task manager, which the guard of the
-executable runs (`Regula.TaskManager.guard`): it reads the arguments once (`Invocation.of`), as
-`run` does, marks each file of that reading incomplete with `reason`, whether or not the invocation
-is admitted (`Invocation.markIncomplete`), and returns the exit code of an incomplete audit. No
-job runs. -/
+/-- The refusal of an invocation, which the guard of the executable runs before each run and, in a
+process without Lean's task manager, in the run's place (`Regula.TaskManager.guard`): it reads the
+arguments once (`Invocation.of`), as `run` does, marks each file of that reading incomplete with
+`reason`, whether or not the invocation is admitted (`Invocation.markIncomplete`), and returns the
+exit code of an incomplete audit. No job runs. -/
 def refuseWithoutTaskManager (reason : String) (args : List String) : IO UInt32 := do
   for line in ← (← Invocation.of args).markIncomplete (some reason) do
     IO.eprintln s!"axiom gate: could not mark the destination {line} incomplete"
@@ -1915,9 +1942,12 @@ private unsafe def audit (plan : Plan) (failed : List String) : IO UInt32 := do
   let capturedSources ← IO.mkRef (#[] : Array ProducerReport.SourceBinding)
   let observeSources := fun sources => capturedSources.set sources
   let effective ← IO.mkRef (none : Option Json)
-  let originalCopyInputs ← if options.file.isNone && !options.incremental && options.driverCopy.isNone then
-      try pure (some (← Lake.captureConfigurationInputs repo)) catch _ => pure none
+  -- A failure of the capture is kept, and the audit refuses with it before it audits anything
+  -- (`action`), as it refuses any other failure; it is never recorded as no copy configuration.
+  let captured ← if options.file.isNone && !options.incremental && options.driverCopy.isNone then
+      some <$> (Lake.captureConfigurationInputs repo).toBaseIO
     else pure none
+  let originalCopyInputs := captured.bind (·.toOption)
   let copyInputs ← IO.mkRef originalCopyInputs
   let composed ← IO.mkRef (none : Option Json)
   let observeConfiguration := fun (root : FilePath)
@@ -1947,6 +1977,9 @@ private unsafe def audit (plan : Plan) (failed : List String) : IO UInt32 := do
     return 1
   let action : IO (UInt32 × Option AcceptanceLink.Pending) := do
     try
+      if let some (.error error) := captured then
+        throw <| IO.userError s!"the copy configuration could not be captured before \
+          construction: {error}"
       match options.file with
       | some path =>
           return (← auditFile repo (resolve repo path) options.claim options.execution
@@ -2012,10 +2045,12 @@ private unsafe def audit (plan : Plan) (failed : List String) : IO UInt32 := do
 /-- Run one `axiomGate` invocation and return its exit code. It reads its arguments once
 (`Invocation.of`) and marks each file of that reading incomplete, whether or not the invocation is
 admitted (`Invocation.markIncomplete`), so a run that stops before its write leaves no earlier
-completed output there. The internal forms then do only their job; any other invocation is an
-audit of its plan (`audit`), which refuses an invalid invocation whatever marking failed. An
-audit returns the exit code of the result it recorded (`Lint.gateExitCode`), and `--help` and the
-internal forms 0 when they succeed. -/
+completed output at a file that it marked. The internal forms then do only their job; any other
+invocation is an audit of its plan (`audit`), which refuses an invalid invocation whatever marking
+failed. An invocation that `Invocation.of` refuses marks the files that it may replace and returns
+the exit code of an invalid configuration, 2. A mark writes nothing at a file that is not Regula's
+(`Regula.Destination.write`). An audit returns the exit code of the result it recorded
+(`Lint.gateExitCode`), and `--help` and the internal forms 0 when they succeed. -/
 unsafe def run (args : List String) : IO UInt32 := do
   terminalObservation.set none
   auditedTarget.set none
@@ -2033,7 +2068,7 @@ unsafe def run (args : List String) : IO UInt32 := do
     IO.ofExcept <| Regula.Website.validateArtifact ResultProtocol.producer registry artifact
     return 0
   | .registryOut output =>
-    writeJson output (Regula.RegistryCodec.registryJson ResultProtocol.producer)
+    writeDestination output (Regula.RegistryCodec.registryJson ResultProtocol.producer)
     return 0
   | .validateRegistry input =>
     let value ← IO.ofExcept <| Regula.Checker.PolicyCodec.parse (← IO.FS.readFile input)
@@ -2045,7 +2080,7 @@ unsafe def run (args : List String) : IO UInt32 := do
     let guarded ← SourceBinding.withUnchanged request.sourceBindings #[] <|
       Environment.loadModuleGraph request.modules (request.searchRoots.map FilePath.mk)
     let graph ← IO.ofExcept <| guarded.mapError (·.detail)
-    writeJson out (workerPacket json (toJson graph))
+    writeDestination out (workerPacket json (toJson graph))
     return 0
   | .declarationReportWorker _ out decoded =>
     let (json, request) ← IO.ofExcept decoded
@@ -2062,7 +2097,7 @@ unsafe def run (args : List String) : IO UInt32 := do
         if let .error failure := SourceBinding.validateAgainst request.sourceBindings report then
           return .error (.admission failure)
       return outcome
-    writeJson out (workerPacket json (toJson (ProducerReport.Outcome.ofExcept
+    writeDestination out (workerPacket json (toJson (ProducerReport.Outcome.ofExcept
       ((guarded.mapError ProducerReport.Refusal.admission).bind id))))
     return 0
   | .frontendWorker input out =>
@@ -2070,18 +2105,18 @@ unsafe def run (args : List String) : IO UInt32 := do
     let request : Frontend.WorkerRequest ← IO.ofExcept (fromJson? json)
     let transcript ← Frontend.build request.moduleName request.source
       (request.searchRoots.map FilePath.mk)
-    writeJson out (workerPacket json (toJson transcript))
+    writeDestination out (workerPacket json (toJson transcript))
     return 0
   | .compileBatchWorker input out =>
     let json ← IO.ofExcept <| Regula.Checker.PolicyCodec.parse (← IO.FS.readFile input)
     let request ← IO.ofExcept (fromJson? json)
-    writeJson out
+    writeDestination out
         (workerPacket json (indexedWorkerPayload (← SourceAudit.compileBatchWorker request)))
     return 0
   | .inspectionGroupWorker input out =>
     let json ← IO.ofExcept <| Regula.Checker.PolicyCodec.parse (← IO.FS.readFile input)
     let request ← IO.ofExcept (fromJson? json)
-    writeJson out (workerPacket json (toJson (← SourceAudit.inspectGroupWorker request)))
+    writeDestination out (workerPacket json (toJson (← SourceAudit.inspectGroupWorker request)))
     return 0
   | .diagnosticWorker moduleWire source out =>
     let moduleName ← IO.ofExcept <| Regula.RegistryCodec.parseName
@@ -2089,7 +2124,7 @@ unsafe def run (args : List String) : IO UInt32 := do
     let before ← IO.FS.readFile source
     let errors ← Diagnostics.errors moduleName source
     unless (← IO.FS.readFile source) == before do throw <| IO.userError "diagnostic source changed"
-    writeJson out
+    writeDestination out
         (workerPacket (sourceWorkerRequest "diagnostic" moduleName source before) (toJson errors))
     return 0
   | .replacementHistoryWorker moduleWire source out =>
@@ -2100,11 +2135,12 @@ unsafe def run (args : List String) : IO UInt32 := do
       throw <|
           IO.userError s!"unsupported replacement-history \
             evaluators: {transcript.replacementHistoryUnsupported}"
-    writeJson out
+    writeDestination out
         (workerPacket (sourceWorkerRequest "history" moduleName source transcript.sourceContent)
       (toJson transcript.runtimeReplacements))
     return 0
   | .audit plan => audit plan failed
+  | .refused reason _ => refuseInvocation reason
 
 /-- The `axiomGate` executable body: search-path initialization, then `run`, with
 any escaping error reported as `FAIL` and the incomplete exit code 3, since no result was

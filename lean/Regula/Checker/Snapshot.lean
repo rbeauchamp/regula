@@ -210,7 +210,7 @@ def terminalBeq (fresh : Array DependencyCaptures) (before : Array DependencyObs
 bytes, with presence preserved. -/
 private def captureConfiguration (path : FilePath) :
     IO (String × Option (String × ByteArray)) := do
-  if !(← path.pathExists) then return (path.toString, none)
+  if !(← Regula.Filesystem.isPresent path) then return (path.toString, none)
   let canonical ← IO.FS.realPath path
   let bytes ← IO.FS.readBinFile canonical
   return (path.toString, some (canonical.toString, bytes))
@@ -365,7 +365,7 @@ private def statusRelative (root path : FilePath) : IO (Option String) := do
   if rootComponents.isPrefixOf components then return relative rootComponents.length
   for count in [1:components.length] do
     let candidate := FilePath.mk ("/" ++ "/".intercalate (components.take count))
-    if ← candidate.pathExists then
+    if ← Regula.Filesystem.isPresent candidate then
       if (← IO.FS.realPath candidate) == root then return relative count
   return none
 

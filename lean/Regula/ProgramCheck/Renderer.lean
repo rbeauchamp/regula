@@ -40,13 +40,17 @@ def requireCommittedSelection (directory : FilePath)
     if (toString error).contains "observer reach check incomplete:" then throw error
     throw <| IO.userError s!"observer reach check incomplete: {error}"
 
-/-- Check the renderer using the common reach/admission decision in its closed manifest case.
+/-- Check the renderer using the common reach/admission decision in its closed manifest case. The
+renderer elaborates by the conservative reachability of `Regula.Removal.elaborationRefusal`,
+since Verso's compiled code refers to Lean's elaborator, and its check finds removals alone:
+Verso's writes of the rendered pages are outside the write lists of `Regula.Removal`, trusted
+effects of the library (`Regula.Removal.checkProgram`).
 Assumes: Lean v4.34.1 `Lean/Elab/Command.lean:323-326` reports this command's source filename;
 relative filenames use the compiler's working directory. Source location and directory stability
 remain trusted compiler/filesystem observations. -/
 def check : Elab.Command.CommandElabM Unit := do
   let directory := (FilePath.mk (← getFileName)).parent.getD "."
   Elab.Command.liftIO <| requireCommittedSelection directory
-  Regula.Removal.checkProgram
+  Regula.Removal.checkProgram (elaborates := true) (writes := false)
 
 end Regula.ProgramCheck.Renderer

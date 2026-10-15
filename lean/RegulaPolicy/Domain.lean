@@ -1761,8 +1761,11 @@ def Declaration.Assessed.neutral (d : Declaration.Assessed) : Declaration.Assess
     d.neutral.toInspected = d.toInspected := rfl
 
 /-- The roots of the library packages the Lean toolchain ships as its own code: `Init`, `Std`,
-`Lean` and `Lake`. A module under one of them is toolchain code only with an admitted origin
-(`ToolchainOrigin`); the name alone never makes it so.
+`Lean` and `Lake`. In the audit, a module under one of them is toolchain code only with an admitted
+origin (`ToolchainOrigin`); the name alone never makes it so. The observer reach check of a
+program reads the name alone, under the workspace hypothesis that
+`Regula.Removal.toolchainModules` states and `lake exe qualify observers` checks for the root,
+`markdown/` and `audit/` workspaces of this repository only.
 
 Assumes: the Lean 4.34.1 release installs the compiled modules of these four packages in its
 library directory `lib/lean`, beside only the root modules of its executables (`LakeMain`,
@@ -1777,8 +1780,8 @@ instance : DecidablePred ToolchainRoot := fun _ => by unfold ToolchainRoot; infe
 /-- Origin observations are admitted only when the resolved and expected canonical paths agree
 for a module under a toolchain root (`ToolchainRoot`), whatever the module's name. That the
 paths are the module's loaded `.olean` and its copy in the pinned toolchain's library, and so
-identify the toolchain's own artifact, is the probe's filesystem observation, not a property
-of this type. -/
+identify the toolchain's own artifact, is the probe's filesystem observation, under the hypotheses
+of `Regula.Probe.loadedModuleOrigins`, not a property of this type. -/
 structure ToolchainOrigin where
   /-- The module that declares the toolchain-owned boundary. -/
   moduleName : Lean.Name
@@ -1853,8 +1856,8 @@ def foundationStatements : Array FoundationStatement :=
 /-- What the probe observes of a constant of the audited environment named as a foundation axiom:
 the module the environment holds it from, the canonical paths of the files that module was loaded
 from and of the same files in the toolchain's library, whether it is an axiom, and its universe
-parameters and type. That the paths are those files is the probe's filesystem observation
-(`Regula.Collect.foundationObservations`), not a property of this type. -/
+parameters and type. That the paths are those files is the probe's filesystem observation, under
+the hypotheses that `Regula.Collect.foundationObservations` states, not a property of this type. -/
 structure FoundationObservation where
   /-- The constant's name. -/
   name : Lean.Name
@@ -2387,7 +2390,8 @@ recorded in the loaded module header. -/
 structure ModuleOrigin where
   /-- The module's name. -/
   name : Lean.Name
-  /-- The canonical path of the `.olean` file it was loaded from. -/
+  /-- The canonical path of the `.olean` file it was loaded from, as Lean's search path finds it
+  after the import, under the hypotheses of `Regula.Probe.loadedModuleOrigins`. -/
   olean : String
   /-- Its direct imports, as its module header records them. -/
   imports : Array Lean.Name

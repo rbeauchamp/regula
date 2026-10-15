@@ -153,8 +153,8 @@ private def setup (repo adopter : FilePath) : IO Unit := do
         ⟨`linter.missingDocs, true⟩]\n" ++
       "  plugins := #[`@regula/RegulaObserver:shared]\n" ++
       "require regula from " ++
-      (toJson repo.toString).compress ++ "\n@[default_target] lean_lib PublicApi where\n" ++
-      observerNeedLean
+      (toJson repo.toString).compress ++ "\n@[default_target] " ++
+      observedTargetLean .library "PublicApi"
   Regula.Filesystem.writeFile (adopter / "foundation_manifest.json") <| Json.compress <| Json.mkObj [
     ("schema-version", toJson (2 : Nat)), ("surfaces", toJson #[Json.mkObj [
       ("library", .str "PublicApi"), ("claim", .str "standard-logical"),

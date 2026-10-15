@@ -33,10 +33,10 @@ def check : IO Unit := do
       IO.println s!"prep phase: dependency captures: {(← IO.monoMsNow) - captureStart}ms"
       let configNames ← (#[ "lean-toolchain", "lakefile.lean", "lake-manifest.json",
         "foundation_manifest.json"] : Array String).filterM
-          (fun (name : String) => (root / name).pathExists)
+          (fun (name : String) => Regula.Filesystem.isPresent (root / name))
       let rootConfigs ← configNames.mapM (fun (name : String) => do
         pure (root / name, ← Regula.Filesystem.readBytes (root / name)))
-      let rootSources ← modulePaths.mapM (fun path => do
+      let rootSources ← (modulePaths ++ (← Slot.rootInputs root)).mapM (fun path => do
         pure (path, ← Regula.Filesystem.readBytes path))
       IO.println s!"prep phase: input capture: root sources={rootSources.size} \
         configs={rootConfigs.size} deps={deps.size}"
@@ -53,7 +53,7 @@ def check : IO Unit := do
   finally
     match ← scratchRef.get with
     | some scratch =>
-      if ← scratch.pathExists then
+      if ← Regula.Filesystem.isPresent scratch then
         throw <| IO.userError s!"preparation cleanup failed: {scratch} still exists"
       else
         IO.println "prep phase: cleanup verified (scratch removed)"

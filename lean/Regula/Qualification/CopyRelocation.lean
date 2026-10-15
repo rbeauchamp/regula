@@ -26,8 +26,9 @@ the copy reads it. The control copies `examples/fixtures/copy-relocation`, with 
   `odep` names the manifest `pins.olean`, which the control places from `placed/pins.json`.
 - `absolute-source` has a library whose `srcDir` is `__dir__ / "src"`, an absolute path.
 
-The control's Git commands and its workers run without the Git repository variables that their
-process inherits (`Construction.gitEnvironment`).
+The control's Git commands run without the Git repository variables that their process inherits
+(`Construction.gitProcessArgs`), and its workers under the Git isolation of a process tree
+(`Construction.isolationEnvironment`).
 
 Lake's load of a project, its copy, Git and the files they read are trusted IO that the control
 observes, not proves. -/
@@ -70,7 +71,7 @@ private def refusedCopy (project copies : FilePath) (name : String) :
       discard <| Lake.copyProject project (exclude / "tree") exclude
       pure (none : Option String)
     catch error => pure (some error.toString)
-  return (refusal, ← (exclude / "tree").pathExists)
+  return (refusal, ← Regula.Filesystem.isPresent (exclude / "tree"))
 
 /-- Throws, labelled with `what` and the process's combined output, unless it exited with code 0. -/
 private def succeeded (what : String) (result : IO.Process.Output) : IO Unit :=
@@ -136,10 +137,11 @@ def loadWorker (project copies : String) : IO Unit := do
   let overrides := overrides.map fun entry => (entry.name.toString, match entry.src with
     | .path dir => dir.toString
     | .git url .. => url)
-  let sources ← ownedSources.filterM fun (path : String) => (copy / path).pathExists
+  let sources ← ownedSources.filterM fun (path : String) =>
+    Regula.Filesystem.isPresent (copy / path)
   IO.println (Json.mkObj [("dependencies", toJson dependencies), ("overrides", toJson overrides),
-    ("checkout", toJson (← (copy / "vendor" / "gdep").pathExists)),
-    ("pathDependency", toJson (← (copy / "vendor" / "pdep").pathExists)),
+    ("checkout", toJson (← Regula.Filesystem.isPresent (copy / "vendor" / "gdep"))),
+    ("pathDependency", toJson (← Regula.Filesystem.isPresent (copy / "vendor" / "pdep"))),
     ("sources", toJson sources)]).compress
 
 /-- Check the answer `output` that the worker (`loadWorker`) printed for the Git project at
@@ -153,11 +155,14 @@ def checkAnswer (project : FilePath) (output : String) : IO Unit := do
   let some line := (output.splitOn "\n").filter (!·.isEmpty) |>.getLast?
     | throw <| IO.userError s!"the worker's load of {project} printed nothing"
   let answer ← IO.ofExcept (Json.parse line)
-  let dependencies ← IO.ofExcept (answer.getObjValAs? (Array (String × String)) "dependencies")
-  let overrides ← IO.ofExcept (answer.getObjValAs? (Array (String × String)) "overrides")
-  let checkout ← IO.ofExcept (answer.getObjValAs? Bool "checkout")
-  let pathCopied ← IO.ofExcept (answer.getObjValAs? Bool "pathDependency")
-  let sources ← IO.ofExcept (answer.getObjValAs? (Array String) "sources")
+  let source := s!"the worker's answer for {project}"
+  let dependencies ← readMember source
+    (RegulaQualification.Member.get (Array (String × String)) answer "dependencies")
+  let overrides ← readMember source
+    (RegulaQualification.Member.get (Array (String × String)) answer "overrides")
+  let checkout ← readMember source (RegulaQualification.Member.bool answer "checkout")
+  let pathCopied ← readMember source (RegulaQualification.Member.bool answer "pathDependency")
+  let sources ← readMember source (RegulaQualification.Member.get (Array String) answer "sources")
   let expected := #[("gdep", (← IO.FS.realPath (project / "vendor" / "gdep" / subDir)).toString),
     ("pdep", (← IO.FS.realPath (project / pathDependency)).toString)]
   let sorted := fun (pairs : Array (String × String)) => pairs.qsort (·.1 < ·.1)
@@ -171,14 +176,17 @@ def checkAnswer (project : FilePath) (output : String) : IO Unit := do
     ⟨s!"the copy keeps the owned sources in vendor: {sources}", sources == ownedSources⟩]
 
 /-- The environment of a worker (`loadWorker`) that the control starts from its scratch directory
-`scratch`, with the changes `env` applied last. Git's repository variables are removed
-(`Construction.gitEnvironment`), and Git searches for no repository above `scratch`
-(`GIT_CEILING_DIRECTORIES`). That ceiling does not bound a `GIT_DIR`, so the removal is what keeps
-an inherited one from selecting its repository. -/
+`scratch`, with the changes `env` applied last. The worker runs under the Git isolation of a
+process tree (`Construction.isolationEnvironment`), which removes Git's repository variables, so
+it is isolated when it starts and does not start again (`Regula.TaskManager.guard`), and Git
+searches for no repository above `scratch` (`GIT_CEILING_DIRECTORIES`). That ceiling does not
+bound a `GIT_DIR`. The control (`check`) gives one to the child `qualify` that runs `gitSteps`,
+which starts again under the guard's isolation (`Regula.TaskManager.guard`,
+`Regula.GitIsolation.restart`) and so runs `gitSteps` without it. -/
 def workerEnvironment (scratch : FilePath) (env : Array (String × Option String)) :
     IO (Array (String × Option String)) := do
   let ceiling ← IO.FS.realPath scratch
-  return (← Regula.Filesystem.Construction.gitEnvironment) ++
+  return (← Regula.Filesystem.Construction.isolationEnvironment) ++
     #[("GIT_CEILING_DIRECTORIES", some ceiling.toString)] ++ env
 
 /-- Run the worker (`loadWorker`) on the Git project at `project`, with its copy below `copies`, in
@@ -237,7 +245,7 @@ def gitSteps (scratch : String) : IO Unit := do
   Regula.Filesystem.Construction.copyFile (fixture / "git-project" / "vendor" / "pdep" / "lakefile.toml")
     (folded / "vendor" / "PDEP" / "lakefile.toml")
   writeManifest folded repository rev
-  if ← (folded / "vendor" / "pdep" / "lakefile.toml").pathExists then
+  if ← Regula.Filesystem.isPresent (folded / "vendor" / "pdep" / "lakefile.toml") then
     loadInWorker root scratch folded (scratch / "copies-folded") #[]
     IO.println "copy relocation path dependency stored in another case: PASS"
   else
@@ -286,10 +294,14 @@ private def snapshot (dir : FilePath) : IO (List (List String × Option (List UI
   refuses that manifest by name and by its compiled-module name, and writes nothing.
 - A copy of `absolute-source`, whose library sets `srcDir` to the package's `src` directory as an
   absolute path, refuses that setting by name, and writes nothing.
-- The steps that run Git and Lake (`gitSteps`) run in a process that inherits a `GIT_DIR` of a
-  repository and an absolute `GIT_INDEX_FILE`, both in a temporary directory outside the scratch
-  directory. The steps must pass, and that directory must hold the same entries and bytes after
-  them. -/
+- The child `qualify` that runs the steps that run Git and Lake (`gitSteps`) starts with a
+  `GIT_DIR` of a repository and an absolute `GIT_INDEX_FILE`, both in a temporary directory
+  outside the scratch directory. Its guard starts it again under the isolation
+  (`Regula.TaskManager.guard`, `Regula.GitIsolation.restart`), which removes the two variables
+  before `gitSteps` runs. The control observes the steps after that restart and the outside
+  repository: the steps must pass, and that directory must hold the same entries and bytes after
+  them. The interpreted `lean --run` control of `Regula.CopyControls`, which no guard starts
+  again, covers the removal of `Construction.gitProcessArgs` itself. -/
 def check : IO Unit := do
   let root ← rootDirectory
   withScratch root "copy-relocation" fun scratch => do
@@ -300,7 +312,7 @@ def check : IO Unit := do
     let copies := scratch / "copies"
     let overridesFile := (LakeSelection.ownRootFiles project).2
     requireChecks [⟨s!"{overridesFile} does not exist before the control writes it",
-      !(← overridesFile.pathExists)⟩]
+      !(← Regula.Filesystem.isPresent overridesFile)⟩]
     if let some parent := overridesFile.parent then IO.FS.createDirAll parent
     _root_.Lake.Manifest.saveEntries overridesFile #[firstEntry]
     let overriddenCopy := do
@@ -398,6 +410,7 @@ def check : IO Unit := do
         ⟨"the inherited GIT_DIR and GIT_INDEX_FILE are left untouched", before == after⟩,
         ⟨s!"the steps that run Git and Lake: {result.stdout}{result.stderr}",
           result.exitCode == 0⟩]
-      IO.println "copy relocation inherited Git repository variables untouched: PASS"
+      IO.println "copy relocation inherited Git repository variables removed by the guard's \
+        restart, outside repository untouched: PASS"
 
 end Regula.Qualification.CopyRelocation

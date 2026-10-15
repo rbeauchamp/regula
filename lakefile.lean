@@ -155,6 +155,11 @@ input_file copyConstructionSource where
   path := "lean/RegulaCore/CopyProgram.lean"
   text := true
 
+-- `Regula.AbsenceControls` embeds this fixture with include_str and runs it.
+input_file absenceReadsFixture where
+  path := "examples/fixtures/absence-reads/AbsenceReads/Refused.lean"
+  text := true
+
 @[default_target]
 lean_lib «RegulaCore» where
   plugins := #[`@/RegulaObserver:shared]
@@ -170,7 +175,7 @@ lean_lib «Regula» where
   globs := #[.submodules `Regula]
   -- The observer's shared library is also loaded by standalone source compilation.
   needs := #[`@/compilerObservationSource, `@/processSource, `@/gitProcessSource,
-    `@/processFixtureSources, `@/RegulaObserver:shared]
+    `@/processFixtureSources, `@/RegulaObserver:shared, `@/absenceReadsFixture]
 
 lean_exe «axiomGate» where
   plugins := #[`@/RegulaObserver:shared]

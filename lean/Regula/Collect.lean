@@ -58,6 +58,19 @@ open RegulaPolicy (DeclarationKind BoundaryKind Correspondence Safety Reducibili
   NativeTactic)
 open RegulaPolicy.Erasure (fixpointArguments?)
 
+/-- Whether an entry is at `path`, following a symbolic link: `true` when `path.metadata` reads it,
+`false` when that read fails with `noFileOrDirectory`, and the read's error for every other error.
+Lean's `System.FilePath.pathExists` returns `false` for every error of `metadata`, so a path that
+cannot be read would read as absent. The collector is loaded into every audited environment, so it
+imports no module outside the probe's closure (`Regula.Checker.Environment.probeModuleNames`) and
+cannot import `RegulaCore.Presence`; `Regula.Checker.Environment.collectIsPresent_eq` proves this
+equal to `Regula.Filesystem.isPresent`. -/
+@[expose] def isPresent (path : System.FilePath) : IO Bool := do
+  match ← path.metadata.toBaseIO with
+  | .ok _ => return true
+  | .error (.noFileOrDirectory ..) => return false
+  | .error error => throw error
+
 private initialize capabilityCache : IO.Ref (Option RegulaPolicy.Compiler.LegacyCompilerTrust) ←
   IO.mkRef none
 
@@ -73,10 +86,17 @@ private def toolchainLibraryDirectory : IO System.FilePath := do
 /-- Whether Lean loaded the module `moduleName` from the toolchain library directory `library`:
 its `.olean` file is that module's file in `library`, by canonical path. A module's name does not
 establish this, since a project or a dependency can supply a module under `Init`, `Std` or
-`Lean`. That the path identifies the toolchain's own artifact is a filesystem observation. -/
+`Lean`. That the path identifies the toolchain's own artifact is a filesystem observation.
+
+Assumes: Lean read the module through its search path at the import, as an import with no
+artifacts supplied does (`Regula.Probe.loadedModuleOrigins`), and as the import of a module under
+`Init`, `Std`, `Lean` or `Lake` does in a build by Lake, under the hypothesis of
+`Regula.Removal.toolchainModules`; and nothing that the lookup reads changed since the import: the
+search path, and the files, directories and symbolic links on it that name the module's root and
+the module (`Lean/Util/Path.lean:61-65`). -/
 private def loadedFromLibrary (library : System.FilePath) (moduleName : Name) : IO Bool := do
   let expected := Lean.modToFilePath library moduleName "olean"
-  unless ← expected.pathExists do return false
+  unless ← isPresent expected do return false
   return (← IO.FS.realPath (← Lean.findOLean moduleName)) == (← IO.FS.realPath expected)
 
 /-- What `env` holds under each name of `RegulaPolicy.foundationStatements`, for each such name it
@@ -90,7 +110,9 @@ does not hold has no observation, and no declaration of `env` reaches it.
 
 Assumes: Lean 4.34.1 loads each imported module from the `.olean` that `findOLean` resolves on the
 search path and, for a module of the module system, the `.olean.server` and `.olean.private` beside
-it (`Lean/Environment.lean:2077-2090`, `Lean/Util/Path.lean:117-125`), the files this reads. -/
+it (`Lean/Environment.lean:2077-2090`, `Lean/Util/Path.lean:117-125`), the files this reads. That
+holds under the hypotheses of `loadedFromLibrary`: Lean read the module through its search path,
+and nothing that the lookup reads changed since the import. -/
 def foundationObservations (env : Environment) : IO (Array RegulaPolicy.FoundationObservation) := do
   let library ← toolchainLibraryDirectory
   RegulaPolicy.foundationStatements.filterMapM fun statement => do
@@ -102,11 +124,16 @@ def foundationObservations (env : Environment) : IO (Array RegulaPolicy.Foundati
       let files := #[olean, Lean.OLeanLevel.server.adjustFileName olean,
         Lean.OLeanLevel.private.adjustFileName olean]
       let found ← files.filterMapM fun file => do
-        if ← file.pathExists then return some (← IO.FS.realPath file).toString else return none
+        if ← isPresent file then return some (← IO.FS.realPath file).toString else return none
       return "\n".intercalate found.toList
-    let actual ← if imported then
-        try parts (← Lean.findOLean module) catch _ => pure ""
-      else pure ""
+    -- Only the search of `findOLean` folds into an empty text (issue 441 tracks its own reads); the
+    -- reads of the files it finds pass on each error.
+    let found ← if imported then
+        try some <$> Lean.findOLean module catch _ => pure none
+      else pure none
+    let actual ← match found with
+      | some olean => parts olean
+      | none => pure ""
     return some { name := statement.name, module, actual
                   expected := ← parts (Lean.modToFilePath library module "olean")
                   isAxiom := info matches .axiomInfo _, levels := info.levelParams

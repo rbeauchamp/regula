@@ -648,7 +648,10 @@ relation between it and the type.
 
 `lake lint -- --json-out PATH` writes one JSON document, result schema 21, whatever the outcome;
 the path is first written as an incomplete result, so a stale report is never mistaken for this
-run's. Its main members:
+run's. This holds when the path names nothing, an empty file or a JSON document of Regula. At a
+different entry, such as a source file, a directory or a symbolic link, the driver writes nothing
+and runs no audit. A reader that follows such a link can still read an earlier report at its
+target. Its main members:
 
 | Member | Meaning |
 | --- | --- |

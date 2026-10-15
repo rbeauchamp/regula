@@ -111,8 +111,13 @@ dispatch builds only the driver, so the driver builds this sibling target before
 in the workspace `lake lint` was dispatched from (`repoRoot`), which is also the audited project.
 That workspace built the running driver, whether `regula` is a path dependency, a git dependency
 under `.lake/packages`, any custom `packagesDir` or the root, so it resolves `regula` to the
-same package, dependencies and toolchain, and its `regula/axiomGate` is `workerBinary`. -/
-def workerTarget : String := "regula/axiomGate"
+same package, dependencies and toolchain, and its `regula/axiomGate` is `workerBinary`.
+
+The spelling starts with `@`, which Lake reads as a package and a target and never as a path
+(`Lake/CLI/Build.lean:175-177`). A spelling without it is first resolved as a path in the
+workspace (`:184-192`): there a resolved path that is a module's source names that module, and a
+failure of `realPath` gives the target by name. -/
+def workerTarget : String := "@regula/axiomGate"
 
 /-- What the driver reads before it decides (`Observed`), from the working directory's project
 root `dispatching`. It loads only that root's configuration (`resolveDependencies := false`), so it
@@ -129,7 +134,9 @@ dispatching workspace's `leanPath`, then the library directory of the toolchain-
 the dispatching workspace's, whatever was inherited, under the assumption of `dispatchedFrom`.
 Any other Lake layout, or a driver run outside Lake, fails the check. It also reads the
 `lintDriverArgs` of that workspace's default configuration,
-the project root of `project` (the parsed `--project`), and the owner's assertion. -/
+the project root of `project` (the parsed `--project`, `findRepoRoot?`), `none` where that gives
+a reason that it names none, such as an ancestor with both configuration files, and the owner's
+assertion. A failure to read a path is the failure of the observation. -/
 private def observe (dispatching : FilePath) (project : Option String) : IO Observed := do
   let sysroot ← Regula.Process.readEnv "LEAN_SYSROOT"
   let received := (((← Regula.Process.readEnv "LEAN_PATH").map SearchPath.parse).getD []).map toString
@@ -140,7 +147,7 @@ private def observe (dispatching : FilePath) (project : Option String) : IO Obse
       dispatchedFrom root (FilePath.mk sysroot / "lib" / "lean").toString received
     | none => false
   let named ← match project with
-    | some dir => try (some ∘ toString) <$> findRepoRoot dir catch _ => pure none
+    | some dir => (·.toOption.map toString) <$> findRepoRoot? dir
     | none => pure none
   return { dispatching := dispatching.toString, dispatched, configured, named,
            owner := ← Regula.Process.readEnv ordinaryLakefilesVariable }
@@ -179,10 +186,12 @@ private def markIncomplete (targets : List (String × Except IO.Error FilePath))
     if let .error error := marked then failed := failed ++ [s!"{path}: {error}"]
   return failed
 
-/-- The refusal of a run in a process without Lean's task manager, which the guard of the
-executable runs (`Regula.TaskManager.guard`): it reads the arguments once (`read`) and finds the
-working directory's project root once, as `lint` does, marks each result destination of the
-reading incomplete with `reason`, and returns the incomplete class. No audit runs. -/
+/-- The refusal of a run, which the guard of the executable runs before each run and, in a process
+without Lean's task manager, in the run's place (`Regula.TaskManager.guard`): it reads the
+arguments once (`read`) and finds the working directory's project root once, as `lint` does, marks
+each result destination of the reading incomplete with `reason`, and returns the incomplete class.
+A mark stops with nothing written at a file that is not empty or a document of Regula
+(`AxiomGate.invalidateResult`). No audit runs. -/
 def refuseWithoutTaskManager (reason : String) (args : List String) : IO UInt32 := do
   for line in ← markIncomplete (targets (read args) (← repoRoot.toBaseIO)) reason do
     IO.eprintln s!"regula lint: could not mark the result destination {line} incomplete"
@@ -233,7 +242,7 @@ private unsafe def lint (args : List String) : IO Outcome := do
     match ← (Lake.surfaceInventory dispatching).toBaseIO with
     | .ok _ =>
       let worker ← Lake.buildTargetsShowing dispatching #[.spec workerTarget]
-      unless worker.succeeded && (← (← workerBinary).pathExists) do
+      unless worker.succeeded && (← Regula.Filesystem.isPresent (← workerBinary)) do
         IO.eprintln worker.output
         IO.eprintln s!"regula lint: {Outcome.incomplete.label}: audit worker {workerTarget} did \
           not build"

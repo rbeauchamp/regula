@@ -23,6 +23,7 @@ import Regula.Qualification.Command
 import Regula.Qualification.Observers
 import Regula.Qualification.Enumeration
 import Regula.Qualification.Readers
+import Regula.Qualification.LakeGit
 import Regula.Checker.AxiomGate
 
 /-! # Qualification executable dispatcher
@@ -33,6 +34,15 @@ this process dispatcher and its IO adapters remain operational tooling. -/
 
 open Regula.Qualification
 
+/-- The shard of the rule-example corpus that `spec` names, `K/N` with `1 ≤ K ≤ N`, or the error
+that refuses it. -/
+private def ruleExampleShard (spec : String) : Except String (Nat × Nat) :=
+  match (spec.splitOn "/").map String.toNat? with
+  | [some index, some count] =>
+    if 1 ≤ index && index ≤ count then .ok (index, count)
+    else .error s!"invalid rule-example shard: {spec}"
+  | _ => .error s!"invalid rule-example shard: {spec}"
+
 /-- Run one selection. The acceptance shell owns the overall deadline, not this dispatcher. -/
 private unsafe def runCommand (attempt : Option String) : Command → IO Unit
   | .registry => Regula.Qualification.RegistryCli.check
@@ -40,6 +50,7 @@ private unsafe def runCommand (attempt : Option String) : Command → IO Unit
   | .combined => do
       Regula.Qualification.RegistryCli.check
       Regula.CopyControls.checkWorkspace
+      Regula.Qualification.LakeGit.check
       Regula.Qualification.CopySelection.check
       -- Beside the native controls; both must pass.
       let unique ← IO.asTask Regula.Qualification.UniqueConstants.check
@@ -51,14 +62,10 @@ private unsafe def runCommand (attempt : Option String) : Command → IO Unit
   | .ruleExamplesRules path rules =>
       Regula.Qualification.RuleExamples.check ⟨path⟩ (some rules.toArray) attempt
   | .ruleExamplesShard path spec => do
-      let shard ← match (spec.splitOn "/").map String.toNat? with
-        | [some index, some count] =>
-          if 1 ≤ index && index ≤ count then pure (index, count)
-          else throw <| IO.userError s!"invalid rule-example shard: {spec}"
-        | _ => throw <| IO.userError s!"invalid rule-example shard: {spec}"
+      let shard ← IO.ofExcept ((ruleExampleShard spec).mapError IO.userError)
       Regula.Qualification.RuleExamples.check ⟨path⟩ none attempt (some shard)
   | .producers => Regula.Qualification.Producer.check none
-  | .producersExport path => Regula.Qualification.Producer.check (some ⟨path⟩)
+  | .producersExport path => Regula.Qualification.Producer.check (some ⟨path⟩) attempt
   | .producersCombined => do
       Regula.Qualification.Producer.check none
       Regula.Qualification.History.check
@@ -69,7 +76,7 @@ private unsafe def runCommand (attempt : Option String) : Command → IO Unit
         | throw <| IO.userError s!"invalid self-audit shard: {spec}"
       Regula.Qualification.SelfAudit.check (some shard)
   | .selfAuditModule m source => Regula.Qualification.SelfAudit.worker m source
-  | .selfAuditJsonModule m => Regula.Qualification.SelfAudit.jsonWorker m
+  | .selfAuditRulesModule m => Regula.Qualification.SelfAudit.rulesWorker m
   | .environments path => Regula.Qualification.EnvironmentCensus.check ⟨path⟩ attempt
   | .acceptance group path => Regula.Qualification.Acceptance.check group.spelling ⟨path⟩ attempt
   | .acceptanceSnapshots group => Regula.Qualification.DependencySnapshot.check group.spelling
@@ -96,12 +103,14 @@ private unsafe def runCommand (attempt : Option String) : Command → IO Unit
   | .enumerationFailure => Regula.Qualification.Enumeration.failure
   | .readers => Regula.Qualification.Readers.check
 
-/-- Explicit commands, parsed by `Command.parse`; unknown or extra arguments refuse instead of
-silently skipping work. -/
-private unsafe def dispatch (args : List String) (attempt : Option String := none) : IO Unit := do
+/-- The command that `args` name (`Command.parse`), or the error that refuses them before any
+campaign begins: the usage text for unknown or extra arguments, which refuse instead of silently
+skipping work, and the refusal of a rule-example shard (`ruleExampleShard`). -/
+private def commandOf (args : List String) : Except String Command :=
   match Command.parse args with
-  | some command => runCommand attempt command
-  | none => throw <| IO.userError "usage: lake exe qualify \
+  | some command@(.ruleExamplesShard _ spec) => (ruleExampleShard spec).map fun _ => command
+  | some command => .ok command
+  | none => .error "usage: lake exe qualify \
     registry|native|combined|unique-constants|native-launcher|producers [--evidence PATH]|\
     producers-combined|\
     environments --evidence PATH|acceptance fences --evidence PATH|acceptance-snapshots \
@@ -112,14 +121,36 @@ private unsafe def dispatch (args : List String) (attempt : Option String := non
     documentation-source [--source-read-only]|enumeration|enumeration-failure|readers|\
     rule-examples --evidence PATH [--rules RULE ... | --shard K/N]"
 
+/-- The file of the evidence document `evidence`. The launcher's report is at
+`NativeLinter.reportPath` of the package root, and a run outside that root has none here, as its
+mark then fails (`NativeLinter.beginReport`). -/
+private def evidenceDestination : Evidence → IO (Option System.FilePath)
+  | .ruleExamples path | .producers path | .environments path | .acceptance _ path =>
+    pure (some ⟨path⟩)
+  | .launcherReport => do
+    match ← Regula.Qualification.rootDirectory.toBaseIO with
+    | .ok root => pure (some (NativeLinter.reportPath root))
+    | .error _ => pure none
+
+/-- The reason to refuse the evidence document that `args` name from their leading arguments
+(`Evidence.named`, `evidenceDestination`), if it holds something that the command may not replace
+(`Regula.Destination.refusal`): the command marks it before it reads an input. -/
+private def evidenceRefusal (args : List String) : IO (Option String) := do
+  let named ← match Evidence.named args with
+    | some evidence => evidenceDestination evidence
+    | none => pure none
+  Regula.Destination.refusal named.toList
+
 /-- Mark the evidence document that `args` names incomplete for the attempt `attempt`, through the
 writer that its campaign runs before it starts (`beginAttempt`), before anything else of the
 command runs; with `reason`, the evidence records why the attempt stops there. The document is the
 one that the leading arguments name (`Evidence.named`), so one that the parser refuses for a later
 argument is still marked, and for an accepted command it is the command's own
-(`Evidence.named_of_parse`). Arguments that name no evidence document mark nothing. -/
+(`Evidence.named_of_parse`). Arguments that name no evidence document mark nothing. A document
+that `evidenceRefusal` refuses is not marked: the marker stops with the reason. -/
 private def markEvidence (args : List String) (attempt : String) (reason : Option String := none) :
     IO Unit := do
+  if let some refusal ← evidenceRefusal args then throw <| IO.userError s!"refused: {refusal}"
   match Evidence.named args with
   | some (.acceptance group path) =>
     let _ ← Regula.Qualification.Acceptance.beginAttempt group ⟨path⟩ attempt reason
@@ -131,7 +162,7 @@ private def markEvidence (args : List String) (attempt : String) (reason : Optio
   | some .launcherReport => Regula.Qualification.NativeLinter.beginReport reason
   | none => pure ()
 
-/-- The form of one `qualify` invocation, read from its arguments, the three variables of its
+/-- The form of one `qualify` invocation, read from its arguments, the four variables of its
 environment that select a mode and the name of the running program (`Invocation.of`). -/
 private inductive Invocation where
   /-- `--process-cadical-raw` or `--process-cadical-reader ROUTE`: the solver control's
@@ -149,6 +180,9 @@ private inductive Invocation where
   /-- `REGULA_LISTING_STANDIN=MODE` in a copy of `qualify` named as `Construction.locate` looks
   for GNU `ls`: the stand-in listing program of the enumeration control (`Enumeration.standin`). -/
   | listingStandin (mode : String)
+  /-- `REGULA_LAKE_GIT_WORKER=1`: the worker of the Lake Git isolation controls, with a
+  workspace path (`Regula.Qualification.LakeGit.worker`). -/
+  | lakeGitWorker
   /-- `REGULA_QUALIFICATION_WRAPPER=acceptance`: the test-only proxy of `axiomGate`, with the
   gate's arguments. -/
   | acceptanceProxy
@@ -179,6 +213,8 @@ private def Invocation.of (args : List String) : BaseIO Invocation := do
     if let .ok path := ← Regula.Process.appPath.toBaseIO then
       if path.fileName == some Regula.Qualification.Enumeration.standinName then
         return .listingStandin mode
+  if (← Regula.Process.readEnv Regula.Qualification.LakeGit.workerVariable) == some "1" then
+    return .lakeGitWorker
   match ← Regula.Process.readEnv "REGULA_QUALIFICATION_WRAPPER" with
   | some "acceptance" => return .acceptanceProxy
   | some "process" => return .processShadow
@@ -191,7 +227,14 @@ private def Invocation.of (args : List String) : BaseIO Invocation := do
 /-- Standalone commands get one group-wide 420-second bound. The private protocol flag
 is supplied by this wrapper or the already timed acceptance driver, never documented
 as a bounded standalone command. Nested commands do not create escaping groups. The form of the
-invocation is read once (`Invocation.of`). -/
+invocation is read once (`Invocation.of`). A bounded command marks its evidence before the
+selection of the timeout, and again with the error's text when that selection or the spawn fails,
+or when the start ends without running the command (`runBounded`, `markEvidence`). A command under
+the deadline that its arguments refuse before a campaign begins (`commandOf`) marks the evidence
+that its leading arguments name with the error's text, for the attempt that the wrapper gives or
+otherwise for one fresh attempt that the campaign then uses too. A campaign under the deadline that
+stops prints `qualify COMMAND: refused: ERROR` on standard error and exits with 1, instead of
+leaving the error to Lean's top-level handler. -/
 unsafe def qualifyMain (args : List String) : IO UInt32 := do
   match ← Invocation.of args with
   | .processCadical route => Regula.Qualification.Process.cadicalWorker route
@@ -200,26 +243,55 @@ unsafe def qualifyMain (args : List String) : IO UInt32 := do
   | .processDoctor directory => Regula.Qualification.Process.doctorWorker directory
   | .receiptTimer => Regula.Qualification.ReceiptBoundary.worker args
   | .listingStandin mode => Regula.Qualification.Enumeration.standin mode args
+  | .lakeGitWorker => Regula.Qualification.LakeGit.worker args
   | .acceptanceProxy => Regula.Qualification.Acceptance.worker args
   | .processShadow => Regula.Qualification.Process.worker args
   | .unknownWrapper => throw <| IO.userError "unknown qualification wrapper mode"
-  | .underDeadline attempt rest => dispatch rest attempt; return 0
+  | .underDeadline attempt rest =>
+    if let some reason ← evidenceRefusal rest then throw <| IO.userError s!"refused: {reason}"
+    let attempt ← attempt.getDM Regula.Qualification.freshAttempt
+    match commandOf rest with
+    | .ok command =>
+      -- A campaign that stops is refused with its error, which names what it lacks (a reader of
+      -- `RegulaQualification.Member` names the document and the member), and exit code 1. An
+      -- evidence document it names keeps the incomplete mark written before the campaign ran
+      -- (`markEvidence` names the writers); `Producer.check` marks its export again with the error.
+      try runCommand (some attempt) command; return 0
+      catch error =>
+        IO.eprintln s!"qualify {" ".intercalate rest}: refused: {error}"
+        return 1
+    | .error error =>
+      discard <| (markEvidence rest attempt (some error)).toBaseIO
+      throw <| IO.userError error
   | .bounded args =>
     -- Recognize evidence destinations even when later argument validation refuses.
     -- This must precede timeout selection and spawning, both of which can fail.
     let attempt ← Regula.Qualification.freshAttempt
     markEvidence args attempt
-    Regula.Qualification.runBounded (← Regula.Process.currentDir) 420 (.stated (← Regula.Process.appPath).toString "The caller selects this resolved non-toolchain executable")
-      (#["--under-deadline", "--attempt", attempt] ++ args.toArray)
+    -- A start that fails, or that ends without running the command, ends the attempt before the
+    -- command runs, so no record of the command's own replaces the mark: mark it with the error's
+    -- text.
+    let fail {α : Type} (error : IO.Error) : IO α := do
+      discard <| (markEvidence args attempt (some error.toString)).toBaseIO
+      throw error
+    let started ← try
+        Regula.Qualification.runBounded (← Regula.Process.currentDir) 420
+          (.stated (← Regula.Process.appPath).toString "The caller selects this resolved non-toolchain executable")
+          (#["--under-deadline", "--attempt", attempt] ++ args.toArray)
+      catch error => fail error
+    match started with
+    | .ok status => return status
+    | .error reason => fail (IO.userError reason)
 
-/-- The refusal of an invocation in a process without Lean's task manager, which the guard of the
-executable runs (`Regula.TaskManager.guard`). It reads the invocation as `qualifyMain` does
-(`Invocation.of`) and marks its destinations incomplete with `reason` through the writers that a
-run uses. The proxy of `axiomGate` is refused as the gate refuses, with the gate's exit code
-(`AxiomGate.refuseWithoutTaskManager`). A command marks its evidence document (`markEvidence`),
-for the attempt that the wrapper's arguments give or otherwise for a fresh one, printing a line
-when it cannot, and returns 1, as do the receipt boundary's worker, the stand-in listing program
-and process controls' workers and an unknown wrapper mode, which write no file. No command runs. -/
+/-- The refusal of an invocation, which the guard of the executable runs before each run and, in a
+process without Lean's task manager, in the run's place (`Regula.TaskManager.guard`). It reads the
+invocation as `qualifyMain` does (`Invocation.of`) and marks its destinations incomplete with
+`reason` through the writers that a run uses. The proxy of `axiomGate` is refused as the gate
+refuses, with the gate's exit code (`AxiomGate.refuseWithoutTaskManager`). A command marks its
+evidence document (`markEvidence`), for the attempt that the wrapper's arguments give or otherwise
+for a fresh one, printing a line when it cannot, and returns 1, as do the receipt boundary's
+worker, the stand-in listing program, the process controls' workers, the Lake Git isolation
+worker and an unknown wrapper mode, which write no file. No command runs. -/
 private def refuseQualification (reason : String) (args : List String) : IO UInt32 := do
   let mark (rest : List String) (attempt : Option String) : IO Unit := do
     try markEvidence rest (← attempt.getDM Regula.Qualification.freshAttempt) reason
@@ -229,7 +301,7 @@ private def refuseQualification (reason : String) (args : List String) : IO UInt
   | .acceptanceProxy =>
     return ← Regula.Checker.AxiomGate.refuseWithoutTaskManager reason args
   | .processCadical _ | .processNativeFallback _ _ | .processDoctor _ | .receiptTimer
-    | .processShadow | .listingStandin _ | .unknownWrapper => pure ()
+    | .processShadow | .listingStandin _ | .lakeGitWorker | .unknownWrapper => pure ()
   | .underDeadline attempt rest => mark rest attempt
   | .bounded rest => mark rest none
   return 1
@@ -241,9 +313,81 @@ marked incomplete with the reason, and the exit code is 1, or the gate's for the
 unsafe def main : List String → IO UInt32 :=
   Regula.TaskManager.guard "qualify" refuseQualification qualifyMain
 
--- The compiled code of main and linked initializers crosses only each system's observer or its
--- sourced exemption. This module's build refuses otherwise, using the single boundary table.
-run_cmd Regula.Removal.checkProgram
+-- The compiled code of the program, from its roots, crosses only each system's observer or its
+-- sourced exemption, using the single boundary table: its removals and writes are those of the
+-- filesystem observer, those that `Regula.Removal.sharedPairs` lists and those named here, each by
+-- the declaration of a source that makes it, and its process starts and environment reads are the
+-- process observer's. The build of this module fails otherwise, and when a name here admits no
+-- call (`Regula.Removal.checkProgram`). The program elaborates Lean source, so its check states it.
+run_cmd Regula.Removal.checkProgram (elaborates := true) (named := [
+  -- The projects, slots and fixtures of the campaigns, in the scratch and slot directories that
+  -- they make, and the raw observations of a rule-example production in the raw directory beside
+  -- its evidence (`Regula.Qualification.RuleExamples`).
+  (``Regula.Qualification.Acceptance.documentationDependencies, ``IO.FS.createDirAll),
+  (``Regula.Qualification.Acceptance.documentationDependencies, ``IO.FS.writeFile),
+  (``Regula.CopyControls.checkWorkspace, ``IO.FS.writeFile),
+  (``Regula.Qualification.CopyRelocation.check, ``IO.FS.createDirAll),
+  (`Regula.Qualification.CopyRelocation.copied, ``IO.FS.createDirAll),
+  (`Regula.Qualification.CopyRelocation.refusedCopy, ``IO.FS.createDirAll),
+  (``Regula.Qualification.CopySelection.checkAt, ``IO.FS.writeFile),
+  (`Regula.Qualification.CopySelection.sourceLink, ``IO.FS.writeFile),
+  (`Regula.Qualification.DependencySnapshot.control, ``IO.FS.writeFile),
+  (`Regula.Qualification.DependencySnapshot.gitStatusControls, ``IO.FS.createDirAll),
+  (`Regula.Qualification.DependencySnapshot.gitStatusControls, ``IO.FS.writeFile),
+  (``Regula.Qualification.DependencySnapshot.check, ``IO.FS.createDirAll),
+  (``Regula.Qualification.DependencySnapshot.check, ``IO.FS.writeBinFile),
+  (``Regula.Qualification.DependencySnapshot.check, ``IO.FS.writeFile),
+  (``Regula.Qualification.DocumentationSource.check, ``IO.FS.writeFile),
+  (``Regula.Qualification.Enumeration.check, ``IO.FS.createDir),
+  (``Regula.Qualification.Enumeration.check, ``IO.FS.writeFile),
+  (``Regula.Qualification.Enumeration.failure, ``IO.FS.Handle.mk),
+  (``Regula.Qualification.Enumeration.failure, ``IO.FS.createDir),
+  (``Regula.Qualification.Enumeration.failure, ``IO.FS.createDirAll),
+  (``Regula.Qualification.Enumeration.failure, ``IO.FS.writeFile),
+  (`Regula.Qualification.FrozenExit.runCase, ``IO.FS.writeFile),
+  (`Regula.Qualification.History.control, ``IO.FS.createDir),
+  (`Regula.Qualification.History.control, ``IO.FS.writeFile),
+  (``Regula.Qualification.InputInventory.check, ``IO.FS.createDirAll),
+  (``Regula.Qualification.InputInventory.check, ``IO.FS.writeFile),
+  (`Regula.Qualification.NativeLinter.check, ``IO.FS.writeFile),
+  (`Regula.Qualification.NativeLinter.forgedPrelude, ``IO.FS.createDirAll),
+  (`Regula.Qualification.NativeLinter.forgedPrelude, ``IO.FS.writeFile),
+  (``Regula.Qualification.NativeLinter.paired, ``IO.FS.createDir),
+  (``Regula.Qualification.Preparation.check, ``IO.FS.createDirAll),
+  (`Regula.Qualification.Producer.chain, ``IO.FS.writeBinFile),
+  (`Regula.Qualification.Producer.checkControls, ``IO.FS.createDir),
+  (`Regula.Qualification.Producer.standalone, ``IO.FS.writeFile),
+  (``Regula.Qualification.prepareCoreProject, ``IO.FS.createDirAll),
+  (``Regula.Qualification.rootImportsGuardControl, ``IO.FS.writeFile),
+  (``Regula.Qualification.Readers.writePackage, ``IO.FS.createDirAll),
+  (``Regula.Qualification.ReceiptBoundary.check, ``IO.FS.createDir),
+  (``Regula.Qualification.ReceiptBoundary.check, ``IO.FS.writeFile),
+  (`Regula.Qualification.RuleExamples.observe, ``IO.FS.Handle.mk),
+  (`Regula.Qualification.RuleExamples.produce, ``IO.FS.createDir),
+  (`Regula.Qualification.RuleExamples.produce, ``IO.FS.createDirAll),
+  (`Regula.Qualification.RuleExamples.produce, ``IO.FS.writeBinFile),
+  (`Regula.Qualification.RuleExamples.produce, ``IO.FS.writeFile),
+  (``Regula.Qualification.RuleExamples.check, ``IO.FS.createDirAll),
+  (``Regula.Qualification.SelfAudit.absenceFixtureControls, ``IO.FS.createDirAll),
+  (``Regula.Qualification.Slot.prepareSlot, ``IO.FS.writeFile),
+  (``Regula.Qualification.SourceEvidence.closure, ``IO.FS.writeFile),
+  (``Regula.Qualification.SourceEvidence.configuration, ``IO.FS.createDir),
+  (``Regula.Qualification.SourceEvidence.configuration, ``IO.FS.writeFile),
+  (``Regula.Qualification.SourceEvidence.fences, ``IO.FS.writeFile),
+  (``Regula.Qualification.SourceEvidence.selectedPolicy, ``IO.FS.writeFile),
+  (``Regula.Qualification.SourceEvidence.writeFence, ``IO.FS.writeFile),
+  (`Regula.Qualification.VersoPaths.withChanged, ``IO.FS.writeFile),
+  (`Regula.Qualification.VersoPaths.withRemoved, ``IO.FS.writeBinFile),
+  (`Regula.Qualification.VersoPaths.withWritten, ``IO.FS.createDirAll),
+  (`Regula.Qualification.VersoPaths.withWritten, ``IO.FS.writeFile),
+  -- The configuration that `regula setup` writes in the project that it sets up, its restoration
+  -- when the setup stops, and the source of the compiler probe, in its temporary directory: the
+  -- process controls run the setup's check of the pinned toolchain (`Regula.Cli.Setup.pinned`),
+  -- so the program links the module that writes them (`Regula.Qualification.Process`).
+  (`Regula.Cli.Setup.restore, ``IO.FS.writeFile),
+  (`Regula.Cli.Setup.write, ``IO.FS.createDirAll),
+  (`Regula.Cli.Setup.write, ``IO.FS.writeFile),
+  (``Regula.Toolchain.probe, ``IO.FS.writeFile)])
 
 -- A program that needs Lean's task manager starts through its guard (`Regula.TaskManager.guard`),
 -- and its refusal needs none: the build of this module fails otherwise

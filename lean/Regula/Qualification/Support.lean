@@ -1,6 +1,7 @@
 import Regula.Checker.Common
 import Regula.Process
 import RegulaQualification.Checks
+import RegulaQualification.Member
 import Regula.Scratch
 import Regula.SharedExecution
 import Regula.Checker.ResultProtocol
@@ -48,21 +49,56 @@ def run (root : FilePath) (command : Regula.Process.Program) (args : Array Strin
           out: {command} {args}\n{result.stdout}{result.stderr}"
   return result
 
+/-- The exit statuses with which a bounded start (`runBounded`) ends without running its command:
+GNU timeout's own failure (125), a command that it found but could not run (126) or did not find
+(127), and 255, with which Lean's runtime ends a spawned process whose program it could not
+execute. The command that `qualify` starts is `qualify` itself, which ends with 0 or 1, or by a
+signal, which GNU timeout reports as 128 plus the signal's number (at most 192). At the deadline
+GNU timeout sends `SIGKILL` to its own process group, itself included (`--signal=KILL`), so the
+start ends by that signal, 137, and not with timeout's own status 124. -/
+def startupFailureStatuses : List UInt32 := [125, 126, 127, 255]
+
+/-- How many bytes of a bounded start's standard error `runBounded` keeps, from its start. -/
+def keptErrorBytes : Nat := 16384
+
 /-- One group-wide deadline for a standalone public entrypoint. This is only used at
 the outer boundary, never for commands already under acceptance. SIGKILL terminates
-the timer, child, and descendants in its group, closing inherited output handles. -/
-def runBounded (root : FilePath) (seconds : Nat) (command : Regula.Process.Program) (args : Array String) :
-    IO UInt32 := do
+the timer, child, and descendants in its group, closing inherited output handles. The standard
+error of the start is forwarded as it arrives, and its first `keptErrorBytes` bytes are kept. A
+write to this process's standard error that fails loses only that copy: the pipe is still read to
+its end and its text kept, so the start never waits on a full pipe. A start that ends with one of
+`startupFailureStatuses` ran no command: the result is the error with that status and the kept
+text. Otherwise it is the command's exit status. -/
+def runBounded (root : FilePath) (seconds : Nat) (command : Regula.Process.Program)
+    (args : Array String) : IO (Except String UInt32) := do
   let timer ← timeoutCommand
   let options ← Regula.Filesystem.Construction.gitProcessArgs
     {cmd := command.statedCommand.getD "", args}
   let selected ← Regula.Process.prepare command
-    {options with cwd := some root, stdin := .null, stdout := .inherit, stderr := .inherit}
+    {options with cwd := some root, stdin := .null, stdout := .inherit, stderr := .piped}
   let child ← Regula.Process.spawn (.stated timer "The authenticated GNU timeout owns this diagnostic\'s deadline") {
     cmd := "", args := #["--signal=KILL", s!"{seconds}s", selected.emit.cmd] ++ selected.emit.args,
     env := selected.env,
-    cwd := some root, stdin := .null, stdout := .inherit, stderr := .inherit }
-  child.wait
+    cwd := some root, stdin := .null, stdout := .inherit, stderr := .piped }
+  let forwarded ← IO.asTask (prio := .dedicated) do
+    let out ← IO.getStderr
+    let mut kept := ByteArray.empty
+    repeat
+      let chunk ← child.stderr.read 4096
+      if chunk.isEmpty then break
+      try
+        out.write chunk
+        out.flush
+      catch _ => pure ()
+      kept := kept ++ chunk.extract 0 (keptErrorBytes - kept.size)
+    return kept
+  let status ← child.wait
+  let kept ← IO.ofExcept (← IO.wait forwarded)
+  if startupFailureStatuses.contains status then
+    let text := (String.fromUTF8? kept).getD "(standard error that is not UTF-8 text)"
+    return .error s!"the bounded start of {command} by {timer} ended with exit status {status} \
+      before the command ran; its standard error: {text.trimAscii.toString}"
+  return .ok status
 
 /-- Witness that `withScratchCleaned` removed its owned scratch directory after the
 action returned normally. Only this module can construct it, so a value exists only
@@ -115,16 +151,29 @@ def readFailure (path : FilePath) : IO String := do
       requireChecks [⟨"runtime read failure has a reason", !line.isEmpty⟩]
       return line
 
-/-- Pretty JSON is an output format, not a claim of byte-canonical serialization. -/
+/-- `decoded`, a reading of the document at `source`, or its refusal prefixed by `source`: with the
+readers of `RegulaQualification.Member`, the refusal of a required member names the document and
+the member. -/
+def readMember {α σ : Type} [ToString σ] (source : σ) (decoded : Except String α) : IO α :=
+  IO.ofExcept (RegulaQualification.Member.within source decoded)
+
+/-- Pretty JSON is an output format, not a claim of byte-canonical serialization. The write
+replaces the entry at `path` (`Regula.Filesystem.writeReplacing`). -/
 def writeJson (path : FilePath) (value : Json) : IO Unit :=
-  IO.FS.writeFile path (value.pretty ++ "\n")
+  Regula.Filesystem.writeReplacing path (value.pretty ++ "\n").toUTF8
+
+/-- Write `value` as pretty JSON at the destination `path` of an evidence document, which stops with
+nothing written at a file that the run may not replace (`Regula.Destination.writeJson`). -/
+def writeEvidence (path : FilePath) (value : Json) : IO Unit :=
+  Regula.Destination.writeJson path value (render := fun value => value.pretty ++ "\n")
 
 /-- Root-relative entrypoints must be run in the package root, never inferred from
 source-file text or another checkout's executable location. -/
 def rootDirectory : IO FilePath := do
   let root ← IO.FS.realPath (← Regula.Process.currentDir)
   requireChecks [⟨"run qualification from the Regula package root",
-    (← (root / "lean-toolchain").pathExists) && (← (root / "lakefile.lean").pathExists)⟩]
+    (← Regula.Filesystem.isPresent (root / "lean-toolchain")) &&
+      (← Regula.Filesystem.isPresent (root / "lakefile.lean"))⟩]
   return root
 
 /-- Copy the fixture tree at `source` to `target`, an absent or empty directory, through the shared
@@ -132,5 +181,23 @@ no-follow copy (`Regula.Filesystem.copy`), as a control copies a fixture into it
 directory. -/
 def copyFixture (source target : FilePath) : IO Unit :=
   discard <| Regula.Filesystem.copy source target
+
+/-- Index, in the repository whose fixture Git commands `git` runs, each giving its standard output
+without surrounding white space, a symbolic link at the path `link` whose target is the text of
+the file `target`, with no entry in the work tree. The link's mode comes from the index entry that
+this function writes, so no setting of Git, such as `core.symlinks`, decides it. A checkout makes
+the entry a symbolic link or, with `core.symlinks` false, a regular file that holds the target
+text.
+
+Assumes: installed Git 2.54.0 git-hash-object(1), DESCRIPTION and `-w`, writes the bytes of the
+named file, which can be outside the work tree, as a blob and prints its object ID.
+git-update-index(1), `--cacheinfo` and USING --CACHEINFO OR --INFO-ONLY, inserts an index entry
+with the given mode, object and path without reading the work tree. gitformat-index(5), the
+32-bit mode, gives object type 1010 (mode `120000`) to a symbolic link, and git-config(1),
+`core.symlinks`, checks such an entry out as a link or, when false, as a small plain file that
+holds the link text. -/
+def indexLink (git : Array String → IO String) (link : String) (target : FilePath) : IO Unit := do
+  let object ← git #["hash-object", "-w", "--", target.toString]
+  discard <| git #["update-index", "--add", "--cacheinfo", s!"120000,{object},{link}"]
 
 end Regula.Qualification

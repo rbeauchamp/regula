@@ -110,7 +110,7 @@ run_cmd do
 
 -- The statements of the foundation axioms are the toolchain's: the constants this module was
 -- compiled against, loaded from the toolchain's library, are admitted (`admitFoundation`), and
--- each of the three is observed.
+-- each of the three is observed, under the hypotheses of `Regula.Collect.foundationObservations`.
 run_cmd do
   let observed ← Regula.Collect.foundationObservations (← Lean.getEnv)
   unless observed.size == RegulaPolicy.foundationStatements.size do
@@ -128,7 +128,7 @@ checkout, never a library build. Lake keeps the compiled configuration of a work
 must admit that copy as equal to `weakArgsRecordJson` and refuse it with one literal changed. -/
 private def lakefileEncoderCheck : IO Unit := do
   let root ← Regula.Process.currentDir
-  unless ← (root / "lakefile.lean").pathExists do
+  unless ← Regula.Filesystem.isPresent (root / "lakefile.lean") do
     throw <| IO.userError s!"registry: {root} has no lakefile.lean"
   let (config, _) ← readModuleData (root / ".lake" / "config" / "0" / "lakefile.olean")
   let env ← importModules #[{ module := `Regula.Checker.Lake }] {}

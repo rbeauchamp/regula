@@ -188,13 +188,13 @@ takes the kernel constants. -/
 private def oleanParts (olean : FilePath) : IO (Array (Option ByteArray)) :=
   #[Lean.OLeanLevel.exported, .server, .private].mapM fun level => do
     let part := level.adjustFileName olean
-    if ← part.pathExists then some <$> IO.FS.readBinFile part else pure none
+    if ← Regula.Filesystem.isPresent part then some <$> IO.FS.readBinFile part else pure none
 
 /-- The module's `.olean` parts as they are now, with the canonical path of its `.olean`, or
 `none` when it has no `.olean` at `path`. -/
 def freezeArtifact (moduleName : Name) (path : FilePath) :
     IO (Option Admission.FrozenArtifact) := do
-  unless ← path.pathExists do return none
+  unless ← Regula.Filesystem.isPresent path do return none
   return some { moduleName, canonical := (← IO.FS.realPath path).toString, path,
                 parts := ← oleanParts path }
 
@@ -342,7 +342,7 @@ private def withSlot {β : Type} (slots : Std.Mutex Nat) (act : IO β) : IO β :
 
 /-- The completed admission a worker published at `path`, when the file is there. -/
 private def publishedAdmission (path : FilePath) : IO (Option Admission.Completed) := do
-  unless ← path.pathExists do return none
+  unless ← Regula.Filesystem.isPresent path do return none
   return some (← IO.ofExcept <|
     (Regula.Checker.PolicyCodec.parse (← IO.FS.readFile path)).bind fromJson?)
 

@@ -56,9 +56,13 @@ def renderStandard (args : List String) : IO UInt32 := do
 
 /-- The refusal of the renderer in a process without Lean's task manager
 (`Regula.TaskManager.guard`): it moves aside each destination that the arguments name for a render
-with `standardConfig` (`RegulaRender.refuse`), and returns 1. -/
-def refuseStandard (_reason : String) (args : List String) : IO UInt32 :=
-  RegulaRender.refuse "regula-standard" standardConfig args
+with `standardConfig` (`RegulaRender.refuse`), and returns 1. For the reason that the guard gives
+before each run (`Regula.TaskManager.startedReason`), it moves nothing and returns 1: a run that
+Verso starts keeps Verso's write behaviour, and a resumed render reads the saved state of an earlier
+one. -/
+def refuseStandard (reason : String) (args : List String) : IO UInt32 :=
+  if reason == Regula.TaskManager.startedReason then pure 1
+  else RegulaRender.refuse "regula-standard" standardConfig args
 
 /-- `renderStandard` on the command-line arguments. A process without Lean's task manager is
 refused before rendering starts (`Regula.TaskManager.guard`), and so is a standard that lacks a
@@ -67,9 +71,10 @@ cited section (`renderStandard`): each refusal moves aside the destinations that
 def main : List String → IO UInt32 :=
   Regula.TaskManager.guard "regula-standard" refuseStandard renderStandard
 
--- The process, environment and removal primitives that the compiled code of `main`, and of the
--- initializers of the modules it links, reaches go through their observers or sourced exemptions:
--- the build of this module fails otherwise (`Regula.ProgramCheck.Renderer.check`).
+-- The process starts and environment reads that `main` and the initializers of the modules it
+-- links reach, and the removals that the compiled code of those modules reaches, go through their
+-- observers or sourced exemptions; Verso's writes are trusted effects of the library: the build of
+-- this module fails otherwise (`Regula.ProgramCheck.Renderer.check`).
 run_cmd Regula.ProgramCheck.Renderer.check
 
 -- A program that needs Lean's task manager starts through its guard (`Regula.TaskManager.guard`),

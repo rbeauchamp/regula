@@ -114,7 +114,7 @@ one. The upward walk terminates on the byte length of the path, as `findRepoRoot
 def guidanceDirs (root : FilePath) : IO (List FilePath × Bool) := do
   let rec loop (path : FilePath) (walked : List FilePath) : IO (Option (List FilePath)) := do
     let walked := path :: walked
-    if ← (path / ".git").pathExists then return some walked.reverse
+    if ← Regula.Filesystem.isPresent (path / ".git") then return some walked.reverse
     match path.parent with
     | some parent =>
       if parent.toString.utf8ByteSize < path.toString.utf8ByteSize then loop parent walked
@@ -140,7 +140,7 @@ def guidanceFile (root : FilePath) : IO GuidanceFile := do
   let mut found : List GuidanceFile := []
   for (dir, i) in dirs.zipIdx do
     let path := dir / "AGENTS.md"
-    if ← path.pathExists then
+    if ← Regula.Filesystem.isPresent path then
       found := found ++ [file i true (hasAgentsHeading (← IO.FS.readFile path))]
   return (found.find? (·.hasSection) <|> found.head?).getD (file (dirs.length - 1) false false)
 
@@ -183,7 +183,7 @@ def importClosure (ws : Lake.Workspace) (starts : List Lake.Module) :
     let file := m.leanFile
     if visited.contains (m.name, file.toString) then continue
     visited := visited.insert (m.name, file.toString)
-    unless ← file.pathExists do
+    unless ← Regula.Filesystem.isPresent file do
       throw <| IO.userError <| match importer with
         | some i => s!"module {i} imports {m.name}, which Lake resolves to {file}, and that file \
             does not exist, so Lake cannot build {i}"
@@ -641,15 +641,13 @@ Assumes: Lake v4.34.1 selects the language from `relConfigFile`, not the resolve
 (`Lake/Load/Package.lean:100`), under `LakeConfig.language`'s assumptions. -/
 def observe (root : FilePath) : IO Project := do
   -- Without a manifest every root target is claimed, as in the starter `init` writes; a target the
-  -- manifest that loads excludes is not. A manifest that does not load or classify every root
-  -- target claims none for the option edits until it does (`doctor` reports it as RG2002).
+  -- manifest that loads excludes is not. A manifest that does not parse or classify every root
+  -- target claims none for the option edits until it does (`doctor` reports it as RG2002). A
+  -- manifest that is there but cannot be read is a failure, never read as one that does not parse.
   let manifestPath := Manifest.defaultPath root
-  let manifestExists ← manifestPath.pathExists
+  let manifestExists ← Regula.Filesystem.isPresent manifestPath
   let manifest ← if manifestExists then
-      try
-        let text ← IO.FS.readFile manifestPath
-        some <$> IO.ofExcept (Manifest.parse manifestPath.toString text)
-      catch _ => pure none
+      pure (Manifest.parse manifestPath.toString (← IO.FS.readFile manifestPath)).toOption
     else pure none
   let invalid ← if manifestExists then
       try validManifest root *> pure false catch _ => pure true
@@ -683,9 +681,10 @@ def observe (root : FilePath) : IO Project := do
         let mut missed : Array (Name × FilePath) := #[]
         for r in lib.roots do
           let dir := Lean.modToFilePath lib.srcDir r ""
-          unless ← dir.isDir do continue
+          unless ← Regula.Filesystem.isDirectory dir do continue
           for path in ← Regula.Filesystem.Construction.walkDirectory dir do
-            if path.extension != some "lean" || (← path.isDir) then continue
+            if path.extension != some "lean" || (← Regula.Filesystem.isDirectory path) then
+              continue
             let parts := (path.withExtension "").components.drop dir.components.length
             let name := parts.foldl Name.str r
             unless included.contains name do missed := missed.push (name, path)
@@ -700,7 +699,7 @@ def observe (root : FilePath) : IO Project := do
         if let #[r] := lib.roots then
           if lib.config.globs == #[.one r] then
             candidate := some (lib.name.toString, r.toString)
-            if ← (Lean.modToFilePath lib.srcDir r "").isDir then
+            if ← Regula.Filesystem.isDirectory (Lean.modToFilePath lib.srcDir r "") then
               let found ← IO.mkRef (#[] : Array Name)
               (Lake.Glob.submodules r).forEachModuleIn lib.srcDir fun m => found.modify (·.push m)
               added := (← found.get).map fun m => (m, Lean.modToFilePath lib.srcDir m "lean")
@@ -755,11 +754,12 @@ def observe (root : FilePath) : IO Project := do
       else pure none
     | none => pure none
   -- Each file by its canonical path, `IO.FS.realPath`, so two spellings of one file agree; a file
-  -- it cannot resolve leaves the glob case.
+  -- that is not there leaves the glob case, and one that cannot be resolved is a failure
+  -- (`Regula.Filesystem.realPathIfPresent`).
   let canonical (pairs : List (Name × FilePath)) : IO (Option (List (String × String))) := do
     let mut out := []
     for (m, file) in pairs do
-      let path ← try IO.FS.realPath file catch _ => return none
+      let some path ← Regula.Filesystem.realPathIfPresent file | return none
       out := out ++ [(m.toString, path.toString)]
     return some out
   let (sole, added, read) ← match sole with
@@ -771,14 +771,14 @@ def observe (root : FilePath) : IO Project := do
   let guidance ← guidanceFile root
   let skills ← skillPaths.filterMapM fun (p : String) => do
     let name := guidance.up ++ p
-    if ← (root / name).pathExists then
+    if ← Regula.Filesystem.isPresent (root / name) then
       return some (name, (← IO.FS.readFile (root / name)) == Regula.Guidance.skill)
     return none
   return {
     root, lakefile, configFile, guidance
     observation := {
       driver, options, targets, allClaimed, libraries, mathlib
-      manifest := ← (Manifest.defaultPath root).pathExists
+      manifest := ← Regula.Filesystem.isPresent (Manifest.defaultPath root)
       agentsFile := guidance.name, agentsSection := guidance.hasSection
       skillFile := guidance.up ++ skillPath, skills
       pin := ← pinned root
@@ -905,7 +905,7 @@ private structure Written where
 
 private def write (written : IO.Ref (Array Written)) (path : FilePath) (text : String) :
     IO Unit := do
-  let previous ← if ← path.pathExists then some <$> IO.FS.readFile path else pure none
+  let previous ← Regula.Filesystem.readFileIfPresent path
   written.modify (·.push { path, previous })
   if let some parent := path.parent then IO.FS.createDirAll parent
   IO.FS.writeFile path text
@@ -921,7 +921,7 @@ private def restore (written : Array Written) : IO (Array String) := do
       match w.previous with
       | some text => IO.FS.writeFile w.path text
       | none =>
-        if ← w.path.pathExists then
+        if ← Regula.Filesystem.isPresent w.path then
           let (some directory, some name) := (w.path.parent, w.path.fileName)
             | throw <| IO.userError "it has no directory and name"
           Regula.Filesystem.removeOwn .file ((← Regula.Filesystem.ownRoot directory) / name)
@@ -950,7 +950,7 @@ private def realize (written : IO.Ref (Array Written)) (project : Project) (edit
       write written (Manifest.defaultPath root) text
     | .agentsSection _ =>
       let path := project.guidance.path
-      let previous ← if ← path.pathExists then IO.FS.readFile path else pure ""
+      let previous := (← Regula.Filesystem.readFileIfPresent path).getD ""
       let separator := if previous.isEmpty then "" else
         if previous.endsWith "\n\n" then "" else if previous.endsWith "\n" then "\n" else "\n\n"
       write written path (previous ++ separator ++ agentsSectionFor project.guidance.project)

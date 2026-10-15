@@ -243,8 +243,9 @@ Recognizable output destinations of the kinds the invoked interface accepts (`--
 for `axiomGate` also `--acceptance-link`; `lake lint` leaves an `--acceptance-link` path it
 refuses untouched) are invalidated before argument parsing where their paths can be resolved:
 absolute destinations first, without requiring valid project configuration, and relative
-destinations once the project root is resolved. Callers must require the current
-invocation's successful completion, never reuse a previous report after a failed command.
+destinations once the project root is resolved. A destination that holds anything other than an
+empty file or a JSON document of Regula keeps it, and the command fails. Callers must require the
+current invocation's successful completion, never reuse a previous report after a failed command.
 
 ## Output schemas
 

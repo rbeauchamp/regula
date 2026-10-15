@@ -182,6 +182,15 @@ def Production.parse? : List String → Option Production
 def Production.output : Production → String
   | .policyNegative _ _ output | .documentation _ _ output => output
 
+/-- Mark the result file of `production` incomplete with `reason` (`AxiomGate.invalidateResult`),
+printing a line when it cannot. It is the one marker of a production's result: the refusal of
+`ruleExamples` calls it, which the guard also runs before every run (`Regula.TaskManager.guard`),
+and a production that fails calls it with the error's text. -/
+def Production.markIncomplete (production : Production) (reason : String) : IO Unit := do
+  if let .error error ← (AxiomGate.invalidateResult ⟨production.output⟩ reason).toBaseIO then
+    IO.eprintln s!"rule example production incomplete: could not mark {production.output} \
+      incomplete: {error}"
+
 /-- Run one rule-example production, as the caller parsed it one time (`Production.parse?`), and
 return its exit code: `--policy-negative PROJECT SOURCE OUTPUT` runs `inspectNegative`,
 `--documentation PROJECT DOCS OUTPUT` runs `documentation`, and arguments that name no production
@@ -202,6 +211,12 @@ qualifier (`RuleExampleQualification.qualify`, which admits only 0 to 3) never m
 audit's own result. -/
 private def productionIncomplete : UInt32 := 4
 
+/-- Run the production `production` (`RuleExamples.run`) after initializing Lean's search path, and
+return its exit code. An error stops it with the exit code of an incomplete production, and marks
+its result file incomplete with the error's text (`Production.markIncomplete`). The guard of the
+program marked that file before the program started (`Regula.TaskManager.guard`), so a production
+that stops before it writes leaves no earlier completed result there, unless the writer refused
+that file (`Regula.Destination`): a symbolic link there, for one, keeps its target. -/
 private unsafe def ruleExamplesEntry (production : Option Regula.Checker.RuleExamples.Production) :
     IO UInt32 := do
   try
@@ -209,7 +224,42 @@ private unsafe def ruleExamplesEntry (production : Option Regula.Checker.RuleExa
     Regula.Checker.RuleExamples.run production
   catch error =>
     IO.eprintln s!"rule example production incomplete: {error}"
+    if let some production := production then production.markIncomplete (toString error)
     return productionIncomplete
+
+/-- The reason to refuse the arguments `args` of `ruleExamples`, if the result file of the
+production that they name holds something that the run may not replace
+(`Regula.Destination.refusal`). The guard marks it before the production reads its inputs
+(`Regula.TaskManager.guard`), and the mark replaces only a document of Regula or an empty file
+(`Production.markIncomplete`). The gate refuses such arguments of its `axiomGate` form itself
+(`AxiomGate.Invocation.of`). -/
+private def refusalOf (args : List String) : IO (Option String) := do
+  let production (rest : List String) : IO (Option String) :=
+    match Regula.Checker.RuleExamples.Production.parse? rest with
+    | some production => Regula.Destination.refusal [⟨production.output⟩]
+    | none => return none
+  match args with
+  | "--injected-git-facts" :: _ :: "axiomGate" :: _ => return none
+  | "--injected-git-facts" :: _ :: rest => production rest
+  | rest => production rest
+
+/-- Mark each destination that the arguments `args` of `ruleExamples` name incomplete with
+`reason`, and return the exit code of an incomplete production. For the `axiomGate` form it marks
+each destination of the audit's arguments, as the gate's own refusal does
+(`AxiomGate.refuseWithoutTaskManager`); for a production that the arguments name
+(`Production.parse?`) it marks its result file (`Production.markIncomplete`), which writes only over
+a document of Regula or an empty file (`ResultProtocol.writeDocument`). No production runs. It is
+the program's refusal in a process without Lean's task manager, which the guard also runs before
+every run (`Regula.TaskManager.guard`), and a run whose injected facts cannot be loaded
+returns it with the reason. -/
+private def refuseProduction (reason : String) (args : List String) : IO UInt32 := do
+  match args with
+  | "--injected-git-facts" :: _ :: "axiomGate" :: gateArgs =>
+    let _ ← Regula.Checker.AxiomGate.refuseWithoutTaskManager reason gateArgs
+  | "--injected-git-facts" :: _ :: rest | rest =>
+    if let some production := Regula.Checker.RuleExamples.Production.parse? rest then
+      production.markIncomplete reason
+  return productionIncomplete
 
 /-- Qualification-only binary. `--injected-git-facts FACTS` is the internal
 corpus-producer entry: it installs the runner's once-captured shared-dependency
@@ -217,8 +267,13 @@ Git facts (`Snapshot.GitFacts`), then runs either the exact `axiomGate` body
 (`AxiomGate.entry`) or this binary's own modes. Facts only replace the Git part
 of a capture whose exact request they answer; every source and configuration
 byte is still read fresh, and the result is marked `"gitFacts": "injected"`. An empty table
-answers nothing. The user-facing `axiomGate` never accepts them. -/
+answers nothing. The user-facing `axiomGate` never accepts them. Arguments whose result file holds
+something that the run may not replace (`refusalOf`) are refused with the reason and the exit code
+of an incomplete production before anything is read or written. -/
 unsafe def ruleExamplesMain (args : List String) : IO UInt32 := do
+  if let some reason ← refusalOf args then
+    IO.eprintln s!"rule example production refused: {reason}"
+    return productionIncomplete
   match args with
   | "--injected-git-facts" :: facts :: rest =>
     let loaded ← (do
@@ -226,8 +281,9 @@ unsafe def ruleExamplesMain (args : List String) : IO UInt32 := do
       IO.ofExcept (Lean.fromJson? (α := Array Regula.Checker.Snapshot.GitFacts) json)).toBaseIO
     match loaded with
     | .error error =>
-      IO.eprintln s!"rule example production incomplete: injected git facts: {error}"
-      return productionIncomplete
+      let reason := s!"injected git facts: {error}"
+      IO.eprintln s!"rule example production incomplete: {reason}"
+      refuseProduction reason args
     | .ok table =>
       -- An empty table, from a project with no dependency, answers no capture request: every
       -- capture then observes Git itself.
@@ -250,8 +306,8 @@ unsafe def ruleExamplesMain (args : List String) : IO UInt32 := do
       -- marked only when it is a written result document (`ResultProtocol.readDocument`), and the
       -- marked document is written as every result document is (`ResultProtocol.writeDocument`).
       if let some path := output.filter (· != "") then
-        unless ← System.FilePath.pathExists path do return code
         let marked ← (do
+          unless ← Regula.Filesystem.isPresent path do return
           let document ← Regula.Checker.ResultProtocol.readDocument path
           Regula.Checker.ResultProtocol.writeDocument path
             (document.setObjVal! "gitFacts" (.str "injected")) "injectedFactsMarker").toBaseIO
@@ -261,24 +317,6 @@ unsafe def ruleExamplesMain (args : List String) : IO UInt32 := do
       return code
   | _ => ruleExamplesEntry (Regula.Checker.RuleExamples.Production.parse? args)
 
-/-- The refusal of a production in a process without Lean's task manager, which the guard of the
-executable runs (`Regula.TaskManager.guard`). For the `axiomGate` form it marks each destination
-of the audit's arguments incomplete with `reason`, as the gate's own refusal does
-(`AxiomGate.refuseWithoutTaskManager`); for a production that the arguments name
-(`Production.parse?`) it marks its result file incomplete with `reason`. It returns the exit code of
-an incomplete production. No production runs. -/
-private def refuseProduction (reason : String) (args : List String) : IO UInt32 := do
-  match args with
-  | "--injected-git-facts" :: _ :: "axiomGate" :: gateArgs =>
-    let _ ← Regula.Checker.AxiomGate.refuseWithoutTaskManager reason gateArgs
-  | "--injected-git-facts" :: _ :: rest | rest =>
-    if let some production := Regula.Checker.RuleExamples.Production.parse? rest then
-      let marked ← (Regula.Checker.AxiomGate.invalidateResult ⟨production.output⟩ reason).toBaseIO
-      if let .error error := marked then
-        IO.eprintln s!"rule example production incomplete: could not mark \
-          {production.output} incomplete: {error}"
-  return productionIncomplete
-
 /-- The `ruleExamples` executable: `ruleExamplesMain` on the command-line arguments. A process
 without Lean's task manager is refused before any production starts: the result destinations that
 the arguments name are marked incomplete with the reason, and the exit code is that of an
@@ -286,10 +324,11 @@ incomplete production (`Regula.TaskManager.guard`, `refuseProduction`). -/
 unsafe def main : List String → IO UInt32 :=
   Regula.TaskManager.guard "ruleExamples" refuseProduction ruleExamplesMain
 
--- The removals that the compiled code of `main`, and of the initializers of the modules it links,
--- reaches are the filesystem observer's and those that `Regula.Removal.libraryRemovals` lists: the
--- build of this module fails otherwise (`Regula.Removal.checkProgram`).
-run_cmd Regula.Removal.checkProgram
+-- The removals and the writes that the compiled code of the program reaches from its roots
+-- (`Regula.Removal.rawRemovals`) are those of the filesystem observer and those that
+-- `Regula.Removal.sharedPairs` lists: the build of this module fails otherwise
+-- (`Regula.Removal.checkProgram`). The program elaborates Lean source, so its check states it.
+run_cmd Regula.Removal.checkProgram (elaborates := true)
 
 -- A program that needs Lean's task manager starts through its guard (`Regula.TaskManager.guard`),
 -- and its refusal needs none: the build of this module fails otherwise

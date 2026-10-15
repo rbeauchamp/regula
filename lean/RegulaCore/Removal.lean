@@ -9,8 +9,10 @@ a file over another (`replacement`), and the operations that observe a place, de
 written once for the filesystem's operations in any monad (`Regula.Filesystem.Ops`). Regula runs
 them at the observer (`Regula.Filesystem`). No other code of Regula calls a removal primitive
 (`Regula.Removal.rawRemovals`), except the calls of Lean's library that
-`Regula.Removal.libraryRemovals` lists and the removals and moves of the two drivers that
-`Regula.ProgramCheck.Verification` and `Regula.ProgramCheck.Provision` name.
+`Regula.Removal.libraryRemovals` lists, the removals of `bv_decide` that
+`Regula.Removal.tacticRemovals` lists, which run as trusted active effects of a program that runs
+the tactic, and the removals and moves of the two drivers that `Regula.ProgramCheck.Verification`
+and `Regula.ProgramCheck.Provision` name.
 
 `IO.FS.removeDirAll` reads the entries of the path it is given, also when that path is a symbolic
 link to a directory, and then removes the entries of the link's target. A removal that first asks
@@ -346,12 +348,13 @@ theorem observe_place (M : Model) (reads : ReadsEntry M) (path : FilePath) (befo
   rintro found w'' ⟨rfl, rfl⟩
   exact rfl
 
-/-- A run of `ownParent` changes nothing and does not fail, and it gives `true` only when the path
-is a name in a directory at its own place (`Model.InOwnDirectory`). -/
-theorem ownParent_run (M : Model) (reads : ReadsReal M) (path : FilePath) (before : M.World) :
+/-- A run of `ownParent` changes nothing, whether it succeeds or fails, and it gives `true` only
+when the path is a name in a directory at its own place (`Model.InOwnDirectory`). -/
+theorem ownParent_run (M : Model) (readsEntry : ReadsEntry M) (readsReal : ReadsReal M)
+    (path : FilePath) (before : M.World) :
     Satisfies ((ownParent M.ops path).run before)
       (fun own w => w = before ∧ (own = true → M.InOwnDirectory before path))
-      (fun _ _ => False) := by
+      (fun _ w => w = before) := by
   unfold ownParent
   cases parentOf : path.parent with
   | none => cases path.fileName <;> exact ⟨rfl, fun refused => nomatch refused⟩
@@ -359,26 +362,25 @@ theorem ownParent_run (M : Model) (reads : ReadsReal M) (path : FilePath) (befor
     cases nameOf : path.fileName with
     | none => exact ⟨rfl, fun refused => nomatch refused⟩
     | some _ =>
-      exact (atOwnPlace_run M reads parent before).mono
+      exact (atOwnPlace_run M readsEntry readsReal parent before).mono
         (fun _ _ read => ⟨read.1, fun own => ⟨by rw [nameOf]; rfl, parent, parentOf,
-          read.2.mp own⟩⟩)
-        (fun _ _ impossible => impossible)
+          (read.2.mp own).2.2⟩⟩)
+        (fun _ _ kept => kept)
 
-/-- A run of `observe` changes nothing and reports the place, whether its real path is the path,
-and, when it reports so, that the path is a name in a directory at its own place. -/
+/-- A run of `observe` changes nothing and reports the place, whether an entry that is not a
+symbolic link is there with the path as its real path (`Model.AtOwnPlace`), and, when it reports
+so, that the path is a name in a directory at its own place. -/
 theorem observe_run (M : Model) (readsEntry : ReadsEntry M) (readsReal : ReadsReal M)
     (path : FilePath) (before : M.World) :
     Satisfies ((observe M.ops path).run before)
       (fun observed w => w = before ∧ observed.place = Place.ofType (M.entry before path) ∧
-        (observed.sameLocation = true ↔ M.real before path = some path) ∧
+        (observed.sameLocation = true ↔ M.AtOwnPlace before path) ∧
         (observed.parentOwn = true → M.InOwnDirectory before path))
       (fun _ w => w = before) := by
   unfold observe
-  refine Satisfies.bind ((atOwnPlace_run M readsReal path before).mono (fun _ _ h => h)
-    (fun _ _ h => h.elim)) ?_
+  refine Satisfies.bind (atOwnPlace_run M readsEntry readsReal path before) ?_
   rintro same w ⟨rfl, same_iff⟩
-  refine Satisfies.bind ((ownParent_run M readsReal path w).mono (fun _ _ h => h)
-    (fun _ _ h => h.elim)) ?_
+  refine Satisfies.bind (ownParent_run M readsEntry readsReal path w) ?_
   rintro parentOwn w' ⟨rfl, inDirectory⟩
   refine Satisfies.bind (entryType_run M readsEntry path w') ?_
   rintro found w'' ⟨rfl, rfl⟩
@@ -427,13 +429,13 @@ theorem removeOwnWith_run (M : Model) (readsEntry : ReadsEntry M) (readsReal : R
     rw [place, Place.ofType_present] at present
     cases kind with
     | directory =>
-      have real := same.mp (own.resolve_left (fun link => Kind.noConfusion link.1)).2
+      have real := (same.mp (own.resolve_left (fun link => Kind.noConfusion link.1)).2).2.2
       exact ((triple_iff _ _ _ _).mp
         (removeDirectory_spec M readsEntry removesTree path w present real) w rfl).mono
         (fun _ _ removed => ⟨removed.1, removed.2, Or.inr ⟨present, real⟩⟩)
         (fun _ _ kept => ⟨kept, Or.inr ⟨present, real⟩⟩)
     | file =>
-      have real := same.mp (own.resolve_left (fun link => Kind.noConfusion link.1)).2
+      have real := (same.mp (own.resolve_left (fun link => Kind.noConfusion link.1)).2).2.2
       exact ((triple_iff _ _ _ _).mp
         (removeEntry_spec M readsEntry removesEntry path w (Or.inl real)) w rfl).mono
         (fun _ _ removed => ⟨removed.1, removed.2, Or.inr ⟨present, real⟩⟩)
@@ -562,14 +564,14 @@ theorem replaceWith_run (M : Model) (readsEntry : ReadsEntry M) (readsReal : Rea
     have inDirectory := destinationParent parentHolds
     obtain ⟨parent, parentIs, parentOwnReal⟩ := inDirectory.2
     have movable : Movable M source destination w' := by
-      refine ⟨⟨sourcePresent, sourceSame.mp sourceOwn⟩, ?_, inDirectory⟩
+      refine ⟨⟨sourcePresent, (sourceSame.mp sourceOwn).2.2⟩, ?_, inDirectory⟩
       rcases destinationFree with absent | ⟨present, own⟩
       · rw [destinationPlace, Place.ofType_absent] at absent
         exact Or.inl absent
       · rw [destinationPlace, Place.ofType_present] at present
-        exact Or.inr ⟨present, destinationSame.mp own⟩
+        exact Or.inr ⟨present, (destinationSame.mp own).2.2⟩
     refine Satisfies.bind ((triple_iff _ _ _ _).mp
-      (renames source destination parent w' (sourceSame.mp sourceOwn) parentIs parentOwnReal)
+      (renames source destination parent w' ((sourceSame.mp sourceOwn).2.2) parentIs parentOwnReal)
       w' rfl |>.mono (fun _ _ kept => kept) (fun _ _ kept => ⟨kept, Or.inr movable⟩)) ?_
     intro _ moved kept
     exact (confirmMoved_run M readsEntry source destination moved).mono

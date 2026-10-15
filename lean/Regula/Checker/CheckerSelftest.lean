@@ -14,6 +14,7 @@ import RegulaPolicy.Compiler
 import Regula.Checker.AcceptanceLink
 import Regula.Checker.ResultProtocol
 import Regula.Checker.SelftestArguments
+import Regula.Site.Build
 
 /-!
 # Checker qualification suite
@@ -111,6 +112,9 @@ structure FixtureSpec where
   /-- For each named declaration, texts that its own record in the output must contain
   (`declarationRecord`). -/
   records : Array (String × Array String) := #[]
+  /-- Why the cli partition's real `axiomGate --file` sweep leaves the fixture out, when the entry
+  states a reason (`fileAuditExclusion`); the in-process fixtures partition still checks it. -/
+  fileAuditExclusion : Option String := none
   deriving Repr
 
 /-- The checker executables the self-test's controls run from the repository's build. -/
@@ -240,20 +244,22 @@ with the positive's through their digests (`selfHostedDigest`, `SelfHosted.shard
 private def selfHostedRestoredShard : Fin structuralShards := SelfHosted.restored.shard
 
 /-- The shard of the source-attribution controls of the complete CLI sweep: the last. It also runs
-the control of a process without Lean's task manager (`taskManagerControl`). -/
+the control of a process without Lean's task manager (`taskManagerControl`) and the control of a
+run that stops early (`earlyStopControl`). -/
 private def cliAttributionShard : Fin cliShards := ⟨cliShards - 1, by decide⟩
 
 /-- The baseline of a run of `partition`, of one of its shards when `shard` selects one. The
 shard of the self-hosted positive (`selfHostedShard`) runs `axiomGate` alone; a run of the cli
 partition that runs its last shard (`cliAttributionShard`), sharded or not, also runs `qualify` and
-`site`, in the control of a process without Lean's task manager; every other shard keeps the
-partition's baseline. -/
+`site`, in the control of a process without Lean's task manager and in the control of a run that
+stops early, and `ruleExamples` and `ruleExampleQualification` in the latter; every other shard
+keeps the partition's baseline. -/
 private def baselineOf (partition : Partition) (shard : Option (Nat × Nat)) : Baseline :=
   if partition = .structural ∧ (shard.bind (shardOf? structuralShards)) = some selfHostedShard
   then ⟨["axiomGate"], false, []⟩
   else if partition = .cli ∧
       (shard.isNone ∨ shard.bind (shardOf? cliShards) = some cliAttributionShard) then
-    ⟨checkerTools ++ ["qualify", "site"], true, []⟩
+    ⟨checkerTools ++ ["qualify", "site", "ruleExamples", "ruleExampleQualification"], true, []⟩
   else partitionBaseline partition
 
 /-- Every run's baseline build names `axiomGate` (`partitionBaseline_axiomGate`), a shard's
@@ -504,7 +510,7 @@ private def loadFixtureManifest (layout : SourceLayout) (repo : FilePath) : IO
   let object ← IO.ofExcept value.getObj?
   let allowed :=
       #["expect", "reason", "reasons", "claim", "execution", "label", "pattern", "output",
-        "records"]
+        "records", "fileAuditExclusion"]
   let mut fixtures : Array FixtureSpec := #[]
   for moduleName in object.keysArray.qsort (· < ·) do
     let some source := library.sources.find? (·.«module» == moduleName.toName)
@@ -560,9 +566,12 @@ private def loadFixtureManifest (layout : SourceLayout) (repo : FilePath) : IO
         object.keysArray.qsort (· < ·) |>.mapM fun declaration => do
           let texts ← IO.ofExcept <| value.getObjVal? declaration
           return (declaration, ← jsonStringArray s!"{moduleName}.records.{declaration}" texts)
+    let fileAuditExclusion ← optionalString spec "fileAuditExclusion" moduleName
+    if fileAuditExclusion == some "" then
+      throw <| IO.userError s!"{moduleName}: fileAuditExclusion must state a reason"
     fixtures := fixtures.push {
       moduleName, source := source.source, expectation, reasons, claim, execution, label,
-          pattern, output, records }
+          pattern, output, records, fileAuditExclusion }
   if library.modules.size != fixtures.size then
     throw <| IO.userError <|
       s!"fixture manifest/Lake module count mismatch: {fixtures.size}/{library.modules.size}"
@@ -1537,12 +1546,12 @@ private def prepareScratchRepo (repo scratch : FilePath) : IO (Array FilePath) :
   return copy.placedPaths
 
 private def withNewFile {α : Type} (path : FilePath) (text : String) (action : IO α) : IO α := do
-  if ← path.pathExists then
+  if ← Regula.Filesystem.isPresent path then
     throw <| IO.userError s!"refusing to overwrite structural fixture {path}"
   if let some parent := path.parent then IO.FS.createDirAll parent
   IO.FS.writeFile path text
   try action
-  finally if ← path.pathExists then Regula.Filesystem.removePath .file path
+  finally Regula.Filesystem.removePath .file path
 
 private def withReplacedFile {α : Type} (path : FilePath) (text : String) (action : IO α) :
     IO α := do
@@ -1752,7 +1761,7 @@ module build, not a theorem. -/
 private def seedModuleArtifacts (layout : SourceLayout) (repo copy : FilePath) : IO Unit := do
   for relative in layout.artifactDirs do
     let place := repo / relative
-    unless ← place.isDir do continue
+    unless ← Regula.Filesystem.isDirectory place do continue
     let destination := copy / relative
     let some parent := destination.parent | throw <| IO.userError "artifact copy has no parent"
     Regula.Filesystem.Construction.ensureDirectory 4096 parent
@@ -1772,7 +1781,8 @@ private def freshInput (project snapshot : FilePath) :
   for path in ← Regula.Filesystem.Construction.walkDirectory snapshot
       (fun path => pure (own path != [lake])) do
     if own path == [lake] then continue
-    let content ← if ← path.isDir then pure none else some <$> IO.FS.readBinFile path
+    let content ← if ← Regula.Filesystem.isDirectory path then pure none
+      else some <$> IO.FS.readBinFile path
     entries := entries.push ("/".intercalate (own path), content)
   return entries.qsort (·.1 < ·.1)
 
@@ -1847,13 +1857,14 @@ it as missing until a run writes it again: the writer that a run of its shard ru
 in its place. -/
 def clearSelfHostedDigest (repo : FilePath) (input : SelfHosted) : IO Unit := do
   let evidence := selfHostedDigestPath repo input
-  if ← evidence.pathExists then Regula.Filesystem.removePath .file evidence
+  Regula.Filesystem.removePath .file evidence
 
 /-- What a sharded run does in place of `selfHostedIdentity`, after its queue, in the shard of
 `input` (`SelfHosted.shard`): remove any earlier digest (`clearSelfHostedDigest`), then write
 the SHA-256 digest of the canonical serialization of the fresh input that its cluster recorded in
-`recorded` (`writeFreshInput`). The `diagnostics` gate compares the two shards' digests.
-A missing input fails the shard and writes no digest. -/
+`recorded` (`writeFreshInput`), by replacing the entry at the digest's path below the repository's
+`tmp/` (`Regula.Filesystem.writeReplacing`). The `diagnostics` gate compares the two shards'
+digests. A missing input fails the shard and writes no digest. -/
 private def selfHostedDigest (repo scratch : FilePath) (input : SelfHosted)
     (recorded : IO.Ref (Option (Array (String × Option ByteArray)))) : IO (Array String) := do
   let name := input.name
@@ -1865,8 +1876,7 @@ private def selfHostedDigest (repo scratch : FilePath) (input : SelfHosted)
   let serialized := scratch / s!"self-hosted-input-{name}.bin"
   writeFreshInput serialized recorded
   let digest ← sha256File scratch serialized
-  if let some parent := evidence.parent then IO.FS.createDirAll parent
-  IO.FS.writeFile evidence (digest ++ "\n")
+  Regula.Filesystem.writeReplacing evidence (digest ++ "\n").toUTF8
   return #[]
 
 /-- Structural controls that need the checker's own package as the audited project: in
@@ -2063,8 +2073,8 @@ private unsafe def structuralPartB (layout : SourceLayout) (executables : Bool)
       (do IO.FS.writeBinFile library ((← IO.FS.readBinFile library).push 0)) (pure ())
   else
     let exeDecl :=
-      "\nlean_exe «selftestTool» where\n  root := `SelftestMain\n" ++ observerPluginOwn ++
-        observerNeedOwn
+      "\n" ++ observedTargetLean .executable "«selftestTool»" "  root := `SelftestMain\n"
+        (own := true)
     let claimedManifest := copy / "claimed-exe.json"
     -- The claimed-exe controls claim the added executable beside the application's: both roots
     -- define `main`, so the positive control also requires each root to be inspected in an
@@ -2572,7 +2582,7 @@ private def sourceAttributionControls (dir : FilePath)
           one block"
       return #[]
     finally
-      if ← report.pathExists then Regula.Filesystem.removePath .file report
+      Regula.Filesystem.removePath .file report
 
 /-- Controls for a decision registered from another module of its inventory (standard §7.11).
 `AuditApp.DownstreamDecision` declares `downstreamCheck` without importing `Regula.Decision`, and
@@ -2720,8 +2730,8 @@ private unsafe def structuralCorrespondence (layout : SourceLayout) (mutation : 
   -- Boundary evidence text is printed only in verbose mode.
   let gate := runBinaryFrom repo copy "axiomGate" #["--verbose"]
   withReplacedFile lakefile
-      (originalLakefile ++ "\nlean_lib CorrespondenceControl where\n" ++ observerPluginOwn ++
-        observerNeedOwn) do
+      (originalLakefile ++ "\n" ++
+        observedTargetLean .library "CorrespondenceControl" (own := true)) do
     withReplacedFile manifest checkedManifest do
       withNewFile source positive do
         if !mutation then
@@ -2964,8 +2974,8 @@ private unsafe def fenceEnvironmentControl (layout : SourceLayout) (repo : FileP
           unit\n"
     let lakefile := dir / "lakefile.lean"
     IO.FS.writeFile lakefile ((← IO.FS.readFile lakefile) ++
-      "\nlean_lib FreshControl where\n  globs := #[.submodules `FreshControl]\n" ++
-        observerPluginOwn ++ observerNeedOwn)
+      "\n" ++ observedTargetLean .library "FreshControl"
+        "  globs := #[.submodules `FreshControl]\n" (own := true))
     let manifest := dir / "foundation_manifest.json"
     writeJson manifest (freshControlManifest (← parsedManifest manifest))
     -- A counterexample aid at the process boundary: the workspace provides a `leanchecker` in the
@@ -2996,19 +3006,17 @@ private unsafe def fenceEnvironmentControl (layout : SourceLayout) (repo : FileP
       -- Reconcile the actual run against the modules written above: each is a
       -- maximal root, and every root's successful check must cover it.
       let report ← readJson reportPath
-      let status ← IO.ofExcept <| report.getObjValAs? String "status"
-      let modules ← jsonStringArray "fresh control modules" <| ← IO.ofExcept <|
-        report.getObjVal? "modules"
-      let roots ← jsonStringArray "fresh control roots" <| ← IO.ofExcept <|
-        report.getObjVal? "roots"
-      let checks ← IO.ofExcept <| report.getObjValAs? (Array Json) "checks"
+      let read {α : Type} (decoded : Except String α) := IO.ofExcept (RegulaQualification.Member.within reportPath decoded)
+      let status ← read (RegulaQualification.Member.text report "status")
+      let modules ← read (memberStrings report "modules")
+      let roots ← read (memberStrings report "roots")
+      let checks ← read (RegulaQualification.Member.array report "checks")
       let mut checked : Array String := #[]
       for check in checks do
-        let exitCode ← IO.ofExcept <| check.getObjValAs? Nat "exitCode"
+        let exitCode ← read (RegulaQualification.Member.get Nat check "exitCode")
         if exitCode != 0 then
           failures.modify (·.push "fence-env/fresh-checker: a root was not checked successfully")
-        let covered ← jsonStringArray "fresh control coveredModules" <| ← IO.ofExcept <|
-          check.getObjVal? "coveredModules"
+        let covered ← read (memberStrings check "coveredModules")
         checked := checked ++ covered
       if status != "completed" || checks.size != expected.size
           || uniqueSorted modules != uniqueSorted expected || uniqueSorted roots !=
@@ -3037,11 +3045,13 @@ private unsafe def fenceEnvironmentQualification (layout : SourceLayout) (repo s
       IO.FS.createDirAll dir
       let placed ← prepareScratchRepo repo dir
       let build := dir / ".lake" / "build"
-      let outputs ← if ← build.pathExists then Regula.Filesystem.Construction.walkDirectory build
+      let outputs ← if ← Regula.Filesystem.isPresent build then
+          Regula.Filesystem.Construction.walkDirectory build
         else pure #[]
       let mut unexpected := #[]
       for path in outputs do
-        unless (← path.isDir) || placed.contains path do unexpected := unexpected.push path
+        unless (← Regula.Filesystem.isDirectory path) || placed.contains path do
+          unexpected := unexpected.push path
       unless unexpected.isEmpty do
         failures.modify (·.push s!"fence-env/{name}: setup unexpectedly has build output \
           other than the placed observer library: {unexpected}")
@@ -3066,9 +3076,9 @@ private def adopterTomlLakefile (checkerPath : String) : String :=
     true\n\n" ++
   "[[require]]\nname = \"regula\"\n" ++
   s!"path = \"{checkerPath}\"\n\n" ++
-  "[[lean_lib]]\nname = \"Widget\"\nglobs = [\"Widget\", \"Widget.+\"]\n" ++ observerNeedToml ++
+  observedTargetToml .library "Widget" "globs = [\"Widget\", \"Widget.+\"]\n" ++
   "\n" ++
-  "[[lean_exe]]\nname = \"widget_tool\"\nroot = \"Main\"\n" ++ observerNeedToml
+  observedTargetToml .executable "widget_tool" "root = \"Main\"\n"
 
 private def adopterLeanLakefile (checkerPath : String) : String :=
   "import Lake\nopen Lake DSL\n\n" ++
@@ -3077,8 +3087,9 @@ private def adopterLeanLakefile (checkerPath : String) : String :=
   "  leanOptions := #[⟨`autoImplicit, false⟩, ⟨`relaxedAutoImplicit, false⟩, ⟨`linter.missingDocs, \
     true⟩]\n\n" ++
   s!"require «regula» from \"{checkerPath}\"\n\n" ++
-  "@[default_target]\nlean_lib «Widget» where\n  globs := #[.andSubmodules `Widget]\n" ++
-  observerNeedLean ++ "\nlean_exe «widget_tool» where\n  root := `Main\n" ++ observerNeedLean
+  "@[default_target]\n" ++
+  observedTargetLean .library "«Widget»" "  globs := #[.andSubmodules `Widget]\n" ++ "\n" ++
+  observedTargetLean .executable "«widget_tool»" "  root := `Main\n"
 
 /-- The adopting workspace inherits every transitive dependency through the
 checker package's own `require`, pinned exactly as in this repository. -/
@@ -3291,7 +3302,7 @@ private def frozenArtifactControls (scratch : FilePath) : IO (Array String) := d
     for ((level, _), isPresent) in levels.zip present do
       let part := level.adjustFileName olean
       if isPresent then IO.FS.writeBinFile part frozenBytes
-      else if ← part.pathExists then Regula.Filesystem.removePath .file part
+      else Regula.Filesystem.removePath .file part
     let some artifact ← Inspection.freezeArtifact `Frozen olean
       | failures := failures.push s!"frozen-artifact/{layout}: the artifact was not frozen"
         continue
@@ -3347,8 +3358,8 @@ private def libraryCycleControl (repo : FilePath) : IO (Array String) :=
     "name = \"library_cycle_control\"\n" ++ observerPluginToml ++
       "[leanOptions]\nautoImplicit = false\n" ++
       "relaxedAutoImplicit = false\nlinter.missingDocs = true\n" ++
-      "[[lean_lib]]\nname = \"Left\"\nglobs = [\"Left.+\"]\n" ++ observerNeedToml ++
-      "[[lean_lib]]\nname = \"Right\"\nglobs = [\"Right.+\"]\n" ++ observerNeedToml ++
+      observedTargetToml .library "Left" "globs = [\"Left.+\"]\n" ++
+      observedTargetToml .library "Right" "globs = [\"Right.+\"]\n" ++
       regulaRequireToml repo
   let surface (library : String) : String :=
     "{\"library\":\"" ++ library ++ "\",\"executables\":[],\"claim\":\"standard-logical\"," ++
@@ -3376,15 +3387,14 @@ private def libraryCycleControl (repo : FilePath) : IO (Array String) :=
   unless gate.succeeded do return #[s!"library-cycle/accepted: expected PASS:\n{gate.output}"]
   let modules := #["Left.Base", "Left.Top", "Right.Base", "Right.Top"]
   let json ← requireAuditDocument (← IO.ofExcept (Json.parse (← IO.FS.readFile result)))
-  let surfaces ← IO.ofExcept <|
-    (json.getObjVal? "scope").bind (·.getObjValAs? (Array Json) "surfaces")
+  let read {α : Type} (decoded : Except String α) := IO.ofExcept (RegulaQualification.Member.within result decoded)
+  let surfaces ← read do RegulaQualification.Member.array (← RegulaQualification.Member.object json "scope") "surfaces"
   let mut found : Array (String × Array String × Array String × Array (String × String)) := #[]
   for surface in surfaces do
-    let library ← IO.ofExcept <| surface.getObjValAs? String "library"
-    let admission ← IO.ofExcept <|
-      (surface.getObjVal? "report").bind (·.getObjVal? "admission")
-    let reused ← IO.ofExcept <| admission.getObjValAs? (Array String) "reused"
-    let required ← IO.ofExcept <| admission.getObjValAs? (Array (String × String)) "required"
+    let library ← read (RegulaQualification.Member.text surface "library")
+    let admission ← read do RegulaQualification.Member.object (← RegulaQualification.Member.object surface "report") "admission"
+    let reused ← read (RegulaQualification.Member.get (Array String) admission "reused")
+    let required ← read (RegulaQualification.Member.get (Array (String × String)) admission "required")
     let replayed := modules.filter fun m => !reused.contains m && required.any (·.1 == m)
     found := found.push (library, replayed, modules.filter reused.contains, required)
   let expected : Array (String × Array String × Array String) := #[
@@ -3441,7 +3451,7 @@ private def observerIdentityControl (repo : FilePath) : IO (Array String) :=
   -- package (`checkSource`).
   let sources := (repo / "lean").normalize.components.length
   for path in ← Regula.Filesystem.Construction.walkDirectory (repo / "lean") do
-    if ← path.isDir then continue
+    if ← Regula.Filesystem.isDirectory path then continue
     let destination :=
       (path.normalize.components.drop sources).foldl (· / FilePath.mk ·) (tool / "lean")
     if let some parent := destination.parent then IO.FS.createDirAll parent
@@ -3468,7 +3478,7 @@ private def observerIdentityControl (repo : FilePath) : IO (Array String) :=
     "name = \"observer_identity_control\"\n" ++ observerPluginToml ++
       "[leanOptions]\nautoImplicit = false\n" ++
       "relaxedAutoImplicit = false\nlinter.missingDocs = true\n" ++
-      "[[lean_lib]]\nname = \"Example\"\n" ++ observerNeedToml ++ regulaRequireToml tool
+      observedTargetToml .library "Example" ++ regulaRequireToml tool
   IO.FS.writeFile (Manifest.defaultPath project) <|
     "{\"schema-version\":2,\"surfaces\":[{\"library\":\"Example\",\"executables\":[]," ++
       "\"claim\":\"kernel-only\",\"execution\":\"report\"," ++
@@ -3539,8 +3549,8 @@ private def sharedCopiesControl (repo : FilePath) : IO (Array String) :=
     "name = \"shared_copies_control\"\n" ++ observerPluginToml ++
       "[leanOptions]\nautoImplicit = false\n" ++
       "relaxedAutoImplicit = false\nlinter.missingDocs = true\n" ++
-      "[[lean_lib]]\nname = \"Lib\"\nglobs = [\"Lib.+\"]\n" ++ observerNeedToml ++
-      "[[lean_lib]]\nname = \"App\"\nglobs = [\"App.+\"]\n" ++ observerNeedToml ++
+      observedTargetToml .library "Lib" "globs = [\"Lib.+\"]\n" ++
+      observedTargetToml .library "App" "globs = [\"App.+\"]\n" ++
       regulaRequireToml repo
   let surface (library : String) : String :=
     "{\"library\":\"" ++ library ++ "\",\"executables\":[],\"claim\":\"standard-logical\"," ++
@@ -3597,17 +3607,16 @@ private def sharedCopiesControl (repo : FilePath) : IO (Array String) :=
   let modules := #["Lib.Base", "Lib.Down", "Lib.Even", "Lib.Far", "Lib.Left", "Lib.Near", "Lib.Odd",
     "Lib.Right", "Lib.Up", "App.Main"]
   let json ← requireAuditDocument (← IO.ofExcept (Json.parse (← IO.FS.readFile result)))
-  let surfaces ← IO.ofExcept <|
-    (json.getObjVal? "scope").bind (·.getObjValAs? (Array Json) "surfaces")
+  let read {α : Type} (decoded : Except String α) := IO.ofExcept (RegulaQualification.Member.within result decoded)
+  let surfaces ← read do RegulaQualification.Member.array (← RegulaQualification.Member.object json "scope") "surfaces"
   let mut found : Array (String × Array String × Array String × Array String) := #[]
   let mut required : Array (String × String) := #[]
   for surface in surfaces do
-    let library ← IO.ofExcept <| surface.getObjValAs? String "library"
-    let admission ← IO.ofExcept <|
-      (surface.getObjVal? "report").bind (·.getObjVal? "admission")
-    let reused ← IO.ofExcept <| admission.getObjValAs? (Array String) "reused"
-    let shared ← IO.ofExcept <| admission.getObjValAs? (Array String) "shared"
-    let keys ← IO.ofExcept <| admission.getObjValAs? (Array (String × String)) "required"
+    let library ← read (RegulaQualification.Member.text surface "library")
+    let admission ← read do RegulaQualification.Member.object (← RegulaQualification.Member.object surface "report") "admission"
+    let reused ← read (RegulaQualification.Member.get (Array String) admission "reused")
+    let shared ← read (RegulaQualification.Member.get (Array String) admission "shared")
+    let keys ← read (RegulaQualification.Member.get (Array (String × String)) admission "required")
     let replayed := modules.filter fun m => !reused.contains m && keys.any (·.1 == m)
     found := found.push (library, replayed, modules.filter reused.contains,
       modules.filter shared.contains)
@@ -3645,9 +3654,8 @@ private def writeCrossSurfaceProject (repo project : FilePath) (relation decided
       "[leanOptions]\nautoImplicit = false\n" ++
       "relaxedAutoImplicit = false\nlinter.missingDocs = true\n" ++
       s!"[[require]]\nname = \"regula\"\npath = {(Json.str repo.toString).compress}\n" ++
-      "[[lean_lib]]\nname = \"Exec\"\nglobs = [\"Exec.+\"]\n" ++ observerNeedToml ++
-      "[[lean_lib]]\nname = \"Proofs\"\nglobs = [\"Proofs.+\"]\n" ++
-        observerNeedToml
+      observedTargetToml .library "Exec" "globs = [\"Exec.+\"]\n" ++
+      observedTargetToml .library "Proofs" "globs = [\"Proofs.+\"]\n"
   writeJson (project / "lake-manifest.json") <|
     (← adopterLakeManifest repo repo.toString).setObjVal! "name" (Json.str "cross_surface_control")
   IO.FS.createDirAll (project / "Exec")
@@ -3702,8 +3710,8 @@ private def crossSurfaceDecisionControl (refusals : Bool) (repo : FilePath) :
         if !accepted.succeeded then
           return some s!"cross-surface/related: expected PASS:\n{accepted.output}"
         let json ← requireAuditDocument (← IO.ofExcept (Json.parse (← IO.FS.readFile result)))
-        let counted ← IO.ofExcept <| (json.getObjVal? "acceptance").bind fun acceptance =>
-          (acceptance.getObjVal? "account").bind (·.getObjValAs? (Array Json) "countedContracts")
+        let counted ← IO.ofExcept <| RegulaQualification.Member.within result do
+          RegulaQualification.Member.array (← RegulaQualification.Member.object (← RegulaQualification.Member.object json "acceptance") "account") "countedContracts"
         let named (entry : Json) : Bool :=
           (entry.getObjValAs? String "surface").toOption == some "Exec" &&
             (entry.getObjValAs? String "source").toOption == some "Proofs" &&
@@ -3748,7 +3756,12 @@ lean/RegulaVerification.lean --copy-control`), in a project with one library and
 * A driver that is killed leaves the directory and its marker. The next scratch user of the
   checker removes both, and so does the next driver, before it makes its own copy.
 * With a symbolic link at `_site`, the driver's `--begin-attempt site` stops and the marked
-  content of the target stays; a real `_site` directory is removed. -/
+  content of the target stays; a `_site` directory that holds no `build.json` of a build of the
+  site makes it stop and keeps its files; and a `_site` directory whose `build.json` identifies
+  a build is removed (`RegulaVerification.siteRefusal`).
+* With a file that is not a document of Regula at `tmp/rule-examples.json` and at
+  `tmp/acceptance-link.json`, the driver's `--begin-attempt` stops with the reason of each and
+  each keeps its bytes (`RegulaVerification.ownershipRefusal`). -/
 private def driverCopyControl (repo : FilePath) : IO (Array String) :=
   withScratch repo "driver-copy-control" fun scratch => do
   let project := scratch / "project"
@@ -3791,7 +3804,7 @@ private def driverCopyControl (repo : FilePath) : IO (Array String) :=
   -- Whether the checker's scratch protocol, used in the same project, leaves `path` there.
   let survivesReclamation (path : FilePath) : IO Bool := do
     discard <| Regula.Scratch.withScratch project "reclaim-probe" fun _ => pure ()
-    path.pathExists
+    Regula.Filesystem.isPresent path
   -- The driver's answer to a line: its next line that is not one of its progress lines.
   let answer (out : IO.FS.Handle) : IO String := do
     let mut line := (← out.getLine)
@@ -3811,15 +3824,16 @@ private def driverCopyControl (repo : FilePath) : IO (Array String) :=
     | return #[s!"driver-copy/place: the driver's copy {copy} is not in the scratch area {area}"]
   let marker := area / s!"{name}.{Regula.Scratch.markerExtension}"
   failures := failures ++ expect "copy: a file of the project is missing"
-    (← (copy / "Solo" / "Base.lean").pathExists)
+    (← Regula.Filesystem.isPresent (copy / "Solo" / "Base.lean"))
   failures := failures ++ expect "copy: Lake state is not initially empty"
     (← Regula.Filesystem.Construction.listDirectory (copy / ".lake")).isEmpty
-  failures := failures ++ expect "copy: no ownership marker" (← marker.pathExists)
+  failures := failures ++
+    expect "copy: no ownership marker" (← Regula.Filesystem.isPresent marker)
   failures := failures ++ expect "copy: the run has no pending record of its own beside its copy"
     ((← IO.FS.readFile ((copy.parent.getD copy) / "acceptance-link.pending.json")).contains
       "\"status\":\"incomplete\"")
   failures := failures ++ expect "project: its build output changed"
-    (← (build / "kept.txt").pathExists)
+    (← Regula.Filesystem.isPresent (build / "kept.txt"))
   failures := failures ++ expect "live: the checker's reclamation removed a live copy"
     (← survivesReclamation copy)
   failures := failures ++ (← refused "no-build-directory" "has no build directory"
@@ -3838,14 +3852,14 @@ private def driverCopyControl (repo : FilePath) : IO (Array String) :=
   input.putStrLn "adopt"
   input.flush
   failures := failures ++ expect "adopt: a project with build output did not keep it"
-    ((← answer child.stdout) == "kept" && (← (build / "kept.txt").pathExists)
-      && !(← (build / "made.txt").pathExists))
+    ((← answer child.stdout) == "kept" && (← Regula.Filesystem.isPresent (build / "kept.txt"))
+      && !(← Regula.Filesystem.isPresent (build / "made.txt")))
   input.putStrLn "remove"
   input.flush
   failures := failures ++ expect "remove: the driver did not end with exit code 0"
     ((← child.wait) == 0)
   failures := failures ++ expect "remove: the copy or its marker is still there"
-    (!(← copy.pathExists) && !(← marker.pathExists))
+    (!(← Regula.Filesystem.isPresent copy) && !(← Regula.Filesystem.isPresent marker))
   -- 2. A project with a symbolic link at `.lake/build`, and then a driver that is killed.
   Regula.Filesystem.removePath .directory build
   link marked build
@@ -3865,15 +3879,16 @@ private def driverCopyControl (repo : FilePath) : IO (Array String) :=
   input.flush
   failures := failures ++ expect "adopt: a link at the build directory's place was not kept"
     ((← answer child.stdout) == "kept" &&
-      (← (marked / "kept.txt").pathExists) && !(← (marked / "made.txt").pathExists) &&
+      (← Regula.Filesystem.isPresent (marked / "kept.txt")) &&
+      !(← Regula.Filesystem.isPresent (marked / "made.txt")) &&
       (← build.symlinkMetadata).type == .symlink)
   -- A killed driver removes nothing, and its lock ends with its process.
   child.kill
   discard child.wait
   failures := failures ++ expect "left: a killed driver left no copy or no marker"
-    ((← copy.pathExists) && (← marker.pathExists))
+    ((← Regula.Filesystem.isPresent copy) && (← Regula.Filesystem.isPresent marker))
   failures := failures ++ expect "left: the checker's reclamation did not remove the copy of a \
-    killed driver" (!(← survivesReclamation copy) && !(← marker.pathExists))
+    killed driver" (!(← survivesReclamation copy) && !(← Regula.Filesystem.isPresent marker))
   -- 3. A second killed driver, and then a project with no build output: the next driver removes
   -- the copy of the dead one before it makes its own, and the project gets the copy's output.
   Regula.Filesystem.removePath .link build
@@ -3889,40 +3904,68 @@ private def driverCopyControl (repo : FilePath) : IO (Array String) :=
   child.kill
   discard child.wait
   failures := failures ++ expect "dead: a killed driver left no copy or no marker"
-    ((← dead.pathExists) && (← deadMarker.pathExists))
+    ((← Regula.Filesystem.isPresent dead) && (← Regula.Filesystem.isPresent deadMarker))
   let child ← Regula.Process.spawn (.toolchain .lean) {
     cmd := "lean", args := #["--run", driver, "--copy-control"], cwd := some project
     env := scrubbedLeanPathEnv, stdin := .piped, stdout := .piped, stderr := .inherit }
   let (input, child) ← child.takeStdin
   let copy := FilePath.mk (← answer child.stdout)
   failures := failures ++ expect "dead: the next driver did not remove the copy of a dead driver"
-    (!(← dead.pathExists) && !(← deadMarker.pathExists) && (← copy.pathExists))
+    (!(← Regula.Filesystem.isPresent dead) && !(← Regula.Filesystem.isPresent deadMarker) &&
+      (← Regula.Filesystem.isPresent copy))
   IO.FS.createDirAll (copy / ".lake" / "build")
   IO.FS.writeFile (copy / ".lake" / "build" / "made.txt") "made in the copy"
   input.putStrLn "adopt"
   input.flush
   failures := failures ++ expect "adopt: a project with no build output did not get the copy's"
     ((← answer child.stdout) == "adopted" &&
-      (← (build / "made.txt").pathExists) && !(← (copy / ".lake" / "build").pathExists))
+      (← Regula.Filesystem.isPresent (build / "made.txt")) &&
+      !(← Regula.Filesystem.isPresent (copy / ".lake" / "build")))
   input.putStrLn "remove"
   input.flush
   failures := failures ++ expect "remove: the driver did not end with exit code 0 after adopt"
-    ((← child.wait) == 0 && !(← copy.pathExists))
-  -- 4. The site artifact of an earlier run.
+    ((← child.wait) == 0 && !(← Regula.Filesystem.isPresent copy))
+  -- 4. The site artifact of an earlier run. The attempt removes `_site` only when it holds an
+  -- artifact that a build of the site identifies (`siteRefusal`): a link there and a directory
+  -- that holds anything else keep what they hold.
   let site := project / "_site"
   link marked site
   let stopped ← runProcess project (.toolchain .lean) #["--run", driver, "--begin-attempt", "site"]
     scrubbedLeanPathEnv
   failures := failures ++ expect "site: a link at _site was followed or removed"
-    (!stopped.succeeded && stopped.output.contains "nothing was removed" &&
-      (← (marked / "kept.txt").pathExists) && (← site.symlinkMetadata).type == .symlink)
+    (!stopped.succeeded && stopped.output.contains "so the attempt removes nothing" &&
+      (← Regula.Filesystem.isPresent (marked / "kept.txt")) &&
+      (← site.symlinkMetadata).type == .symlink)
   Regula.Filesystem.removePath .link site
   IO.FS.createDirAll (site / "pages")
   IO.FS.writeFile (site / "pages" / "old.html") "an earlier artifact"
+  let kept ← runProcess project (.toolchain .lean) #["--run", driver, "--begin-attempt", "site"]
+    scrubbedLeanPathEnv
+  failures := failures ++ expect "site: a directory that holds no build.json was removed"
+    (!kept.succeeded && kept.output.contains "holds neither a build.json" &&
+      (← Regula.Filesystem.isPresent (site / "pages" / "old.html")))
+  IO.FS.writeFile (site / "build.json")
+    "{\"schemaVersion\":2,\"site\":\"seed\",\"producerVersion\":\"0.0.0\"}\n"
   let removed ← runProcess project (.toolchain .lean) #["--run", driver, "--begin-attempt", "site"]
     scrubbedLeanPathEnv
   failures := failures ++ expect "site: an earlier artifact was not removed"
-    (removed.succeeded && !(← site.pathExists))
+    (removed.succeeded && !(← Regula.Filesystem.isPresent site))
+  -- 5. Files that are not documents of Regula at the corpus receipt and at the acceptance link,
+  -- which the begin-attempt of the first acceptance step marks: it refuses each and keeps its
+  -- bytes.
+  let foreign := "# Notes\n\nNot a document of Regula.\n"
+  let receipt := project / "tmp" / "rule-examples.json"
+  let accepted := project / "tmp" / "acceptance-link.json"
+  IO.FS.createDirAll (project / "tmp")
+  IO.FS.writeFile receipt foreign
+  IO.FS.writeFile accepted foreign
+  let begun ← runProcess project (.toolchain .lean) #["--run", driver, "--begin-attempt"] scrubbedLeanPathEnv
+  failures := failures ++ expect "begin-attempt: a file that is not a document of Regula was \
+    replaced or not refused"
+    (!begun.succeeded &&
+      begun.output.contains "rule-examples.json is a file that is not a JSON document" &&
+      begun.output.contains "acceptance-link.json is a file that is not a JSON document" &&
+      (← IO.FS.readFile receipt) == foreign && (← IO.FS.readFile accepted) == foreign)
   return failures
 
 /-- External-boundary controls of the documentation step's reuse of the first acceptance step's
@@ -3961,8 +4004,8 @@ private def retainedBuildControl (repo : FilePath) : IO (Array String) :=
       "  leanOptions := #[⟨`autoImplicit, false⟩, ⟨`relaxedAutoImplicit, false⟩,\n" ++
       "    ⟨`linter.missingDocs, true⟩]\n" ++ observerPluginLean ++
       s!"\nrequire regula from {(Json.str repo.toString).compress}\n\n" ++
-      "lean_lib Solo where\n  globs := #[.submodules `Solo]\n" ++ observerNeedLean ++
-      "\nlean_lib Extra where\n  globs := #[.submodules `Extra]\n" ++ observerNeedLean ++ facet
+      observedTargetLean .library "Solo" "  globs := #[.submodules `Solo]\n" ++ "\n" ++
+      observedTargetLean .library "Extra" "  globs := #[.submodules `Extra]\n" ++ facet
   IO.FS.writeFile (Manifest.defaultPath project) <|
     "{\"schema-version\":2,\"surfaces\":[{\"library\":\"Solo\",\"executables\":[]," ++
       "\"claim\":\"standard-logical\",\"execution\":\"report\"," ++
@@ -4007,7 +4050,7 @@ private def retainedBuildControl (repo : FilePath) : IO (Array String) :=
   let build := project / ".lake" / "build"
   let mut artifacts := #[]
   for part in ["lib", "ir"] do
-    unless ← (build / part).isDir do continue
+    unless ← Regula.Filesystem.isDirectory (build / part) do continue
     for path in ← Regula.Filesystem.Construction.walkDirectory (build / part) do
       if (← path.symlinkMetadata).type == .file then
         artifacts := artifacts.push ("/".intercalate
@@ -4242,9 +4285,9 @@ private def packetAdmitted (request : Json) (path : FilePath) : IO Bool := do
 private def exportCompleted (path : FilePath) : IO Bool := do
   return (← parsedAt path).any fun value => (value.getObjVal? "examples").isOk
 
-/-- A destination of a refused run in the task-manager control (`taskManagerControl`): the
-completed document of its own format that it starts with, and whether that format's reader admits
-a document as completed. -/
+/-- A destination of a run in the task-manager control (`taskManagerControl`) or in the control of
+an early stop (`earlyStopControl`): the completed document of its own format that it starts with,
+and whether that format's reader admits a document as completed. -/
 private structure Seeded where
   /-- The destination. -/
   path : FilePath
@@ -4252,9 +4295,10 @@ private structure Seeded where
   seed : IO Unit
   /-- Whether the reader of the format admits the document there as a completed one. -/
   completed : IO Bool
-  /-- Whether the destination holds what the refusal must leave there: a document marked
-  incomplete with the reason (`markedWith`), or nothing for a digest. -/
-  marked : IO Bool
+  /-- Whether the destination holds what the run must leave there, given the run's standard
+  error: a document marked incomplete with the reason (`markedWith`, `markedWithError`), or nothing
+  for a digest or a site artifact. -/
+  marked : String → IO Bool
 
 /-- A completed admission of no module, the seed of a published admission in the task-manager
 control (`taskManagerControl`). -/
@@ -4271,6 +4315,20 @@ private def markedWith (path : FilePath) (member reason : String)
     | "unresolved" => (marked.getObjValAs? (Array String) member).toOption == some #[reason]
     | _ => (marked.getObjValAs? String member).toOption == some reason
   return stated && (marked.getObjValAs? String status.1).toOption == some status.2
+
+/-- Whether the document at `path` holds `incomplete` in `status`, and in `member` one reason that
+is not the guard's (`Regula.TaskManager.startedReason`) and that the standard error `stderr` holds
+right after `lead`: the text of the error that the run printed. `member` is `unresolved`, a list,
+or `reason`, a string. -/
+private def markedWithError (path : FilePath) (member lead stderr : String) : IO Bool := do
+  let some marked ← parsedAt path | return false
+  let stated : Option String := match member with
+    | "unresolved" => (marked.getObjValAs? (Array String) member).toOption.bind fun reasons =>
+      if reasons.size == 1 then reasons[0]? else none
+    | _ => (marked.getObjValAs? String member).toOption
+  return (marked.getObjValAs? String "status").toOption == some "incomplete" &&
+    stated.any fun reason => !reason.isEmpty && reason != Regula.TaskManager.startedReason &&
+      stderr.contains (lead ++ reason)
 
 /-- The control of a process without Lean's task manager (issue 393), one refused run for each
 shape of program. Each of the actual `axiomGate`, `lint`, `docFenceAudit`, `qualify`, `site` and
@@ -4311,22 +4369,23 @@ private def taskManagerControl (repo : FilePath) : IO (Option String) :=
     let result (name : String) : Seeded :=
       { path := scratch / name, seed := copyDocument completed (scratch / name),
         completed := completedResult (scratch / name),
-        marked := markedWith (scratch / name) "unresolved" reason }
+        marked := fun _ => markedWith (scratch / name) "unresolved" reason }
     let digest := String.ofList (List.replicate 64 'a')
     let link : Seeded :=
-      { path := scratch / "link.json", marked := markedWith (scratch / "link.json") "reason" reason,
+      { path := scratch / "link.json",
+        marked := fun _ => markedWith (scratch / "link.json") "reason" reason,
         seed := writeJson (scratch / "link.json") (Json.mkObj [("schemaVersion", toJson (1 : Nat)),
           ("status", .str "accepted"), ("identity", .str digest),
           ("acceptedJobs", toJson (#[] : Array Json)), ("origin", .str "isolatedCopy")]),
         completed := linkAccepted (scratch / "link.json") digest }
     let request := Json.mkObj [("control", .str "task manager")]
     let packet (name : String) : Seeded :=
-      { path := scratch / name, marked := markedWith (scratch / name) "reason" reason,
+      { path := scratch / name, marked := fun _ => markedWith (scratch / name) "reason" reason,
         seed := writeJson (scratch / name) (workerPacket request (.str "seed")),
         completed := packetAdmitted request (scratch / name) }
     let evidence : Seeded :=
       { path := scratch / "producers.json",
-        marked := markedWith (scratch / "producers.json") "reason" reason,
+        marked := fun _ => markedWith (scratch / "producers.json") "reason" reason,
         seed := writeJson (scratch / "producers.json") (Json.mkObj
           [("schemaVersion", toJson (1 : Nat)), ("examples", toJson (#[] : Array Json))]),
         completed := exportCompleted (scratch / "producers.json") }
@@ -4338,30 +4397,32 @@ private def taskManagerControl (repo : FilePath) : IO (Option String) :=
     let project ← IO.FS.realPath project
     let report := project / "tmp" / "native-launcher-diagnostic.json"
     let launcher : Seeded :=
-      { path := report, marked := markedWith report "reason" reason ("outcome", "INCOMPLETE"),
+      { path := report,
+        marked := fun _ => markedWith report "reason" reason ("outcome", "INCOMPLETE"),
         seed := do
           IO.FS.createDirAll (project / "tmp")
-          writeJson report (Json.mkObj [("outcome", .str "PASS"), ("equivalent", .bool true)]),
+          writeJson report (Json.mkObj [("outcome", .str "PASS"), ("equivalent", .bool true),
+            ("totalMillis", toJson (0 : Nat))]),
         completed := return (← parsedAt report).any fun value =>
           (value.getObjValAs? String "outcome").toOption == some "PASS" }
     let positive := selfHostedDigestPath project .positive
     let selfHosted : Seeded :=
-      { path := positive, marked := return !(← positive.pathExists),
+      { path := positive, marked := fun _ => do return !(← Regula.Filesystem.isPresent positive),
         seed := do
           if let some parent := positive.parent then IO.FS.createDirAll parent
           IO.FS.writeFile positive (digest ++ "\n"),
         completed := do
-          unless ← positive.pathExists do return false
+          unless ← Regula.Filesystem.isPresent positive do return false
           return (← IO.FS.readFile positive) == digest ++ "\n" }
     IO.FS.writeFile (scratch / "request.json") request.compress
     -- The request of the declaration-report worker names the file where the worker publishes its
     -- admission; the coordinator reads it as an `Admission.Completed` (`publishedAdmission`).
     let publish := scratch / "publish.json"
     let admission : Seeded :=
-      { path := publish, marked := markedWith publish "reason" reason,
+      { path := publish, marked := fun _ => markedWith publish "reason" reason,
         seed := writeJson publish (toJson emptyAdmission),
         completed := do
-          unless ← publish.pathExists do return false
+          unless ← Regula.Filesystem.isPresent publish do return false
           let read : Except String Admission.Completed :=
             (PolicyCodec.parse (← IO.FS.readFile publish)).bind fromJson?
           return read.isOk }
@@ -4374,10 +4435,11 @@ private def taskManagerControl (repo : FilePath) : IO (Option String) :=
     -- that is publishable (`Regula.Site.Deployment.gate`).
     let site := scratch / "site"
     let artifact : Seeded :=
-      { path := site, marked := return !(← site.pathExists),
+      { path := site, marked := fun _ => do return !(← Regula.Filesystem.isPresent site),
         seed := do
           IO.FS.createDirAll site
-          writeJson (site / "build.json") (Json.mkObj [("dirty", .bool false),
+          writeJson (site / "build.json") (Json.mkObj [("schemaVersion", toJson (2 : Nat)),
+            ("site", .str "seed"), ("producerVersion", .str "0.0.0"), ("dirty", .bool false),
             ("revision", .str digest), ("publishable", .bool true)]),
         completed := do
           let some build ← parsedAt (site / "build.json") | return false
@@ -4440,13 +4502,508 @@ private def taskManagerControl (repo : FilePath) : IO (Option String) :=
           exit {code}, the line {repr line} and no standard output (exit {result.exitCode}):\n\
           {result.output}"
       for destination in destinations do
-        unless (← destination.marked) && !(← destination.completed) do
-          let held ← if ← destination.path.isDir then pure "a directory"
-            else if ← destination.path.pathExists then IO.FS.readFile destination.path
-            else pure "nothing"
+        unless (← destination.marked result.stderr) && !(← destination.completed) do
+          let held ← match ← Regula.Filesystem.metadataIfPresent destination.path with
+            | some { type := .dir, .. } => pure "a directory"
+            | some _ => IO.FS.readFile destination.path
+            | none => pure "nothing"
           return some s!"task manager: {program} {args} with LEAN_NUM_THREADS=0 left \
             {destination.path} without the incomplete mark and the reason, or admitted as \
             completed; it holds {held}"
+    return none
+
+/-- The control of a run that stops early in a process with Lean's task manager (issue 423): one run
+of an actual program of this build for each early stop, with the failure injected from outside. The
+injections are no `LEAN_SYSROOT`, an Elan home (`ELAN_HOME`) that does not exist and `lean`
+absent from `PATH`, so the first step of the program, the selection of the toolchain installation
+for Lean's search path (`Regula.Process.identified`), fails before the program's own marks, for
+`ruleExamples --policy-negative` and `--documentation`, `axiomGate --json-out`,
+`freshChecker --json-out` and the self-test's `--transcript-worker`; a facts file that does not
+exist, for both forms of `ruleExamples --injected-git-facts`; a planted project root without the
+documented examples that `qualify --under-deadline producers --evidence` reads first, and an extra
+argument that its parser refuses; no GNU timeout on `PATH`, which `qualify producers --evidence`
+selects before it starts the command under its deadline; GNU coreutils `env` as the one `timeout` on
+`PATH`, which the bounded start of `qualify producers --evidence` selects and which ends with status
+125 before the command runs; an invalid shard of `qualify --under-deadline rule-examples
+--evidence`; the proxy of `axiomGate` that `qualify` runs under
+`REGULA_QUALIFICATION_WRAPPER=acceptance` with no gate beside it to start; and `site build --out`
+without its evidence, which the parser refuses. Each destination that the run names starts with a
+completed document of its own format, which the format's reader admits as completed, as in the
+task-manager control (`taskManagerControl`); for `freshChecker` a document with the status
+`completed`, and for `qualify rule-examples` an export of no rule that the site's reader admits
+(`Site.Build.admitShard`). The run must stop with the exit code of its early stop, and each
+destination must then hold a document marked incomplete with the reason, or be removed for the site
+artifact, so that the reader no longer admits it as completed. For a production of `ruleExamples`,
+the export of `qualify producers` and the evidence of a command under the deadline that its
+arguments refuse, the reason is the error's text that the run printed (`markedWithError`), and for
+the start that ran no command it gives the status and the option that the stand-in refused. For the
+other runs, it is the reason with which the guard marks each destination before any code of the
+program runs (`Regula.TaskManager.guard`, `Regula.TaskManager.startedReason`).
+
+The verification wrapper, `scripts/verify.sh`, runs in a copy of its files with no `lean` on its
+`PATH`, after the export of the first corpus shard was recorded against the current sources with
+the text of `foundation_manifest.json` changed. Its attempt must stop with Bash's exit 127 before
+the driver runs, and leave that export and the corpus receipt `tmp/rule-examples.json` with their
+bytes, since no code of the attempt ran. The site's reader (`Site.Build.admitShard`) must then
+refuse the export.
+
+A run whose destination holds a file that is not a document of Regula is refused, and its mark
+writes nothing there (`Regula.Destination.write`, `Regula.Destination.refusal`), so the guard's mark
+replaces no file that the run reads: the declaration-report worker of `axiomGate` with its request
+as its output, the frontend worker with a Lean source as its output, the audit of `axiomGate --file`
+with its source as its `--json-out`, and a symbolic link to a completed result as that `--json-out`;
+`axiomGate --registry-out` with a JSON document that holds only the member `rules`; `freshChecker`
+with a hard link to its `--manifest`, or the configuration of a dependency, as its `--json-out`;
+`qualify producers --evidence`, bounded and under the deadline, with a Lean source as its export;
+`ruleExamples --injected-git-facts` with its facts as the audit's `--json-out`, `ruleExamples
+--policy-negative` with its source as its result, named through a directory and `..`, and
+`ruleExamples --documentation` with a Markdown document as its result. Each must exit with its
+refusal's code and the reason, and each file must keep its bytes, or stay absent. The published
+admission that the report worker's request names must then hold a mark that the reader of an
+admission refuses. The gate with two destinations whose names differ only in case, the first holding
+a completed result, must mark them and refuse.
+`site build --out` a directory that holds a Markdown document must fail and keep it: without its
+evidence the guard's refusal removes no directory that holds no artifact
+(`Regula.Site.Build.invalidateRefused`), and with evidence the build refuses it
+(`Regula.Site.Build.artifactRefusal`). An empty file, a hard link to a completed result, a completed
+result at a name of 255 bytes, and a mark that an earlier version of Regula wrote at a worker's
+output are each replaced by the guard's mark when the gate stops early. The other name of the
+linked result keeps its bytes.
+
+The processes and Lean's runtime are its subject, an external boundary: it observes
+this build's programs and proves nothing.
+
+The selection of the installation is Regula's own (`Regula.Process.identified`): `LEAN_SYSROOT` when
+it is set, and otherwise the toolchain directory below the Elan home, which fails when that
+directory does not resolve; it reads no `PATH`.
+Trusted: the runtime finds a command given by a bare name, such as `lean` or `timeout`, only in
+the directories of `PATH`; its process code is not among the toolchain's sources. Trusted: GNU
+coreutils `env`, run under the name `timeout`, prints GNU coreutils for `--version` and ends with
+its own failure status 125 at the option `--signal=KILL`, naming that option on standard error.
+Trusted: Bash ends a script that runs under `set -e` with 127 when a command is not found, and
+`/usr/bin` and `/bin`, the wrapper's `PATH`, hold no `lean`, which the control checks first;
+`ln` makes a hard link, and with `-s` a symbolic link. -/
+private def earlyStopControl (repo : FilePath) : IO (Option String) :=
+  withScratch repo "checker-early-stop" fun scratch => do
+    let started := Regula.TaskManager.startedReason
+    -- An executable of this build, which the control starts.
+    let own (path : String) : Regula.Process.Program :=
+      .stated path "The early-stop control starts this executable of the build it checks"
+    let gate := (← toolPath repo "axiomGate").toString
+    let qualify := (← toolPath repo "qualify").toString
+    let ruleExamples := (← toolPath repo "ruleExamples").toString
+    -- A completed result of the gate's own run, the seed of each result destination.
+    let completed := scratch / "completed.json"
+    let fixture := repo / "lean" / "Fixtures" / "Positive" / "KernelOnly.lean"
+    let seeded ← runProcess repo (own gate) #["--file", fixture.toString, "--claim", "kernel-only",
+      "--json-out", completed.toString] (env := #[("REGULA_TIMING", none)])
+    unless seeded.exitCode == 0 && (← completedResult completed) do
+      return some s!"early stop: the gate's run on {fixture} did not record a completed result \
+        (exit {seeded.exitCode}):\n{seeded.output}"
+    -- A result destination: marked with the error's text that follows `lead` on standard error,
+    -- or with the guard's reason when there is no `lead`.
+    let result (name : String) (lead : Option String) : Seeded :=
+      { path := scratch / name, seed := copyDocument completed (scratch / name),
+        completed := completedResult (scratch / name),
+        marked := fun stderr => match lead with
+          | some lead => markedWithError (scratch / name) "unresolved" lead stderr
+          | none => markedWith (scratch / name) "unresolved" started }
+    let request := Json.mkObj [("control", .str "early stop")]
+    let packet : Seeded :=
+      { path := scratch / "transcript.json",
+        marked := fun _ => markedWith (scratch / "transcript.json") "reason" started,
+        seed := writeJson (scratch / "transcript.json") (workerPacket request (.str "seed")),
+        completed := packetAdmitted request (scratch / "transcript.json") }
+    let graph : Seeded :=
+      { path := scratch / "graph.json",
+        marked := fun _ => markedWith (scratch / "graph.json") "unresolved" started,
+        seed := writeJson (scratch / "graph.json") (Json.mkObj [("mode", .str "serializedGraph"),
+          ("status", .str "completed"), ("moduleSets", Json.mkObj []),
+          ("modules", toJson (#[] : Array Json)), ("roots", toJson (#[] : Array Json)),
+          ("coverage", Json.mkObj []), ("checks", toJson (#[] : Array Json))]),
+        completed := do return (← parsedAt (scratch / "graph.json")).any fun value =>
+          (value.getObjValAs? String "status").toOption == some "completed" }
+    let producerExport (name : String) : Seeded :=
+      { path := scratch / name,
+        marked := markedWithError (scratch / name) "reason" "",
+        seed := writeJson (scratch / name) (Json.mkObj
+          [("schemaVersion", toJson (1 : Nat)), ("examples", toJson (#[] : Array Json))]),
+        completed := exportCompleted (scratch / name) }
+    -- A completed corpus export that the site's reader admits (`Site.Build.admitShard`, which also
+    -- runs the qualifier executable): of no rule, recorded against the sources of this checkout as
+    -- they are now (`Site.Build.currentSources`).
+    discard <| toolPath repo "ruleExampleQualification"
+    let current ← Regula.Site.Build.currentSources repo
+    let shardAdmitted (path : FilePath) : IO Bool := do
+      return (← (Regula.Site.Build.admitShard repo current path).toBaseIO) matches .ok _
+    let writeShard (path : FilePath) : IO Unit :=
+      writeJson path (Json.mkObj [("outcome", .str "COMPLETED"),
+        ("schemaVersion", toJson (1 : Nat)), ("selected", toJson (#[] : Array Json)),
+        ("completeCorpus", .bool false), ("checkerBefore", current), ("checkerAfter", current),
+        ("records", toJson (#[] : Array Json))])
+    let corpus : Seeded :=
+      { path := scratch / "rule-examples.json",
+        marked := fun _ => markedWith (scratch / "rule-examples.json") "reason"
+          "invalid rule-example shard: planted" ("outcome", "INCOMPLETE"),
+        seed := writeShard (scratch / "rule-examples.json"),
+        completed := shardAdmitted (scratch / "rule-examples.json") }
+    let site := scratch / "site"
+    let artifact : Seeded :=
+      { path := site, marked := fun _ => do return !(← Regula.Filesystem.isPresent site),
+        seed := do
+          IO.FS.createDirAll site
+          writeJson (site / "build.json") (Json.mkObj [("schemaVersion", toJson (2 : Nat)),
+            ("site", .str "seed"), ("producerVersion", .str "0.0.0"), ("dirty", .bool false),
+            ("revision", .str (String.ofList (List.replicate 64 'a'))),
+            ("publishable", .bool true)]),
+        completed := do
+          let some build ← parsedAt (site / "build.json") | return false
+          return (build.getObjValAs? Bool "dirty").toOption == some false &&
+            (build.getObjValAs? Bool "publishable").toOption == some true }
+    -- A planted project root, without the documented examples that the producer campaign reads.
+    let project := scratch / "project"
+    IO.FS.createDirAll project
+    IO.FS.writeFile (project / "lakefile.lean") ""
+    IO.FS.writeFile (project / "lean-toolchain") (← IO.FS.readFile (repo / "lean-toolchain"))
+    let project ← IO.FS.realPath project
+    -- The first file named one of `names` in an entry of this process's `PATH` that runs with
+    -- `--version`, exits 0 and prints a text that `accepted` admits.
+    let onPath (names : List String) (accepted : String → Bool) : IO (Option FilePath) := do
+      let mut found : Option FilePath := none
+      for name in names do
+        for directory in ((← Regula.Process.readEnv "PATH").getD "").splitOn ":" do
+          let candidate := FilePath.mk directory / name
+          if found.isNone && !directory.isEmpty && (← Regula.Filesystem.isPresent candidate) then
+            if let .ok version ← (runProcess scratch (.stated candidate.toString "The early-stop control identifies this file of PATH by its version") #["--version"]).toBaseIO then
+              if version.exitCode == 0 && accepted version.stdout then
+                found := some candidate
+      return found
+    -- `directory/name` as a link to `target`, or why it could not be made.
+    let link (target directory : FilePath) (name : String) : IO (Option String) := do
+      IO.FS.createDirAll directory
+      let linked ← runProcess scratch (.stated "ln" "The early-stop control plants a PATH of symbolic links") #["-s", target.toString, (directory / name).toString]
+      if linked.exitCode == 0 then return none
+      return some s!"early stop: could not link {target} as {directory / name}:\n{linked.output}"
+    -- The guard of each started program queries Git before the program runs
+    -- (`Regula.TaskManager.guard`), so each `PATH` below holds a link to the Git of this process's
+    -- `PATH`: the run then passes the guard and stops at the failure that its `PATH` plants.
+    let some git ← onPath ["git"] fun _ => true
+      | return some "early stop: no git on PATH that runs with --version, which the guard of each \
+          started program queries before the program runs"
+    -- A directory that holds only Git as the whole `PATH`, so no `lean` is found there, no
+    -- `LEAN_SYSROOT`, and an Elan home that does not exist, so no installation is selected.
+    let noLean := scratch / "no-lean"
+    if let some failure ← link git noLean "git" then return some failure
+    let plain : Array (String × Option String) := #[("REGULA_TIMING", none),
+      ("REGULA_QUALIFICATION_WRAPPER", none), ("REGULA_RECEIPT_TIMER", none)]
+    let withoutLean := plain ++ #[("PATH", some noLean.toString), ("LEAN_SYSROOT", none),
+      ("ELAN_HOME", some (scratch / "no-elan").toString)]
+    -- GNU coreutils `env` as the one `timeout` of the whole `PATH`, beside Git: the bounded start
+    -- selects it, since its `--version` names GNU coreutils
+    -- (`Regula.Qualification.timeoutCommand`), and it ends with status 125 at the option
+    -- `--signal=KILL` before it runs the command.
+    let some gnuEnv ← onPath ["genv", "env"] (·.contains "GNU coreutils")
+      | return some "early stop: no GNU coreutils env (genv or env) on PATH, which installs GNU \
+          coreutils timeout beside it, to stand in for the timeout of a bounded start"
+    let standIn := scratch / "stand-in"
+    if let some failure ← link gnuEnv standIn "timeout" then return some failure
+    if let some failure ← link git standIn "git" then return some failure
+    let withStandIn := plain ++ #[("PATH", some standIn.toString)]
+    -- The export of a bounded start that ended without running its command: its reason must give
+    -- the status and the standard error of the stand-in, which names the option it refused.
+    let startup := scratch / "startup.json"
+    let startupExport : Seeded := { producerExport "startup.json" with
+      marked := fun stderr => do
+        let reason := ((← parsedAt startup).bind fun marked =>
+          (marked.getObjValAs? String "reason").toOption).getD ""
+        return (← markedWithError startup "reason" "" stderr) &&
+          reason.contains "ended with exit status 125" && reason.contains "--signal=KILL" }
+    let missing := (scratch / "missing-facts.json").toString
+    let fileArgs (out : FilePath) : Array String :=
+      #["--file", fixture.toString, "--claim", "kernel-only", "--json-out", out.toString]
+    let production := "rule example production incomplete: "
+    -- Each run: its label, its path, working directory, arguments and environment, the exit code
+    -- of its early stop (`none`: any but 0) and each destination it names.
+    let runs : List (String × String × FilePath × Array String ×
+        Array (String × Option String) × Option UInt32 × List Seeded) := [
+      ("ruleExamples", ruleExamples, repo, #["--policy-negative", repo.toString,
+        fixture.toString, (scratch / "policy.json").toString], withoutLean, some 4,
+        [result "policy.json" (some production)]),
+      ("ruleExamples", ruleExamples, repo, #["--documentation", repo.toString,
+        (repo / "docs").toString, (scratch / "documentation.json").toString], withoutLean, some 4,
+        [result "documentation.json" (some production)]),
+      ("ruleExamples", ruleExamples, repo, #["--injected-git-facts", missing, "--policy-negative",
+        repo.toString, fixture.toString, (scratch / "facts.json").toString], plain, some 4,
+        [result "facts.json" (some production)]),
+      ("ruleExamples", ruleExamples, repo, #["--injected-git-facts", missing, "axiomGate"] ++
+        fileArgs (scratch / "facts-gate.json"), plain, some 4,
+        [result "facts-gate.json" (some production)]),
+      ("axiomGate", gate, repo, fileArgs (scratch / "gate.json"), withoutLean,
+        some Lint.Outcome.incomplete.exitCode, [result "gate.json" none]),
+      ("freshChecker", (← toolPath repo "freshChecker").toString, repo,
+        #["--json-out", graph.path.toString], withoutLean, some 1, [graph]),
+      ("checkerSelftest", (← Regula.Process.appPath).toString, repo, #["--transcript-worker", "\"Planted\"",
+        fixture.toString, "true", packet.path.toString], withoutLean, some 1, [packet]),
+      ("qualify", qualify, project,
+        #["--under-deadline", "producers", "--evidence", (scratch / "producers.json").toString],
+        plain, some 1, [producerExport "producers.json"]),
+      ("qualify", qualify, project, #["--under-deadline", "producers", "--evidence",
+        (scratch / "extra.json").toString, "unexpected"], plain, some 1,
+        [producerExport "extra.json"]),
+      ("qualify", qualify, project,
+        #["producers", "--evidence", (scratch / "bounded.json").toString], withoutLean, some 1,
+        [producerExport "bounded.json"]),
+      ("qualify", qualify, project,
+        #["producers", "--evidence", startup.toString], withStandIn, some 1, [startupExport]),
+      ("qualify", qualify, repo, #["--under-deadline", "rule-examples", "--evidence",
+        corpus.path.toString, "--shard", "planted"], plain, some 1, [corpus]),
+      ("qualify", qualify, repo, fileArgs (scratch / "proxy.json"),
+        #[("REGULA_TIMING", none), ("REGULA_QUALIFICATION_WRAPPER", some "acceptance"),
+          ("REGULA_RECEIPT_TIMER", none)], none, [result "proxy.json" none]),
+      ("site", (← toolPath repo "site").toString, repo, #["build", "--out", site.toString], plain,
+        some 2, [artifact])]
+    for (program, path, cwd, args, env, code, destinations) in runs do
+      for destination in destinations do
+        destination.seed
+        unless ← destination.completed do
+          return some s!"early stop: the seed of {destination.path} is not a completed document \
+            of its format"
+      let result ← runProcess cwd (own path) args (env := env)
+      if result.exitCode == 0 || code.any (· != result.exitCode) then
+        return some s!"early stop: {program} {args} did not stop early with exit \
+          {(code.map toString).getD "other than 0"} (exit {result.exitCode}):\n{result.output}"
+      for destination in destinations do
+        unless (← destination.marked result.stderr) && !(← destination.completed) do
+          let held ← match ← Regula.Filesystem.metadataIfPresent destination.path with
+            | some { type := .dir, .. } => pure "a directory"
+            | some _ => IO.FS.readFile destination.path
+            | none => pure "nothing"
+          return some s!"early stop: {program} {args} left {destination.path} without the \
+            incomplete mark and the reason, or admitted as completed; it holds {held}\n\
+            {result.output}"
+    -- The verification wrapper, `scripts/verify.sh`, in a copy of its files, so that its `tmp` is
+    -- the copy's. With no `lean` on its `PATH`, the first corpus shard's attempt stops before the
+    -- driver's begin-attempt (`RegulaVerification.beginAttempt`), so no code of the attempt runs:
+    -- the export of an earlier attempt and the corpus receipt (`RegulaVerification.corpusEvidence`)
+    -- each keep their bytes. The export was recorded before `foundation_manifest.json` changed:
+    -- the current sources (`Site.Build.sourcePathsAt`) with that manifest's text changed. Right
+    -- after the stopped attempt, the site's reader (`Site.Build.admitShard`) must refuse it.
+    let wrapper := scratch / "wrapper"
+    IO.FS.createDirAll (wrapper / "scripts")
+    IO.FS.createDirAll (wrapper / "lean")
+    IO.FS.createDirAll (wrapper / "tmp")
+    let files : List FilePath :=
+      ["scripts" / "verify.sh", "lean" / "RegulaVerification.lean", "lean-toolchain"]
+    for file in files do
+      IO.FS.writeFile (wrapper / file) (← IO.FS.readFile (repo / file))
+    let manifestPath := (repo / "foundation_manifest.json").toString
+    let captured ←
+      Regula.Qualification.RuleExamples.capture (← Regula.Site.Build.sourcePathsAt repo)
+    let earlier := Regula.Qualification.RuleExamples.snapshotOf <| captured.map fun (uri, text) =>
+      (uri, if uri == manifestPath then text ++ "\n" else text)
+    -- The export of the first of the three corpus shards (`RegulaVerification.shardEvidence`).
+    let shard := wrapper / "tmp" / "rule-examples-1of3.json"
+    writeJson shard (Json.mkObj [("outcome", .str "COMPLETED"),
+      ("schemaVersion", toJson (1 : Nat)), ("selected", toJson (#[] : Array Json)),
+      ("completeCorpus", .bool false), ("checkerBefore", earlier), ("checkerAfter", earlier),
+      ("records", toJson (#[] : Array Json))])
+    let seeded ← IO.FS.readBinFile shard
+    let receipt := wrapper / "tmp" / "rule-examples.json"
+    writeShard receipt
+    let receipted ← IO.FS.readBinFile receipt
+    let shellPath := "/usr/bin:/bin"
+    for directory in ["/usr/bin", "/bin"] do
+      if ← Regula.Filesystem.isPresent (FilePath.mk directory / "lean") then
+        return some s!"early stop: {directory} holds lean, so the wrapper's PATH {shellPath} \
+          cannot leave it out"
+    let stopped ← runProcess wrapper (.stated "/bin/bash" "The early-stop control runs the verification wrapper with Bash")
+      #[(wrapper / "scripts" / "verify.sh").toString, "diagnostics", "rule-examples", "1/3"]
+      (env := #[("PATH", some shellPath)])
+    unless stopped.exitCode == 127 && (← IO.FS.readBinFile shard).data == seeded.data &&
+        (← IO.FS.readBinFile receipt).data == receipted.data do
+      return some s!"early stop: scripts/verify.sh diagnostics rule-examples 1/3 with no lean on \
+        its PATH did not stop with exit 127 and leave the earlier shard export and corpus receipt \
+        (exit {stopped.exitCode}):\n{stopped.output}"
+    if ← shardAdmitted shard then
+      return some s!"early stop: right after scripts/verify.sh stopped without lean, the site's \
+        reader admitted a shard export recorded before {manifestPath} changed"
+    -- Each run whose destination holds a file that is not a document of Regula, such as a file
+    -- that the run reads, is refused, and its mark writes nothing there
+    -- (`Regula.Destination.write`, `Regula.Destination.refusal`): it must exit
+    -- with its refusal's code and the reason, and each file must keep its bytes, or stay absent.
+    let request := scratch / "alias-request.json"
+    let publish := scratch / "alias-publish.json"
+    let requested : Inspection.ReportWorkerRequest := {
+      modules := #[], searchRoots := #[], sourceRoots := #[], sourceBindings := #[],
+      ownership := {}, historyMemo := (scratch / "history").toString, priors := #[],
+      publish := publish.toString }
+    IO.FS.writeFile request (toJson requested).compress
+    let facts := scratch / "alias-facts.json"
+    IO.FS.writeFile facts "[]\n"
+    let source := scratch / "AliasSource.lean"
+    IO.FS.writeFile source (← IO.FS.readFile fixture)
+    let manifest := scratch / "alias-manifest.json"
+    IO.FS.writeFile manifest (← IO.FS.readFile (repo / "foundation_manifest.json"))
+    -- A second name of the manifest, which `realPath` does not join with the first.
+    let hardLink := scratch / "alias-hard-link.json"
+    let linked ← runProcess scratch (.stated "ln" "The early-stop control plants this hard-link fixture") #[manifest.toString, hardLink.toString]
+    unless linked.exitCode == 0 do
+      return some s!"early stop: could not link {manifest} as {hardLink}:\n{linked.output}"
+    -- A symbolic link to a completed result.
+    let symbolic := scratch / "alias-symbolic.json"
+    let pointed ← runProcess scratch (.stated "ln" "The early-stop control plants this symbolic-link fixture") #["-s", completed.toString, symbolic.toString]
+    unless pointed.exitCode == 0 do
+      return some s!"early stop: could not link {symbolic} to {completed}:\n{pointed.output}"
+    -- The configuration of a dependency, which Lake loads with the workspace.
+    let dependency := scratch / "vendor" / "lakefile.toml"
+    IO.FS.createDirAll (scratch / "vendor")
+    IO.FS.writeFile dependency "name = \"vendor\"\n"
+    let documentation := scratch / "Documentation.md"
+    IO.FS.writeFile documentation "# Documentation\n"
+    -- A JSON document with the member `rules` of a registry export and none of its identity
+    -- members, which no reader of Regula identifies as Regula's
+    -- (`Regula.Destination.regulaDocument`).
+    let rulesOnly := scratch / "rules-only.json"
+    IO.FS.writeFile rulesOnly "{\"rules\":[]}\n"
+    -- A JSON document with the identity members of a registry export and not its rules, which the
+    -- reader of a registry refuses (`validateRegistry`), so no signature of a kind recognizes it.
+    let identityOnly := scratch / "identity-only.json"
+    IO.FS.writeFile identityOnly "{\"schemaVersion\":4,\"producerVersion\":\"0.0.0\",\
+      \"toolchain\":\"leanprover/lean4:v4.34.0\",\"sourceRevision\":\"0000000\"}\n"
+    IO.FS.createDirAll (scratch / "through")
+    let configuration := Lint.Outcome.configuration.exitCode
+    let notRegula := "not a document that Regula wrote"
+    let aliases : List (String × String × Array String × UInt32 × String × List FilePath) := [
+      ("axiomGate", gate, #["--declaration-report-worker", request.toString, request.toString],
+        configuration, notRegula, [request]),
+      ("axiomGate", gate, #["--frontend-worker", request.toString, source.toString],
+        configuration, notRegula, [request, source]),
+      ("axiomGate", gate, fileArgs source, configuration, notRegula, [source]),
+      ("axiomGate", gate, #["--registry-out", rulesOnly.toString], configuration, notRegula,
+        [rulesOnly]),
+      ("axiomGate", gate, #["--registry-out", identityOnly.toString], configuration, notRegula,
+        [identityOnly]),
+      ("axiomGate", gate, fileArgs symbolic, configuration, "is a symbolic link",
+        [symbolic, completed]),
+      ("freshChecker", (← toolPath repo "freshChecker").toString,
+        #["--manifest", manifest.toString, "--json-out", hardLink.toString], 1, notRegula,
+        [manifest, hardLink]),
+      ("freshChecker", (← toolPath repo "freshChecker").toString,
+        #["--json-out", dependency.toString], 1, notRegula, [dependency]),
+      ("qualify", qualify, #["--under-deadline", "producers", "--evidence", source.toString], 1,
+        notRegula, [source]),
+      ("qualify", qualify, #["producers", "--evidence", source.toString], 1, notRegula, [source]),
+      ("ruleExamples", ruleExamples, #["--injected-git-facts", facts.toString, "axiomGate"] ++
+        fileArgs facts, configuration, notRegula, [facts]),
+      ("ruleExamples", ruleExamples, #["--policy-negative", repo.toString, source.toString,
+        (scratch / "through" / ".." / "AliasSource.lean").toString], 4, notRegula, [source]),
+      ("ruleExamples", ruleExamples, #["--documentation", repo.toString, (repo / "docs").toString,
+        documentation.toString], 4, notRegula, [documentation])]
+    -- The report worker's published admission, which the request names, is a destination of its
+    -- own: the refused worker marks it, and the reader of an admission must refuse the mark.
+    let publishRefused : IO Bool := do
+      unless ← Regula.Filesystem.isPresent publish do return true
+      let some marked ← parsedAt publish | return false
+      let read : Except String Admission.Completed := fromJson? marked
+      return (marked.getObjValAs? String "status").toOption == some "incomplete" && !read.isOk
+    for (program, path, args, code, phrase, files) in aliases do
+      let held : IO (List (Option ByteArray)) := files.mapM fun file => do
+        if ← Regula.Filesystem.isPresent file then return some (← IO.FS.readBinFile file)
+        else return none
+      let before ← held
+      let result ← runProcess repo (own path) args (env := plain)
+      unless result.exitCode == code && result.stderr.contains phrase &&
+          (← held).map (·.map (·.data)) == before.map (·.map (·.data)) && (← publishRefused) do
+        return some s!"early stop: {program} {args} was not refused with exit {code} and the \
+          reason that holds \"{phrase}\", leaving {files} as they were and {publish} absent or \
+          marked (exit {result.exitCode}):\n{result.output}"
+    unless ← Regula.Filesystem.isPresent publish do
+      return some s!"early stop: the refused report worker did not mark its published admission \
+        {publish}"
+    -- Two destinations that may be one entry, as on a file system that folds case: the run marks
+    -- them, so the earlier result there is gone, then refuses (`Regula.Destination.sameEntry`).
+    let lower := scratch / "one.json"
+    let upper := scratch / "ONE.json"
+    copyDocument completed lower
+    let overlapping ← runProcess repo (own gate) #["--json-out", lower.toString, "--acceptance-link",
+      upper.toString] (env := plain)
+    let marks ← [lower, upper].filterMapM fun path => do
+      if ← Regula.Filesystem.isPresent path then return some (← parsedAt path) else return none
+    unless overlapping.exitCode == configuration &&
+        overlapping.stderr.contains "may name one entry" && !marks.isEmpty &&
+        marks.all (·.any fun mark =>
+          (mark.getObjValAs? String "status").toOption == some "incomplete") do
+      return some s!"early stop: axiomGate with --json-out {lower} and --acceptance-link {upper} \
+        did not mark them incomplete and refuse (exit {overlapping.exitCode}):\n\
+        {overlapping.output}"
+    -- A destination with a `..` below an absent directory names an entry that depends on what the
+    -- run makes: the run refuses it before it makes anything, so the directory stays absent and
+    -- the result that the path would reach keeps its bytes (`Regula.Destination.place`).
+    let absent := scratch / "absent"
+    let escaping := absent / ".." / "completed.json"
+    let held ← IO.FS.readBinFile completed
+    let refused ← runProcess repo (own gate) #["--registry-out", escaping.toString] (env := plain)
+    unless refused.exitCode == configuration && refused.stderr.contains "has a `..` component" &&
+        !(← Regula.Filesystem.isPresent absent) &&
+        (← IO.FS.readBinFile completed).data == held.data do
+      return some s!"early stop: axiomGate with --registry-out {escaping} was not refused before \
+        it made {absent} (exit {refused.exitCode}):\n{refused.output}"
+    -- A destination whose last component names no file, `new/` or `new/.`, names a directory and
+    -- not a file in it: the run refuses it by its name before it makes anything, so `new` stays
+    -- absent (`Regula.Destination.place`).
+    let unnamed := scratch / "new"
+    for named in [s!"{unnamed}/", s!"{unnamed}/."] do
+      let refused ← runProcess repo (own gate) #["--registry-out", named] (env := plain)
+      unless refused.exitCode == configuration && refused.stderr.contains "names no file" &&
+          !(← Regula.Filesystem.isPresent unnamed) do
+        return some s!"early stop: axiomGate with --registry-out {named} was not refused by its \
+          name before it made {unnamed} (exit {refused.exitCode}):\n{refused.output}"
+    -- A directory at the `--out` of `site build` that holds something other than an artifact of a
+    -- build, such as the documentation of a repository, keeps its files. Without its evidence the
+    -- parser refuses the run, and the guard's refusal removes no directory that holds no artifact
+    -- (`Regula.Site.Build.invalidateRefused`). With evidence the build's first step refuses it
+    -- (`Regula.Site.Build.artifactRefusal`).
+    let foreignSite := scratch / "foreign-site"
+    IO.FS.createDirAll foreignSite
+    IO.FS.writeFile (foreignSite / "README.md") "# Documentation\n"
+    let missing := (scratch / "missing-evidence.json").toString
+    let runs : List (Array String × Option String) :=
+      [(#[], none), (#["--evidence", missing], some "holds neither a build.json")]
+    for (args, refusal) in runs do
+      let built ← runProcess repo (own (← toolPath repo "site").toString)
+        (#["build", "--out", foreignSite.toString] ++ args) (env := plain)
+      let readme ← (IO.FS.readFile (foreignSite / "README.md")).toBaseIO
+      unless built.exitCode != 0 && refusal.all (fun text => built.stderr.contains text) &&
+          readme.toOption == some "# Documentation\n" do
+        return some s!"early stop: site build --out {foreignSite} {args} was not refused with its \
+          files kept (exit {built.exitCode}):\n{built.output}"
+    -- An empty file holds no bytes to lose, and a hard link to a result of Regula names a file
+    -- that another name shares: each is replaced, and the other name keeps its bytes.
+    let empty := scratch / "empty.json"
+    IO.FS.writeFile empty ""
+    let shared := scratch / "shared.json"
+    copyDocument completed shared
+    let sharing := scratch / "sharing.json"
+    let shares ← runProcess scratch (.stated "ln" "The early-stop control plants this hard-link fixture") #[shared.toString, sharing.toString]
+    unless shares.exitCode == 0 do
+      return some s!"early stop: could not link {shared} as {sharing}:\n{shares.output}"
+    -- A destination name of 255 bytes, the longest that a file system with a 255-byte limit admits,
+    -- holding a completed result: the new file beside it has a short name of its own
+    -- (`Regula.Filesystem.writeReplacing`).
+    let long := scratch / (String.ofList (List.replicate 250 'r') ++ ".json")
+    copyDocument completed long
+    -- A mark that an earlier version of Regula wrote at a worker's output, a document of Regula of
+    -- a different kind from a result, with no identity member: it is replaced too.
+    let earlierMark := scratch / "earlier-mark.json"
+    IO.FS.writeFile earlierMark "{\"status\":\"incomplete\",\"reason\":\"stopped\"}\n"
+    let kept ← IO.FS.readBinFile shared
+    for destination in [empty, sharing, long, earlierMark] do
+      let result ← runProcess repo (own gate) (fileArgs destination) (env := withoutLean)
+      unless result.exitCode == Lint.Outcome.incomplete.exitCode &&
+          (← markedWith destination "unresolved" started) &&
+          (← IO.FS.readBinFile shared).data == kept.data do
+        return some s!"early stop: axiomGate with --json-out {destination} did not mark it \
+          incomplete and leave {shared} as it was (exit {result.exitCode}):\n{result.output}"
     return none
 
 /-- Public CLI fixtures: the complete sweep for qualification, or the unchanged smoke subset for
@@ -4459,8 +5016,14 @@ private def runCli (repo : FilePath) (jobs : Nat) (fullCli : Bool)
   let smokeFixtures := fixtures.filter (smokeFixtureNames.contains ·.moduleName)
   if smokeFixtures.size != smokeFixtureNames.size then
     failures.modify (·.push "smoke: expected smoke fixtures are missing from the manifest")
-  -- The build-bound sweep contains every smoke control; each runs once.
-  let cliFixtures := if fullCli then fixturesOfShard (by decide) shard fixtures else smokeFixtures
+  for fixture in smokeFixtures do
+    if fixture.fileAuditExclusion.isSome then
+      failures.modify (·.push s!"smoke: {fixture.moduleName} is excluded from the file audits")
+  -- The build-bound sweep contains every smoke control; each runs once. A fixture whose entry
+  -- states a `fileAuditExclusion` keeps its shard, so the exclusion moves no other fixture.
+  let selected := if fullCli then fixturesOfShard (by decide) shard fixtures else smokeFixtures
+  let cliFixtures := selected.filter (·.fileAuditExclusion.isNone)
+  let excluded := selected.filter (·.fileAuditExclusion.isSome)
   let cliLabel := if fullCli then "full CLI sweep" else "CLI smoke"
   let cliResults ← loggedPhase cliLabel <|
     mapConcurrent jobs cliFixtures (checkFixtureCli repo)
@@ -4468,6 +5031,9 @@ private def runCli (repo : FilePath) (jobs : Nat) (fullCli : Bool)
   IO.println <| s!"self-test {cliLabel}: " ++
     (if cliResults.all (·.isNone) then "PASS" else "FAIL") ++
     s!" ({cliFixtures.size} real axiomGate --file invocations)" ++ shardNote shard
+  for fixture in excluded do
+    IO.println s!"self-test {cliLabel}: {fixture.moduleName} not run through axiomGate --file \
+      (the fixtures partition checks it): {fixture.fileAuditExclusion.getD ""}"
   if runsIn shard cliAttributionShard then
     let refused ← loggedPhase "task manager" (taskManagerControl repo)
     appendFailure failures refused
@@ -4479,6 +5045,19 @@ private def runCli (repo : FilePath) (jobs : Nat) (fullCli : Bool)
         that held a completed document of its format, ends marked incomplete with the reason, \
         including the proxy of axiomGate and the workers, and a self-hosted digest and a site \
         artifact end removed)"
+    let stopped ← loggedPhase "early stop" (earlyStopControl repo)
+    appendFailure failures stopped
+    IO.println <| "self-test early stop: " ++ (if stopped.isNone then "PASS" else "FAIL") ++
+      " (ruleExamples, axiomGate, freshChecker, qualify, site and the self-test, each stopped \
+        early with Lean's task manager by an injected failure, end with the exit code of their \
+        early stop; each destination they name that held a completed document of its format ends \
+        marked incomplete with the reason, the error's text for a production of ruleExamples and \
+        the export of qualify producers, and a site artifact ends removed; a destination that \
+        holds a file that is not a document of Regula is refused and keeps its bytes, \
+        overlapping destinations are marked and refused, and an empty file, a hard link to a \
+        result, a 255-byte name and an earlier version's worker mark are marked; after \
+        scripts/verify.sh stops with no lean, the site's reader refuses a shard export recorded \
+        before foundation_manifest.json changed)"
   if fullCli && runsIn shard cliAttributionShard then
     let attribution ← loggedPhase "source attribution" <|
       withScratch repo "checker-source-attribution" fun scratch =>
@@ -4619,9 +5198,9 @@ private def combinedSnapshotQualification (repo : FilePath) : IO (Array String) 
     IO.FS.writeFile (project / "lakefile.toml") <|
       "name = \"snapshot_control\"\n" ++ observerPluginToml ++
         "[leanOptions]\nautoImplicit = false\n" ++
-        "relaxedAutoImplicit = false\nlinter.missingDocs = true\n[[lean_lib]]\nname = \
-          \"Snapshot\"\n" ++ observerNeedToml ++
-        "[[lean_lib]]\nname = \"Companion\"\n" ++ observerNeedToml ++
+        "relaxedAutoImplicit = false\nlinter.missingDocs = true\n" ++
+        observedTargetToml .library "Snapshot" ++
+        observedTargetToml .library "Companion" ++
         regulaRequireToml repo
     IO.FS.writeFile (Manifest.defaultPath project)
       "{\"schema-version\":2,\"surfaces\":[{\"library\":\"Snapshot\",\"executables\":[],\"claim\":\
@@ -4767,7 +5346,7 @@ private unsafe def runTranscriptWorker (moduleWire source rejectWarnings out : S
   let moduleName ← IO.ofExcept <| Regula.RegistryCodec.parseName
       (← IO.ofExcept <| Regula.Checker.PolicyCodec.parse moduleWire)
   let transcript ← Frontend.buildCurrentSearchPath moduleName source (rejectWarnings != "false")
-  writeJson out
+  writeDestination out
       (workerPacket (sourceWorkerRequest "transcript" moduleName source transcript.sourceContent)
           (toJson transcript))
   return 0
@@ -4786,14 +5365,27 @@ def markIncomplete (selection : Selection) (reason : String) : IO Unit := do
     catch error =>
       IO.eprintln s!"checkerSelftest: could not mark the destination {shown} incomplete: {error}"
 
+/-- The reason to refuse `selection`, if the file of a worker's packet that it writes holds
+something that the run may not replace (`Regula.Destination.refusal`). The mark leaves such a file
+as it was (`Regula.Destination.write`), and the worker's write would replace it. The digest of
+a self-hosted input is a file below the repository's `tmp/` that the mark removes
+(`clearSelfHostedDigest`). -/
+def refusalOf (selection : Selection) : IO (Option String) :=
+  Regula.Destination.refusal (selection.destinations.filterMap fun
+    | .packet out => some ⟨out⟩
+    | .selfHostedDigest _ => none)
+
 /-- Runs the qualification suite: one of the focused `--…-only` controls or the internal
 transcript worker when the arguments name it (`Selection.parse`), otherwise the baseline build and
-then the selected tiers or partition. It first marks the files that the selection writes
-incomplete (`markIncomplete`), so a run that stops before its write leaves no earlier packet or
-digest there. Prints each failure and returns `1` when any control fails, `0` otherwise. -/
+then the selected tiers or partition. It marks the files that the selection writes incomplete
+(`markIncomplete`), so a run that stops before its write leaves no earlier packet or digest at a
+destination that it marked. It then refuses a selection whose packet file it may not replace
+(`refusalOf`): a packet file that is a symbolic link, for one, is refused and keeps whatever it
+points to. Prints each failure and returns `1` when any control fails, `0` otherwise. -/
 unsafe def run (args : List String) : IO UInt32 := do
   let selection ← IO.ofExcept ((Selection.parse args).mapError IO.userError)
   markIncomplete selection "the job has not completed"
+  if let some reason ← refusalOf selection then throw <| IO.userError s!"refused: {reason}"
   let mut options : SelftestArguments.Options := {}
   match selection with
   | .focused control => return ← runFocused control
@@ -4867,7 +5459,9 @@ unsafe def run (args : List String) : IO UInt32 := do
     return 0
   IO.println <| s!"checker self-test: PASS ({fixtures.size} fixed fixtures in-process; " ++
     (if options.buildBound then
-        s!"{fixtures.size} real-CLI controls (including all smoke controls); "
+        s!"{(fixtures.filter (·.fileAuditExclusion.isNone)).size} real-CLI controls \
+          (including all smoke controls; \
+          {(fixtures.filter (·.fileAuditExclusion.isSome)).size} excluded from the file audits); "
       else s!"{smokeFixtureNames.size} real-CLI smoke controls; ") ++
     s!"{(fenceCorpusCases "" "").size + publicOnlyFenceCases.size} Markdown cases plus import-setup \
       controls; 9 manifest cases; structural controls including explicit contract mutations; " ++
@@ -4895,10 +5489,12 @@ unsafe def checkerSelftestMain (args : List String) : IO UInt32 := do
     IO.eprintln s!"FAIL: {error}"
     return 1
 
-/-- The refusal of the self-test in a process without Lean's task manager
-(`Regula.TaskManager.guard`): it reads the arguments as `run` does (`Selection.parse`), marks the
-files of that selection incomplete with `reason` (`markIncomplete`): the transcript worker's output
-and the digest of a shard of the structural partition that writes one. It returns 1. -/
+/-- The refusal of the self-test, which the guard runs before each run and, in a process without
+Lean's task manager, in the run's place (`Regula.TaskManager.guard`): it reads the arguments as
+`run` does (`Selection.parse`), marks the files of that selection incomplete with `reason`
+(`markIncomplete`): the transcript worker's output and the digest of a shard of the structural
+partition that writes one. A packet file that is not Regula's keeps its bytes
+(`Regula.Destination.write`). It returns 1. -/
 def refuseCheckerSelftest (reason : String) (args : List String) : IO UInt32 := do
   if let .ok selection := Regula.Checker.SelftestArguments.Selection.parse args then
     Regula.Checker.CheckerSelftest.markIncomplete selection reason
@@ -4910,10 +5506,143 @@ process without Lean's task manager is refused before the self-test starts, with
 unsafe def main : List String → IO UInt32 :=
   Regula.TaskManager.guard "checkerSelftest" refuseCheckerSelftest checkerSelftestMain
 
--- The removals that the compiled code of `main`, and of the initializers of the modules it links,
--- reaches are the filesystem observer's and those that `Regula.Removal.libraryRemovals` lists: the
--- build of this module fails otherwise (`Regula.Removal.checkProgram`).
-run_cmd Regula.Removal.checkProgram
+-- The removals and the writes that the compiled code of the program reaches from its roots
+-- (`Regula.Removal.rawRemovals`) are those of the filesystem observer and those that
+-- `Regula.Removal.sharedPairs` lists, and those named here, each by the declaration of a source
+-- that makes it: the build of this module fails otherwise, and when a name here admits no call
+-- (`Regula.Removal.checkProgram`). The program elaborates Lean source, so its check states it.
+run_cmd Regula.Removal.checkProgram (elaborates := true) (named := [
+  -- The projects of the build-integration controls (`Regula.Checker.BuildLintQualification`).
+  (`Regula.Checker.BuildLintQualification.disabledControl, ``IO.FS.writeFile),
+  (`Regula.Checker.BuildLintQualification.runCase, ``IO.FS.writeFile),
+  (``Regula.Checker.BuildLintQualification.addSupport, ``IO.FS.createDirAll),
+  (``Regula.Checker.BuildLintQualification.addSupport, ``IO.FS.writeFile),
+  -- The fixtures of the self-test's controls, among them the seeded destinations of the guard's
+  -- controls, in the projects and scratch directories that they make.
+  (`Regula.Checker.CheckerSelftest.adopterQualification, ``IO.FS.createDirAll),
+  (`Regula.Checker.CheckerSelftest.adopterQualification, ``IO.FS.writeFile),
+  (`Regula.Checker.CheckerSelftest.bvCheckCertificates, ``IO.FS.createDirAll),
+  (`Regula.Checker.CheckerSelftest.bvCheckCertificates, ``IO.FS.writeFile),
+  (`Regula.Checker.CheckerSelftest.combinedSnapshotQualification, ``IO.FS.createDirAll),
+  (`Regula.Checker.CheckerSelftest.combinedSnapshotQualification, ``IO.FS.writeFile),
+  (`Regula.Checker.CheckerSelftest.copyDocument, ``IO.FS.writeFile),
+  (`Regula.Checker.CheckerSelftest.diagnosticSetupQualification, ``IO.FS.createDirAll),
+  (`Regula.Checker.CheckerSelftest.diagnosticSetupQualification, ``IO.FS.writeFile),
+  (`Regula.Checker.CheckerSelftest.driverCopyControl, ``IO.FS.createDirAll),
+  (`Regula.Checker.CheckerSelftest.driverCopyControl, ``IO.FS.writeFile),
+  (`Regula.Checker.CheckerSelftest.earlyStopControl, ``IO.FS.createDirAll),
+  (`Regula.Checker.CheckerSelftest.earlyStopControl, ``IO.FS.writeFile),
+  (`Regula.Checker.CheckerSelftest.executionQualification, ``IO.FS.createDirAll),
+  (`Regula.Checker.CheckerSelftest.fenceEnvironmentControl, ``IO.FS.createDirAll),
+  (`Regula.Checker.CheckerSelftest.fenceEnvironmentControl, ``IO.FS.writeFile),
+  (`Regula.Checker.CheckerSelftest.fenceEnvironmentQualification, ``IO.FS.createDirAll),
+  (`Regula.Checker.CheckerSelftest.forcedCollectorQualification, ``IO.FS.writeFile),
+  (`Regula.Checker.CheckerSelftest.frozenArtifactControls, ``IO.FS.writeBinFile),
+  (`Regula.Checker.CheckerSelftest.libraryCycleControl, ``IO.FS.createDirAll),
+  (`Regula.Checker.CheckerSelftest.libraryCycleControl, ``IO.FS.writeFile),
+  (`Regula.Checker.CheckerSelftest.manifestQualification, ``IO.FS.writeFile),
+  (`Regula.Checker.CheckerSelftest.observerIdentityControl, ``IO.FS.createDirAll),
+  (`Regula.Checker.CheckerSelftest.observerIdentityControl, ``IO.FS.writeBinFile),
+  (`Regula.Checker.CheckerSelftest.observerIdentityControl, ``IO.FS.writeFile),
+  (`Regula.Checker.CheckerSelftest.prepareSelfHosted, ``IO.FS.writeFile),
+  (`Regula.Checker.CheckerSelftest.publicScannerQualification, ``IO.FS.createDirAll),
+  (`Regula.Checker.CheckerSelftest.publicScannerQualification, ``IO.FS.writeFile),
+  (`Regula.Checker.CheckerSelftest.retainedBuildControl, ``IO.FS.createDirAll),
+  (`Regula.Checker.CheckerSelftest.retainedBuildControl, ``IO.FS.writeBinFile),
+  (`Regula.Checker.CheckerSelftest.retainedBuildControl, ``IO.FS.writeFile),
+  (`Regula.Checker.CheckerSelftest.sharedCopiesControl, ``IO.FS.createDirAll),
+  (`Regula.Checker.CheckerSelftest.sharedCopiesControl, ``IO.FS.writeFile),
+  (`Regula.Checker.CheckerSelftest.structuralPartB, ``IO.FS.createDirAll),
+  (`Regula.Checker.CheckerSelftest.structuralPartB, ``IO.FS.writeBinFile),
+  (`Regula.Checker.CheckerSelftest.structuralPartB, ``IO.FS.writeFile),
+  (`Regula.Checker.CheckerSelftest.structuralPartC, ``IO.FS.writeFile),
+  (`Regula.Checker.CheckerSelftest.taskManagerControl, ``IO.FS.createDirAll),
+  (`Regula.Checker.CheckerSelftest.taskManagerControl, ``IO.FS.writeFile),
+  (`Regula.Checker.CheckerSelftest.withNewFile, ``IO.FS.createDirAll),
+  (`Regula.Checker.CheckerSelftest.withNewFile, ``IO.FS.writeFile),
+  (`Regula.Checker.CheckerSelftest.withRemovedFile, ``IO.FS.writeFile),
+  (`Regula.Checker.CheckerSelftest.withReplacedFile, ``IO.FS.writeFile),
+  (`Regula.Checker.CheckerSelftest.writeCrossSurfaceProject, ``IO.FS.createDirAll),
+  (`Regula.Checker.CheckerSelftest.writeCrossSurfaceProject, ``IO.FS.writeFile),
+  (`Regula.Checker.CheckerSelftest.writeFreshInput, ``IO.FS.Handle.mk),
+  -- The fixtures of the controls of the compiler's paths (`Regula.Checker.CompilerPaths`).
+  (`Regula.Checker.CompilerPaths.phase, ``IO.FS.createDirAll),
+  (`Regula.Checker.CompilerPaths.phase, ``IO.FS.writeFile),
+  -- The adopter projects of the `lake lint` controls (`Regula.Checker.LintQualification`).
+  (`Regula.Checker.LintQualification.WeakArgsAdopter.hidden, ``IO.FS.writeFile),
+  (`Regula.Checker.LintQualification.WeakArgsAdopter.requireOverride, ``IO.FS.createDirAll),
+  (`Regula.Checker.LintQualification.WeakArgsAdopter.requireOverride, ``IO.FS.writeFile),
+  (`Regula.Checker.LintQualification.cachedWarning, ``IO.FS.writeFile),
+  (`Regula.Checker.LintQualification.compilerGuard, ``IO.FS.createDirAll),
+  (`Regula.Checker.LintQualification.dependencyCachedWarning, ``IO.FS.createDirAll),
+  (`Regula.Checker.LintQualification.dependencyCachedWarning, ``IO.FS.writeFile),
+  (`Regula.Checker.LintQualification.emptyFacetsWarning, ``IO.FS.writeFile),
+  (`Regula.Checker.LintQualification.escapedNameWarning, ``IO.FS.createDirAll),
+  (`Regula.Checker.LintQualification.escapedNameWarning, ``IO.FS.writeFile),
+  (`Regula.Checker.LintQualification.facetReport, ``IO.FS.createDirAll),
+  (`Regula.Checker.LintQualification.facetReport, ``IO.FS.writeFile),
+  (`Regula.Checker.LintQualification.lakeNew, ``IO.FS.writeFile),
+  (`Regula.Checker.LintQualification.leanArguments, ``IO.FS.createDirAll),
+  (`Regula.Checker.LintQualification.leanArguments, ``IO.FS.writeFile),
+  (`Regula.Checker.LintQualification.leanAudit, ``IO.FS.writeFile),
+  (`Regula.Checker.LintQualification.leanDecisions, ``IO.FS.createDirAll),
+  (`Regula.Checker.LintQualification.leanDecisions, ``IO.FS.writeFile),
+  (`Regula.Checker.LintQualification.leanRefusals, ``IO.FS.writeFile),
+  (`Regula.Checker.LintQualification.mutate, ``IO.FS.writeFile),
+  (`Regula.Checker.LintQualification.observerEscapes, ``IO.FS.createDirAll),
+  (`Regula.Checker.LintQualification.observerEscapes, ``IO.FS.writeFile),
+  (`Regula.Checker.LintQualification.pathConfig, ``IO.FS.createDirAll),
+  (`Regula.Checker.LintQualification.pathConfig, ``IO.FS.writeFile),
+  (`Regula.Checker.LintQualification.pathEscapes, ``IO.FS.createDirAll),
+  (`Regula.Checker.LintQualification.pathEscapes, ``IO.FS.writeFile),
+  (`Regula.Checker.LintQualification.pathForged, ``IO.FS.writeFile),
+  (`Regula.Checker.LintQualification.pathOverrides, ``IO.FS.createDirAll),
+  (`Regula.Checker.LintQualification.pathOverrides, ``IO.FS.writeFile),
+  (`Regula.Checker.LintQualification.pathOwnedChecks, ``IO.FS.writeFile),
+  (`Regula.Checker.LintQualification.pathReserved, ``IO.FS.createDirAll),
+  (`Regula.Checker.LintQualification.pathReserved, ``IO.FS.writeFile),
+  (`Regula.Checker.LintQualification.pathSetup, ``IO.FS.createDirAll),
+  (`Regula.Checker.LintQualification.pathTrusted, ``IO.FS.writeFile),
+  (`Regula.Checker.LintQualification.restore, ``IO.FS.writeFile),
+  (`Regula.Checker.LintQualification.tomlAudit, ``IO.FS.createDirAll),
+  (`Regula.Checker.LintQualification.tomlAudit, ``IO.FS.writeFile),
+  (`Regula.Checker.LintQualification.tomlPlain, ``IO.FS.createDirAll),
+  (`Regula.Checker.LintQualification.tomlPlain, ``IO.FS.writeFile),
+  (`Regula.Checker.LintQualification.tomlTargets, ``IO.FS.writeFile),
+  (`Regula.Checker.LintQualification.weakArgsDeclared, ``IO.FS.writeFile),
+  (`Regula.Checker.LintQualification.weakArgsModes, ``IO.FS.writeFile),
+  (`Regula.Checker.LintQualification.weakArgsOverrides, ``IO.FS.writeFile),
+  (`Regula.Checker.LintQualification.weakArgsProbes, ``IO.FS.createDirAll),
+  (`Regula.Checker.LintQualification.weakArgsProbes, ``IO.FS.writeFile),
+  -- The projects of the policy controls (`Regula.Checker.PolicyQualification`).
+  (`Regula.Checker.PolicyQualification.setup, ``IO.FS.createDirAll),
+  (``Regula.Checker.PolicyQualification.nativeImport, ``IO.FS.writeFile),
+  (``Regula.Checker.PolicyQualification.publicPaths, ``IO.FS.writeFile),
+  -- The writes of the site build that `site` runs and names (`Regula.Site.Main`), in
+  -- `Regula.Site.Build`, which this program links: its generated modules, the release that it
+  -- downloads and unpacks, and its output.
+  (`Regula.Site.Build.writeModule, ``IO.FS.createDirAll),
+  (`Regula.Site.Build.writeModule, ``IO.FS.writeFile),
+  (``Regula.Site.Build.downloadRelease, ``IO.FS.createDirAll),
+  (``Regula.Site.Build.extractRelease, ``IO.FS.createDirAll),
+  (``Regula.Site.Build.generate, ``IO.FS.createDirAll),
+  (``Regula.Site.Build.generate, ``IO.FS.writeFile),
+  (``Regula.Site.Build.writeTree, ``IO.FS.createDirAll),
+  (``Regula.Site.Build.writeTree, ``IO.FS.writeBinFile),
+  -- The writes of the campaigns that `qualify` runs and names (`Regula.Qualification.Main`), in
+  -- the modules of them that this program links: their projects and slots, and the raw
+  -- observations of a rule-example production beside its evidence
+  -- (`Regula.Qualification.RuleExamples`). The compiled code of those modules is among the
+  -- program's roots (`Regula.Removal.programRoots`).
+  (``Regula.Qualification.prepareCoreProject, ``IO.FS.createDirAll),
+  (``Regula.Qualification.rootImportsGuardControl, ``IO.FS.writeFile),
+  (`Regula.Qualification.RuleExamples.observe, ``IO.FS.Handle.mk),
+  (`Regula.Qualification.RuleExamples.produce, ``IO.FS.createDir),
+  (`Regula.Qualification.RuleExamples.produce, ``IO.FS.createDirAll),
+  (`Regula.Qualification.RuleExamples.produce, ``IO.FS.writeBinFile),
+  (`Regula.Qualification.RuleExamples.produce, ``IO.FS.writeFile),
+  (``Regula.Qualification.RuleExamples.check, ``IO.FS.createDirAll),
+  (``Regula.Qualification.Slot.prepareSlot, ``IO.FS.writeFile)])
 
 -- A program that needs Lean's task manager starts through its guard (`Regula.TaskManager.guard`),
 -- and its refusal needs none: the build of this module fails otherwise

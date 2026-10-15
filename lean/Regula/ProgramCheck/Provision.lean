@@ -1,17 +1,20 @@
 import RegulaProvision
 import Regula.Removal
+import Regula.Filesystem
 
 /-! # The observer reach check of the provisioning driver
 
 `scripts/provision.sh` runs the provisioning driver with `lean --run` before the package is built,
 so it imports only the toolchain: it cannot import the observers, and it does not run the check
 itself. This module imports it, and its build fails when the compiled code of the driver reaches a
-primitive that the check refuses (`Regula.Removal.checkProgram`). It admits the bootstrap pairs of
-the driver's process source (`Regula.Removal.bootstrap`) and the driver's own removals that it
-names, each as the pair of the declaration that makes it and the primitive that it calls. Each
-removal decides by the driver's own reads, which follow no link at the path
-(`RegulaProvision.observe`, `RegulaProvision.kind?`, `RegulaProvision.entryKindWith`), and no
-decision of `RegulaCore.Removal` decides them:
+primitive that the check refuses (`Regula.Removal.checkProgram`): a removal outside the filesystem
+observer, a write outside the places that `Regula.Removal.sharedPairs` lists, or a process start or
+environment read outside the process observer. It admits the bootstrap pairs of the driver's process
+source (`Regula.Removal.bootstrap`) and the driver's own calls that it names, each as the pair of
+the declaration of a source that makes it and the primitive that it calls. Each of its removals
+decides by the driver's own reads, which follow no link at the path (`RegulaProvision.observe`,
+`RegulaProvision.kind?`, `RegulaProvision.entryKindWith`), and no decision of `RegulaCore.Removal`
+decides them:
 
 - the removal of a symbolic link or of a directory that `observe` classified, in
   `removeObserved`;
@@ -30,8 +33,19 @@ decision of `RegulaCore.Removal` decides them:
 - the removal of a retired link of a copy and of a registry, and the move of a shared directory
   before its removal, in the loops of `prune`.
 
+Its writes are below the directories that it provisions: the directory in which a link is made, in
+`makeStage`; the wrapper of the shared constructor, in `runConstruction`; the constructor's
+instructions and the receipt of the staged shared directory, in `create`; the staged registry, in
+`writeRegistry`; the packages directory of a copy, in `packagesPath`; and the directory of the
+shared packages and its lock, in `provision`. The constructor that `runConstruction` interprets in
+a child process writes the entries of the staged directory, and `makeLink` makes a link with
+`ln -s`; this check of the driver's compiled code reaches neither.
+
 Issue 389 asks for a decision of each of these removals that a theorem relates to
-`RegulaCore.Removal`. -/
+`RegulaCore.Removal`.
+
+It also proves the driver's own presence read, which the driver defines because it cannot import
+`Regula.Filesystem`, equal to the filesystem observer's (`isPresent_eq`). -/
 
 namespace Regula.ProgramCheck.Provision
 
@@ -40,33 +54,38 @@ open Lean in
 def provisioning (name : Name) : Name :=
   mkPrivateNameCore `RegulaProvision (`RegulaProvision ++ name)
 
-open Lean in
-/-- The array function `function` of Lean's library, specialized as `spec` in the declaration
-`name` of the provisioning driver. -/
-def specialized (function : Name) (name : Name) (spec : Name) : Name :=
-  mkPrivateNameCore `Init.Data.Array.Basic function ++ `_at_ ++ provisioning name ++ spec
-
 end Regula.ProgramCheck.Provision
 
 open Regula.ProgramCheck.Provision in
-run_cmd Regula.Removal.checkProgram (named :=
-  Regula.Removal.bootstrap `RegulaProvision.Process ++ [
+run_cmd Regula.Removal.checkProgram (bootstrap := `RegulaProvision.Process) (named := [
   (provisioning `removeObserved, ``IO.FS.removeFile),
   (provisioning `removeObserved, ``IO.FS.removeDirAll),
   (provisioning `removeReadOnly, ``IO.FS.removeDirAll),
   (provisioning `removeShared, ``IO.FS.removeFile),
   (provisioning `removeShared, ``IO.FS.removeDir),
-  (specialized `Array.forIn'Unsafe.loop `removeShared `spec_0, ``IO.FS.removeFile),
-  (specialized `Array.forIn'Unsafe.loop `removeShared `spec_0, ``IO.FS.removeDirAll),
+  (provisioning `removeShared, ``IO.FS.removeDirAll),
   (provisioning `moveLink, ``IO.FS.rename),
   (provisioning `removeLink, ``IO.FS.removeFile),
   (provisioning `removeStage, ``IO.FS.removeDir),
+  (provisioning `makeStage, ``IO.FS.createDir),
   (provisioning `installClone, ``IO.FS.rename),
   (provisioning `installClone, ``IO.FS.removeDirAll),
   (provisioning `runConstruction, ``IO.FS.removeFile),
+  (provisioning `runConstruction, ``IO.FS.Handle.mk),
   (provisioning `create, ``IO.FS.removeFile),
   (provisioning `create, ``IO.FS.rename),
+  (provisioning `create, ``IO.FS.Handle.mk),
+  (provisioning `create, ``IO.FS.writeFile),
   (provisioning `writeRegistry, ``IO.FS.rename),
-  (specialized `Array.mapMUnsafe.map `prune `spec_0, ``IO.FS.removeFile),
-  (specialized `Array.forIn'Unsafe.loop `prune `spec_1, ``IO.FS.removeFile),
-  (specialized `Array.forIn'Unsafe.loop `prune `spec_1._lam_0, ``IO.FS.rename)])
+  (provisioning `writeRegistry, ``IO.FS.writeFile),
+  (``RegulaProvision.prune, ``IO.FS.removeFile),
+  (``RegulaProvision.prune, ``IO.FS.rename),
+  (provisioning `packagesPath, ``IO.FS.createDirAll),
+  (``RegulaProvision.provision, ``IO.FS.createDirAll),
+  (``RegulaProvision.provision, ``IO.FS.Handle.mk)])
+
+/-- The presence read of the driver is the filesystem observer's (`Regula.Filesystem.isPresent`,
+whose match form `Regula.Filesystem.isPresent_eq_match` states). -/
+theorem Regula.ProgramCheck.Provision.isPresent_eq :
+    RegulaProvision.isPresent = Regula.Filesystem.isPresent :=
+  Regula.Filesystem.isPresent_eq_match.symm

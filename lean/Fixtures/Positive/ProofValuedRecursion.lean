@@ -9,15 +9,19 @@ Each helper is admitted on the recursion equation the checker states itself,
 accepts `Eq.refl (f n)` for it by proof irrelevance, so no theorem of Lean's
 is needed. Lean's code generator erases a proof, so the equation says as much
 about the helper's result as the compiled code has.
+
+Both are `abbrev`s, not `def`s, so that Lean's `linter.defProp` passes them
+without being turned off: it skips a definition whose reducibility hints are
+`abbrev` (Lean 4.34.1, `Lean/Linter/DefProp.lean`). Lean compiles them by the
+same structural and well-founded recursion, with the same helpers, as the
+`def`s (observed).
 -/
 
-set_option linter.defProp false in
-def fixtures_proof_structural : (n : Nat) → 0 + n = n
+abbrev fixtures_proof_structural : (n : Nat) → 0 + n = n
   | 0 => rfl
   | n + 1 => congrArg Nat.succ (fixtures_proof_structural n)
 
-set_option linter.defProp false in
-def fixtures_proof_measured (n : Nat) : 0 + n = n :=
+abbrev fixtures_proof_measured (n : Nat) : 0 + n = n :=
   if h : n = 0 then by omega else
     have _ := fixtures_proof_measured (n - 1)
     by omega

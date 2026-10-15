@@ -127,11 +127,13 @@ def identity (scratch projectRoot copyRoot docsRoot : FilePath)
   try sha256File scratch path finally Regula.Filesystem.removePath .file path
 
 /-- Replace any earlier record before the ordinary audit starts. A run that stops before its audit
-records why as `reason` (`AxiomGate.refuseWithoutTaskManager`). -/
-def invalidate (path : FilePath) (reason : Option String := none) : IO Unit :=
-  writeJson path <| Json.mkObj <|
+records why as `reason` (`AxiomGate.refuseWithoutTaskManager`). It stops with nothing written at a
+file that is not empty or a document of Regula (`Regula.Destination.write`). -/
+def invalidate (path : FilePath) (reason : Option String := none) : IO Unit := do
+  let mark := Json.mkObj <|
     [("schemaVersion", toJson (1 : Nat)), ("status", .str "incomplete")] ++
       (reason.map fun reason => [("reason", Json.str reason)]).getD []
+  Regula.Destination.write path (mark.compress ++ "\n")
 
 /-- The identity of one accepted run's captured inputs, computed before its success line
 and held, unrecorded, until the run's outer freshness recheck has passed. -/
@@ -147,18 +149,20 @@ structure Pending where
 
 /-- Written only after accepted ordinary success. It cannot be called without a `Pending`, whose
 `Account` is a projection of some `AcceptedRun`; that it is this run's account, and that
-`digest` matches it, is the caller's binding. -/
+`digest` matches it, is the caller's binding. It replaces only a file that is empty or a document
+of Regula (`Regula.Destination.writeJson`). -/
 def record (path : FilePath) (pending : Pending) : IO Unit :=
-  writeJson path (Json.mkObj [("schemaVersion", toJson (1 : Nat)), ("status", .str "accepted"),
-      ("identity", .str pending.digest), ("acceptedJobs", toJson pending.account.val.jobs),
-      ("origin", .str pending.origin)])
+  Regula.Destination.writeJson path <| Json.mkObj [
+    ("schemaVersion", toJson (1 : Nat)), ("status", .str "accepted"),
+    ("identity", .str pending.digest), ("acceptedJobs", toJson pending.account.val.jobs),
+    ("origin", .str pending.origin)]
 
 /-- Refuse unless ordinary acceptance recorded an accepted success over equal inputs.
 The `status: accepted` record lives in a writable `tmp/` file and is trusted as written
 by ordinary acceptance, like the `shasum` and filesystem observations behind its
 identity; a process that forges it is outside the assurance boundary (standard §7). -/
 def require (path : FilePath) (digest : String) : IO Unit := do
-  unless ← path.pathExists do
+  unless ← Regula.Filesystem.isPresent path do
     throw <| IO.userError s!"acceptance link missing: run ordinary acceptance first ({path})"
   let value ← readJson path
   unless (value.getObjValAs? Nat "schemaVersion").toOption == some 1 &&
@@ -284,10 +288,7 @@ def placeRetained (repo copy scratch link : FilePath) (identity : String)
           let mut present := #[]
           for (path, _) in BuildReuse.selected closure build.artifacts do
             let source := repo / ".lake" / "build" / path
-            let regular ← match ← source.symlinkMetadata.toBaseIO with
-              | .ok metadata => pure (metadata.type == .file)
-              | .error _ => pure false
-            unless regular do continue
+            unless (← Regula.Filesystem.entryIfPresent source) == some .file do continue
             let target := staging / path
             Regula.Filesystem.copyFile source target
             present := present.push path
@@ -297,7 +298,7 @@ def placeRetained (repo copy scratch link : FilePath) (identity : String)
     let run : BuildReuse.Run := { identity, targets, modules, closure, tree, staged }
     unless BuildReuse.reuse record run do return .error (refusal record run)
     let target := copy / ".lake" / "build"
-    unless (← (target.symlinkMetadata.toBaseIO)) matches .error _ do
+    if (← Regula.Filesystem.entryIfPresent target).isSome then
       return .error s!"{target} already exists"
     try
       for (path, _) in staged do

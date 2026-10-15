@@ -126,14 +126,6 @@ def nativeOverrides : List (Tool × String × String) :=
 def overrideVariables : Array String :=
   (nativeOverrides.flatMap fun (_, first, fallback) => [first, fallback]).toArray
 
-/-- The effective value of a variable after POSIX Lean's left-to-right environment changes.
-Assumes: Lean v4.34.1 `runtime/process.cpp:463-469` applies changes in this order when every
-native update succeeds; the runtime ignores update failures, which valid strings do not exclude;
-this is not a model of Windows environment construction. -/
-def effective (initial : Option String) (changes : Array (String × Option String))
-    (name : String) : Option String :=
-  changes.foldl (fun value (key, replacement) => if key = name then replacement else value) initial
-
 /-- Native environment entries have a nonempty key without '=' or NUL and a value without NUL.
 Assumes: Lean v4.34.1 `runtime/process.cpp:463-469` passes these strings to setenv/unsetenv. -/
 def nativeEntry (entry : String × Option String) : Bool :=
@@ -215,14 +207,17 @@ establish presence, even when a later occurrence restores it. With inheritance d
 inherited override cannot establish presence either.
 Assumes: Lean v4.34.1 `Lake/Config/InstallPath.lean:289-316` uses the bundled clang/llvm-ar or an
 applicable compiler/archiver override before its bare cc/ar fallback, and reads CC/AR only without
-the bundled tool. The installation and parent environment stay stable, and native environment
-updates succeed (`runtime/process.cpp:463-469`). -/
+the bundled tool. Lake takes the bundled tool as present when `System.FilePath.pathExists` reads it
+(`:293`, `:303`), which gives `false` for every error of `metadata`, so the guard reads it as Lake
+does: present when its `metadata` read succeeds. An unreadable bundled tool, which Lake passes
+over for an override, therefore requires the override here too. The installation and parent
+environment stay stable, and native environment updates succeed (`runtime/process.cpp:463-469`). -/
 def requireNativeTools (installation : Installation)
     (changes : Array (String × Option String) := #[]) (inheritEnv : Bool := true) : IO Unit := do
   requireOverrides changes
   for (tool, first, fallback) in nativeOverrides do
     let bundled := (installation.root.val / "bin" / tool.basename).addExtension FilePath.exeExtension
-    if ← bundled.pathExists then continue
+    if (← bundled.metadata.toBaseIO) matches .ok _ then continue
     requireAbsoluteOverrides [fallback] changes
     let mut supplied := false
     for name in [first, fallback] do
@@ -278,6 +273,8 @@ structure ResolvedTool (tool : Tool) where
     (installation.root.val / "bin" / tool.basename).addExtension FilePath.exeExtension
 
 /-- Construct a closed tool path from the checked installation, with no workspace PATH lookup.
+It refuses unless the read of the tool's `metadata` succeeds, so neither an absent nor an
+unreadable tool is selected.
 Assumes: the installation's other tools belong to it and its contents stay unchanged between
 identity observation and execution; compiler self-report and installation integrity are trusted. -/
 def resolvedTool [Cache] (tool : Tool) (known : Option Installation := none) : IO (ResolvedTool tool) := do
@@ -289,8 +286,8 @@ def resolvedTool [Cache] (tool : Tool) (known : Option Installation := none) : I
     | .ok admitted => pure (⟨admitted, absolute_sound path admitted h⟩ :
         {admitted : AbsolutePath // admitted.val = path})
     | .error error => throw <| IO.userError error
-  unless ← path.pathExists do
-    throw <| IO.userError s!"the selected installation has no {tool.basename} at {path}"
+  if let .error error ← path.metadata.toBaseIO then
+    throw <| IO.userError s!"the selected installation's {tool.basename} at {path} cannot be read: {error}"
   return ⟨installation, admitted.val, admitted.property⟩
 
 /-- The path projected from the same proof-bearing selection the launches consume. -/

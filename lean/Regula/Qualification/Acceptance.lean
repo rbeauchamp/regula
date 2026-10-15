@@ -11,8 +11,6 @@ mutate. IO/process observations remain trusted boundaries. -/
 namespace Regula.Qualification.Acceptance
 open Lean System DependencySnapshot
 
-private def array (j : Json) (key : String) : IO (Array Json) := IO.ofExcept
-    (j.getObjValAs? (Array Json) key)
 private def first (xs : Array Json) : IO Json := do
   let some x := xs[0]? | throw <| IO.userError "mutation requires a nonempty array"
   return x
@@ -35,13 +33,14 @@ def worker (args : List String) : IO UInt32 := do
   if compilation && #["fence-missing", "fence-duplicate", "fence-misindexed"].contains mode then
     let some path := args[2]? | throw <| IO.userError "missing compilation output"
     let packet ← readJson ⟨path⟩
-    let mut payload ← array packet "payload"
+    let mut payload ← readMember path (RegulaQualification.Member.array packet "payload")
     if mode == "fence-missing" then payload := payload.pop
     else if mode == "fence-duplicate" then payload := payload.push (← first payload)
     else
       let entry ← IO.ofExcept ((← first payload).getArr?)
       payload := payload.set! 0 (toJson (entry.set! 0 (toJson (999999 : Nat))))
-    writeJson ⟨path⟩ (packet.setObjVal! "payload" (toJson payload))
+    -- The mutated packet replaces the worker's, which the destination writer identifies.
+    writeEvidence ⟨path⟩ (packet.setObjVal! "payload" (toJson payload))
   return 0
 
 private def faults : String → Array (String × String)
@@ -50,15 +49,9 @@ private def faults : String → Array (String × String)
           ("fence-misindexed", "unknownKey")]
   | _ => #[]
 
-private def save (path : FilePath) (receipt : Json) : IO Unit := do
-  let suffix ← IO.getRandomBytes 12
-  let temporary := FilePath.mk
-      (path.toString ++ "." ++ suffix.foldl (fun s b => s ++ s!"{b.toNat}-") "")
-  try
-    writeJson temporary receipt
-    Regula.Filesystem.replacePath temporary path
-  finally
-    removeFile temporary
+/-- Write `receipt` at the destination `path` (`writeEvidence`). -/
+private def save (path : FilePath) (receipt : Json) : IO Unit :=
+  writeEvidence path receipt
 
 private def qualify (group : String) (evidence : FilePath) (receipt : IO.Ref Json) : IO Unit := do
   let root ← rootDirectory
@@ -110,8 +103,8 @@ private def qualify (group : String) (evidence : FilePath) (receipt : IO.Ref Jso
     for name in
         #["lean-toolchain", "lakefile.lean", "lake-manifest.json", "foundation_manifest.json",
             "Example.lean", "docs/control.md"] do
-      if ← (project / name).pathExists then sources := sources ++
-                                             [(name, toJson (← IO.FS.readFile (project / name)))]
+      if let some text ← Regula.Filesystem.readFileIfPresent (project / name) then
+        sources := sources ++ [(name, toJson text)]
     update "sources" (Json.mkObj sources)
     let mut records : Array Json := #[]
     let mut cases := #[("positive", "", "")]
@@ -137,7 +130,7 @@ private def qualify (group : String) (evidence : FilePath) (receipt : IO.Ref Jso
         "log" (toJson (result.stdout ++ result.stderr))
       update "activeCase" active
       let resultEvidence := evidence.addExtension s!"result-{records.size}.json"
-      let resultFile ← if ← output.pathExists then do
+      let resultFile ← if ← Regula.Filesystem.isPresent output then do
         Regula.Filesystem.replacePath output resultEvidence
         pure (toJson resultEvidence.toString)
         else pure Json.null
@@ -168,7 +161,6 @@ ordinary exceptions retain failure and the active case. Filesystem atomicity is 
 `reason`, the receipt records why the attempt stops before its setup. -/
 def beginAttempt (group : String) (evidence : FilePath) (attempt : String)
     (reason : Option String := none) : IO Json := do
-  if let some parent := evidence.parent then IO.FS.createDirAll parent
   let receipt := Json.mkObj ([("attemptId", toJson attempt),
     ("status", toJson "incomplete"), ("group", toJson group), ("inputs", Json.mkObj []),
     ("records", toJson (#[] : Array Json))] ++
@@ -222,8 +214,8 @@ def documentationDependencies : IO Unit := do
       "name = \"documentation_dependency\"\n" ++ Regula.Checker.observerPluginToml ++
       "[leanOptions]\nautoImplicit = false\nrelaxedAutoImplicit = false\n" ++
       "linter.missingDocs = true\n[[require]]\nname = \"dep\"\npath = \"../dependency\"\n" ++
-      Regula.Checker.regulaRequireToml root ++ "[[lean_lib]]\nname = \"Example\"\n" ++
-      Regula.Checker.observerNeedToml
+      Regula.Checker.regulaRequireToml root ++
+      Regula.Checker.observedTargetToml .library "Example"
     manifest project "kernel-only"
     let source := "import Lean\nimport Dep\n/-! Documentation prerequisite. -/\ntheorem value : \
       Dep.n = 1 := rfl\n"
@@ -254,7 +246,7 @@ def documentationDependencies : IO Unit := do
             ⟨s!"frozen dependency refused: {log}", result.exitCode != 0 &&
                 log.contains "dependency snapshot changed:" &&
               !log.contains "accepted "⟩]
-          if ← output.pathExists then
+          if ← Regula.Filesystem.isPresent output then
             requireChecks
                 [⟨"no acceptance", ((← readJson output).getObjVal? "acceptance").toOption.isNone⟩]
         else

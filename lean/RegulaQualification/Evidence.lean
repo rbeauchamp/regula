@@ -1,5 +1,6 @@
 import RegulaQualification.Json
 import Regula.Decision
+import RegulaQualification.Member
 
 /-! # Source-bound evidence contracts
 
@@ -9,14 +10,17 @@ they do not establish that an OS process or filesystem supplied authentic observ
 namespace RegulaQualification.Evidence
 open Lean
 
-/-- Required JSON field; unavailable evidence refuses rather than defaulting. -/
-def field (j : Json) (key : String) : Except String Json := j.getObjVal? key
+/-- Required JSON member, whole, for a comparison by agreement or a copy (`Member.value`);
+unavailable evidence refuses rather than defaulting. -/
+def value (j : Json) (key : String) : Except String Json := Member.value j key
+/-- Required object member, the parent of further required members. -/
+def object (j : Json) (key : String) : Except String Json := Member.object j key
 /-- Required text field. -/
-def text (j : Json) (key : String) : Except String String := j.getObjValAs? _ key
+def text (j : Json) (key : String) : Except String String := Member.text j key
 /-- Required array field. -/
-def array (j : Json) (key : String) : Except String (Array Json) := j.getObjValAs? _ key
+def array (j : Json) (key : String) : Except String (Array Json) := Member.array j key
 /-- Required nested object text. -/
-def detail (j : Json) : Except String String := do text (← field j "arguments") "detail"
+def detail (j : Json) : Except String String := do text (← object j "arguments") "detail"
 /-- Diagnostic IDs in their actual order, retaining duplicates. -/
 def ids (j : Json) : Except String (List String) := do
   (← array j "diagnostics").toList.mapM (text · "id")
@@ -72,11 +76,11 @@ def requirements (expected : Expected) (code : Nat) (transcript : String)
       if (← text diagnostic "id") == "RG2005" then
         checks := checks ++ [
           ⟨"typed evidence reason", (← detail diagnostic).contains expected.reason⟩,
-          ⟨"evidence project location", (← text (← field diagnostic "location") "kind") ==
+          ⟨"evidence project location", (← text (← object diagnostic "location") "kind") ==
               "project"⟩]
         if let some subject := expected.evidenceSubject then
           checks := checks ++
-              [⟨"evidence subject", (← text (← field diagnostic "arguments") "subject") == subject⟩]
+              [⟨"evidence subject", (← text (← object diagnostic "arguments") "subject") == subject⟩]
   return checks
 
 /-- This is the actual supplied-observation oracle used by the IO adapter. -/

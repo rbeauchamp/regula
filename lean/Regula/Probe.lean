@@ -33,8 +33,7 @@ Machine-audit support consumed directly by the repository's Lean checker
 executables.
 
 The trusted runner calls `environmentReport` on a Lean-imported elaborated
-environment — never on source text. The `audit_dump_json` command remains only
-as an interactive compatibility entrypoint. For every declaration whose exact
+environment — never on source text. For every declaration whose exact
 module index is requested, the report records:
 
 - the declaration's module and constant kind (axiom, theorem, def, opaque,
@@ -65,8 +64,10 @@ computation, compiler-trusting proof axioms, and initialized values. A replaceme
 unsafe or partial computation, or initialized value declared in an origin-checked `Init`, `Std`,
 `Lean` or `Lake` module carries that module's toolchain origin: it is the toolchain's trusted
 base, and a toolchain replacement is followed through its current target without source history or
-correspondence. An unsafe constant whose type Lean's `Meta.isProp` finds to be a proposition, such
-as `lcProof`, is a proof the compiler erases and is no boundary. Each
+correspondence. A module's origin is checked by the file where Lean's search path finds it after
+the import, under the hypotheses of `loadedModuleOrigins`. An unsafe constant whose type Lean's
+`Meta.isProp` finds to be a proposition, such as `lcProof`, is a proof the compiler erases and is
+no boundary. Each
 boundary is marked `checked` (kernel-definitional equality, a standard-logical
 correspondence theorem of a module that the audit replays or of the toolchain, or a
 kernel-checked opaque body), `trusted`, or
@@ -119,7 +120,26 @@ def ownedConstants (env : Environment) (modules : List Name) :
   return own
 
 /-- The name, canonical `.olean` path and direct imports of every module loaded in `env`, in
-header order. -/
+header order. The path is the file where Lean's search path finds the module now
+(`Lean.findOLean`), not a record of the file that Lean read, which Lean 4.34.1 keeps nowhere in the
+environment.
+
+Assumes:
+- `env` was imported in this process by `importModules` with no artifacts supplied, as
+  `Regula.Checker.Environment.importReportEnvironment` imports the environment of each caller.
+  Lean then read each module from the file that `Lean.findOLean` gave at the import
+  (`loadData`, `Lean/Environment.lean:2231-2238`, and `readModuleDataPartsOfMod`, `:2078-2082`).
+- Between the import and this lookup, nothing changed that the lookup reads: the search path, and
+  in each of its directories the directory or `.olean` file of the module's root, the module's
+  `.olean` and the symbolic links on their paths. `Lean.SearchPath.findWithExt` reads the
+  filesystem anew at each call (`Lean/Util/Path.lean:61-65`), so a file made in an earlier
+  directory after the import would be reported in place of the one that Lean read. So the path is
+  that file's.
+
+Every origin that a caller derives from this path rests on these hypotheses: the toolchain origin
+of a module (`RegulaPolicy.ToolchainOrigin`), the origin of an infrastructure module
+(`Regula.Checker.Environment.infrastructureOrigins`) and the package that a loaded module is
+attributed to (`Regula.Checker.Environment.ModuleGraph`). -/
 def loadedModuleOrigins (env : Environment) : IO (Array Regula.Report.ModuleOrigin) :=
   env.header.moduleNames.zip env.header.moduleData |>.mapM fun (moduleName, data) => do
     let path ← IO.FS.realPath (← Lean.findOLean moduleName)
@@ -1192,7 +1212,8 @@ def environmentReport (modules : List Name)
   let execution ← reportPhase timing s!"execution walks [{label}]" <| if includeExecution then do
     -- Names alone do not establish toolchain ownership: an adopter or dependency
     -- can supply Init.*, Std.* or Lean.* modules. Resolve each candidate once, and require
-    -- the exact canonical artifact path in the pinned toolchain's library directory.
+    -- the exact canonical artifact path, under the hypotheses of `loadedModuleOrigins`, in the
+    -- pinned toolchain's library directory.
     -- Missing origin evidence leaves the module's boundaries owned by the project or a
     -- dependency rather than granting a toolchain exemption.
     let toolchainLib ← liftIO <| Lean.getLibDir (← Regula.Process.sysroot)
@@ -1201,7 +1222,7 @@ def environmentReport (modules : List Name)
       if RegulaPolicy.ToolchainRoot moduleName.getRoot then
         let actual ← liftIO <| IO.FS.realPath origin.olean
         let expected := Lean.modToFilePath toolchainLib moduleName "olean"
-        if ← liftIO expected.pathExists then
+        if ← liftIO (Regula.Collect.isPresent expected) then
           if actual == (← liftIO <| IO.FS.realPath expected) then
             let receipt ← match RegulaPolicy.admitToolchainOrigin moduleName actual.toString
                 (← liftIO <| IO.FS.realPath expected).toString with
@@ -1260,20 +1281,5 @@ def environmentReport (modules : List Name)
                 executionRoots := if includeExecution then some roots else none
                 historyRequests := ← liftIO historyRequests.get }
   }
-
-/-- `audit_dump_json`: compatibility command for direct interactive use. The
-Lean-native checker calls `environmentReport` directly. -/
-elab (name := auditDumpJsonCmd) "audit_dump_json" : command => do
-  let some pathStr := ← liftIO (Regula.Process.readEnv "AUDIT_DUMP_PATH")
-    | throwError "audit_dump_json: AUDIT_DUMP_PATH is not set"
-  let some modulesRaw := ← liftIO (Regula.Process.readEnv "AUDIT_OWN_MODULES")
-    | throwError "audit_dump_json: AUDIT_OWN_MODULES is not set"
-  let modules := (modulesRaw.split (· == ',')).toList
-    |>.filterMap fun t =>
-      let t := t.trimAscii.toString
-      if t.isEmpty then none else some t.toName
-  -- No admission runs here, so only a toolchain theorem can prove a correspondence.
-  let report ← environmentReport modules
-  liftIO <| IO.FS.writeFile (System.FilePath.mk pathStr) (Json.pretty (toJson report.toEnvironment))
 
 end Regula.Probe

@@ -268,9 +268,9 @@ private def phase (repo scratch : FilePath) (test : Case) (negative : Bool) : IO
   IO.FS.writeFile (scratch / "lakefile.toml") <|
     "name = \"compiler_path_control\"\n" ++ observerPluginToml ++
     s!"[leanOptions]\nautoImplicit = false\nrelaxedAutoImplicit \
-      = false\n[[lean_lib]]\nname = \"{test.supportModule}\"\n{observerNeedToml}{supportOptions}\
-      [[lean_lib]]\nname = \"Wrapper\"\n{observerNeedToml}\
-      leanOptions.linter.missingDocs = true\n" ++
+      = false\n" ++
+      observedTargetToml .library test.supportModule supportOptions ++
+      observedTargetToml .library "Wrapper" "leanOptions.linter.missingDocs = true\n" ++
       regulaRequireToml repo
   -- Resolve configuration before the checker captures its immutable source
   -- binding. A later first Lake invocation would otherwise create the manifest

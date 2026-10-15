@@ -43,7 +43,7 @@ def check (sourceReadOnly : Bool) : IO Unit := do
         "  leanOptions := #[⟨`autoImplicit, false⟩, ⟨`relaxedAutoImplicit, false⟩,\n" ++
         "    ⟨`linter.missingDocs, true⟩]\n" ++ Regula.Checker.observerPluginLean ++
         s!"\nrequire regula from {(Lean.Json.str root.toString).compress}\n" ++
-        "\nlean_lib Example where\n" ++ Regula.Checker.observerNeedLean ++ facet
+        "\n" ++ Regula.Checker.observedTargetLean .library "Example" ++ facet
     IO.FS.writeFile (project / "Example.lean") source
     let manifest ← IO.FS.readFile (project / "foundation_manifest.json")
     -- What this runtime reports for reads that fail the two ways the controls cause: a file that
@@ -106,9 +106,10 @@ def check (sourceReadOnly : Bool) : IO Unit := do
                   "source-unreadable", "restored"]
         for index in [:phases.size] do
           let phase := phases[index]!
-          if ← target.isDir then Regula.Filesystem.removePath .directory target
+          if ← Regula.Filesystem.isDirectory target then
+            Regula.Filesystem.removePath .directory target
           if phase == "initial-missing" then
-            if ← target.pathExists then Regula.Filesystem.removePath .file target
+            Regula.Filesystem.removePath .file target
           else
             let operation := if phase == "source-change" then "append" else if phase ==
                                                                              "source-missing" then

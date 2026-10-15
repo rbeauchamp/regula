@@ -28,7 +28,9 @@ private def reductionAxiomType (typeName reducer : Name) : Expr :=
 
 /-- Observe the complete legacy family (`true`) or its complete absence (`false`).
 Partial presence, a wrong declaration shape or an origin outside the selected compiler
-is an error. Canonical-path resolution and compiler import are trusted IO observations. -/
+is an error. Canonical-path resolution and compiler import are trusted IO observations. Each origin
+is the file that the search path finds after the import, under the hypotheses of
+`Regula.Probe.loadedModuleOrigins`: nothing that the lookup reads changes in between. -/
 def legacyPresent (library : System.FilePath) : IO Bool := do
   let env ← importModules #[{ module := `Init.Core }] {} (loadExts := false)
   for name in env.header.moduleNames do

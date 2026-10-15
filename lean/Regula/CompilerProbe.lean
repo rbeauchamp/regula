@@ -30,7 +30,7 @@ as given and sets `ELAN_HOME` and `ELAN_TOOLCHAIN` for it. The installed Elan, i
 toolchains are trusted. -/
 def elanExecutable (home : FilePath) : IO FilePath := do
   let elan := (home / "bin" / "elan").addExtension FilePath.exeExtension
-  unless ← elan.pathExists do
+  unless ← Regula.Filesystem.isPresent elan do
     throw <| IO.userError s!"cannot find elan at {elan}, the Elan installation's binary directory"
   return elan
 

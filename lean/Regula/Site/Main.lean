@@ -56,14 +56,16 @@ def siteMain (args : List String) : IO UInt32 := do
     IO.eprintln "       lake exe site renderer-refusal"
     return 2
 
-/-- The refusal of the build in a process without Lean's task manager
-(`Regula.TaskManager.guard`): it invalidates the artifact of the directory that the arguments name
-(`siteOutputNamed`) as a build does before its first step (`Regula.Site.Build.invalidateArtifact`),
-printing a line when it cannot, and returns 1. Arguments that name no directory invalidate
-nothing. -/
+/-- The refusal of the build in a process without Lean's task manager, which the guard also runs
+before each run (`Regula.TaskManager.guard`): it invalidates the artifact of the directory that the
+arguments name (`siteOutputNamed`), removing it only when it holds an artifact
+(`Regula.Site.Build.invalidateRefused`), printing a line when it cannot, and returns 1. Arguments
+that name no directory invalidate nothing. It starts no task: the listing that the build's own
+first step makes (`Regula.Site.Build.invalidateArtifact`) reads its program's output in a task,
+so the refusal does not make it. -/
 def refuseSiteBuild (_reason : String) (args : List String) : IO UInt32 := do
   if let some out := siteOutputNamed args then
-    try discard <| Regula.Site.Build.invalidateArtifact out
+    try Regula.Site.Build.invalidateRefused out
     catch error => IO.eprintln s!"site: could not invalidate the artifact at {out}: {error}"
   return 1
 
@@ -72,10 +74,44 @@ before the build starts, with exit code 1 (`Regula.TaskManager.guard`). -/
 def main : List String → IO UInt32 :=
   Regula.TaskManager.guard "site" refuseSiteBuild siteMain
 
--- The removals that the compiled code of `main`, and of the initializers of the modules it links,
--- reaches are the filesystem observer's and those that `Regula.Removal.libraryRemovals` lists: the
--- build of this module fails otherwise (`Regula.Removal.checkProgram`).
-run_cmd Regula.Removal.checkProgram
+-- The removals and the writes that the compiled code of the program reaches from its roots
+-- (`Regula.Removal.rawRemovals`) are those of the filesystem observer and those that
+-- `Regula.Removal.sharedPairs` lists, and those named here, each by the declaration of a source
+-- that makes it: the build of this module fails otherwise, and when a name here admits no call
+-- (`Regula.Removal.checkProgram`). The program elaborates Lean source, so its check states it.
+run_cmd Regula.Removal.checkProgram (elaborates := true) (named := [
+  -- The artifact that `site build` assembles at its destination, after its refusal
+  -- (`Regula.Site.Build.artifactRefusal`).
+  (``Regula.Site.Build.assemble, ``IO.FS.createDirAll),
+  (``Regula.Site.Build.assemble, ``IO.FS.writeFile),
+  -- The generated modules of the site's package, and the release that the build downloads and
+  -- unpacks in its own directory.
+  (`Regula.Site.Build.writeModule, ``IO.FS.createDirAll),
+  (`Regula.Site.Build.writeModule, ``IO.FS.writeFile),
+  (``Regula.Site.Build.downloadRelease, ``IO.FS.createDirAll),
+  (``Regula.Site.Build.extractRelease, ``IO.FS.createDirAll),
+  (``Regula.Site.Build.generate, ``IO.FS.createDirAll),
+  (``Regula.Site.Build.generate, ``IO.FS.writeFile),
+  (``Regula.Site.Build.writeTree, ``IO.FS.createDirAll),
+  (``Regula.Site.Build.writeTree, ``IO.FS.writeBinFile),
+  -- The destinations that the control of the renderers' refusals seeds, in its scratch directory
+  -- (`Regula.Site.RendererRefusal.control`).
+  (`Regula.Site.RendererRefusal.seed, ``IO.FS.createDirAll),
+  (`Regula.Site.RendererRefusal.seed, ``IO.FS.writeFile),
+  -- The writes of the campaigns that `qualify` runs and names (`Regula.Qualification.Main`), in
+  -- the modules of them that this program links: their projects and slots, and the raw
+  -- observations of a rule-example production beside its evidence
+  -- (`Regula.Qualification.RuleExamples`). The compiled code of those modules is among the
+  -- program's roots (`Regula.Removal.programRoots`).
+  (``Regula.Qualification.prepareCoreProject, ``IO.FS.createDirAll),
+  (``Regula.Qualification.rootImportsGuardControl, ``IO.FS.writeFile),
+  (`Regula.Qualification.RuleExamples.observe, ``IO.FS.Handle.mk),
+  (`Regula.Qualification.RuleExamples.produce, ``IO.FS.createDir),
+  (`Regula.Qualification.RuleExamples.produce, ``IO.FS.createDirAll),
+  (`Regula.Qualification.RuleExamples.produce, ``IO.FS.writeBinFile),
+  (`Regula.Qualification.RuleExamples.produce, ``IO.FS.writeFile),
+  (``Regula.Qualification.RuleExamples.check, ``IO.FS.createDirAll),
+  (``Regula.Qualification.Slot.prepareSlot, ``IO.FS.writeFile)])
 
 -- A program that needs Lean's task manager starts through its guard (`Regula.TaskManager.guard`),
 -- and its refusal needs none: the build of this module fails otherwise
