@@ -85,7 +85,8 @@ file system calls, and they prove nothing.
   running it where no repository can be, and fails in a repository. A ceiling written through a
   symbolic link is left out, and a read that is refused fails the read.
 - The revision that `Checker.Snapshot.observeGitFacts` reads (`revisions`): none on a branch with
-  no commit, the commit after one, and a failure while the branch's file cannot be read.
+  no commit, the commit after one, and a failure while the branch's file cannot be read and for a
+  `HEAD` that names a branch Git does not accept.
 
 The permissions of each directory that a control takes away are given back before the temporary
 directory is removed. -/
@@ -525,8 +526,10 @@ def workTrees (base : FilePath) : IO (List (String × Bool)) := do
 gave the expected result: none on its branch with no commit yet, the commit that Git names for
 `HEAD` after a commit, and a failure while the file of its branch cannot be read. Git then exits
 with 1 and prints nothing for `rev-parse --verify --quiet HEAD`, as on a branch with no commit,
-and the earlier read gave no revision. The control fails, naming its setup, when Git does not do
-that or the branch is not that file. -/
+and the earlier read gave no revision. In `invalid-head`, a new repository whose `HEAD` names the
+branch `refs/heads/a..b`, a name that Git does not accept: a failure for that name, where Git also
+exits with 1 and prints nothing. The control fails, naming its setup, when Git does not do that or
+the branch is not that file. -/
 def revisions (base : FilePath) : IO (List (String × Bool)) := do
   let fail {α : Type} (message : String) : IO α := throw <| IO.userError message
   let tree := base / "revisions"
@@ -560,13 +563,33 @@ def revisions (base : FilePath) : IO (List (String × Bool)) := do
   unless quiet.exitCode == 1 && quiet.stdout.isEmpty do
     fail s!"the control's setup: Git did not exit with 1 and print nothing for HEAD while \
       {branch} cannot be read: exit {quiet.exitCode}, {quiet.output}"
+  let invalid := base / "invalid-head"
+  IO.FS.createDirAll invalid
+  let madeInvalid ← Regula.Checker.runProcess invalid "git" #["init", "-q"]
+  unless madeInvalid.succeeded do
+    fail s!"the control could not make the repository {invalid}: {madeInvalid.output}"
+  IO.FS.writeFile (invalid / ".git" / "HEAD") "ref: refs/heads/a..b\n"
+  let invalidTop ← IO.FS.realPath invalid
+  let invalidQuiet ← Regula.Checker.runProcess invalidTop "git"
+    #["rev-parse", "--verify", "--quiet", "HEAD"]
+  unless invalidQuiet.exitCode == 1 && invalidQuiet.stdout.isEmpty &&
+      invalidQuiet.stderr.isEmpty do
+    fail s!"the control's setup: Git did not exit with 1 and print nothing for a HEAD that names \
+      refs/heads/a..b: exit {invalidQuiet.exitCode}, {invalidQuiet.output}"
+  let invalidRead ←
+    (Regula.Checker.Snapshot.observeGitFacts "control" invalidTop #[] #[]).toBaseIO
+  let refused := match invalidRead with
+    | .error error => error.toString.startsWith "Git does not accept the branch"
+    | .ok _ => false
   return [
     ("Regula.Checker.Snapshot.observeGitFacts of a repository with no commit",
       unborn matches .ok (none, _)),
     ("Regula.Checker.Snapshot.observeGitFacts of a repository after a commit",
       match named with | .ok (some name, _) => name ++ "\n" == head.stdout | _ => false),
     ("Regula.Checker.Snapshot.observeGitFacts of a repository whose branch cannot be read",
-      locked matches .error _)]
+      locked matches .error _),
+    ("Regula.Checker.Snapshot.observeGitFacts of a repository whose HEAD names a branch that Git \
+      does not accept", refused)]
 
 
 /-- Run the controls in a new temporary directory, and fail, naming each control that does not

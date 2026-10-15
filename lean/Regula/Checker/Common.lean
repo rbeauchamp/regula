@@ -340,8 +340,10 @@ def namedPath (names : List String) : String :=
 /-- The entries of the value `value` of `GIT_CEILING_DIRECTORIES` that Regula takes as ceilings: of
 the entries between colons, each that is its own real path (`Regula.Filesystem.realPathIfPresent`).
 Such an entry starts with `/` and has no symbolic link, no `.` or `..`, no empty name and no final
-`/`. Each other entry is left out: an empty one, one that does not start with `/`, one where nothing
-is, and one whose real path is another path. A failure of the read of a real path is thrown. -/
+`/`, except the root directory `/`, which Git also takes as a ceiling (`path.c:1231-1243`) and which
+`ceilingMatch` reads as Git does. Each other entry is left out: an empty one, one that does not
+start with `/`, one where nothing is, and one whose real path is another path. A failure of the
+read of a real path is thrown. -/
 def ceilingDirectories (value : String) : IO (List String) :=
   (value.splitOn ":").filterM fun entry => do
     unless entry.startsWith "/" do return false
@@ -509,10 +511,12 @@ Assumes: Git 2.54.0 splits the value of `GIT_CEILING_DIRECTORIES` at colons (`se
 `git-compat-util.h:201-202`) and keeps an entry only when it starts with `/` (`setup.c:1315-1338`,
 `abspath.h:28-31`). It keeps such an entry as it is written after an empty entry, and otherwise
 as `real_pathdup` gives it (`abspath.c:235-245`, `:216-221`). An entry that is its own real path
-by `realpath(3)` has no `.`, `..`, empty name or final `/`, and no name of it is a symbolic link.
-For it, `strbuf_realpath_1` appends each name, finds it with `lstat(2)` and not as a link, and gives
-the entry itself (`abspath.c:79-201`, `:110-138`, `:191`). So each ceiling of `ceilingDirectories`
-is one of Git's.
+by `realpath(3)` has no `.`, `..`, empty name or final `/`, except the root directory `/`, and no
+name of it is a symbolic link. For it, `strbuf_realpath_1` starts from the root (`abspath.c:54-64`),
+appends each name, finds it with `lstat(2)` and not as a link, and gives the entry itself
+(`abspath.c:79-201`, `:110-138`, `:191`). For `/` it appends no name and gives `/`, which
+`longest_ancestor_length` reads with length 0 (`path.c:1231-1243`, `:1255-1263`), as `ceilingMatch`
+does. So each ceiling of `ceilingDirectories` is one of Git's.
 
 Assumes: Git 2.54.0 finds a repository at a directory D only from a `.git` file that
 `read_gitfile_gently` reads, which needs `stat(2)` of `D/.git` to succeed (`setup.c:956-976`,

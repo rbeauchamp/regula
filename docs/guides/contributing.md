@@ -634,7 +634,7 @@ With a ceiling written through a symbolic link, which Git resolves, the reads mu
 fail as Git fails. A ceiling or a `.git` directory that cannot be read must fail the read without
 running the query. The control also reads the revision of a repository with `observeGitFacts`. It
 must give none with no commit, the commit after one, and a failure while the file of the branch
-cannot be read.
+cannot be read. It must fail too where `HEAD` names a branch with a name that Git does not accept.
 
 In the first acceptance step, `Regula.PrintedPathControls` runs the reads of a path that
 `/usr/bin/which`, `printenv`, Elan and `lean` print. The read of `which` must keep the space at the

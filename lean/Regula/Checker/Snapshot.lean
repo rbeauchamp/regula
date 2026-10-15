@@ -442,21 +442,25 @@ def headBranch? (bytes : ByteArray) : Option String := do
 branch with no commit yet. Git reports the repository's Git directory and common directory, and
 that it keeps references as files (`--show-ref-format`). `GIT_REFERENCE_BACKEND` is not set, and
 the common directory's `config` has no extension (`Regula.Filesystem.Construction.admitGitConfig`).
-`HEAD` in the Git directory is a regular file that names a branch (`headBranch?`). Nothing is at the
-branch's path in the common directory. The common directory's `packed-refs` is absent, or a regular
-file in which the branch's name is not (`holdsBytes`). Each read is strict
-(`Regula.Filesystem.entryIfPresent`), and anything else gives `false`. A failure of a read or of
-Git is thrown, and so is a configuration with an extension.
+`HEAD` in the Git directory is a regular file that names a branch (`headBranch?`), and Git accepts
+that name (`git check-ref-format --allow-onelevel`). Nothing is at the branch's path in the common
+directory. The common directory's `packed-refs` is absent, or a regular file in which the branch's
+name is not (`holdsBytes`). Each read is strict (`Regula.Filesystem.entryIfPresent`), and anything
+else gives `false`. A failure of a read or of Git is thrown. So are a configuration with an
+extension and a name that Git does not accept, for which Git also exits quietly with 1.
 
 Assumes: Git 2.54.0 takes the format and the place of its references only from
 `extensions.refStorage` and `GIT_REFERENCE_BACKEND` (`setup.c:633-646`, `:689-697`, `:2025-2044`);
 `--show-ref-format` prints the format (`builtin/rev-parse.c:1132-1135`). With neither of them set,
 the files backend keeps `HEAD` in the Git directory and a branch `refs/heads/...` in the common
 directory (`refs.c:3518-3534`, `:880-885`, `:944-989`, `refs/files-backend.c:108-135`, `:213-235`).
-It reads `ref: R` as the name R (`refs/files-backend.c:578`, `:621-628`). When nothing is at a
-branch's path, it looks for the branch only in the common directory's `packed-refs`
-(`refs/files-backend.c:501-511`, `refs/packed-backend.c:218-233`), whose entries spell out the
-branch's name. No other process writes the repository while the reads and Git run. -/
+It reads `ref: R` as the name R (`refs/files-backend.c:578`, `:621-628`). It resolves R only when
+`check_refname_format` with `REFNAME_ALLOW_ONELEVEL` accepts it (`refs.c:2152-2155`), the check
+that `check-ref-format --allow-onelevel` makes and reports by its exit status
+(`builtin/check-ref-format.c:73-99`), and it warns of no dangling `HEAD` (`refs.c:829-832`). When
+nothing is at a branch's path, it looks for the branch only in the common directory's
+`packed-refs` (`refs/files-backend.c:501-511`, `refs/packed-backend.c:218-233`), whose entries
+spell out the branch's name. No other process writes the repository while the reads and Git run. -/
 private def unbornHead (root : FilePath) : IO Bool := do
   if (← IO.getEnv "GIT_REFERENCE_BACKEND").isSome then return false
   let gitDir ← Regula.Filesystem.Construction.gitPath root
@@ -468,6 +472,10 @@ private def unbornHead (root : FilePath) : IO Bool := do
   unless format.exitCode == 0 && format.stdout == "files\n" do return false
   unless (← Regula.Filesystem.entryIfPresent (gitDir / "HEAD")) == some .file do return false
   let some branch := headBranch? (← IO.FS.readBinFile (gitDir / "HEAD")) | return false
+  let checked ← runProcess root "git" #["check-ref-format", "--allow-onelevel", branch]
+  unless checked.exitCode == 0 && checked.stdout.isEmpty && checked.stderr.isEmpty do
+    throw <| IO.userError s!"Git does not accept the branch {branch.quote} that HEAD names (exit \
+      {checked.exitCode}): {checked.stderr}"
   if (← Regula.Filesystem.entryIfPresent (common / branch)).isSome then return false
   match ← Regula.Filesystem.entryIfPresent (common / "packed-refs") with
   | none => return true
