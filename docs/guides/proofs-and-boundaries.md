@@ -4026,13 +4026,22 @@ is not byte equality. Dependency Git pins do not prove an unmodified checkout, s
 dirty and path state is recorded as an observation.
 
 The audit owns a dependency when its directory is in the Git work tree of the root package.
-`Lake.surfaceInventory` decides it with `ownedDirectory`: `git rev-parse --show-toplevel`, run
-without `GIT_DIR` and `GIT_WORK_TREE`, gives the same real directory for the two. **Proved:**
-`sameWorkTree_iff` (owned exactly when one known work tree holds the root package and the
-dependency), so a dependency in an unknown work tree, or of a root package outside each work tree,
-is not owned. **Trusted:** Git finds that work tree, and the filesystem resolves the real paths.
-A Git dependency that Lake clones has a work tree of its own, and so does a submodule, thus
-neither is owned.
+`Lake.surfaceInventory` decides it with `ownedDirectory`, which compares the work trees that
+`gitWorkTree` gives for the two directories. **Proved:** `sameWorkTree_iff` (owned exactly when one
+known work tree holds the root package and the dependency), so a dependency in an unknown work tree,
+or of a root package outside each work tree, is not owned. A Git dependency that Lake clones has a
+work tree of its own, and so does a submodule, thus neither is owned.
+
+`gitWorkTree` runs `git rev-parse --show-toplevel` in the directory, without `GIT_DIR` and
+`GIT_WORK_TREE`. When Git succeeds, `gitWorkTree` removes only the final newline from the printed
+path (`checked_printedPath?`). When Git fails, `gitWorkTree` gives no work tree only if nothing is
+at `.git` or at `HEAD` of the directory and of each ancestor (`mem_discoveryPlaces`). Otherwise
+the audit stops with the report of Git.
+
+Thus the audit does not take a repository that Git cannot read, such as a linked work tree with an
+unreadable `.git` file, as no repository. **Trusted:** Git `2.54.0` finds a repository only where
+such an entry is, as `gitWorkTree` cites from the source of Git. **Trusted:** the filesystem
+resolves the real paths, and no process changes them while the audit reads them.
 
 Ownership has a supported scope. Each audit, incremental or fresh, refuses two things before it
 builds the project or a copy. `checkDefaultLayout` refuses an owned package, the root package
@@ -6057,6 +6066,11 @@ execution, and calling a proved oracle does not prove the driver or its IO effec
   fixed parent and workspace invocation, separately for the imported-control search-path override;
   neither observations nor compiled artifacts are reused, environment values are not exported, and
   durations are observations, not a speed guarantee or compiler-equivalence theorem.
+- `checked_printedLine?` and `checked_printedPath?`: `Launcher.resolvedLean` and `printedLeanPath`
+  read the path that `which` prints and the `LEAN_PATH` that `printenv` prints with only the final
+  newline removed. `Toolchain.selectedLean` reads the path that Elan prints in the same way, and it
+  must be absolute. Each refuses other output. The output format of each program is trusted, as
+  the `Assumes:` entry of each reader cites it from the source of the program.
 - `Template.instantiate`: the required `Maps` proof for the recursive JSON transformation (array
   order, object keys and scalar kinds preserved; only entire matching string values change;
   depth exhaustion refuses, and the corpus uses 64 levels). Checker snapshots discover modules

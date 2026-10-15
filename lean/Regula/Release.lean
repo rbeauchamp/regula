@@ -1606,13 +1606,18 @@ assumptions. -/
 private def isolationEnvironment : IO (Array (String × Option String)) :=
   construction "Git isolation" "process-environment"
 
-/-- Run `git` with `args` in the checkout; its standard output without surrounding whitespace, or
-a failure with its standard error. -/
-private def git (args : Array String) : IO String := do
+/-- Run `git` with `args` in the checkout; its standard output as it is, or a failure with its
+standard error. -/
+private def gitText (args : Array String) : IO String := do
   let out ← IO.Process.output {
     cmd := "git", args := #["-c", "core.symlinks=false"] ++ args, env := ← gitEnvironment }
   unless out.exitCode == 0 do fail s!"git {args}: {out.stderr}"
-  return out.stdout.trimAscii.toString
+  return out.stdout
+
+/-- `gitText` without surrounding whitespace, for output that is read as object names, commit
+text or messages, or only tested for emptiness, never as a path. -/
+private def git (args : Array String) : IO String :=
+  return (← gitText args).trimAscii.toString
 
 /-- The commit tag `tag` names, if the tag exists (peeling an annotated tag). -/
 def taggedCommit (repo tag : String) : IO (Option String) := do
@@ -1849,7 +1854,7 @@ private def guideFile : FilePath := "docs/guides/adoption.md"
 the documents whose pins of Regula (`setPins`) `agree` checks and `open` sets. Refused unless the
 adoption guide is among them. -/
 private def markdownDocuments : IO (List (String × String)) := do
-  let paths := ((← git #["ls-files", "-z", "--", "*.md"]).splitOn "\x00").filter (!·.isEmpty)
+  let paths := ((← gitText #["ls-files", "-z", "--", "*.md"]).splitOn "\x00").filter (!·.isEmpty)
   unless paths.contains guideFile.toString do
     fail s!"git ls-files lists no {guideFile} among the tracked Markdown documents"
   paths.mapM fun (path : String) => return (path, ← IO.FS.readFile path)

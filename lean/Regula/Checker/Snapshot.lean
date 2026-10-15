@@ -420,26 +420,36 @@ every process except one started through the internal qualification entry point
 (`ruleExamples --injected-git-facts`); no user-facing checker mode sets it. -/
 initialize injectedGitFacts : IO.Ref (Array GitFacts) ← IO.mkRef #[]
 
-/-- The Git facts for one exact capture request: the nominal revision (only for
-a dependency that is its own repository) and input-scoped dirty status. One
-`rev-parse` prints the revision line and then the top level. It fails when there is
-no repository or `HEAD` does not resolve; the two separate calls it replaces then
-also yielded no revision, so the facts are unchanged. -/
+/-- The object name that `HEAD` names in the Git repository at `root`, or `none` when Git states
+that it names none, as on a branch with no commit yet: `git rev-parse --verify --quiet HEAD` prints
+the object name and a newline, and exits with 1, printing nothing, when `HEAD` names no object. An
+exit with any other status, or output that is not one hexadecimal name and its newline, is thrown.
+
+Assumes: Git 2.54.0 `rev-parse` exits with 1 for `--verify --quiet` only when its argument names no
+single object (`builtin/rev-parse.c:580-586`, `:1169-1170`, `:1179-1185`), and with 128 for each
+error it dies on (`usage.c:80-87`), a repository that it cannot set up among them. It prints the
+object name with `puts` (`builtin/rev-parse.c:116-131`, `:143-185`). It reads a ref that it cannot
+read as naming no object (`refs.c:2112-2118`), so such a ref also gives `none` here. -/
+private def headRevision (package : String) (root : FilePath) : IO (Option String) := do
+  let parsed ← runProcess root "git" #["rev-parse", "--verify", "--quiet", "HEAD"]
+  if parsed.exitCode == 1 && parsed.stdout.isEmpty then return none
+  unless parsed.succeeded do
+    throw <| IO.userError s!"dependency revision unavailable: {package}: {parsed.stderr}"
+  let name := (parsed.stdout.dropEnd 1).toString
+  unless parsed.stdout.endsWith "\n" && !name.isEmpty && name.all Char.isHexDigit do
+    throw <| IO.userError s!"dependency revision is not one object name: {package}: \
+      {parsed.stdout.quote}"
+  return some name
+
+/-- The Git facts for one exact capture request: the nominal revision (only for a dependency that
+is the top level of its own Git work tree, `gitWorkTree`, and only when `HEAD` names an object,
+`headRevision`) and input-scoped dirty status. A failure of Git that does not state that there is
+no work tree or no revision is thrown (`gitWorkTree`, `headRevision`), never read as no revision. -/
 def observeGitFacts (package : String) (root : FilePath)
     (sourcePaths : Array (Name × FilePath)) (configurationPaths : Array FilePath) :
     IO (Option String × Bool) := do
-  let parsed ← runProcess root "git" #["rev-parse", "HEAD", "--show-toplevel"]
-  let (head, top) := match parsed.stdout.splitOn "\n" with
-    | head :: rest => (head, "\n".intercalate rest)
-    | [] => ("", "")
-  let ownRepository ← if parsed.succeeded then
-    pure ((← IO.FS.realPath (FilePath.mk top.trimAscii.toString)) == root)
-    else pure false
-  let revision ← if parsed.succeeded && ownRepository then do
-      let revision := head.trimAscii.toString
-      if revision.isEmpty then throw <| IO.userError s!"empty dependency revision: {package}"
-      pure (some revision)
-    else pure none
+  let ownRepository := (← gitWorkTree root) == some root
+  let revision ← if ownRepository then headRevision package root else pure none
   let dirty ← if revision.isSome then inputsDirty root (sourcePaths.map (·.2) ++ configurationPaths)
     else pure true
   return (revision, dirty)

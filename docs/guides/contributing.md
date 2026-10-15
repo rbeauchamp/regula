@@ -618,6 +618,16 @@ projects. A `lakefile.lean` is then written beside each `lakefile.toml` that a l
 check of the loaded workspace must refuse each package with a configuration name that has no
 extension.
 
+`Regula.AbsenceControls` also reads the Git work tree of three directories with `gitWorkTree`. It
+must keep the final space of the name of a top level, and it must fail below a `.git` file that
+cannot be read. For a directory that no repository holds, it must give no work tree.
+
+In the first acceptance step, `Regula.PrintedPathControls` runs the reads of a path that
+`/usr/bin/which`, `printenv` and Elan print. The read of `which` must keep the space at the start of
+a relative entry of `PATH`. It must fail for an entry with a newline in its name. The read of
+`printenv` must keep the final space of the last entry of `LEAN_PATH`. The read of Elan must give
+the compiler that builds the module.
+
 `./scripts/verify.sh diagnostics self-audit 1/4` to `4/4` each run one shard of the self-audit.
 The campaign sorts each list of modules that it inspects by name, and it deals the list to the
 four shards in turn. Thus each shard audits a quarter of each list. The theorem

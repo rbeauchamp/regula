@@ -77,6 +77,10 @@ file system calls, and they prove nothing.
   cannot be read, and a store whose registered copy's link cannot be resolved
   (`RegulaProvision.links`). In each, the store and its registry are kept and the failure is
   reported.
+- The work tree that `Checker.gitWorkTree` reads (`workTrees`,
+  https://github.com/rbeauchamp/regula/issues/444): the top level of a repository whose name ends
+  in a space, with the space kept, a failure below a `.git` file that cannot be read, and `none`
+  for a directory that no repository holds.
 
 The permissions of each directory that a control takes away are given back before the temporary
 directory is removed. -/
@@ -325,6 +329,54 @@ def provisioning (base : FilePath) : IO (List (String × Bool)) := do
   return [("RegulaProvision.prune of a store whose Mathlib cannot be read", mathlibKept),
     ("RegulaProvision.links of a registered copy whose link cannot be resolved", linkKept)]
 
+/-- The work tree that `Checker.gitWorkTree` reads for a directory in three places below `base`,
+each with whether it gave the expected result (https://github.com/rbeauchamp/regula/issues/444):
+
+- `tree ` (its name ends in a space), the top level of a new repository, beside a directory
+  `tree`: its own real path, with the space. Git prints that path and a newline, and the earlier
+  read removed the space and gave `tree`.
+- `linked/sub`, below a `.git` file that cannot be read, as of a linked work tree: Git fails
+  there, and so must the read, which earlier gave `none`.
+- `plain`, which no repository holds: `none`.
+
+Each place is first observed with Git itself, and the control fails, naming its setup, when Git
+does not do what the place needs: fail in `linked/sub` and in `plain`. -/
+def workTrees (base : FilePath) : IO (List (String × Bool)) := do
+  let fail {α : Type} (message : String) : IO α := throw <| IO.userError message
+  let showTop (dir : FilePath) :=
+    Regula.Checker.runProcess dir "git" #["rev-parse", "--show-toplevel"]
+  let spaced := base / "tree "
+  IO.FS.createDirAll spaced
+  IO.FS.createDirAll (base / "tree")
+  let initialized ← Regula.Checker.runProcess spaced "git" #["init", "-q"]
+  unless initialized.succeeded do
+    fail s!"the control could not make the repository {spaced}: {initialized.output}"
+  let expected ← IO.FS.realPath spaced
+  let spacedRead ← (Regula.Checker.gitWorkTree spaced).toBaseIO
+  let linked := base / "linked"
+  IO.FS.createDirAll (linked / "sub")
+  IO.FS.writeFile (linked / ".git") "gitdir: control\n"
+  IO.Prim.setAccessRights (linked / ".git") 0
+  let linkedGit ← (showTop (linked / "sub")).toBaseIO
+  let linkedRead ← (Regula.Checker.gitWorkTree (linked / "sub")).toBaseIO
+  IO.Prim.setAccessRights (linked / ".git") 384
+  unless (match linkedGit with | .ok result => !result.succeeded | .error _ => false) do
+    fail s!"the control's setup: Git did not fail below the .git file that cannot be read"
+  let plain := base / "plain"
+  IO.FS.createDirAll plain
+  let plainGit ← showTop plain
+  if plainGit.succeeded then
+    fail s!"the control's setup: the temporary directory {base} is in the Git work tree \
+      {plainGit.stdout}"
+  let plainRead ← (Regula.Checker.gitWorkTree plain).toBaseIO
+  return [
+    ("Regula.Checker.gitWorkTree of a top level whose name ends in a space",
+      match spacedRead with | .ok (some top) => top == expected | _ => false),
+    ("Regula.Checker.gitWorkTree below a .git file that cannot be read",
+      linkedRead matches .error _),
+    ("Regula.Checker.gitWorkTree of a directory that no repository holds",
+      plainRead matches .ok none)]
+
 /-- Run the controls in a new temporary directory, and fail, naming each control that does not
 give the expected result. -/
 def check : IO Unit :=
@@ -389,6 +441,8 @@ def check : IO Unit :=
     for (name, kept) in ← provisioning base do
       unless kept do
         failed := failed.push s!"{name} did not keep the store and its registry"
+    for (name, held) in ← workTrees base do
+      unless held do failed := failed.push s!"{name} did not give the expected result"
     unless failed.isEmpty do
       fail s!"controls of the unreadable path {path} failed: {failed.toList}"
 

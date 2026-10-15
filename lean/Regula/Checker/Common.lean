@@ -297,23 +297,80 @@ def withScratch {α : Type} (repo : FilePath) (stem : String)
     (action : FilePath → IO α) : IO α :=
   return (← Regula.Scratch.withScratch repo stem action).1
 
-/-- The real path of the top level of the Git work tree that holds the directory `dir`, as
-`git rev-parse --show-toplevel` run in `dir` prints it with the spaces at its ends removed, or
-`none` when that command cannot start or fails, or when nothing is at the printed path
-(`Regula.Filesystem.realPathIfPresent`). A failure to read or resolve the printed path is thrown.
-A failure of the command is `none` whatever its cause, so a work tree that Git cannot read counts
-as no work tree, and the removed spaces can name a different path: issue
-https://github.com/rbeauchamp/regula/issues/444 tracks the two. Git runs without `GIT_DIR` and
-`GIT_WORK_TREE`, so the work tree is the one Git finds from `dir` itself. Git and the filesystem
-are trusted. -/
+/-- The places at which Git's discovery can find a repository for the directory whose real path
+has the names `names` below the root directory: the entries `.git` and `HEAD` of that directory
+and of each of its ancestors, the root directory included (`mem_discoveryPlaces`). -/
+def discoveryPlaces (names : List String) : List FilePath :=
+  (List.range (names.length + 1)).flatMap fun count =>
+    [".git", "HEAD"].map fun entry => mkFilePath ("" :: names.take count ++ [entry])
+
+/-- The places of `discoveryPlaces` are exactly the `.git` and the `HEAD` of each directory whose
+names are a prefix of `names`: the directory itself, each of its ancestors and the root. -/
+theorem mem_discoveryPlaces (names : List String) (place : FilePath) :
+    place ∈ discoveryPlaces names ↔ ∃ directory, directory <+: names ∧
+      ∃ entry ∈ [".git", "HEAD"], place = mkFilePath ("" :: directory ++ [entry]) := by
+  simp only [discoveryPlaces, List.mem_flatMap, List.mem_range, List.mem_map, Nat.lt_succ_iff]
+  constructor
+  · rintro ⟨count, _, entry, listed, rfl⟩
+    exact ⟨names.take count, List.take_prefix count names, entry, listed, rfl⟩
+  · rintro ⟨directory, isPrefix, entry, listed, rfl⟩
+    refine ⟨directory.length, isPrefix.length_le, entry, listed, ?_⟩
+    rw [← List.prefix_iff_eq_take.mp isPrefix]
+
+/-- The real path of the top level of the Git work tree that holds the directory `dir`, or `none`
+when no repository can hold `dir`.
+
+`git rev-parse --show-toplevel` runs in `dir` without Git's repository variables (`GIT_DIR` and
+`GIT_WORK_TREE` among them, `Regula.Filesystem.Construction.gitProcessArgs`), so the work tree is
+the one Git finds from `dir` itself. When it succeeds, the path it prints is decoded exactly
+(`Regula.Filesystem.Construction.printedPath?`: only the final newline is removed) and resolved
+(`Regula.Filesystem.realPathIfPresent`); output that is not one absolute path, or a printed path
+where nothing is, is thrown. When it fails, the work tree is absent only when the observer's read
+finds nothing at any place of `discoveryPlaces` for the real path of `dir`: the `.git` and the
+`HEAD` of `dir` and of each of its ancestors (`Regula.Filesystem.entryIfPresent`). When it finds
+an entry at one of them, Git's failure is thrown with its report, so a repository that Git cannot
+read, such as a linked work tree whose `.git` file cannot be read, is never read as no work tree. A
+failure to start Git or to read or resolve a path is thrown. On Windows the observer reads no
+entry, so a failure of Git is thrown there.
+
+Assumes: Git 2.54.0 finds a repository for its current directory only at that directory or an
+ancestor D where `stat(2)` of `D/.git` succeeds or `lstat(2)` of `D/HEAD` succeeds. Without
+`GIT_DIR` (`setup.c:1564-1568`), `setup_git_directory_gently_1` walks from the directory that
+`getcwd(3)` gives (`setup.c:1888-1892`) toward the root (`setup.c:1604-1702`). It finds a
+repository at D only from a `.git` file that `read_gitfile_gently` reads, which needs `stat(2)` of
+`D/.git` to succeed (`setup.c:968-976`, `:1612-1617`), from a `.git` directory that
+`is_git_directory` admits (`setup.c:1618-1622`), or from D itself when `is_git_directory` admits it
+(`setup.c:1678-1686`). `is_git_directory` admits a directory only when `validate_headref` finds its
+`HEAD` with `lstat(2)` (`setup.c:362-363`, `:416-427`). With no repository it dies
+(`setup.c:1907-1919`), and `--show-toplevel` prints a work tree only for a repository it found
+(`builtin/rev-parse.c:776-779`, `:985-992`). Nothing at a path for `lstat(2)` is nothing there for
+`stat(2)`.
+
+Assumes: Git 2.54.0 prints the work tree for `--show-toplevel` with `puts`, so followed by one
+newline (`builtin/rev-parse.c:668-669`, `:985-992`), and keeps it as the real path that
+`real_pathdup` gives (`repository.c:258-260`, through `set_git_work_tree`, `setup.c:1845-1861`).
+
+Assumes: the real path of `dir` (`realpath(3)`) names the directories that `getcwd(3)` names in
+Git, which starts in `dir`, and no other process changes them while Git and the reads run. -/
 def gitWorkTree (dir : FilePath) : IO (Option FilePath) := do
-  let result ← try
-      runProcess dir "git" #["rev-parse", "--show-toplevel"]
-        #[("GIT_DIR", none), ("GIT_WORK_TREE", none)]
-    catch _ => return none
-  let top := result.stdout.trimAscii.toString
-  if !result.succeeded || top.isEmpty then return none
-  Regula.Filesystem.realPathIfPresent (FilePath.mk top)
+  let result ← runProcess dir "git" #["rev-parse", "--show-toplevel"]
+    #[("GIT_DIR", none), ("GIT_WORK_TREE", none)]
+  if result.succeeded then
+    let some top := Regula.Filesystem.Construction.printedPath? result.stdout
+      | throw <| IO.userError s!"git rev-parse --show-toplevel in {dir} printed no single \
+          absolute path: {result.stdout.quote}"
+    let some real ← Regula.Filesystem.realPathIfPresent top
+      | throw <| IO.userError s!"git rev-parse --show-toplevel in {dir} printed {top}, where \
+          nothing is"
+    return some real
+  let some start ← Regula.Filesystem.realPathIfPresent dir
+    | throw <| IO.userError s!"git rev-parse --show-toplevel failed in {dir}, where nothing is: \
+        {result.stderr}"
+  for place in discoveryPlaces (start.components.filter (!·.isEmpty)) do
+    if (← Regula.Filesystem.entryIfPresent place).isSome then
+      throw <| IO.userError s!"git rev-parse --show-toplevel failed in {dir}, although {place} \
+        is there: {result.stderr}"
+  return none
 
 /-- Whether a dependency whose directory is in the Git work tree `dependency` is in the work tree
 `root` of the root package: both are known and they are the same directory. -/

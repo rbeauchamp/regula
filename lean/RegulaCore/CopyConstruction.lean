@@ -28,6 +28,141 @@ attribute [regula_decision] admitGitName
 
 open System Regula.StateTriple
 
+/-- `printedLine?` reads `text` as `line` exactly when `text` is `line` followed by one newline, and
+`line` is not empty and holds no newline, carriage return or NUL. So no character of the printed
+line is removed or changed: a line that starts or ends with a space keeps it. -/
+theorem printedLine?_eq_some_iff (text line : String) :
+    printedLine? text = some line ↔ text = line ++ "\n" ∧ line ≠ "" ∧
+      ∀ c ∈ line.toList, c ≠ '\n' ∧ c ≠ '\r' ∧ c ≠ '\x00' := by
+  constructor
+  · intro h
+    unfold printedLine? at h
+    split at h
+    · rename_i reversed heq
+      split at h
+      · rename_i hc
+        cases h
+        obtain ⟨hne, hall⟩ := hc
+        refine ⟨?_, ?_, ?_⟩
+        · apply String.toList_injective
+          have := congrArg List.reverse heq
+          simp only [List.reverse_reverse, List.reverse_cons] at this
+          simp [String.toList_append, String.toList_ofList, this]
+        · intro h; apply hne
+          simpa using congrArg String.toList h
+        · simpa using hall
+      · cases h
+    · cases h
+  · rintro ⟨rfl, hne, hall⟩
+    unfold printedLine?
+    have : (line ++ "\n").toList.reverse = '\n' :: line.toList.reverse := by
+      simp [String.toList_append]
+    rw [this]
+    have accepted : line.toList.reverse ≠ [] ∧
+        ∀ c ∈ line.toList.reverse, c ≠ '\n' ∧ c ≠ '\r' ∧ c ≠ '\x00' :=
+      ⟨fun h => hne (by simpa using h), by simpa using hall⟩
+    simp only
+    split
+    · simp [String.ofList_toList]
+    · contradiction
+
+/-- `printedPath?` reads `text` as `path` exactly when `text` is the spelling of `path` followed by
+one newline, and that spelling is not empty, holds no newline, carriage return or NUL, and is an
+absolute path. So no character of the printed path is removed or changed: a path that ends in a
+space keeps it. -/
+theorem printedPath?_eq_some_iff (text : String) (path : FilePath) :
+    printedPath? text = some path ↔ text = path.toString ++ "\n" ∧ path.toString ≠ "" ∧
+      (∀ c ∈ path.toString.toList, c ≠ '\n' ∧ c ≠ '\r' ∧ c ≠ '\x00') ∧
+      path.isAbsolute = true := by
+  unfold printedPath?
+  constructor
+  · intro h
+    split at h
+    · rename_i line read
+      split at h
+      · rename_i absolute
+        cases h
+        obtain ⟨printed, nonempty, plain⟩ := (printedLine?_eq_some_iff text line).mp read
+        exact ⟨printed, nonempty, plain, absolute⟩
+      · cases h
+    · cases h
+  · rintro ⟨printed, nonempty, plain, absolute⟩
+    rw [(printedLine?_eq_some_iff text path.toString).mpr ⟨printed, nonempty, plain⟩]
+    show (if (FilePath.mk path.toString).isAbsolute = true then some ⟨path.toString⟩
+      else none) = some path
+    split
+    · rfl
+    · next refused => exact absurd absolute refused
+
+/-- Text that is one absolute path printed as a line of its own: the path's spelling, not empty,
+with no newline, carriage return or NUL, followed by one newline. -/
+def PrintedPath (text : String) : Prop :=
+  ∃ path : FilePath, text = path.toString ++ "\n" ∧ path.toString ≠ "" ∧
+    (∀ c ∈ path.toString.toList, c ≠ '\n' ∧ c ≠ '\r' ∧ c ≠ '\x00') ∧
+    path.isAbsolute = true
+
+/-- The root directory is an absolute path, whether or not the platform is Windows. -/
+theorem root_isAbsolute : (FilePath.mk "/").isAbsolute = true := by
+  have front : "/".front?.getD (Char.ofNat 65) = '/' := by decide
+  cases h : System.Platform.isWindows <;>
+    simp [FilePath.isAbsolute, FilePath.pathSeparators, h, front, Id.run]
+
+/-- The executed path decoder accepts exactly the text that is one absolute path printed as a
+line, the root directory's line among it and empty text not. -/
+theorem checked_printedPath? : Regula.ExecutableContract printedPath?
+    (Regula.Decides (·.isSome = true) PrintedPath) :=
+  ⟨.of_iff
+    (fun text => by
+      constructor
+      · intro accepted
+        obtain ⟨path, decoded⟩ := Option.isSome_iff_exists.mp accepted
+        exact ⟨path, (printedPath?_eq_some_iff text path).mp decoded⟩
+      · rintro ⟨path, printed⟩
+        rw [(printedPath?_eq_some_iff text path).mpr printed]
+        rfl)
+    ⟨"/\n", by
+      rw [(printedPath?_eq_some_iff "/\n" ⟨"/"⟩).mpr ⟨rfl, by decide, ?_, root_isAbsolute⟩]
+      · rfl
+      · intro c hc
+        have : "/".toList = ['/'] := by decide
+        simp only [this, List.mem_singleton] at hc
+        subst hc
+        decide⟩
+    ⟨"", by simp [printedPath?, printedLine?]⟩⟩
+
+attribute [regula_decision] printedPath?
+
+/-- Text that is one line printed with its newline: the line, not empty, with no newline, carriage
+return or NUL, followed by one newline. -/
+def PrintedLine (text : String) : Prop :=
+  ∃ line : String, text = line ++ "\n" ∧ line ≠ "" ∧
+    ∀ c ∈ line.toList, c ≠ '\n' ∧ c ≠ '\r' ∧ c ≠ '\x00'
+
+/-- The executed line decoder accepts exactly the text that is one line printed with its newline,
+the line `/` among it and empty text not. -/
+theorem checked_printedLine? : Regula.ExecutableContract printedLine?
+    (Regula.Decides (·.isSome = true) PrintedLine) :=
+  ⟨.of_iff
+    (fun text => by
+      constructor
+      · intro accepted
+        obtain ⟨line, decoded⟩ := Option.isSome_iff_exists.mp accepted
+        exact ⟨line, (printedLine?_eq_some_iff text line).mp decoded⟩
+      · rintro ⟨line, printed⟩
+        rw [(printedLine?_eq_some_iff text line).mpr printed]
+        rfl)
+    ⟨"/\n", by
+      rw [(printedLine?_eq_some_iff "/\n" "/").mpr ⟨rfl, by decide, ?_⟩]
+      · rfl
+      · intro c hc
+        have : "/".toList = ['/'] := by decide
+        simp only [this, List.mem_singleton] at hc
+        subst hc
+        decide⟩
+    ⟨"", by simp [printedLine?]⟩⟩
+
+attribute [regula_decision] printedLine?
+
 /-- The decision the cold source entrypoint actually executes agrees on every input with its
 source-domain proposition. -/
 theorem checked_projectRelative : Regula.ExecutableContract projectRelative
