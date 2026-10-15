@@ -9,7 +9,8 @@ registration. The provisioning program imports only the toolchain, because `scri
 runs it with `lean --run` before the package is built. This second module of its library imports
 it together with the two checker interfaces, and nothing the program runs imports this module.
 Each kind restates a theorem of the program about the same definition, or for `component?`
-follows from its definition and `isComponent_iff`, and adds the witnesses a kind requires. -/
+follows from its definition and `isComponent_iff` and for `selectPins` from its definition and
+`selectPins_sound` (`selectPins_shares_iff`), and adds the witnesses a kind requires. -/
 namespace RegulaProvision
 
 /-- One path component that is not hidden and has no separator, stated over the text and its
@@ -138,7 +139,74 @@ theorem checked_retires : Regula.ExecutableContract retires (fun removes =>
     ⟨((("new", "new"), "new"), true), fun accepted =>
       ((retires_iff "new" "new" "new" true).mp accepted).2.2 rfl⟩⟩
 
+/-- What an admitted pin set establishes of the Mathlib package's manifest and the entries of its
+package overrides file, over the entries that Lake selects (`rootEntries`, `selectedEntry`): the
+manifest records a packages directory, the entry selected for `mathlib` is a Git entry, and neither
+the refusal of path entries (`pathRefusal`) nor that of the Git pins (`pinsRefusal`) refuses. -/
+def Shareable (input : Lake.Manifest × Array Lake.PackageEntry) : Prop :=
+  input.1.packagesDir? ≠ none ∧
+    ∃ entry url rev inputRev subDir,
+      selectedEntry (rootEntries input.1 input.2) `mathlib = some entry ∧
+        entry.src = .git url rev inputRev subDir ∧ pathRefusal input.1 input.2 = none ∧
+        pinsRefusal url rev (gitPins (rootEntries input.1 input.2)) = none
+
+/-- `selectPins` admits a pin set exactly for a shareable manifest and overrides file. -/
+theorem selectPins_shares_iff (manifest : Lake.Manifest) (overrides : Array Lake.PackageEntry) :
+    (∃ pins, selectPins manifest overrides = .ok (some pins)) ↔
+      Shareable (manifest, overrides) := by
+  constructor
+  · rintro ⟨pins, h⟩
+    obtain ⟨hDir, ⟨entry, inputRev, subDir, hEntry, hSrc⟩, hGit, hPath, hRefusal⟩ :=
+      selectPins_sound h
+    exact ⟨by simp [hDir], entry, pins.mathlibUrl, pins.mathlibRev, inputRev, subDir, hEntry,
+      hSrc, hPath, hGit ▸ hRefusal⟩
+  · rintro ⟨hDir, entry, url, rev, inputRev, subDir, hEntry, hSrc, hPath, hRefusal⟩
+    dsimp only at hDir hEntry hPath hRefusal
+    obtain ⟨packagesDir, hRecorded⟩ := Option.ne_none_iff_exists'.mp hDir
+    refine ⟨
+      { packagesDir, mathlibUrl := url, mathlibRev := rev
+        git := gitPins (rootEntries manifest overrides) }, ?_⟩
+    simp only [selectPins, hRecorded, hEntry, Option.map_some, hSrc, hPath, hRefusal]
+
+/-- A Git entry of `mathlib` at a commit, from a URL that the shared workspace's configuration can
+quote. -/
+private def shareableEntry : Lake.PackageEntry :=
+  { name := `mathlib, inherited := false
+    src := .git "https://example.invalid/mathlib4" "0000000000000000000000000000000000000000"
+      none none }
+
+/-- A Mathlib package's manifest that records its packages directory and has one entry,
+`shareableEntry`. -/
+private def shareableManifest : Lake.Manifest :=
+  { name := `regula_mathlib, lakeDir := ".lake", fixedToolchain := false
+    packagesDir? := some ".lake/packages", packages := #[shareableEntry] }
+
+/-- Without an overrides file, the one Git pin of `shareableManifest` is its entry, in the checkout
+directory `mathlib`. -/
+private theorem shareable_gitPins : gitPins (rootEntries shareableManifest #[]) =
+    #[(shareableEntry, ⟨"mathlib", "0000000000000000000000000000000000000000"⟩)] := by
+  simp [gitPins, rootEntries, selectedEntry, shareableManifest, shareableEntry, List.eraseDups_cons]
+  rfl
+
+/-- `selectPins` admits a pin set exactly for a shareable manifest and overrides file
+(`selectPins_shares_iff`): it admits one for a manifest that pins `mathlib` by Git at a commit,
+with no overrides file, and refuses the same manifest without a packages directory. That the pins
+it admits are those of the entries that Lake selects is `selectPins_sound`. -/
+theorem checked_selectPins : Regula.ExecutableContract selectPins (fun select =>
+    Regula.Decides (fun result : Except String (Option Pins) => ∃ pins, result = .ok (some pins))
+      Shareable (Function.uncurry select)) :=
+  ⟨.of_iff (fun input => selectPins_shares_iff input.1 input.2)
+    ⟨(shareableManifest, #[]), (selectPins_shares_iff _ _).mpr
+      ⟨by simp [shareableManifest], shareableEntry, _, _, none, none, rfl, rfl, by decide, by
+        dsimp only
+        rw [shareable_gitPins]
+        simp [pinsRefusal, shareableEntry, isObjectName, isComponent, inSubdirectory,
+          List.eraseDups_cons]
+        rfl⟩⟩
+    ⟨({ shareableManifest with packagesDir? := none }, #[]), fun ⟨_, refused⟩ => by
+      simp [Function.uncurry, selectPins] at refused⟩⟩
+
 attribute [regula_decision]
-  component? admits mathlibStep cloneStep found prunes retires mathlibApplies
+  component? admits mathlibStep cloneStep found prunes retires mathlibApplies selectPins
 
 end RegulaProvision

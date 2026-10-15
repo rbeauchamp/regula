@@ -12,12 +12,15 @@ observe that boundary, Lake's decoding of the files and the absence of an overri
 reads no network and acquires no Mathlib:
 
 - The positive control: a manifest that records its packages directory, with one entry for each
-  name and no overrides file, gives its packages directory, the Mathlib entry's source and commit,
-  and each Git entry's checkout directory and commit.
+  name, among them a path entry of its own, and no overrides file, gives its packages directory,
+  the Mathlib entry's source and commit, and each Git entry's checkout directory and commit.
 - A second `mathlib` entry after the first: its source and commit are taken, by the pins and by
   the check of the checkouts (`RegulaProvision.checkoutPin`), as Lake takes the last entry of a name.
 - An overrides file with a Git entry for `mathlib` and one for another package: its entries are
   taken. One with a path entry for `mathlib`: nothing is shared.
+- A path entry for `batteries` in the overrides file, or one that the manifest records as
+  inherited, is refused, and the refusal names the package and the file
+  (`RegulaProvision.pathRefusal`).
 - A manifest without `packagesDir`, or with a null one, is refused, and so is an absent manifest.
 - After each of these, the positive control is restored and gives its answer again.
 
@@ -178,10 +181,11 @@ private def gitEntry (name url rev : String) : Lean.Json :=
     ("rev", rev), ("name", name), ("manifestFile", "lake-manifest.json"), ("inputRev", rev),
     ("inherited", false), ("configFile", "lakefile.lean")]
 
-/-- A manifest entry of the package `name` in the directory `dir`, in the form that Lake writes. -/
-private def pathEntry (name dir : String) : Lean.Json :=
+/-- A manifest entry of the package `name` in the directory `dir`, in the form that Lake writes,
+inherited when `inherited` holds. -/
+private def pathEntry (name dir : String) (inherited := false) : Lean.Json :=
   Lean.Json.mkObj [("type", "path"), ("scope", ""), ("name", name),
-    ("manifestFile", "lake-manifest.json"), ("inherited", false), ("dir", dir),
+    ("manifestFile", "lake-manifest.json"), ("inherited", inherited), ("dir", dir),
     ("configFile", "lakefile.lean")]
 
 /-- The text of a manifest with `entries` that records the packages directory `packagesDir`: the
@@ -281,8 +285,18 @@ run_cmd do
     requireSelection label "a Mathlib is shared" (← RegulaProvision.readPins repo).isNone
     requireRefused label "materializes no Git package"
       (RegulaProvision.manifestRevision repo RegulaProvision.mathlibPackage.toString `mathlib)
+    -- A path entry of a package that Mathlib requires: the shared workspace could not pin it.
+    IO.FS.writeFile overrides (overridesText [pathEntry "batteries" "../batteries"])
+    requireRefused "path override of batteries" "batteries: the package overrides file gives a path"
+      (RegulaProvision.readPins repo)
     Regula.Filesystem.removeFound overrides
     positive "positive after the overrides file"
+    IO.FS.writeFile manifest (manifestText (some (some ".lake/packages"))
+      (committed ++ [pathEntry "batteries" "../batteries" (inherited := true)]))
+    requireRefused "inherited path entry" "batteries: the manifest records a path entry"
+      (RegulaProvision.readPins repo)
+    IO.FS.writeFile manifest (manifestText (some (some ".lake/packages")) committed)
+    positive "positive after the inherited path entry"
     -- A manifest that records no packages directory, or a null one: Lake would take the
     -- configuration's.
     for (label, recorded) in [("no packagesDir", none), ("null packagesDir", some none)] do

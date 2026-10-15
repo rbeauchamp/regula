@@ -478,13 +478,68 @@ def pinsRefusal (url rev : String) (git : Array (Lake.PackageEntry × Pin)) : Op
     some "two Git packages have one checkout directory"
   else none
 
+/-- The first refusal of a path entry that Lake materializes a package from, among the entries of
+the manifest `manifest` and of its package overrides file `overrides` (`rootEntries`): one that
+the overrides file gives, and one that the manifest records as inherited, the requirement of a
+dependency. Each refusal names the package, its directory and the file that gives the entry.
+Provisioning shares pinned Git checkouts, and the shared workspace's manifest holds only the Git
+entries (`Pins.git`), so a package that Mathlib requires must be pinned by Git there. A path entry
+of the manifest that is not inherited is a requirement of the Mathlib package's own configuration,
+such as `regula` at `../..`, and is left out of the shared workspace. That Mathlib requires no
+such package is not checked here: Lake's load of the shared workspace refuses a requirement that
+its manifest has no entry for (`Lake/Load/Resolve.lean:612-623`).
+
+Assumes:
+- Lake v4.34.1 records an entry of the manifest as inherited exactly when a package other than the
+  root requires it (`Lake/Load/Resolve.lean:312`, `Lake/Load/Materialize.lean:231`). -/
+def pathRefusal (manifest : Lake.Manifest) (overrides : Array Lake.PackageEntry) :
+    Option String :=
+  ((rootEntries manifest overrides).toList.map (·.name)).eraseDups.findSome? fun name =>
+    (selectedEntry (rootEntries manifest overrides) name).bind fun entry =>
+      match entry.src with
+      | .path dir =>
+        if overrides.any (·.name == name) then
+          some s!"{entry.prettyName}: the package overrides file gives a path entry ({dir}), \
+            which provisioning cannot pin: it shares only Git checkouts"
+        else if entry.inherited then
+          some s!"{entry.prettyName}: the manifest records a path entry ({dir}) that a \
+            dependency requires, which provisioning cannot pin: it shares only Git checkouts"
+        else none
+      | .git .. => none
+
+/-- When `pathRefusal` refuses nothing, each path entry that Lake materializes a package from is
+an entry of the manifest that no entry of the overrides file replaces, and it is not inherited. -/
+theorem pathRefusal_none {manifest : Lake.Manifest} {overrides : Array Lake.PackageEntry}
+    (h : pathRefusal manifest overrides = none) {entry : Lake.PackageEntry} {dir : FilePath}
+    (hSelected : selectedEntry (rootEntries manifest overrides) entry.name = some entry)
+    (hPath : entry.src = .path dir) :
+    (∀ other ∈ overrides, other.name ≠ entry.name) ∧ entry.inherited = false := by
+  simp only [pathRefusal, List.findSome?_eq_none_iff] at h
+  have refused := h entry.name (by
+    simp only [List.mem_eraseDups, List.mem_map]
+    exact ⟨entry, by simpa using (selectedEntry_some hSelected).2, rfl⟩)
+  simp only [hSelected, Option.bind_some, hPath] at refused
+  split at refused
+  · cases refused
+  · next hOverridden =>
+    split at refused
+    · cases refused
+    · next hInherited =>
+      simp only [Array.any_eq_true', beq_iff_eq, not_exists, not_and] at hOverridden
+      exact ⟨hOverridden, by simpa using hInherited⟩
+
 /-- The pins of the Mathlib package whose manifest is `manifest` and whose package overrides file
 has the entries `overrides`, as Lake's load of it materializes them: the packages directory that
 the manifest records, and the entry selected for each name (`selectedEntry`, `gitPins`). `none`
 when the entry selected for `mathlib` is absent or a path entry, since Lake then materializes no
-Mathlib from Git that could be shared. A manifest that records no packages directory is refused:
-Lake then takes the one that the package's configuration gives, which only an elaboration of its
-`lakefile.lean` would read. Pins that `pinsRefusal` refuses are refused. -/
+Mathlib from Git that could be shared.
+
+The supported domain is the rest: a manifest that records its packages directory, and a Git entry
+selected for each package that Mathlib requires. A manifest that records no packages
+directory is refused: Lake then takes the one that the package's configuration gives, which only an
+elaboration of its `lakefile.lean` would read. A path entry from the overrides file or one that the
+manifest records as inherited is refused (`pathRefusal`), and so are pins that `pinsRefusal`
+refuses. -/
 def selectPins (manifest : Lake.Manifest) (overrides : Array Lake.PackageEntry) :
     Except String (Option Pins) :=
   match manifest.packagesDir? with
@@ -493,9 +548,11 @@ def selectPins (manifest : Lake.Manifest) (overrides : Array Lake.PackageEntry) 
   | some packagesDir =>
     match (selectedEntry (rootEntries manifest overrides) `mathlib).map Lake.PackageEntry.src with
     | some (.git url rev _ _) =>
-      match pinsRefusal url rev (gitPins (rootEntries manifest overrides)) with
-      | some reason => .error reason
-      | none => .ok (some
+      match pathRefusal manifest overrides,
+          pinsRefusal url rev (gitPins (rootEntries manifest overrides)) with
+      | some reason, _ => .error reason
+      | none, some reason => .error reason
+      | none, none => .ok (some
           { packagesDir, mathlibUrl := url, mathlibRev := rev
             git := gitPins (rootEntries manifest overrides) })
     | _ => .ok none
@@ -508,7 +565,8 @@ theorem selectPins_unrecorded {manifest : Lake.Manifest} (overrides : Array Lake
 
 /-- Pins that `selectPins` admits have the packages directory that the manifest records, Mathlib's
 source and commit from the Git entry selected for `mathlib`, and every Git entry selected for a
-name (`gitPins`), and `pinsRefusal` refuses none of them. -/
+name (`gitPins`); `pathRefusal` refuses no path entry, and `pinsRefusal` refuses none of the
+pins. -/
 theorem selectPins_sound {manifest : Lake.Manifest} {overrides : Array Lake.PackageEntry}
     {pins : Pins} (h : selectPins manifest overrides = .ok (some pins)) :
     manifest.packagesDir? = some pins.packagesDir ∧
@@ -516,6 +574,7 @@ theorem selectPins_sound {manifest : Lake.Manifest} {overrides : Array Lake.Pack
         selectedEntry (rootEntries manifest overrides) `mathlib = some entry ∧
           entry.src = .git pins.mathlibUrl pins.mathlibRev inputRev subDir) ∧
       pins.git = gitPins (rootEntries manifest overrides) ∧
+      pathRefusal manifest overrides = none ∧
       pinsRefusal pins.mathlibUrl pins.mathlibRev pins.git = none := by
   unfold selectPins at h
   split at h
@@ -526,9 +585,10 @@ theorem selectPins_sound {manifest : Lake.Manifest} {overrides : Array Lake.Pack
       obtain ⟨entry, hEntry, hSrc⟩ := Option.map_eq_some_iff.mp hMathlib
       split at h
       · cases h
-      · next hRefusal =>
+      · cases h
+      · next hPath hRefusal =>
         cases h
-        exact ⟨hDir, ⟨entry, inputRev, subDir, hEntry, hSrc⟩, rfl, hRefusal⟩
+        exact ⟨hDir, ⟨entry, inputRev, subDir, hEntry, hSrc⟩, rfl, hPath, hRefusal⟩
     · cases h
 
 /-- `selectPins` shares nothing only when Lake materializes no Mathlib from Git: the entry selected
@@ -1003,8 +1063,9 @@ private def makeReadOnly (staging : FilePath) (packages : Array FilePath) : IO U
 /-- Create the shared directory `final` from a fresh staging directory, run the stable build
 plan, record and seal it, and publish with one rename. Its manifest is the Mathlib package's
 `manifest` with its own name and packages directory, and the Git entries that the Mathlib package
-materializes its packages from (`Pins.git`), as Lake writes them. Each checkout it holds must be at
-the commit of the pin of its directory (`checkoutPin`).
+materializes its packages from (`Pins.git`), as Lake writes them. The Mathlib package's own path
+requirements are left out, since Mathlib requires none of them (`pathRefusal`). Each checkout it
+holds must be at the commit of the pin of its directory (`checkoutPin`).
 The caller holds the lock. -/
 private def create (repo parent final : FilePath) (key : String) (manifest : Lake.Manifest)
     (pins : Pins) : IO Unit := do

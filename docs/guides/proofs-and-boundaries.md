@@ -2081,6 +2081,7 @@ Two-way decisions (`Regula.Decides`), each with an accepted and a refused input:
 | `RegulaQualification.evaluate`, `validateDecoded`, `Registry.validate`, `Native.validate`, `Launcher.equivalent` | `Satisfied` and their `_exact` relations | Qualification evidence. |
 | `AuditApp.admit`, `AuditApp.grant`, `AuditApp.runChecked` | Positive capacity, a free slot, `Fits` | The example application (standard §3.7). |
 | `RegulaProvision.mathlibStep` (accepts on `.keep`), `component?`, `retires`, `mathlibApplies` | The path already links the shared checkout (`mathlibStep_keep_iff`); the text is one path component (`IsComponent`, which `isComponent_iff` connects to the test `isComponent`); a registered link still links its shared directory, is the copy's retired link and is not the link the run provisions (`retires_iff`); the root and integration toolchain selectors are equal (`mathlibApplies_iff`) | Local provisioning: keeping Mathlib's link, admitting directory names as single path components, retiring registered links, and the integration preflight. |
+| `RegulaProvision.selectPins` (accepts on `.ok (some _)`) | `Shareable`: the manifest records a packages directory, and Lake selects a Git entry for `mathlib`. Neither `pathRefusal` nor `pinsRefusal` refuses (`selectPins_shares_iff`). | Local provisioning: the pins of the Mathlib integration package that it shares, as Lake's load selects them. |
 | `RegulaVerification.parseMode`, `select` | The argument list of a supported invocation (`parseMode_sound`, `parseMode_roundtrip`, and `select_exact` for `select`) | Argument selection of `scripts/verify.sh`. `select` returns the mode with the proof that the arguments are that mode's, so its kind is stated about `Regula.Dependent.isSome select`. |
 | `accept`, `finalize` (accept on `.ok`) | `CompleteFor` with `AllPolicyOK`; `InputsOK` (`accept_iff`, `finalize_iff`) | Acceptance of a result table and of a response sequence, for every claim, census, plan and role receipt. The type of each argument depends on an earlier one and the result type on all of them, so each kind is stated about `Regula.Dependent.isOk` of the function on a structure whose fields are the five arguments (`AcceptInput`, `FinalizeInput`). The witnesses are over `witnessPlan`, the plan of a documentation claim with no environment: the table collected from one completed observation of each of its three jobs is accepted, and the empty table and the empty response sequence are refused. |
 | `admitPlan` (accepts on `.ok`) | `PlanJobsOK`: the proof fields of `Plan` (`admitPlan_isOk_iff`) | Plan admission, for every claim and census, on the structure of the three arguments (`PlanInput`). It accepts the three required jobs of `witnessPlan` and refuses no jobs. |
@@ -2180,12 +2181,12 @@ imports only the toolchain:
   `Compiler.admitCapability`.
 - Each standalone program runs with `lean --run` before the package is built, so its library has
   a second module that imports the program with `Regula.Contract` and `Regula.Decision`, and that
-  no program imports: `RegulaProvision.Decisions` registers `component?`, `admits`, `mathlibStep`, `cloneStep`, `found`, `prunes`, `retires` and
-  `mathlibApplies`;
+  no program imports: `RegulaProvision.Decisions` registers `component?`, `admits`, `mathlibStep`, `cloneStep`, `found`, `prunes`, `retires`,
+  `mathlibApplies` and `selectPins`;
   `RegulaVerification.Decisions` registers `parseMode`, `dependencyFree`, `select`, `passed`,
   `removal` and `prebuildCovers`. The shared constructor registers `projectRelative` in `RegulaCore.CopyConstruction`.
-  Each kind restates a theorem the program proves about the same definition, except that of
-  `component?` (`checked_component`).
+  Each kind restates a theorem the program proves about the same definition, except those of
+  `component?` and `selectPins` (`checked_component`, `checked_selectPins`).
 
 Deleting one of those contracts, such as `checked_compilerAccepts` or `checked_admits`, is then
 rejected under [RG1008] like any other registered decision's contract. The decisions below carry

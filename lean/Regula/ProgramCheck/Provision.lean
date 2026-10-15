@@ -6,9 +6,9 @@ import Regula.Checker.LakeSelection
 /-! # The removal and write check of the provisioning driver, and its Lake selection
 
 `scripts/provision.sh` runs the provisioning driver with `lean --run` before the package is built,
-so it imports only Lean's library: it cannot import the filesystem observer, and it does not run
-the check itself. This module imports it, and its build fails when the compiled code of the driver
-reaches a removal outside the observer, or a write outside the places that
+so it imports only the toolchain's libraries: it cannot import the filesystem observer, and it
+does not run the check itself. This module imports it, and its build fails when the compiled code
+of the driver reaches a removal outside the observer, or a write outside the places that
 `Regula.Removal.sharedPairs` lists, except the driver's own calls that it names, each as the pair
 of the declaration of a source that makes it and the primitive that it calls
 (`Regula.Removal.checkProgram`). Each of its removals decides by the driver's own reads, which
