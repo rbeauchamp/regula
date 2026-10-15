@@ -163,8 +163,8 @@ CI always schedules that job on ordinary pull requests and `main`.
 ### Share one Mathlib across local copies
 
 Every local copy uses one unpacked Mathlib per pinned revision and exact released compiler instead of
-its own. The pin is the `mathlib` entry of `integration/mathlib/lake-manifest.json`; the root,
-`audit/` and `website/` packages pin no Mathlib.
+its own. The pin is the last `mathlib` entry of `integration/mathlib/lake-manifest.json` and its package
+overrides file; the root, `audit/` and `website/` packages pin no Mathlib.
 [`lean/RegulaProvision.lean`](../../lean/RegulaProvision.lean), run with the `mathlib` argument, unpacks Mathlib's
 archive cache (`~/.cache/mathlib`) once into
 `~/.cache/mathlib-packages/<mathlib-rev>-lean-<toolchain-commit>/` (under
