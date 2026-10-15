@@ -330,6 +330,21 @@ def writingOpens (env : Environment) (body : FnBody) : Array Name :=
     if readableOpening env callee && opensToWrite literals args partialCall then some callee
     else none
 
+/-- Whether Lean's compiler made the compiled declaration `name`, which no source declares: `env`
+holds no constant of that name, and `env` holds every constant of its modules. Lean imports a file
+that is not a `module` at the private level (`Lean/Elab/Import.lean:149-155`), so its environment
+has every constant, private ones too, and `env.header.isModule` is false
+(`Lean/Environment.lean:2308`). The compiler saves the declarations that it makes to its own
+extensions alone, not as constants: a closed term, for example
+(`Lean/Compiler/LCNF/ExtractClosed.lean:227-231`, `Lean/Compiler/LCNF/PhaseExt.lean:177-178`).
+Each decision that reads the name of a compiled declaration takes it as the compiler's only when
+this holds. In an environment of a `module`, it never holds, so each such decision is the one for
+a declaration of a source.
+Assumes: in Lean v4.34.1 only the compiler adds a compiled declaration without a constant. A command
+that writes compiled declarations on purpose is outside this boundary. -/
+def compilerMade (env : Environment) (name : Name) : Bool :=
+  !env.header.isModule && !env.contains name
+
 /-- The suffixes that Lean's compiler appends to the name of a declaration for the compiled
 variants it makes of it: one without its irrelevant arguments, and the boxed form of each. -/
 def compilerSuffixes : List Name :=
@@ -367,11 +382,10 @@ def foreignObservers (env : Environment) : Array Name :=
   (observerRoles env).2
 
 /-- Whether `name` is one of `observers` or a compiled variant that the compiler made of one: a
-name of `compilerSuffixes` after its name, which is not the name of a declaration that a source
-defines. -/
+name of `compilerSuffixes` after its name, which the compiler made (`compilerMade`). -/
 def observerVariant (env : Environment) (observers : Array Name) (name : Name) : Bool :=
   observers.any fun observer => compilerSuffixes.any fun suffix =>
-    name == observer ++ suffix && (suffix.isAnonymous || !env.contains name)
+    name == observer ++ suffix && (suffix.isAnonymous || compilerMade env name)
 
 /-- The primitives that the check finds by name: those that remove (`primitives`) and those that
 write (`writePrimitives`). -/
@@ -418,18 +432,20 @@ def compiledSource (name : Name) : Name :=
   (made.reverse.dropWhile compiledPart).reverse.foldl Name.appendCore .anonymous
 
 /-- The declaration of a source in whose compiled code Lean's compiler made the compiled declaration
-`name`: `name` when a source declares it, and otherwise its `compiledSource` when a source declares
-that. So the loop `Array.forIn'Unsafe.loop._at_.D.spec_5` and the function `D._lam_2` are the code
-of `D`. A name of another form is its own. -/
+`name`: `name` unless the compiler made it (`compilerMade`), and otherwise its `compiledSource`
+when a source declares that. So the loop `Array.forIn'Unsafe.loop._at_.D.spec_5` and the function
+`D._lam_2` are the code of `D`. A name of another form is its own. -/
 def sourceDeclaration (env : Environment) (name : Name) : Name :=
-  if env.contains name then name
+  if !compilerMade env name then name
   else
     let source := compiledSource name
     if env.contains source then source else name
 
 /-- Whether the compiled declaration `name` is code that Lean's compiler may give to more than one
 declaration: a specialization (`spec_`), a lifted lambda (`_lam_`, `_elam_`) or a closed term
-(`_closed_`), or a variant `_redArg` or `_boxed` of one, that no source declares. The compiler gives
+(`_closed_`), or a variant `_redArg` or `_boxed` of one, that the compiler made (`compilerMade`).
+In an environment of a `module`, where `compilerMade` never holds, no code is shareable and a call
+in compiled code is the call of that code's own name alone. The compiler gives
 a specialization to each later declaration that needs the same one, from a cache of every module
 that the environment imports (`Lean/Compiler/LCNF/Specialize.lean:416-418`), and a lifted lambda
 and a closed term from a cache of the module (`Lean/Compiler/LCNF/LambdaLifting.lean:105`,
@@ -440,7 +456,7 @@ def shareable (env : Environment) (name : Name) : Bool :=
   let base := if name matches .str _ "_boxed" then name.getPrefix else name
   let base := if base matches .str _ "_redArg" then base.getPrefix else base
   match base with
-  | .str _ part => compiledPart (.mkSimple part) && !env.contains name
+  | .str _ part => compiledPart (.mkSimple part) && compilerMade env name
   | _ => false
 
 /-- The declaration in whose compiled code Lean's compiler made the compiled declaration `name`
@@ -448,6 +464,12 @@ def shareable (env : Environment) (name : Name) : Bool :=
 -/
 def auxiliarySource (env : Environment) (name : Name) : Option Name :=
   if shareable env name then some (sourceDeclaration env name) else none
+
+/-- The full name of the private declaration `name` of the module `module` (`mkPrivateNameCore`).
+A pair names a private declaration by it (`admittingPair`), so no private declaration of another
+module with the same `name` matches the pair. -/
+def privateIn (module name : Name) : Name :=
+  mkPrivateNameCore module name
 
 /-- The private declaration `name` of `Regula.Checker.Workspace`. -/
 def workspace (name : Name) : Name :=
@@ -557,7 +579,7 @@ so none of them replaces or writes into an entry. -/
 def writers : List (Name × Name) :=
   [(``Regula.Filesystem.writeReplacing, ``IO.FS.Handle.mk),
     (``Regula.Filesystem.ownRoot, ``IO.FS.createDirAll),
-    (`Regula.Filesystem.runAside, ``IO.FS.createDir),
+    (Regula.Removal.privateIn `Regula.Filesystem `Regula.Filesystem.runAside, ``IO.FS.createDir),
     (``Regula.Filesystem.Construction.writeNew, ``IO.FS.Handle.mk),
     (``Regula.Filesystem.Construction.createDirectory, ``IO.FS.createDir)]
 
@@ -668,14 +690,14 @@ def packageWrites : List (Name × Name) :=
     (`Regula.Checker.exposeToolchainRoot, ``IO.FS.createDirAll)]
 
 /-- The pair of `pairs` that admits the call of `primitive` by `caller`, if one does: the pair of
-`caller`, of the declaration of a source in whose compiled code it is (`sourceDeclaration`), or of
-that declaration's name without its private prefix, a private declaration of another module having
-no name that a source can write, and `primitive`. -/
+`caller`, or of the declaration of a source in whose compiled code it is (`sourceDeclaration`), and
+`primitive`. A pair names a private declaration by its full name, with its module
+(`mkPrivateNameCore`), so a private declaration of another module with the same name below its
+prefix is not admitted. -/
 def admittingPair (env : Environment) (pairs : List (Name × Name)) (caller primitive : Name) :
     Option (Name × Name) :=
   let source := sourceDeclaration env caller
-  let callers := [caller, source] ++ (privateToUserName? source).toList
-  pairs.find? fun (named, called) => called == primitive && callers.contains named
+  pairs.find? fun (named, called) => called == primitive && (named == caller || named == source)
 
 /-- The removals and the writes that the check admits in every program: `libraryRemovals`,
 `tacticRemovals`, `writers`, `libraryWrites`, `tacticWrites` and `packageWrites`. -/
@@ -1094,15 +1116,20 @@ def initActions (env : Environment) : Array Name :=
 def initializers (env : Environment) : Array Name :=
   initializersOf env (allModules env)
 
-/-- Whether the compiled declaration `name` is a closed term (`_closed_` with a number as its last
-part), which the code that first reads it computes, not the initializer of its module
-(`Lean/Compiler/LCNF/EmitC.lean:1003`, `:476-477`). Lean keeps its record of closed terms for the
-module being compiled alone (`Lean.closedTermCacheExt`), so an imported one is known by its name. -/
-def closedTerm (name : Name) : Bool :=
-  match name with
-  | .str _ text => text.startsWith "_closed_" && text.length > 8 &&
-      (text.toList.drop 8).all Char.isDigit
-  | _ => false
+/-- Whether the compiled declaration `name` is a closed term that the compiler extracted, which the
+code that first reads it computes, not the initializer of its module
+(`Lean/Compiler/LCNF/EmitC.lean:476-482`, `:629-634`, `:1003`). The compiler made it
+(`compilerMade`), and its last part is `_closed_` with a number. Lean v4.34.1 makes a name of that
+form only in `ExtractClosed`, which records it as a closed term (`Lean.closedTermCacheExt`) as it
+makes it (`Lean/Compiler/LCNF/ExtractClosed.lean:227-228`). Lean keeps that record for the module
+being compiled alone, so an imported closed term is known by this fact and its name. A declaration
+of a source with such a name is not a closed term: its module computes it when the program starts.
+-/
+def closedTerm (env : Environment) (name : Name) : Bool :=
+  compilerMade env name && match name with
+    | .str _ text => text.startsWith "_closed_" && text.length > 8 &&
+        (text.toList.drop 8).all Char.isDigit
+    | _ => false
 
 /-- The values that the initializers of the modules `modules` compute when a program that links
 them starts: each declaration of `initializersOf` that is neither an action of `initActionsOf` nor
@@ -1111,7 +1138,7 @@ a closed term (`closedTerm`). It also takes the ground values, which are static 
 finds nothing in them. Each name appears once. -/
 def valueInitializers (env : Environment) (modules : Std.HashSet Name) : Array Name :=
   let actions : Std.HashSet Name := (initActionsOf env modules).foldl (·.insert ·) {}
-  (initializersOf env modules).filter fun name => !actions.contains name && !closedTerm name
+  (initializersOf env modules).filter fun name => !actions.contains name && !closedTerm env name
 
 /-- The declarations that `body` applies fully (`Lean.IR.Expr.fap`), pushed onto `acc.1`, and
 whether it applies a closure (`Lean.IR.Expr.ap`), or-ed into `acc.2`. A partial application
@@ -1451,10 +1478,13 @@ def elaborationEntries : List Name :=
 the program elaborates or a tactic writes or removes: each declaration of `elaborationEntries`, and
 each declaration that is, or whose `compiledSource` is, a declaration of `tacticRemovals` or
 `tacticWrites` that makes the call. This finds each declaration whose `sourceDeclaration` is one of
-them without a lookup in the environment for each declaration that the walk visits. Then the
-declarations that the walk left at its bound, each of which may reach one. A declaration is reached
-when the compiled code of one that is reached uses it (`collectUsedDecls`): a call, a constant or a
-partial application, so a reference that a run never calls is reached too. -/
+them without a lookup in the environment for each declaration that the walk visits. It reads the
+name alone, without `compilerMade`: a declaration of a source that such a name matches is found
+too. That can only make the check take the class `elaborates := true`, which states more effects
+of the program, and no admission depends on the class (`sharedPairs` holds the tactics' pairs).
+Then the declarations that the walk left at its bound, each of which may reach one. A declaration is
+reached when the compiled code of one that is reached uses it (`collectUsedDecls`): a call, a
+constant or a partial application, so a reference that a run never calls is reached too. -/
 def elaborationReached (env : Environment) (roots : Array Name) : Array Name := Id.run do
   let tacticCallers := (tacticRemovals ++ tacticWrites).map (·.1)
   let mut seen : Std.HashSet Name := {}

@@ -17,8 +17,8 @@ It also proves the program's own presence read, which the program defines becaus
 run_cmd Regula.Removal.checkProgram (bootstrap := `Regula.Release.Process) (named := [
     -- The notes and the edition of a release in `tmp/`, and the output and summary of the step,
     -- appended to the files that GitHub Actions names.
-    (`Regula.Release.output, ``IO.FS.Handle.mk),
-    (`Regula.Release.summarize, ``IO.FS.Handle.mk),
+    (Regula.Removal.privateIn `Regula.Release `Regula.Release.output, ``IO.FS.Handle.mk),
+    (Regula.Removal.privateIn `Regula.Release `Regula.Release.summarize, ``IO.FS.Handle.mk),
     (``Regula.Release.adopt, ``IO.FS.writeFile),
     (``Regula.Release.publish, ``IO.FS.createDirAll),
     (``Regula.Release.publish, ``IO.FS.writeFile)])

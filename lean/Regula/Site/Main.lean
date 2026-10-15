@@ -86,8 +86,9 @@ run_cmd Regula.Removal.checkProgram (elaborates := true) (named := [
   (``Regula.Site.Build.assemble, ``IO.FS.writeFile),
   -- The generated modules of the site's package, and the release that the build downloads and
   -- unpacks in its own directory.
-  (`Regula.Site.Build.writeModule, ``IO.FS.createDirAll),
-  (`Regula.Site.Build.writeModule, ``IO.FS.writeFile),
+  (Regula.Removal.privateIn `Regula.Site.Build
+    `Regula.Site.Build.writeModule, ``IO.FS.createDirAll),
+  (Regula.Removal.privateIn `Regula.Site.Build `Regula.Site.Build.writeModule, ``IO.FS.writeFile),
   (``Regula.Site.Build.downloadRelease, ``IO.FS.createDirAll),
   (``Regula.Site.Build.extractRelease, ``IO.FS.createDirAll),
   (``Regula.Site.Build.generate, ``IO.FS.createDirAll),
@@ -96,8 +97,10 @@ run_cmd Regula.Removal.checkProgram (elaborates := true) (named := [
   (``Regula.Site.Build.writeTree, ``IO.FS.writeBinFile),
   -- The destinations that the control of the renderers' refusals seeds, in its scratch directory
   -- (`Regula.Site.RendererRefusal.control`).
-  (`Regula.Site.RendererRefusal.seed, ``IO.FS.createDirAll),
-  (`Regula.Site.RendererRefusal.seed, ``IO.FS.writeFile),
+  (Regula.Removal.privateIn `Regula.Site.RendererRefusal
+    `Regula.Site.RendererRefusal.seed, ``IO.FS.createDirAll),
+  (Regula.Removal.privateIn `Regula.Site.RendererRefusal
+    `Regula.Site.RendererRefusal.seed, ``IO.FS.writeFile),
   -- The writes of the campaigns that `qualify` runs and names (`Regula.Qualification.Main`), in
   -- the modules of them that this program links: their projects and slots, and the raw
   -- observations of a rule-example production beside its evidence
@@ -105,11 +108,16 @@ run_cmd Regula.Removal.checkProgram (elaborates := true) (named := [
   -- program's roots (`Regula.Removal.programRoots`).
   (``Regula.Qualification.prepareCoreProject, ``IO.FS.createDirAll),
   (``Regula.Qualification.rootImportsGuardControl, ``IO.FS.writeFile),
-  (`Regula.Qualification.RuleExamples.observe, ``IO.FS.Handle.mk),
-  (`Regula.Qualification.RuleExamples.produce, ``IO.FS.createDir),
-  (`Regula.Qualification.RuleExamples.produce, ``IO.FS.createDirAll),
-  (`Regula.Qualification.RuleExamples.produce, ``IO.FS.writeBinFile),
-  (`Regula.Qualification.RuleExamples.produce, ``IO.FS.writeFile),
+  (Regula.Removal.privateIn `Regula.Qualification.RuleExamples
+    `Regula.Qualification.RuleExamples.observe, ``IO.FS.Handle.mk),
+  (Regula.Removal.privateIn `Regula.Qualification.RuleExamples
+    `Regula.Qualification.RuleExamples.produce, ``IO.FS.createDir),
+  (Regula.Removal.privateIn `Regula.Qualification.RuleExamples
+    `Regula.Qualification.RuleExamples.produce, ``IO.FS.createDirAll),
+  (Regula.Removal.privateIn `Regula.Qualification.RuleExamples
+    `Regula.Qualification.RuleExamples.produce, ``IO.FS.writeBinFile),
+  (Regula.Removal.privateIn `Regula.Qualification.RuleExamples
+    `Regula.Qualification.RuleExamples.produce, ``IO.FS.writeFile),
   (``Regula.Qualification.RuleExamples.check, ``IO.FS.createDirAll),
   (``Regula.Qualification.Slot.prepareSlot, ``IO.FS.writeFile)])
 

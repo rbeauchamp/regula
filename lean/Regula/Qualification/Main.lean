@@ -327,13 +327,19 @@ run_cmd Regula.Removal.checkProgram (elaborates := true) (named := [
   (``Regula.Qualification.Acceptance.documentationDependencies, ``IO.FS.writeFile),
   (``Regula.CopyControls.checkWorkspace, ``IO.FS.writeFile),
   (``Regula.Qualification.CopyRelocation.check, ``IO.FS.createDirAll),
-  (`Regula.Qualification.CopyRelocation.copied, ``IO.FS.createDirAll),
-  (`Regula.Qualification.CopyRelocation.refusedCopy, ``IO.FS.createDirAll),
+  (Regula.Removal.privateIn `Regula.Qualification.CopyRelocation
+    `Regula.Qualification.CopyRelocation.copied, ``IO.FS.createDirAll),
+  (Regula.Removal.privateIn `Regula.Qualification.CopyRelocation
+    `Regula.Qualification.CopyRelocation.refusedCopy, ``IO.FS.createDirAll),
   (``Regula.Qualification.CopySelection.checkAt, ``IO.FS.writeFile),
-  (`Regula.Qualification.CopySelection.sourceLink, ``IO.FS.writeFile),
-  (`Regula.Qualification.DependencySnapshot.control, ``IO.FS.writeFile),
-  (`Regula.Qualification.DependencySnapshot.gitStatusControls, ``IO.FS.createDirAll),
-  (`Regula.Qualification.DependencySnapshot.gitStatusControls, ``IO.FS.writeFile),
+  (Regula.Removal.privateIn `Regula.Qualification.CopySelection
+    `Regula.Qualification.CopySelection.sourceLink, ``IO.FS.writeFile),
+  (Regula.Removal.privateIn `Regula.Qualification.DependencySnapshot
+    `Regula.Qualification.DependencySnapshot.control, ``IO.FS.writeFile),
+  (Regula.Removal.privateIn `Regula.Qualification.DependencySnapshot
+    `Regula.Qualification.DependencySnapshot.gitStatusControls, ``IO.FS.createDirAll),
+  (Regula.Removal.privateIn `Regula.Qualification.DependencySnapshot
+    `Regula.Qualification.DependencySnapshot.gitStatusControls, ``IO.FS.writeFile),
   (``Regula.Qualification.DependencySnapshot.check, ``IO.FS.createDirAll),
   (``Regula.Qualification.DependencySnapshot.check, ``IO.FS.writeBinFile),
   (``Regula.Qualification.DependencySnapshot.check, ``IO.FS.writeFile),
@@ -344,29 +350,43 @@ run_cmd Regula.Removal.checkProgram (elaborates := true) (named := [
   (``Regula.Qualification.Enumeration.failure, ``IO.FS.createDir),
   (``Regula.Qualification.Enumeration.failure, ``IO.FS.createDirAll),
   (``Regula.Qualification.Enumeration.failure, ``IO.FS.writeFile),
-  (`Regula.Qualification.FrozenExit.runCase, ``IO.FS.writeFile),
-  (`Regula.Qualification.History.control, ``IO.FS.createDir),
-  (`Regula.Qualification.History.control, ``IO.FS.writeFile),
+  (Regula.Removal.privateIn `Regula.Qualification.FrozenExit
+    `Regula.Qualification.FrozenExit.runCase, ``IO.FS.writeFile),
+  (Regula.Removal.privateIn `Regula.Qualification.History
+    `Regula.Qualification.History.control, ``IO.FS.createDir),
+  (Regula.Removal.privateIn `Regula.Qualification.History
+    `Regula.Qualification.History.control, ``IO.FS.writeFile),
   (``Regula.Qualification.InputInventory.check, ``IO.FS.createDirAll),
   (``Regula.Qualification.InputInventory.check, ``IO.FS.writeFile),
-  (`Regula.Qualification.NativeLinter.check, ``IO.FS.writeFile),
-  (`Regula.Qualification.NativeLinter.forgedPrelude, ``IO.FS.createDirAll),
-  (`Regula.Qualification.NativeLinter.forgedPrelude, ``IO.FS.writeFile),
+  (Regula.Removal.privateIn `Regula.Qualification.NativeLinter
+    `Regula.Qualification.NativeLinter.check, ``IO.FS.writeFile),
+  (Regula.Removal.privateIn `Regula.Qualification.NativeLinter
+    `Regula.Qualification.NativeLinter.forgedPrelude, ``IO.FS.createDirAll),
+  (Regula.Removal.privateIn `Regula.Qualification.NativeLinter
+    `Regula.Qualification.NativeLinter.forgedPrelude, ``IO.FS.writeFile),
   (``Regula.Qualification.NativeLinter.paired, ``IO.FS.createDir),
   (``Regula.Qualification.Preparation.check, ``IO.FS.createDirAll),
-  (`Regula.Qualification.Producer.chain, ``IO.FS.writeBinFile),
-  (`Regula.Qualification.Producer.checkControls, ``IO.FS.createDir),
-  (`Regula.Qualification.Producer.standalone, ``IO.FS.writeFile),
+  (Regula.Removal.privateIn `Regula.Qualification.Producer
+    `Regula.Qualification.Producer.chain, ``IO.FS.writeBinFile),
+  (Regula.Removal.privateIn `Regula.Qualification.Producer
+    `Regula.Qualification.Producer.checkControls, ``IO.FS.createDir),
+  (Regula.Removal.privateIn `Regula.Qualification.Producer
+    `Regula.Qualification.Producer.standalone, ``IO.FS.writeFile),
   (``Regula.Qualification.prepareCoreProject, ``IO.FS.createDirAll),
   (``Regula.Qualification.rootImportsGuardControl, ``IO.FS.writeFile),
   (``Regula.Qualification.Readers.writePackage, ``IO.FS.createDirAll),
   (``Regula.Qualification.ReceiptBoundary.check, ``IO.FS.createDir),
   (``Regula.Qualification.ReceiptBoundary.check, ``IO.FS.writeFile),
-  (`Regula.Qualification.RuleExamples.observe, ``IO.FS.Handle.mk),
-  (`Regula.Qualification.RuleExamples.produce, ``IO.FS.createDir),
-  (`Regula.Qualification.RuleExamples.produce, ``IO.FS.createDirAll),
-  (`Regula.Qualification.RuleExamples.produce, ``IO.FS.writeBinFile),
-  (`Regula.Qualification.RuleExamples.produce, ``IO.FS.writeFile),
+  (Regula.Removal.privateIn `Regula.Qualification.RuleExamples
+    `Regula.Qualification.RuleExamples.observe, ``IO.FS.Handle.mk),
+  (Regula.Removal.privateIn `Regula.Qualification.RuleExamples
+    `Regula.Qualification.RuleExamples.produce, ``IO.FS.createDir),
+  (Regula.Removal.privateIn `Regula.Qualification.RuleExamples
+    `Regula.Qualification.RuleExamples.produce, ``IO.FS.createDirAll),
+  (Regula.Removal.privateIn `Regula.Qualification.RuleExamples
+    `Regula.Qualification.RuleExamples.produce, ``IO.FS.writeBinFile),
+  (Regula.Removal.privateIn `Regula.Qualification.RuleExamples
+    `Regula.Qualification.RuleExamples.produce, ``IO.FS.writeFile),
   (``Regula.Qualification.RuleExamples.check, ``IO.FS.createDirAll),
   (``Regula.Qualification.SelfAudit.absenceFixtureControls, ``IO.FS.createDirAll),
   (``Regula.Qualification.Slot.prepareSlot, ``IO.FS.writeFile),
@@ -376,17 +396,21 @@ run_cmd Regula.Removal.checkProgram (elaborates := true) (named := [
   (``Regula.Qualification.SourceEvidence.fences, ``IO.FS.writeFile),
   (``Regula.Qualification.SourceEvidence.selectedPolicy, ``IO.FS.writeFile),
   (``Regula.Qualification.SourceEvidence.writeFence, ``IO.FS.writeFile),
-  (`Regula.Qualification.VersoPaths.withChanged, ``IO.FS.writeFile),
-  (`Regula.Qualification.VersoPaths.withRemoved, ``IO.FS.writeBinFile),
-  (`Regula.Qualification.VersoPaths.withWritten, ``IO.FS.createDirAll),
-  (`Regula.Qualification.VersoPaths.withWritten, ``IO.FS.writeFile),
+  (Regula.Removal.privateIn `Regula.Qualification.VersoPaths
+    `Regula.Qualification.VersoPaths.withChanged, ``IO.FS.writeFile),
+  (Regula.Removal.privateIn `Regula.Qualification.VersoPaths
+    `Regula.Qualification.VersoPaths.withRemoved, ``IO.FS.writeBinFile),
+  (Regula.Removal.privateIn `Regula.Qualification.VersoPaths
+    `Regula.Qualification.VersoPaths.withWritten, ``IO.FS.createDirAll),
+  (Regula.Removal.privateIn `Regula.Qualification.VersoPaths
+    `Regula.Qualification.VersoPaths.withWritten, ``IO.FS.writeFile),
   -- The configuration that `regula setup` writes in the project that it sets up, its restoration
   -- when the setup stops, and the source of the compiler probe, in its temporary directory: the
   -- process controls run the setup's check of the pinned toolchain (`Regula.Cli.Setup.pinned`),
   -- so the program links the module that writes them (`Regula.Qualification.Process`).
-  (`Regula.Cli.Setup.restore, ``IO.FS.writeFile),
-  (`Regula.Cli.Setup.write, ``IO.FS.createDirAll),
-  (`Regula.Cli.Setup.write, ``IO.FS.writeFile),
+  (Regula.Removal.privateIn `Regula.Cli.Setup `Regula.Cli.Setup.restore, ``IO.FS.writeFile),
+  (Regula.Removal.privateIn `Regula.Cli.Setup `Regula.Cli.Setup.write, ``IO.FS.createDirAll),
+  (Regula.Removal.privateIn `Regula.Cli.Setup `Regula.Cli.Setup.write, ``IO.FS.writeFile),
   (``Regula.Toolchain.probe, ``IO.FS.writeFile)])
 
 -- A program that needs Lean's task manager starts through its guard (`Regula.TaskManager.guard`),

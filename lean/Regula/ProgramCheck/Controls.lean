@@ -515,13 +515,17 @@ run_cmd do
 
 -- A value that the initializer of a module computes runs when the program starts, though no code
 -- of the program reads it: an environment read or a process start in its evaluation is refused at
--- its call. A value that only builds a closure of the same read, as an instance builds its methods,
+-- its call, also under the name that the compiler gives a closed term, which a source can declare
+-- too. A value that only builds a closure of the same read, as an instance builds its methods,
 -- runs none of it, so it is admitted. These controls compile the values without running them.
 run_cmd do
   let main ← `(pure ())
   for (name, value, primitive) in [
       ("plantedSnapshot", ← `(command|
         unsafe def $(mkIdent `plantedSnapshot) : Option String :=
+          unsafeBaseIO (IO.getEnv "PLANTED")), "IO.getEnv"),
+      ("_closed_0", ← `(command|
+        unsafe def $(mkIdent `_closed_0) : Option String :=
           unsafeBaseIO (IO.getEnv "PLANTED")), "IO.getEnv"),
       ("plantedStarted", ← `(command|
         unsafe def $(mkIdent `plantedStarted) : Except IO.Error IO.Process.Output :=

@@ -835,7 +835,9 @@ with the declaration that makes it. A removal in a different declaration of a dr
 build fail.
 
 The check permits a call of that list, or of a driver, by the pair of its caller and the removal
-function that it calls. It does not examine the path or the place of the call in the caller. Thus
+function that it calls. It does not examine the path or the place of the call in the caller. A pair
+gives a private declaration by its full name, with its module, so a private declaration of another
+module with the same name does not match the pair. Thus
 each permitted pair is a trusted exception as a whole, together with each further call of the same
 function in the same caller. For example, a second `IO.FS.removeDirAll` in a removal of the
 verification driver passes the check.
@@ -6381,7 +6383,7 @@ Stated selections keep their reason at each call site. They are external selecti
 
 ### The compiled observer boundary
 
-`Regula.Removal.boundaries` gives one primitive table for filesystem removals and writes, process starts and environment observations. The filesystem row admits a call by the pair of its caller and its primitive, on every path. Its walk starts at every compiled declaration of the program's modules outside the toolchain. The process and environment rows admit a call by its path. Their walk starts at `main`, at the initializer actions of the linked modules and at the values that those modules compute when the program starts. A value whose compiled code applies no closure and calls only declarations with no parameter runs nothing but its reads of other values, so the walk follows only those reads from it. The walk follows a closure that such a value only builds, such as the method of an instance, from the code that reads the value. Unknown compiled code or an unfinished bounded traversal makes the check fail.
+`Regula.Removal.boundaries` gives one primitive table for filesystem removals and writes, process starts and environment observations. The filesystem row admits a call by the pair of its caller and its primitive, on every path. Its walk starts at every compiled declaration of the program's modules outside the toolchain. The process and environment rows admit a call by its path. Their walk starts at `main`, at the initializer actions of the linked modules and at the values that those modules compute when the program starts. It leaves out a closed term that the compiler extracted, because the code that first reads it computes it. A declaration counts as the compiler's only when no constant has its name, so a value of a source with such a name is still a root. A value whose compiled code applies no closure and calls only declarations with no parameter runs nothing but its reads of other values, so the walk follows only those reads from it. The walk follows a closure that such a value only builds, such as the method of an instance, from the code that reads the value. Unknown compiled code or an unfinished bounded traversal makes the check fail.
 
 The environment row covers the variables, the working directory and the executable path of the process. It names `IO.getEnv`, `IO.currentDir`, `IO.Process.getCurrentDir`, `IO.appPath` and `IO.Process.setCurrentDir` with their runtime symbols ([`IO.lean#L951-L959`](https://github.com/leanprover/lean4/blob/v4.34.1/src/Init/System/IO.lean#L951-L959), [`#L1383-L1386`](https://github.com/leanprover/lean4/blob/v4.34.1/src/Init/System/IO.lean#L1383-L1386)).
 

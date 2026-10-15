@@ -48,6 +48,9 @@ planted initializer never runs. The planted removals below are the calls of a re
   directory's name is longer than `NAME_MAX`.
 - A URL of `Regula.Site.Deployment.fetch` that starts with `-`: curl does not read it as an
   option.
+- A private declaration of this module that writes a file, whose name below its private prefix is
+  the name that a pair gives: the pair does not admit its write, and its full name does
+  (`admittingPair`).
 
 Assumes, for the control of `NAME_MAX`: POSIX.1-2024: `mkdir()` fails with `ENAMETOOLONG` when a
 component of its path is longer than `NAME_MAX`
@@ -398,5 +401,30 @@ run_cmd do
       throwError "the planted configuration of curl writes no file: {direct.stderr}"
   finally
     Regula.Filesystem.removeOwn .directory base
+
+/-- A planted private declaration that writes a file. Its name below its private prefix is a name
+that a pair can give for a declaration of another module. No program calls it. -/
+private def plantedListed (path : FilePath) : IO Unit :=
+  IO.FS.writeFile path ""
+
+-- A pair admits a private declaration only by its full name, with its module: a pair that gives
+-- the name below the private prefix admits no call of the private declaration of this module with
+-- that name, and the full name admits it.
+run_cmd do
+  let env ← getEnv
+  let observers := Regula.Removal.filesystemObservers env
+  let planted := mkPrivateName env `Regula.RemovalControls.plantedListed
+  unless env.contains planted do
+    throwError "the planted private declaration is not {planted}"
+  let write (named : Name) := [(named, ``IO.FS.writeFile)]
+  let below := Regula.Removal.rawRemovalsFrom env observers #[planted]
+    (write `Regula.RemovalControls.plantedListed)
+  unless below.raw == #[(planted, ``IO.FS.writeFile)] do
+    throwError "a pair admitted a private declaration by its name below the private prefix: \
+      {below.raw}"
+  let full := Regula.Removal.rawRemovalsFrom env observers #[planted] (write planted)
+  unless full.raw.isEmpty && full.unused.isEmpty do
+    throwError "the full name of the planted private declaration did not admit its write: \
+      {full.raw}, unused {full.unused}"
 
 end Regula.RemovalControls

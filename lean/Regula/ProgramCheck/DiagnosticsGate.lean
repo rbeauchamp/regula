@@ -17,7 +17,8 @@ It also proves the program's own presence read, which the program defines becaus
 
 run_cmd Regula.Removal.checkProgram (bootstrap := `Regula.DiagnosticsGate.Process) (named := [
     -- The output of the step, appended to the file that GitHub Actions names.
-    (`Regula.DiagnosticsGate.output, ``IO.FS.Handle.mk)])
+    (Regula.Removal.privateIn `Regula.DiagnosticsGate
+      `Regula.DiagnosticsGate.output, ``IO.FS.Handle.mk)])
 
 /-- The presence read of the program is the filesystem observer's (`Regula.Filesystem.isPresent`,
 whose match form `Regula.Filesystem.isPresent_eq_match` states). -/
