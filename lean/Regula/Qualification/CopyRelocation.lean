@@ -177,10 +177,11 @@ def checkAnswer (project : FilePath) (output : String) : IO Unit := do
 `scratch`, with the changes `env` applied last. The worker runs under the Git isolation of a
 process tree (`Construction.isolationEnvironment`), which removes Git's repository variables, so
 it is isolated when it starts and does not start again (`Regula.TaskManager.guard`), and Git
-searches for no repository above `scratch` (`GIT_CEILING_DIRECTORIES`). That ceiling does not
-bound a `GIT_DIR`. The control (`check`) gives one to the child `qualify` that runs `gitSteps`,
-which starts again under the guard's isolation (`Regula.TaskManager.guard`,
-`Regula.GitIsolation.restart`) and so runs `gitSteps` without it. -/
+searches for no repository above `scratch` (`GIT_CEILING_DIRECTORIES`). The ceiling is the real
+path of `scratch`, so the reads of `Regula.Checker.gitWorkTree` keep it too
+(`ceilingDirectories`). It does not bound a `GIT_DIR`. The control (`check`) gives one to the
+child `qualify` that runs `gitSteps`, which starts again under the guard's isolation
+(`Regula.TaskManager.guard`, `Regula.GitIsolation.restart`) and so runs `gitSteps` without it. -/
 def workerEnvironment (scratch : FilePath) (env : Array (String × Option String)) :
     IO (Array (String × Option String)) := do
   let ceiling ← IO.FS.realPath scratch

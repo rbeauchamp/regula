@@ -337,65 +337,57 @@ joined by `/`. -/
 def namedPath (names : List String) : String :=
   "/" ++ "/".intercalate names
 
-/-- The ceiling directories that Git 2.54.0 keeps from the value `value` of
-`GIT_CEILING_DIRECTORIES`: the entries between colons, in order, without an empty entry and without
-an entry that does not start with `/`. An entry after an empty one is kept as it is written. Each
-other entry is replaced by its real path (`IO.FS.realPath`), and left out when that read fails. -/
-def ceilingDirectories (value : String) : IO (List String) := do
-  let mut kept : List String := []
-  let mut literal := false
-  for entry in value.splitOn ":" do
-    if entry.isEmpty then
-      literal := true
-    else if !entry.startsWith "/" then
-      pure ()
-    else if literal then
-      kept := kept ++ [entry]
-    else
-      match ← (IO.FS.realPath entry).toBaseIO with
-      | .ok real => kept := kept ++ [real.toString]
-      | .error _ => pure ()
-  return kept
+/-- The entries of the value `value` of `GIT_CEILING_DIRECTORIES` that Regula takes as ceilings: of
+the entries between colons, each that is its own real path (`Regula.Filesystem.realPathIfPresent`).
+Such an entry starts with `/` and has no symbolic link, no `.` or `..`, no empty name and no final
+`/`. Each other entry is left out: an empty one, one that does not start with `/`, one where nothing
+is, and one whose real path is another path. A failure of the read of a real path is thrown. -/
+def ceilingDirectories (value : String) : IO (List String) :=
+  (value.splitOn ":").filterM fun entry => do
+    unless entry.startsWith "/" do return false
+    return (← Regula.Filesystem.realPathIfPresent entry).map (·.toString) == some entry
 
-/-- The length in bytes of the longest of `ceilings` that is an ancestor of the directory whose path
-is `path`, other than that directory: a final `/` of a ceiling is not counted, and the ceiling must
-be followed in `path` by `/` and at least one more byte. `none` when no ceiling is such an ancestor,
-and for the root directory. This is Git 2.54.0's `longest_ancestor_length`. -/
-def ceilingLength (path : String) (ceilings : List String) : Option Nat :=
+/-- The length in bytes of `ceiling` when it is an ancestor of the directory whose path is `path`,
+other than that directory: a final `/` of `ceiling` is not counted, and `ceiling` must be
+followed in `path` by `/` and at least one more byte. `none` when it is no such ancestor, and for
+the root directory. Git 2.54.0's `longest_ancestor_length` gives the greatest of these lengths over
+its ceilings, or `-1` when there is none (`path.c:1245-1272`). -/
+def ceilingMatch (path ceiling : String) : Option Nat :=
   if path == "/" then none else
   let bytes := path.toUTF8.data
-  ceilings.foldl (init := none) fun longest ceiling =>
-    let written := ceiling.toUTF8.data
-    let length := if written.back? == some (47 : UInt8) then written.size - 1 else written.size
-    if length + 1 < bytes.size && bytes.extract 0 length == written.extract 0 length &&
-        bytes[length]? == some (47 : UInt8) then
-      some (match longest with | some other => max other length | none => length)
-    else longest
+  let written := ceiling.toUTF8.data
+  let length := if written.back? == some (47 : UInt8) then written.size - 1 else written.size
+  if length + 1 < bytes.size && bytes.extract 0 length == written.extract 0 length &&
+      bytes[length]? == some (47 : UInt8) then some length
+  else none
 
-/-- Whether Git 2.54.0's walk toward the root from a directory below `directory` reaches the
-directory with the names `directory`, when the length of its ceiling is `ceiling`
-(`ceilingLength`). Without a ceiling it reaches each ancestor, the root included. With one it
-reaches only an ancestor whose path (`namedPath`) is longer than the ceiling, so not the ceiling and
-no directory above it. -/
-def walked (ceiling : Option Nat) (directory : List String) : Bool :=
-  match ceiling with
-  | none => true
-  | some length => !directory.isEmpty && length < (namedPath directory).utf8ByteSize
+/-- Whether Git 2.54.0's walk toward the root from the directory whose path is `start`, below the
+ceilings `ceilings`, can reach the directory with the names `directory`: for each of `ceilings` that
+is an ancestor of `start` (`ceilingMatch`), `directory` is not the root and its path (`namedPath`)
+is longer than that ceiling. Git leaves a directory for its parent only when the parent's path is
+longer than the longest of those ceilings, and not for the root when there is one. That holds
+exactly when the parent passes this test for each of them. -/
+def walked (start : String) (ceilings : List String) (directory : List String) : Bool :=
+  ceilings.all fun ceiling => match ceilingMatch start ceiling with
+    | none => true
+    | some length => !directory.isEmpty && length < (namedPath directory).utf8ByteSize
 
 /-- The directories, by their names below the root, at which Git 2.54.0's walk from the directory
-with the names `names` looks for a repository when the length of its ceiling is `ceiling`: the
-directory itself, and each of its ancestors that the walk reaches (`walked`,
-`mem_discoveryDirectories`). -/
-def discoveryDirectories (names : List String) (ceiling : Option Nat) : List (List String) :=
+with the names `names` can look for a repository below the ceilings `ceilings`: the directory
+itself, and each of its ancestors that the walk can reach (`walked`, `mem_discoveryDirectories`).
+Fewer ceilings give at least these directories (`discoveryDirectories_superset`). -/
+def discoveryDirectories (names ceilings : List String) : List (List String) :=
   (List.range (names.length + 1)).filterMap fun count =>
-    if count == names.length || walked ceiling (names.take count) then some (names.take count)
+    if count == names.length || walked (namedPath names) ceilings (names.take count) then
+      some (names.take count)
     else none
 
 /-- The directories of `discoveryDirectories` are exactly the directory and those of its ancestors
-that the walk reaches. -/
-theorem mem_discoveryDirectories (names directory : List String) (ceiling : Option Nat) :
-    directory ∈ discoveryDirectories names ceiling ↔
-      directory <+: names ∧ (directory = names ∨ walked ceiling directory = true) := by
+that the walk can reach. -/
+theorem mem_discoveryDirectories (names ceilings directory : List String) :
+    directory ∈ discoveryDirectories names ceilings ↔
+      directory <+: names ∧
+        (directory = names ∨ walked (namedPath names) ceilings directory = true) := by
   simp only [discoveryDirectories, List.mem_filterMap, List.mem_range, Nat.lt_succ_iff]
   constructor
   · rintro ⟨count, _, chosen⟩
@@ -410,7 +402,8 @@ theorem mem_discoveryDirectories (names directory : List String) (ceiling : Opti
   · rintro ⟨isPrefix, reached⟩
     have taken := List.prefix_iff_eq_take.mp isPrefix
     refine ⟨directory.length, isPrefix.length_le, ?_⟩
-    have chosen : (directory.length == names.length || walked ceiling directory) = true := by
+    have chosen : (directory.length == names.length ||
+        walked (namedPath names) ceilings directory) = true := by
       rcases reached with whole | inner
       · subst whole
         simp
@@ -418,20 +411,32 @@ theorem mem_discoveryDirectories (names directory : List String) (ceiling : Opti
     rw [← taken]
     simp [chosen]
 
+/-- Leaving ceilings out never removes a directory: each directory that the walk below the
+ceilings `more` can reach, the walk below the ceilings `fewer` can reach too, when each of `fewer`
+is one of `more`. -/
+theorem discoveryDirectories_superset (names : List String) {fewer more : List String}
+    (among : ∀ ceiling ∈ fewer, ceiling ∈ more) {directory : List String}
+    (reached : directory ∈ discoveryDirectories names more) :
+    directory ∈ discoveryDirectories names fewer := by
+  rw [mem_discoveryDirectories] at reached ⊢
+  refine ⟨reached.1, reached.2.imp id fun inner => ?_⟩
+  simp only [walked, List.all_eq_true] at inner ⊢
+  exact fun ceiling mem => inner ceiling (among ceiling mem)
+
 /-- Whether the observer's reads (`Regula.Filesystem.entryIfPresent`) establish that Git 2.54.0
 finds no repository at the directory with the names `directory`: nothing is at its `HEAD`, and
 nothing is at its `.git`, or its `.git` is a directory with nothing at its `HEAD`, `objects` and
-`refs`. A read that fails, and an entry of another kind, give `false`. -/
+`refs`. An entry of another kind gives `false`. Each failure of a read is thrown, the observer's
+refusal on Windows among them. -/
 def noRepositoryAt (directory : List String) : IO Bool := do
-  let absent (names : List String) : IO Bool := do
-    let read ← (Regula.Filesystem.entryIfPresent (mkFilePath ("" :: directory ++ names))).toBaseIO
-    return read matches .ok none
-  unless ← absent ["HEAD"] do return false
-  let git := mkFilePath ("" :: directory ++ [".git"])
-  match ← (Regula.Filesystem.entryIfPresent git).toBaseIO with
-  | .ok none => return true
-  | .ok (some .dir) => [["HEAD"], ["objects"], ["refs"]].allM fun names => absent (".git" :: names)
-  | _ => return false
+  let entry (names : List String) : IO (Option IO.FS.FileType) :=
+    Regula.Filesystem.entryIfPresent (mkFilePath ("" :: directory ++ names))
+  if (← entry ["HEAD"]).isSome then return false
+  match ← entry [".git"] with
+  | none => return true
+  | some .dir => [["HEAD"], ["objects"], ["refs"]].allM fun names =>
+      return (← entry (".git" :: names)).isNone
+  | some _ => return false
 
 /-- The query of `gitWorkTree` in the directory `dir`: `git rev-parse --show-toplevel`, run in
 `dir` without `GIT_DIR`, `GIT_WORK_TREE` and `GIT_COMMON_DIR` (and without Git's other repository
@@ -454,7 +459,7 @@ def gitWorkTreeWith (ceiling : Option String)
   let ceilings ← match ceiling with
     | some value => ceilingDirectories value
     | none => pure []
-  let walk := discoveryDirectories names (ceilingLength (namedPath names) ceilings)
+  let walk := discoveryDirectories names ceilings
   if ← walk.allM noRepositoryAt then return none
   let result ← query ceiling dir
   unless result.succeeded do
@@ -471,27 +476,43 @@ def gitWorkTreeWith (ceiling : Option String)
 /-- The real path of the top level of the Git work tree that holds the directory `dir`, or `none`
 when the observer's reads establish that Git finds no repository for `dir`.
 
-The work tree is `none`, and Git does not run, only when `noRepositoryAt` holds at each directory
-of `discoveryDirectories` for the real path of `dir` and the ceiling that `GIT_CEILING_DIRECTORIES`
-gives (`ceilingDirectories`, `ceilingLength`): `dir` and each ancestor below that ceiling, or each
-ancestor and the root without one. Otherwise the query `showTopLevel` runs with that ceiling, and
-each failure of it is thrown with its report: no failure of Git is read as no work tree. So a
-repository that Git cannot read, such as one whose `HEAD` or `.git` file cannot be read, stops the
-caller, and so does a place where an entry is but Git finds no repository, such as a stray `HEAD`
-file. A `.git` directory with nothing at its `HEAD`, `objects` and `refs`, as a project that keeps a
-file there has it, is no repository by these reads. When the query succeeds, the path it prints is
-decoded exactly (`Regula.Filesystem.Construction.printedPath?`: only the final newline is removed)
-and resolved (`Regula.Filesystem.realPathIfPresent`); output that is not one absolute path, or a
-printed path where nothing is, is thrown. A failure to resolve a path, or to start Git, is thrown.
-On Windows the observer refuses its reads, so `gitWorkTree` throws there.
+The reads cover at least each directory at which Git 2.54.0 looks for a repository from `dir`:
+they read `dir`'s real path and each of its ancestors that the walk below the ceilings of
+`ceilingDirectories` can reach (`discoveryDirectories`). Git honors each of those ceilings, as it is
+written, so the reads cover each directory that Git's walk reaches
+(`discoveryDirectories_superset`). Git's walk can stop sooner, at a ceiling that Regula leaves out
+or at the boundary of a file system, which the reads do not take into account. The work tree is
+`none`, and Git does not run, only when `noRepositoryAt` holds at each directory read. Otherwise the
+query `showTopLevel` runs with the same value of `GIT_CEILING_DIRECTORIES`, and each failure of it
+is thrown with its report: no failure of Git is read as no work tree. So a repository that Git
+cannot read, such as one whose `HEAD` or `.git` file cannot be read, stops the caller. So does a
+place where an entry is but Git finds no repository, such as a stray `HEAD` file. So does a
+repository that only the wider reads reach, beyond a ceiling that Regula leaves out or the boundary
+of a file system: Git fails there, and that is a refusal, not an answer. A `.git` directory with
+nothing at its `HEAD`, `objects` and `refs`, as a project that keeps a file there has it, is no
+repository by these reads. When the query succeeds, the path it prints is decoded exactly
+(`Regula.Filesystem.Construction.printedPath?`: only the final newline is removed) and resolved
+(`Regula.Filesystem.realPathIfPresent`); output that is not one absolute path, or a printed path
+where nothing is, is thrown. A failure of a read, to resolve a path, or to start Git, is thrown. On
+Windows the observer refuses its reads, so `gitWorkTree` throws there.
 
 Assumes: Git 2.54.0, run without `GIT_DIR` (`setup.c:1564-1568`), looks for a repository only at
-the directories of `discoveryDirectories`. It walks from the directory that `getcwd(3)` gives
-(`setup.c:1888-1892`) toward the root (`setup.c:1604-1702`). With `GIT_CEILING_DIRECTORIES` it
-splits the value at colons and keeps entries as `ceilingDirectories` does (`setup.c:1552`,
-`:1570-1582`, `:1315-1338`, `abspath.h:28-31`), and the length of the ceiling is `ceilingLength`
-(`path.c:1245-1272`). The walk leaves a directory for its parent only when the parent's path is
-longer than that length, or when there is no ceiling (`setup.c:1686-1695`).
+the directory that `getcwd(3)` gives (`setup.c:1888-1892`) and at the ancestors that its walk
+toward the root reaches (`setup.c:1604-1702`). The walk leaves a directory for its parent only when
+the parent's path is longer than the longest of its ceilings that is an ancestor of the start
+(`setup.c:1577`, `:1581-1582`, `path.c:1245-1272`), and never for the root when there is one
+(`setup.c:1689-1697`). So it reaches only the directories of `discoveryDirectories` for its own
+ceilings. It also stops at the boundary of a file system unless `GIT_DISCOVERY_ACROSS_FILESYSTEM` is
+set (`setup.c:1601-1603`, `:1698-1700`), which only removes directories from the walk.
+
+Assumes: Git 2.54.0 splits the value of `GIT_CEILING_DIRECTORIES` at colons (`setup.c:1570-1576`,
+`git-compat-util.h:201-202`) and keeps an entry only when it starts with `/` (`setup.c:1315-1338`,
+`abspath.h:28-31`). It keeps such an entry as it is written after an empty entry, and otherwise
+as `real_pathdup` gives it (`abspath.c:235-245`, `:216-221`). An entry that is its own real path
+by `realpath(3)` has no `.`, `..`, empty name or final `/`, and no name of it is a symbolic link.
+For it, `strbuf_realpath_1` appends each name, finds it with `lstat(2)` and not as a link, and gives
+the entry itself (`abspath.c:79-201`, `:110-138`, `:191`). So each ceiling of `ceilingDirectories`
+is one of Git's.
 
 Assumes: Git 2.54.0 finds a repository at a directory D only from a `.git` file that
 `read_gitfile_gently` reads, which needs `stat(2)` of `D/.git` to succeed (`setup.c:956-976`,
@@ -505,10 +526,7 @@ newline (`builtin/rev-parse.c:668-669`, `:985-992`), and keeps it as the real pa
 `real_pathdup` gives (`repository.c:258-260`, through `set_git_work_tree`, `setup.c:1845-1861`).
 
 Assumes: the real path of `dir` (`realpath(3)`) is the path that `getcwd(3)` gives in Git, which
-starts in `dir`, and the real path of a ceiling entry that `realpath(3)` resolves is the one that
-Git's `real_pathdup` gives (`abspath.c:235-245`). An entry that `realpath(3)` does not resolve is
-left out, which can only lower the ceiling and add directories to the reads. No other process
-changes these paths while the reads and Git run. -/
+starts in `dir`. No other process changes these paths while the reads and Git run. -/
 def gitWorkTree (dir : FilePath) : IO (Option FilePath) := do
   gitWorkTreeWith (← IO.getEnv "GIT_CEILING_DIRECTORIES") showTopLevel dir
 

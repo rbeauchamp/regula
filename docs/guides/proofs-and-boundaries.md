@@ -4035,12 +4035,16 @@ known work tree holds the root package and the dependency), so a dependency in a
 or of a root package outside each work tree, is not owned. A Git dependency that Lake clones has a
 work tree of its own, and so does a submodule, thus neither is owned.
 
-`gitWorkTree` first reads the directories where Git looks for a repository. They are the
-directory and each ancestor below the ceiling that `GIT_CEILING_DIRECTORIES` gives, or each
-ancestor and the root without a ceiling (`mem_discoveryDirectories`). At each of them, nothing may
-be at `HEAD`. Nothing may be at `.git` either, or `.git` is a directory with nothing at its `HEAD`,
-`objects` and `refs`. Then no repository can hold the directory, and `gitWorkTree` gives no work
-tree without running Git.
+`gitWorkTree` first reads at least each directory where Git looks for a repository. It reads the
+directory and each ancestor that the walk of Git can reach below the ceilings of
+`GIT_CEILING_DIRECTORIES` (`mem_discoveryDirectories`). It keeps only a ceiling that is its own
+real path, which Git keeps too. Fewer ceilings only add directories
+(`discoveryDirectories_superset`).
+
+At each directory read, nothing may be at `HEAD`. Nothing may be at `.git` either, or `.git` is a
+directory with nothing at its `HEAD`, `objects` and `refs`. Then no repository can hold the
+directory, and `gitWorkTree` gives no work tree without running Git. Each failure of a read stops
+the audit.
 
 Otherwise `gitWorkTree` runs `git rev-parse --show-toplevel` in the directory, without `GIT_DIR`,
 `GIT_WORK_TREE` and `GIT_COMMON_DIR`, and with the same ceiling. It removes only the final newline
@@ -4049,8 +4053,10 @@ report of Git. For a repository with an unreadable `HEAD`, Git reports that it f
 repository, so that report is not read as absence either.
 
 Thus a repository that Git cannot read, such as one with an unreadable `HEAD` or `.git` file, is
-not taken as no repository. **Trusted:** Git `2.54.0` looks for a repository only at those
-directories, and only where such an entry is. `gitWorkTree` cites this from the source of Git.
+not taken as no repository. The walk of Git can stop sooner than the reads, at a ceiling that Regula
+leaves out or at the boundary of a file system. A repository past that point makes Git fail, so
+the audit stops there. **Trusted:** Git `2.54.0` looks for a repository only at directories among
+those, and only where such an entry is. `gitWorkTree` cites this from the source of Git.
 **Trusted:** the filesystem resolves the real paths, and no process changes them while the audit
 reads them.
 
