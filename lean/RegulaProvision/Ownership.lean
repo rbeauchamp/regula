@@ -10,7 +10,7 @@ runs both at `observeRealPath` (`readPins`). This module states their runs in a 
 filesystem of `RegulaCore.Filesystem` that satisfies `Regula.Filesystem.ReadsReal`, and carries them
 to the runs of the same definitions in `IO` at a read of a real path that agrees with the model's
 (`pinsWith_admitted_io`), as each set of operations does at the model whose states are the worlds
-(`observeRealPath_admitted`). The driver imports only Lean's library, because
+(`observeRealPath_admitted`). The driver imports only the toolchain's libraries, because
 `scripts/provision.sh` runs it with `lean --run` before the package is built; so this module of
 its library imports it with the model, and nothing that the driver runs imports this module.
 

@@ -17,7 +17,8 @@ reads no network and acquires no Mathlib:
   name, among them a path entry of its own, and no overrides file, gives its packages directory,
   the Mathlib entry's source and commit, and each Git entry's checkout directory and commit.
 - A second `mathlib` entry after the first: its source and commit are taken, by the pins and by
-  the check of the checkouts (`RegulaProvision.checkoutPin`), as Lake takes the last entry of a name.
+  the check of the checkouts (`RegulaProvision.checkoutPin`), as Lake takes the last entry of a
+  name.
 - An overrides file with a Git entry for `mathlib` and one for another package: its entries are
   taken. One with a path entry for `mathlib`: nothing is shared.
 - A path entry for `batteries`, in the overrides file or in the manifest, inherited or not, is
@@ -41,8 +42,8 @@ writes, with a restored positive control after each case:
   that the check traverses and that slot preparation runs on the original root, refuses that file
   too, and accepts an empty one.
 
-The link controls run the link installation of provisioning, `RegulaProvision.installLinkWith` at the
-driver's operations `RegulaProvision.linkOps`, on the native filesystem that
+The link controls run the link installation of provisioning, `RegulaProvision.installLinkWith` at
+the driver's operations `RegulaProvision.linkOps`, on the native filesystem that
 `RegulaProvision.RefusesOccupied` and `Regula.Filesystem.ReadsEntry` describe. They observe that
 boundary once on the toolchain's system calls and the installed `ln`, and they read the text of a
 link with `readlink`. They prove nothing: `RegulaProvision.Link` states the theorems. The first
