@@ -3,6 +3,7 @@ import Regula.Checker.ResultProtocol
 import RegulaCore.SiteDocs
 import RegulaCore.SiteTheme
 import Regula.Filesystem
+import Regula.Checker.LakeSelection
 
 /-! # Rule-reference site builder
 
@@ -62,13 +63,18 @@ private def arr (j : Json) (key : String) : IO (Array Json) := IO.ofExcept (arra
 private def has (j : Json) (key : String) (expected : Json) : Bool :=
   (value j key).toOption.any (Regula.JsonAgreement.conforms · expected)
 
-/-- The pinned Verso revision of the website package. -/
+/-- The pinned Verso revision of the website package: the commit of the Git entry that Lake's load
+of the website's workspace materializes `verso` from (`LakeSelection.effectiveEntry`), among the
+entries of its manifest and then those of its package overrides file
+(`LakeSelection.rootEntries`). A website without a manifest, or one that materializes `verso`
+from no Git entry, is refused. -/
 def versoRevision (root : FilePath) : IO String := do
-  let manifest ← readJson (root / "website/lake-manifest.json")
-  let packages ← arr manifest "packages"
-  let some verso ← packages.findM? (fun p => return (← str p "name") == "verso")
-    | throw <| IO.userError "website lock manifest has no verso package"
-  str verso "rev"
+  let files := Regula.Checker.LakeSelection.ownRootFiles (root / "website")
+  let entries ← Regula.Checker.LakeSelection.rootEntries files
+  let some (_, rev) := (Regula.Checker.LakeSelection.effectiveEntry entries `verso).bind
+      Regula.Checker.LakeSelection.gitPin
+    | throw <| IO.userError s!"website: {files.1} with {files.2} materializes no Git package verso"
+  return rev
 
 private def git (root : FilePath) (args : Array String) : IO String := do
   let result ← run root "git" args

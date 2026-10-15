@@ -27,7 +27,9 @@ self-contained copy. Alternate object stores, configuration extensions/includes 
 core.worktree redirects refuse. The ROOT copy's Git stays inside the slot, and preparation
 points manifest dependencies only at captured shared
 roots, compares captured source/config inputs byte-exactly, records relocation
-truthfully, and refuses on any containment violation. Filesystem, Git and
+truthfully, and refuses on any containment violation. A ROOT, original or copy, whose package
+overrides file records an entry refuses, since the relocation covers the manifest's entries only
+(`refuseOverrides`). Filesystem, Git and
 process behavior remain trusted IO, as throughout. -/
 namespace Regula.Qualification.Slot
 open Lean System RegulaQualification
@@ -141,10 +143,25 @@ def materializeGit (slotGit : FilePath) (sourceGit : FilePath) : IO Unit := do
   Regula.Filesystem.construct slotGit
     (Regula.Filesystem.Construction.layout (localItems ++ commonItems ++ generated))
 
+/-- Refuse the workspace whose manifest and package overrides file are `files` when that overrides
+file records an entry, each file read by Lake's own reader (`Regula.Checker.Workspace.readRoot`).
+Lake applies the overrides file's entries after the manifest's
+(`Regula.Checker.LakeSelection.rootEntries`), and the slot relocates and checks the manifest's
+entries only. A workspace without a manifest is not refused here: Lake reads its overrides file only
+with a manifest. -/
+def refuseOverrides (files : FilePath × FilePath) : IO Unit := do
+  let some (_, overrides) ← Regula.Checker.Workspace.readRoot files | return
+  unless overrides.isEmpty do
+    throw <| IO.userError s!"slot workspace has package overrides: {files.2} records \
+      {overrides.map (·.name)}, which Lake applies after the manifest's entries that the slot \
+      relocates"
+
 /-- Executed containment checks over the prepared ROOT copy: Git identity
-resolution must land inside the slot, and every manifest `dir` must resolve
+resolution must land inside the slot, and every manifest entry, read by Lake's own reader
+(`Regula.Checker.Workspace.readRoot`), must be a path entry whose `dir` resolves
 inside the slot or exactly to one of the captured shared dependency roots
-(`shared`, canonical paths). Refusal on any other target. -/
+(`shared`, canonical paths). A Git entry, which Lake would clone inside the slot, and a package
+overrides file that records an entry (`refuseOverrides`) refuse, and so does any other target. -/
 def checkContainment (slot : ProducerSlot) (copy : FilePath)
     (shared : Array FilePath) : IO Unit := do
   unless (← contained slot.root copy) do
@@ -160,22 +177,21 @@ def checkContainment (slot : ProducerSlot) (copy : FilePath)
         else copy / entry
       unless (← contained slot.root resolved) do
         throw <| IO.userError s!"slot git resolution escapes slot: {entry}"
-  if (← Regula.Filesystem.isPresent (copy / "lake-manifest.json")) then
-    let manifest ← readJson (copy / "lake-manifest.json")
-    let packages ← readMember (copy / "lake-manifest.json")
-      (RegulaQualification.Member.array manifest "packages")
-    for entry in packages do
-      match entry.getObjVal? "dir" with
-      | .error _ => pure ()
-      | .ok dir =>
-        let relative ← IO.ofExcept dir.getStr?
-        let resolved := if FilePath.isAbsolute (FilePath.mk relative) then FilePath.mk relative
-          else copy / relative
+  let files := Regula.Checker.Workspace.rootFiles copy
+  refuseOverrides files
+  if let some (manifest, _) ← Regula.Checker.Workspace.readRoot files then
+    for entry in manifest.packages do
+      match entry.src with
+      | .git .. =>
+        throw <| IO.userError s!"slot manifest entry is a Git entry, which Lake would clone \
+          inside the slot: {entry.name}"
+      | .path dir =>
+        let resolved := if dir.isAbsolute then dir else copy / dir
         let sharedRoot := match ← Regula.Filesystem.realPathIfPresent resolved with
           | some real => shared.contains real
           | none => false
         unless sharedRoot || (← contained slot.root resolved) do
-          throw <| IO.userError s!"slot manifest dir escapes slot: {relative}"
+          throw <| IO.userError s!"slot manifest dir escapes slot: {dir}"
 
 /-- Exact comparison of one prepared file against supplied input bytes. -/
 def compareBytes (target : FilePath) (expected : ByteArray) : IO Unit := do
@@ -309,7 +325,8 @@ def rootInputs (root : FilePath) : IO (Array FilePath) :=
 /-- Prepare one complete slot: the writable ROOT package copy. The ROOT copy's
 `lake-manifest.json` is truthfully relocated so that every package entry names
 its captured shared dependency root (a manifest package without a captured
-dependency refuses), recorded as `relocated`; source captures are compared
+dependency refuses), recorded as `relocated`; an original ROOT whose package overrides file
+records an entry refuses (`refuseOverrides`), since Lake would apply it after the relocated entries; source captures are compared
 byte-exactly with frozen inputs, without comparing destination bytes; Git identity is preserved through self-contained materialization
 while top-level path equivalence with the original ROOT is explicitly not
 claimed. Dependencies are recorded as `shared`; their no-writer requirement is
@@ -340,6 +357,9 @@ def prepareSlot (originalRoot : FilePath) (slot : ProducerSlot)
   -- Relocate every captured dependency as a typed path entry, so ordinary loads of the slot
   -- never materialize a Git clone at a packages directory inside the slot.
   let relocatedManifest ← Regula.Checker.Workspace.withRootWorkspace originalRoot fun ws => do
+    -- The relocation rewrites the manifest's entries only, so an original root whose package
+    -- overrides file records an entry, which Lake applies after them, is refused.
+    refuseOverrides (ws.manifestFile, ws.packageOverridesFile)
     let relative := ws.manifestFile.normalize.components.drop originalRoot.normalize.components.length
     let manifestPath := Regula.Filesystem.Construction.location copy relative
     let manifest ← _root_.Lake.Manifest.load manifestPath

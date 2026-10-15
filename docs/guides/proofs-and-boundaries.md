@@ -2083,6 +2083,7 @@ Two-way decisions (`Regula.Decides`), each with an accepted and a refused input:
 | `RegulaProvision.mathlibStep` (accepts on `.keep`), `component?`, `retires`, `mathlibApplies` | The path already links the shared checkout (`mathlibStep_keep_iff`); the text is one path component (`IsComponent`, which `isComponent_iff` connects to the test `isComponent`); a registered link still links its shared directory, is the copy's retired link and is not the link the run provisions (`retires_iff`); the root and integration toolchain selectors are equal (`mathlibApplies_iff`) | Local provisioning: keeping Mathlib's link, admitting directory names as single path components, retiring registered links, and the integration preflight. |
 | `RegulaProvision.selectPins` (accepts on `.ok (some _)`) | `Shareable`: the manifest records a packages directory, and Lake selects a Git entry for `mathlib`. Neither `pathRefusal` nor `pinsRefusal` refuses (`selectPins_shares_iff`). | Local provisioning: the pins of the Mathlib integration package that it shares, as Lake's load selects them. |
 | `RegulaVerification.parseMode`, `select` | The argument list of a supported invocation (`parseMode_sound`, `parseMode_roundtrip`, and `select_exact` for `select`) | Argument selection of `scripts/verify.sh`. `select` returns the mode with the proof that the arguments are that mode's, so its kind is stated about `Regula.Dependent.isSome select`. |
+| `RegulaVerification.dependencyFree` | The root's manifest is there and records no package, and its package overrides file records none (`dependencyFree_iff`). | The first acceptance step refuses a root package that requires a package. |
 | `accept`, `finalize` (accept on `.ok`) | `CompleteFor` with `AllPolicyOK`; `InputsOK` (`accept_iff`, `finalize_iff`) | Acceptance of a result table and of a response sequence, for every claim, census, plan and role receipt. The type of each argument depends on an earlier one and the result type on all of them, so each kind is stated about `Regula.Dependent.isOk` of the function on a structure whose fields are the five arguments (`AcceptInput`, `FinalizeInput`). The witnesses are over `witnessPlan`, the plan of a documentation claim with no environment: the table collected from one completed observation of each of its three jobs is accepted, and the empty table and the empty response sequence are refused. |
 | `admitPlan` (accepts on `.ok`) | `PlanJobsOK`: the proof fields of `Plan` (`admitPlan_isOk_iff`) | Plan admission, for every claim and census, on the structure of the three arguments (`PlanInput`). It accepts the three required jobs of `witnessPlan` and refuses no jobs. |
 | `ResultState.insertResult`, `ResultState.collect`, `admitIndexedResults` (accept on `.ok`) | `InsertOK`, `BatchOK`, `IndexedResultsOK` (`insertResult_success_iff`, `collect_success_iff`, `admitIndexedResults_ok_iff`) | Result admission, for every key type, payload type, order, required set and binding relation: the types and instances are fields of the structure of the arguments (`InsertInput`, `CollectInput`, `IndexedResultsInput`). The first two are stated at their own universe parameters, with witnesses over the one-point type `PUnit`; the third takes a payload type of `Type`, with witnesses over `Unit`. |
@@ -2113,7 +2114,6 @@ Sound only, each a declared choice:
 | `Regula.Checker.ProducerReport.Environment.validate` | `Admissible` (`validate_sound`) | It may refuse an admissible report; `validate_eq_ok` is two-way against the guard Booleans, not against `Admissible`. |
 | `RegulaProvision.admits` | `Admitted`: the receipt records the requested revision and compiler, zero artifact policy and empty source, and holds no package at another revision than a pin (`admits_sound`) | It refuses an `Admitted` receipt of another schema version. |
 | `RegulaProvision.cloneStep` (accepts on `.replace`), `found` (accepts on a result other than `.foreign`), `prunes` | The path is a link or a clean Git checkout (`cloneStep_replace`); the directory's receipt names it (`found_identified`); the directory is not the current one and no registered copy links it (`prunes_sound`) | `cloneStep` keeps a clean checkout at the pinned revision; the program states no converse for the other two. |
-| `RegulaVerification.dependencyFree` | The lock manifest's `packages` array is present and empty (`dependencyFree_packages`) | The driver states no converse. |
 
 Complete only. A sound kind requires an input the function accepts, with a proof:
 
@@ -6065,9 +6065,9 @@ execution, and calling a proved oracle does not prove the driver or its IO effec
 - `RegulaVerification.parseMode_sound`, `parseMode_roundtrip` and `select_exact`: exact argument
   binding and acceptance of every documented invocation; the caller consumes the proof-bearing
   selection, and recipes name the intended commands explicitly; `commands_nonempty` rules out an
-  empty selected campaign; `dependencyFree_packages`: a root lock manifest that `dependencyFree`
-  accepts has an empty `packages` array. `RegulaVerification.Decisions` registers the kinds of
-  the driver's decisions ([above](#decisions-not-registered-with-regula_decision)). Process
+  empty selected campaign; `dependencyFree_iff`: `dependencyFree` accepts exactly a root whose
+  manifest and package overrides file record no package. `RegulaVerification.Decisions` registers
+  the kinds of the driver's decisions ([above](#decisions-not-registered-with-regula_decision)). Process
   execution remains IO.
 - The theorem `RegulaVerification.ordinary_places` gives the directory of each command of the
   first step. Three commands operate in the copy, and the gate starts in the root of the

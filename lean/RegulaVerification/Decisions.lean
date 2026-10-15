@@ -32,14 +32,15 @@ theorem checked_parseMode : Regula.ExecutableContract parseMode
     (fun args mode parsed => (parseMode_sound args mode parsed).symm) .ordinary
     (unwritten := ["unsupported"]) (by decide)⟩
 
-/-- `dependencyFree` accepts only a lock manifest whose `packages` array is present and empty
-(`dependencyFree_packages`), and it accepts the manifest with that one field. That it accepts
-every such manifest is not claimed. -/
+/-- `dependencyFree` accepts exactly a manifest that is there and records no package, with a package
+overrides file that records none (`dependencyFree_iff`): it accepts such a manifest and refuses an
+absent one. -/
 theorem checked_dependencyFree : Regula.ExecutableContract dependencyFree
-    (Regula.DecidesSoundly (· = true)
-      (fun manifest => manifest.getObjValAs? (Array Lean.Json) "packages" = .ok #[])) :=
-  ⟨{ sound := dependencyFree_packages
-     accepted := ⟨Lean.Json.mkObj [("packages", Lean.Json.arr #[])], by decide +kernel⟩ }⟩
+    (Regula.Decides (· = true)
+      (fun read => ∃ manifest, read = some (manifest, #[]) ∧ manifest.packages = #[])) :=
+  ⟨.of_iff dependencyFree_iff
+    ⟨some ({ name := `regula, lakeDir := ".lake", fixedToolchain := false }, #[]), rfl⟩
+    ⟨none, nofun⟩⟩
 
 /-- `select` accepts exactly the argument lists of the supported invocations, as `parseMode`
 does (`select_exact`): it accepts the empty list and refuses an unsupported argument. Its result

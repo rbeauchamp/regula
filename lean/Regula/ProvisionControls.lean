@@ -1,8 +1,10 @@
 import RegulaProvision
 import Regula.Filesystem
+import Regula.Site.Build
+import Regula.Qualification.Slot
 import Lean.Elab.Command
 
-/-! # Controls of the provisioning link installation and of its selection of the pinned packages
+/-! # Controls of the provisioning link installation and of the selections of Lake's pinned packages
 
 The selection controls run provisioning's read of the pins of the Mathlib integration package,
 `RegulaProvision.readPins`, and of a pinned revision, `RegulaProvision.manifestRevision`, on
@@ -23,6 +25,16 @@ reads no network and acquires no Mathlib:
   (`RegulaProvision.pathRefusal`).
 - A manifest without `packagesDir`, or with a null one, is refused, and so is an absent manifest.
 - After each of these, the positive control is restored and gives its answer again.
+
+The same selection serves two other reads of a manifest, each controlled on files that the control
+writes, with a restored positive control after each case:
+
+- The site's record of the website's Verso revision, `Regula.Site.Build.versoRevision`, takes the
+  last `verso` entry, and an override's; a path override of `verso` is refused.
+- The slot's containment check, `Regula.Qualification.Slot.checkContainment`, refuses a duplicate
+  entry whose directory is outside the slot, a Git entry, and a package overrides file that records
+  an entry; `Regula.Qualification.Slot.refuseOverrides`, which slot preparation runs on the original
+  root, refuses that file too, and accepts an empty one.
 
 The link controls run the link installation of provisioning, `RegulaProvision.installLinkWith` at the
 driver's operations `RegulaProvision.linkOps`, on the native filesystem that
@@ -205,12 +217,12 @@ private def overridesText (entries : List Lean.Json) : String :=
 
 /-- Fail with `label` and `what` unless `holds`. -/
 private def requireSelection (label what : String) (holds : Bool) : IO Unit :=
-  unless holds do throw <| IO.userError s!"provisioning selection control {label}: {what}"
+  unless holds do throw <| IO.userError s!"selection control {label}: {what}"
 
 /-- The pins that `readPins` gives the copy at `repo`, which must give some. -/
 private def pinsOf (label : String) (repo : FilePath) : IO RegulaProvision.Pins := do
   let some (_, pins) ← RegulaProvision.readPins repo
-    | throw <| IO.userError s!"provisioning selection control {label}: no Mathlib is shared"
+    | throw <| IO.userError s!"selection control {label}: no Mathlib is shared"
   return pins
 
 /-- The checkout directory and commit of each Git pin. -/
@@ -220,7 +232,7 @@ private def pinned (pins : RegulaProvision.Pins) : Array (String × String) :=
 /-- Fail unless the run `action` fails with an error whose text contains `needle`. -/
 private def requireRefused {α : Type} (label needle : String) (action : IO α) : IO Unit := do
   match ← action.toBaseIO with
-  | .ok _ => throw <| IO.userError s!"provisioning selection control {label}: not refused"
+  | .ok _ => throw <| IO.userError s!"selection control {label}: not refused"
   | .error error =>
     requireSelection label s!"refused with '{error}', not for '{needle}'"
       (((toString error).splitOn needle).length > 1)
@@ -309,5 +321,71 @@ run_cmd do
     requireRefused "absent manifest" "is absent" (RegulaProvision.readPins repo)
     IO.FS.writeFile manifest (manifestText (some (some ".lake/packages")) committed)
     positive "positive after the absent manifest"
+
+-- The site's record of the website's Verso revision.
+run_cmd do
+  Regula.Filesystem.withOwnTempDir fun root => do
+    let website := root / "website"
+    let manifest := website / "lake-manifest.json"
+    let overrides := website / ".lake" / "package-overrides.json"
+    IO.FS.createDirAll (website / ".lake")
+    let (pinned, second, third) := ("6666666666666666666666666666666666666666",
+      "7777777777777777777777777777777777777777", "8888888888888888888888888888888888888888")
+    let url := "https://example.invalid/verso"
+    let committed := [gitEntry "verso" url pinned,
+      gitEntry "MD4Lean" "https://example.invalid/md4lean" second]
+    let revision : IO String := Regula.Site.Build.versoRevision root
+    let positive (label : String) : IO Unit := do
+      requireSelection label "another Verso revision" ((← revision) == pinned)
+    IO.FS.writeFile manifest (manifestText (some (some ".lake/packages")) committed)
+    positive "site positive"
+    IO.FS.writeFile manifest (manifestText (some (some ".lake/packages"))
+      (committed ++ [gitEntry "verso" url second]))
+    requireSelection "site duplicate verso entry" "not the last entry's revision"
+      ((← revision) == second)
+    IO.FS.writeFile manifest (manifestText (some (some ".lake/packages")) committed)
+    positive "site positive after the duplicate entry"
+    IO.FS.writeFile overrides (overridesText [gitEntry "verso" url third])
+    requireSelection "site overrides file" "not the override's revision" ((← revision) == third)
+    IO.FS.writeFile overrides (overridesText [pathEntry "verso" "../verso"])
+    requireRefused "site path override of verso" "materializes no Git package verso" revision
+    Regula.Filesystem.removeFound overrides
+    positive "site positive after the overrides file"
+
+-- The slot's containment check, and its refusal of a package overrides file that records an entry.
+run_cmd do
+  Regula.Filesystem.withOwnTempDir fun base => do
+    let slot : Regula.Qualification.Slot.ProducerSlot := ⟨base / "slot"⟩
+    let copy := slot.root / "root"
+    let manifest := copy / "lake-manifest.json"
+    let overrides := copy / ".lake" / "package-overrides.json"
+    let files := Regula.Checker.Workspace.rootFiles copy
+    IO.FS.createDirAll (copy / ".lake")
+    IO.FS.createDirAll (slot.root / "inside")
+    IO.FS.createDirAll (base / "outside")
+    let committed := [pathEntry "batteries" "../inside"]
+    let check := Regula.Qualification.Slot.checkContainment slot copy #[]
+    let positive (label : String) : IO Unit := do
+      match ← (do check; Regula.Qualification.Slot.refuseOverrides files).toBaseIO with
+      | .ok () => pure ()
+      | .error error => throw <| IO.userError s!"selection control {label}: refused: {error}"
+    IO.FS.writeFile manifest (manifestText (some (some ".lake/packages")) committed)
+    positive "slot positive"
+    IO.FS.writeFile manifest (manifestText (some (some ".lake/packages"))
+      (committed ++ [pathEntry "batteries" "../../outside"]))
+    requireRefused "slot duplicate entry" "slot manifest dir escapes slot" check
+    IO.FS.writeFile manifest (manifestText (some (some ".lake/packages"))
+      (committed ++ [gitEntry "Qq" "https://example.invalid/qq" (String.ofList (List.replicate 40 '9'))]))
+    requireRefused "slot Git entry" "is a Git entry" check
+    IO.FS.writeFile manifest (manifestText (some (some ".lake/packages")) committed)
+    positive "slot positive after the manifest's entries"
+    IO.FS.writeFile overrides (overridesText [pathEntry "batteries" "../inside"])
+    requireRefused "slot overrides file" "slot workspace has package overrides" check
+    requireRefused "slot original overrides file" "slot workspace has package overrides"
+      (Regula.Qualification.Slot.refuseOverrides files)
+    IO.FS.writeFile overrides (overridesText [])
+    positive "slot empty overrides file"
+    Regula.Filesystem.removeFound overrides
+    positive "slot positive after the overrides file"
 
 end Regula.ProvisionControls

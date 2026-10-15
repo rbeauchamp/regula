@@ -1,4 +1,5 @@
 import Lean
+import Lake.Load.Manifest
 
 /-! # Cold-start verification driver
 
@@ -1576,24 +1577,68 @@ def invalidated : Mode → List (String × String)
   | .ruleExamplesShard index => [(shardEvidence (index.val + 1), setupMark)]
   | _ => []
 
-/-- The package adopters require stays dependency-free: its lock manifest records no package. Lake
-refuses to load a workspace whose configuration requires a package that the lock manifest does not
-record, so an accepted build of the root package with such a manifest requires nothing, and
-requiring `regula` adds only `regula` to an adopter's `lake-manifest.json`. The Mathlib
-integration package in `integration/mathlib/` records its own pins. -/
-def dependencyFree (manifest : Lean.Json) : Bool :=
-  match manifest.getObjValAs? (Array Lean.Json) "packages" with
-  | .ok packages => packages.isEmpty
-  | .error _ => false
+/-- The manifest and package overrides file of the workspace that Lake loads with the package at
+`dir` as its root, joined as Lake joins paths. `Regula.ProgramCheck.Verification.rootFiles_eq`
+proves this `Regula.Checker.Workspace.rootFiles`.
 
-/-- Soundness: an admitted lock manifest has a `packages` array, and it is empty. -/
-theorem dependencyFree_packages (manifest : Lean.Json) (h : dependencyFree manifest = true) :
-    manifest.getObjValAs? (Array Lean.Json) "packages" = .ok #[] := by
-  unfold dependencyFree at h
-  split at h
-  · rename_i packages hp
-    rw [hp, Array.isEmpty_iff.mp h]
-  · simp at h
+Assumes:
+- Lake v4.34.1 gives the root package of a workspace the manifest `lake-manifest.json` of its
+  directory unless its load configuration names another (`Lake/Load/Config.lean:54`,
+  `Lake/Load/Package.lean:35-51`), and the `lake` command names no other
+  (`Lake/CLI/Main.lean:116-130`). It reads the package overrides file
+  `.lake/package-overrides.json` of that directory (`Lake/Config/Workspace.lean:212-213`,
+  `Lake/Config/Package.lean:208-213`). -/
+def rootFiles (dir : System.FilePath) : System.FilePath × System.FilePath :=
+  (Lake.joinRelative dir Lake.defaultManifestFile,
+    Lake.joinRelative (Lake.joinRelative dir Lake.defaultLakeDir) "package-overrides.json")
+
+/-- The manifest of the workspace whose manifest and package overrides file are `files`
+(`rootFiles`), and the entries of that overrides file, each read by Lake's own reader, or `none`
+when the manifest does not exist; any other failure of a read, and a file that Lake's reader
+refuses, are thrown. `Regula.ProgramCheck.Verification.readRoot_eq` proves this the checker's
+read, `Regula.Checker.Workspace.readRoot`.
+
+Assumes:
+- Lake v4.34.1's load reads the manifest with `Lake.Manifest.load?`
+  (`Lake/Load/Workspace.lean:61-69`) and the overrides file with `Lake.Manifest.tryLoadEntries`
+  (`Lake/Load/Resolve.lean:603`), which give nothing only for an absent file
+  (`Lake/Load/Manifest.lean:268-272`, `:301-305`). -/
+def readRoot (files : System.FilePath × System.FilePath) :
+    IO (Option (Lake.Manifest × Array Lake.PackageEntry)) := do
+  let some manifest ← Lake.Manifest.load? files.1 | return none
+  return some (manifest, ← Lake.Manifest.tryLoadEntries files.2)
+
+/-- The package adopters require stays dependency-free: `read`, the root package's manifest and
+the entries of its package overrides file (`readRoot`), is there, and neither records a package.
+Lake materializes a workspace's dependencies from those entries, and refuses a configuration that
+requires a package when they are none, so an accepted build of the root package requires nothing.
+Requiring `regula` then adds only `regula` to an adopter's `lake-manifest.json`. An absent manifest
+is refused: Lake would resolve the requirements anew. The Mathlib integration package in
+`integration/mathlib/` records its own pins.
+
+Assumes:
+- Lake v4.34.1 materializes the dependencies of a workspace with a manifest from the manifest's
+  entries and then the overrides file's, and refuses one whose configuration requires a package
+  when both record none (`Lake/Load/Workspace.lean:61-69`, `Lake/Load/Resolve.lean:599-609`). -/
+def dependencyFree : Option (Lake.Manifest × Array Lake.PackageEntry) → Bool
+  | some (manifest, overrides) => manifest.packages.isEmpty && overrides.isEmpty
+  | none => false
+
+/-- `dependencyFree` accepts exactly a manifest that records no package with an overrides file
+that records none. -/
+theorem dependencyFree_iff (read : Option (Lake.Manifest × Array Lake.PackageEntry)) :
+    dependencyFree read = true ↔
+      ∃ manifest, read = some (manifest, #[]) ∧ manifest.packages = #[] := by
+  match read with
+  | none => simp [dependencyFree]
+  | some (manifest, overrides) =>
+    simp only [dependencyFree, Bool.and_eq_true, Array.isEmpty_iff, Option.some.injEq,
+      Prod.mk.injEq]
+    constructor
+    · rintro ⟨hPackages, hOverrides⟩
+      exact ⟨manifest, ⟨rfl, hOverrides⟩, hPackages⟩
+    · rintro ⟨_, ⟨rfl, hOverrides⟩, hPackages⟩
+      exact ⟨hPackages, hOverrides⟩
 
 /-- The targets a surface manifest claims, read from its JSON: each surface's `library` and each
 name of its `executables`, in the manifest's order; `none` for a manifest without that shape. A
@@ -1688,11 +1733,10 @@ under it (`start`). -/
 def run (args : List String) : IO Unit := do
   let some selection := select args | throw <| IO.userError usage
   if selection.val == .ordinary then
-    let manifest ← IO.ofExcept (Lean.Json.parse (← IO.FS.readFile "lake-manifest.json"))
-    unless dependencyFree manifest do
-      throw <| IO.userError "lake-manifest.json records a dependency: the regula package must \
-        require nothing beyond the Lean toolchain (a Mathlib-dependent module belongs in \
-        integration/mathlib/)"
+    unless dependencyFree (← readRoot (rootFiles ".")) do
+      throw <| IO.userError "lake-manifest.json is absent or records a dependency, or \
+        .lake/package-overrides.json records one: the regula package must require nothing beyond \
+        the Lean toolchain (a Mathlib-dependent module belongs in integration/mathlib/)"
     let surfaces ← IO.ofExcept (Lean.Json.parse (← IO.FS.readFile "foundation_manifest.json"))
     unless prebuildCovers surfaces do
       throw <| IO.userError s!"foundation_manifest.json claims a target that the prebuild of \
