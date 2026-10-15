@@ -265,7 +265,7 @@ checker behavior:
 | `history` | [Source-bound replacement history qualification](proofs-and-boundaries.md#producers). |
 | `self-lint` | This repository's own `REGULA_ORDINARY_LAKEFILES=1 lake lint` through the `regula/lint` driver, in the root and `audit/` packages ([repository conformance](#repository-conformance)). |
 | `self-lint-default` | The root package's `lake lint` without `REGULA_ORDINARY_LAKEFILES`, so with the audit-build marker that an adopter gets by default ([repository conformance](#repository-conformance)). |
-| `self-audit`, `self-audit 1/4` to `self-audit 4/4` | Operational self-audit of the excluded `Regula` library, and the check for one-sided `Json` comparisons in each library except `Fixtures` ([repository conformance](#repository-conformance)). The self-audit also refuses, in each library except `Fixtures`, a read that takes an unreadable path for an absent one. A shard audits a quarter of the modules, and the four shards together audit all of them. The shard `self-audit 4/4` and the single run also check that each program of the package runs the removal check (`qualify observers`, [proofs and boundaries](proofs-and-boundaries.md#the-acceptance-boundary)). They also check that each executable runs the task-manager check. |
+| `self-audit`, `self-audit 1/4` to `self-audit 4/4` | Operational self-audit of the excluded `Regula` library, and the check for one-sided `Json` comparisons in each library except `Fixtures` ([repository conformance](#repository-conformance)). The self-audit also refuses, in each library except `Fixtures`, a declaration if its type or value names Lean's `System.FilePath.pathExists` or `System.FilePath.isDir`. It does not refuse a handler that turns an error of `metadata`, `symlinkMetadata` or `realPath` into `false` or `none` ([#461](https://github.com/rbeauchamp/regula/issues/461)). It does not find a read in Lean or Lake ([#441](https://github.com/rbeauchamp/regula/issues/441)). A shard audits a quarter of the modules, and the four shards together audit all of them. The shard `self-audit 4/4` and the single run also check that each program of the package runs the removal check (`qualify observers`, [proofs and boundaries](proofs-and-boundaries.md#the-acceptance-boundary)). They also check that each executable runs the task-manager check. |
 | `rule-examples`, `rule-examples 1/3` to `rule-examples 3/3` | [Source-owned corpus and diagnostic demonstrations](architecture.md#rule-examples); a shard runs a third of the rules. |
 | `input-inventory` | Root additions and Markdown edits or removals during the prerequisite build of the checker, an actual new-module build and restored fresh controls (`qualify input-inventory`). |
 | `environment-census` | This repository's claimed environments and their mutations (`qualify environments`). |
@@ -579,13 +579,15 @@ entry, such as a module that was renamed. Three fixed controls run too. A declar
 which the allowlist names only in `Regula.RegistryChecks`, is found in a different module. So are
 `compress` texts compared through `let` bindings. A `compress` that no comparison reads is not found.
 
-The self-audit also refuses a read that takes a path it cannot read for an absent one, the defect of
-[#430](https://github.com/rbeauchamp/regula/issues/430). Lean's `System.FilePath.pathExists` and
-`System.FilePath.isDir` return `false` for each error of the read, such as a denied permission. So
-it refuses a declaration if its type or value names one of them, in the modules of the `Json`
-check. Regula reads through `Regula.Filesystem.isPresent`, `isDirectory`, `metadataIfPresent`,
-`readFileIfPresent`, `entryIfPresent` or `realPathIfPresent` instead. Each of them reads absence
-only when nothing is there, and it passes on each other error.
+The self-audit also refuses a declaration of an inspected module if its type or value names Lean's
+`System.FilePath.pathExists` or `System.FilePath.isDir`. The two return `false` for each error of
+the read, such as a denied permission, the defect of
+[#430](https://github.com/rbeauchamp/regula/issues/430). The inspected modules are those of the
+`Json` check. Regula reads through `Regula.Filesystem.isPresent`, `isDirectory`,
+`metadataIfPresent`, `readFileIfPresent`, `entryIfPresent` or `realPathIfPresent` instead. Each of them reads absence
+only when nothing is there, and it passes on each other error. The rule does not refuse a handler
+that turns an error of `metadata`, `symlinkMetadata` or `realPath` into `false` or `none`, which
+issue [#461](https://github.com/rbeauchamp/regula/issues/461) tracks.
 
 Some code cannot import those functions: a program that `lean --run` runs, the copy program and the
 collector that each audited environment loads. Each defines its own copy, and a theorem proves the

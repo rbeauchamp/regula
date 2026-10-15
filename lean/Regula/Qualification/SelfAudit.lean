@@ -331,8 +331,11 @@ def absenceReaders : List Name :=
 
 /-- The declarations that keep one of `absenceReaders`, each by its module and its name, with the
 reason that its `false` decides nothing. The module is part of the key: each executable root
-declares its own `main`. Every read of the package goes through the shared observer, so there is
-none. -/
+declares its own `main`. The list is empty: the rule finds no declaration of an inspected module
+whose type or value names one of `absenceReaders`. It does not find a handler that turns an error
+of `metadata`, `symlinkMetadata` or `realPath` into `false` or `none`
+(https://github.com/rbeauchamp/regula/issues/461), or a read inside Lean or Lake
+(https://github.com/rbeauchamp/regula/issues/441). -/
 def absenceReadAllowlist : Array (Name × Name × String) := #[]
 
 /-- Whether the term `e` names one of `absenceReaders`, by Lean's `Expr.find?`.
