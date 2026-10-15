@@ -864,32 +864,57 @@ def gitBinaryOutput (root : FilePath) (args : Array String) : IO (UInt32 × Byte
   let bytes ← IO.ofExcept stdout.get
   return (exitCode, bytes, stderr)
 
-/-- Decode a single absolute path printed by Git without trimming its stored spelling. Path
-names containing newline or carriage return are outside this line-oriented metadata protocol. -/
+/-- The one line that `text` prints, as it is spelled: `text` less its final newline, and nothing
+else removed. `none` unless that line is not empty and has no newline, carriage return or NUL
+(`printedLine?_eq_some_iff`). A value that holds a newline or a carriage return is outside this
+line-oriented protocol. The conditions are read on the line's characters in reverse order, which
+has the same characters. -/
+def printedLine? (text : String) : Option String :=
+  match text.toList.reverse with
+  | '\n' :: reversed =>
+    if reversed ≠ [] ∧ ∀ c ∈ reversed, c ≠ '\n' ∧ c ≠ '\r' ∧ c ≠ '\x00' then
+      some (String.ofList reversed.reverse)
+    else none
+  | _ => none
+
+/-- The one absolute path that `text` prints as a line of its own, as it is spelled: the line
+`printedLine?` reads, when it is an absolute path (`printedPath?_eq_some_iff`). -/
+def printedPath? (text : String) : Option FilePath :=
+  match printedLine? text with
+  | some line => if (FilePath.mk line).isAbsolute then some ⟨line⟩ else none
+  | none => none
+
+/-- The single absolute path that Git prints, decoded exactly (`printedPath?`), without trimming
+its stored spelling. A failure of the command, or output that is not one such path, is thrown. -/
 def gitPath (root : FilePath) (args : Array String) : IO FilePath := do
   let out ← gitOutput root args
-  unless out.exitCode == 0 && out.stdout.endsWith "\n" do
+  unless out.exitCode == 0 do
     throw <| IO.userError s!"Git metadata path unavailable: {out.stderr}"
-  let text := (out.stdout.dropEnd 1).toString
-  unless !text.isEmpty && text.toList.all (fun c => c != '\n' && c != '\r' && c != '\x00') &&
-      (FilePath.mk text).isAbsolute do
-    throw <| IO.userError "Git metadata path is not one absolute path"
-  return FilePath.mk text
+  let some path := printedPath? out.stdout
+    | throw <| IO.userError "Git metadata path is not one absolute path"
+  return path
 
 /-- The closed configuration case has no extension, include or worktree-redirection setting.
 Git decodes the captured file; Regula does not reproduce Git's precedence or include rules.
 Even a disabled extension setting refuses, so the domain does not depend on its value grammar.
+Git also exits 1 when it cannot open the file, so the file must first be a regular file that this
+process reads whole, and exit 1 is admitted only with no output.
 
 Assumes: Git 2.54.0 `builtin/config.c:74-104,487-591,1264-1266` and `config.c:1492-1523`
 implement --file, --no-includes, --name-only and --get-regexp through Git's configuration decoder;
-absent matches exit 1. Configuration and all
-captured metadata have no concurrent writer. -/
+absent matches exit 1. `builtin/config.c:583-585,609` ignores the result of the read and exits 1
+when nothing matched. `config.c:1607-1609,1382-1398` opens the file with `fopen_or_warn`, and
+`wrapper.c:401-420` returns no file for each failure, warning except for ENOENT and ENOTDIR.
+Configuration and all captured metadata have no concurrent writer. -/
 def admitGitConfig (root config : FilePath) : IO Unit := do
+  unless (← observeMetadata config).type == .file do
+    throw <| IO.userError s!"copy Git configuration is not a regular file: {config}"
+  discard <| IO.FS.readBinFile config
   let out ← gitOutput root #["config", "--file", config.toString, "--no-includes", "--name-only",
     "--get-regexp", "^(extensions\\.|include\\.|includeif\\.|core\\.worktree$)"]
   if out.exitCode == 0 then
     throw <| IO.userError s!"copy Git configuration is outside the closed case: {out.stdout.trimAscii}"
-  unless out.exitCode == 1 do
+  unless out.exitCode == 1 && out.stdout.isEmpty && out.stderr.isEmpty do
     throw <| IO.userError s!"copy Git configuration unavailable: {out.stderr}"
 
 /-- Refuse alternate object stores at the path Git itself resolves. The supported qualification

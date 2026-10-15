@@ -597,7 +597,7 @@ theorem mem_omissionReports {results : Array ModuleResult} {r : OmissionReport} 
 /-- Worker: observe and decide exactly one module, printing only its JSON result. -/
 unsafe def worker (moduleName source : String) : IO Unit := do
   Checker.initializeLeanSearchPath
-  let observation ← IO.ofExcept (← observe (← getLibDir (← findSysroot)) moduleName.toName source)
+  let observation ← IO.ofExcept (← observe (← getLibDir (← Regula.CompilerObservation.findSysroot)) moduleName.toName source)
   IO.println (toJson (← IO.ofExcept (decide observation))).compress
 
 /-- Worker for a module of another library of the package: import it alone and print, as a JSON

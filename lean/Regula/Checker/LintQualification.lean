@@ -2615,7 +2615,7 @@ private def compilerGuard (repo project : FilePath) : IO (Array String) := do
     Regula.Filesystem.copyFile program lean 493
     assess { label := s!"guard/{label}", exitCode := 1, contains := #[lean.toString, branch] }
       (← load #[("LEAN_SYSROOT", some sysroot.toString)])
-  let failing ← refused "failing-child" ((← Lean.findSysroot) / "bin" / "lake")
+  let failing ← refused "failing-child" ((← Regula.CompilerObservation.findSysroot) / "bin" / "lake")
     "refused Regula's compiler policy or could not compile it"
   let unidentified ← refused "unidentified-child" (silent / "true") "is not the Lean running Lake"
   return failing ++ unidentified ++

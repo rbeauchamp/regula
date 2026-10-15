@@ -163,22 +163,24 @@ resolution must land inside the slot, and every manifest entry, from the one rea
 manifest and the package overrides file that `manifestWithoutOverrides` makes, must be a path
 entry whose `dir` resolves inside the slot or exactly to one of the captured shared dependency roots
 (`shared`, canonical paths). A Git entry, which Lake would clone inside the slot, and a package
-overrides file that records an entry in that read refuse, and so does any other target. -/
+overrides file that records an entry in that read refuse, and so does any other target. Each Git
+path is read on its own as Git prints it, absolute, and decoded exactly
+(`Regula.Filesystem.Construction.gitPath`): a path that holds a newline or a carriage return is
+refused, never split or changed.
+
+Assumes: Git 2.54.0 `--path-format=absolute` prints `--git-dir`, `--git-common-dir` and
+`--show-toplevel` each as one absolute path with `puts` (`builtin/rev-parse.c:668-669`, `:695-699`,
+`:819-823`, `:985-992`, `:1026-1063`). -/
 def checkContainment (slot : ProducerSlot) (copy : FilePath)
     (shared : Array FilePath) : IO Unit := do
   unless (← contained slot.root copy) do
     throw <| IO.userError s!"slot package copy escapes slot: {copy}"
   if (← Regula.Filesystem.isPresent (copy / ".git")) then
-    let git ← run copy "git" #["rev-parse", "--git-dir", "--git-common-dir", "--show-toplevel"]
-    unless git.exitCode == 0 do
-      throw <| IO.userError s!"slot git identity unavailable: {copy}\n{git.stdout}{git.stderr}"
-    for line in git.stdout.splitOn "\n" do
-      let entry := line.replace "\r" ""
-      if entry.isEmpty then continue
-      let resolved := if FilePath.isAbsolute (FilePath.mk entry) then FilePath.mk entry
-        else copy / entry
+    for option in #["--git-dir", "--git-common-dir", "--show-toplevel"] do
+      let resolved ← Regula.Filesystem.Construction.gitPath copy
+        #["rev-parse", "--path-format=absolute", option]
       unless (← contained slot.root resolved) do
-        throw <| IO.userError s!"slot git resolution escapes slot: {entry}"
+        throw <| IO.userError s!"slot git resolution escapes slot: {resolved}"
   let files := Regula.Checker.Workspace.rootFiles copy
   if let some manifest ← manifestWithoutOverrides files then
     for entry in manifest.packages do

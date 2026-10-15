@@ -740,6 +740,8 @@ Assumes: Git `2.54.0` reads command-scope configuration after local and worktree
 
 Assumes: Git `2.54.0` decodes configuration keys through its own decoder (`builtin/config.c:74-104,487-591,1264-1266`, `config.c:1492-1523`). No matching key gives exit 1. The adapter refuses an extension setting even when its value is false.
 
+Assumes: Git `2.54.0` also gives exit 1 for a configuration file that it cannot open (`builtin/config.c:583-585,609`, `config.c:1382-1398,1607-1609`, `wrapper.c:401-420`). The adapter first reads the whole file, which must be a regular file. It admits exit 1 only with no output.
+
 Assumes: Git `2.54.0` resolves metadata paths through `--git-path` (`builtin/rev-parse.c:752-759,776-785`). Its path resolver selects the effective object store (`path.c:375-376`).
 
 Assumes: Git `2.54.0` resolves pointer files and common directories (`builtin/rev-parse.c:723-731`, `setup.c:303-324`). All captured metadata has no writer.
@@ -2010,7 +2012,8 @@ Which report states a kind depends on the library that holds the registration:
   and `checked_read` (`Regula.SharedExecution`), `checked_intern` and `checked_expand`
   (`Regula.SourceTexts`), `checked_parseLocation` and
   `checked_parseDiagnostic` (`Regula.DiagnosticCodec`),
-  `checked_exactFields` (`Regula.Checker.PolicyCodec`), `checked_scanLines` and
+  `checked_exactFields` (`Regula.Checker.PolicyCodec`), `checked_printedPrefix?` and
+  `checked_compilerPrintedLine?` (`Regula.Checker.Common`), `checked_scanLines` and
   `checked_scanVersoLines` (`Regula.Checker.FenceScan`), `checked_parseMode` and `checked_parseRule`
   (`Regula.RegistryCodec`), `checked_parseName` and `checked_parsePrintedNameJson`
   (`Regula.StructuralName`), `checked_checkCopies`, `checked_checkHeader`,
@@ -2095,6 +2098,8 @@ Two-way decisions (`Regula.Decides`), each with an accepted and a refused input:
 | `Regula.Website.admitExampleRequest`, `admitExampleSources`, `admitDemonstration` (accept on `.ok`) | The observed request is the frozen one; `ExampleSourcesOK`; `DemonstrationOK` | Admission of a rule-example producer's request, sources and diagnostic demonstration. Each returns the admitted value with its proof, so each result type depends on the arguments. The first and the third are decided on the pair of their two arguments, and the second on the structure of its three (`ExampleSourcesInput`). |
 | `RegulaVerification.passed` | Each command of a step ended with exit status 0 (`passed_iff`). | The driver of `scripts/verify.sh` uses it before it operates one more command, before its success line and before it moves the acceptance record. |
 | `Construction.projectRelative` | No root `tmp`. Documentation includes cache-named directories. Elsewhere no component is `.git`, `.lake`, `.cache` or `.regula-scratch` (`checked_projectRelative`). | The selection that the shared cold constructor executes. The constructor's filesystem theorems name their primitive hypotheses. |
+| `Construction.admitGitName` (accepts on `.ok ()`) | The name is one of the stored directory-entry names, compared exactly (`admitGitName_iff`, `checked_admitGitName`). | The exact-name guard of each component of an index path that the Git adapter copies (`admitGitPath`). |
+| `Construction.printedLine?`, `Construction.printedPath?`, and their copies `CompilerObservation.printedLine?` and `printedPrefix?` (accept on `some`) | `PrintedLine`, `PrintedPath`: the text is one line followed by one newline, and for `PrintedPath` that line is an absolute path. The line is not empty and holds no newline, carriage return or NUL (`checked_printedLine?`, `checked_printedPath?`). Each copy is the same function (`printedLine?_eq_printedLine?`, `printedPrefix?_eq_printedPath?`). | The reads of a printed path or line in `Construction.gitPath`, `Checker.gitWorkTree`, `Launcher.resolvedLean`, `printedLeanPath`, `Toolchain.selectedLean` and `CompilerObservation.findSysroot`. |
 | `RegulaVerification.removal` (accepts on `.remove`) | A directory is at the place by a read that follows no link, and its real path is the place (`removal_remove_iff`). | The driver removes its copy and the `_site` directory only by this decision. The two reads of the file system are trusted. |
 | `Regula.Removal.removal` (accepts on `.remove`) | A read that follows no link finds an entry of the given kind at the place. Its real path is the place, or a symbolic link is a name in a directory at its own place (`removal_remove_iff`). | Each program of the package removes a directory, a file or a symbolic link only by this decision, through `Regula.Filesystem`. The exceptions are the library calls that `Regula.Removal.libraryRemovals` gives, and the removals of the two drivers that `Regula.ProgramCheck.Verification` and `Regula.ProgramCheck.Provision` give. The removals of `bv_decide` that `Regula.Removal.tacticRemovals` gives are also exceptions. The reads of the file system are trusted. |
 | `Regula.Removal.replacement` (accepts on `true`) | A read that follows no link finds a file at the source, at its own place. Nothing is at the destination, or a file is there at its own place. The destination is a name in a directory at its own place (`replacement_iff`). | Each program of the package moves a file only by this decision, through `Regula.Filesystem`. The exceptions are the library calls that `Regula.Removal.libraryRemovals` gives, and the moves of the two drivers that `Regula.ProgramCheck.Verification` and `Regula.ProgramCheck.Provision` give. The operation `Regula.Filesystem.moveAside` also moves an entry with no such decision, into a new directory beside it. The reads of the file system are trusted. |
@@ -2179,12 +2184,15 @@ imports only the toolchain:
 - `RegulaPolicy.Compiler` imports only `Init`, because the compiler guard elaborates it alone
   before the package is built, so `RegulaPolicy.Claim` registers `Compiler.accepts` and
   `Compiler.admitCapability`.
+- `Regula.CompilerObservation` imports only Lean's library, because the preparation driver runs
+  its source with the selected compiler, so `Regula.Checker.Common` registers its decoders
+  `printedLine?` and `printedPrefix?`.
 - Each standalone program runs with `lean --run` before the package is built, so its library has
   a second module that imports the program with `Regula.Contract` and `Regula.Decision`, and that
   no program imports: `RegulaProvision.Decisions` registers `component?`, `admits`, `mathlibStep`, `cloneStep`, `found`, `prunes`, `retires`,
   `mathlibApplies` and `selectPins`;
   `RegulaVerification.Decisions` registers `parseMode`, `dependencyFree`, `select`, `passed`,
-  `removal` and `prebuildCovers`. The shared constructor registers `projectRelative` in `RegulaCore.CopyConstruction`.
+  `removal` and `prebuildCovers`. The shared constructor registers `projectRelative`, `admitGitName`, `printedPath?` and `printedLine?` in `RegulaCore.CopyConstruction`.
   Each kind restates a theorem the program proves about the same definition, except those of
   `component?` and `selectPins` (`checked_component`, `checked_selectPins`).
 
@@ -4027,13 +4035,37 @@ is not byte equality. Dependency Git pins do not prove an unmodified checkout, s
 dirty and path state is recorded as an observation.
 
 The audit owns a dependency when its directory is in the Git work tree of the root package.
-`Lake.surfaceInventory` decides it with `ownedDirectory`: `git rev-parse --show-toplevel`, run
-without `GIT_DIR` and `GIT_WORK_TREE`, gives the same real directory for the two. **Proved:**
-`sameWorkTree_iff` (owned exactly when one known work tree holds the root package and the
-dependency), so a dependency in an unknown work tree, or of a root package outside each work tree,
-is not owned. **Trusted:** Git finds that work tree, and the filesystem resolves the real paths.
-A Git dependency that Lake clones has a work tree of its own, and so does a submodule, thus
-neither is owned.
+`Lake.surfaceInventory` decides it with `ownedDirectory`, which compares the work trees that
+`gitWorkTree` gives for the two directories. **Proved:** `sameWorkTree_iff` (owned exactly when one
+known work tree holds the root package and the dependency), so a dependency in an unknown work tree,
+or of a root package outside each work tree, is not owned. A Git dependency that Lake clones has a
+work tree of its own, and so does a submodule, thus neither is owned.
+
+`gitWorkTree` first reads at least each directory where Git looks for a repository. It reads the
+directory and each ancestor that the walk of Git can reach below the ceilings of
+`GIT_CEILING_DIRECTORIES` (`mem_discoveryDirectories`). It keeps only a ceiling that a read shows to
+be its own real path, which Git keeps too. Fewer ceilings only add directories
+(`discoveryDirectories_superset`).
+
+At each directory read, nothing may be at `HEAD`. Nothing may be at `.git` either, or `.git` is a
+directory with nothing at its `HEAD`, `objects` and `refs`. Then no repository can hold the
+directory, and `gitWorkTree` gives no work tree without running Git. The reads start at the
+directory and move toward the root, as the search of Git does. They stop at the first directory
+that fails this test. Each failure of these reads stops the audit.
+
+Otherwise `gitWorkTree` runs `git rev-parse --show-toplevel` in the directory, without `GIT_DIR`,
+`GIT_WORK_TREE` and `GIT_COMMON_DIR`, and with the same ceiling. It removes only the final newline
+from the path that Git prints (`checked_printedPath?`). Each failure of Git stops the audit with the
+report of Git. For a repository with an unreadable `HEAD`, Git reports that it found no
+repository, so that report is not read as absence either.
+
+Thus a repository that Git cannot read, such as one with an unreadable `HEAD` or `.git` file, is
+not taken as no repository. The walk of Git can stop sooner than the reads, at a ceiling that Regula
+leaves out or at the boundary of a file system. A repository past that point makes Git fail, so
+the audit stops there. **Trusted:** Git `2.54.0` looks for a repository only at directories among
+those, and only where such an entry is. `gitWorkTree` cites this from the source of Git.
+**Trusted:** the filesystem resolves the real paths, and no process changes them while the audit
+reads them.
 
 Ownership has a supported scope. Each audit, incremental or fresh, refuses two things before it
 builds the project or a copy. `checkDefaultLayout` refuses an owned package, the root package
@@ -6058,6 +6090,17 @@ execution, and calling a proved oracle does not prove the driver or its IO effec
   fixed parent and workspace invocation, separately for the imported-control search-path override;
   neither observations nor compiled artifacts are reused, environment values are not exported, and
   durations are observations, not a speed guarantee or compiler-equivalence theorem.
+- `checked_printedLine?` and `checked_printedPath?`: `Launcher.resolvedLean` and `printedLeanPath`
+  read the path that `which` prints and the `LEAN_PATH` that `printenv` prints with only the final
+  newline removed. `Toolchain.selectedLean` reads the path that Elan prints in the same way, and it
+  must be absolute. Each refuses other output. The output format of each program is trusted, as
+  the `Assumes:` entry of each reader cites it from the source of the program.
+- `printedPrefix?_eq_printedPath?`: `CompilerObservation.findSysroot` reads the absolute path that
+  `lean --print-prefix` prints with only the final newline removed, when `LEAN_SYSROOT` is not set.
+  Each reader of the toolchain's installation directory uses it, and so does the website's example
+  helper. Its decoder is a copy in a module that runs with Lean's library only, and the theorem
+  states that the copy is `printedPath?`. The compiler guard of the root `lakefile.lean` cannot
+  import Regula, so it keeps `Lean.findSysroot`. Its trim cannot cause a wrong acceptance.
 - `Template.instantiate`: the required `Maps` proof for the recursive JSON transformation (array
   order, object keys and scalar kinds preserved; only entire matching string values change;
   depth exhaustion refuses, and the corpus uses 64 levels). Checker snapshots discover modules

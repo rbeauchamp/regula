@@ -6,6 +6,16 @@ open Lake DSL
 -- that child's own identity and, asked by `REGULA_COMPILER_GUARD`, prints it. `LEAN_SYSROOT` or
 -- `PATH` selects the child, so the guard passes only when the child accepts itself and reports
 -- the version and commit of the Lean elaborating this file. Any other child is refused.
+--
+-- When `LEAN_SYSROOT` is not set, the child's path comes from `Lean.findSysroot`, which removes the
+-- whitespace at the ends of the prefix that `lean --print-prefix` prints
+-- (`Lean/Util/Path.lean:180-187` of Lean v4.34.1). For an installation directory whose name ends
+-- in a space, it names another directory. That cannot cause a wrong acceptance. The guard accepts
+-- only a child that exits with 0, which the policy source does only after
+-- `RegulaPolicy.Compiler.checkCurrent` accepts the child's own version and commit. It also
+-- requires the child to print exactly the version and commit of the Lean running Lake. So whatever
+-- program that path names, an acceptance means that the Lean running Lake has the supported
+-- identity, on the child's report of its own identity, which the guard trusts at any path.
 run_cmd do
   let running := s!"{Lean.versionString}\n{Lean.githash}\n"
   let refusal : IO (Option String) := do

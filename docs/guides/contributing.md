@@ -619,6 +619,40 @@ projects. A `lakefile.lean` is then written beside each `lakefile.toml` that a l
 check of the loaded workspace must refuse each package with a configuration name that has no
 extension.
 
+`Regula.AbsenceControls` also reads the Git work tree of nine directories with `gitWorkTree`. It
+must keep the final space of the name of a top level. Below a `.git` file that names a repository,
+it must give the work tree while the file can be read, and fail while it cannot. The same holds in
+a repository for its `HEAD`. In a bare repository, it must fail.
+
+It must give no work tree for a directory that no repository holds. The same holds for a directory
+with a `.git` directory that holds only a file. Below a ceiling under a repository, it must give
+none, and without the ceiling, the work tree of that repository. With a failing query in place of
+Git, these reads must not run the query. In a repository, each failure of the query must fail the
+read, also one that reports no repository as Git does.
+
+With a ceiling written through a symbolic link, which Git resolves, the reads must leave it out and
+fail as Git fails. A ceiling entry that cannot be read must be left out. Then a directory that no
+repository holds gives none without running the query. A `.git` directory that cannot be read must
+fail the read without running the query. This also holds in the work tree of a repository that Git
+finds above that `.git` directory. A repository nested in a directory with a `.git` directory that
+cannot be read must give its own top level, because Git finds it first.
+
+The control also reads the revision of a repository with `observeGitFacts`. It must give none with
+no commit, the commit after one, and a failure while the file of the branch cannot be read. It must
+fail too where `HEAD` names a branch with a name that Git does not accept.
+
+In the first acceptance step, `Regula.PrintedPathControls` runs the reads of a path that
+`/usr/bin/which`, `printenv`, Elan and `lean` print. The read of `which` must keep the space at the
+start of a relative entry of `PATH`. It must fail for an entry with a newline in its name. The read
+of `printenv` must keep the final space of the last entry of `LEAN_PATH`. The read of Elan must
+give the compiler that builds the module. The read of the prefix that `lean --print-prefix` prints
+must keep the final space of the name of the installation directory.
+
+The toolchain's `lake` refuses the option `--print-prefix`. For it, the read of the prefix must fail
+with the error that `IO.Process.run` gives, as `Lean.findSysroot` does. That control is incomplete,
+so it fails, unless that `lake` exits with a status other than 0 and prints its own refusal of the
+option.
+
 `./scripts/verify.sh diagnostics self-audit 1/4` to `4/4` each run one shard of the self-audit.
 The campaign sorts each list of modules that it inspects by name, and it deals the list to the
 four shards in turn. Thus each shard audits a quarter of each list. The theorem

@@ -77,6 +77,19 @@ file system calls, and they prove nothing.
   cannot be read, and a store whose registered copy's link cannot be resolved
   (`RegulaProvision.links`). In each, the store and its registry are kept and the failure is
   reported.
+- The work tree that `Checker.gitWorkTree` reads (`workTrees`,
+  https://github.com/rbeauchamp/regula/issues/444): the top level of a repository whose name ends
+  in a space, with the space kept; below a `.git` file that names a repository, its work tree while
+  the file can be read and a failure while it cannot; and `none` for a directory that no
+  repository holds. With a query that fails in place of Git's, the read gives `none` without
+  running it where no repository can be, and fails in a repository. A ceiling written through a
+  symbolic link is left out, and so is a ceiling entry that cannot be read. A `.git` directory that
+  cannot be read fails the read, also in the work tree of a repository that Git finds above it. A
+  repository nested in a directory whose `.git` directory cannot be read gives its own top level,
+  as Git finds it first.
+- The revision that `Checker.Snapshot.observeGitFacts` reads (`revisions`): none on a branch with
+  no commit, the commit after one, and a failure while the branch's file cannot be read and for a
+  `HEAD` that names a branch Git does not accept.
 
 The permissions of each directory that a control takes away are given back before the temporary
 directory is removed. -/
@@ -325,6 +338,301 @@ def provisioning (base : FilePath) : IO (List (String × Bool)) := do
   return [("RegulaProvision.prune of a store whose Mathlib cannot be read", mathlibKept),
     ("RegulaProvision.links of a registered copy whose link cannot be resolved", linkKept)]
 
+/-- The work tree that `Checker.gitWorkTree` reads for a directory in nine places below `base`,
+each with whether it gave the expected result (https://github.com/rbeauchamp/regula/issues/444):
+
+- `tree ` (its name ends in a space), the top level of a new repository, beside a directory
+  `tree`: its own real path, with the space. Git prints that path and a newline, and the earlier
+  read removed the space and gave `tree`.
+- `linked/sub`, below the `.git` file of `linked` that names the repository `store`, as
+  `git init --separate-git-dir` makes it and as a linked work tree has one: the real path of
+  `linked` before the permissions of that file are taken away and after they are given back, and
+  a failure while it cannot be read, where the earlier read gave `none`.
+- `headless`, a new repository: its real path before the permissions of its `HEAD` are taken away
+  and after they are given back, and a failure while it cannot be read. Git then finds no
+  repository there and reports that as it does for a directory that no repository holds, which a
+  read of that report took as `none`.
+- `bare`, a bare repository: a failure, since Git finds the repository there and no work tree.
+  The earlier read took that failure as `none`.
+- `plain`, which no repository holds: `none`.
+- `stray`, whose `.git` is a directory that holds only a file, as a project that keeps a selected
+  policy there has it: `none`, from the observer's reads alone, without running the query.
+- `outer/ceiling/inner`, below the repository `outer`: with the real path of `outer/ceiling` as
+  `GIT_CEILING_DIRECTORIES`, `none` without running the query, where a read of each ancestor would
+  find `outer/.git` and run Git, which stops at the ceiling and fails. Without a ceiling, the real
+  path of `outer`. With the ceiling written through the symbolic link `outer/through` to
+  `outer/ceiling`, which Git resolves, the reads leave the ceiling out, reach `outer/.git` and run
+  Git, which stops at the ceiling, and the read fails with Git's failure.
+- `sealed/nested`, a new repository, while the `.git` directory of `sealed` has no permissions: its
+  own real path, since the reads, as Git's search, start at `sealed/nested` and stop there. Reads
+  from the root down reach `sealed/.git` before `sealed/nested`, and the refusal of that read
+  fails them.
+- `guarded/inner`, in the work tree of the new repository `guarded`, while its own `.git`
+  directory has no permissions: with the failing query below, the refusal of the read of
+  `guarded/inner/.git`, without running the query. Git does not read that `.git` directory as a
+  repository and finds `guarded`, but the reads cannot establish that it holds no repository. Reads
+  from the root down reach `guarded/.git` first and run the query.
+
+Each place is first observed with Git itself, and the control fails, naming its setup, when Git
+does not do what the place needs: find the work tree of `linked/sub` and of `headless` while the
+file can be read, fail there while it cannot, fail in `bare`, `plain` and `stray`,
+fail in `outer/ceiling/inner` with either spelling of the ceiling and find `outer` without it,
+find the work tree of `sealed/nested` while `sealed/.git` cannot be read, and print the real path
+of `guarded` from `guarded/inner` while `guarded/inner/.git` cannot be read.
+
+Then queries take the place of Git's (`Checker.gitWorkTreeWith`). One fails as a process that
+`SIGTERM` ends does (exit 143). The reads of `plain`, `stray` and `outer/ceiling/inner` below the
+ceiling must give `none` without running it, and the read of `tree ` must fail. One ends with status
+128 and writes what Git writes when it finds no repository. The read of `tree ` must fail with it
+too, so no failure of the query is read as no work tree. With the failing query, a ceiling entry
+below a directory without permissions must be left out, so the read of `plain` gives `none` without
+running the query. With it, the `.git` directories without permissions of `sealed` and of
+`guarded/inner` must each fail the read with the refused read's `permissionDenied`, without running
+the query. -/
+def workTrees (base : FilePath) : IO (List (String × Bool)) := do
+  let fail {α : Type} (message : String) : IO α := throw <| IO.userError message
+  let ceiling ← IO.getEnv "GIT_CEILING_DIRECTORIES"
+  let git := Regula.Checker.showTopLevel ceiling
+  let makeRepository (directory : FilePath) : IO FilePath := do
+    IO.FS.createDirAll directory
+    let made ← Regula.Checker.runProcess directory "git" #["init", "-q"]
+    unless made.succeeded do
+      fail s!"the control could not make the repository {directory}: {made.output}"
+    IO.FS.realPath directory
+  let spaced := base / "tree "
+  IO.FS.createDirAll (base / "tree")
+  let expected ← makeRepository spaced
+  let spacedRead ← (Regula.Checker.gitWorkTree spaced).toBaseIO
+  let isTop (top : FilePath) (read : Except IO.Error (Option FilePath)) : Bool :=
+    match read with | .ok (some found) => found == top | _ => false
+  -- Whether the reads of `directory` give the work tree `top` before the permissions of `locked`
+  -- are taken away and after they are given back, and whether the read fails while `locked` cannot
+  -- be read, each after Git is observed to do what the read needs.
+  let lockedReads (top directory locked : FilePath) : IO (Bool × Bool) := do
+    let readable (stage : String) : IO (Except IO.Error (Option FilePath)) := do
+      let observed ← git directory
+      unless observed.succeeded do
+        fail s!"the control's setup: Git did not find a work tree from {directory} {stage}: \
+          {observed.output}"
+      (Regula.Checker.gitWorkTree directory).toBaseIO
+    let before ← readable s!"before the permissions of {locked} are taken away"
+    IO.Prim.setAccessRights locked 0
+    let (deniedGit, deniedRead) ← try
+        pure (← (git directory).toBaseIO, ← (Regula.Checker.gitWorkTree directory).toBaseIO)
+      finally
+        IO.Prim.setAccessRights locked 420
+    unless (match deniedGit with | .ok result => !result.succeeded | .error _ => false) do
+      fail s!"the control's setup: Git did not fail in {directory} while {locked} cannot be read"
+    let after ← readable s!"after the permissions of {locked} are given back"
+    return (isTop top before && isTop top after, deniedRead matches .error _)
+  let linked := base / "linked"
+  let made ← Regula.Checker.runProcess base "git"
+    #["init", "-q", "--separate-git-dir", (base / "store").toString, linked.toString]
+  unless made.succeeded do
+    fail s!"the control could not make the work tree {linked}: {made.output}"
+  IO.FS.createDirAll (linked / "sub")
+  let linkedTop ← IO.FS.realPath linked
+  let (linkedReadable, linkedDenied) ← lockedReads linkedTop (linked / "sub") (linked / ".git")
+  let headless := base / "headless"
+  let headlessTop ← makeRepository headless
+  let (headlessReadable, headlessDenied) ←
+    lockedReads headlessTop headless (headless / ".git" / "HEAD")
+  let plain := base / "plain"
+  IO.FS.createDirAll plain
+  let stray := base / "stray"
+  IO.FS.createDirAll (stray / ".git")
+  IO.FS.writeFile (stray / ".git" / "policy.json") "{}\n"
+  for (name, directory) in [("plain", plain), ("stray", stray)] do
+    let observed ← git directory
+    if observed.succeeded then
+      fail s!"the control's setup: Git found the work tree {observed.stdout} for {name}"
+  let bare := base / "bare"
+  let madeBare ← Regula.Checker.runProcess base "git" #["init", "-q", "--bare", bare.toString]
+  unless madeBare.succeeded do
+    fail s!"the control could not make the bare repository {bare}: {madeBare.output}"
+  if (← git bare).succeeded then
+    fail s!"the control's setup: Git found a work tree for the bare repository {bare}"
+  let bareRead ← (Regula.Checker.gitWorkTree bare).toBaseIO
+  let plainRead ← (Regula.Checker.gitWorkTree plain).toBaseIO
+  let strayRead ← (Regula.Checker.gitWorkTree stray).toBaseIO
+  let outerTop ← makeRepository (base / "outer")
+  let inner := base / "outer" / "ceiling" / "inner"
+  IO.FS.createDirAll inner
+  let innerCeiling := (← IO.FS.realPath (base / "outer" / "ceiling")).toString
+  unless !(← Regula.Checker.showTopLevel (some innerCeiling) inner).succeeded &&
+      (← Regula.Checker.showTopLevel none inner).succeeded do
+    fail s!"the control's setup: Git did not stop at the ceiling {innerCeiling} and find \
+      {outerTop} without it"
+  let innerRead ← (Regula.Checker.gitWorkTreeWith (some innerCeiling)
+    Regula.Checker.showTopLevel inner).toBaseIO
+  let uncappedRead ←
+    (Regula.Checker.gitWorkTreeWith none Regula.Checker.showTopLevel inner).toBaseIO
+  let through := (← IO.FS.realPath (base / "outer")) / "through"
+  makeLink (base / "outer" / "ceiling") through
+  if (← Regula.Checker.showTopLevel (some through.toString) inner).succeeded then
+    fail s!"the control's setup: Git did not stop at the ceiling {through}"
+  let throughRead ← (Regula.Checker.gitWorkTreeWith (some through.toString)
+    Regula.Checker.showTopLevel inner).toBaseIO
+  let widened := match throughRead with
+    | .error error => error.toString.startsWith "git rev-parse --show-toplevel failed in"
+    | .ok _ => false
+  let launches ← IO.mkRef (0 : Nat)
+  let terminated (_ : Option String) (_ : FilePath) : IO Regula.Checker.ProcessResult := do
+    launches.modify (· + 1)
+    return { exitCode := 143, stdout := "", stderr := "the control's query, ended by SIGTERM" }
+  let unlaunched ← [(none, plain), (none, stray), (some innerCeiling, inner)].mapM
+    fun (value, directory) => (Regula.Checker.gitWorkTreeWith value terminated directory).toBaseIO
+  let unlaunchedCount ← launches.get
+  let spacedTerminated ← (Regula.Checker.gitWorkTreeWith ceiling terminated spaced).toBaseIO
+  let stated (_ : Option String) (_ : FilePath) : IO Regula.Checker.ProcessResult :=
+    let stderr := "fatal: not a git repository (or any of the parent directories): .git\n"
+    return { exitCode := 128, stdout := "", stderr }
+  let spacedStated ← (Regula.Checker.gitWorkTreeWith ceiling stated spaced).toBaseIO
+  let sealedCeiling := base / "sealed-ceiling"
+  IO.FS.createDirAll (sealedCeiling / "inside")
+  let sealedEntry := ((← IO.FS.realPath sealedCeiling) / "inside").toString
+  let sealed := base / "sealed"
+  IO.FS.createDirAll (sealed / ".git")
+  let nested := sealed / "nested"
+  let nestedTop ← makeRepository nested
+  let guarded := base / "guarded"
+  let guardedTop ← makeRepository guarded
+  let guardedInner := guarded / "inner"
+  IO.FS.createDirAll (guardedInner / ".git")
+  -- Each read with the number of queries that it ran.
+  let counted (read : IO (Option FilePath)) : IO (Except IO.Error (Option FilePath) × Nat) := do
+    let before ← launches.get
+    let result ← read.toBaseIO
+    return (result, (← launches.get) - before)
+  IO.Prim.setAccessRights sealedCeiling 0
+  IO.Prim.setAccessRights (sealed / ".git") 0
+  IO.Prim.setAccessRights (guardedInner / ".git") 0
+  let ((ceilingSealed, ceilingLaunches), (gitSealed, gitLaunches), nestedGit, nestedRead,
+      guardedGit, (guardedRead, guardedLaunches)) ← try
+      pure (← counted (Regula.Checker.gitWorkTreeWith (some sealedEntry) terminated plain),
+        ← counted (Regula.Checker.gitWorkTreeWith none terminated sealed),
+        ← (git nested).toBaseIO, ← (Regula.Checker.gitWorkTree nested).toBaseIO,
+        ← (git guardedInner).toBaseIO,
+        ← counted (Regula.Checker.gitWorkTreeWith none terminated guardedInner))
+    finally
+      IO.Prim.setAccessRights sealedCeiling 448
+      IO.Prim.setAccessRights (sealed / ".git") 448
+      IO.Prim.setAccessRights (guardedInner / ".git") 448
+  unless (match nestedGit with | .ok result => result.succeeded | .error _ => false) do
+    fail s!"the control's setup: Git did not find a work tree from {nested} while \
+      {sealed / ".git"} cannot be read"
+  unless (match guardedGit with
+      | .ok result => result.succeeded && result.stdout == s!"{guardedTop}\n"
+      | .error _ => false) do
+    fail s!"the control's setup: Git did not find {guardedTop} from {guardedInner} while \
+      {guardedInner / ".git"} cannot be read"
+  return [
+    ("Regula.Checker.gitWorkTree of a top level whose name ends in a space",
+      isTop expected spacedRead),
+    ("Regula.Checker.gitWorkTree below a .git file before its permissions are taken away and \
+      after they are given back", linkedReadable),
+    ("Regula.Checker.gitWorkTree below a .git file that cannot be read", linkedDenied),
+    ("Regula.Checker.gitWorkTree of a repository before the permissions of its HEAD are taken away \
+      and after they are given back", headlessReadable),
+    ("Regula.Checker.gitWorkTree of a repository whose HEAD cannot be read", headlessDenied),
+    ("Regula.Checker.gitWorkTree of a bare repository", bareRead matches .error _),
+    ("Regula.Checker.gitWorkTree of a directory that no repository holds",
+      plainRead matches .ok none),
+    ("Regula.Checker.gitWorkTree of a directory whose .git directory holds only a file",
+      strayRead matches .ok none),
+    ("Regula.Checker.gitWorkTreeWith below a ceiling under a repository",
+      innerRead matches .ok none),
+    ("Regula.Checker.gitWorkTreeWith without a ceiling under a repository",
+      isTop outerTop uncappedRead),
+    ("Regula.Checker.gitWorkTreeWith with a query that fails, where the reads establish that no \
+      repository is", unlaunched.all (· matches .ok none) && unlaunchedCount == 0),
+    ("Regula.Checker.gitWorkTreeWith with a query that fails, in a repository",
+      spacedTerminated matches .error _),
+    ("Regula.Checker.gitWorkTreeWith with a query that reports no repository, in a repository",
+      spacedStated matches .error _),
+    ("Regula.Checker.gitWorkTreeWith with a ceiling written through a symbolic link, which the \
+      reads leave out", widened),
+    ("Regula.Checker.gitWorkTreeWith with a ceiling entry that cannot be read, which the reads \
+      leave out, without running the query",
+      ceilingSealed matches .ok none && ceilingLaunches == 0),
+    ("Regula.Checker.gitWorkTreeWith where the read of a .git directory is refused, without \
+      running the query", denied gitSealed && gitLaunches == 0),
+    ("Regula.Checker.gitWorkTreeWith where the read of a .git directory nearer than a repository \
+      is refused, without running the query", denied guardedRead && guardedLaunches == 0),
+    ("Regula.Checker.gitWorkTree of a repository nested in a directory whose .git directory \
+      cannot be read", isTop nestedTop nestedRead)]
+
+/-- The revision that `Checker.Snapshot.observeGitFacts` reads for `revisions`, a work tree that
+`git init --separate-git-dir` makes with its Git directory `revisions-store`, each with whether it
+gave the expected result: none on its branch with no commit yet, the commit that Git names for
+`HEAD` after a commit, and a failure while the file of its branch cannot be read. Git then exits
+with 1 and prints nothing for `rev-parse --verify --quiet HEAD`, as on a branch with no commit,
+and the earlier read gave no revision. In `invalid-head`, a new repository whose `HEAD` names the
+branch `refs/heads/a..b`, a name that Git does not accept: a failure for that name, where Git also
+exits with 1 and prints nothing. The control fails, naming its setup, when Git does not do that or
+the branch is not that file. -/
+def revisions (base : FilePath) : IO (List (String × Bool)) := do
+  let fail {α : Type} (message : String) : IO α := throw <| IO.userError message
+  let tree := base / "revisions"
+  let store := base / "revisions-store"
+  let made ← Regula.Checker.runProcess base "git" #["init", "-q", "--initial-branch=control",
+    "--separate-git-dir", store.toString, tree.toString]
+  unless made.succeeded do
+    fail s!"the control could not make the work tree {tree}: {made.output}"
+  let top ← IO.FS.realPath tree
+  let facts : IO (Except IO.Error (Option String × Bool)) :=
+    (Regula.Checker.Snapshot.observeGitFacts "control" top #[] #[]).toBaseIO
+  let unborn ← facts
+  let committed ← Regula.Checker.runProcess top "git" #["-c", "user.name=Absence Control", "-c",
+    "user.email=absence@example.invalid", "-c", "commit.gpgsign=false", "-c",
+    "maintenance.auto=false", "commit", "-q", "--allow-empty", "-m", "control"]
+  unless committed.succeeded do
+    fail s!"the control could not commit in {top}: {committed.output}"
+  let head ← Regula.Checker.runProcess top "git" #["rev-parse", "HEAD"]
+  unless head.succeeded do
+    fail s!"the control's setup: Git did not name the commit in {top}: {head.output}"
+  let named ← facts
+  let branch := store / "refs" / "heads" / "control"
+  unless (← Regula.Filesystem.entryIfPresent branch) == some .file do
+    fail s!"the control's setup: the branch is not the file {branch}"
+  IO.Prim.setAccessRights branch 0
+  let (quiet, locked) ← try
+      pure (← Regula.Checker.runProcess top "git" #["rev-parse", "--verify", "--quiet", "HEAD"],
+        ← facts)
+    finally
+      IO.Prim.setAccessRights branch 420
+  unless quiet.exitCode == 1 && quiet.stdout.isEmpty do
+    fail s!"the control's setup: Git did not exit with 1 and print nothing for HEAD while \
+      {branch} cannot be read: exit {quiet.exitCode}, {quiet.output}"
+  let invalid := base / "invalid-head"
+  IO.FS.createDirAll invalid
+  let madeInvalid ← Regula.Checker.runProcess invalid "git" #["init", "-q"]
+  unless madeInvalid.succeeded do
+    fail s!"the control could not make the repository {invalid}: {madeInvalid.output}"
+  IO.FS.writeFile (invalid / ".git" / "HEAD") "ref: refs/heads/a..b\n"
+  let invalidTop ← IO.FS.realPath invalid
+  let invalidQuiet ← Regula.Checker.runProcess invalidTop "git"
+    #["rev-parse", "--verify", "--quiet", "HEAD"]
+  unless invalidQuiet.exitCode == 1 && invalidQuiet.stdout.isEmpty &&
+      invalidQuiet.stderr.isEmpty do
+    fail s!"the control's setup: Git did not exit with 1 and print nothing for a HEAD that names \
+      refs/heads/a..b: exit {invalidQuiet.exitCode}, {invalidQuiet.output}"
+  let invalidRead ←
+    (Regula.Checker.Snapshot.observeGitFacts "control" invalidTop #[] #[]).toBaseIO
+  let refused := match invalidRead with
+    | .error error => error.toString.startsWith "Git does not accept the branch"
+    | .ok _ => false
+  return [
+    ("Regula.Checker.Snapshot.observeGitFacts of a repository with no commit",
+      unborn matches .ok (none, _)),
+    ("Regula.Checker.Snapshot.observeGitFacts of a repository after a commit",
+      match named with | .ok (some name, _) => name ++ "\n" == head.stdout | _ => false),
+    ("Regula.Checker.Snapshot.observeGitFacts of a repository whose branch cannot be read",
+      locked matches .error _),
+    ("Regula.Checker.Snapshot.observeGitFacts of a repository whose HEAD names a branch that Git \
+      does not accept", refused)]
+
+
 /-- Run the controls in a new temporary directory, and fail, naming each control that does not
 give the expected result. -/
 def check : IO Unit :=
@@ -389,6 +697,8 @@ def check : IO Unit :=
     for (name, kept) in ← provisioning base do
       unless kept do
         failed := failed.push s!"{name} did not keep the store and its registry"
+    for (name, held) in (← workTrees base) ++ (← revisions base) do
+      unless held do failed := failed.push s!"{name} did not give the expected result"
     unless failed.isEmpty do
       fail s!"controls of the unreadable path {path} failed: {failed.toList}"
 

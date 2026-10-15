@@ -190,6 +190,22 @@ run_cmd do
         discard <| Construction.copyGit source (base / "extension-output")
       fixture "git" #["-C", source.toString, "config", "--unset", "extensions.worktreeConfig"]
       removeOwn .file (source / ".git/config.worktree")
+      -- Git exits 1 for a configuration file it cannot open, as for one with no such setting, so
+      -- each of these is refused only by the read that comes before Git.
+      Construction.appendFileWith Construction.observer (source / ".git") "locked-config" .empty
+      fixture "chmod" #["000", (source / ".git/locked-config").toString]
+      for (label, name, needle) in [("absent", "absent-config", "no such file or directory"),
+          ("unreadable", "locked-config", "permission denied")] do
+        let config := (source / ".git" / name).toString
+        let out ← Construction.gitOutput source
+          #["config", "--file", config, "--no-includes", "--name-only", "--get-regexp", "^core\\."]
+        unless out.exitCode == 1 do
+          throw <| IO.userError s!"{label} Git configuration: Git exited {out.exitCode}"
+        refused s!"{label} Git configuration" needle <|
+          Construction.admitGitConfig source config
+      refused "Git configuration directory" "not a regular file" <|
+        Construction.admitGitConfig source (source / ".git")
+      removeOwn .file (source / ".git/locked-config")
       let other := base / "other"
       construct other [⟨["plain"], .file "another repository".toUTF8⟩]
       fixture "git" #["-C", other.toString, "init", "--quiet"]
@@ -344,6 +360,9 @@ def checkWorkspace : IO Unit := do
       IO.println "construction external manifest: incremental audit incomplete as unobserved, exact external account PASS"
       -- A fresh audit relocates a project-contained absolute selection. Qualification consumes
       -- the actual public result and request, rather than a duplicated expected-account model.
+      -- `.git/policy.json` makes `.git` a directory with nothing at its `HEAD`, `objects` and
+      -- `refs`. The observer's reads of `Checker.gitWorkTree` establish that Git finds no
+      -- repository there, for the reasons its `Assumes:` entries cite, so Git does not run.
       let policies := ["foundation_manifest.json", ".lake/policy.json", "tmp/policy.json",
           ".cache/policy.json", ".regula-scratch/policy.json", "nested/.cache/policy.json",
           ".git/policy.json", "policy.olean"]

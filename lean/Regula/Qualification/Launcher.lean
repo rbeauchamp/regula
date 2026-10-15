@@ -13,7 +13,8 @@ open Lean System RegulaQualification.Launcher
 structure Captured where
   /-- The variables `lake env /usr/bin/env -0` printed, admitted by `admit` as `Valid`. -/
   environment : {env : RegulaQualification.Launcher.Environment // Valid env}
-  /-- The `lean` path that `which` resolved under that environment, joined to the root. -/
+  /-- The `lean` path that `which` resolved under that environment, joined to the root
+  (`resolvedLean`). -/
   executable : String
 
 /-- Invocation-local cache. No state survives a qualification invocation. -/
@@ -34,6 +35,26 @@ structure State where
 def create (legacy : Bool := false) : IO State :=
   return ⟨← IO.mkRef #[], ← IO.mkRef #[], ← IO.mkRef #[], ← IO.mkRef 0, legacy⟩
 
+/-- The `lean` executable that `/usr/bin/which` finds in `root` under the variables `env`, joined to
+`root`. The path it prints is read exactly (`Regula.Filesystem.Construction.printedLine?`: only the
+final newline is removed), and a failure, any standard error, or output that is not one line is
+thrown.
+
+Assumes: `/usr/bin/which lean` prints the path it finds, the entry of `PATH` (`.` for an empty one)
+followed by `/lean`, then a newline, and nothing else (macOS `shell_cmds-329`
+`which/which.c:105-121`, `:123-146`; Debian `debianutils` 5.17 `which.debianutils:11-14`, `:49-57`).
+When the entry is relative, so is that path, from the directory that `which` runs in, `root`.
+`FilePath.join` keeps an absolute path as it is. -/
+def resolvedLean (root : FilePath) (env : Array (String × String)) : IO String := do
+  let resolved ← run root "/usr/bin/which" #["lean"] (env.map fun (k, v) => (k, some v))
+  unless resolved.exitCode == 0 && resolved.stderr.isEmpty do
+    throw <| IO.userError s!"Lean executable resolution failed (exit {resolved.exitCode}): \
+      {resolved.stderr}"
+  let some line := Regula.Filesystem.Construction.printedLine? resolved.stdout
+    | throw <| IO.userError s!"Lean executable resolution printed {resolved.stdout.quote}, not \
+        one path"
+  return (root / line).toString
+
 /-- Capture via argv, not shell syntax; validate before using any variable. -/
 def environment (root : FilePath) (state : State) (overrides : Array (String × Option String)) :
     IO Captured := do
@@ -43,11 +64,7 @@ def environment (root : FilePath) (state : State) (overrides : Array (String × 
     let output ← run root "lake" #["env", "/usr/bin/env", "-0"] overrides
     requireChecks [⟨"Lake environment capture", output.exitCode == 0⟩]
     let env ← IO.ofExcept (admit output.stdout)
-    let resolved ← run root "/usr/bin/which" #["lean"] (env.val.map fun (k, v) => (k, some v))
-    requireChecks
-        [⟨"Lean executable resolution", resolved.exitCode == 0 && resolved.stderr.isEmpty &&
-      (resolved.stdout.trimAscii.toString.splitOn "\n").length == 1⟩]
-    let executable := (root / resolved.stdout.trimAscii.toString).toString
+    let executable ← resolvedLean root env.val
     let captured : Captured := ⟨env, executable⟩
     state.cache.modify (·.push (overrides, captured))
     pure captured
@@ -87,15 +104,30 @@ def runLean (root : FilePath) (state : State) (args : Array String)
     environment := variables, executable := capture.executable })
   return output
 
-/-- Preserve the original stripped LEAN_PATH query, then capture the augmented actual
-Lake environment separately for imported-artifact controls. -/
+/-- The `LEAN_PATH` that `lake env` gives in `root` with `overrides`, as `printenv` prints it, read
+exactly (`Regula.Filesystem.Construction.printedLine?`: only the final newline is removed). A
+failure, or output that is not one line, is thrown.
+
+Assumes: `printenv LEAN_PATH` prints the variable's value followed by a newline and exits with 0:
+GNU coreutils 9.4 for each entry of the environment with that name (`src/printenv.c:119-153`), so
+that two entries print two lines, which are thrown, and macOS `shell_cmds-329` for the first
+(`printenv/printenv.c:93-102`). -/
+def printedLeanPath (root : FilePath) (overrides : Array (String × Option String) := #[]) :
+    IO String := do
+  let output ← run root "lake" #["env", "printenv", "LEAN_PATH"] overrides
+  unless output.exitCode == 0 do
+    throw <| IO.userError s!"Lake path query failed (exit {output.exitCode}): {output.stderr}"
+  let some path := Regula.Filesystem.Construction.printedLine? output.stdout
+    | throw <| IO.userError s!"Lake path query printed {output.stdout.quote}, not one search path"
+  return path
+
+/-- The `LEAN_PATH` of Lake's environment in `root`, for imported-artifact controls: in baseline
+mode the one that `lake env` gives (`printedLeanPath`), and otherwise the captured environment's
+value, as it is. -/
 def leanPath (root : FilePath) (state : State) : IO String := do
-  if state.legacy then
-    let output ← run root "lake" #["env", "printenv", "LEAN_PATH"]
-    requireChecks [⟨"Lake path query", output.exitCode == 0⟩]
-    return output.stdout.trimAscii.toString
+  if state.legacy then return ← printedLeanPath root
   let captured ← environment root state #[]
   let some (_, path) := captured.environment.val.find? (·.1 == "LEAN_PATH")
     | throw <| IO.userError "missing admitted Lean path"
-  return path.trimAscii.toString
+  return path
 end Regula.Qualification.Launcher

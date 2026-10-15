@@ -4565,9 +4565,9 @@ linked result keeps its bytes.
 The processes and Lean's runtime are its subject, an external boundary: it observes
 this build's programs and proves nothing.
 
-Assumes: Lean 4.34.1's `Lean.findSysroot` returns `LEAN_SYSROOT` when it is set, and otherwise runs
-`lean --print-prefix` and fails when that run fails (`src/lean/Lean/Util/Path.lean:180-187`).
-Trusted: the runtime finds a command given by a bare name, such as `lean` or `timeout`, only in
+The programs find the toolchain with `Regula.CompilerObservation.findSysroot`, which returns
+`LEAN_SYSROOT` when it is set, and otherwise runs `lean --print-prefix` and fails when that run
+fails. Trusted: the runtime finds a command given by a bare name, such as `lean` or `timeout`, only in
 the directories of `PATH`; its process code is not among the toolchain's sources. Trusted: GNU
 coreutils `env`, run under the name `timeout`, prints GNU coreutils for `--version` and ends with
 its own failure status 125 at the option `--signal=KILL`, naming that option on standard error.

@@ -112,13 +112,16 @@ private def link : String × String := ("link", "lakefile.toml")
 /-- Whether the dependency of the workspace at `root` is intended: a clone at `rev`, which Lake's
 manifest (`Lake.Manifest.parse`) records as its one entry, a Git entry named `dep` with the URL
 `url` and the commit `rev`, and whose link is a regular file holding the link's target text. A
-clone, manifest or link where nothing is, a head that Git does not report, a manifest that does
-not parse and a link of another type each give `false`. A failure to read a path that is there,
-or to start Git, is thrown, so a control that requires `false` cannot pass on it. -/
+clone, manifest or link where nothing is, another head, a manifest that does not parse and a link
+of another type each give `false`. A failure to read a path that is there, to start Git or of Git
+to report the head of a clone that is there is thrown, so a control that requires `false` cannot
+pass on it. -/
 private def intended (root url : FilePath) (rev : String) : IO Bool := do
   let clone := root / ".lake/packages/dep"
   unless ← Regula.Filesystem.isPresent (clone / ".git") do return false
   let head ← Construction.gitOutput clone #["-c", "maintenance.auto=false", "rev-parse", "HEAD"]
+  unless head.exitCode == 0 do
+    throw <| IO.userError s!"the head of the clone at {clone} is unavailable: {head.stderr}"
   let some text ← Regula.Filesystem.readFileIfPresent (root / "lake-manifest.json") | return false
   let pinned := match Lake.Manifest.parse text with
     | .ok manifest => match manifest.packages with
@@ -128,7 +131,7 @@ private def intended (root url : FilePath) (rev : String) : IO Bool := do
       | _ => false
     | .error _ => false
   unless (← Regula.Filesystem.entryIfPresent (clone / link.1)) == some .file do return false
-  return head.exitCode == 0 && head.stdout.trimAscii.toString == rev && pinned &&
+  return head.stdout.trimAscii.toString == rev && pinned &&
     (← IO.FS.readFile (clone / link.1)) == link.2
 
 /-- The program that the Lean frontend runs in the interpreted controls: its guarded `main` prints
