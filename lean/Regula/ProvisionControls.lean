@@ -23,6 +23,10 @@ reads no network and acquires no Mathlib:
 - A path entry for `batteries`, in the overrides file or in the manifest, inherited or not, is
   refused, and so is a `regula` path entry whose directory is not the Regula root being
   provisioned; the refusal names the package and the file (`RegulaProvision.pathRefusal`).
+- A Mathlib URL with a character that a TOML basic string cannot hold unescaped is refused, one
+  case for each class of them: a carriage return, a line feed, U+0000, U+001F, U+007F, a quotation
+  mark and a backslash. One with a tab, which Lake's grammar admits, is taken
+  (`RegulaProvision.tomlControl`).
 - A manifest without `packagesDir`, or with a null one, is refused, and so is an absent manifest.
 - After each of these, the positive control is restored and gives its answer again.
 
@@ -250,8 +254,10 @@ run_cmd do
         "3333333333333333333333333333333333333333", "4444444444444444444444444444444444444444",
         "5555555555555555555555555555555555555555")
     let (url, otherUrl) := ("https://example.invalid/mathlib4", "https://example.invalid/fork")
-    let committed := [pathEntry "regula" "../..", gitEntry "mathlib" url first,
+    let withUrl (mathlibUrl : String) := [pathEntry "regula" "../..",
+      gitEntry "mathlib" mathlibUrl first,
       gitEntry "batteries" "https://example.invalid/batteries" second]
+    let committed := withUrl url
     -- The positive control, run first and after each mutation is undone.
     let positive (label : String) : IO Unit := do
       let pins ← pinsOf label repo
@@ -323,6 +329,26 @@ run_cmd do
       requireRefused label "regula: the manifest gives a path entry" (RegulaProvision.readPins repo)
       IO.FS.writeFile manifest (manifestText (some (some ".lake/packages")) committed)
       positive s!"positive after the {label}"
+    -- A Mathlib URL that the shared workspace's `lakefile.toml` cannot hold unescaped in a TOML
+    -- basic string, `Lake.Toml.isControlChar` and the two characters that end a string or start
+    -- an escape: a carriage return, the other ends of the range below U+0020 and a line feed,
+    -- U+007F, a quotation mark and a backslash, each refused. A tab, which Lake's grammar admits,
+    -- is taken.
+    for (label, c) in [("carriage return", '\r'), ("line feed", '\n'), ("null", '\x00'),
+        ("unit separator", '\x1F'), ("delete", '\x7F'), ("quotation mark", '"'),
+        ("backslash", '\\')] do
+      let label := s!"Mathlib URL with a {label}"
+      IO.FS.writeFile manifest (manifestText (some (some ".lake/packages")) (withUrl (url.push c)))
+      requireRefused label "holds a character that a TOML basic string cannot hold"
+        (RegulaProvision.readPins repo)
+      IO.FS.writeFile manifest (manifestText (some (some ".lake/packages")) committed)
+      positive s!"positive after the {label}"
+    let tabbed := url.push '\t'
+    IO.FS.writeFile manifest (manifestText (some (some ".lake/packages")) (withUrl tabbed))
+    let pins ← pinsOf "Mathlib URL with a tab" repo
+    requireSelection "Mathlib URL with a tab" "another Mathlib URL" (pins.mathlibUrl == tabbed)
+    IO.FS.writeFile manifest (manifestText (some (some ".lake/packages")) committed)
+    positive "positive after the Mathlib URL with a tab"
     -- A manifest that records no packages directory, or a null one: Lake would take the
     -- configuration's.
     for (label, recorded) in [("no packagesDir", none), ("null packagesDir", some none)] do

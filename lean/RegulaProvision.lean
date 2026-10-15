@@ -461,17 +461,30 @@ def inSubdirectory (entry : Lake.PackageEntry) : Bool :=
   | .git (subDir? := some _) .. => true
   | _ => false
 
+/-- Whether Lake's TOML grammar reads `c` as a control character, which a basic string cannot hold
+unescaped: U+007F, or a character below U+0020 other than a tab. `RegulaProvision.Decisions`
+proves this Lake's own test (`tomlControl_eq`, `Lake.Toml.isControlChar`).
+
+Assumes:
+- Lake v4.34.1 refuses a basic string that holds a control character unescaped, and ends one at an
+  unescaped quotation mark and reads an escape after a backslash (`Lake/Toml/Grammar.lean:30-31`,
+  `:139-151`). -/
+def tomlControl (c : Char) : Bool :=
+  c = '\x7F' || (c < '\x20' && c != '\t')
+
 /-- The first refusal of the Git pins `git`, in which Mathlib is pinned at `rev` from `url`: a Git
 package in a subdirectory, which is not shared; a Mathlib revision that is not a full commit name;
-a URL that the shared workspace's configuration cannot quote; a checkout directory's name that is
-not one path component; and two pins with one checkout directory. -/
+a URL that the shared workspace's configuration cannot quote in a TOML basic string, one that holds
+a quotation mark, a backslash or a control character (`tomlControl`); a checkout directory's name
+that is not one path component; and two pins with one checkout directory. -/
 def pinsRefusal (url rev : String) (git : Array (Lake.PackageEntry × Pin)) : Option String :=
   if let some (entry, _) := git.find? (inSubdirectory ·.1) then
     some s!"{entry.prettyName}: a Git package in a subdirectory is not supported"
   else if !isObjectName rev then
     some s!"the pinned Mathlib revision '{rev}' is not a commit"
-  else if !url.all (fun c => c != '"' && c != '\\' && c != '\n') then
-    some s!"the pinned Mathlib URL '{url}' is not a plain URL"
+  else if !url.all (fun c => c != '"' && c != '\\' && !tomlControl c) then
+    some s!"the pinned Mathlib URL {url.quote} holds a character that a TOML basic string cannot \
+      hold unescaped"
   else if let some (_, pin) := git.find? (!isComponent ·.2.name) then
     some s!"the package directory '{pin.name}' is not a single path component"
   else if !decide (git.toList.map (·.2.name)).Nodup then
@@ -481,7 +494,7 @@ def pinsRefusal (url rev : String) (git : Array (Lake.PackageEntry × Pin)) : Op
 /-- The first refusal of a path entry that Lake materializes a package from, among the entries of
 the manifest `manifest` and of its package overrides file `overrides` (`rootEntries`): every
 selected path entry except Regula's own integration entry, the one selected for `regula` when
-`ownRegula` holds (`readOwnRegula` observes that its directory resolves to the Regula root being
+`ownRegula` holds (`ownRegulaWith` reads that its directory resolves to the Regula root being
 provisioned). Each refusal names the package, its directory and the file that gives the entry.
 Provisioning shares pinned Git checkouts, and the shared workspace's manifest holds only the Git
 entries (`Pins.git`), so each package that Mathlib requires must be pinned by Git there. Regula's
@@ -543,7 +556,7 @@ The supported domain is the rest: a manifest that records its packages directory
 selected for each package that Mathlib requires. A manifest that records no packages
 directory is refused: Lake then takes the one that the package's configuration gives, which only an
 elaboration of its `lakefile.lean` would read. A selected path entry other than Regula's own
-integration entry, when `ownRegula` holds (`readOwnRegula`), is refused (`pathRefusal`), and so
+integration entry, when `ownRegula` holds (`ownRegulaWith`), is refused (`pathRefusal`), and so
 are pins that `pinsRefusal` refuses. -/
 def selectPins (manifest : Lake.Manifest) (overrides : Array Lake.PackageEntry)
     (ownRegula : Bool) :
@@ -998,36 +1011,65 @@ def readRoot (files : FilePath × FilePath) :
   let some manifest ← Lake.Manifest.load? files.1 | return none
   return some (manifest, ← Lake.Manifest.tryLoadEntries files.2)
 
+/-- The real path of `target`: `IO.FS.realPath`, refused on Windows, where Lean 4.34.1's gives the
+path itself when it cannot resolve it (`runtime/io.cpp:1032-1033`), which
+`Regula.Filesystem.ReadsReal` does not allow. The refusal's text is the filesystem observer's.
+This program cannot import `Regula.Filesystem`; `Regula.ProgramCheck.Provision.observeRealPath_eq`
+proves this the observer's read of a real path (`Regula.Filesystem.observeRealPath`). -/
+def observeRealPath (target : FilePath) : IO FilePath := do
+  if System.Platform.isWindows then throw <| IO.userError "copy refused on Windows"
+  IO.FS.realPath target
+
+/-- The path that `realPath` resolves `path` to, or `none` when it fails. -/
+def resolveWith {m : Type → Type} [Monad m] [MonadExceptOf IO.Error m]
+    (realPath : FilePath → m FilePath) (path : FilePath) : m (Option FilePath) :=
+  tryCatchThe IO.Error (do return some (← realPath path)) fun _ => pure none
+
 /-- Whether the entry that Lake selects for `regula` among `entries`, the entries of the Mathlib
-package of the Regula root `repo`, is a path entry whose directory resolves to `repo`: Regula's own
-integration entry (`pathRefusal`). Its directory is joined to the Mathlib package's directory as
-Lake joins it, and a directory that does not resolve is not Regula's own.
+package of the Regula root `repo`, is a path entry whose directory resolves to the path that `repo`
+resolves to: Regula's own integration entry (`pathRefusal`). Its directory is joined to the Mathlib
+package's directory as Lake joins it, and a path that does not resolve is not Regula's own. It is
+written over the read of a real path `realPath`: the driver runs it at `observeRealPath`
+(`readPins`), and `RegulaProvision.Ownership` states its runs in the filesystem model of
+`RegulaCore.Filesystem`.
 
 Assumes:
 - Lake v4.34.1 materializes a path entry at its directory, relative to the workspace's directory
   (`Lake/Load/Materialize.lean:241-243`, `Lake/Load/Resolve.lean:42`,
   `Lake/Util/FilePath.lean:42-48`). -/
-def readOwnRegula (repo : FilePath) (entries : Array Lake.PackageEntry) : IO Bool := do
+def ownRegulaWith {m : Type → Type} [Monad m] [MonadExceptOf IO.Error m]
+    (realPath : FilePath → m FilePath) (repo : FilePath) (entries : Array Lake.PackageEntry) :
+    m Bool :=
   match (selectedEntry entries `regula).map Lake.PackageEntry.src with
-  | some (.path dir) =>
-    match ← (IO.FS.realPath (Lake.joinRelative (repo / mathlibPackage) dir)).toBaseIO,
-        ← (IO.FS.realPath repo).toBaseIO with
-    | .ok resolved, .ok root => return resolved == root
+  | some (.path dir) => do
+    let resolved ← resolveWith realPath (Lake.joinRelative (repo / mathlibPackage) dir)
+    let root ← resolveWith realPath repo
+    match resolved, root with
+    | some resolved, some root => return resolved == root
     | _, _ => return false
   | _ => return false
 
+/-- The Mathlib package's pins (`selectPins`) from its manifest `manifest` and the entries
+`overrides` of its package overrides file, where the entry selected for `regula` is Regula's own
+when `ownRegulaWith` reads it so with `realPath`. -/
+def pinsWith {m : Type → Type} [Monad m] [MonadExceptOf IO.Error m]
+    (realPath : FilePath → m FilePath) (repo : FilePath) (manifest : Lake.Manifest)
+    (overrides : Array Lake.PackageEntry) : m (Except String (Option Pins)) := do
+  return selectPins manifest overrides
+    (← ownRegulaWith realPath repo (rootEntries manifest overrides))
+
 /-- The Mathlib package's pins (`selectPins`), from its manifest and package overrides file
 (`rootFiles`) as Lake's own readers decode them (`readRoot`), with that manifest; `none` when Lake
-materializes no Mathlib from Git there. Regula's own integration entry (`readOwnRegula`) is not
-shared, and another path entry is refused (`pathRefusal`). A package without a manifest is refused:
-Lake would resolve its requirements anew, at revisions that no file records. -/
+materializes no Mathlib from Git there. Regula's own integration entry (`ownRegulaWith`, read with
+`observeRealPath`) is not shared, and another path entry is refused (`pathRefusal`). A package
+without a manifest is refused: Lake would resolve its requirements anew, at revisions that no file
+records. -/
 def readPins (repo : FilePath) : IO (Option (Lake.Manifest × Pins)) := do
   let files := rootFiles (repo / mathlibPackage)
   let some (manifest, overrides) ← readRoot files
     | throw <| IO.userError s!"provisioning: {files.1} is absent, so Lake would resolve the \
         requirements of {mathlibPackage} anew, at revisions that no file records"
-  match selectPins manifest overrides
-      (← readOwnRegula repo (rootEntries manifest overrides)) with
+  match ← pinsWith observeRealPath repo manifest overrides with
   | .ok pins => return pins.map (manifest, ·)
   | .error reason => throw <| IO.userError s!"provisioning: {files.1} with {files.2}: {reason}"
 

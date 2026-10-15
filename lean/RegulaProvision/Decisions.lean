@@ -1,13 +1,16 @@
 import RegulaProvision
 import Regula.Contract
 import Regula.Decision
+import Lake.Toml.Grammar
 
 /-! # Decision contracts of local provisioning
 
 The decision kind of each pure decision `RegulaProvision` runs, with its `@[regula_decision]`
 registration. The provisioning program imports only the toolchain, because `scripts/provision.sh`
 runs it with `lean --run` before the package is built. This second module of its library imports
-it together with the two checker interfaces, and nothing the program runs imports this module.
+it together with the two checker interfaces and Lake's TOML grammar, whose test of a control
+character `tomlControl` copies (`tomlControl_eq`), and nothing the program runs imports this
+module.
 Each kind restates a theorem of the program about the same definition, or for `component?`
 follows from its definition and `isComponent_iff` and for `selectPins` from its definition and
 `selectPins_sound` (`selectPins_shares_iff`), and adds the witnesses a kind requires. -/
@@ -150,10 +153,16 @@ theorem isObjectName_iff (text : String) : isObjectName text = true ↔ IsObject
   simp only [isObjectName, IsObjectName, Bool.and_eq_true, beq_iff_eq, String.all_bool_eq,
     List.all_eq_true, Bool.or_eq_true, decide_eq_true_eq]
 
-/-- Text that the shared workspace's configuration can quote: no character of it is a quotation
-mark, a backslash or a line feed. -/
+/-- The program's test of a control character is Lake's own (`Lake.Toml.isControlChar`), which
+Lake's TOML grammar refuses unescaped in a basic string (`Lake/Toml/Grammar.lean:139-151`). -/
+theorem tomlControl_eq : tomlControl = Lake.Toml.isControlChar := rfl
+
+/-- Text that the shared workspace's configuration can quote in a TOML basic string, stated over its
+characters: none is a quotation mark, a backslash, U+007F, or a character below U+0020 other than a
+tab. The statement has no test of `tomlControl`, which decides the last two
+(`pinsRefusal_eq_none_iff`). -/
 def Quotable (text : String) : Prop :=
-  ∀ c ∈ text.toList, c ≠ '"' ∧ c ≠ '\\' ∧ c ≠ '\n'
+  ∀ c ∈ text.toList, c ≠ '"' ∧ c ≠ '\\' ∧ c ≠ '\x7F' ∧ (c = '\t' ∨ '\x20' ≤ c)
 
 /-- A Git entry that names a subdirectory of its checkout. -/
 def InSubdirectory (entry : Lake.PackageEntry) : Prop :=
@@ -181,20 +190,35 @@ theorem pinsRefusal_eq_none_iff (url rev : String) (git : Array (Lake.PackageEnt
   have hComp : (∀ pin ∈ git, IsComponent pin.2.name) ↔
       git.find? (!isComponent ·.2.name) = none := by
     simp [Array.find?_eq_none, isComponent_iff]
-  have hUrl : (url.all fun c => c != '"' && c != '\\' && c != '\n') = true ↔ Quotable url := by
-    simp [Quotable, String.all_bool_eq, List.all_eq_true, and_assoc]
+  have hUrl :
+      (url.all fun c => c != '"' && c != '\\' && !tomlControl c) = true ↔ Quotable url := by
+    rw [String.all_bool_eq, Quotable]
+    simp only [List.all_eq_true, tomlControl, Bool.and_eq_true, bne_iff_ne, ne_eq,
+      Bool.not_eq_true', Bool.or_eq_false_iff, decide_eq_false_iff_not, Bool.and_eq_false_imp,
+      decide_eq_true_eq]
+    refine forall_congr' fun c => imp_congr_right fun _ => ⟨?_, ?_⟩
+    · rintro ⟨⟨quote, backslash⟩, delete, below⟩
+      refine ⟨quote, backslash, delete, ?_⟩
+      by_cases tab : c = '\t'
+      · exact .inl tab
+      · exact .inr (Char.not_lt.mp fun lt => tab (by simpa using below lt))
+    · rintro ⟨quote, backslash, delete, tabOrAbove⟩
+      refine ⟨⟨quote, backslash⟩, delete, fun lt => ?_⟩
+      rcases tabOrAbove with tab | above
+      · simp [tab]
+      · exact absurd lt (Char.not_lt.mpr above)
   rw [PinsAdmissible, hSub, hComp, ← isObjectName_iff, ← hUrl]
   unfold pinsRefusal
   cases h1 : git.find? (inSubdirectory ·.1) with
   | some found => simp
   | none =>
     cases h2 : isObjectName rev <;>
-      cases h3 : (url.all fun c => c != '"' && c != '\\' && c != '\n') <;>
+      cases h3 : (url.all fun c => c != '"' && c != '\\' && !tomlControl c) <;>
       cases h4 : git.find? (!isComponent ·.2.name) <;> simp_all
 
 /-- What an admitted pin set establishes of the Mathlib package's manifest, the entries of its
 package overrides file and whether the entry selected for `regula` is Regula's own integration
-entry (`readOwnRegula`), over the entries that Lake selects (`rootEntries`, `selectedEntry`): the
+entry (`ownRegulaWith`), over the entries that Lake selects (`rootEntries`, `selectedEntry`): the
 manifest records a packages directory; each selected path entry is the one for `regula`, and it is
 Regula's own; the entry selected for `mathlib` is a Git entry, and the Git pins are admissible
 (`PinsAdmissible`). -/
@@ -264,7 +288,9 @@ theorem checked_selectPins : Regula.ExecutableContract selectPins (fun select =>
         simp [shareableEntry] at hPath,
         shareableEntry, _, _, none, none, rfl, rfl, (pinsRefusal_eq_none_iff _ _ _).mp (by
           rw [shareable_gitPins]
-          simp [pinsRefusal, shareableEntry, isObjectName, isComponent, inSubdirectory]
+          unfold pinsRefusal
+          simp only [String.all_bool_eq]
+          simp [shareableEntry, isObjectName, isComponent, inSubdirectory, tomlControl]
           rfl)⟩⟩
     ⟨(({ shareableManifest with packagesDir? := none }, #[]), false), fun ⟨_, refused⟩ => by
       simp [Function.uncurry, selectPins] at refused⟩⟩
