@@ -12,9 +12,10 @@ open Lean System
 def success (result : IO.Process.Output) : IO Unit :=
   requireChecks [⟨result.stdout ++ result.stderr, result.exitCode == 0⟩]
 
-/-- Removes the file at `path` when it exists; a missing file is not an error. -/
-def removeFile (path : FilePath) : IO Unit := do
-  if ← path.pathExists then Regula.Filesystem.removePath .file path
+/-- Removes the file at `path` when it exists; a missing file is not an error, and every other
+failure of the read or the removal is (`Regula.Filesystem.removePath`). -/
+def removeFile (path : FilePath) : IO Unit :=
+  Regula.Filesystem.removePath .file path
 
 /-- Copies the Regula root's `lean-toolchain` file into the directory `target`. -/
 def toolchain (root target : FilePath) : IO Unit := do
@@ -57,11 +58,12 @@ private def control (project dependency : FilePath) : IO Unit := do
   unchanged
   let built ← Regula.Checker.Lake.buildTargets project #[.surface (.library "Example")]
   requireChecks [⟨built.output, built.succeeded⟩,
-    ⟨"custom dependency build directory", ← (dependency / "build/lib/lean/Dep.olean").pathExists⟩]
+    ⟨"custom dependency build directory",
+      ← Regula.Filesystem.isPresent (dependency / "build/lib/lean/Dep.olean")⟩]
   unchanged
   for name in #["Dep/Generated.lean", "lean-toolchain", "Dep/New.lean"] do
     let path := dependency / name
-    let original ← if ← path.pathExists then pure (some (← IO.FS.readFile path)) else pure none
+    let original ← Regula.Filesystem.readFileIfPresent path
     IO.FS.writeFile path (original.getD "" ++
       if name == "lean-toolchain" then "\n" else "\ndef added : Nat := 9\n")
     let changed ← unchanged.toBaseIO
@@ -215,8 +217,8 @@ def check (group : String) : IO Unit := do
       "name = \"snapshot_control\"\n" ++ Regula.Checker.observerPluginToml ++
       "[leanOptions]\nautoImplicit = false\nrelaxedAutoImplicit = false\n" ++
       "linter.missingDocs = true\n[[require]]\nname = \"dep\"\npath = \"../dependency\"\n" ++
-      Regula.Checker.regulaRequireToml root ++ "[[lean_lib]]\nname = \"Example\"\n" ++
-      Regula.Checker.observerNeedToml
+      Regula.Checker.regulaRequireToml root ++
+      Regula.Checker.observedTargetToml .library "Example"
     IO.FS.writeFile (project / "Example.lean") "import Dep\n/-! Snapshot control. -/\n"
     -- The complete generated requirement graph is this one path dependency, with no Git source.
     success (← run project "lake" #["update"] cleanEnv)
@@ -225,7 +227,7 @@ def check (group : String) : IO Unit := do
       for kind in #["git", "non-git"] do
         if kind == "non-git" then Regula.Filesystem.removePath .directory (dependency / ".git")
         for path in #[dependency / "build", project / ".lake/build"] do
-          if ← path.pathExists then Regula.Filesystem.removePath .directory path
+          Regula.Filesystem.removePath .directory path
         for name in #[".env", "unrelated.txt"] do
           IO.FS.writeFile (dependency / name) "R4_SYNTHETIC_UNRELATED"
         control project dependency
@@ -246,7 +248,7 @@ def check (group : String) : IO Unit := do
       "name = \"history_control\"\n" ++ Regula.Checker.observerPluginToml ++
       "[leanOptions]\nautoImplicit = false\nrelaxedAutoImplicit = false\n" ++
       "linter.missingDocs = true\n" ++ Regula.Checker.regulaRequireToml root ++
-      "[[lean_lib]]\nname = \"Example\"\n" ++ Regula.Checker.observerNeedToml
+      Regula.Checker.observedTargetToml .library "Example"
     removeFile (project / "lake-manifest.json")
     -- The replacement generated configuration has no requirements; update creates its manifest.
     success (← run project "lake" #["update"] cleanEnv)
@@ -259,12 +261,13 @@ def check (group : String) : IO Unit := do
         IO.FS.writeBinFile (project / "Example.lean")
             (← Regula.Filesystem.readBytes (root / "examples/rules/RG3001" / fixture))
         if phase != "negative" then clearBuild project
-        let (result, packet) ← observeProject root project (scratch / s!"{mode}-{phase}.json") flags
+        let output := scratch / s!"{mode}-{phase}.json"
+        let (result, packet) ← observeProject root project output flags
         if phase != "negative" then
           success result
           requireChecks [⟨"accepted history", accepted packet⟩]
         else
-          let findings ← IO.ofExcept (packet.getObjValAs? (Array Json) "diagnostics")
+          let findings ← readMember output (RegulaQualification.Member.array packet "diagnostics")
           let historyFindings := findings.filter
               (fun d => (d.getObjValAs? String "id").toOption == some "RG3001")
           requireChecks [⟨"history incomplete", result.exitCode != 0 &&

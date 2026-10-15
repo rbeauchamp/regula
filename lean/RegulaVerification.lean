@@ -1,4 +1,5 @@
 import Lean
+import Lake.Load.Manifest
 
 /-! # Cold-start verification driver
 
@@ -377,8 +378,9 @@ def otherTargets : List String :=
     "+Regula.Checker.RuleExamples:olean", "+Regula.Checker.RuleExampleQualificationMain:olean",
     "+Regula.Cli.Main:olean", "+Regula.Release:olean", "+Regula.DiagnosticsGate:olean",
     "+Regula.RemovalControls:olean", "+Regula.CopyControls:olean", "+Regula.ProvisionControls:olean",
-    "+Regula.Campaigns.Verification:olean", "+Regula.Campaigns.Diagnostics:olean",
-    "+Regula.ProgramCheck.Verification:olean"]
+    "+Regula.AbsenceControls:olean", "+Regula.PrintedPathControls:olean",
+    "+Regula.Campaigns.Verification:olean",
+    "+Regula.Campaigns.Diagnostics:olean", "+Regula.ProgramCheck.Verification:olean"]
 
 /-- A `qualify` selection under the driver's deadline. -/
 private def qualify (selection : Array String) : Command :=
@@ -947,7 +949,7 @@ inductive Place where
 structure Observed where
   /-- What is at the path. -/
   place : Place
-  /-- Whether the real path of what is there is the path itself. -/
+  /-- Whether a directory is there and its real path is the path itself (`observe`). -/
   sameLocation : Bool
   deriving DecidableEq, Repr
 
@@ -1006,13 +1008,17 @@ def removeDecided (path : System.FilePath) (observed : Observed)
   IO.FS.removeDirAll path
 
 /-- What the driver observes of `path` before a removal: what is there, by a read that follows
-no link at the path, and whether its real path is the path. -/
+no link at the path, and, when a directory is there, whether its real path is the path. Only
+`place` decides that nothing is there: a failure of either read is thrown, since Lean 4.34.1's
+`realPath` gives `noFileOrDirectory` for each failure of `realpath(3)`
+(https://github.com/rbeauchamp/regula/issues/430). `removal` reads `sameLocation` only for a
+directory. -/
 def observe (path : System.FilePath) : IO Observed := do
-  return {
-    place := ← place path
-    sameLocation := match ← (IO.FS.realPath path).toBaseIO with
-      | .ok real => real == path
-      | .error _ => false }
+  let place ← place path
+  let sameLocation ← match place with
+    | .directory => pure ((← IO.FS.realPath path) == path)
+    | .absent | .other => pure false
+  return { place, sameLocation }
 
 /-- Remove the directory at `path` when one is there at its own place, do nothing when nothing
 is there, and stop with nothing removed when a symbolic link or a file is there
@@ -1400,11 +1406,13 @@ def plainNames (names : List String) : Option (List String) :=
   if names.contains ".." then none else some (names.filter fun name => name != "." && name != "")
 
 /-- The entry that `path` names, found without making anything: the real path of the longest
-prefix of its directory that is present, and the names below it (`plainNames`). It stops when the
-last component of `path` names no file (`System.FilePath.fileName`), read before any name is
-dropped; when a name below the prefix is `..`, whose entry depends on what the run makes; or when a
-prefix cannot be resolved, with the error of each read. It is `Regula.Destination.place` written a
-second time. -/
+prefix of its directory that is present, and the names below it (`plainNames`). A prefix is absent
+only when its entry, by a read that follows no link (`entryMetadata`), is not there, since
+`realPath` gives `noFileOrDirectory` for each failure of `realpath(3)`. It stops when the last
+component of `path` names no file (`System.FilePath.fileName`), read before any name is dropped;
+when a name below the prefix is `..`, whose entry depends on what the run makes; or when a prefix
+cannot be resolved, with the error of each read. It is `Regula.Destination.place` written a second
+time. -/
 def destinationAt (path : System.FilePath) : IO System.FilePath := do
   if path.fileName.isNone then
     throw <| IO.userError s!"{path} names no file, so the run writes nothing there"
@@ -1423,18 +1431,15 @@ def destinationAt (path : System.FilePath) : IO System.FilePath := do
     let ancestor : System.FilePath := if ancestor.toString.isEmpty then ⟨"/"⟩ else ancestor
     match ← (IO.FS.realPath ancestor).toBaseIO with
     | .ok real => return ← below real (components.drop (count + 1))
-    | .error absent@(.noFileOrDirectory ..) =>
+    | .error unresolved@(.noFileOrDirectory ..) =>
       match ← (entryMetadata ancestor).toBaseIO with
       | .error (.noFileOrDirectory ..) => continue
-      | .ok metadata =>
-        if metadata.type == .symlink then
-          throw <| IO.userError s!"{ancestor}, a prefix of {path}, is a symbolic link whose \
-            target is absent ({absent}), so the run writes nothing there"
-        throw <| IO.userError s!"{ancestor}, a prefix of {path}, is {entryName metadata.type} \
-          that cannot be resolved ({absent}), so the run writes nothing there"
+      | .ok metadata => throw <| IO.userError s!"{ancestor}, a prefix of {path}, is \
+          {entryName metadata.type} that cannot be resolved ({unresolved}), so the run writes \
+          nothing there"
       | .error error => throw <| IO.userError s!"{ancestor}, a prefix of {path}, cannot be \
-          resolved ({absent}) and cannot be read without following a link ({error}), so the run \
-          writes nothing there"
+          resolved ({unresolved}) and cannot be read without following a link ({error}), so the \
+          run writes nothing there"
     | .error error => throw <| IO.userError s!"{ancestor}, a prefix of {path}, cannot be resolved \
         ({error}), so the run writes nothing there"
   below ⟨"/"⟩ (components.drop 1)
@@ -1487,11 +1492,14 @@ def siteBuildMembers : List String := ["schemaVersion", "site", "producerVersion
 def identifiesSiteBuild (value : Lean.Json) : Bool :=
   siteBuildMembers.all (has value)
 
-/-- Whether a regular file is at `path`, by a read that follows no link at `path` itself. -/
-def regularFile (path : System.FilePath) : BaseIO Bool := do
+/-- Whether a regular file is at `path`, by a read that follows no link at `path` itself
+(`entryMetadata`): `false` when another kind of entry or nothing is there, and every other failure
+of the read is thrown, as `Regula.Filesystem.entryIfPresent` reads. -/
+def regularFile (path : System.FilePath) : IO Bool := do
   match ← (entryMetadata path).toBaseIO with
   | .ok metadata => return metadata.type == .file
-  | .error _ => return false
+  | .error (.noFileOrDirectory ..) => return false
+  | .error error => throw error
 
 /-- Whether a directory holds a site artifact, decided from what reads that follow no link observe
 in it: `Regula.Destination.holdsSiteArtifact` (`holdsSiteArtifact_shared`). -/
@@ -1532,7 +1540,7 @@ def siteRefusal (out : System.FilePath) : IO (Option String) := do
     let marker ← regularFile (out / siteAssemblingMarker)
     let mut build := none
     if ← regularFile (out / "build.json") then
-      build := (← (IO.FS.readFile (out / "build.json")).toBaseIO).toOption
+      build := String.fromUTF8? (← IO.FS.readBinFile (out / "build.json"))
     holds := holdsSiteArtifact marker build
   let empty ← if (entry matches .ok .dir) && !holds then (·.isEmpty) <$> listDirectory out
     else pure false
@@ -1570,24 +1578,68 @@ def invalidated : Mode → List (String × String)
   | .ruleExamplesShard index => [(shardEvidence (index.val + 1), setupMark)]
   | _ => []
 
-/-- The package adopters require stays dependency-free: its lock manifest records no package. Lake
-refuses to load a workspace whose configuration requires a package that the lock manifest does not
-record, so an accepted build of the root package with such a manifest requires nothing, and
-requiring `regula` adds only `regula` to an adopter's `lake-manifest.json`. The Mathlib
-integration package in `integration/mathlib/` records its own pins. -/
-def dependencyFree (manifest : Lean.Json) : Bool :=
-  match manifest.getObjValAs? (Array Lean.Json) "packages" with
-  | .ok packages => packages.isEmpty
-  | .error _ => false
+/-- The manifest and package overrides file of the workspace that Lake loads with the package at
+`dir` as its root, joined as Lake joins paths. `Regula.ProgramCheck.Verification.rootFiles_eq`
+proves this `Regula.Checker.Workspace.rootFiles`.
 
-/-- Soundness: an admitted lock manifest has a `packages` array, and it is empty. -/
-theorem dependencyFree_packages (manifest : Lean.Json) (h : dependencyFree manifest = true) :
-    manifest.getObjValAs? (Array Lean.Json) "packages" = .ok #[] := by
-  unfold dependencyFree at h
-  split at h
-  · rename_i packages hp
-    rw [hp, Array.isEmpty_iff.mp h]
-  · simp at h
+Assumes:
+- Lake v4.34.1 gives the root package of a workspace the manifest `lake-manifest.json` of its
+  directory unless its load configuration names another (`Lake/Load/Config.lean:54`,
+  `Lake/Load/Package.lean:35-51`), and the `lake` command names no other
+  (`Lake/CLI/Main.lean:116-130`). It reads the package overrides file
+  `.lake/package-overrides.json` of that directory (`Lake/Config/Workspace.lean:212-213`,
+  `Lake/Config/Package.lean:208-213`). -/
+def rootFiles (dir : System.FilePath) : System.FilePath × System.FilePath :=
+  (Lake.joinRelative dir Lake.defaultManifestFile,
+    Lake.joinRelative (Lake.joinRelative dir Lake.defaultLakeDir) "package-overrides.json")
+
+/-- The manifest of the workspace whose manifest and package overrides file are `files`
+(`rootFiles`), and the entries of that overrides file, each read by Lake's own reader, or `none`
+when the manifest does not exist; any other failure of a read, and a file that Lake's reader
+refuses, are thrown. `Regula.ProgramCheck.Verification.readRoot_eq` proves this the checker's
+read, `Regula.Checker.Workspace.readRoot`.
+
+Assumes:
+- Lake v4.34.1's load reads the manifest with `Lake.Manifest.load?`
+  (`Lake/Load/Workspace.lean:61-69`) and the overrides file with `Lake.Manifest.tryLoadEntries`
+  (`Lake/Load/Resolve.lean:603`), which give nothing only for an absent file
+  (`Lake/Load/Manifest.lean:268-272`, `:301-305`). -/
+def readRoot (files : System.FilePath × System.FilePath) :
+    IO (Option (Lake.Manifest × Array Lake.PackageEntry)) := do
+  let some manifest ← Lake.Manifest.load? files.1 | return none
+  return some (manifest, ← Lake.Manifest.tryLoadEntries files.2)
+
+/-- The package adopters require stays dependency-free: `read`, the root package's manifest and
+the entries of its package overrides file (`readRoot`), is there, and neither records a package.
+Lake materializes a workspace's dependencies from those entries, and refuses a configuration that
+requires a package when they are none, so an accepted build of the root package requires nothing.
+Requiring `regula` then adds only `regula` to an adopter's `lake-manifest.json`. An absent manifest
+is refused: Lake would resolve the requirements anew. The Mathlib integration package in
+`integration/mathlib/` records its own pins.
+
+Assumes:
+- Lake v4.34.1 materializes the dependencies of a workspace with a manifest from the manifest's
+  entries and then the overrides file's, and refuses one whose configuration requires a package
+  when both record none (`Lake/Load/Workspace.lean:61-69`, `Lake/Load/Resolve.lean:599-609`). -/
+def dependencyFree : Option (Lake.Manifest × Array Lake.PackageEntry) → Bool
+  | some (manifest, overrides) => manifest.packages.isEmpty && overrides.isEmpty
+  | none => false
+
+/-- `dependencyFree` accepts exactly a manifest that records no package with an overrides file
+that records none. -/
+theorem dependencyFree_iff (read : Option (Lake.Manifest × Array Lake.PackageEntry)) :
+    dependencyFree read = true ↔
+      ∃ manifest, read = some (manifest, #[]) ∧ manifest.packages = #[] := by
+  match read with
+  | none => simp [dependencyFree]
+  | some (manifest, overrides) =>
+    simp only [dependencyFree, Bool.and_eq_true, Array.isEmpty_iff, Option.some.injEq,
+      Prod.mk.injEq]
+    constructor
+    · rintro ⟨hPackages, hOverrides⟩
+      exact ⟨manifest, ⟨rfl, hOverrides⟩, hPackages⟩
+    · rintro ⟨_, ⟨rfl, hOverrides⟩, hPackages⟩
+      exact ⟨hPackages, hOverrides⟩
 
 /-- The targets a surface manifest claims, read from its JSON: each surface's `library` and each
 name of its `executables`, in the manifest's order; `none` for a manifest without that shape. A
@@ -1682,11 +1734,10 @@ under it (`start`). -/
 def run (args : List String) : IO Unit := do
   let some selection := select args | throw <| IO.userError usage
   if selection.val == .ordinary then
-    let manifest ← IO.ofExcept (Lean.Json.parse (← IO.FS.readFile "lake-manifest.json"))
-    unless dependencyFree manifest do
-      throw <| IO.userError "lake-manifest.json records a dependency: the regula package must \
-        require nothing beyond the Lean toolchain (a Mathlib-dependent module belongs in \
-        integration/mathlib/)"
+    unless dependencyFree (← readRoot (rootFiles ".")) do
+      throw <| IO.userError "lake-manifest.json is absent or records a dependency, or \
+        .lake/package-overrides.json records one: the regula package must require nothing beyond \
+        the Lean toolchain (a Mathlib-dependent module belongs in integration/mathlib/)"
     let surfaces ← IO.ofExcept (Lean.Json.parse (← IO.FS.readFile "foundation_manifest.json"))
     unless prebuildCovers surfaces do
       throw <| IO.userError s!"foundation_manifest.json claims a target that the prebuild of \

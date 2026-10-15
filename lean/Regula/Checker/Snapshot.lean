@@ -210,7 +210,7 @@ def terminalBeq (fresh : Array DependencyCaptures) (before : Array DependencyObs
 bytes, with presence preserved. -/
 private def captureConfiguration (path : FilePath) :
     IO (String × Option (String × ByteArray)) := do
-  if !(← path.pathExists) then return (path.toString, none)
+  if !(← Regula.Filesystem.isPresent path) then return (path.toString, none)
   let canonical ← IO.FS.realPath path
   let bytes ← IO.FS.readBinFile canonical
   return (path.toString, some (canonical.toString, bytes))
@@ -365,7 +365,7 @@ private def statusRelative (root path : FilePath) : IO (Option String) := do
   if rootComponents.isPrefixOf components then return relative rootComponents.length
   for count in [1:components.length] do
     let candidate := FilePath.mk ("/" ++ "/".intercalate (components.take count))
-    if ← candidate.pathExists then
+    if ← Regula.Filesystem.isPresent candidate then
       if (← IO.FS.realPath candidate) == root then return relative count
   return none
 
@@ -420,26 +420,106 @@ every process except one started through the internal qualification entry point
 (`ruleExamples --injected-git-facts`); no user-facing checker mode sets it. -/
 initialize injectedGitFacts : IO.Ref (Array GitFacts) ← IO.mkRef #[]
 
-/-- The Git facts for one exact capture request: the nominal revision (only for
-a dependency that is its own repository) and input-scoped dirty status. One
-`rev-parse` prints the revision line and then the top level. It fails when there is
-no repository or `HEAD` does not resolve; the two separate calls it replaces then
-also yielded no revision, so the facts are unchanged. -/
+/-- Whether the run of bytes `needle` is in `bytes`. -/
+def holdsBytes (needle : List UInt8) : List UInt8 → Bool
+  | [] => needle.isEmpty
+  | byte :: rest => needle.isPrefixOf (byte :: rest) || holdsBytes needle rest
+
+/-- The branch that the bytes `bytes` of a `HEAD` file name, when they are as Git writes them on a
+branch: `ref: `, a name that starts with `refs/heads/`, and a newline. Each byte of the name is a
+visible ASCII character, and each of its parts below `refs/heads/` is neither empty nor `.` nor
+`..`. `none` for every other content. -/
+def headBranch? (bytes : ByteArray) : Option String := do
+  let text ← String.fromUTF8? bytes
+  guard (text.startsWith "ref: refs/heads/" && text.endsWith "\n")
+  let name := ((text.drop 5).toString.dropEnd 1).toString
+  let parts := (name.splitOn "/").drop 2
+  guard (!parts.isEmpty && parts.all fun part => !part.isEmpty && part != "." && part != "..")
+  guard (name.all fun c => 32 < c.toNat && c.toNat < 127)
+  return name
+
+/-- Whether reads establish that `HEAD` of the Git repository at `root` names no object, as on a
+branch with no commit yet. Git reports the repository's Git directory and common directory, and
+that it keeps references as files (`--show-ref-format`). `GIT_REFERENCE_BACKEND` is not set, and
+the common directory's `config` has no extension (`Regula.Filesystem.Construction.admitGitConfig`).
+`HEAD` in the Git directory is a regular file that names a branch (`headBranch?`), and Git accepts
+that name (`git check-ref-format --allow-onelevel`). Nothing is at the branch's path in the common
+directory. The common directory's `packed-refs` is absent, or a regular file in which the branch's
+name is not (`holdsBytes`). Each read is strict (`Regula.Filesystem.entryIfPresent`), and anything
+else gives `false`. A failure of a read or of Git is thrown. So are a configuration with an
+extension and a name that Git does not accept, for which Git also exits quietly with 1.
+
+Assumes: Git 2.54.0 takes the format and the place of its references only from
+`extensions.refStorage` and `GIT_REFERENCE_BACKEND` (`setup.c:633-646`, `:689-697`, `:2025-2044`);
+`--show-ref-format` prints the format (`builtin/rev-parse.c:1132-1135`). With neither of them set,
+the files backend keeps `HEAD` in the Git directory and a branch `refs/heads/...` in the common
+directory (`refs.c:3518-3534`, `:880-885`, `:944-989`, `refs/files-backend.c:108-135`, `:213-235`).
+It reads `ref: R` as the name R (`refs/files-backend.c:578`, `:621-628`). It resolves R only when
+`check_refname_format` with `REFNAME_ALLOW_ONELEVEL` accepts it (`refs.c:2152-2155`), the check
+that `check-ref-format --allow-onelevel` makes and reports by its exit status
+(`builtin/check-ref-format.c:73-99`), and it warns of no dangling `HEAD` (`refs.c:829-832`). When
+nothing is at a branch's path, it looks for the branch only in the common directory's
+`packed-refs` (`refs/files-backend.c:501-511`, `refs/packed-backend.c:218-233`), whose entries
+spell out the branch's name. No other process writes the repository while the reads and Git run. -/
+private def unbornHead (root : FilePath) : IO Bool := do
+  if (← IO.getEnv "GIT_REFERENCE_BACKEND").isSome then return false
+  let gitDir ← Regula.Filesystem.Construction.gitPath root
+    #["rev-parse", "--path-format=absolute", "--git-dir"]
+  let common ← Regula.Filesystem.Construction.gitPath root
+    #["rev-parse", "--path-format=absolute", "--git-common-dir"]
+  Regula.Filesystem.Construction.admitGitConfig root (common / "config")
+  let format ← runProcess root "git" #["rev-parse", "--show-ref-format"]
+  unless format.exitCode == 0 && format.stdout == "files\n" do return false
+  unless (← Regula.Filesystem.entryIfPresent (gitDir / "HEAD")) == some .file do return false
+  let some branch := headBranch? (← IO.FS.readBinFile (gitDir / "HEAD")) | return false
+  let checked ← runProcess root "git" #["check-ref-format", "--allow-onelevel", branch]
+  unless checked.exitCode == 0 && checked.stdout.isEmpty && checked.stderr.isEmpty do
+    throw <| IO.userError s!"Git does not accept the branch {branch.quote} that HEAD names (exit \
+      {checked.exitCode}): {checked.stderr}"
+  if (← Regula.Filesystem.entryIfPresent (common / branch)).isSome then return false
+  match ← Regula.Filesystem.entryIfPresent (common / "packed-refs") with
+  | none => return true
+  | some .file =>
+    let packed ← IO.FS.readBinFile (common / "packed-refs")
+    return !holdsBytes branch.toUTF8.data.toList packed.data.toList
+  | some _ => return false
+
+/-- The object name that `HEAD` names in the Git repository at `root`, or `none` when `HEAD`
+names no object, as on a branch with no commit yet. `git rev-parse --verify --quiet HEAD` prints
+the object name and a newline. It exits with 1, printing nothing, when `HEAD` names no object, and
+also when it cannot read the branch, so `none` comes only from the reads of `unbornHead` after that
+exit. Each other failure, that exit where those reads do not establish it, and output that is not
+one hexadecimal name and its newline, are thrown. The repositories with no commit that the
+qualification fixtures make with `git init` for dependencies are such branches.
+
+Assumes: Git 2.54.0 `rev-parse` exits with 1 for `--verify --quiet` when its argument names no
+single object (`builtin/rev-parse.c:580-586`, `:1169-1170`, `:1179-1185`), a branch that it cannot
+read among them (`refs.c:2112-2118`), and with 128 for each error it dies on (`usage.c:80-87`). It
+prints the object name with `puts` (`builtin/rev-parse.c:116-131`, `:143-185`). -/
+private def headRevision (package : String) (root : FilePath) : IO (Option String) := do
+  let parsed ← runProcess root "git" #["rev-parse", "--verify", "--quiet", "HEAD"]
+  if parsed.succeeded then
+    let name := (parsed.stdout.dropEnd 1).toString
+    unless parsed.stdout.endsWith "\n" && !name.isEmpty && name.all Char.isHexDigit do
+      throw <| IO.userError s!"dependency revision is not one object name: {package}: \
+        {parsed.stdout.quote}"
+    return some name
+  unless parsed.exitCode == 1 && parsed.stdout.isEmpty && parsed.stderr.isEmpty do
+    throw <| IO.userError s!"dependency revision unavailable: {package}: {parsed.stderr}"
+  unless ← unbornHead root do
+    throw <| IO.userError s!"dependency revision unavailable: {package}: Git names no object for \
+      HEAD, and the reads do not establish a branch with no commit"
+  return none
+
+/-- The Git facts for one exact capture request: the nominal revision (only for a dependency that
+is the top level of its own Git work tree, `gitWorkTree`, and only when `HEAD` names an object,
+`headRevision`) and input-scoped dirty status. A failure of Git is thrown (`gitWorkTree`,
+`headRevision`), never read as no work tree or no revision. -/
 def observeGitFacts (package : String) (root : FilePath)
     (sourcePaths : Array (Name × FilePath)) (configurationPaths : Array FilePath) :
     IO (Option String × Bool) := do
-  let parsed ← runProcess root "git" #["rev-parse", "HEAD", "--show-toplevel"]
-  let (head, top) := match parsed.stdout.splitOn "\n" with
-    | head :: rest => (head, "\n".intercalate rest)
-    | [] => ("", "")
-  let ownRepository ← if parsed.succeeded then
-    pure ((← IO.FS.realPath (FilePath.mk top.trimAscii.toString)) == root)
-    else pure false
-  let revision ← if parsed.succeeded && ownRepository then do
-      let revision := head.trimAscii.toString
-      if revision.isEmpty then throw <| IO.userError s!"empty dependency revision: {package}"
-      pure (some revision)
-    else pure none
+  let ownRepository := (← gitWorkTree root) == some root
+  let revision ← if ownRepository then headRevision package root else pure none
   let dirty ← if revision.isSome then inputsDirty root (sourcePaths.map (·.2) ++ configurationPaths)
     else pure true
   return (revision, dirty)

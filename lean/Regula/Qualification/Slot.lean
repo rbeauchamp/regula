@@ -27,7 +27,9 @@ self-contained copy. Alternate object stores, configuration extensions/includes 
 core.worktree redirects refuse. The ROOT copy's Git stays inside the slot, and preparation
 points manifest dependencies only at captured shared
 roots, compares captured source/config inputs byte-exactly, records relocation
-truthfully, and refuses on any containment violation. Filesystem, Git and
+truthfully, and refuses on any containment violation. A ROOT, original or copy, whose package
+overrides file records an entry refuses, since the relocation covers the manifest's entries only
+(`manifestWithoutOverrides`). Filesystem, Git and
 process behavior remain trusted IO, as throughout. -/
 namespace Regula.Qualification.Slot
 open Lean System RegulaQualification
@@ -79,15 +81,14 @@ def excluded (relative : String) : Bool :=
     || relative == ".lake/packages" || relative.startsWith ".lake/packages/"
 
 /-- True when `path` resolves inside `root` (executed normalization check).
-Unresolvable paths are refused (fail closed): there is no lexical prefix
-fallback, so unresolved `..`/absolute joins cannot pass. -/
+A path where nothing is (`Regula.Filesystem.realPathIfPresent`) is refused (fail closed): there is
+no lexical prefix fallback, so unresolved `..`/absolute joins cannot pass. A failure to read or
+resolve either path is thrown. -/
 def contained (root path : FilePath) : IO Bool := do
-  try
-    let resolved ← IO.FS.realPath path
-    let base ← IO.FS.realPath root
-    return resolved.toString == base.toString ||
-      resolved.toString.startsWith (base.toString ++ "/")
-  catch _ => return false
+  let some resolved ← Regula.Filesystem.realPathIfPresent path | return false
+  let some base ← Regula.Filesystem.realPathIfPresent root | return false
+  return resolved.toString == base.toString ||
+    resolved.toString.startsWith (base.toString ++ "/")
 
 /-- Copy one source file through the shared no-follow/exclusive constructor. -/
 def copyFile (source target : FilePath) : IO Unit :=
@@ -142,40 +143,58 @@ def materializeGit (slotGit : FilePath) (sourceGit : FilePath) : IO Unit := do
   Regula.Filesystem.construct slotGit
     (Regula.Filesystem.Construction.layout (localItems ++ commonItems ++ generated))
 
+/-- The manifest of the workspace whose manifest and package overrides file are `files`, from one
+read of the two by Lake's own readers (`Regula.Checker.Workspace.readRoot`), or `none` when there is
+no manifest. The workspace is refused when that read's overrides file records an entry: Lake applies
+those entries after the manifest's (`Regula.Checker.LakeSelection.rootEntries`), and the slot
+relocates and checks the manifest's entries only. A workspace without a manifest is not refused
+here: Lake reads its overrides file only with a manifest. A caller that checks the manifest's
+entries checks the returned manifest, so the overrides it was read with are the ones refused. -/
+def manifestWithoutOverrides (files : FilePath × FilePath) : IO (Option _root_.Lake.Manifest) := do
+  let some (manifest, overrides) ← Regula.Checker.Workspace.readRoot files | return none
+  unless overrides.isEmpty do
+    throw <| IO.userError s!"slot workspace has package overrides: {files.2} records \
+      {overrides.map (·.name)}, which Lake applies after the manifest's entries that the slot \
+      relocates"
+  return some manifest
+
 /-- Executed containment checks over the prepared ROOT copy: Git identity
-resolution must land inside the slot, and every manifest `dir` must resolve
-inside the slot or exactly to one of the captured shared dependency roots
-(`shared`, canonical paths). Refusal on any other target. -/
+resolution must land inside the slot, and every manifest entry, from the one read of the
+manifest and the package overrides file that `manifestWithoutOverrides` makes, must be a path
+entry whose `dir` resolves inside the slot or exactly to one of the captured shared dependency roots
+(`shared`, canonical paths). A Git entry, which Lake would clone inside the slot, and a package
+overrides file that records an entry in that read refuse, and so does any other target. Each Git
+path is read on its own as Git prints it, absolute, and decoded exactly
+(`Regula.Filesystem.Construction.gitPath`): a path that holds a newline or a carriage return is
+refused, never split or changed.
+
+Assumes: Git 2.54.0 `--path-format=absolute` prints `--git-dir`, `--git-common-dir` and
+`--show-toplevel` each as one absolute path with `puts` (`builtin/rev-parse.c:668-669`, `:695-699`,
+`:819-823`, `:985-992`, `:1026-1063`). -/
 def checkContainment (slot : ProducerSlot) (copy : FilePath)
     (shared : Array FilePath) : IO Unit := do
   unless (← contained slot.root copy) do
     throw <| IO.userError s!"slot package copy escapes slot: {copy}"
-  if (← (copy / ".git").pathExists) then
-    let git ← run copy "git" #["rev-parse", "--git-dir", "--git-common-dir", "--show-toplevel"]
-    unless git.exitCode == 0 do
-      throw <| IO.userError s!"slot git identity unavailable: {copy}\n{git.stdout}{git.stderr}"
-    for line in git.stdout.splitOn "\n" do
-      let entry := line.replace "\r" ""
-      if entry.isEmpty then continue
-      let resolved := if FilePath.isAbsolute (FilePath.mk entry) then FilePath.mk entry
-        else copy / entry
+  if (← Regula.Filesystem.isPresent (copy / ".git")) then
+    for option in #["--git-dir", "--git-common-dir", "--show-toplevel"] do
+      let resolved ← Regula.Filesystem.Construction.gitPath copy
+        #["rev-parse", "--path-format=absolute", option]
       unless (← contained slot.root resolved) do
-        throw <| IO.userError s!"slot git resolution escapes slot: {entry}"
-  if (← (copy / "lake-manifest.json").pathExists) then
-    let manifest ← readJson (copy / "lake-manifest.json")
-    let packages ← IO.ofExcept (manifest.getObjValAs? (Array Json) "packages")
-    for entry in packages do
-      match entry.getObjVal? "dir" with
-      | .error _ => pure ()
-      | .ok dir =>
-        let relative ← IO.ofExcept dir.getStr?
-        let resolved := if FilePath.isAbsolute (FilePath.mk relative) then FilePath.mk relative
-          else copy / relative
-        let sharedRoot ← try
-            pure (shared.contains (← IO.FS.realPath resolved))
-          catch _ => pure false
+        throw <| IO.userError s!"slot git resolution escapes slot: {resolved}"
+  let files := Regula.Checker.Workspace.rootFiles copy
+  if let some manifest ← manifestWithoutOverrides files then
+    for entry in manifest.packages do
+      match entry.src with
+      | .git .. =>
+        throw <| IO.userError s!"slot manifest entry is a Git entry, which Lake would clone \
+          inside the slot: {entry.name}"
+      | .path dir =>
+        let resolved := if dir.isAbsolute then dir else copy / dir
+        let sharedRoot := match ← Regula.Filesystem.realPathIfPresent resolved with
+          | some real => shared.contains real
+          | none => false
         unless sharedRoot || (← contained slot.root resolved) do
-          throw <| IO.userError s!"slot manifest dir escapes slot: {relative}"
+          throw <| IO.userError s!"slot manifest dir escapes slot: {dir}"
 
 /-- Exact comparison of one prepared file against supplied input bytes. -/
 def compareBytes (target : FilePath) (expected : ByteArray) : IO Unit := do
@@ -184,8 +203,8 @@ def compareBytes (target : FilePath) (expected : ByteArray) : IO Unit := do
 
 /-- One content-level entry under a shared dependency root: root-relative path,
 `lstat` kind and, for regular files, the exact byte length and the pinned native
-`ByteArray.hash` of the complete contents. Symlinks are never followed; their
-resolution (or its failure) is recorded instead. The digest is a 64-bit
+`ByteArray.hash` of the complete contents. Symlinks are never followed; the resolved path of
+each is recorded, and a link that cannot be resolved fails the walk. The digest is a 64-bit
 non-cryptographic hash: it detects accidental persisting content changes, not adversarial
 collisions. -/
 structure SharedEntry where
@@ -197,7 +216,8 @@ structure SharedEntry where
   bytes : Nat
   /-- `ByteArray.hash` of a regular file's contents; 0 for any other kind. -/
   digest : UInt64
-  /-- A symlink's resolved path, or `<unresolvable>`; empty for any other kind. -/
+  /-- A symlink's resolved path; empty for any other kind. A link that cannot be resolved fails
+  the walk. -/
   target : String
   deriving BEq, Inhabited
 
@@ -229,8 +249,9 @@ private def sharedWalk (enumerator : Regula.Filesystem.Construction.Enumerator)
         acc ← sharedWalk enumerator root path acc depth
       | .file => acc := acc.push ⟨relative, "file", 0, 0, ""⟩
       | .symlink =>
-        let target ← try pure (← IO.FS.realPath path).toString
-          catch _ => pure "<unresolvable>"
+        -- A link whose target cannot be resolved fails the walk, so no placeholder stands for
+        -- two different targets in the identity.
+        let target := (← IO.FS.realPath path).toString
         acc := acc.push ⟨relative, "symlink", 0, 0, target⟩
       | .other => acc := acc.push ⟨relative, "other", 0, 0, ""⟩
     return acc
@@ -275,10 +296,41 @@ def SharedIdentity.difference (before after : SharedIdentity) : String := Id.run
       if x != y then return s!"{b.1}/{x.relative} vs {y.relative}"
   return "no difference"
 
+/-- The files that the root package of the checkout at `root` declares as build inputs, from Lake's
+load of that package alone (`Workspace.withRootPackage`): the path of each of its `input_file`
+targets, then each file below the path of each of its `input_dir` targets that the target's
+filter admits. A library of a ROOT copy that needs such a target reads those files in each build
+there, so the copy holds them beside the module sources (`RuleExamples.check`), and a campaign
+records them among its sources (`RuleExamples.sourcePaths`). Each directory is walked as
+`System.FilePath.walkDir` walks it (`Construction.walkDirectory`), and each entry is observed
+strictly (`Regula.Filesystem.isDirectory`): a failure of that read other than a missing file
+throws, where Lake's filter reads it as no directory.
+
+Assumes:
+- Lake v4.34.1 gives an `input_file` target the file `pkg.dir / path`
+  (`Lake/Config/InputFile.lean:21-22`), and an `input_dir` target each file that
+  `System.FilePath.walkDir` finds below `pkg.dir / path`, other than a directory, whose path, as
+  that walk gives it, its filter admits (`Lake/Config/InputFile.lean:35-36`, `:43-44`,
+  `Lake/Build/InputFile.lean:42-44`, `Lake/Build/Common.lean:812-823`).
+- `Package.configTargets` gives each target of the package of the kind it names
+  (`Lake/Config/ConfigTarget.lean:36-42`), and the root package's directory is the directory that
+  its load configuration names, the real path of `root` (`loadConfig`). -/
+def rootInputs (root : FilePath) : IO (Array FilePath) :=
+  Regula.Checker.Workspace.withRootPackage root fun ws => do
+    let mut found :=
+      (ws.root.configTargets _root_.Lake.InputFile.configKind).map _root_.Lake.InputFile.path
+    for dir in ws.root.configTargets _root_.Lake.InputDir.configKind do
+      for path in ← Regula.Filesystem.Construction.walkDirectory (_root_.Lake.InputDir.path dir) do
+        if _root_.Lake.InputDir.filter dir path && !(← Regula.Filesystem.isDirectory path) then
+          found := found.push path
+    return found
+
 /-- Prepare one complete slot: the writable ROOT package copy. The ROOT copy's
 `lake-manifest.json` is truthfully relocated so that every package entry names
 its captured shared dependency root (a manifest package without a captured
-dependency refuses), recorded as `relocated`; source captures are compared
+dependency refuses), recorded as `relocated`; an original ROOT whose package overrides file
+records an entry refuses (`manifestWithoutOverrides`), since Lake would apply it after the
+relocated entries; source captures are compared
 byte-exactly with frozen inputs, without comparing destination bytes; Git identity is preserved through self-contained materialization
 while top-level path equivalence with the original ROOT is explicitly not
 claimed. Dependencies are recorded as `shared`; their no-writer requirement is
@@ -309,6 +361,9 @@ def prepareSlot (originalRoot : FilePath) (slot : ProducerSlot)
   -- Relocate every captured dependency as a typed path entry, so ordinary loads of the slot
   -- never materialize a Git clone at a packages directory inside the slot.
   let relocatedManifest ← Regula.Checker.Workspace.withRootWorkspace originalRoot fun ws => do
+    -- The relocation rewrites the manifest's entries only, so an original root whose package
+    -- overrides file records an entry, which Lake applies after them, is refused.
+    discard <| manifestWithoutOverrides (ws.manifestFile, ws.packageOverridesFile)
     let relative := ws.manifestFile.normalize.components.drop originalRoot.normalize.components.length
     let manifestPath := Regula.Filesystem.Construction.location copy relative
     let manifest ← _root_.Lake.Manifest.load manifestPath
@@ -320,7 +375,7 @@ def prepareSlot (originalRoot : FilePath) (slot : ProducerSlot)
     _root_.Lake.Manifest.save {manifest with packages := relocated} manifestPath
     return "/".intercalate relative
   provenance := provenance.push ⟨s!"root/{relocatedManifest}", "config", "relocated"⟩
-  if (← (originalRoot / ".lake/build").pathExists) then
+  if (← Regula.Filesystem.isPresent (originalRoot / ".lake/build")) then
     let _ ← copyTree (originalRoot / ".lake/build") (copy / ".lake/build")
     -- Slot producers run the copied axiomGate/ruleExamples dispatchers by path, and Lake can
     -- invoke any declared executable. Grant 0755 precisely to the root's Lake-declared binaries.
@@ -334,7 +389,7 @@ def prepareSlot (originalRoot : FilePath) (slot : ProducerSlot)
         | none => pure ()
         | _ => throw <| IO.userError s!"slot executable is not regular: {path}"
     provenance := provenance.push ⟨"root/.lake/build", "build", "copy"⟩
-  if (← (originalRoot / ".git").pathExists) then
+  if (← Regula.Filesystem.isPresent (originalRoot / ".git")) then
     materializeGit (copy / ".git") (originalRoot / ".git")
     provenance := provenance.push ⟨"root/.git", "git", "copy"⟩
   for dep in deps do
@@ -381,7 +436,7 @@ def prepareSlotProject (slot : ProducerSlot) (project : FilePath)
       false⟩, ⟨`relaxedAutoImplicit, false⟩, ⟨`linter.missingDocs, true⟩]\n  \
       plugins := #[`@regula/RegulaObserver:shared]\nrequire regula from \
       {toJson (slot.root / "root").toString |>.compress}\n\
-      @[default_target] lean_lib Example where\n{Regula.Checker.observerNeedLean}"
+      @[default_target] {Regula.Checker.observedTargetLean .library "Example"}"
   Regula.Filesystem.writeJson (project / "foundation_manifest.json") (Json.mkObj [
     ("schema-version", toJson (2 : Nat)), ("surfaces", toJson #[Json.mkObj [
       ("library", .str "Example"), ("claim", .str claim), ("execution", .str "checked"),

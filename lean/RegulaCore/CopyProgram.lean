@@ -7,11 +7,25 @@ regular files through no-follow metadata, then creates the selected entries. The
 of a finished copy, no link creator, and no recursive system copy. This module imports only the
 toolchain so the cold verification and provisioning drivers can execute its source before the
 package has artifacts. `RegulaCore.CopyConstruction` states its filesystem-model contract.
+
+It reads whether a directory is present with its own copy of `Regula.Filesystem.isDirectory`
+(`Construction.isDirectory`), since it cannot import `RegulaCore.Presence`.
 -/
 
 namespace Regula.Filesystem.Construction
 
 open System
+
+/-- Whether a directory is at `path`, following symbolic links: `true` for a directory, `false` for
+another kind of file or when the read fails with `noFileOrDirectory`, and the read's error for each
+other error. Lean's `System.FilePath.isDir` returns `false` for every error of `metadata`. This
+program cannot import `RegulaCore.Presence`; `Regula.Filesystem.Construction.isDirectory_eq`
+proves this equal to `Regula.Filesystem.isDirectory`. -/
+def isDirectory (path : FilePath) : IO Bool := do
+  match ← path.metadata.toBaseIO with
+  | .ok metadata => return metadata.type == .dir
+  | .error (.noFileOrDirectory ..) => return false
+  | .error error => throw error
 
 /-- The only entries that construction can create. Copied files use 0644; explicitly generated executable files name their required rights. -/
 inductive Payload where
@@ -618,7 +632,8 @@ discovery supplies the audit census and cold-copy requirements. It must precede 
 The walk admits each directory through no-follow metadata before descent, so a directory link
 cannot redirect or cycle discovery. `requiredFiles` admits the selected leaves. -/
 def markdownPaths (root : FilePath) : IO (Array FilePath) := do
-  unless ← root.isDir do throw <| IO.userError s!"documentation root is not a directory: {root}"
+  unless ← isDirectory root do
+    throw <| IO.userError s!"documentation root is not a directory: {root}"
   let enter (path : FilePath) : IO Bool := do
     unless (← observeMetadata path).type == .dir do
       throw <| IO.userError s!"copy refused {path}: selected ancestor is not a directory"
@@ -849,32 +864,57 @@ def gitBinaryOutput (root : FilePath) (args : Array String) : IO (UInt32 × Byte
   let bytes ← IO.ofExcept stdout.get
   return (exitCode, bytes, stderr)
 
-/-- Decode a single absolute path printed by Git without trimming its stored spelling. Path
-names containing newline or carriage return are outside this line-oriented metadata protocol. -/
+/-- The one line that `text` prints, as it is spelled: `text` less its final newline, and nothing
+else removed. `none` unless that line is not empty and has no newline, carriage return or NUL
+(`printedLine?_eq_some_iff`). A value that holds a newline or a carriage return is outside this
+line-oriented protocol. The conditions are read on the line's characters in reverse order, which
+has the same characters. -/
+def printedLine? (text : String) : Option String :=
+  match text.toList.reverse with
+  | '\n' :: reversed =>
+    if reversed ≠ [] ∧ ∀ c ∈ reversed, c ≠ '\n' ∧ c ≠ '\r' ∧ c ≠ '\x00' then
+      some (String.ofList reversed.reverse)
+    else none
+  | _ => none
+
+/-- The one absolute path that `text` prints as a line of its own, as it is spelled: the line
+`printedLine?` reads, when it is an absolute path (`printedPath?_eq_some_iff`). -/
+def printedPath? (text : String) : Option FilePath :=
+  match printedLine? text with
+  | some line => if (FilePath.mk line).isAbsolute then some ⟨line⟩ else none
+  | none => none
+
+/-- The single absolute path that Git prints, decoded exactly (`printedPath?`), without trimming
+its stored spelling. A failure of the command, or output that is not one such path, is thrown. -/
 def gitPath (root : FilePath) (args : Array String) : IO FilePath := do
   let out ← gitOutput root args
-  unless out.exitCode == 0 && out.stdout.endsWith "\n" do
+  unless out.exitCode == 0 do
     throw <| IO.userError s!"Git metadata path unavailable: {out.stderr}"
-  let text := (out.stdout.dropEnd 1).toString
-  unless !text.isEmpty && text.toList.all (fun c => c != '\n' && c != '\r' && c != '\x00') &&
-      (FilePath.mk text).isAbsolute do
-    throw <| IO.userError "Git metadata path is not one absolute path"
-  return FilePath.mk text
+  let some path := printedPath? out.stdout
+    | throw <| IO.userError "Git metadata path is not one absolute path"
+  return path
 
 /-- The closed configuration case has no extension, include or worktree-redirection setting.
 Git decodes the captured file; Regula does not reproduce Git's precedence or include rules.
 Even a disabled extension setting refuses, so the domain does not depend on its value grammar.
+Git also exits 1 when it cannot open the file, so the file must first be a regular file that this
+process reads whole, and exit 1 is admitted only with no output.
 
 Assumes: Git 2.54.0 `builtin/config.c:74-104,487-591,1264-1266` and `config.c:1492-1523`
 implement --file, --no-includes, --name-only and --get-regexp through Git's configuration decoder;
-absent matches exit 1. Configuration and all
-captured metadata have no concurrent writer. -/
+absent matches exit 1. `builtin/config.c:583-585,609` ignores the result of the read and exits 1
+when nothing matched. `config.c:1607-1609,1382-1398` opens the file with `fopen_or_warn`, and
+`wrapper.c:401-420` returns no file for each failure, warning except for ENOENT and ENOTDIR.
+Configuration and all captured metadata have no concurrent writer. -/
 def admitGitConfig (root config : FilePath) : IO Unit := do
+  unless (← observeMetadata config).type == .file do
+    throw <| IO.userError s!"copy Git configuration is not a regular file: {config}"
+  discard <| IO.FS.readBinFile config
   let out ← gitOutput root #["config", "--file", config.toString, "--no-includes", "--name-only",
     "--get-regexp", "^(extensions\\.|include\\.|includeif\\.|core\\.worktree$)"]
   if out.exitCode == 0 then
     throw <| IO.userError s!"copy Git configuration is outside the closed case: {out.stdout.trimAscii}"
-  unless out.exitCode == 1 do
+  unless out.exitCode == 1 && out.stdout.isEmpty && out.stderr.isEmpty do
     throw <| IO.userError s!"copy Git configuration unavailable: {out.stderr}"
 
 /-- Refuse alternate object stores at the path Git itself resolves. The supported qualification
@@ -1152,7 +1192,8 @@ def sourceMain (args : List String) : IO UInt32 := do
     throw <| IO.userError s!"unknown construction domain: {domain}"
   let source := FilePath.mk source
   let base := source.components.length
-  let documents ← if ← (source / "docs").isDir then markdownPaths (source / "docs") else pure #[]
+  let documents ← if ← isDirectory (source / "docs") then markdownPaths (source / "docs")
+    else pure #[]
   let requested := required.map (FilePath.mk · |>.components) ++
     documents.toList.map (fun path => path.components.drop base)
   let stored ← requiredFiles source requested

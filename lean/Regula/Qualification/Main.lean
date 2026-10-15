@@ -75,7 +75,7 @@ private unsafe def runCommand (attempt : Option String) : Command → IO Unit
         | throw <| IO.userError s!"invalid self-audit shard: {spec}"
       Regula.Qualification.SelfAudit.check (some shard)
   | .selfAuditModule m source => Regula.Qualification.SelfAudit.worker m source
-  | .selfAuditJsonModule m => Regula.Qualification.SelfAudit.jsonWorker m
+  | .selfAuditRulesModule m => Regula.Qualification.SelfAudit.rulesWorker m
   | .environments path => Regula.Qualification.EnvironmentCensus.check ⟨path⟩ attempt
   | .acceptance group path => Regula.Qualification.Acceptance.check group.spelling ⟨path⟩ attempt
   | .acceptanceSnapshots group => Regula.Qualification.DependencySnapshot.check group.spelling
@@ -209,7 +209,9 @@ selection of the timeout, and again with the error's text when that selection or
 or when the start ends without running the command (`runBounded`, `markEvidence`). A command under
 the deadline that its arguments refuse before a campaign begins (`commandOf`) marks the evidence
 that its leading arguments name with the error's text, for the attempt that the wrapper gives or
-otherwise for one fresh attempt that the campaign then uses too. -/
+otherwise for one fresh attempt that the campaign then uses too. A campaign under the deadline that
+stops prints `qualify COMMAND: refused: ERROR` on standard error and exits with 1, instead of
+leaving the error to Lean's top-level handler. -/
 unsafe def qualifyMain (args : List String) : IO UInt32 := do
   match ← Invocation.of args with
   | .receiptTimer => Regula.Qualification.ReceiptBoundary.worker args
@@ -221,7 +223,15 @@ unsafe def qualifyMain (args : List String) : IO UInt32 := do
     if let some reason ← evidenceRefusal rest then throw <| IO.userError s!"refused: {reason}"
     let attempt ← attempt.getDM Regula.Qualification.freshAttempt
     match commandOf rest with
-    | .ok command => runCommand (some attempt) command; return 0
+    | .ok command =>
+      -- A campaign that stops is refused with its error, which names what it lacks (a reader of
+      -- `RegulaQualification.Member` names the document and the member), and exit code 1. An
+      -- evidence document it names keeps the incomplete mark written before the campaign ran
+      -- (`markEvidence` names the writers); `Producer.check` marks its export again with the error.
+      try runCommand (some attempt) command; return 0
+      catch error =>
+        IO.eprintln s!"qualify {" ".intercalate rest}: refused: {error}"
+        return 1
     | .error error =>
       discard <| (markEvidence rest attempt (some error)).toBaseIO
       throw <| IO.userError error
@@ -327,6 +337,7 @@ run_cmd Regula.Removal.checkProgram (elaborates := true) (named := [
   (`Regula.Qualification.RuleExamples.produce, ``IO.FS.writeBinFile),
   (`Regula.Qualification.RuleExamples.produce, ``IO.FS.writeFile),
   (``Regula.Qualification.RuleExamples.check, ``IO.FS.createDirAll),
+  (``Regula.Qualification.SelfAudit.absenceFixtureControls, ``IO.FS.createDirAll),
   (``Regula.Qualification.Slot.prepareSlot, ``IO.FS.writeFile),
   (``Regula.Qualification.SourceEvidence.closure, ``IO.FS.writeFile),
   (``Regula.Qualification.SourceEvidence.configuration, ``IO.FS.createDir),

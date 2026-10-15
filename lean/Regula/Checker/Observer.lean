@@ -4,6 +4,7 @@ import Lake.Build.Common
 import RegulaObserver.Record
 import RegulaPolicy.Community
 import RegulaPolicy.Elaboration
+import RegulaCore.Presence
 
 /-! # Regula's elaboration observer in a Lake build
 
@@ -97,7 +98,7 @@ private def observerFile : IO FilePath := do
     | throw <| IO.userError "the running executable is not in a package's build directory"
   let name := mkModuleInitializationStem observerLibrary (some regulaPackage)
   let file := dir / ".lake" / "build" / "lib" / _root_.Lake.nameToSharedLib name
-  unless ← file.pathExists do
+  unless ← Regula.Filesystem.isPresent file do
     throw <| IO.userError s!"the running Regula has not built its elaboration observer: {file}"
   return file
 
@@ -124,7 +125,7 @@ private def readSnapshot : IO (Except String Snapshot) := do
     let mut companions := #[]
     for suffix in [".trace", ".hash"] do
       let companion : FilePath := ⟨file.toString ++ suffix⟩
-      if ← companion.pathExists then
+      if ← Regula.Filesystem.isPresent companion then
         companions := companions.push (suffix, ← IO.FS.readBinFile companion)
     return .ok { fileName, library, companions }
   catch error => return .error error.toString
@@ -413,13 +414,12 @@ observer's bytes (`pluginLoaded`) and its target lists the observer's key in `ne
 (`observerKey`): the observer library's job trace is then in the module's trace through the
 target's `extraDep` job (`Lake/Build/Library.lean` lines 162 to 169, `Lake/Build/Module.lean`
 lines 600 to 603), so an `.olean` Lake replays was built under the library whose bytes
-`matchingPlugins` matched. A module without `loaded`, a missing file, or one without exactly one
-record gives no record. -/
+`matchingPlugins` matched. A module without `loaded`, a file where nothing is
+(`Regula.Filesystem.isPresent`), or a file read whole without exactly one record gives no record.
+A failure to observe the file or to read one that is there, such as a denied permission, is
+thrown, never read as no record. -/
 def decideRecord (subject : String) (loaded : Bool) (olean : FilePath) : IO Verdict := do
-  let record ← if loaded && (← olean.pathExists) then
-      match ← (readRecord olean).toBaseIO with
-      | .ok record => pure record
-      | .error _ => pure none
+  let record ← if loaded && (← Regula.Filesystem.isPresent olean) then readRecord olean
     else pure none
   return ⟨elaborationFailures subject loaded record, record.isSome,
     (record.map settings).getD []⟩

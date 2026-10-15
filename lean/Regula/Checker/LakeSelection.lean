@@ -17,7 +17,9 @@ in an `Assumes:` entry. The documentation check's pin comparison and input captu
 (`Documentation.sharedPinMismatch`, `Documentation.captureVersoPackage`), the dependency inventory
 (`Lake.surfaceInventoryOf`), which a copy of the project takes too (`Lake.copyProject`), and the
 copy's packages directory and the checkouts it prunes (`Lake.relocateDependencies`,
-`Lake.copyProject`) use it. -/
+`Lake.copyProject`) use it. The provisioning program, which runs before the package is built and so
+cannot import this module, restates the rules that it uses (`RegulaProvision.selectPins`), and
+`Regula.ProgramCheck.Provision` proves its choices those of `effectiveEntry` and `packagesDir`. -/
 
 namespace Regula.Checker.LakeSelection
 open Lean System
@@ -146,9 +148,7 @@ Assumes:
   `lake` command names no other manifest (`Lake/CLI/Main.lean:116-130`), nor does
   `Workspace.withRootWorkspace`. -/
 def ownRootFiles (dir : FilePath) : FilePath × FilePath :=
-  (_root_.Lake.joinRelative dir _root_.Lake.defaultManifestFile,
-    _root_.Lake.joinRelative (_root_.Lake.joinRelative dir _root_.Lake.defaultLakeDir)
-      "package-overrides.json")
+  Workspace.rootFiles dir
 
 /-- For a workspace whose root has the manifest that a load configuration naming no manifest gives
 it, `ownRootFiles` of the root's directory are the workspace's manifest and package overrides
@@ -157,8 +157,9 @@ theorem ownRootFiles_lake (ws : _root_.Lake.Workspace) (env : _root_.Lake.Env)
     (h : ws.root.relManifestFile =
       ({ lakeEnv := env, wsDir := ws.root.dir } : _root_.Lake.LoadConfig).relManifestFile) :
     ownRootFiles ws.root.dir = (ws.manifestFile, ws.packageOverridesFile) := by
-  simp only [ownRootFiles, _root_.Lake.Workspace.manifestFile, _root_.Lake.Package.manifestFile,
-    h, _root_.Lake.Workspace.packageOverridesFile, _root_.Lake.Workspace.lakeDir,
+  simp only [ownRootFiles, Workspace.rootFiles, _root_.Lake.Workspace.manifestFile,
+    _root_.Lake.Package.manifestFile, h, _root_.Lake.Workspace.packageOverridesFile,
+    _root_.Lake.Workspace.lakeDir,
     _root_.Lake.Package.lakeDir, _root_.Lake.Package.relLakeDir]
   rfl
 
@@ -166,8 +167,8 @@ theorem ownRootFiles_lake (ws : _root_.Lake.Workspace) (env : _root_.Lake.Env)
 its dependencies from, given its manifest and package overrides file `files` (`ownRootFiles`):
 those of the manifest, then those of the overrides file. A root without a manifest gives none:
 Lake would resolve its requirements anew, at revisions that no file records, and would read no
-overrides file. Each file is read by Lake's own reader, so an entry that Lake refuses is refused
-here too.
+overrides file. Each file is read by Lake's own reader (`Workspace.readRoot`), so an entry that Lake
+refuses is refused here too.
 
 Assumes:
 - Lake v4.34.1 materializes a workspace's dependencies from its manifest and its package overrides
@@ -175,8 +176,8 @@ Assumes:
   overrides file (`Lake/Load/Workspace.lean:61-69`, `Lake/Load/Resolve.lean:603`,
   `Lake/Load/Resolve.lean:472-519`). -/
 def rootEntries (files : FilePath × FilePath) : IO (Array _root_.Lake.PackageEntry) := do
-  let some manifest ← _root_.Lake.Manifest.load? files.1 | return #[]
-  return manifest.packages ++ (← _root_.Lake.Manifest.tryLoadEntries files.2)
+  let some (manifest, overrides) ← Workspace.readRoot files | return #[]
+  return manifest.packages ++ overrides
 
 /-- The packages directory, relative to a workspace's directory, that Lake materializes the
 workspace's Git entries into: `recorded`, the one its manifest records, or else `relPkgsDir`, the
@@ -327,9 +328,7 @@ def withRootSelection {α : Type} (dir : FilePath)
     (action : _root_.Lake.Workspace → RootSelection → IO α) (requireManifest := false) :
     IO α := do
   let files := ownRootFiles (← IO.FS.realPath dir)
-  let read ← match ← _root_.Lake.Manifest.load? files.1 with
-    | some manifest => pure (some (manifest, ← _root_.Lake.Manifest.tryLoadEntries files.2))
-    | none => pure none
+  let read ← Workspace.readRoot files
   if requireManifest && read.isNone then
     throw <| IO.userError s!"lake-workspace-load-failed: {dir} has no {files.1}; Lake would \
       resolve its requirements anew, at revisions that no file records"

@@ -39,11 +39,20 @@ def lakefile (regula : FilePath) : String := "\n".intercalate [
   Regula.Checker.observerPluginLean ++
     s!"require regula from {(Json.str regula.toString).compress}",
   "",
+  "/-- Whether a file is at `path`: `false` only for Lean's `noFileOrDirectory`, every other",
+  "failure of the read thrown, as `Regula.Filesystem.isPresent` reads it; this configuration",
+  "cannot import Regula. -/",
+  "def pathPresent (path : System.FilePath) : IO Bool := do",
+  "  match ← path.metadata.toBaseIO with",
+  "  | .ok _ => return true",
+  "  | .error (.noFileOrDirectory ..) => return false",
+  "  | .error error => throw error",
+  "",
   "/-- The input-inventory campaign's fault, injected when a build of the library begins. -/",
   "library_facet inventoryFault (lib : LeanLib) : Unit := do",
   "  let record : System.FilePath := (← IO.getEnv \"INVENTORY_RECORD\").getD \"\"",
   "  let fault := (← IO.getEnv \"INVENTORY_FAULT\").getD \"\"",
-  "  let active := !fault.isEmpty && !record.toString.isEmpty && !(← record.pathExists)",
+  "  let active := !fault.isEmpty && !record.toString.isEmpty && !(← pathPresent record)",
   "  if active then",
   "    let some changed ← IO.getEnv \"INVENTORY_TARGET\" | error \"missing INVENTORY_TARGET\"",
   "    match ← IO.getEnv \"INVENTORY_SOURCE\" with",
@@ -53,15 +62,13 @@ def lakefile (regula : FilePath) : String := "\n".intercalate [
   "  let job ← lib.leanArts.fetch",
   "  if !active then return job",
   "  job.mapM fun _ => do",
-  "    let added ← (lib.pkg.leanLibDir / \"Example\" / \"New.olean\").pathExists",
+  "    let added ← pathPresent (lib.pkg.leanLibDir / \"Example\" / \"New.olean\")",
   "    IO.FS.writeFile record (Lean.Json.mkObj [(\"fault\", Lean.toJson fault),",
   "      (\"buildSucceeded\", Lean.toJson true), (\"addedBuilt\", Lean.toJson added)]).compress",
   "",
-  "lean_lib Example where",
-  "  globs := #[.andSubmodules `Example]",
-  "  needs := #[`@regula/RegulaObserver:shared]",
-  "  defaultFacets := #[LeanLib.facetKind ++ `inventoryFault]",
-  ""]
+  Regula.Checker.observedTargetLean .library "Example"
+    ("  globs := #[.andSubmodules `Example]\n" ++
+      "  defaultFacets := #[LeanLib.facetKind ++ `inventoryFault]\n")]
 
 /-- The record the facet of `lakefile` writes for a fault that it injected and after which the
 library's Lean artifacts built: the fault's name, `buildSucceeded`, and whether `Example.New` was
@@ -106,7 +113,8 @@ def check : IO Unit := do
         -- module replayed from the previous phase's build is not established (RG2003).
         clearBuild project
         requireChecks [⟨"added module starts absent",
-          !(← (project / ".lake/build/lib/lean/Example/New.olean").pathExists)⟩]
+          !(← Regula.Filesystem.isPresent
+            (project / ".lake/build/lib/lean/Example/New.olean"))⟩]
         removeFile record
         let output := scratch / s!"{mode}-{phase}.json"
         let result ← run project (root / ".lake/build/bin/axiomGate").toString
@@ -120,7 +128,7 @@ def check : IO Unit := do
           let observation ← readJson record
           requireChecks [⟨s!"added root actually built: {observation.compress}",
               Regula.JsonAgreement.conforms observation (injected phase true)⟩,
-            ⟨"added root present", ← added.pathExists⟩,
+            ⟨"added root present", ← Regula.Filesystem.isPresent added⟩,
             ⟨s!"root inventory refusal: {log}\n{packet.compress}", result.exitCode != 0 &&
                 log.contains "root inventory changed:" &&
               !log.contains "accepted " &&
@@ -129,7 +137,7 @@ def check : IO Unit := do
         else
           success result
           requireChecks [⟨"root positive", accepted packet⟩,
-            ⟨"no fault injected", !(← record.pathExists)⟩]
+            ⟨"no fault injected", !(← Regula.Filesystem.isPresent record)⟩]
         IO.println s!"root inventory {mode}/{phase}: PASS"
     removeFile added
     let docs := project / "docs"
@@ -161,7 +169,8 @@ def check : IO Unit := do
           let observation ← readJson record
           let reason := if phase == "docs-remove" then "documentation inventory changed" else
                                                         "documentation source changed"
-          let present ← if phase == "docs-remove" then pure !(← target.pathExists)
+          let present ← if phase == "docs-remove" then
+              pure !(← Regula.Filesystem.isPresent target)
             else pure ((← IO.FS.readFile target) == passing)
           requireChecks
               [⟨s!"fault injected and prerequisite build succeeded: {observation.compress}",
@@ -169,12 +178,12 @@ def check : IO Unit := do
                 ⟨"injected documentation change present", present⟩,
             ⟨s!"Markdown inventory refused: {log}", result.exitCode != 0 && log.contains reason &&
               !log.contains "accepted "⟩]
-          if ← output.pathExists then
+          if ← Regula.Filesystem.isPresent output then
             requireChecks
                 [⟨"no documentation acceptance",
                     ((← readJson output).getObjVal? "acceptance").toOption.isNone⟩]
         else
           success result
-          requireChecks [⟨"no fault injected", !(← record.pathExists)⟩]
+          requireChecks [⟨"no fault injected", !(← Regula.Filesystem.isPresent record)⟩]
         IO.println s!"Markdown inventory {route}/{phase}: PASS"
 end Regula.Qualification.InputInventory

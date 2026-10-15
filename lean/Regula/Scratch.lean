@@ -61,9 +61,10 @@ private def suffix : IO String := do
   let random := bytes.foldl (fun value byte => value * 256 + byte.toNat) 0
   return s!"{← IO.Process.getPID}-{← IO.monoNanosNow}-{random}"
 
-/-- Kind of the path itself, without following a final symbolic link. -/
-private def kind? (path : FilePath) : IO (Option IO.FS.FileType) := do
-  try return some (← path.symlinkMetadata).type catch _ => return none
+/-- Kind of the path itself, without following a final symbolic link: `none` when nothing is
+there, and the read's error for every other error (`Regula.Filesystem.entryIfPresent`). -/
+private def kind? (path : FilePath) : IO (Option IO.FS.FileType) :=
+  Regula.Filesystem.entryIfPresent path
 
 /-- Remove every marked directory directly under `dir`, the real path of Regula's scratch
 directory (`Regula.Filesystem.ownRoot`), then its marker, never following a link
@@ -111,7 +112,7 @@ def withScratch {α : Type} (root : FilePath) (stem : String) (action : FilePath
   try
     let path := dir / s!"{stem}-{← suffix}"
     let marker := path.addExtension markerExtension
-    if ← path.pathExists then
+    if ← Regula.Filesystem.isPresent path then
       throw <| IO.userError s!"refusing to reuse scratch path {path}"
     discard <| IO.FS.Handle.mk marker .writeNew
     IO.FS.createDir path

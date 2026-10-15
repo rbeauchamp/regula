@@ -38,6 +38,10 @@ private structure Observation where
   exitCode : Nat
   /-- The result document the reader rebuilt. -/
   report : Json
+  /-- The path of the result file. -/
+  output : FilePath
+  /-- What `axiomGate` printed. -/
+  transcript : String
 
 /-- The rules whose documented examples the chains audit, one chain for each invocation. -/
 private def rules : Array String := #["RG5001", "RG5002"]
@@ -80,8 +84,18 @@ private def chain (root : FilePath) (fresh : String → IO FilePath)
     requireChecks
         [⟨"fixture bytes unchanged", (← IO.FS.readBinFile (project / "Example.lean")) == bytes⟩]
     observations := observations.push
-      ⟨rule, kind, invocation, mode, relative, source, result.exitCode.toNat, report⟩
+      ⟨rule, kind, invocation, mode, relative, source, result.exitCode.toNat, report, output,
+        result.stdout ++ result.stderr⟩
   return observations
+
+/-- `decoded`, read from the result at `output` of an audit that printed `transcript`, or its
+refusal: the result's path, the reason (`readMember`) and the last lines of the transcript, which
+say why an audit that stopped early wrote no account. -/
+private def fromResult {α : Type} (output : FilePath) (transcript : String)
+    (decoded : Except String α) : IO α :=
+  readMember output (decoded.mapError fun reason =>
+    s!"{reason}\nthe audit's last lines:\n" ++
+      "\n".intercalate (Regula.Checker.takeLast 40 (transcript.splitOn "\n").toArray).toList)
 
 /-- The executable root of the standalone controls, before the axiom of phase `axiom`. -/
 private def mainSource : String :=
@@ -97,11 +111,14 @@ private def standalone (root : FilePath) (fresh : String → IO FilePath) (phase
   let project ← fresh s!"standalone-{phase}"
   Regula.Filesystem.copyFile (root / standaloneExample) (project / "Example.lean")
   let config := project / "lakefile.lean"
-  IO.FS.writeFile config
-      ((← IO.FS.readFile config) ++ "\nlean_exe sampleTool where\n  root := `SelftestMain\n")
+  -- The executable lists Regula's elaboration observer in `needs` (`observedTargetLean`), as
+  -- `prepareProject`'s library does: the package loads it as a plugin, and an audit refuses a
+  -- claimed module that it did not observe (RG2003, naming the missing `needs` as RG2006).
+  IO.FS.writeFile config ((← IO.FS.readFile config) ++
+    "\n" ++ Regula.Checker.observedTargetLean .executable "sampleTool" "  root := `SelftestMain\n")
   let manifestPath := project / "foundation_manifest.json"
   let manifest ← readJson manifestPath
-  let surfaces ← IO.ofExcept (manifest.getObjValAs? (Array Json) "surfaces")
+  let surfaces ← readMember manifestPath (RegulaQualification.Member.array manifest "surfaces")
   let some surface := surfaces[0]? | throw <| IO.userError "missing scratch manifest surface"
   writeJson manifestPath (manifest.setObjVal! "surfaces"
     (toJson #[surface.setObjVal! "executables" (toJson #["sampleTool"])]))
@@ -109,8 +126,9 @@ private def standalone (root : FilePath) (fresh : String → IO FilePath) (phase
     (if phase == "axiom" then
         "/-- An owned axiom, which RG1001 rejects. -/\naxiom ownedAssumption : True\n" else "")
   IO.FS.writeFile (project / "SelftestMain.lean") source
-  let (result, report) ← observeProject root project (project / s!"standalone-{phase}.json") #[]
-  IO.ofExcept (RegulaQualification.checked_decoded.run
+  let output := project / s!"standalone-{phase}.json"
+  let (result, report) ← observeProject root project output #[]
+  fromResult output (result.stdout ++ result.stderr) (RegulaQualification.checked_decoded.run
     (RegulaQualification.Producer.standaloneRequirements report result.exitCode.toNat
         (phase == "axiom")))
   IO.println s!"standalone executable {phase}: PASS"
@@ -160,14 +178,16 @@ private def checkControls (evidence : Option FilePath) (jobs : Nat) : IO Unit :=
     let mut theoremType : Option Json := none
     for observation in observed.flatten do
       let report := observation.report
-      let account ← IO.ofExcept (RegulaQualification.Producer.account report)
-      let declarations ← IO.ofExcept (account.getObjValAs? (Array Json) "declarations")
-      let some declaration := declarations[0]? | throw <|
-                                                  IO.userError "missing theorem declaration"
-      let observedType ← IO.ofExcept (declaration.getObjVal? "type")
+      let fromReport {α : Type} := fromResult (α := α) observation.output observation.transcript
+      let account ← fromReport (RegulaQualification.Producer.account report)
+      let declarations ← fromReport (RegulaQualification.Member.array account "declarations")
+      let declaration ← fromReport do
+        let some declaration := declarations[0]? | throw "missing theorem declaration"
+        pure declaration
+      let observedType ← fromReport (RegulaQualification.Member.value declaration "type")
       let expectedType := theoremType.getD observedType
       theoremType := some expectedType
-      IO.ofExcept
+      fromReport
           (RegulaQualification.Producer.checked_validation.run report observation.exitCode
         observation.rule observation.mode observation.source (observation.kind == "Fixed")
         expectedType)

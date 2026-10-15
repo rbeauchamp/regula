@@ -71,7 +71,7 @@ private def refusedCopy (project copies : FilePath) (name : String) :
       discard <| Lake.copyProject project (exclude / "tree") exclude
       pure (none : Option String)
     catch error => pure (some error.toString)
-  return (refusal, ← (exclude / "tree").pathExists)
+  return (refusal, ← Regula.Filesystem.isPresent (exclude / "tree"))
 
 /-- Throws, labelled with `what` and the process's combined output, unless it exited with code 0. -/
 private def succeeded (what : String) (result : IO.Process.Output) : IO Unit :=
@@ -135,10 +135,11 @@ def loadWorker (project copies : String) : IO Unit := do
   let overrides := overrides.map fun entry => (entry.name.toString, match entry.src with
     | .path dir => dir.toString
     | .git url .. => url)
-  let sources ← ownedSources.filterM fun (path : String) => (copy / path).pathExists
+  let sources ← ownedSources.filterM fun (path : String) =>
+    Regula.Filesystem.isPresent (copy / path)
   IO.println (Json.mkObj [("dependencies", toJson dependencies), ("overrides", toJson overrides),
-    ("checkout", toJson (← (copy / "vendor" / "gdep").pathExists)),
-    ("pathDependency", toJson (← (copy / "vendor" / "pdep").pathExists)),
+    ("checkout", toJson (← Regula.Filesystem.isPresent (copy / "vendor" / "gdep"))),
+    ("pathDependency", toJson (← Regula.Filesystem.isPresent (copy / "vendor" / "pdep"))),
     ("sources", toJson sources)]).compress
 
 /-- Check the answer `output` that the worker (`loadWorker`) printed for the Git project at
@@ -152,11 +153,14 @@ def checkAnswer (project : FilePath) (output : String) : IO Unit := do
   let some line := (output.splitOn "\n").filter (!·.isEmpty) |>.getLast?
     | throw <| IO.userError s!"the worker's load of {project} printed nothing"
   let answer ← IO.ofExcept (Json.parse line)
-  let dependencies ← IO.ofExcept (answer.getObjValAs? (Array (String × String)) "dependencies")
-  let overrides ← IO.ofExcept (answer.getObjValAs? (Array (String × String)) "overrides")
-  let checkout ← IO.ofExcept (answer.getObjValAs? Bool "checkout")
-  let pathCopied ← IO.ofExcept (answer.getObjValAs? Bool "pathDependency")
-  let sources ← IO.ofExcept (answer.getObjValAs? (Array String) "sources")
+  let source := s!"the worker's answer for {project}"
+  let dependencies ← readMember source
+    (RegulaQualification.Member.get (Array (String × String)) answer "dependencies")
+  let overrides ← readMember source
+    (RegulaQualification.Member.get (Array (String × String)) answer "overrides")
+  let checkout ← readMember source (RegulaQualification.Member.bool answer "checkout")
+  let pathCopied ← readMember source (RegulaQualification.Member.bool answer "pathDependency")
+  let sources ← readMember source (RegulaQualification.Member.get (Array String) answer "sources")
   let expected := #[("gdep", (← IO.FS.realPath (project / "vendor" / "gdep" / subDir)).toString),
     ("pdep", (← IO.FS.realPath (project / pathDependency)).toString)]
   let sorted := fun (pairs : Array (String × String)) => pairs.qsort (·.1 < ·.1)
@@ -173,10 +177,11 @@ def checkAnswer (project : FilePath) (output : String) : IO Unit := do
 `scratch`, with the changes `env` applied last. The worker runs under the Git isolation of a
 process tree (`Construction.isolationEnvironment`), which removes Git's repository variables, so
 it is isolated when it starts and does not start again (`Regula.TaskManager.guard`), and Git
-searches for no repository above `scratch` (`GIT_CEILING_DIRECTORIES`). That ceiling does not
-bound a `GIT_DIR`. The control (`check`) gives one to the child `qualify` that runs `gitSteps`,
-which starts again under the guard's isolation (`Regula.TaskManager.guard`,
-`Regula.GitIsolation.restart`) and so runs `gitSteps` without it. -/
+searches for no repository above `scratch` (`GIT_CEILING_DIRECTORIES`). The ceiling is the real
+path of `scratch`, so the reads of `Regula.Checker.gitWorkTree` keep it too
+(`ceilingDirectories`). It does not bound a `GIT_DIR`. The control (`check`) gives one to the
+child `qualify` that runs `gitSteps`, which starts again under the guard's isolation
+(`Regula.TaskManager.guard`, `Regula.GitIsolation.restart`) and so runs `gitSteps` without it. -/
 def workerEnvironment (scratch : FilePath) (env : Array (String × Option String)) :
     IO (Array (String × Option String)) := do
   let ceiling ← IO.FS.realPath scratch
@@ -237,7 +242,7 @@ def gitSteps (scratch : String) : IO Unit := do
   Regula.Filesystem.Construction.copyFile (fixture / "git-project" / "vendor" / "pdep" / "lakefile.toml")
     (folded / "vendor" / "PDEP" / "lakefile.toml")
   writeManifest folded repository rev
-  if ← (folded / "vendor" / "pdep" / "lakefile.toml").pathExists then
+  if ← Regula.Filesystem.isPresent (folded / "vendor" / "pdep" / "lakefile.toml") then
     loadInWorker root scratch folded (scratch / "copies-folded") #[]
     IO.println "copy relocation path dependency stored in another case: PASS"
   else
@@ -302,7 +307,7 @@ def check : IO Unit := do
     let copies := scratch / "copies"
     let overridesFile := (LakeSelection.ownRootFiles project).2
     requireChecks [⟨s!"{overridesFile} does not exist before the control writes it",
-      !(← overridesFile.pathExists)⟩]
+      !(← Regula.Filesystem.isPresent overridesFile)⟩]
     if let some parent := overridesFile.parent then IO.FS.createDirAll parent
     _root_.Lake.Manifest.saveEntries overridesFile #[firstEntry]
     let overriddenCopy := do

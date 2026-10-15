@@ -89,7 +89,7 @@ def Input.covers : Input → List String → Bool
 
 /-- The paths the campaigns depend on, and the only statement of them: the checker, the rules and
 their examples, the adopter fixtures in `examples/lake-lint-toml` and `examples/build-lint`, the
-Lake configuration fixtures in `examples/fixtures`, the application and fixture sources the
+fixtures of the controls in `examples/fixtures`, the application and fixture sources the
 structural and execution controls mutate, Lake configuration and manifests, `scripts/verify.sh`
 and `scripts/provision.sh` with the files the commands they run before a campaign read, the
 verification, provisioning programs with their decision contracts, the workflow and the
@@ -466,11 +466,24 @@ private def decisionsOf (entry : Json) : IO (List (String × Bool)) := do
   let decided ← IO.ofExcept ((← IO.ofExcept (Json.parse text)).getObj?)
   decided.toList.mapM fun (job, applies) => return (job, ← IO.ofExcept applies.getBool?)
 
+/-- Whether an entry is at `path`, following a symbolic link: `true` when `path.metadata` reads it,
+`false` when that read fails with `noFileOrDirectory`, and the read's error for every other error.
+Lean's `System.FilePath.pathExists` returns `false` for every error of `metadata`, so a path that
+cannot be read, such as one under a directory without search permission, would read as absent.
+This program cannot import `Regula.Filesystem`; `Regula.ProgramCheck.DiagnosticsGate.isPresent_eq`
+proves this equal to `Regula.Filesystem.isPresent`. -/
+def isPresent (path : System.FilePath) : IO Bool := do
+  match ← path.metadata.toBaseIO with
+  | .ok _ => return true
+  | .error (.noFileOrDirectory ..) => return false
+  | .error error => throw error
+
 /-- The self-hosted digest `name` as its file at `digestPath` holds it, without surrounding
-whitespace, or nothing when there is no such file. -/
+whitespace, or nothing when there is no such file (`isPresent`); an error of reading it otherwise
+propagates. -/
 private def readDigest (name : String) : IO (Option String) := do
   let path := digestPath name
-  if ← path.pathExists then return some (← IO.FS.readFile path).trimAscii.toString
+  if ← isPresent path then return some (← IO.FS.readFile path).trimAscii.toString
   return none
 
 /-- The `gate` step: read the `needs` context from `NEEDS` and refuse unless `verdict` passes and,

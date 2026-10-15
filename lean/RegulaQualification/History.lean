@@ -3,6 +3,7 @@ import RegulaCore.JsonAgreement
 import RegulaPolicy.Guards
 import Regula.StructuralName
 import Regula.Decision
+import RegulaQualification.Member
 
 /-! # History observation requirements
 
@@ -14,25 +15,26 @@ namespace RegulaQualification.History
 open Lean RegulaPolicy.Guards
 open Regula.JsonAgreement (Conforms Regular)
 
-private def field (value : Json) (name : String) : Except String Json := value.getObjVal? name
+private def object (value : Json) (name : String) : Except String Json := Member.object value name
+private def value (value : Json) (name : String) : Except String Json := Member.value value name
 private def array (value : Json) (name : String) : Except String (Array Json) :=
-    value.getObjValAs? _ name
-private def text (value : Json) (name : String) : Except String String := value.getObjValAs? _ name
+    Member.array value name
+private def text (value : Json) (name : String) : Except String String := Member.text value name
 /-- A dotted Lean name as result documents write it (`Regula.RegistryCodec.printedNameJson`). -/
 private def nameJson (name : String) : Json := Regula.RegistryCodec.printedNameJson name.toName
 
 /-- The report account the public protocol selects: the file report, or the first
 surface's report for a project invocation. -/
 def account (report : Json) (fileMode : Bool) : Except String Json := do
-  let scope ← field report "scope"
-  if fileMode then field scope "report" else do
+  let scope ← object report "scope"
+  if fileMode then object scope "report" else do
     let surfaces ← array scope "surfaces"
     let some surface := surfaces[0]? | throw "missing history surface"
-    field surface "report"
+    object surface "report"
 
 /-- The audited module: the first census module. -/
 def ownModule (account : Json) : Except String Json := do
-  let modules ← array (← field account "census") "modules"
+  let modules ← array (← object account "census") "modules"
   let some ownModule := modules[0]? | throw "missing history module"
   return ownModule
 
@@ -83,10 +85,10 @@ def requestedRootsUnresolved (requests execution : Array Json) (ownModule : Json
 the recursive IR call. Every parent index refers backward to an actually retained edge;
 the exact node/visit account is retained. -/
 private def rootChecks (unsupported : Bool) (root : Json) : Except String (List Check × Bool) := do
-  let closure ← field root "closure"
+  let closure ← object root "closure"
   let nodes ← array closure "nodes"
   let visits ← array closure "visits"
-  let names ← visits.mapM (field · "name")
+  let names ← visits.mapM (value · "name")
   let compiler ← array root "compilerEdges"
   let mut edges := compiler
   for key in
@@ -102,15 +104,16 @@ private def rootChecks (unsupported : Bool) (root : Json) : Except String (List 
           nodes.all (fun node => names.any (decide <| Conforms · node)))]
   for i in [:visits.size] do
     let visit := visits[i]!
-    let parent ← field visit "parent"
-    let name ← field visit "name"
-    if parent matches .null then
+    -- A root visit has the parent `null`; every other visit names its parent by index.
+    let parent ← Member.get (Option Nat) visit "parent"
+    let name ← value visit "name"
+    match parent with
+    | none =>
       checks := checks ++
-        [⟨"root visit has no parent", i == 0 && decide (Conforms name (← field root "name"))⟩]
-    else
-      let index ← parent.getNat?
+        [⟨"root visit has no parent", i == 0 && decide (Conforms name (← value root "name"))⟩]
+    | some index =>
       let predecessor ← match visits[index]? with
-        | some value => field value "name"
+        | some predecessor => value predecessor "name"
         | none => throw "parent outside traversal"
       checks := checks ++
           [⟨"backward retained parent edge", index < i && edges.any
@@ -120,7 +123,7 @@ private def rootChecks (unsupported : Bool) (root : Json) : Except String (List 
     let [a, b] := pair.toList | throw "invalid closure edge"
     checks := checks ++ [⟨"edge endpoints covered",
       nodes.any (decide <| Conforms · a) && nodes.any (decide <| Conforms · b)⟩]
-  if decide (Conforms (← field root "name") (nameJson "reference")) then
+  if decide (Conforms (← value root "name") (nameJson "reference")) then
     let current ← array closure "currentReplacementEdges"
     let history ← array closure "historyEdges"
     let earlier := toJson #[nameJson "reference", nameJson "earlier"]
@@ -139,22 +142,22 @@ def closureRequirements (account ownModule : Json) (source : String) (unsupporte
     Except String (List Check) := do
   let bindings ← array account "sourceBindings"
   let snapshots ← bindings.toList.filterMapM fun entry => do
-    if decide (Conforms (← field entry "moduleName") ownModule) then
+    if decide (Conforms (← value entry "moduleName") ownModule) then
       return some (← text entry "sourceText")
     return none
   let declarations ← array account "declarations"
   let some contract := declarations.find? (fun entry => (entry.getObjVal? "name").toOption.any
       (decide <| Conforms · (nameJson "privateContract")))
     | throw "missing private contract"
-  let privateRoot ← field (← field contract "executableContract") "root"
-  let census ← array (← field account "census") "declarations"
+  let privateRoot ← value (← object contract "executableContract") "root"
+  let census ← array (← object account "census") "declarations"
   let unregistered ← declarations.toList.filterMapM fun entry => do
-    let name ← Regula.RegistryCodec.parsePrintedNameJson (← field entry "name")
+    let name ← Member.decoded Regula.RegistryCodec.parsePrintedNameJson entry "name"
     return if name matches .str _ "unregistered" then some entry else none
   let [unregistered] := unregistered | throw "missing or repeated private unregistered root"
-  let hidden ← field unregistered "name"
+  let hidden ← value unregistered "name"
   let execution ← array account "execution"
-  let isPrivate ← unregistered.getObjValAs? Bool "private"
+  let isPrivate ← Member.bool unregistered "private"
   let fixed := [
     Check.mk "exact source snapshot" (snapshots == [source]),
     ⟨"registered private root executed", execution.any
@@ -178,7 +181,7 @@ def unsupportedRequirements (account ownModule history : Json) (requests : Array
   let execution ← array account "execution"
   let coverage ← requestedRootsUnresolved requests execution ownModule
   let requested ← execution.toList.filterMapM fun entry => do
-    let name ← field entry "name"
+    let name ← value entry "name"
     if requests.any (decide <| Conforms · (toJson #[name, ownModule])) then
       return some (← array entry "unresolved")
     return none
@@ -194,8 +197,8 @@ def completedRequirements (history : Json) (source : String) : Except String (Li
   let replacements ← array history "replacements"
   return [
     ⟨"history completed", (← text history "kind") == "completed"⟩,
-    ⟨"history before binds source", (← text (← field history "before") "sourceText") == source⟩,
-    ⟨"history after binds source", (← text (← field history "after") "sourceText") == source⟩,
+    ⟨"history before binds source", (← text (← object history "before") "sourceText") == source⟩,
+    ⟨"history after binds source", (← text (← object history "after") "sourceText") == source⟩,
     ⟨"history has Lean source path", (← text history "path").endsWith ".lean"⟩,
     ⟨"earlier replacement retained", replacements.any
         (decide <| Conforms · (toJson #[nameJson "reference", nameJson "earlier"]))⟩,
@@ -208,7 +211,7 @@ never a successful empty history. -/
 def requirements (report : Json) (code : Nat) (mode source : String)
     (fileMode unsupported : Bool) : Except String (List Check) := do
   let account ← account report fileMode
-  let requests ← array (← field account "census") "historyRequests"
+  let requests ← array (← object account "census") "historyRequests"
   let ownModule ← ownModule account
   let histories ← array account "histories"
   let owned ← histories.toList.filterMapM fun entry => do
@@ -307,7 +310,7 @@ theorem closureRequirements_imported {account ownModule : Json} {source : String
     split at h
     · simp only [bind_eq_ok, pure_eq_ok] at h
       obtain ⟨_, _, execution, hexec, _, _, _, _, rfl⟩ := h
-      exact ⟨execution, hexec, by simp⟩
+      exact ⟨execution, (Member.array_eq_ok_iff _ _ _).mp hexec, by simp⟩
     · simp at h
   · simp at h
 
@@ -322,7 +325,7 @@ theorem unsupportedRequirements_unresolved {account ownModule history : Json}
   unfold unsupportedRequirements at h
   simp only [bind_eq_ok, pure_eq_ok] at h
   obtain ⟨execution, hexec, coverage, hcov, _, _, _, _, _, _, rfl⟩ := h
-  exact ⟨execution, coverage, hexec, hcov, by simp⟩
+  exact ⟨execution, coverage, (Member.array_eq_ok_iff _ _ _).mp hexec, hcov, by simp⟩
 
 /-- An admitted requirement list contains the closure checks and, for an unsupported
 evaluator, the unsupported-evaluator checks. -/
@@ -344,7 +347,9 @@ theorem requirements_parts {report : Json} {code : Nat} {mode source : String}
   simp only [bind_eq_ok] at h
   obtain ⟨acc, hacc, census, hcensus, requests, hrequests, own, hown, _, _, owned, _, h⟩ := h
   refine
-      ⟨acc, own, requests, hacc, hown, by simpa [bind_eq_ok] using ⟨census, hcensus, hrequests⟩, ?_⟩
+      ⟨acc, own, requests, hacc, hown, by
+        simpa [bind_eq_ok] using ⟨census, ((Member.object_eq_ok_iff _ _ _).mp hcensus).1,
+          (Member.array_eq_ok_iff _ _ _).mp hrequests⟩, ?_⟩
   split at h
   next history _ =>
     simp only [bind_eq_ok] at h

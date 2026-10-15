@@ -3,6 +3,7 @@ import Regula.Checker.ResultProtocol
 import RegulaCore.SiteDocs
 import RegulaCore.SiteTheme
 import Regula.Filesystem
+import Regula.Checker.LakeSelection
 
 /-! # Rule-reference site builder
 
@@ -46,19 +47,34 @@ namespace Regula.Site.Build
 
 open Lean System Regula.Site Regula.Qualification RegulaQualification.Evidence
 
-private def get (j : Json) (key : String) : IO Json := IO.ofExcept (field j key)
+/-- The required object member `key` of `j` (`Member.object`). -/
+private def obj (j : Json) (key : String) : IO Json := IO.ofExcept (object j key)
+/-- The required member `key` of `j`, decoded as `α` (`Member.get`). -/
+private def typed (α : Type) [FromJson α] (j : Json) (key : String) : IO α :=
+  IO.ofExcept (RegulaQualification.Member.get α j key)
+/-- The optional text member `key` of `j`: `none` when it is absent or `null`, and its text when it
+is a string. Any other value is refused, and the refusal names the member (`Member.get`). -/
+private def optionalStr (j : Json) (key : String) : IO (Option String) :=
+  match value j key with
+  | .error _ => pure none
+  | .ok _ => typed (Option String) j key
 private def str (j : Json) (key : String) : IO String := IO.ofExcept (text j key)
 private def arr (j : Json) (key : String) : IO (Array Json) := IO.ofExcept (array j key)
-private def has (j : Json) (key : String) (value : Json) : Bool :=
-  (field j key).toOption.any (Regula.JsonAgreement.conforms · value)
+private def has (j : Json) (key : String) (expected : Json) : Bool :=
+  (value j key).toOption.any (Regula.JsonAgreement.conforms · expected)
 
-/-- The pinned Verso revision of the website package. -/
+/-- The pinned Verso revision of the website package: the commit of the Git entry that Lake's load
+of the website's workspace materializes `verso` from (`LakeSelection.effectiveEntry`), among the
+entries of its manifest and then those of its package overrides file
+(`LakeSelection.rootEntries`). A website without a manifest, or one that materializes `verso`
+from no Git entry, is refused. -/
 def versoRevision (root : FilePath) : IO String := do
-  let manifest ← readJson (root / "website/lake-manifest.json")
-  let packages ← arr manifest "packages"
-  let some verso ← packages.findM? (fun p => return (← str p "name") == "verso")
-    | throw <| IO.userError "website lock manifest has no verso package"
-  str verso "rev"
+  let files := Regula.Checker.LakeSelection.ownRootFiles (root / "website")
+  let entries ← Regula.Checker.LakeSelection.rootEntries files
+  let some (_, rev) := (Regula.Checker.LakeSelection.effectiveEntry entries `verso).bind
+      Regula.Checker.LakeSelection.gitPin
+    | throw <| IO.userError s!"website: {files.1} with {files.2} materializes no Git package verso"
+  return rev
 
 private def git (root : FilePath) (args : Array String) : IO String := do
   let result ← run root "git" args
@@ -129,16 +145,15 @@ def relativeInput (project uri : String) : Option String :=
 /-- Every input file of one record: its sources and its configuration files (absent ones as
 `none`), by workspace-relative path, with display-normalized content. -/
 def inputs (record : Json) : IO (List (String × Option String)) := do
-  let request ← get record "request"
+  let request ← obj record "request"
   let project ← str request "project"
-  let sources ← arr (← get record "before") "sources"
+  let sources ← arr (← obj record "before") "sources"
   let fromSources ← sources.toList.filterMapM fun s => do
     return (relativeInput project (← str s "uri")).map fun p => (p, s)
   let fromSources ← fromSources.mapM fun (p, s) => do
                                                     return (p, some
                                                         (displayText project (← str s "source")))
-  let config ← IO.ofExcept
-      (fromJson? (α := Array (String × Option String)) (← get request "configuration"))
+  let config ← typed (Array (String × Option String)) request "configuration"
   let fromConfig := config.toList.filterMap fun (uri, content) =>
     (relativeInput project uri).map fun p => (p, content.map (displayText project))
   return (fromSources ++ fromConfig).foldl
@@ -162,14 +177,14 @@ private def ruleOf (s : String) : IO RuleId := do
 /-- Display form of one finding of a violating record. -/
 def findingOf (project : String) (d : Json) : IO FindingView := do
   let rule ← ruleOf (← str d "id")
-  let args ← get d "arguments"
-  let (subjectKind, subject) := match field args "declaration", field args "root",
-      field args "subject" with
+  let args ← obj d "arguments"
+  let subjectText ← optionalStr args "subject"
+  let (subjectKind, subject) := match value args "declaration", value args "root", subjectText with
     | .ok n, _, _ => ("Declaration", nameText n)
     | _, .ok n, _ => ("Execution root", nameText n)
-    | _, _, .ok (.str s) => ("Subject", displayText project s)
-    | _, _, _ => ("Finding", "")
-  let location ← get d "location"
+    | _, _, some s => ("Subject", displayText project s)
+    | _, _, none => ("Finding", "")
+  let location ← obj d "location"
   let place ← match (← str location "kind") with
     | "source" => do
       let uri ← str location "uri"
@@ -181,24 +196,24 @@ def findingOf (project : String) (d : Json) : IO FindingView := do
             if inScratch project uri then post ++ " (the audit's fresh isolated copy)" else rest
           | _ => rest
         | none => displayText project uri
-      let range ← get location "lspSelectionRange"
-      let start ← get range "start"
-      let line := (← IO.ofExcept ((← get start "line").getNat?)) + 1
-      let column := (← IO.ofExcept ((← get start "character").getNat?)) + 1
+      let range ← obj location "lspSelectionRange"
+      let start ← obj range "start"
+      let line := (← typed Nat start "line") + 1
+      let column := (← typed Nat start "character") + 1
       pure s!"{path}, line {line}, column {column}"
-    | "module" => pure s!"module `{nameText (← get location "name")}`"
+    | "module" => pure s!"module `{nameText (← IO.ofExcept (value location "name"))}`"
     | _ => pure ("project " ++ displayText project (← str location "identity"))
-  let claim := match field d "claim" with | .ok (.str c) => some c | _ => none
+  let claim ← optionalStr d "claim"
   return { rule, severity := ← str d "severity", impact := ← str d "impact", mode := ← str d "mode",
            claim, subjectKind, subject, detail := displayText project
-               (← str (← get d "arguments") "detail"), location := place }
+               (← str (← obj d "arguments") "detail"), location := place }
 
 /-- The fixture of rule `id` whose exact text is `text`, if any. -/
 def fixtureOf (root : FilePath) (id : RuleId) (text : String) : IO (Option String) := do
   let folder := root / "examples/rules" / id.spelling
   let files ← (← Regula.Filesystem.Construction.listDirectory folder).qsort
     (fun a b => a.fileName < b.fileName) |>.filterM fun e =>
-      return !(← e.path.isDir)
+      return !(← Regula.Filesystem.isDirectory e.path)
   for entry in files do
     if (← IO.FS.readFile entry.path) == text then
       return some s!"examples/rules/{id.spelling}/{entry.fileName}"
@@ -209,8 +224,8 @@ private def requestText (request : Json) : IO String := do
   let kind ← str request "kind"
   let project ← str request "project"
   let subject := displayText project (← str request "subject")
-  let claim := match field request "claim" with | .ok (.str c) => c | _ => "none"
-  let execution := match field request "execution" with | .ok (.str e) => e | _ => "report"
+  let claim := (← optionalStr request "claim").getD "none"
+  let execution := (← optionalStr request "execution").getD "report"
   return match kind with
     | "file" => s!"a fresh single-file audit of `{subject}` (`axiomGate --file`, claim `{claim}`, \
       execution `{execution}`)"
@@ -240,9 +255,9 @@ def exampleOf (root : FilePath) (id : RuleId) (violation fixed : Json) : IO
     else if v == some displayed then
       if let some s ← shown p v then context := context ++ [s]
   requireChecks [⟨s!"{id.spelling}: the violating and corrected inputs differ", !changed.isEmpty⟩]
-  let request ← get violation "request"
+  let request ← obj violation "request"
   let project ← str request "project"
-  let result ← get violation "result"
+  let result ← obj violation "result"
   let findings ← (← arr result "diagnostics").toList.mapM (findingOf project)
   requireChecks
       [⟨s!"{id.spelling}: the violating run reports the rule", findings.any (·.rule == id)⟩]
@@ -252,7 +267,7 @@ def exampleOf (root : FilePath) (id : RuleId) (violation fixed : Json) : IO
   let ex : Example := {
     kind := ← str violation "kind", request := ← requestText request,
     violationStatus := ← status (← str result "status"), fixedStatus := ← status
-        (← str (← get fixed "result") "status"),
+        (← str (← obj fixed "result") "status"),
     changed, context, findings }
   return (ex,
       { rule := id, kind := ex.kind, violationStatus := ex.violationStatus.spelling, fixedStatus :=
@@ -269,7 +284,7 @@ def snapshotTree (root : FilePath) : IO (List (String × ByteArray)) := do
   let root ← IO.FS.realPath root
   let mut files := []
   for path in ← Regula.Filesystem.Construction.walkDirectory root do
-    if !(← path.isDir) then
+    if !(← Regula.Filesystem.isDirectory path) then
       let relative := String.intercalate "/" (path.components.drop root.components.length)
       files := (relative, ← IO.FS.readBinFile path) :: files
   return files.mergeSort (fun a b => a.1 ≤ b.1)
@@ -371,7 +386,7 @@ def evidence (root : FilePath) (ident : Identity) (shardPaths : List FilePath) :
   let current ← currentSources root
   let shards ← shardPaths.mapM (admitShard root current)
   let selected ← shards.mapM fun s => do
-    return (← IO.ofExcept (fromJson? (α := List String) (← get s "selected")))
+    return (← typed (List String) s "selected")
   let all := selected.flatten
   requireChecks [⟨"corpus shards select every registered rule exactly once",
     all.Nodup && all.length == RuleId.all.length && RuleId.all.all
@@ -386,7 +401,7 @@ def evidence (root : FilePath) (ident : Identity) (shardPaths : List FilePath) :
       let matching ← mine.filterM fun r => return (← str r "phase") == phase
       let [r] := matching | throw <|
                              IO.userError s!"{id.spelling}: expected exactly one {phase} record"
-      let result ← get r "result"
+      let result ← obj r "result"
       requireChecks [
         ⟨s!"{id.spelling}/{phase}: result toolchain {producer.toolchain}", has result "toolchain"
             (.str producer.toolchain)⟩,
@@ -400,7 +415,7 @@ def evidence (root : FilePath) (ident : Identity) (shardPaths : List FilePath) :
     let violation ← byPhase "Violation"
     let fixed ← byPhase "Fixed"
     requireChecks [⟨s!"{id.spelling}: corrected run is a completed positive",
-      has fixed "kind" (.str "positive") && has (← get fixed "result") "status" (.str "completed")⟩]
+      has fixed "kind" (.str "positive") && has (← obj fixed "result") "status" (.str "completed")⟩]
     let (ex, summary) ← exampleOf root id violation fixed
     let shard := match selected.findIdx? (·.contains id.spelling) with
       | some i => s!"{i + 1}/{shardPaths.length}" | none => "?"
@@ -427,7 +442,8 @@ def generate (root : FilePath) (g : Generated) : IO Unit := do
   for (id, ex) in g.examples do
     for p in (guide id).repositoryPaths do
       requireChecks
-          [⟨s!"{id.spelling}: cited repository path exists: {p}", ← (root / p).pathExists⟩]
+          [⟨s!"{id.spelling}: cited repository path exists: {p}",
+            ← Regula.Filesystem.isPresent (root / p)⟩]
     -- Each cited section of the standard, on its page in the same edition (`Clause.route` is
     -- relative to the edition root, like every generated link); the artifact link check
     -- requires the anchor to exist.

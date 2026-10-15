@@ -331,12 +331,16 @@ def loadBaseline (root : System.FilePath) (present : Bool) :
 
 /-- The earlier baseline that `--write-baseline` keeps entries of, decoded from the baseline file
 of the working tree of `root` before the guard marks that file (`refuseMarkdown`): its text,
-`none` when the working tree has no such file, or the reason that it cannot be read. A mark
-(`markBaseline`) gives the earlier text that it holds, so a run that reads the file after the mark
-gets what the mark decoded, and a mark that holds no earlier text gives its reason. -/
+`none` only when the working tree has no such file (`Regula.Filesystem.isPresent`), or the reason
+that it cannot be observed or read. A mark (`markBaseline`) gives the earlier text that it holds,
+so a run that reads the file after the mark gets what the mark decoded, and a mark that holds no
+earlier text gives its reason. -/
 def earlierBaseline (root : System.FilePath) : IO (Except String (Option String)) := do
   let path := root / baselineFile
-  unless ← path.pathExists do return .ok none
+  match ← (Regula.Filesystem.isPresent path).toBaseIO with
+  | .error error => return .error s!"{path} cannot be observed: {error}"
+  | .ok false => return .ok none
+  | .ok true => pure ()
   match ← (IO.FS.readFile path).toBaseIO with
   | .error error => return .error s!"{path} cannot be read: {error}"
   | .ok text =>

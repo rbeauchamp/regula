@@ -55,8 +55,8 @@ def checkAt (root base : FilePath) : IO Unit := do
       "  packagesDir := \"" ++ packages ++ "\"\n" ++
       "  leanOptions := #[⟨`autoImplicit, false⟩, ⟨`relaxedAutoImplicit, false⟩, " ++
       "⟨`linter.missingDocs, true⟩]\n" ++ Regula.Checker.observerPluginLean ++
-      "require regula from " ++ (toJson root.toString).compress ++ "\nlean_lib Solo where\n" ++
-      Regula.Checker.observerNeedLean
+      "require regula from " ++ (toJson root.toString).compress ++ "\n" ++
+      Regula.Checker.observedTargetLean .library "Solo"
     let manifest := (Json.mkObj [
       ("version", toJson "1.1.0"), ("name", toJson "copy_selection"),
       ("lakeDir", toJson ".lake"), ("packagesDir", toJson packages),
@@ -82,11 +82,11 @@ def checkAt (root base : FilePath) : IO Unit := do
         let some report := report | throw <| IO.userError "missing public refusal result"
         let [diagnostic] := (← IO.ofExcept (array report "diagnostics")).toList
           | throw <| IO.userError "expected the single positive-fence refusal"
-        let subject ← IO.ofExcept do text (← field diagnostic "arguments") "subject"
+        let subject ← IO.ofExcept do text (← object diagnostic "arguments") "subject"
         unless subject == "/".intercalate ((FilePath.mk hidden).components.drop 1) ++ ":3" do
           throw <| IO.userError "the refusal did not identify the originally selected document"
       IO.println s!"copy selection {label}/{phase}: PASS"
-    if ← (project / "LAKE-MANIFEST.JSON").pathExists then
+    if ← Regula.Filesystem.isPresent (project / "LAKE-MANIFEST.JSON") then
       replacePath (project / "lake-manifest.json") (project / "manifest-renaming")
       replacePath (project / "manifest-renaming") (project / "LAKE-MANIFEST.JSON")
       let target := base / (label ++ "-selected-manifest")
@@ -104,14 +104,14 @@ def checkAt (root base : FilePath) : IO Unit := do
     let copied ← Regula.Checker.Lake.copyProject project target target
       (selectedFiles := documents.toList.map (FilePath.mk ·.uri))
     unless (← readFile (copied.project / hidden)) == positive &&
-        !(← (copied.project / "docs/stale.ir").pathExists) do
+        !(← Regula.Filesystem.isPresent (copied.project / "docs/stale.ir")) do
       throw <| IO.userError "kind-aware selection lost documentation or retained a module artifact"
     let cold := base / (label ++ "-cold")
     discard <| Construction.sourceMain ["project", project.toString, cold.toString]
     unless (← readFile (cold / hidden)) == positive do
       throw <| IO.userError "cold construction lost an original Markdown input"
     let alias := project / hidden.toUpper
-    if ← alias.pathExists then
+    if ← Regula.Filesystem.isPresent alias then
       let target := base / (label ++ "-alias")
       let copied ← Regula.Checker.Lake.copyProject project target target (selectedFiles := [alias])
       unless (← readFile (copied.project / hidden)) == positive do
@@ -141,7 +141,7 @@ def checkAt (root base : FilePath) : IO Unit := do
   let missing := base / "missing-domain"
   refused "omit a selected source file" <|
     Construction.constructSelectedWith Construction.observer missing [["omitted.md"]] []
-  unless !(← missing.pathExists) do
+  unless !(← Regula.Filesystem.isPresent missing) do
     throw <| IO.userError "missing-domain refusal wrote a destination"
   let occupied := base / "occupied"
   construct occupied [⟨["entry"], .file "original".toUTF8⟩]
@@ -152,13 +152,21 @@ def checkAt (root base : FilePath) : IO Unit := do
     throw <| IO.userError "selected construction changed an occupied destination"
   let casing := base / "casing"
   construct casing [⟨[".LaKe"], .directory⟩]
-  if ← (casing / ".lake").isDir then
+  if ← Regula.Filesystem.isDirectory (casing / ".lake") then
+    let collision := base / "alias-collision"
     let attempt ← (Construction.constructSelectedWith Construction.observer
-      (base / "alias-collision") [[".LaKe", "entry"]]
+      collision [[".LaKe", "entry"]]
       [⟨[".LaKe"], .directory⟩, ⟨[".lake"], .directory⟩,
        ⟨[".LaKe", "entry"], .file "selected".toUTF8⟩]).toBaseIO
-    unless attempt matches .error _ do
-      throw <| IO.userError "selected construction accepted colliding directory aliases"
+    -- Only the exclusive creation of the second alias refuses here; any other failure, such as a
+    -- read that could not be made, fails the control rather than pass for that refusal.
+    match attempt with
+    | .error (.alreadyExists (some file) ..) =>
+      unless file == (collision / ".lake").toString do
+        throw <| IO.userError s!"selected construction refused another entry: {file}"
+    | .error error =>
+      throw <| IO.userError s!"selected construction failed otherwise than at the alias: {error}"
+    | .ok _ => throw <| IO.userError "selected construction accepted colliding directory aliases"
   IO.println "copy selection: original domain, exclusive destinations and alias collision PASS"
 
 /-- Run native selection qualification inside one scratch directory owned by this campaign. -/

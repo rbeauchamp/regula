@@ -37,7 +37,7 @@ def observe (root project : FilePath) (label binary : String) (flags : Array Str
     (expected : Expected) (env : Array (String × Option String) := cleanEnv) :
     IO (IO.Process.Output × Option Json) := do
   let output := project / s!"{label}.json"
-  requireChecks [⟨"fresh evidence output", !(← output.pathExists)⟩]
+  requireChecks [⟨"fresh evidence output", !(← Regula.Filesystem.isPresent output)⟩]
   let jsonCommand := binary == "axiomGate"
   let result ← run project (root / ".lake/build/bin" / binary).toString
     (#["--project", project.toString] ++ flags ++
@@ -88,15 +88,15 @@ def closure : IO Unit := do
                   [⟨"typed closure refusal reason", (← IO.ofExcept (detail d)).contains reason⟩]
           if kind == "cycle" then
             let roots ← IO.ofExcept do
-              let surfaces ← array (← field report "scope") "surfaces"
+              let surfaces ← array (← object report "scope") "surfaces"
               let some surface := surfaces[0]? | throw "missing surface"
-              array (← field surface "report") "execution"
+              array (← object surface "report") "execution"
             for (name, recursion) in #[("f", false), ("recursiveSum", true)] do
               let some entry := roots.find?
                   (fun entry => (entry.getObjVal? "name").toOption.any
                     (Regula.JsonAgreement.conforms · (nameJson name)))
                 | throw <| IO.userError s!"missing {name} execution"
-              let closure ← IO.ofExcept (field entry "closure")
+              let closure ← IO.ofExcept (object entry "closure")
               let edge := toJson #[nameJson name, nameJson name]
               let edges ← IO.ofExcept
                   (if recursion then array entry "compilerEdges" else
@@ -151,17 +151,17 @@ def configuration : IO Unit := do
               Check.mk "configuration IO detail"
                   (why.contains directory && process.stderr.contains why),
               ⟨"exact configuration location",
-                Regula.JsonAgreement.conforms (← field d "location")
+                Regula.JsonAgreement.conforms (← value d "location")
                   (Json.mkObj [("kind", .str "project"), ("identity", .str project.toString)])⟩,
               ⟨"exact unresolved IO failure", Regula.JsonAgreement.conforms
                 (.arr (← array result "unresolved")) (.arr #[.str why])⟩,
               ⟨"no source invented", (← array result "sourceAccount").isEmpty⟩,
               ⟨"request without configuration read",
-                ((← field result "request").getObjVal? "configuration").toOption.any
+                ((← object result "request").getObjVal? "configuration").toOption.any
                   (Regula.JsonAgreement.conforms · (.arr #[])) &&
-                (field result "effective").toOption.any (Regula.JsonAgreement.conforms · .null)⟩]
+                (value result "effective").toOption.any (Regula.JsonAgreement.conforms · .null)⟩]
           else
-            let effective ← text (← field result "effective") "root"
+            let effective ← text (← object result "effective") "root"
             let sources ← array result "sourceAccount"
             return [⟨"actual source account", sources.any fun item =>
               (text item "path").toOption == some (effective ++ "/Example.lean") &&
@@ -194,8 +194,8 @@ def selectedPolicy : IO Unit := do
       | throw <| IO.userError "missing selected-policy result"
     let compare (result : Json) : Except String Unit := do
       Regula.Checker.RuleExampleQualification.effectiveAccount result
-        (← Regula.Checker.RuleExampleQualification.parseRequest (← field result "request"))
-    let request ← IO.ofExcept (field result "request")
+        (← Regula.Checker.RuleExampleQualification.parseRequest (← object result "request"))
+    let request ← IO.ofExcept (object result "request")
     let decoded ← IO.ofExcept (Regula.Checker.RuleExampleQualification.parseRequest request)
     let some selected := decoded.configuration.find? (·.1 == decoded.policy)
       | throw <| IO.userError "the selected policy has no configuration entry"

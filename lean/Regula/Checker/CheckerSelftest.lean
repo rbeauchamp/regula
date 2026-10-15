@@ -1545,12 +1545,12 @@ private def prepareScratchRepo (repo scratch : FilePath) : IO (Array FilePath) :
   return copy.placedPaths
 
 private def withNewFile {α : Type} (path : FilePath) (text : String) (action : IO α) : IO α := do
-  if ← path.pathExists then
+  if ← Regula.Filesystem.isPresent path then
     throw <| IO.userError s!"refusing to overwrite structural fixture {path}"
   if let some parent := path.parent then IO.FS.createDirAll parent
   IO.FS.writeFile path text
   try action
-  finally if ← path.pathExists then Regula.Filesystem.removePath .file path
+  finally Regula.Filesystem.removePath .file path
 
 private def withReplacedFile {α : Type} (path : FilePath) (text : String) (action : IO α) :
     IO α := do
@@ -1760,7 +1760,7 @@ module build, not a theorem. -/
 private def seedModuleArtifacts (layout : SourceLayout) (repo copy : FilePath) : IO Unit := do
   for relative in layout.artifactDirs do
     let place := repo / relative
-    unless ← place.isDir do continue
+    unless ← Regula.Filesystem.isDirectory place do continue
     let destination := copy / relative
     let some parent := destination.parent | throw <| IO.userError "artifact copy has no parent"
     Regula.Filesystem.Construction.ensureDirectory 4096 parent
@@ -1780,7 +1780,8 @@ private def freshInput (project snapshot : FilePath) :
   for path in ← Regula.Filesystem.Construction.walkDirectory snapshot
       (fun path => pure (own path != [lake])) do
     if own path == [lake] then continue
-    let content ← if ← path.isDir then pure none else some <$> IO.FS.readBinFile path
+    let content ← if ← Regula.Filesystem.isDirectory path then pure none
+      else some <$> IO.FS.readBinFile path
     entries := entries.push ("/".intercalate (own path), content)
   return entries.qsort (·.1 < ·.1)
 
@@ -1855,7 +1856,7 @@ it as missing until a run writes it again: the writer that a run of its shard ru
 in its place. -/
 def clearSelfHostedDigest (repo : FilePath) (input : SelfHosted) : IO Unit := do
   let evidence := selfHostedDigestPath repo input
-  if ← evidence.pathExists then Regula.Filesystem.removePath .file evidence
+  Regula.Filesystem.removePath .file evidence
 
 /-- What a sharded run does in place of `selfHostedIdentity`, after its queue, in the shard of
 `input` (`SelfHosted.shard`): remove any earlier digest (`clearSelfHostedDigest`), then write
@@ -2071,8 +2072,8 @@ private unsafe def structuralPartB (layout : SourceLayout) (executables : Bool)
       (do IO.FS.writeBinFile library ((← IO.FS.readBinFile library).push 0)) (pure ())
   else
     let exeDecl :=
-      "\nlean_exe «selftestTool» where\n  root := `SelftestMain\n" ++ observerPluginOwn ++
-        observerNeedOwn
+      "\n" ++ observedTargetLean .executable "«selftestTool»" "  root := `SelftestMain\n"
+        (own := true)
     let claimedManifest := copy / "claimed-exe.json"
     -- The claimed-exe controls claim the added executable beside the application's: both roots
     -- define `main`, so the positive control also requires each root to be inspected in an
@@ -2580,7 +2581,7 @@ private def sourceAttributionControls (dir : FilePath)
           one block"
       return #[]
     finally
-      if ← report.pathExists then Regula.Filesystem.removePath .file report
+      Regula.Filesystem.removePath .file report
 
 /-- Controls for a decision registered from another module of its inventory (standard §7.11).
 `AuditApp.DownstreamDecision` declares `downstreamCheck` without importing `Regula.Decision`, and
@@ -2728,8 +2729,8 @@ private unsafe def structuralCorrespondence (layout : SourceLayout) (mutation : 
   -- Boundary evidence text is printed only in verbose mode.
   let gate := runBinaryFrom repo copy "axiomGate" #["--verbose"]
   withReplacedFile lakefile
-      (originalLakefile ++ "\nlean_lib CorrespondenceControl where\n" ++ observerPluginOwn ++
-        observerNeedOwn) do
+      (originalLakefile ++ "\n" ++
+        observedTargetLean .library "CorrespondenceControl" (own := true)) do
     withReplacedFile manifest checkedManifest do
       withNewFile source positive do
         if !mutation then
@@ -2972,8 +2973,8 @@ private unsafe def fenceEnvironmentControl (layout : SourceLayout) (repo : FileP
           unit\n"
     let lakefile := dir / "lakefile.lean"
     IO.FS.writeFile lakefile ((← IO.FS.readFile lakefile) ++
-      "\nlean_lib FreshControl where\n  globs := #[.submodules `FreshControl]\n" ++
-        observerPluginOwn ++ observerNeedOwn)
+      "\n" ++ observedTargetLean .library "FreshControl"
+        "  globs := #[.submodules `FreshControl]\n" (own := true))
     let manifest := dir / "foundation_manifest.json"
     writeJson manifest (freshControlManifest (← parsedManifest manifest))
     -- A counterexample aid at the process boundary: the workspace provides a `leanchecker` in the
@@ -3004,19 +3005,17 @@ private unsafe def fenceEnvironmentControl (layout : SourceLayout) (repo : FileP
       -- Reconcile the actual run against the modules written above: each is a
       -- maximal root, and every root's successful check must cover it.
       let report ← readJson reportPath
-      let status ← IO.ofExcept <| report.getObjValAs? String "status"
-      let modules ← jsonStringArray "fresh control modules" <| ← IO.ofExcept <|
-        report.getObjVal? "modules"
-      let roots ← jsonStringArray "fresh control roots" <| ← IO.ofExcept <|
-        report.getObjVal? "roots"
-      let checks ← IO.ofExcept <| report.getObjValAs? (Array Json) "checks"
+      let read {α : Type} (decoded : Except String α) := IO.ofExcept (RegulaQualification.Member.within reportPath decoded)
+      let status ← read (RegulaQualification.Member.text report "status")
+      let modules ← read (memberStrings report "modules")
+      let roots ← read (memberStrings report "roots")
+      let checks ← read (RegulaQualification.Member.array report "checks")
       let mut checked : Array String := #[]
       for check in checks do
-        let exitCode ← IO.ofExcept <| check.getObjValAs? Nat "exitCode"
+        let exitCode ← read (RegulaQualification.Member.get Nat check "exitCode")
         if exitCode != 0 then
           failures.modify (·.push "fence-env/fresh-checker: a root was not checked successfully")
-        let covered ← jsonStringArray "fresh control coveredModules" <| ← IO.ofExcept <|
-          check.getObjVal? "coveredModules"
+        let covered ← read (memberStrings check "coveredModules")
         checked := checked ++ covered
       if status != "completed" || checks.size != expected.size
           || uniqueSorted modules != uniqueSorted expected || uniqueSorted roots !=
@@ -3045,11 +3044,13 @@ private unsafe def fenceEnvironmentQualification (layout : SourceLayout) (repo s
       IO.FS.createDirAll dir
       let placed ← prepareScratchRepo repo dir
       let build := dir / ".lake" / "build"
-      let outputs ← if ← build.pathExists then Regula.Filesystem.Construction.walkDirectory build
+      let outputs ← if ← Regula.Filesystem.isPresent build then
+          Regula.Filesystem.Construction.walkDirectory build
         else pure #[]
       let mut unexpected := #[]
       for path in outputs do
-        unless (← path.isDir) || placed.contains path do unexpected := unexpected.push path
+        unless (← Regula.Filesystem.isDirectory path) || placed.contains path do
+          unexpected := unexpected.push path
       unless unexpected.isEmpty do
         failures.modify (·.push s!"fence-env/{name}: setup unexpectedly has build output \
           other than the placed observer library: {unexpected}")
@@ -3074,9 +3075,9 @@ private def adopterTomlLakefile (checkerPath : String) : String :=
     true\n\n" ++
   "[[require]]\nname = \"regula\"\n" ++
   s!"path = \"{checkerPath}\"\n\n" ++
-  "[[lean_lib]]\nname = \"Widget\"\nglobs = [\"Widget\", \"Widget.+\"]\n" ++ observerNeedToml ++
+  observedTargetToml .library "Widget" "globs = [\"Widget\", \"Widget.+\"]\n" ++
   "\n" ++
-  "[[lean_exe]]\nname = \"widget_tool\"\nroot = \"Main\"\n" ++ observerNeedToml
+  observedTargetToml .executable "widget_tool" "root = \"Main\"\n"
 
 private def adopterLeanLakefile (checkerPath : String) : String :=
   "import Lake\nopen Lake DSL\n\n" ++
@@ -3085,8 +3086,9 @@ private def adopterLeanLakefile (checkerPath : String) : String :=
   "  leanOptions := #[⟨`autoImplicit, false⟩, ⟨`relaxedAutoImplicit, false⟩, ⟨`linter.missingDocs, \
     true⟩]\n\n" ++
   s!"require «regula» from \"{checkerPath}\"\n\n" ++
-  "@[default_target]\nlean_lib «Widget» where\n  globs := #[.andSubmodules `Widget]\n" ++
-  observerNeedLean ++ "\nlean_exe «widget_tool» where\n  root := `Main\n" ++ observerNeedLean
+  "@[default_target]\n" ++
+  observedTargetLean .library "«Widget»" "  globs := #[.andSubmodules `Widget]\n" ++ "\n" ++
+  observedTargetLean .executable "«widget_tool»" "  root := `Main\n"
 
 /-- The adopting workspace inherits every transitive dependency through the
 checker package's own `require`, pinned exactly as in this repository. -/
@@ -3299,7 +3301,7 @@ private def frozenArtifactControls (scratch : FilePath) : IO (Array String) := d
     for ((level, _), isPresent) in levels.zip present do
       let part := level.adjustFileName olean
       if isPresent then IO.FS.writeBinFile part frozenBytes
-      else if ← part.pathExists then Regula.Filesystem.removePath .file part
+      else Regula.Filesystem.removePath .file part
     let some artifact ← Inspection.freezeArtifact `Frozen olean
       | failures := failures.push s!"frozen-artifact/{layout}: the artifact was not frozen"
         continue
@@ -3355,8 +3357,8 @@ private def libraryCycleControl (repo : FilePath) : IO (Array String) :=
     "name = \"library_cycle_control\"\n" ++ observerPluginToml ++
       "[leanOptions]\nautoImplicit = false\n" ++
       "relaxedAutoImplicit = false\nlinter.missingDocs = true\n" ++
-      "[[lean_lib]]\nname = \"Left\"\nglobs = [\"Left.+\"]\n" ++ observerNeedToml ++
-      "[[lean_lib]]\nname = \"Right\"\nglobs = [\"Right.+\"]\n" ++ observerNeedToml ++
+      observedTargetToml .library "Left" "globs = [\"Left.+\"]\n" ++
+      observedTargetToml .library "Right" "globs = [\"Right.+\"]\n" ++
       regulaRequireToml repo
   let surface (library : String) : String :=
     "{\"library\":\"" ++ library ++ "\",\"executables\":[],\"claim\":\"standard-logical\"," ++
@@ -3384,15 +3386,14 @@ private def libraryCycleControl (repo : FilePath) : IO (Array String) :=
   unless gate.succeeded do return #[s!"library-cycle/accepted: expected PASS:\n{gate.output}"]
   let modules := #["Left.Base", "Left.Top", "Right.Base", "Right.Top"]
   let json ← requireAuditDocument (← IO.ofExcept (Json.parse (← IO.FS.readFile result)))
-  let surfaces ← IO.ofExcept <|
-    (json.getObjVal? "scope").bind (·.getObjValAs? (Array Json) "surfaces")
+  let read {α : Type} (decoded : Except String α) := IO.ofExcept (RegulaQualification.Member.within result decoded)
+  let surfaces ← read do RegulaQualification.Member.array (← RegulaQualification.Member.object json "scope") "surfaces"
   let mut found : Array (String × Array String × Array String × Array (String × String)) := #[]
   for surface in surfaces do
-    let library ← IO.ofExcept <| surface.getObjValAs? String "library"
-    let admission ← IO.ofExcept <|
-      (surface.getObjVal? "report").bind (·.getObjVal? "admission")
-    let reused ← IO.ofExcept <| admission.getObjValAs? (Array String) "reused"
-    let required ← IO.ofExcept <| admission.getObjValAs? (Array (String × String)) "required"
+    let library ← read (RegulaQualification.Member.text surface "library")
+    let admission ← read do RegulaQualification.Member.object (← RegulaQualification.Member.object surface "report") "admission"
+    let reused ← read (RegulaQualification.Member.get (Array String) admission "reused")
+    let required ← read (RegulaQualification.Member.get (Array (String × String)) admission "required")
     let replayed := modules.filter fun m => !reused.contains m && required.any (·.1 == m)
     found := found.push (library, replayed, modules.filter reused.contains, required)
   let expected : Array (String × Array String × Array String) := #[
@@ -3447,7 +3448,7 @@ private def observerIdentityControl (repo : FilePath) : IO (Array String) :=
   -- package (`checkSource`).
   let sources := (repo / "lean").normalize.components.length
   for path in ← Regula.Filesystem.Construction.walkDirectory (repo / "lean") do
-    if ← path.isDir then continue
+    if ← Regula.Filesystem.isDirectory path then continue
     let destination :=
       (path.normalize.components.drop sources).foldl (· / FilePath.mk ·) (tool / "lean")
     if let some parent := destination.parent then IO.FS.createDirAll parent
@@ -3472,7 +3473,7 @@ private def observerIdentityControl (repo : FilePath) : IO (Array String) :=
     "name = \"observer_identity_control\"\n" ++ observerPluginToml ++
       "[leanOptions]\nautoImplicit = false\n" ++
       "relaxedAutoImplicit = false\nlinter.missingDocs = true\n" ++
-      "[[lean_lib]]\nname = \"Example\"\n" ++ observerNeedToml ++ regulaRequireToml tool
+      observedTargetToml .library "Example" ++ regulaRequireToml tool
   IO.FS.writeFile (Manifest.defaultPath project) <|
     "{\"schema-version\":2,\"surfaces\":[{\"library\":\"Example\",\"executables\":[]," ++
       "\"claim\":\"kernel-only\",\"execution\":\"report\"," ++
@@ -3542,8 +3543,8 @@ private def sharedCopiesControl (repo : FilePath) : IO (Array String) :=
     "name = \"shared_copies_control\"\n" ++ observerPluginToml ++
       "[leanOptions]\nautoImplicit = false\n" ++
       "relaxedAutoImplicit = false\nlinter.missingDocs = true\n" ++
-      "[[lean_lib]]\nname = \"Lib\"\nglobs = [\"Lib.+\"]\n" ++ observerNeedToml ++
-      "[[lean_lib]]\nname = \"App\"\nglobs = [\"App.+\"]\n" ++ observerNeedToml ++
+      observedTargetToml .library "Lib" "globs = [\"Lib.+\"]\n" ++
+      observedTargetToml .library "App" "globs = [\"App.+\"]\n" ++
       regulaRequireToml repo
   let surface (library : String) : String :=
     "{\"library\":\"" ++ library ++ "\",\"executables\":[],\"claim\":\"standard-logical\"," ++
@@ -3600,17 +3601,16 @@ private def sharedCopiesControl (repo : FilePath) : IO (Array String) :=
   let modules := #["Lib.Base", "Lib.Down", "Lib.Even", "Lib.Far", "Lib.Left", "Lib.Near", "Lib.Odd",
     "Lib.Right", "Lib.Up", "App.Main"]
   let json ← requireAuditDocument (← IO.ofExcept (Json.parse (← IO.FS.readFile result)))
-  let surfaces ← IO.ofExcept <|
-    (json.getObjVal? "scope").bind (·.getObjValAs? (Array Json) "surfaces")
+  let read {α : Type} (decoded : Except String α) := IO.ofExcept (RegulaQualification.Member.within result decoded)
+  let surfaces ← read do RegulaQualification.Member.array (← RegulaQualification.Member.object json "scope") "surfaces"
   let mut found : Array (String × Array String × Array String × Array String) := #[]
   let mut required : Array (String × String) := #[]
   for surface in surfaces do
-    let library ← IO.ofExcept <| surface.getObjValAs? String "library"
-    let admission ← IO.ofExcept <|
-      (surface.getObjVal? "report").bind (·.getObjVal? "admission")
-    let reused ← IO.ofExcept <| admission.getObjValAs? (Array String) "reused"
-    let shared ← IO.ofExcept <| admission.getObjValAs? (Array String) "shared"
-    let keys ← IO.ofExcept <| admission.getObjValAs? (Array (String × String)) "required"
+    let library ← read (RegulaQualification.Member.text surface "library")
+    let admission ← read do RegulaQualification.Member.object (← RegulaQualification.Member.object surface "report") "admission"
+    let reused ← read (RegulaQualification.Member.get (Array String) admission "reused")
+    let shared ← read (RegulaQualification.Member.get (Array String) admission "shared")
+    let keys ← read (RegulaQualification.Member.get (Array (String × String)) admission "required")
     let replayed := modules.filter fun m => !reused.contains m && keys.any (·.1 == m)
     found := found.push (library, replayed, modules.filter reused.contains,
       modules.filter shared.contains)
@@ -3648,9 +3648,8 @@ private def writeCrossSurfaceProject (repo project : FilePath) (relation decided
       "[leanOptions]\nautoImplicit = false\n" ++
       "relaxedAutoImplicit = false\nlinter.missingDocs = true\n" ++
       s!"[[require]]\nname = \"regula\"\npath = {(Json.str repo.toString).compress}\n" ++
-      "[[lean_lib]]\nname = \"Exec\"\nglobs = [\"Exec.+\"]\n" ++ observerNeedToml ++
-      "[[lean_lib]]\nname = \"Proofs\"\nglobs = [\"Proofs.+\"]\n" ++
-        observerNeedToml
+      observedTargetToml .library "Exec" "globs = [\"Exec.+\"]\n" ++
+      observedTargetToml .library "Proofs" "globs = [\"Proofs.+\"]\n"
   writeJson (project / "lake-manifest.json") <|
     (← adopterLakeManifest repo repo.toString).setObjVal! "name" (Json.str "cross_surface_control")
   IO.FS.createDirAll (project / "Exec")
@@ -3705,8 +3704,8 @@ private def crossSurfaceDecisionControl (refusals : Bool) (repo : FilePath) :
         if !accepted.succeeded then
           return some s!"cross-surface/related: expected PASS:\n{accepted.output}"
         let json ← requireAuditDocument (← IO.ofExcept (Json.parse (← IO.FS.readFile result)))
-        let counted ← IO.ofExcept <| (json.getObjVal? "acceptance").bind fun acceptance =>
-          (acceptance.getObjVal? "account").bind (·.getObjValAs? (Array Json) "countedContracts")
+        let counted ← IO.ofExcept <| RegulaQualification.Member.within result do
+          RegulaQualification.Member.array (← RegulaQualification.Member.object (← RegulaQualification.Member.object json "acceptance") "account") "countedContracts"
         let named (entry : Json) : Bool :=
           (entry.getObjValAs? String "surface").toOption == some "Exec" &&
             (entry.getObjValAs? String "source").toOption == some "Proofs" &&
@@ -3799,7 +3798,7 @@ private def driverCopyControl (repo : FilePath) : IO (Array String) :=
   -- Whether the checker's scratch protocol, used in the same project, leaves `path` there.
   let survivesReclamation (path : FilePath) : IO Bool := do
     discard <| Regula.Scratch.withScratch project "reclaim-probe" fun _ => pure ()
-    path.pathExists
+    Regula.Filesystem.isPresent path
   -- The driver's answer to a line: its next line that is not one of its progress lines.
   let answer (out : IO.FS.Handle) : IO String := do
     let mut line := (← out.getLine)
@@ -3819,15 +3818,16 @@ private def driverCopyControl (repo : FilePath) : IO (Array String) :=
     | return #[s!"driver-copy/place: the driver's copy {copy} is not in the scratch area {area}"]
   let marker := area / s!"{name}.{Regula.Scratch.markerExtension}"
   failures := failures ++ expect "copy: a file of the project is missing"
-    (← (copy / "Solo" / "Base.lean").pathExists)
+    (← Regula.Filesystem.isPresent (copy / "Solo" / "Base.lean"))
   failures := failures ++ expect "copy: Lake state is not initially empty"
     (← Regula.Filesystem.Construction.listDirectory (copy / ".lake")).isEmpty
-  failures := failures ++ expect "copy: no ownership marker" (← marker.pathExists)
+  failures := failures ++
+    expect "copy: no ownership marker" (← Regula.Filesystem.isPresent marker)
   failures := failures ++ expect "copy: the run has no pending record of its own beside its copy"
     ((← IO.FS.readFile ((copy.parent.getD copy) / "acceptance-link.pending.json")).contains
       "\"status\":\"incomplete\"")
   failures := failures ++ expect "project: its build output changed"
-    (← (build / "kept.txt").pathExists)
+    (← Regula.Filesystem.isPresent (build / "kept.txt"))
   failures := failures ++ expect "live: the checker's reclamation removed a live copy"
     (← survivesReclamation copy)
   failures := failures ++ (← refused "no-build-directory" "has no build directory"
@@ -3846,14 +3846,14 @@ private def driverCopyControl (repo : FilePath) : IO (Array String) :=
   input.putStrLn "adopt"
   input.flush
   failures := failures ++ expect "adopt: a project with build output did not keep it"
-    ((← answer child.stdout) == "kept" && (← (build / "kept.txt").pathExists)
-      && !(← (build / "made.txt").pathExists))
+    ((← answer child.stdout) == "kept" && (← Regula.Filesystem.isPresent (build / "kept.txt"))
+      && !(← Regula.Filesystem.isPresent (build / "made.txt")))
   input.putStrLn "remove"
   input.flush
   failures := failures ++ expect "remove: the driver did not end with exit code 0"
     ((← child.wait) == 0)
   failures := failures ++ expect "remove: the copy or its marker is still there"
-    (!(← copy.pathExists) && !(← marker.pathExists))
+    (!(← Regula.Filesystem.isPresent copy) && !(← Regula.Filesystem.isPresent marker))
   -- 2. A project with a symbolic link at `.lake/build`, and then a driver that is killed.
   Regula.Filesystem.removePath .directory build
   link marked build
@@ -3873,15 +3873,16 @@ private def driverCopyControl (repo : FilePath) : IO (Array String) :=
   input.flush
   failures := failures ++ expect "adopt: a link at the build directory's place was not kept"
     ((← answer child.stdout) == "kept" &&
-      (← (marked / "kept.txt").pathExists) && !(← (marked / "made.txt").pathExists) &&
+      (← Regula.Filesystem.isPresent (marked / "kept.txt")) &&
+      !(← Regula.Filesystem.isPresent (marked / "made.txt")) &&
       (← build.symlinkMetadata).type == .symlink)
   -- A killed driver removes nothing, and its lock ends with its process.
   child.kill
   discard child.wait
   failures := failures ++ expect "left: a killed driver left no copy or no marker"
-    ((← copy.pathExists) && (← marker.pathExists))
+    ((← Regula.Filesystem.isPresent copy) && (← Regula.Filesystem.isPresent marker))
   failures := failures ++ expect "left: the checker's reclamation did not remove the copy of a \
-    killed driver" (!(← survivesReclamation copy) && !(← marker.pathExists))
+    killed driver" (!(← survivesReclamation copy) && !(← Regula.Filesystem.isPresent marker))
   -- 3. A second killed driver, and then a project with no build output: the next driver removes
   -- the copy of the dead one before it makes its own, and the project gets the copy's output.
   Regula.Filesystem.removePath .link build
@@ -3897,25 +3898,27 @@ private def driverCopyControl (repo : FilePath) : IO (Array String) :=
   child.kill
   discard child.wait
   failures := failures ++ expect "dead: a killed driver left no copy or no marker"
-    ((← dead.pathExists) && (← deadMarker.pathExists))
+    ((← Regula.Filesystem.isPresent dead) && (← Regula.Filesystem.isPresent deadMarker))
   let child ← IO.Process.spawn {
     cmd := "lean", args := #["--run", driver, "--copy-control"], cwd := some project
     env := scrubbedLeanPathEnv, stdin := .piped, stdout := .piped, stderr := .inherit }
   let (input, child) ← child.takeStdin
   let copy := FilePath.mk (← answer child.stdout)
   failures := failures ++ expect "dead: the next driver did not remove the copy of a dead driver"
-    (!(← dead.pathExists) && !(← deadMarker.pathExists) && (← copy.pathExists))
+    (!(← Regula.Filesystem.isPresent dead) && !(← Regula.Filesystem.isPresent deadMarker) &&
+      (← Regula.Filesystem.isPresent copy))
   IO.FS.createDirAll (copy / ".lake" / "build")
   IO.FS.writeFile (copy / ".lake" / "build" / "made.txt") "made in the copy"
   input.putStrLn "adopt"
   input.flush
   failures := failures ++ expect "adopt: a project with no build output did not get the copy's"
     ((← answer child.stdout) == "adopted" &&
-      (← (build / "made.txt").pathExists) && !(← (copy / ".lake" / "build").pathExists))
+      (← Regula.Filesystem.isPresent (build / "made.txt")) &&
+      !(← Regula.Filesystem.isPresent (copy / ".lake" / "build")))
   input.putStrLn "remove"
   input.flush
   failures := failures ++ expect "remove: the driver did not end with exit code 0 after adopt"
-    ((← child.wait) == 0 && !(← copy.pathExists))
+    ((← child.wait) == 0 && !(← Regula.Filesystem.isPresent copy))
   -- 4. The site artifact of an earlier run. The attempt removes `_site` only when it holds an
   -- artifact that a build of the site identifies (`siteRefusal`): a link there and a directory
   -- that holds anything else keep what they hold.
@@ -3925,7 +3928,8 @@ private def driverCopyControl (repo : FilePath) : IO (Array String) :=
     scrubbedLeanPathEnv
   failures := failures ++ expect "site: a link at _site was followed or removed"
     (!stopped.succeeded && stopped.output.contains "so the attempt removes nothing" &&
-      (← (marked / "kept.txt").pathExists) && (← site.symlinkMetadata).type == .symlink)
+      (← Regula.Filesystem.isPresent (marked / "kept.txt")) &&
+      (← site.symlinkMetadata).type == .symlink)
   Regula.Filesystem.removePath .link site
   IO.FS.createDirAll (site / "pages")
   IO.FS.writeFile (site / "pages" / "old.html") "an earlier artifact"
@@ -3933,13 +3937,13 @@ private def driverCopyControl (repo : FilePath) : IO (Array String) :=
     scrubbedLeanPathEnv
   failures := failures ++ expect "site: a directory that holds no build.json was removed"
     (!kept.succeeded && kept.output.contains "holds neither a build.json" &&
-      (← (site / "pages" / "old.html").pathExists))
+      (← Regula.Filesystem.isPresent (site / "pages" / "old.html")))
   IO.FS.writeFile (site / "build.json")
     "{\"schemaVersion\":2,\"site\":\"seed\",\"producerVersion\":\"0.0.0\"}\n"
   let removed ← runProcess project "lean" #["--run", driver, "--begin-attempt", "site"]
     scrubbedLeanPathEnv
   failures := failures ++ expect "site: an earlier artifact was not removed"
-    (removed.succeeded && !(← site.pathExists))
+    (removed.succeeded && !(← Regula.Filesystem.isPresent site))
   -- 5. Files that are not documents of Regula at the corpus receipt and at the acceptance link,
   -- which the begin-attempt of the first acceptance step marks: it refuses each and keeps its
   -- bytes.
@@ -3994,8 +3998,8 @@ private def retainedBuildControl (repo : FilePath) : IO (Array String) :=
       "  leanOptions := #[⟨`autoImplicit, false⟩, ⟨`relaxedAutoImplicit, false⟩,\n" ++
       "    ⟨`linter.missingDocs, true⟩]\n" ++ observerPluginLean ++
       s!"\nrequire regula from {(Json.str repo.toString).compress}\n\n" ++
-      "lean_lib Solo where\n  globs := #[.submodules `Solo]\n" ++ observerNeedLean ++
-      "\nlean_lib Extra where\n  globs := #[.submodules `Extra]\n" ++ observerNeedLean ++ facet
+      observedTargetLean .library "Solo" "  globs := #[.submodules `Solo]\n" ++ "\n" ++
+      observedTargetLean .library "Extra" "  globs := #[.submodules `Extra]\n" ++ facet
   IO.FS.writeFile (Manifest.defaultPath project) <|
     "{\"schema-version\":2,\"surfaces\":[{\"library\":\"Solo\",\"executables\":[]," ++
       "\"claim\":\"standard-logical\",\"execution\":\"report\"," ++
@@ -4040,7 +4044,7 @@ private def retainedBuildControl (repo : FilePath) : IO (Array String) :=
   let build := project / ".lake" / "build"
   let mut artifacts := #[]
   for part in ["lib", "ir"] do
-    unless ← (build / part).isDir do continue
+    unless ← Regula.Filesystem.isDirectory (build / part) do continue
     for path in ← Regula.Filesystem.Construction.walkDirectory (build / part) do
       if (← path.symlinkMetadata).type == .file then
         artifacts := artifacts.push ("/".intercalate
@@ -4397,12 +4401,12 @@ private def taskManagerControl (repo : FilePath) : IO (Option String) :=
           (value.getObjValAs? String "outcome").toOption == some "PASS" }
     let positive := selfHostedDigestPath project .positive
     let selfHosted : Seeded :=
-      { path := positive, marked := fun _ => do return !(← positive.pathExists),
+      { path := positive, marked := fun _ => do return !(← Regula.Filesystem.isPresent positive),
         seed := do
           if let some parent := positive.parent then IO.FS.createDirAll parent
           IO.FS.writeFile positive (digest ++ "\n"),
         completed := do
-          unless ← positive.pathExists do return false
+          unless ← Regula.Filesystem.isPresent positive do return false
           return (← IO.FS.readFile positive) == digest ++ "\n" }
     IO.FS.writeFile (scratch / "request.json") request.compress
     -- The request of the declaration-report worker names the file where the worker publishes its
@@ -4412,7 +4416,7 @@ private def taskManagerControl (repo : FilePath) : IO (Option String) :=
       { path := publish, marked := fun _ => markedWith publish "reason" reason,
         seed := writeJson publish (toJson emptyAdmission),
         completed := do
-          unless ← publish.pathExists do return false
+          unless ← Regula.Filesystem.isPresent publish do return false
           let read : Except String Admission.Completed :=
             (PolicyCodec.parse (← IO.FS.readFile publish)).bind fromJson?
           return read.isOk }
@@ -4425,7 +4429,7 @@ private def taskManagerControl (repo : FilePath) : IO (Option String) :=
     -- that is publishable (`Regula.Site.Deployment.gate`).
     let site := scratch / "site"
     let artifact : Seeded :=
-      { path := site, marked := fun _ => do return !(← site.pathExists),
+      { path := site, marked := fun _ => do return !(← Regula.Filesystem.isPresent site),
         seed := do
           IO.FS.createDirAll site
           writeJson (site / "build.json") (Json.mkObj [("schemaVersion", toJson (2 : Nat)),
@@ -4492,9 +4496,10 @@ private def taskManagerControl (repo : FilePath) : IO (Option String) :=
           {result.output}"
       for destination in destinations do
         unless (← destination.marked result.stderr) && !(← destination.completed) do
-          let held ← if ← destination.path.isDir then pure "a directory"
-            else if ← destination.path.pathExists then IO.FS.readFile destination.path
-            else pure "nothing"
+          let held ← match ← Regula.Filesystem.metadataIfPresent destination.path with
+            | some { type := .dir, .. } => pure "a directory"
+            | some _ => IO.FS.readFile destination.path
+            | none => pure "nothing"
           return some s!"task manager: {program} {args} with LEAN_NUM_THREADS=0 left \
             {destination.path} without the incomplete mark and the reason, or admitted as \
             completed; it holds {held}"
@@ -4560,9 +4565,9 @@ linked result keeps its bytes.
 The processes and Lean's runtime are its subject, an external boundary: it observes
 this build's programs and proves nothing.
 
-Assumes: Lean 4.34.1's `Lean.findSysroot` returns `LEAN_SYSROOT` when it is set, and otherwise runs
-`lean --print-prefix` and fails when that run fails (`src/lean/Lean/Util/Path.lean:180-187`).
-Trusted: the runtime finds a command given by a bare name, such as `lean` or `timeout`, only in
+The programs find the toolchain with `Regula.CompilerObservation.findSysroot`, which returns
+`LEAN_SYSROOT` when it is set, and otherwise runs `lean --print-prefix` and fails when that run
+fails. Trusted: the runtime finds a command given by a bare name, such as `lean` or `timeout`, only in
 the directories of `PATH`; its process code is not among the toolchain's sources. Trusted: GNU
 coreutils `env`, run under the name `timeout`, prints GNU coreutils for `--version` and ends with
 its own failure status 125 at the option `--signal=KILL`, naming that option on standard error.
@@ -4632,7 +4637,7 @@ private def earlyStopControl (repo : FilePath) : IO (Option String) :=
         completed := shardAdmitted (scratch / "rule-examples.json") }
     let site := scratch / "site"
     let artifact : Seeded :=
-      { path := site, marked := fun _ => do return !(← site.pathExists),
+      { path := site, marked := fun _ => do return !(← Regula.Filesystem.isPresent site),
         seed := do
           IO.FS.createDirAll site
           writeJson (site / "build.json") (Json.mkObj [("schemaVersion", toJson (2 : Nat)),
@@ -4656,7 +4661,7 @@ private def earlyStopControl (repo : FilePath) : IO (Option String) :=
       for name in names do
         for directory in ((← IO.getEnv "PATH").getD "").splitOn ":" do
           let candidate := FilePath.mk directory / name
-          if found.isNone && !directory.isEmpty && (← candidate.pathExists) then
+          if found.isNone && !directory.isEmpty && (← Regula.Filesystem.isPresent candidate) then
             if let .ok version ← (runProcess scratch candidate.toString #["--version"]).toBaseIO then
               if version.exitCode == 0 && accepted version.stdout then
                 found := some candidate
@@ -4756,9 +4761,10 @@ private def earlyStopControl (repo : FilePath) : IO (Option String) :=
           {(code.map toString).getD "other than 0"} (exit {result.exitCode}):\n{result.output}"
       for destination in destinations do
         unless (← destination.marked result.stderr) && !(← destination.completed) do
-          let held ← if ← destination.path.isDir then pure "a directory"
-            else if ← destination.path.pathExists then IO.FS.readFile destination.path
-            else pure "nothing"
+          let held ← match ← Regula.Filesystem.metadataIfPresent destination.path with
+            | some { type := .dir, .. } => pure "a directory"
+            | some _ => IO.FS.readFile destination.path
+            | none => pure "nothing"
           return some s!"early stop: {program} {args} left {destination.path} without the \
             incomplete mark and the reason, or admitted as completed; it holds {held}\n\
             {result.output}"
@@ -4794,7 +4800,7 @@ private def earlyStopControl (repo : FilePath) : IO (Option String) :=
     let receipted ← IO.FS.readBinFile receipt
     let shellPath := "/usr/bin:/bin"
     for directory in ["/usr/bin", "/bin"] do
-      if ← (FilePath.mk directory / "lean").pathExists then
+      if ← Regula.Filesystem.isPresent (FilePath.mk directory / "lean") then
         return some s!"early stop: {directory} holds lean, so the wrapper's PATH {shellPath} \
           cannot leave it out"
     let stopped ← runProcess wrapper "/bin/bash"
@@ -4883,13 +4889,14 @@ private def earlyStopControl (repo : FilePath) : IO (Option String) :=
     -- The report worker's published admission, which the request names, is a destination of its
     -- own: the refused worker marks it, and the reader of an admission must refuse the mark.
     let publishRefused : IO Bool := do
-      unless ← publish.pathExists do return true
+      unless ← Regula.Filesystem.isPresent publish do return true
       let some marked ← parsedAt publish | return false
       let read : Except String Admission.Completed := fromJson? marked
       return (marked.getObjValAs? String "status").toOption == some "incomplete" && !read.isOk
     for (program, path, args, code, phrase, files) in aliases do
       let held : IO (List (Option ByteArray)) := files.mapM fun file => do
-        if ← file.pathExists then return some (← IO.FS.readBinFile file) else return none
+        if ← Regula.Filesystem.isPresent file then return some (← IO.FS.readBinFile file)
+        else return none
       let before ← held
       let result ← runProcess repo path args (env := plain)
       unless result.exitCode == code && result.stderr.contains phrase &&
@@ -4897,7 +4904,7 @@ private def earlyStopControl (repo : FilePath) : IO (Option String) :=
         return some s!"early stop: {program} {args} was not refused with exit {code} and the \
           reason that holds \"{phrase}\", leaving {files} as they were and {publish} absent or \
           marked (exit {result.exitCode}):\n{result.output}"
-    unless ← publish.pathExists do
+    unless ← Regula.Filesystem.isPresent publish do
       return some s!"early stop: the refused report worker did not mark its published admission \
         {publish}"
     -- Two destinations that may be one entry, as on a file system that folds case: the run marks
@@ -4908,7 +4915,7 @@ private def earlyStopControl (repo : FilePath) : IO (Option String) :=
     let overlapping ← runProcess repo gate #["--json-out", lower.toString, "--acceptance-link",
       upper.toString] (env := plain)
     let marks ← [lower, upper].filterMapM fun path => do
-      if ← path.pathExists then return some (← parsedAt path) else return none
+      if ← Regula.Filesystem.isPresent path then return some (← parsedAt path) else return none
     unless overlapping.exitCode == configuration &&
         overlapping.stderr.contains "may name one entry" && !marks.isEmpty &&
         marks.all (·.any fun mark =>
@@ -4924,7 +4931,8 @@ private def earlyStopControl (repo : FilePath) : IO (Option String) :=
     let held ← IO.FS.readBinFile completed
     let refused ← runProcess repo gate #["--registry-out", escaping.toString] (env := plain)
     unless refused.exitCode == configuration && refused.stderr.contains "has a `..` component" &&
-        !(← absent.pathExists) && (← IO.FS.readBinFile completed).data == held.data do
+        !(← Regula.Filesystem.isPresent absent) &&
+        (← IO.FS.readBinFile completed).data == held.data do
       return some s!"early stop: axiomGate with --registry-out {escaping} was not refused before \
         it made {absent} (exit {refused.exitCode}):\n{refused.output}"
     -- A destination whose last component names no file, `new/` or `new/.`, names a directory and
@@ -4934,7 +4942,7 @@ private def earlyStopControl (repo : FilePath) : IO (Option String) :=
     for named in [s!"{unnamed}/", s!"{unnamed}/."] do
       let refused ← runProcess repo gate #["--registry-out", named] (env := plain)
       unless refused.exitCode == configuration && refused.stderr.contains "names no file" &&
-          !(← unnamed.pathExists) do
+          !(← Regula.Filesystem.isPresent unnamed) do
         return some s!"early stop: axiomGate with --registry-out {named} was not refused by its \
           name before it made {unnamed} (exit {refused.exitCode}):\n{refused.output}"
     -- A directory at the `--out` of `site build` that holds something other than an artifact of a
@@ -5177,9 +5185,9 @@ private def combinedSnapshotQualification (repo : FilePath) : IO (Array String) 
     IO.FS.writeFile (project / "lakefile.toml") <|
       "name = \"snapshot_control\"\n" ++ observerPluginToml ++
         "[leanOptions]\nautoImplicit = false\n" ++
-        "relaxedAutoImplicit = false\nlinter.missingDocs = true\n[[lean_lib]]\nname = \
-          \"Snapshot\"\n" ++ observerNeedToml ++
-        "[[lean_lib]]\nname = \"Companion\"\n" ++ observerNeedToml ++
+        "relaxedAutoImplicit = false\nlinter.missingDocs = true\n" ++
+        observedTargetToml .library "Snapshot" ++
+        observedTargetToml .library "Companion" ++
         regulaRequireToml repo
     IO.FS.writeFile (Manifest.defaultPath project)
       "{\"schema-version\":2,\"surfaces\":[{\"library\":\"Snapshot\",\"executables\":[],\"claim\":\

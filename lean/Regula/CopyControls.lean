@@ -60,7 +60,7 @@ run_cmd do
       unless (← readFile (selectedCopy / "plain")) == "ordinary" do
         throw <| IO.userError "cold project copy lost ordinary source bytes"
       for directory in [".lake", ".cache", "tmp"] do
-        unless !(← (selectedCopy / directory / "stale").pathExists) do
+        unless !(← Regula.Filesystem.isPresent (selectedCopy / directory / "stale")) do
           throw <| IO.userError "cold project selection included an unselected pruned sibling"
       fixture "ln" #["-s", "../plain", (policies / ".cache/link").toString]
       refused "selected policy link" "selected entry is not a regular file" <|
@@ -70,7 +70,7 @@ run_cmd do
       refused "selected policy ancestor link" "selected ancestor is not a directory" <|
         discard <| Construction.sourceMain
           ["project", policies.toString, (base / "selected-ancestor-output").toString, ".cache/ancestor/plain"]
-      if ← (policies / ".CACHE/POLICY.json").pathExists then
+      if ← Regula.Filesystem.isPresent (policies / ".CACHE/POLICY.json") then
         let foldedCopy := base / "folded-policy-copy"
         discard <| Construction.sourceMain
           ["project", policies.toString, foldedCopy.toString, ".CACHE/POLICY.json"]
@@ -113,7 +113,7 @@ run_cmd do
         [⟨["vendor"], .file "never follows the link".toUTF8⟩]).toBaseIO
       unless output matches .error _ do
         throw <| IO.userError "exclusive creation followed an occupied final link"
-      unless !(← (base / "absent").pathExists) do
+      unless !(← Regula.Filesystem.isPresent (base / "absent")) do
         throw <| IO.userError "exclusive creation wrote through a dangling link"
       -- Case aliases must collide at exclusive creation on a folding filesystem. Distinct
       -- spellings remain valid distinct entries on a case-sensitive filesystem.
@@ -148,7 +148,8 @@ run_cmd do
       let target := base / "git-target"
       discard <| Construction.copyGit source target
       unless (← readFile (target / ".lake/build/lib/Cached.olean")) == "reusable build output" &&
-          !(← (target / ".lake/cache").pathExists) && !(← (target / "untracked").pathExists) do
+          !(← Regula.Filesystem.isPresent (target / ".lake/cache")) &&
+          !(← Regula.Filesystem.isPresent (target / "untracked")) do
         throw <| IO.userError "Git copy did not retain exactly its reusable untracked build outputs"
       unless (← observeMetadata (target / "tracked-link")).type == .file &&
           (← readBytes (target / "tracked-link")) == "plain".toUTF8 do
@@ -189,6 +190,22 @@ run_cmd do
         discard <| Construction.copyGit source (base / "extension-output")
       fixture "git" #["-C", source.toString, "config", "--unset", "extensions.worktreeConfig"]
       removeOwn .file (source / ".git/config.worktree")
+      -- Git exits 1 for a configuration file it cannot open, as for one with no such setting, so
+      -- each of these is refused only by the read that comes before Git.
+      Construction.appendFileWith Construction.observer (source / ".git") "locked-config" .empty
+      fixture "chmod" #["000", (source / ".git/locked-config").toString]
+      for (label, name, needle) in [("absent", "absent-config", "no such file or directory"),
+          ("unreadable", "locked-config", "permission denied")] do
+        let config := (source / ".git" / name).toString
+        let out ← Construction.gitOutput source
+          #["config", "--file", config, "--no-includes", "--name-only", "--get-regexp", "^core\\."]
+        unless out.exitCode == 1 do
+          throw <| IO.userError s!"{label} Git configuration: Git exited {out.exitCode}"
+        refused s!"{label} Git configuration" needle <|
+          Construction.admitGitConfig source config
+      refused "Git configuration directory" "not a regular file" <|
+        Construction.admitGitConfig source (source / ".git")
+      removeOwn .file (source / ".git/locked-config")
       let other := base / "other"
       construct other [⟨["plain"], .file "another repository".toUTF8⟩]
       fixture "git" #["-C", other.toString, "init", "--quiet"]
@@ -305,10 +322,10 @@ def checkWorkspace : IO Unit := do
         ⟨["vendor", "stale"], .file "recorded by no package, so copied as project source".toUTF8⟩]))
       let target := base / "copied"
       let result ← Regula.Checker.Lake.copyProject source target target
-      unless (← (result.project / "vendor/stale").pathExists) &&
+      unless (← Regula.Filesystem.isPresent (result.project / "vendor/stale")) &&
           (← IO.FS.readFile (result.project / "lake-manifest.json")) == manifest do
         throw <| IO.userError "copy lost an unrecorded vendor entry or used a manifest other than Lake's"
-      unless !(← (result.project / ".lake/package-overrides.json").pathExists) do
+      unless !(← Regula.Filesystem.isPresent (result.project / ".lake/package-overrides.json")) do
         throw <| IO.userError "empty dependency graph changed captured configuration presence"
       Regula.Checker.Workspace.withRootWorkspace result.project fun ws => do
         unless ws.relPkgsDir == "vendor" &&
@@ -343,6 +360,9 @@ def checkWorkspace : IO Unit := do
       IO.println "construction external manifest: incremental audit incomplete as unobserved, exact external account PASS"
       -- A fresh audit relocates a project-contained absolute selection. Qualification consumes
       -- the actual public result and request, rather than a duplicated expected-account model.
+      -- `.git/policy.json` makes `.git` a directory with nothing at its `HEAD`, `objects` and
+      -- `refs`. The observer's reads of `Checker.gitWorkTree` establish that Git finds no
+      -- repository there, for the reasons its `Assumes:` entries cite, so Git does not run.
       let policies := ["foundation_manifest.json", ".lake/policy.json", "tmp/policy.json",
           ".cache/policy.json", ".regula-scratch/policy.json", "nested/.cache/policy.json",
           ".git/policy.json", "policy.olean"]
@@ -350,7 +370,7 @@ def checkWorkspace : IO Unit := do
         let path := source / selected
         Construction.appendFileWith Construction.observer (path.parent.getD source)
           (path.fileName.getD "policy.json") policy.toUTF8
-      let policies := if ← (source / ".CACHE/POLICY.json").pathExists then
+      let policies := if ← Regula.Filesystem.isPresent (source / ".CACHE/POLICY.json") then
           policies ++ [".CACHE/POLICY.json", ".LAKE/policy.json"]
         else policies
       for selected in policies do
@@ -381,7 +401,7 @@ def checkWorkspace : IO Unit := do
         unless requested.contains (selected, some policy) && actual.contains (selected, some policy) do
           throw <| IO.userError s!"selected policy {selected} lost its requested path or bytes"
       IO.println "construction selected manifest: fresh audits incomplete as unobserved, exact configuration accounts PASS"
-      if ← (source / "VENDOR").isDir then
+      if ← Regula.Filesystem.isDirectory (source / "VENDOR") then
         -- A deliberate configuration mutation exercises Lake's stored-spelling boundary.
         IO.FS.writeFile (source / "lakefile.lean") (lakefile.replace "vendor" "VENDOR")
         -- Two admitted moves change the stored spelling without treating the case alias as
@@ -389,7 +409,7 @@ def checkWorkspace : IO Unit := do
         replacePath (source / "lake-manifest.json") (source / "manifest-renaming")
         replacePath (source / "manifest-renaming") (source / "LAKE-MANIFEST.JSON")
         let folded ← Regula.Checker.Lake.copyProject source (base / "folded") (base / "folded")
-        unless (← (folded.project / "vendor/stale").pathExists) &&
+        unless (← Regula.Filesystem.isPresent (folded.project / "vendor/stale")) &&
             (← Regula.Filesystem.readFile (folded.project / "lake-manifest.json")) == manifest do
           throw <| IO.userError "case-folded packages or manifest location was not retained correctly"
       IO.println "construction workspace: configured packagesDir and captured manifest PASS"
@@ -437,9 +457,10 @@ def checkWorkspace : IO Unit := do
             (← readFile copiedPolicy) == policy &&
             result.selection.dependencies.any (fun dependency =>
               dependency.package == "trusted" && !dependency.owned) &&
-            !(← (result.project / packages / "trusted").pathExists) &&
+            !(← Regula.Filesystem.isPresent (result.project / packages / "trusted")) &&
             -- An entry that no package records is copied, unless a name such as `.lake` excludes it.
-            (← (result.project / packages / "stale").pathExists) == (packages == "vendor") do
+            (← Regula.Filesystem.isPresent (result.project / packages / "stale")) ==
+              (packages == "vendor") do
           throw <| IO.userError "owned package copy lost its selected policy or an unrecorded \
             packages entry, or kept a recorded trusted checkout"
         let inventory ← Regula.Checker.Lake.surfaceInventory result.project

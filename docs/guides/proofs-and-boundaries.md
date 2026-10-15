@@ -740,6 +740,8 @@ Assumes: Git `2.54.0` reads command-scope configuration after local and worktree
 
 Assumes: Git `2.54.0` decodes configuration keys through its own decoder (`builtin/config.c:74-104,487-591,1264-1266`, `config.c:1492-1523`). No matching key gives exit 1. The adapter refuses an extension setting even when its value is false.
 
+Assumes: Git `2.54.0` also gives exit 1 for a configuration file that it cannot open (`builtin/config.c:583-585,609`, `config.c:1382-1398,1607-1609`, `wrapper.c:401-420`). The adapter first reads the whole file, which must be a regular file. It admits exit 1 only with no output.
+
 Assumes: Git `2.54.0` resolves metadata paths through `--git-path` (`builtin/rev-parse.c:752-759,776-785`). Its path resolver selects the effective object store (`path.c:375-376`).
 
 Assumes: Git `2.54.0` resolves pointer files and common directories (`builtin/rev-parse.c:723-731`, `setup.c:303-324`). All captured metadata has no writer.
@@ -989,7 +991,7 @@ is refused, because the entry would depend on what the run makes. So is a prefix
 resolved, with the error of each read. Otherwise the entry is exactly that real path and those
 names, and the check and the move act on that entry.
 
-The verification driver imports only Lean, so it has its own code that writes its acceptance link
+The verification driver imports only the toolchain, so it has its own code that writes its acceptance link
 and its rule-example evidence. In `RegulaVerification.Decisions`, five theorems prove that its pure
 decisions are those of the programs. They are `regulaDocument_shared`, `plainNames_shared`,
 `ownershipDecision_shared`, `holdsSiteArtifact_shared` and `siteArtifactDecision_shared`. The
@@ -1731,7 +1733,7 @@ other rules still check it.
 | `executionFindings`, `executionFailures`, `executionSummary`, `toolchainBase` | `checked_executionFailures` (line `k` renders finding `k`, none added or dropped, so the lines are empty iff `ExecutionOK`), `executionRule_injective`, `checked_summary` (the boundary counts range over the boundaries reported on their own: a later record of one trusted boundary of a root, and a `partial` implementation reported with the boundary that runs it, are counted with that boundary, not again), `checked_toolchainBase` | Root collection, retained compiler edges, correspondence admission, source history, module origins and the text and JSON rendering of the toolchain trusted base. The records of the execution walk are observed. `ExecutionWalk.assemble_account` states the account that `assemble` builds from them, the unresolved paths included. |
 | `Probe.replacementCorrespondence` | `DefeqComparison.classify` of `DefeqComparison.ofAttempt` (an attempt that the kernel did not decide, or that raised an error, is unresolved and not trusted) | The kernel decision itself, the record of its answer (`Probe.kernelAnswer`), the capture of an error (`Probe.comparison`) and the incomplete theorem-candidate search. Lean's Core-based monads rethrow a runtime resource exception or an interruption. Such an exception records no comparison and stops the report. |
 | `Checker/Common.admitIndexedWorkerResults`, `mapWorkQueue`, `Documentation.auditTasks` | `checked_indexedResults` over `ResultState.collect` | Child completion, strict packet decoding, task scheduling and exact request and source binding. |
-| `Documentation.sharedPinMismatch`, `Documentation.captureVersoPackage`, `Lake.surfaceInventoryOf`, `Lake.copyProject`, `Lake.relocateDependencies` | `LakeSelection.agrees_fields` (an agreeing package has the entry's directory, manifest and, unless Lake's load wrote the entry, remote URL, and a configuration among its candidates), `LakeSelection.lastEntry_eq_some` and `LakeSelection.effectiveEntry_eq_some` (Lake's entry for a name is the last one), `LakeSelection.pinMismatch_eq_none` (no mismatch exactly when the two workspaces pin alike each package that the two pin by Git), `LakeSelection.ownRootFiles_lake` (the files read are those of the workspace a package roots), `LakeSelection.rootConfigFile_lake` (the Verso package's configuration name is the one that Lake's load gives it), `LakeSelection.lakeInputs_cover` (the capture binds the configuration candidates, the recorded manifest and the pin check's files, except the accepted project's overrides file, which acceptance binds) | Lake's load of the workspace, Lake's manifest reader and the files read. The Lake facts that the `Assumes:` entries cite, and the copies of Lake's rules in `LakeSelection` that they name. That no process writes the manifest or the overrides file during one check is trusted. |
+| `Documentation.sharedPinMismatch`, `Documentation.captureVersoPackage`, `Lake.surfaceInventoryOf`, `Lake.copyProject`, `Lake.relocateDependencies`, `Site/Build.versoRevision` | `LakeSelection.agrees_fields` (an agreeing package has the entry's directory, manifest and, unless Lake's load wrote the entry, remote URL, and a configuration among its candidates), `LakeSelection.lastEntry_eq_some` and `LakeSelection.effectiveEntry_eq_some` (Lake's entry for a name is the last one), `LakeSelection.pinMismatch_eq_none` (no mismatch exactly when the two workspaces pin alike each package that the two pin by Git), `LakeSelection.ownRootFiles_lake` (the files read are those of the workspace a package roots), `LakeSelection.rootConfigFile_lake` (the Verso package's configuration name is the one that Lake's load gives it), `LakeSelection.lakeInputs_cover` (the capture binds the configuration candidates, the recorded manifest and the pin check's files, except the accepted project's overrides file, which acceptance binds) | Lake's load of the workspace, Lake's manifest reader and the files read. The Lake facts that the `Assumes:` entries cite, and the copies of Lake's rules in `LakeSelection` that they name. That no process writes the manifest or the overrides file during one check is trusted. |
 | `Checker/FenceScan.scanLines`, `scanVersoLines`, `matchesPattern` | `checked_scanLines`, `checked_scanVersoLines` (no violation exactly for a clean document), `fence_of_leanShaped`, `example_of_leanShaped` (a returned fence for each line of Lean shape), `scanLines_fence`, `scanVersoLines_fence`, `Scanned.bytes` (where each returned fence lies, and the bytes of its ranges), `toList_linesOf` (the lines of a text), `scanLines_marker` (a Lean fence after a marker line carries that marker, in a clean document), `matchesPattern` | Pattern diagnostic text and effective-error extraction. |
 | `AxiomGate.auditSurfaceAt`, `FreshChecker`, the file gate | `checked_surfaceAssignments` (with `surfaceAssignments_covers`), `checked_conformingProfile`, `checked_histories`, `checked_environmentJob`, `checked_environmentEvidence` (claimed `RegulaCore.Assembly`) | Manifest parsing, Lake loading and producer history; the contracts concern the decoded records. |
 | `Checker/Acceptance.finish`, `Documentation.finishDocuments`, `FreshChecker.finishGraph` | `finalize`, `finalize_iff`, `accepted_report_identity`, `accepted_covers_slot` | The independently supplied census and the truth of the observations; each finalizer supplies all derived jobs and returns `AcceptedRun`. |
@@ -2010,7 +2012,8 @@ Which report states a kind depends on the library that holds the registration:
   and `checked_read` (`Regula.SharedExecution`), `checked_intern` and `checked_expand`
   (`Regula.SourceTexts`), `checked_parseLocation` and
   `checked_parseDiagnostic` (`Regula.DiagnosticCodec`),
-  `checked_exactFields` (`Regula.Checker.PolicyCodec`), `checked_scanLines` and
+  `checked_exactFields` (`Regula.Checker.PolicyCodec`), `checked_printedPrefix?` and
+  `checked_compilerPrintedLine?` (`Regula.Checker.Common`), `checked_scanLines` and
   `checked_scanVersoLines` (`Regula.Checker.FenceScan`), `checked_parseMode` and `checked_parseRule`
   (`Regula.RegistryCodec`), `checked_parseName` and `checked_parsePrintedNameJson`
   (`Regula.StructuralName`), `checked_checkCopies`, `checked_checkHeader`,
@@ -2081,7 +2084,9 @@ Two-way decisions (`Regula.Decides`), each with an accepted and a refused input:
 | `RegulaQualification.evaluate`, `validateDecoded`, `Registry.validate`, `Native.validate`, `Launcher.equivalent` | `Satisfied` and their `_exact` relations | Qualification evidence. |
 | `AuditApp.admit`, `AuditApp.grant`, `AuditApp.runChecked` | Positive capacity, a free slot, `Fits` | The example application (standard §3.7). |
 | `RegulaProvision.mathlibStep` (accepts on `.keep`), `component?`, `retires`, `mathlibApplies` | The path already links the shared checkout (`mathlibStep_keep_iff`); the text is one path component (`IsComponent`, which `isComponent_iff` connects to the test `isComponent`); a registered link still links its shared directory, is the copy's retired link and is not the link the run provisions (`retires_iff`); the root and integration toolchain selectors are equal (`mathlibApplies_iff`) | Local provisioning: keeping Mathlib's link, admitting directory names as single path components, retiring registered links, and the integration preflight. |
+| `RegulaProvision.selectPins` (accepts on `.ok (some _)`) | `Shareable`: the manifest records a packages directory. Each path entry that Lake selects is Regula's own entry for `regula`, at the root being provisioned. Lake selects a Git entry for `mathlib`, and the Git pins are admissible (`PinsAdmissible`). No pin names a subdirectory, and the commit is a full commit name. The URL can be quoted in a TOML basic string, and the checkout directories are distinct path components (`selectPins_shares_iff`). | Local provisioning: the pins of the Mathlib integration package that it shares, as Lake's load selects them. |
 | `RegulaVerification.parseMode`, `select` | The argument list of a supported invocation (`parseMode_sound`, `parseMode_roundtrip`, and `select_exact` for `select`) | Argument selection of `scripts/verify.sh`. `select` returns the mode with the proof that the arguments are that mode's, so its kind is stated about `Regula.Dependent.isSome select`. |
+| `RegulaVerification.dependencyFree` | The root's manifest is there and records no package, and its package overrides file records none (`dependencyFree_iff`). | The first acceptance step refuses a root package that requires a package. |
 | `accept`, `finalize` (accept on `.ok`) | `CompleteFor` with `AllPolicyOK`; `InputsOK` (`accept_iff`, `finalize_iff`) | Acceptance of a result table and of a response sequence, for every claim, census, plan and role receipt. The type of each argument depends on an earlier one and the result type on all of them, so each kind is stated about `Regula.Dependent.isOk` of the function on a structure whose fields are the five arguments (`AcceptInput`, `FinalizeInput`). The witnesses are over `witnessPlan`, the plan of a documentation claim with no environment: the table collected from one completed observation of each of its three jobs is accepted, and the empty table and the empty response sequence are refused. |
 | `admitPlan` (accepts on `.ok`) | `PlanJobsOK`: the proof fields of `Plan` (`admitPlan_isOk_iff`) | Plan admission, for every claim and census, on the structure of the three arguments (`PlanInput`). It accepts the three required jobs of `witnessPlan` and refuses no jobs. |
 | `ResultState.insertResult`, `ResultState.collect`, `admitIndexedResults` (accept on `.ok`) | `InsertOK`, `BatchOK`, `IndexedResultsOK` (`insertResult_success_iff`, `collect_success_iff`, `admitIndexedResults_ok_iff`) | Result admission, for every key type, payload type, order, required set and binding relation: the types and instances are fields of the structure of the arguments (`InsertInput`, `CollectInput`, `IndexedResultsInput`). The first two are stated at their own universe parameters, with witnesses over the one-point type `PUnit`; the third takes a payload type of `Type`, with witnesses over `Unit`. |
@@ -2093,6 +2098,8 @@ Two-way decisions (`Regula.Decides`), each with an accepted and a refused input:
 | `Regula.Website.admitExampleRequest`, `admitExampleSources`, `admitDemonstration` (accept on `.ok`) | The observed request is the frozen one; `ExampleSourcesOK`; `DemonstrationOK` | Admission of a rule-example producer's request, sources and diagnostic demonstration. Each returns the admitted value with its proof, so each result type depends on the arguments. The first and the third are decided on the pair of their two arguments, and the second on the structure of its three (`ExampleSourcesInput`). |
 | `RegulaVerification.passed` | Each command of a step ended with exit status 0 (`passed_iff`). | The driver of `scripts/verify.sh` uses it before it operates one more command, before its success line and before it moves the acceptance record. |
 | `Construction.projectRelative` | No root `tmp`. Documentation includes cache-named directories. Elsewhere no component is `.git`, `.lake`, `.cache` or `.regula-scratch` (`checked_projectRelative`). | The selection that the shared cold constructor executes. The constructor's filesystem theorems name their primitive hypotheses. |
+| `Construction.admitGitName` (accepts on `.ok ()`) | The name is one of the stored directory-entry names, compared exactly (`admitGitName_iff`, `checked_admitGitName`). | The exact-name guard of each component of an index path that the Git adapter copies (`admitGitPath`). |
+| `Construction.printedLine?`, `Construction.printedPath?`, and their copies `CompilerObservation.printedLine?` and `printedPrefix?` (accept on `some`) | `PrintedLine`, `PrintedPath`: the text is one line followed by one newline, and for `PrintedPath` that line is an absolute path. The line is not empty and holds no newline, carriage return or NUL (`checked_printedLine?`, `checked_printedPath?`). Each copy is the same function (`printedLine?_eq_printedLine?`, `printedPrefix?_eq_printedPath?`). | The reads of a printed path or line in `Construction.gitPath`, `Checker.gitWorkTree`, `Launcher.resolvedLean`, `printedLeanPath`, `Toolchain.selectedLean` and `CompilerObservation.findSysroot`. |
 | `RegulaVerification.removal` (accepts on `.remove`) | A directory is at the place by a read that follows no link, and its real path is the place (`removal_remove_iff`). | The driver removes its copy and the `_site` directory only by this decision. The two reads of the file system are trusted. |
 | `Regula.Removal.removal` (accepts on `.remove`) | A read that follows no link finds an entry of the given kind at the place. Its real path is the place, or a symbolic link is a name in a directory at its own place (`removal_remove_iff`). | Each program of the package removes a directory, a file or a symbolic link only by this decision, through `Regula.Filesystem`. The exceptions are the library calls that `Regula.Removal.libraryRemovals` gives, and the removals of the two drivers that `Regula.ProgramCheck.Verification` and `Regula.ProgramCheck.Provision` give. The removals of `bv_decide` that `Regula.Removal.tacticRemovals` gives are also exceptions. The reads of the file system are trusted. |
 | `Regula.Removal.replacement` (accepts on `true`) | A read that follows no link finds a file at the source, at its own place. Nothing is at the destination, or a file is there at its own place. The destination is a name in a directory at its own place (`replacement_iff`). | Each program of the package moves a file only by this decision, through `Regula.Filesystem`. The exceptions are the library calls that `Regula.Removal.libraryRemovals` gives, and the moves of the two drivers that `Regula.ProgramCheck.Verification` and `Regula.ProgramCheck.Provision` give. The operation `Regula.Filesystem.moveAside` also moves an entry with no such decision, into a new directory beside it. The reads of the file system are trusted. |
@@ -2112,7 +2119,6 @@ Sound only, each a declared choice:
 | `Regula.Checker.ProducerReport.Environment.validate` | `Admissible` (`validate_sound`) | It may refuse an admissible report; `validate_eq_ok` is two-way against the guard Booleans, not against `Admissible`. |
 | `RegulaProvision.admits` | `Admitted`: the receipt records the requested revision and compiler, zero artifact policy and empty source, and holds no package at another revision than a pin (`admits_sound`) | It refuses an `Admitted` receipt of another schema version. |
 | `RegulaProvision.cloneStep` (accepts on `.replace`), `found` (accepts on a result other than `.foreign`), `prunes` | The path is a link or a clean Git checkout (`cloneStep_replace`); the directory's receipt names it (`found_identified`); the directory is not the current one and no registered copy links it (`prunes_sound`) | `cloneStep` keeps a clean checkout at the pinned revision; the program states no converse for the other two. |
-| `RegulaVerification.dependencyFree` | The lock manifest's `packages` array is present and empty (`dependencyFree_packages`) | The driver states no converse. |
 
 Complete only. A sound kind requires an input the function accepts, with a proof:
 
@@ -2132,7 +2138,7 @@ Decisions with no kind, and what stands instead:
 | `Regula.SharedExecution.restore?` | Its writer `internValue` chooses a written form by running the reader (`recovers`), so "a form the writer writes" is stated through `restore?` itself, and a kind's specification must not mention its implementation. | `restore?_internValue`, which holds for every value and proposal list, and the kind of `read`, the document reader that calls it. |
 | `labelOf`, `foundationFor`, `authorizedNativeAxioms`, `authorizedImportedNativeAxioms`, `authorizedNativeRoles`, `authorizedUnsafeRecHelpers`, `DefeqComparison.classify`, `DefeqComparison.ofAttempt`, `Regula.Checker.Lint.classify` | These classify into several classes or select a set; they do not accept or refuse an input. | Their exact-value theorems (`labelOf_iff`, `foundationFor_iff`, the `authorized…_iff` theorems, `classify_checked_iff` and its companions, `ofAttempt_checked_iff` and its companions, `ClassifyContract`). |
 | The other registered contracts (`checked_request`, `checked_rule`, `checked_subject`, `checked_account`, `checked_summary`, `checked_executionFailures` and the census assembly contracts) | Each fixes a computed value, such as a rendered line or an assembled record, not a verdict. `checked_executionFailures` renders `executionFindings`, which has a kind. | The registered requirement, reported with no kind. |
-| `RegulaProvision.isObjectName`, `isComponent` | `isObjectName` defines the written form that it admits, and no separate relation is stated for it. `IsComponent` states a path component over the text and its characters. The text is not empty. It does not start with a period. Each character is an ASCII letter, an ASCII digit, `-`, `_` or `.`. The theorem `isComponent_iff` connects it to the test `isComponent`. | `IsComponent` is the specification of the kind of `component?`. A reviewer examines if the written forms are the intended ones. |
+| `RegulaProvision.isObjectName`, `isComponent` | `IsObjectName` states a full commit name over the text and its characters. The text has 40 characters, and each is a decimal digit or a lowercase letter from `a` to `f`. The theorem `isObjectName_iff` connects it to the test `isObjectName`. `IsComponent` states a path component over the text and its characters. The text is not empty. It does not start with a period. Each character is an ASCII letter, an ASCII digit, `-`, `_` or `.`. The theorem `isComponent_iff` connects it to the test `isComponent`. | `IsComponent` is the specification of the kind of `component?`. `IsObjectName` is part of the specification of the kind of `selectPins` (`PinsAdmissible`). A reviewer examines if the written forms are the intended ones. |
 
 **Inputs with a proof field.** Issue [#270](https://github.com/rbeauchamp/regula/issues/270)
 changed how [RG1009] reads a specification over an input with a proof field. It asks which
@@ -2178,14 +2184,17 @@ imports only the toolchain:
 - `RegulaPolicy.Compiler` imports only `Init`, because the compiler guard elaborates it alone
   before the package is built, so `RegulaPolicy.Claim` registers `Compiler.accepts` and
   `Compiler.admitCapability`.
+- `Regula.CompilerObservation` imports only Lean's library, because the preparation driver runs
+  its source with the selected compiler, so `Regula.Checker.Common` registers its decoders
+  `printedLine?` and `printedPrefix?`.
 - Each standalone program runs with `lean --run` before the package is built, so its library has
   a second module that imports the program with `Regula.Contract` and `Regula.Decision`, and that
-  no program imports: `RegulaProvision.Decisions` registers `component?`, `admits`, `mathlibStep`, `cloneStep`, `found`, `prunes`, `retires` and
-  `mathlibApplies`;
+  no program imports: `RegulaProvision.Decisions` registers `component?`, `admits`, `mathlibStep`, `cloneStep`, `found`, `prunes`, `retires`,
+  `mathlibApplies` and `selectPins`;
   `RegulaVerification.Decisions` registers `parseMode`, `dependencyFree`, `select`, `passed`,
-  `removal` and `prebuildCovers`. The shared constructor registers `projectRelative` in `RegulaCore.CopyConstruction`.
-  Each kind restates a theorem the program proves about the same definition, except that of
-  `component?` (`checked_component`).
+  `removal` and `prebuildCovers`. The shared constructor registers `projectRelative`, `admitGitName`, `printedPath?` and `printedLine?` in `RegulaCore.CopyConstruction`.
+  Each kind restates a theorem the program proves about the same definition, except those of
+  `component?` and `selectPins` (`checked_component`, `checked_selectPins`).
 
 Deleting one of those contracts, such as `checked_compilerAccepts` or `checked_admits`, is then
 rejected under [RG1008] like any other registered decision's contract. The decisions below carry
@@ -4026,13 +4035,37 @@ is not byte equality. Dependency Git pins do not prove an unmodified checkout, s
 dirty and path state is recorded as an observation.
 
 The audit owns a dependency when its directory is in the Git work tree of the root package.
-`Lake.surfaceInventory` decides it with `ownedDirectory`: `git rev-parse --show-toplevel`, run
-without `GIT_DIR` and `GIT_WORK_TREE`, gives the same real directory for the two. **Proved:**
-`sameWorkTree_iff` (owned exactly when one known work tree holds the root package and the
-dependency), so a dependency in an unknown work tree, or of a root package outside each work tree,
-is not owned. **Trusted:** Git finds that work tree, and the filesystem resolves the real paths.
-A Git dependency that Lake clones has a work tree of its own, and so does a submodule, thus
-neither is owned.
+`Lake.surfaceInventory` decides it with `ownedDirectory`, which compares the work trees that
+`gitWorkTree` gives for the two directories. **Proved:** `sameWorkTree_iff` (owned exactly when one
+known work tree holds the root package and the dependency), so a dependency in an unknown work tree,
+or of a root package outside each work tree, is not owned. A Git dependency that Lake clones has a
+work tree of its own, and so does a submodule, thus neither is owned.
+
+`gitWorkTree` first reads at least each directory where Git looks for a repository. It reads the
+directory and each ancestor that the walk of Git can reach below the ceilings of
+`GIT_CEILING_DIRECTORIES` (`mem_discoveryDirectories`). It keeps only a ceiling that a read shows to
+be its own real path, which Git keeps too. Fewer ceilings only add directories
+(`discoveryDirectories_superset`).
+
+At each directory read, nothing may be at `HEAD`. Nothing may be at `.git` either, or `.git` is a
+directory with nothing at its `HEAD`, `objects` and `refs`. Then no repository can hold the
+directory, and `gitWorkTree` gives no work tree without running Git. The reads start at the
+directory and move toward the root, as the search of Git does. They stop at the first directory
+that fails this test. Each failure of these reads stops the audit.
+
+Otherwise `gitWorkTree` runs `git rev-parse --show-toplevel` in the directory, without `GIT_DIR`,
+`GIT_WORK_TREE` and `GIT_COMMON_DIR`, and with the same ceiling. It removes only the final newline
+from the path that Git prints (`checked_printedPath?`). Each failure of Git stops the audit with the
+report of Git. For a repository with an unreadable `HEAD`, Git reports that it found no
+repository, so that report is not read as absence either.
+
+Thus a repository that Git cannot read, such as one with an unreadable `HEAD` or `.git` file, is
+not taken as no repository. The walk of Git can stop sooner than the reads, at a ceiling that Regula
+leaves out or at the boundary of a file system. A repository past that point makes Git fail, so
+the audit stops there. **Trusted:** Git `2.54.0` looks for a repository only at directories among
+those, and only where such an entry is. `gitWorkTree` cites this from the source of Git.
+**Trusted:** the filesystem resolves the real paths, and no process changes them while the audit
+reads them.
 
 Ownership has a supported scope. Each audit, incremental or fresh, refuses two things before it
 builds the project or a copy. `checkDefaultLayout` refuses an owned package, the root package
@@ -6057,6 +6090,17 @@ execution, and calling a proved oracle does not prove the driver or its IO effec
   fixed parent and workspace invocation, separately for the imported-control search-path override;
   neither observations nor compiled artifacts are reused, environment values are not exported, and
   durations are observations, not a speed guarantee or compiler-equivalence theorem.
+- `checked_printedLine?` and `checked_printedPath?`: `Launcher.resolvedLean` and `printedLeanPath`
+  read the path that `which` prints and the `LEAN_PATH` that `printenv` prints with only the final
+  newline removed. `Toolchain.selectedLean` reads the path that Elan prints in the same way, and it
+  must be absolute. Each refuses other output. The output format of each program is trusted, as
+  the `Assumes:` entry of each reader cites it from the source of the program.
+- `printedPrefix?_eq_printedPath?`: `CompilerObservation.findSysroot` reads the absolute path that
+  `lean --print-prefix` prints with only the final newline removed, when `LEAN_SYSROOT` is not set.
+  Each reader of the toolchain's installation directory uses it, and so does the website's example
+  helper. Its decoder is a copy in a module that runs with Lean's library only, and the theorem
+  states that the copy is `printedPath?`. The compiler guard of the root `lakefile.lean` cannot
+  import Regula, so it keeps `Lean.findSysroot`. Its trim cannot cause a wrong acceptance.
 - `Template.instantiate`: the required `Maps` proof for the recursive JSON transformation (array
   order, object keys and scalar kinds preserved; only entire matching string values change;
   depth exhaustion refuses, and the corpus uses 64 levels). Checker snapshots discover modules
@@ -6064,9 +6108,9 @@ execution, and calling a proved oracle does not prove the driver or its IO effec
 - `RegulaVerification.parseMode_sound`, `parseMode_roundtrip` and `select_exact`: exact argument
   binding and acceptance of every documented invocation; the caller consumes the proof-bearing
   selection, and recipes name the intended commands explicitly; `commands_nonempty` rules out an
-  empty selected campaign; `dependencyFree_packages`: a root lock manifest that `dependencyFree`
-  accepts has an empty `packages` array. `RegulaVerification.Decisions` registers the kinds of
-  the driver's decisions ([above](#decisions-not-registered-with-regula_decision)). Process
+  empty selected campaign; `dependencyFree_iff`: `dependencyFree` accepts exactly a root with a
+  manifest and a package overrides file that record no package. `RegulaVerification.Decisions` registers
+  the kinds of the driver's decisions ([above](#decisions-not-registered-with-regula_decision)). Process
   execution remains IO.
 - The theorem `RegulaVerification.ordinary_places` gives the directory of each command of the
   first step. Three commands operate in the copy, and the gate starts in the root of the

@@ -66,7 +66,7 @@ def render (root : FilePath) (destination : FilePath) (revision : String) : IO
   let website := root / "website"
   Regula.Filesystem.removeOwn .directory destination
   for dir in [website / ".lake/build/lib/lean", website / ".lake/build/ir"] do
-    if ← dir.pathExists then
+    if ← Regula.Filesystem.isPresent dir then
       for entry in ← Regula.Filesystem.Construction.listDirectory dir do
         if entry.fileName.startsWith "RegulaStandard" then
           Regula.Filesystem.removeFound entry.path
@@ -377,22 +377,23 @@ def checkArtifact (root out : FilePath) (g : Generated) (tag : TagState)
 def releasePackage (root : FilePath) (v : ReleaseVersion) : FilePath :=
   root / "tmp/site-release" / releaseAsset v
 
-/-- Whether a regular file is at `path`, by a read that follows no link. -/
+/-- Whether a regular file is at `path`, by a read that follows no link
+(`Regula.Filesystem.entryIfPresent`): `false` when another kind of entry or nothing is there, and
+every other failure of the read is thrown. -/
 private def regularFile (path : FilePath) : IO Bool := do
-  match ← (Regula.Filesystem.observeMetadata path).toBaseIO with
-  | .ok metadata => return metadata.type == .file
-  | .error _ => return false
+  return (← Regula.Filesystem.entryIfPresent path) == some .file
 
 /-- Whether the directory `out` holds an artifact of a build or one that a build assembles
 (`holdsSiteArtifact`): the marker of an assembly (`siteAssemblingMarker`), or a `build.json` that
 identifies a build (`identifiesSiteBuild`), each a regular file by a read that follows no link. A
-`build.json` that cannot be read as text identifies nothing. It lists no directory, so the refusal
-of a run without Lean's task manager can call it (`invalidateRefused`). -/
+`build.json` that is not UTF-8 text identifies nothing; a failure to read an entry that is there is
+thrown, never read as no artifact. It lists no directory, so the refusal of a run without Lean's
+task manager can call it (`invalidateRefused`). -/
 def holdsArtifact (out : FilePath) : IO Bool := do
   let marker ← regularFile (out / siteAssemblingMarker)
   let mut build := none
   if ← regularFile (out / "build.json") then
-    build := (← (IO.FS.readFile (out / "build.json")).toBaseIO).toOption
+    build := String.fromUTF8? (← IO.FS.readBinFile (out / "build.json"))
   return holdsSiteArtifact marker build
 
 /-- The reason to refuse to replace what is at `out` with an artifact, if there is one
@@ -443,7 +444,8 @@ def invalidateArtifact (out : FilePath) : IO FilePath := do
 directory `out` only when it holds an artifact (`holdsArtifact`), then the release's asset as
 `invalidateArtifact` does. What `invalidateArtifact` would also remove, an empty directory, holds
 no artifact, and anything else stays where it is. When what is at `out` cannot be read without
-following a link, it removes nothing there and stops with that reason after it removes the asset.
+following a link, or a directory there holds an entry that `holdsArtifact` cannot read, it removes
+nothing there and stops with that reason after it removes the asset.
 It does not use the shared enumerator (`Regula.Filesystem.Construction.listDirectory`), which
 reads a listing program's output in a task: it decides by `holdsArtifact`, and its removal of
 `out` (`Regula.Filesystem.removeOwn`) traverses the directory with Lean's synchronous
@@ -456,9 +458,13 @@ def invalidateRefused (out : FilePath) : IO Unit := do
     | .error error => pure (some s!"{out} cannot be read without following a link ({error}), so \
         the refusal removes nothing there")
     | .ok metadata =>
-      if metadata.type == .dir then
-        if ← holdsArtifact out then Regula.Filesystem.removeOwn .directory out
-      pure none
+      if metadata.type != .dir then pure none
+      else match ← (holdsArtifact out).toBaseIO with
+        | .ok holds =>
+          if holds then Regula.Filesystem.removeOwn .directory out
+          pure none
+        | .error error => pure (some s!"{out} holds an entry that cannot be read ({error}), so the \
+            refusal removes nothing there")
   removeAsset
   if let some reason := refused then throw (IO.userError reason)
 

@@ -12,7 +12,7 @@ isolation (`GIT_CONFIG_COUNT` with `core.symlinks=true`) and a malformed one
 (`GIT_CONFIG_PARAMETERS`). They compare what Lake does with an intended private repository: the
 Git dependency of a fixture workspace, pinned to its last commit, which indexes one symbolic link.
 The dependency is intended when its clone is at the pinned commit, Lake's own manifest parser
-(`Lake.Manifest.load`) finds exactly one entry, a Git entry named `dep` with the dependency's URL
+(`Lake.Manifest.parse`) finds exactly one entry, a Git entry named `dep` with the dependency's URL
 and that commit, and the link is a regular file that holds the link's target text.
 
 * A Lake child started as Regula's cold drivers start one, with the isolation applied after the
@@ -110,22 +110,29 @@ private def state (repo : FilePath) : IO (String × String × String × Array UI
 private def link : String × String := ("link", "lakefile.toml")
 
 /-- Whether the dependency of the workspace at `root` is intended: a clone at `rev`, which Lake's
-manifest (`Lake.Manifest.load`) records as its one entry, a Git entry named `dep` with the URL
-`url` and the commit `rev`, and whose link is a regular file holding the link's target text. -/
+manifest (`Lake.Manifest.parse`) records as its one entry, a Git entry named `dep` with the URL
+`url` and the commit `rev`, and whose link is a regular file holding the link's target text. A
+clone, manifest or link where nothing is, another head, a manifest that does not parse and a link
+of another type each give `false`. A failure to read a path that is there, to start Git or of Git
+to report the head of a clone that is there is thrown, so a control that requires `false` cannot
+pass on it. -/
 private def intended (root url : FilePath) (rev : String) : IO Bool := do
   let clone := root / ".lake/packages/dep"
-  unless ← (clone / ".git").pathExists do return false
-  try
-    let head ← git clone #["rev-parse", "HEAD"]
-    let manifest ← Lake.Manifest.load (root / "lake-manifest.json")
-    let pinned := match manifest.packages with
+  unless ← Regula.Filesystem.isPresent (clone / ".git") do return false
+  let head ← Construction.gitOutput clone #["-c", "maintenance.auto=false", "rev-parse", "HEAD"]
+  unless head.exitCode == 0 do
+    throw <| IO.userError s!"the head of the clone at {clone} is unavailable: {head.stderr}"
+  let some text ← Regula.Filesystem.readFileIfPresent (root / "lake-manifest.json") | return false
+  let pinned := match Lake.Manifest.parse text with
+    | .ok manifest => match manifest.packages with
       | #[entry] => entry.name == `dep && match entry.src with
         | .git entryUrl entryRev _ _ => entryUrl == url.toString && entryRev == rev
         | .path _ => false
       | _ => false
-    let file := (← observeMetadata (clone / link.1)).type == .file
-    return head == rev && pinned && file && (← IO.FS.readFile (clone / link.1)) == link.2
-  catch _ => return false
+    | .error _ => false
+  unless (← Regula.Filesystem.entryIfPresent (clone / link.1)) == some .file do return false
+  return head.stdout.trimAscii.toString == rev && pinned &&
+    (← IO.FS.readFile (clone / link.1)) == link.2
 
 /-- The program that the Lean frontend runs in the interpreted controls: its guarded `main` prints
 `ran` when its program runs, and its refusal prints the reason and returns 7. The guard runs the
@@ -208,7 +215,8 @@ def check : IO Unit := do
         ⟨s!"a second start without isolation refuses: {refused.stdout}{refused.stderr}",
           refused.exitCode == 1 &&
             refused.stderr.contains "Git isolation did not take effect after one restart"⟩,
-        ⟨"a refused start loads nothing", !(← (refusedRoot / ".lake").pathExists)⟩]
+        ⟨"a refused start loads nothing",
+          !(← Regula.Filesystem.isPresent (refusedRoot / ".lake"))⟩]
       -- The same program under another file name: a hard link to it, which the guard does not
       -- start again.
       let renamedRoot := scratch / "renamed-root"
@@ -227,7 +235,8 @@ def check : IO Unit := do
               cannot start again under it; start it with: " &&
             renamedRun.stderr.contains "unset GIT_DIR" &&
             renamedRun.stderr.contains "GIT_CONFIG_VALUE_0=false"⟩,
-        ⟨"a renamed program loads nothing", !(← (renamedRoot / ".lake").pathExists)⟩]
+        ⟨"a renamed program loads nothing",
+          !(← Regula.Filesystem.isPresent (renamedRoot / ".lake"))⟩]
       -- A program that the Lean frontend runs, without and with the isolation.
       construct (scratch / "interpreted") [⟨["Interpreted.lean"], .file interpreted.toUTF8⟩]
       let lean := ((← Regula.Toolchain.sysroot) / "bin" / "lean").toString

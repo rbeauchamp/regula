@@ -22,7 +22,19 @@ def compilerEnv : Array (String × Option String) :=
 
 /-- The `lean` executable of the installed toolchain `selector` names (`installedName?` over
 `elan toolchain list`), from directory `root`. Only that listed name is given to `elan run`, without
-`--install`. -/
+`--install`. The path that `elan which lean` prints is read exactly
+(`Regula.Filesystem.Construction.printedPath?`: only the final newline is removed), and output that
+is not one absolute path printed as a line is thrown.
+
+Assumes: Elan 4.2.4 `elan which` prints the path of the binary with `println!` and `Path::display`
+(`src/elan-cli/elan_mode.rs:290-302`): `bin/lean` below the toolchain's directory
+(`src/elan/toolchain.rs:595-620`), which is the directory of its name in the `toolchains` directory
+of Elan's home (`src/elan/toolchain.rs:390-399`, `src/elan/config.rs:74-80`). The toolchain is the
+one that `ELAN_TOOLCHAIN` names (`src/elan/config.rs:135-141`, `:156-166`), which `elan run` sets
+for the inner `elan`, with `ELAN_HOME` (`src/elan/toolchain.rs:544-551`). The inner `elan` reads its
+home as that `ELAN_HOME` joined to its current directory (`src/elan-utils/src/utils.rs:438-445`),
+so the path is absolute. `Path::display` prints a byte that is not UTF-8 changed, so a path that is
+not UTF-8 is outside this protocol. -/
 def selectedLean (root : FilePath) (selector : String) : IO FilePath := do
   let listed ← IO.Process.output {
     cmd := "elan", args := #["toolchain", "list"], cwd := some root, env := compilerEnv }
@@ -37,7 +49,10 @@ def selectedLean (root : FilePath) (selector : String) : IO FilePath := do
     cwd := some root, env := compilerEnv }
   unless out.exitCode == 0 do
     throw <| IO.userError s!"cannot resolve selected compiler: {out.stderr.trimAscii}"
-  IO.FS.realPath out.stdout.trimAscii.toString
+  let some lean := Regula.Filesystem.Construction.printedPath? out.stdout
+    | throw <| IO.userError s!"cannot resolve selected compiler: `elan which lean` printed \
+        {out.stdout.quote}, not one absolute path"
+  IO.FS.realPath lean
 
 /-- The environment of a command of the selected compiler: `compilerEnv`, the selector, and the
 compiler's own binary directory first in `PATH`. -/

@@ -88,7 +88,7 @@ from the toolchain's source with a `Classical.choice` of type `α`, from which `
 search path that starts with it gives an importer that prelude in place of the toolchain's. -/
 private def forgedPrelude (root scratch : FilePath) (launcher : Launcher.State) :
     IO FilePath := do
-  let sysroot ← Lean.findSysroot
+  let sysroot ← Regula.CompilerObservation.findSysroot
   let library ← Lean.getLibDir sysroot
   let forged := scratch / "forged-foundation"
   let lib := forged / "lib"

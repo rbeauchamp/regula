@@ -3,10 +3,13 @@ import Regula.Checker.Producer
 import Regula.Checker.PolicyCodec
 import RegulaCore.JsonAgreement
 import RegulaCore.CopyProgram
+import RegulaCore.CopyConstruction
+import Regula.CompilerObservation
 import Regula.Scratch
 import Regula.Destination
 import RegulaPolicy.ResultState
 import RegulaPolicy.Guards
+import RegulaQualification.Member
 import Lean
 import Lake.Load.Manifest
 import Std.Sync.Mutex
@@ -79,7 +82,7 @@ directory or file of its root's name (`SearchPath.findWithExt`, `Lean/Util/Path.
 Nothing is written into the toolchain, and `Regula.Filesystem.removeOwn` removes each link, not
 the file it points to. -/
 def exposeToolchainRoot (cwd output : FilePath) (root : String) : IO Unit := do
-  let toolchainLib ← Lean.getLibDir (← Lean.findSysroot)
+  let toolchainLib ← Lean.getLibDir (← Regula.CompilerObservation.findSysroot)
   IO.FS.createDirAll (output / root)
   -- One `ln` per directory links every source under its own file name.
   let link (sources : Array FilePath) (directory : FilePath) := do
@@ -240,36 +243,77 @@ def diagnosticBlocks (output : String) (isHead : String → Bool) : Array String
   return blocks
 
 /-- The nearest ancestor of `start` (itself included) holding one Lake configuration file and
-a `lean-toolchain`. The upward walk terminates on the byte length of the path. The length
-check cannot fail: `FilePath.parent` returns a proper prefix, cut at the last separator or
-after the root directory. Its `revFind?`-based definition has no lemmas in core to prove
-that, so the check states it. -/
-def findRepoRoot (start : FilePath) : IO FilePath := do
-  let root ← IO.FS.realPath start
-  let rec loop (path : FilePath) : IO FilePath := do
-    let hasLean ← (path / "lakefile.lean").pathExists
-    let hasToml ← (path / "lakefile.toml").pathExists
+a `lean-toolchain`, or the reason that it names none: nothing is at `start`, no ancestor holds
+them, or the walk reaches an ancestor with both configuration files first. A failure to read or
+resolve a path is thrown, never given as a reason (`Regula.Filesystem.realPathIfPresent`,
+`Regula.Filesystem.isPresent`). The upward walk terminates on the byte length of the path. The
+length check cannot fail: `FilePath.parent` returns a proper prefix, cut at the last separator or
+after the root directory. Its `revFind?`-based definition has no lemmas in core to prove that, so
+the check states it. -/
+def findRepoRoot? (start : FilePath) : IO (Except String FilePath) := do
+  let absent := s!"cannot find Lean project root above {start}"
+  let some root ← Regula.Filesystem.realPathIfPresent start | return .error absent
+  let rec loop (path : FilePath) : IO (Except String FilePath) := do
+    let hasLean ← Regula.Filesystem.isPresent (path / "lakefile.lean")
+    let hasToml ← Regula.Filesystem.isPresent (path / "lakefile.toml")
     if hasLean && hasToml then
-      throw <|
-          IO.userError s!"ambiguous Lean project root {path}: both lakefile.lean and lakefile.toml"
-    if (hasLean || hasToml) && (← (path / "lean-toolchain").pathExists) then
-      return path
+      return .error s!"ambiguous Lean project root {path}: both lakefile.lean and lakefile.toml"
+    if (hasLean || hasToml) && (← Regula.Filesystem.isPresent (path / "lean-toolchain")) then
+      return .ok path
     match path.parent with
     | some parent =>
       if parent.toString.utf8ByteSize < path.toString.utf8ByteSize then loop parent
       else throw <| IO.userError s!"parent of {path} is not a proper prefix"
-    | none => throw <| IO.userError s!"cannot find Lean project root above {root}"
+    | none => return .error absent
   termination_by path.toString.utf8ByteSize
   loop root
+
+/-- The project root that `findRepoRoot?` finds from `start`; it throws the reason where that
+names none. -/
+def findRepoRoot (start : FilePath) : IO FilePath := do
+  IO.ofExcept (← findRepoRoot? start)
 
 /-- The project root that `findRepoRoot` finds from the current working directory. -/
 def repoRoot : IO FilePath := do
   findRepoRoot (← IO.currentDir)
 
+/-- The compiler observation's reader of the prefix that `lean --print-prefix` prints is the proved
+decoder `printedPath?`: the observation's source runs alone, with Lean's library only, so it holds
+its own copy, and this states that the copy is the same function. -/
+theorem printedPrefix?_eq_printedPath? :
+    Regula.CompilerObservation.printedPrefix? = Regula.Filesystem.Construction.printedPath? :=
+  rfl
+
+/-- The executed prefix decoder accepts exactly the text that is one absolute path printed as a
+line (`Regula.Filesystem.Construction.checked_printedPath?`). -/
+theorem checked_printedPrefix? :
+    Regula.ExecutableContract Regula.CompilerObservation.printedPrefix?
+      (Regula.Decides (·.isSome = true) Regula.Filesystem.Construction.PrintedPath) :=
+  printedPrefix?_eq_printedPath? ▸ Regula.Filesystem.Construction.checked_printedPath?
+
+attribute [regula_decision] Regula.CompilerObservation.printedPrefix?
+
+/-- The compiler observation's reader of one printed line is the proved decoder `printedLine?`, of
+which it holds its own copy for the reason that `printedPrefix?_eq_printedPath?` gives. -/
+theorem printedLine?_eq_printedLine? :
+    Regula.CompilerObservation.printedLine? = Regula.Filesystem.Construction.printedLine? :=
+  rfl
+
+/-- The executed line decoder accepts exactly the text that is one line
+(`Regula.Filesystem.Construction.checked_printedLine?`). -/
+theorem checked_compilerPrintedLine? :
+    Regula.ExecutableContract Regula.CompilerObservation.printedLine?
+      (Regula.Decides (·.isSome = true) Regula.Filesystem.Construction.PrintedLine) :=
+  printedLine?_eq_printedLine? ▸ Regula.Filesystem.Construction.checked_printedLine?
+
+attribute [regula_decision] Regula.CompilerObservation.printedLine?
+
 /-- Initialize dynamic module lookup from Lake's `LEAN_PATH`. Compiled checker
-executables do not receive the `lean` driver's search-path initialization. -/
+executables do not receive the `lean` driver's search-path initialization. The installation
+directory is `Regula.CompilerObservation.findSysroot`, which reads the prefix that `lean` prints
+exactly. -/
 def initializeLeanSearchPath : IO Unit := do
-  Lean.initSearchPath (← Lean.findSysroot)
+  Lean.initSearchPath (← Regula.CompilerObservation.findSysroot)
 
 /-- The compiled library directory of the running checker executable's own
 package, when it follows Lake's standard layout. The trusted probe module
@@ -277,7 +321,7 @@ resolves from here even when no Lake-provided `LEAN_PATH` is in scope. -/
 def checkerPackageLibDir : IO (Option FilePath) := do
   let some bin := (← IO.appPath).parent | return none
   let libDir := bin / ".." / "lib" / "lean"
-  if ← (libDir / "Regula" / "Probe.olean").pathExists then
+  if ← Regula.Filesystem.isPresent (libDir / "Regula" / "Probe.olean") then
     return some libDir
   return none
 
@@ -288,19 +332,219 @@ def withScratch {α : Type} (repo : FilePath) (stem : String)
     (action : FilePath → IO α) : IO α :=
   return (← Regula.Scratch.withScratch repo stem action).1
 
-/-- The real path of the top level of the Git work tree that holds the directory `dir`, as
-`git rev-parse --show-toplevel` run in `dir` prints it, or `none` when that command fails, for
-example where Git finds no work tree, or when `dir` or the printed path cannot be resolved. Git
-runs without `GIT_DIR` and `GIT_WORK_TREE`, so the work tree is the one Git finds from `dir`
-itself. Git and the filesystem are trusted. -/
+/-- The path of the directory with the names `names` below the root directory: `/` and the names
+joined by `/`. -/
+def namedPath (names : List String) : String :=
+  "/" ++ "/".intercalate names
+
+/-- The entries of the value `value` of `GIT_CEILING_DIRECTORIES` that Regula takes as ceilings: of
+the entries between colons, each that is its own real path (`Regula.Filesystem.realPathIfPresent`).
+Such an entry starts with `/` and has no symbolic link, no `.` or `..`, no empty name and no final
+`/`, except the root directory `/`, which Git also takes as a ceiling (`path.c:1231-1243`) and which
+`ceilingMatch` reads as Git does. Each other entry is left out: an empty one, one that does not
+start with `/`, one where nothing is, one whose real path is another path, and one whose real path
+cannot be read. Git keeps each entry that Regula keeps, unchanged: as its own real path, or as it
+is written after an empty entry. So each entry kept is one of Git's ceilings, and an entry left out
+only adds directories to the reads of `gitWorkTree` (`discoveryDirectories_superset`). -/
+def ceilingDirectories (value : String) : IO (List String) :=
+  (value.splitOn ":").filterM fun entry => do
+    unless entry.startsWith "/" do return false
+    match ← (Regula.Filesystem.realPathIfPresent entry).toBaseIO with
+    | .ok real => return real.map (·.toString) == some entry
+    | .error _ => return false
+
+/-- The length in bytes of `ceiling` when it is an ancestor of the directory whose path is `path`,
+other than that directory: a final `/` of `ceiling` is not counted, and `ceiling` must be
+followed in `path` by `/` and at least one more byte. `none` when it is no such ancestor, and for
+the root directory. Git 2.54.0's `longest_ancestor_length` gives the greatest of these lengths over
+its ceilings, or `-1` when there is none (`path.c:1245-1272`). -/
+def ceilingMatch (path ceiling : String) : Option Nat :=
+  if path == "/" then none else
+  let bytes := path.toUTF8.data
+  let written := ceiling.toUTF8.data
+  let length := if written.back? == some (47 : UInt8) then written.size - 1 else written.size
+  if length + 1 < bytes.size && bytes.extract 0 length == written.extract 0 length &&
+      bytes[length]? == some (47 : UInt8) then some length
+  else none
+
+/-- Whether Git 2.54.0's walk toward the root from the directory whose path is `start`, below the
+ceilings `ceilings`, can reach the directory with the names `directory`: for each of `ceilings` that
+is an ancestor of `start` (`ceilingMatch`), `directory` is not the root and its path (`namedPath`)
+is longer than that ceiling. Git leaves a directory for its parent only when the parent's path is
+longer than the longest of those ceilings, and not for the root when there is one. That holds
+exactly when the parent passes this test for each of them. -/
+def walked (start : String) (ceilings : List String) (directory : List String) : Bool :=
+  ceilings.all fun ceiling => match ceilingMatch start ceiling with
+    | none => true
+    | some length => !directory.isEmpty && length < (namedPath directory).utf8ByteSize
+
+/-- The directories, by their names below the root, at which Git 2.54.0's walk from the directory
+with the names `names` can look for a repository below the ceilings `ceilings`: the directory
+itself, and each of its ancestors that the walk can reach (`walked`, `mem_discoveryDirectories`).
+Fewer ceilings give at least these directories (`discoveryDirectories_superset`). -/
+def discoveryDirectories (names ceilings : List String) : List (List String) :=
+  (List.range (names.length + 1)).filterMap fun count =>
+    if count == names.length || walked (namedPath names) ceilings (names.take count) then
+      some (names.take count)
+    else none
+
+/-- The directories of `discoveryDirectories` are exactly the directory and those of its ancestors
+that the walk can reach. -/
+theorem mem_discoveryDirectories (names ceilings directory : List String) :
+    directory ∈ discoveryDirectories names ceilings ↔
+      directory <+: names ∧
+        (directory = names ∨ walked (namedPath names) ceilings directory = true) := by
+  simp only [discoveryDirectories, List.mem_filterMap, List.mem_range, Nat.lt_succ_iff]
+  constructor
+  · rintro ⟨count, _, chosen⟩
+    split at chosen
+    · next reached =>
+      cases chosen
+      refine ⟨List.take_prefix count names, ?_⟩
+      rcases Bool.or_eq_true_iff.mp reached with whole | inner
+      · exact .inl (List.take_of_length_le (Nat.le_of_eq (beq_iff_eq.mp whole).symm))
+      · exact .inr inner
+    · cases chosen
+  · rintro ⟨isPrefix, reached⟩
+    have taken := List.prefix_iff_eq_take.mp isPrefix
+    refine ⟨directory.length, isPrefix.length_le, ?_⟩
+    have chosen : (directory.length == names.length ||
+        walked (namedPath names) ceilings directory) = true := by
+      rcases reached with whole | inner
+      · subst whole
+        simp
+      · simp [inner]
+    rw [← taken]
+    simp [chosen]
+
+/-- Leaving ceilings out never removes a directory: each directory that the walk below the
+ceilings `more` can reach, the walk below the ceilings `fewer` can reach too, when each of `fewer`
+is one of `more`. -/
+theorem discoveryDirectories_superset (names : List String) {fewer more : List String}
+    (among : ∀ ceiling ∈ fewer, ceiling ∈ more) {directory : List String}
+    (reached : directory ∈ discoveryDirectories names more) :
+    directory ∈ discoveryDirectories names fewer := by
+  rw [mem_discoveryDirectories] at reached ⊢
+  refine ⟨reached.1, reached.2.imp id fun inner => ?_⟩
+  simp only [walked, List.all_eq_true] at inner ⊢
+  exact fun ceiling mem => inner ceiling (among ceiling mem)
+
+/-- Whether the observer's reads (`Regula.Filesystem.entryIfPresent`) establish that Git 2.54.0
+finds no repository at the directory with the names `directory`: nothing is at its `HEAD`, and
+nothing is at its `.git`, or its `.git` is a directory with nothing at its `HEAD`, `objects` and
+`refs`. An entry of another kind gives `false`. Each failure of a read is thrown, the observer's
+refusal on Windows among them. -/
+def noRepositoryAt (directory : List String) : IO Bool := do
+  let entry (names : List String) : IO (Option IO.FS.FileType) :=
+    Regula.Filesystem.entryIfPresent (mkFilePath ("" :: directory ++ names))
+  if (← entry ["HEAD"]).isSome then return false
+  match ← entry [".git"] with
+  | none => return true
+  | some .dir => [["HEAD"], ["objects"], ["refs"]].allM fun names =>
+      return (← entry (".git" :: names)).isNone
+  | some _ => return false
+
+/-- The query of `gitWorkTree` in the directory `dir`: `git rev-parse --show-toplevel`, run in
+`dir` without `GIT_DIR`, `GIT_WORK_TREE` and `GIT_COMMON_DIR` (and without Git's other repository
+variables, `Regula.Filesystem.Construction.gitProcessArgs`), and with `GIT_CEILING_DIRECTORIES` set
+to `ceiling`, or unset for `none`, so the work tree is the one Git finds from `dir` itself below
+the ceiling that `gitWorkTree` read. -/
+def showTopLevel (ceiling : Option String) (dir : FilePath) : IO ProcessResult :=
+  runProcess dir "git" #["rev-parse", "--show-toplevel"]
+    #[("GIT_DIR", none), ("GIT_WORK_TREE", none), ("GIT_COMMON_DIR", none),
+      ("GIT_CEILING_DIRECTORIES", ceiling)]
+
+/-- `gitWorkTree` with `ceiling` as the value of `GIT_CEILING_DIRECTORIES` and the query `query` in
+place of `showTopLevel`, so that a control can give it a ceiling and a query that fails. Its reads
+start at `dir` and move toward the root, as Git's search does, and stop at the first directory where
+`noRepositoryAt` does not hold. -/
+def gitWorkTreeWith (ceiling : Option String)
+    (query : Option String → FilePath → IO ProcessResult) (dir : FilePath) :
+    IO (Option FilePath) := do
+  let some start ← Regula.Filesystem.realPathIfPresent dir
+    | throw <| IO.userError s!"no Git work tree can be read for {dir}, where nothing is"
+  let names := start.components.filter (!·.isEmpty)
+  let ceilings ← match ceiling with
+    | some value => ceilingDirectories value
+    | none => pure []
+  let walk := discoveryDirectories names ceilings
+  if ← walk.reverse.allM noRepositoryAt then return none
+  let result ← query ceiling dir
+  unless result.succeeded do
+    throw <| IO.userError s!"git rev-parse --show-toplevel failed in {dir} (exit \
+      {result.exitCode}): {result.stderr}"
+  let some top := Regula.Filesystem.Construction.printedPath? result.stdout
+    | throw <| IO.userError s!"git rev-parse --show-toplevel in {dir} printed no single absolute \
+        path: {result.stdout.quote}"
+  let some real ← Regula.Filesystem.realPathIfPresent top
+    | throw <| IO.userError s!"git rev-parse --show-toplevel in {dir} printed {top}, where nothing \
+        is"
+  return some real
+
+/-- The real path of the top level of the Git work tree that holds the directory `dir`, or `none`
+when the observer's reads establish that Git finds no repository for `dir`.
+
+The reads cover at least each directory at which Git 2.54.0 looks for a repository from `dir`:
+they read `dir`'s real path and each of its ancestors that the walk below the ceilings of
+`ceilingDirectories` can reach (`discoveryDirectories`). Git honors each of those ceilings, as it is
+written, so the reads cover each directory that Git's walk reaches
+(`discoveryDirectories_superset`). Git's walk can stop sooner, at a ceiling that Regula leaves out
+or at the boundary of a file system, which the reads do not take into account. The reads start at
+`dir` and move toward the root, as Git's search does, and stop at the first directory where
+`noRepositoryAt` does not hold. So a read that fails at a farther ancestor stops the caller only
+when `noRepositoryAt` holds at each nearer directory. The work tree is `none`, and Git does not run,
+only when `noRepositoryAt` holds at each directory of `discoveryDirectories`. Otherwise the
+query `showTopLevel` runs with the same value of `GIT_CEILING_DIRECTORIES`, and each failure of it
+is thrown with its report: no failure of Git is read as no work tree. So a repository that Git
+cannot read, such as one whose `HEAD` or `.git` file cannot be read, stops the caller. So does a
+place where an entry is but Git finds no repository, such as a stray `HEAD` file. So does a
+repository that only the wider reads reach, beyond a ceiling that Regula leaves out or the boundary
+of a file system: Git fails there, and that is a refusal, not an answer. A `.git` directory with
+nothing at its `HEAD`, `objects` and `refs`, as a project that keeps a file there has it, is no
+repository by these reads. When the query succeeds, the path it prints is decoded exactly
+(`Regula.Filesystem.Construction.printedPath?`: only the final newline is removed) and resolved
+(`Regula.Filesystem.realPathIfPresent`); output that is not one absolute path, or a printed path
+where nothing is, is thrown. A failure of a read that `noRepositoryAt` makes, to resolve `dir` or
+the printed path, or to start Git, is thrown. A ceiling whose real path cannot be read is left out
+(`ceilingDirectories`), which only adds directories to the reads. On Windows the observer refuses
+its reads, so `gitWorkTree` throws there.
+
+Assumes: Git 2.54.0, run without `GIT_DIR` (`setup.c:1564-1568`), looks for a repository only at
+the directory that `getcwd(3)` gives (`setup.c:1888-1892`) and at the ancestors that its walk
+toward the root reaches (`setup.c:1604-1702`). The walk leaves a directory for its parent only when
+the parent's path is longer than the longest of its ceilings that is an ancestor of the start
+(`setup.c:1577`, `:1581-1582`, `path.c:1245-1272`), and never for the root when there is one
+(`setup.c:1689-1697`). So it reaches only the directories of `discoveryDirectories` for its own
+ceilings. It also stops at the boundary of a file system unless `GIT_DISCOVERY_ACROSS_FILESYSTEM` is
+set (`setup.c:1601-1603`, `:1698-1700`), which only removes directories from the walk.
+
+Assumes: Git 2.54.0 splits the value of `GIT_CEILING_DIRECTORIES` at colons (`setup.c:1570-1576`,
+`git-compat-util.h:201-202`) and keeps an entry only when it starts with `/` (`setup.c:1315-1338`,
+`abspath.h:28-31`). It keeps such an entry as it is written after an empty entry, and otherwise
+as `real_pathdup` gives it (`abspath.c:235-245`, `:216-221`), or leaves it out when `real_pathdup`
+fails (`setup.c:1329-1333`). An entry that is its own real path
+by `realpath(3)` has no `.`, `..`, empty name or final `/`, except the root directory `/`, and no
+name of it is a symbolic link. For it, `strbuf_realpath_1` starts from the root (`abspath.c:54-64`),
+appends each name, finds it with `lstat(2)` and not as a link, and gives the entry itself
+(`abspath.c:79-201`, `:110-138`, `:191`). For `/` it appends no name and gives `/`, which
+`longest_ancestor_length` reads with length 0 (`path.c:1231-1243`, `:1255-1263`), as `ceilingMatch`
+does. So each ceiling of `ceilingDirectories` is one of Git's.
+
+Assumes: Git 2.54.0 finds a repository at a directory D only from a `.git` file that
+`read_gitfile_gently` reads, which needs `stat(2)` of `D/.git` to succeed (`setup.c:956-976`,
+`:1609-1617`), from a `.git` directory that `is_git_directory` admits (`setup.c:1618-1622`), or from
+D itself when `is_git_directory` admits it (`setup.c:1678-1686`). `is_git_directory` admits a
+directory only when `validate_headref` finds its `HEAD` with `lstat(2)` (`setup.c:353-363`,
+`:416-427`). Nothing at a path for `lstat(2)` is nothing there for `stat(2)`.
+
+Assumes: Git 2.54.0 prints the work tree for `--show-toplevel` with `puts`, so followed by one
+newline (`builtin/rev-parse.c:668-669`, `:985-992`), and keeps it as the real path that
+`real_pathdup` gives (`repository.c:258-260`, through `set_git_work_tree`, `setup.c:1845-1861`).
+
+Assumes: the real path of `dir` (`realpath(3)`) is the path that `getcwd(3)` gives in Git, which
+starts in `dir`. No other process changes these paths while the reads and Git run. -/
 def gitWorkTree (dir : FilePath) : IO (Option FilePath) := do
-  let result ← try
-      runProcess dir "git" #["rev-parse", "--show-toplevel"]
-        #[("GIT_DIR", none), ("GIT_WORK_TREE", none)]
-    catch _ => return none
-  let top := result.stdout.trimAscii.toString
-  if !result.succeeded || top.isEmpty then return none
-  try some <$> IO.FS.realPath (FilePath.mk top) catch _ => return none
+  gitWorkTreeWith (← IO.getEnv "GIT_CEILING_DIRECTORIES") showTopLevel dir
 
 /-- Whether a dependency whose directory is in the Git work tree `dependency` is in the work tree
 `root` of the root package: both are known and they are the same directory. -/
@@ -511,6 +755,56 @@ def observerNeedLean : String := "  needs := #[`@regula/RegulaObserver:shared]\n
 /-- `observerNeedLean` in a configuration of the package `regula` itself (`observerPluginOwn`). -/
 def observerNeedOwn : String := "  needs := #[`@/RegulaObserver:shared]\n"
 
+/-- The kind of a target that a generated Lake configuration declares. -/
+inductive TargetKind where
+  /-- A `lean_lib`. -/
+  | library
+  /-- A `lean_exe`. -/
+  | executable
+  deriving DecidableEq
+
+/-- The `lakefile.lean` keyword that declares a target of the kind. -/
+def TargetKind.leanKeyword : TargetKind → String
+  | .library => "lean_lib"
+  | .executable => "lean_exe"
+
+/-- The `lakefile.toml` table of a target of the kind. -/
+def TargetKind.tomlTable : TargetKind → String
+  | .library => "[[lean_lib]]"
+  | .executable => "[[lean_exe]]"
+
+/-- The `lakefile.lean` declaration of the target `name` of the kind `kind` that a control or
+qualification generator writes for an audit to elaborate: its fields `fields`, each a line indented
+as a declaration's field, then the observer's `needs` entry (`observerNeedLean`), which RG2006
+requires of each such target. A target that this function or `observedTargetToml` writes has the
+entry; that is a property of their output, not of every generated configuration. Two kinds of
+generated target do not go through them: the self-test's reconstruction of the repository's own
+package (`CheckerSelftest.structuralProject`), which keeps the observer's `plugins` and `needs`
+entries of each library and executable in the repository's Lake configuration and leaves out
+every other `needs` entry on purpose, such as the input file of the library `Regula`, since the
+project holds only the modules that its targets build (`CheckerSelftest.renderNeeds`); and the refusal controls, whose targets omit or remove the entry on purpose
+(the RG2006 negative controls) or must be refused for another reason. Its package loads the
+observer as a plugin
+(`observerPluginLean`), which Lake gives each of its targets, so the declaration names no plugin of
+its own: Lake would load the observer twice. With `own`, the configuration is one of the package
+`regula` itself, whose package loads no plugin, as its checkout's `lakefile.lean`: the target loads
+its own observer (`observerPluginOwn`) and lists it in `needs` (`observerNeedOwn`).
+
+Assumes: Lake v4.34.1 `Lake/Config/LeanLib.lean:183-184` gives a library's modules the package's
+plugins followed by the library's own, with no removal of a repeated one, and
+`Lake/Config/Module.lean:188-189` gives a module its library's. An executable's root is a module of
+the library that `Lake/Config/LeanExe.lean:29-50` makes from the executable's configuration, with
+its `needs`, so an executable without the entry has none (`Lake/Config/LeanExeConfig.lean:46`). -/
+def observedTargetLean (kind : TargetKind) (name : String) (fields : String := "")
+    (own : Bool := false) : String :=
+  s!"{kind.leanKeyword} {name} where\n" ++ fields ++
+    if own then observerPluginOwn ++ observerNeedOwn else observerNeedLean
+
+/-- `observedTargetLean` in a `lakefile.toml`: the table of the target `name` of the kind `kind`,
+its keys `fields`, each a line, and then `observerNeedToml`. -/
+def observedTargetToml (kind : TargetKind) (name : String) (fields : String := "") : String :=
+  s!"{kind.tomlTable}\nname = \"{name}\"\n" ++ fields ++ observerNeedToml
+
 /-- The `lakefile.toml` table that requires `regula` from the checkout at `repo`. -/
 def regulaRequireToml (repo : FilePath) : String :=
   s!"[[require]]\nname = \"regula\"\npath = {(Json.str repo.toString).compress}\n"
@@ -552,6 +846,11 @@ def stringArray (what : String) (value : Json) : Except String (Array String) :=
 naming `what`. -/
 def jsonStringArray (what : String) (value : Json) : IO (Array String) :=
   IO.ofExcept (stringArray what value)
+
+/-- The required member `key` of `value`, an array of unique nonempty strings (`stringArray`), read
+with its decoding inside `RegulaQualification.Member.decoded`, so a refusal names the member. -/
+def memberStrings (value : Json) (key : String) : Except String (Array String) :=
+  RegulaQualification.Member.decoded (stringArray "its value") value key
 
 /-- Run `lake query TARGET --json` in `repo` and return its parsed JSON output. -/
 def lakeQuery (repo : FilePath) (target : String) : IO Json := do

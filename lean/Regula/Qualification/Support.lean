@@ -1,5 +1,6 @@
 import Regula.Checker.Common
 import RegulaQualification.Checks
+import RegulaQualification.Member
 import Regula.Scratch
 import Regula.SharedExecution
 import Regula.Checker.ResultProtocol
@@ -144,6 +145,12 @@ def readFailure (path : FilePath) : IO String := do
       requireChecks [⟨"runtime read failure has a reason", !line.isEmpty⟩]
       return line
 
+/-- `decoded`, a reading of the document at `source`, or its refusal prefixed by `source`: with the
+readers of `RegulaQualification.Member`, the refusal of a required member names the document and
+the member. -/
+def readMember {α σ : Type} [ToString σ] (source : σ) (decoded : Except String α) : IO α :=
+  IO.ofExcept (RegulaQualification.Member.within source decoded)
+
 /-- Pretty JSON is an output format, not a claim of byte-canonical serialization. The write
 replaces the entry at `path` (`Regula.Filesystem.writeReplacing`). -/
 def writeJson (path : FilePath) (value : Json) : IO Unit :=
@@ -159,7 +166,8 @@ source-file text or another checkout's executable location. -/
 def rootDirectory : IO FilePath := do
   let root ← IO.FS.realPath (← IO.currentDir)
   requireChecks [⟨"run qualification from the Regula package root",
-    (← (root / "lean-toolchain").pathExists) && (← (root / "lakefile.lean").pathExists)⟩]
+    (← Regula.Filesystem.isPresent (root / "lean-toolchain")) &&
+      (← Regula.Filesystem.isPresent (root / "lakefile.lean"))⟩]
   return root
 
 /-- Copy the fixture tree at `source` to `target`, an absent or empty directory, through the shared

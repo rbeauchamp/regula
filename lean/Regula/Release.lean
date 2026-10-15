@@ -173,6 +173,18 @@ open Lean System
 private def fail {α : Type} (message : String) : IO α :=
   throw <| IO.userError s!"release: {message}"
 
+/-- Whether an entry is at `path`, following a symbolic link: `true` when `path.metadata` reads it,
+`false` when that read fails with `noFileOrDirectory`, and the read's error for every other error.
+Lean's `System.FilePath.pathExists` returns `false` for every error of `metadata`, so a path that
+cannot be read, such as one under a directory without search permission, would read as absent.
+This program cannot import `Regula.Filesystem`; `Regula.ProgramCheck.Release.isPresent_eq` proves
+this equal to `Regula.Filesystem.isPresent`. -/
+def isPresent (path : System.FilePath) : IO Bool := do
+  match ← path.metadata.toBaseIO with
+  | .ok _ => return true
+  | .error (.noFileOrDirectory ..) => return false
+  | .error error => throw error
+
 /-! ## Versions -/
 
 /-- A version `major.minor.patch`: a Regula release's, or a Lean release's. -/
@@ -1594,13 +1606,18 @@ assumptions. -/
 private def isolationEnvironment : IO (Array (String × Option String)) :=
   construction "Git isolation" "process-environment"
 
-/-- Run `git` with `args` in the checkout; its standard output without surrounding whitespace, or
-a failure with its standard error. -/
-private def git (args : Array String) : IO String := do
+/-- Run `git` with `args` in the checkout; its standard output as it is, or a failure with its
+standard error. -/
+private def gitText (args : Array String) : IO String := do
   let out ← IO.Process.output {
     cmd := "git", args := #["-c", "core.symlinks=false"] ++ args, env := ← gitEnvironment }
   unless out.exitCode == 0 do fail s!"git {args}: {out.stderr}"
-  return out.stdout.trimAscii.toString
+  return out.stdout
+
+/-- `gitText` without surrounding whitespace, for output that is read as object names, commit
+text or messages, or only tested for emptiness, never as a path. -/
+private def git (args : Array String) : IO String :=
+  return (← gitText args).trimAscii.toString
 
 /-- The commit tag `tag` names, if the tag exists (peeling an annotated tag). -/
 def taggedCommit (repo tag : String) : IO (Option String) := do
@@ -1837,7 +1854,7 @@ private def guideFile : FilePath := "docs/guides/adoption.md"
 the documents whose pins of Regula (`setPins`) `agree` checks and `open` sets. Refused unless the
 adoption guide is among them. -/
 private def markdownDocuments : IO (List (String × String)) := do
-  let paths := ((← git #["ls-files", "-z", "--", "*.md"]).splitOn "\x00").filter (!·.isEmpty)
+  let paths := ((← gitText #["ls-files", "-z", "--", "*.md"]).splitOn "\x00").filter (!·.isEmpty)
   unless paths.contains guideFile.toString do
     fail s!"git ls-files lists no {guideFile} among the tracked Markdown documents"
   paths.mapM fun (path : String) => return (path, ← IO.FS.readFile path)
@@ -2181,7 +2198,7 @@ def publish : IO Unit := do
     let id ← IO.ofExcept (draft.getObjValAs? Nat "id")
     discard <| gh #["api", "--method", "DELETE", s!"repos/{repo}/releases/{id}"]
   let asset : FilePath := s!"tmp/site-release/regula-site-{v.spelling}.tar.gz"
-  unless ← asset.pathExists do fail s!"the site build wrote no release edition {asset}"
+  unless ← isPresent asset do fail s!"the site build wrote no release edition {asset}"
   IO.FS.createDirAll "tmp"
   IO.FS.writeFile "tmp/release-notes.md" (notes r repo)
   -- `gh` creates the release as a draft, uploads the asset, then publishes it, which creates the

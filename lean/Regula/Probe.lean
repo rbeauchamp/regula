@@ -1215,13 +1215,13 @@ def environmentReport (modules : List Name)
     -- pinned toolchain's library directory.
     -- Missing origin evidence leaves the module's boundaries owned by the project or a
     -- dependency rather than granting a toolchain exemption.
-    let toolchainLib ← liftIO <| Lean.getLibDir (← Lean.findSysroot)
+    let toolchainLib ← liftIO <| Lean.getLibDir (← Regula.CompilerObservation.findSysroot)
     let mut toolchainModules : NameMap RegulaPolicy.ToolchainOrigin := {}
     for (moduleName, origin) in env.header.moduleNames.zip moduleOrigins do
       if RegulaPolicy.ToolchainRoot moduleName.getRoot then
         let actual ← liftIO <| IO.FS.realPath origin.olean
         let expected := Lean.modToFilePath toolchainLib moduleName "olean"
-        if ← liftIO expected.pathExists then
+        if ← liftIO (Regula.Collect.isPresent expected) then
           if actual == (← liftIO <| IO.FS.realPath expected) then
             let receipt ← match RegulaPolicy.admitToolchainOrigin moduleName actual.toString
                 (← liftIO <| IO.FS.realPath expected).toString with

@@ -59,8 +59,53 @@ def legacyPresent (library : System.FilePath) : IO Bool := do
   if present == expected.size then return true
   throw <| IO.userError "compiler capability: incomplete legacy axiom family"
 
-/-- The installation directory of the Lean toolchain, by its canonical path: `Lean.findSysroot`,
-the value of `LEAN_SYSROOT` when it is set, else the prefix that the `lean` which `PATH` resolves
+/-- The one line that `text` prints, as it is spelled: `text` less its final newline, when that line
+is not empty and has no newline, carriage return or NUL. This is the same function as
+`Regula.Filesystem.Construction.printedLine?` (`printedLine?_eq_printedLine?` in
+`Regula.Checker.Common`): this source runs alone, with Lean's library only, so it holds its own copy
+of the decoder. -/
+@[expose] def printedLine? (text : String) : Option String :=
+  match text.toList.reverse with
+  | '\n' :: reversed =>
+    if reversed ≠ [] ∧ ∀ c ∈ reversed, c ≠ '\n' ∧ c ≠ '\r' ∧ c ≠ '\x00' then
+      some (String.ofList reversed.reverse)
+    else none
+  | _ => none
+
+/-- The installation directory that `text`, the output of `lean --print-prefix`, prints: the line
+that `printedLine?` reads, when it is an absolute path. This is the same function as
+`Regula.Filesystem.Construction.printedPath?` (`printedPrefix?_eq_printedPath?`). -/
+@[expose] def printedPrefix? (text : String) : Option System.FilePath :=
+  match printedLine? text with
+  | some line => if (System.FilePath.mk line).isAbsolute then some ⟨line⟩ else none
+  | none => none
+
+/-- The installation directory that the program `lean` prints for `--print-prefix`, read exactly:
+`Lean.findSysroot`'s run of that program, with `IO.Process.run`, which throws its failure, and with
+the printed prefix read by `printedPrefix?` (only the final newline is removed) in place of
+`Lean.findSysroot`'s removal of the whitespace at its ends. Output that is not one absolute path
+printed as a line is thrown.
+
+Assumes: Lean v4.34.1 `lean --print-prefix` prints `getBuildDir` with `IO.println` and exits with 0
+(`Lean/Shell.lean:470-472`): the parent of the real path of the directory of its executable
+(`Lean/Util/Path.lean:85-86`, `Init/System/IO.lean:1305-1309`), an absolute path. -/
+def printedSysroot (lean : String) : IO System.FilePath := do
+  let out ← IO.Process.run { cmd := lean, args := #["--print-prefix"] }
+  let some root := printedPrefix? out
+    | throw <| IO.userError s!"{lean} --print-prefix printed {out.quote}, not one absolute path"
+  return root
+
+/-- The installation directory of the Lean toolchain, as `Lean.findSysroot` finds it, with the
+printed prefix read exactly: the value of `LEAN_SYSROOT` as it is when it is set, else the prefix
+that the `lean` which `PATH` resolves prints (`printedSysroot`). `Lean.findSysroot` removes the
+whitespace at the ends of that prefix (`Lean/Util/Path.lean:180-187` of Lean v4.34.1), so an
+installation directory whose name ends in a space would be read as another one. -/
+def findSysroot : IO System.FilePath := do
+  if let some root ← IO.getEnv "LEAN_SYSROOT" then return root
+  printedSysroot "lean"
+
+/-- The installation directory of the Lean toolchain, by its canonical path: `findSysroot`, the
+value of `LEAN_SYSROOT` when it is set, else the prefix that the `lean` which `PATH` resolves
 prints. A process that Lake starts (`lake exe`, `lake env`, `lake lint`) has `LEAN_SYSROOT` set, so
 for it no program that `PATH` resolves takes part.
 Assumes: Lake sets `LEAN_SYSROOT` for each program it starts to the absolute installation directory
@@ -68,7 +113,7 @@ it detected (`Lake.Env.baseVars`, `Lake/Config/Env.lean:302` of Lean v4.34.1). `
 refuses an installation whose `lean` is another compiler. The filesystem's resolution of the path
 is trusted. -/
 def toolchainRoot : IO System.FilePath := do
-  IO.FS.realPath (← Lean.findSysroot)
+  IO.FS.realPath (← findSysroot)
 
 /-- `toolchainRoot`, accepted only once its `bin/lean`, run by that path without the inherited
 `LEAN_PATH`, `LEAN_SRC_PATH` and `LEAN_SYSROOT`, prints exactly `version` and `commit` on their

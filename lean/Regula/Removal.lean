@@ -434,10 +434,13 @@ refuses an entry already at its place (`RegulaProvision.installLink_refused`).
 - `Lake.updateGitRepo`, specialized at `Lake.materializeGitRepo`, with `IO.FS.removeDirAll`.
   Trusted exemption, for the reason above: it removes the clone of a dependency,
   `<workspace>/<packages>/<name>`, when a directory is there whose remote is not the dependency's
-  URL (`Lake/Load/Materialize.lean:64-82` and `:251-261`). The declarations that materialize a Git
-  dependency reach that removal through specializations that Lake's compiler shares, so each makes
-  it too (`attributions`): `Lake.Dependency.materialize`, its local `materializeGit`, and
-  `Lake.PackageEntry.materialize` (`Lake/Load/Materialize.lean:174-260`).
+  URL (`Lake/Load/Materialize.lean:64-82` and `:251-261`). Unless the two are the same text, it
+  compares their real paths and reads each failure of `IO.FS.realPath`, whatever its error, as a
+  different URL (`:67-70`), so a remote that names an unreadable path is removed too (issue #441).
+  The declarations that materialize a Git dependency reach that removal through specializations
+  that Lake's compiler shares, so each makes it too (`attributions`): `Lake.Dependency.materialize`,
+  its local `materializeGit`, and `Lake.PackageEntry.materialize`
+  (`Lake/Load/Materialize.lean:174-260`).
 - `Lake.reuseManifest`, specialized at `Lake.Workspace.updateAndMaterializeCore`, with
   `IO.FS.rename`. Trusted exemption, for the reason above: it moves the packages directory that a
   loaded manifest names to the workspace's (`Lake/Load/Resolve.lean:252-283`).

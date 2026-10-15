@@ -223,6 +223,11 @@ last component of a path. -/
 def Model.InOwnDirectory (M : Model) (w : M.World) (path : FilePath) : Prop :=
   path.fileName.isSome = true ∧ ∃ parent, path.parent = some parent ∧ M.real w parent = some parent
 
+/-- In the state `w`, an entry that is not a symbolic link is at `path`, as `lstat(2)` reports it,
+and the real path of `path` is `path` itself: what `atOwnPlace` reads. -/
+def Model.AtOwnPlace (M : Model) (w : M.World) (path : FilePath) : Prop :=
+  M.entry w path ≠ none ∧ M.entry w path ≠ some .symlink ∧ M.real w path = some path
+
 /-- Whether an error is the one that Lean gives for `ENOENT`: nothing is at the path. -/
 def Absent : IO.Error → Prop
   | .noFileOrDirectory .. => True
@@ -421,13 +426,20 @@ def entryType {m : Type → Type} [Monad m] [MonadExceptOf IO.Error m] (ops : Op
     | .noFileOrDirectory .. => pure none
     | error => throw error
 
-/-- Whether the real path of `path` is `path` itself: `false` when it is another path, and when
-`path` has none. On a volume that ignores case or Unicode normalization, it is `false` for another
-spelling of a stored name where `realpath(3)` gives the stored name, as Darwin's does, and `true`
-where `realpath(3)` keeps the name as written (`ReadsReal`). -/
+/-- Whether an entry that is not a symbolic link is at `path` and its real path is `path` itself
+(`Model.AtOwnPlace`): `false` when nothing is there (`entryType`), when a symbolic link is there,
+whose real path is never the link, and when the real path is another path. A failure of either
+read is thrown, never read as `false`: Lean 4.34.1's `realPath` gives `noFileOrDirectory` for each
+failure of `realpath(3)`, so only `entryType` decides that nothing is there
+(https://github.com/rbeauchamp/regula/issues/430). On a volume that ignores case or Unicode
+normalization, it is `false` for another spelling of a stored name where `realpath(3)` gives the
+stored name, as Darwin's does, and `true` where `realpath(3)` keeps the name as written
+(`ReadsReal`). -/
 def atOwnPlace {m : Type → Type} [Monad m] [MonadExceptOf IO.Error m] (ops : Ops m)
-    (path : FilePath) : m Bool :=
-  tryCatchThe IO.Error (do return (← ops.realPath path) == path) fun _ => pure false
+    (path : FilePath) : m Bool := do
+  match ← entryType ops path with
+  | none | some .symlink => return false
+  | some _ => return (← ops.realPath path) == path
 
 /-- A run of `entryType` gives the model's entry at the path and changes nothing. When it fails,
 nothing changed. -/
@@ -442,18 +454,23 @@ theorem entryType_run (M : Model) (reads : ReadsEntry M) (path : FilePath) (befo
   | ok metadata w => intro h; exact ⟨h.1, h.2.symm⟩
   | error e w => intro h; cases e <;> simp_all [Satisfies, Absent, EStateM.run_pure, run_throw]
 
-/-- A run of `atOwnPlace` never fails, changes nothing, and gives `true` exactly when the real
-path of the path is the path. -/
-theorem atOwnPlace_run (M : Model) (reads : ReadsReal M) (path : FilePath) (before : M.World) :
+/-- A run of `atOwnPlace` changes nothing, and it gives `true` exactly when an entry that is not a
+symbolic link is at the path and the real path of the path is the path (`Model.AtOwnPlace`). -/
+theorem atOwnPlace_run (M : Model) (readsEntry : ReadsEntry M) (readsReal : ReadsReal M)
+    (path : FilePath) (before : M.World) :
     Satisfies ((atOwnPlace M.ops path).run before)
-      (fun same w => w = before ∧ (same = true ↔ M.real before path = some path))
-      (fun _ _ => False) := by
-  have h := (triple_iff _ _ _ _).mp (reads path before) before rfl
-  simp only [atOwnPlace, run_tryCatch, EStateM.run_bind, EStateM.run_pure]
-  revert h
-  cases (M.ops.realPath path).run before with
-  | ok real w => intro h; refine ⟨h.1, ?_⟩; rw [h.2]; simp [beq_iff_eq]
-  | error e w => intro h; simp_all [Satisfies]
+      (fun same w => w = before ∧ (same = true ↔ M.AtOwnPlace before path))
+      (fun _ w => w = before) := by
+  unfold atOwnPlace
+  refine Satisfies.bind (entryType_run M readsEntry path before) ?_
+  rintro found w ⟨rfl, entry⟩
+  have resolves := (triple_iff _ _ _ _).mp (readsReal path w) w rfl
+  rcases found with _ | (_ | _ | _ | _)
+  all_goals first
+    | exact ⟨rfl, by simp [Model.AtOwnPlace, ← entry]⟩
+    | refine Satisfies.bind (resolves.mono (fun _ _ h => h) (fun _ _ h => h.1)) ?_
+      rintro real w' ⟨rfl, resolved⟩
+      exact ⟨rfl, by simp [Model.AtOwnPlace, ← entry, resolved]⟩
 
 /-- `entryType` gives the model's entry at the path and changes nothing. When it fails, nothing
 changed. -/
@@ -463,13 +480,15 @@ theorem entryType_spec (M : Model) (reads : ReadsEntry M) (path : FilePath) (bef
         fun _ w => ⌜w = before⌝⟩⦄ :=
   (triple_iff _ _ _ _).mpr fun _ same => same ▸ entryType_run M reads path before
 
-/-- `atOwnPlace` never fails, changes nothing, and gives `true` exactly when the real path of the
-path is the path. -/
-theorem atOwnPlace_spec (M : Model) (reads : ReadsReal M) (path : FilePath) (before : M.World) :
+/-- `atOwnPlace` changes nothing, and it gives `true` exactly when an entry that is not a symbolic
+link is at the path and the real path of the path is the path (`Model.AtOwnPlace`). When it fails,
+nothing changed. -/
+theorem atOwnPlace_spec (M : Model) (readsEntry : ReadsEntry M) (readsReal : ReadsReal M)
+    (path : FilePath) (before : M.World) :
     ⦃fun w => ⌜w = before⌝⦄ atOwnPlace M.ops path
-      ⦃post⟨fun same w => ⌜w = before ∧ (same = true ↔ M.real before path = some path)⌝,
-        fun _ _ => ⌜False⌝⟩⦄ :=
-  (triple_iff _ _ _ _).mpr fun _ same => same ▸ atOwnPlace_run M reads path before
+      ⦃post⟨fun same w => ⌜w = before ∧ (same = true ↔ M.AtOwnPlace before path)⌝,
+        fun _ w => ⌜w = before⌝⟩⦄ :=
+  (triple_iff _ _ _ _).mpr fun _ same => same ▸ atOwnPlace_run M readsEntry readsReal path before
 
 /-! ## Checked removals -/
 
@@ -629,9 +648,12 @@ theorem entryType_agrees (corresponds : Corresponds ops M view) (path : FilePath
 
 /-- `atOwnPlace` at operations that correspond to a model runs as `atOwnPlace` in the model. -/
 theorem atOwnPlace_agrees (corresponds : Corresponds ops M view) (path : FilePath) :
-    Agrees view (atOwnPlace ops path) (atOwnPlace M.ops path) :=
-  Agrees.tryCatch (Agrees.bind (corresponds.2.1 path) fun _ => Agrees.pure view _)
-    fun _ => Agrees.pure view false
+    Agrees view (atOwnPlace ops path) (atOwnPlace M.ops path) := by
+  unfold atOwnPlace
+  refine Agrees.bind (entryType_agrees corresponds path) fun found => ?_
+  rcases found with _ | (_ | _ | _ | _) <;> first
+    | exact Agrees.pure view _
+    | exact Agrees.bind (corresponds.2.1 path) fun _ => Agrees.pure view _
 
 /-- `confirmGone` at operations that correspond to a model runs as `confirmGone` in the model. -/
 theorem confirmGone_agrees (corresponds : Corresponds ops M view) (path : FilePath) :
@@ -696,16 +718,56 @@ theorem removeEntry_io (corresponds : Corresponds ops M view) (reads : ReadsEntr
   (removeEntry_agrees corresponds path).transfer w
     ((triple_iff _ _ _ _).mp (removeEntry_spec M reads removes path (view w) own) (view w) rfl)
 
-/-- `atOwnPlace` in `IO`, at operations that correspond to a model, never fails, ends in a world
-read as the same state, and gives `true` exactly when the real path of the path is the path
-(`atOwnPlace_spec`). -/
-theorem atOwnPlace_io (corresponds : Corresponds ops M view) (reads : ReadsReal M)
-    (path : FilePath) (w : Void IO.RealWorld) :
+/-- `atOwnPlace` in `IO`, at operations that correspond to a model, ends in a world read as the
+same state, whether it succeeds or fails, and gives `true` exactly when an entry that is not a
+symbolic link is at the path and the real path of the path is the path (`atOwnPlace_spec`). -/
+theorem atOwnPlace_io (corresponds : Corresponds ops M view) (readsEntry : ReadsEntry M)
+    (readsReal : ReadsReal M) (path : FilePath) (w : Void IO.RealWorld) :
     RunsTo view (atOwnPlace ops path w)
-      (fun same s => s = view w ∧ (same = true ↔ M.real (view w) path = some path))
-      (fun _ _ => False) :=
+      (fun same s => s = view w ∧ (same = true ↔ M.AtOwnPlace (view w) path))
+      (fun _ s => s = view w) :=
   (atOwnPlace_agrees corresponds path).transfer w
-    ((triple_iff _ _ _ _).mp (atOwnPlace_spec M reads path (view w)) (view w) rfl)
+    ((triple_iff _ _ _ _).mp (atOwnPlace_spec M readsEntry readsReal path (view w)) (view w) rfl)
+
+/-- When the read of `path` that follows no link gives `metadata`, `entryType` gives its type and
+ends where the read ends. -/
+theorem entryType_ok {path : FilePath} {w s : Void IO.RealWorld} {metadata : IO.FS.Metadata}
+    (read : ops.symlinkMetadata path w = .ok metadata s) :
+    entryType ops path w = .ok (some metadata.type) s := by
+  unfold entryType
+  exact eio_tryCatch_ok (by rw [eio_bind_ok read]; exact eio_pure _ _) _
+
+/-- When the read of `path` that follows no link fails with an error that does not say that
+nothing is there, `entryType` fails with that same error and ends where the read ends. -/
+theorem entryType_error {path : FilePath} {w s : Void IO.RealWorld} {error : IO.Error}
+    (read : ops.symlinkMetadata path w = .error error s) (other : ¬Absent error) :
+    entryType ops path w = .error error s := by
+  unfold entryType
+  rw [eio_tryCatch_error (eio_bind_error read _)]
+  cases error <;> first | exact absurd trivial other | exact eio_throw _ _
+
+/-- When the read of `path` that follows no link fails with an error that does not say that
+nothing is there, `atOwnPlace` fails with that same error and ends where the read ends: it never
+reads such a failure as `false`. -/
+theorem atOwnPlace_entry_error {path : FilePath} {w s : Void IO.RealWorld} {error : IO.Error}
+    (read : ops.symlinkMetadata path w = .error error s) (other : ¬Absent error) :
+    atOwnPlace ops path w = .error error s := by
+  unfold atOwnPlace
+  exact eio_bind_error (entryType_error read other) _
+
+/-- When an entry that is not a symbolic link is at `path` and its resolution fails, `atOwnPlace`
+fails with the resolution's error and ends where it ends: it never reads such a failure as
+`false`. -/
+theorem atOwnPlace_real_error {path : FilePath} {w s s' : Void IO.RealWorld}
+    {metadata : IO.FS.Metadata} {error : IO.Error}
+    (read : ops.symlinkMetadata path w = .ok metadata s) (entry : metadata.type ≠ .symlink)
+    (resolve : ops.realPath path s = .error error s') :
+    atOwnPlace ops path w = .error error s' := by
+  unfold atOwnPlace
+  rw [eio_bind_ok (entryType_ok read)]
+  cases type : metadata.type with
+  | symlink => exact absurd type entry
+  | _ => exact eio_bind_error resolve _
 
 end IO
 
