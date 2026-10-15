@@ -1,4 +1,5 @@
 import Regula.Checker.Common
+import Regula.Process
 import RegulaPolicy.Domain
 
 /-!
@@ -275,7 +276,7 @@ private def phase (repo scratch : FilePath) (test : Case) (negative : Bool) : IO
   -- binding. A later first Lake invocation would otherwise create the manifest
   -- inside the checked interval, correctly invalidating that binding.
   -- This closed generated package has no dependencies; update only writes its initial manifest.
-  let configured ← runProcess scratch "lake" #["update"]
+  let configured ← runProcess scratch (.toolchain .lake) #["update"]
   if !configured.succeeded then
     return #[s!"{test.name}: configuration setup failed:\n{configured.output}"]
   -- Supply the toolchain's artifacts of the lookalike's root beside the isolated adopter module
@@ -318,7 +319,7 @@ private def phase (repo scratch : FilePath) (test : Case) (negative : Bool) : IO
     -- adopter sources are still built afresh in each independent phase.
     -- Boundary evidence lines are printed only in verbose mode.
     let args := (if lookalike then #["--incremental"] else #[]) ++ #["--verbose"]
-    failures := check (← runProcess scratch binary args)
+    failures := check (← runProcess scratch (.stated binary "The caller selects this resolved non-toolchain executable") args)
   IO.FS.writeFile (scratch / "foundation_manifest.json")
     ("{\"schema-version\":2,\"surfaces\":[{\"library\":\"Wrapper\",\"claim\":\"standard-logical\","
         ++
@@ -329,13 +330,13 @@ private def phase (repo scratch : FilePath) (test : Case) (negative : Bool) : IO
   let wrapperTrace := scratch / ".lake" / "build" / "lib" / "lean" / "Wrapper.trace"
   Regula.Filesystem.removePath .file wrapperTrace
   failures := failures ++ check
-      (← runProcess scratch binary
+      (← runProcess scratch (.stated binary "The caller selects this resolved non-toolchain executable")
           #["--file", "Wrapper.lean", "--execution", "checked", "--verbose"])
   if negative then
     if let some symbol := test.emittedSymbol then
       let cFile := scratch / "wrapper.c"
-      let compiled ← runProcess scratch "lake"
-          #["env", "lean", "-c", cFile.toString, "Wrapper.lean"]
+      let compiled ← runProcess scratch (.toolchain .lake)
+          #["env", (← Regula.Process.toolPath .lean).toString, "-c", cFile.toString, "Wrapper.lean"]
       if !compiled.succeeded then
         failures :=
             failures.push s!"{test.name}: C diagnostic compilation failed:\n{compiled.output}"

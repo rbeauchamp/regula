@@ -171,7 +171,8 @@ def observeResolution : IO (List (String × Bool)) := do
 
 /-- Make a symbolic link at `place` to `target`, or fail. -/
 def makeLink (target place : FilePath) : IO Unit := do
-  let made ← IO.Process.output { cmd := "ln", args := #["-s", target.toString, place.toString] }
+  let made ← Regula.Process.output (.stated "ln" "The absence control plants a symbolic link")
+    { cmd := "", args := #["-s", target.toString, place.toString] }
   unless made.exitCode == 0 do
     throw <| IO.userError s!"the control could not make the link {place}: {made.stderr}"
 
@@ -316,8 +317,8 @@ def provisioning (base : FilePath) : IO (List (String × Bool)) := do
   let locked := unresolved / "locked"
   IO.FS.createDirAll (locked / "mathlib")
   let copy := unresolved / "copy"
-  let made ← IO.Process.output
-    { cmd := "ln", args := #["-s", (locked / "mathlib").toString, copy.toString] }
+  let made ← Regula.Process.output (.stated "ln" "The absence control plants a symbolic link")
+    { cmd := "", args := #["-s", (locked / "mathlib").toString, copy.toString] }
   unless made.exitCode == 0 do
     throw <| IO.userError s!"the control could not make the link {copy}: {made.stderr}"
   let (store, registry) ← sharedStore (unresolved / "shared") copy
@@ -362,8 +363,8 @@ def check : IO Unit :=
       unless denied (← path.metadata.toBaseIO) do
         fail s!"the control could not make an unreadable path: reading {path} did not fail \
           with permissionDenied"
-      let run ← IO.Process.output {
-        cmd := ((← Lean.getBuildDir) / "bin/lean").toString
+      let run ← Regula.Process.output (.toolchain .lean) {
+        cmd := ""
         args := #["--run", source.toString, path.toString]
         env := #[("LEAN_PATH", none), ("LEAN_SRC_PATH", none)] }
       unless run.exitCode == 0 && run.stdout == "false false\n" do
@@ -415,11 +416,11 @@ v4.34.1 starts the elaboration of a module with its `LEAN_PATH` in the environme
 def checkIsolated (file : FilePath) : IO Unit := do
   let (isolation, missing) ← Regula.GitIsolation.observe
   if missing.isEmpty then return ← check
-  if (← IO.getEnv restartedVariable).isSome then
+  if (← Regula.Process.readEnv restartedVariable).isSome then
     throw <| IO.userError s!"Git isolation did not take effect in the restarted elaboration of \
       {file}; still to set: {Regula.GitIsolation.describe missing}"
-  let run ← IO.Process.output {
-    cmd := ((← Lean.getBuildDir) / "bin/lean").toString
+  let run ← Regula.Process.output (.toolchain .lean) {
+    cmd := ""
     args := #[file.toString]
     env := isolation.push (restartedVariable, some "1") }
   unless run.exitCode == 0 do

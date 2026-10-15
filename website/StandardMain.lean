@@ -3,6 +3,8 @@ import RegulaRender
 import RegulaStandard
 import Regula.TaskManagerCheck
 import RegulaCore.Standard
+import Regula.Removal
+import Regula.ProgramCheck.Renderer
 
 /-! Renders the standard alone. Rendering resolves every cross-reference and checklist-row
 anchor, so a successful run is the standard's cross-reference check; the published copy is
@@ -31,6 +33,15 @@ def missingClauses (doc : Part Manual) : List Regula.Clause :=
 def standardConfig : RenderConfig :=
   { emitTeX := false, emitHtmlSingle := .no, emitHtmlMulti := .immediately, htmlDepth := 1 }
 
+set_option compiler.small 0 in
+/-- Verso's renderer, `manualMain`, on the standard with the command-line options `args` and the
+configuration `standardConfig`. The one call of `manualMain` in this program is here: a listed entry
+of the process and environment rows of `Regula.Removal.boundaries`, which admits only that row's
+renderer pairs below it. It is compiled without small-function inlining (`compiler.small` 0), so
+its compiled code keeps that call. -/
+@[noinline] def renderManual (args : List String) : IO UInt32 :=
+  manualMain (%doc RegulaStandard) (options := args) (config := standardConfig)
+
 /-- Render the standard alone on Verso's command-line options `args` and the configuration
 `standardConfig`, which its refusals read them with too (`refuseStandard`), after requiring every
 cited section (`missingClauses`). When a cited section is missing, it refuses the run before Verso
@@ -41,7 +52,7 @@ def renderStandard (args : List String) : IO UInt32 := do
   unless missing.isEmpty do
     IO.eprintln s!"cited sections missing from the standard with their tag, heading and chapter: {missing.map (·.heading)}"
     return (← RegulaRender.refuse "regula-standard" standardConfig args)
-  manualMain (%doc RegulaStandard) (options := args) (config := standardConfig)
+  renderManual args
 
 /-- The refusal of the renderer in a process without Lean's task manager
 (`Regula.TaskManager.guard`): it moves aside each destination that the arguments name for a render
@@ -59,6 +70,12 @@ cited section (`renderStandard`): each refusal moves aside the destinations that
 (`RegulaRender.refuse`) and returns 1. -/
 def main : List String → IO UInt32 :=
   Regula.TaskManager.guard "regula-standard" refuseStandard renderStandard
+
+-- The process starts and environment reads that `main` and the initializers of the modules it
+-- links reach, and the removals that the compiled code of those modules reaches, go through their
+-- observers or sourced exemptions; Verso's writes are trusted effects of the library: the build of
+-- this module fails otherwise (`Regula.ProgramCheck.Renderer.check`).
+run_cmd Regula.ProgramCheck.Renderer.check
 
 -- A program that needs Lean's task manager starts through its guard (`Regula.TaskManager.guard`),
 -- and its refusal needs none: the build of this module fails otherwise

@@ -30,7 +30,7 @@ def checkValidators (root : FilePath) : IO Unit := do
   let gate := (root / ".lake/build/bin/axiomGate").toString
   withScratch root "registry-validators" fun scratch => do
     let registry := scratch / "registry.json"
-    let exported ← run root gate #["--registry-out", registry.toString]
+    let exported ← run root (.stated gate "The caller selects this resolved non-toolchain executable") #["--registry-out", registry.toString]
     unless exported.exitCode == 0 do
       throw <| IO.userError s!"--registry-out failed\n{exported.stdout}{exported.stderr}"
     let manifest ← readJson registry
@@ -48,7 +48,7 @@ def checkValidators (root : FilePath) : IO Unit := do
         (toJson (RegistryCodec.registrySchemaVersion - 1)), false)]
     for (label, value, accepted) in registryCases do
       writeJson candidate value
-      let result ← run root gate #["--validate-registry", candidate.toString]
+      let result ← run root (.stated gate "The caller selects this resolved non-toolchain executable") #["--validate-registry", candidate.toString]
       unless (result.exitCode == 0) == accepted do
         throw <| IO.userError s!"--validate-registry on {label}: exit {result.exitCode}\n\
           {result.stderr}"
@@ -65,7 +65,7 @@ def checkValidators (root : FilePath) : IO Unit := do
       ("an inventory without its first page", artifact pages.tail, false)]
     for (label, value, accepted) in siteCases do
       writeJson candidate value
-      let result ← run root gate #["--validate-site", registry.toString, candidate.toString]
+      let result ← run root (.stated gate "The caller selects this resolved non-toolchain executable") #["--validate-site", registry.toString, candidate.toString]
       unless (result.exitCode == 0) == accepted do
         throw <| IO.userError s!"--validate-site on {label}: exit {result.exitCode}\n\
           {result.stderr}"
@@ -83,7 +83,7 @@ def check : IO Unit := do
       -- (`Regula.Destination.regulaDocument`).
       let earlier ← IO.ofExcept (Json.parse Regula.Destination.earlierResult)
       writeJson output (earlier.setObjVal! "old" (.bool true))
-      let result ← run root (root / ".lake/build/bin/axiomGate").toString
+      let result ← run root (.stated (root / ".lake/build/bin/axiomGate").toString "The caller selects this resolved non-toolchain executable")
         (#["--json-out", output.toString] ++ arguments)
       let report ← readJson output
       match RegulaQualification.Registry.checked_validation.run result.exitCode.toNat report with

@@ -1,4 +1,5 @@
 import Regula.Checker.Acceptance
+import Regula.Process
 import Regula.Checker.Inspection
 import Regula.Checker.AcceptanceLink
 import Regula.Checker.PolicyCodec
@@ -516,7 +517,7 @@ private def driverCopy (repo path : FilePath) : IO Copied := do
     | .ok none => refuse "has no build directory that Lake gives"
     | .error error => refuse s!"has a build directory that Lake does not give or that cannot be \
       resolved ({error})"
-  let own ← IO.FS.realPath (← IO.appPath)
+  let own ← IO.FS.realPath (← Regula.Process.appPath)
   unless ScratchCopy.inside build.normalize.components own.normalize.components do
     refuse s!"did not build this gate: {own} is not below {build}"
   return ⟨copy, copy, none, none⟩

@@ -84,8 +84,10 @@ private def commitRepository (dir : FilePath) : IO (String × String) := do
   for args in #[#["init", "-q"], #["add", "."], #["-c", "user.name=Copy Relocation Control", "-c",
       "user.email=copy-relocation@example.invalid", "-c", "commit.gpgsign=false", "commit", "-qm",
       "copy relocation control"]] do
-    succeeded s!"git {args}" (← run dir "git" args)
-  let head ← run dir "git" #["rev-parse", "HEAD"]
+    succeeded s!"git {args}" (← run dir
+      (.stated "git" "Git creates this deliberate relocation fixture") args)
+  let head ← run dir (.stated "git" "Git identifies this deliberate relocation fixture")
+    #["rev-parse", "HEAD"]
   succeeded "git rev-parse HEAD" head
   return ((← IO.FS.realPath dir).toString, head.stdout.trimAscii.toString)
 
@@ -191,7 +193,8 @@ def workerEnvironment (scratch : FilePath) (env : Array (String × Option String
 the environment `workerEnvironment scratch env`, and check its answer (`checkAnswer`). -/
 private def loadInWorker (root scratch project copies : FilePath)
     (env : Array (String × Option String)) : IO Unit := do
-  let result ← run root (← IO.appPath).toString
+  let result ← run root
+    (.stated (← Regula.Process.appPath) "The relocation control selects this running executable")
     #["--under-deadline", "copy-relocation-load", project.toString, copies.toString]
     (← workerEnvironment scratch env)
   succeeded s!"the worker's load of {project}" result
@@ -231,7 +234,8 @@ def gitSteps (scratch : String) : IO Unit := do
   let linked := scratch / "linked-checkout"
   copyFixture (fixture / "git-project") linked
   writeManifest linked repository rev
-  succeeded "link of the checkout of gdep" (← run (linked / "vendor") "ln"
+  succeeded "link of the checkout of gdep" (← run (linked / "vendor")
+    (.stated "ln" "The relocation control plants a linked dependency input")
     #["-s", (← IO.FS.realPath (gitProject / "vendor" / "gdep")).toString, "gdep"])
   loadInWorker root scratch linked (scratch / "copies-linked") #[]
   IO.println "copy relocation linked checkout: PASS"
@@ -245,7 +249,9 @@ def gitSteps (scratch : String) : IO Unit := do
     loadInWorker root scratch folded (scratch / "copies-folded") #[]
     IO.println "copy relocation path dependency stored in another case: PASS"
   else
-    let result ← run root (← IO.appPath).toString #["--under-deadline", "copy-relocation-load",
+    let result ← run root
+      (.stated (← Regula.Process.appPath) "The relocation control selects this running executable")
+      #["--under-deadline", "copy-relocation-load",
       folded.toString, (scratch / "copies-folded").toString] (← workerEnvironment scratch #[])
     let output := result.stdout ++ result.stderr
     requireChecks [⟨s!"Lake's load refuses pdep, whose directory {pathDependency} is stored as \
@@ -341,7 +347,8 @@ def check : IO Unit := do
     let cacheConfig := source / "cache-config"
     Regula.Filesystem.Construction.copyFile (source / "placed" / "package.toml")
       (cacheConfig / "cdep" / ".cache" / "package.toml")
-    succeeded "git init of cache-config" (← run cacheConfig "git" #["init", "-q"])
+    succeeded "git init of cache-config" (← run cacheConfig
+      (.stated "git" "Git creates this deliberate relocation fixture") #["init", "-q"])
     let (refusal, written) ← refusedCopy cacheConfig copies "cache-config"
     requireChecks [
       ⟨s!"a copy refuses the configuration of cdep below .cache by name: {refusal}",
@@ -355,7 +362,8 @@ def check : IO Unit := do
     Regula.Filesystem.removePath .file (cacheConfig / "cdep" / ".cache" / "package.toml")
     Regula.Filesystem.Construction.copyFile (source / "placed" / "package.toml")
       (cacheConfig / "cdep" / "package.toml")
-    succeeded "link of the configuration of cdep" (← run (cacheConfig / "cdep" / ".cache") "ln"
+    succeeded "link of the configuration of cdep" (← run (cacheConfig / "cdep" / ".cache")
+      (.stated "ln" "The relocation control plants a linked configuration input")
       #["-s", "../package.toml", "package.toml"])
     let (refusal, written) ← refusedCopy cacheConfig copies "cache-link"
     requireChecks [
@@ -368,7 +376,8 @@ def check : IO Unit := do
     let oleanManifest := source / "olean-manifest"
     Regula.Filesystem.Construction.copyFile (source / "placed" / "pins.json")
       (oleanManifest / "odep" / "pins.olean")
-    succeeded "git init of olean-manifest" (← run oleanManifest "git" #["init", "-q"])
+    succeeded "git init of olean-manifest" (← run oleanManifest
+      (.stated "git" "Git creates this deliberate relocation fixture") #["init", "-q"])
     let (refusal, written) ← refusedCopy oleanManifest copies "olean-manifest"
     requireChecks [
       ⟨s!"a copy refuses the manifest pins.olean of odep by name: {refusal}",
@@ -387,11 +396,13 @@ def check : IO Unit := do
     IO.println "copy relocation absolute source directory refused: PASS"
     Regula.Filesystem.withOwnTempDir fun outside => do
       succeeded "git init of the inherited repository"
-        (← run outside "git" #["init", "-q", "inherited"])
+        (← run outside (.stated "git" "Git creates the relocation control's inherited repository")
+          #["init", "-q", "inherited"])
       let inherited := #[("GIT_DIR", some (outside / "inherited" / ".git").toString),
         ("GIT_INDEX_FILE", some (outside / "index").toString)]
       let before ← snapshot outside
-      let result ← run root (← IO.appPath).toString
+      let result ← run root
+        (.stated (← Regula.Process.appPath) "The relocation control selects this running executable")
         #["--under-deadline", "copy-relocation-git", scratch.toString] inherited
       IO.print result.stdout
       let after ← snapshot outside

@@ -266,7 +266,7 @@ checker behavior:
 | `history` | [Source-bound replacement history qualification](proofs-and-boundaries.md#producers). |
 | `self-lint` | This repository's own `REGULA_ORDINARY_LAKEFILES=1 lake lint` through the `regula/lint` driver, in the root and `audit/` packages ([repository conformance](#repository-conformance)). |
 | `self-lint-default` | The root package's `lake lint` without `REGULA_ORDINARY_LAKEFILES`, so with the audit-build marker that an adopter gets by default ([repository conformance](#repository-conformance)). |
-| `self-audit`, `self-audit 1/4` to `self-audit 4/4` | Operational self-audit of the excluded `Regula` library, and the check for one-sided `Json` comparisons in each library except `Fixtures` ([repository conformance](#repository-conformance)). The self-audit also refuses, in each library except `Fixtures`, a declaration if its type or value names Lean's `System.FilePath.pathExists` or `System.FilePath.isDir`. It does not refuse a handler that turns an error of `metadata`, `symlinkMetadata` or `realPath` into `false` or `none` ([#461](https://github.com/rbeauchamp/regula/issues/461)). It does not find a read in Lean or Lake ([#441](https://github.com/rbeauchamp/regula/issues/441)). A shard audits a quarter of the modules, and the four shards together audit all of them. The shard `self-audit 4/4` and the single run also check that each program of the package runs the removal check (`qualify observers`, [proofs and boundaries](proofs-and-boundaries.md#the-acceptance-boundary)). They also check that each executable runs the task-manager check. |
+| `self-audit`, `self-audit 1/4` to `self-audit 4/4` | Operational self-audit of the excluded `Regula` library, and the check for one-sided `Json` comparisons in each library except `Fixtures` ([repository conformance](#repository-conformance)). The self-audit also refuses, in each library except `Fixtures`, a declaration if its type or value names Lean's `System.FilePath.pathExists` or `System.FilePath.isDir`. It does not refuse a handler that turns an error of `metadata`, `symlinkMetadata` or `realPath` into `false` or `none` ([#461](https://github.com/rbeauchamp/regula/issues/461)). It does not find a read in Lean or Lake ([#441](https://github.com/rbeauchamp/regula/issues/441)). A shard audits a quarter of the modules, and the four shards together audit all of them. The shard `self-audit 4/4` and the single run also check that each program of the package runs the observer reach check (`qualify observers`, [proofs and boundaries](proofs-and-boundaries.md#the-acceptance-boundary)). They also check that each executable runs the task-manager check, and they run the live process controls. |
 | `rule-examples`, `rule-examples 1/3` to `rule-examples 3/3` | [Source-owned corpus and diagnostic demonstrations](architecture.md#rule-examples); a shard runs a third of the rules. |
 | `input-inventory` | Root additions and Markdown edits or removals during the prerequisite build of the checker, an actual new-module build and restored fresh controls (`qualify input-inventory`). |
 | `environment-census` | This repository's claimed environments and their mutations (`qualify environments`). |
@@ -295,7 +295,7 @@ It accepts a run only if the check of each root passed, thus an accepted run did
 program.
 
 `freshChecker` starts `lake` and `leanchecker` by their paths in the installation directory of the
-toolchain (`Regula.Toolchain.program`). The `lean` of that directory must give the version and the
+toolchain (`Regula.Process.toolPath`). The `lean` of that directory must give the version and the
 commit of the supported compiler.
 
 Omitting `PARTITION` requests the `checkerSelftest` campaign; the `producers`, `history` and
@@ -628,9 +628,10 @@ list that the single run audits. The dogfood workflow runs the four shards, and 
 
 The shard `self-audit 4/4` also builds each library of the package except `Fixtures`, and the
 executable `auditApp`. Then it runs `lake exe qualify observers`, which refuses unless each
-program records its removal check and each executable its task-manager check. It also refuses a
+program records its observer reach check and each executable its task-manager check. It also refuses a
 module named under `Init`, `Std`, `Lean` or `Lake` in a package of the root, `markdown/` or `audit/`
-workspace. The single run does the same. On the slower CI runners, the
+workspace. It then runs the live process controls. The single run does the same. On the slower CI
+runners, the
 shard 4/4 has the shortest audit of the four. Thus this check runs there, and not in the first
 acceptance step.
 

@@ -1,4 +1,5 @@
 import RegulaCore.CopyProgram
+import RegulaPolicy.EnvironmentChange
 
 /-! # Git isolation of a process tree
 
@@ -14,22 +15,12 @@ This module states the two decisions that start depends on, over the definitions
 environment made by applying `processEnvironment` after any other changes lacks none
 (`processEnvironment_isolated`), so a program started again under it runs at once. That the
 operating system gives the child the environment Lean's spawn describes is the runtime's part
-(`effective`). -/
+(`Regula.Process.effective`). -/
 
 namespace Regula.GitIsolation
 
 open Regula.Filesystem.Construction
-
-/-- The value of `name` after the changes `changes`, applied left to right to `initial`: a change
-of `name` replaces the value, `none` removes it.
-
-Assumes: Lean v4.34.1 `Init/System/IO.lean:1441-1450` describes a child's environment as the
-parent's with `env` applied left to right, and `runtime/process.cpp:461-469` applies each entry
-with `setenv` or `unsetenv` in that order between `fork` and `execvp`; each update succeeds for an
-admitted name. -/
-def effective (initial : Option String) (changes : Array (String × Option String))
-    (name : String) : Option String :=
-  changes.foldl (fun value (key, replacement) => if key = name then replacement else value) initial
+open Regula.Process (effective)
 
 /-- The entries of `isolation` whose value the environment `read` does not have. -/
 def unisolated (read : String → Option String) (isolation : Array (String × Option String)) :

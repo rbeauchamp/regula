@@ -67,7 +67,7 @@ def controlInput (relative : String) : Bool :=
 /-- The directories, relative to `repo` and without a repetition, of the Lake configuration files
 that Git tracks there, as `git ls-files` lists them, in order; `.` is the root package. -/
 def packages (repo : FilePath) : IO (List String) := do
-  let listed ← Checker.runProcess repo "git"
+  let listed ← Checker.runProcess repo (.stated "git" "Git supplies the tracked package census")
     #["ls-files", "-z", "--", ":(glob)**/lakefile.lean", ":(glob)**/lakefile.toml"]
   unless listed.succeeded do
     throw <| IO.userError s!"readers: git ls-files failed: {listed.output}"
@@ -159,7 +159,7 @@ the root package first (`:103-105`) and an executable's root before a library's 
 that `Regula.Checker.modulePath?` gives. Lake and the processes it starts are trusted, not
 verified. -/
 def read (directory leanLibDir : FilePath) (modules : List Name) : IO Outcome := do
-  let build ← Checker.runProcess directory "lake"
+  let build ← Checker.runProcess directory (.toolchain .lake)
     (#["build"] ++ modules.toArray.map (s!"+{·}"))
     (Checker.scrubbedLeanPathEnv ++ (← Regula.Filesystem.Construction.isolationEnvironment))
   unless build.succeeded do

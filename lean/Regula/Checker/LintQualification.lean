@@ -1,4 +1,5 @@
 import Regula.Checker.BuildLintQualification
+import Regula.Process
 import Regula.Checker.LintBuild
 import RegulaCore.Lint
 
@@ -34,7 +35,7 @@ private def isSupportEntry (entry : Json) : Bool :=
 inherited owner's assertion is removed. -/
 private def lint (cwd : FilePath) (args : Array String := #[])
     (env : Array (String × Option String) := #[]) : IO ProcessResult :=
-  runProcess cwd "lake" (#["lint"] ++ args)
+  runProcess cwd (.toolchain .lake) (#["lint"] ++ args)
     (scrubbedLeanPathEnv ++ #[(Lint.ordinaryLakefilesVariable, none)] ++ env)
 
 /-- One invocation's required exit code and required/forbidden output fragments. -/
@@ -117,7 +118,7 @@ private def facetReport (repo adopter : FilePath) : IO (Array String) := do
   -- .toml. A positive report proves that the root facet was read rather than silently skipped.
   IO.FS.writeFile lakefile collisionLakefile
   Regula.Filesystem.replace lakefile (adopter / "configuration.toml")
-  let linkedLean ← runProcess adopter "ln" #["-s", "configuration.toml", "lakefile.lean"]
+  let linkedLean ← runProcess adopter (.stated "ln" "The control plants this symbolic-link fixture with the system's ln") #["-s", "configuration.toml", "lakefile.lean"]
   unless linkedLean.succeeded do throw <| IO.userError linkedLean.output
   failures := failures ++ (← expect adopter { positive with label := "facet-report/lean-symlink" }
     args)
@@ -127,7 +128,7 @@ private def facetReport (repo adopter : FilePath) : IO (Array String) := do
   BuildLintQualification.setup repo toml "lake-lint-toml" #["Gadget.lean", "Gadget/Double.lean"]
     "lakefile.toml"
   Regula.Filesystem.replace (toml / "lakefile.toml") (toml / "configuration")
-  let linkedToml ← runProcess toml "ln" #["-s", "configuration", "lakefile.toml"]
+  let linkedToml ← runProcess toml (.stated "ln" "The control plants this symbolic-link fixture with the system's ln") #["-s", "configuration", "lakefile.toml"]
   unless linkedToml.succeeded do throw <| IO.userError linkedToml.output
   failures := failures ++ (← expect toml { negative with label := "facet-report/toml-symlink" }
     args)
@@ -147,7 +148,7 @@ private def facetReport (repo adopter : FilePath) : IO (Array String) := do
     srcDir := \"lean\"\n  roots := #[`Regula.Checker.Lake]\n  \
     globs := #[.one `Regula.Checker.Lake]\n" ++ shipped
   IO.FS.writeFile (otherRegula / "lakefile.lean") otherConfig
-  let initialized ← runProcess otherRegula "git" #["init", "-q"]
+  let initialized ← runProcess otherRegula (.stated "git" "Git is the caller-selected repository mechanism") #["init", "-q"]
   unless initialized.succeeded do throw <| IO.userError initialized.output
   IO.FS.writeFile (elsewhere / "lakefile.lean")
     (collisionLakefile.replace (toJson repo.toString).compress (toJson otherRegula.toString).compress
@@ -163,7 +164,7 @@ private def facetReport (repo adopter : FilePath) : IO (Array String) := do
     ("schema-version", toJson (2 : Nat)), ("surfaces", toJson (#[] : Array Json)),
     ("excluded-libraries", toJson (#[] : Array Json)),
     ("excluded-executables", toJson (#[] : Array Json))]
-  let runElsewhere := runProcess repo (repo / ".lake" / "build" / "bin" / "axiomGate").toString
+  let runElsewhere := runProcess repo (.stated (repo / ".lake" / "build" / "bin" / "axiomGate").toString "The caller selects this resolved non-toolchain executable")
     #["--incremental", "--project", elsewhere.toString] scrubbedLeanPathEnv
   -- The audit prints each replaced declaration and no census.
   let cross : Expectation := {
@@ -216,7 +217,7 @@ private def facetReport (repo adopter : FilePath) : IO (Array String) := do
 /-- The adopter's `axiomGate --file` audit of `file` against kernel-only, run through Lake. -/
 private def fileAudit (cwd : FilePath) (file : String) (args : Array String := #[]) :
     IO ProcessResult :=
-  runProcess cwd "lake" (#["exe", "axiomGate", "--file", file, "--claim", "kernel-only"] ++ args)
+  runProcess cwd (.toolchain .lake) (#["exe", "axiomGate", "--file", file, "--claim", "kernel-only"] ++ args)
     scrubbedLeanPathEnv
 
 /-- An accepted run prints its account's `Account.pass` line, which names the coverage, and no
@@ -240,7 +241,7 @@ audit-build marker, and `some cause` keeps it with a reason (`Lake.markerReason`
 path, so they run one at a time under `probes`. -/
 private def probe (probes : Std.Mutex Unit) (adopter : FilePath) (label : String)
     (targets : Array String) (expected : Option String) : IO (Array String) := do
-  let build ← runProcess adopter "lake" (#["build"] ++ targets) scrubbedLeanPathEnv
+  let build ← runProcess adopter (.toolchain .lake) (#["build"] ++ targets) scrubbedLeanPathEnv
   let failures ← if !build.succeeded then
       pure #[s!"lake-lint/{label}: the ordinary build failed", build.output]
     else do
@@ -483,14 +484,14 @@ private def leanDecisions (probes : Std.Mutex Unit) (repo adopter : FilePath) :
   IO.FS.writeFile widget widgetSource
   IO.FS.writeFile lakefile plain
   Regula.Filesystem.removePath .file generated
-  let ordinary ← runProcess adopter "lake" #["build", "Widget"] scrubbedLeanPathEnv
+  let ordinary ← runProcess adopter (.toolchain .lake) #["build", "Widget"] scrubbedLeanPathEnv
   unless ordinary.succeeded && ordinary.output.contains "] Built Widget" do
     failures := failures.push s!"lake-lint/lean/plain-default-marked: the ordinary build reused \
       the driver's build: {ordinary.output}"
   failures := failures ++ (← expect adopter { positive with
     label := "lean/plain-reused", contains := positive.contains.push markerOmitted }
     (env := optIn))
-  let ordinary ← runProcess adopter "lake" #["build", "Widget"] scrubbedLeanPathEnv
+  let ordinary ← runProcess adopter (.toolchain .lake) #["build", "Widget"] scrubbedLeanPathEnv
   unless ordinary.succeeded && !ordinary.output.contains "] Built Widget" do
     failures := failures.push s!"lake-lint/lean/plain-reused: the ordinary build rebuilt a module: \
       {ordinary.output}"
@@ -669,7 +670,7 @@ private def leanArguments (probes : Std.Mutex Unit) (repo adopter : FilePath) :
   IO.FS.writeFile (elsewhere / "result.json") "{\"status\":\"completed\"}\n"
   failures := failures ++
     (← assess { label := "lean/rule-examples-project-marked", exitCode := 0 }
-    (← runProcess elsewhere (repo / ".lake" / "build" / "bin" / "ruleExamples").toString
+    (← runProcess elsewhere (.stated (repo / ".lake" / "build" / "bin" / "ruleExamples").toString "The caller selects this resolved non-toolchain executable")
       #["--injected-git-facts", "facts.json", "axiomGate", "--project", adopter.toString,
         "--json-out", "result.json", "--help"]))
   unless (← IO.FS.readFile (elsewhere / "result.json")) == "{\"status\":\"completed\"}\n" do
@@ -969,7 +970,7 @@ private def observerEscapes (repo adopter : FilePath) : IO (Array String) := do
       contains := #["RG2006", "does not load Regula's elaboration observer",
         "plugins := #[`@regula/RegulaObserver:shared]"],
       excludes := #["regula doctor: the setup is complete"] }
-    (← runProcess adopter "lake" #["exe", "regula", "doctor"] scrubbedLeanPathEnv))
+    (← runProcess adopter (.toolchain .lake) #["exe", "regula", "doctor"] scrubbedLeanPathEnv))
   -- With the `plugins` entry but without the same key in `needs`, RG2006 refuses the target and
   -- its finding names the `needs` entry (`RegulaPolicy.Community.Failure.observerNeed`), which
   -- `doctor` decides as the audit does. The audit reads no record of the claimed modules, since
@@ -991,7 +992,7 @@ private def observerEscapes (repo adopter : FilePath) : IO (Array String) := do
         "needs := #[`@regula/RegulaObserver:shared]"],
       excludes := #["does not load Regula's elaboration observer",
         "regula doctor: the setup is complete"] }
-    (← runProcess adopter "lake" #["exe", "regula", "doctor"] scrubbedLeanPathEnv))
+    (← runProcess adopter (.toolchain .lake) #["exe", "regula", "doctor"] scrubbedLeanPathEnv))
   -- A target with both entries and `platformIndependent := true` is accepted by RG2006 and RG2003.
   -- The field takes the workspace out of the plain shape, so the run is a marked rebuild and
   -- replays no module; that the `needs` trace reaches each module's trace under the field is read
@@ -1027,7 +1028,8 @@ private def observerEscapes (repo adopter : FilePath) : IO (Array String) := do
   let requireDependency (result : String) (before : Bool) : IO Unit := do
     IO.FS.createDirAll setupDep
     IO.FS.writeFile (setupDep / "lakefile.lean") (configuration result)
-    let initialized ← runProcess setupDep "git" #["init", "-q"]
+    let initialized ← runProcess setupDep
+      (.stated "git" "Git creates this deliberate setup dependency fixture") #["init", "-q"]
     unless initialized.succeeded do throw <| IO.userError initialized.output
     let line := s!"require setupdep from {(toJson setupDep.toString).compress}"
     if before then mutate lakefile "\nrequire regula from" s!"\n{line}\nrequire regula from"
@@ -1228,7 +1230,7 @@ private def tomlLive (repo adopter : FilePath) : IO (Array String) := do
       excludes := #["build-failed", "editorSnapshot"] })
   restore adopter originals
   mutate double "end Gadget" "/-- A control assumption. -/\naxiom liveFinding : True\nend Gadget"
-  let ordinary ← runProcess adopter "lake" #["build"] scrubbedLeanPathEnv
+  let ordinary ← runProcess adopter (.toolchain .lake) #["build"] scrubbedLeanPathEnv
   unless ordinary.succeeded && ordinary.output.contains "RG1001 [violation; editorSnapshot" do
     failures := failures.push s!"lake-lint/toml/live-build: {ordinary.output}"
   -- `Gadget.Double` imports `Regula.Linter`, so even under the owner's assertion the
@@ -1373,7 +1375,7 @@ private def tomlPlain (probes : Std.Mutex Unit) (repo adopter : FilePath) :
   failures := failures ++ (← expect adopter
     { accepted "toml/star-reused" with
       contains := (accepted "toml/star-reused").contains.push markerOmitted } (env := optIn))
-  let ordinary ← runProcess adopter "lake" #["build"] scrubbedLeanPathEnv
+  let ordinary ← runProcess adopter (.toolchain .lake) #["build"] scrubbedLeanPathEnv
   unless ordinary.succeeded && !ordinary.output.contains "] Built Gadget" do
     failures := failures.push s!"lake-lint/toml/star-reused: the ordinary build rebuilt a module: \
       {ordinary.output}"
@@ -1447,9 +1449,9 @@ private def weakArgsSetup (repo adopter : FilePath) : IO WeakArgsAdopter := do
       "theorem withUnused (n : Nat) : n = n :=\n  have unused : 0 = 0 := rfl\n  rfl\n\n" ++
       "end Widget.Additional"
   let env := scrubbedLeanPathEnv
-  let lint : IO ProcessResult := runProcess adopter "lake" #["lint"] (env ++ optIn)
-  let gate : IO ProcessResult := runProcess adopter "lake" #["exe", "axiomGate", "--incremental"] env
-  let policy : IO ProcessResult := runProcess adopter "lake" #["build"] env
+  let lint : IO ProcessResult := runProcess adopter (.toolchain .lake) #["lint"] (env ++ optIn)
+  let gate : IO ProcessResult := runProcess adopter (.toolchain .lake) #["exe", "axiomGate", "--incremental"] env
+  let policy : IO ProcessResult := runProcess adopter (.toolchain .lake) #["build"] env
   return {
     adopter := adopter, lakefile := lakefile, full := full, plain := plain
     additional := additional, original := original, warned := warned
@@ -1462,7 +1464,7 @@ private def WeakArgsAdopter.hidden (w : WeakArgsAdopter) (label text : String) :
     IO (Array String) := do
   IO.FS.writeFile w.additional w.warned
   IO.FS.writeFile w.lakefile (withWeak text)
-  let ordinary ← runProcess w.adopter "lake" #["build", "Widget"] scrubbedLeanPathEnv
+  let ordinary ← runProcess w.adopter (.toolchain .lake) #["build", "Widget"] scrubbedLeanPathEnv
   IO.FS.writeFile w.lakefile text
   if ordinary.succeeded && !ordinary.output.contains weakArgsWarning then return #[]
   return #[s!"lake-lint/weak-args/{label}: the ordinary build under the weak argument did not \
@@ -1485,7 +1487,7 @@ private def WeakArgsAdopter.requireOverride (w : WeakArgsAdopter) (facet : Strin
   if withOverride w.plain == w.plain then
     failures := failures.push "lake-lint/weak-args: the adopter's lakefile has no `require regula`"
   IO.FS.writeFile w.lakefile (withOverride w.plain)
-  let updated ← runProcess w.adopter "lake" #["update", "override"] scrubbedLeanPathEnv
+  let updated ← runProcess w.adopter (.toolchain .lake) #["update", "override"] scrubbedLeanPathEnv
   unless updated.succeeded do
     failures := failures.push s!"lake-lint/weak-args: `lake update override` failed:\n\
       {updated.output}"
@@ -1650,8 +1652,8 @@ private def weakArgsProbes (probes : Std.Mutex Unit) (repo adopter : FilePath) :
   IO.FS.writeFile (renamed / "lakefile.lean") s!"import Lake\nopen Lake DSL\n\npackage renamed\n\n\
     require checker from {repr repo.toString}\n\nrequire regula from {repr fake.toString}\n\n\
     lean_lib Root\n"
-  let resolvedRenamed ← runProcess renamed "lake" #["update"] env
-  let builtRenamed ← runProcess renamed "lake" #["build", "Root", "@regula/Probe"] env
+  let resolvedRenamed ← runProcess renamed (.toolchain .lake) #["update"] env
+  let builtRenamed ← runProcess renamed (.toolchain .lake) #["build", "Root", "@regula/Probe"] env
   let traceText (path : FilePath) : IO String := do
     match ← (IO.FS.readFile path).toBaseIO with
     | .ok text => pure text
@@ -1677,7 +1679,7 @@ private def weakArgsProbes (probes : Std.Mutex Unit) (repo adopter : FilePath) :
   let otherFacet := "library_facet other : Unit := pure Job.nil\n"
   Regula.Filesystem.replace (fake / "lakefile.lean") (fake / "configuration.toml")
   IO.FS.writeFile (fake / "configuration.toml") (fakeLakefile otherFacet)
-  let linked ← runProcess fake "ln" #["-s", "configuration.toml", "lakefile.lean"]
+  let linked ← runProcess fake (.stated "ln" "The control plants this symbolic-link fixture with the system's ln") #["-s", "configuration.toml", "lakefile.lean"]
   unless linked.succeeded do throw <| IO.userError linked.output
   failures := failures ++ (← probe probes fake "weak-args/lean-symlink-shape" #["Probe"]
     (some "facet declaration"))
@@ -1723,10 +1725,10 @@ private def cachedWarning (repo adopter : FilePath) : IO (Array String) := do
   let incomplete (label : String) : Expectation := {
     label, exitCode := 3, contains := #["RG2003", warning, "regula lint: INCOMPLETE (exit 3)"],
     excludes := #[s!"regula lint: {acceptanceLabel}"] }
-  let fresh := runProcess adopter "lake" #["lint", "--", "--fresh"] env
+  let fresh := runProcess adopter (.toolchain .lake) #["lint", "--", "--fresh"] env
   let mut failures ← assess (incomplete "cache/fresh") (← fresh)
   failures := failures ++ (← assess (incomplete "cache/fresh-again") (← fresh))
-  let build := runProcess adopter "lake" #["build", "Widget"] env
+  let build := runProcess adopter (.toolchain .lake) #["build", "Widget"] env
   let built ← build
   Regula.Filesystem.removePath .directory (adopter / ".lake" / "build")
   let restored ← build
@@ -1743,7 +1745,7 @@ private def cachedWarning (repo adopter : FilePath) : IO (Array String) := do
   failures := failures ++ (← assess {
       label := "cache/incremental-restored", exitCode := 3, contains := #["RG2003", warning],
       excludes := #["axiom gate: PASS"] }
-    (← runProcess adopter "lake" #["exe", "axiomGate", "--incremental"] env))
+    (← runProcess adopter (.toolchain .lake) #["exe", "axiomGate", "--incremental"] env))
   -- The positive control: without the warning, the cache-enabled adopter is accepted.
   IO.FS.writeFile additional original
   failures := failures ++ (← assess (accepted "cache/fresh-restored" (fresh := true)) (← fresh))
@@ -1762,7 +1764,7 @@ private def dependencyCachedWarning (repo adopter : FilePath) : IO (Array String
   BuildLintQualification.setup repo adopter
   let dependency := adopter / "dep"
   IO.FS.createDirAll dependency
-  let initialized ← runProcess dependency "git" #["init", "-q"]
+  let initialized ← runProcess dependency (.stated "git" "Git is the caller-selected repository mechanism") #["init", "-q"]
   unless initialized.succeeded do
     return #[s!"lake-lint/dependency-cache: git init failed: {initialized.output}"]
   IO.FS.writeFile (dependency / "lakefile.lean") <|
@@ -1788,12 +1790,12 @@ private def dependencyCachedWarning (repo adopter : FilePath) : IO (Array String
   IO.FS.writeFile additional ("import Dep\n" ++ (← IO.FS.readFile additional))
   let env := scrubbedLeanPathEnv ++ #[("LAKE_CACHE_DIR", some (adopter / "lake-cache").toString)]
   let warning := "Variable name `unused` is not explicitly referenced"
-  let filled ← runProcess adopter "lake" #["build", "Dep"] env
+  let filled ← runProcess adopter (.toolchain .lake) #["build", "Dep"] env
   let mut failures : Array String := #[]
   unless filled.succeeded && filled.output.contains warning do
     failures := failures.push s!"lake-lint/dependency-cache/fill: {filled.output}"
   Regula.Filesystem.removePath .directory (dependency / ".lake" / "build")
-  let fresh := runProcess adopter "lake" #["lint", "--", "--fresh"] env
+  let fresh := runProcess adopter (.toolchain .lake) #["lint", "--", "--fresh"] env
   failures := failures ++ (← assess {
       label := "dependency-cache/fresh", exitCode := 3,
       contains := #["RG2003", warning, "regula lint: INCOMPLETE (exit 3)"],
@@ -1831,8 +1833,8 @@ private def emptyFacetsWarning (repo adopter : FilePath) : IO (Array String) := 
   let warning := "Variable name `unused` is not explicitly referenced"
   let reported (label : String) : Expectation := {
     label, exitCode := 3, contains := #["RG2003", warning], excludes := #["axiom gate: PASS"] }
-  let incremental := runProcess adopter "lake" #["exe", "axiomGate", "--incremental"] env
-  let build := runProcess adopter "lake" #["build", "Widget:leanArts"] env
+  let incremental := runProcess adopter (.toolchain .lake) #["exe", "axiomGate", "--incremental"] env
+  let build := runProcess adopter (.toolchain .lake) #["build", "Widget:leanArts"] env
   let built ← build
   let mut failures : Array String := #[]
   unless built.succeeded && built.output.contains warning do
@@ -1855,11 +1857,11 @@ private def emptyFacetsWarning (repo adopter : FilePath) : IO (Array String) := 
       label := "empty-facets/fresh", exitCode := 3,
       contains := #["RG2003", warning, "regula lint: INCOMPLETE (exit 3)"],
       excludes := #[s!"regula lint: {acceptanceLabel}"] }
-    (← runProcess adopter "lake" #["lint", "--", "--fresh"] env))
+    (← runProcess adopter (.toolchain .lake) #["lint", "--", "--fresh"] env))
   -- The positive control: without the warning, the audit builds the modules itself.
   IO.FS.writeFile additional original
   failures := failures ++ (← assess (accepted "empty-facets/fresh-restored" (fresh := true))
-    (← runProcess adopter "lake" #["lint", "--", "--fresh"] env))
+    (← runProcess adopter (.toolchain .lake) #["lint", "--", "--fresh"] env))
   return failures
 
 /-- Counterexample control for the class the second review of issue 291 found: a claimed name
@@ -1903,18 +1905,18 @@ private def escapedNameWarning (repo adopter : FilePath) : IO (Array String) := 
     "\n/-- A claimed theorem whose proof leaves an unused `have`. -/\n" ++
     "theorem withUnused (n : Nat) : n = n :=\n  have unused : 0 = 0 := rfl\n  rfl\n"
   let warning := "Variable name `unused` is not explicitly referenced"
-  let built ← runProcess adopter "lake" #["build", "+Gadget:leanArts"] scrubbedLeanPathEnv
+  let built ← runProcess adopter (.toolchain .lake) #["build", "+Gadget:leanArts"] scrubbedLeanPathEnv
   let mut failures : Array String := #[]
   unless built.succeeded && built.output.contains warning do
     failures := failures.push s!"lake-lint/escaped-name/build: {built.output}"
   failures := failures ++ (← assess {
       label := "escaped-name/incremental", exitCode := 3, contains := #["RG2003", warning],
       excludes := #["axiom gate: PASS"] }
-    (← runProcess adopter "lake" #["exe", "axiomGate", "--incremental"] scrubbedLeanPathEnv))
+    (← runProcess adopter (.toolchain .lake) #["exe", "axiomGate", "--incremental"] scrubbedLeanPathEnv))
   -- The positive control: without the warning, the claimed library is found and accepted.
   IO.FS.writeFile gadget original
   failures := failures ++ (← assess (accepted "escaped-name/fresh-restored" (fresh := true))
-    (← runProcess adopter "lake" #["lint", "--", "--fresh"] scrubbedLeanPathEnv))
+    (← runProcess adopter (.toolchain .lake) #["lint", "--", "--fresh"] scrubbedLeanPathEnv))
   return failures
 
 /-- The module of the adopter's path dependency `build_lint_support` for the path-dependency
@@ -2164,7 +2166,7 @@ private def pathReserved (repo adopter : FilePath) : IO (Array String) := do
     assess {
         label, exitCode := 3,
         contains := #["Regula.Contract", "reserved to the checker", "not the text"] }
-      (← runProcess adopter (repo / ".lake" / "build" / "bin" / "axiomGate").toString
+      (← runProcess adopter (.stated (repo / ".lake" / "build" / "bin" / "axiomGate").toString "The caller selects this resolved non-toolchain executable")
         #["--incremental", "--project", adopter.toString] scrubbedLeanPathEnv)
   let contract := (← Regula.Filesystem.readFile (repo / "lean" / "Regula" / "Contract.lean")) ++
     "\n/-- An axiom that nothing uses. -/\naxiom Regula.Contract.unused : False\n"
@@ -2369,7 +2371,7 @@ private def pathEscapes (repo adopter : FilePath) : IO (Array String) := do
       label := "path/owned-anonymous-submodules", exitCode := 3,
       contains := #["RG2003", "build-failed"],
       excludes := #["lake-query-malformed", "names module"] }
-    (← runProcess adopter (repo / ".lake" / "build" / "bin" / "axiomGate").toString
+    (← runProcess adopter (.stated (repo / ".lake" / "build" / "bin" / "axiomGate").toString "The caller selects this resolved non-toolchain executable")
       #["--incremental", "--project", adopter.toString] scrubbedLeanPathEnv))
   return failures
 
@@ -2384,7 +2386,7 @@ private def pathOverrides (repo adopter : FilePath) : IO (Array String) := do
   IO.FS.createDirAll external
   for name in #["Support.lean", "lakefile.toml", "lean-toolchain"] do
     Regula.Filesystem.copyFile (support / name) (external / name)
-  let initialized ← runProcess external "git" #["init", "-q"]
+  let initialized ← runProcess external (.stated "git" "Git is the stated repository mechanism") #["init", "-q"]
   unless initialized.succeeded do
     return failures.push s!"lake-lint/path: git init failed: {initialized.output}"
   let manifestPath := adopter / "lake-manifest.json"
@@ -2411,7 +2413,7 @@ private def pathOverrides (repo adopter : FilePath) : IO (Array String) := do
   for name in #["lakefile.toml", "lean-toolchain"] do
     Regula.Filesystem.copyFile (external / name) (first / name)
   IO.FS.writeFile (first / "Support.lean") (supportSource true)
-  let initializedFirst ← runProcess first "git" #["init", "-q"]
+  let initializedFirst ← runProcess first (.stated "git" "Git is the caller-selected repository mechanism") #["init", "-q"]
   unless initializedFirst.succeeded do
     return failures.push s!"lake-lint/path: git init failed: {initializedFirst.output}"
   let overrides ← [first, external].mapM fun dir => IO.ofExcept <|
@@ -2433,7 +2435,7 @@ private def pathTrusted (repo adopter : FilePath) : IO (Array String) := do
   let support := adopter / "support"
   let mut failures : Array String := #[]
   -- A repository of its own makes the dependency a Git work tree other than the adopter's.
-  let initialized ← runProcess support "git" #["init", "-q"]
+  let initialized ← runProcess support (.stated "git" "Git is the caller-selected repository mechanism") #["init", "-q"]
   unless initialized.succeeded do
     return failures.push s!"lake-lint/path: git init failed: {initialized.output}"
   IO.FS.writeFile (support / "Support.lean") (supportSource true)
@@ -2518,14 +2520,14 @@ written it accepts the project. That the plan of the result is empty in the mode
 `.toml`, `doctor` still names `lakefile.lean` and reports the setup complete. -/
 private def lakeNew (repo scratch : FilePath) : IO (Array String) := do
   let regula (project : FilePath) : IO ProcessResult :=
-    runProcess project "lake" #["exe", "regula", "init"] scrubbedLeanPathEnv
+    runProcess project (.toolchain .lake) #["exe", "regula", "init"] scrubbedLeanPathEnv
   -- `lake new`, the `regula` requirement, then `init` twice: the first must report writing
   -- `setting`, after which the lakefile must contain `written`.
   let setUp (name format lakefile require setting written : String) : IO (Array String) := do
     -- This control observes Lake's own scaffold generator, which cannot be replaced by a copy
     -- without losing the tested behavior. Its generated package has no dependencies; the only
     -- added dependency is the explicit root path, pinned by requireCheckout before a load.
-    let made ← runProcess scratch "lake" (#["new", name] ++ (if format.isEmpty then #[] else
+    let made ← runProcess scratch (.toolchain .lake) (#["new", name] ++ (if format.isEmpty then #[] else
       #[format])) scrubbedLeanPathEnv
     if !made.succeeded then return #[s!"lake-lint/new/{name}: lake new failed", made.output]
     let project := scratch / name
@@ -2583,41 +2585,69 @@ private def lakeNew (repo scratch : FilePath) : IO (Array String) := do
   -- `doctor` names `lakefile.lean` and finds the setup complete.
   let legacy := scratch / "legacy"
   Regula.Filesystem.replace (legacy / "lakefile.lean") (legacy / "configuration.toml")
-  let linked ← runProcess legacy "ln" #["-s", "configuration.toml", "lakefile.lean"]
+  let linked ← runProcess legacy (.stated "ln" "The control plants this symbolic-link fixture with the system's ln") #["-s", "configuration.toml", "lakefile.lean"]
   unless linked.succeeded do throw <| IO.userError linked.output
   return failures ++ (← assess {
       label := "new/legacy/lean-symlink-doctor", exitCode := 0,
       contains := #["(lakefile.lean)", "regula doctor: the setup is complete"],
       excludes := #["lakefile.toml"] }
-    (← runProcess legacy "lake" #["exe", "regula", "doctor"] scrubbedLeanPathEnv))
+    (← runProcess legacy (.toolchain .lake) #["exe", "regula", "doctor"] scrubbedLeanPathEnv))
 
-/-- The cold compiler guard of Regula's own `lakefile.lean`, through `lake` in a fresh package
-holding only that file, its toolchain pin and the policy source it executes. An inherited
-`LEAN_SYSROOT` whose `lean` is not the compiler running Lake is refused on each branch of the
-guard, naming that `lean`, and the same package then loads with the inherited environment. Two
-programs stand in for that `lean`, neither of them a compiler: this toolchain's `lake`, which
-fails on the policy source, and the `true` utility, which exits successfully without printing
-the running compiler's identity and so reaches the identity comparison. A compiler of another
-identity as the child is not exercised here. -/
+/-- An early native control worker. Its marker proves the guarded compiler action ran, whether
+it fails or succeeds without reporting an identity. It runs before search-path initialization,
+which would itself try to identify the deliberately false compiler root. -/
+def compilerGuardWorker (mode : String) : IO UInt32 := do
+  let some marker ← Regula.Process.readEnv "REGULA_COMPILER_CONTROL_MARKER"
+    | throw <| IO.userError "compiler-guard control has no marker"
+  Regula.Filesystem.writeReplacing marker "compiler action ran\n".toUTF8
+  match mode with
+  | "failing" => return 73
+  | "unidentified" => return 0
+  | _ => throw <| IO.userError "unknown compiler-guard control mode"
+
+/-- Observe the cold compiler guard of the exact lakefile and shared process source in a fresh
+package. This external-boundary control intentionally starts the installed Lake with a false
+sysroot, without the observer's environment replacement. Each planted child first proves its
+action with a marker, then the cold identity guard must refuse it for that identity check; a
+restored load must succeed. It observes failing and successful unidentified native children,
+not a compiler of another identity. No new shell program or compiler copy is made. -/
 private def compilerGuard (repo project : FilePath) : IO (Array String) := do
-  for name in #["lakefile.lean", "lean-toolchain", "lean/RegulaPolicy/Compiler.lean"] do
+  for name in #["lakefile.lean", "lean-toolchain", "lean/RegulaPolicy/Compiler.lean",
+      "lean/Regula/ProcessSource.inc"] do
     Regula.Filesystem.copyFile (repo / name) (project / name)
-  let path := System.SearchPath.parse ((← IO.getEnv "PATH").getD "")
-  let some silent ← path.findM? fun dir => Regula.Filesystem.isPresent (dir / "true")
-    | throw <| IO.userError "lake-lint: the compiler-guard control found no `true` on PATH"
+  let lake ← Regula.Process.toolPath .lake
+  let executable ← Regula.Process.appPath
+  let marker := project / "compiler-action-ran"
   let load (env : Array (String × Option String)) : IO ProcessResult :=
-    runProcess project "lake" #["check-lint"] (scrubbedLeanPathEnv ++ env)
-  let refused (label : String) (program : FilePath) (branch : String) : IO (Array String) := do
+    runProcess project (.stated lake "The cold-guard control intentionally supplies a false sysroot to installed Lake")
+      #["check-lint"] (scrubbedLeanPathEnv ++ env)
+  let refused (label : String) (expected : UInt32) : IO (Array String) := do
     let sysroot := project / label
     let lean := sysroot / "bin" / "lean"
     IO.FS.createDirAll (sysroot / "bin")
-    -- This stand-in is executed by path: construct the regular file with mode 0755.
-    Regula.Filesystem.copyFile program lean 493
-    assess { label := s!"guard/{label}", exitCode := 1, contains := #[lean.toString, branch] }
-      (← load #[("LEAN_SYSROOT", some sysroot.toString)])
-  let failing ← refused "failing-child" ((← Lean.findSysroot) / "bin" / "lake")
-    "refused Regula's compiler policy or could not compile it"
-  let unidentified ← refused "unidentified-child" (silent / "true") "is not the Lean running Lake"
+    Regula.Filesystem.copyFile executable lean 493
+    let env := #[("REGULA_COMPILER_CONTROL", some label),
+      ("REGULA_COMPILER_CONTROL_MARKER", some marker.toString)]
+    let baseline ← runProcess project (.stated lean "Invoke this owned native child to establish the compiler-guard control's action")
+      #["--stdin"] env
+    unless baseline.exitCode == expected && baseline.stdout.isEmpty &&
+        (← IO.FS.readFile marker) == "compiler action ran\n" do
+      throw <| IO.userError s!"compiler-guard {label}: planted action baseline did not complete"
+    Regula.Filesystem.removePath .file marker
+    let result ← load (env.push ("LEAN_SYSROOT", some sysroot.toString))
+    let expectation : Expectation := {
+      label := s!"guard/{label}"
+      exitCode := 1
+      contains := #[lean.toString, "identity differs from this program"] }
+    let failures ← assess expectation result
+    unless ← Regula.Filesystem.isPresent marker do
+      return failures.push s!"compiler-guard {label}: the guarded child action did not run"
+    let ran ← IO.FS.readFile marker
+    Regula.Filesystem.removePath .file marker
+    return if ran == "compiler action ran\n" then failures
+      else failures.push s!"compiler-guard {label}: the guarded child marker differs"
+  let failing ← refused "failing" 73
+  let unidentified ← refused "unidentified" 0
   return failing ++ unidentified ++
     (← assess { label := "guard/restored", exitCode := 0 } (← load #[]))
 

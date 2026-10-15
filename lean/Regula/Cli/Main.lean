@@ -57,9 +57,9 @@ def main : List String → IO UInt32 :=
 run_cmd Regula.Removal.checkProgram (elaborates := true) (named := [
   -- The configuration that `regula setup` writes in the project that it sets up, and its
   -- restoration when the setup stops.
-  (`Regula.Cli.Setup.restore, ``IO.FS.writeFile),
-  (`Regula.Cli.Setup.write, ``IO.FS.createDirAll),
-  (`Regula.Cli.Setup.write, ``IO.FS.writeFile),
+  (Regula.Removal.privateIn `Regula.Cli.Setup `Regula.Cli.Setup.restore, ``IO.FS.writeFile),
+  (Regula.Removal.privateIn `Regula.Cli.Setup `Regula.Cli.Setup.write, ``IO.FS.createDirAll),
+  (Regula.Removal.privateIn `Regula.Cli.Setup `Regula.Cli.Setup.write, ``IO.FS.writeFile),
   -- The source of the compiler probe, in its temporary directory.
   (``Regula.Toolchain.probe, ``IO.FS.writeFile)])
 

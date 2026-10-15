@@ -1,5 +1,11 @@
 import Regula.Removal
 import Regula.TaskManagerCheck
+import Regula.Checker.Workspace
+import Lake.Util.Git
+import Lake.Util.NativeLib
+import Std.Async.Process
+import Std.Async.System
+import Std.Time.Zoned.Database.TZdb
 import Std.Tactic.BVDecide.LRAT.Parser
 
 /-! # Controls of the check that each program runs
@@ -30,6 +36,26 @@ environment of its own, which imports Lean's library, the filesystem observer, t
 `bv_decide` and Lean's command elaborator, in the module `Planted` (`refusal`). This module links
 the checks, whose compiled code reaches Lean's elaborator, so a program planted in it would
 elaborate by that code.
+
+A planted program whose `main` starts a process or reads the environment outside `Regula.Process`
+fails the same check: through `IO.Process.spawn`, a wrapper of `IO.Process.output`,
+`IO.Process.run`, the PATH fallback of `Lean.findSysroot`, `IO.getEnv`, a public declaration of
+Lake, Lean or `Std` whose own code starts a process or reads the environment, the public `Std`
+wrapper of each libuv environment binding, or an `extern` of another name bound to the runtime's
+process start or to a libuv environment read. The public declarations include
+`Lake.GitRepo.clone`, `Lake.LeanInstall.get` with `collocated := false` and `Lake.getSearchPath`
+with a variable of the caller's choice, and each refusal names the library's own call of the
+primitive. So do such a read in a local module whose name starts with `Lake`, a process observer's
+role given in this module, and a declaration of this module named as a specialization of
+`Regula.Process.lakeEnvironment` that calls `Lake.LeanInstall.get` with `collocated := false`: the
+compiler recorded no such specialization. Below a listed entry that lists its pairs, a root
+`renderSite`'s call of a `Verso.Genre.Manual.manualMain` planted in this module, an environment read
+and a process start outside those pairs fail it, and `Std`'s timezone read, one of them, passes.
+The same start through `Regula.Process.output`, the same read
+through `Regula.Process.readEnv`, and the listed entries `Regula.Process.lakeEnvironment`,
+`Regula.Process.initSearchPath`, `Regula.Process.srcSearchPath` and the workspace load of
+`Regula.Checker.Workspace.withRootWorkspace` pass it. These controls compile each program, and start
+no process and read no variable.
 
 A planted program whose `main` starts a task, creates a promise or captures a process's output
 fails the check that a compiled program needing Lean's task manager starts through the guard
@@ -228,10 +254,9 @@ run_cmd do
   unless raw.any (·.contains "plantedObserver calls IO.FS.removeFile") do
     throwError "a planted filesystem observer of another module made its removal admitted: {raw}"
   let foreign ← refusal planted (observer `plantedObserver (← `(pure ())))
-  unless foreign.any (·.contains "the filesystem observer's role is given outside") do
+  unless foreign.any (·.contains "an observer's role is given outside its boundary module") do
     throwError "the check accepted a program while a filesystem observer is declared outside \
       Regula.Filesystem: {foreign}"
-
 
 /-- The refusal of the check that a program needing Lean's task manager starts through the guard
 (`Regula.TaskManagerCheck.checkProgram`) for the program that the command `program` declares,
@@ -366,6 +391,216 @@ run_cmd do
     throwError "the task-manager check accepted a program that calls a declaration bound to \
       lean_io_wait_any: {bound}"
 
+/-- The refusal of the process and environment rows of the check (`Regula.Removal.pathRemovals`,
+`Regula.Removal.programRefusal`) for the program whose `main` is `value`, of type `IO Unit`, added
+after `setup` to this module's environment for this control alone; `none` when those rows admit
+it. The program links this module's imports, the observers and the listed entries among them. The
+filesystem row and the class of the program are those of `refusal`, in an environment of its own:
+here they would read the compiled code of every module that this module links. -/
+def pathRefusal (value : Expr) (setup : CommandElabM Unit := pure ()) :
+    CommandElabM (Option String) := withoutModifyingEnv do
+  setup
+  liftTermElabM do
+    addAndCompile (.defnDecl {
+      name := `main, levelParams := [], type := mkApp (mkConst ``IO) (mkConst ``Unit), value,
+      hints := .opaque, safety := .safe })
+  let env ← getEnv
+  let root := Regula.Removal.moduleOf env `main
+  return Regula.Removal.programRefusal env root (Regula.Removal.pathRemovals env root)
+
+/-- Compile this body as the planted global main, without executing it, and give its refusal by
+the process and environment rows (`pathRefusal`). These controls qualify the compiler/reach
+boundary; they are not observations of a live spawned child. -/
+def bodyRefusal (body : Term) (setup : CommandElabM Unit := pure ()) :
+    CommandElabM (Option String) := withoutModifyingEnv do
+  setup
+  let value ← liftTermElabM do
+    let value ← Term.elabTermEnsuringType body (mkApp (mkConst ``IO) (mkConst ``Unit))
+    Term.synthesizeSyntheticMVarsNoPostponing
+    instantiateMVars value
+  pathRefusal value
+
+-- Each negative changes one route to the primitive. No child is executed by these compile-time
+-- controls; the refusal must name the intended primitive, rather than merely fail compilation.
+run_cmd do
+  for (label, body, primitive) in [
+      ("spawn", ← `(do discard <| IO.Process.spawn { cmd := "planted" }), "IO.Process.spawn"),
+      ("output wrapper", ← `(do
+        let wrapped := IO.Process.output
+        discard <| wrapped { cmd := "planted" }), "IO.Process.output"),
+      ("run", ← `(do discard <| IO.Process.run { cmd := "planted" }), "IO.Process.run"),
+      ("findSysroot PATH fallback", ← `(do discard <| Lean.findSysroot), "IO.Process.run"),
+      ("environment", ← `(do discard <| IO.getEnv "PLANTED"), "IO.getEnv")] do
+    let refused ← bodyRefusal body
+    unless refused.any (·.contains s!"calls {primitive}") do
+      throwError "{label}: the reach check did not refuse the intended primitive: {refused}"
+  let routed ← bodyRefusal (← `(do
+    discard <| Regula.Process.output (.toolchain .lean) { cmd := "", args := #["--version"] }))
+  if let some refused := routed then
+    throwError "the reach check refused a process through the observer: {refused}"
+  let read ← bodyRefusal (← `(do discard <| Regula.Process.readEnv "PLANTED"))
+  if let some refused := read then
+    throwError "the reach check refused an environment read through the observer: {refused}"
+
+-- Each public `Std` wrapper of a libuv environment binding reaches that binding, inlined or
+-- through the wrapper, and the refusal names the binding. No variable or directory is read or
+-- changed by these compile-time controls.
+run_cmd do
+  for (label, body, binding) in [
+      ("getEnvVar", ← `(do discard <| Std.Async.System.getEnvVar "PLANTED"), "osGetenv"),
+      ("setEnvVar", ← `(Std.Async.System.setEnvVar "PLANTED" "planted"), "osSetenv"),
+      ("unsetEnvVar", ← `(Std.Async.System.unsetEnvVar "PLANTED"), "osUnsetenv"),
+      ("getEnv", ← `(do discard <| Std.Async.System.getEnv), "osEnviron"),
+      ("getHomeDir", ← `(do discard <| Std.Async.System.getHomeDir), "osHomedir"),
+      ("getTmpDir", ← `(do discard <| Std.Async.System.getTmpDir), "osTmpdir"),
+      ("getCwd", ← `(do discard <| Std.IO.Process.getCwd), "cwd"),
+      ("setCwd", ← `(Std.IO.Process.setCwd (System.FilePath.mk "planted")), "chdir"),
+      ("getExecutablePath", ← `(do discard <| Std.IO.Process.getExecutablePath), "exePath")] do
+    let refused ← bodyRefusal body
+    unless refused.any (·.contains s!"calls Std.Internal.UV.System.{binding}") do
+      throwError "{label}: the reach check did not refuse the intended libuv binding: {refused}"
+
+-- A library's own process start or environment read is refused on a project path into the
+-- library, whoever owns the module that makes it: neither a listed entry nor a startup pair of the
+-- toolchain's initializers admits it there. Each refusal names the library's own call of the
+-- primitive. These controls inspect compiled calls without running a child or reading a variable.
+run_cmd do
+  for (label, body, cause) in [
+      ("Lake.proc", ← `(do discard <| (Lake.proc { cmd := "planted" }).toBaseIO),
+        "Lake.proc calls IO.Process.output"),
+      ("Lake.captureProc", ← `(do discard <| (Lake.captureProc { cmd := "planted" }).toBaseIO),
+        "Lake.captureProc' calls IO.Process.output"),
+      ("Lake.GitRepo.clone", ← `(do
+        discard <| (Lake.GitRepo.clone "planted" { dir := "planted" }).toBaseIO),
+        "Lake.proc calls IO.Process.output"),
+      ("Lake.LeanInstall.get", ← `(do
+        discard <| Lake.LeanInstall.get "/planted" (collocated := false)),
+        "Lake.LeanInstall.get.getGithash calls IO.Process.output"),
+      ("Lake.getSearchPath", ← `(do discard <| Lake.getSearchPath "REGULA_UNOBSERVED"),
+        "Lake.getSearchPath calls IO.getEnv"),
+      ("Lean solver launcher", ← `(do
+        let env ← Lean.mkEmptyEnvironment
+        discard <| (Lean.Meta.Tactic.BVDecide.External.runInterruptible 1 { cmd := "planted" }).toIO'
+          { fileName := "planted", fileMap := Lean.FileMap.ofString "" } { env }),
+        "Lean.Meta.Tactic.BVDecide.External.runInterruptible calls IO.Process.spawn"),
+      ("Lean source search path", ← `(do discard <| Lean.getSrcSearchPath),
+        "Lean.getSrcSearchPath calls IO.getEnv"),
+      ("Std timezone file", ← `(do
+        discard <| Std.Time.Database.TZdb.resolveLocalPath #[]),
+        "Std.Time.Database.TZdb.resolveLocalPath calls IO.getEnv"),
+      ("Std timezone directories", ← `(do
+        discard <| Std.Time.Database.TZdb.resolveZonesPaths Std.Time.Database.TZdb.default),
+        "Std.Time.Database.TZdb.resolveZonesPaths calls IO.getEnv")] do
+    let refused ← bodyRefusal body
+    unless refused.any (·.contains cause) do
+      throwError "{label}: a project path into the library was not refused at its own call: \
+        {refused}"
+
+-- Each listed entry admits the library's own starts and reads below its call by its listed caller.
+run_cmd do
+  for (label, body) in [
+      ("Lake environment", ← `(do discard <| Regula.Process.lakeEnvironment)),
+      ("module search path", ← `(Regula.Process.initSearchPath)),
+      ("source search path", ← `(do discard <| Regula.Process.srcSearchPath)),
+      ("workspace load", ← `(Regula.Checker.Workspace.withRootWorkspace "." fun _ => pure ()))] do
+    if let some refused ← bodyRefusal body then
+      throwError "{label}: the reach check refused a listed entry: {refused}"
+
+-- A local module name rooted at Lake still receives no imported-library exemption.
+run_cmd do
+  let refused ← bodyRefusal (← `(do discard <| IO.getEnv "PLANTED")) do
+    modifyEnv (·.setMainModule `Lake.PlantedControl)
+  unless refused.any (·.contains "calls IO.getEnv") do
+    throwError "a locally authored Lake-rooted module borrowed a library exemption: {refused}"
+
+-- A value that the initializer of a module computes runs when the program starts, though no code
+-- of the program reads it: an environment read or a process start in its evaluation is refused at
+-- its call, also under the name that the compiler gives a closed term, which a source can declare
+-- too. A value that only builds a closure of the same read, as an instance builds its methods,
+-- runs none of it, so it is admitted. These controls compile the values without running them.
+run_cmd do
+  let main ← `(pure ())
+  for (name, value, primitive) in [
+      ("plantedSnapshot", ← `(command|
+        unsafe def $(mkIdent `plantedSnapshot) : Option String :=
+          unsafeBaseIO (IO.getEnv "PLANTED")), "IO.getEnv"),
+      ("_closed_0", ← `(command|
+        unsafe def $(mkIdent `_closed_0) : Option String :=
+          unsafeBaseIO (IO.getEnv "PLANTED")), "IO.getEnv"),
+      ("plantedStarted", ← `(command|
+        unsafe def $(mkIdent `plantedStarted) : Except IO.Error IO.Process.Output :=
+          unsafeIO (IO.Process.output { cmd := "planted" })), "IO.Process.output")] do
+    let refused ← bodyRefusal main (elabCommand value)
+    unless refused.any fun text =>
+        text.contains s!"Controls.{name}" && text.contains s!"calls {primitive}" do
+      throwError "{name}: a value that an initializer computes escaped the reach check: {refused}"
+  let built ← bodyRefusal main do
+    elabCommand (← `(command|
+      structure $(mkIdent `PlantedReader) where
+        read : Unit → IO (Option String)))
+    elabCommand (← `(command|
+      def $(mkIdent `plantedReader) : $(mkIdent `PlantedReader) :=
+        ⟨fun _ => IO.getEnv "PLANTED"⟩))
+  if let some refused := built then
+    throwError "the reach check refused a value that only builds a closure: {refused}"
+
+-- A declaration named as a specialization of a listed caller is not one that the compiler recorded,
+-- so its call of the entry admits nothing below it.
+run_cmd do
+  let lookalike := `Regula.Process.lakeEnvironment ++ `_at_ ++ `Planted ++ `spec_0
+  let refused ← pathRefusal (mkConst lookalike) do
+    elabCommand (← `(command|
+      @[noinline] def $(mkIdent (`_root_ ++ lookalike)) : IO Unit := do
+        discard <| Lake.LeanInstall.get "/planted" (collocated := false)))
+  unless refused.any (·.contains "Lake.LeanInstall.get.getGithash calls IO.Process.output") do
+    throwError "a declaration named as a specialization borrowed a listed entry: {refused}"
+
+-- Below the renderer's listed entries, `renderSite`'s call of `Verso.Genre.Manual.manualMain`,
+-- which this module plants in place of Verso's, a start or read is admitted only when the entry
+-- lists it.
+run_cmd do
+  let renderer (body : Term) : CommandElabM Unit := do
+    elabCommand (← `(command|
+      @[noinline] def $(mkIdent `_root_.Verso.Genre.Manual.manualMain) : IO Unit := $body))
+    elabCommand (← `(command|
+      @[noinline] def $(mkIdent `_root_.renderSite) : IO Unit :=
+        $(mkIdent `Verso.Genre.Manual.manualMain)))
+  for (label, body, cause) in [
+      ("environment", ← `(do discard <| IO.getEnv "PLANTED"),
+        "Verso.Genre.Manual.manualMain calls IO.getEnv"),
+      ("process", ← `(do discard <| IO.Process.output { cmd := "planted" }),
+        "Verso.Genre.Manual.manualMain calls IO.Process.output")] do
+    let refused ← pathRefusal (mkConst `renderSite) (renderer body)
+    unless refused.any (·.contains cause) do
+      throwError "{label}: a renderer entry admitted a call that it does not list: {refused}"
+  if let some refused ← pathRefusal (mkConst `renderSite)
+      (renderer (← `(do discard <| Std.Time.Database.TZdb.resolveLocalPath #[]))) then
+    throwError "the reach check refused a call that the renderer entry lists: {refused}"
+
+-- An arbitrary extern name bound to the process runtime symbol is detected as the same boundary.
+run_cmd do
+  let setup := elabCommand (← `(command|
+    @[extern "lean_io_process_spawn"] opaque plantedSpawn (args : IO.Process.SpawnArgs) :
+      IO (IO.Process.Child args.toStdioConfig)))
+  let refused ← bodyRefusal (← `(do discard <| plantedSpawn { cmd := "planted" })) setup
+  unless refused.any (·.contains "calls Regula.ProgramCheck.Controls.plantedSpawn") do
+    throwError "a differently named process extern escaped the reach check: {refused}"
+
+-- An arbitrary extern name bound to a libuv environment symbol is detected as the same boundary.
+run_cmd do
+  let setup := elabCommand (← `(command|
+    @[extern "lean_uv_os_getenv"] opaque plantedGetenv (name : @& String) : IO (Option String)))
+  let refused ← bodyRefusal (← `(do discard <| plantedGetenv "PLANTED")) setup
+  unless refused.any (·.contains "calls Regula.ProgramCheck.Controls.plantedGetenv") do
+    throwError "a differently named environment extern escaped the reach check: {refused}"
+
+-- A process observer role belongs only to Regula.Process, even if a foreign declaration is pure.
+run_cmd do
+  let setup := elabCommand (← `(command|
+    @[regula_observer process] def plantedProcessObserver : IO Unit := pure ()))
+  let refused ← bodyRefusal (← `(plantedProcessObserver)) setup
+  unless refused.any (·.contains "an observer's role is given outside its boundary module") do
+    throwError "a foreign process observer escaped the reach check: {refused}"
 -- A `main` that starts a process with no task, a declaration of another name bound to the C
 -- function that starts a process, and a refusal that starts a process each fail the check, since
 -- a process started outside the guard inherits a Git environment that is not isolated. The same

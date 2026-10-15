@@ -104,24 +104,24 @@ private def reproduction (website program scratch : FilePath)
   let delay := #["--output", out.toString, "--delay-html-multi", state.toString]
   let resume := #["--output", out.toString, "--resume-html-multi", state.toString]
   seed (out / "kept.txt")
-  let delayed ← run website program.toString delay env
+  let delayed ← run website (.stated program "The control runs the website executable that lake query found") delay env
   requireChecks [⟨s!"a delayed render of regula-standard did not write its saved state and its \
     cross-reference table, or did not keep a file of its output directory {shown delayed}",
     delayed.exitCode == 0 && (← present state) && (← present (pages / "xref.json")) &&
       (← present (out / "kept.txt"))⟩]
-  let resumed ← run website program.toString resume env
+  let resumed ← run website (.stated program "The control runs the website executable that lake query found") resume env
   requireChecks [⟨s!"a resumed render of regula-standard did not render from the saved state \
     {shown resumed}", resumed.exitCode == 0 && (← present (pages / "index.html"))⟩]
   seed count
   let stateBytes ← IO.FS.readBinFile state
   let countBytes ← IO.FS.readBinFile count
-  let refused ← run website program.toString (delay ++ #["--with-word-count", count.toString])
+  let refused ← run website (.stated program "The control runs the website executable that lake query found") (delay ++ #["--with-word-count", count.toString])
     refusing
   requireRefused "regula-standard" refused
   discard (requireMoved refused state (bytes := some stateBytes))
   discard (requireMoved refused count (bytes := some countBytes))
   discard (requireMoved refused out ["kept.txt", ("html-multi" : FilePath) / "index.html"])
-  let stale ← run website program.toString resume env
+  let stale ← run website (.stated program "The control runs the website executable that lake query found") resume env
   requireChecks [⟨s!"a resumed render of regula-standard after a refused run rendered from an \
     earlier saved state {shown stale}",
     stale.exitCode != 0 && !(← present (pages / "index.html"))⟩]
@@ -154,7 +154,8 @@ private def refusals (program scratch : FilePath) (name : String)
     (refusing : Array (String × Option String)) : IO Unit := do
   let base := scratch / s!"{name}-refusals"
   let refuse (cwd : FilePath) (args : Array String) : IO IO.Process.Output := do
-    let output ← run cwd program.toString args refusing
+    let output ← run cwd (.stated program "The control runs the website executable that lake query found") args
+      refusing
     requireRefused name output
     return output
   let out := base / "delay"
@@ -182,7 +183,7 @@ private def refusals (program scratch : FilePath) (name : String)
   let target := base / "target.txt"
   let link := base / "linked-count.txt"
   seed target "target"
-  let made ← run base "ln" #["-s", target.toString, link.toString]
+  let made ← run base (.stated "ln" "Plant a symbolic-link word count for the control") #["-s", target.toString, link.toString]
   requireChecks [⟨s!"ln -s {target} {link} {shown made}", made.exitCode == 0⟩]
   let refused ← refuse base #["--output", (base / "linked").toString, "--with-word-count",
     link.toString]
@@ -211,7 +212,8 @@ private def refusals (program scratch : FilePath) (name : String)
     reports refused "was not moved aside: it is an empty path" &&
       (← present (dot / "kept.txt"))⟩]
   -- A word count whose name is `NAME_MAX` long has a new directory whose name is longer.
-  let limit ← run base "getconf" #["NAME_MAX", base.toString]
+  let limit ← run base (.stated "getconf" "POSIX getconf gives the file system's NAME_MAX for the control")
+    #["NAME_MAX", base.toString]
   let some longest := (limit.stdout.splitOn "\n").head?.bind String.toNat?
     | throw (IO.userError s!"getconf NAME_MAX {base} gave no number {shown limit}")
   let long := base / String.ofList (List.replicate longest 'n')
@@ -263,7 +265,7 @@ macOS (`src/Lean/Data/Json/FromToJson/Basic.lean:108-109`,
 (`src/Lean/Data/Json/Printer.lean:36-43`), so a path with a line feed in it is read whole. -/
 def control (root : FilePath) : IO Unit := do
   let website := root / "website"
-  let built ← run website "lake" #["query", "--json", "regula-site", "regula-standard"] cleanEnv
+  let built ← run website (.toolchain .lake) #["query", "--json", "regula-site", "regula-standard"] cleanEnv
   let found : Except String (FilePath × FilePath) := do
     let (site, standard) ← twoJsonValues built.stdout
     return (← Lean.fromJson? site, ← Lean.fromJson? standard)

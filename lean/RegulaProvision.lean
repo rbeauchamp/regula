@@ -1,7 +1,7 @@
-import Lean.Data.Json
-import Lean.Util.Path
+import Lake.Config.InstallPath
 import Lake.Load.Manifest
 import Lake.Toml.Grammar
+import Lean
 
 /-! # Dependency provisioning
 
@@ -33,6 +33,21 @@ their entries are those that `Regula.Checker.LakeSelection` states for the check
 (`selectPins`, which `Regula.ProgramCheck.Provision` relates to it).
 -/
 namespace RegulaProvision
+
+namespace Process
+
+-- Use Lean's own frontend, not a second implementation of the process policy.
+run_cmd do
+  let origin ← Lean.getRef
+  let before ← Lean.getEnv
+  let input := Lean.Parser.mkInputContext (include_str "Regula/ProcessSource.inc") "Regula/ProcessSource.inc"
+  let result ← Lean.Elab.IO.processCommands input {} (← get)
+  set result.commandState
+  for (name, _) in result.commandState.env.constants.toList do
+    unless before.contains name do
+      Lean.Elab.addDeclarationRangesFromSyntax name origin
+
+end Process
 open System Lean
 
 /-! ## Pure decisions -/
@@ -646,7 +661,9 @@ structure Ran where
 /-- Shared constructor source embedded by Lean; the cold provisioner imports only the toolchain.
 Assumes: Lean v4.34.1 `Lean/Elab/BuiltinTerm.lean:437-445` elabIncludeStr reads this source at elaboration,
 and the pinned Lean interpreter executes it before project artifacts exist. -/
-def constructionSource : String := include_str "RegulaCore/CopyProgram.lean"
+def constructionSource : String := Process.constructorSource
+  (include_str "RegulaCore/CopyProgram.lean") (include_str "Regula/ProcessSource.inc")
+  (include_str "Regula/GitProcessSource.inc")
 
 /-- Run the shared construction source's entrypoint (`Construction.sourceMain`) with `args` before
 cold artifacts exist, and decode the JSON it prints; `what` names the observation in an error.
@@ -654,11 +671,11 @@ The interpreter reads its source from stdin, without a temporary file or removal
 
 Assumes: Lean v4.34.1 `IO.Process.output` supplies stdin and waits for the child
 (`Init/System/IO.lean:1544-1557`);
-`Lean/Util/Path.lean:85-86` identifies the running toolchain. `--stdin --run`
+`Process.identified` checks the selected installation's compiler identity. `--stdin --run`
 (`Lean/Shell.lean:497-518,552-560`) faithfully executes constructionSource. -/
 private def construction {α : Type} [FromJson α] (what : String) (args : Array String) : IO α := do
-  let out ← IO.Process.output {
-    cmd := ((← Lean.getBuildDir) / "bin/lean").toString
+  let out ← Process.output (.toolchain .lean) {
+    cmd := ""
     args := #["--stdin", "--run", "Construction.lean"] ++ args
     env := #[("LEAN_PATH", none), ("LEAN_SRC_PATH", none)] }
     (constructionSource ++ "\n/-- Cold construction entrypoint. -/\n" ++
@@ -680,15 +697,15 @@ private def listDirectory (path : FilePath) : IO (Array IO.FS.DirEntry) := do
   let names : Array String ← construction s!"listing of {path}" #["list", path.toString, ""]
   return names.map fun name => { root := path, fileName := name }
 
-private def run (cwd : FilePath) (cmd : String) (args : Array String) : IO Ran := do
-  let (args, env) ← if cmd == "git" then
+private def run (cwd : FilePath) (cmd : Process.Program) (args : Array String) : IO Ran := do
+  let (args, env) ← if cmd.statedCommand == some "git" then
       pure (#["-c", "core.symlinks=false"] ++ args, ← gitEnvironment)
     else pure (args, #[])
-  let out ← IO.Process.output {
-    cmd, args, cwd := some cwd, env := env.push ("GHCR_TOKEN", none), stdin := .null }
+  let out ← Process.output cmd {
+    cmd := "", args, cwd := some cwd, env := env.push ("GHCR_TOKEN", none), stdin := .null }
   return ⟨out.exitCode, out.stdout, out.stderr⟩
 
-private def require (cwd : FilePath) (cmd : String) (args : Array String) : IO String := do
+private def require (cwd : FilePath) (cmd : Process.Program) (args : Array String) : IO String := do
   let ran ← run cwd cmd args
   unless ran.exitCode == 0 do
     throw <| IO.userError s!"provisioning: `{cmd} {" ".intercalate args.toList}` in {cwd} \
@@ -708,10 +725,10 @@ private def isolationEnvironment : IO (Array (String × Option String)) :=
 
 /-- Run a Lake command with inherited output, for long steps whose progress the user should see,
 under the Git isolation `isolation` (`isolationEnvironment`). -/
-private def stream (isolation : Array (String × Option String)) (cwd : FilePath) (cmd : String)
-    (args : Array String) : IO Unit := do
-  let child ← IO.Process.spawn {
-    cmd, args, env := isolation.push ("GHCR_TOKEN", none), cwd := some cwd,
+private def stream (isolation : Array (String × Option String)) (cwd : FilePath)
+    (cmd : Process.Program) (args : Array String) : IO Unit := do
+  let child ← Process.spawn cmd {
+    cmd := "", args, env := isolation.push ("GHCR_TOKEN", none), cwd := some cwd,
     stdin := .null, stdout := .inherit, stderr := .inherit }
   let exit ← child.wait
   unless exit == 0 do
@@ -729,7 +746,7 @@ private def nonce : IO String := do
 private def buildMathlib (cwd : FilePath) (readOnly : Bool) : IO Unit := do
   let isolation ← isolationEnvironment
   for command in mathlibCommands readOnly do
-    stream isolation cwd "lake" command
+    stream isolation cwd (.toolchain .lake) command
 
 private def admitComponent (what text : String) : IO Component := do
   let some name := component? text
@@ -771,9 +788,9 @@ private def observe (path : FilePath) : IO Observed := do
   | some .dir =>
     -- Without its own `.git`, Git would answer for the enclosing repository instead.
     unless ← isPresent (path / ".git") do return .directory none false
-    let head ← run path "git" #["rev-parse", "HEAD"]
+    let head ← run path (.stated "git" "The provisioning plan selects this external git utility") #["rev-parse", "HEAD"]
     let reports ← [#["status", "--porcelain"], #["stash", "list"],
-      #["rev-list", "-n", "1", "HEAD", "--branches", "--not", "--remotes"]].mapM (run path "git")
+      #["rev-list", "-n", "1", "HEAD", "--branches", "--not", "--remotes"]].mapM (run path (.stated "git" "The provisioning plan selects this external git utility"))
     let head := if head.exitCode == 0 then some head.stdout.trimAscii.toString else none
     return .directory head
         (reports.all fun ran => ran.exitCode == 0 && ran.stdout.trimAscii.isEmpty)
@@ -893,15 +910,16 @@ file_cmds-479 `ln/ln.c:145-146,253-265,307,353` adds the source's name to the la
 when that operand names a directory or ends in `/` or `/.`. GNU coreutils 9.4
 `src/ln.c:160-164,604-633` calls `symlinkat` at the operand first, and makes the link inside it
 only when that fails and a directory is there. Trusted: the installed macOS `/bin/ln` reports
-file_cmds-487.0.1, whose source is not published, and keeps this behaviour; `ln` is found on
-`PATH` (issue 388); `ln` starts in the directory of `staged`, which a relative path names from
-this process's working directory, as for `IO.FS.createDir`.
+file_cmds-487.0.1, whose source is not published, and keeps this behaviour; `ln` is a stated
+program (`Process.Program.stated`), a trusted selection found on `PATH`; `ln` starts in the
+directory of `staged`, which a relative path names from this process's working directory, as for
+`IO.FS.createDir`.
 `installLinkWith` gives `staged` a name in a directory that this run made, so it names nothing
 when no other process writes there. -/
 @[noinline] private def makeLink (target : String) (staged : FilePath) : IO Unit := do
   let some name := staged.fileName
     | throw <| IO.userError s!"provisioning: {staged} has no name"
-  let _ ← require (staged.parent.getD ".") "ln" #["-s", "--", target, name]
+  let _ ← require (staged.parent.getD ".") (.stated "ln" "Shared Mathlib registration deliberately links the read-only cache") #["-s", "--", target, name]
 
 /-- `IO.FS.rename`: the move of the link that `installLinkWith` made over its place.
 
@@ -942,8 +960,8 @@ private def installLink (path : FilePath) (target : String) : IO Unit := do
 
 /-- Interpret the one shared constructor in a cold driver. The wrapper is this run's
 exclusive file in a private staging parent, and is removed when the interpreter ends.
-Assumes: the running Lean executable owns its installation (`Lean/Util/Path.lean:85-86`);
-Lean's interpreter executes the embedded source faithfully. -/
+Assumes: Lean v4.34.1 `Lean/Shell.lean:552-560` executes the embedded source faithfully;
+`Process.identified` checks the selected installation's compiler identity. -/
 private def runConstruction (parent : FilePath) (domain source : String) (target : FilePath) :
     IO Unit := do
   let wrapper := parent / s!".regula-copy-{← nonce}.lean"
@@ -952,8 +970,8 @@ private def runConstruction (parent : FilePath) (domain source : String) (target
     "def main := Regula.Filesystem.Construction.sourceMain\n")
   handle.flush
   try
-    let result ← IO.Process.output {
-      cmd := ((← Lean.getBuildDir) / "bin/lean").toString
+    let result ← Process.output (.toolchain .lean) {
+      cmd := ""
       args := #["--run", wrapper.toString, domain, source, target.toString]
       env := #[("LEAN_PATH", none), ("LEAN_SRC_PATH", none)] }
     unless result.exitCode == 0 do
@@ -978,7 +996,7 @@ private def installClone (path source : FilePath) : IO Unit := do
   try
     runConstruction parent "git" source.toString staged
     -- New inodes require index refresh; executable rights already agree with the index.
-    let _ ← require staged "git" #["update-index", "-q", "--refresh"]
+    let _ ← require staged (.stated "git" "Git is the stated repository mechanism") #["update-index", "-q", "--refresh"]
     IO.FS.rename staged path
   catch error =>
     if (← kind? staged) == some .dir then IO.FS.removeDirAll staged
@@ -1070,9 +1088,9 @@ def readPins (repo : FilePath) : IO (Option (Lake.Manifest × Pins)) := do
   | .error reason => throw <| IO.userError s!"provisioning: {files.1} with {files.2}: {reason}"
 
 private def cacheBase : IO FilePath := do
-  if let some base ← IO.getEnv "XDG_CACHE_HOME" then
+  if let some base ← RegulaProvision.Process.readEnv "XDG_CACHE_HOME" then
     if !base.isEmpty then return base
-  let some home ← IO.getEnv "HOME"
+  let some home ← RegulaProvision.Process.readEnv "HOME"
     | throw <| IO.userError "provisioning: HOME is not set"
   return FilePath.mk home / ".cache"
 
@@ -1100,13 +1118,13 @@ def sharedPackages (dir : FilePath) : FilePath := dir / ".lake" / "packages"
 
 /-- Remove the directory `path`, which may be read-only, never following a link inside it. -/
 private def removeReadOnly (path : FilePath) : IO Unit := do
-  let _ ← require (path.parent.getD ".") "chmod" #["-R", "u+w", path.toString]
+  let _ ← require (path.parent.getD ".") (.stated "chmod" "The provisioning plan selects this external chmod utility") #["-R", "u+w", path.toString]
   IO.FS.removeDirAll path
 
 /-- Remove a shared directory being removed, its receipt last, so that a run killed partway
 leaves it still identified and the next run finishes the removal. -/
 private def removeShared (path : FilePath) : IO Unit := do
-  let _ ← require (path.parent.getD ".") "chmod" #["-R", "u+w", path.toString]
+  let _ ← require (path.parent.getD ".") (.stated "chmod" "The provisioning plan selects this external chmod utility") #["-R", "u+w", path.toString]
   for entry in ← listDirectory path do
     unless entry.fileName == receiptName do
       if (← kind? entry.path) == some .dir then IO.FS.removeDirAll entry.path
@@ -1117,12 +1135,12 @@ private def removeShared (path : FilePath) : IO Unit := do
 /-- Make the staged directory read-only. Each checkout's index is refreshed after its files
 changed mode, before its `.git` becomes read-only, so Lake's `git diff` stays cheap. -/
 private def makeReadOnly (staging : FilePath) (packages : Array FilePath) : IO Unit := do
-  let _ ← require staging "chmod" #["-R", "a-w", staging.toString]
+  let _ ← require staging (.stated "chmod" "The provisioning plan selects this external chmod utility") #["-R", "a-w", staging.toString]
   for package in packages do
     let git := package / ".git"
-    let _ ← require package "chmod" #["u+w", git.toString]
-    let _ ← require package "git" #["update-index", "-q", "--refresh"]
-    let _ ← require package "chmod" #["a-w", (git / "index").toString, git.toString]
+    let _ ← require package (.stated "chmod" "The provisioning plan selects this external chmod utility") #["u+w", git.toString]
+    let _ ← require package (.stated "git" "The provisioning plan selects this external git utility") #["update-index", "-q", "--refresh"]
+    let _ ← require package (.stated "chmod" "The provisioning plan selects this external chmod utility") #["a-w", (git / "index").toString, git.toString]
 
 /-- Create the shared directory `final` from a fresh staging directory, run the stable build
 plan, record and seal it, and publish with one rename. Its manifest is the Mathlib package's
@@ -1154,7 +1172,7 @@ private def create (repo parent final : FilePath) (key : String) (manifest : Lak
   -- It has a closed generated configuration, not an existing-project relocation or override
   -- load. Lake and Git's new checkout contents remain trusted (libraryRemovals).
   try
-    let githash := (← require staging "lean" #["--githash"]).trimAscii.toString
+    let githash := (← require staging (.toolchain .lean) #["--githash"]).trimAscii.toString
     unless githash == Lean.githash do
       throw <|
           IO.userError
@@ -1166,7 +1184,7 @@ private def create (repo parent final : FilePath) (key : String) (manifest : Lak
     let mut held := #[]
     let mut dirs := #[]
     for entry in ← listDirectory packagesRoot do
-      let head := (← require entry.path "git" #["rev-parse", "HEAD"]).trimAscii.toString
+      let head := (← require entry.path (.stated "git" "The provisioning plan selects this external git utility") #["rev-parse", "HEAD"]).trimAscii.toString
       if let some pin := checkoutPin pins.git entry.fileName then
         unless pin.rev == head do
           throw <|
@@ -1372,7 +1390,7 @@ private def provisionPackages (packages shared : FilePath) (receipt : Receipt) (
 
 /-- Refuse a process using a different compiler from this program. -/
 def requireCompiler (repo : FilePath) : IO Unit := do
-  let githash := (← require repo "lean" #["--githash"]).trimAscii.toString
+  let githash := (← require repo (.toolchain .lean) #["--githash"]).trimAscii.toString
   unless githash == Lean.githash do
     throw <| IO.userError s!"provisioning: this repository's toolchain is {githash}, \
       but this program runs on {Lean.githash}"
@@ -1451,18 +1469,17 @@ def provisionVerso (repo : FilePath) : IO Unit := do
     throw <| IO.userError s!"provisioning: markdown pins MD4Lean {reader} and website pins \
       MD4Lean {verso}, each by the entry that Lake materializes it from; the two packages keep \
       one checkout, so pin the same commit in the two manifests"
-  stream (← isolationEnvironment) (repo / "website") "lake" #["build", "verso/VersoManual"]
+  stream (← isolationEnvironment) (repo / "website") (.toolchain .lake) #["build", "verso/VersoManual"]
 
-/-- Check the exact supported compiler before provisioning any dependency artifacts. -/
+/-- Check the exact supported compiler before provisioning any dependency artifacts. The process
+observer starts the policy guard only on a compiler that reports this program's identity. -/
 def requireReleasedCompiler (repo : FilePath) : IO Unit := do
   requireCompiler repo
-  let out ← IO.Process.output {
-    cmd := "lean", args := #["lean/RegulaPolicy/Compiler.lean"], cwd := some repo,
-    env := #[("REGULA_COMPILER_GUARD", some "1"), ("GHCR_TOKEN", none)], stdin := .null }
+  let out ← Process.output (.toolchain .lean) {
+    cmd := "", args := #["lean/RegulaPolicy/Compiler.lean"], cwd := some repo,
+    env := #[("GHCR_TOKEN", none)], stdin := .null }
   unless out.exitCode == 0 do
     throw <| IO.userError s!"provisioning: released compiler guard failed:\n{out.stdout}{out.stderr}"
-  unless out.stdout.replace "\r" "" == s!"{Lean.versionString}\n{Lean.githash}\n" do
-    throw <| IO.userError "provisioning: the policy guard and provisioning program report different compiler identities"
 
 /-- Refuse retired acquisition settings without installing, restoring or rewriting anything. -/
 def requireReleasedSetup (repo : FilePath) : IO Unit := do
@@ -1477,7 +1494,8 @@ end RegulaProvision
 
 /-- Standalone released-toolchain setup and explicit Mathlib or Verso provisioning. -/
 def main (args : List String) : IO Unit := do
-  let repo ← IO.FS.realPath (← IO.currentDir)
+  RegulaProvision.Process.requireNativeTools (← RegulaProvision.Process.identified)
+  let repo ← IO.FS.realPath (← RegulaProvision.Process.currentDir)
   unless ← RegulaProvision.isPresent (repo / "lakefile.lean") do
     throw <| IO.userError "provisioning: run from the repository root"
   RegulaProvision.requireReleasedSetup repo
@@ -1486,7 +1504,7 @@ def main (args : List String) : IO Unit := do
     IO.println "provisioning: default verification needs no dependency acquisition"
   | ["mathlib"] =>
     RegulaProvision.requireMathlibApplies repo
-    if (← IO.getEnv "GITHUB_ACTIONS") == some "true" then
+    if (← RegulaProvision.Process.readEnv "GITHUB_ACTIONS") == some "true" then
       RegulaProvision.buildMathlib (repo / RegulaProvision.mathlibPackage) false
     else if System.Platform.isWindows then
       IO.println s!"provisioning: sharing is not supported on Windows; provision with \

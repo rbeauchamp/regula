@@ -38,7 +38,7 @@ def prepareProject (root project : FilePath) (packageName claim rationale : Stri
     ("excluded-libraries", toJson (#[] : Array Json)),
     ("excluded-executables", toJson (#[] : Array Json))])
   Regula.Checker.Lake.pinAdopter root project
-  let initialized ← run project "git" #["init", "-q"]
+  let initialized ← run project (.stated "git" "Git is the stated repository mechanism") #["init", "-q"]
   requireChecks [⟨"adopter repository", initialized.exitCode == 0⟩]
 
 /-- Core-only adopter for source/evidence controls. No checker module is imported into the
@@ -92,7 +92,7 @@ fails it, with Lake's output, which names the jobs that need a build. -/
 def requireRootImportsBuilt (root : FilePath) (sources : Array String) : IO Unit := do
   let mut stale : Array String := #[]
   for (name, _) in ← rootImports root sources do
-    let result ← run root "lake" #["build", "--no-build", s!"+{name}"] cleanEnv
+    let result ← run root (.toolchain .lake) #["build", "--no-build", s!"+{name}"] cleanEnv
     unless result.exitCode == 0 do
       stale := stale.push s!"{name}:\n{result.stdout}{result.stderr}"
   unless stale.isEmpty do
@@ -146,7 +146,7 @@ def rootImportsGuardControl (root scratch : FilePath) (sources : Array String) :
 def observeProject (root project output : FilePath) (flags : Array String) : IO
     (IO.Process.Output × Json) := do
   requireChecks [⟨"result path must be fresh", !(← Regula.Filesystem.isPresent output)⟩]
-  let result ← run project (root / ".lake/build/bin/axiomGate").toString
+  let result ← run project (.stated (root / ".lake/build/bin/axiomGate").toString "The caller selects this resolved non-toolchain executable")
     (#["--project", project.toString] ++ flags ++ #["--json-out", output.toString]) cleanEnv
   return (result, ← readResult output)
 

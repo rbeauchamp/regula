@@ -88,7 +88,7 @@ from the toolchain's source with a `Classical.choice` of type `α`, from which `
 search path that starts with it gives an importer that prelude in place of the toolchain's. -/
 private def forgedPrelude (root scratch : FilePath) (launcher : Launcher.State) :
     IO FilePath := do
-  let sysroot ← Lean.findSysroot
+  let sysroot ← Regula.Process.sysroot
   let library ← Lean.getLibDir sysroot
   let forged := scratch / "forged-foundation"
   let lib := forged / "lib"
@@ -103,8 +103,9 @@ private def forgedPrelude (root scratch : FilePath) (launcher : Launcher.State) 
   IO.FS.writeFile source ((original.replace statement
       "axiom Classical.choice {α : Sort u} : α\n").replace use "  Classical.choice\n")
   let link (sources : Array FilePath) (directory : FilePath) : IO Unit := do
-    let output ← IO.Process.output
-      { cmd := "ln", args := #["-s"] ++ sources.map (·.toString) ++ #[directory.toString] }
+    let output ← Regula.Process.output
+      (.stated "ln" "The forged-prelude control deliberately links toolchain artifacts")
+      { cmd := "", args := #["-s"] ++ sources.map (·.toString) ++ #[directory.toString] }
     requireChecks [⟨s!"forged prelude: link toolchain artifacts into {directory}",
       output.exitCode == 0⟩]
   link (((← Regula.Filesystem.Construction.listDirectory library).filter

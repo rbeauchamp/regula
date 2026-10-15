@@ -657,8 +657,8 @@ The calls of Lake on that list are trusted exceptions. Lake makes them itself in
 of a program that loads a workspace or builds. Each acts on that workspace, as `lake build` or
 `lake update` would there. Thus its safety rests on the content of the workspace: its configuration,
 the clones of its dependencies and the release archives that it fetches. The adopter trusts that
-content as Lake does. The other entries rest on an assumption, and `libraryRemovals` gives each
-entry with a source line.
+content as Lake does. The entries of `bv_decide` are also trusted, because configuration source
+can use that tactic, and `libraryRemovals` gives each entry with a source line.
 
 A program can also operate Lake in a copy of a project that it made, as
 `Regula.Checker.Lake.copyProject` and the verification driver do. Lake acts on the copy as it would
@@ -835,7 +835,9 @@ with the declaration that makes it. A removal in a different declaration of a dr
 build fail.
 
 The check permits a call of that list, or of a driver, by the pair of its caller and the removal
-function that it calls. It does not examine the path or the place of the call in the caller. Thus
+function that it calls. It does not examine the path or the place of the call in the caller. A pair
+gives a private declaration by its full name, with its module, so a private declaration of another
+module with the same name does not match the pair. Thus
 each permitted pair is a trusted exception as a whole, together with each further call of the same
 function in the same caller. For example, a second `IO.FS.removeDirAll` in a removal of the
 verification driver passes the check.
@@ -878,7 +880,7 @@ through the observer, and the check accepts it. It declares an observer in a dif
 
 Each shard of the self-audit builds the library `Regula`, thus the two modules.
 
-The deployment program `lean/Regula/Site/Deployment.lean` imports only the Lean core, thus it
+The deployment program `lean/Regula/Site/Deployment.lean` imports only the toolchain, thus it
 cannot use the observer. It reads each page from the output of `curl` and writes no file. The
 check of `Regula.ProgramCheck.SiteDeployment` finds no removal in it. It passes to `curl` only
 `PATH` and the proxy and certificate variables that `fetch` lists, none of which makes `curl`
@@ -1154,8 +1156,8 @@ refers to, closures included. If a traversal stops at its bound, the check inspe
 
 Lean's library has four exceptions, which `registrations` names in full. They register the builtin
 `bv_decide` tactics, and they keep closures in a reference. The check accepts them only if they do
-nothing more. It assumes that no initialization code elaborates these tactics. The removal check
-of `Regula.Removal` examines the same initialization code.
+nothing more. It assumes that no initialization code elaborates these tactics. The observer reach
+check of `Regula.Removal` examines the same initialization code.
 
 A compiled program operates all its initializers before it starts the task manager, in each run.
 The value of `LEAN_NUM_THREADS` does not change that order. Thus no initializer has a task manager,
@@ -5220,7 +5222,7 @@ root's; the skill files are read and written at that repository root (the Lake r
 repository).
 
 Regula's `lakefile.lean` executes the core-only source `RegulaPolicy.Compiler` when its
-configuration is elaborated, in a child `lean` that `LEAN_SYSROOT` or `PATH` selects. The
+configuration is elaborated. `Regula.Process` selects that child from an identity-checked installation, without a PATH lookup. The
 source guard compares that child's version and full commit with the revision's declared
 identity and then prints them; the lakefile passes only when the child succeeds and the
 printed pair is the `Lean.versionString` and `Lean.githash` of the Lean elaborating the
@@ -5262,17 +5264,18 @@ a Git repository with and without a root `AGENTS.md`) are bounded observations, 
 historical version-string guard's refusal of Lean 4.33.0 and 4.34.1 through the `lake` command
 line and when a checker executable loaded the workspace. Those historical observations do not
 qualify the new exact-identity guard. Its retained control, in the `lint-driver` partition,
-loads a fresh copy of the lakefile and policy source through `lake`: an inherited
-`LEAN_SYSROOT` whose `lean` fails on the policy source is refused, one whose `lean` exits
-successfully without printing the running compiler's identity is refused by the identity
-comparison, and the same package then loads with the inherited environment. Neither child is
-a compiler. A compiler the policy refuses, an in-process load by a checker executable and
-`doctor`'s resolution of a pin need a second installed compiler or current observations and
-have no retained control. The `lint-driver` partition also keeps a control of `init` on the
-templates of Lake. A project from `lake new` in each format gets the glob of its library and a
-complete setup. The `lean_lib` of the `lakefile.lean` project has an empty `where` block. A
-second `init` writes nothing. In the `lakefile.toml` project, `lake lint` then reports only the
-docstrings that the template does not have. It accepts the project when they are written.
+loads a fresh copy of the lakefile, the process source and the policy source through `lake`. An
+inherited `LEAN_SYSROOT` with a `lean` that fails is refused by the identity check of the process
+source, before the policy source runs. So is one with a `lean` that exits with code 0 and does
+not print the running compiler's identity. Each child first writes a marker that shows that it
+ran. The same package then loads with the inherited environment. Neither child is a compiler. A
+compiler the policy refuses, an in-process load by a checker executable and `doctor`'s resolution
+of a pin need a second installed compiler or current observations and have no retained control.
+The `lint-driver` partition also keeps a control of `init` on the templates of Lake. A project
+from `lake new` in each format gets the glob of its library and a complete setup. The `lean_lib`
+of the `lakefile.lean` project has an empty `where` block. A second `init` writes nothing. In the
+`lakefile.toml` project, `lake lint` then reports only the docstrings that the template does not
+have. It accepts the project when they are written.
 
 **Releases** ([procedure](contributing.md#release)): **Proved** in `lean/Regula/Release.lean`,
 and checked by the kernel each time a step elaborates it: `tagAction`, the decision of the
@@ -5621,12 +5624,13 @@ The `qualify` campaigns and what they observe:
   [Operational assumptions](#operational-assumptions)). It stops as unsupported, not as a pass,
   if the Git of its `PATH` is outside the cases that it models. It also stops as unsupported if the
   guard of a started program cannot query that Git with the `PATH` of the control.
-- `observers`: the record of the removal check of each program of the package, and the check of
-  `Main`, the root of `auditApp`. It also refuses an executable with no record of the task-manager
-  check. It refuses a module under `Init`, `Std`, `Lean` or `Lake` in a package of the root,
-  `markdown/` or `audit/` workspace (`checkToolchainWorkspaces`), after its control. It also
+- `observers`: the record of the observer reach check of each program of the package, and the
+  check of `Main`, the root of `auditApp`. It also refuses an executable with no record of the
+  task-manager check. It refuses a module under `Init`, `Std`, `Lean` or `Lake` in a package of the
+  root, `markdown/` or `audit/` workspace (`checkToolchainWorkspaces`), after its control. It also
   refuses a guard name that is not the Lake name of its executable, or that names a program of the
-  Lean toolchain.
+  Lean toolchain. Then it runs the live process controls of
+  [the compiled observer boundary](#the-compiled-observer-boundary).
 - `acceptance fences`: fence-compilation packet mutations with positive restoration.
 - `acceptance-snapshots`: `dependencies` (ignored Git and non-Git dependency input coverage and
   mutation), `history` ([RG3001] fresh, incremental and build-lint history refusal and restoration)
@@ -6178,13 +6182,14 @@ Regula's code reads and changes systems that no Lean proof can examine. These ex
 the file system, processes, the process environment, Lake, Lean, the file locks of the operating
 system and Git. `RegulaPolicy.External.System` gives them. A contract gives what Regula's code
 uses of an operation of such a system. A theorem about code that uses the operation has the
-contract as a hypothesis, and the checker shows it for each declaration. At this time, only the
-file system has contracts.
+contract as a hypothesis, and the checker shows it for each declaration. The file system,
+processes and the process environment have contracts.
 
 ### Assumptions, checked operations and observers
 
-The module of an external system gives its operations as the structure `Ops` and a model of the
-system as the structure `Model`. A model gives each operation as an action on a state. An
+The filesystem module gives its operations as `Ops` and its model as `Model`. A model gives each operation as an action on a state. The process model describes the actual `IO` worlds.
+
+An
 assumption is a predicate over a model. Each assumption of the file system is the contract of one
 operation, as a `Std.Do` triple. The attribute `@[regula_assumption]` of `Regula.Assumption`
 gives the system and the sources of the assumption. An assumption is not an `axiom`: each theorem
@@ -6333,6 +6338,82 @@ symbolic link. Also, `realPath` gives the path that it got when it cannot find t
 ([`runtime/io.cpp#L1032-L1033`](https://github.com/leanprover/lean4/blob/v4.34.1/src/runtime/io.cpp#L1032-L1033)).
 Thus the observer refuses these two reads and each removal of a directory on Windows.
 
+### Processes and the environment
+
+`Regula.Process` observes process starts and environment reads. Its `Program` selects a closed toolchain tool or a stated external path with its reason. Toolchain tools are `lean`, `lake`, `leanchecker`, `leanc`, `clang`, `llvm-ar` and `cadical`.
+
+The observer selects an absolute `LEAN_SYSROOT`, or an installed Elan toolchain through Lake's own directory construction. It has no PATH fallback and installs nothing. The selected Lean must report the version and commit of the compiler that built the program. The installation contents, compiler self-report and stability between observation and execution remain trusted.
+
+`ResolvedTool` retains that installation and its constructed absolute tool path. `Prepared.absolute` proves that the command emitted for a toolchain launch is absolute. `Prepared.native` proves that the same command passes the native string check. The extension comes from Lean's `FilePath.exeExtension`.
+
+The native string check excludes NUL and, on Windows, quotes, drive-relative `C:clang` and root-relative `\clang`. Lean's absolute-path predicate alone accepts these relative forms. [Microsoft's path reference](https://learn.microsoft.com/en-us/windows/win32/fileio/naming-a-file#fully-qualified-vs-relative-paths) gives their dependence on the current drive or directory.
+
+Lake's compiler and archiver variables are `LEAN_CC`, `CC`, `LEAN_AR` and `AR`. Lake always reads `LEAN_CC` and `LEAN_AR`, and each inherited and supplied value of them must be absolute. Lake reads `CC` and `AR` only for an installation without bundled `clang` or `llvm-ar`, and then their values must be absolute. Each occurrence is checked, including one that a later environment change would remove. This conservative guard does not depend on duplicate-key merge order. The implementation is shared by the observer and the cold source drivers in `ProcessSource.inc`.
+
+The same installation guard applies to process preparation and in-process Lake. Each native tool must be bundled, or an absolute override must stay present through the supplied changes. Without inheritance, a parent override cannot establish presence. This guard refuses Lake's bare `cc` and `ar` fallback. Lake still chooses between its admitted candidates.
+
+The process model describes each actual `IO` world, the selected child command and its initial environment. A returned child does not imply successful execution. On POSIX, Lean returns after `fork`, before `exec` can fail.
+
+| Assumption | What it states | Sources at Lean `v4.34.1` |
+| --- | --- | --- |
+| `ReadsEnvironment` | The named variable has the value reported by the observer, and the read leaves the world unchanged. | [`Init/System/IO.lean#L951-L955`](https://github.com/leanprover/lean4/blob/v4.34.1/src/Init/System/IO.lean#L951-L955), [`runtime/io.cpp#L976-L1011`](https://github.com/leanprover/lean4/blob/v4.34.1/src/runtime/io.cpp#L976-L1011), POSIX `getenv()` |
+| `StartsAbsolute` | An absolute command in the native string domain is the selected child path. | [`Init/System/IO.lean#L1489-L1502`](https://github.com/leanprover/lean4/blob/v4.34.1/src/Init/System/IO.lean#L1489-L1502), [`runtime/process.cpp#L453-L515`](https://github.com/leanprover/lean4/blob/v4.34.1/src/runtime/process.cpp#L453-L515), [`runtime/process.cpp#L191-L196`](https://github.com/leanprover/lean4/blob/v4.34.1/src/runtime/process.cpp#L191-L196), POSIX `execvp()` and the stated Windows trust |
+| `InheritsEnvironment` | On POSIX, a launch with inheritance applies valid native environment changes left to right, if each native update succeeds. | [`Init/System/IO.lean#L1439-L1455`](https://github.com/leanprover/lean4/blob/v4.34.1/src/Init/System/IO.lean#L1439-L1455), [`runtime/process.cpp#L453-L469`](https://github.com/leanprover/lean4/blob/v4.34.1/src/runtime/process.cpp#L453-L469) |
+
+`spawn_toolchain` proves the absolute selected path for each successful run of the actual observer, conditional on `StartsAbsolute`. `Prepared.environment` describes the environment at the actual native start, conditional on `InheritsEnvironment`. It requires POSIX, inheritance, valid native entries and successful native updates.
+
+Lean ignores the return values of `setenv` and `unsetenv`. Valid strings alone do not establish update success. The theorem does not compare the environment with a separate recorded array. The launch retains one environment array for that later work.
+
+The two approved shell wrappers start the installed pinned Lean by path under `ELAN_HOME` or `HOME/.elan`. Their selection does not use PATH. The installed compiler and shell execution remain trusted.
+
+Stated selections keep their reason at each call site. They are external selections, including the doctor's explicitly requested alternative installed compiler. They do not select the default toolchain by a bare program name.
+
+| External selection | Reason |
+| --- | --- |
+| `git`, `gh` | Repository and forge operations use the operator's configured utilities. |
+| `shasum`, `curl`, `tar`, `chmod`, `shellcheck` | Digests, acquisition, extraction, fixture modes and shell diagnostics use stated external utilities. |
+| `elan` | The doctor starts `bin/elan` of the Elan installation at `ELAN_HOME`, or at `HOME/.elan` without it, by its path. It reads no PATH entry to find it. It lists and resolves an explicitly requested installed compiler, and its reported compiler path must be absolute. |
+| `gtimeout`, `timeout`, `/usr/bin/nice` | The external deadline and scheduling utilities receive the prepared child's path and environment. |
+| `/usr/bin/env` | The existing deployment launcher clears unlisted variables. Its environment record remains separate work. |
+| `/bin/bash`, `/bin/chmod` | The controls execute exact approved wrapper copies and set owned fixture modes. |
+| `ln`, `mkfifo` | Diagnostic controls plant symbolic-link, toolchain-alias and FIFO inputs. The reporter's read-only import overlay links artifacts to keep their real origin. Mathlib provisioning registers the read-only shared cache by a link. |
+| `readlink` | The provisioning control reads the text of a symbolic link. Lean `v4.34.1` has no operation that reads it. |
+| `getconf` | The removal and renderer-refusal controls read the file system's `NAME_MAX` through POSIX `getconf`. |
+| A resolved package or worker executable | Lake resolves the requested package executable, or the checker selects its own native worker. |
+
+### The compiled observer boundary
+
+`Regula.Removal.boundaries` gives one primitive table for filesystem removals and writes, process starts and environment observations. The filesystem row admits a call by the pair of its caller and its primitive, on every path. Its walk starts at every compiled declaration of the program's modules outside the toolchain. The process and environment rows admit a call by its path. Their walk starts at `main`, at the initializer actions of the linked modules and at the values that those modules compute when the program starts. It leaves out a closed term that the compiler extracted, because the code that first reads it computes it. A declaration counts as the compiler's only when no constant has its name, so a value of a source with such a name is still a root. The check of a program also refuses each constant, in the toolchain too, whose name has a part that the compiler appends to the code that it makes, such as `_at_`, `_redArg` or `_boxed`. So each such part of a compiled declaration's name is the compiler's. The check reads such a part of a name with macro scopes in Lean's view of it, before the scopes, where the compiler appends it. A value whose compiled code applies no closure and calls only declarations with no parameter runs nothing but its reads of other values, so the walk follows only those reads from it. The walk follows a closure that such a value only builds, such as the method of an instance, from the code that reads the value. Unknown compiled code or an unfinished bounded traversal makes the check fail.
+
+The environment row covers the variables, the working directory and the executable path of the process. It names `IO.getEnv`, `IO.currentDir`, `IO.Process.getCurrentDir`, `IO.appPath` and `IO.Process.setCurrentDir` with their runtime symbols ([`IO.lean#L951-L959`](https://github.com/leanprover/lean4/blob/v4.34.1/src/Init/System/IO.lean#L951-L959), [`#L1383-L1386`](https://github.com/leanprover/lean4/blob/v4.34.1/src/Init/System/IO.lean#L1383-L1386)).
+
+It also names the libuv bindings of `Std.Internal.UV.System` for these effects ([`#L134-L152`](https://github.com/leanprover/lean4/blob/v4.34.1/src/Std/Internal/UV/System.lean#L134-L152), [`#L170-L188`](https://github.com/leanprover/lean4/blob/v4.34.1/src/Std/Internal/UV/System.lean#L170-L188), [`#L236`](https://github.com/leanprover/lean4/blob/v4.34.1/src/Std/Internal/UV/System.lean#L236)). The public wrappers of `Std.Async.System` and `Std.IO.Process` call them ([`System.lean#L250-L287`](https://github.com/leanprover/lean4/blob/v4.34.1/src/Std/Async/System.lean#L250-L287), [`Process.lean#L156-L164`](https://github.com/leanprover/lean4/blob/v4.34.1/src/Std/Async/Process.lean#L156-L164), [`#L209-L210`](https://github.com/leanprover/lean4/blob/v4.34.1/src/Std/Async/Process.lean#L209-L210)). An `extern` of a different name with one of these symbols is in the same row.
+
+Assumes: on POSIX, libuv reads `HOME` for the home directory, and `TMPDIR`, `TMP`, `TEMP` or `TEMPDIR` for the temporary directory, before other sources. The check does not follow C bodies, so a variable that a different runtime function reads in C is outside this row.
+
+Each observer role is admitted only in the module named by its row. A library's own process start or environment read is admitted only below a listed entry or on a path from the toolchain's initializers. A listed entry pairs a public Lake, Lean or Verso declaration with the one Regula declaration that calls it, with a sourced reason. A call of the same declaration by a different caller gets no admission, and neither does a different path into the library. The toolchain's initializers have their own sourced pairs, such as the solver start of `bv_decide`. Lake's facet registries, values that its initialization computes, store each facet's build function as a closure, and the walk follows every closure that they build. Their pairs admit the starts and the read of `CURL` that those functions make, because Lake runs them only when it fetches a facet. The module that owns a declaration does not give it an admission.
+
+Below a Lake or Lean entry, the path admits each start or read of the entry's row. Below Verso's `manualMain`, the path admits only four sourced pairs. In the process row, `Verso.Multi.fetchRemote` starts its fixed `curl` command with `IO.Process.output`. In the environment row, `Verso.Multi.findProject` reads the current directory with `IO.currentDir`. `Std.Time.Database.TZdb.resolveLocalPath` and `resolveZonesPaths` read `TZ` and `TZDIR` with `IO.getEnv`. The check refuses any other start or read below `manualMain`.
+
+A compiled specialization of an entry or of its Regula caller counts as that declaration. The check takes this from the specialization cache that Lean's compiler writes in the module that holds the specialization ([`Specialize.lean#L30-L42`](https://github.com/leanprover/lean4/blob/v4.34.1/src/Lean/Compiler/LCNF/Specialize.lean#L30-L42)). The name of a declaration does not make it a specialization, and a declaration that a source defines is not one.
+
+Assumes: only the compiler writes the specialization cache of Regula's modules. A command that changes the environment on purpose can add an entry, and it is outside this boundary.
+
+Assumes: the check guards Regula's own executables from its committed lakefile and `lake-manifest.json`. It trusts build configuration, package selection, module names and artifact loading. It does not authenticate those inputs.
+
+Lean `v4.34.1` records the requested import name. Its [`ModuleData`](https://github.com/leanprover/lean4/blob/v4.34.1/src/Lean/Environment.lean#L109-L129) stores no name for the artifact's original module. The [importer](https://github.com/leanprover/lean4/blob/v4.34.1/src/Lean/Environment.lean#L2225-L2228) retains the requested name. Artifact substitution and module renaming are outside this claim.
+
+The renderer checks the selection inputs that Lake reads without command-line choices. It resolves the committed manifest and reads the workspace's own override file through Lake. A `package-overrides.json` or package URL-map entry for `verso` makes this check incomplete. That load refuses these overrides before materialization. Library contents and stable build inputs remain trusted. Verso's writes of the rendered pages are outside the write lists, so the renderer's check finds removals alone. Those writes are trusted library effects.
+
+Assumes: explicit Lake command-line choices, such as `--packages`, `-K` and `-R`, are trusted inputs, like the lakefile and manifest. Lake `v4.34.1` [parses build arguments and loads that selected workspace](https://github.com/leanprover/lean4/blob/v4.34.1/src/lake/Lake/CLI/Main.lean#L918-L924). Those explicit choices are outside this check.
+
+Regula supplies the checked `cadical` path through the initial `sat.solver` option before each source reader elaborates source. The configuration, fresh frontend, diagnostics and example readers start from the shared options. This covers the default solver only while source leaves that option unset. Source that sets `sat.solver`, including a reset to empty, selects its own program. This route remains uncovered, as a source process start through `run_cmd` can be. No PASS is claimed for it.
+
+[Issue 411](https://github.com/rbeauchamp/regula/issues/411) owns source-option refusal after issue 279's observer lands. Lean `v4.34.1` [`TacticContext.lean:55–66`](https://github.com/leanprover/lean4/blob/v4.34.1/src/Lean/Meta/Tactic/BVDecide/TacticContext.lean#L55-L66) gives the option, sibling and PATH selection order.
+
+The cold drivers elaborate the same process source before package artifacts exist. Their bootstrap pairs stand for the observers of that copy, on every path, and a driver need not reach each of them. Imported Lean and Lake environment observations also remain trusted library behavior. The drivers' filesystem exemptions remain the scope of issue 389.
+
+`qualify observers` checks the program records and exercises live tool, script, solver and override controls. It stays in self-audit shard `4/4`. Each native shadow first writes a marker and returns its distinct result. The protected route must run its intended tool or give its intended refusal without that marker. These are external observations, not proofs of the operating system. Windows native execution remains unqualified here.
 ### Assumptions of directory enumeration
 
 Lean `v4.34.1` reads a directory with `readdir` until it gives null, and then it returns the names that it has read ([`runtime/io.cpp#L1076-L1098`](https://github.com/leanprover/lean4/blob/v4.34.1/src/runtime/io.cpp#L1076-L1098)). A failed read also gives null, so `System.FilePath.readDir` can return fewer names and no error. Regula lists each directory through an admitted `ls` program instead, which `Construction.locate` selects. An admitted `ls` examines `errno` after each `readdir`, and it exits with a nonzero code after a failed read. `Construction.Enumerator.names` refuses unless the program exits with code 0 and writes no error text.
@@ -6401,8 +6482,7 @@ This section does not establish these properties:
   frame does not include such a name.
 - That an entry outside a removed path is the same file, with the same contents, after the
   removal. The frame compares only the type of each entry.
-- That each call of an operation of an external system is in an observer. Regula's code also calls
-  these operations in other places.
+- That each operation of all external systems is in an observer. The compiled table covers only its stated primitives and explicit exemptions.
 
 ## Operational assumptions
 

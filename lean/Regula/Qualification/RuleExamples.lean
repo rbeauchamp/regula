@@ -134,7 +134,7 @@ def beginAttempt (evidence : FilePath) (attempt : String) (reason : Option Strin
       (reason.map fun reason => [("reason", .str reason)]).getD []))
 
 private def digest (root path : FilePath) : IO Json := do
-  let result ← run root "shasum" #["-a", "256", path.toString]
+  let result ← run root (.stated "shasum" "The external SHA-256 utility computes file digests") #["-a", "256", path.toString]
   let value := (result.stdout.splitOn " ").head!
   requireChecks [⟨"raw observation digest", result.exitCode == 0 && value.length == 64 &&
     value.toList.all (fun c => c.isDigit || ('a' ≤ c && c ≤ 'f'))⟩]
@@ -168,7 +168,7 @@ private def observe (project binary stdout stderr : FilePath) (command : Array S
     (env : Array (String × Option String) := corpusEnv) : IO IO.Process.Output := do
   let out ← IO.FS.Handle.mk stdout .write
   let err ← IO.FS.Handle.mk stderr .write
-  let child ← IO.Process.spawn {
+  let child ← Regula.Process.spawn (.stated binary "The corpus runs the specified built Regula producer") {
     cmd := binary.toString, args := command, cwd := some project,
     env, stdin := .null, stdout := .piped, stderr := .piped }
   let outTask ← IO.asTask (drain child.stdout out drainLineBound) Task.Priority.dedicated
@@ -305,7 +305,7 @@ private def produce (ctx : Context) (slot : Slot.ProducerSlot) (rule phase : Str
       -- so that the rule page shows its corrected source.
       let vendor := project / "vendor"
       IO.FS.createDir vendor
-      let initialized ← Regula.Checker.runProcess vendor "git" #["init", "-q"]
+      let initialized ← Regula.Checker.runProcess vendor (.stated "git" "Git is the caller-selected repository mechanism") #["init", "-q"]
       requireChecks [⟨s!"RG1003 dependency repository: {initialized.stderr}",
           initialized.exitCode == 0⟩]
       Regula.Filesystem.copyFile (folder / s!"{case}.lean") (vendor / "Dependency.lean")
@@ -496,7 +496,7 @@ private def admitRecord (ctx : Context) (record : Json) (refusal : Option String
               ("records", toJson #[record])])
   IO.println s!"driver span: save current transport: {(← IO.monoMsNow) - currentStart}ms"
   let admissionStart ← IO.monoMsNow
-  let checked ← run ctx.root (ctx.root / ".lake/build/bin/ruleExampleQualification").toString
+  let checked ← run ctx.root (.stated (ctx.root / ".lake/build/bin/ruleExampleQualification").toString "The caller selects this resolved non-toolchain executable")
       #["--record", current.toString] cleanEnv
   IO.println s!"driver span: admission subprocess: {(← IO.monoMsNow) - admissionStart}ms"
   requireChecks [⟨s!"corpus record admission: {checked.stdout}{checked.stderr}", match refusal with
@@ -774,7 +774,7 @@ def check (evidence : FilePath) (selection : Option (Array String))
         (Regula.Checker.RuleExampleProjection.corpus
             (("outcome", .str "INCOMPLETE") :: finalFields) records)
     -- The single admission of every canonical record: the terminal corpus qualifier.
-    let checked ← run root (root / ".lake/build/bin/ruleExampleQualification").toString
+    let checked ← run root (.stated (root / ".lake/build/bin/ruleExampleQualification").toString "The caller selects this resolved non-toolchain executable")
       #[evidence.toString] cleanEnv
     requireChecks [⟨s!"corpus admission: {checked.stdout}{checked.stderr}", checked.exitCode == 0⟩]
     requireChecks

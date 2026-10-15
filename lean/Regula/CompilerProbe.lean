@@ -1,4 +1,5 @@
 import RegulaCore.Toolchain
+import Regula.Process
 import Regula.Filesystem
 
 /-! # Selected compiler identity
@@ -20,31 +21,49 @@ def compilerEnv : Array (String × Option String) :=
     "LAKE", "LAKE_HOME", "LAKE_OVERRIDE_LEAN", "DYLD_LIBRARY_PATH", "LD_LIBRARY_PATH"].map
       (fun name => (name, none))
 
+/-- The `elan` the doctor runs: `bin/elan` of the Elan installation at `home`, by its absolute path.
+No PATH entry is read or searched, so a workspace package's binary directory, which Lake puts first
+in the `PATH` of `lake exe` and `lake env`, supplies no `elan`.
+Assumes: Lean v4.34.1 `Lake/Config/InstallPath.lean:30-35` places Elan's executables in its home's
+`bin`. Elan v4.1.2 `src/elan/toolchain.rs` (`create_command`, `set_env`) runs an absolute command
+as given and sets `ELAN_HOME` and `ELAN_TOOLCHAIN` for it. The installed Elan, its listing and its
+toolchains are trusted. -/
+def elanExecutable (home : FilePath) : IO FilePath := do
+  let elan := (home / "bin" / "elan").addExtension FilePath.exeExtension
+  unless ← Regula.Filesystem.isPresent elan do
+    throw <| IO.userError s!"cannot find elan at {elan}, the Elan installation's binary directory"
+  return elan
+
 /-- The `lean` executable of the installed toolchain `selector` names (`installedName?` over
-`elan toolchain list`), from directory `root`. Only that listed name is given to `elan run`, without
-`--install`. -/
+`elan toolchain list`), from directory `root`. Each Elan command runs the doctor's `elan`
+(`elanExecutable`) of the Elan home `Regula.Process.elanHome` by its path, with that home. Only that
+listed name is given to `elan run`, without `--install`. -/
 def selectedLean (root : FilePath) (selector : String) : IO FilePath := do
-  let listed ← IO.Process.output {
-    cmd := "elan", args := #["toolchain", "list"], cwd := some root, env := compilerEnv }
+  let home := (← Regula.Process.elanHome).val
+  let elan ← elanExecutable home
+  let env := compilerEnv.push ("ELAN_HOME", some home.toString)
+  let listed ← Regula.Process.output (.stated elan "Elan lists the explicitly selected installed compilers") {
+    cmd := elan.toString, args := #["toolchain", "list"], cwd := some root, env }
   unless listed.exitCode == 0 do
-    throw <| IO.userError s!"cannot list installed toolchains: {listed.stderr.trimAscii}"
+    throw <| IO.userError s!"cannot list installed toolchains with {elan}: {listed.stderr.trimAscii}"
   let some name := installedName? (listedToolchains listed.stdout) selector
     | throw <| IO.userError
         s!"cannot resolve selected compiler: Elan lists no installed toolchain named exactly \
           '{selector}'"
-  let out ← IO.Process.output {
-    cmd := "elan", args := #["run", name, "elan", "which", "lean"]
-    cwd := some root, env := compilerEnv }
+  let out ← Regula.Process.output (.stated elan "Elan resolves a listed installed compiler without installing") {
+    cmd := elan.toString, args := #["run", name, elan.toString, "which", "lean"]
+    cwd := some root, env }
   unless out.exitCode == 0 do
     throw <| IO.userError s!"cannot resolve selected compiler: {out.stderr.trimAscii}"
-  IO.FS.realPath out.stdout.trimAscii.toString
+  let selected ← IO.ofExcept (Regula.Process.absolute out.stdout.trimAscii.toString)
+  return (← IO.ofExcept (Regula.Process.absolute (← IO.FS.realPath selected.val))).val
 
 /-- The environment of a command of the selected compiler: `compilerEnv`, the selector, and the
 compiler's own binary directory first in `PATH`. -/
 def selectedEnv (selector : String) (lean : FilePath) : IO
     (Array (String × Option String)) := do
   let some bin := lean.parent | throw <| IO.userError "compiler has no binary directory"
-  let inherited := System.SearchPath.parse ((← IO.getEnv "PATH").getD "")
+  let inherited := System.SearchPath.parse ((← Regula.Process.readEnv "PATH").getD "")
   return compilerEnv ++ #[("ELAN_TOOLCHAIN", some selector),
     ("PATH", some (System.SearchPath.toString (bin :: inherited)))]
 
@@ -62,7 +81,7 @@ def probe (root : FilePath) (selector : String) : IO Identity := do
       \x20 IO.println Lean.versionString\n\
       \x20 IO.println Lean.githash\n\
       \x20 IO.println (if capability then \"present\" else \"absent\")\n")
-    let out ← IO.Process.output {
+    let out ← Regula.Process.output (.stated lean "The doctor intentionally observes this separately selected installed compiler") {
       cmd := lean.toString, args := #["--run", source.toString], cwd := some root
       env := ← selectedEnv selector lean }
     unless out.exitCode == 0 do

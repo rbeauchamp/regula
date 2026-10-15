@@ -2,19 +2,20 @@ import Regula.Checker.Lake
 import Regula.Removal
 import Regula.Scratch
 import Regula.TaskManagerCheck
+import Regula.Qualification.Process
 import RegulaPolicy.Domain
 
-/-! # The removal check and the task-manager check of every program of the package
+/-! # The observer reach check and the task-manager check of every program of the package
 
-Each program of the package runs the check that every removal its compiled code reaches goes
-through the filesystem observer (`Regula.Removal.checkProgram`) when its root module, or a module
-that imports it, is built, and the module records the program (`Regula.Removal.reached`). Each
-compiled program, the root module of an executable, also runs the check that it starts through the
-guard of Lean's task manager when its compiled code needs one
+Each program of the package runs the check that its compiled primitive calls go through their
+system's observer or a sourced exemption (`Regula.Removal.checkProgram`) when its root module, or a
+module that imports it, is built, and the module records the program (`Regula.Removal.reached`).
+Each compiled program, the root module of an executable, also runs the check that it starts through
+the guard of Lean's task manager when its compiled code needs one
 (`Regula.TaskManagerCheck.checkProgram`), and the module records it
 (`Regula.TaskManagerCheck.checked`). This campaign reads the compiled modules of the root package as
 Lake resolves them (`Regula.Checker.Lake.rootSurfaceInventory`) and refuses unless each program is
-recorded: by both checks the root module of each executable, and by the removal check each module
+recorded: by both checks the root module of each executable, and by the reach check each module
 of a library that declares `main`, which a script runs with `lean --run`. The `lean` executable
 starts its own task manager before it elaborates such a module, so that program needs no guard
 (`Regula.TaskManagerCheck`). The `Fixtures` library is not read: it holds the inputs of the
@@ -31,11 +32,12 @@ literals: a wrong one makes the program refuse without isolation, and never star
 A root module outside every library, which no library module can import (`auditApp`'s `Main`), is
 checked here: its environment is imported and checked as each `checkProgram` checks it
 (`Regula.Removal.rawRemovals`, `Regula.Removal.programRefusal`,
-`Regula.TaskManagerCheck.refusal`).
+`Regula.TaskManagerCheck.refusal`). The campaign then runs the live controls of the process and
+bootstrap boundaries (`Regula.Qualification.Process.check`).
 
-The removal check reads a linked module under `Init`, `Std`, `Lean` or `Lake` as Lean's own by its
-name, under the hypothesis that no package of the workspace that builds the program provides one
-(`Regula.Removal.toolchainModules`). This campaign checks that hypothesis for three workspaces of
+The observer reach check reads a linked module under `Init`, `Std`, `Lean` or `Lake` as Lean's own
+by its name, under the hypothesis that no package of the workspace that builds the program provides
+one (`Regula.Removal.toolchainModules`). This campaign checks that hypothesis for three workspaces of
 this repository, the root package's, the `markdown/` package's and the `audit/` package's
 (`checkToolchainWorkspaces`): it loads each with Lake, and refuses a module under those roots that
 a package of it provides, the root package or a dependency, and an entry of those roots in the
@@ -144,6 +146,19 @@ def loaderEntries (manifest : _root_.Lake.Manifest) (overrides : Array _root_.La
     fun map entry => map.insert entry.name entry)
     fun map entry => map.insert entry.name entry
 
+/-- The commit that `HEAD` of the Git repository at `dir` resolves to, read as Lake's
+`Lake.GitRepo.getHeadRevision?` reads it: `git rev-parse --verify --end-of-options HEAD` in `dir`,
+its output trimmed, and `none` when Git exits with another code than 0
+(`Lake/Util/Git.lean:128-141`, `Lake/Util/Proc.lean:61-67`). Git starts through the process
+observer (`Regula.Process.output`), not Lake's `captureProc?`. Lake reads a failure to start Git as
+no revision; this read throws it, which refuses the load too. -/
+def headRevision (dir : FilePath) : IO (Option String) := do
+  let git := Regula.Process.Program.stated "git"
+    "Git reads the commit of a checkout as Lake's loader does"
+  let out ← Regula.Process.output git
+    { cmd := "git", args := #["rev-parse", "--verify", "--end-of-options", "HEAD"], cwd := dir }
+  return if out.exitCode == 0 then some out.stdout.trimAscii.copy else none
+
 /-- The Git packages, by the names of their entries, that are not checked out at their pinned
 commits in the workspace `ws`, which is loaded with its root package alone
 (`Lake.loadWorkspaceRoot`): a superset of those that Lake's loader can acquire when it loads the
@@ -165,8 +180,9 @@ def unprovisioned (ws : _root_.Lake.Workspace) : IO (Array String) := do
   let mut missing := #[]
   for (_, entry) in loaderEntries manifest overrides do
     if let .git (rev := rev) .. := entry.src then
-      let checkout : _root_.Lake.GitRepo := ⟨packages / entry.dirName⟩
-      unless (← checkout.dirExists) && (← checkout.getHeadRevision?) == some rev do
+      let checkout := packages / entry.dirName
+      unless (← Regula.Filesystem.isDirectory checkout) &&
+          (← headRevision checkout) == some rev do
         missing := missing.push entry.prettyName
   return missing
 
@@ -208,7 +224,7 @@ def toolchainFindings (repo : FilePath) : IO (Array ToolchainFinding) := do
     return findings
 
 /-- The directories, below the repository root, of the three workspaces of this repository that
-`checkToolchainWorkspaces` checks, whose builds run the removal check of a program
+`checkToolchainWorkspaces` checks, whose builds run the observer reach check of a program
 (`Regula.Removal.checkProgram`): the root package's, the `markdown/` package's, which builds
 `MarkdownMain`, and the `audit/` package's, which builds the root package's `axiomGate` and `lint`.
 The Mathlib integration's workspace builds the root package's programs too, and is not one of
@@ -402,7 +418,7 @@ def check : IO Unit := do
     taskRecords := taskRecords.insert root
   let missing := unrecorded programs records.contains
   unless missing.isEmpty do
-    throw <| IO.userError s!"observers: no module records the removal check of the programs \
+    throw <| IO.userError s!"observers: no module records the observer reach check of the programs \
       {missing.toList}: each runs `Regula.Removal.checkProgram` in its root module or in a \
       module that imports it"
   let unguarded := unrecorded compiled taskRecords.contains
@@ -423,7 +439,7 @@ def check : IO Unit := do
       {"; ".intercalate described}"
   -- The file names of the binary directory of the pinned toolchain's installation.
   let toolchain := (← Regula.Filesystem.Construction.listDirectory
-    ((← Regula.Toolchain.sysroot) / "bin")).map (·.fileName)
+    ((← Regula.Process.sysroot) / "bin")).map (·.fileName)
   let frontends := toolchainNamed names.toArray toolchain
   unless frontends.isEmpty do
     let described := frontends.toList.map fun (root, program) =>
@@ -437,7 +453,9 @@ def check : IO Unit := do
     let name := match names.get? program with
       | some name => s!", guard names {name}"
       | none => ""
-    IO.println s!"observers: {program}: removal check recorded{task}{name}"
-  IO.println s!"observers: PASS ({programs.size} programs, {compiled.size} compiled)"
+    IO.println s!"observers: {program}: observer reach check recorded{task}{name}"
+  Regula.Qualification.Process.check
+  IO.println s!"observers: PASS ({programs.size} programs, {compiled.size} compiled; filesystem, \
+    process and environment)"
 
 end Regula.Qualification.Observers

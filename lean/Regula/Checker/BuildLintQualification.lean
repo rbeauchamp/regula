@@ -214,7 +214,7 @@ def requireCheckout (repo adopter : FilePath) : IO Unit := do
   Lake.pinAdopter repo adopter
   -- An adopter is a repository of its own, so `regula`, which it requires from this checkout, is
   -- a dependency in a different Git work tree, which the audit trusts, as an adopter's is.
-  let initialized ← runProcess adopter "git" #["init", "-q"]
+  let initialized ← runProcess adopter (.stated "git" "Git is the caller-selected repository mechanism") #["init", "-q"]
   if !initialized.succeeded then throw <| IO.userError initialized.output
 
 /-- Use the checked-in public recipe verbatim apart from the local dependency
@@ -231,7 +231,7 @@ def setup (repo adopter : FilePath) (exampleDir : String := "build-lint")
   requireCheckout repo adopter
 
 private def build (adopter : FilePath) : IO ProcessResult :=
-  runProcess adopter "lake" #["build"] scrubbedLeanPathEnv
+  runProcess adopter (.toolchain .lake) #["build"] scrubbedLeanPathEnv
 
 private def positive (name : String) (result : ProcessResult) : Array String :=
   let label := "PASS"
@@ -252,7 +252,7 @@ def addSupport (adopter : FilePath) (source : String) (owned : Bool := false) : 
   let support := adopter / "support"
   IO.FS.createDirAll support
   unless owned do
-    let initialized ← runProcess support "git" #["init", "-q"]
+    let initialized ← runProcess support (.stated "git" "Git is the caller-selected repository mechanism") #["init", "-q"]
     if !initialized.succeeded then throw <| IO.userError initialized.output
   Regula.Filesystem.writeFile (support / "Support.lean") source
   Regula.Filesystem.copyFile (adopter / "lean-toolchain") (support / "lean-toolchain")

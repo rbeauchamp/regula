@@ -81,7 +81,7 @@ this read, which is trusted. -/
 def place (path : FilePath) : IO (Except String (FilePath × List String)) := do
   if path.fileName.isNone then
     return .error s!"{path} names no file, so the run writes nothing there"
-  let path ← if path.isAbsolute then pure path else pure ((← IO.currentDir) / path)
+  let path ← if path.isAbsolute then pure path else pure ((← Regula.Process.currentDir) / path)
   let components := path.components
   let below (real : FilePath) (names : List String) : Except String (FilePath × List String) :=
     match plainNames names with

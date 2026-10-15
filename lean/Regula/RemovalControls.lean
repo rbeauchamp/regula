@@ -1,4 +1,5 @@
 import Regula.Removal
+import Regula.Process
 import Regula.Site.Deployment
 import Lean.Elab.Command
 
@@ -47,6 +48,19 @@ planted initializer never runs. The planted removals below are the calls of a re
   directory's name is longer than `NAME_MAX`.
 - A URL of `Regula.Site.Deployment.fetch` that starts with `-`: curl does not read it as an
   option.
+- A private declaration of this module that writes a file, whose name below its private prefix is
+  the name that a pair gives: the pair does not admit its write, and its full name does
+  (`admittingPair`).
+- A constant whose name has a part that Lean's compiler appends to the code that it makes: an
+  `extern` of the C function of `IO.getEnv` named as the variant without irrelevant arguments of
+  `Regula.Process.currentDir`, whose boxed form the compiler makes, and a caller named with `_at_`
+  before `Regula.Filesystem.writeReplacing`, whose variant without its unused argument the
+  compiler makes. The check of a program refuses each (`compilerNameRefusal`), and the scan finds
+  no such constant of an imported module, Lean's toolchain included.
+- A lifted lambda that two declarations with macro scopes in their names share: Lean's compiler
+  names it after the first, with `_lam_0` before the macro scopes, and the walk reads it as the
+  first's code, so a pair of the lambda or of the first does not admit the removal of the second
+  (`compilerStep?`, `shareable`). The same holds for two such declarations with a private prefix.
 
 Assumes, for the control of `NAME_MAX`: POSIX.1-2024: `mkdir()` fails with `ENAMETOOLONG` when a
 component of its path is longer than `NAME_MAX`
@@ -69,7 +83,7 @@ open Lean System
 /-- The planted removal of the control of initializers. It removes a directory only when the
 variable `REGULA_REMOVAL_CONTROL_PLANTED` is set, and no program runs it. -/
 initialize plantedInitializer : Unit ← do
-  if (← IO.getEnv "REGULA_REMOVAL_CONTROL_PLANTED").isSome then
+  if (← Regula.Process.readEnv "REGULA_REMOVAL_CONTROL_PLANTED").isSome then
     IO.FS.removeDirAll "/regula-removal-control-planted"
 
 -- A symbolic link above the last component: refused, and nothing is removed through the link. A
@@ -79,7 +93,7 @@ run_cmd do
   try
     IO.FS.createDirAll (base / "target" / "out")
     IO.FS.writeFile (base / "target" / "out" / "keep") "keep"
-    let linked ← IO.Process.output
+    let linked ← Regula.Process.output (.stated "ln" "Plant a symbolic-link filesystem control")
       { cmd := "ln", args := #["-s", (base / "target").toString, (base / "linked").toString] }
     unless linked.exitCode == 0 do throwError "ln -s failed: {linked.stderr}"
     let refused ← (Regula.Filesystem.removeOwn .directory (base / "linked" / "out")).toBaseIO
@@ -97,7 +111,7 @@ run_cmd do
     unless (← (Regula.Filesystem.ownPath (base / "target" / ".." / "linked")).toBaseIO)
         matches .error _ do
       throwError "ownPath accepted a path with a `..` component"
-    let working ← IO.FS.realPath (← IO.currentDir)
+    let working ← IO.FS.realPath (← Regula.Process.currentDir)
     unless (← Regula.Filesystem.ownPath (FilePath.mk "." / "lean")) == working / "lean" do
       throwError "ownPath kept the leading `.` of a relative path"
     for refused in [base / "linked", base / "linked" / "out", base / "target" / "out" / "keep"] do
@@ -108,7 +122,8 @@ run_cmd do
     Regula.Filesystem.requireNoLinkedEntries (base / "absent")
     unless (← (Regula.Filesystem.requireNoLinkedEntries base).toBaseIO) matches .error _ do
       throwError "requireNoLinkedEntries accepted a directory with a linked entry"
-    let dangling ← IO.Process.output { cmd := "ln", args := #["-s", (base / "missing").toString,
+    let dangling ← Regula.Process.output (.stated "ln" "Plant a dangling-link filesystem control")
+      { cmd := "", args := #["-s", (base / "missing").toString,
       (base / "target" / "out" / "dangling").toString] }
     unless dangling.exitCode == 0 do throwError "ln -s failed: {dangling.stderr}"
     unless (← (Regula.Filesystem.requireNoLinkedEntries (base / "target" / "out")).toBaseIO)
@@ -156,8 +171,8 @@ run_cmd do
         ((pages.parent.bind (·.fileName)).map (·.startsWith "pages.regula-refused-")) ==
           some true do
       throwError "moveAside did not move a directory into a new directory beside it: {pages}"
-    let aliased ← IO.Process.output
-      { cmd := "ln", args := #["-s", (base / "target").toString, (base / "alias").toString] }
+    let aliased ← Regula.Process.output (.stated "ln" "Plant a symbolic link for the move-aside control")
+      { cmd := "", args := #["-s", (base / "target").toString, (base / "alias").toString] }
     unless aliased.exitCode == 0 do throwError "ln -s failed: {aliased.stderr}"
     let some alias ← Regula.Filesystem.moveAside (base / "alias")
       | throwError "moveAside did not move a symbolic link"
@@ -169,7 +184,9 @@ run_cmd do
       throwError "moveAside moved an absent entry"
     unless (← (Regula.Filesystem.moveAside (base / "target" / "..")).toBaseIO) matches .error _ do
       throwError "moveAside accepted a path whose last component is `..`"
-    let limit ← IO.Process.output { cmd := "getconf", args := #["NAME_MAX", base.toString] }
+    let limit ← Regula.Process.output
+      (.stated "getconf" "POSIX getconf gives the file system's NAME_MAX for the control")
+      { cmd := "", args := #["NAME_MAX", base.toString] }
     let some longest := (limit.stdout.splitOn "\n").head?.bind String.toNat?
       | throwError "getconf NAME_MAX {base} gave no number: {limit.stdout}{limit.stderr}"
     let long := base / String.ofList (List.replicate longest 'n')
@@ -355,11 +372,17 @@ run_cmd do
       throwError "the planted opening {root} is not found as a write: {reach.raw}, unknown \
         {reach.unknown}"
 
--- The planted initializer is found, and no other initializer of this module's imports removes.
+-- The planted initializer is found, and no other initializer of this module's imports, nor a value
+-- that one computes, removes or writes, or starts a process or reads the environment outside its
+-- observer.
 run_cmd do
   let env ← getEnv
-  let reach := Regula.Removal.rawRemovalsFrom env (Regula.Removal.filesystemObservers env)
-    (Regula.Removal.initializers env)
+  let (startup, roots) := Regula.Removal.splitInitializers env (Regula.Removal.initActions env)
+  let (startupValues, values) := Regula.Removal.splitInitializers env
+    (Regula.Removal.valueInitializers env (Regula.Removal.allModules env))
+  let reach := Regula.Removal.rawRemovalsFrom env (Regula.Removal.filesystemObservers env) roots
+    (startup := startup) (compiled := Regula.Removal.initializers env) (values := values)
+    (startupValues := startupValues)
   unless reach.unknown.isEmpty do
     throwError "initializers with unknown compiled code: {reach.unknown}"
   unless reach.raw.size == 1 && reach.raw.all fun (caller, primitive) =>
@@ -382,11 +405,149 @@ run_cmd do
     let _ ← Regula.Site.Deployment.fetch s!"-K{base / "config"}"
     if ← Regula.Filesystem.isPresent (base / "written") then
       throwError "fetch read a URL that starts with `-` as an option of curl"
-    let direct ← IO.Process.output
+    let direct ← Regula.Process.output (.stated "curl" "The negative control proves this curl configuration really writes a file")
       { cmd := "curl", args := #["--disable", "--silent", s!"-K{base / "config"}"] }
     unless direct.exitCode == 0 && (← Regula.Filesystem.isPresent (base / "written")) do
       throwError "the planted configuration of curl writes no file: {direct.stderr}"
   finally
     Regula.Filesystem.removeOwn .directory base
+
+/-- A planted private declaration that writes a file. Its name below its private prefix is a name
+that a pair can give for a declaration of another module. No program calls it. -/
+private def plantedListed (path : FilePath) : IO Unit :=
+  IO.FS.writeFile path ""
+
+-- A pair admits a private declaration only by its full name, with its module: a pair that gives
+-- the name below the private prefix admits no call of the private declaration of this module with
+-- that name, and the full name admits it.
+run_cmd do
+  let env ← getEnv
+  let observers := Regula.Removal.filesystemObservers env
+  let planted := mkPrivateName env `Regula.RemovalControls.plantedListed
+  unless env.contains planted do
+    throwError "the planted private declaration is not {planted}"
+  let write (named : Name) := [(named, ``IO.FS.writeFile)]
+  let below := Regula.Removal.rawRemovalsFrom env observers #[planted]
+    (write `Regula.RemovalControls.plantedListed)
+  unless below.raw == #[(planted, ``IO.FS.writeFile)] do
+    throwError "a pair admitted a private declaration by its name below the private prefix: \
+      {below.raw}"
+  let full := Regula.Removal.rawRemovalsFrom env observers #[planted] (write planted)
+  unless full.raw.isEmpty && full.unused.isEmpty do
+    throwError "the full name of the planted private declaration did not admit its write: \
+      {full.raw}, unused {full.unused}"
+
+/-- A planted `extern` of the C function of `IO.getEnv`, under the name of the compiled variant
+without irrelevant arguments of the environment observer `Regula.Process.currentDir`. No program
+calls it. -/
+@[extern "lean_io_getenv"]
+opaque _root_.Regula.Process.currentDir._redArg (name : @& String) : BaseIO (Option String)
+
+/-- A planted call of a function that it receives, which the compiler neither inlines nor
+specializes, so that a declaration passed to it is passed as a closure, in its boxed form. -/
+@[noinline, nospecialize]
+def plantedApply (read : String → BaseIO (Option String)) : BaseIO (Option String) :=
+  read "PLANTED"
+
+/-- A planted read of the environment through the planted `extern`, passed to `plantedApply`. -/
+def plantedBoxedRead : BaseIO (Option String) :=
+  plantedApply Regula.Process.currentDir._redArg
+
+/-- A planted opening of a file to write it, under a name that has `_at_` before the name of the
+filesystem observer's writer `Regula.Filesystem.writeReplacing`. Its first argument is unused, so
+the compiler makes a variant without it. -/
+@[noinline]
+def plantedCaller._at_.Regula.Filesystem.writeReplacing (_ : Nat) (path : FilePath) :
+    IO IO.FS.Handle :=
+  IO.FS.Handle.mk path .write
+
+-- A constant whose name has a part that Lean's compiler appends to the code that it makes is
+-- refused. The compiler gives each planted constant above code under a name that the check would
+-- otherwise read as the compiler's own work on another declaration: the boxed form of the planted
+-- `extern`, read as a variant of an observer, and the variant without its unused argument of the
+-- planted caller, read as a specialization made in the observer's writer. Each compiled form
+-- exists. In this module's whole environment, Lean's toolchain included, the scan finds these two
+-- and the variant of an observer that the control of names that extend an observer's plants, and
+-- no constant of an imported module.
+run_cmd do
+  let env ← getEnv
+  let reader := `Regula.Process.currentDir._redArg
+  let caller := `Regula.RemovalControls.plantedCaller._at_.Regula.Filesystem.writeReplacing
+  for compiled in [reader ++ `_boxed, caller ++ `_redArg] do
+    unless (Lean.IR.findEnvDecl env compiled).isSome && !env.contains compiled do
+      throwError "the compiler did not make {compiled}, so the control does not plant its shape"
+  let named := Regula.Removal.compilerNamed env
+  let imported := named.filter fun name => (env.getModuleIdxFor? name).isSome
+  unless named.size == 3 && named.contains reader && named.contains caller &&
+      imported.isEmpty do
+    throwError "the scan for the parts that Lean's compiler appends found {named}, not \
+      {reader}, {caller} and the planted variant of an observer alone"
+  let some refused :=
+      Regula.Removal.programRefusal env env.mainModule { calls := #[], unknown := #[] }
+    | throwError "the check of a program admitted constants whose names have parts that Lean's \
+        compiler appends"
+  unless [reader, caller].all fun name => (refused.splitOn name.toString).length > 1 do
+    throwError "the refusal does not name each planted constant: {refused}"
+
+/-- A planted call of an action on a path, which the compiler neither inlines nor specializes, so
+that each caller passes its action as a closure. No program calls it. -/
+@[noinline, nospecialize]
+def plantedRun (act : FilePath → IO Unit) : IO Unit :=
+  act "planted"
+
+/-- The control of a lifted lambda that two declarations with macro scopes in their names share.
+It elaborates, in this module's environment for this control alone, `plantedFirst` and
+`plantedSecond`, each named by a quotation, so with macro scopes, and with a private prefix too when
+`isPrivate`. Each passes the same closure, which removes a file twice, to `plantedRun`, so Lean's
+compiler lifts it once, as `plantedFirst ++ _lam_0`, which `Name.append` puts before the macro
+scopes, and gives it to `plantedSecond` from its cache of the module
+(`Lean/Compiler/LCNF/LambdaLifting.lean:84`, `:105-112`). Under a pair of the lambda alone, and
+under a pair of `plantedFirst` alone, the walk admits the removal for `plantedFirst` and refuses
+it for `plantedSecond`. -/
+def sharedLambdaControl (isPrivate : Bool) : Elab.Command.CommandElabM Unit :=
+  withoutModifyingEnv do
+    if isPrivate then
+      Elab.Command.elabCommand (← `(command|
+        private def plantedFirst : IO Unit :=
+          plantedRun fun path => IO.FS.removeFile path *> IO.FS.removeFile path))
+      Elab.Command.elabCommand (← `(command|
+        private def plantedSecond : IO Unit :=
+          plantedRun fun path => IO.FS.removeFile path *> IO.FS.removeFile path))
+    else
+      Elab.Command.elabCommand (← `(command|
+        def plantedFirst : IO Unit :=
+          plantedRun fun path => IO.FS.removeFile path *> IO.FS.removeFile path))
+      Elab.Command.elabCommand (← `(command|
+        def plantedSecond : IO Unit :=
+          plantedRun fun path => IO.FS.removeFile path *> IO.FS.removeFile path))
+    let env ← getEnv
+    let planted (stem : Name) : Option Name :=
+      env.constants.map₂.toList.findSome? fun (name, _) =>
+        if (privateToUserName name).eraseMacroScopes == stem then some name else none
+    let some first := planted `Regula.RemovalControls.plantedFirst
+      | throwError "the planted declaration plantedFirst is not in the environment"
+    let some second := planted `Regula.RemovalControls.plantedSecond
+      | throwError "the planted declaration plantedSecond is not in the environment"
+    unless first.hasMacroScopes && second.hasMacroScopes && isPrivateName first == isPrivate &&
+        isPrivateName second == isPrivate do
+      throwError "the planted names do not have the planted macro scopes and private prefix: \
+        {first}, {second}"
+    let lambda := first ++ `_lam_0
+    unless (Lean.IR.findEnvDecl env lambda).isSome && !env.contains lambda do
+      throwError "the compiler did not make {lambda}, so the control does not plant its shape"
+    let observers := Regula.Removal.filesystemObservers env
+    for named in [lambda, first] do
+      let reach := Regula.Removal.rawRemovalsFrom env observers #[first, second]
+        [(named, ``IO.FS.removeFile)]
+      unless reach.raw == #[(second, ``IO.FS.removeFile)] && reach.unused.isEmpty do
+        throwError "under the pair of {named}, the walk did not admit the shared lambda {lambda} \
+          for {first} alone: refused {reach.raw}, unused {reach.unused}"
+
+-- A lifted lambda that a declaration with macro scopes in its name shares with another is the
+-- code of the one that it was lifted from, and its call is refused for the other
+-- (`Regula.Removal.compilerStep?`), and so for declarations with a private prefix too.
+run_cmd do
+  sharedLambdaControl false
+  sharedLambdaControl true
 
 end Regula.RemovalControls

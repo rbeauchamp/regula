@@ -1,5 +1,6 @@
 import RegulaProvision
 import Regula.Filesystem
+import Regula.Process
 import Regula.Site.Build
 import Regula.Qualification.Slot
 import Lean.Elab.Command
@@ -68,7 +69,9 @@ open System
 occupants of the place where an installation makes its directory, never an installation's
 output. -/
 private def fixture (command : String) (args : Array String) : IO Unit := do
-  let out ← IO.Process.output { cmd := command, args, stdin := .null }
+  let out ← Regula.Process.output
+    (.stated command "A deliberate occupant of the place where the link installation makes its directory")
+    { cmd := "", args, stdin := .null }
   unless out.exitCode == 0 do throw <| IO.userError s!"fixture {command} failed: {out.stderr}"
 
 /-- The type of the entry at `path`, read without following a link there, or `none` when nothing
@@ -82,8 +85,9 @@ private def kind (path : FilePath) : IO (Option IO.FS.FileType) := do
 /-- The text of the symbolic link at `path`, as `readlink -n` prints it: Lean v4.34.1 has no
 operation that reads it. -/
 private def linkText (path : FilePath) : IO String := do
-  let out ← IO.Process.output
-    { cmd := "readlink", args := #["-n", path.toString], stdin := .null }
+  let out ← Regula.Process.output
+    (.stated "readlink" "Lean v4.34.1 has no operation that reads the text of a link")
+    { cmd := "", args := #["-n", path.toString], stdin := .null }
   unless out.exitCode == 0 do throw <| IO.userError s!"readlink {path} failed: {out.stderr}"
   return out.stdout
 

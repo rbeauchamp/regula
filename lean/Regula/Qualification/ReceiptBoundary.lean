@@ -1,4 +1,5 @@
 import Regula.Qualification.Support
+import Regula.Process
 
 /-! # Diagnostic receipt boundary qualification
 
@@ -15,7 +16,7 @@ open Lean System
 disappears before spawn. No production timeout selection hook is needed. -/
 def worker (args : List String) : IO UInt32 := do
   requireChecks [⟨"timeout version probe", args == ["--version"]⟩]
-  Regula.Filesystem.removePath .file (← IO.appPath)
+  Regula.Filesystem.removePath .file (← Regula.Process.appPath)
   IO.println "GNU coreutils qualification substitute"
   return 0
 
@@ -55,8 +56,9 @@ private def pathGit (path : Option String) : IO FilePath := do
     | .error error => unsupported s!"{candidate} cannot be read: {error}"
     | .ok metadata =>
       unless metadata.type == .file do unsupported s!"{candidate} is not a regular file"
-      let out ← IO.Process.output {
-        cmd := candidate.toString, args := #["--version"], stdin := .null }
+      let out ← Regula.Process.output
+        (.stated candidate "The control runs the Git that the search of this process's PATH selects")
+        { cmd := candidate.toString, args := #["--version"], stdin := .null }
       unless out.exitCode == 0 do
         unsupported s!"{candidate} --version exited {out.exitCode}: {out.stderr}"
       return candidate
@@ -66,7 +68,8 @@ private def pathGit (path : Option String) : IO FilePath := do
 that Git, which its guard runs (`Regula.GitIsolation.enter`), and nothing else of the directory
 that holds Git, such as a GNU timeout. -/
 private def linkGit (git bin : FilePath) : IO Unit := do
-  let linked ← IO.Process.output {
+  let linked ← Regula.Process.output
+      (.stated "ln" "The control links the Git of this process into a fixture PATH directory") {
     cmd := "ln", args := #["-s", git.toString, (bin / "git").toString], stdin := .null }
   unless linked.exitCode == 0 do
     throw <| IO.userError s!"could not link {git} into {bin}: {linked.stderr}"
@@ -83,7 +86,8 @@ it, and report the controls as unsupported (`unsupported`) when the guard's own 
 wrapper that starts a program found on that search path. The guard runs before the program, which
 then refuses the unknown mode `probeMode`. -/
 private def probeGuard (executable bin : FilePath) : IO Unit := do
-  let out ← IO.Process.output {
+  let out ← Regula.Process.output
+      (.stated executable "The diagnostic starts its own executable to probe the guard") {
     cmd := executable.toString,
     env := #[("PATH", some bin.toString), ("REGULA_QUALIFICATION_WRAPPER", some probeMode),
       ("REGULA_RECEIPT_TIMER", none)],
@@ -110,8 +114,8 @@ Assumes: `/usr/bin/true` exits with 0 and prints no line for arguments other tha
 of Git's names, which it refuses (`Regula.Filesystem.Construction.gitLocalNames`). -/
 def check : IO Unit := do
   let root ← rootDirectory
-  let executable ← IO.appPath
-  let path ← IO.getEnv "PATH"
+  let executable ← Regula.Process.appPath
+  let path ← Regula.Process.readEnv "PATH"
   withScratch root "receipt-boundary" fun scratch => do
     let standIn := scratch / "stand-in"
     IO.FS.createDir standIn
@@ -145,7 +149,7 @@ def check : IO Unit := do
           ("group", toJson "fences"), ("inputs", Json.mkObj []),
           ("records", toJson (#[] : Array Json)), ("packets", toJson (#[] : Array Json)),
           ("controls", toJson (#[] : Array Json))])
-        let result ← IO.Process.output {
+        let result ← Regula.Process.output (.stated executable "The diagnostic selects its own copied dispatcher") {
           cmd := executable.toString, args := route ++ #["--evidence", evidence.toString],
           env := #[("PATH", some bin.toString),
             ("REGULA_QUALIFICATION_WRAPPER", none),

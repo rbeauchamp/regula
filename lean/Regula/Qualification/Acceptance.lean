@@ -1,4 +1,5 @@
 import Regula.Qualification.DependencySnapshot
+import Regula.Process
 
 /-! # Acceptance control qualification
 
@@ -21,10 +22,10 @@ def copyExecutable (source target : FilePath) : IO Unit := do
 
 /-- Test-only native proxy; invoked before the dispatcher's outer deadline wrapper. -/
 def worker (args : List String) : IO UInt32 := do
-  let mode := (← IO.getEnv "REGULA_PACKET_FAULT").getD ""
+  let mode := (← Regula.Process.readEnv "REGULA_PACKET_FAULT").getD ""
   let compilation := args.head? == some "--compile-batch-worker"
-  let some parent := (← IO.appPath).parent | throw <| IO.userError "missing proxy directory"
-  let child ← IO.Process.spawn {
+  let some parent := (← Regula.Process.appPath).parent | throw <| IO.userError "missing proxy directory"
+  let child ← Regula.Process.spawn (.stated (parent / "axiomGate-real") "The native diagnostic proxy delegates to the copied checker") {
     cmd := (parent / "axiomGate-real").toString, args := args.toArray,
     stdin := .inherit, stdout := .inherit, stderr := .inherit }
   let code ← child.wait
@@ -58,10 +59,10 @@ private def qualify (group : String) (evidence : FilePath) (receipt : IO.Ref Jso
     receipt.modify (·.setObjVal! key value)
     save evidence (← receipt.get)
   let executable := root / ".lake/build/bin/axiomGate"
-  let head ← run root "git" #["rev-parse", "HEAD"]
+  let head ← run root (.stated "git" "Git is the caller-selected repository mechanism") #["rev-parse", "HEAD"]
   success head
   update "inputs" (Json.mkObj [("head", toJson head.stdout.trimAscii.toString)])
-  let digest ← run root "shasum" #["-a", "256", executable.toString]
+  let digest ← run root (.stated "shasum" "The external SHA-256 utility computes file digests") #["-a", "256", executable.toString]
   success digest
   update "inputs" (Json.mkObj [("head", toJson head.stdout.trimAscii.toString),
     ("binarySha256", toJson (digest.stdout.splitOn " ").head!)])
@@ -90,7 +91,7 @@ private def qualify (group : String) (evidence : FilePath) (receipt : IO.Ref Jso
       ((#[("", observer.library)] ++ observer.companions).toList.map fun (suffix, bytes) =>
         ⟨[".lake", "build", "lib", observer.fileName ++ suffix], .file bytes 493⟩)
     let sources ← Regula.Filesystem.Construction.capture (root / "lean") ["lean"]
-    let programs ← #[(executable, "axiomGate-real"), (← IO.appPath, "axiomGate")].toList.flatMapM
+    let programs ← #[(executable, "axiomGate-real"), (← Regula.Process.appPath, "axiomGate")].toList.flatMapM
       fun (source, name) => do
         let items ← Regula.Filesystem.Construction.capture source [".lake", "build", "bin", name]
         pure (items.map fun item => match item.payload with
@@ -118,7 +119,7 @@ private def qualify (group : String) (evidence : FilePath) (receipt : IO.Ref Jso
         ("REGULA_PACKET_FAULT", some fault)]
       let start ← IO.monoMsNow
       -- Every case inherits only the public 420-second deadline.
-      let result ← IO.Process.output {
+      let result ← Regula.Process.output (.stated (bin / "axiomGate") "This diagnostic deliberately selects its native proxy") {
         cmd := (bin / "axiomGate").toString, args,
         cwd := some project, env }
       let elapsed := (← IO.monoMsNow) - start
@@ -207,7 +208,7 @@ def documentationDependencies : IO Unit := do
     IO.FS.writeFile dependencySource original
     let project := scratch / "project"
     IO.FS.createDirAll (project / "docs")
-    success (← run project "git" #["init", "-q"])
+    success (← run project (.stated "git" "Git is the caller-selected repository mechanism") #["init", "-q"])
     toolchain root project
     IO.FS.writeFile (project / "lakefile.toml") <|
       "name = \"documentation_dependency\"\n" ++ Regula.Checker.observerPluginToml ++
@@ -222,7 +223,7 @@ def documentationDependencies : IO Unit := do
     IO.FS.writeFile
         (project / "docs/control.md") "```lean\nimport Dep\nexample : Dep.n = 1 := rfl\n```\n"
     -- The complete generated requirement graph is this one path dependency, with no Git source.
-    success (← run project "lake" #["update"] cleanEnv)
+    success (← run project (.toolchain .lake) #["update"] cleanEnv)
     for route in #["docFenceAudit", "ruleExamples"] do
       for phase in #["positive", "changed-during-build", "restored"] do
         if phase != "changed-during-build" then
@@ -237,7 +238,7 @@ def documentationDependencies : IO Unit := do
         let output := scratch / s!"{route}-{phase}.json"
         let args := if route == "docFenceAudit" then #["--project", project.toString, "--jobs", "1"]
           else #["--documentation", project.toString, (project / "docs").toString, output.toString]
-        let result ← run project (root / ".lake/build/bin" / route).toString args cleanEnv
+        let result ← run project (.stated (root / ".lake/build/bin" / route).toString "The caller selects this resolved non-toolchain executable") args cleanEnv
         let log := result.stdout ++ result.stderr
         if bad then
           requireChecks

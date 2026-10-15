@@ -27,13 +27,15 @@ inductive Run where
 
 /-- What a command of the driver runs of `qualify` or `checkerSelftest`, if anything. -/
 def runOf (command : RegulaVerification.Command) : Option Run :=
-  if command.program != "lake" then none
-  else match command.args.toList with
+  match command.program with
+  | .stated .. => none
+  | .toolchain .lake => match command.args.toList with
     | "exe" :: "qualify" :: "--under-deadline" :: selection =>
         some (.qualify ((Command.parse selection).map form))
     | "exe" :: "qualify" :: selection => some (.qualify ((Command.parse selection).map form))
     | "exe" :: "checkerSelftest" :: selection => some (.selftest selection)
     | _ => none
+  | .toolchain _ => none
 
 /-- The command a campaign of the inventory stands for. -/
 def Campaign.run : Campaign → Run

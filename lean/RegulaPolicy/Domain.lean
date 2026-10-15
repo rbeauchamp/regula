@@ -1762,10 +1762,10 @@ def Declaration.Assessed.neutral (d : Declaration.Assessed) : Declaration.Assess
 
 /-- The roots of the library packages the Lean toolchain ships as its own code: `Init`, `Std`,
 `Lean` and `Lake`. In the audit, a module under one of them is toolchain code only with an admitted
-origin (`ToolchainOrigin`); the name alone never makes it so. The removal check of a program reads
-the name alone, under the workspace hypothesis that `Regula.Removal.toolchainModules` states and
-`lake exe qualify observers` checks for the root, `markdown/` and `audit/` workspaces of this
-repository only.
+origin (`ToolchainOrigin`); the name alone never makes it so. The observer reach check of a
+program reads the name alone, under the workspace hypothesis that
+`Regula.Removal.toolchainModules` states and `lake exe qualify observers` checks for the root,
+`markdown/` and `audit/` workspaces of this repository only.
 
 Assumes: the Lean 4.34.1 release installs the compiled modules of these four packages in its
 library directory `lib/lean`, beside only the root modules of its executables (`LakeMain`,

@@ -1,4 +1,6 @@
 import VersoManual
+import Regula.Process
+import Regula.Scratch
 import RegulaPolicy.Pattern
 import RegulaCore.Presence
 import RegulaCore.Standard
@@ -105,7 +107,7 @@ structure Reported where
 /-- The helper executable, built by Lake before the standard's modules (`needs`). Lake runs
 the document's elaboration in the website package directory. -/
 def helperPath : IO System.FilePath := do
-  let path := (← IO.currentDir) / ".lake" / "build" / "bin" / "regula-example"
+  let path := (← Regula.Process.currentDir) / ".lake" / "build" / "bin" / "regula-example"
   unless ← Regula.Filesystem.isPresent path do
     throw <| IO.userError s!"example helper not built: {path}"
   return path
@@ -113,10 +115,11 @@ def helperPath : IO System.FilePath := do
 /-- Elaborate one example module in a fresh `regula-example` process: its messages and highlighting. -/
 def runHelper (text : String) : IO (Array Reported × Json) := do
   let helper ← helperPath
-  IO.FS.withTempFile fun handle path => do
-    handle.putStr text
-    handle.flush
-    let out ← IO.Process.output { cmd := helper.toString, args := #[path.toString] }
+  Prod.fst <$> Regula.Scratch.withScratch (← Regula.Process.currentDir) "verso-example" fun scratch => do
+    let path := scratch / "Example.lean"
+    IO.FS.writeFile path text
+    let out ← Regula.Process.output (.stated helper "Lake resolves the already built example helper")
+      { cmd := "", args := #[path.toString] }
     if out.exitCode != 0 then
       throw <| IO.userError s!"example helper failed ({out.exitCode}): {out.stderr}"
     -- Exactly the members the helper writes, each name once (`PolicyCodec.parse`), and a severity
@@ -259,7 +262,7 @@ namespace RegulaExample
 
 /-- The repository root: the parent of the website package, where Lake runs elaboration. -/
 def repositoryRoot : IO System.FilePath := do
-  return (← IO.currentDir) / ".."
+  return (← Regula.Process.currentDir) / ".."
 
 /- A link to a repository file or directory, at the revision the site is built from
 (`REGULA_SOURCE_REVISION`, else `main`). -/
@@ -272,7 +275,7 @@ inline_extension Inline.repo (path fragment : String) (directory : Bool) where
     some <| fun go _ data content => do
       let .arr #[.str path, .str fragment, .bool directory] := data
         | Verso.reportError s!"Expected repository link data, got {data}"; content.mapM go
-      let revision := (← IO.getEnv "REGULA_SOURCE_REVISION").getD "main"
+      let revision := (← Regula.Process.readEnv "REGULA_SOURCE_REVISION").getD "main"
       let kind := if directory then "tree" else "blob"
       let href := s!"https://github.com/rbeauchamp/regula/{kind}/{revision}/{path}" ++
         (if fragment.isEmpty then "" else "#" ++ fragment)

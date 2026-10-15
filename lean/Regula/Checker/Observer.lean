@@ -4,6 +4,7 @@ import Lake.Build.Common
 import RegulaObserver.Record
 import RegulaPolicy.Community
 import RegulaPolicy.Elaboration
+import Regula.Process
 import RegulaCore.Presence
 
 /-! # Regula's elaboration observer in a Lake build
@@ -60,7 +61,7 @@ def observerKey (declaring : Name) : _root_.Lake.PartialBuildKey → Bool
 /-- The directory of the package whose build directory holds the running executable,
 `<package>/.lake/build/bin/<executable>`, or none when the path is shorter. -/
 def runningPackageDir : IO (Option FilePath) := do
-  let app ← IO.FS.realPath (← IO.appPath)
+  let app ← IO.FS.realPath (← Regula.Process.appPath)
   return (app.parent.bind (·.parent)).bind (·.parent) |>.bind (·.parent)
 
 /-- The completed result of each module's `presetup` facet in one build, by package and module,

@@ -127,7 +127,7 @@ checkout, never a library build. Lake keeps the compiled configuration of a work
 `Lake/Load/Workspace.lean`, line 34), and `lake env` loads it before it runs this file. The kernel
 must admit that copy as equal to `weakArgsRecordJson` and refuse it with one literal changed. -/
 private def lakefileEncoderCheck : IO Unit := do
-  let root ← IO.currentDir
+  let root ← Regula.Process.currentDir
   unless ← Regula.Filesystem.isPresent (root / "lakefile.lean") do
     throw <| IO.userError s!"registry: {root} has no lakefile.lean"
   let (config, _) ← readModuleData (root / ".lake" / "config" / "0" / "lakefile.olean")

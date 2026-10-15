@@ -1,4 +1,5 @@
 import Regula.Checker.Common
+import Regula.Process
 import Regula.Checker.Manifest
 import Regula.Checker.Workspace
 import Regula.Checker.LakeSelection
@@ -1863,7 +1864,7 @@ def Build.runObserved (build : Build) (repo : FilePath) (targets : Array Target)
   let buffer ← IO.mkRef ({} : IO.FS.Stream.Buffer)
   let out ← showingStream (IO.FS.Stream.ofBuffer buffer) build.display
   let searchPath ← Lean.searchPathRef.get
-  let workingDirectory ← IO.currentDir
+  let workingDirectory ← Regula.Process.currentDir
   let jobLogs ← IO.mkRef (#[] : Array JobLog)
   let marked ← IO.mkRef false
   let claimed ← IO.mkRef (#[] : Array Name)
@@ -1873,7 +1874,7 @@ def Build.runObserved (build : Build) (repo : FilePath) (targets : Array Target)
   let exitCode ← try
       Workspace.withRootWorkspace repo (scrubSearchPath := true) fun loaded => do
         let ws := Workspace.uncachedWorkspace loaded
-        IO.Process.setCurrentDir ws.root.dir
+        Regula.Process.setCurrentDir ws.root.dir
         let mut specs := #[]
         let mut modules := #[]
         for target in targets do
@@ -1915,7 +1916,7 @@ def Build.runObserved (build : Build) (repo : FilePath) (targets : Array Target)
         let presetups ← Observer.Presetups.new
         let ws := ws.addModuleFacetConfig (Observer.recordingPresetup existing presetups)
         let fetch := observedFetch ws jobLogs presetups (_root_.Lake.buildSpecs specs)
-        ws.runBuild fetch {
+        Regula.Checker.Workspace.runBuild ws fetch {
           out := .stream out, ansiMode := .noAnsi, showSuccess := true, leanOptOverrides,
           failLv := build.failLv }
         for mod in modules do
@@ -1948,7 +1949,7 @@ def Build.runObserved (build : Build) (repo : FilePath) (targets : Array Target)
       pure 1
     finally
       Lean.searchPathRef.set searchPath
-      IO.Process.setCurrentDir workingDirectory
+      Regula.Process.setCurrentDir workingDirectory
   let observed (process : ProcessResult) : IO CheckedBuild := do
     let jobs ← jobLogs.get
     let marked ← marked.get
@@ -1983,7 +1984,7 @@ def runBuiltExecutable (repo : FilePath) (spelling : String) (args : Array Strin
     pure (exe.file, ws.augmentedEnvVars)
   unless ← Regula.Filesystem.isPresent file do
     throw <| IO.userError s!"executable {spelling} was not built: {file}"
-  runProcess repo file.toString args env
+  runProcess repo (.stated file "Lake resolved this explicitly requested package executable") args env
 
 /-- Build the targets with the root package's own options, printing nothing as it runs. -/
 def buildTargets : Build := {}

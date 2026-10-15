@@ -169,7 +169,7 @@ def checkContainment (slot : ProducerSlot) (copy : FilePath)
   unless (← contained slot.root copy) do
     throw <| IO.userError s!"slot package copy escapes slot: {copy}"
   if (← Regula.Filesystem.isPresent (copy / ".git")) then
-    let git ← run copy "git" #["rev-parse", "--git-dir", "--git-common-dir", "--show-toplevel"]
+    let git ← run copy (.stated "git" "Git is the caller-selected repository mechanism") #["rev-parse", "--git-dir", "--git-common-dir", "--show-toplevel"]
     unless git.exitCode == 0 do
       throw <| IO.userError s!"slot git identity unavailable: {copy}\n{git.stdout}{git.stderr}"
     for line in git.stdout.splitOn "\n" do
@@ -394,14 +394,14 @@ def prepareSlot (originalRoot : FilePath) (slot : ProducerSlot)
     provenance := provenance.push ⟨dep.package, "dependency", "shared"⟩
   for dep in deps do
     if let some expected := dep.revision then
-      let git ← run dep.root "git" #["rev-parse", "HEAD"]
+      let git ← run dep.root (.stated "git" "Git observes the pinned shared dependency revision") #["rev-parse", "HEAD"]
       unless git.exitCode == 0 && git.stdout.replace "\n" "" == expected do
         throw <| IO.userError s!"shared dependency git revision mismatch: {dep.package}"
   -- Root revision equality against the captured original (refusal on mismatch).
-  let originalGit ← run originalRoot "git" #["rev-parse", "HEAD"]
+  let originalGit ← run originalRoot (.stated "git" "Git is the caller-selected repository mechanism") #["rev-parse", "HEAD"]
   unless originalGit.exitCode == 0 do
     throw <| IO.userError "original root git revision unavailable"
-  let rootGit ← run copy "git" #["rev-parse", "HEAD"]
+  let rootGit ← run copy (.stated "git" "Git is the caller-selected repository mechanism") #["rev-parse", "HEAD"]
   unless rootGit.exitCode == 0 &&
       rootGit.stdout.replace "\n" "" == originalGit.stdout.replace "\n" "" do
     throw <| IO.userError "slot root git revision mismatch"

@@ -1,4 +1,5 @@
 import RegulaCore.Removal
+import Regula.Process
 import RegulaCore.CopyConstruction
 import RegulaCore.Presence
 
@@ -44,6 +45,23 @@ reads in place of Lean's `System.FilePath.pathExists` and `System.FilePath.isDir
 `System.FilePath.metadata`, which follows links, and give absence only for that error too
 (`isPresent_runsTo`, `isDirectory_runsTo`). `entryIfPresent` is the same read of the entry itself,
 by the observer. -/
+
+namespace Regula.CopyProcess
+
+-- The toolchain-only constructor supplies no process primitives. Both this compiled adapter
+-- and the cold source interpreter elaborate these shared Git and listing routes to Regula.Process.
+run_cmd do
+  let origin ← Lean.getRef
+  let before ← Lean.getEnv
+  let input := Lean.Parser.mkInputContext (include_str "GitProcessSource.inc")
+    "Regula/GitProcessSource.inc"
+  let result ← Lean.Elab.IO.processCommands input {} (← get)
+  set result.commandState
+  for (name, _) in result.commandState.env.constants.toList do
+    unless before.contains name do
+      Lean.Elab.addDeclarationRangesFromSyntax name origin
+
+end Regula.CopyProcess
 
 namespace Regula.Filesystem
 
@@ -443,7 +461,7 @@ def ownPath (path : FilePath) : IO FilePath := do
   if components.any (fun component => component == "." || component == "..") then
     throw <| IO.userError s!"nothing was made or removed: {path} has a `.` or `..` component"
   let path ← if path.isAbsolute then pure path else do
-    let directory ← observeRealPath (← IO.currentDir)
+    let directory ← observeRealPath (← Regula.Process.currentDir)
     pure (if components.isEmpty then directory else directory / System.mkFilePath components)
   let refuse {α : Type} (ancestor : FilePath) : IO α := throw <| IO.userError
     s!"nothing was made or removed: {ancestor}, an ancestor of {path}, is not at its own place \

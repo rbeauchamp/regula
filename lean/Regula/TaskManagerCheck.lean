@@ -232,21 +232,6 @@ def reached? (env : Environment) (roots : Array Name) (bound : ExternEntry → B
     | none => return some (.unknown name)
   return work.back?.map .unknown
 
-/-- The declarations that `body` applies fully (`Lean.IR.Expr.fap`), pushed onto `acc.1`, and
-whether it applies a closure (`Lean.IR.Expr.ap`), or-ed into `acc.2`. A partial application
-(`Lean.IR.Expr.pap`) builds a closure and runs nothing, so it adds nothing. -/
-partial def applications : FnBody → Array Name × Bool → Array Name × Bool
-  | .vdecl _ _ value rest, acc =>
-    let acc := match value with
-      | .fap function _ => (acc.1.push function, acc.2)
-      | .ap .. => (acc.1, true)
-      | _ => acc
-    applications rest acc
-  | .jdecl _ _ joined rest, acc => applications rest (applications joined acc)
-  | .case _ _ _ alternatives, acc =>
-    alternatives.foldl (fun acc alternative => applications alternative.body acc) acc
-  | body, acc => if body.isTerminal then acc else applications body.body acc
-
 /-- What `doesMore` finds: the declarations whose evaluation can do more than build a value, and
 whether its two traversals finished within their bound. -/
 structure Propagation where
@@ -287,7 +272,7 @@ def doesMore (env : Environment) (roots : Array Name) (allowed : List Name)
     work := work.pop
     match findEnvDecl env name with
     | some (.fdecl _ _ _ body _) =>
-      let (applied, appliesClosure) := applications body (#[], false)
+      let (applied, appliesClosure) := Regula.Removal.applications body (#[], false)
       if appliesClosure then found := found.push name
       for used in applied do
         callers := callers.insert used ((callers.getD used #[]).push name)

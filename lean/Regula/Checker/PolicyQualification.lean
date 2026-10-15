@@ -164,7 +164,7 @@ private def setup (repo adopter : FilePath) : IO Unit := do
   Lake.pinAdopter repo adopter
   -- An adopter is a repository of its own, so `regula`, which it requires from this checkout, is
   -- a dependency in a different Git work tree, which the audit trusts, as an adopter's is.
-  let initialized ← runProcess adopter "git" #["init", "-q"]
+  let initialized ← runProcess adopter (.stated "git" "Git is the caller-selected repository mechanism") #["init", "-q"]
   unless initialized.succeeded do throw <| IO.userError initialized.output
 
 /-- Actual external adopter, single-fault mutations, and fresh source restoration.
@@ -173,7 +173,7 @@ def publicPaths (repo scratch : FilePath) : IO (Array String) := do
   let adopter := scratch / "adopter"
   setup repo adopter
   let binary := repo / ".lake" / "build" / "bin" / "axiomGate"
-  let invoke := runProcess adopter binary.toString
+  let invoke := runProcess adopter (.stated binary.toString "The caller selects this resolved non-toolchain executable")
       #["--project", adopter.toString] scrubbedLeanPathEnv
   let mut failures := #[]
   let cases :=
@@ -214,7 +214,7 @@ def publicPaths (repo scratch : FilePath) : IO (Array String) := do
     unless restored.succeeded do failures := failures.push s!"{label}-restored: {restored.output}"
   let file := adopter / "Warning.lean"
   let positiveFile := "import Lean\ntheorem clean : True := .intro\n"
-  let invokeFile := runProcess adopter binary.toString #["--file", file.toString,
+  let invokeFile := runProcess adopter (.stated binary.toString "The caller selects this resolved non-toolchain executable") #["--file", file.toString,
     "--claim", "standard-logical"] scrubbedLeanPathEnv
   IO.FS.writeFile file positiveFile
   let before ← invokeFile
@@ -236,7 +236,7 @@ def nativeImport (repo scratch : FilePath) : IO (Array String) := do
   let nativeSource := "import Regula.Linter\n" ++ source.replace "import Lean\n"
     "import Lean\n/-! Native linter adopter with retained execution controls. -/\n"
   IO.FS.writeFile (adopter / "PublicApi.lean") nativeSource
-  let result ← runProcess adopter (repo / ".lake" / "build" / "bin" / "axiomGate").toString
+  let result ← runProcess adopter (.stated (repo / ".lake" / "build" / "bin" / "axiomGate").toString "The caller selects this resolved non-toolchain executable")
     #["--project", adopter.toString] scrubbedLeanPathEnv
   if result.succeeded then
     IO.println "native public adopter: PASS"

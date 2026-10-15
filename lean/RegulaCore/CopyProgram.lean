@@ -300,21 +300,20 @@ def listingEnvironment : Array (String × Option String) :=
   #[("LC_ALL", some "C"), ("POSIXLY_CORRECT", none), ("QUOTING_STYLE", none), ("LS_COLORS", none),
     ("CLICOLOR", none), ("CLICOLOR_FORCE", none), ("LSCOLORS", none), ("COLUMNS", none)]
 
-/-- Run a listing program with `args`; its exit code, its complete output as bytes and its error
-text.
+/-- Listing effects supplied by the shared process observer. The constructor imports only the
+toolchain and starts no process; installed and cold contexts supply the same adapter. -/
+class ListingProcesses where
+  /-- Run the stated listing program, capturing binary stdout and text stderr. -/
+  output : String → IO.Process.SpawnArgs → IO (UInt32 × ByteArray × String)
 
-Assumes: Lean v4.34.1 `Init/System/IO.lean:1002-1003,1544-1557` reads binary stdout, drains stderr
-and waits for the process, and `Init/System/IO.lean:1441-1448` applies the environment changes in
-order. Process execution is trusted. -/
-def listingOutput (program : String) (args : Array String) : IO (UInt32 × ByteArray × String) := do
-  let child ← IO.Process.spawn
-    { cmd := program, args := args, env := listingEnvironment, stdin := .null, stdout := .piped,
+variable [ListingProcesses]
+
+/-- Run the stated listing program through the supplied process adapter, preserving the listing
+environment and binary output. The adapter documents the trusted process and stream effects. -/
+def listingOutput (program : String) (args : Array String) : IO (UInt32 × ByteArray × String) :=
+  ListingProcesses.output program
+    { cmd := "", args, env := listingEnvironment, stdin := .null, stdout := .piped,
       stderr := .piped }
-  let stdout ← IO.asTask child.stdout.readBinToEnd Task.Priority.dedicated
-  let stderr ← child.stderr.readToEnd
-  let exitCode ← child.wait
-  let bytes ← IO.ofExcept stdout.get
-  return (exitCode, bytes, stderr)
 
 /-- The GNU coreutils releases whose `ls` source Regula has read, as major and minor version: 9.0 to
 9.12 and 8.32. Regula refuses any other release until it reads that release's source too. -/
@@ -757,10 +756,20 @@ def firstUnwritten {α : Type} (items : List Item) (reads : List (α × List Str
     Option (α × List String) :=
   reads.find? fun read => !covers [read.2] items
 
-/-- Git's repository-local environment names, as the `git` found on this process's `PATH` prints
-them. The query itself removes command-configuration injection and performs no repository setup
-or repository configuration read. Each name is admitted as `GIT_` followed by ASCII letters,
-digits and `_`, so no name is empty or holds `=` or NUL.
+/-- The Git effects supplied by the process observer. This toolchain-only source starts no
+process itself; the package and cold interpreter supply the same `Regula.Process` adapter.
+The copy construction and Git configuration policy remain independent of that adapter. -/
+class GitProcesses where
+  /-- Run the stated Git program, joining it and capturing text output. -/
+  output : IO.Process.SpawnArgs → IO IO.Process.Output
+  /-- Run the same stated Git program, joining it and capturing binary stdout and text stderr. -/
+  binaryOutput : IO.Process.SpawnArgs → IO (UInt32 × ByteArray × String)
+
+/-- Git's repository-local environment names, as the Git program that the process observer's
+adapter states (`GitProcesses`), the `git` found on this process's `PATH`, prints them. The query
+itself removes command-configuration injection and performs no repository setup or repository
+configuration read. Each name is admitted as `GIT_` followed by ASCII letters, digits and `_`, so
+no name is empty or holds `=` or NUL.
 
 Assumes: Git 2.54.0 `builtin/rev-parse.c:757-762` prints `local_repo_env` before any repository
 setup, which `git.c:647` does not request for `rev-parse`; `environment.c:109-126` and
@@ -769,8 +778,8 @@ GIT_CONFIG_PARAMETERS (`config.c:711-779`), which are removed before this query.
 GIT_CONFIG_COUNT makes its KEY/VALUE variables inert (`config.c:721-758`). `config.c:1498-1512`
 skips system config and both global files with the settings of the query. POSIX /dev/null supplies
 an empty configuration (trusted OS device). -/
-def gitLocalNames : IO (Array String) := do
-  let out ← IO.Process.output {
+def gitLocalNames [GitProcesses] : IO (Array String) := do
+  let out ← GitProcesses.output {
     cmd := "git", args := #["-c", "core.symlinks=false", "rev-parse", "--local-env-vars"]
     env := #[("GIT_CONFIG_COUNT", none), ("GIT_CONFIG_PARAMETERS", none),
       ("GIT_CONFIG_NOSYSTEM", some "1"), ("GIT_CONFIG_GLOBAL", some "/dev/null")]
@@ -801,7 +810,7 @@ cold drivers that ask `sourceMain` for it (`git-environment`): Git's list names 
 so the array removes the command-scope `core.symlinks=false` that `isolationEnvironment` gives a
 process tree. Another child, such as Lake, takes `isolationEnvironment`, and so do the Git commands
 of the verification driver (`RegulaVerification.start`). -/
-private def gitEnvironment : IO (Array (String × Option String)) :=
+private def gitEnvironment [GitProcesses] : IO (Array (String × Option String)) :=
   return repositoryEnvironment (← gitLocalNames)
 
 /-- The settings of an isolated process tree: no namespace, no system or global configuration, and
@@ -832,41 +841,37 @@ def processEnvironment (names : Array String) : Array (String × Option String) 
     isolationSettings
 
 /-- `processEnvironment` from Git's own list (`gitLocalNames`). -/
-def isolationEnvironment : IO (Array (String × Option String)) :=
+def isolationEnvironment [GitProcesses] : IO (Array (String × Option String)) :=
   return processEnvironment (← gitLocalNames)
 
-/-- Apply the same Git policy to text and binary process observations. The command name and
-launcher stay as the current repository uses them; process-start observation is separate work.
+/-- Apply the same Git policy to text and binary process observations. The supplied observer
+adapter owns process selection; this function owns only Git's configuration and environment.
 
 Assumes: Git 2.54.0 `config.c:1515-1581` reads command-scope settings after local/worktree settings;
 `environment.c:332-333` consumes core.symlinks. Product callers supply no competing command-scope
 core.symlinks setting. Repository-local variables are removed by `gitEnvironment`. -/
-def gitProcessArgs (options : IO.Process.SpawnArgs) : IO IO.Process.SpawnArgs := do
+def gitProcessArgs [GitProcesses] (options : IO.Process.SpawnArgs) : IO IO.Process.SpawnArgs := do
   if options.cmd != "git" then return options
   return {options with
     args := #["-c", "core.symlinks=false"] ++ options.args,
     env := options.env ++ (← gitEnvironment)}
 
 /-- Git output with its repository environment and command scope isolated. -/
-def gitOutput (root : FilePath) (args : Array String) : IO IO.Process.Output := do
-  IO.Process.output (← gitProcessArgs {cmd := "git", args, cwd := some root, stdin := .null})
+def gitOutput [GitProcesses] (root : FilePath) (args : Array String) : IO IO.Process.Output := do
+  GitProcesses.output (← gitProcessArgs {cmd := "git", args, cwd := some root, stdin := .null})
 
 /-- Binary Git output through the same isolated process arguments as text observations.
 
 Assumes: Lean v4.34.1 `Init/System/IO.lean:1002-1003,1544-1557` reads binary stdout, drains stderr
 and waits for the process. Process and Git output fidelity are trusted. -/
-def gitBinaryOutput (root : FilePath) (args : Array String) : IO (UInt32 × ByteArray × String) := do
+def gitBinaryOutput [GitProcesses] (root : FilePath) (args : Array String) :
+    IO (UInt32 × ByteArray × String) := do
   let options ← gitProcessArgs {cmd := "git", args, cwd := some root}
-  let child ← IO.Process.spawn {options with stdin := .null, stdout := .piped, stderr := .piped}
-  let stdout ← IO.asTask child.stdout.readBinToEnd Task.Priority.dedicated
-  let stderr ← child.stderr.readToEnd
-  let exitCode ← child.wait
-  let bytes ← IO.ofExcept stdout.get
-  return (exitCode, bytes, stderr)
+  GitProcesses.binaryOutput options
 
 /-- Decode a single absolute path printed by Git without trimming its stored spelling. Path
 names containing newline or carriage return are outside this line-oriented metadata protocol. -/
-def gitPath (root : FilePath) (args : Array String) : IO FilePath := do
+def gitPath [GitProcesses] (root : FilePath) (args : Array String) : IO FilePath := do
   let out ← gitOutput root args
   unless out.exitCode == 0 && out.stdout.endsWith "\n" do
     throw <| IO.userError s!"Git metadata path unavailable: {out.stderr}"
@@ -884,7 +889,7 @@ Assumes: Git 2.54.0 `builtin/config.c:74-104,487-591,1264-1266` and `config.c:14
 implement --file, --no-includes, --name-only and --get-regexp through Git's configuration decoder;
 absent matches exit 1. Configuration and all
 captured metadata have no concurrent writer. -/
-def admitGitConfig (root config : FilePath) : IO Unit := do
+def admitGitConfig [GitProcesses] (root config : FilePath) : IO Unit := do
   let out ← gitOutput root #["config", "--file", config.toString, "--no-includes", "--name-only",
     "--get-regexp", "^(extensions\\.|include\\.|includeif\\.|core\\.worktree$)"]
   if out.exitCode == 0 then
@@ -900,7 +905,7 @@ Assumes: Git 2.54.0 `builtin/rev-parse.c:752-759,776-785` delegates --git-path t
 path resolver. `path.c:375-376` selects the effective object store; `setup.c:303-324` resolves
 commondir. The routine refuses the alternates file without reading its entries. Git metadata has
 no writer during this observation. -/
-def admitGitObjects (root : FilePath) (gitOptions : Array String := #[]) : IO Unit := do
+def admitGitObjects [GitProcesses] (root : FilePath) (gitOptions : Array String := #[]) : IO Unit := do
   let alternates ← gitPath root (gitOptions ++
     #["rev-parse", "--path-format=absolute", "--git-path", "objects/info/alternates"])
   unless (← kindWith observer alternates).isNone do
@@ -1025,7 +1030,7 @@ reads binary stdout, drains stderr and waits for the process. Process execution 
 fidelity are trusted. Git 2.54.0 git(1), --no-lazy-fetch, --no-optional-locks and
 --no-replace-objects, prevents lazy fetching, optional lock-taking writes and replacement
 object lookup. Source Git metadata has no writer during this observation. -/
-def readGitBlob (source : FilePath) (object : String) : IO ByteArray := do
+def readGitBlob [GitProcesses] (source : FilePath) (object : String) : IO ByteArray := do
   unless !object.isEmpty && object.toList.all Char.isHexDigit do
     throw <| IO.userError "Git index object is not a hexadecimal identifier"
   let (exitCode, bytes, stderr) ← gitBinaryOutput source
@@ -1053,7 +1058,7 @@ Lean/Lake v4.34.1
 `Lake/Load/Materialize.lean:255-258` warns if a matching-revision checkout has that diff.
 The copy locates its listing program once and lists each directory it reads through that program;
 `admitGitPath` lists each directory once for the whole index. -/
-def copyGit (source target : FilePath) : IO (List Item) := do
+def copyGit [GitProcesses] (source target : FilePath) : IO (List Item) := do
   let enumerator ← locate
   let metadata ← captureWith enumerator.observer (fun _ => true) 4096 (source / ".git") [".git"]
   let ⟨_, .directory⟩ :: _ := metadata
@@ -1120,7 +1125,7 @@ package artifacts exist; it does not use another copy implementation.
 
 Assumes: `copyGit` names the installed Git 2.54.0 index/blob/config facts, its source stability
 and the pinned Lake cleanliness observation. Git parsing and object fidelity remain trusted. -/
-def sourceMain (args : List String) : IO UInt32 := do
+def sourceMain [GitProcesses] (args : List String) : IO UInt32 := do
   let domain :: source :: target :: required := args
     | throw <| IO.userError "construction requires DOMAIN SOURCE TARGET"
   unless domain == "project" || required.isEmpty do

@@ -110,9 +110,10 @@ def refusals : List (String × String) :=
 /-- Run the constructor in a child process that lists through the stand-in in `mode`. -/
 def copyThroughStandin (root bin source target : FilePath) (mode : String) :
     IO IO.Process.Output := do
-  let path := (← IO.getEnv "PATH").getD ""
-  IO.Process.output {
-    cmd := (← IO.appPath).toString,
+  let path := (← Regula.Process.readEnv "PATH").getD ""
+  Regula.Process.output
+    (.stated (← Regula.Process.appPath) "The enumeration control selects this running executable") {
+    cmd := "",
     args := #["--under-deadline", "enumeration-copy", source.toString, target.toString],
     cwd := some root,
     env := #[("PATH", some s!"{bin}:{path}"), (standinVariable, some mode),
@@ -125,7 +126,7 @@ def check : IO Unit := do
     let bin := scratch / "bin"
     IO.FS.createDir bin
     -- The stand-in is this executable, run by name through `PATH` in the child.
-    Regula.Filesystem.copyFile (← IO.appPath) (bin / standinName) 493
+    Regula.Filesystem.copyFile (← Regula.Process.appPath) (bin / standinName) 493
     let source := scratch / "source"
     IO.FS.createDir source
     for name in listed ++ [unlisted] do
@@ -174,8 +175,8 @@ def entryFile (index : Nat) : String :=
   s!"entry-{index}-{String.ofList (List.replicate 40 'x')}"
 
 /-- Whether `command args` runs and exits 0. -/
-def runs (command : String) (args : Array String) : IO Bool := do
-  match ← (IO.Process.output { cmd := command, args }).toBaseIO with
+def runs (command : Regula.Process.Program) (args : Array String) : IO Bool := do
+  match ← (Regula.Process.output command { cmd := "", args }).toBaseIO with
   | .ok result => return result.exitCode == 0
   | .error _ => return false
 
@@ -183,22 +184,28 @@ def runs (command : String) (args : Array String) : IO Bool := do
 GitHub-hosted Linux runner, with passwordless `sudo` and each tool it runs. -/
 def unsupported? : IO (Option String) := do
   unless System.Platform.isLinux do return some "it runs on Linux only"
-  unless (← IO.getEnv "GITHUB_ACTIONS") == some "true" &&
-      (← IO.getEnv "RUNNER_ENVIRONMENT") == some "github-hosted" do
+  unless (← Regula.Process.readEnv "GITHUB_ACTIONS") == some "true" &&
+      (← Regula.Process.readEnv "RUNNER_ENVIRONMENT") == some "github-hosted" do
     return some "it runs on a GitHub-hosted runner only, whose machine is discarded after the job"
-  unless ← runs "sudo" #["-n", "true"] do return some "sudo needs a password"
-  for (tool, args) in [("mkfs.ext4", #["-V"]), ("debugfs", #["-V"]), ("lean", #["--version"])] do
+  unless ← runs (.stated "sudo" "The hosted-Linux failure campaign requires sudo")
+      #["-n", "true"] do return some "sudo needs a password"
+  let checks : List (Regula.Process.Program × Array String) := [
+      (.stated "mkfs.ext4" "The hosted-Linux failure campaign creates an ext4 image", #["-V"]),
+      (.stated "debugfs" "The hosted-Linux failure campaign reads the image's block map", #["-V"]),
+      (.toolchain .lean, #["--version"])]
+  for (tool, args) in checks do
     unless ← runs tool args do return some s!"{tool} is not available"
   for (tool, args) in [("losetup", #["--version"]), ("dmsetup", #["version"]),
       ("mount", #["--version"])] do
-    unless ← runs "sudo" (#["-n", tool] ++ args) do return some s!"{tool} is not available"
+    unless ← runs (.stated "sudo" "The hosted-Linux failure campaign selects privileged tools")
+        (#["-n", tool] ++ args) do return some s!"{tool} is not available"
   return none
 
 /-- Run `command args` with `input` on its standard input, refusing unless it exits 0; its
 output. -/
-def required (root : FilePath) (command : String) (args : Array String)
+def required (root : FilePath) (command : Regula.Process.Program) (args : Array String)
     (input : Option String := none) : IO String := do
-  let result ← IO.Process.output { cmd := command, args, cwd := some root } input
+  let result ← Regula.Process.output command { cmd := "", args, cwd := some root } input
   unless result.exitCode == 0 do
     throw <| IO.userError s!"{command} {" ".intercalate args.toList} failed with exit code \
       {result.exitCode}: {result.stderr}"
@@ -207,7 +214,8 @@ def required (root : FilePath) (command : String) (args : Array String)
 /-- `required` through `sudo -n`. -/
 def privileged (root : FilePath) (args : Array String) (input : Option String := none) :
     IO String :=
-  required root "sudo" (#["-n"] ++ args) input
+  required root (.stated "sudo" "The hosted-Linux failure campaign selects privileged tools")
+    (#["-n"] ++ args) input
 
 /-- Map the loop device `loop` as `name` with `table`, mount it read-only at `mount` and run
 `action`; then unmount it and remove the mapping, also when `action` fails. -/
@@ -224,8 +232,8 @@ def withMapping {α : Type} (root : FilePath) (name table : String) (mount : Fil
 /-- The number of entries that Lean v4.34.1's `System.FilePath.readDir` returns for `path`, read
 in a separate `lean` process from source text, so that no declaration of Regula refers to it. -/
 def readDirCount (root path : FilePath) : IO (UInt32 × String) := do
-  let result ← IO.Process.output {
-    cmd := "lean", args := #["--stdin", "--run", "Probe.lean", path.toString], cwd := some root }
+  let result ← Regula.Process.output (.toolchain .lean) {
+    cmd := "", args := #["--stdin", "--run", "Probe.lean", path.toString], cwd := some root }
     "def main (args : List String) : IO Unit := do\n  \
       IO.println (← System.FilePath.readDir args[0]!).size\n"
   return (result.exitCode, result.stdout.trimAscii.toString ++ result.stderr)
@@ -245,9 +253,13 @@ def failure : IO Unit := do
     let mebibyte := ByteArray.mk (Array.replicate (1024 * 1024) 0)
     IO.FS.withFile image .writeNew fun handle => do
       for _ in [0:sectors / 2048] do handle.write mebibyte
-    discard <| required root "mkfs.ext4" #["-q", "-F", "-b", "1024", "-O",
+    discard <| required root
+      (.stated "mkfs.ext4" "The hosted-Linux failure campaign creates its disposable ext4 image")
+      #["-q", "-F", "-b", "1024", "-O",
       "^dir_index,^has_journal", "-d", tree.toString, image.toString, s!"{sectors / 2}k"]
-    let mapped ← required root "debugfs" #["-R", s!"bmap /dir {failedBlock}", image.toString]
+    let mapped ← required root
+      (.stated "debugfs" "The hosted-Linux failure campaign reads its image's block map")
+      #["-R", s!"bmap /dir {failedBlock}", image.toString]
     let some block := mapped.trimAscii.toString.toNat?
       | throw <| IO.userError s!"debugfs gave no block: {mapped}"
     requireChecks [⟨"the directory spans the failed block", 0 < block && 2 * block + 2 < sectors⟩]
@@ -262,8 +274,9 @@ def failure : IO Unit := do
       let failing := s!"0 {sector} linear {loop} 0\n{sector} 2 error\n\
         {sector + 2} {sectors - sector - 2} linear {loop} {sector + 2}\n"
       withMapping root name failing mount do
-        let listed ← IO.Process.output {
-          cmd := "ls", args := #["-A", "-U", "--zero", "--", (mount / "dir").toString ++ "/"],
+        let listed ← Regula.Process.output
+          (.stated "ls" "The hosted-Linux failure campaign observes GNU ls's failed read") {
+          cmd := "", args := #["-A", "-U", "--zero", "--", (mount / "dir").toString ++ "/"],
           env := #[("LC_ALL", some "C")] }
         requireChecks [⟨"ls fails after the failed read", listed.exitCode != 0 &&
           listed.stderr.contains "Input/output error"⟩]

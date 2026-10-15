@@ -1,5 +1,6 @@
 import Regula.Removal
 import Regula.TaskManagerCheck
+import Regula.Process
 import Regula.CopyControls
 import Regula.Qualification.CopySelection
 import Regula.Qualification.RegistryCli
@@ -164,6 +165,16 @@ private def markEvidence (args : List String) (attempt : String) (reason : Optio
 /-- The form of one `qualify` invocation, read from its arguments, the four variables of its
 environment that select a mode and the name of the running program (`Invocation.of`). -/
 private inductive Invocation where
+  /-- `--process-cadical-raw` or `--process-cadical-reader ROUTE`: the solver control's
+  elaboration of its owned source, raw or through the checked reader `route`
+  (`Regula.Qualification.Process.cadicalWorker`). -/
+  | processCadical (route : Option String)
+  /-- `--process-native-fallback MODE DIRECTORY`: the native fallback control's worker
+  (`Regula.Qualification.Process.nativeFallbackWorker`). -/
+  | processNativeFallback (mode directory : String)
+  /-- `--process-doctor DIRECTORY`: the doctor control's worker
+  (`Regula.Qualification.Process.doctorWorker`). -/
+  | processDoctor (directory : String)
   /-- `REGULA_RECEIPT_TIMER=1` with `--version`: the receipt boundary's worker. -/
   | receiptTimer
   /-- `REGULA_LISTING_STANDIN=MODE` in a copy of `qualify` named as `Construction.locate` looks
@@ -175,6 +186,9 @@ private inductive Invocation where
   /-- `REGULA_QUALIFICATION_WRAPPER=acceptance`: the test-only proxy of `axiomGate`, with the
   gate's arguments. -/
   | acceptanceProxy
+  /-- `REGULA_QUALIFICATION_WRAPPER=process`: the process controls' planted shadow, with its
+  arguments (`Regula.Qualification.Process.worker`). -/
+  | processShadow
   /-- Another value of `REGULA_QUALIFICATION_WRAPPER`, which is refused. -/
   | unknownWrapper
   /-- `--under-deadline [--attempt ATTEMPT] REST`: the command `REST`, run under the deadline that
@@ -183,18 +197,27 @@ private inductive Invocation where
   /-- Any other arguments: a command, run under its own 420-second deadline. -/
   | bounded (args : List String)
 
-/-- The form of the invocation with the arguments `args`, read from them and the environment. -/
+/-- The form of the invocation with the arguments `args`, read from them and the environment
+through the process and environment observer (`Regula.Process.readEnv`). -/
 private def Invocation.of (args : List String) : BaseIO Invocation := do
-  if (← IO.getEnv "REGULA_RECEIPT_TIMER") == some "1" && args == ["--version"] then
+  match args with
+  | ["--process-cadical-raw"] => return .processCadical none
+  | ["--process-cadical-reader", route] => return .processCadical (some route)
+  | ["--process-native-fallback", mode, directory] =>
+    return .processNativeFallback mode directory
+  | ["--process-doctor", directory] => return .processDoctor directory
+  | _ => pure ()
+  if (← Regula.Process.readEnv "REGULA_RECEIPT_TIMER") == some "1" && args == ["--version"] then
     return .receiptTimer
-  if let some mode := ← IO.getEnv Regula.Qualification.Enumeration.standinVariable then
-    if let .ok path := ← IO.appPath.toBaseIO then
+  if let some mode := ← Regula.Process.readEnv Regula.Qualification.Enumeration.standinVariable then
+    if let .ok path := ← Regula.Process.appPath.toBaseIO then
       if path.fileName == some Regula.Qualification.Enumeration.standinName then
         return .listingStandin mode
-  if (← IO.getEnv Regula.Qualification.LakeGit.workerVariable) == some "1" then
+  if (← Regula.Process.readEnv Regula.Qualification.LakeGit.workerVariable) == some "1" then
     return .lakeGitWorker
-  match ← IO.getEnv "REGULA_QUALIFICATION_WRAPPER" with
+  match ← Regula.Process.readEnv "REGULA_QUALIFICATION_WRAPPER" with
   | some "acceptance" => return .acceptanceProxy
+  | some "process" => return .processShadow
   | some _ => return .unknownWrapper
   | none => return match args with
     | "--under-deadline" :: "--attempt" :: attempt :: rest => .underDeadline (some attempt) rest
@@ -214,10 +237,15 @@ stops prints `qualify COMMAND: refused: ERROR` on standard error and exits with 
 leaving the error to Lean's top-level handler. -/
 unsafe def qualifyMain (args : List String) : IO UInt32 := do
   match ← Invocation.of args with
+  | .processCadical route => Regula.Qualification.Process.cadicalWorker route
+  | .processNativeFallback mode directory =>
+    Regula.Qualification.Process.nativeFallbackWorker mode directory
+  | .processDoctor directory => Regula.Qualification.Process.doctorWorker directory
   | .receiptTimer => Regula.Qualification.ReceiptBoundary.worker args
   | .listingStandin mode => Regula.Qualification.Enumeration.standin mode args
   | .lakeGitWorker => Regula.Qualification.LakeGit.worker args
   | .acceptanceProxy => Regula.Qualification.Acceptance.worker args
+  | .processShadow => Regula.Qualification.Process.worker args
   | .unknownWrapper => throw <| IO.userError "unknown qualification wrapper mode"
   | .underDeadline attempt rest =>
     if let some reason ← evidenceRefusal rest then throw <| IO.userError s!"refused: {reason}"
@@ -247,7 +275,8 @@ unsafe def qualifyMain (args : List String) : IO UInt32 := do
       discard <| (markEvidence args attempt (some error.toString)).toBaseIO
       throw error
     let started ← try
-        Regula.Qualification.runBounded (← IO.currentDir) 420 (← IO.appPath).toString
+        Regula.Qualification.runBounded (← Regula.Process.currentDir) 420
+          (.stated (← Regula.Process.appPath).toString "The caller selects this resolved non-toolchain executable")
           (#["--under-deadline", "--attempt", attempt] ++ args.toArray)
       catch error => fail error
     match started with
@@ -261,8 +290,8 @@ invocation as `qualifyMain` does (`Invocation.of`) and marks its destinations in
 refuses, with the gate's exit code (`AxiomGate.refuseWithoutTaskManager`). A command marks its
 evidence document (`markEvidence`), for the attempt that the wrapper's arguments give or otherwise
 for a fresh one, printing a line when it cannot, and returns 1, as do the receipt boundary's
-worker, the stand-in listing program, the Lake Git isolation worker and an unknown wrapper mode,
-which write no file. No command runs. -/
+worker, the stand-in listing program, the process controls' workers, the Lake Git isolation
+worker and an unknown wrapper mode, which write no file. No command runs. -/
 private def refuseQualification (reason : String) (args : List String) : IO UInt32 := do
   let mark (rest : List String) (attempt : Option String) : IO Unit := do
     try markEvidence rest (← attempt.getDM Regula.Qualification.freshAttempt) reason
@@ -271,7 +300,8 @@ private def refuseQualification (reason : String) (args : List String) : IO UInt
   match ← Invocation.of args with
   | .acceptanceProxy =>
     return ← Regula.Checker.AxiomGate.refuseWithoutTaskManager reason args
-  | .receiptTimer | .listingStandin _ | .lakeGitWorker | .unknownWrapper => pure ()
+  | .processCadical _ | .processNativeFallback _ _ | .processDoctor _ | .receiptTimer
+    | .processShadow | .listingStandin _ | .lakeGitWorker | .unknownWrapper => pure ()
   | .underDeadline attempt rest => mark rest attempt
   | .bounded rest => mark rest none
   return 1
@@ -283,11 +313,12 @@ marked incomplete with the reason, and the exit code is 1, or the gate's for the
 unsafe def main : List String → IO UInt32 :=
   Regula.TaskManager.guard "qualify" refuseQualification qualifyMain
 
--- The removals and the writes that the compiled code of the program reaches from its roots
--- (`Regula.Removal.rawRemovals`) are those of the filesystem observer and those that
--- `Regula.Removal.sharedPairs` lists, and those named here, each by the declaration of a source
--- that makes it: the build of this module fails otherwise, and when a name here admits no call
--- (`Regula.Removal.checkProgram`). The program elaborates Lean source, so its check states it.
+-- The compiled code of the program, from its roots, crosses only each system's observer or its
+-- sourced exemption, using the single boundary table: its removals and writes are those of the
+-- filesystem observer, those that `Regula.Removal.sharedPairs` lists and those named here, each by
+-- the declaration of a source that makes it, and its process starts and environment reads are the
+-- process observer's. The build of this module fails otherwise, and when a name here admits no
+-- call (`Regula.Removal.checkProgram`). The program elaborates Lean source, so its check states it.
 run_cmd Regula.Removal.checkProgram (elaborates := true) (named := [
   -- The projects, slots and fixtures of the campaigns, in the scratch and slot directories that
   -- they make, and the raw observations of a rule-example production in the raw directory beside
@@ -296,13 +327,19 @@ run_cmd Regula.Removal.checkProgram (elaborates := true) (named := [
   (``Regula.Qualification.Acceptance.documentationDependencies, ``IO.FS.writeFile),
   (``Regula.CopyControls.checkWorkspace, ``IO.FS.writeFile),
   (``Regula.Qualification.CopyRelocation.check, ``IO.FS.createDirAll),
-  (`Regula.Qualification.CopyRelocation.copied, ``IO.FS.createDirAll),
-  (`Regula.Qualification.CopyRelocation.refusedCopy, ``IO.FS.createDirAll),
+  (Regula.Removal.privateIn `Regula.Qualification.CopyRelocation
+    `Regula.Qualification.CopyRelocation.copied, ``IO.FS.createDirAll),
+  (Regula.Removal.privateIn `Regula.Qualification.CopyRelocation
+    `Regula.Qualification.CopyRelocation.refusedCopy, ``IO.FS.createDirAll),
   (``Regula.Qualification.CopySelection.checkAt, ``IO.FS.writeFile),
-  (`Regula.Qualification.CopySelection.sourceLink, ``IO.FS.writeFile),
-  (`Regula.Qualification.DependencySnapshot.control, ``IO.FS.writeFile),
-  (`Regula.Qualification.DependencySnapshot.gitStatusControls, ``IO.FS.createDirAll),
-  (`Regula.Qualification.DependencySnapshot.gitStatusControls, ``IO.FS.writeFile),
+  (Regula.Removal.privateIn `Regula.Qualification.CopySelection
+    `Regula.Qualification.CopySelection.sourceLink, ``IO.FS.writeFile),
+  (Regula.Removal.privateIn `Regula.Qualification.DependencySnapshot
+    `Regula.Qualification.DependencySnapshot.control, ``IO.FS.writeFile),
+  (Regula.Removal.privateIn `Regula.Qualification.DependencySnapshot
+    `Regula.Qualification.DependencySnapshot.gitStatusControls, ``IO.FS.createDirAll),
+  (Regula.Removal.privateIn `Regula.Qualification.DependencySnapshot
+    `Regula.Qualification.DependencySnapshot.gitStatusControls, ``IO.FS.writeFile),
   (``Regula.Qualification.DependencySnapshot.check, ``IO.FS.createDirAll),
   (``Regula.Qualification.DependencySnapshot.check, ``IO.FS.writeBinFile),
   (``Regula.Qualification.DependencySnapshot.check, ``IO.FS.writeFile),
@@ -313,29 +350,43 @@ run_cmd Regula.Removal.checkProgram (elaborates := true) (named := [
   (``Regula.Qualification.Enumeration.failure, ``IO.FS.createDir),
   (``Regula.Qualification.Enumeration.failure, ``IO.FS.createDirAll),
   (``Regula.Qualification.Enumeration.failure, ``IO.FS.writeFile),
-  (`Regula.Qualification.FrozenExit.runCase, ``IO.FS.writeFile),
-  (`Regula.Qualification.History.control, ``IO.FS.createDir),
-  (`Regula.Qualification.History.control, ``IO.FS.writeFile),
+  (Regula.Removal.privateIn `Regula.Qualification.FrozenExit
+    `Regula.Qualification.FrozenExit.runCase, ``IO.FS.writeFile),
+  (Regula.Removal.privateIn `Regula.Qualification.History
+    `Regula.Qualification.History.control, ``IO.FS.createDir),
+  (Regula.Removal.privateIn `Regula.Qualification.History
+    `Regula.Qualification.History.control, ``IO.FS.writeFile),
   (``Regula.Qualification.InputInventory.check, ``IO.FS.createDirAll),
   (``Regula.Qualification.InputInventory.check, ``IO.FS.writeFile),
-  (`Regula.Qualification.NativeLinter.check, ``IO.FS.writeFile),
-  (`Regula.Qualification.NativeLinter.forgedPrelude, ``IO.FS.createDirAll),
-  (`Regula.Qualification.NativeLinter.forgedPrelude, ``IO.FS.writeFile),
+  (Regula.Removal.privateIn `Regula.Qualification.NativeLinter
+    `Regula.Qualification.NativeLinter.check, ``IO.FS.writeFile),
+  (Regula.Removal.privateIn `Regula.Qualification.NativeLinter
+    `Regula.Qualification.NativeLinter.forgedPrelude, ``IO.FS.createDirAll),
+  (Regula.Removal.privateIn `Regula.Qualification.NativeLinter
+    `Regula.Qualification.NativeLinter.forgedPrelude, ``IO.FS.writeFile),
   (``Regula.Qualification.NativeLinter.paired, ``IO.FS.createDir),
   (``Regula.Qualification.Preparation.check, ``IO.FS.createDirAll),
-  (`Regula.Qualification.Producer.chain, ``IO.FS.writeBinFile),
-  (`Regula.Qualification.Producer.checkControls, ``IO.FS.createDir),
-  (`Regula.Qualification.Producer.standalone, ``IO.FS.writeFile),
+  (Regula.Removal.privateIn `Regula.Qualification.Producer
+    `Regula.Qualification.Producer.chain, ``IO.FS.writeBinFile),
+  (Regula.Removal.privateIn `Regula.Qualification.Producer
+    `Regula.Qualification.Producer.checkControls, ``IO.FS.createDir),
+  (Regula.Removal.privateIn `Regula.Qualification.Producer
+    `Regula.Qualification.Producer.standalone, ``IO.FS.writeFile),
   (``Regula.Qualification.prepareCoreProject, ``IO.FS.createDirAll),
   (``Regula.Qualification.rootImportsGuardControl, ``IO.FS.writeFile),
   (``Regula.Qualification.Readers.writePackage, ``IO.FS.createDirAll),
   (``Regula.Qualification.ReceiptBoundary.check, ``IO.FS.createDir),
   (``Regula.Qualification.ReceiptBoundary.check, ``IO.FS.writeFile),
-  (`Regula.Qualification.RuleExamples.observe, ``IO.FS.Handle.mk),
-  (`Regula.Qualification.RuleExamples.produce, ``IO.FS.createDir),
-  (`Regula.Qualification.RuleExamples.produce, ``IO.FS.createDirAll),
-  (`Regula.Qualification.RuleExamples.produce, ``IO.FS.writeBinFile),
-  (`Regula.Qualification.RuleExamples.produce, ``IO.FS.writeFile),
+  (Regula.Removal.privateIn `Regula.Qualification.RuleExamples
+    `Regula.Qualification.RuleExamples.observe, ``IO.FS.Handle.mk),
+  (Regula.Removal.privateIn `Regula.Qualification.RuleExamples
+    `Regula.Qualification.RuleExamples.produce, ``IO.FS.createDir),
+  (Regula.Removal.privateIn `Regula.Qualification.RuleExamples
+    `Regula.Qualification.RuleExamples.produce, ``IO.FS.createDirAll),
+  (Regula.Removal.privateIn `Regula.Qualification.RuleExamples
+    `Regula.Qualification.RuleExamples.produce, ``IO.FS.writeBinFile),
+  (Regula.Removal.privateIn `Regula.Qualification.RuleExamples
+    `Regula.Qualification.RuleExamples.produce, ``IO.FS.writeFile),
   (``Regula.Qualification.RuleExamples.check, ``IO.FS.createDirAll),
   (``Regula.Qualification.SelfAudit.absenceFixtureControls, ``IO.FS.createDirAll),
   (``Regula.Qualification.Slot.prepareSlot, ``IO.FS.writeFile),
@@ -345,10 +396,22 @@ run_cmd Regula.Removal.checkProgram (elaborates := true) (named := [
   (``Regula.Qualification.SourceEvidence.fences, ``IO.FS.writeFile),
   (``Regula.Qualification.SourceEvidence.selectedPolicy, ``IO.FS.writeFile),
   (``Regula.Qualification.SourceEvidence.writeFence, ``IO.FS.writeFile),
-  (`Regula.Qualification.VersoPaths.withChanged, ``IO.FS.writeFile),
-  (`Regula.Qualification.VersoPaths.withRemoved, ``IO.FS.writeBinFile),
-  (`Regula.Qualification.VersoPaths.withWritten, ``IO.FS.createDirAll),
-  (`Regula.Qualification.VersoPaths.withWritten, ``IO.FS.writeFile)])
+  (Regula.Removal.privateIn `Regula.Qualification.VersoPaths
+    `Regula.Qualification.VersoPaths.withChanged, ``IO.FS.writeFile),
+  (Regula.Removal.privateIn `Regula.Qualification.VersoPaths
+    `Regula.Qualification.VersoPaths.withRemoved, ``IO.FS.writeBinFile),
+  (Regula.Removal.privateIn `Regula.Qualification.VersoPaths
+    `Regula.Qualification.VersoPaths.withWritten, ``IO.FS.createDirAll),
+  (Regula.Removal.privateIn `Regula.Qualification.VersoPaths
+    `Regula.Qualification.VersoPaths.withWritten, ``IO.FS.writeFile),
+  -- The configuration that `regula setup` writes in the project that it sets up, its restoration
+  -- when the setup stops, and the source of the compiler probe, in its temporary directory: the
+  -- process controls run the setup's check of the pinned toolchain (`Regula.Cli.Setup.pinned`),
+  -- so the program links the module that writes them (`Regula.Qualification.Process`).
+  (Regula.Removal.privateIn `Regula.Cli.Setup `Regula.Cli.Setup.restore, ``IO.FS.writeFile),
+  (Regula.Removal.privateIn `Regula.Cli.Setup `Regula.Cli.Setup.write, ``IO.FS.createDirAll),
+  (Regula.Removal.privateIn `Regula.Cli.Setup `Regula.Cli.Setup.write, ``IO.FS.writeFile),
+  (``Regula.Toolchain.probe, ``IO.FS.writeFile)])
 
 -- A program that needs Lean's task manager starts through its guard (`Regula.TaskManager.guard`),
 -- and its refusal needs none: the build of this module fails otherwise

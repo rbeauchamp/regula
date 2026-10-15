@@ -1,5 +1,6 @@
 import Regula.Removal
 import Regula.TaskManagerCheck
+import Regula.Process
 import Regula.Checker.PolicyCodec
 import Regula.Checker.Documentation
 import Regula.Checker.Lake
@@ -9,7 +10,7 @@ import Regula.Checker.BuildLintQualification
 import Regula.Checker.LintQualification
 import Regula.Checker.Inspection
 import RegulaCore.ScratchCopy
-import Regula.ToolchainProgram
+import RegulaPolicy.Compiler
 import Regula.Checker.AcceptanceLink
 import Regula.Checker.ResultProtocol
 import Regula.Checker.SelftestArguments
@@ -635,11 +636,11 @@ private def inspectedAlone (fixture : FixtureSpec) : Bool :=
 
 private def runBinary (repo : FilePath) (name : String)
     (args : Array String) : IO ProcessResult := do
-  runProcess repo (← toolPath repo name).toString args
+  runProcess repo (.stated (← toolPath repo name).toString "The caller selects this resolved non-toolchain executable") args
 
 private def runBinaryFrom (binaryRepo cwd : FilePath) (name : String)
     (args : Array String) : IO ProcessResult := do
-  runProcess cwd (← toolPath binaryRepo name).toString args
+  runProcess cwd (.stated (← toolPath binaryRepo name).toString "The caller selects this resolved non-toolchain executable") args
 
 /-- The record of the declaration `name` in a gate output: the line whose text after its verdict
 tag, `[OK] ` or `[VIOLATION[...]] `, begins with `name (`, then the lines after it up to the next
@@ -843,7 +844,7 @@ private unsafe def fixtureVerdicts (repo scratch : FilePath) (jobs : Nat)
       try
         let out := scratch / s!"transcript-{item.index + 1}.json"
         let spawned ← runProcess repo
-          (repo / ".lake" / "build" / "bin" / "checkerSelftest").toString
+          (.stated (repo / ".lake" / "build" / "bin" / "checkerSelftest") "The diagnostic runs its built transcript worker")
           #["--transcript-worker", (Regula.RegistryCodec.nameJson moduleName.toName).compress,
               item.compilation.sourcePath.toString, toString item.compilation.spec.rejectWarnings,
             out.toString]
@@ -1116,7 +1117,7 @@ private def bvCheckCertificates (repo scratch : FilePath) : IO (FilePath × File
     let source := dir / "Certificate.lean"
     IO.FS.writeFile source <| "import Std.Tactic.BVDecide\n" ++
       s!"theorem certificate (x y : BitVec 2) : (x &&& y) + (x ||| y) = x + y := by {tactic}\n"
-    let result ← runProcess repo "lake" #["env", "lean", source.toString]
+    let result ← runProcess repo (.toolchain .lake) #["env", (← Regula.Process.toolPath .lean).toString, source.toString]
     unless result.succeeded do
       throw <| IO.userError s!"{name} LRAT setup failed: {result.output}"
     let files := (← Regula.Filesystem.Construction.listDirectory dir).filter
@@ -1309,7 +1310,7 @@ private unsafe def diagnosticSetupQualification (repo scratch : FilePath) : IO (
   let source := project / "SetupSentinel.lean"
   let artifact := output / "SetupSentinel.olean"
   IO.FS.writeFile source "def setupValue : Nat := 0\n"
-  let build := runProcess project "lake" #["env", "lean", "-o", artifact.toString, source.toString]
+  let build := runProcess project (.toolchain .lake) #["env", (← Regula.Process.toolPath .lean).toString, "-o", artifact.toString, source.toString]
   let first ← build
   if !first.succeeded then return #[s!"diagnostic setup baseline failed: {first.output}"]
   let check (body pattern : String) := do
@@ -1418,12 +1419,12 @@ private unsafe def publicScannerQualification (repo scratch : FilePath) : IO (Ar
   let staleDir := scratch / "stale-lean-path"
   IO.FS.createDirAll staleDir
   IO.FS.writeFile (staleDir / "StaleImport.lean") "def staleImportValue : Nat := 1\n"
-  let compiled ← runProcess repo "lake" #["env", "lean", "-o",
+  let compiled ← runProcess repo (.toolchain .lake) #["env", (← Regula.Process.toolPath .lean).toString, "-o",
     (staleDir / "StaleImport.olean").toString, (staleDir / "StaleImport.lean").toString]
   if !compiled.succeeded then
     return #[s!"scanner/public/stale-setup: {compiled.output}"]
-  let inheritedLeanPath := (← IO.getEnv "LEAN_PATH").getD ""
-  let result ← runProcess repo (← toolPath repo "docFenceAudit").toString
+  let inheritedLeanPath := (← Regula.Process.readEnv "LEAN_PATH").getD ""
+  let result ← runProcess repo (.stated (← toolPath repo "docFenceAudit").toString "The caller selects this resolved non-toolchain executable")
     #["--jobs", "4", "--docs-root", docsRoot.toString]
     #[("LEAN_PATH", some (if inheritedLeanPath.isEmpty then staleDir.toString
       else s!"{staleDir}:{inheritedLeanPath}"))]
@@ -1929,7 +1930,7 @@ private unsafe def structuralSelfHosted (layout : SourceLayout) (repo copy : Fil
   let gate (label : String) (args : Array String := #["--incremental"]) := do
     loggedPhase s!"structural/self-hosted/{label}" do
       if ← timing.get then
-        runProcessShowing copy (← toolPath repo "axiomGate").toString
+        runProcessShowing copy (.stated (← toolPath repo "axiomGate").toString "The caller selects this resolved non-toolchain executable")
           args #[(timingVariable, some "1")] (·.startsWith "verification phase ")
       else
         runBinaryFrom repo copy "axiomGate" args
@@ -1993,7 +1994,7 @@ private unsafe def structuralPartB (layout : SourceLayout) (executables : Bool)
     withNewFile (sources / "AuditLookalike.lean") "axiom Attack.lookalikeAxiom : False\n" do
       let outputDir := copy / ".lake" / "build" / "lib" / "lean"
       IO.FS.createDirAll outputDir
-      let compiled ← runProcess copy "lake" #["env", "lean", "-R", sources.toString, "-o",
+      let compiled ← runProcess copy (.toolchain .lake) #["env", (← Regula.Process.toolPath .lean).toString, "-R", sources.toString, "-o",
         (outputDir / "AuditLookalike.olean").toString,
         (sources / "AuditLookalike.lean").toString]
       if !compiled.succeeded then
@@ -2760,7 +2761,7 @@ private def cluster (repo scratch : FilePath) (name : String) (prepare : FilePat
     let copy := scratch / s!"copy-{name}"
     let setup ← loggedPhase s!"cluster {name} setup" do
       prepare copy
-      runProcess copy "lake" (#["build"] ++ targets)
+      runProcess copy (.toolchain .lake) (#["build"] ++ targets)
     if !setup.succeeded then
       return #[s!"structural/setup: copy-{name} baseline did not build:\n{setup.output}"]
     part repo copy)
@@ -2930,7 +2931,7 @@ private def FenceEnvironmentPart.controls : FenceEnvironmentPart → String
 /-- Run the repository's tool `name` in `dir` with `LEAN_PATH` scrubbed. -/
 private def runScrubbed (repo dir : FilePath) (name : String) (args : Array String) :
     IO ProcessResult := do
-  runProcess dir (← toolPath repo name).toString args scrubbedLeanPathEnv
+  runProcess dir (.stated (← toolPath repo name).toString "The caller selects this resolved non-toolchain executable") args scrubbedLeanPathEnv
 
 /-- The control of `part` in the copied repository `dir`, which has no `.lake/build`, adding each
 failure to `failures`. -/
@@ -2979,20 +2980,20 @@ private unsafe def fenceEnvironmentControl (layout : SourceLayout) (repo : FileP
     writeJson manifest (freshControlManifest (← parsedManifest manifest))
     -- A counterexample aid at the process boundary: the workspace provides a `leanchecker` in the
     -- root package's binary directory, which `lake env` puts first on `PATH`. It is a link to the
-    -- toolchain's own `lean` (`Regula.Toolchain.program`), which refuses the `--fresh` option, and
+    -- toolchain's own `lean` (`Regula.Process.toolPath`), which refuses the `--fresh` option, and
     -- the control first runs it with the arguments a `leanchecker` gets for each root below and
     -- requires each run to fail, so an accepted run below did not run it.
-    let failing ← Regula.Toolchain.program "lean"
+    let failing ← Regula.Process.toolPath .lean
     let workspaceBin := dir / ".lake" / "build" / "bin"
     IO.FS.createDirAll workspaceBin
     let plantedPath := workspaceBin / "leanchecker"
-    let planted ← runProcess dir "ln" #["-s", failing.toString, plantedPath.toString]
+    let planted ← runProcess dir (.stated "ln" "The control plants a workspace leanchecker that links the toolchain's lean") #["-s", failing.toString, plantedPath.toString]
     if !planted.succeeded then throw <| IO.userError planted.output
     unless (← IO.FS.realPath plantedPath) == (← IO.FS.realPath failing) do
       throw <| IO.userError "fence-env/fresh-checker: the planted leanchecker does not resolve \
         to the toolchain's lean"
     for root in expected do
-      let refused ← runProcess dir plantedPath.toString #["--fresh", root]
+      let refused ← runProcess dir (.stated plantedPath.toString "The caller selects this resolved non-toolchain executable") #["--fresh", root]
       if refused.succeeded then
         throw <| IO.userError s!"fence-env/fresh-checker: the planted leanchecker accepted \
           --fresh {root}, so it cannot show that freshChecker did not run it"
@@ -3183,7 +3184,7 @@ private unsafe def adopterQualification (repo scratch : FilePath) (parts : List 
     Lake.pinAdopter repo adopter
     -- An adopter is a repository of its own, so `regula`, which it requires from this checkout, is
     -- a dependency in a different Git work tree, which the audit trusts, as an adopter's is.
-    let initialized ← runProcess adopter "git" #["init", "-q"]
+    let initialized ← runProcess adopter (.stated "git" "Git is the caller-selected repository mechanism") #["init", "-q"]
     if !initialized.succeeded then
       throw <| IO.userError s!"adopter/{label}/setup: git init failed: {initialized.output}"
     let gate (args : Array String := #[]) :=
@@ -3220,7 +3221,7 @@ private unsafe def adopterQualification (repo scratch : FilePath) (parts : List 
       IO.FS.writeFile unlistedSource "axiom widget_unlisted_axiom : False\n"
       let outDir := adopter / ".lake" / "build" / "lib" / "lean"
       IO.FS.createDirAll outDir
-      let compiled ← runProcess adopter "lake" #["env", "lean", "-o",
+      let compiled ← runProcess adopter (.toolchain .lake) #["env", (← Regula.Process.toolPath .lean).toString, "-o",
         (outDir / "WidgetRogue.olean").toString, unlistedSource.toString]
       if !compiled.succeeded then
         failures.modify (·.push s!"adopter/toml/unlisted-setup: {compiled.output}")
@@ -3378,10 +3379,10 @@ private def libraryCycleControl (repo : FilePath) : IO (Array String) :=
   -- Lake writes the lock manifest of this package without dependencies; without one the fresh
   -- copy's build would create it, a configuration change during the audit.
   -- This generated configuration has no requirements; update creates only its initial manifest.
-  let locked ← runProcess project "lake" #["update"] scrubbedLeanPathEnv
+  let locked ← runProcess project (.toolchain .lake) #["update"] scrubbedLeanPathEnv
   unless locked.succeeded do return #[s!"library-cycle/setup: lake update failed:\n{locked.output}"]
   let result := output / "result.json"
-  let gate ← runProcess project (← toolPath repo "axiomGate").toString
+  let gate ← runProcess project (.stated (← toolPath repo "axiomGate").toString "The caller selects this resolved non-toolchain executable")
     #["--project", project.toString, "--json-out", result.toString] scrubbedLeanPathEnv
   unless gate.succeeded do return #[s!"library-cycle/accepted: expected PASS:\n{gate.output}"]
   let modules := #["Left.Base", "Left.Top", "Right.Base", "Right.Top"]
@@ -3436,7 +3437,9 @@ private def observerIdentityControl (repo : FilePath) : IO (Array String) :=
   let tool := dir / "tool"
   let project := dir / "project"
   let link (source target : FilePath) : IO Unit := do
-    let linked ← runProcess dir "ln" #["-s", source.toString, target.toString]
+    let linked ← runProcess dir
+      (.stated "ln" "The source-record control plants this symbolic-link fixture")
+      #["-s", source.toString, target.toString]
     unless linked.succeeded do
       throw <| IO.userError s!"observer identity: cannot link {target}: {linked.output}"
   let observerEntry (name : String) : Bool :=
@@ -3464,7 +3467,9 @@ private def observerIdentityControl (repo : FilePath) : IO (Array String) :=
   let bin := tool / ".lake" / "build" / "bin"
   IO.FS.createDirAll bin
   let gate := bin / "axiomGate"
-  let hardLinked ← runProcess dir "ln" #[(← toolPath repo "axiomGate").toString, gate.toString]
+  let hardLinked ← runProcess dir
+    (.stated "ln" "The source-record control plants this executable hard-link fixture")
+    #[(← toolPath repo "axiomGate").toString, gate.toString]
   unless hardLinked.succeeded do
     return #[s!"observer-identity/setup: cannot link the gate: {hardLinked.output}"]
   IO.FS.createDirAll project
@@ -3483,12 +3488,13 @@ private def observerIdentityControl (repo : FilePath) : IO (Array String) :=
     "/-! Observer identity control. -/\n\n/-- A value. -/\ndef value : Nat := 1\n"
   -- The project is a Git work tree of its own, so the tool, in the repository's, is a
   -- dependency the fresh copy loads in place.
-  let initialized ← runProcess project "git" #["init", "-q"]
-  let locked ← runProcess project "lake" #["update"] scrubbedLeanPathEnv
+  let initialized ← runProcess project
+    (.stated "git" "Git creates this deliberate source-record fixture") #["init", "-q"]
+  let locked ← runProcess project (.toolchain .lake) #["update"] scrubbedLeanPathEnv
   unless initialized.succeeded && locked.succeeded do
     return #[s!"observer-identity/setup: {initialized.output}{locked.output}"]
   let audit (name : String) : IO ProcessResult :=
-    runProcess project gate.toString
+    runProcess project (.stated gate "The source-record control selects this built checker")
       #["--project", project.toString, "--json-out", (output / s!"{name}.json").toString]
       scrubbedLeanPathEnv
   let mut failures := #[]
@@ -3590,11 +3596,11 @@ private def sharedCopiesControl (repo : FilePath) : IO (Array String) :=
       "theorem appFact : positive 1 = (0 < 1) ∧ True := ⟨rightUnfold 1, sharedFact⟩\n"
   -- Lake writes the lock manifest of this package without dependencies; without one the fresh
   -- copy's build would create it, a configuration change during the audit.
-  let locked ← runProcess project "lake" #["update"] scrubbedLeanPathEnv
+  let locked ← runProcess project (.toolchain .lake) #["update"] scrubbedLeanPathEnv
   unless locked.succeeded do
     return #[s!"shared-copies/setup: lake update failed:\n{locked.output}"]
   let result := output / "result.json"
-  let gate ← runProcess project (← toolPath repo "axiomGate").toString
+  let gate ← runProcess project (.stated (← toolPath repo "axiomGate").toString "The caller selects this resolved non-toolchain executable")
     #["--project", project.toString, "--json-out", result.toString] scrubbedLeanPathEnv
   unless gate.succeeded do
     return #[s!"shared-copies/accepted: expected PASS:\n{gate.output}"]
@@ -3693,7 +3699,7 @@ the other the registration: each must report `crossCheck` under RG1008. The gree
 private def crossSurfaceDecisionControl (refusals : Bool) (repo : FilePath) :
     IO (Array String) := do
   let gate (project : FilePath) (args : Array String) := do
-    runProcess project (← toolPath repo "axiomGate").toString
+    runProcess project (.stated (← toolPath repo "axiomGate").toString "The caller selects this resolved non-toolchain executable")
       (#["--project", project.toString, "--incremental"] ++ args) scrubbedLeanPathEnv
   if !refusals then
     let green ← withScratch repo "cross-surface-green" fun project =>
@@ -3773,7 +3779,7 @@ private def driverCopyControl (repo : FilePath) : IO (Array String) :=
   IO.FS.writeFile (project / "Solo" / "Base.lean")
     "/-! The base module of the control. -/\n\ntheorem soloBase : True := True.intro\n"
   -- This generated configuration has no requirements; update creates only its initial manifest.
-  let locked ← runProcess project "lake" #["update"] scrubbedLeanPathEnv
+  let locked ← runProcess project (.toolchain .lake) #["update"] scrubbedLeanPathEnv
   unless locked.succeeded do
     return #[s!"driver-copy/setup: lake update failed:\n{locked.output}"]
   let driver := (repo / "lean" / "RegulaVerification.lean").toString
@@ -3783,11 +3789,11 @@ private def driverCopyControl (repo : FilePath) : IO (Array String) :=
   IO.FS.createDirAll marked
   IO.FS.writeFile (marked / "kept.txt") "kept"
   let link (target place : FilePath) : IO Unit := do
-    let made ← runProcess scratch "ln" #["-s", target.toString, place.toString]
+    let made ← runProcess scratch (.stated "ln" "The driver-copy control plants symbolic-link inputs") #["-s", target.toString, place.toString]
     unless made.succeeded do throw <| IO.userError s!"could not make a link: {made.output}"
   let gate ← toolPath repo "axiomGate"
   let refused (label needle : String) (args : Array String) : IO (Array String) := do
-    let result ← runProcess project gate.toString args scrubbedLeanPathEnv
+    let result ← runProcess project (.stated gate.toString "The caller selects this resolved non-toolchain executable") args scrubbedLeanPathEnv
     if result.succeeded then
       return #[s!"driver-copy/{label}: unexpectedly accepted:\n{result.output}"]
     else if !result.output.contains needle then
@@ -3808,7 +3814,7 @@ private def driverCopyControl (repo : FilePath) : IO (Array String) :=
   -- 1. A live copy, in a project that has build output.
   IO.FS.createDirAll build
   IO.FS.writeFile (build / "kept.txt") "from before the step"
-  let child ← IO.Process.spawn {
+  let child ← Regula.Process.spawn (.toolchain .lean) {
     cmd := "lean", args := #["--run", driver, "--copy-control"], cwd := some project
     env := scrubbedLeanPathEnv, stdin := .piped, stdout := .piped, stderr := .inherit }
   let (input, child) ← child.takeStdin
@@ -3857,7 +3863,7 @@ private def driverCopyControl (repo : FilePath) : IO (Array String) :=
   -- 2. A project with a symbolic link at `.lake/build`, and then a driver that is killed.
   Regula.Filesystem.removePath .directory build
   link marked build
-  let child ← IO.Process.spawn {
+  let child ← Regula.Process.spawn (.toolchain .lean) {
     cmd := "lean", args := #["--run", driver, "--copy-control"], cwd := some project
     env := scrubbedLeanPathEnv, stdin := .piped, stdout := .piped, stderr := .inherit
     setsid := true }
@@ -3886,7 +3892,7 @@ private def driverCopyControl (repo : FilePath) : IO (Array String) :=
   -- 3. A second killed driver, and then a project with no build output: the next driver removes
   -- the copy of the dead one before it makes its own, and the project gets the copy's output.
   Regula.Filesystem.removePath .link build
-  let child ← IO.Process.spawn {
+  let child ← Regula.Process.spawn (.toolchain .lean) {
     cmd := "lean", args := #["--run", driver, "--copy-control"], cwd := some project
     env := scrubbedLeanPathEnv, stdin := .piped, stdout := .piped, stderr := .inherit
     setsid := true }
@@ -3899,7 +3905,7 @@ private def driverCopyControl (repo : FilePath) : IO (Array String) :=
   discard child.wait
   failures := failures ++ expect "dead: a killed driver left no copy or no marker"
     ((← Regula.Filesystem.isPresent dead) && (← Regula.Filesystem.isPresent deadMarker))
-  let child ← IO.Process.spawn {
+  let child ← Regula.Process.spawn (.toolchain .lean) {
     cmd := "lean", args := #["--run", driver, "--copy-control"], cwd := some project
     env := scrubbedLeanPathEnv, stdin := .piped, stdout := .piped, stderr := .inherit }
   let (input, child) ← child.takeStdin
@@ -3924,7 +3930,7 @@ private def driverCopyControl (repo : FilePath) : IO (Array String) :=
   -- that holds anything else keep what they hold.
   let site := project / "_site"
   link marked site
-  let stopped ← runProcess project "lean" #["--run", driver, "--begin-attempt", "site"]
+  let stopped ← runProcess project (.toolchain .lean) #["--run", driver, "--begin-attempt", "site"]
     scrubbedLeanPathEnv
   failures := failures ++ expect "site: a link at _site was followed or removed"
     (!stopped.succeeded && stopped.output.contains "so the attempt removes nothing" &&
@@ -3933,14 +3939,14 @@ private def driverCopyControl (repo : FilePath) : IO (Array String) :=
   Regula.Filesystem.removePath .link site
   IO.FS.createDirAll (site / "pages")
   IO.FS.writeFile (site / "pages" / "old.html") "an earlier artifact"
-  let kept ← runProcess project "lean" #["--run", driver, "--begin-attempt", "site"]
+  let kept ← runProcess project (.toolchain .lean) #["--run", driver, "--begin-attempt", "site"]
     scrubbedLeanPathEnv
   failures := failures ++ expect "site: a directory that holds no build.json was removed"
     (!kept.succeeded && kept.output.contains "holds neither a build.json" &&
       (← Regula.Filesystem.isPresent (site / "pages" / "old.html")))
   IO.FS.writeFile (site / "build.json")
     "{\"schemaVersion\":2,\"site\":\"seed\",\"producerVersion\":\"0.0.0\"}\n"
-  let removed ← runProcess project "lean" #["--run", driver, "--begin-attempt", "site"]
+  let removed ← runProcess project (.toolchain .lean) #["--run", driver, "--begin-attempt", "site"]
     scrubbedLeanPathEnv
   failures := failures ++ expect "site: an earlier artifact was not removed"
     (removed.succeeded && !(← Regula.Filesystem.isPresent site))
@@ -3953,7 +3959,7 @@ private def driverCopyControl (repo : FilePath) : IO (Array String) :=
   IO.FS.createDirAll (project / "tmp")
   IO.FS.writeFile receipt foreign
   IO.FS.writeFile accepted foreign
-  let begun ← runProcess project "lean" #["--run", driver, "--begin-attempt"] scrubbedLeanPathEnv
+  let begun ← runProcess project (.toolchain .lean) #["--run", driver, "--begin-attempt"] scrubbedLeanPathEnv
   failures := failures ++ expect "begin-attempt: a file that is not a document of Regula was \
     replaced or not refused"
     (!begun.succeeded &&
@@ -4019,15 +4025,15 @@ private def retainedBuildControl (repo : FilePath) : IO (Array String) :=
   -- A file that `shasum` reads as standard input when it is given as an operand alone.
   IO.FS.writeFile (project / "-") "a file named -\n"
   let env := scrubbedLeanPathEnv.push ("LAKE_ARTIFACT_CACHE", some "false")
-  let step (label : String) (cmd : String) (args : Array String) : IO (Option String) := do
+  let step (label : String) (cmd : Regula.Process.Program) (args : Array String) : IO (Option String) := do
     let result ← runProcess project cmd args env
     return if result.succeeded then none else some s!"retained-build/{label}:\n{result.output}"
   -- This generated configuration has no requirements; update creates only its initial manifest.
-  if let some failure ← step "setup" "lake" #["update"] then return #[failure]
+  if let some failure ← step "setup" (.toolchain .lake) #["update"] then return #[failure]
   let link := scratch / "acceptance-link.json"
   let fresh (reason : String) :=
     s!"claimed surface built fresh in this run, in a copy with no earlier build output ({reason})"
-  let unlinked ← runProcess project (← toolPath repo "docFenceAudit").toString
+  let unlinked ← runProcess project (.stated (← toolPath repo "docFenceAudit").toString "The caller selects this resolved non-toolchain executable")
     #["--project", project.toString, "--acceptance-link", link.toString, "--jobs", "1"] env
   let mut failures := #[]
   unless !unlinked.succeeded &&
@@ -4035,10 +4041,10 @@ private def retainedBuildControl (repo : FilePath) : IO (Array String) :=
       !unlinked.output.contains "claimed surface built" do
     failures := failures.push s!"retained-build/no-gate: expected the refusal of the missing link \
       before any build:\n{unlinked.output}"
-  if let some failure ← step "gate" (← toolPath repo "axiomGate").toString
+  if let some failure ← step "gate" (.stated (← toolPath repo "axiomGate") "The retained-build diagnostic invokes its built audit worker")
       #["--acceptance-link", link.toString] then return failures.push failure
   -- The first step builds more than the claimed targets.
-  if let some failure ← step "build" "lake" #["build", "Solo", "Extra"] then
+  if let some failure ← step "build" (.toolchain .lake) #["build", "Solo", "Extra"] then
     return failures.push failure
   let gateRecord ← readJson link
   let build := project / ".lake" / "build"
@@ -4058,7 +4064,7 @@ private def retainedBuildControl (repo : FilePath) : IO (Array String) :=
       ("artifacts", toJson artifactDigests)])
   let audit (label : String) (record : Json) (expected : String) : IO (Array String) := do
     writeJson link record
-    let result ← runProcess project (← toolPath repo "docFenceAudit").toString
+    let result ← runProcess project (.stated (← toolPath repo "docFenceAudit").toString "The caller selects this resolved non-toolchain executable")
       #["--project", project.toString, "--acceptance-link", link.toString, "--jobs", "1"] env
     if !result.succeeded then
       return #[s!"retained-build/{label}: the audit failed:\n{result.output}"]
@@ -4355,7 +4361,7 @@ private def taskManagerControl (repo : FilePath) : IO (Option String) :=
     -- A completed result of the gate's own run, the seed of each result destination.
     let completed := scratch / "completed.json"
     let fixture := repo / "lean" / "Fixtures" / "Positive" / "KernelOnly.lean"
-    let seeded ← runProcess repo gate #["--file", fixture.toString, "--claim", "kernel-only",
+    let seeded ← runProcess repo (.stated gate "The caller selects this resolved non-toolchain executable") #["--file", fixture.toString, "--claim", "kernel-only",
       "--json-out", completed.toString] (env := #[("REGULA_TIMING", none)])
     unless seeded.exitCode == 0 && (← completedResult completed) do
       return some s!"task manager: the gate's run on {fixture} did not record a completed result \
@@ -4467,10 +4473,10 @@ private def taskManagerControl (repo : FilePath) : IO (Option String) :=
         #["--json-out", (scratch / "lint.json").toString], without,
         Lint.Outcome.incomplete.exitCode, [result "lint.json"]),
       ("docFenceAudit", (← toolPath repo "docFenceAudit").toString, repo, #[], without, 1, []),
-      ("checkerSelftest", (← IO.appPath).toString, repo, #["--transcript-worker", "\"Planted\"",
+      ("checkerSelftest", (← Regula.Process.appPath).toString, repo, #["--transcript-worker", "\"Planted\"",
         issue.toString, "true", (scratch / "transcript.json").toString], without, 1,
         [packet "transcript.json"]),
-      ("checkerSelftest", (← IO.appPath).toString, project,
+      ("checkerSelftest", (← Regula.Process.appPath).toString, project,
         #["--build-bound", "--partition", "structural", "--shard", "1/5"], without, 1,
         [selfHosted]),
       ("qualify", qualify, repo, #["producers", "--evidence", evidence.path.toString], without, 1,
@@ -4487,7 +4493,8 @@ private def taskManagerControl (repo : FilePath) : IO (Option String) :=
         unless ← destination.completed do
           return some s!"task manager: the seed of {destination.path} is not a completed \
             document of its format"
-      let result ← runProcess cwd path args (env := env)
+      let result ← runProcess cwd (.stated path "The control runs this build's resolved program") args
+        (env := env)
       let line := Regula.TaskManager.refusalLine program reason
       if result.exitCode != code || !result.stdout.isEmpty ||
           !(result.stderr.splitOn "\n").contains line then
@@ -4507,9 +4514,10 @@ private def taskManagerControl (repo : FilePath) : IO (Option String) :=
 
 /-- The control of a run that stops early in a process with Lean's task manager (issue 423): one run
 of an actual program of this build for each early stop, with the failure injected from outside. The
-injections are `lean` absent from `PATH` and no `LEAN_SYSROOT`, so the first step of the program,
-the initialization of Lean's search path (`initializeLeanSearchPath`), fails before the program's
-own marks, for `ruleExamples --policy-negative` and `--documentation`, `axiomGate --json-out`,
+injections are no `LEAN_SYSROOT`, an Elan home (`ELAN_HOME`) that does not exist and `lean`
+absent from `PATH`, so the first step of the program, the selection of the toolchain installation
+for Lean's search path (`Regula.Process.identified`), fails before the program's own marks, for
+`ruleExamples --policy-negative` and `--documentation`, `axiomGate --json-out`,
 `freshChecker --json-out` and the self-test's `--transcript-worker`; a facts file that does not
 exist, for both forms of `ruleExamples --injected-git-facts`; a planted project root without the
 documented examples that `qualify --under-deadline producers --evidence` reads first, and an extra
@@ -4532,8 +4540,9 @@ the start that ran no command it gives the status and the option that the stand-
 other runs, it is the reason with which the guard marks each destination before any code of the
 program runs (`Regula.TaskManager.guard`, `Regula.TaskManager.startedReason`).
 
-The verification wrapper, `scripts/verify.sh`, runs in a copy of its files with no `lean` on its
-`PATH`, after the export of the first corpus shard was recorded against the current sources with
+The verification wrapper, `scripts/verify.sh`, runs in a copy of its files with an Elan home
+(`ELAN_HOME`) that does not exist, below which it would start the pinned `lean`, after the export
+of the first corpus shard was recorded against the current sources with
 the text of `foundation_manifest.json` changed. Its attempt must stop with Bash's exit 127 before
 the driver runs, and leave that export and the corpus receipt `tmp/rule-examples.json` with their
 bytes, since no code of the attempt ran. The site's reader (`Site.Build.admitShard`) must then
@@ -4565,25 +4574,30 @@ linked result keeps its bytes.
 The processes and Lean's runtime are its subject, an external boundary: it observes
 this build's programs and proves nothing.
 
-Assumes: Lean 4.34.1's `Lean.findSysroot` returns `LEAN_SYSROOT` when it is set, and otherwise runs
-`lean --print-prefix` and fails when that run fails (`src/lean/Lean/Util/Path.lean:180-187`).
+The selection of the installation is Regula's own (`Regula.Process.identified`): `LEAN_SYSROOT` when
+it is set, and otherwise the toolchain directory below the Elan home, which fails when that
+directory does not resolve; it reads no `PATH`.
 Trusted: the runtime finds a command given by a bare name, such as `lean` or `timeout`, only in
 the directories of `PATH`; its process code is not among the toolchain's sources. Trusted: GNU
 coreutils `env`, run under the name `timeout`, prints GNU coreutils for `--version` and ends with
 its own failure status 125 at the option `--signal=KILL`, naming that option on standard error.
 Trusted: Bash ends a script that runs under `set -e` with 127 when a command is not found, and
-`/usr/bin` and `/bin`, the wrapper's `PATH`, hold no `lean`, which the control checks first;
+the wrapper starts `lean` by its path below the Elan home alone, which the control checks is not
+there first;
 `ln` makes a hard link, and with `-s` a symbolic link. -/
 private def earlyStopControl (repo : FilePath) : IO (Option String) :=
   withScratch repo "checker-early-stop" fun scratch => do
     let started := Regula.TaskManager.startedReason
+    -- An executable of this build, which the control starts.
+    let own (path : String) : Regula.Process.Program :=
+      .stated path "The early-stop control starts this executable of the build it checks"
     let gate := (← toolPath repo "axiomGate").toString
     let qualify := (← toolPath repo "qualify").toString
     let ruleExamples := (← toolPath repo "ruleExamples").toString
     -- A completed result of the gate's own run, the seed of each result destination.
     let completed := scratch / "completed.json"
     let fixture := repo / "lean" / "Fixtures" / "Positive" / "KernelOnly.lean"
-    let seeded ← runProcess repo gate #["--file", fixture.toString, "--claim", "kernel-only",
+    let seeded ← runProcess repo (own gate) #["--file", fixture.toString, "--claim", "kernel-only",
       "--json-out", completed.toString] (env := #[("REGULA_TIMING", none)])
     unless seeded.exitCode == 0 && (← completedResult completed) do
       return some s!"early stop: the gate's run on {fixture} did not record a completed result \
@@ -4659,17 +4673,17 @@ private def earlyStopControl (repo : FilePath) : IO (Option String) :=
     let onPath (names : List String) (accepted : String → Bool) : IO (Option FilePath) := do
       let mut found : Option FilePath := none
       for name in names do
-        for directory in ((← IO.getEnv "PATH").getD "").splitOn ":" do
+        for directory in ((← Regula.Process.readEnv "PATH").getD "").splitOn ":" do
           let candidate := FilePath.mk directory / name
           if found.isNone && !directory.isEmpty && (← Regula.Filesystem.isPresent candidate) then
-            if let .ok version ← (runProcess scratch candidate.toString #["--version"]).toBaseIO then
+            if let .ok version ← (runProcess scratch (.stated candidate.toString "The early-stop control identifies this file of PATH by its version") #["--version"]).toBaseIO then
               if version.exitCode == 0 && accepted version.stdout then
                 found := some candidate
       return found
     -- `directory/name` as a link to `target`, or why it could not be made.
     let link (target directory : FilePath) (name : String) : IO (Option String) := do
       IO.FS.createDirAll directory
-      let linked ← runProcess scratch "ln" #["-s", target.toString, (directory / name).toString]
+      let linked ← runProcess scratch (.stated "ln" "The early-stop control plants a PATH of symbolic links") #["-s", target.toString, (directory / name).toString]
       if linked.exitCode == 0 then return none
       return some s!"early stop: could not link {target} as {directory / name}:\n{linked.output}"
     -- The guard of each started program queries Git before the program runs
@@ -4678,13 +4692,14 @@ private def earlyStopControl (repo : FilePath) : IO (Option String) :=
     let some git ← onPath ["git"] fun _ => true
       | return some "early stop: no git on PATH that runs with --version, which the guard of each \
           started program queries before the program runs"
-    -- A directory that holds only Git as the whole `PATH`, so no `lean` is found, and no
-    -- `LEAN_SYSROOT`.
+    -- A directory that holds only Git as the whole `PATH`, so no `lean` is found there, no
+    -- `LEAN_SYSROOT`, and an Elan home that does not exist, so no installation is selected.
     let noLean := scratch / "no-lean"
     if let some failure ← link git noLean "git" then return some failure
     let plain : Array (String × Option String) := #[("REGULA_TIMING", none),
       ("REGULA_QUALIFICATION_WRAPPER", none), ("REGULA_RECEIPT_TIMER", none)]
-    let withoutLean := plain ++ #[("PATH", some noLean.toString), ("LEAN_SYSROOT", none)]
+    let withoutLean := plain ++ #[("PATH", some noLean.toString), ("LEAN_SYSROOT", none),
+      ("ELAN_HOME", some (scratch / "no-elan").toString)]
     -- GNU coreutils `env` as the one `timeout` of the whole `PATH`, beside Git: the bounded start
     -- selects it, since its `--version` names GNU coreutils
     -- (`Regula.Qualification.timeoutCommand`), and it ends with status 125 at the option
@@ -4729,7 +4744,7 @@ private def earlyStopControl (repo : FilePath) : IO (Option String) :=
         some Lint.Outcome.incomplete.exitCode, [result "gate.json" none]),
       ("freshChecker", (← toolPath repo "freshChecker").toString, repo,
         #["--json-out", graph.path.toString], withoutLean, some 1, [graph]),
-      ("checkerSelftest", (← IO.appPath).toString, repo, #["--transcript-worker", "\"Planted\"",
+      ("checkerSelftest", (← Regula.Process.appPath).toString, repo, #["--transcript-worker", "\"Planted\"",
         fixture.toString, "true", packet.path.toString], withoutLean, some 1, [packet]),
       ("qualify", qualify, project,
         #["--under-deadline", "producers", "--evidence", (scratch / "producers.json").toString],
@@ -4755,7 +4770,7 @@ private def earlyStopControl (repo : FilePath) : IO (Option String) :=
         unless ← destination.completed do
           return some s!"early stop: the seed of {destination.path} is not a completed document \
             of its format"
-      let result ← runProcess cwd path args (env := env)
+      let result ← runProcess cwd (own path) args (env := env)
       if result.exitCode == 0 || code.any (· != result.exitCode) then
         return some s!"early stop: {program} {args} did not stop early with exit \
           {(code.map toString).getD "other than 0"} (exit {result.exitCode}):\n{result.output}"
@@ -4769,8 +4784,10 @@ private def earlyStopControl (repo : FilePath) : IO (Option String) :=
             incomplete mark and the reason, or admitted as completed; it holds {held}\n\
             {result.output}"
     -- The verification wrapper, `scripts/verify.sh`, in a copy of its files, so that its `tmp` is
-    -- the copy's. With no `lean` on its `PATH`, the first corpus shard's attempt stops before the
-    -- driver's begin-attempt (`RegulaVerification.beginAttempt`), so no code of the attempt runs:
+    -- the copy's. The wrapper starts the pinned `lean` below the Elan home (`ELAN_HOME`, else
+    -- `$HOME/.elan`), never one on its `PATH`. With an Elan home that does not exist, Bash finds no
+    -- `lean` there and stops the script with 127, so the first corpus shard's attempt stops before
+    -- the driver's begin-attempt (`RegulaVerification.beginAttempt`) and no code of the attempt runs:
     -- the export of an earlier attempt and the corpus receipt (`RegulaVerification.corpusEvidence`)
     -- each keep their bytes. The export was recorded before `foundation_manifest.json` changed:
     -- the current sources (`Site.Build.sourcePathsAt`) with that manifest's text changed. Right
@@ -4799,18 +4816,17 @@ private def earlyStopControl (repo : FilePath) : IO (Option String) :=
     writeShard receipt
     let receipted ← IO.FS.readBinFile receipt
     let shellPath := "/usr/bin:/bin"
-    for directory in ["/usr/bin", "/bin"] do
-      if ← Regula.Filesystem.isPresent (FilePath.mk directory / "lean") then
-        return some s!"early stop: {directory} holds lean, so the wrapper's PATH {shellPath} \
-          cannot leave it out"
-    let stopped ← runProcess wrapper "/bin/bash"
+    let noElan := scratch / "no-elan"
+    if ← Regula.Filesystem.isPresent noElan then
+      return some s!"early stop: {noElan} exists, so it cannot stand for an Elan home with no lean"
+    let stopped ← runProcess wrapper (.stated "/bin/bash" "The early-stop control runs the verification wrapper with Bash")
       #[(wrapper / "scripts" / "verify.sh").toString, "diagnostics", "rule-examples", "1/3"]
-      (env := #[("PATH", some shellPath)])
+      (env := #[("PATH", some shellPath), ("ELAN_HOME", some noElan.toString)])
     unless stopped.exitCode == 127 && (← IO.FS.readBinFile shard).data == seeded.data &&
         (← IO.FS.readBinFile receipt).data == receipted.data do
-      return some s!"early stop: scripts/verify.sh diagnostics rule-examples 1/3 with no lean on \
-        its PATH did not stop with exit 127 and leave the earlier shard export and corpus receipt \
-        (exit {stopped.exitCode}):\n{stopped.output}"
+      return some s!"early stop: scripts/verify.sh diagnostics rule-examples 1/3 with an Elan home \
+        that does not exist did not stop with exit 127 and leave the earlier shard export and \
+        corpus receipt (exit {stopped.exitCode}):\n{stopped.output}"
     if ← shardAdmitted shard then
       return some s!"early stop: right after scripts/verify.sh stopped without lean, the site's \
         reader admitted a shard export recorded before {manifestPath} changed"
@@ -4833,12 +4849,12 @@ private def earlyStopControl (repo : FilePath) : IO (Option String) :=
     IO.FS.writeFile manifest (← IO.FS.readFile (repo / "foundation_manifest.json"))
     -- A second name of the manifest, which `realPath` does not join with the first.
     let hardLink := scratch / "alias-hard-link.json"
-    let linked ← runProcess scratch "ln" #[manifest.toString, hardLink.toString]
+    let linked ← runProcess scratch (.stated "ln" "The early-stop control plants this hard-link fixture") #[manifest.toString, hardLink.toString]
     unless linked.exitCode == 0 do
       return some s!"early stop: could not link {manifest} as {hardLink}:\n{linked.output}"
     -- A symbolic link to a completed result.
     let symbolic := scratch / "alias-symbolic.json"
-    let pointed ← runProcess scratch "ln" #["-s", completed.toString, symbolic.toString]
+    let pointed ← runProcess scratch (.stated "ln" "The early-stop control plants this symbolic-link fixture") #["-s", completed.toString, symbolic.toString]
     unless pointed.exitCode == 0 do
       return some s!"early stop: could not link {symbolic} to {completed}:\n{pointed.output}"
     -- The configuration of a dependency, which Lake loads with the workspace.
@@ -4898,7 +4914,7 @@ private def earlyStopControl (repo : FilePath) : IO (Option String) :=
         if ← Regula.Filesystem.isPresent file then return some (← IO.FS.readBinFile file)
         else return none
       let before ← held
-      let result ← runProcess repo path args (env := plain)
+      let result ← runProcess repo (own path) args (env := plain)
       unless result.exitCode == code && result.stderr.contains phrase &&
           (← held).map (·.map (·.data)) == before.map (·.map (·.data)) && (← publishRefused) do
         return some s!"early stop: {program} {args} was not refused with exit {code} and the \
@@ -4912,7 +4928,7 @@ private def earlyStopControl (repo : FilePath) : IO (Option String) :=
     let lower := scratch / "one.json"
     let upper := scratch / "ONE.json"
     copyDocument completed lower
-    let overlapping ← runProcess repo gate #["--json-out", lower.toString, "--acceptance-link",
+    let overlapping ← runProcess repo (own gate) #["--json-out", lower.toString, "--acceptance-link",
       upper.toString] (env := plain)
     let marks ← [lower, upper].filterMapM fun path => do
       if ← Regula.Filesystem.isPresent path then return some (← parsedAt path) else return none
@@ -4929,7 +4945,7 @@ private def earlyStopControl (repo : FilePath) : IO (Option String) :=
     let absent := scratch / "absent"
     let escaping := absent / ".." / "completed.json"
     let held ← IO.FS.readBinFile completed
-    let refused ← runProcess repo gate #["--registry-out", escaping.toString] (env := plain)
+    let refused ← runProcess repo (own gate) #["--registry-out", escaping.toString] (env := plain)
     unless refused.exitCode == configuration && refused.stderr.contains "has a `..` component" &&
         !(← Regula.Filesystem.isPresent absent) &&
         (← IO.FS.readBinFile completed).data == held.data do
@@ -4940,7 +4956,7 @@ private def earlyStopControl (repo : FilePath) : IO (Option String) :=
     -- absent (`Regula.Destination.place`).
     let unnamed := scratch / "new"
     for named in [s!"{unnamed}/", s!"{unnamed}/."] do
-      let refused ← runProcess repo gate #["--registry-out", named] (env := plain)
+      let refused ← runProcess repo (own gate) #["--registry-out", named] (env := plain)
       unless refused.exitCode == configuration && refused.stderr.contains "names no file" &&
           !(← Regula.Filesystem.isPresent unnamed) do
         return some s!"early stop: axiomGate with --registry-out {named} was not refused by its \
@@ -4957,7 +4973,7 @@ private def earlyStopControl (repo : FilePath) : IO (Option String) :=
     let runs : List (Array String × Option String) :=
       [(#[], none), (#["--evidence", missing], some "holds neither a build.json")]
     for (args, refusal) in runs do
-      let built ← runProcess repo (← toolPath repo "site").toString
+      let built ← runProcess repo (own (← toolPath repo "site").toString)
         (#["build", "--out", foreignSite.toString] ++ args) (env := plain)
       let readme ← (IO.FS.readFile (foreignSite / "README.md")).toBaseIO
       unless built.exitCode != 0 && refusal.all (fun text => built.stderr.contains text) &&
@@ -4971,7 +4987,7 @@ private def earlyStopControl (repo : FilePath) : IO (Option String) :=
     let shared := scratch / "shared.json"
     copyDocument completed shared
     let sharing := scratch / "sharing.json"
-    let shares ← runProcess scratch "ln" #[shared.toString, sharing.toString]
+    let shares ← runProcess scratch (.stated "ln" "The early-stop control plants this hard-link fixture") #[shared.toString, sharing.toString]
     unless shares.exitCode == 0 do
       return some s!"early stop: could not link {shared} as {sharing}:\n{shares.output}"
     -- A destination name of 255 bytes, the longest that a file system with a 255-byte limit admits,
@@ -4985,7 +5001,7 @@ private def earlyStopControl (repo : FilePath) : IO (Option String) :=
     IO.FS.writeFile earlierMark "{\"status\":\"incomplete\",\"reason\":\"stopped\"}\n"
     let kept ← IO.FS.readBinFile shared
     for destination in [empty, sharing, long, earlierMark] do
-      let result ← runProcess repo gate (fileArgs destination) (env := withoutLean)
+      let result ← runProcess repo (own gate) (fileArgs destination) (env := withoutLean)
       unless result.exitCode == Lint.Outcome.incomplete.exitCode &&
           (← markedWith destination "unresolved" started) &&
           (← IO.FS.readBinFile shared).data == kept.data do
@@ -5198,7 +5214,7 @@ private def combinedSnapshotQualification (repo : FilePath) : IO (Array String) 
     -- Lake writes the lock manifest of a project that has none at its first build; written
     -- before the audits, it is not a configuration change during one.
     -- This generated configuration has no requirements; update creates only its initial manifest.
-    let updated ← runProcess project "lake" #["update"] scrubbedLeanPathEnv
+    let updated ← runProcess project (.toolchain .lake) #["update"] scrubbedLeanPathEnv
     unless updated.succeeded do return #[s!"combined snapshot/update: {updated.output}"]
     let docs := project / "docs" / ".cache"
     IO.FS.createDirAll docs
@@ -5218,7 +5234,7 @@ private def combinedSnapshotQualification (repo : FilePath) : IO (Array String) 
       let body := if phase == "invalid" then "def docWitness : Nat := \"bad\""
         else "theorem docWitness : True := True.intro"
       IO.FS.writeFile (docs / "sentinel.md") s!"```lean\n{body}\n```\n"
-      let result ← runProcess project (← toolPath repo "axiomGate").toString
+      let result ← runProcess project (.stated (← toolPath repo "axiomGate").toString "The caller selects this resolved non-toolchain executable")
         #["--project", project.toString, "--with-docs", "--verbose"] scrubbedLeanPathEnv
       let accepted := if phase == "invalid" then
           !result.succeeded && result.output.contains "[X] .cache/sentinel.md:"
@@ -5259,7 +5275,7 @@ returns `1` when any control fails, `0` otherwise. -/
 private unsafe def runFocused : Focused → IO UInt32
   | .forcedCollector => do
     let repo ← repoRoot
-    let build ← runProcess repo "lake" #["build", "axiomGate"]
+    let build ← runProcess repo (.toolchain .lake) #["build", "axiomGate"]
     if !build.succeeded then IO.println build.output; return 1
     let failures ← withScratch repo "forced-collector-control" (forcedCollectorQualification repo)
     for failure in failures do IO.println s!"FAIL: {failure}"
@@ -5274,14 +5290,14 @@ private unsafe def runFocused : Focused → IO UInt32
     return if failures.isEmpty then 0 else 1
   | .nativeAdopter => do
     let repo ← repoRoot
-    let build ← runProcess repo "lake" #["build", "axiomGate", "Regula.Linter"]
+    let build ← runProcess repo (.toolchain .lake) #["build", "axiomGate", "Regula.Linter"]
     if !build.succeeded then IO.println build.output; return 1
     let failures ← withScratch repo "native-adopter-control" (PolicyQualification.nativeImport repo)
     for failure in failures do IO.println s!"FAIL: {failure}"
     return if failures.isEmpty then 0 else 1
   | .policyDomain => do
     let repo ← repoRoot
-    let build ← runProcess repo "lake" #["build", "axiomGate"]
+    let build ← runProcess repo (.toolchain .lake) #["build", "axiomGate"]
     if !build.succeeded then IO.println build.output; return 1
     let failures ← withScratch repo "policy-domain-controls" fun scratch => do
       return PolicyQualification.transport ++ (← PolicyQualification.publicPaths repo scratch)
@@ -5308,7 +5324,7 @@ private unsafe def runFocused : Focused → IO UInt32
     return if failures.isEmpty then 0 else 1
   | .buildLint => do
     let repo ← repoRoot
-    let build ← runProcess repo "lake" #["build", "axiomGate"]
+    let build ← runProcess repo (.toolchain .lake) #["build", "axiomGate"]
     if !build.succeeded then IO.println build.output; return 1
     return ← withScratch repo "build-lint-controls" fun scratch => do
       let failures ← BuildLintQualification.qualify repo scratch 4
@@ -5317,7 +5333,7 @@ private unsafe def runFocused : Focused → IO UInt32
       return if failures.isEmpty then 0 else 1
   | .compilerPaths => do
     let repo ← repoRoot
-    let build ← runProcess repo "lake" #["build", "axiomGate"]
+    let build ← runProcess repo (.toolchain .lake) #["build", "axiomGate"]
     if !build.succeeded then IO.println build.output; return 1
     return ← withScratch repo "compiler-path-controls" fun scratch => do
       let failures ← CompilerPaths.qualify repo scratch
@@ -5402,7 +5418,7 @@ unsafe def run (args : List String) : IO UInt32 := do
   let fixtureTargets ← if baselines.any (·.surface) then
       pure (((← importedFixtures repo).filter (· != structuralFixture)).push structuralFixture)
     else pure #[]
-  let build ← loggedPhase "baseline build" <| runProcess repo "lake"
+  let build ← loggedPhase "baseline build" <| runProcess repo (.toolchain .lake)
     (#["build"] ++ tools.toArray ++ (baselines.flatMap (·.modules)).eraseDups.toArray ++
       (if baselines.any (·.surface) then
         fixtureTargets.map (·.toString) ++ Manifest.positiveTargets surfaceManifest
@@ -5467,6 +5483,8 @@ end Regula.Checker.CheckerSelftest
 `Regula.Checker.CheckerSelftest.run`, printing any exception as `FAIL:` and returning `1`. -/
 unsafe def checkerSelftestMain (args : List String) : IO UInt32 := do
   try
+    if let some mode ← Regula.Process.readEnv "REGULA_COMPILER_CONTROL" then
+      return ← Regula.Checker.LintQualification.compilerGuardWorker mode
     Regula.Checker.initializeLeanSearchPath
     Lean.enableInitializersExecution
     Regula.Checker.CheckerSelftest.run args
@@ -5498,116 +5516,213 @@ unsafe def main : List String → IO UInt32 :=
 -- (`Regula.Removal.checkProgram`). The program elaborates Lean source, so its check states it.
 run_cmd Regula.Removal.checkProgram (elaborates := true) (named := [
   -- The projects of the build-integration controls (`Regula.Checker.BuildLintQualification`).
-  (`Regula.Checker.BuildLintQualification.disabledControl, ``IO.FS.writeFile),
-  (`Regula.Checker.BuildLintQualification.runCase, ``IO.FS.writeFile),
+  (Regula.Removal.privateIn `Regula.Checker.BuildLintQualification
+    `Regula.Checker.BuildLintQualification.disabledControl, ``IO.FS.writeFile),
+  (Regula.Removal.privateIn `Regula.Checker.BuildLintQualification
+    `Regula.Checker.BuildLintQualification.runCase, ``IO.FS.writeFile),
   (``Regula.Checker.BuildLintQualification.addSupport, ``IO.FS.createDirAll),
   (``Regula.Checker.BuildLintQualification.addSupport, ``IO.FS.writeFile),
   -- The fixtures of the self-test's controls, among them the seeded destinations of the guard's
   -- controls, in the projects and scratch directories that they make.
-  (`Regula.Checker.CheckerSelftest.adopterQualification, ``IO.FS.createDirAll),
-  (`Regula.Checker.CheckerSelftest.adopterQualification, ``IO.FS.writeFile),
-  (`Regula.Checker.CheckerSelftest.bvCheckCertificates, ``IO.FS.createDirAll),
-  (`Regula.Checker.CheckerSelftest.bvCheckCertificates, ``IO.FS.writeFile),
-  (`Regula.Checker.CheckerSelftest.combinedSnapshotQualification, ``IO.FS.createDirAll),
-  (`Regula.Checker.CheckerSelftest.combinedSnapshotQualification, ``IO.FS.writeFile),
-  (`Regula.Checker.CheckerSelftest.copyDocument, ``IO.FS.writeFile),
-  (`Regula.Checker.CheckerSelftest.diagnosticSetupQualification, ``IO.FS.createDirAll),
-  (`Regula.Checker.CheckerSelftest.diagnosticSetupQualification, ``IO.FS.writeFile),
-  (`Regula.Checker.CheckerSelftest.driverCopyControl, ``IO.FS.createDirAll),
-  (`Regula.Checker.CheckerSelftest.driverCopyControl, ``IO.FS.writeFile),
-  (`Regula.Checker.CheckerSelftest.earlyStopControl, ``IO.FS.createDirAll),
-  (`Regula.Checker.CheckerSelftest.earlyStopControl, ``IO.FS.writeFile),
-  (`Regula.Checker.CheckerSelftest.executionQualification, ``IO.FS.createDirAll),
-  (`Regula.Checker.CheckerSelftest.fenceEnvironmentControl, ``IO.FS.createDirAll),
-  (`Regula.Checker.CheckerSelftest.fenceEnvironmentControl, ``IO.FS.writeFile),
-  (`Regula.Checker.CheckerSelftest.fenceEnvironmentQualification, ``IO.FS.createDirAll),
-  (`Regula.Checker.CheckerSelftest.forcedCollectorQualification, ``IO.FS.writeFile),
-  (`Regula.Checker.CheckerSelftest.frozenArtifactControls, ``IO.FS.writeBinFile),
-  (`Regula.Checker.CheckerSelftest.libraryCycleControl, ``IO.FS.createDirAll),
-  (`Regula.Checker.CheckerSelftest.libraryCycleControl, ``IO.FS.writeFile),
-  (`Regula.Checker.CheckerSelftest.manifestQualification, ``IO.FS.writeFile),
-  (`Regula.Checker.CheckerSelftest.observerIdentityControl, ``IO.FS.createDirAll),
-  (`Regula.Checker.CheckerSelftest.observerIdentityControl, ``IO.FS.writeBinFile),
-  (`Regula.Checker.CheckerSelftest.observerIdentityControl, ``IO.FS.writeFile),
-  (`Regula.Checker.CheckerSelftest.prepareSelfHosted, ``IO.FS.writeFile),
-  (`Regula.Checker.CheckerSelftest.publicScannerQualification, ``IO.FS.createDirAll),
-  (`Regula.Checker.CheckerSelftest.publicScannerQualification, ``IO.FS.writeFile),
-  (`Regula.Checker.CheckerSelftest.retainedBuildControl, ``IO.FS.createDirAll),
-  (`Regula.Checker.CheckerSelftest.retainedBuildControl, ``IO.FS.writeBinFile),
-  (`Regula.Checker.CheckerSelftest.retainedBuildControl, ``IO.FS.writeFile),
-  (`Regula.Checker.CheckerSelftest.sharedCopiesControl, ``IO.FS.createDirAll),
-  (`Regula.Checker.CheckerSelftest.sharedCopiesControl, ``IO.FS.writeFile),
-  (`Regula.Checker.CheckerSelftest.structuralPartB, ``IO.FS.createDirAll),
-  (`Regula.Checker.CheckerSelftest.structuralPartB, ``IO.FS.writeBinFile),
-  (`Regula.Checker.CheckerSelftest.structuralPartB, ``IO.FS.writeFile),
-  (`Regula.Checker.CheckerSelftest.structuralPartC, ``IO.FS.writeFile),
-  (`Regula.Checker.CheckerSelftest.taskManagerControl, ``IO.FS.createDirAll),
-  (`Regula.Checker.CheckerSelftest.taskManagerControl, ``IO.FS.writeFile),
-  (`Regula.Checker.CheckerSelftest.withNewFile, ``IO.FS.createDirAll),
-  (`Regula.Checker.CheckerSelftest.withNewFile, ``IO.FS.writeFile),
-  (`Regula.Checker.CheckerSelftest.withRemovedFile, ``IO.FS.writeFile),
-  (`Regula.Checker.CheckerSelftest.withReplacedFile, ``IO.FS.writeFile),
-  (`Regula.Checker.CheckerSelftest.writeCrossSurfaceProject, ``IO.FS.createDirAll),
-  (`Regula.Checker.CheckerSelftest.writeCrossSurfaceProject, ``IO.FS.writeFile),
-  (`Regula.Checker.CheckerSelftest.writeFreshInput, ``IO.FS.Handle.mk),
+  (Regula.Removal.privateIn `Regula.Checker.CheckerSelftest
+    `Regula.Checker.CheckerSelftest.adopterQualification, ``IO.FS.createDirAll),
+  (Regula.Removal.privateIn `Regula.Checker.CheckerSelftest
+    `Regula.Checker.CheckerSelftest.adopterQualification, ``IO.FS.writeFile),
+  (Regula.Removal.privateIn `Regula.Checker.CheckerSelftest
+    `Regula.Checker.CheckerSelftest.bvCheckCertificates, ``IO.FS.createDirAll),
+  (Regula.Removal.privateIn `Regula.Checker.CheckerSelftest
+    `Regula.Checker.CheckerSelftest.bvCheckCertificates, ``IO.FS.writeFile),
+  (Regula.Removal.privateIn `Regula.Checker.CheckerSelftest
+    `Regula.Checker.CheckerSelftest.combinedSnapshotQualification, ``IO.FS.createDirAll),
+  (Regula.Removal.privateIn `Regula.Checker.CheckerSelftest
+    `Regula.Checker.CheckerSelftest.combinedSnapshotQualification, ``IO.FS.writeFile),
+  (Regula.Removal.privateIn `Regula.Checker.CheckerSelftest
+    `Regula.Checker.CheckerSelftest.copyDocument, ``IO.FS.writeFile),
+  (Regula.Removal.privateIn `Regula.Checker.CheckerSelftest
+    `Regula.Checker.CheckerSelftest.diagnosticSetupQualification, ``IO.FS.createDirAll),
+  (Regula.Removal.privateIn `Regula.Checker.CheckerSelftest
+    `Regula.Checker.CheckerSelftest.diagnosticSetupQualification, ``IO.FS.writeFile),
+  (Regula.Removal.privateIn `Regula.Checker.CheckerSelftest
+    `Regula.Checker.CheckerSelftest.driverCopyControl, ``IO.FS.createDirAll),
+  (Regula.Removal.privateIn `Regula.Checker.CheckerSelftest
+    `Regula.Checker.CheckerSelftest.driverCopyControl, ``IO.FS.writeFile),
+  (Regula.Removal.privateIn `Regula.Checker.CheckerSelftest
+    `Regula.Checker.CheckerSelftest.earlyStopControl, ``IO.FS.createDirAll),
+  (Regula.Removal.privateIn `Regula.Checker.CheckerSelftest
+    `Regula.Checker.CheckerSelftest.earlyStopControl, ``IO.FS.writeFile),
+  (Regula.Removal.privateIn `Regula.Checker.CheckerSelftest
+    `Regula.Checker.CheckerSelftest.executionQualification, ``IO.FS.createDirAll),
+  (Regula.Removal.privateIn `Regula.Checker.CheckerSelftest
+    `Regula.Checker.CheckerSelftest.fenceEnvironmentControl, ``IO.FS.createDirAll),
+  (Regula.Removal.privateIn `Regula.Checker.CheckerSelftest
+    `Regula.Checker.CheckerSelftest.fenceEnvironmentControl, ``IO.FS.writeFile),
+  (Regula.Removal.privateIn `Regula.Checker.CheckerSelftest
+    `Regula.Checker.CheckerSelftest.fenceEnvironmentQualification, ``IO.FS.createDirAll),
+  (Regula.Removal.privateIn `Regula.Checker.CheckerSelftest
+    `Regula.Checker.CheckerSelftest.forcedCollectorQualification, ``IO.FS.writeFile),
+  (Regula.Removal.privateIn `Regula.Checker.CheckerSelftest
+    `Regula.Checker.CheckerSelftest.frozenArtifactControls, ``IO.FS.writeBinFile),
+  (Regula.Removal.privateIn `Regula.Checker.CheckerSelftest
+    `Regula.Checker.CheckerSelftest.libraryCycleControl, ``IO.FS.createDirAll),
+  (Regula.Removal.privateIn `Regula.Checker.CheckerSelftest
+    `Regula.Checker.CheckerSelftest.libraryCycleControl, ``IO.FS.writeFile),
+  (Regula.Removal.privateIn `Regula.Checker.CheckerSelftest
+    `Regula.Checker.CheckerSelftest.manifestQualification, ``IO.FS.writeFile),
+  (Regula.Removal.privateIn `Regula.Checker.CheckerSelftest
+    `Regula.Checker.CheckerSelftest.observerIdentityControl, ``IO.FS.createDirAll),
+  (Regula.Removal.privateIn `Regula.Checker.CheckerSelftest
+    `Regula.Checker.CheckerSelftest.observerIdentityControl, ``IO.FS.writeBinFile),
+  (Regula.Removal.privateIn `Regula.Checker.CheckerSelftest
+    `Regula.Checker.CheckerSelftest.observerIdentityControl, ``IO.FS.writeFile),
+  (Regula.Removal.privateIn `Regula.Checker.CheckerSelftest
+    `Regula.Checker.CheckerSelftest.prepareSelfHosted, ``IO.FS.writeFile),
+  (Regula.Removal.privateIn `Regula.Checker.CheckerSelftest
+    `Regula.Checker.CheckerSelftest.publicScannerQualification, ``IO.FS.createDirAll),
+  (Regula.Removal.privateIn `Regula.Checker.CheckerSelftest
+    `Regula.Checker.CheckerSelftest.publicScannerQualification, ``IO.FS.writeFile),
+  (Regula.Removal.privateIn `Regula.Checker.CheckerSelftest
+    `Regula.Checker.CheckerSelftest.retainedBuildControl, ``IO.FS.createDirAll),
+  (Regula.Removal.privateIn `Regula.Checker.CheckerSelftest
+    `Regula.Checker.CheckerSelftest.retainedBuildControl, ``IO.FS.writeBinFile),
+  (Regula.Removal.privateIn `Regula.Checker.CheckerSelftest
+    `Regula.Checker.CheckerSelftest.retainedBuildControl, ``IO.FS.writeFile),
+  (Regula.Removal.privateIn `Regula.Checker.CheckerSelftest
+    `Regula.Checker.CheckerSelftest.sharedCopiesControl, ``IO.FS.createDirAll),
+  (Regula.Removal.privateIn `Regula.Checker.CheckerSelftest
+    `Regula.Checker.CheckerSelftest.sharedCopiesControl, ``IO.FS.writeFile),
+  (Regula.Removal.privateIn `Regula.Checker.CheckerSelftest
+    `Regula.Checker.CheckerSelftest.structuralPartB, ``IO.FS.createDirAll),
+  (Regula.Removal.privateIn `Regula.Checker.CheckerSelftest
+    `Regula.Checker.CheckerSelftest.structuralPartB, ``IO.FS.writeBinFile),
+  (Regula.Removal.privateIn `Regula.Checker.CheckerSelftest
+    `Regula.Checker.CheckerSelftest.structuralPartB, ``IO.FS.writeFile),
+  (Regula.Removal.privateIn `Regula.Checker.CheckerSelftest
+    `Regula.Checker.CheckerSelftest.structuralPartC, ``IO.FS.writeFile),
+  (Regula.Removal.privateIn `Regula.Checker.CheckerSelftest
+    `Regula.Checker.CheckerSelftest.taskManagerControl, ``IO.FS.createDirAll),
+  (Regula.Removal.privateIn `Regula.Checker.CheckerSelftest
+    `Regula.Checker.CheckerSelftest.taskManagerControl, ``IO.FS.writeFile),
+  (Regula.Removal.privateIn `Regula.Checker.CheckerSelftest
+    `Regula.Checker.CheckerSelftest.withNewFile, ``IO.FS.createDirAll),
+  (Regula.Removal.privateIn `Regula.Checker.CheckerSelftest
+    `Regula.Checker.CheckerSelftest.withNewFile, ``IO.FS.writeFile),
+  (Regula.Removal.privateIn `Regula.Checker.CheckerSelftest
+    `Regula.Checker.CheckerSelftest.withRemovedFile, ``IO.FS.writeFile),
+  (Regula.Removal.privateIn `Regula.Checker.CheckerSelftest
+    `Regula.Checker.CheckerSelftest.withReplacedFile, ``IO.FS.writeFile),
+  (Regula.Removal.privateIn `Regula.Checker.CheckerSelftest
+    `Regula.Checker.CheckerSelftest.writeCrossSurfaceProject, ``IO.FS.createDirAll),
+  (Regula.Removal.privateIn `Regula.Checker.CheckerSelftest
+    `Regula.Checker.CheckerSelftest.writeCrossSurfaceProject, ``IO.FS.writeFile),
+  (Regula.Removal.privateIn `Regula.Checker.CheckerSelftest
+    `Regula.Checker.CheckerSelftest.writeFreshInput, ``IO.FS.Handle.mk),
   -- The fixtures of the controls of the compiler's paths (`Regula.Checker.CompilerPaths`).
-  (`Regula.Checker.CompilerPaths.phase, ``IO.FS.createDirAll),
-  (`Regula.Checker.CompilerPaths.phase, ``IO.FS.writeFile),
+  (Regula.Removal.privateIn `Regula.Checker.CompilerPaths
+    `Regula.Checker.CompilerPaths.phase, ``IO.FS.createDirAll),
+  (Regula.Removal.privateIn `Regula.Checker.CompilerPaths
+    `Regula.Checker.CompilerPaths.phase, ``IO.FS.writeFile),
   -- The adopter projects of the `lake lint` controls (`Regula.Checker.LintQualification`).
-  (`Regula.Checker.LintQualification.WeakArgsAdopter.hidden, ``IO.FS.writeFile),
-  (`Regula.Checker.LintQualification.WeakArgsAdopter.requireOverride, ``IO.FS.createDirAll),
-  (`Regula.Checker.LintQualification.WeakArgsAdopter.requireOverride, ``IO.FS.writeFile),
-  (`Regula.Checker.LintQualification.cachedWarning, ``IO.FS.writeFile),
-  (`Regula.Checker.LintQualification.compilerGuard, ``IO.FS.createDirAll),
-  (`Regula.Checker.LintQualification.dependencyCachedWarning, ``IO.FS.createDirAll),
-  (`Regula.Checker.LintQualification.dependencyCachedWarning, ``IO.FS.writeFile),
-  (`Regula.Checker.LintQualification.emptyFacetsWarning, ``IO.FS.writeFile),
-  (`Regula.Checker.LintQualification.escapedNameWarning, ``IO.FS.createDirAll),
-  (`Regula.Checker.LintQualification.escapedNameWarning, ``IO.FS.writeFile),
-  (`Regula.Checker.LintQualification.facetReport, ``IO.FS.createDirAll),
-  (`Regula.Checker.LintQualification.facetReport, ``IO.FS.writeFile),
-  (`Regula.Checker.LintQualification.lakeNew, ``IO.FS.writeFile),
-  (`Regula.Checker.LintQualification.leanArguments, ``IO.FS.createDirAll),
-  (`Regula.Checker.LintQualification.leanArguments, ``IO.FS.writeFile),
-  (`Regula.Checker.LintQualification.leanAudit, ``IO.FS.writeFile),
-  (`Regula.Checker.LintQualification.leanDecisions, ``IO.FS.createDirAll),
-  (`Regula.Checker.LintQualification.leanDecisions, ``IO.FS.writeFile),
-  (`Regula.Checker.LintQualification.leanRefusals, ``IO.FS.writeFile),
-  (`Regula.Checker.LintQualification.mutate, ``IO.FS.writeFile),
-  (`Regula.Checker.LintQualification.observerEscapes, ``IO.FS.createDirAll),
-  (`Regula.Checker.LintQualification.observerEscapes, ``IO.FS.writeFile),
-  (`Regula.Checker.LintQualification.pathConfig, ``IO.FS.createDirAll),
-  (`Regula.Checker.LintQualification.pathConfig, ``IO.FS.writeFile),
-  (`Regula.Checker.LintQualification.pathEscapes, ``IO.FS.createDirAll),
-  (`Regula.Checker.LintQualification.pathEscapes, ``IO.FS.writeFile),
-  (`Regula.Checker.LintQualification.pathForged, ``IO.FS.writeFile),
-  (`Regula.Checker.LintQualification.pathOverrides, ``IO.FS.createDirAll),
-  (`Regula.Checker.LintQualification.pathOverrides, ``IO.FS.writeFile),
-  (`Regula.Checker.LintQualification.pathOwnedChecks, ``IO.FS.writeFile),
-  (`Regula.Checker.LintQualification.pathReserved, ``IO.FS.createDirAll),
-  (`Regula.Checker.LintQualification.pathReserved, ``IO.FS.writeFile),
-  (`Regula.Checker.LintQualification.pathSetup, ``IO.FS.createDirAll),
-  (`Regula.Checker.LintQualification.pathTrusted, ``IO.FS.writeFile),
-  (`Regula.Checker.LintQualification.restore, ``IO.FS.writeFile),
-  (`Regula.Checker.LintQualification.tomlAudit, ``IO.FS.createDirAll),
-  (`Regula.Checker.LintQualification.tomlAudit, ``IO.FS.writeFile),
-  (`Regula.Checker.LintQualification.tomlPlain, ``IO.FS.createDirAll),
-  (`Regula.Checker.LintQualification.tomlPlain, ``IO.FS.writeFile),
-  (`Regula.Checker.LintQualification.tomlTargets, ``IO.FS.writeFile),
-  (`Regula.Checker.LintQualification.weakArgsDeclared, ``IO.FS.writeFile),
-  (`Regula.Checker.LintQualification.weakArgsModes, ``IO.FS.writeFile),
-  (`Regula.Checker.LintQualification.weakArgsOverrides, ``IO.FS.writeFile),
-  (`Regula.Checker.LintQualification.weakArgsProbes, ``IO.FS.createDirAll),
-  (`Regula.Checker.LintQualification.weakArgsProbes, ``IO.FS.writeFile),
+  (Regula.Removal.privateIn `Regula.Checker.LintQualification
+    `Regula.Checker.LintQualification.WeakArgsAdopter.hidden, ``IO.FS.writeFile),
+  (Regula.Removal.privateIn `Regula.Checker.LintQualification
+    `Regula.Checker.LintQualification.WeakArgsAdopter.requireOverride, ``IO.FS.createDirAll),
+  (Regula.Removal.privateIn `Regula.Checker.LintQualification
+    `Regula.Checker.LintQualification.WeakArgsAdopter.requireOverride, ``IO.FS.writeFile),
+  (Regula.Removal.privateIn `Regula.Checker.LintQualification
+    `Regula.Checker.LintQualification.cachedWarning, ``IO.FS.writeFile),
+  (Regula.Removal.privateIn `Regula.Checker.LintQualification
+    `Regula.Checker.LintQualification.compilerGuard, ``IO.FS.createDirAll),
+  (Regula.Removal.privateIn `Regula.Checker.LintQualification
+    `Regula.Checker.LintQualification.dependencyCachedWarning, ``IO.FS.createDirAll),
+  (Regula.Removal.privateIn `Regula.Checker.LintQualification
+    `Regula.Checker.LintQualification.dependencyCachedWarning, ``IO.FS.writeFile),
+  (Regula.Removal.privateIn `Regula.Checker.LintQualification
+    `Regula.Checker.LintQualification.emptyFacetsWarning, ``IO.FS.writeFile),
+  (Regula.Removal.privateIn `Regula.Checker.LintQualification
+    `Regula.Checker.LintQualification.escapedNameWarning, ``IO.FS.createDirAll),
+  (Regula.Removal.privateIn `Regula.Checker.LintQualification
+    `Regula.Checker.LintQualification.escapedNameWarning, ``IO.FS.writeFile),
+  (Regula.Removal.privateIn `Regula.Checker.LintQualification
+    `Regula.Checker.LintQualification.facetReport, ``IO.FS.createDirAll),
+  (Regula.Removal.privateIn `Regula.Checker.LintQualification
+    `Regula.Checker.LintQualification.facetReport, ``IO.FS.writeFile),
+  (Regula.Removal.privateIn `Regula.Checker.LintQualification
+    `Regula.Checker.LintQualification.lakeNew, ``IO.FS.writeFile),
+  (Regula.Removal.privateIn `Regula.Checker.LintQualification
+    `Regula.Checker.LintQualification.leanArguments, ``IO.FS.createDirAll),
+  (Regula.Removal.privateIn `Regula.Checker.LintQualification
+    `Regula.Checker.LintQualification.leanArguments, ``IO.FS.writeFile),
+  (Regula.Removal.privateIn `Regula.Checker.LintQualification
+    `Regula.Checker.LintQualification.leanAudit, ``IO.FS.writeFile),
+  (Regula.Removal.privateIn `Regula.Checker.LintQualification
+    `Regula.Checker.LintQualification.leanDecisions, ``IO.FS.createDirAll),
+  (Regula.Removal.privateIn `Regula.Checker.LintQualification
+    `Regula.Checker.LintQualification.leanDecisions, ``IO.FS.writeFile),
+  (Regula.Removal.privateIn `Regula.Checker.LintQualification
+    `Regula.Checker.LintQualification.leanRefusals, ``IO.FS.writeFile),
+  (Regula.Removal.privateIn `Regula.Checker.LintQualification
+    `Regula.Checker.LintQualification.mutate, ``IO.FS.writeFile),
+  (Regula.Removal.privateIn `Regula.Checker.LintQualification
+    `Regula.Checker.LintQualification.observerEscapes, ``IO.FS.createDirAll),
+  (Regula.Removal.privateIn `Regula.Checker.LintQualification
+    `Regula.Checker.LintQualification.observerEscapes, ``IO.FS.writeFile),
+  (Regula.Removal.privateIn `Regula.Checker.LintQualification
+    `Regula.Checker.LintQualification.pathConfig, ``IO.FS.createDirAll),
+  (Regula.Removal.privateIn `Regula.Checker.LintQualification
+    `Regula.Checker.LintQualification.pathConfig, ``IO.FS.writeFile),
+  (Regula.Removal.privateIn `Regula.Checker.LintQualification
+    `Regula.Checker.LintQualification.pathEscapes, ``IO.FS.createDirAll),
+  (Regula.Removal.privateIn `Regula.Checker.LintQualification
+    `Regula.Checker.LintQualification.pathEscapes, ``IO.FS.writeFile),
+  (Regula.Removal.privateIn `Regula.Checker.LintQualification
+    `Regula.Checker.LintQualification.pathForged, ``IO.FS.writeFile),
+  (Regula.Removal.privateIn `Regula.Checker.LintQualification
+    `Regula.Checker.LintQualification.pathOverrides, ``IO.FS.createDirAll),
+  (Regula.Removal.privateIn `Regula.Checker.LintQualification
+    `Regula.Checker.LintQualification.pathOverrides, ``IO.FS.writeFile),
+  (Regula.Removal.privateIn `Regula.Checker.LintQualification
+    `Regula.Checker.LintQualification.pathOwnedChecks, ``IO.FS.writeFile),
+  (Regula.Removal.privateIn `Regula.Checker.LintQualification
+    `Regula.Checker.LintQualification.pathReserved, ``IO.FS.createDirAll),
+  (Regula.Removal.privateIn `Regula.Checker.LintQualification
+    `Regula.Checker.LintQualification.pathReserved, ``IO.FS.writeFile),
+  (Regula.Removal.privateIn `Regula.Checker.LintQualification
+    `Regula.Checker.LintQualification.pathSetup, ``IO.FS.createDirAll),
+  (Regula.Removal.privateIn `Regula.Checker.LintQualification
+    `Regula.Checker.LintQualification.pathTrusted, ``IO.FS.writeFile),
+  (Regula.Removal.privateIn `Regula.Checker.LintQualification
+    `Regula.Checker.LintQualification.restore, ``IO.FS.writeFile),
+  (Regula.Removal.privateIn `Regula.Checker.LintQualification
+    `Regula.Checker.LintQualification.tomlAudit, ``IO.FS.createDirAll),
+  (Regula.Removal.privateIn `Regula.Checker.LintQualification
+    `Regula.Checker.LintQualification.tomlAudit, ``IO.FS.writeFile),
+  (Regula.Removal.privateIn `Regula.Checker.LintQualification
+    `Regula.Checker.LintQualification.tomlPlain, ``IO.FS.createDirAll),
+  (Regula.Removal.privateIn `Regula.Checker.LintQualification
+    `Regula.Checker.LintQualification.tomlPlain, ``IO.FS.writeFile),
+  (Regula.Removal.privateIn `Regula.Checker.LintQualification
+    `Regula.Checker.LintQualification.tomlTargets, ``IO.FS.writeFile),
+  (Regula.Removal.privateIn `Regula.Checker.LintQualification
+    `Regula.Checker.LintQualification.weakArgsDeclared, ``IO.FS.writeFile),
+  (Regula.Removal.privateIn `Regula.Checker.LintQualification
+    `Regula.Checker.LintQualification.weakArgsModes, ``IO.FS.writeFile),
+  (Regula.Removal.privateIn `Regula.Checker.LintQualification
+    `Regula.Checker.LintQualification.weakArgsOverrides, ``IO.FS.writeFile),
+  (Regula.Removal.privateIn `Regula.Checker.LintQualification
+    `Regula.Checker.LintQualification.weakArgsProbes, ``IO.FS.createDirAll),
+  (Regula.Removal.privateIn `Regula.Checker.LintQualification
+    `Regula.Checker.LintQualification.weakArgsProbes, ``IO.FS.writeFile),
   -- The projects of the policy controls (`Regula.Checker.PolicyQualification`).
-  (`Regula.Checker.PolicyQualification.setup, ``IO.FS.createDirAll),
+  (Regula.Removal.privateIn `Regula.Checker.PolicyQualification
+    `Regula.Checker.PolicyQualification.setup, ``IO.FS.createDirAll),
   (``Regula.Checker.PolicyQualification.nativeImport, ``IO.FS.writeFile),
   (``Regula.Checker.PolicyQualification.publicPaths, ``IO.FS.writeFile),
   -- The writes of the site build that `site` runs and names (`Regula.Site.Main`), in
   -- `Regula.Site.Build`, which this program links: its generated modules, the release that it
   -- downloads and unpacks, and its output.
-  (`Regula.Site.Build.writeModule, ``IO.FS.createDirAll),
-  (`Regula.Site.Build.writeModule, ``IO.FS.writeFile),
+  (Regula.Removal.privateIn `Regula.Site.Build
+    `Regula.Site.Build.writeModule, ``IO.FS.createDirAll),
+  (Regula.Removal.privateIn `Regula.Site.Build `Regula.Site.Build.writeModule, ``IO.FS.writeFile),
   (``Regula.Site.Build.downloadRelease, ``IO.FS.createDirAll),
   (``Regula.Site.Build.extractRelease, ``IO.FS.createDirAll),
   (``Regula.Site.Build.generate, ``IO.FS.createDirAll),
@@ -5621,11 +5736,16 @@ run_cmd Regula.Removal.checkProgram (elaborates := true) (named := [
   -- program's roots (`Regula.Removal.programRoots`).
   (``Regula.Qualification.prepareCoreProject, ``IO.FS.createDirAll),
   (``Regula.Qualification.rootImportsGuardControl, ``IO.FS.writeFile),
-  (`Regula.Qualification.RuleExamples.observe, ``IO.FS.Handle.mk),
-  (`Regula.Qualification.RuleExamples.produce, ``IO.FS.createDir),
-  (`Regula.Qualification.RuleExamples.produce, ``IO.FS.createDirAll),
-  (`Regula.Qualification.RuleExamples.produce, ``IO.FS.writeBinFile),
-  (`Regula.Qualification.RuleExamples.produce, ``IO.FS.writeFile),
+  (Regula.Removal.privateIn `Regula.Qualification.RuleExamples
+    `Regula.Qualification.RuleExamples.observe, ``IO.FS.Handle.mk),
+  (Regula.Removal.privateIn `Regula.Qualification.RuleExamples
+    `Regula.Qualification.RuleExamples.produce, ``IO.FS.createDir),
+  (Regula.Removal.privateIn `Regula.Qualification.RuleExamples
+    `Regula.Qualification.RuleExamples.produce, ``IO.FS.createDirAll),
+  (Regula.Removal.privateIn `Regula.Qualification.RuleExamples
+    `Regula.Qualification.RuleExamples.produce, ``IO.FS.writeBinFile),
+  (Regula.Removal.privateIn `Regula.Qualification.RuleExamples
+    `Regula.Qualification.RuleExamples.produce, ``IO.FS.writeFile),
   (``Regula.Qualification.RuleExamples.check, ``IO.FS.createDirAll),
   (``Regula.Qualification.Slot.prepareSlot, ``IO.FS.writeFile)])
 

@@ -70,9 +70,9 @@ def render (root : FilePath) (destination : FilePath) (revision : String) : IO
       for entry in ← Regula.Filesystem.Construction.listDirectory dir do
         if entry.fileName.startsWith "RegulaStandard" then
           Regula.Filesystem.removeFound entry.path
-  let built ← run website "lake" #["build"] cleanEnv
+  let built ← run website (.toolchain .lake) #["build"] cleanEnv
   requireChecks [⟨s!"Verso site build\n{built.stdout}{built.stderr}", built.exitCode == 0⟩]
-  let rendered ← run website "lake" #["exe", "regula-site", "--output", destination.toString]
+  let rendered ← run website (.toolchain .lake) #["exe", "regula-site", "--output", destination.toString]
     (cleanEnv.push ("REGULA_SOURCE_REVISION", some revision))
   requireChecks [⟨s!"Verso rendering\n{rendered.stdout}{rendered.stderr}", rendered.exitCode == 0⟩]
   snapshotTree (destination / "html-multi")
@@ -352,7 +352,7 @@ def checkArtifact (root out : FilePath) (g : Generated) (tag : TagState)
   -- checked above and every emitted rule ID.
   let registry := out.parent.getD root / "site-registry.json"
   let artifact := out.parent.getD root / "site-artifact.json"
-  let exported ← run root (root / ".lake/build/bin/axiomGate").toString
+  let exported ← run root (.stated (root / ".lake/build/bin/axiomGate").toString "The caller selects this resolved non-toolchain executable")
       #["--registry-out", registry.toString]
   requireChecks [⟨s!"registry export\n{exported.stdout}{exported.stderr}", exported.exitCode == 0⟩]
   let emitted := (g.examples.flatMap fun (_, ex) => ex.findings.map (·.rule)).eraseDups
@@ -362,7 +362,7 @@ def checkArtifact (root out : FilePath) (g : Generated) (tag : TagState)
     ("pages", toJson (RuleId.all.map fun id => Json.mkObj [
       ("id", RegistryCodec.ruleJson id), ("route", toJson id.route),
       ("checkedExample", toJson (checkedPages.contains id))]))])
-  let validated ← run root (root / ".lake/build/bin/axiomGate").toString
+  let validated ← run root (.stated (root / ".lake/build/bin/axiomGate").toString "The caller selects this resolved non-toolchain executable")
       #["--validate-site", registry.toString, artifact.toString]
   requireChecks
       [⟨s!"registry site validation\n{validated.stdout}{validated.stderr}",
@@ -510,7 +510,7 @@ def build (evidencePaths : List FilePath) (out : FilePath) : IO Unit := do
       if !ident.dirty then
         let package := releasePackage root v
         if let some parent := package.parent then IO.FS.createDirAll parent
-        let packed ← run root "tar" #["-czf", package.toString, "-C",
+        let packed ← run root (.stated "tar" "The external archive utility handles the stated archive") #["-czf", package.toString, "-C",
           (out / (Edition.release v).root).toString, "."]
         requireChecks [⟨s!"release asset {package}\n{packed.stderr}", packed.exitCode == 0⟩]
         IO.println s!"site: release {v.spelling}'s edition is written to {package}; CI \

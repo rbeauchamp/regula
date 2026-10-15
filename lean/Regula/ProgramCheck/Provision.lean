@@ -4,17 +4,19 @@ import Regula.Removal
 import Regula.Filesystem
 import Regula.Checker.LakeSelection
 
-/-! # The removal and write check of the provisioning driver, and its Lake selection
+/-! # The observer reach check of the provisioning driver, and its Lake selection
 
 `scripts/provision.sh` runs the provisioning driver with `lean --run` before the package is built,
-so it imports only the toolchain's libraries: it cannot import the filesystem observer, and it
-does not run the check itself. This module imports it, and its build fails when the compiled code
-of the driver reaches a removal outside the observer, or a write outside the places that
-`Regula.Removal.sharedPairs` lists, except the driver's own calls that it names, each as the pair
-of the declaration of a source that makes it and the primitive that it calls
-(`Regula.Removal.checkProgram`). Each of its removals decides by the driver's own reads, which
-follow no link at the path (`RegulaProvision.observe`, `RegulaProvision.kind?`,
-`RegulaProvision.entryKindWith`), and no decision of `RegulaCore.Removal` decides them:
+so it imports only the toolchain's libraries: it cannot import the observers, and it does not run
+the check itself. This module imports it, and its build fails when the compiled code of the driver
+reaches a primitive that the check refuses (`Regula.Removal.checkProgram`): a removal outside the
+filesystem observer, a write outside the places that `Regula.Removal.sharedPairs` lists, or a
+process start or environment read outside the process observer. It admits the bootstrap pairs of
+the driver's process source (`Regula.Removal.bootstrap`) and the driver's own calls that it names,
+each as the pair of the declaration of a source that makes it and the primitive that it calls.
+Each of its removals decides by the driver's own reads, which follow no link at the path
+(`RegulaProvision.observe`, `RegulaProvision.kind?`, `RegulaProvision.entryKindWith`), and no
+decision of `RegulaCore.Removal` decides them:
 
 - the removal of a symbolic link or of a directory that `observe` classified, in
   `removeObserved`;
@@ -66,7 +68,7 @@ def provisioning (name : Name) : Name :=
 end Regula.ProgramCheck.Provision
 
 open Regula.ProgramCheck.Provision in
-run_cmd Regula.Removal.checkProgram (named := [
+run_cmd Regula.Removal.checkProgram (bootstrap := `RegulaProvision.Process) (named := [
   (provisioning `removeObserved, ``IO.FS.removeFile),
   (provisioning `removeObserved, ``IO.FS.removeDirAll),
   (provisioning `removeReadOnly, ``IO.FS.removeDirAll),

@@ -1,6 +1,8 @@
 import SubVerso.Compat
 import Regula.TaskManagerCheck
 import SubVerso.Highlighting
+import Regula.Process
+import Regula.Removal
 
 /-! # Example elaboration helper
 
@@ -21,15 +23,13 @@ open SubVerso Highlighting
 
 /-- The options every example elaborates under: automatic implicits off, as standard §7.1
 recommends, and Lean's `linter.missingDocs` on, as standard §6.7 requires of a claimed library;
-`pp.tagAppFns` only tags the highlighting; `sat.solver` names `solver`, so `bv_decide` runs the
-selected compiler's bundled CaDiCaL rather than one beside this helper or on `PATH`. An example's
-own `set_option` still overrides each. -/
-def exampleOptions (solver : System.FilePath) (opts : Options) : Options :=
+`pp.tagAppFns` only tags the highlighting. The caller starts from Process.leanOptions, which names
+the selected compiler's bundled CaDiCaL. An example's own `set_option` still overrides each. -/
+def exampleOptions (opts : Options) : Options :=
   opts.setBool `autoImplicit false
     |>.setBool `relaxedAutoImplicit false
     |>.setBool `linter.missingDocs true
     |>.setBool `pp.tagAppFns true
-    |>.set `sat.solver solver.toString
 
 private def severity : MessageSeverity → String
   | .error => "error"
@@ -45,10 +45,8 @@ private def report (messages : Array Message) (code : Highlighted) : IO Unit := 
   IO.println (Json.mkObj [("messages", .arr messages), ("code", code.exportCode.toJson)]).compress
 
 unsafe def run (path : System.FilePath) : IO UInt32 := do
-  let sysroot ← findSysroot
-  initSearchPath sysroot
-  let opts := exampleOptions
-    (sysroot / "bin" / "cadical" |>.withExtension System.FilePath.exeExtension) {}
+  Regula.Process.initSearchPath
+  let opts := exampleOptions (← Regula.Process.leanOptions)
   let contents ← IO.FS.readFile path
   let ictx := Parser.mkInputContext contents path.toString
   let (header, parserState, headerMessages) ← Parser.parseHeader ictx
@@ -88,6 +86,12 @@ def refuseExample (_reason : String) (_args : List String) : IO UInt32 :=
 before elaboration starts, with exit code 2 (`Regula.TaskManager.guard`). -/
 unsafe def main : List String → IO UInt32 :=
   Regula.TaskManager.guard "regula-example" refuseExample exampleMain
+
+-- The process starts and environment reads that `main` and the initializers of the modules it
+-- links reach, and the removals that the compiled code of those modules reaches, go through their
+-- observers or sourced exemptions. The program elaborates, and Verso's writes are trusted
+-- effects of the library: the build of this module fails otherwise (`Regula.Removal.checkProgram`).
+run_cmd Regula.Removal.checkProgram (elaborates := true) (writes := false)
 
 -- A program that needs Lean's task manager starts through its guard (`Regula.TaskManager.guard`),
 -- and its refusal needs none: the build of this module fails otherwise

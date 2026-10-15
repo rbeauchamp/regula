@@ -1,4 +1,5 @@
 import Regula.Qualification.SourceEvidence
+import Regula.Process
 
 /-! # Frozen-input failure qualification
 

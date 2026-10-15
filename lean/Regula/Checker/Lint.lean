@@ -1,4 +1,5 @@
 import Regula.Checker.AxiomGate
+import Regula.Process
 import Regula.Checker.LintBuild
 
 /-!
@@ -137,8 +138,8 @@ the project root of `project` (the parsed `--project`, `findRepoRoot?`), `none` 
 a reason that it names none, such as an ancestor with both configuration files, and the owner's
 assertion. A failure to read a path is the failure of the observation. -/
 private def observe (dispatching : FilePath) (project : Option String) : IO Observed := do
-  let sysroot ← IO.getEnv "LEAN_SYSROOT"
-  let received := (((← IO.getEnv "LEAN_PATH").map SearchPath.parse).getD []).map toString
+  let sysroot ← Regula.Process.readEnv "LEAN_SYSROOT"
+  let received := (((← Regula.Process.readEnv "LEAN_PATH").map SearchPath.parse).getD []).map toString
   let (root, configured) ← Workspace.withRootWorkspace dispatching (resolveDependencies := false)
     fun ws => pure (ws.root.leanLibDir.toString, ws.root.lintDriverArgs.toList)
   let dispatched := match sysroot with
@@ -149,7 +150,7 @@ private def observe (dispatching : FilePath) (project : Option String) : IO Obse
     | some dir => (·.toOption.map toString) <$> findRepoRoot? dir
     | none => pure none
   return { dispatching := dispatching.toString, dispatched, configured, named,
-           owner := ← IO.getEnv ordinaryLakefilesVariable }
+           owner := ← Regula.Process.readEnv ordinaryLakefilesVariable }
 
 /-- The banner's note of the workspace owner's assertion. -/
 private def ownerAssertionNote : String :=

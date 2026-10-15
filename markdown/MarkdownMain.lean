@@ -1,9 +1,10 @@
 import RegulaMarkdown
 import Regula.TaskManagerCheck
 import RegulaCore.ProseBaseline
+import Regula.Process
+import Regula.Removal
 import Regula.Checker.Lake
 import Regula.Destination
-import Regula.Removal
 
 /-! Checks every Markdown document the repository tracks: for a rule ID in prose that is not a
 link to its rule page (`Regula.Markdown.documentErrors`), and for the writing rules that a text
@@ -259,7 +260,8 @@ def lexicon (vocabulary : Vocabulary) (path : String) : Vocabulary :=
 /-- The SHA-256 digest of the file at `path`, in lowercase hexadecimal digits, as the external
 `shasum` tool computes it. -/
 def digestOf (path : System.FilePath) : IO String := do
-  let out ← IO.Process.output { cmd := "shasum", args := #["-a", "256", path.toString] }
+  let out ← Regula.Process.output (.stated "shasum" "The external SHA-256 utility computes this file's digest")
+    { cmd := "", args := #["-a", "256", path.toString] }
   unless out.exitCode == 0 do
     throw <| IO.userError s!"shasum -a 256 {path} failed: {out.stderr}"
   return ((out.stdout.splitOn " ").headD "")
@@ -267,7 +269,8 @@ def digestOf (path : System.FilePath) : IO String := do
 /-- The SHA-256 digest of `text`, in lowercase hexadecimal digits, as the external `shasum` tool
 computes it from its standard input. -/
 def digestOfText (text : String) : IO String := do
-  let out ← IO.Process.output { cmd := "shasum", args := #["-a", "256"] } (some text)
+  let out ← Regula.Process.output (.stated "shasum" "The external SHA-256 utility computes the supplied text's digest")
+    { cmd := "", args := #["-a", "256"] } (some text)
   unless out.exitCode == 0 do
     throw <| IO.userError s!"shasum -a 256 failed: {out.stderr}"
   return ((out.stdout.splitOn " ").headD "")
@@ -466,24 +469,23 @@ def documentsOf (root : System.FilePath) (tracked : List String) : IO (List Docu
     let source ← IO.FS.readFile (root / path)
     return ⟨path, source, read source⟩
 
-/-- The variables that the Lake running this program sets for it, and that the Lake and the Lean
-that `runOutside` starts must not inherit, so that they read the workspace of their directory with
-the toolchain that its `lean-toolchain` selects. -/
+/-- The inherited workspace variables cleared before `runOutside` supplies its identity-checked
+toolchain paths. The child reads the workspace of its requested directory. -/
 def lakeVariables : List String :=
   ["ELAN_TOOLCHAIN", "LAKE", "LAKE_ARTIFACT_CACHE", "LAKE_CACHE_DIR", "LAKE_HOME", "LAKE_NO_CACHE",
     "LAKE_PKG_URL_MAP", "LAKE_RESTORE_ARTIFACTS", "LEAN", "LEAN_AR", "LEAN_GITHASH", "LEAN_PATH",
     "LEAN_RECURSION_COUNT", "LEAN_SRC_PATH", "LEAN_SYSROOT"]
 
 /-- Run `cmd` with `args` in `directory`, without the variables `lakeVariables`. -/
-def runOutside (directory : System.FilePath) (cmd : String) (args : Array String) :
+def runOutside (directory : System.FilePath) (program : Regula.Process.Program) (args : Array String) :
     IO IO.Process.Output :=
-  IO.Process.output {
-    cmd, args, cwd := some directory, env := (lakeVariables.map fun name => (name, none)).toArray }
+  Regula.Process.output program {
+    cmd := "", args, cwd := some directory, env := (lakeVariables.map fun name => (name, none)).toArray }
 
 /-- The `description` of the package at the repository root `root`, as Lake reads it from the
 lakefile (`lake reservoir-config`), or why Lake does not give it. -/
 def lakeDescription (root : System.FilePath) : IO (Except String String) := do
-  let out ← runOutside root "lake" #["reservoir-config"]
+  let out ← runOutside root (.toolchain .lake) #["reservoir-config"]
   if out.exitCode != 0 then
     return .error s!"lakefile.lean: lake reservoir-config failed: {out.stderr.trimAscii}"
   match Lean.Json.parse out.stdout >>= (·.getObjValAs? String "description") with
@@ -513,7 +515,7 @@ def openingRefusals (root : System.FilePath) (documents : List Document) :
 `line:column: severity: text`, or why Lean gives none. -/
 def leanMessages (directory : System.FilePath) (file : String) :
     IO (Except String (List String)) := do
-  let out ← runOutside directory "lean" #["--json", file]
+  let out ← runOutside directory (.toolchain .lean) #["--json", file]
   let read := ((out.stdout.splitOn "\n").filter (!·.isEmpty)).mapM fun line => do
     let message ← Lean.Json.parse line
     let position ← message.getObjVal? "pos"
@@ -554,7 +556,7 @@ def observeDemonstration (root : System.FilePath) : IO (Except String Demonstrat
     let messages ← match ← leanMessages project file with
       | .ok messages => pure messages
       | .error reason => return .error reason
-    let gate ← runOutside project "lake" #["exe", "axiomGate", "--file", file]
+    let gate ← runOutside project (.toolchain .lake) #["exe", "axiomGate", "--file", file]
     return .ok ⟨module, messages, gate.stdout, gate.exitCode.toNat, gate.stderr⟩
 
 /-- The refusals of the example of the root `README.md` among `documents`
@@ -1221,7 +1223,7 @@ def entryControls : List RepositoryControl := [
 /-- Run `git` with `args` in `directory` for a control, with no configuration of the user or of
 the system and with one author, and give its output. -/
 def gitControl (directory : System.FilePath) (args : Array String) : IO String := do
-  let out ← IO.Process.output (← Regula.Filesystem.Construction.gitProcessArgs {
+  let out ← Regula.Process.output (.stated "git" "Git is the stated repository mechanism") (← Regula.Filesystem.Construction.gitProcessArgs {
     cmd := "git", args, cwd := some directory,
     env := #[("GIT_CONFIG_GLOBAL", some "/dev/null"), ("GIT_CONFIG_SYSTEM", some "/dev/null"),
       ("GIT_AUTHOR_NAME", some "control"), ("GIT_AUTHOR_EMAIL", some "control@example.invalid"),
@@ -1361,9 +1363,9 @@ def runWriteEarlyStopControl : IO (List String) :=
       recordEntry]
     let expected := controlBaseline [semicolonEntry "a.md" 1, madeEntry, recordEntry]
     let file := repository / baselineFile
-    let program := (← IO.appPath).toString
+    let program := (← Regula.Process.appPath).toString
     let run (more : Array String) : IO IO.Process.Output :=
-      IO.Process.output {
+      Regula.Process.output (.stated program "The control starts this program itself") {
         cmd := program, args := #[repository.toString, "--write-baseline"] ++ more }
     let text : IO (Option String) := do return (← (IO.FS.readFile file).toBaseIO).toOption
     let admitted : IO Bool := do
@@ -1515,7 +1517,7 @@ def markdownMain (args : List String) : IO UInt32 := do
   match args with
   | ["--controls", directory] => runControls directory
   | _ =>
-    let some options := Options.parse (← IO.getEnv startVariable) args
+    let some options := Options.parse (← Regula.Process.readEnv startVariable) args
       | IO.eprintln "usage: lake exe regula-markdown REPOSITORY [--shared CONTEXT.md] \
           [--write-baseline | --list DOCUMENT]\n       lake exe regula-markdown --controls \
           DIRECTORY"
@@ -1534,7 +1536,7 @@ program refuses still name the baseline (`Options.read_keeps_write`). With `--wr
 with `reason` (`markBaseline`), printing a line when it cannot. Each other form names no result
 destination, so it marks none. It returns 1. -/
 def refuseMarkdown (reason : String) (args : List String) : IO UInt32 := do
-  if let some (options, _) := Options.recognized (← IO.getEnv startVariable) args then
+  if let some (options, _) := Options.recognized (← Regula.Process.readEnv startVariable) args then
     if options.write && options.list.isNone then
       try markBaseline options.root reason (← earlierBaseline options.root)
       catch error =>
@@ -1547,14 +1549,16 @@ before any check starts, with exit code 1 (`Regula.TaskManager.guard`). -/
 def main : List String → IO UInt32 :=
   Regula.TaskManager.guard "regula-markdown" refuseMarkdown markdownMain
 
--- The removals and the writes that the compiled code of the program reaches from its roots
+-- This operational package has the same compiled boundaries as the root: the removals and the
+-- writes that the compiled code of the program reaches from its roots
 -- (`Regula.Removal.rawRemovals`) are those of the filesystem observer, those that
--- `Regula.Removal.sharedPairs` lists and those that are named here: the build of this module fails
--- otherwise (`Regula.Removal.checkProgram`). Its modules link `Regula.Collect` through the guard of
--- Lean's task manager (`Regula.TaskManager`, which imports `Regula.Probe`), and the regeneration of
--- a declaration's recursion there runs its `decreasing_by` tactics, so its check states that it
--- elaborates: the class is conservative reachability from every compiled declaration of its
--- modules (`Regula.Removal.programRoots`).
+-- `Regula.Removal.sharedPairs` lists and those that are named here, and its process starts and
+-- environment reads are the process observer's:
+-- the build of this module fails otherwise (`Regula.Removal.checkProgram`). Its modules link
+-- `Regula.Collect` through the guard of Lean's task manager (`Regula.TaskManager`, which imports
+-- `Regula.Probe`), and the regeneration of a declaration's recursion there runs its
+-- `decreasing_by` tactics, so its check states that it elaborates: the class is conservative
+-- reachability from every compiled declaration of its modules (`Regula.Removal.programRoots`).
 run_cmd Regula.Removal.checkProgram (elaborates := true) (named := [
   -- The files of the controls, each below the temporary directory that its control made
   -- (`Regula.Filesystem.withOwnTempDir`): the repositories of the controls and their baselines.

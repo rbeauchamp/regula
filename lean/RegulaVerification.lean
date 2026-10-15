@@ -1,3 +1,4 @@
+import Lake.Config.InstallPath
 import Lean
 import Lake.Load.Manifest
 
@@ -16,6 +17,21 @@ and runs (`prebuild`), then runs the gate beside the rest of the step (`beside`)
 it starts at low scheduling priority (`Priority`).
 Process effects remain trusted IO under the shell's single 420-second process-group deadline. -/
 namespace RegulaVerification
+
+namespace Process
+
+-- Use Lean's own frontend, not a second implementation of the process policy.
+run_cmd do
+  let origin ← Lean.getRef
+  let before ← Lean.getEnv
+  let input := Lean.Parser.mkInputContext (include_str "Regula/ProcessSource.inc") "Regula/ProcessSource.inc"
+  let result ← Lean.Elab.IO.processCommands input {} (← get)
+  set result.commandState
+  for (name, _) in result.commandState.env.constants.toList do
+    unless before.contains name do
+      Lean.Elab.addDeclarationRangesFromSyntax name origin
+
+end Process
 
 /-- The number of shards of the self-test's lint-driver partition, which
 `Regula.Checker.LintQualification.shards` states for the self-test. This module imports only the
@@ -272,16 +288,18 @@ theorem select_exact (args : List String) : (select args).map Subtype.val = pars
 
 /-- One argv invocation; there is no shell source in the recipe. -/
 structure Command where
-  /-- The program to run, found on `PATH`. -/
-  program : String
+  /-- The typed toolchain selection or stated external path to run. -/
+  program : Process.Program
   /-- Its arguments, passed as they are. -/
   args : Array String
   /-- Its working directory, relative to the repository root; the root itself by default. -/
   dir : String := "."
   /-- Environment variables it receives in addition to the driver's own settings (`start`). -/
   env : Array (String × String) := #[]
+  /-- A typed child of `lake env`, when the recipe starts one. -/
+  child : Option Process.Program := none
 
-private def lake (args : Array String) : Command := { program := "lake", args }
+private def lake (args : Array String) : Command := { program := .toolchain .lake, args }
 
 /-- The package of the standard's example library (`Audit`), which imports only Lean's core
 libraries and adopts the root `regula` package by relative path, as an adopting project would.
@@ -295,7 +313,11 @@ readers` builds its modules); no other mode loads its workspace, so no other mod
 def mathlibPackage : String := "integration/mathlib"
 
 private def lakeIn (dir : String) (args : Array String) : Command :=
-  { program := "lake", args, dir }
+  { program := .toolchain .lake, args, dir }
+
+/-- Run a typed child under Lake's workspace environment, with no bare child command. -/
+private def lakeEnvIn (dir : String) (child : Process.Program) (args : Array String) : Command :=
+  { program := .toolchain .lake, args, dir, child := some child }
 
 /-- The workspace owner's assertion that the lakefiles are ordinary configuration, as the `lint`
 driver reads it from its environment. The name is `Regula.Checker.Lint.ordinaryLakefilesVariable`,
@@ -439,7 +461,7 @@ def commands (copy pending : String) : Mode → List Command
       -- type-checks, and every claimed target of the root package, which the gate audits in
       -- this build output. The prebuild built the gate's targets before it (`prebuild_named`).
       lakeIn copy ("build" :: gateTargets ++ otherTargets).toArray,
-      lakeIn copy #["env", "lean", "--run", "lean/Regula/RegistryChecks.lean"],
+      lakeEnvIn copy (.toolchain .lean) #["--run", "lean/Regula/RegistryChecks.lean"],
       lakeIn copy #["exe", "qualify", "--under-deadline", "combined"],
       -- Last, and from the repository root: the gate of the copy audits the copy, reads the
       -- linked documents of the checkout and writes the pending record of the run (`pending`).
@@ -536,7 +558,7 @@ def commands (copy pending : String) : Mode → List Command
   -- first command refuses a copy the check does not apply to (another toolchain than that package selects) and one whose Mathlib is not provisioned, so an
   -- excluded copy fails here and is never reported as passing.
   | .mathlib => [
-      { program := "lean",
+      { program := .toolchain .lean,
         args := #["--run", "lean/RegulaProvision.lean", "mathlib-applies", "--require"] },
       lakeIn mathlibPackage #["exe", "axiomGate"], lakeIn mathlibPackage #["lint"]]
   | .structural => selftest #["--partition", "structural"] #["docFenceAudit", "freshChecker"]
@@ -602,8 +624,9 @@ prebuild is a target of the step's build (`prebuild_named`). -/
 /-- The targets a command builds: the arguments after `build` of a `lake build`, and none for any
 other command. -/
 def buildTargets (command : Command) : List String :=
-  if command.program = "lake" ∧ command.args[0]? = some "build" then command.args.toList.drop 1
-  else []
+  match command.program with
+  | .toolchain .lake => if command.args[0]? = some "build" then command.args.toList.drop 1 else []
+  | _ => []
 
 /-- Builds the driver runs in the copy before a mode's `commands`, at the driver's own priority.
 They decide time, never results: each is a `lake build` (`prebuild_builds`), and every target one
@@ -631,7 +654,7 @@ theorem prebuild_named (copy pending : String) (mode : Mode) (command : Command)
   subst h
   refine ⟨_, List.mem_cons_self, rfl, ?_⟩
   simp only [buildTargets, lakeIn, List.toList_toArray, List.getElem?_toArray,
-    List.getElem?_cons_zero, and_self, ite_true, List.drop_succ_cons] at named ⊢
+    List.getElem?_cons_zero, ite_true, List.drop_succ_cons] at named ⊢
   exact List.mem_append_left _ named
 
 /-- How many of a mode's last `commands` run beside the others (`beside`). The first acceptance
@@ -661,7 +684,7 @@ axiomGate`, and a prebuild in `COPY` names `axiomGate` and every claimed target 
 and that Lake then builds nothing for the gate is Lake's behaviour; neither is this theorem. -/
 theorem beside_prebuilt (copy pending : String) (mode : Mode) (command : Command)
     (h : command ∈ beside copy pending mode) :
-    command.program = "lake" ∧ command.dir = "." ∧
+    command.program = .toolchain .lake ∧ command.dir = "." ∧
       command.args.toList.take 4 = ["-d", copy, "exe", "axiomGate"] ∧
         ∃ early ∈ prebuild copy mode, early.dir = copy ∧
           ∀ target ∈ gateTargets, target ∈ buildTargets early := by
@@ -726,7 +749,8 @@ def announce (line : String) : BaseIO Unit := do
 /-- A command as the progress lines show it. -/
 def Command.display (command : Command) : String :=
   " ".intercalate ((command.env.map fun (name, value) => s!"{name}={value}").toList ++
-    command.program :: command.args.toList) ++
+    toString command.program :: (command.child.map fun child => ["env", toString child]).getD [] ++
+    command.args.toList) ++
     (if command.dir = "." then "" else s!" (in {command.dir})")
 
 /-- An end as the progress lines and the failure report show it. No end has one label for its
@@ -764,27 +788,30 @@ and in their order, after `-n 19`. That `nice` then runs exactly that program wi
 arguments at that priority, and ends with the status the program ends with, is the utility's
 behaviour and is trusted, as is the scheduler's use of the priority. POSIX gives `nice` a status
 other than 0 when it could not run the program. -/
-def Command.launch (command : Command) : Priority → String × Array String
-  | .normal => (command.program, command.args)
-  | .low => ("nice", #["-n", "19", command.program] ++ command.args)
+def Command.launch (command : Command) (selected : String) (args : Array String) : Priority → Process.Program × Array String
+  | .normal => (command.program, args)
+  | .low => (.stated "/usr/bin/nice" "The POSIX scheduling utility starts the already selected program",
+      #["-n", "19", selected] ++ args)
 
 /-- The shared constructor's exact source, embedded by Lean before any root artifact exists.
 Assumes: Lean v4.34.1 `Lean/Elab/BuiltinTerm.lean:437-445` elabIncludeStr reads this source at elaboration;
 the pinned Lean interpreter executes it. There is no second tree-walk implementation. -/
-def constructionSource : String := include_str "RegulaCore/CopyProgram.lean"
+def constructionSource : String := Process.constructorSource
+  (include_str "RegulaCore/CopyProgram.lean") (include_str "Regula/ProcessSource.inc")
+  (include_str "Regula/GitProcessSource.inc")
 
 /-- Run the shared construction source's entrypoint (`Construction.sourceMain`) with `args` before
 cold artifacts exist, and decode the JSON it prints; `what` names the observation in an error.
 
 Assumes: Lean v4.34.1 `IO.Process.output` supplies stdin and waits for the child
 (`Init/System/IO.lean:1544-1557`);
-`Lean/Util/Path.lean:85-86` identifies the interpreter. `--stdin --run`
+`Process.identified` checks the selected installation's compiler identity. `--stdin --run`
 (`Lean/Shell.lean:497-518,552-560`) executes the embedded source without a temporary file or
 removal; interpreter execution is trusted. -/
 private def construction {α : Type} [Lean.FromJson α] (what : String) (args : Array String) :
     IO α := do
-  let out ← IO.Process.output {
-    cmd := ((← Lean.getBuildDir) / "bin/lean").toString
+  let out ← Process.output (.toolchain .lean) {
+    cmd := ""
     args := #["--stdin", "--run", "Construction.lean"] ++ args
     env := #[("LEAN_PATH", none), ("LEAN_SRC_PATH", none)] }
     (constructionSource ++ "\n/-- Cold construction entrypoint. -/\n" ++
@@ -834,14 +861,27 @@ def start (isolation : Array (String × Option String)) (priority : Priority) (c
     BaseIO (Option (IO.Process.Child stdio)) := do
   announce s!"start {priority.display}{command.display}"
   let spawn : IO (IO.Process.Child stdio) := do
-    let isolated := if command.program == "git" then
-        {command with args := #["-c", "core.symlinks=false"] ++ command.args}
-      else command
-    let (program, args) := isolated.launch priority
-    let env := #[("GHCR_TOKEN", none), ("LEAN_PATH", none), ("LEAN_SRC_PATH", none),
-      ("LAKE_ARTIFACT_CACHE", some "false"), ("REGULA_ORDINARY_LAKEFILES", none)] ++
-      command.env.map (fun (name, value) => (name, some value)) ++ isolation
-    IO.Process.spawn { stdio with cmd := program, args, cwd := some command.dir, env }
+    let args ← match command.child with
+      | none => pure command.args
+      | some child => pure (#["env", (← Process.resolve child)] ++ command.args)
+    let args := if command.program.statedCommand == some "git" then
+        #["-c", "core.symlinks=false"] ++ args
+      else args
+    let prepared ← Process.prepare command.program {
+      stdio with
+      cmd := ""
+      args := args
+      cwd := some command.dir
+      env := #[("GHCR_TOKEN", none), ("LEAN_PATH", none), ("LEAN_SRC_PATH", none),
+        ("LAKE_ARTIFACT_CACHE", some "false"), ("REGULA_ORDINARY_LAKEFILES", none)] ++
+        (command.env.map fun (name, value) => (name, some value)) ++ isolation }
+    let (program, args) := command.launch prepared.cmd prepared.args priority
+    Process.spawn program {
+      stdio with
+      cmd := ""
+      args := args
+      cwd := prepared.cwd
+      env := prepared.env }
   match ← spawn.toBaseIO with
   | .ok child => return some child
   | .error error =>
@@ -1066,8 +1106,8 @@ def copyTree (root target : System.FilePath) : IO (List String) := do
   handle.putStr (constructionSource ++ "\n/-- Cold construction entrypoint. -/\n" ++
     "def main := Regula.Filesystem.Construction.sourceMain\n")
   handle.flush
-  let result ← IO.Process.output {
-    cmd := ((← Lean.getBuildDir) / "bin/lean").toString
+  let result ← Process.output (.toolchain .lean) {
+    cmd := ""
     args := #["--run", wrapper.toString, "project", root.toString, target.toString]
     env := #[("LEAN_PATH", none), ("LEAN_SRC_PATH", none)] }
   IO.FS.removeFile wrapper
@@ -1218,8 +1258,8 @@ def digests (dir : System.FilePath) (paths : List String) : IO (List (String × 
     | none => #[#[path]]) #[]
   let mut result := #[]
   for batch in batches do
-    let run ← IO.Process.output
-      { cmd := "shasum", args := #["-a", "256", "--"] ++ batch.map ("./" ++ ·), cwd := some dir }
+    let run ← Process.output (.stated "shasum" "The external SHA-256 utility computes file digests")
+      { cmd := "", args := #["-a", "256", "--"] ++ batch.map ("./" ++ ·), cwd := some dir }
     let lines := (run.stdout.splitOn "\n").filter (!·.isEmpty)
     unless run.exitCode == 0 && lines.length == batch.size do
       throw <| IO.userError s!"shasum gave no digest of each file: {run.stdout}{run.stderr}"
@@ -1415,7 +1455,7 @@ time. -/
 def destinationAt (path : System.FilePath) : IO System.FilePath := do
   if path.fileName.isNone then
     throw <| IO.userError s!"{path} names no file, so the run writes nothing there"
-  let path ← if path.isAbsolute then pure path else pure ((← IO.currentDir) / path)
+  let path ← if path.isAbsolute then pure path else pure ((← Process.currentDir) / path)
   let components := path.components
   let below (real : System.FilePath) (names : List String) : IO System.FilePath :=
     match plainNames names with
@@ -1745,9 +1785,9 @@ def run (args : List String) : IO Unit := do
         RegulaVerification.gateTargets (the prebuild builds {gateTargets})"
   let isolation ← isolationEnvironment
   let early ← executeInOrder isolation .normal []
-    [({ program := "git", args := #["diff", "--check"] } : Command),
-      { program := "git", args := #["diff", "--cached", "--check"] },
-      { program := "shellcheck", args := #["scripts/verify.sh", "scripts/provision.sh"] }]
+    [({ program := .stated "git" "The verification recipe selects this external utility", args := #["diff", "--check"] } : Command),
+      { program := .stated "git" "The verification recipe selects this external utility", args := #["diff", "--cached", "--check"] },
+      { program := .stated "shellcheck" "The verification recipe selects this external utility", args := #["scripts/verify.sh", "scripts/provision.sh"] }]
   let root ← IO.FS.realPath "."
   let copy ← if selection.val == .ordinary && passed early.statuses then
       some <$> makeCopy root
@@ -1829,10 +1869,18 @@ def copyControl : IO Unit := do
 
 end RegulaVerification
 
-/-- Standalone cold-start entrypoint; invoke through the timed `scripts/verify.sh`, which
-first runs it with the private `--begin-attempt` protocol flag before setup. The private
-`--copy-control` entry is for the controls of the checker self-test. -/
-def main : List String → IO Unit
-  | "--begin-attempt" :: args => RegulaVerification.beginAttempt args
+/-- The private `--copy-control` entry is for the controls of the checker self-test; any other
+arguments select a mode of `run`. -/
+private def dispatch : List String → IO Unit
   | ["--copy-control"] => RegulaVerification.copyControl
   | args => RegulaVerification.run args
+
+/-- Standalone cold-start entrypoint; invoke through the timed `scripts/verify.sh`, which
+first runs it with the private `--begin-attempt` protocol flag before setup. That invalidation
+starts no process, so it runs before any check that could fail (`beginAttempt`). Every other
+entry checks the selected installation before copies, setup or verification. -/
+def main : List String → IO Unit
+  | "--begin-attempt" :: args => RegulaVerification.beginAttempt args
+  | args => do
+    RegulaVerification.Process.requireNativeTools (← RegulaVerification.Process.identified)
+    dispatch args

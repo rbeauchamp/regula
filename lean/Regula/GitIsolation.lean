@@ -1,4 +1,6 @@
 import RegulaCore.GitIsolation
+import Regula.Filesystem
+import Regula.Process
 
 /-! # Starting a program under Git isolation
 
@@ -52,7 +54,7 @@ and the entries of it whose value this process's environment does not have (`uni
 reading of each named variable). -/
 def observe : IO (Array (String × Option String) × Array (String × Option String)) := do
   let isolation ← Regula.Filesystem.Construction.isolationEnvironment
-  let values ← isolation.mapM fun (name, _) => do return (name, ← IO.getEnv name)
+  let values ← isolation.mapM fun (name, _) => do return (name, ← Regula.Process.readEnv name)
   let read (name : String) : Option String := (values.find? (·.1 == name)).bind (·.2)
   return (isolation, unisolated read isolation)
 
@@ -86,7 +88,7 @@ without isolation, and that exit status is the result.
 Assumes: Lean v4.34.1 `Init/System/IO.lean:952-955` (`IO.appPath`) names the running
 executable. -/
 def runsAs (program : String) : IO Bool := do
-  return (← IO.appPath).fileName == some (executableFile program)
+  return (← Regula.Process.appPath).fileName == some (executableFile program)
 
 /-- Start this executable again on `args` under `isolation`, after `restarted`, with the inherited
 standard streams and working directory, and return the exit status that Lean's wait gives for it.
@@ -97,8 +99,10 @@ environment by default and applies `env` left to right (`runtime/process.cpp:436
 `runtime/process.cpp:354-367` returns the exit code, or `128 + n` for a child that signal `n`
 ended. -/
 def restart (isolation : Array (String × Option String)) (args : List String) : IO UInt32 := do
-  let child ← IO.Process.spawn {
-    cmd := (← IO.appPath).toString, args := (restarted :: args).toArray, env := isolation }
+  let self ← Regula.Process.appPath
+  let child ← Regula.Process.spawn
+    (.stated self "The guard starts the running executable again under Git isolation")
+    { cmd := self.toString, args := (restarted :: args).toArray, env := isolation }
   child.wait
 
 /-- Run `run` on `args` in an isolated environment, for the program whose Lake executable name is

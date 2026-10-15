@@ -1,7 +1,7 @@
 import Lake
 import Lake.Load
 import Regula.Checker.Common
-import Regula.ToolchainProgram
+import Regula.Process
 import Regula.Filesystem
 import Regula.GitIsolation
 
@@ -17,23 +17,6 @@ source-format guesses participate. Load failures fail closed.
 namespace Regula.Checker.Workspace
 
 open Lean System
-
-/-- The Lake environment of the toolchain's identity-checked installation
-(`Regula.Toolchain.sysroot`), with the Lake installed beside its Lean (`LakeInstall.ofLean`), as
-the toolchain's `lake` command computes it for itself. Lake's own `findInstall?` is not run: it
-reads the running program as a `lake`, so a `lean` beside this checker's executable would select
-the checker's build directory as the installation, and it reads `LAKE_HOME`, which a parent `lake`
-sets to the toolchain's root, as the root of a Lake build tree. The installation's commit is the
-one `Regula.Toolchain.sysroot` checked its `lean` reports. -/
-private def detectEnvironment : IO _root_.Lake.Env := do
-  let sysroot ← Regula.Toolchain.sysroot
-  let elan? ← _root_.Lake.findElanInstall?
-  let lean ← _root_.Lake.LeanInstall.get sysroot (collocated := true)
-  let lean := { lean with githash := RegulaPolicy.Compiler.commit }
-  let lake := _root_.Lake.LakeInstall.ofLean lean
-  match ← EIO.toIO' (_root_.Lake.Env.compute lake lean elan?) with
-  | .ok env => return env
-  | .error error => throw <| IO.userError s!"lake-workspace-load-failed: {error}"
 
 /-- The configuration file that Lake v4.34.1's rule gives the package at `dir` whose configuration
 is named `relConfigFile`, with each candidate observed strictly: `relConfigFile` with the extension
@@ -166,10 +149,40 @@ of the root package's configuration candidates (`requireConfigCandidates`). With
 private def loadConfig (repo : FilePath) (scrubSearchPath : Bool) : IO _root_.Lake.LoadConfig := do
   let wsDir ← IO.FS.realPath repo
   requireConfigCandidates wsDir _root_.Lake.defaultConfigFile
-  let lakeEnv ← detectEnvironment
+  let lakeEnv ← Regula.Process.lakeEnvironment
   let lakeEnv := if scrubSearchPath then { lakeEnv with initLeanPath := [], initLeanSrcPath := [] }
     else lakeEnv
-  return { lakeEnv, wsDir }
+  return { lakeEnv, wsDir, leanOpts := ← Regula.Process.leanOptions }
+
+/-- Lake's loader of the workspace and its dependencies, `Lake.loadWorkspace`, for `config`: a
+listed entry of the process and environment rows of `Regula.Removal.boundaries`. Each caller
+passes a configuration of `loadConfig`. -/
+@[noinline] private def loadWorkspace (config : _root_.Lake.LoadConfig) :
+    _root_.Lake.LoggerIO _root_.Lake.Workspace :=
+  _root_.Lake.loadWorkspace config
+
+/-- Lake's loader of the root package alone, `Lake.loadWorkspaceRoot`, for `config`: a listed entry
+of the process and environment rows of `Regula.Removal.boundaries`. Each caller passes a
+configuration of `loadConfig`. -/
+@[noinline] private def loadWorkspaceRoot (config : _root_.Lake.LoadConfig) :
+    _root_.Lake.LogIO _root_.Lake.Workspace :=
+  _root_.Lake.loadWorkspaceRoot config
+
+/-- Lake's resolution of the dependencies of `root` from `manifest`,
+`Lake.Workspace.materializeDeps`, with the options of `config`: a listed entry of the process and
+environment rows of `Regula.Removal.boundaries`. Its caller passes a configuration of `loadConfig`. -/
+@[noinline] private def materializeDeps (root : _root_.Lake.Workspace)
+    (manifest : _root_.Lake.Manifest) (config : _root_.Lake.LoadConfig) :
+    _root_.Lake.LoggerIO _root_.Lake.Workspace :=
+  root.materializeDeps manifest config.leanOpts config.reconfigure config.packageOverrides
+
+/-- Lake's runner of `build` in `ws` with `config`, `Lake.Workspace.runBuild`: a listed entry of the
+environment row of `Regula.Removal.boundaries`. The build function is the caller's, so the reach
+check follows it from the caller. -/
+@[noinline] def runBuild {α : Type} (ws : _root_.Lake.Workspace)
+    (build : _root_.Lake.FetchM (_root_.Lake.Job α)) (config : _root_.Lake.BuildConfig := {}) :
+    IO α :=
+  ws.runBuild build config
 
 /-- Pass the workspace that a load gave to `action`, after each package's configuration file is
 checked against the strict observation of its candidates (`requireConfigChoices`), given the
@@ -213,9 +226,46 @@ def withRootWorkspace {α : Type} (repo : FilePath) (action : _root_.Lake.Worksp
   let files := rootFiles config.wsDir
   -- Read before the load, which writes the manifest when there is none.
   let entries ← if resolveDependencies then configRequests files else pure (some #[])
-  let (ws?, log) ← (if resolveDependencies then _root_.Lake.loadWorkspace config
-    else _root_.Lake.loadWorkspaceRoot config).captureLog
+  let (ws?, log) ← (if resolveDependencies then loadWorkspace config
+    else loadWorkspaceRoot config).captureLog
   withLoaded files entries ws? log action
+
+/-- Resolve the supplied committed manifest through Lake, refusing selector overrides for each
+dependency whose effects receive a sourced exemption. Root configuration, module naming and
+artifact loading remain trusted; this is a closed build case, not artifact authentication.
+Only Lake's implicit selector inputs are covered. Explicit invoker options, including --packages,
+-K and -R, are trusted like the committed configuration; this function does not reconstruct them.
+Assumes: Lake v4.34.1 `Load/Workspace.lean:62-67` and `Load/Resolve.lean:598-625` select locked
+entries and workspace overrides; `Load/Manifest.lean:300-305` decodes the
+override file and `Load/Materialize.lean:260-263` uses the environment's package URL map.
+`CLI/Main.lean:116-130,334-338,918-924` decodes explicit invoker options into the parent load's
+configuration; those choices are outside this check. The committed manifest/configuration and
+implicit selector inputs stay stable during resolution. This load retains the initial Lean
+options supplied by Regula.Process.leanOptions. Each load passes the checks of `withLoaded`: the
+root load gives only the root package, and the resolution materializes the dependencies from the
+entries of `manifest` and then those of the overrides file, as `configRequests` gives them for a
+manifest that Lake reads. As in `withRootWorkspace`, it refuses before the loader runs unless
+this process's environment is Git-isolated (`Regula.GitIsolation.requireIsolated`). -/
+def withManifestWorkspace {α : Type} (repo : FilePath) (manifest : _root_.Lake.Manifest)
+    (exempted : Array Name) (action : _root_.Lake.Workspace → IO α) : IO α := do
+  Regula.GitIsolation.requireIsolated "lake-workspace-load-failed: nothing was loaded"
+  let config ← loadConfig repo false
+  let files := rootFiles config.wsDir
+  let load : _root_.Lake.LoggerIO _root_.Lake.Workspace := loadWorkspaceRoot config
+  let (root?, rootLog) ← load.captureLog
+  withLoaded files (some #[]) root? rootLog fun root => do
+    let overrides ← _root_.Lake.Manifest.tryLoadEntries root.packageOverridesFile
+    for name in exempted do
+      unless manifest.packages.any (·.name == name) do
+        throw <| IO.userError s!"observer reach check incomplete: exempted dependency {name} is absent from the committed manifest"
+      if overrides.any (·.name == name) || (root.lakeEnv.pkgUrlMap.find? name).isSome then
+        throw <| IO.userError s!"observer reach check incomplete: exempted dependency {name} has an overridden selection; the committed manifest is required"
+    let (resolved?, log) ← (materializeDeps root manifest config).captureLog
+    withLoaded files (some (manifest.packages ++ overrides)) resolved? log fun resolved => do
+      for name in exempted do
+        if (resolved.findPackageByName? name).isNone then
+          throw <| IO.userError s!"observer reach check incomplete: exempted dependency {name} was not resolved"
+      action resolved
 
 /-- Load only the root package of the workspace at `repo` (`Lake.loadWorkspaceRoot`) and pass it
 to `action`, after refusing a root package that declares a dependency. For a root that declares
@@ -246,7 +296,7 @@ def withRootPackage {α : Type} (repo : FilePath) (action : _root_.Lake.Workspac
   for directory in [lake, lake / "config"] do
     try Regula.Filesystem.requireOwnDirectory directory catch error => refuse error
   try Regula.Filesystem.requireNoLinkedEntries config.configDir catch error => refuse error
-  let load : _root_.Lake.LoggerIO _root_.Lake.Workspace := _root_.Lake.loadWorkspaceRoot config
+  let load : _root_.Lake.LoggerIO _root_.Lake.Workspace := loadWorkspaceRoot config
   let (ws?, log) ← load.captureLog
   withLoaded (rootFiles config.wsDir) (some #[]) ws? log fun ws => do
     unless ws.root.depConfigs.isEmpty do

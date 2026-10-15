@@ -111,10 +111,11 @@ observation. Strict report decoders and policy admission require it to match the
 capability. An `Inventory` carries this agreement as a proof-bearing field; declaration and
 execution classification use that same compiled capability.
 
-The observer imports Lean's environment API in the operational library. It is infrastructure
-only when its artifact is canonical and every incoming import is from authenticated reporter
-infrastructure or an authenticated, force-only collector. A claimed import of the observer or
-collector keeps it in the audit. No definition of the pure policy library uses the environment API.
+This observer and the process observer `Regula.Process` import Lean's environment API in the
+operational library. Each is infrastructure only when its artifact is canonical and every incoming
+import is from authenticated reporter infrastructure or an authenticated, force-only collector. A
+claimed import of an observer or the collector keeps that module in the audit. No definition of
+the pure policy library uses the environment API.
 
 ### The decision registration import
 

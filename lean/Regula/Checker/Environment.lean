@@ -1,4 +1,5 @@
 import RegulaPolicy.Plan
+import Regula.Process
 import Regula.Checker.PolicyCodec
 import Regula.Probe
 import Regula.Checker.Common
@@ -125,14 +126,16 @@ private def forcedCollectorFrom (origins : Array Regula.Report.ModuleOrigin) :
     return none
   return some name
 
-private def forcedCompilerObserverFrom (origins : Array Regula.Report.ModuleOrigin) :
-    IO (Option Name) := do
-  let name ← forcedPublicModule origins `Regula.CompilerObservation "compiler capability observer"
+private def forcedObserversFrom (origins : Array Regula.Report.ModuleOrigin) :
+    IO (Array Name) := do
   let collector ← forcedCollectorFrom origins
-  if origins.any (fun origin => origin.imports.contains name &&
-      !(RegulaPolicy.reporterModuleNames.contains origin.name || some origin.name == collector)) then
-    return none
-  return some name
+  let mut admitted := #[]
+  for selected in RegulaPolicy.observerInfrastructureModuleNames do
+    let name ← forcedPublicModule origins selected s!"observer {selected}"
+    unless origins.any (fun origin => origin.imports.contains name &&
+        !(RegulaPolicy.reporterModuleNames.contains origin.name || some origin.name == collector)) do
+      admitted := admitted.push name
+  return admitted
 
 /-- The extracted constructor is also force-loaded by Probe. Its artifact must
 be the checker's exact artifact. Unlike the neutral name codec, it remains in
@@ -140,19 +143,19 @@ the excluded-library scan whenever another module actually imports it. -/
 def forcedCollectorOnly (report : Regula.Checker.ProducerReport.Environment) : IO
     (Option Name) := forcedCollectorFrom report.moduleOrigins
 
-/-- The compiler observer is infrastructure only through authenticated reporters or an
-already force-only collector. A claimed import of either module keeps it in the owned scan. -/
-def forcedCompilerObserverOnly (report : Regula.Checker.ProducerReport.Environment) : IO
-    (Option Name) := forcedCompilerObserverFrom report.moduleOrigins
+/-- Each observer is infrastructure only through authenticated reporters or an already
+force-only collector. A claimed import keeps that observer in the ordinary owned scan. -/
+def forcedObserversOnly (report : Regula.Checker.ProducerReport.Environment) : IO
+    (Array Name) := forcedObserversFrom report.moduleOrigins
 
 /-- The ordinary loaded modules after authenticating the existing force-only exemptions. -/
 def ModuleGraph.ordinaryModules (graph : ModuleGraph) : IO (Array Name) := do
   let codec ← forcedPublicModule graph.moduleOrigins `Regula.StructuralName "structural-name codec"
   let collector ← forcedCollectorFrom graph.moduleOrigins
-  let observer ← forcedCompilerObserverFrom graph.moduleOrigins
+  let observers ← forcedObserversFrom graph.moduleOrigins
   return graph.modules.filter fun name =>
     !(probeModuleNames.map String.toName).contains name && name != codec &&
-      some name != collector && some name != observer
+      some name != collector && !observers.contains name
 
 /-- Bind this environment's requested roots and every other positively assigned module it
 loads before using the graph for violations. Excluded modules remain scope observations. -/
@@ -596,11 +599,11 @@ def infrastructureOrigins (snapshot : RegulaPolicy.AdmittedSnapshot)
   let some lib ← checkerPackageLibDir
     | throw <| IO.userError "checker library path unavailable"
   let collector ← forcedCollectorOnly report
-  let observer ← forcedCompilerObserverOnly report
+  let observers ← forcedObserversOnly report
   let mut receipts := #[]
   for name in RegulaPolicy.infrastructureModuleNames do
     if name == `Regula.Collect && collector.isNone then continue
-    if name == `Regula.CompilerObservation && observer.isNone then continue
+    if RegulaPolicy.observerInfrastructureModuleNames.contains name && !observers.contains name then continue
     let origins := report.moduleOrigins.filter (·.name == name)
     let some origin := origins[0]?
       | throw <| IO.userError s!"missing infrastructure origin: {name}"
@@ -691,12 +694,12 @@ private def replacementHistory (sourceRoots : Array FilePath)
     let source ← if let some (_, source) := moduleSources.find? (·.1 == moduleName) then
         pure source
       else if ← Regula.Filesystem.isPresent alongside then pure alongside else
-        Lean.findLean (sourceRoots.toList ++ (← Lean.getSrcSearchPath) ++
-          [(← Lean.findSysroot) / "src" / "lean"])
+        Lean.findLean (sourceRoots.toList ++ (← Regula.Process.srcSearchPath) ++
+          [(← Regula.Process.sysroot) / "src" / "lean"])
           moduleName
-    let some bin := (← IO.appPath).parent
+    let some bin := (← Regula.Process.appPath).parent
       | throw <| IO.userError "checker binary directory unavailable"
-    withScratch (← IO.currentDir) "replacement-history" fun scratch => do
+    withScratch (← Regula.Process.currentDir) "replacement-history" fun scratch => do
       let output := scratch / "history.json"
       let sourceBefore ← IO.FS.readFile source
       let request := sourceWorkerRequest "history" moduleName source sourceBefore
@@ -706,7 +709,7 @@ private def replacementHistory (sourceRoots : Array FilePath)
         sourceBefore, searchIdentity := (memo.map (·.2)).getD searchPath
         binary := (bin / "axiomGate").toString, output := "" }
       let written ← historyWorkerOutput (memo.map (·.1)) inputs do
-        let result ← IO.Process.output {
+        let result ← Regula.Process.output (.stated (bin / "axiomGate") "The checker observes replacement history in its own worker") {
           cmd := (bin / "axiomGate").toString
           args :=
               #["--replacement-history-worker", (Regula.RegistryCodec.nameJson moduleName).compress,
@@ -937,7 +940,7 @@ private def linkProbeOverlay (overlay selfLib : FilePath) (searchPath : List Fil
           ((byDirectory.getD parent #[]).push file.toString)
   for (directory, files) in byDirectory.toArray do
     IO.FS.createDirAll directory
-    let linked ← runProcess overlay "ln" (#["-s"] ++ files ++ #[directory.toString])
+    let linked ← runProcess overlay (.stated "ln" "The read-only import overlay links artifacts to preserve their real origin") (#["-s"] ++ files ++ #[directory.toString])
     if !linked.succeeded then
       throw <| IO.userError s!"could not expose trusted probe modules: {linked.output}"
   let canonical := (order.map fun module =>
@@ -950,7 +953,7 @@ private def withProbeSearch {α : Type} (action : String → IO α) : IO α := d
   let some selfLib ← checkerPackageLibDir
     | throw <| IO.userError "trusted checker library directory unavailable"
   let selfLib ← IO.FS.realPath selfLib
-  withScratch (← IO.currentDir) "probe-search" fun overlay => do
+  withScratch (← Regula.Process.currentDir) "probe-search" fun overlay => do
     let oldSearchPath ← Lean.searchPathRef.get
     let mapping ← linkProbeOverlay overlay selfLib oldSearchPath
     Lean.searchPathRef.set (overlay :: oldSearchPath)

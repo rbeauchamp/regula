@@ -165,7 +165,8 @@ def check : IO Unit := do
       let child := scratch / "child"
       workspace toolchain child dep rev
       for phase in ["clone", "materialized"] do
-        let out ← run child "lake" #["resolve-deps"] (clean ++ competing other ++ isolation)
+        let out ← run child (.toolchain .lake) #["resolve-deps"]
+          (clean ++ competing other ++ isolation)
         requireChecks [
           ⟨s!"isolated Lake child ({phase}) exits 0: {out.stdout}{out.stderr}", out.exitCode == 0⟩,
           ⟨s!"isolated Lake child ({phase}) materializes the intended dependency",
@@ -175,7 +176,7 @@ def check : IO Unit := do
       -- The same Lake child with `core.symlinks=true` after the isolation.
       let linked := scratch / "linked"
       workspace toolchain linked dep rev
-      let mutated ← run linked "lake" #["resolve-deps"]
+      let mutated ← run linked (.toolchain .lake) #["resolve-deps"]
         (clean ++ competing other ++ isolation ++ #[("GIT_CONFIG_VALUE_0", some "true")])
       requireChecks [
         ⟨s!"Lake child with core.symlinks=true exits 0: {mutated.stdout}{mutated.stderr}",
@@ -183,18 +184,20 @@ def check : IO Unit := do
         ⟨"Lake child with core.symlinks=true makes the link a symbolic link",
           (← observeMetadata (linked / ".lake/packages/dep" / link.1)).type == .symlink⟩]
       -- The same Lake child without the isolation.
-      let exposed ← run child "lake" #["resolve-deps"] (clean ++ competing other)
+      let exposed ← run child (.toolchain .lake) #["resolve-deps"] (clean ++ competing other)
       requireChecks [⟨s!"Lake's Git commands ignore the inherited environment: \
           {exposed.stdout}{exposed.stderr}",
         !(exposed.exitCode == 0 && (← intended child dep rev) && (← state other) == before)⟩]
       -- A compiled program that loads the workspace in its own process.
-      let program := (← IO.appPath).toString
+      let program := (← Regula.Process.appPath).toString
+      let self : Regula.Process.Program :=
+        .stated program "The control starts the running qualify executable itself"
       let env := clean ++ #[(workerVariable, some "1"), ("REGULA_QUALIFICATION_WRAPPER", none),
         ("REGULA_RECEIPT_TIMER", none)] ++ competing other
       let inProcess := scratch / "in-process"
       workspace toolchain inProcess dep rev
-      let loaded ← IO.Process.output {
-        cmd := program, args := #[inProcess.toString], env, stdin := .null }
+      let loaded ← Regula.Process.output self
+        { cmd := program, args := #[inProcess.toString], env, stdin := .null }
       requireChecks [
         ⟨s!"restarted program loads: {loaded.stdout}{loaded.stderr}",
           loaded.exitCode == 0 && loaded.stdout.contains "loaded 2 packages"⟩,
@@ -205,7 +208,7 @@ def check : IO Unit := do
       -- The same program, as if it had already started again.
       let refusedRoot := scratch / "refused"
       workspace toolchain refusedRoot dep rev
-      let refused ← IO.Process.output {
+      let refused ← Regula.Process.output self {
         cmd := program, args := #[Regula.GitIsolation.restarted, refusedRoot.toString], env,
         stdin := .null }
       requireChecks [
@@ -219,11 +222,14 @@ def check : IO Unit := do
       let renamedRoot := scratch / "renamed-root"
       workspace toolchain renamedRoot dep rev
       let renamed := scratch / "qualify-renamed"
-      let linkedProgram ← run scratch "ln" #[program, renamed.toString] #[]
+      let linkedProgram ← run scratch
+        (.stated "ln" "The control makes a hard link to the running executable under another name")
+        #[program, renamed.toString] #[]
       unless linkedProgram.exitCode == 0 do
         throw <| IO.userError s!"fixture ln: {linkedProgram.stderr}"
-      let renamedRun ← IO.Process.output {
-        cmd := renamed.toString, args := #[renamedRoot.toString], env, stdin := .null }
+      let renamedRun ← Regula.Process.output
+        (.stated renamed "The control starts its hard link to the running executable")
+        { cmd := renamed.toString, args := #[renamedRoot.toString], env, stdin := .null }
       requireChecks [
         ⟨s!"a renamed program refuses without isolation: {renamedRun.stdout}{renamedRun.stderr}",
           renamedRun.exitCode == 1 &&
@@ -236,11 +242,10 @@ def check : IO Unit := do
           !(← Regula.Filesystem.isPresent (renamedRoot / ".lake"))⟩]
       -- A program that the Lean frontend runs, without and with the isolation.
       construct (scratch / "interpreted") [⟨["Interpreted.lean"], .file interpreted.toUTF8⟩]
-      let lean := ((← Regula.Toolchain.sysroot) / "bin" / "lean").toString
       let source := (scratch / "interpreted/Interpreted.lean").toString
       let leanEnv := clean ++ #[("LEAN_PATH", some (root / ".lake/build/lib/lean").toString)] ++
         competing other
-      let frontend ← run scratch lean #["--run", source] leanEnv
+      let frontend ← run scratch (.toolchain .lean) #["--run", source] leanEnv
       -- The refusal names only the entries that the environment lacks: the competing ones, not
       -- `GIT_CONFIG_NOSYSTEM`, which this isolated process passes on unchanged.
       requireChecks [⟨s!"an interpreted program refuses without isolation: \
@@ -256,7 +261,7 @@ def check : IO Unit := do
           !frontend.stdout.contains "GIT_CONFIG_NOSYSTEM"⟩]
       -- Under isolation the program runs after the refusal that marks its destinations, and no
       -- other refusal runs.
-      let isolated ← run scratch lean #["--run", source] (leanEnv ++ isolation)
+      let isolated ← run scratch (.toolchain .lean) #["--run", source] (leanEnv ++ isolation)
       requireChecks [⟨s!"an interpreted program runs under isolation: \
           {isolated.stdout}{isolated.stderr}",
         isolated.exitCode == 0 &&

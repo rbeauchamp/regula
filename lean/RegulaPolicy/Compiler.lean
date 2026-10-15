@@ -98,15 +98,13 @@ def refusal (observedVersion observedCommit : String) : String :=
     https://github.com/rbeauchamp/regula/blob/main/docs/guides/toolchains.md."
 
 /-- Cold Lake configuration and compilation run this guard from this source file.
-It needs no package artifacts or dependency resolution. After accepting the compiler that
-elaborates it, it prints that compiler's version and commit when `REGULA_COMPILER_GUARD` is `1`:
-the cold guard requires them to be those of the Lean running Lake. -/
+It needs no package artifacts or dependency resolution. It refuses a compiler that this source
+revision does not support, prints nothing and reads no environment. Each cold caller starts it
+through the process observer, which first checks that the selected compiler reports the identity
+of the caller's own Lean. -/
 def checkCurrent : IO Unit := do
   unless accepts Lean.versionString Lean.githash do
     throw <| IO.userError (refusal Lean.versionString Lean.githash)
-  if (← IO.getEnv "REGULA_COMPILER_GUARD") == some "1" then
-    IO.println Lean.versionString
-    IO.println Lean.githash
 
 end RegulaPolicy.Compiler
 

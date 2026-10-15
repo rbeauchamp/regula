@@ -4,6 +4,8 @@ import RegulaSite
 import Regula.TaskManagerCheck
 import RegulaCore.Site
 import Generated
+import Regula.Removal
+import Regula.ProgramCheck.Renderer
 
 /-! Renders the generated rule reference as multi-page HTML. Run through
 `lake exe site build` in the repository root, which generates `Generated` and the site
@@ -30,9 +32,13 @@ def siteConfig : RenderConfig := {
   sourceLink := some "https://github.com/rbeauchamp/regula",
   issueLink := some "https://github.com/rbeauchamp/regula/issues" }
 
+set_option compiler.small 0 in
 /-- Renders the site with Verso's command-line options `options` and the configuration `siteConfig`,
-which its refusal reads them with too (`refuseSite`). -/
-def renderSite (options : List String) : IO UInt32 :=
+which its refusal reads them with too (`refuseSite`). The one call of Verso's `manualMain` in this
+program is here: a listed entry of the process and environment rows of `Regula.Removal.boundaries`,
+which admits only that row's renderer pairs below it. It is compiled without small-function
+inlining (`compiler.small` 0), so its compiled code keeps that call. -/
+@[noinline] def renderSite (options : List String) : IO UInt32 :=
   manualMain (%doc Generated) (options := options) (config := siteConfig)
 
 /-- The refusal of the renderer in a process without Lean's task manager
@@ -49,6 +55,12 @@ def refuseSite (reason : String) (args : List String) : IO UInt32 :=
 with exit code 1 (`Regula.TaskManager.guard`). -/
 def main : List String → IO UInt32 :=
   Regula.TaskManager.guard "regula-site" refuseSite renderSite
+
+-- The process starts and environment reads that `main` and the initializers of the modules it
+-- links reach, and the removals that the compiled code of those modules reaches, go through their
+-- observers or sourced exemptions; Verso's writes are trusted effects of the library: the build of
+-- this module fails otherwise (`Regula.ProgramCheck.Renderer.check`).
+run_cmd Regula.ProgramCheck.Renderer.check
 
 -- A program that needs Lean's task manager starts through its guard (`Regula.TaskManager.guard`),
 -- and its refusal needs none: the build of this module fails otherwise

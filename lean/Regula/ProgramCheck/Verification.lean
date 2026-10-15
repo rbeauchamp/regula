@@ -3,15 +3,17 @@ import Regula.Removal
 import Regula.Destination
 import Regula.Checker.LakeSelection
 
-/-! # The removal and write check of the verification driver
+/-! # The observer reach check of the verification driver
 
 `scripts/verify.sh` runs the verification driver with `lean --run` before the package is built, so
-it imports only the toolchain's libraries: it cannot import the filesystem observer, and it does
-not run the check itself. This module imports it, and its build fails when the compiled code of
-the driver reaches a removal outside the observer, or a write of a file or a directory, except the
-calls that the check admits in every program (`Regula.Removal.sharedPairs`) and the driver's own
-calls that it names. It names each as the pair of the declaration of a source that makes it and
-the primitive that it calls (`Regula.Removal.checkProgram`):
+it imports only the toolchain's libraries: it cannot import the observers, and it does not run the
+check itself. This module imports it, and its build fails when the compiled code of the driver
+reaches a primitive that the check refuses (`Regula.Removal.checkProgram`): a removal outside the
+filesystem observer, a write of a file or a directory, or a process start or environment read
+outside the process observer. It admits the calls that the check admits in every program
+(`Regula.Removal.sharedPairs`), the bootstrap pairs of the driver's process source
+(`Regula.Removal.bootstrap`) and the driver's own calls that it names, each as the pair of the
+declaration of a source that makes it and the primitive that it calls:
 
 - the removals of a directory, in `RegulaVerification.removeDecided`, which takes the proof that
   `RegulaVerification.removal` decided the removal, the decision that
@@ -52,7 +54,7 @@ before the first acceptance step (`RegulaVerification.dependencyFree`). `rootFil
 entry for any name from a read that the driver accepts. A control below runs that read and check on
 files that Lake's own encoder writes. -/
 
-run_cmd Regula.Removal.checkProgram (named := [
+run_cmd Regula.Removal.checkProgram (bootstrap := `RegulaVerification.Process) (named := [
   (``RegulaVerification.removeDecided, ``IO.FS.removeDirAll),
   (``RegulaVerification.removeOwn, ``IO.FS.removeDirAll),
   (``RegulaVerification.reclaim, ``IO.FS.removeDirAll),

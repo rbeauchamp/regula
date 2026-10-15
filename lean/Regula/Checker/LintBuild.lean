@@ -396,7 +396,7 @@ def moduleImports (ws : _root_.Lake.Workspace) (modules : Array Name) :
   -- reads the same headers.
   let discarded ← IO.mkRef ({} : IO.FS.Stream.Buffer)
   let answers ← try
-      ws.runBuild (_root_.Lake.querySpecs specs .json)
+      Regula.Checker.Workspace.runBuild ws (_root_.Lake.querySpecs specs .json)
         { out := .stream (IO.FS.Stream.ofBuffer discarded), ansiMode := .noAnsi }
     catch _ => return none
   unless answers.size == modules.size do return none

@@ -1,3 +1,4 @@
+import Lake.Config.InstallPath
 import Lean
 
 /-! # The diagnostics gate
@@ -61,6 +62,21 @@ collision resistance, not a theorem.
 -/
 
 namespace Regula.DiagnosticsGate
+
+namespace Process
+
+-- The workflow runs this source before project artifacts exist. Interpret the one process policy.
+run_cmd do
+  let origin ← Lean.getRef
+  let before ← Lean.getEnv
+  let input := Lean.Parser.mkInputContext (include_str "ProcessSource.inc") "Regula/ProcessSource.inc"
+  let result ← Lean.Elab.IO.processCommands input {} (← get)
+  set result.commandState
+  for (name, _) in result.commandState.env.constants.toList do
+    unless before.contains name do
+      Lean.Elab.addDeclarationRangesFromSyntax name origin
+
+end Process
 
 open Lean
 
@@ -386,7 +402,7 @@ theorem digestRefusals_eq_nil_iff (required : Bool) (positive restored : Option 
 /-! ## Steps -/
 
 private def env (name : String) : IO String := do
-  match ← IO.getEnv name with
+  match ← Process.readEnv name with
   | some v => if v.isEmpty then fail s!"{name} is empty" else pure v
   | none => fail s!"{name} is not set"
 
@@ -395,16 +411,17 @@ because this cold workflow imports only the toolchain. No Git policy is reimplem
 
 Assumes: Lean v4.34.1 `Lean/Elab/BuiltinTerm.lean:437-445` captures include_str source;
 `IO.Process.output` supplies stdin and waits for the child (`Init/System/IO.lean:1544-1557`);
-`Lean/Util/Path.lean:85-86` identifies the interpreter. `--stdin --run`
+`Process.identified` checks the selected installation's compiler identity. `--stdin --run`
 (`Lean/Shell.lean:497-518,552-560`) executes the embedded source without a temporary file or
 removal; interpreter execution is trusted.
 Construction.gitEnvironment names the pinned Git and OS assumptions. -/
 private def gitEnvironment : IO (Array (String × Option String)) := do
-  let out ← IO.Process.output {
-    cmd := ((← Lean.getBuildDir) / "bin/lean").toString
+  let out ← Process.output (.toolchain .lean) {
+    cmd := ""
     args := #["--stdin", "--run", "GitEnvironment.lean", "git-environment", "", ""]
     env := #[("LEAN_PATH", none), ("LEAN_SRC_PATH", none)] }
-    ((include_str "../RegulaCore/CopyProgram.lean") ++
+    (Process.constructorSource (include_str "../RegulaCore/CopyProgram.lean")
+      (include_str "ProcessSource.inc") (include_str "GitProcessSource.inc") ++
       "\n/-- Cold environment entrypoint. -/\ndef main := Regula.Filesystem.Construction.sourceMain\n")
   unless out.exitCode == 0 do fail s!"Git environment unavailable: {out.stderr}"
   IO.ofExcept (fromJson? (← IO.ofExcept (Json.parse out.stdout)))
@@ -412,7 +429,7 @@ private def gitEnvironment : IO (Array (String × Option String)) := do
 /-- Run `git` with `args` in the checkout; its standard output as it is, or a failure with its
 standard error. -/
 private def git (args : Array String) : IO String := do
-  let out ← IO.Process.output {
+  let out ← Process.output (.stated "git" "Git is the stated repository mechanism") {
     cmd := "git", args := #["-c", "core.symlinks=false"] ++ args, env := ← gitEnvironment }
   unless out.exitCode == 0 do fail s!"git {args}: {out.stderr}"
   return out.stdout

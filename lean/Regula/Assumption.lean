@@ -170,7 +170,10 @@ private def role (declaration : Name) (stx : Syntax) : CoreM Role := do
 
 /-- Register one of the three attributes. Each is applied after compilation, as
 `@[regula_decision]` is, so that it marks the declaration that carries it and no definition Lean
-generates from it. -/
+generates from it. After the ownership check, role validation reads the declaring module's full
+view, including its public definition's body.
+Assumes: Lean v4.34.1 `Lean/Attributes.lean:59-61` runs public attribute handlers in the exporting
+view; `Lean/Environment.lean:2840-2860` supplies the local full view through withExporting. -/
 private def register (name : Name) (descr : String) : IO Unit :=
   registerBuiltinAttribute {
     ref := ``roleExtension
@@ -188,7 +191,7 @@ private def register (name : Name) (descr : String) : IO Unit :=
           declares the constant"
       if let some earlier := (roleExtension.getState env).find? declaration then
         throwError "`{privateToUserName declaration}` already has a role: {repr earlier}"
-      let role ← role declaration stx
+      let role ← withExporting (isExporting := false) (role declaration stx)
       modifyEnv fun env => roleExtension.addEntry (asyncDecl := declaration) env (declaration, role)
   }
 

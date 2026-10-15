@@ -1,6 +1,8 @@
 import Lean
+import Regula.Process
 import Regula.RegistryCodec
 import RegulaCore.CopyProgram
+import Regula.Filesystem
 import RegulaCore.Presence
 
 /-! # Producer build identity

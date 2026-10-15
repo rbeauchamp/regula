@@ -1,4 +1,5 @@
 import Regula.Checker.Common
+import Regula.Process
 import RegulaQualification.Checks
 import RegulaQualification.Member
 import Regula.Scratch
@@ -29,17 +30,19 @@ def requireChecks (checks : List Check) : IO Unit :=
 def timeoutCommand : IO String := do
   for command in #["gtimeout", "timeout"] do
     try
-      let result ← IO.Process.output { cmd := command, args := #["--version"] }
+      let result ← Regula.Process.output (.stated command "Select and authenticate the external GNU timeout utility")
+        { cmd := "", args := #["--version"] }
       if result.exitCode == 0 && result.stdout.contains "GNU coreutils" then return command
     catch _ => pure ()
   throw <| IO.userError "qualification requires GNU coreutils timeout"
 
 /-- Run within the public entrypoint's timed process group. Do not detach a nested
 process group: the enclosing deadline must kill descendants holding output pipes too. -/
-def run (root : FilePath) (command : String) (args : Array String)
+def run (root : FilePath) (command : Regula.Process.Program) (args : Array String)
     (env : Array (String × Option String) := #[]) : IO IO.Process.Output := do
-  let result ← IO.Process.output (← Regula.Filesystem.Construction.gitProcessArgs
-    { cmd := command, args, cwd := some root, env })
+  let options ← Regula.Filesystem.Construction.gitProcessArgs
+    { cmd := command.statedCommand.getD "", args, cwd := some root, env }
+  let result ← Regula.Process.output command options
   if #[124, 125, 126, 127, 137].contains result.exitCode then
     throw <|
         IO.userError s!"qualification process failed/timed \
@@ -66,13 +69,16 @@ write to this process's standard error that fails loses only that copy: the pipe
 its end and its text kept, so the start never waits on a full pipe. A start that ends with one of
 `startupFailureStatuses` ran no command: the result is the error with that status and the kept
 text. Otherwise it is the command's exit status. -/
-def runBounded (root : FilePath) (seconds : Nat) (command : String) (args : Array String) :
-    IO (Except String UInt32) := do
+def runBounded (root : FilePath) (seconds : Nat) (command : Regula.Process.Program)
+    (args : Array String) : IO (Except String UInt32) := do
   let timer ← timeoutCommand
-  let options ← Regula.Filesystem.Construction.gitProcessArgs {cmd := command, args}
-  let child ← IO.Process.spawn {
-    cmd := timer, args := #["--signal=KILL", s!"{seconds}s", options.cmd] ++ options.args,
-    env := options.env,
+  let options ← Regula.Filesystem.Construction.gitProcessArgs
+    {cmd := command.statedCommand.getD "", args}
+  let selected ← Regula.Process.prepare command
+    {options with cwd := some root, stdin := .null, stdout := .inherit, stderr := .piped}
+  let child ← Regula.Process.spawn (.stated timer "The authenticated GNU timeout owns this diagnostic\'s deadline") {
+    cmd := "", args := #["--signal=KILL", s!"{seconds}s", selected.emit.cmd] ++ selected.emit.args,
+    env := selected.env,
     cwd := some root, stdin := .null, stdout := .inherit, stderr := .piped }
   let forwarded ← IO.asTask (prio := .dedicated) do
     let out ← IO.getStderr
@@ -164,7 +170,7 @@ def writeEvidence (path : FilePath) (value : Json) : IO Unit :=
 /-- Root-relative entrypoints must be run in the package root, never inferred from
 source-file text or another checkout's executable location. -/
 def rootDirectory : IO FilePath := do
-  let root ← IO.FS.realPath (← IO.currentDir)
+  let root ← IO.FS.realPath (← Regula.Process.currentDir)
   requireChecks [⟨"run qualification from the Regula package root",
     (← Regula.Filesystem.isPresent (root / "lean-toolchain")) &&
       (← Regula.Filesystem.isPresent (root / "lakefile.lean"))⟩]

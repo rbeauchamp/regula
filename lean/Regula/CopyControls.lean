@@ -20,9 +20,10 @@ open Regula.Filesystem
 /-- Require an external fixture-maker to succeed. The link and FIFO creation below is deliberate
 negative input, never the implementation of an accepted copy. Git fixture writers disable
 automatic maintenance so no detached writer can race the subsequent source capture. -/
-private def fixture (command : String) (args : Array String) : IO Unit := do
-  let args := if command == "git" then #["-c", "maintenance.auto=false"] ++ args else args
-  let out ← IO.Process.output (← Construction.gitProcessArgs {cmd := command, args})
+private def fixture (command : Regula.Process.Program) (args : Array String) : IO Unit := do
+  let cmd := command.statedCommand.getD ""
+  let args := if cmd == "git" then #["-c", "maintenance.auto=false"] ++ args else args
+  let out ← Regula.Process.output command (← Construction.gitProcessArgs {cmd, args})
   unless out.exitCode == 0 do throw <| IO.userError s!"fixture failed: {out.stderr}"
 
 /-- Refuse an operation for its construction reason. A failure elsewhere does not qualify it. -/
@@ -62,11 +63,11 @@ run_cmd do
       for directory in [".lake", ".cache", "tmp"] do
         unless !(← Regula.Filesystem.isPresent (selectedCopy / directory / "stale")) do
           throw <| IO.userError "cold project selection included an unselected pruned sibling"
-      fixture "ln" #["-s", "../plain", (policies / ".cache/link").toString]
+      fixture (.stated "ln" "This control deliberately creates a symbolic-link input") #["-s", "../plain", (policies / ".cache/link").toString]
       refused "selected policy link" "selected entry is not a regular file" <|
         discard <| Construction.sourceMain
           ["project", policies.toString, (base / "selected-link-output").toString, ".cache/link"]
-      fixture "ln" #["-s", "..", (policies / ".cache/ancestor").toString]
+      fixture (.stated "ln" "This control deliberately creates a symbolic-link input") #["-s", "..", (policies / ".cache/ancestor").toString]
       refused "selected policy ancestor link" "selected ancestor is not a directory" <|
         discard <| Construction.sourceMain
           ["project", policies.toString, (base / "selected-ancestor-output").toString, ".cache/ancestor/plain"]
@@ -84,18 +85,18 @@ run_cmd do
         discard <| Regula.Qualification.Slot.prepareSlot source ⟨slot⟩
           #[(source / "plain", "source bytes".toUTF8), (source / "plain", "different".toUTF8)] #[] #[]
       let alias := base / "source-alias"
-      fixture "ln" #["-s", source.toString, alias.toString]
+      fixture (.stated "ln" "This control deliberately creates a symbolic-link input") #["-s", source.toString, alias.toString]
       refused "slot linked source" "not a directory or" <|
         discard <| Regula.Qualification.Slot.copyTree alias (base / "slot-link-output")
       let gitAlias := base / "git-alias"
-      fixture "ln" #["-s", (source / "plain").toString, gitAlias.toString]
+      fixture (.stated "ln" "This control deliberately creates a symbolic-link input") #["-s", (source / "plain").toString, gitAlias.toString]
       refused "slot linked Git pointer" "not a directory or" <|
         Regula.Qualification.Slot.materializeGit (base / "git-output") gitAlias
-      fixture "ln" #["-s", "plain", (source / "link").toString]
+      fixture (.stated "ln" "This control deliberately creates a symbolic-link input") #["-s", "plain", (source / "link").toString]
       refused "source link" "not a directory or" (discard <| copy source (base / "link-output"))
       removeOwn .link (source / "link")
       IO.eprintln "construction controls: FIFO"
-      fixture "mkfifo" #[(source / "pipe").toString]
+      fixture (.stated "mkfifo" "This control deliberately creates a FIFO input") #[(source / "pipe").toString]
       refused "source FIFO" "not a directory or" (discard <| copy source (base / "pipe-output"))
       refused "slot Git FIFO" "not a directory or" <|
         Regula.Qualification.Slot.materializeGit (base / "fifo-git-output") (source / "pipe")
@@ -108,7 +109,7 @@ run_cmd do
       let parent := base / "exclusive"
       IO.eprintln "construction controls: exclusive final link"
       construct parent []
-      fixture "ln" #["-s", (base / "absent").toString, (parent / "vendor").toString]
+      fixture (.stated "ln" "This control deliberately creates a symbolic-link input") #["-s", (base / "absent").toString, (parent / "vendor").toString]
       let output ← (Construction.emitWith Construction.observer parent
         [⟨["vendor"], .file "never follows the link".toUTF8⟩]).toBaseIO
       unless output matches .error _ do
@@ -139,10 +140,10 @@ run_cmd do
         ⟨[".lake", "build", "lib", "Cached.olean"], .file "reusable build output".toUTF8⟩,
         ⟨[".lake", "cache"], .file "unselected cache".toUTF8⟩,
         ⟨["untracked"], .file "unselected source".toUTF8⟩])
-      fixture "git" #["-C", source.toString, "init", "--quiet"]
-      fixture "ln" #["-s", "plain", (source / "tracked-link").toString]
-      fixture "git" #["-C", source.toString, "-c", "core.symlinks=true", "add", "plain", "tracked-link", ".gitignore"]
-      fixture "git" #["-C", source.toString, "-c", "user.name=Construction Control",
+      fixture (.stated "git" "Git creates this deliberate repository fixture") #["-C", source.toString, "init", "--quiet"]
+      fixture (.stated "ln" "This control deliberately creates a symbolic-link input") #["-s", "plain", (source / "tracked-link").toString]
+      fixture (.stated "git" "Git creates this deliberate repository fixture") #["-C", source.toString, "-c", "core.symlinks=true", "add", "plain", "tracked-link", ".gitignore"]
+      fixture (.stated "git" "Git creates this deliberate repository fixture") #["-C", source.toString, "-c", "user.name=Construction Control",
         "-c", "user.email=construction@example.invalid", "-c", "commit.gpgsign=false",
         "commit", "--quiet", "-m", "controlled index"]
       let target := base / "git-target"
@@ -183,24 +184,25 @@ run_cmd do
       else removeOwn .file (source / ".git/commondir")
       -- Configuration scope, repository selectors, stored index spellings and alternate stores
       -- are external Git/filesystem boundaries. Each control targets one closed-domain refusal.
-      fixture "git" #["-C", source.toString, "config", "extensions.worktreeConfig", "true"]
+      fixture (.stated "git" "Git creates this deliberate repository fixture") #["-C", source.toString, "config", "extensions.worktreeConfig", "true"]
       Construction.appendFileWith Construction.observer (source / ".git") "config.worktree"
         "[core]\n\tsymlinks = true\n".toUTF8
       refused "Git worktree extension" "outside the closed case" <|
         discard <| Construction.copyGit source (base / "extension-output")
-      fixture "git" #["-C", source.toString, "config", "--unset", "extensions.worktreeConfig"]
+      fixture (.stated "git" "Git creates this deliberate repository fixture") #["-C", source.toString, "config", "--unset", "extensions.worktreeConfig"]
       removeOwn .file (source / ".git/config.worktree")
       let other := base / "other"
       construct other [⟨["plain"], .file "another repository".toUTF8⟩]
-      fixture "git" #["-C", other.toString, "init", "--quiet"]
-      fixture "ln" #["-s", "other-target", (other / "tracked-link").toString]
-      fixture "git" #["-C", other.toString, "-c", "core.symlinks=true", "add", "plain", "tracked-link"]
+      fixture (.stated "git" "Git creates this deliberate repository fixture") #["-C", other.toString, "init", "--quiet"]
+      fixture (.stated "ln" "This control deliberately creates a symbolic-link input") #["-s", "other-target", (other / "tracked-link").toString]
+      fixture (.stated "git" "Git creates this deliberate repository fixture") #["-C", other.toString, "-c", "core.symlinks=true", "add", "plain", "tracked-link"]
       construct (base / "worker") [⟨["source.lean"], .file
-        ((include_str "../RegulaCore/CopyProgram.lean") ++
+        (Regula.Process.constructorSource (include_str "../RegulaCore/CopyProgram.lean")
+          (include_str "ProcessSource.inc") (include_str "GitProcessSource.inc") ++
           "\n/-- Controlled cold copy. -/\ndef main := Regula.Filesystem.Construction.sourceMain\n").toUTF8⟩]
       let isolated := base / "isolated-output"
-      let out ← IO.Process.output {
-        cmd := ((← Lean.getBuildDir) / "bin/lean").toString
+      let out ← Regula.Process.output (.toolchain .lean) {
+        cmd := ""
         args := #["--run", (base / "worker/source.lean").toString, "git", source.toString, isolated.toString]
         env := #[("LEAN_PATH", none), ("LEAN_SRC_PATH", none),
           ("GIT_DIR", some (other / ".git").toString), ("GIT_WORK_TREE", some other.toString),
@@ -251,11 +253,11 @@ run_cmd do
       refused "Git slot common alternates" "alternates are outside" <|
         Regula.Qualification.Slot.materializeGit (base / "alternate-slot-output") (linked / ".git")
       removeOwn .file (source / ".git/objects/info/alternates")
-      fixture "ln" #["-s", "../../../plain", (source / ".lake/build/untracked-link").toString]
+      fixture (.stated "ln" "This control deliberately creates a symbolic-link input") #["-s", "../../../plain", (source / ".lake/build/untracked-link").toString]
       refused "untracked Git build link" "not a directory or" <|
         discard <| Construction.copyGit source (base / "untracked-build-output")
       removeOwn .link (source / ".lake/build/untracked-link")
-      fixture "ln" #["-s", "plain", (source / "untracked-link").toString]
+      fixture (.stated "ln" "This control deliberately creates a symbolic-link input") #["-s", "plain", (source / "untracked-link").toString]
       refused "untracked Git source link" "not a directory or" <|
         discard <| Construction.copyGit source (base / "untracked-output")
       IO.eprintln "construction controls: tracked Git link regular and clean; untracked link refused"
@@ -327,9 +329,10 @@ def checkWorkspace : IO Unit := do
         ("excluded-executables", toJson (#[] : Array Json))]).pretty ++ "\n"
       let external := source / "../selected-policy.json"
       Construction.appendFileWith Construction.observer base "selected-policy.json" policy.toUTF8
-      let binary ← IO.FS.realPath ((← IO.currentDir) / ".lake/build/bin/axiomGate")
+      let binary ← IO.FS.realPath ((← Regula.Process.currentDir) / ".lake/build/bin/axiomGate")
       let output := base / "external-manifest-result.json"
-      let audit ← IO.Process.output {
+      let audit ← Regula.Process.output
+        (.stated binary.toString "This control runs the resolved public audit executable") {
         cmd := binary.toString, cwd := some source
         args := #["--project", source.toString, "--manifest", external.toString,
           "--incremental", "--json-out", output.toString]
@@ -357,7 +360,8 @@ def checkWorkspace : IO Unit := do
       for selected in policies do
         let path := source / selected
         let freshOutput := base / "fresh-manifest-result.json"
-        let fresh ← IO.Process.output {
+        let fresh ← Regula.Process.output
+          (.stated binary.toString "This control runs the resolved public audit executable") {
           cmd := binary.toString, cwd := some source,
           args := #["--project", source.toString, "--manifest", path.toString,
             "--json-out", freshOutput.toString],
@@ -425,8 +429,9 @@ def checkWorkspace : IO Unit := do
             "name = \"trusted\"\n[[lean_lib]]\nname = \"Trusted\"\n".toUTF8⟩,
           ⟨trusted ++ ["Trusted.lean"], .file "/-! Trusted dependency. -/\n".toUTF8⟩,
           ⟨(FilePath.mk packages).components ++ ["stale"], .file "unselected".toUTF8⟩]))
-        fixture "git" #["-C", source.toString, "init", "--quiet"]
-        fixture "git" #["-C", (source / packages / "trusted").toString, "init", "--quiet"]
+        fixture (.stated "git" "Git creates this deliberate repository fixture") #["-C", source.toString, "init", "--quiet"]
+        fixture (.stated "git" "Git creates this deliberate repository fixture")
+          #["-C", (source / packages / "trusted").toString, "init", "--quiet"]
         let target := source / ".lake/copied"
         let selected := source / packages / "dep/.lake/policy.json"
         let result ← Regula.Checker.Lake.copyProject source target target (policy := some selected)

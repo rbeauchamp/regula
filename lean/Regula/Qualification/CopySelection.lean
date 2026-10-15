@@ -25,7 +25,8 @@ private def refused (reason : String) (action : IO Unit) : IO Unit := do
 implementation uses this operation. Git and native link creation are trusted fixture mechanisms. -/
 private def sourceLink (project : FilePath) (relative target : String) : IO Unit := do
   let git (args : Array String) : IO String := do
-    let result ← IO.Process.output (← Construction.gitProcessArgs {
+    let result ← Regula.Process.output (.stated "git" "Git creates the deliberate indexed-link input")
+      (← Construction.gitProcessArgs {
       cmd := "git", args := #["-C", project.toString] ++ args })
     unless result.exitCode == 0 do throw <| IO.userError result.stderr
     return result.stdout.trimAscii.toString
