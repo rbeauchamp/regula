@@ -3,6 +3,8 @@ import Regula.Checker.Producer
 import Regula.Checker.PolicyCodec
 import RegulaCore.JsonAgreement
 import RegulaCore.CopyProgram
+import RegulaCore.CopyConstruction
+import Regula.CompilerObservation
 import Regula.Scratch
 import Regula.Destination
 import RegulaPolicy.ResultState
@@ -80,7 +82,7 @@ directory or file of its root's name (`SearchPath.findWithExt`, `Lean/Util/Path.
 Nothing is written into the toolchain, and `Regula.Filesystem.removeOwn` removes each link, not
 the file it points to. -/
 def exposeToolchainRoot (cwd output : FilePath) (root : String) : IO Unit := do
-  let toolchainLib ← Lean.getLibDir (← Lean.findSysroot)
+  let toolchainLib ← Lean.getLibDir (← Regula.CompilerObservation.findSysroot)
   IO.FS.createDirAll (output / root)
   -- One `ln` per directory links every source under its own file name.
   let link (sources : Array FilePath) (directory : FilePath) := do
@@ -275,10 +277,43 @@ def findRepoRoot (start : FilePath) : IO FilePath := do
 def repoRoot : IO FilePath := do
   findRepoRoot (← IO.currentDir)
 
+/-- The compiler observation's reader of the prefix that `lean --print-prefix` prints is the proved
+decoder `printedPath?`: the observation's source runs alone, with Lean's library only, so it holds
+its own copy, and this states that the copy is the same function. -/
+theorem printedPrefix?_eq_printedPath? :
+    Regula.CompilerObservation.printedPrefix? = Regula.Filesystem.Construction.printedPath? :=
+  rfl
+
+/-- The executed prefix decoder accepts exactly the text that is one absolute path printed as a
+line (`Regula.Filesystem.Construction.checked_printedPath?`). -/
+theorem checked_printedPrefix? :
+    Regula.ExecutableContract Regula.CompilerObservation.printedPrefix?
+      (Regula.Decides (·.isSome = true) Regula.Filesystem.Construction.PrintedPath) :=
+  printedPrefix?_eq_printedPath? ▸ Regula.Filesystem.Construction.checked_printedPath?
+
+attribute [regula_decision] Regula.CompilerObservation.printedPrefix?
+
+/-- The compiler observation's reader of one printed line is the proved decoder `printedLine?`, of
+which it holds its own copy for the reason that `printedPrefix?_eq_printedPath?` gives. -/
+theorem printedLine?_eq_printedLine? :
+    Regula.CompilerObservation.printedLine? = Regula.Filesystem.Construction.printedLine? :=
+  rfl
+
+/-- The executed line decoder accepts exactly the text that is one line
+(`Regula.Filesystem.Construction.checked_printedLine?`). -/
+theorem checked_compilerPrintedLine? :
+    Regula.ExecutableContract Regula.CompilerObservation.printedLine?
+      (Regula.Decides (·.isSome = true) Regula.Filesystem.Construction.PrintedLine) :=
+  printedLine?_eq_printedLine? ▸ Regula.Filesystem.Construction.checked_printedLine?
+
+attribute [regula_decision] Regula.CompilerObservation.printedLine?
+
 /-- Initialize dynamic module lookup from Lake's `LEAN_PATH`. Compiled checker
-executables do not receive the `lean` driver's search-path initialization. -/
+executables do not receive the `lean` driver's search-path initialization. The installation
+directory is `Regula.CompilerObservation.findSysroot`, which reads the prefix that `lean` prints
+exactly. -/
 def initializeLeanSearchPath : IO Unit := do
-  Lean.initSearchPath (← Lean.findSysroot)
+  Lean.initSearchPath (← Regula.CompilerObservation.findSysroot)
 
 /-- The compiled library directory of the running checker executable's own
 package, when it follows Lake's standard layout. The trusted probe module
@@ -317,21 +352,49 @@ theorem mem_discoveryPlaces (names : List String) (place : FilePath) :
     refine ⟨directory.length, isPrefix.length_le, entry, listed, ?_⟩
     rw [← List.prefix_iff_eq_take.mp isPrefix]
 
+/-- The query of `gitWorkTree` in the directory `dir`: `git rev-parse --show-toplevel`, run in
+`dir` without Git's repository variables (`GIT_DIR` and `GIT_WORK_TREE` among them,
+`Regula.Filesystem.Construction.gitProcessArgs`), so the work tree is the one Git finds from `dir`
+itself. -/
+def showTopLevel (dir : FilePath) : IO ProcessResult :=
+  runProcess dir "git" #["rev-parse", "--show-toplevel"]
+    #[("GIT_DIR", none), ("GIT_WORK_TREE", none)]
+
+/-- `gitWorkTree` with the query `query` in place of `showTopLevel`, so that a control can give it a
+query that fails. -/
+def gitWorkTreeBy (query : FilePath → IO ProcessResult) (dir : FilePath) :
+    IO (Option FilePath) := do
+  let some start ← Regula.Filesystem.realPathIfPresent dir
+    | throw <| IO.userError s!"no Git work tree can be read for {dir}, where nothing is"
+  let places := discoveryPlaces (start.components.filter (!·.isEmpty))
+  unless ← places.anyM fun place => return (← Regula.Filesystem.entryIfPresent place).isSome do
+    return none
+  let result ← query dir
+  unless result.succeeded do
+    throw <| IO.userError s!"git rev-parse --show-toplevel failed in {dir} (exit \
+      {result.exitCode}): {result.stderr}"
+  let some top := Regula.Filesystem.Construction.printedPath? result.stdout
+    | throw <| IO.userError s!"git rev-parse --show-toplevel in {dir} printed no single absolute \
+        path: {result.stdout.quote}"
+  let some real ← Regula.Filesystem.realPathIfPresent top
+    | throw <| IO.userError s!"git rev-parse --show-toplevel in {dir} printed {top}, where nothing \
+        is"
+  return some real
+
 /-- The real path of the top level of the Git work tree that holds the directory `dir`, or `none`
 when no repository can hold `dir`.
 
-`git rev-parse --show-toplevel` runs in `dir` without Git's repository variables (`GIT_DIR` and
-`GIT_WORK_TREE` among them, `Regula.Filesystem.Construction.gitProcessArgs`), so the work tree is
-the one Git finds from `dir` itself. When it succeeds, the path it prints is decoded exactly
+Absence is decided before Git runs: the work tree is `none` when the observer's read finds nothing
+at any place of `discoveryPlaces` for the real path of `dir`, the `.git` and the `HEAD` of `dir`
+and of each of its ancestors (`Regula.Filesystem.entryIfPresent`). Otherwise the query
+`showTopLevel` runs, and each failure of it is thrown with its report: no failure of Git is read
+as no work tree. So a repository that Git cannot read, such as a work tree whose `.git` file cannot
+be read, stops the caller, and so does a place where Git finds no repository though an entry is
+there, such as a stray `HEAD` file. When the query succeeds, the path it prints is decoded exactly
 (`Regula.Filesystem.Construction.printedPath?`: only the final newline is removed) and resolved
 (`Regula.Filesystem.realPathIfPresent`); output that is not one absolute path, or a printed path
-where nothing is, is thrown. When it fails, the work tree is absent only when the observer's read
-finds nothing at any place of `discoveryPlaces` for the real path of `dir`: the `.git` and the
-`HEAD` of `dir` and of each of its ancestors (`Regula.Filesystem.entryIfPresent`). When it finds
-an entry at one of them, Git's failure is thrown with its report, so a repository that Git cannot
-read, such as a linked work tree whose `.git` file cannot be read, is never read as no work tree. A
-failure to start Git or to read or resolve a path is thrown. On Windows the observer reads no
-entry, so a failure of Git is thrown there.
+where nothing is, is thrown. A failure to read or resolve a path, or to start Git, is thrown. On
+Windows the observer refuses its reads, so `gitWorkTree` throws there.
 
 Assumes: Git 2.54.0 finds a repository for its current directory only at that directory or an
 ancestor D where `stat(2)` of `D/.git` succeeds or `lstat(2)` of `D/HEAD` succeeds. Without
@@ -351,26 +414,9 @@ newline (`builtin/rev-parse.c:668-669`, `:985-992`), and keeps it as the real pa
 `real_pathdup` gives (`repository.c:258-260`, through `set_git_work_tree`, `setup.c:1845-1861`).
 
 Assumes: the real path of `dir` (`realpath(3)`) names the directories that `getcwd(3)` names in
-Git, which starts in `dir`, and no other process changes them while Git and the reads run. -/
-def gitWorkTree (dir : FilePath) : IO (Option FilePath) := do
-  let result ← runProcess dir "git" #["rev-parse", "--show-toplevel"]
-    #[("GIT_DIR", none), ("GIT_WORK_TREE", none)]
-  if result.succeeded then
-    let some top := Regula.Filesystem.Construction.printedPath? result.stdout
-      | throw <| IO.userError s!"git rev-parse --show-toplevel in {dir} printed no single \
-          absolute path: {result.stdout.quote}"
-    let some real ← Regula.Filesystem.realPathIfPresent top
-      | throw <| IO.userError s!"git rev-parse --show-toplevel in {dir} printed {top}, where \
-          nothing is"
-    return some real
-  let some start ← Regula.Filesystem.realPathIfPresent dir
-    | throw <| IO.userError s!"git rev-parse --show-toplevel failed in {dir}, where nothing is: \
-        {result.stderr}"
-  for place in discoveryPlaces (start.components.filter (!·.isEmpty)) do
-    if (← Regula.Filesystem.entryIfPresent place).isSome then
-      throw <| IO.userError s!"git rev-parse --show-toplevel failed in {dir}, although {place} \
-        is there: {result.stderr}"
-  return none
+Git, which starts in `dir`, and no other process changes them while the reads and Git run. -/
+def gitWorkTree (dir : FilePath) : IO (Option FilePath) :=
+  gitWorkTreeBy showTopLevel dir
 
 /-- Whether a dependency whose directory is in the Git work tree `dependency` is in the work tree
 `root` of the root package: both are known and they are the same directory. -/

@@ -79,8 +79,10 @@ file system calls, and they prove nothing.
   reported.
 - The work tree that `Checker.gitWorkTree` reads (`workTrees`,
   https://github.com/rbeauchamp/regula/issues/444): the top level of a repository whose name ends
-  in a space, with the space kept, a failure below a `.git` file that cannot be read, and `none`
-  for a directory that no repository holds.
+  in a space, with the space kept; below a `.git` file that names a repository, its work tree while
+  the file can be read and a failure while it cannot; and `none` for a directory that no
+  repository holds. With a query that fails in place of Git's, the read gives `none` without
+  running it where no repository can be, and fails in a repository.
 
 The permissions of each directory that a control takes away are given back before the temporary
 directory is removed. -/
@@ -335,16 +337,21 @@ each with whether it gave the expected result (https://github.com/rbeauchamp/reg
 - `tree ` (its name ends in a space), the top level of a new repository, beside a directory
   `tree`: its own real path, with the space. Git prints that path and a newline, and the earlier
   read removed the space and gave `tree`.
-- `linked/sub`, below a `.git` file that cannot be read, as of a linked work tree: Git fails
-  there, and so must the read, which earlier gave `none`.
+- `linked/sub`, below the `.git` file of `linked` that names the repository `store`, as
+  `git init --separate-git-dir` makes it and as a linked work tree has one: the real path of
+  `linked` before the permissions of that file are taken away and after they are given back, and
+  a failure while it cannot be read, where the earlier read gave `none`.
 - `plain`, which no repository holds: `none`.
 
 Each place is first observed with Git itself, and the control fails, naming its setup, when Git
-does not do what the place needs: fail in `linked/sub` and in `plain`. -/
+does not do what the place needs: find `linked` from `linked/sub` while its `.git` file can be
+read, fail there while it cannot, and fail in `plain`.
+
+Then a query that fails as a process that `SIGTERM` ends does (exit 143) takes the place of Git's
+(`Checker.gitWorkTreeBy`). The read of `plain` must give `none` without running that query, so no
+failure of the query is read as no work tree, and the read of `tree ` must fail. -/
 def workTrees (base : FilePath) : IO (List (String × Bool)) := do
   let fail {α : Type} (message : String) : IO α := throw <| IO.userError message
-  let showTop (dir : FilePath) :=
-    Regula.Checker.runProcess dir "git" #["rev-parse", "--show-toplevel"]
   let spaced := base / "tree "
   IO.FS.createDirAll spaced
   IO.FS.createDirAll (base / "tree")
@@ -354,28 +361,59 @@ def workTrees (base : FilePath) : IO (List (String × Bool)) := do
   let expected ← IO.FS.realPath spaced
   let spacedRead ← (Regula.Checker.gitWorkTree spaced).toBaseIO
   let linked := base / "linked"
-  IO.FS.createDirAll (linked / "sub")
-  IO.FS.writeFile (linked / ".git") "gitdir: control\n"
-  IO.Prim.setAccessRights (linked / ".git") 0
-  let linkedGit ← (showTop (linked / "sub")).toBaseIO
-  let linkedRead ← (Regula.Checker.gitWorkTree (linked / "sub")).toBaseIO
-  IO.Prim.setAccessRights (linked / ".git") 384
-  unless (match linkedGit with | .ok result => !result.succeeded | .error _ => false) do
+  let below := linked / "sub"
+  let pointer := linked / ".git"
+  let made ← Regula.Checker.runProcess base "git"
+    #["init", "-q", "--separate-git-dir", (base / "store").toString, linked.toString]
+  unless made.succeeded do
+    fail s!"the control could not make the work tree {linked}: {made.output}"
+  IO.FS.createDirAll below
+  let linkedTop ← IO.FS.realPath linked
+  let readable (stage : String) : IO (Except IO.Error (Option FilePath)) := do
+    let git ← Regula.Checker.showTopLevel below
+    unless git.succeeded do
+      fail s!"the control's setup: Git did not find the work tree {linked} from {below} {stage}: \
+        {git.output}"
+    (Regula.Checker.gitWorkTree below).toBaseIO
+  let before ← readable "before the permissions of its .git file are taken away"
+  IO.Prim.setAccessRights pointer 0
+  let (deniedGit, deniedRead) ← try
+      pure (← (Regula.Checker.showTopLevel below).toBaseIO,
+        ← (Regula.Checker.gitWorkTree below).toBaseIO)
+    finally
+      IO.Prim.setAccessRights pointer 420
+  unless (match deniedGit with | .ok result => !result.succeeded | .error _ => false) do
     fail s!"the control's setup: Git did not fail below the .git file that cannot be read"
+  let after ← readable "after the permissions of its .git file are given back"
   let plain := base / "plain"
   IO.FS.createDirAll plain
-  let plainGit ← showTop plain
+  let plainGit ← Regula.Checker.showTopLevel plain
   if plainGit.succeeded then
     fail s!"the control's setup: the temporary directory {base} is in the Git work tree \
       {plainGit.stdout}"
   let plainRead ← (Regula.Checker.gitWorkTree plain).toBaseIO
+  let launches ← IO.mkRef (0 : Nat)
+  let terminated (_ : FilePath) : IO Regula.Checker.ProcessResult := do
+    launches.modify (· + 1)
+    return { exitCode := 143, stdout := "", stderr := "the control's query, ended by SIGTERM" }
+  let plainTerminated ← (Regula.Checker.gitWorkTreeBy terminated plain).toBaseIO
+  let plainLaunches ← launches.get
+  let spacedTerminated ← (Regula.Checker.gitWorkTreeBy terminated spaced).toBaseIO
+  let isLinked (read : Except IO.Error (Option FilePath)) : Bool :=
+    match read with | .ok (some top) => top == linkedTop | _ => false
   return [
     ("Regula.Checker.gitWorkTree of a top level whose name ends in a space",
       match spacedRead with | .ok (some top) => top == expected | _ => false),
+    ("Regula.Checker.gitWorkTree below a .git file before its permissions are taken away and \
+      after they are given back", isLinked before && isLinked after),
     ("Regula.Checker.gitWorkTree below a .git file that cannot be read",
-      linkedRead matches .error _),
+      deniedRead matches .error _),
     ("Regula.Checker.gitWorkTree of a directory that no repository holds",
-      plainRead matches .ok none)]
+      plainRead matches .ok none),
+    ("Regula.Checker.gitWorkTreeBy with a query that fails, where no repository can be",
+      (plainTerminated matches .ok none) && plainLaunches == 0),
+    ("Regula.Checker.gitWorkTreeBy with a query that fails, in a repository",
+      spacedTerminated matches .error _)]
 
 /-- Run the controls in a new temporary directory, and fail, naming each control that does not
 give the expected result. -/

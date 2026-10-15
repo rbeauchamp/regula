@@ -1,3 +1,4 @@
+import Regula.CompilerObservation
 import Regula.CompilerProbe
 import Regula.Qualification.Launcher
 import Lean.Elab.Command
@@ -22,7 +23,11 @@ once, and they prove nothing: `Regula.Filesystem.Construction.checked_printedLin
 - `Regula.Toolchain.selectedLean` (`elan which lean`): for the toolchain that the package's
   `lean-toolchain` names, it must give the compiler that elaborates this module. Elan prints an
   absolute path that ends in `/bin/lean`, which no removal of whitespace at its ends changes, so
-  this control observes only that the decoder accepts what Elan prints. -/
+  this control observes only that the decoder accepts what Elan prints.
+- `Regula.CompilerObservation.printedSysroot` (`lean --print-prefix`), which `findSysroot` runs
+  when `LEAN_SYSROOT` is not set: for a copy of the toolchain's `lean` in `tool /bin`, below a
+  directory whose name ends in a space, it must give that directory, with the space kept.
+  `Lean.findSysroot` gives `tool` there. -/
 
 namespace Regula.PrintedPathControls
 
@@ -70,13 +75,35 @@ def selected (root : FilePath) (selector : String) : IO (String × Bool) := do
   return ("Regula.Toolchain.selectedLean for the toolchain of the package",
     match read with | .ok lean => lean == running | .error _ => false)
 
+/-- The control of `CompilerObservation.printedSysroot`, the reader that `findSysroot` runs when
+`LEAN_SYSROOT` is not set, and whether it gave the expected result. The `lean` of the toolchain
+that elaborates this module is copied to `tool /bin`, below a directory whose name ends in a space,
+beside a link `tool /lib` to the toolchain's library. That `lean` prints the real path of
+`tool ` for `--print-prefix`, and the read must keep the space. -/
+def sysroot (base : FilePath) : IO (String × Bool) := do
+  let installation := base / "tool "
+  IO.FS.createDirAll (installation / "bin")
+  let toolchain ← Lean.getBuildDir
+  Regula.Filesystem.copyFile (toolchain / "bin" / "lean") (installation / "bin" / "lean") 493
+  let linked ← IO.Process.output
+    { cmd := "ln", args := #["-s", (toolchain / "lib").toString, (installation / "lib").toString] }
+  unless linked.exitCode == 0 do
+    throw <| IO.userError s!"the control could not link {installation / "lib"}: {linked.stderr}"
+  let expected ← IO.FS.realPath installation
+  let read ← (Regula.CompilerObservation.printedSysroot
+    (installation / "bin" / "lean").toString).toBaseIO
+  return ("Regula.CompilerObservation.printedSysroot of a lean below a directory whose name ends \
+      in a space",
+    match read with | .ok root => root == expected | .error _ => false)
+
 /-- Run the controls in a new temporary directory, and fail, naming each control that does not
 give the expected result. -/
 def check : IO Unit := do
   let root ← IO.currentDir
   let selector := (← IO.FS.readFile (root / "lean-toolchain")).trimAscii.toString
   Regula.Filesystem.withOwnTempDir fun base => do
-    let results := (← which base) ++ [← leanPath base selector, ← selected root selector]
+    let results := (← which base) ++
+      [← leanPath base selector, ← selected root selector, ← sysroot base]
     let failed := results.filterMap fun (name, held) => if held then none else some name
     unless failed.isEmpty do
       throw <| IO.userError s!"controls of the reads of a printed path failed: {failed}"

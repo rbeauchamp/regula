@@ -4032,11 +4032,13 @@ known work tree holds the root package and the dependency), so a dependency in a
 or of a root package outside each work tree, is not owned. A Git dependency that Lake clones has a
 work tree of its own, and so does a submodule, thus neither is owned.
 
-`gitWorkTree` runs `git rev-parse --show-toplevel` in the directory, without `GIT_DIR` and
-`GIT_WORK_TREE`. When Git succeeds, `gitWorkTree` removes only the final newline from the printed
-path (`checked_printedPath?`). When Git fails, `gitWorkTree` gives no work tree only if nothing is
-at `.git` or at `HEAD` of the directory and of each ancestor (`mem_discoveryPlaces`). Otherwise
-the audit stops with the report of Git.
+`gitWorkTree` first reads `.git` and `HEAD` of the directory and of each ancestor
+(`mem_discoveryPlaces`). If nothing is at any of them, no repository can hold the directory. Then
+`gitWorkTree` gives no work tree, and it does not run Git.
+
+Otherwise `gitWorkTree` runs `git rev-parse --show-toplevel` in the directory, without `GIT_DIR`
+and `GIT_WORK_TREE`. It removes only the final newline from the path that Git prints
+(`checked_printedPath?`). Each failure of Git stops the audit with the report of Git.
 
 Thus the audit does not take a repository that Git cannot read, such as a linked work tree with an
 unreadable `.git` file, as no repository. **Trusted:** Git `2.54.0` finds a repository only where
@@ -6069,8 +6071,11 @@ execution, and calling a proved oracle does not prove the driver or its IO effec
 - `checked_printedLine?` and `checked_printedPath?`: `Launcher.resolvedLean` and `printedLeanPath`
   read the path that `which` prints and the `LEAN_PATH` that `printenv` prints with only the final
   newline removed. `Toolchain.selectedLean` reads the path that Elan prints in the same way, and it
-  must be absolute. Each refuses other output. The output format of each program is trusted, as
-  the `Assumes:` entry of each reader cites it from the source of the program.
+  must be absolute. So does `CompilerObservation.findSysroot` for the prefix that
+  `lean --print-prefix` prints, when `LEAN_SYSROOT` is not set. Its decoder is a copy, and
+  `printedPrefix?_eq_printedPath?` states that the copy is `printedPath?`. Each refuses other
+  output. The output format of each program is trusted, as the `Assumes:` entry of each reader
+  cites it from the source of the program.
 - `Template.instantiate`: the required `Maps` proof for the recursive JSON transformation (array
   order, object keys and scalar kinds preserved; only entire matching string values change;
   depth exhaustion refuses, and the corpus uses 64 levels). Checker snapshots discover modules
