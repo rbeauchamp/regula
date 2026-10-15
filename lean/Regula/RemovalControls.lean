@@ -57,6 +57,10 @@ planted initializer never runs. The planted removals below are the calls of a re
   before `Regula.Filesystem.writeReplacing`, whose variant without its unused argument the
   compiler makes. The check of a program refuses each (`compilerNameRefusal`), and the scan finds
   no such constant of an imported module, Lean's toolchain included.
+- A lifted lambda that two declarations with macro scopes in their names share: Lean's compiler
+  names it after the first, with `_lam_0` before the macro scopes, and the walk reads it as the
+  first's code, so a pair of the lambda or of the first does not admit the removal of the second
+  (`compilerStep?`, `shareable`). The same holds for two such declarations with a private prefix.
 
 Assumes, for the control of `NAME_MAX`: POSIX.1-2024: `mkdir()` fails with `ENAMETOOLONG` when a
 component of its path is longer than `NAME_MAX`
@@ -484,5 +488,66 @@ run_cmd do
         compiler appends"
   unless [reader, caller].all fun name => (refused.splitOn name.toString).length > 1 do
     throwError "the refusal does not name each planted constant: {refused}"
+
+/-- A planted call of an action on a path, which the compiler neither inlines nor specializes, so
+that each caller passes its action as a closure. No program calls it. -/
+@[noinline, nospecialize]
+def plantedRun (act : FilePath → IO Unit) : IO Unit :=
+  act "planted"
+
+/-- The control of a lifted lambda that two declarations with macro scopes in their names share.
+It elaborates, in this module's environment for this control alone, `plantedFirst` and
+`plantedSecond`, each named by a quotation, so with macro scopes, and with a private prefix too when
+`isPrivate`. Each passes the same closure, which removes a file twice, to `plantedRun`, so Lean's
+compiler lifts it once, as `plantedFirst ++ _lam_0`, which `Name.append` puts before the macro
+scopes, and gives it to `plantedSecond` from its cache of the module
+(`Lean/Compiler/LCNF/LambdaLifting.lean:84`, `:105-112`). Under a pair of the lambda alone, and
+under a pair of `plantedFirst` alone, the walk admits the removal for `plantedFirst` and refuses
+it for `plantedSecond`. -/
+def sharedLambdaControl (isPrivate : Bool) : Elab.Command.CommandElabM Unit :=
+  withoutModifyingEnv do
+    if isPrivate then
+      Elab.Command.elabCommand (← `(command|
+        private def plantedFirst : IO Unit :=
+          plantedRun fun path => IO.FS.removeFile path *> IO.FS.removeFile path))
+      Elab.Command.elabCommand (← `(command|
+        private def plantedSecond : IO Unit :=
+          plantedRun fun path => IO.FS.removeFile path *> IO.FS.removeFile path))
+    else
+      Elab.Command.elabCommand (← `(command|
+        def plantedFirst : IO Unit :=
+          plantedRun fun path => IO.FS.removeFile path *> IO.FS.removeFile path))
+      Elab.Command.elabCommand (← `(command|
+        def plantedSecond : IO Unit :=
+          plantedRun fun path => IO.FS.removeFile path *> IO.FS.removeFile path))
+    let env ← getEnv
+    let planted (stem : Name) : Option Name :=
+      env.constants.map₂.toList.findSome? fun (name, _) =>
+        if (privateToUserName name).eraseMacroScopes == stem then some name else none
+    let some first := planted `Regula.RemovalControls.plantedFirst
+      | throwError "the planted declaration plantedFirst is not in the environment"
+    let some second := planted `Regula.RemovalControls.plantedSecond
+      | throwError "the planted declaration plantedSecond is not in the environment"
+    unless first.hasMacroScopes && second.hasMacroScopes && isPrivateName first == isPrivate &&
+        isPrivateName second == isPrivate do
+      throwError "the planted names do not have the planted macro scopes and private prefix: \
+        {first}, {second}"
+    let lambda := first ++ `_lam_0
+    unless (Lean.IR.findEnvDecl env lambda).isSome && !env.contains lambda do
+      throwError "the compiler did not make {lambda}, so the control does not plant its shape"
+    let observers := Regula.Removal.filesystemObservers env
+    for named in [lambda, first] do
+      let reach := Regula.Removal.rawRemovalsFrom env observers #[first, second]
+        [(named, ``IO.FS.removeFile)]
+      unless reach.raw == #[(second, ``IO.FS.removeFile)] && reach.unused.isEmpty do
+        throwError "under the pair of {named}, the walk did not admit the shared lambda {lambda} \
+          for {first} alone: refused {reach.raw}, unused {reach.unused}"
+
+-- A lifted lambda that a declaration with macro scopes in its name shares with another is the
+-- code of the one that it was lifted from, and its call is refused for the other
+-- (`Regula.Removal.compilerStep?`), and so for declarations with a private prefix too.
+run_cmd do
+  sharedLambdaControl false
+  sharedLambdaControl true
 
 end Regula.RemovalControls

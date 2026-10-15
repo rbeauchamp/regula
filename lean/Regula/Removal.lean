@@ -39,11 +39,12 @@ removal, only in a declaration with the filesystem observer's role, in the write
 `Regula.Filesystem` (`writers`), at a call that `libraryWrites`, `tacticWrites` or `packageWrites`
 lists, or at a call that the program names to `checkProgram`, each by its source declaration
 (`sourceDeclaration`). The source is read from the parts that Lean's compiler appends to the name
-of compiled code (`compilerPart`), and the check refuses a program whose environment has a
-constant whose name has one (`compilerNameRefusal`), so each such part is the compiler's. A call in code that Lean's compiler made in one declaration and may give to
-others, a specialization, a lifted lambda or a closed term (`auxiliarySource`), is the call of each
-declaration that reaches that code from outside the code of the one that made it too, and is
-admitted only when it is admitted for each of them (`attributions`). So a later declaration that
+of compiled code, through Lean's view of its macro scopes (`compilerStep?`), and the check refuses
+a program whose environment has a constant whose name has one (`compilerNameRefusal`), so each
+such part is the compiler's. A call in code that Lean's compiler made in one declaration and may
+give to others, a specialization, a lifted lambda or a closed term (`auxiliarySource`), is the call
+of each declaration that reaches that code from outside the code of the one that made it too, and
+is admitted only when it is admitted for each of them (`attributions`). So a later declaration that
 reuses the specialization of a named caller is not admitted by that caller's pair. A pair that a
 program names and that admits no call fails the check, so the list of each program is exact.
 
@@ -349,8 +350,9 @@ def indexedPart (stem text : String) : Bool :=
 - `_closed_` with a number: a closed term (`Lean/Compiler/LCNF/ExtractClosed.lean:227`).
 
 No other place of Lean's sources makes a name with such a part; the others only read one. The
-decisions that read the name of a compiled declaration read these parts alone (`compiledPart`),
-and the check of a program refuses a constant whose name has one (`compilerNameRefusal`). -/
+decisions that read the name of a compiled declaration read these parts alone, through Lean's view
+of its macro scopes (`compilerStep?`), and the check of a program refuses a constant whose name has
+one (`compilerNameRefusal`). -/
 def compilerPart (text : String) : Bool :=
   match text.front with
   | '_' =>
@@ -360,13 +362,16 @@ def compilerPart (text : String) : Bool :=
   | 's' => indexedPart "spec_" text
   | _ => false
 
-/-- Whether the name part `component` is one that Lean's compiler appends (`compilerPart`). -/
-def compilerComponent (component : Name) : Bool :=
-  match component with
-  | .str .anonymous text => compilerPart text
-  | _ => false
+/-- Whether `text` is a part that Lean's compiler appends after the name of the code that it makes
+it from (`compilerPart`): every such part but `_at_`, which comes before the name of the caller in
+which it made a specialization. -/
+def appendedPart (text : String) : Bool :=
+  compilerPart text && text != "_at_"
 
-/-- Whether a part of `name` is one that Lean's compiler appends (`compilerPart`). -/
+/-- Whether a part of `name` is one that Lean's compiler appends (`compilerPart`). It reads every
+part of `name` as it stands, so every place at which Lean's views of a name expose a part: the name
+of its macro-scope view and the modules of its scopes (`extractMacroScopes`), and the module of its
+private prefix (`privatePrefix?`). -/
 def hasCompilerPart : Name → Bool
   | .str parent text => compilerPart text || hasCompilerPart parent
   | .num parent _ => hasCompilerPart parent
@@ -381,15 +386,78 @@ def compilerNamed (env : Environment) : Array Name :=
 /-- Why the check refuses a program whose environment `env` has a constant whose name has a part
 that Lean's compiler appends (`compilerNamed`), of a module that the program links or of Lean's
 toolchain: the decisions of the check read such a part of the name of a compiled declaration as the
-compiler's (`compiledSource`, `observerVariant`, `calledPrimitive`, `shareable`, `closedTerm`), so
-a source's name with one could give its code to another declaration. In an environment with no
-such constant, each such part of a name is one that the compiler appended, and so is each step of
-the name up to it. `none` when there is none. -/
+compiler's (`compilerStep?`), so a source's name with one could give its code to another
+declaration. In an environment with no such constant, each such part of a name is one that the
+compiler appended, and each name that `compilerStep?` returns on the way to a source is one that
+the compiler made. `none` when there is none. -/
 def compilerNameRefusal (env : Environment) : Option String :=
   let named := compilerNamed env
   if named.isEmpty then none
   else some s!"constants have a name part that Lean's compiler appends to the code that it makes, \
     which the check reads as the compiler's (`Regula.Removal.compilerPart`): {named.toList}"
+
+/-- The last step by which Lean's compiler may have made the compiled declaration `name`: the name
+to which it appended a part of `appendedPart`, with that part. The compiler builds each such name
+with `Name.append` (`++`), `Name.appendCore`, `Name.mkStr` or `Name.appendIndexAfter`, and only
+`++` treats macro scopes apart:
+- `Name.mkStr` and `Name.appendCore` put the part last (`mkBoxedName`, a specialization's
+  `spec_<n>`), and so does `++` on a name with no macro scopes. The result has none: its last part
+  is not `_hyg` (`Name.hasMacroScopes`). The step is that last part.
+- `++` on a name with macro scopes puts the part last in the name of its view, before the scopes
+  (`Init/Prelude.lean:5824-5833`). The step is that last part of the view's name
+  (`extractMacroScopes`), and the name it was appended to is the view without it, with the same
+  scopes (`MacroScopesView.review`).
+- `Name.appendIndexAfter` only ends the atom `_lam`, `_elam`, `_closed`, `_boxed_const` or `spec`,
+  which has no macro scopes, with its number (`Name.modifyBase`, `Init/Meta/Defs.lean:308-326`).
+
+A private prefix is the leading part of a name (`mkPrivateNameCore`), before the name of its view
+when it has macro scopes. No step changes it, so it stays in the name returned, and no private-name
+function is needed: `privateToUserName` would also cut at the private prefix of a specialization's
+caller, inside the name. `none` when the last part, of the name or of its view's name, is not a
+part of `appendedPart`. -/
+def compilerStep? (name : Name) : Option (Name × String) :=
+  if name.hasMacroScopes then
+    let view := extractMacroScopes name
+    match view.name with
+    | .str base part => if appendedPart part then some ({ view with name := base }.review, part)
+        else none
+    | _ => none
+  else
+    match name with
+    | .str base part => if appendedPart part then some (base, part) else none
+    | _ => none
+
+/-- The caller in which Lean's compiler made a specialization, from the name `callee ++ _at_ ++
+caller` without its `spec_<n>`, which it joins as the names stand (`Name.appendCore`,
+`Lean/Compiler/LCNF/Specialize.lean:315-318`): the parts after the last `_at_`, with the caller's
+private prefix and macro scopes as they stand. `none` when `name` has no `_at_` part. In a program
+that the check admits, every `_at_` part is one that the compiler appended
+(`compilerNameRefusal`), so the last one is that of the specialization, or of one made in its
+caller, whose own source this gives in turn. -/
+def specializedIn : Name → Option Name
+  | .str parent part =>
+    if part == "_at_" then some .anonymous else (specializedIn parent).map (·.mkStr part)
+  | .num parent index => (specializedIn parent).map (·.mkNum index)
+  | .anonymous => none
+
+/-- The compiled variants that Lean's compiler makes of the declaration `name`, built as it builds
+them: `name`, its variant without irrelevant arguments `name ++ _redArg`
+(`Lean/Compiler/LCNF/ReduceArity.lean:162`), and the boxed form of each (`mkBoxedName`,
+`Lean/Compiler/LCNF/ExplicitBoxing.lean:67`). -/
+def compiledVariants (name : Name) : List Name :=
+  let reduced := name ++ `_redArg
+  [name, reduced, Compiler.LCNF.mkBoxedName name, Compiler.LCNF.mkBoxedName reduced]
+
+/-- The declaration that `name` is a compiled variant of (`compiledVariants`), read through
+`compilerStep?`: `name` without its last step when that is `_boxed`, and then without its last step
+when that is `_redArg`. -/
+def variantBase (name : Name) : Name :=
+  let unboxed := match compilerStep? name with
+    | some (base, "_boxed") => base
+    | _ => name
+  match compilerStep? unboxed with
+  | some (base, "_redArg") => base
+  | _ => unboxed
 
 /-- Whether Lean's compiler made the compiled declaration `name`, which no source declares: `env`
 holds no constant of that name, and `env` holds every constant of its modules. Lean imports a file
@@ -401,18 +469,13 @@ extensions alone, not as constants: a closed term, for example
 Each decision that reads the name of a compiled declaration takes it as the compiler's only when
 this holds. This reads the whole name alone. Its parts are the compiler's because the check of a
 program refuses a constant whose name has a part that the compiler appends
-(`compilerNameRefusal`): then no prefix of the name that ends with such a part is a constant
-either. In an environment of a `module`, it never holds, so each such decision is the one for
-a declaration of a source.
+(`compilerNameRefusal`): then no name that `compilerStep?` gives on the way to a source is a
+constant either. In an environment of a `module`, it never holds, so each such decision is the one
+for a declaration of a source.
 Assumes: in Lean v4.34.1 only the compiler adds a compiled declaration without a constant. A command
 that writes compiled declarations on purpose is outside this boundary. -/
 def compilerMade (env : Environment) (name : Name) : Bool :=
   !env.header.isModule && !env.contains name
-
-/-- The suffixes that Lean's compiler appends to the name of a declaration for the compiled
-variants it makes of it: one without its irrelevant arguments, and the boxed form of each. -/
-def compilerSuffixes : List Name :=
-  [.anonymous, `_redArg, `_boxed, `_redArg ++ `_boxed]
 
 /-- The module whose declarations may have the filesystem observer's role: `Regula.Filesystem`,
 whose exported operations remove only what the decisions of `RegulaCore.Removal` decide. -/
@@ -445,14 +508,14 @@ each of which the check of a program refuses (`programRefusal`). -/
 def foreignObservers (env : Environment) : Array Name :=
   (observerRoles env).2
 
-/-- Whether `name` is one of `observers` or a compiled variant that the compiler made of one: a
-name of `compilerSuffixes` after its name, which the compiler made (`compilerMade`). In a program
-that the check admits, no constant has `_redArg` or `_boxed` in its name (`compilerNameRefusal`),
-so the variant without irrelevant arguments that the boxed form is made of is the compiler's
-too. -/
+/-- Whether `name` is one of `observers` or a compiled variant that the compiler made of one: a name
+of its `compiledVariants`, built as the compiler builds them, which the compiler made
+(`compilerMade`). In a program that the check admits, no constant has `_redArg` or `_boxed` in its
+name (`compilerNameRefusal`), so the variant without irrelevant arguments that the boxed form is
+made of is the compiler's too. -/
 def observerVariant (env : Environment) (observers : Array Name) (name : Name) : Bool :=
-  observers.any fun observer => compilerSuffixes.any fun suffix =>
-    name == observer ++ suffix && (suffix.isAnonymous || compilerMade env name)
+  observers.any fun observer => (compiledVariants observer).any fun variant =>
+    name == variant && (variant == observer || compilerMade env name)
 
 /-- The primitives that the check finds by name: those that remove (`primitives`) and those that
 write (`writePrimitives`). -/
@@ -467,35 +530,33 @@ def isPrimitive (env : Environment) (watched : List Name) (name : Name) (writes 
     (writes && (boundWrite env name).isSome)
 
 /-- The primitive that a call of `name` calls, if it calls one (`isPrimitive`): `name` itself, or
-the primitive that `name` is a compiled variant of (`observerVariant`), such as the boxed form that
-a program calls when it passes the primitive as a value. -/
+the primitive that `name` is a compiled variant of (`variantBase`, `observerVariant`), such as the
+boxed form that a program calls when it passes the primitive as a value. -/
 def calledPrimitive (env : Environment) (watched : List Name) (name : Name)
     (writes : Bool := true) : Option Name :=
   if isPrimitive env watched name writes then some name
   else
-    let base := if name matches .str _ "_boxed" then name.getPrefix else name
-    let base := if base matches .str _ "_redArg" then base.getPrefix else base
+    let base := variantBase name
     if base != name && observerVariant env #[base] name && isPrimitive env watched base writes then
       some base
     else none
 
-/-- Whether `component` is a part that Lean's compiler appends after the name of a declaration for
-a part of its compiled code: a part of `compilerComponent` other than `_at_`, which comes before
-the name of the caller of a specialization. -/
-def compiledPart (component : Name) : Bool :=
-  compilerComponent component && component != `_at_
-
-/-- The name after the last `_at_` of the compiled declaration `name`, a specialization made in
-that declaration, without the parts that `compiledPart` names: `D` for the loop
-`Array.forIn'Unsafe.loop._at_.D.spec_5` and for the function `D._lam_2`. It reads the name alone,
-not the environment, and joins its parts as they stand (`Name.appendCore`): `++` moves the macro
-scopes of a hygienic part, and panics when both of its arguments have some. In a program that the
-check admits, no constant has a part of `compilerPart` (`compilerNameRefusal`), so the last `_at_`
-is one that the compiler appended, and the name after it is the caller's, or that of compiled code
-of the caller, whose own `_at_` and parts the compiler appended too. -/
-def compiledSource (name : Name) : Name :=
-  let made := (name.components.reverse.takeWhile (· != `_at_)).reverse
-  (made.reverse.dropWhile compiledPart).reverse.foldl Name.appendCore .anonymous
+/-- The name from which Lean's compiler made the compiled declaration `name`, step by step
+(`compilerStep?`): after the step `spec_<n>`, the caller in which it made the specialization
+(`specializedIn`), and after any other step, the name that it appended the step to. So it is `D`
+for the loop `Array.forIn'Unsafe.loop._at_.D.spec_5`, for the function `D._lam_2` and for the
+function `D._lam_2._@.M._hyg.1` of `D._@.M._hyg.1`, with `D`'s private prefix and macro scopes.
+For a specialization made in a specialization, `F._at_.G._at_.D.spec_0.spec_1`, the parts after
+the last `_at_` are `D.spec_0`, the caller of the inner one with its number, whose `_at_` that step
+already passed: a `spec_<n>` with no `_at_` before it is such a number, and the step leaves the
+name that it was appended to. It reads the name alone, not the environment, and stops at a name
+with no step. Each step leaves fewer parts, so the number of parts of `name` bounds the steps. -/
+def compiledSource (name : Name) : Name := Id.run do
+  let mut current := name
+  for _ in [:name.getNumParts] do
+    let some (base, part) := compilerStep? current | break
+    current := if indexedPart "spec_" part then (specializedIn base).getD base else base
+  return current
 
 /-- The declaration of a source in whose compiled code Lean's compiler made the compiled declaration
 `name`: `name` unless the compiler made it (`compilerMade`), and otherwise its `compiledSource`
@@ -510,7 +571,8 @@ def sourceDeclaration (env : Environment) (name : Name) : Name :=
 /-- Whether the compiled declaration `name` is code that Lean's compiler may give to more than one
 declaration: a specialization (`spec_`), a lifted lambda (`_lam_`, `_elam_`), a closed term
 (`_closed_`) or a boxed constant (`_boxed_const_`), or a variant `_redArg` or `_boxed` of one, that
-the compiler made (`compilerMade`).
+the compiler made (`compilerMade`). It reads the step that made the code under its variants
+(`variantBase`, `compilerStep?`), so also of a name with macro scopes.
 In an environment of a `module`, where `compilerMade` never holds, no code is shareable and a call
 in compiled code is the call of that code's own name alone. The compiler gives
 a specialization to each later declaration that needs the same one, from a cache of every module
@@ -521,11 +583,7 @@ and a closed term from a cache of the module (`Lean/Compiler/LCNF/LambdaLifting.
 declaration of a source are its own code, which each caller of the declaration calls, so they are
 not such code. -/
 def shareable (env : Environment) (name : Name) : Bool :=
-  let base := if name matches .str _ "_boxed" then name.getPrefix else name
-  let base := if base matches .str _ "_redArg" then base.getPrefix else base
-  match base with
-  | .str _ part => compiledPart (.mkSimple part) && compilerMade env name
-  | _ => false
+  (compilerStep? (variantBase name)).isSome && compilerMade env name
 
 /-- The declaration in whose compiled code Lean's compiler made the compiled declaration `name`
 (`sourceDeclaration`), when the compiler may give `name` to other declarations too (`shareable`).
@@ -998,8 +1056,7 @@ def primitiveIndex (env : Environment) : Std.HashMap Name Boundary := Id.run do
   let mut index := {}
   for boundary in pathBoundaries do
     for primitive in boundary.primitives do
-      for suffix in compilerSuffixes do
-        let variant := primitive ++ suffix
+      for variant in compiledVariants primitive do
         if observerVariant env #[primitive] variant then index := index.insert variant boundary
   return index
 
@@ -1051,8 +1108,7 @@ def specializationIndex (env : Environment) : Std.HashMap Name Name := Id.run do
     return root
   let mut index := {}
   for (specialization, _) in origins do
-    for suffix in compilerSuffixes do
-      let variant := specialization ++ suffix
+    for variant in compiledVariants specialization do
       if observerVariant env #[specialization] variant then
         index := index.insert variant (root specialization)
   return index
@@ -1064,8 +1120,7 @@ def entryIndex (env : Environment) :
   let mut index := {}
   for boundary in pathBoundaries do
     for entry in boundary.entries do
-      for suffix in compilerSuffixes do
-        let variant := entry.callee ++ suffix
+      for variant in compiledVariants entry.callee do
         if observerVariant env #[entry.callee] variant then
           index := index.insert variant ((boundary.system, entry) :: index.getD variant [])
   return index
@@ -1187,16 +1242,17 @@ def initializers (env : Environment) : Array Name :=
 /-- Whether the compiled declaration `name` is a closed term that the compiler extracted, which the
 code that first reads it computes, not the initializer of its module
 (`Lean/Compiler/LCNF/EmitC.lean:476-482`, `:629-634`, `:1003`). The compiler made it
-(`compilerMade`), and its last part is `_closed_` with a number. Lean v4.34.1 makes a name of that
-form only in `ExtractClosed`, which records it as a closed term (`Lean.closedTermCacheExt`) as it
-makes it (`Lean/Compiler/LCNF/ExtractClosed.lean:227-228`). Lean keeps that record for the module
-being compiled alone, so an imported closed term is known by this fact and its name. A declaration
-of a source with such a name is not a closed term: its module computes it when the program starts.
+(`compilerMade`), and its last step (`compilerStep?`) is `_closed_` with a number, also before
+macro scopes. Lean v4.34.1 makes such a step only in `ExtractClosed`, which records it as a
+closed term (`Lean.closedTermCacheExt`) as it makes it
+(`Lean/Compiler/LCNF/ExtractClosed.lean:227-228`). Lean keeps that record for the module being
+compiled alone, so an imported closed term is known by this fact and its name. A declaration of a
+source with such a name is not a closed term: its module computes it when the program starts.
 -/
 def closedTerm (env : Environment) (name : Name) : Bool :=
-  compilerMade env name && match name with
-    | .str _ text => indexedPart "_closed_" text
-    | _ => false
+  compilerMade env name && match compilerStep? name with
+    | some (_, part) => indexedPart "_closed_" part
+    | none => false
 
 /-- The values that the initializers of the modules `modules` compute when a program that links
 them starts: each declaration of `initializersOf` that is neither an action of `initActionsOf` nor
