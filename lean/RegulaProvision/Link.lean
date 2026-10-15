@@ -9,9 +9,9 @@ runs it at `linkOps`. This module states its runs in a model of the filesystem o
 (`installLink_refused_io`, `installLink_placed_io`) at operations that agree with the model
 (`LinkCorresponds`), as every set of operations does at the model whose states are the worlds
 (`LinkModel.ofIO`, `linkCorresponds_ofIO`). `linkOps_refused` and `linkOps_placed` state them for
-the driver's operations. The driver imports only Lean's library, because `scripts/provision.sh`
-runs it with `lean --run` before the package is built; so this module of its library imports it
-with the model, and nothing that the driver runs imports this module.
+the driver's operations. The driver imports only the toolchain's libraries, because
+`scripts/provision.sh` runs it with `lean --run` before the package is built; so this module of its
+library imports it with the model, and nothing that the driver runs imports this module.
 
 * `installLink_refused`: when an entry of any type is at the place of the directory in which the
   link is made, a directory, a symbolic link, a regular file or a special file, the run fails and

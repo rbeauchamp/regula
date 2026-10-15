@@ -85,11 +85,28 @@ def rootFiles (wsDir : FilePath) : FilePath × FilePath :=
     _root_.Lake.joinRelative (_root_.Lake.joinRelative wsDir _root_.Lake.defaultLakeDir)
       "package-overrides.json")
 
+/-- The manifest of the workspace whose manifest and package overrides file are `files`
+(`rootFiles`), and the entries of that overrides file, each read by Lake's own reader, or `none`
+when the manifest does not exist; any other failure of a read, and a file that Lake's reader
+refuses, are thrown. It is the one read of the two files that the checker's selections share
+(`configRequests`, `LakeSelection.rootEntries`, `LakeSelection.withRootSelection`), and
+`Regula.ProgramCheck.Provision.readRoot_eq` proves the provisioning program's own copy equal to it.
+
+Assumes:
+- Lake v4.34.1's load reads a workspace's manifest with `Lake.Manifest.load?`
+  (`Lake/Load/Workspace.lean:61-69`) and its package overrides file with
+  `Lake.Manifest.tryLoadEntries` (`Lake/Load/Resolve.lean:603`), which give no manifest and no
+  entries only for a file that is absent (`Lake/Load/Manifest.lean:268-272`, `:301-305`). -/
+def readRoot (files : FilePath × FilePath) :
+    IO (Option (_root_.Lake.Manifest × Array _root_.Lake.PackageEntry)) := do
+  let some manifest ← _root_.Lake.Manifest.load? files.1 | return none
+  return some (manifest, ← _root_.Lake.Manifest.tryLoadEntries files.2)
+
 /-- The entries that Lake's load of the workspace whose manifest and package overrides file are
-`files` (`rootFiles`) materializes its dependencies from, read with Lake's own readers: the
-manifest's entries and then those of the overrides file, or `none` when the manifest does not
-exist. The last entry for a package's name is the one that Lake materializes the package from,
-and Lake loads the package from that entry's configuration name (`configRequest`).
+`files` (`rootFiles`) materializes its dependencies from, read with Lake's own readers
+(`readRoot`): the manifest's entries and then those of the overrides file, or `none` when the
+manifest does not exist. The last entry for a package's name is the one that Lake materializes the
+package from, and Lake loads the package from that entry's configuration name (`configRequest`).
 
 Assumes:
 - Lake v4.34.1's `loadWorkspace`, with neither `updateDeps` nor further overrides in its load
@@ -106,8 +123,8 @@ Assumes:
 - Trusted: no process writes the two files during one load, as for the checker's other reads. -/
 def configRequests (files : FilePath × FilePath) :
     IO (Option (Array _root_.Lake.PackageEntry)) := do
-  let some manifest ← _root_.Lake.Manifest.load? files.1 | return none
-  return some (manifest.packages ++ (← _root_.Lake.Manifest.tryLoadEntries files.2))
+  let some (manifest, overrides) ← readRoot files | return none
+  return some (manifest.packages ++ overrides)
 
 /-- The configuration name that the load gave `package`: `lakefile` for the root, whose load
 configuration names none (`loadConfig`), and otherwise the name of the last entry for its name
