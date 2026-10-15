@@ -451,7 +451,9 @@ def showTopLevel (ceiling : Option String) (dir : FilePath) : IO ProcessResult :
       ("GIT_CEILING_DIRECTORIES", ceiling)]
 
 /-- `gitWorkTree` with `ceiling` as the value of `GIT_CEILING_DIRECTORIES` and the query `query` in
-place of `showTopLevel`, so that a control can give it a ceiling and a query that fails. -/
+place of `showTopLevel`, so that a control can give it a ceiling and a query that fails. Its reads
+start at `dir` and move toward the root, as Git's search does, and stop at the first directory where
+`noRepositoryAt` does not hold. -/
 def gitWorkTreeWith (ceiling : Option String)
     (query : Option String → FilePath → IO ProcessResult) (dir : FilePath) :
     IO (Option FilePath) := do
@@ -462,7 +464,7 @@ def gitWorkTreeWith (ceiling : Option String)
     | some value => ceilingDirectories value
     | none => pure []
   let walk := discoveryDirectories names ceilings
-  if ← walk.allM noRepositoryAt then return none
+  if ← walk.reverse.allM noRepositoryAt then return none
   let result ← query ceiling dir
   unless result.succeeded do
     throw <| IO.userError s!"git rev-parse --show-toplevel failed in {dir} (exit \
@@ -483,8 +485,11 @@ they read `dir`'s real path and each of its ancestors that the walk below the ce
 `ceilingDirectories` can reach (`discoveryDirectories`). Git honors each of those ceilings, as it is
 written, so the reads cover each directory that Git's walk reaches
 (`discoveryDirectories_superset`). Git's walk can stop sooner, at a ceiling that Regula leaves out
-or at the boundary of a file system, which the reads do not take into account. The work tree is
-`none`, and Git does not run, only when `noRepositoryAt` holds at each directory read. Otherwise the
+or at the boundary of a file system, which the reads do not take into account. The reads start at
+`dir` and move toward the root, as Git's search does, and stop at the first directory where
+`noRepositoryAt` does not hold. So a read that fails at a farther ancestor stops the caller only
+when `noRepositoryAt` holds at each nearer directory. The work tree is `none`, and Git does not run,
+only when `noRepositoryAt` holds at each directory of `discoveryDirectories`. Otherwise the
 query `showTopLevel` runs with the same value of `GIT_CEILING_DIRECTORIES`, and each failure of it
 is thrown with its report: no failure of Git is read as no work tree. So a repository that Git
 cannot read, such as one whose `HEAD` or `.git` file cannot be read, stops the caller. So does a

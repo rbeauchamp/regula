@@ -83,7 +83,8 @@ file system calls, and they prove nothing.
   the file can be read and a failure while it cannot; and `none` for a directory that no
   repository holds. With a query that fails in place of Git's, the read gives `none` without
   running it where no repository can be, and fails in a repository. A ceiling written through a
-  symbolic link is left out, and a read that is refused fails the read.
+  symbolic link is left out, and a read that is refused fails the read. A repository below a
+  `.git` directory that cannot be read gives its own top level, as Git finds it first.
 - The revision that `Checker.Snapshot.observeGitFacts` reads (`revisions`): none on a branch with
   no commit, the commit after one, and a failure while the branch's file cannot be read and for a
   `HEAD` that names a branch Git does not accept.
@@ -335,7 +336,7 @@ def provisioning (base : FilePath) : IO (List (String × Bool)) := do
   return [("RegulaProvision.prune of a store whose Mathlib cannot be read", mathlibKept),
     ("RegulaProvision.links of a registered copy whose link cannot be resolved", linkKept)]
 
-/-- The work tree that `Checker.gitWorkTree` reads for a directory in seven places below `base`,
+/-- The work tree that `Checker.gitWorkTree` reads for a directory in eight places below `base`,
 each with whether it gave the expected result (https://github.com/rbeauchamp/regula/issues/444):
 
 - `tree ` (its name ends in a space), the top level of a new repository, beside a directory
@@ -360,11 +361,16 @@ each with whether it gave the expected result (https://github.com/rbeauchamp/reg
   path of `outer`. With the ceiling written through the symbolic link `outer/through` to
   `outer/ceiling`, which Git resolves, the reads leave the ceiling out, reach `outer/.git` and run
   Git, which stops at the ceiling, and the read fails with Git's failure.
+- `sealed/nested`, a new repository, while the `.git` directory of `sealed` has no permissions: its
+  own real path, since the reads, as Git's search, start at `sealed/nested` and stop there. Reads
+  from the root down reach `sealed/.git` before `sealed/nested`, and the refusal of that read
+  fails them.
 
 Each place is first observed with Git itself, and the control fails, naming its setup, when Git
 does not do what the place needs: find the work tree of `linked/sub` and of `headless` while the
-file can be read, fail there while it cannot, fail in `bare`, `plain` and `stray`, and
-fail in `outer/ceiling/inner` with either spelling of the ceiling and find `outer` without it.
+file can be read, fail there while it cannot, fail in `bare`, `plain` and `stray`,
+fail in `outer/ceiling/inner` with either spelling of the ceiling and find `outer` without it, and
+find the work tree of `sealed/nested` while `sealed/.git` cannot be read.
 
 Then queries take the place of Git's (`Checker.gitWorkTreeWith`). One fails as a process that
 `SIGTERM` ends does (exit 143). The reads of `plain`, `stray` and `outer/ceiling/inner` below the
@@ -477,6 +483,8 @@ def workTrees (base : FilePath) : IO (List (String × Bool)) := do
   let sealedEntry := ((← IO.FS.realPath sealedCeiling) / "inside").toString
   let sealed := base / "sealed"
   IO.FS.createDirAll (sealed / ".git")
+  let nested := sealed / "nested"
+  let nestedTop ← makeRepository nested
   -- Each read with the number of queries that it ran.
   let counted (read : IO (Option FilePath)) : IO (Except IO.Error (Option FilePath) × Nat) := do
     let before ← launches.get
@@ -484,12 +492,16 @@ def workTrees (base : FilePath) : IO (List (String × Bool)) := do
     return (result, (← launches.get) - before)
   IO.Prim.setAccessRights sealedCeiling 0
   IO.Prim.setAccessRights (sealed / ".git") 0
-  let ((ceilingSealed, ceilingLaunches), (gitSealed, gitLaunches)) ← try
+  let ((ceilingSealed, ceilingLaunches), (gitSealed, gitLaunches), nestedGit, nestedRead) ← try
       pure (← counted (Regula.Checker.gitWorkTreeWith (some sealedEntry) terminated plain),
-        ← counted (Regula.Checker.gitWorkTreeWith none terminated sealed))
+        ← counted (Regula.Checker.gitWorkTreeWith none terminated sealed),
+        ← (git nested).toBaseIO, ← (Regula.Checker.gitWorkTree nested).toBaseIO)
     finally
       IO.Prim.setAccessRights sealedCeiling 448
       IO.Prim.setAccessRights (sealed / ".git") 448
+  unless (match nestedGit with | .ok result => result.succeeded | .error _ => false) do
+    fail s!"the control's setup: Git did not find a work tree from {nested} while \
+      {sealed / ".git"} cannot be read"
   return [
     ("Regula.Checker.gitWorkTree of a top level whose name ends in a space",
       isTop expected spacedRead),
@@ -519,7 +531,9 @@ def workTrees (base : FilePath) : IO (List (String × Bool)) := do
     ("Regula.Checker.gitWorkTreeWith with a ceiling entry that cannot be read, without running \
       the query", denied ceilingSealed && ceilingLaunches == 0),
     ("Regula.Checker.gitWorkTreeWith where the read of a .git directory is refused, without \
-      running the query", denied gitSealed && gitLaunches == 0)]
+      running the query", denied gitSealed && gitLaunches == 0),
+    ("Regula.Checker.gitWorkTree of a repository below a .git directory that cannot be read",
+      isTop nestedTop nestedRead)]
 
 /-- The revision that `Checker.Snapshot.observeGitFacts` reads for `revisions`, a work tree that
 `git init --separate-git-dir` makes with its Git directory `revisions-store`, each with whether it
