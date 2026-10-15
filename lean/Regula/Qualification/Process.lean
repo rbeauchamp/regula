@@ -368,6 +368,21 @@ private def missingNativeControl (fixture : Fixture) (executable : FilePath)
       #["--process-native-fallback", mode, fixture.root.toString] absoluteEnv
     requireChecks [⟨"missing native bundle: restored boundary admits absolute overrides",
       result.exitCode == 0 && result.stdout == "native boundary admitted\n"⟩]
+  -- A bundled tool whose read fails otherwise than by its absence, a symbolic link to itself here,
+  -- is refused although absolute overrides are supplied: Lake's `pathExists` would read it as absent
+  -- and take the override, and the guard reads it strictly. The link is then removed.
+  let bundled := installation / "bin" / tool.basename
+  let planted ← run fixture.root (.stated "ln" "The native control plants a bundled tool that cannot be read")
+    #["-s", tool.basename, bundled.toString] cleared
+  requireChecks [⟨s!"unreadable native bundle: link planted (exit {planted.exitCode})",
+    planted.exitCode == 0⟩]
+  for mode in ["prepare", "boundary"] do
+    let result ← run fixture.root (.stated executable "The native worker reads the bundled tool strictly")
+      #["--process-native-fallback", mode, fixture.root.toString] absoluteEnv
+    requireChecks [⟨s!"unreadable native bundle: intended {mode} refusal",
+      result.exitCode == 2 && result.stderr.contains s!"the installation's bundled {tool.basename} at " &&
+        result.stderr.contains "cannot be read"⟩]
+  Regula.Filesystem.removePath .link bundled
 
 /-- Run the actual approved wrapper's bytes in an isolated workspace with a Lean stub driver.
 The real Lean must elaborate the stub and return its exact 37; a PATH shadow writes another marker.

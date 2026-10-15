@@ -513,6 +513,33 @@ run_cmd do
   unless refused.any (·.contains "calls IO.getEnv") do
     throwError "a locally authored Lake-rooted module borrowed a library exemption: {refused}"
 
+-- A value that the initializer of a module computes runs when the program starts, though no code
+-- of the program reads it: an environment read or a process start in its evaluation is refused at
+-- its call. A value that only builds a closure of the same read, as an instance builds its methods,
+-- runs none of it, so it is admitted. These controls compile the values without running them.
+run_cmd do
+  let main ← `(pure ())
+  for (name, value, primitive) in [
+      ("plantedSnapshot", ← `(command|
+        unsafe def $(mkIdent `plantedSnapshot) : Option String :=
+          unsafeBaseIO (IO.getEnv "PLANTED")), "IO.getEnv"),
+      ("plantedStarted", ← `(command|
+        unsafe def $(mkIdent `plantedStarted) : Except IO.Error IO.Process.Output :=
+          unsafeIO (IO.Process.output { cmd := "planted" })), "IO.Process.output")] do
+    let refused ← bodyRefusal main (elabCommand value)
+    unless refused.any fun text =>
+        text.contains s!"Controls.{name}" && text.contains s!"calls {primitive}" do
+      throwError "{name}: a value that an initializer computes escaped the reach check: {refused}"
+  let built ← bodyRefusal main do
+    elabCommand (← `(command|
+      structure $(mkIdent `PlantedReader) where
+        read : Unit → IO (Option String)))
+    elabCommand (← `(command|
+      def $(mkIdent `plantedReader) : $(mkIdent `PlantedReader) :=
+        ⟨fun _ => IO.getEnv "PLANTED"⟩))
+  if let some refused := built then
+    throwError "the reach check refused a value that only builds a closure: {refused}"
+
 -- A declaration named as a specialization of a listed caller is not one that the compiler recorded,
 -- so its call of the entry admits nothing below it.
 run_cmd do

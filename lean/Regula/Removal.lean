@@ -46,8 +46,9 @@ reuses the specialization of a named caller is not admitted by that caller's pai
 program names and that admits no call fails the check, so the list of each program is exact.
 
 The process and environment rows are decided on the path (`pathReach`). Their walk starts at the
-program's `main` and the initializer actions of the modules that it links (`initActionsOf`), and
-follows the compiled code in a context (`PathContext`). A start or a read is admitted in a
+program's `main`, the initializer actions of the modules that it links (`initActionsOf`) and the
+values that their initializers compute (`valueInitializers`), and follows the compiled code in a
+context (`PathContext`). A start or a read is admitted in a
 declaration of `Regula.Process` with its row's observer role, below a listed public library entry
 as that entry admits (`Entry`), on a path from an initializer of the toolchain's modules for its
 row's startup pairs, or in the copy of the process source that a driver which cannot import
@@ -161,10 +162,12 @@ opening made or that the runtime gave as a standard stream. The check reads the 
 the environment holds; a declaration whose compiled code it does not hold is unknown, and the
 check fails, as it does when a walk stops at its bound.
 
-The walk of the process and environment rows starts at `main` and at the initializer actions, not
-at every compiled declaration of the program's modules: a value with no parameter that a module
-computes when it starts, and that no path from those roots refers to, is outside it. The honest-code
-boundary of `SECURITY.md` and `CONTEXT.md` holds here too: deliberate compiler or environment
+The walk of the process and environment rows starts at `main`, at the initializer actions and at
+the values that the initializers compute, not at every compiled declaration of the program's
+modules. From a value it follows what the value's evaluation runs: when its compiled code applies
+no closure and calls only declarations with no parameter, the values that it reads, and otherwise
+all that its code refers to (`pathReach`). A closure that a value only builds, such as a method of
+an instance, is followed from the code that reads the value. The honest-code boundary of `SECURITY.md` and `CONTEXT.md` holds here too: deliberate compiler or environment
 mutation, private-declaration access and arbitrary trusted plugins remain outside it.
 
 Assumes: this check guards Regula's own executables built from its committed lakefile and
@@ -790,28 +793,48 @@ The imported library, its configuration and its download behavior remain trusted
 def rendererEntries (below : List (Name × Name)) : List Entry :=
   [`renderSite, `renderManual].map (⟨·, `Verso.Genre.Manual.manualMain, some below⟩)
 
-/-- The process start that a path from an initializer of the toolchain reaches: Lean's builtin
+/-- The calls that the facet registries of Lake reach, values that its initialization computes:
+`Lake.initFacetConfigs` (`Lake/Build/InitFacets.lean:21-32`), `Lake.Package.initFacetConfigs`
+(`Lake/Build/Package.lean:227-237`) and `Lake.Module.initFacetConfigs`
+(`Lake/Build/Module.lean:1363-1399`). Each inserts facet configurations, which store the build
+function of their facet as a closure (`mkFacetJobConfig`, `Lake/Config/FacetConfig.lean:69-80`).
+Insertion calls functions, so the walk from a registry follows every closure that it builds
+(`valueReads`): the archive fetch that downloads with curl, reading CURL, and unpacks with tar
+(`Lake/Build/Package.lean:140-150`, `Lake/Build/Actions.lean:174-194`,
+`Lake/Util/Url.lean:107-110`), the release lookup that runs Git (`Lake/Build/Package.lean:128-137`,
+`Lake/Util/Git.lean:90-91`) and the compilation of a module (`Lake/Build/Module.lean:989` and
+`:1129-1130`). Lake runs a build function only when it fetches that facet (`KFacetConfig.run`,
+`Lake/Config/FacetConfig.lean:60-66`). Code of a program that reads a registry is walked from that
+code without these pairs.
+Assumes: Lake v4.34.1 initialization runs no build function of a facet. -/
+def facetStartup : List (Name × Name) :=
+  [(`Lake.download, ``IO.getEnv), (`Lake.proc, ``IO.Process.output),
+    (`Lake.captureProc?, ``IO.Process.output), (`Lake.compileLeanModule, ``IO.Process.output)]
+
+/-- The process starts that a path from an initializer of the toolchain reaches. Lean's builtin
 `bv_decide`, which the initializer that registers it reaches, starts its SAT solver
 (`Lean/Meta/Tactic/BVDecide/External.lean:98-122`). Regula supplies its checked cadical through the
 initial `sat.solver` before in-process source elaboration (`Regula.Process.leanOptions`), covering
 the default solver only while source leaves that option unset. A source setting it, including
 resetting it to empty, selects its own program and remains uncovered (issue 411, after issue 279's
-observer). -/
+observer). The others are Lake's (`facetStartup`). -/
 def processStartup : List (Name × Name) :=
-  [(`Lean.Meta.Tactic.BVDecide.External.runInterruptible, ``IO.Process.spawn)]
+  [(`Lean.Meta.Tactic.BVDecide.External.runInterruptible, ``IO.Process.spawn)] ++
+    facetStartup.filter (·.2 != ``IO.getEnv)
 
 /-- The environment reads that a path from an initializer of the toolchain reaches. The initializer
 of `Lean.manualRoot` reads LEAN_MANUAL_ROOT (`Lean/DocString/Links.lean:35-37`). Without a
 `sat.solver`, `bv_decide` looks for cadical beside the running executable
 (`Lean/Meta/Tactic/BVDecide/TacticContext.lean:55-66`). `Lean.getSrcSearchPath` reads
 LEAN_SRC_PATH (`Lean/Util/Path.lean:137-143`), and `IO.appDir`, which it calls to find Lean's
-sources, reads the path of the running executable (`Init/System/IO.lean:1305-1309`). -/
+sources, reads the path of the running executable (`Init/System/IO.lean:1305-1309`). The read of
+CURL by `Lake.download` is Lake's (`facetStartup`). -/
 def environmentStartup : List (Name × Name) :=
   [(`Lean.manualRoot, ``IO.getEnv),
     (mkPrivateNameCore `Lean.Meta.Tactic.BVDecide.TacticContext
       `Lean.Meta.Tactic.BVDecide.TacticContext.new.determineSolver, ``IO.appPath),
     (`Lean.getSrcSearchPath, ``IO.getEnv),
-    (`IO.appDir, ``IO.appPath)]
+    (`IO.appDir, ``IO.appPath)] ++ facetStartup.filter (·.2 == ``IO.getEnv)
 
 /-- The runtime symbols of Lean 4.34.1 that read or change the process environment: its variables,
 working directory and executable path. Lean binds the first five in `Init/System/IO.lean` (`:951`,
@@ -1071,7 +1094,58 @@ def initActions (env : Environment) : Array Name :=
 def initializers (env : Environment) : Array Name :=
   initializersOf env (allModules env)
 
-/-- The initializer actions `initializers`, split into those of the toolchain's modules
+/-- Whether the compiled declaration `name` is a closed term (`_closed_` with a number as its last
+part), which the code that first reads it computes, not the initializer of its module
+(`Lean/Compiler/LCNF/EmitC.lean:1003`, `:476-477`). Lean keeps its record of closed terms for the
+module being compiled alone (`Lean.closedTermCacheExt`), so an imported one is known by its name. -/
+def closedTerm (name : Name) : Bool :=
+  match name with
+  | .str _ text => text.startsWith "_closed_" && text.length > 8 &&
+      (text.toList.drop 8).all Char.isDigit
+  | _ => false
+
+/-- The values that the initializers of the modules `modules` compute when a program that links
+them starts: each declaration of `initializersOf` that is neither an action of `initActionsOf` nor
+a closed term (`closedTerm`). It also takes the ground values, which are static data
+(`Lean/Compiler/LCNF/EmitC.lean:474-475`, `:1003`); their compiled code calls nothing, so the walk
+finds nothing in them. Each name appears once. -/
+def valueInitializers (env : Environment) (modules : Std.HashSet Name) : Array Name :=
+  let actions := initActionsOf env modules
+  (initializersOf env modules).filter fun name => !actions.contains name && !closedTerm name
+
+/-- The declarations that `body` applies fully (`Lean.IR.Expr.fap`), pushed onto `acc.1`, and
+whether it applies a closure (`Lean.IR.Expr.ap`), or-ed into `acc.2`. A partial application
+(`Lean.IR.Expr.pap`) builds a closure and runs nothing, so it adds nothing. -/
+partial def applications : FnBody → Array Name × Bool → Array Name × Bool
+  | .vdecl _ _ value rest, acc =>
+    let acc := match value with
+      | .fap function _ => (acc.1.push function, acc.2)
+      | .ap .. => (acc.1, true)
+      | _ => acc
+    applications rest acc
+  | .jdecl _ _ joined rest, acc => applications rest (applications joined acc)
+  | .case _ _ _ alternatives, acc =>
+    alternatives.foldl (fun acc alternative => applications alternative.body acc) acc
+  | body, acc => if body.isTerminal then acc else applications body.body acc
+
+/-- The values that the evaluation of a value with the compiled body `body` reads, when reading
+them is all that it runs: when `body` applies no closure and every declaration that it applies
+fully is a compiled declaration with no parameter (`applications`). Its partial applications then
+build closures that it does not run. `none` when its evaluation can run more.
+
+Assumes: in Lean 4.34.1's compiled code a full application (`Lean.IR.Expr.fap`) runs the code of
+the declaration applied, and one of a declaration with no parameter reads its value, which the
+initializer or, for a closed term, the first read computes; a partial application
+(`Lean.IR.Expr.pap`) builds a closure only, and the application of a closure (`Lean.IR.Expr.ap`)
+runs that closure (`src/Lean/Compiler/IR/Basic.lean:192-197`). -/
+def valueReads (env : Environment) (body : FnBody) : Option (Array Name) :=
+  let (applied, appliesClosure) := applications body (#[], false)
+  let reads := applied.all fun used => match findEnvDecl env used with
+    | some decl => decl.params.isEmpty
+    | none => false
+  if !appliesClosure && reads then some applied else none
+
+/-- The initializer actions or values `initializers`, split into those of the toolchain's modules
 (`toolchainCaller`), which start paths with the rows' `startup` pairs, and the others, which start
 ordinary paths. -/
 def splitInitializers (env : Environment) (initializers : Array Name) : Array Name × Array Name :=
@@ -1195,14 +1269,19 @@ def filesystemReach (env : Environment) (observers : Array Name) (roots : Array 
 
 /-- The walk of the process and environment rows (`pathBoundaries`): every primitive call reached
 from `roots`, and from `startup` on paths from the toolchain's initializers, that the row's decision
-(`pathAdmitted`) refuses, plus missing compiled bodies. `cold` admits the pairs of a driver's copy
+(`pathAdmitted`) refuses, plus missing compiled bodies. `values` and `startupValues` are values that
+the initializers compute (`valueInitializers`), of the program's modules and of the toolchain's:
+from each, and from each value that its evaluation reads, the walk follows the values that it reads
+alone when that is all that its evaluation runs (`valueReads`), and otherwise all that its code
+refers to, as from `roots`. `cold` admits the pairs of a driver's copy
 of the process source (`bootstrap`). A declaration is followed once in each context in which a path
 reaches it (`PathContext`), so a call of a listed entry by another caller admits nothing below it.
 A constant with an initializer is not followed where it is referenced: the reference reads the
 value that its initializer, a root of the program, stored when the program started. Runtime-bound
 aliases use the same table as named primitives. Native C bodies are not followed. -/
 def pathReach (env : Environment) (roots : Array Name) (startup : Array Name := #[])
-    (cold : List (Name × Name) := []) : Reach :=
+    (cold : List (Name × Name) := []) (values : Array Name := #[])
+    (startupValues : Array Name := #[]) : Reach :=
   Id.run do
   let index := primitiveIndex env
   let entries := entryIndex env
@@ -1211,19 +1290,24 @@ def pathReach (env : Environment) (roots : Array Name) (startup : Array Name := 
   let own := pathBoundaries.foldl (fun own boundary =>
     own.insert boundary.system (observerRoles env boundary.system boundary.observer).1)
     ({} : Std.HashMap RegulaPolicy.External.System (Array Name))
-  let mut work := roots.map ((·, ({} : PathContext))) ++ startup.map ((·, { startup := true }))
-  let mut seen : Std.HashSet (Name × PathContext) := work.foldl (·.insert ·) {}
+  -- Each item is a declaration, its context, and whether its evaluation as a value is followed
+  -- through the values that it reads alone (`valueReads`).
+  let mut work : Array (Name × PathContext × Bool) :=
+    roots.map ((·, {}, false)) ++ startup.map ((·, { startup := true }, false)) ++
+      values.map ((·, {}, true)) ++ startupValues.map ((·, { startup := true }, true))
+  let mut seen : Std.HashSet (Name × PathContext × Bool) := work.foldl (·.insert ·) {}
   let mut calls : Array Call := #[]
   let mut unknown := #[]
   -- Each declaration is added to `work` at most once in each context. The bound is far above the
   -- number of compiled declarations that a program of this toolchain reaches (about 200,000) in its
   -- few contexts; a declaration left in `work` at the bound is unknown, so the check fails closed.
   for _ in [:maxDeclarations] do
-    let some (name, context) := work.back? | break
+    let some (name, context, value) := work.back? | break
     work := work.pop
     match findEnvDecl env name with
-    | some decl@(.fdecl ..) =>
-      for used in collectUsedDecls env [decl] do
+    | some decl@(.fdecl _ _ _ body _) =>
+      let reads := if value then valueReads env body else none
+      for used in reads.getD (collectUsedDecls env [decl]) do
         if used == name then continue
         let boundary := match classified[used]? with
           | some boundary => boundary
@@ -1235,7 +1319,7 @@ def pathReach (env : Environment) (roots : Array Name) (startup : Array Name := 
               calls.any (fun call => call.caller == name && call.primitive == used) do
             calls := calls.push ⟨boundary.system, name, used⟩
         else if (getInitFnNameFor? env used).isNone then
-          let next := (used, context.enter env entries specializations name used)
+          let next := (used, context.enter env entries specializations name used, reads.isSome)
           unless seen.contains next do
             seen := seen.insert next
             work := work.push next
@@ -1252,16 +1336,15 @@ def pathReach (env : Environment) (roots : Array Name) (startup : Array Name := 
 
 /-- Both walks of the check: the filesystem row's (`filesystemReach`) from `roots`, `startup` and
 `compiled`, with `observers` and the calls `named`, and the process and environment rows'
-(`pathReach`) from `roots` and, on paths from the toolchain's initializers, `startup`, with the
-pairs `cold`. Each pair of
-`named` that admits no call of the filesystem row is unused. `writes` is that of
-`filesystemReach`. -/
+(`pathReach`) from `roots` and `values` and, on paths from the toolchain's initializers, `startup`
+and `startupValues`, with the pairs `cold`. Each pair of `named` that admits no call of the
+filesystem row is unused. `writes` is that of `filesystemReach`. -/
 def rawRemovalsFrom (env : Environment) (observers : Array Name) (roots : Array Name)
     (named : List (Name × Name) := []) (startup : Array Name := #[])
-    (compiled : Array Name := #[]) (cold : List (Name × Name) := []) (writes : Bool := true) :
-    Reach :=
+    (compiled : Array Name := #[]) (cold : List (Name × Name) := []) (writes : Bool := true)
+    (values : Array Name := #[]) (startupValues : Array Name := #[]) : Reach :=
   let files := filesystemReach env observers (roots ++ startup ++ compiled) named writes
-  let paths := pathReach env roots startup cold
+  let paths := pathReach env roots startup cold values startupValues
   { files with
     calls := files.calls ++ paths.calls
     unknown := files.unknown ++ paths.unknown.filter (!files.unknown.contains ·) }
@@ -1323,8 +1406,9 @@ def programRoots (env : Environment) (root : Name) : Array Name :=
 /-- `rawRemovalsFrom` for a program whose `main` is `main` in the module `root`. The filesystem
 row's walk starts at every compiled declaration of its modules outside the toolchain
 (`programRoots`) and at the code that initializes the modules that it links (`linked`,
-`initializersOf`). The path rows' walk starts at `main` and at the initializer actions of those
-modules (`initActionsOf`), split by `splitInitializers`. Each row supplies its own observers and
+`initializersOf`). The path rows' walk starts at `main`, at the initializer actions of those
+modules (`initActionsOf`) and at the values that their initializers compute
+(`valueInitializers`), each split by `splitInitializers`. Each row supplies its own observers and
 sourced exemptions; `named` supplies the program's explicit filesystem pairs and `cold` the pairs of
 a driver's copy of the process source (`bootstrap`). Roles outside each row's boundary module are
 retained as foreign declarations (`foreignRoles`). -/
@@ -1332,15 +1416,20 @@ def rawRemovals (env : Environment) (root : Name) (named : List (Name × Name) :
     (cold : List (Name × Name) := []) (writes : Bool := true) : Reach :=
   let modules := linked env root
   let (startup, ordinary) := splitInitializers env (initActionsOf env modules)
+  let (startupValues, values) := splitInitializers env (valueInitializers env modules)
   { rawRemovalsFrom env (filesystemObservers env) (ordinary.push `main) named startup
-      (programRoots env root ++ initializersOf env modules) cold writes with
+      (programRoots env root ++ initializersOf env modules) cold writes values startupValues with
     foreign := foreignRoles env }
 
-/-- The path rows' part of `rawRemovals` alone (`pathReach`), with the foreign roles of every row:
-the process starts and environment reads of the program whose `main` is in the module `root`. -/
+/-- The path rows' part of `rawRemovals` alone (`pathReach`), from the same roots, with the foreign
+roles of every row: the process starts and environment reads of the program whose `main` is in the
+module `root`. -/
 def pathRemovals (env : Environment) (root : Name) (cold : List (Name × Name) := []) : Reach :=
-  let (startup, ordinary) := splitInitializers env (initActionsOf env (linked env root))
-  { pathReach env (ordinary.push `main) startup cold with foreign := foreignRoles env }
+  let modules := linked env root
+  let (startup, ordinary) := splitInitializers env (initActionsOf env modules)
+  let (startupValues, values) := splitInitializers env (valueInitializers env modules)
+  { pathReach env (ordinary.push `main) startup cold values startupValues with
+    foreign := foreignRoles env }
 
 /-- The declarations of Lean 4.34.1's library through which a program runs Lean's elaborator on
 source that it reads: its frontends (`Lean.Elab.runFrontend`, `Lean.Elab.IO.processCommands`,

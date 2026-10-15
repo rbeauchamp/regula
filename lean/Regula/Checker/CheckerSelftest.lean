@@ -4540,8 +4540,9 @@ the start that ran no command it gives the status and the option that the stand-
 other runs, it is the reason with which the guard marks each destination before any code of the
 program runs (`Regula.TaskManager.guard`, `Regula.TaskManager.startedReason`).
 
-The verification wrapper, `scripts/verify.sh`, runs in a copy of its files with no `lean` on its
-`PATH`, after the export of the first corpus shard was recorded against the current sources with
+The verification wrapper, `scripts/verify.sh`, runs in a copy of its files with an Elan home
+(`ELAN_HOME`) that does not exist, below which it would start the pinned `lean`, after the export
+of the first corpus shard was recorded against the current sources with
 the text of `foundation_manifest.json` changed. Its attempt must stop with Bash's exit 127 before
 the driver runs, and leave that export and the corpus receipt `tmp/rule-examples.json` with their
 bytes, since no code of the attempt ran. The site's reader (`Site.Build.admitShard`) must then
@@ -4581,7 +4582,8 @@ the directories of `PATH`; its process code is not among the toolchain's sources
 coreutils `env`, run under the name `timeout`, prints GNU coreutils for `--version` and ends with
 its own failure status 125 at the option `--signal=KILL`, naming that option on standard error.
 Trusted: Bash ends a script that runs under `set -e` with 127 when a command is not found, and
-`/usr/bin` and `/bin`, the wrapper's `PATH`, hold no `lean`, which the control checks first;
+the wrapper starts `lean` by its path below the Elan home alone, which the control checks is not
+there first;
 `ln` makes a hard link, and with `-s` a symbolic link. -/
 private def earlyStopControl (repo : FilePath) : IO (Option String) :=
   withScratch repo "checker-early-stop" fun scratch => do
@@ -4782,8 +4784,10 @@ private def earlyStopControl (repo : FilePath) : IO (Option String) :=
             incomplete mark and the reason, or admitted as completed; it holds {held}\n\
             {result.output}"
     -- The verification wrapper, `scripts/verify.sh`, in a copy of its files, so that its `tmp` is
-    -- the copy's. With no `lean` on its `PATH`, the first corpus shard's attempt stops before the
-    -- driver's begin-attempt (`RegulaVerification.beginAttempt`), so no code of the attempt runs:
+    -- the copy's. The wrapper starts the pinned `lean` below the Elan home (`ELAN_HOME`, else
+    -- `$HOME/.elan`), never one on its `PATH`. With an Elan home that does not exist, Bash finds no
+    -- `lean` there and stops the script with 127, so the first corpus shard's attempt stops before
+    -- the driver's begin-attempt (`RegulaVerification.beginAttempt`) and no code of the attempt runs:
     -- the export of an earlier attempt and the corpus receipt (`RegulaVerification.corpusEvidence`)
     -- each keep their bytes. The export was recorded before `foundation_manifest.json` changed:
     -- the current sources (`Site.Build.sourcePathsAt`) with that manifest's text changed. Right
@@ -4812,18 +4816,17 @@ private def earlyStopControl (repo : FilePath) : IO (Option String) :=
     writeShard receipt
     let receipted ← IO.FS.readBinFile receipt
     let shellPath := "/usr/bin:/bin"
-    for directory in ["/usr/bin", "/bin"] do
-      if ← Regula.Filesystem.isPresent (FilePath.mk directory / "lean") then
-        return some s!"early stop: {directory} holds lean, so the wrapper's PATH {shellPath} \
-          cannot leave it out"
+    let noElan := scratch / "no-elan"
+    if ← Regula.Filesystem.isPresent noElan then
+      return some s!"early stop: {noElan} exists, so it cannot stand for an Elan home with no lean"
     let stopped ← runProcess wrapper (.stated "/bin/bash" "The early-stop control runs the verification wrapper with Bash")
       #[(wrapper / "scripts" / "verify.sh").toString, "diagnostics", "rule-examples", "1/3"]
-      (env := #[("PATH", some shellPath)])
+      (env := #[("PATH", some shellPath), ("ELAN_HOME", some noElan.toString)])
     unless stopped.exitCode == 127 && (← IO.FS.readBinFile shard).data == seeded.data &&
         (← IO.FS.readBinFile receipt).data == receipted.data do
-      return some s!"early stop: scripts/verify.sh diagnostics rule-examples 1/3 with no lean on \
-        its PATH did not stop with exit 127 and leave the earlier shard export and corpus receipt \
-        (exit {stopped.exitCode}):\n{stopped.output}"
+      return some s!"early stop: scripts/verify.sh diagnostics rule-examples 1/3 with an Elan home \
+        that does not exist did not stop with exit 127 and leave the earlier shard export and \
+        corpus receipt (exit {stopped.exitCode}):\n{stopped.output}"
     if ← shardAdmitted shard then
       return some s!"early stop: right after scripts/verify.sh stopped without lean, the site's \
         reader admitted a shard export recorded before {manifestPath} changed"

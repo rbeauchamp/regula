@@ -359,13 +359,17 @@ run_cmd do
       throwError "the planted opening {root} is not found as a write: {reach.raw}, unknown \
         {reach.unknown}"
 
--- The planted initializer is found, and no other initializer of this module's imports removes or
--- writes, or starts a process or reads the environment outside its observer.
+-- The planted initializer is found, and no other initializer of this module's imports, nor a value
+-- that one computes, removes or writes, or starts a process or reads the environment outside its
+-- observer.
 run_cmd do
   let env ← getEnv
   let (startup, roots) := Regula.Removal.splitInitializers env (Regula.Removal.initActions env)
+  let (startupValues, values) := Regula.Removal.splitInitializers env
+    (Regula.Removal.valueInitializers env (Regula.Removal.allModules env))
   let reach := Regula.Removal.rawRemovalsFrom env (Regula.Removal.filesystemObservers env) roots
-    (startup := startup) (compiled := Regula.Removal.initializers env)
+    (startup := startup) (compiled := Regula.Removal.initializers env) (values := values)
+    (startupValues := startupValues)
   unless reach.unknown.isEmpty do
     throwError "initializers with unknown compiled code: {reach.unknown}"
   unless reach.raw.size == 1 && reach.raw.all fun (caller, primitive) =>

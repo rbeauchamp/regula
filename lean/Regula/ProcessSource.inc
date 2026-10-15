@@ -208,16 +208,23 @@ inherited override cannot establish presence either.
 Assumes: Lean v4.34.1 `Lake/Config/InstallPath.lean:289-316` uses the bundled clang/llvm-ar or an
 applicable compiler/archiver override before its bare cc/ar fallback, and reads CC/AR only without
 the bundled tool. Lake takes the bundled tool as present when `System.FilePath.pathExists` reads it
-(`:293`, `:303`), which gives `false` for every error of `metadata`, so the guard reads it as Lake
-does: present when its `metadata` read succeeds. An unreadable bundled tool, which Lake passes
-over for an override, therefore requires the override here too. The installation and parent
-environment stay stable, and native environment updates succeed (`runtime/process.cpp:463-469`). -/
+(`:293`, `:303`), which gives `false` for every error of `metadata`. The guard reads it strictly
+instead, by the strict-read rule of issue 430: present when its `metadata` read succeeds, absent
+only when Lean reports that nothing is there (`noFileOrDirectory`), and every other failure of the
+read is thrown. So where Lake would silently pass over an unreadable bundled tool for an override,
+Regula refuses. The installation and parent environment stay stable, and native environment
+updates succeed (`runtime/process.cpp:463-469`). -/
 def requireNativeTools (installation : Installation)
     (changes : Array (String × Option String) := #[]) (inheritEnv : Bool := true) : IO Unit := do
   requireOverrides changes
   for (tool, first, fallback) in nativeOverrides do
     let bundled := (installation.root.val / "bin" / tool.basename).addExtension FilePath.exeExtension
-    if (← bundled.metadata.toBaseIO) matches .ok _ then continue
+    match ← bundled.metadata.toBaseIO with
+    | .ok _ => continue
+    | .error (.noFileOrDirectory ..) => pure ()
+    | .error error =>
+      throw <| IO.userError s!"process selection: the installation's bundled \
+        {tool.basename} at {bundled} cannot be read: {error}"
     requireAbsoluteOverrides [fallback] changes
     let mut supplied := false
     for name in [first, fallback] do
