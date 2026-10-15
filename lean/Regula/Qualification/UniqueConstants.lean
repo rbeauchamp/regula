@@ -144,10 +144,10 @@ file must have all three parts and any other only the exported one, as `importMo
 The parts stay loaded: the names point into them. -/
 def readFacts (module : Name) : IO ModuleFacts := do
   let olean ← findOLean module
-  unless ← olean.pathExists do
+  unless ← Regula.Filesystem.isPresent olean do
     throw <| IO.userError s!"unique-constants: {module} has no .olean at {olean}"
   let server := OLeanLevel.server.adjustFileName olean
-  let files := if ← server.pathExists then
+  let files := if ← Regula.Filesystem.isPresent server then
       #[olean, server, OLeanLevel.private.adjustFileName olean]
     else #[olean]
   let parts ← readModuleDataParts files

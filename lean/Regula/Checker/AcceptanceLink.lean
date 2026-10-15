@@ -162,7 +162,7 @@ The `status: accepted` record lives in a writable `tmp/` file and is trusted as 
 by ordinary acceptance, like the `shasum` and filesystem observations behind its
 identity; a process that forges it is outside the assurance boundary (standard §7). -/
 def require (path : FilePath) (digest : String) : IO Unit := do
-  unless ← path.pathExists do
+  unless ← Regula.Filesystem.isPresent path do
     throw <| IO.userError s!"acceptance link missing: run ordinary acceptance first ({path})"
   let value ← readJson path
   unless (value.getObjValAs? Nat "schemaVersion").toOption == some 1 &&
@@ -288,10 +288,7 @@ def placeRetained (repo copy scratch link : FilePath) (identity : String)
           let mut present := #[]
           for (path, _) in BuildReuse.selected closure build.artifacts do
             let source := repo / ".lake" / "build" / path
-            let regular ← match ← source.symlinkMetadata.toBaseIO with
-              | .ok metadata => pure (metadata.type == .file)
-              | .error _ => pure false
-            unless regular do continue
+            unless (← Regula.Filesystem.entryIfPresent source) == some .file do continue
             let target := staging / path
             Regula.Filesystem.copyFile source target
             present := present.push path
@@ -301,7 +298,7 @@ def placeRetained (repo copy scratch link : FilePath) (identity : String)
     let run : BuildReuse.Run := { identity, targets, modules, closure, tree, staged }
     unless BuildReuse.reuse record run do return .error (refusal record run)
     let target := copy / ".lake" / "build"
-    unless (← (target.symlinkMetadata.toBaseIO)) matches .error _ do
+    if (← Regula.Filesystem.entryIfPresent target).isSome then
       return .error s!"{target} already exists"
     try
       for (path, _) in staged do

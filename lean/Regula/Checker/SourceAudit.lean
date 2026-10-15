@@ -174,8 +174,8 @@ def Compilation.observation (compilation : Compilation) : RegulaPolicy.BuildObse
 (`Observer.decideRecord`).
 `compileIn` loads the observer into every compilation it runs with `lean`, so Lean loaded it; a
 compilation without an `.olean`, or whose `.olean` holds no complete record, is decided as one
-without a record. The decision names the compiled source as `subject`, since the module name is
-the compilation's own. -/
+without a record, and a failure to read an `.olean` that is there is thrown. The decision names
+the compiled source as `subject`, since the module name is the compilation's own. -/
 def Compilation.observe (compilation : Compilation) (subject : String) : IO Observer.Verdict :=
   Observer.decideRecord subject true compilation.oleanPath
 
@@ -547,7 +547,8 @@ unsafe def inspectCurrentSearchPath (value : Compilation)
   IO.ofExcept <| outcome.mapError (·.detail)
 
 /-- Compiles `spec` through Lake and inspects the result; returns the compiler output as `.error`
-when compilation does not pass, or the inspection error followed by that output. -/
+when compilation does not pass. A failure of the inspection is thrown, so it is never returned as
+that `.error`, which a caller reads as a source that does not compile. -/
 unsafe def compileAndInspect (repo scratch : FilePath) (spec : SourceSpec)
     (extraSearchRoots : Array FilePath := #[]) (sourceRoots : Array FilePath := #[])
     (moduleSources : Array (Name × FilePath) := #[]) (ownership : Ownership := {}) :
@@ -555,9 +556,6 @@ unsafe def compileAndInspect (repo scratch : FilePath) (spec : SourceSpec)
   let compilation ← IO.ofExcept <| (← compile repo scratch spec).mapError (·.detail)
   if !compilationPassed compilation then
     return .error compilation.process.output
-  try
-    return .ok (← inspect compilation extraSearchRoots sourceRoots moduleSources ownership)
-  catch error =>
-    return .error s!"{error}\n{compilation.process.output}"
+  return .ok (← inspect compilation extraSearchRoots sourceRoots moduleSources ownership)
 
 end Regula.Checker.SourceAudit

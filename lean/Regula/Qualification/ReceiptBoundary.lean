@@ -160,6 +160,7 @@ def check : IO Unit := do
           ⟨"intended timeout discovery refusal", fault == "spawn" ||
               log.contains "requires GNU coreutils timeout"⟩,
           ⟨"selected timer disappeared before spawn", fault != "spawn" ||
-            (!(← (bin / "gtimeout").pathExists) && !log.contains "requires GNU coreutils timeout")⟩]
+            (!(← Regula.Filesystem.isPresent (bin / "gtimeout")) &&
+              !log.contains "requires GNU coreutils timeout")⟩]
         IO.println s!"receipt boundary {route[0]!}/{fault}: PASS"
 end Regula.Qualification.ReceiptBoundary

@@ -241,27 +241,35 @@ def diagnosticBlocks (output : String) (isHead : String → Bool) : Array String
   return blocks
 
 /-- The nearest ancestor of `start` (itself included) holding one Lake configuration file and
-a `lean-toolchain`. The upward walk terminates on the byte length of the path. The length
-check cannot fail: `FilePath.parent` returns a proper prefix, cut at the last separator or
-after the root directory. Its `revFind?`-based definition has no lemmas in core to prove
-that, so the check states it. -/
-def findRepoRoot (start : FilePath) : IO FilePath := do
-  let root ← IO.FS.realPath start
-  let rec loop (path : FilePath) : IO FilePath := do
-    let hasLean ← (path / "lakefile.lean").pathExists
-    let hasToml ← (path / "lakefile.toml").pathExists
+a `lean-toolchain`, or the reason that it names none: nothing is at `start`, no ancestor holds
+them, or the walk reaches an ancestor with both configuration files first. A failure to read or
+resolve a path is thrown, never given as a reason (`Regula.Filesystem.realPathIfPresent`,
+`Regula.Filesystem.isPresent`). The upward walk terminates on the byte length of the path. The
+length check cannot fail: `FilePath.parent` returns a proper prefix, cut at the last separator or
+after the root directory. Its `revFind?`-based definition has no lemmas in core to prove that, so
+the check states it. -/
+def findRepoRoot? (start : FilePath) : IO (Except String FilePath) := do
+  let absent := s!"cannot find Lean project root above {start}"
+  let some root ← Regula.Filesystem.realPathIfPresent start | return .error absent
+  let rec loop (path : FilePath) : IO (Except String FilePath) := do
+    let hasLean ← Regula.Filesystem.isPresent (path / "lakefile.lean")
+    let hasToml ← Regula.Filesystem.isPresent (path / "lakefile.toml")
     if hasLean && hasToml then
-      throw <|
-          IO.userError s!"ambiguous Lean project root {path}: both lakefile.lean and lakefile.toml"
-    if (hasLean || hasToml) && (← (path / "lean-toolchain").pathExists) then
-      return path
+      return .error s!"ambiguous Lean project root {path}: both lakefile.lean and lakefile.toml"
+    if (hasLean || hasToml) && (← Regula.Filesystem.isPresent (path / "lean-toolchain")) then
+      return .ok path
     match path.parent with
     | some parent =>
       if parent.toString.utf8ByteSize < path.toString.utf8ByteSize then loop parent
       else throw <| IO.userError s!"parent of {path} is not a proper prefix"
-    | none => throw <| IO.userError s!"cannot find Lean project root above {root}"
+    | none => return .error absent
   termination_by path.toString.utf8ByteSize
   loop root
+
+/-- The project root that `findRepoRoot?` finds from `start`; it throws the reason where that
+names none. -/
+def findRepoRoot (start : FilePath) : IO FilePath := do
+  IO.ofExcept (← findRepoRoot? start)
 
 /-- The project root that `findRepoRoot` finds from the current working directory. -/
 def repoRoot : IO FilePath := do
@@ -278,7 +286,7 @@ resolves from here even when no Lake-provided `LEAN_PATH` is in scope. -/
 def checkerPackageLibDir : IO (Option FilePath) := do
   let some bin := (← IO.appPath).parent | return none
   let libDir := bin / ".." / "lib" / "lean"
-  if ← (libDir / "Regula" / "Probe.olean").pathExists then
+  if ← Regula.Filesystem.isPresent (libDir / "Regula" / "Probe.olean") then
     return some libDir
   return none
 
@@ -290,10 +298,14 @@ def withScratch {α : Type} (repo : FilePath) (stem : String)
   return (← Regula.Scratch.withScratch repo stem action).1
 
 /-- The real path of the top level of the Git work tree that holds the directory `dir`, as
-`git rev-parse --show-toplevel` run in `dir` prints it, or `none` when that command fails, for
-example where Git finds no work tree, or when `dir` or the printed path cannot be resolved. Git
-runs without `GIT_DIR` and `GIT_WORK_TREE`, so the work tree is the one Git finds from `dir`
-itself. Git and the filesystem are trusted. -/
+`git rev-parse --show-toplevel` run in `dir` prints it with the spaces at its ends removed, or
+`none` when that command cannot start or fails, or when nothing is at the printed path
+(`Regula.Filesystem.realPathIfPresent`). A failure to read or resolve the printed path is thrown.
+A failure of the command is `none` whatever its cause, so a work tree that Git cannot read counts
+as no work tree, and the removed spaces can name a different path: issue
+https://github.com/rbeauchamp/regula/issues/444 tracks the two. Git runs without `GIT_DIR` and
+`GIT_WORK_TREE`, so the work tree is the one Git finds from `dir` itself. Git and the filesystem
+are trusted. -/
 def gitWorkTree (dir : FilePath) : IO (Option FilePath) := do
   let result ← try
       runProcess dir "git" #["rev-parse", "--show-toplevel"]
@@ -301,7 +313,7 @@ def gitWorkTree (dir : FilePath) : IO (Option FilePath) := do
     catch _ => return none
   let top := result.stdout.trimAscii.toString
   if !result.succeeded || top.isEmpty then return none
-  try some <$> IO.FS.realPath (FilePath.mk top) catch _ => return none
+  Regula.Filesystem.realPathIfPresent (FilePath.mk top)
 
 /-- Whether a dependency whose directory is in the Git work tree `dependency` is in the work tree
 `root` of the root package: both are known and they are the same directory. -/

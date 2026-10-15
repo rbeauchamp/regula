@@ -24,11 +24,12 @@ same outcome, and the view of the world `x` ends in is the state `y` ends in. Ag
 `Agrees.tryCatch`), from the runs of those in `EIO`, which hold case by case (`eio_pure`,
 `eio_throw`, `eio_bind_ok`, `eio_bind_error`, `eio_tryCatch_ok`, `eio_tryCatch_error`). So code
 written once for any monad agrees with itself at two sets of operations when each pair of
-operations agrees. `Agrees.transfer` carries what a run of the model action satisfies to the run of
-the `IO` action. Agreement is a relation between two runs, not a property of the real system: at
-the model whose states are the worlds, every set of operations agrees with the model's
-(`Regula.Filesystem.corresponds_ofIO`), and what the real system does is stated by the assumptions
-at that model.
+operations agrees. `io_ofExcept`, `io_toBaseIO_ok` and `io_toBaseIO_error` give the runs of
+`MonadExcept.ofExcept` and of a `toBaseIO` lifted back to `IO`. `Agrees.transfer` carries what a
+run of the model action satisfies to the run of the `IO` action. Agreement is a relation between
+two runs, not a property of the real system: at the model whose states are the worlds, every set
+of operations agrees with the model's (`Regula.Filesystem.corresponds_ofIO`), and what the real
+system does is stated by the assumptions at that model.
 
 [RG2003]: https://rbeauchamp.github.io/regula/dev/rules/RG2003/ -/
 
@@ -166,6 +167,34 @@ theorem eio_tryCatch_error {x : EIO ε α} {w w' : Void IO.RealWorld} {e : ε}
   show EST.tryCatch x f w = _
   unfold EST.tryCatch
   rw [ran]
+
+/-- A run of `MonadExcept.ofExcept r` in `IO` gives the value of `r`, or fails with its error, and
+leaves the world. -/
+theorem io_ofExcept (r : Except IO.Error α) (w : Void IO.RealWorld) :
+    (MonadExcept.ofExcept r : IO α) w = match r with
+      | .ok a => .ok a w
+      | .error e => .error e w := by
+  cases r with
+  | ok a => exact eio_pure a w
+  | error e => exact eio_throw e w
+
+/-- A run in `IO` of `x.toBaseIO`, lifted from `BaseIO`, where `x` gives `a`, gives `.ok a` and
+ends where `x` ends. -/
+theorem io_toBaseIO_ok {x : IO α} {w w' : Void IO.RealWorld} {a : α}
+    (ran : x w = .ok a w') :
+    (liftM (m := BaseIO) (n := IO) x.toBaseIO) w = .ok (.ok a) w' := by
+  show BaseIO.toEIO (EIO.toBaseIO x) w = _
+  unfold BaseIO.toEIO EIO.toBaseIO
+  simp [ran]
+
+/-- A run in `IO` of `x.toBaseIO`, lifted from `BaseIO`, where `x` fails with `e`, gives
+`.error e` and ends where `x` ends. -/
+theorem io_toBaseIO_error {x : IO α} {w w' : Void IO.RealWorld} {e : IO.Error}
+    (ran : x w = .error e w') :
+    (liftM (m := BaseIO) (n := IO) x.toBaseIO) w = .ok (.error e) w' := by
+  show BaseIO.toEIO (EIO.toBaseIO x) w = _
+  unfold BaseIO.toEIO EIO.toBaseIO
+  simp [ran]
 
 /-- `pure a` in `EIO` runs as `pure a` in the model. -/
 theorem Agrees.pure (view : Void IO.RealWorld → σ) (a : α) :

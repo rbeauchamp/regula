@@ -96,9 +96,9 @@ inductive Command where
   | selfAuditShard (spec : String)
   /-- `self-audit-module MODULE SOURCE`: the self-audit's worker for one module. -/
   | selfAuditModule (module source : String)
-  /-- `self-audit-json-module MODULE`: the self-audit's worker for one module's `Json`
-  comparisons. -/
-  | selfAuditJsonModule (module : String)
+  /-- `self-audit-rules-module MODULE`: the self-audit's worker for one module's `Json`
+  comparisons and reads of absence. -/
+  | selfAuditRulesModule (module : String)
   /-- `environments --evidence PATH`. -/
   | environments (evidence : String)
   /-- `acceptance GROUP --evidence PATH`. -/
@@ -166,7 +166,7 @@ def Command.arguments : Command → List String
   | .selfAudit => ["self-audit"]
   | .selfAuditShard spec => ["self-audit", "--shard", spec]
   | .selfAuditModule module source => ["self-audit-module", module, source]
-  | .selfAuditJsonModule module => ["self-audit-json-module", module]
+  | .selfAuditRulesModule module => ["self-audit-rules-module", module]
   | .environments evidence => ["environments", "--evidence", evidence]
   | .acceptance group evidence => ["acceptance", group.spelling, "--evidence", evidence]
   | .acceptanceSnapshots group => ["acceptance-snapshots", group.spelling]
@@ -235,7 +235,7 @@ def Command.parse : List String → Option Command
   | ["self-audit"] => some .selfAudit
   | ["self-audit", "--shard", spec] => some (.selfAuditShard spec)
   | ["self-audit-module", module, source] => some (.selfAuditModule module source)
-  | ["self-audit-json-module", module] => some (.selfAuditJsonModule module)
+  | ["self-audit-rules-module", module] => some (.selfAuditRulesModule module)
   | ["environments", "--evidence", evidence] => some (.environments evidence)
   | ["acceptance", group, "--evidence", evidence] =>
       (AcceptanceGroup.parse group).map (.acceptance · evidence)
@@ -302,7 +302,7 @@ def Command.evidence : Command → Option Evidence
   | .nativeLauncher => some .launcherReport
   | .registry | .native | .combined | .uniqueConstants | .producers
   | .producersCombined | .history | .selfAudit | .selfAuditShard _ | .selfAuditModule _ _
-  | .selfAuditJsonModule _ | .acceptanceSnapshots _ | .prepMeasure | .documentationDependencies
+  | .selfAuditRulesModule _ | .acceptanceSnapshots _ | .prepMeasure | .documentationDependencies
   | .inputInventory | .receiptBoundaries | .observers | .closureEvidence | .configurationCapture
   | .versoRecordedPaths | .copyRelocation | .copyRelocationLoad _ _ | .copyRelocationGit _
   | .fenceEvidence | .frozenExits | .documentationSource | .documentationSourceReadOnly

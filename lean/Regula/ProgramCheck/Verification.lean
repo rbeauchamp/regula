@@ -117,7 +117,7 @@ run_cmd do
     let written ← (RegulaVerification.writeDocument receipt RegulaVerification.setupMark).toBaseIO
     let promoted ← (RegulaVerification.promote record link).toBaseIO
     unless refused written && refused promoted && (← IO.FS.readFile receipt) == foreign &&
-        (← IO.FS.readFile link) == foreign && (← record.pathExists) do
+        (← IO.FS.readFile link) == foreign && (← Regula.Filesystem.isPresent record) do
       throw <| IO.userError "the driver replaced, or did not refuse, a file that is not a \
         document of Regula"
     IO.FS.writeFile receipt RegulaVerification.incompleteLink
@@ -125,7 +125,8 @@ run_cmd do
     RegulaVerification.writeDocument receipt RegulaVerification.setupMark
     RegulaVerification.promote record link
     unless (← IO.FS.readFile receipt) == RegulaVerification.setupMark &&
-        (← IO.FS.readFile link) == RegulaVerification.incompleteLink && !(← record.pathExists) do
+        (← IO.FS.readFile link) == RegulaVerification.incompleteLink &&
+        !(← Regula.Filesystem.isPresent record) do
       throw <| IO.userError "the driver did not replace a mark of Regula"
     ).toBaseIO
   Regula.Filesystem.removeOwn .directory base

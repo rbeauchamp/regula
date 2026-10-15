@@ -166,7 +166,8 @@ source-file text or another checkout's executable location. -/
 def rootDirectory : IO FilePath := do
   let root ← IO.FS.realPath (← IO.currentDir)
   requireChecks [⟨"run qualification from the Regula package root",
-    (← (root / "lean-toolchain").pathExists) && (← (root / "lakefile.lean").pathExists)⟩]
+    (← Regula.Filesystem.isPresent (root / "lean-toolchain")) &&
+      (← Regula.Filesystem.isPresent (root / "lakefile.lean"))⟩]
   return root
 
 /-- Copy the fixture tree at `source` to `target`, an absent or empty directory, through the shared

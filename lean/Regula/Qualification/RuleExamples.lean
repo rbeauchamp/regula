@@ -109,11 +109,14 @@ def snapshotCached (cache : IO.Ref SnapshotCache) (paths : Array FilePath) : IO 
   cache.set next
   return value
 
-private def configuration (paths : Array FilePath) : IO Json := do
+/-- Each of `paths` with its text, or `null` when nothing or a directory is there
+(`Regula.Filesystem.metadataIfPresent`); a failure of a read is thrown, never recorded as
+absence. -/
+def configuration (paths : Array FilePath) : IO Json := do
   return toJson (← paths.mapM fun path => do
-    let value ← if (← path.pathExists) && !(← path.isDir) then pure
-                                                                (some (← IO.FS.readFile path)) else
-                                                                    pure none
+    let value ← match ← Regula.Filesystem.metadataIfPresent path with
+      | some { type := .dir, .. } | none => pure none
+      | some _ => pure (some (← IO.FS.readFile path))
     pure (path.toString, value))
 
 /-- Write a raw observation of the attempt at `path`, below its raw directory, which is not a
@@ -243,7 +246,7 @@ private def produce (ctx : Context) (slot : Slot.ProducerSlot) (rule phase : Str
   let raw := ctx.rawDirectory / rule / phase
   IO.FS.createDirAll raw
   let output := raw / "result.json"
-  requireChecks [⟨"fresh corpus output", !(← output.pathExists)⟩]
+  requireChecks [⟨"fresh corpus output", !(← Regula.Filesystem.isPresent output)⟩]
   let kind ← if case == "Fixed" then pure "positive" else string spec "kind"
   let mode ← string spec "invocation"
   if mode == "file" && rule != "RG2001" then
@@ -344,8 +347,10 @@ private def produce (ctx : Context) (slot : Slot.ProducerSlot) (rule phase : Str
   -- paths, from the same definitions.
   let policy := Regula.Checker.Manifest.defaultPath project
   let configPaths := Regula.Checker.SourceBinding.configurationPaths project policy
+  -- A failure of the capture fails the production; it is never recorded as no copy
+  -- configuration.
   let copyInputs ← if mode == "project" || mode == "documentation" then
-      try pure (some (← Regula.Checker.Lake.captureConfigurationInputs project)) catch _ => pure none
+      some <$> Regula.Checker.Lake.captureConfigurationInputs project
     else pure none
   let configurationBefore ← configuration configPaths
   let frozen := Json.mkObj
@@ -391,7 +396,7 @@ private def produce (ctx : Context) (slot : Slot.ProducerSlot) (rule phase : Str
   save (raw / "terminal.json") terminal
   requireChecks
       [⟨s!"{rule}/{phase}: missing terminal result\n{execution.stdout}{execution.stderr}",
-          ← output.pathExists⟩,
+          ← Regula.Filesystem.isPresent output⟩,
     ⟨s!"{rule}/{phase}: process failed/timed out",
         !#[124, 125, 126, 127, 137].contains execution.exitCode⟩]
   let evidenceStart ← IO.monoMsNow
@@ -506,14 +511,17 @@ def rootConfigNames : Array String :=
 
 /-- The checker, corpus and configuration sources whose exact bytes a campaign records before
 and after production (`checkerBefore`, `checkerAfter`): the Lake-discovered root-package module
-sources, each present configuration file that the campaign copies (`rootConfigNames`), and every
-corpus file. The site builder recomputes this set to require that exported evidence belongs to the
-current sources (`Site.Build.currentSources`). -/
+sources, each present configuration file that the campaign copies (`rootConfigNames`), the files of
+the root package's declared inputs that it copies too (`Slot.rootInputs`), and every corpus file.
+The site builder recomputes this set to require that exported evidence belongs to the current
+sources (`Site.Build.currentSources`). -/
 def sourcePaths (root : FilePath) (modulePaths : Array FilePath) : IO (Array FilePath) := do
   let corpusPaths ← (← Regula.Filesystem.Construction.walkDirectory (root / "examples/rules")).filterM
-    fun path => return !(← path.isDir)
-  let configPaths ← (rootConfigNames.map fun (name : String) => root / name).filterM (·.pathExists)
-  return (modulePaths ++ configPaths ++ corpusPaths).toList.eraseDups.toArray
+    fun path => return !(← Regula.Filesystem.isDirectory path)
+  let configPaths ← (rootConfigNames.map fun (name : String) => root / name).filterM
+    Regula.Filesystem.isPresent
+  let inputPaths ← Slot.rootInputs root
+  return (modulePaths ++ configPaths ++ inputPaths ++ corpusPaths).toList.eraseDups.toArray
 
 /-- The rule whose corpus position decides `key`'s shard: the first rule of
 `sharedTheoremTypeRules` for the second when the first is in the corpus, otherwise `key`. -/
@@ -598,7 +606,8 @@ def check (evidence : FilePath) (selection : Option (Array String))
   let root ← rootDirectory
   let evidence ← IO.FS.realPath evidence
   let rawDirectory := FilePath.mk (evidence.toString ++ ".raw/" ++ attempt)
-  requireChecks [⟨"fresh raw observation attempt", !(← rawDirectory.pathExists)⟩]
+  requireChecks
+    [⟨"fresh raw observation attempt", !(← Regula.Filesystem.isPresent rawDirectory)⟩]
   IO.FS.createDirAll rawDirectory
   let specs ← readJson (root / "examples/rules/corpus.json")
   let keys := (← IO.ofExcept specs.getObj?).toList.map Prod.fst |>.toArray
@@ -625,10 +634,12 @@ def check (evidence : FilePath) (selection : Option (Array String))
     -- the end equals the content before any producer started.
     let slot : Slot.ProducerSlot := ⟨scratch / "slot"⟩
     IO.FS.createDirAll slot.root
-    let configNames ← rootConfigNames.filterM fun (name : String) => (root / name).pathExists
+    let configNames ← rootConfigNames.filterM fun (name : String) =>
+      Regula.Filesystem.isPresent (root / name)
     let rootConfigs ← configNames.mapM (fun (name : String) => do
       pure (root / name, ← Regula.Filesystem.readBytes (root / name)))
-    let rootSources ← modulePaths.mapM fun path => do
+    -- The module sources and the files of the declared inputs that the root's libraries need.
+    let rootSources ← (modulePaths ++ (← Slot.rootInputs root)).mapM fun path => do
       pure (path, ← Regula.Filesystem.readBytes path)
     let depObservations ← Regula.Checker.Snapshot.dependencies inventory
     let _ ← Slot.prepareSlot root slot rootSources rootConfigs depObservations

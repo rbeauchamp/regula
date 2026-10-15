@@ -377,8 +377,8 @@ def otherTargets : List String :=
     "+Regula.Checker.RuleExamples:olean", "+Regula.Checker.RuleExampleQualificationMain:olean",
     "+Regula.Cli.Main:olean", "+Regula.Release:olean", "+Regula.DiagnosticsGate:olean",
     "+Regula.RemovalControls:olean", "+Regula.CopyControls:olean", "+Regula.ProvisionControls:olean",
-    "+Regula.Campaigns.Verification:olean", "+Regula.Campaigns.Diagnostics:olean",
-    "+Regula.ProgramCheck.Verification:olean"]
+    "+Regula.AbsenceControls:olean", "+Regula.Campaigns.Verification:olean",
+    "+Regula.Campaigns.Diagnostics:olean", "+Regula.ProgramCheck.Verification:olean"]
 
 /-- A `qualify` selection under the driver's deadline. -/
 private def qualify (selection : Array String) : Command :=
@@ -947,7 +947,7 @@ inductive Place where
 structure Observed where
   /-- What is at the path. -/
   place : Place
-  /-- Whether the real path of what is there is the path itself. -/
+  /-- Whether a directory is there and its real path is the path itself (`observe`). -/
   sameLocation : Bool
   deriving DecidableEq, Repr
 
@@ -1006,13 +1006,17 @@ def removeDecided (path : System.FilePath) (observed : Observed)
   IO.FS.removeDirAll path
 
 /-- What the driver observes of `path` before a removal: what is there, by a read that follows
-no link at the path, and whether its real path is the path. -/
+no link at the path, and, when a directory is there, whether its real path is the path. Only
+`place` decides that nothing is there: a failure of either read is thrown, since Lean 4.34.1's
+`realPath` gives `noFileOrDirectory` for each failure of `realpath(3)`
+(https://github.com/rbeauchamp/regula/issues/430). `removal` reads `sameLocation` only for a
+directory. -/
 def observe (path : System.FilePath) : IO Observed := do
-  return {
-    place := ← place path
-    sameLocation := match ← (IO.FS.realPath path).toBaseIO with
-      | .ok real => real == path
-      | .error _ => false }
+  let place ← place path
+  let sameLocation ← match place with
+    | .directory => pure ((← IO.FS.realPath path) == path)
+    | .absent | .other => pure false
+  return { place, sameLocation }
 
 /-- Remove the directory at `path` when one is there at its own place, do nothing when nothing
 is there, and stop with nothing removed when a symbolic link or a file is there
@@ -1400,11 +1404,13 @@ def plainNames (names : List String) : Option (List String) :=
   if names.contains ".." then none else some (names.filter fun name => name != "." && name != "")
 
 /-- The entry that `path` names, found without making anything: the real path of the longest
-prefix of its directory that is present, and the names below it (`plainNames`). It stops when the
-last component of `path` names no file (`System.FilePath.fileName`), read before any name is
-dropped; when a name below the prefix is `..`, whose entry depends on what the run makes; or when a
-prefix cannot be resolved, with the error of each read. It is `Regula.Destination.place` written a
-second time. -/
+prefix of its directory that is present, and the names below it (`plainNames`). A prefix is absent
+only when its entry, by a read that follows no link (`entryMetadata`), is not there, since
+`realPath` gives `noFileOrDirectory` for each failure of `realpath(3)`. It stops when the last
+component of `path` names no file (`System.FilePath.fileName`), read before any name is dropped;
+when a name below the prefix is `..`, whose entry depends on what the run makes; or when a prefix
+cannot be resolved, with the error of each read. It is `Regula.Destination.place` written a second
+time. -/
 def destinationAt (path : System.FilePath) : IO System.FilePath := do
   if path.fileName.isNone then
     throw <| IO.userError s!"{path} names no file, so the run writes nothing there"
@@ -1423,18 +1429,15 @@ def destinationAt (path : System.FilePath) : IO System.FilePath := do
     let ancestor : System.FilePath := if ancestor.toString.isEmpty then ⟨"/"⟩ else ancestor
     match ← (IO.FS.realPath ancestor).toBaseIO with
     | .ok real => return ← below real (components.drop (count + 1))
-    | .error absent@(.noFileOrDirectory ..) =>
+    | .error unresolved@(.noFileOrDirectory ..) =>
       match ← (entryMetadata ancestor).toBaseIO with
       | .error (.noFileOrDirectory ..) => continue
-      | .ok metadata =>
-        if metadata.type == .symlink then
-          throw <| IO.userError s!"{ancestor}, a prefix of {path}, is a symbolic link whose \
-            target is absent ({absent}), so the run writes nothing there"
-        throw <| IO.userError s!"{ancestor}, a prefix of {path}, is {entryName metadata.type} \
-          that cannot be resolved ({absent}), so the run writes nothing there"
+      | .ok metadata => throw <| IO.userError s!"{ancestor}, a prefix of {path}, is \
+          {entryName metadata.type} that cannot be resolved ({unresolved}), so the run writes \
+          nothing there"
       | .error error => throw <| IO.userError s!"{ancestor}, a prefix of {path}, cannot be \
-          resolved ({absent}) and cannot be read without following a link ({error}), so the run \
-          writes nothing there"
+          resolved ({unresolved}) and cannot be read without following a link ({error}), so the \
+          run writes nothing there"
     | .error error => throw <| IO.userError s!"{ancestor}, a prefix of {path}, cannot be resolved \
         ({error}), so the run writes nothing there"
   below ⟨"/"⟩ (components.drop 1)
@@ -1487,11 +1490,14 @@ def siteBuildMembers : List String := ["schemaVersion", "site", "producerVersion
 def identifiesSiteBuild (value : Lean.Json) : Bool :=
   siteBuildMembers.all (has value)
 
-/-- Whether a regular file is at `path`, by a read that follows no link at `path` itself. -/
-def regularFile (path : System.FilePath) : BaseIO Bool := do
+/-- Whether a regular file is at `path`, by a read that follows no link at `path` itself
+(`entryMetadata`): `false` when another kind of entry or nothing is there, and every other failure
+of the read is thrown, as `Regula.Filesystem.entryIfPresent` reads. -/
+def regularFile (path : System.FilePath) : IO Bool := do
   match ← (entryMetadata path).toBaseIO with
   | .ok metadata => return metadata.type == .file
-  | .error _ => return false
+  | .error (.noFileOrDirectory ..) => return false
+  | .error error => throw error
 
 /-- Whether a directory holds a site artifact, decided from what reads that follow no link observe
 in it: `Regula.Destination.holdsSiteArtifact` (`holdsSiteArtifact_shared`). -/
@@ -1532,7 +1538,7 @@ def siteRefusal (out : System.FilePath) : IO (Option String) := do
     let marker ← regularFile (out / siteAssemblingMarker)
     let mut build := none
     if ← regularFile (out / "build.json") then
-      build := (← (IO.FS.readFile (out / "build.json")).toBaseIO).toOption
+      build := String.fromUTF8? (← IO.FS.readBinFile (out / "build.json"))
     holds := holdsSiteArtifact marker build
   let empty ← if (entry matches .ok .dir) && !holds then (·.isEmpty) <$> listDirectory out
     else pure false

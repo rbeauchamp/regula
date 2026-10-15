@@ -1,5 +1,6 @@
 import RegulaProvision
 import Regula.Removal
+import Regula.Filesystem
 
 /-! # The removal and write check of the provisioning driver
 
@@ -39,7 +40,10 @@ a child process writes the entries of the staged directory, and `makeLink` makes
 `ln -s`; this check of the driver's compiled code reaches neither.
 
 Issue 389 asks for a decision of each of these removals that a theorem relates to
-`RegulaCore.Removal`. -/
+`RegulaCore.Removal`.
+
+It also proves the driver's own presence read, which the driver defines because it cannot import
+`Regula.Filesystem`, equal to the filesystem observer's (`isPresent_eq`). -/
 
 namespace Regula.ProgramCheck.Provision
 
@@ -72,8 +76,14 @@ run_cmd Regula.Removal.checkProgram (named := [
   (provisioning `create, ``IO.FS.writeFile),
   (provisioning `writeRegistry, ``IO.FS.rename),
   (provisioning `writeRegistry, ``IO.FS.writeFile),
-  (provisioning `prune, ``IO.FS.removeFile),
-  (provisioning `prune, ``IO.FS.rename),
+  (``RegulaProvision.prune, ``IO.FS.removeFile),
+  (``RegulaProvision.prune, ``IO.FS.rename),
   (provisioning `packagesPath, ``IO.FS.createDirAll),
   (``RegulaProvision.provision, ``IO.FS.createDirAll),
   (``RegulaProvision.provision, ``IO.FS.Handle.mk)])
+
+/-- The presence read of the driver is the filesystem observer's (`Regula.Filesystem.isPresent`,
+whose match form `Regula.Filesystem.isPresent_eq_match` states). -/
+theorem Regula.ProgramCheck.Provision.isPresent_eq :
+    RegulaProvision.isPresent = Regula.Filesystem.isPresent :=
+  Regula.Filesystem.isPresent_eq_match.symm

@@ -1805,7 +1805,7 @@ inventory's libraries and executables, so a library or executable entry, claimed
 that names no root target of its kind is refused here with `unknownTarget`, quoting the entry
 as the file writes it. This module has no other file reader. -/
 def loadFor (path : FilePath) (inventory : Lake.SurfaceInventory) : IO Manifest := do
-  if !(← path.pathExists) then
+  if !(← Regula.Filesystem.isPresent path) then
     throw <| IO.userError s!"manifest-missing: {path}"
   IO.ofExcept <| parseFor (inventory.libraries.map (·.library))
     (inventory.executables.map (·.executable)) path.toString (← IO.FS.readFile path)

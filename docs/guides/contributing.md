@@ -265,7 +265,7 @@ checker behavior:
 | `history` | [Source-bound replacement history qualification](proofs-and-boundaries.md#producers). |
 | `self-lint` | This repository's own `REGULA_ORDINARY_LAKEFILES=1 lake lint` through the `regula/lint` driver, in the root and `audit/` packages ([repository conformance](#repository-conformance)). |
 | `self-lint-default` | The root package's `lake lint` without `REGULA_ORDINARY_LAKEFILES`, so with the audit-build marker that an adopter gets by default ([repository conformance](#repository-conformance)). |
-| `self-audit`, `self-audit 1/4` to `self-audit 4/4` | Operational self-audit of the excluded `Regula` library, and the check for one-sided `Json` comparisons in each library except `Fixtures` ([repository conformance](#repository-conformance)). A shard audits a quarter of the modules, and the four shards together audit all of them. The shard `self-audit 4/4` and the single run also check that each program of the package runs the removal check (`qualify observers`, [proofs and boundaries](proofs-and-boundaries.md#the-acceptance-boundary)). They also check that each executable runs the task-manager check. |
+| `self-audit`, `self-audit 1/4` to `self-audit 4/4` | Operational self-audit of the excluded `Regula` library, and the check for one-sided `Json` comparisons in each library except `Fixtures` ([repository conformance](#repository-conformance)). The self-audit also refuses, in each library except `Fixtures`, a declaration if its type or value names Lean's `System.FilePath.pathExists` or `System.FilePath.isDir`. It does not refuse a handler that turns an error of `metadata`, `symlinkMetadata` or `realPath` into `false` or `none` ([#461](https://github.com/rbeauchamp/regula/issues/461)). It does not find a read in Lean or Lake ([#441](https://github.com/rbeauchamp/regula/issues/441)). A shard audits a quarter of the modules, and the four shards together audit all of them. The shard `self-audit 4/4` and the single run also check that each program of the package runs the removal check (`qualify observers`, [proofs and boundaries](proofs-and-boundaries.md#the-acceptance-boundary)). They also check that each executable runs the task-manager check. |
 | `rule-examples`, `rule-examples 1/3` to `rule-examples 3/3` | [Source-owned corpus and diagnostic demonstrations](architecture.md#rule-examples); a shard runs a third of the rules. |
 | `input-inventory` | Root additions and Markdown edits or removals during the prerequisite build of the checker, an actual new-module build and restored fresh controls (`qualify input-inventory`). |
 | `environment-census` | This repository's claimed environments and their mutations (`qualify environments`). |
@@ -322,8 +322,8 @@ partitions and groups are too long for a job, except `readers`. No job has the g
 sources, Verso and a provisioned Mathlib together, which `readers` builds on. The table of
 [campaigns no workflow runs](#campaigns-no-workflow-runs) names them. They run as parallel jobs, each with its own hard 420-second limit, on a pull
 request exactly when it changes one of the paths `Regula.DiagnosticsGate.inputs` lists (the checker, rules, rule examples, the
-adopter fixtures in `examples/lake-lint-toml` and `examples/build-lint`, the Lake configuration
-fixtures in `examples/fixtures`, the application and fixture sources the structural and execution
+adopter fixtures in `examples/lake-lint-toml` and `examples/build-lint`, the fixtures of the
+controls in `examples/fixtures`, the application and fixture sources the structural and execution
 controls mutate, Lake configuration, manifests, or
 the compiler and dependency setup: the provisioning program and its decision contracts, the
 provisioning action, the verification scripts and the configuration they read before a campaign),
@@ -418,7 +418,7 @@ campaign that does not run. For a reason that names part of them, its text names
 | `lake exe qualify producers-combined` | `producers` and `history` run, each in a job of its own. |
 | `lake exe qualify self-audit` | Its controls run in `lake exe qualify self-audit --shard K/4`: the four shards together audit all modules. |
 | `lake exe qualify self-audit-module MODULE SOURCE` | An internal entry point that `lake exe qualify self-audit --shard K/4` starts. |
-| `lake exe qualify self-audit-json-module MODULE` | An internal entry point that `lake exe qualify self-audit --shard K/4` starts. |
+| `lake exe qualify self-audit-rules-module MODULE` | An internal entry point that `lake exe qualify self-audit --shard K/4` starts. |
 | `lake exe qualify environments --evidence PATH` | Too long for a job. Its check took 172 s, and a check of more than 85 s does not leave a quarter of the 420-second deadline. [Issue 391](https://github.com/rbeauchamp/regula/issues/391) is the work to divide it into shards. |
 | `lake exe qualify acceptance-snapshots history` | Too long for a job. Its check took 104 s, and a check of more than 85 s does not leave a quarter of the 420-second deadline. [Issue 391](https://github.com/rbeauchamp/regula/issues/391) is the work to divide it into shards. |
 | `lake exe qualify acceptance-snapshots all` | Its groups `dependencies` and `git-status` run. Its group `history` is too long for a job. |
@@ -578,6 +578,45 @@ entry is a control of the check. It also refuses an entry if it does not inspect
 entry, such as a module that was renamed. Three fixed controls run too. A declaration named `main`,
 which the allowlist names only in `Regula.RegistryChecks`, is found in a different module. So are
 `compress` texts compared through `let` bindings. A `compress` that no comparison reads is not found.
+
+The self-audit also refuses a declaration of an inspected module if its type or value names Lean's
+`System.FilePath.pathExists` or `System.FilePath.isDir`. The two return `false` for each error of
+the read, such as a denied permission, the defect of
+[#430](https://github.com/rbeauchamp/regula/issues/430). The inspected modules are those of the
+`Json` check. Regula reads through `Regula.Filesystem.isPresent`, `isDirectory`,
+`metadataIfPresent`, `readFileIfPresent`, `entryIfPresent` or `realPathIfPresent` instead. Each of them reads absence
+only when nothing is there, and it passes on each other error. The rule does not refuse a handler
+that turns an error of `metadata`, `symlinkMetadata` or `realPath` into `false` or `none`, which
+issue [#461](https://github.com/rbeauchamp/regula/issues/461) tracks.
+
+Some code cannot import those functions: a program that `lean --run` runs, the copy program and the
+collector that each audited environment loads. Each defines its own copy, and a theorem proves the
+copy equal to the shared read. Each entry of `SelfAudit.absenceReadAllowlist` would state why its
+`false` decides nothing, and the list is empty.
+
+The check does not find such a read in a function of Lean or of a different package, for example
+`Lean.findOLean`. Issue [#441](https://github.com/rbeauchamp/regula/issues/441) tracks those reads,
+and issue [#442](https://github.com/rbeauchamp/regula/issues/442) tracks the `markdown` and
+`website` packages, which the check does not inspect.
+
+The self-audit compiles the two modules in `examples/fixtures/absence-reads` and runs its worker on
+each, as for an audited module. It must refuse a call of `pathExists` and a use of `isDir` without
+an argument in one, and nothing in the other.
+
+In the first acceptance step, `Regula.AbsenceControls` makes a path in a directory without search
+permission. It runs, on that path, the fixture module that calls Lean's readers, the shared reads
+and a caller of each read. It also runs the walk of the shared roots on a symbolic link to that
+path. It runs the removal of a shared store that provisioning cannot read. It loads a root package
+and a dependency with a `lakefile.lean` that links to that path, and Regula's Lake loaders must
+refuse the two. When a model of the file system fails to resolve one path, the removal's
+observation of that path must fail with that error.
+
+After the permissions are given back, the manifest records the choice of `lakefile.toml` that Lake
+made for the dependency. Lake reads that recorded file alone, so the loader must load the
+dependency from it, as Lake's build does. When the links are removed, the loaders must load the
+projects. A `lakefile.lean` is then written beside each `lakefile.toml` that a load read. The
+check of the loaded workspace must refuse each package with a configuration name that has no
+extension.
 
 `./scripts/verify.sh diagnostics self-audit 1/4` to `4/4` each run one shard of the self-audit.
 The campaign sorts each list of modules that it inspects by name, and it deals the list to the

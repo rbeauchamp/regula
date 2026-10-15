@@ -117,7 +117,7 @@ def rootImportsGuardControl (root scratch : FilePath) (sources : Array String) :
       let components := place.normalize.components
       unless base.isPrefixOf components && components.length > base.length do
         throw <| IO.userError s!"the build directory {place} is not inside {ws.root.dir}"
-      unless ← place.isDir do continue
+      unless ← Regula.Filesystem.isDirectory place do continue
       let destination := Regula.Filesystem.Construction.location copy
         (components.drop base.length)
       if below then
@@ -128,7 +128,7 @@ def rootImportsGuardControl (root scratch : FilePath) (sources : Array String) :
         -- The directory holds `leanLibDir`, already copied; its own files join it one by one.
         Regula.Filesystem.Construction.ensureDirectory 4096 destination
         for entry in ← Regula.Filesystem.Construction.listDirectory place do
-          unless ← entry.path.isDir do
+          unless ← Regula.Filesystem.isDirectory entry.path do
             Regula.Filesystem.copyFile entry.path (destination / entry.fileName) 0o755
   requireRootImportsBuilt copy sources
   let some (name, file) := (← rootImports copy sources)[0]?
@@ -145,7 +145,7 @@ def rootImportsGuardControl (root scratch : FilePath) (sources : Array String) :
 /-- Require a new result path and run the actual public checker. -/
 def observeProject (root project output : FilePath) (flags : Array String) : IO
     (IO.Process.Output × Json) := do
-  requireChecks [⟨"result path must be fresh", !(← output.pathExists)⟩]
+  requireChecks [⟨"result path must be fresh", !(← Regula.Filesystem.isPresent output)⟩]
   let result ← run project (root / ".lake/build/bin/axiomGate").toString
     (#["--project", project.toString] ++ flags ++ #["--json-out", output.toString]) cleanEnv
   return (result, ← readResult output)

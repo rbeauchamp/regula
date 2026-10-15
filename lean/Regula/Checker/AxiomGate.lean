@@ -363,7 +363,7 @@ private def capturedSourceAccount (resultOut : Option FilePath)
     (sources : Array ProducerReport.SourceBinding) : IO Json := do
   if sources.isEmpty then
     if let some output := resultOut then
-      if ← output.pathExists then
+      if ← Regula.Filesystem.isPresent output then
         let value ← ResultProtocol.readDocument output
         if let .ok captured := value.getObjVal? "sourceAccount" then return captured
   return ProducerReport.sourceAccountJson sources
@@ -375,7 +375,7 @@ private def retainSourceAccount (resultOut : Option FilePath)
   | some _ => pure ()
   | none =>
     if let some output := resultOut then
-      if ← output.pathExists then
+      if ← Regula.Filesystem.isPresent output then
         let captured ← capturedSourceAccount resultOut sources
         let value ← ResultProtocol.readDocument output
         ResultProtocol.writeDocument output (value.setObjVal! "sourceAccount" captured)
@@ -499,23 +499,23 @@ So a result of this origin says that it rests on the driver (`Origin.qualificati
 private def driverCopy (repo path : FilePath) : IO Copied := do
   let refuse {α : Type} (reason : String) : IO α :=
     throw <| IO.userError s!"driver copy refused: {path} {reason}"
-  let area ← match ← (IO.FS.realPath (Regula.Scratch.directory repo)).toBaseIO with
-    | .ok area => pure area
-    | .error _ => refuse s!"is not in the scratch area of {repo}, which has none"
-  let copy ← match ← (IO.FS.realPath path).toBaseIO with
-    | .ok copy => pure copy
-    | .error _ => refuse "is not there"
+  -- Only `realPathIfPresent` decides that nothing is there; a failure to read or resolve is thrown.
+  let some area ← Regula.Filesystem.realPathIfPresent (Regula.Scratch.directory repo)
+    | refuse s!"is not in the scratch area of {repo}, which has none"
+  let some copy ← Regula.Filesystem.realPathIfPresent path | refuse "is not there"
   let some name := ScratchCopy.name? area.normalize.components copy.normalize.components
     | refuse s!"is not the directory `project` of a scratch directory of {area}"
   let marker := area / s!"{name}.{Regula.Scratch.markerExtension}"
-  let marked ← match ← marker.symlinkMetadata.toBaseIO with
-    | .ok metadata => pure (metadata.type == .file)
-    | .error _ => pure false
+  let marked ← match ← (Regula.Filesystem.entryIfPresent marker).toBaseIO with
+    | .ok kind => pure (kind == some .file)
+    | .error error => refuse s!"has an ownership marker {marker} that cannot be read ({error})"
   unless marked do refuse s!"has no ownership marker {marker}"
   let build ← match ← (Workspace.withRootWorkspace copy fun workspace =>
-      IO.FS.realPath workspace.root.buildDir).toBaseIO with
-    | .ok build => pure build
-    | .error error => refuse s!"has no build directory that Lake gives ({error})"
+      Regula.Filesystem.realPathIfPresent workspace.root.buildDir).toBaseIO with
+    | .ok (some build) => pure build
+    | .ok none => refuse "has no build directory that Lake gives"
+    | .error error => refuse s!"has a build directory that Lake does not give or that cannot be \
+      resolved ({error})"
   let own ← IO.FS.realPath (← IO.appPath)
   unless ScratchCopy.inside build.normalize.components own.normalize.components do
     refuse s!"did not build this gate: {own} is not below {build}"
@@ -1386,7 +1386,7 @@ private unsafe def auditFile (repo path : FilePath) (claim : Option Profile)
   let manifestPath := manifest.getD (Manifest.defaultPath repo)
   let configuration ← SourceBinding.configuration repo manifestPath
   observeConfiguration repo configuration none
-  if !(← path.pathExists) then
+  if !(← Regula.Filesystem.isPresent path) then
     reportContextFailure .environment path.toString .freshFile .incomplete []
       s!"missing source file {path}" composed resultOut
     return 1
@@ -1402,7 +1402,7 @@ private unsafe def auditFile (repo path : FilePath) (claim : Option Profile)
       observeSources (captured.push fileSource)
     let sources := dependencySources.push fileSource
     withSourceEvidence sources configuration path.toString .freshFile composed resultOut do
-      if manifest.isSome || (← manifestPath.pathExists) then
+      if manifest.isSome || (← Regula.Filesystem.isPresent manifestPath) then
         let claimed ← Manifest.loadFor manifestPath inventory
         let (_, buildResult) ← Lake.buildCheckedObservation repo
           (Lake.claimedTargets claimed) "incrementally" Lake.buildTargetsShowing
@@ -1941,9 +1941,12 @@ private unsafe def audit (plan : Plan) (failed : List String) : IO UInt32 := do
   let capturedSources ← IO.mkRef (#[] : Array ProducerReport.SourceBinding)
   let observeSources := fun sources => capturedSources.set sources
   let effective ← IO.mkRef (none : Option Json)
-  let originalCopyInputs ← if options.file.isNone && !options.incremental && options.driverCopy.isNone then
-      try pure (some (← Lake.captureConfigurationInputs repo)) catch _ => pure none
+  -- A failure of the capture is kept, and the audit refuses with it before it audits anything
+  -- (`action`), as it refuses any other failure; it is never recorded as no copy configuration.
+  let captured ← if options.file.isNone && !options.incremental && options.driverCopy.isNone then
+      some <$> (Lake.captureConfigurationInputs repo).toBaseIO
     else pure none
+  let originalCopyInputs := captured.bind (·.toOption)
   let copyInputs ← IO.mkRef originalCopyInputs
   let composed ← IO.mkRef (none : Option Json)
   let observeConfiguration := fun (root : FilePath)
@@ -1973,6 +1976,9 @@ private unsafe def audit (plan : Plan) (failed : List String) : IO UInt32 := do
     return 1
   let action : IO (UInt32 × Option AcceptanceLink.Pending) := do
     try
+      if let some (.error error) := captured then
+        throw <| IO.userError s!"the copy configuration could not be captured before \
+          construction: {error}"
       match options.file with
       | some path =>
           return (← auditFile repo (resolve repo path) options.claim options.execution

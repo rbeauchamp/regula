@@ -207,7 +207,7 @@ def fixtureOf (root : FilePath) (id : RuleId) (text : String) : IO (Option Strin
   let folder := root / "examples/rules" / id.spelling
   let files ← (← Regula.Filesystem.Construction.listDirectory folder).qsort
     (fun a b => a.fileName < b.fileName) |>.filterM fun e =>
-      return !(← e.path.isDir)
+      return !(← Regula.Filesystem.isDirectory e.path)
   for entry in files do
     if (← IO.FS.readFile entry.path) == text then
       return some s!"examples/rules/{id.spelling}/{entry.fileName}"
@@ -278,7 +278,7 @@ def snapshotTree (root : FilePath) : IO (List (String × ByteArray)) := do
   let root ← IO.FS.realPath root
   let mut files := []
   for path in ← Regula.Filesystem.Construction.walkDirectory root do
-    if !(← path.isDir) then
+    if !(← Regula.Filesystem.isDirectory path) then
       let relative := String.intercalate "/" (path.components.drop root.components.length)
       files := (relative, ← IO.FS.readBinFile path) :: files
   return files.mergeSort (fun a b => a.1 ≤ b.1)
@@ -436,7 +436,8 @@ def generate (root : FilePath) (g : Generated) : IO Unit := do
   for (id, ex) in g.examples do
     for p in (guide id).repositoryPaths do
       requireChecks
-          [⟨s!"{id.spelling}: cited repository path exists: {p}", ← (root / p).pathExists⟩]
+          [⟨s!"{id.spelling}: cited repository path exists: {p}",
+            ← Regula.Filesystem.isPresent (root / p)⟩]
     -- Each cited section of the standard, on its page in the same edition (`Clause.route` is
     -- relative to the edition root, like every generated link); the artifact link check
     -- requires the anchor to exist.

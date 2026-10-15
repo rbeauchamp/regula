@@ -203,7 +203,7 @@ def toolchainFindings (repo : FilePath) : IO (Array ToolchainFinding) := do
       for (target, module) in toolchainProvided targets do
         findings := findings.push (.provides name target module)
       for entry in toolchainEntries do
-        if ← (package.leanLibDir / entry).pathExists then
+        if ← Regula.Filesystem.isPresent (package.leanLibDir / entry) then
           findings := findings.push (.holds name entry)
     return findings
 

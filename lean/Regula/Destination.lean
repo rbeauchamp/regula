@@ -69,12 +69,15 @@ def entryPath (found : FilePath × List String) : FilePath :=
 prefix of its directory that is present (`Regula.Filesystem.observeRealPath`), with `path` read from
 the working directory when it is relative, and the names below that prefix (`plainNames`), the last
 of them the entry's own. The entry itself is not resolved, so a link at `path` is a place of its
-own. A prefix is absent when neither its real path nor its entry, by a read that follows no link,
-is there. It is the reason to refuse `path` when its last component names no file
-(`System.FilePath.fileName`), such as `out/`, `out/.` or `out/..`, read before any name is dropped;
-when a name below the prefix is `..`; or when a prefix cannot be resolved, with the error of each
-read. With plain names, `entryPath` is the entry that a write replaces once it makes the absent
-directories, when no process makes an entry there after this read, which is trusted. -/
+own. A prefix is absent only when its entry, by a read that follows no link, is not there: Lean
+4.34.1's `realPath` gives `noFileOrDirectory` for each failure of `realpath(3)`, so that failure
+alone establishes no absence, and an entry there that it cannot resolve, a symbolic link among
+them, is reported as one that cannot be resolved, with the error. It is the reason to refuse `path`
+when its last component names no file (`System.FilePath.fileName`), such as `out/`, `out/.` or
+`out/..`, read before any name is dropped; when a name below the prefix is `..`; or when a prefix
+cannot be resolved, with the error of each read. With plain names, `entryPath` is the entry that a
+write replaces once it makes the absent directories, when no process makes an entry there after
+this read, which is trusted. -/
 def place (path : FilePath) : IO (Except String (FilePath × List String)) := do
   if path.fileName.isNone then
     return .error s!"{path} names no file, so the run writes nothing there"
@@ -92,17 +95,14 @@ def place (path : FilePath) : IO (Except String (FilePath × List String)) := do
     let ancestor : FilePath := if ancestor.toString.isEmpty then ⟨"/"⟩ else ancestor
     match ← (Regula.Filesystem.observeRealPath ancestor).toBaseIO with
     | .ok real => return below real (components.drop (count + 1))
-    | .error absent@(.noFileOrDirectory ..) =>
+    | .error unresolved@(.noFileOrDirectory ..) =>
       match ← (Regula.Filesystem.observeMetadata ancestor).toBaseIO with
       | .error (.noFileOrDirectory ..) => continue
-      | .ok metadata =>
-        if metadata.type == .symlink then
-          return .error s!"{ancestor}, a prefix of {path}, is a symbolic link whose target is \
-            absent ({absent}), so the run writes nothing there"
-        return .error s!"{ancestor}, a prefix of {path}, is {entryName metadata.type} that cannot \
-          be resolved ({absent}), so the run writes nothing there"
+      | .ok metadata => return .error s!"{ancestor}, a prefix of {path}, is \
+          {entryName metadata.type} that cannot be resolved ({unresolved}), so the run writes \
+          nothing there"
       | .error error => return .error s!"{ancestor}, a prefix of {path}, cannot be resolved \
-          ({absent}) and cannot be read without following a link ({error}), so the run writes \
+          ({unresolved}) and cannot be read without following a link ({error}), so the run writes \
           nothing there"
     | .error error => return .error s!"{ancestor}, a prefix of {path}, cannot be resolved \
         ({error}), so the run writes nothing there"
