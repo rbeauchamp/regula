@@ -13,7 +13,10 @@ import Lean.Elab.Command
 A path that cannot be read, `locked/child` where `locked` is a directory without search
 permission, which Lean's `System.FilePath.pathExists` and `System.FilePath.isDir` read as absent
 (https://github.com/rbeauchamp/regula/issues/430). The first acceptance step builds this module, and
-its build fails when a control does not give the expected result, naming each such control. These
+its build fails when a control does not give the expected result, naming each such control. The
+controls load Lake workspaces, which Regula refuses in a process whose Git environment is not
+isolated, so a build without that isolation elaborates the module again under it
+(`checkIsolated`). These
 controls are about the file system, a trusted boundary: they observe the reads on the toolchain's
 file system calls, and they prove nothing.
 
@@ -389,6 +392,41 @@ def check : IO Unit :=
     unless failed.isEmpty do
       fail s!"controls of the unreadable path {path} failed: {failed.toList}"
 
-run_cmd check
+/-- The variable that marks the elaboration of this module which `checkIsolated` starts under Git
+isolation, so that one whose environment still lacks an entry fails rather than starting another.
+Whether the environment is isolated is decided from the environment, never from this variable. -/
+def restartedVariable : String := "REGULA_ABSENCE_CONTROLS_RESTARTED"
+
+/-- Run `check` where Lake's in-process loader can load a workspace: in a process whose
+environment has every entry of the Git isolation (`Regula.GitIsolation.requireIsolated`, which
+`Checker.Workspace` runs before each load). When this process's environment has every entry, as
+in the first acceptance step, whose compiled program isolates its environment before it starts
+Lake, `check` runs here. Otherwise, as in a `lake build` started from a shell, the toolchain's
+`lean` elaborates `file`, this module, again under the isolation and `restartedVariable`, with this
+process's other variables, among them the `LEAN_PATH` that Lake gives the elaboration, and its
+failure, with its output, is this one's. A restarted elaboration whose environment still lacks an
+entry fails, naming what to set. So a control fails only on what it observes, never on the shell's
+Git environment.
+
+Assumes: Lean v4.34.1 `Init/System/IO.lean:1420-1450` inherits the environment and the working
+directory by default and applies `env` left to right (`runtime/process.cpp:436-515`); Lake
+v4.34.1 starts the elaboration of a module with its `LEAN_PATH` in the environment
+(`Lake/Build/Actions.lean:59-65`, `compileLeanModule`). -/
+def checkIsolated (file : FilePath) : IO Unit := do
+  let (isolation, missing) ← Regula.GitIsolation.observe
+  if missing.isEmpty then return ← check
+  if (← IO.getEnv restartedVariable).isSome then
+    throw <| IO.userError s!"Git isolation did not take effect in the restarted elaboration of \
+      {file}; still to set: {Regula.GitIsolation.describe missing}"
+  let run ← IO.Process.output {
+    cmd := ((← Lean.getBuildDir) / "bin/lean").toString
+    args := #[file.toString]
+    env := isolation.push (restartedVariable, some "1") }
+  unless run.exitCode == 0 do
+    throw <| IO.userError s!"the controls, elaborated again under Git isolation, failed (exit \
+      {run.exitCode}): {run.stdout}{run.stderr}"
+
+open Lean in
+run_cmd do checkIsolated (← getFileName)
 
 end Regula.AbsenceControls
