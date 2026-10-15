@@ -360,6 +360,16 @@ def showTopLevel (dir : FilePath) : IO ProcessResult :=
   runProcess dir "git" #["rev-parse", "--show-toplevel"]
     #[("GIT_DIR", none), ("GIT_WORK_TREE", none)]
 
+/-- What Git writes to standard error when it states that it found no repository for its current
+directory, as `gitWorkTree` cites it from Git's source. -/
+def noRepositoryReport : String :=
+  "fatal: not a git repository (or any of the parent directories): .git\n"
+
+/-- Git states that it found no repository: the query ended with status 128, printed nothing and
+wrote exactly `noRepositoryReport` to standard error. -/
+def statesNoRepository (result : ProcessResult) : Bool :=
+  result.exitCode == 128 && result.stdout.isEmpty && result.stderr == noRepositoryReport
+
 /-- `gitWorkTree` with the query `query` in place of `showTopLevel`, so that a control can give it a
 query that fails. -/
 def gitWorkTreeBy (query : FilePath → IO ProcessResult) (dir : FilePath) :
@@ -370,6 +380,7 @@ def gitWorkTreeBy (query : FilePath → IO ProcessResult) (dir : FilePath) :
   unless ← places.anyM fun place => return (← Regula.Filesystem.entryIfPresent place).isSome do
     return none
   let result ← query dir
+  if statesNoRepository result then return none
   unless result.succeeded do
     throw <| IO.userError s!"git rev-parse --show-toplevel failed in {dir} (exit \
       {result.exitCode}): {result.stderr}"
@@ -382,15 +393,16 @@ def gitWorkTreeBy (query : FilePath → IO ProcessResult) (dir : FilePath) :
   return some real
 
 /-- The real path of the top level of the Git work tree that holds the directory `dir`, or `none`
-when no repository can hold `dir`.
+when Git finds no repository for `dir`.
 
-Absence is decided before Git runs: the work tree is `none` when the observer's read finds nothing
-at any place of `discoveryPlaces` for the real path of `dir`, the `.git` and the `HEAD` of `dir`
-and of each of its ancestors (`Regula.Filesystem.entryIfPresent`). Otherwise the query
-`showTopLevel` runs, and each failure of it is thrown with its report: no failure of Git is read
-as no work tree. So a repository that Git cannot read, such as a work tree whose `.git` file cannot
-be read, stops the caller, and so does a place where Git finds no repository though an entry is
-there, such as a stray `HEAD` file. When the query succeeds, the path it prints is decoded exactly
+The work tree is `none`, and Git does not run, when the observer's read finds nothing at any place
+of `discoveryPlaces` for the real path of `dir`, the `.git` and the `HEAD` of `dir` and of each of
+its ancestors (`Regula.Filesystem.entryIfPresent`). Otherwise the query `showTopLevel` runs. The
+work tree is `none` when Git itself states that it found no repository (`statesNoRepository`), as
+it does for a `.git` directory that is not a repository or a stray `HEAD` file. Each other failure
+of the query is thrown with its report. So a repository that Git cannot read, such as a work tree
+whose `.git` file cannot be read, stops the caller. When the query succeeds, the path it prints is
+decoded exactly
 (`Regula.Filesystem.Construction.printedPath?`: only the final newline is removed) and resolved
 (`Regula.Filesystem.realPathIfPresent`); output that is not one absolute path, or a printed path
 where nothing is, is thrown. A failure to read or resolve a path, or to start Git, is thrown. On
@@ -408,6 +420,16 @@ repository at D only from a `.git` file that `read_gitfile_gently` reads, which 
 (`setup.c:1907-1919`), and `--show-toplevel` prints a work tree only for a repository it found
 (`builtin/rev-parse.c:776-779`, `:985-992`). Nothing at a path for `lstat(2)` is nothing there for
 `stat(2)`.
+
+Assumes: Git 2.54.0 states that it found no repository only when its walk ends with no repository at
+the root or at a directory that the inherited `GIT_CEILING_DIRECTORIES` names (`setup.c:1689-1695`).
+`setup_git_directory` then dies with that message (`setup.c:1907-1911`): `vfreportf` writes
+`fatal: `, the message and one newline to standard error (`usage.c:12-38`, `:69-75`), and
+`die_builtin` exits with 128 (`usage.c:82-88`), before `--show-toplevel` prints anything
+(`builtin/rev-parse.c:776-777`). A `.git` file that cannot be read, a file-system boundary or a
+repository that Git does not trust gives another message (`setup.c:1624-1638`, `:1913-1941`). A
+translated message is not `noRepositoryReport`, so it is thrown. A caller's later Git commands in
+the same environment stop at the same ceiling.
 
 Assumes: Git 2.54.0 prints the work tree for `--show-toplevel` with `puts`, so followed by one
 newline (`builtin/rev-parse.c:668-669`, `:985-992`), and keeps it as the real path that

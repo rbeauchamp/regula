@@ -331,7 +331,7 @@ def provisioning (base : FilePath) : IO (List (String × Bool)) := do
   return [("RegulaProvision.prune of a store whose Mathlib cannot be read", mathlibKept),
     ("RegulaProvision.links of a registered copy whose link cannot be resolved", linkKept)]
 
-/-- The work tree that `Checker.gitWorkTree` reads for a directory in three places below `base`,
+/-- The work tree that `Checker.gitWorkTree` reads for a directory in four places below `base`,
 each with whether it gave the expected result (https://github.com/rbeauchamp/regula/issues/444):
 
 - `tree ` (its name ends in a space), the top level of a new repository, beside a directory
@@ -342,14 +342,19 @@ each with whether it gave the expected result (https://github.com/rbeauchamp/reg
   `linked` before the permissions of that file are taken away and after they are given back, and
   a failure while it cannot be read, where the earlier read gave `none`.
 - `plain`, which no repository holds: `none`.
+- `stray`, whose `.git` is a directory that holds only a file and is not a repository, as a
+  project that keeps a selected policy there has it: `none`, which Git states, where the read
+  that threw each failure of Git failed.
 
 Each place is first observed with Git itself, and the control fails, naming its setup, when Git
 does not do what the place needs: find `linked` from `linked/sub` while its `.git` file can be
-read, fail there while it cannot, and fail in `plain`.
+read, fail there while it cannot, fail in `plain`, and state in `stray` that it found no repository
+(`Checker.statesNoRepository`).
 
 Then a query that fails as a process that `SIGTERM` ends does (exit 143) takes the place of Git's
 (`Checker.gitWorkTreeBy`). The read of `plain` must give `none` without running that query, so no
-failure of the query is read as no work tree, and the read of `tree ` must fail. -/
+failure of the query is read as no work tree, and the read of `tree ` must fail. So must the read
+of `tree ` with a query that writes Git's report of no repository but ends with status 1. -/
 def workTrees (base : FilePath) : IO (List (String × Bool)) := do
   let fail {α : Type} (message : String) : IO α := throw <| IO.userError message
   let spaced := base / "tree "
@@ -392,6 +397,17 @@ def workTrees (base : FilePath) : IO (List (String × Bool)) := do
     fail s!"the control's setup: the temporary directory {base} is in the Git work tree \
       {plainGit.stdout}"
   let plainRead ← (Regula.Checker.gitWorkTree plain).toBaseIO
+  let stray := base / "stray"
+  IO.FS.createDirAll (stray / ".git")
+  IO.FS.writeFile (stray / ".git" / "policy.json") "{}\n"
+  let strayGit ← Regula.Checker.showTopLevel stray
+  unless Regula.Checker.statesNoRepository strayGit do
+    fail s!"the control's setup: Git did not state that it found no repository for {stray} \
+      (exit {strayGit.exitCode}): {strayGit.output}"
+  let strayRead ← (Regula.Checker.gitWorkTree stray).toBaseIO
+  let misstated (_ : FilePath) : IO Regula.Checker.ProcessResult :=
+    return { exitCode := 1, stdout := "", stderr := Regula.Checker.noRepositoryReport }
+  let spacedMisstated ← (Regula.Checker.gitWorkTreeBy misstated spaced).toBaseIO
   let launches ← IO.mkRef (0 : Nat)
   let terminated (_ : FilePath) : IO Regula.Checker.ProcessResult := do
     launches.modify (· + 1)
@@ -410,6 +426,10 @@ def workTrees (base : FilePath) : IO (List (String × Bool)) := do
       deniedRead matches .error _),
     ("Regula.Checker.gitWorkTree of a directory that no repository holds",
       plainRead matches .ok none),
+    ("Regula.Checker.gitWorkTree of a directory whose .git is not a repository",
+      strayRead matches .ok none),
+    ("Regula.Checker.gitWorkTreeBy with Git's report of no repository and status 1, in a \
+      repository", spacedMisstated matches .error _),
     ("Regula.Checker.gitWorkTreeBy with a query that fails, where no repository can be",
       (plainTerminated matches .ok none) && plainLaunches == 0),
     ("Regula.Checker.gitWorkTreeBy with a query that fails, in a repository",

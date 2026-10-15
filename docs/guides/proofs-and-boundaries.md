@@ -4038,12 +4038,16 @@ work tree of its own, and so does a submodule, thus neither is owned.
 
 Otherwise `gitWorkTree` runs `git rev-parse --show-toplevel` in the directory, without `GIT_DIR`
 and `GIT_WORK_TREE`. It removes only the final newline from the path that Git prints
-(`checked_printedPath?`). Each failure of Git stops the audit with the report of Git.
+(`checked_printedPath?`). When Git states that it found no repository, with status 128 and its
+exact report, `gitWorkTree` gives no work tree. Each other failure of Git stops the audit with the
+report of Git.
 
 Thus the audit does not take a repository that Git cannot read, such as a linked work tree with an
 unreadable `.git` file, as no repository. **Trusted:** Git `2.54.0` finds a repository only where
-such an entry is, as `gitWorkTree` cites from the source of Git. **Trusted:** the filesystem
-resolves the real paths, and no process changes them while the audit reads them.
+such an entry is, and it writes that report only when its search ends with no repository. The
+search stops at the root or at a directory of `GIT_CEILING_DIRECTORIES`. `gitWorkTree` cites these
+from the source of Git. **Trusted:** the filesystem resolves the real paths, and no process changes
+them while the audit reads them.
 
 Ownership has a supported scope. Each audit, incremental or fresh, refuses two things before it
 builds the project or a copy. `checkDefaultLayout` refuses an owned package, the root package

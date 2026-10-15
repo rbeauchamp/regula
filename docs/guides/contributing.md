@@ -618,11 +618,13 @@ projects. A `lakefile.lean` is then written beside each `lakefile.toml` that a l
 check of the loaded workspace must refuse each package with a configuration name that has no
 extension.
 
-`Regula.AbsenceControls` also reads the Git work tree of three directories with `gitWorkTree`. It
+`Regula.AbsenceControls` also reads the Git work tree of four directories with `gitWorkTree`. It
 must keep the final space of the name of a top level. Below a `.git` file that names a repository,
-it must give the work tree while the file can be read, and fail while it cannot. For a directory
-that no repository holds, it must give no work tree. With a failing query in place of Git, it must
-give no work tree there without running the query, and fail in a repository.
+it must give the work tree while the file can be read, and fail while it cannot. It must give no
+work tree for a directory that no repository holds, and for one with a `.git` directory that is not
+a repository. With a failing query in place of Git, it must give no work tree there without running
+the query, and fail in a repository. It must also fail there when the query writes Git's report of
+no repository with status 1.
 
 In the first acceptance step, `Regula.PrintedPathControls` runs the reads of a path that
 `/usr/bin/which`, `printenv`, Elan and `lean` print. The read of `which` must keep the space at the
