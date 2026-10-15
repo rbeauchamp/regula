@@ -6078,7 +6078,7 @@ execution, and calling a proved oracle does not prove the driver or its IO effec
   Each reader of the toolchain's installation directory uses it, and so does the website's example
   helper. Its decoder is a copy in a module that runs with Lean's library only, and the theorem
   states that the copy is `printedPath?`. The compiler guard of the root `lakefile.lean` cannot
-  import Regula, so it keeps `Lean.findSysroot`, whose trim can only make the guard refuse.
+  import Regula, so it keeps `Lean.findSysroot`, whose trim cannot cause a wrong acceptance.
 - `Template.instantiate`: the required `Maps` proof for the recursive JSON transformation (array
   order, object keys and scalar kinds preserved; only entire matching string values change;
   depth exhaustion refuses, and the corpus uses 64 levels). Checker snapshots discover modules
