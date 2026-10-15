@@ -89,7 +89,7 @@ def Input.covers : Input → List String → Bool
 
 /-- The paths the campaigns depend on, and the only statement of them: the checker, the rules and
 their examples, the adopter fixtures in `examples/lake-lint-toml` and `examples/build-lint`, the
-Lake configuration fixtures in `examples/fixtures`, the application and fixture sources the
+fixtures of the controls in `examples/fixtures`, the application and fixture sources the
 structural and execution controls mutate, Lake configuration and manifests, `scripts/verify.sh`
 and `scripts/provision.sh` with the files the commands they run before a campaign read, the
 verification, provisioning programs with their decision contracts, the workflow and the
