@@ -1,5 +1,7 @@
 import Lean.Data.Json
 import Lean.Util.Path
+import Lake.Load.Manifest
+import Lake.Toml.Grammar
 
 /-! # Dependency provisioning
 
@@ -24,6 +26,11 @@ the filesystem model of `RegulaCore.Filesystem`.
 
 The integration preflight requires the integration package's toolchain to match the root and,
 with --require, requires provisioned Mathlib as the first step inside the timed integration check.
+
+The pinned packages and their packages directory are those that Lake's load of the integration
+package materializes: each read of a Lake manifest uses Lake's own readers, and the choices among
+their entries are those that `Regula.Checker.LakeSelection` states for the checker
+(`selectPins`, which `Regula.ProgramCheck.Provision` relates to it).
 -/
 namespace RegulaProvision
 open System Lean
@@ -71,7 +78,8 @@ def sharedKey (mathlibRev githash : String) : String := s!"{mathlibRev}-lean-{gi
 
 /-- One package revision recorded by the shared directory or pinned by a copy. -/
 structure Pin where
-  /-- The package's name, which is also its checkout directory's name. -/
+  /-- The name of the package's checkout directory (`Lake.PackageEntry.dirName`), the package's
+  name as Lake writes it. -/
   name : String
   /-- The Git commit of the package. -/
   rev : String
@@ -323,6 +331,306 @@ def mathlibApplies (toolchain integration : String) : Bool := toolchain == integ
 theorem mathlibApplies_iff (toolchain integration : String) :
     mathlibApplies toolchain integration = true ↔ toolchain = integration := by
   simp [mathlibApplies]
+
+/-! ### Lake's selection of the pinned packages
+
+What Lake v4.34.1's load of a workspace materializes its dependencies from, given its manifest and
+the entries of its package overrides file as Lake's own readers decode them (`readRoot`). This
+program runs before the package is built, so it cannot import `Regula.Checker.LakeSelection`,
+which states these rules for the checker; `Regula.ProgramCheck.Provision` proves `rootFiles`,
+`readRoot`, `selectedEntry` and the packages directory that `selectPins` takes equal to the
+checker's. -/
+
+/-- The manifest and package overrides file of the workspace that Lake loads with the package at
+`dir` as its root, joined as Lake joins paths. `Regula.ProgramCheck.Provision.rootFiles_eq` proves
+this `Regula.Checker.Workspace.rootFiles`.
+
+Assumes:
+- Lake v4.34.1 gives the root package of a workspace the manifest `lake-manifest.json` of its
+  directory unless its load configuration names another (`Lake/Load/Config.lean:54`,
+  `Lake/Load/Package.lean:35-51`), and the `lake` command names no other
+  (`Lake/CLI/Main.lean:116-130`). It reads the package overrides file
+  `.lake/package-overrides.json` of that directory (`Lake/Config/Workspace.lean:212-213`,
+  `Lake/Config/Package.lean:208-213`). -/
+def rootFiles (dir : FilePath) : FilePath × FilePath :=
+  (Lake.joinRelative dir Lake.defaultManifestFile,
+    Lake.joinRelative (Lake.joinRelative dir Lake.defaultLakeDir) "package-overrides.json")
+
+/-- The entries that Lake materializes the dependencies of a workspace with the manifest `manifest`
+from, in Lake's order: the manifest's, then `overrides`, those of its package overrides file.
+
+Assumes:
+- Lake v4.34.1 materializes the dependencies of a workspace that has a manifest from these entries
+  in this order (`Lake/Load/Workspace.lean:61-69`, `Lake/Load/Resolve.lean:599-605`). -/
+def rootEntries (manifest : Lake.Manifest) (overrides : Array Lake.PackageEntry) :
+    Array Lake.PackageEntry :=
+  manifest.packages ++ overrides
+
+/-- The entry that Lake materializes the package named `name` from, among `entries`
+(`rootEntries`): the last entry with that name. `Regula.ProgramCheck.Provision.selectedEntry_eq`
+proves this `Regula.Checker.LakeSelection.effectiveEntry`.
+
+Assumes:
+- Lake v4.34.1 inserts the entries into a name map in order, and materializes each dependency from
+  the entry that the map holds for its name (`Lake/Load/Resolve.lean:599-613`). An insertion
+  replaces the entry that the map holds for the name. -/
+def selectedEntry (entries : Array Lake.PackageEntry) (name : Name) :
+    Option Lake.PackageEntry :=
+  entries.findRev? (·.name == name)
+
+/-- The entry selected for a name has that name, and it is one of the entries. -/
+theorem selectedEntry_some {entries : Array Lake.PackageEntry} {name : Name}
+    {entry : Lake.PackageEntry} (h : selectedEntry entries name = some entry) :
+    entry.name = name ∧ entry ∈ entries := by
+  rw [selectedEntry, Array.findRev?_eq_find?_reverse] at h
+  exact ⟨by simpa using Array.find?_some h, Array.mem_reverse.mp (Array.mem_of_find?_eq_some h)⟩
+
+/-- The Git entries that Lake materializes packages from, among `entries` (`rootEntries`): for each
+name among them, in the order of its first entry, the entry selected for it (`selectedEntry`) when
+that is a Git entry, with the name of its checkout directory (`Lake.PackageEntry.dirName`) and its
+commit.
+
+Assumes:
+- Lake v4.34.1 clones a Git entry at `Lake.PackageEntry.dirName` below the packages directory, and
+  checks the entry's commit out there (`Lake/Load/Materialize.lean:241-264`). -/
+def gitPins (entries : Array Lake.PackageEntry) : Array (Lake.PackageEntry × Pin) :=
+  (entries.toList.map (·.name)).eraseDups.toArray.filterMap fun name =>
+    (selectedEntry entries name).bind fun entry =>
+      match entry.src with
+      | .git _ rev _ _ => some (entry, ⟨entry.dirName, rev⟩)
+      | .path _ => none
+
+/-- Each Git pin is the entry selected for its name, a Git entry at the pin's commit, and its
+checkout directory has the pin's name. -/
+theorem mem_gitPins {entries : Array Lake.PackageEntry} {entry : Lake.PackageEntry} {pin : Pin}
+    (h : (entry, pin) ∈ gitPins entries) :
+    selectedEntry entries entry.name = some entry ∧ pin.name = entry.dirName ∧
+      ∃ url inputRev subDir, entry.src = .git url pin.rev inputRev subDir := by
+  simp only [gitPins, Array.mem_filterMap, List.mem_toArray] at h
+  obtain ⟨name, -, selected⟩ := h
+  obtain ⟨found, hFound, hSrc⟩ := Option.bind_eq_some_iff.mp selected
+  have hName := (selectedEntry_some hFound).1
+  split at hSrc
+  · next url rev inputRev subDir hGit =>
+    cases hSrc
+    exact ⟨hName ▸ hFound, rfl, url, inputRev, subDir, hGit⟩
+  · cases hSrc
+
+/-- Each Git entry selected for a name is a Git pin, at its commit. -/
+theorem gitPins_complete {entries : Array Lake.PackageEntry} {entry : Lake.PackageEntry}
+    {url rev : String} {inputRev : Option String} {subDir : Option FilePath}
+    (h : selectedEntry entries entry.name = some entry)
+    (hGit : entry.src = .git url rev inputRev subDir) :
+    (entry, ⟨entry.dirName, rev⟩) ∈ gitPins entries := by
+  simp only [gitPins, Array.mem_filterMap, List.mem_toArray, List.mem_eraseDups, List.mem_map]
+  refine ⟨entry.name, ⟨entry, by simpa using (selectedEntry_some h).2, rfl⟩, ?_⟩
+  simp [h, hGit]
+
+/-- The pin of the checkout directory named `dir` among `pins` (`gitPins`): the first whose
+directory has that name. `selectPins` refuses pins of which two have one directory, so there it is
+the only one. -/
+def checkoutPin (pins : Array (Lake.PackageEntry × Pin)) (dir : String) : Option Pin :=
+  (pins.find? (·.2.name == dir)).map (·.2)
+
+/-- The pin that `checkoutPin` gives the directory `dir` among the Git pins of `entries` is that of
+the entry selected for its name, a Git entry at the pin's commit whose checkout directory is `dir`.
+-/
+theorem checkoutPin_gitPins {entries : Array Lake.PackageEntry} {dir : String} {pin : Pin}
+    (h : checkoutPin (gitPins entries) dir = some pin) :
+    ∃ entry, selectedEntry entries entry.name = some entry ∧ entry.dirName = dir ∧
+      pin.name = dir ∧ ∃ url inputRev subDir, entry.src = .git url pin.rev inputRev subDir := by
+  obtain ⟨⟨entry, found⟩, hFind, rfl⟩ := Option.map_eq_some_iff.mp h
+  have hDir : found.name = dir := by simpa using Array.find?_some hFind
+  obtain ⟨hSelected, hName, hGit⟩ := mem_gitPins (Array.mem_of_find?_eq_some hFind)
+  exact ⟨entry, hSelected, hName ▸ hDir, hDir, hGit⟩
+
+/-- What the Mathlib package pins, as Lake's load of it materializes it (`selectPins`). -/
+structure Pins where
+  /-- The packages directory that the manifest records, relative to the Mathlib package. -/
+  packagesDir : FilePath
+  /-- The Git URL of the pinned Mathlib. -/
+  mathlibUrl : String
+  /-- The pinned Mathlib commit. -/
+  mathlibRev : String
+  /-- Each Git entry that a package is materialized from, with its checkout directory's name and
+  its commit (`gitPins`). -/
+  git : Array (Lake.PackageEntry × Pin)
+
+/-- Whether `entry` is a Git entry that names a subdirectory of its checkout. -/
+def inSubdirectory (entry : Lake.PackageEntry) : Bool :=
+  match entry.src with
+  | .git (subDir? := some _) .. => true
+  | _ => false
+
+/-- The first refusal of the Git pins `git`, in which Mathlib is pinned at `rev` from `url`: a Git
+package in a subdirectory, which is not shared; a Mathlib revision that is not a full commit name;
+a URL that the shared workspace's configuration cannot quote in a TOML basic string, one that holds
+a quotation mark, a backslash or a control character of Lake's TOML grammar
+(`Lake.Toml.isControlChar`); a checkout directory's name that is not one path component; and two
+pins with one checkout directory.
+
+Assumes:
+- Lake v4.34.1 refuses a basic string that holds a control character (`Lake.Toml.isControlChar`)
+  unescaped, ends one at an unescaped quotation mark and reads an escape after a backslash
+  (`Lake/Toml/Grammar.lean:30-31`, `:139-151`). -/
+def pinsRefusal (url rev : String) (git : Array (Lake.PackageEntry × Pin)) : Option String :=
+  if let some (entry, _) := git.find? (inSubdirectory ·.1) then
+    some s!"{entry.prettyName}: a Git package in a subdirectory is not supported"
+  else if !isObjectName rev then
+    some s!"the pinned Mathlib revision '{rev}' is not a commit"
+  else if !url.all (fun c => c != '"' && c != '\\' && !Lake.Toml.isControlChar c) then
+    some s!"the pinned Mathlib URL {url.quote} holds a character that a TOML basic string cannot \
+      hold unescaped"
+  else if let some (_, pin) := git.find? (!isComponent ·.2.name) then
+    some s!"the package directory '{pin.name}' is not a single path component"
+  else if !decide (git.toList.map (·.2.name)).Nodup then
+    some "two Git packages have one checkout directory"
+  else none
+
+/-- The first refusal of a path entry that Lake materializes a package from, among the entries of
+the manifest `manifest` and of its package overrides file `overrides` (`rootEntries`): every
+selected path entry except Regula's own integration entry, the one selected for `regula` when
+`ownRegula` holds (`ownRegulaWith` reads that its directory resolves to the Regula root being
+provisioned). Each refusal names the package, its directory and the file that gives the entry.
+Provisioning shares pinned Git checkouts, and the shared workspace's manifest holds only the Git
+entries (`Pins.git`), so each package that Mathlib requires must be pinned by Git there. Regula's
+own entry is left out of the shared workspace, which requires no `regula`.
+
+Assumes:
+- The pinned Mathlib requires no package named `regula`: its configuration requires `batteries`,
+  `Qq`, `aesop`, `proofwidgets`, `importGraph`, `LeanSearchClient` and `plausible`, and its
+  manifest records those and `Cli` (Mathlib `d13f23b7`, `lakefile.lean:9-19`,
+  `lake-manifest.json`). -/
+def pathRefusal (manifest : Lake.Manifest) (overrides : Array Lake.PackageEntry)
+    (ownRegula : Bool) : Option String :=
+  ((rootEntries manifest overrides).toList.map (·.name)).eraseDups.findSome? fun name =>
+    (selectedEntry (rootEntries manifest overrides) name).bind fun entry =>
+      match entry.src with
+      | .path dir =>
+        if name == `regula && ownRegula then none
+        else
+          let source := if overrides.any (·.name == name) then "the package overrides file"
+            else "the manifest"
+          some s!"{entry.prettyName}: {source} gives a path entry ({dir}), which provisioning \
+            cannot pin: it shares only Git checkouts, and leaves out only Regula's own entry at \
+            the root that it provisions"
+      | .git .. => none
+
+/-- `pathRefusal` refuses nothing exactly when each path entry that Lake materializes a package
+from is the one selected for `regula`, and `ownRegula` holds. -/
+theorem pathRefusal_eq_none_iff {manifest : Lake.Manifest} {overrides : Array Lake.PackageEntry}
+    {ownRegula : Bool} :
+    pathRefusal manifest overrides ownRegula = none ↔
+      ∀ entry dir, selectedEntry (rootEntries manifest overrides) entry.name = some entry →
+        entry.src = .path dir → entry.name = `regula ∧ ownRegula = true := by
+  simp only [pathRefusal, List.findSome?_eq_none_iff, List.mem_eraseDups, List.mem_map]
+  constructor
+  · intro h entry dir hSelected hPath
+    have refused := h entry.name ⟨entry, by simpa using (selectedEntry_some hSelected).2, rfl⟩
+    simp only [hSelected, Option.bind_some, hPath] at refused
+    split at refused
+    · next hOwn => simpa using hOwn
+    · cases refused
+  · rintro h name -
+    match hSelected : selectedEntry (rootEntries manifest overrides) name with
+    | none => rfl
+    | some entry =>
+      have hName := (selectedEntry_some hSelected).1
+      match hSrc : entry.src with
+      | .git .. => simp [hSrc]
+      | .path dir =>
+        have ⟨hRegula, hOwn⟩ := h entry dir (by rw [hName]; exact hSelected) hSrc
+        simp [hSrc, ← hName, hRegula, hOwn]
+
+/-- The pins of the Mathlib package whose manifest is `manifest` and whose package overrides file
+has the entries `overrides`, as Lake's load of it materializes them: the packages directory that
+the manifest records, and the entry selected for each name (`selectedEntry`, `gitPins`). `none`
+when the entry selected for `mathlib` is absent or a path entry, since Lake then materializes no
+Mathlib from Git that could be shared.
+
+The supported domain is the rest: a manifest that records its packages directory, and a Git entry
+selected for each package that Mathlib requires. A manifest that records no packages
+directory is refused: Lake then takes the one that the package's configuration gives, which only an
+elaboration of its `lakefile.lean` would read. A selected path entry other than Regula's own
+integration entry, when `ownRegula` holds (`ownRegulaWith`), is refused (`pathRefusal`), and so
+are pins that `pinsRefusal` refuses. -/
+def selectPins (manifest : Lake.Manifest) (overrides : Array Lake.PackageEntry)
+    (ownRegula : Bool) :
+    Except String (Option Pins) :=
+  match manifest.packagesDir? with
+  | none => .error "it records no packagesDir, so Lake would take the packages directory that \
+      the package's configuration gives, which provisioning does not elaborate"
+  | some packagesDir =>
+    match (selectedEntry (rootEntries manifest overrides) `mathlib).map Lake.PackageEntry.src with
+    | some (.git url rev _ _) =>
+      match pathRefusal manifest overrides ownRegula,
+          pinsRefusal url rev (gitPins (rootEntries manifest overrides)) with
+      | some reason, _ => .error reason
+      | none, some reason => .error reason
+      | none, none => .ok (some
+          { packagesDir, mathlibUrl := url, mathlibRev := rev
+            git := gitPins (rootEntries manifest overrides) })
+    | _ => .ok none
+
+/-- A manifest that records no packages directory is refused. -/
+theorem selectPins_unrecorded {manifest : Lake.Manifest} (overrides : Array Lake.PackageEntry)
+    (ownRegula : Bool) (h : manifest.packagesDir? = none) :
+    ∃ reason, selectPins manifest overrides ownRegula = .error reason := by
+  simp [selectPins, h]
+
+/-- Pins that `selectPins` admits have the packages directory that the manifest records, Mathlib's
+source and commit from the Git entry selected for `mathlib`, and every Git entry selected for a
+name (`gitPins`); `pathRefusal` refuses no path entry, and `pinsRefusal` refuses none of the
+pins. -/
+theorem selectPins_sound {manifest : Lake.Manifest} {overrides : Array Lake.PackageEntry}
+    {ownRegula : Bool} {pins : Pins}
+    (h : selectPins manifest overrides ownRegula = .ok (some pins)) :
+    manifest.packagesDir? = some pins.packagesDir ∧
+      (∃ entry inputRev subDir,
+        selectedEntry (rootEntries manifest overrides) `mathlib = some entry ∧
+          entry.src = .git pins.mathlibUrl pins.mathlibRev inputRev subDir) ∧
+      pins.git = gitPins (rootEntries manifest overrides) ∧
+      pathRefusal manifest overrides ownRegula = none ∧
+      pinsRefusal pins.mathlibUrl pins.mathlibRev pins.git = none := by
+  unfold selectPins at h
+  split at h
+  · cases h
+  · next packagesDir hDir =>
+    split at h
+    · next url rev inputRev subDir hMathlib =>
+      obtain ⟨entry, hEntry, hSrc⟩ := Option.map_eq_some_iff.mp hMathlib
+      split at h
+      · cases h
+      · cases h
+      · next hPath hRefusal =>
+        cases h
+        exact ⟨hDir, ⟨entry, inputRev, subDir, hEntry, hSrc⟩, rfl, hPath, hRefusal⟩
+    · cases h
+
+/-- `selectPins` shares nothing only when Lake materializes no Mathlib from Git: the entry selected
+for `mathlib` is absent or a path entry. -/
+theorem selectPins_none {manifest : Lake.Manifest} {overrides : Array Lake.PackageEntry}
+    {ownRegula : Bool} (h : selectPins manifest overrides ownRegula = .ok none) :
+    ∀ entry, selectedEntry (rootEntries manifest overrides) `mathlib = some entry →
+      ∃ dir, entry.src = .path dir := by
+  intro entry hEntry
+  unfold selectPins at h
+  split at h
+  · cases h
+  · rw [hEntry] at h
+    match hSrc : entry.src with
+    | .path dir => exact ⟨dir, rfl⟩
+    | .git url rev inputRev subDir =>
+      simp only [Option.map_some, hSrc] at h
+      split at h <;> cases h
+
+/-- The checkout directory of the package named `mathlib`, where provisioning links the shared
+Mathlib (`provisionPackages`), is named `mathlib`. -/
+theorem mathlib_dirName {entry : Lake.PackageEntry} (h : entry.name = `mathlib) :
+    entry.dirName = "mathlib" := by
+  show entry.name.toString (escape := false) = "mathlib"
+  rw [h]
+  decide
 
 /-! ## Process and filesystem effects -/
 
@@ -683,54 +991,83 @@ Mathlib: the Mathlib integration package, which requires the root `regula` packa
 path and keeps its own packages directory. -/
 def mathlibPackage : FilePath := "integration/mathlib"
 
-/-- What the Mathlib package pins: the Git entries of its Lake manifest, each with the entry
-object exactly as the manifest records it. -/
-structure Pins where
-  /-- The manifest's `packagesDir`, relative to the Mathlib package; `.lake/packages` when it
-  gives none. -/
-  packagesDir : FilePath
-  /-- The Git URL of the pinned Mathlib. -/
-  mathlibUrl : String
-  /-- The pinned Mathlib commit. -/
-  mathlibRev : String
-  /-- Every Git entry of the manifest, with its decoded name and commit. -/
-  git : Array (Json × Pin)
+/-- The manifest of the workspace whose manifest and package overrides file are `files`
+(`rootFiles`), and the entries of that overrides file, each read by Lake's own reader, or `none`
+when the manifest does not exist. Any other failure of a read, and a file that Lake's reader
+refuses, are thrown, as Lake's load throws them. `Regula.ProgramCheck.Provision.readRoot_eq`
+proves this `Regula.Checker.Workspace.readRoot`, the checker's one read of the two files.
 
-/-- Decode one manifest entry that Lake materializes from Git (`type` `git`); Lake names its
-checkout `<packagesDir>/<name>`. Other entry types are not shared. -/
-private def gitPin (entry : Json) : Except String (Option (Json × Pin × String)) := do
-  unless (← entry.getObjValAs? String "type") == "git" do return none
-  let name ← entry.getObjValAs? String "name"
-  let rev ← entry.getObjValAs? String "rev"
-  let url ← entry.getObjValAs? String "url"
-  unless entry.getObjValD "subDir" matches .null do
-    throw s!"{name}: a Git package in a subdirectory is not supported"
-  return some (entry, ⟨name, rev⟩, url)
+Assumes:
+- Lake v4.34.1's load reads a workspace's manifest with `Lake.Manifest.load?`
+  (`Lake/Load/Workspace.lean:61-69`) and its package overrides file with
+  `Lake.Manifest.tryLoadEntries` (`Lake/Load/Resolve.lean:603`), which give no manifest and no
+  entries only for a file that is absent (`Lake/Load/Manifest.lean:268-272`, `:301-305`). -/
+def readRoot (files : FilePath × FilePath) :
+    IO (Option (Lake.Manifest × Array Lake.PackageEntry)) := do
+  let some manifest ← Lake.Manifest.load? files.1 | return none
+  return some (manifest, ← Lake.Manifest.tryLoadEntries files.2)
 
-/-- Read the Mathlib package's pins with Lake's lock-file format (version `1.x`, as the pinned
-Lake writes); another major version fails closed rather than being guessed. Its `path` entries,
-such as the root `regula` package, are not shared. -/
-private def readPins (repo : FilePath) : IO (Option (Json × Pins)) := do
-  let manifest ← IO.ofExcept
-      (Json.parse (← IO.FS.readFile (repo / mathlibPackage / "lake-manifest.json")))
-  let version ← IO.ofExcept (manifest.getObjValAs? String "version")
-  unless version.startsWith "1." do
-    throw <| IO.userError s!"provisioning: lake-manifest.json version {version} is not supported"
-  let entries ← IO.ofExcept (manifest.getObjValAs? (Array Json) "packages")
-  let decoded ← IO.ofExcept (entries.filterMapM gitPin)
-  let some (_, mathlibPin, url) := decoded.find? (·.2.1.name == "mathlib") | return none
-  unless isObjectName mathlibPin.rev do
-    throw <|
-        IO.userError
-            s!"provisioning: the pinned Mathlib revision '{mathlibPin.rev}' is not a commit"
-  unless url.all (fun c => c != '"' && c != '\\' && c != '\n') do
-    throw <| IO.userError s!"provisioning: the pinned Mathlib URL '{url}' is not a plain URL"
-  for (_, pin, _) in decoded do
-    let _ ← admitComponent "package directory" pin.name
-  let packagesDir := (manifest.getObjValAs? String "packagesDir").toOption.getD ".lake/packages"
-  return some (manifest, {
-    packagesDir, mathlibUrl := url, mathlibRev := mathlibPin.rev,
-    git := decoded.map fun (entry, pin, _) => (entry, pin) })
+/-- The real path of `target`: `IO.FS.realPath`, refused on Windows, where Lean 4.34.1's gives the
+path itself when it cannot resolve it (`runtime/io.cpp:1032-1033`), which
+`Regula.Filesystem.ReadsReal` does not allow. The refusal's text is the filesystem observer's.
+This program cannot import `Regula.Filesystem`; `Regula.ProgramCheck.Provision.observeRealPath_eq`
+proves this the observer's read of a real path (`Regula.Filesystem.observeRealPath`). -/
+def observeRealPath (target : FilePath) : IO FilePath := do
+  if System.Platform.isWindows then throw <| IO.userError "copy refused on Windows"
+  IO.FS.realPath target
+
+/-- The path that `realPath` resolves `path` to, or `none` when it fails. -/
+def resolveWith {m : Type → Type} [Monad m] [MonadExceptOf IO.Error m]
+    (realPath : FilePath → m FilePath) (path : FilePath) : m (Option FilePath) :=
+  tryCatchThe IO.Error (do return some (← realPath path)) fun _ => pure none
+
+/-- Whether the entry that Lake selects for `regula` among `entries`, the entries of the Mathlib
+package of the Regula root `repo`, is a path entry whose directory resolves to the path that `repo`
+resolves to: Regula's own integration entry (`pathRefusal`). Its directory is joined to the Mathlib
+package's directory as Lake joins it, and a path that does not resolve is not Regula's own. It is
+written over the read of a real path `realPath`: the driver runs it at `observeRealPath`
+(`readPins`), and `RegulaProvision.Ownership` states its runs in the filesystem model of
+`RegulaCore.Filesystem`.
+
+Assumes:
+- Lake v4.34.1 materializes a path entry at its directory, relative to the workspace's directory
+  (`Lake/Load/Materialize.lean:241-243`, `Lake/Load/Resolve.lean:42`,
+  `Lake/Util/FilePath.lean:42-48`). -/
+def ownRegulaWith {m : Type → Type} [Monad m] [MonadExceptOf IO.Error m]
+    (realPath : FilePath → m FilePath) (repo : FilePath) (entries : Array Lake.PackageEntry) :
+    m Bool :=
+  match (selectedEntry entries `regula).map Lake.PackageEntry.src with
+  | some (.path dir) => do
+    let resolved ← resolveWith realPath (Lake.joinRelative (repo / mathlibPackage) dir)
+    let root ← resolveWith realPath repo
+    match resolved, root with
+    | some resolved, some root => return resolved == root
+    | _, _ => return false
+  | _ => return false
+
+/-- The Mathlib package's pins (`selectPins`) from its manifest `manifest` and the entries
+`overrides` of its package overrides file, where the entry selected for `regula` is Regula's own
+when `ownRegulaWith` reads it so with `realPath`. -/
+def pinsWith {m : Type → Type} [Monad m] [MonadExceptOf IO.Error m]
+    (realPath : FilePath → m FilePath) (repo : FilePath) (manifest : Lake.Manifest)
+    (overrides : Array Lake.PackageEntry) : m (Except String (Option Pins)) := do
+  return selectPins manifest overrides
+    (← ownRegulaWith realPath repo (rootEntries manifest overrides))
+
+/-- The Mathlib package's pins (`selectPins`), from its manifest and package overrides file
+(`rootFiles`) as Lake's own readers decode them (`readRoot`), with that manifest; `none` when Lake
+materializes no Mathlib from Git there. Regula's own integration entry (`ownRegulaWith`, read with
+`observeRealPath`) is not shared, and another path entry is refused (`pathRefusal`). A package
+without a manifest is refused: Lake would resolve its requirements anew, at revisions that no file
+records. -/
+def readPins (repo : FilePath) : IO (Option (Lake.Manifest × Pins)) := do
+  let files := rootFiles (repo / mathlibPackage)
+  let some (manifest, overrides) ← readRoot files
+    | throw <| IO.userError s!"provisioning: {files.1} is absent, so Lake would resolve the \
+        requirements of {mathlibPackage} anew, at revisions that no file records"
+  match ← pinsWith observeRealPath repo manifest overrides with
+  | .ok pins => return pins.map (manifest, ·)
+  | .error reason => throw <| IO.userError s!"provisioning: {files.1} with {files.2}: {reason}"
 
 private def cacheBase : IO FilePath := do
   if let some base ← IO.getEnv "XDG_CACHE_HOME" then
@@ -788,17 +1125,20 @@ private def makeReadOnly (staging : FilePath) (packages : Array FilePath) : IO U
     let _ ← require package "chmod" #["a-w", (git / "index").toString, git.toString]
 
 /-- Create the shared directory `final` from a fresh staging directory, run the stable build
-plan, record and seal it, and publish with one rename.
+plan, record and seal it, and publish with one rename. Its manifest is the Mathlib package's
+`manifest` with its own name and packages directory, and the Git entries that the Mathlib package
+materializes its packages from (`Pins.git`), as Lake writes them. Regula's own integration entry is
+left out, since Mathlib requires no `regula` (`pathRefusal`). Each checkout it
+holds must be at the commit of the pin of its directory (`checkoutPin`).
 The caller holds the lock. -/
-private def create (repo parent final : FilePath) (key : String) (manifest : Json)
+private def create (repo parent final : FilePath) (key : String) (manifest : Lake.Manifest)
     (pins : Pins) : IO Unit := do
   let staging := parent / s!"{key}.staging-{← nonce}"
   let lakefile := "name = \"regula_mathlib_packages\"\n\n[[require]]\nname = \"mathlib\"\n" ++
     s!"git = \"{pins.mathlibUrl}\"\nrev = \"{pins.mathlibRev}\"\n"
-  let lock := (manifest
-    |>.setObjVal! "name" (.str "regula_mathlib_packages")
-    |>.setObjVal! "packagesDir" (.str ".lake/packages")
-    |>.setObjVal! "packages" (.arr (pins.git.map (·.1)))).pretty ++ "\n"
+  let lock := (toJson { manifest with
+    name := `regula_mathlib_packages, packagesDir? := some ".lake/packages",
+    packages := pins.git.map Prod.fst }).pretty ++ "\n"
   let instructions := Json.arr #[
     Json.mkObj [("relative", toJson (["lakefile.toml"] : List String)), ("text", toJson lakefile)],
     Json.mkObj [("relative", toJson (["lake-manifest.json"] : List String)), ("text", toJson lock)],
@@ -827,7 +1167,7 @@ private def create (repo parent final : FilePath) (key : String) (manifest : Jso
     let mut dirs := #[]
     for entry in ← listDirectory packagesRoot do
       let head := (← require entry.path "git" #["rev-parse", "HEAD"]).trimAscii.toString
-      if let some (_, pin) := pins.git.find? (·.2.name == entry.fileName) then
+      if let some pin := checkoutPin pins.git entry.fileName then
         unless pin.rev == head do
           throw <|
               IO.userError
@@ -847,7 +1187,7 @@ private def create (repo parent final : FilePath) (key : String) (manifest : Jso
 
 /-- The admitted shared directory `parent/key` for these pins, created once. The caller holds
 the lock. -/
-private def ensureShared (repo parent : FilePath) (key : Component) (manifest : Json)
+private def ensureShared (repo parent : FilePath) (key : Component) (manifest : Lake.Manifest)
     (pins : Pins) : IO (FilePath × Receipt) := do
   let pinned := pins.git.map (·.2)
   let final := parent / key.val
@@ -1058,7 +1398,7 @@ def provision (repo : FilePath) : IO Unit := do
   requireCompiler repo
   requireMathlibApplies repo
   let some (manifest, pins) ← readPins repo
-    | say s!"{mathlibPackage}/lake-manifest.json pins no Mathlib; nothing to share"
+    | say s!"{mathlibPackage} materializes no Mathlib from Git; nothing to share"
   let key ← admitComponent "shared directory" (sharedKey pins.mathlibRev Lean.githash)
   let packages ← packagesPath repo pins
   let parent := (← cacheBase) / "mathlib-packages"
@@ -1079,14 +1419,19 @@ def provision (repo : FilePath) : IO Unit := do
       lock.unlock
   say s!"Mathlib {pins.mathlibRev} is shared read-only from {shared}"
 
-/-- The commit that the Lake manifest of `package` pins for the Git package `name`. -/
-def manifestRevision (repo : FilePath) (package name : String) : IO String := do
-  let manifest ← IO.ofExcept
-    (Json.parse (← IO.FS.readFile (repo / package / "lake-manifest.json")))
-  for entry in ← IO.ofExcept (manifest.getObjValAs? (Array Json) "packages") do
-    if let some (_, pin, _) ← IO.ofExcept (gitPin entry) then
-      if pin.name == name then return pin.rev
-  throw <| IO.userError s!"provisioning: {package}/lake-manifest.json pins no Git package {name}"
+/-- The commit at which Lake's load of the package at `package` checks the Git package `name` out:
+that of the entry selected for `name` (`selectedEntry`) among the entries of its manifest and
+package overrides file (`rootFiles`), read by Lake's own readers (`readRoot`). A package without a
+manifest is refused, and so is one that materializes `name` from no Git entry. -/
+def manifestRevision (repo : FilePath) (package : String) (name : Name) : IO String := do
+  let files := rootFiles (repo / package)
+  let some (manifest, overrides) ← readRoot files
+    | throw <| IO.userError s!"provisioning: {files.1} is absent, so Lake would resolve the \
+        requirements of {package} anew, at revisions that no file records"
+  match (selectedEntry (rootEntries manifest overrides) name).map Lake.PackageEntry.src with
+  | some (.git _ rev _ _) => return rev
+  | _ => throw <| IO.userError s!"provisioning: {files.1} with {files.2} materializes no Git \
+      package {name}"
 
 /-- Provision the website's pinned Verso with the released compiler. -/
 def provisionVerso (repo : FilePath) : IO Unit := do
@@ -1100,12 +1445,12 @@ def provisionVerso (repo : FilePath) : IO Unit := do
   -- through Verso. Lake has one lock manifest for each workspace, so the commit has two sources.
   -- The two workspaces keep one checkout in the root `.lake/packages`: two commits would make
   -- each workspace move that checkout and build it again during the timed documentation step.
-  let reader ← manifestRevision repo "markdown" "MD4Lean"
-  let verso ← manifestRevision repo "website" "MD4Lean"
+  let reader ← manifestRevision repo "markdown" `MD4Lean
+  let verso ← manifestRevision repo "website" `MD4Lean
   unless reader == verso do
-    throw <| IO.userError s!"provisioning: markdown/lake-manifest.json pins MD4Lean {reader} \
-      and website/lake-manifest.json pins MD4Lean {verso}; the two packages keep one checkout, \
-      so pin the same commit in the two manifests"
+    throw <| IO.userError s!"provisioning: markdown pins MD4Lean {reader} and website pins \
+      MD4Lean {verso}, each by the entry that Lake materializes it from; the two packages keep \
+      one checkout, so pin the same commit in the two manifests"
   stream (← isolationEnvironment) (repo / "website") "lake" #["build", "verso/VersoManual"]
 
 /-- Check the exact supported compiler before provisioning any dependency artifacts. -/
@@ -1152,7 +1497,10 @@ def main (args : List String) : IO Unit := do
     IO.println "Mathlib integration check: applies (the integration package selects this toolchain)"
   | ["mathlib-applies", "--require"] =>
     RegulaProvision.requireMathlibApplies repo
-    let mathlib := repo / RegulaProvision.mathlibPackage / ".lake" / "packages" / "mathlib"
+    let some (_, pins) ← RegulaProvision.readPins repo
+      | throw <| IO.userError s!"provisioning: {RegulaProvision.mathlibPackage} materializes no \
+          Mathlib from Git, which provisioning would share"
+    let mathlib := repo / RegulaProvision.mathlibPackage / pins.packagesDir / "mathlib"
     unless ← RegulaProvision.isPresent mathlib do
       throw <| IO.userError s!"provisioning: {mathlib} is absent; run \
         lean --run lean/RegulaProvision.lean mathlib before scripts/verify.sh mathlib"
