@@ -1110,7 +1110,7 @@ a closed term (`closedTerm`). It also takes the ground values, which are static 
 (`Lean/Compiler/LCNF/EmitC.lean:474-475`, `:1003`); their compiled code calls nothing, so the walk
 finds nothing in them. Each name appears once. -/
 def valueInitializers (env : Environment) (modules : Std.HashSet Name) : Array Name :=
-  let actions := initActionsOf env modules
+  let actions : Std.HashSet Name := (initActionsOf env modules).foldl (·.insert ·) {}
   (initializersOf env modules).filter fun name => !actions.contains name && !closedTerm name
 
 /-- The declarations that `body` applies fully (`Lean.IR.Expr.fap`), pushed onto `acc.1`, and
