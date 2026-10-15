@@ -6075,12 +6075,10 @@ execution, and calling a proved oracle does not prove the driver or its IO effec
   the `Assumes:` entry of each reader cites it from the source of the program.
 - `printedPrefix?_eq_printedPath?`: `CompilerObservation.findSysroot` reads the absolute path that
   `lean --print-prefix` prints with only the final newline removed, when `LEAN_SYSROOT` is not set.
-  Each reader of the toolchain's installation directory uses it, and so do the root
-  `lakefile.lean` and the website's example helper. Its decoder is a copy in a module that runs
-  with Lean's library only, and the theorem states that the copy is `printedPath?`. The lakefile
-  cannot import Regula, so it holds its own copy of `findSysroot` and of the functions it calls.
-  `PrintedPathControls` elaborates that copy again, and the kernel must admit that each copied
-  function equals Regula's by `rfl`.
+  Each reader of the toolchain's installation directory uses it, and so does the website's example
+  helper. Its decoder is a copy in a module that runs with Lean's library only, and the theorem
+  states that the copy is `printedPath?`. The compiler guard of the root `lakefile.lean` cannot
+  import Regula, so it keeps `Lean.findSysroot`, whose trim can only make the guard refuse.
 - `Template.instantiate`: the required `Maps` proof for the recursive JSON transformation (array
   order, object keys and scalar kinds preserved; only entire matching string values change;
   depth exhaustion refuses, and the corpus uses 64 levels). Checker snapshots discover modules

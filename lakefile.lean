@@ -1,42 +1,4 @@
 import Lake
-
--- A copy of `findSysroot` from `lean/Regula/CompilerObservation.lean`, which finds the toolchain as
--- `Lean.findSysroot` does but reads the prefix that `lean --print-prefix` prints exactly, where
--- `Lean.findSysroot` removes the whitespace at its ends. This file cannot import Regula, so the
--- copy has the same names. `Regula.PrintedPathControls.lakefileCopies` elaborates this part of the
--- file again and fails unless the kernel admits that each function equals Regula's by `rfl`. It
--- must stay first in the file.
-namespace Regula.CompilerObservation
-
-/-- `Regula.CompilerObservation.printedLine?`. -/
-def printedLine? (text : String) : Option String :=
-  match text.toList.reverse with
-  | '\n' :: reversed =>
-    if reversed ≠ [] ∧ ∀ c ∈ reversed, c ≠ '\n' ∧ c ≠ '\r' ∧ c ≠ '\x00' then
-      some (String.ofList reversed.reverse)
-    else none
-  | _ => none
-
-/-- `Regula.CompilerObservation.printedPrefix?`. -/
-def printedPrefix? (text : String) : Option System.FilePath :=
-  match printedLine? text with
-  | some line => if (System.FilePath.mk line).isAbsolute then some ⟨line⟩ else none
-  | none => none
-
-/-- `Regula.CompilerObservation.printedSysroot`. -/
-def printedSysroot (lean : String) : IO System.FilePath := do
-  let out ← IO.Process.run { cmd := lean, args := #["--print-prefix"] }
-  let some root := printedPrefix? out
-    | throw <| IO.userError s!"{lean} --print-prefix printed {out.quote}, not one absolute path"
-  return root
-
-/-- `Regula.CompilerObservation.findSysroot`. -/
-def findSysroot : IO System.FilePath := do
-  if let some root ← IO.getEnv "LEAN_SYSROOT" then return root
-  printedSysroot "lean"
-
-end Regula.CompilerObservation
-
 open Lake DSL
 
 -- Execute the same source guard used by compiled policy. A fresh dependency has no Regula
@@ -44,10 +6,20 @@ open Lake DSL
 -- that child's own identity and, asked by `REGULA_COMPILER_GUARD`, prints it. `LEAN_SYSROOT` or
 -- `PATH` selects the child, so the guard passes only when the child accepts itself and reports
 -- the version and commit of the Lean elaborating this file. Any other child is refused.
+--
+-- When `LEAN_SYSROOT` is not set, the child's path comes from `Lean.findSysroot`, which removes the
+-- whitespace at the ends of the prefix that `lean --print-prefix` prints
+-- (`Lean/Util/Path.lean:180-187` of Lean v4.34.1). For an installation directory whose name ends
+-- in a space, it names another directory. That can only refuse. The guard accepts only a child
+-- that exits with 0, which the policy source does only after `RegulaPolicy.Compiler.checkCurrent`
+-- accepts the child's own version and commit. It also requires the child to print exactly the
+-- version and commit of the Lean running Lake. So whatever program that path names, an acceptance
+-- means that the Lean running Lake has the supported identity, on the child's report of its own
+-- identity, which the guard trusts at any path.
 run_cmd do
   let running := s!"{Lean.versionString}\n{Lean.githash}\n"
   let refusal : IO (Option String) := do
-    let lean := ((← Regula.CompilerObservation.findSysroot) / "bin" / "lean").toString
+    let lean := ((← Lean.findSysroot) / "bin" / "lean").toString
     let child ← IO.Process.output {
       cmd := lean, args := #[(__dir__ / "lean/RegulaPolicy/Compiler.lean").toString]
       env := #[("REGULA_COMPILER_GUARD", some "1"), ("GHCR_TOKEN", none)] }

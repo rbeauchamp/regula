@@ -84,13 +84,12 @@ that `printedLine?` reads, when it is an absolute path. This is the same functio
 `Lean.findSysroot`'s run of that program, with `IO.Process.run`, which throws its failure, and with
 the printed prefix read by `printedPrefix?` (only the final newline is removed) in place of
 `Lean.findSysroot`'s removal of the whitespace at its ends. Output that is not one absolute path
-printed as a line is thrown. The root package's `lakefile.lean` holds a copy of this definition,
-of `findSysroot` and of the decoders, which `Regula.PrintedPathControls` checks.
+printed as a line is thrown.
 
 Assumes: Lean v4.34.1 `lean --print-prefix` prints `getBuildDir` with `IO.println` and exits with 0
 (`Lean/Shell.lean:470-472`): the parent of the real path of the directory of its executable
 (`Lean/Util/Path.lean:85-86`, `Init/System/IO.lean:1305-1309`), an absolute path. -/
-@[expose] def printedSysroot (lean : String) : IO System.FilePath := do
+def printedSysroot (lean : String) : IO System.FilePath := do
   let out ← IO.Process.run { cmd := lean, args := #["--print-prefix"] }
   let some root := printedPrefix? out
     | throw <| IO.userError s!"{lean} --print-prefix printed {out.quote}, not one absolute path"
@@ -101,7 +100,7 @@ printed prefix read exactly: the value of `LEAN_SYSROOT` as it is when it is set
 that the `lean` which `PATH` resolves prints (`printedSysroot`). `Lean.findSysroot` removes the
 whitespace at the ends of that prefix (`Lean/Util/Path.lean:180-187` of Lean v4.34.1), so an
 installation directory whose name ends in a space would be read as another one. -/
-@[expose] def findSysroot : IO System.FilePath := do
+def findSysroot : IO System.FilePath := do
   if let some root ← IO.getEnv "LEAN_SYSROOT" then return root
   printedSysroot "lean"
 
