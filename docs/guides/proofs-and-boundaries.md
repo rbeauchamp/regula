@@ -2012,7 +2012,8 @@ Which report states a kind depends on the library that holds the registration:
   and `checked_read` (`Regula.SharedExecution`), `checked_intern` and `checked_expand`
   (`Regula.SourceTexts`), `checked_parseLocation` and
   `checked_parseDiagnostic` (`Regula.DiagnosticCodec`),
-  `checked_exactFields` (`Regula.Checker.PolicyCodec`), `checked_scanLines` and
+  `checked_exactFields` (`Regula.Checker.PolicyCodec`), `checked_printedPrefix?` and
+  `checked_compilerPrintedLine?` (`Regula.Checker.Common`), `checked_scanLines` and
   `checked_scanVersoLines` (`Regula.Checker.FenceScan`), `checked_parseMode` and `checked_parseRule`
   (`Regula.RegistryCodec`), `checked_parseName` and `checked_parsePrintedNameJson`
   (`Regula.StructuralName`), `checked_checkCopies`, `checked_checkHeader`,
@@ -2097,6 +2098,8 @@ Two-way decisions (`Regula.Decides`), each with an accepted and a refused input:
 | `Regula.Website.admitExampleRequest`, `admitExampleSources`, `admitDemonstration` (accept on `.ok`) | The observed request is the frozen one; `ExampleSourcesOK`; `DemonstrationOK` | Admission of a rule-example producer's request, sources and diagnostic demonstration. Each returns the admitted value with its proof, so each result type depends on the arguments. The first and the third are decided on the pair of their two arguments, and the second on the structure of its three (`ExampleSourcesInput`). |
 | `RegulaVerification.passed` | Each command of a step ended with exit status 0 (`passed_iff`). | The driver of `scripts/verify.sh` uses it before it operates one more command, before its success line and before it moves the acceptance record. |
 | `Construction.projectRelative` | No root `tmp`. Documentation includes cache-named directories. Elsewhere no component is `.git`, `.lake`, `.cache` or `.regula-scratch` (`checked_projectRelative`). | The selection that the shared cold constructor executes. The constructor's filesystem theorems name their primitive hypotheses. |
+| `Construction.admitGitName` (accepts on `.ok ()`) | The name is one of the stored directory-entry names, compared exactly (`admitGitName_iff`, `checked_admitGitName`). | The exact-name guard of each component of an index path that the Git adapter copies (`admitGitPath`). |
+| `Construction.printedLine?`, `Construction.printedPath?`, and their copies `CompilerObservation.printedLine?` and `printedPrefix?` (accept on `some`) | `PrintedLine`, `PrintedPath`: the text is one line followed by one newline, and for `PrintedPath` that line is an absolute path. The line is not empty and holds no newline, carriage return or NUL (`checked_printedLine?`, `checked_printedPath?`). Each copy is the same function (`printedLine?_eq_printedLine?`, `printedPrefix?_eq_printedPath?`). | The reads of a printed path or line in `Construction.gitPath`, `Checker.gitWorkTree`, `Launcher.resolvedLean`, `printedLeanPath`, `Toolchain.selectedLean` and `CompilerObservation.findSysroot`. |
 | `RegulaVerification.removal` (accepts on `.remove`) | A directory is at the place by a read that follows no link, and its real path is the place (`removal_remove_iff`). | The driver removes its copy and the `_site` directory only by this decision. The two reads of the file system are trusted. |
 | `Regula.Removal.removal` (accepts on `.remove`) | A read that follows no link finds an entry of the given kind at the place. Its real path is the place, or a symbolic link is a name in a directory at its own place (`removal_remove_iff`). | Each program of the package removes a directory, a file or a symbolic link only by this decision, through `Regula.Filesystem`. The exceptions are the library calls that `Regula.Removal.libraryRemovals` gives, and the removals of the two drivers that `Regula.ProgramCheck.Verification` and `Regula.ProgramCheck.Provision` give. The removals of `bv_decide` that `Regula.Removal.tacticRemovals` gives are also exceptions. The reads of the file system are trusted. |
 | `Regula.Removal.replacement` (accepts on `true`) | A read that follows no link finds a file at the source, at its own place. Nothing is at the destination, or a file is there at its own place. The destination is a name in a directory at its own place (`replacement_iff`). | Each program of the package moves a file only by this decision, through `Regula.Filesystem`. The exceptions are the library calls that `Regula.Removal.libraryRemovals` gives, and the moves of the two drivers that `Regula.ProgramCheck.Verification` and `Regula.ProgramCheck.Provision` give. The operation `Regula.Filesystem.moveAside` also moves an entry with no such decision, into a new directory beside it. The reads of the file system are trusted. |
@@ -2181,12 +2184,15 @@ imports only the toolchain:
 - `RegulaPolicy.Compiler` imports only `Init`, because the compiler guard elaborates it alone
   before the package is built, so `RegulaPolicy.Claim` registers `Compiler.accepts` and
   `Compiler.admitCapability`.
+- `Regula.CompilerObservation` imports only Lean's library, because the preparation driver runs
+  its source with the selected compiler, so `Regula.Checker.Common` registers its decoders
+  `printedLine?` and `printedPrefix?`.
 - Each standalone program runs with `lean --run` before the package is built, so its library has
   a second module that imports the program with `Regula.Contract` and `Regula.Decision`, and that
   no program imports: `RegulaProvision.Decisions` registers `component?`, `admits`, `mathlibStep`, `cloneStep`, `found`, `prunes`, `retires`,
   `mathlibApplies` and `selectPins`;
   `RegulaVerification.Decisions` registers `parseMode`, `dependencyFree`, `select`, `passed`,
-  `removal` and `prebuildCovers`. The shared constructor registers `projectRelative` in `RegulaCore.CopyConstruction`.
+  `removal` and `prebuildCovers`. The shared constructor registers `projectRelative`, `admitGitName`, `printedPath?` and `printedLine?` in `RegulaCore.CopyConstruction`.
   Each kind restates a theorem the program proves about the same definition, except those of
   `component?` and `selectPins` (`checked_component`, `checked_selectPins`).
 
