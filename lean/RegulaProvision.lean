@@ -1,6 +1,7 @@
 import Lean.Data.Json
 import Lean.Util.Path
 import Lake.Load.Manifest
+import Lake.Toml.Grammar
 
 /-! # Dependency provisioning
 
@@ -461,28 +462,23 @@ def inSubdirectory (entry : Lake.PackageEntry) : Bool :=
   | .git (subDir? := some _) .. => true
   | _ => false
 
-/-- Whether Lake's TOML grammar reads `c` as a control character, which a basic string cannot hold
-unescaped: U+007F, or a character below U+0020 other than a tab. `RegulaProvision.Decisions`
-proves this Lake's own test (`tomlControl_eq`, `Lake.Toml.isControlChar`).
-
-Assumes:
-- Lake v4.34.1 refuses a basic string that holds a control character unescaped, and ends one at an
-  unescaped quotation mark and reads an escape after a backslash (`Lake/Toml/Grammar.lean:30-31`,
-  `:139-151`). -/
-def tomlControl (c : Char) : Bool :=
-  c = '\x7F' || (c < '\x20' && c != '\t')
-
 /-- The first refusal of the Git pins `git`, in which Mathlib is pinned at `rev` from `url`: a Git
 package in a subdirectory, which is not shared; a Mathlib revision that is not a full commit name;
 a URL that the shared workspace's configuration cannot quote in a TOML basic string, one that holds
-a quotation mark, a backslash or a control character (`tomlControl`); a checkout directory's name
-that is not one path component; and two pins with one checkout directory. -/
+a quotation mark, a backslash or a control character of Lake's TOML grammar
+(`Lake.Toml.isControlChar`); a checkout directory's name that is not one path component; and two
+pins with one checkout directory.
+
+Assumes:
+- Lake v4.34.1 refuses a basic string that holds a control character (`Lake.Toml.isControlChar`)
+  unescaped, ends one at an unescaped quotation mark and reads an escape after a backslash
+  (`Lake/Toml/Grammar.lean:30-31`, `:139-151`). -/
 def pinsRefusal (url rev : String) (git : Array (Lake.PackageEntry × Pin)) : Option String :=
   if let some (entry, _) := git.find? (inSubdirectory ·.1) then
     some s!"{entry.prettyName}: a Git package in a subdirectory is not supported"
   else if !isObjectName rev then
     some s!"the pinned Mathlib revision '{rev}' is not a commit"
-  else if !url.all (fun c => c != '"' && c != '\\' && !tomlControl c) then
+  else if !url.all (fun c => c != '"' && c != '\\' && !Lake.Toml.isControlChar c) then
     some s!"the pinned Mathlib URL {url.quote} holds a character that a TOML basic string cannot \
       hold unescaped"
   else if let some (_, pin) := git.find? (!isComponent ·.2.name) then

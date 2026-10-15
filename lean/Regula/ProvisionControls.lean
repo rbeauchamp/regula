@@ -26,7 +26,7 @@ reads no network and acquires no Mathlib:
 - A Mathlib URL with a character that a TOML basic string cannot hold unescaped is refused, one
   case for each class of them: a carriage return, a line feed, U+0000, U+001F, U+007F, a quotation
   mark and a backslash. One with a tab, which Lake's grammar admits, is taken
-  (`RegulaProvision.tomlControl`).
+  (`Lake.Toml.isControlChar`).
 - A manifest without `packagesDir`, or with a null one, is refused, and so is an absent manifest.
 - After each of these, the positive control is restored and gives its answer again.
 
