@@ -411,9 +411,9 @@ with `Name.append` (`++`), `Name.appendCore`, `Name.mkStr` or `Name.appendIndexA
   which has no macro scopes, with its number (`Name.modifyBase`, `Init/Meta/Defs.lean:308-326`).
 
 A private prefix is the leading part of a name (`mkPrivateNameCore`), before the name of its view
-when it has macro scopes. No step changes it, so it stays in the name returned, and no private-name
-function is needed: `privateToUserName` would also cut at the private prefix of a specialization's
-caller, inside the name. `none` when the last part, of the name or of its view's name, is not a
+when it has macro scopes. No step changes it, so it stays in the name returned, which must be the
+source's own name with its prefix: no private-name function applies, since `privateToUserName`
+would remove that prefix. `none` when the last part, of the name or of its view's name, is not a
 part of `appendedPart`. -/
 def compilerStep? (name : Name) : Option (Name × String) :=
   if name.hasMacroScopes then
