@@ -619,7 +619,7 @@ projects. A `lakefile.lean` is then written beside each `lakefile.toml` that a l
 check of the loaded workspace must refuse each package with a configuration name that has no
 extension.
 
-`Regula.AbsenceControls` also reads the Git work tree of eight directories with `gitWorkTree`. It
+`Regula.AbsenceControls` also reads the Git work tree of nine directories with `gitWorkTree`. It
 must keep the final space of the name of a top level. Below a `.git` file that names a repository,
 it must give the work tree while the file can be read, and fail while it cannot. The same holds in
 a repository for its `HEAD`. In a bare repository, it must fail.
@@ -631,11 +631,15 @@ Git, these reads must not run the query. In a repository, each failure of the qu
 read, also one that reports no repository as Git does.
 
 With a ceiling written through a symbolic link, which Git resolves, the reads must leave it out and
-fail as Git fails. A ceiling or a `.git` directory that cannot be read must fail the read without
-running the query. A repository below such a `.git` directory must give its own top level, because
-Git finds it first. The control also reads the revision of a repository with `observeGitFacts`. It
-must give none with no commit, the commit after one, and a failure while the file of the branch
-cannot be read. It must fail too where `HEAD` names a branch with a name that Git does not accept.
+fail as Git fails. A ceiling entry that cannot be read must be left out. Then a directory that no
+repository holds gives none without running the query. A `.git` directory that cannot be read must
+fail the read without running the query. This also holds in the work tree of a repository that Git
+finds above that `.git` directory. A repository nested in a directory with a `.git` directory that
+cannot be read must give its own top level, because Git finds it first.
+
+The control also reads the revision of a repository with `observeGitFacts`. It must give none with
+no commit, the commit after one, and a failure while the file of the branch cannot be read. It must
+fail too where `HEAD` names a branch with a name that Git does not accept.
 
 In the first acceptance step, `Regula.PrintedPathControls` runs the reads of a path that
 `/usr/bin/which`, `printenv`, Elan and `lean` print. The read of `which` must keep the space at the

@@ -4037,15 +4037,15 @@ work tree of its own, and so does a submodule, thus neither is owned.
 
 `gitWorkTree` first reads at least each directory where Git looks for a repository. It reads the
 directory and each ancestor that the walk of Git can reach below the ceilings of
-`GIT_CEILING_DIRECTORIES` (`mem_discoveryDirectories`). It keeps only a ceiling that is its own
-real path, which Git keeps too. Fewer ceilings only add directories
+`GIT_CEILING_DIRECTORIES` (`mem_discoveryDirectories`). It keeps only a ceiling that a read shows to
+be its own real path, which Git keeps too. Fewer ceilings only add directories
 (`discoveryDirectories_superset`).
 
 At each directory read, nothing may be at `HEAD`. Nothing may be at `.git` either, or `.git` is a
 directory with nothing at its `HEAD`, `objects` and `refs`. Then no repository can hold the
 directory, and `gitWorkTree` gives no work tree without running Git. The reads start at the
 directory and move toward the root, as the search of Git does. They stop at the first directory
-that fails this test. Each failure of a read stops the audit.
+that fails this test. Each failure of these reads stops the audit.
 
 Otherwise `gitWorkTree` runs `git rev-parse --show-toplevel` in the directory, without `GIT_DIR`,
 `GIT_WORK_TREE` and `GIT_COMMON_DIR`, and with the same ceiling. It removes only the final newline

@@ -342,12 +342,16 @@ the entries between colons, each that is its own real path (`Regula.Filesystem.r
 Such an entry starts with `/` and has no symbolic link, no `.` or `..`, no empty name and no final
 `/`, except the root directory `/`, which Git also takes as a ceiling (`path.c:1231-1243`) and which
 `ceilingMatch` reads as Git does. Each other entry is left out: an empty one, one that does not
-start with `/`, one where nothing is, and one whose real path is another path. A failure of the
-read of a real path is thrown. -/
+start with `/`, one where nothing is, one whose real path is another path, and one whose real path
+cannot be read. Git leaves out such an entry too, or keeps it as it is written after an empty entry,
+so each entry kept is one of Git's ceilings, and an entry left out only adds directories to the
+reads of `gitWorkTree` (`discoveryDirectories_superset`). -/
 def ceilingDirectories (value : String) : IO (List String) :=
   (value.splitOn ":").filterM fun entry => do
     unless entry.startsWith "/" do return false
-    return (← Regula.Filesystem.realPathIfPresent entry).map (·.toString) == some entry
+    match ← (Regula.Filesystem.realPathIfPresent entry).toBaseIO with
+    | .ok real => return real.map (·.toString) == some entry
+    | .error _ => return false
 
 /-- The length in bytes of `ceiling` when it is an ancestor of the directory whose path is `path`,
 other than that directory: a final `/` of `ceiling` is not counted, and `ceiling` must be
@@ -500,8 +504,10 @@ nothing at its `HEAD`, `objects` and `refs`, as a project that keeps a file ther
 repository by these reads. When the query succeeds, the path it prints is decoded exactly
 (`Regula.Filesystem.Construction.printedPath?`: only the final newline is removed) and resolved
 (`Regula.Filesystem.realPathIfPresent`); output that is not one absolute path, or a printed path
-where nothing is, is thrown. A failure of a read, to resolve a path, or to start Git, is thrown. On
-Windows the observer refuses its reads, so `gitWorkTree` throws there.
+where nothing is, is thrown. A failure of a read that `noRepositoryAt` makes, to resolve `dir` or
+the printed path, or to start Git, is thrown. A ceiling whose real path cannot be read is left out
+(`ceilingDirectories`), which only adds directories to the reads. On Windows the observer refuses
+its reads, so `gitWorkTree` throws there.
 
 Assumes: Git 2.54.0, run without `GIT_DIR` (`setup.c:1564-1568`), looks for a repository only at
 the directory that `getcwd(3)` gives (`setup.c:1888-1892`) and at the ancestors that its walk
@@ -515,7 +521,8 @@ set (`setup.c:1601-1603`, `:1698-1700`), which only removes directories from the
 Assumes: Git 2.54.0 splits the value of `GIT_CEILING_DIRECTORIES` at colons (`setup.c:1570-1576`,
 `git-compat-util.h:201-202`) and keeps an entry only when it starts with `/` (`setup.c:1315-1338`,
 `abspath.h:28-31`). It keeps such an entry as it is written after an empty entry, and otherwise
-as `real_pathdup` gives it (`abspath.c:235-245`, `:216-221`). An entry that is its own real path
+as `real_pathdup` gives it (`abspath.c:235-245`, `:216-221`), or leaves it out when `real_pathdup`
+fails (`setup.c:1329-1333`). An entry that is its own real path
 by `realpath(3)` has no `.`, `..`, empty name or final `/`, except the root directory `/`, and no
 name of it is a symbolic link. For it, `strbuf_realpath_1` starts from the root (`abspath.c:54-64`),
 appends each name, finds it with `lstat(2)` and not as a link, and gives the entry itself
