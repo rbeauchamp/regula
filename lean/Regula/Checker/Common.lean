@@ -343,9 +343,9 @@ Such an entry starts with `/` and has no symbolic link, no `.` or `..`, no empty
 `/`, except the root directory `/`, which Git also takes as a ceiling (`path.c:1231-1243`) and which
 `ceilingMatch` reads as Git does. Each other entry is left out: an empty one, one that does not
 start with `/`, one where nothing is, one whose real path is another path, and one whose real path
-cannot be read. Git leaves out such an entry too, or keeps it as it is written after an empty entry,
-so each entry kept is one of Git's ceilings, and an entry left out only adds directories to the
-reads of `gitWorkTree` (`discoveryDirectories_superset`). -/
+cannot be read. Git keeps each entry that Regula keeps, unchanged: as its own real path, or as it
+is written after an empty entry. So each entry kept is one of Git's ceilings, and an entry left out
+only adds directories to the reads of `gitWorkTree` (`discoveryDirectories_superset`). -/
 def ceilingDirectories (value : String) : IO (List String) :=
   (value.splitOn ":").filterM fun entry => do
     unless entry.startsWith "/" do return false
