@@ -6065,8 +6065,8 @@ execution, and calling a proved oracle does not prove the driver or its IO effec
 - `RegulaVerification.parseMode_sound`, `parseMode_roundtrip` and `select_exact`: exact argument
   binding and acceptance of every documented invocation; the caller consumes the proof-bearing
   selection, and recipes name the intended commands explicitly; `commands_nonempty` rules out an
-  empty selected campaign; `dependencyFree_iff`: `dependencyFree` accepts exactly a root whose
-  manifest and package overrides file record no package. `RegulaVerification.Decisions` registers
+  empty selected campaign; `dependencyFree_iff`: `dependencyFree` accepts exactly a root with a
+  manifest and a package overrides file that record no package. `RegulaVerification.Decisions` registers
   the kinds of the driver's decisions ([above](#decisions-not-registered-with-regula_decision)). Process
   execution remains IO.
 - The theorem `RegulaVerification.ordinary_places` gives the directory of each command of the
