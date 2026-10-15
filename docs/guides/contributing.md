@@ -631,6 +631,13 @@ of `printenv` must keep the final space of the last entry of `LEAN_PATH`. The re
 give the compiler that builds the module. The read of the prefix that `lean --print-prefix` prints
 must keep the final space of the name of the installation directory.
 
+For the program `false`, which fails, the read of the prefix must fail with the error that
+`IO.Process.run` gives, as `Lean.findSysroot` does. The root `lakefile.lean` cannot import Regula,
+so it holds a copy of `findSysroot` and of the functions it calls. `Regula.PrintedPathControls`
+elaborates the first commands of the lakefile again, up to `end Regula.CompilerObservation`. The
+kernel must then admit that each copied function equals Regula's by `rfl`, and neither may have an
+`implemented_by` or `extern` attribute. Change both copies together.
+
 `./scripts/verify.sh diagnostics self-audit 1/4` to `4/4` each run one shard of the self-audit.
 The campaign sorts each list of modules that it inspects by name, and it deals the list to the
 four shards in turn. Thus each shard audits a quarter of each list. The theorem

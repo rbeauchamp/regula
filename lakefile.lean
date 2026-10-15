@@ -1,4 +1,42 @@
 import Lake
+
+-- A copy of `findSysroot` from `lean/Regula/CompilerObservation.lean`, which finds the toolchain as
+-- `Lean.findSysroot` does but reads the prefix that `lean --print-prefix` prints exactly, where
+-- `Lean.findSysroot` removes the whitespace at its ends. This file cannot import Regula, so the
+-- copy has the same names. `Regula.PrintedPathControls.lakefileCopies` elaborates this part of the
+-- file again and fails unless the kernel admits that each function equals Regula's by `rfl`. It
+-- must stay first in the file.
+namespace Regula.CompilerObservation
+
+/-- `Regula.CompilerObservation.printedLine?`. -/
+def printedLine? (text : String) : Option String :=
+  match text.toList.reverse with
+  | '\n' :: reversed =>
+    if reversed ≠ [] ∧ ∀ c ∈ reversed, c ≠ '\n' ∧ c ≠ '\r' ∧ c ≠ '\x00' then
+      some (String.ofList reversed.reverse)
+    else none
+  | _ => none
+
+/-- `Regula.CompilerObservation.printedPrefix?`. -/
+def printedPrefix? (text : String) : Option System.FilePath :=
+  match printedLine? text with
+  | some line => if (System.FilePath.mk line).isAbsolute then some ⟨line⟩ else none
+  | none => none
+
+/-- `Regula.CompilerObservation.printedSysroot`. -/
+def printedSysroot (lean : String) : IO System.FilePath := do
+  let out ← IO.Process.run { cmd := lean, args := #["--print-prefix"] }
+  let some root := printedPrefix? out
+    | throw <| IO.userError s!"{lean} --print-prefix printed {out.quote}, not one absolute path"
+  return root
+
+/-- `Regula.CompilerObservation.findSysroot`. -/
+def findSysroot : IO System.FilePath := do
+  if let some root ← IO.getEnv "LEAN_SYSROOT" then return root
+  printedSysroot "lean"
+
+end Regula.CompilerObservation
+
 open Lake DSL
 
 -- Execute the same source guard used by compiled policy. A fresh dependency has no Regula
@@ -9,7 +47,7 @@ open Lake DSL
 run_cmd do
   let running := s!"{Lean.versionString}\n{Lean.githash}\n"
   let refusal : IO (Option String) := do
-    let lean := ((← Lean.findSysroot) / "bin" / "lean").toString
+    let lean := ((← Regula.CompilerObservation.findSysroot) / "bin" / "lean").toString
     let child ← IO.Process.output {
       cmd := lean, args := #[(__dir__ / "lean/RegulaPolicy/Compiler.lean").toString]
       env := #[("REGULA_COMPILER_GUARD", some "1"), ("GHCR_TOKEN", none)] }
