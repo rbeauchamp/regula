@@ -4043,8 +4043,8 @@ and `GIT_WORK_TREE`. It removes only the final newline from the path that Git pr
 exact report, `gitWorkTree` gives no work tree. Each other failure of Git stops the audit with the
 report of Git.
 
-Thus the audit does not take a repository that Git cannot read, such as a linked work tree with an
-unreadable `.git` file, as no repository. **Trusted:** Git `2.54.0` finds a repository only where
+Thus a repository that Git cannot read, such as a linked work tree with an unreadable `.git` file,
+is not taken as no repository. **Trusted:** Git `2.54.0` finds a repository only where
 such an entry is, and it writes that report only when its search ends with no repository. The
 search stops at the root or at a directory of `GIT_CEILING_DIRECTORIES`. `gitWorkTree` cites these
 from the source of Git. **Trusted:** the filesystem resolves the real paths, and no process changes
@@ -6083,7 +6083,7 @@ execution, and calling a proved oracle does not prove the driver or its IO effec
   Each reader of the toolchain's installation directory uses it, and so does the website's example
   helper. Its decoder is a copy in a module that runs with Lean's library only, and the theorem
   states that the copy is `printedPath?`. The compiler guard of the root `lakefile.lean` cannot
-  import Regula, so it keeps `Lean.findSysroot`, whose trim cannot cause a wrong acceptance.
+  import Regula, so it keeps `Lean.findSysroot`. Its trim cannot cause a wrong acceptance.
 - `Template.instantiate`: the required `Maps` proof for the recursive JSON transformation (array
   order, object keys and scalar kinds preserved; only entire matching string values change;
   depth exhaustion refuses, and the corpus uses 64 levels). Checker snapshots discover modules
