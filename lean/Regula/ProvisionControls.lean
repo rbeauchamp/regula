@@ -20,9 +20,9 @@ reads no network and acquires no Mathlib:
   the check of the checkouts (`RegulaProvision.checkoutPin`), as Lake takes the last entry of a name.
 - An overrides file with a Git entry for `mathlib` and one for another package: its entries are
   taken. One with a path entry for `mathlib`: nothing is shared.
-- A path entry for `batteries` in the overrides file, or one that the manifest records as
-  inherited, is refused, and the refusal names the package and the file
-  (`RegulaProvision.pathRefusal`).
+- A path entry for `batteries`, in the overrides file or in the manifest, inherited or not, is
+  refused, and so is a `regula` path entry whose directory is not the Regula root being
+  provisioned; the refusal names the package and the file (`RegulaProvision.pathRefusal`).
 - A manifest without `packagesDir`, or with a null one, is refused, and so is an absent manifest.
 - After each of these, the positive control is restored and gives its answer again.
 
@@ -33,8 +33,9 @@ writes, with a restored positive control after each case:
   last `verso` entry, and an override's; a path override of `verso` is refused.
 - The slot's containment check, `Regula.Qualification.Slot.checkContainment`, refuses a duplicate
   entry whose directory is outside the slot, a Git entry, and a package overrides file that records
-  an entry; `Regula.Qualification.Slot.refuseOverrides`, which slot preparation runs on the original
-  root, refuses that file too, and accepts an empty one.
+  an entry; `Regula.Qualification.Slot.manifestWithoutOverrides`, the one read of the two files
+  that the check traverses and that slot preparation runs on the original root, refuses that file
+  too, and accepts an empty one.
 
 The link controls run the link installation of provisioning, `RegulaProvision.installLinkWith` at the
 driver's operations `RegulaProvision.linkOps`, on the native filesystem that
@@ -297,18 +298,31 @@ run_cmd do
     requireSelection label "a Mathlib is shared" (← RegulaProvision.readPins repo).isNone
     requireRefused label "materializes no Git package"
       (RegulaProvision.manifestRevision repo RegulaProvision.mathlibPackage.toString `mathlib)
-    -- A path entry of a package that Mathlib requires: the shared workspace could not pin it.
+    -- A path entry of a package that Mathlib requires: the shared workspace could not pin it,
+    -- whatever file gives it and whether or not Lake marks it inherited.
     IO.FS.writeFile overrides (overridesText [pathEntry "batteries" "../batteries"])
     requireRefused "path override of batteries" "batteries: the package overrides file gives a path"
       (RegulaProvision.readPins repo)
     Regula.Filesystem.removeFound overrides
     positive "positive after the overrides file"
-    IO.FS.writeFile manifest (manifestText (some (some ".lake/packages"))
-      (committed ++ [pathEntry "batteries" "../batteries" (inherited := true)]))
-    requireRefused "inherited path entry" "batteries: the manifest records a path entry"
-      (RegulaProvision.readPins repo)
-    IO.FS.writeFile manifest (manifestText (some (some ".lake/packages")) committed)
-    positive "positive after the inherited path entry"
+    for inherited in [true, false] do
+      let label := s!"path entry of batteries, inherited {inherited}"
+      IO.FS.writeFile manifest (manifestText (some (some ".lake/packages"))
+        (committed ++ [pathEntry "batteries" "../batteries" (inherited := inherited)]))
+      requireRefused label "batteries: the manifest gives a path entry"
+        (RegulaProvision.readPins repo)
+      IO.FS.writeFile manifest (manifestText (some (some ".lake/packages")) committed)
+      positive s!"positive after the {label}"
+    -- A `regula` path entry whose directory is not the Regula root being provisioned, where a
+    -- directory is and where none is.
+    IO.FS.createDirAll (base / "other")
+    for dir in ["../../../other", "../../absent"] do
+      let label := s!"regula path entry at {dir}"
+      IO.FS.writeFile manifest (manifestText (some (some ".lake/packages"))
+        ([pathEntry "regula" dir] ++ committed.drop 1))
+      requireRefused label "regula: the manifest gives a path entry" (RegulaProvision.readPins repo)
+      IO.FS.writeFile manifest (manifestText (some (some ".lake/packages")) committed)
+      positive s!"positive after the {label}"
     -- A manifest that records no packages directory, or a null one: Lake would take the
     -- configuration's.
     for (label, recorded) in [("no packagesDir", none), ("null packagesDir", some none)] do
@@ -366,7 +380,8 @@ run_cmd do
     let committed := [pathEntry "batteries" "../inside"]
     let check := Regula.Qualification.Slot.checkContainment slot copy #[]
     let positive (label : String) : IO Unit := do
-      match ← (do check; Regula.Qualification.Slot.refuseOverrides files).toBaseIO with
+      let read := discard <| Regula.Qualification.Slot.manifestWithoutOverrides files
+      match ← (do check; read).toBaseIO with
       | .ok () => pure ()
       | .error error => throw <| IO.userError s!"selection control {label}: refused: {error}"
     IO.FS.writeFile manifest (manifestText (some (some ".lake/packages")) committed)
@@ -375,14 +390,15 @@ run_cmd do
       (committed ++ [pathEntry "batteries" "../../outside"]))
     requireRefused "slot duplicate entry" "slot manifest dir escapes slot" check
     IO.FS.writeFile manifest (manifestText (some (some ".lake/packages"))
-      (committed ++ [gitEntry "Qq" "https://example.invalid/qq" (String.ofList (List.replicate 40 '9'))]))
+      (committed ++ [gitEntry "Qq" "https://example.invalid/qq"
+        (String.ofList (List.replicate 40 '9'))]))
     requireRefused "slot Git entry" "is a Git entry" check
     IO.FS.writeFile manifest (manifestText (some (some ".lake/packages")) committed)
     positive "slot positive after the manifest's entries"
     IO.FS.writeFile overrides (overridesText [pathEntry "batteries" "../inside"])
     requireRefused "slot overrides file" "slot workspace has package overrides" check
     requireRefused "slot original overrides file" "slot workspace has package overrides"
-      (Regula.Qualification.Slot.refuseOverrides files)
+      (discard <| Regula.Qualification.Slot.manifestWithoutOverrides files)
     IO.FS.writeFile overrides (overridesText [])
     positive "slot empty overrides file"
     Regula.Filesystem.removeFound overrides

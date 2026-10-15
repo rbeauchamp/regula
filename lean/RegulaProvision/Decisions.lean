@@ -139,34 +139,94 @@ theorem checked_retires : Regula.ExecutableContract retires (fun removes =>
     ⟨((("new", "new"), "new"), true), fun accepted =>
       ((retires_iff "new" "new" "new" true).mp accepted).2.2 rfl⟩⟩
 
-/-- What an admitted pin set establishes of the Mathlib package's manifest and the entries of its
-package overrides file, over the entries that Lake selects (`rootEntries`, `selectedEntry`): the
-manifest records a packages directory, the entry selected for `mathlib` is a Git entry, and neither
-the refusal of path entries (`pathRefusal`) nor that of the Git pins (`pinsRefusal`) refuses. -/
-def Shareable (input : Lake.Manifest × Array Lake.PackageEntry) : Prop :=
-  input.1.packagesDir? ≠ none ∧
-    ∃ entry url rev inputRev subDir,
-      selectedEntry (rootEntries input.1 input.2) `mathlib = some entry ∧
-        entry.src = .git url rev inputRev subDir ∧ pathRefusal input.1 input.2 = none ∧
-        pinsRefusal url rev (gitPins (rootEntries input.1 input.2)) = none
+/-- A full Git commit name, stated over the text and its characters: forty characters, each a
+decimal digit (Lean's own `Char.isDigit`) or a lowercase letter from `a` to `f`. The statement has
+no test of `isObjectName`, which decides it (`isObjectName_iff`). -/
+def IsObjectName (text : String) : Prop :=
+  text.length = 40 ∧ ∀ c ∈ text.toList, c.isDigit = true ∨ ('a' ≤ c ∧ c ≤ 'f')
 
-/-- `selectPins` admits a pin set exactly for a shareable manifest and overrides file. -/
-theorem selectPins_shares_iff (manifest : Lake.Manifest) (overrides : Array Lake.PackageEntry) :
-    (∃ pins, selectPins manifest overrides = .ok (some pins)) ↔
-      Shareable (manifest, overrides) := by
+/-- The executed test accepts exactly the full commit names. -/
+theorem isObjectName_iff (text : String) : isObjectName text = true ↔ IsObjectName text := by
+  simp only [isObjectName, IsObjectName, Bool.and_eq_true, beq_iff_eq, String.all_bool_eq,
+    List.all_eq_true, Bool.or_eq_true, decide_eq_true_eq]
+
+/-- Text that the shared workspace's configuration can quote: no character of it is a quotation
+mark, a backslash or a line feed. -/
+def Quotable (text : String) : Prop :=
+  ∀ c ∈ text.toList, c ≠ '"' ∧ c ≠ '\\' ∧ c ≠ '\n'
+
+/-- A Git entry that names a subdirectory of its checkout. -/
+def InSubdirectory (entry : Lake.PackageEntry) : Prop :=
+  ∃ url rev inputRev dir, entry.src = .git url rev inputRev (some dir)
+
+/-- The executed test accepts exactly the Git entries that name a subdirectory. -/
+theorem inSubdirectory_iff (entry : Lake.PackageEntry) :
+    inSubdirectory entry = true ↔ InSubdirectory entry := by
+  unfold inSubdirectory InSubdirectory
+  split <;> simp_all
+
+/-- Git pins that the shared workspace can hold, with Mathlib pinned at `rev` from `url`: no pin
+names a subdirectory, the revision is a full commit name, the URL can be quoted, and the names of
+the checkout directories are path components, no two of them the same. -/
+def PinsAdmissible (url rev : String) (git : Array (Lake.PackageEntry × Pin)) : Prop :=
+  (∀ pin ∈ git, ¬InSubdirectory pin.1) ∧ IsObjectName rev ∧ Quotable url ∧
+    (∀ pin ∈ git, IsComponent pin.2.name) ∧ (git.toList.map (·.2.name)).Nodup
+
+/-- `pinsRefusal` refuses nothing exactly for admissible pins. -/
+theorem pinsRefusal_eq_none_iff (url rev : String) (git : Array (Lake.PackageEntry × Pin)) :
+    pinsRefusal url rev git = none ↔ PinsAdmissible url rev git := by
+  have hSub : (∀ pin ∈ git, ¬InSubdirectory pin.1) ↔
+      git.find? (inSubdirectory ·.1) = none := by
+    simp [Array.find?_eq_none, inSubdirectory_iff]
+  have hComp : (∀ pin ∈ git, IsComponent pin.2.name) ↔
+      git.find? (!isComponent ·.2.name) = none := by
+    simp [Array.find?_eq_none, isComponent_iff]
+  have hUrl : (url.all fun c => c != '"' && c != '\\' && c != '\n') = true ↔ Quotable url := by
+    simp [Quotable, String.all_bool_eq, List.all_eq_true, and_assoc]
+  rw [PinsAdmissible, hSub, hComp, ← isObjectName_iff, ← hUrl]
+  unfold pinsRefusal
+  cases h1 : git.find? (inSubdirectory ·.1) with
+  | some found => simp
+  | none =>
+    cases h2 : isObjectName rev <;>
+      cases h3 : (url.all fun c => c != '"' && c != '\\' && c != '\n') <;>
+      cases h4 : git.find? (!isComponent ·.2.name) <;> simp_all
+
+/-- What an admitted pin set establishes of the Mathlib package's manifest, the entries of its
+package overrides file and whether the entry selected for `regula` is Regula's own integration
+entry (`readOwnRegula`), over the entries that Lake selects (`rootEntries`, `selectedEntry`): the
+manifest records a packages directory; each selected path entry is the one for `regula`, and it is
+Regula's own; the entry selected for `mathlib` is a Git entry, and the Git pins are admissible
+(`PinsAdmissible`). -/
+def Shareable (input : (Lake.Manifest × Array Lake.PackageEntry) × Bool) : Prop :=
+  input.1.1.packagesDir? ≠ none ∧
+    (∀ entry dir, selectedEntry (rootEntries input.1.1 input.1.2) entry.name = some entry →
+      entry.src = .path dir → entry.name = `regula ∧ input.2 = true) ∧
+    ∃ entry url rev inputRev subDir,
+      selectedEntry (rootEntries input.1.1 input.1.2) `mathlib = some entry ∧
+        entry.src = .git url rev inputRev subDir ∧
+        PinsAdmissible url rev (gitPins (rootEntries input.1.1 input.1.2))
+
+/-- `selectPins` admits a pin set exactly for a shareable input. -/
+theorem selectPins_shares_iff (manifest : Lake.Manifest) (overrides : Array Lake.PackageEntry)
+    (ownRegula : Bool) :
+    (∃ pins, selectPins manifest overrides ownRegula = .ok (some pins)) ↔
+      Shareable ((manifest, overrides), ownRegula) := by
   constructor
   · rintro ⟨pins, h⟩
     obtain ⟨hDir, ⟨entry, inputRev, subDir, hEntry, hSrc⟩, hGit, hPath, hRefusal⟩ :=
       selectPins_sound h
-    exact ⟨by simp [hDir], entry, pins.mathlibUrl, pins.mathlibRev, inputRev, subDir, hEntry,
-      hSrc, hPath, hGit ▸ hRefusal⟩
-  · rintro ⟨hDir, entry, url, rev, inputRev, subDir, hEntry, hSrc, hPath, hRefusal⟩
-    dsimp only at hDir hEntry hPath hRefusal
+    exact ⟨by simp [hDir], pathRefusal_eq_none_iff.mp hPath, entry, pins.mathlibUrl,
+      pins.mathlibRev, inputRev, subDir, hEntry, hSrc,
+      (pinsRefusal_eq_none_iff _ _ _).mp (hGit ▸ hRefusal)⟩
+  · rintro ⟨hDir, hPaths, entry, url, rev, inputRev, subDir, hEntry, hSrc, hPins⟩
+    dsimp only at hDir hPaths hEntry hPins
     obtain ⟨packagesDir, hRecorded⟩ := Option.ne_none_iff_exists'.mp hDir
     refine ⟨
       { packagesDir, mathlibUrl := url, mathlibRev := rev
         git := gitPins (rootEntries manifest overrides) }, ?_⟩
-    simp only [selectPins, hRecorded, hEntry, Option.map_some, hSrc, hPath, hRefusal]
+    simp only [selectPins, hRecorded, hEntry, Option.map_some, hSrc,
+      pathRefusal_eq_none_iff.mpr hPaths, (pinsRefusal_eq_none_iff _ _ _).mpr hPins]
 
 /-- A Git entry of `mathlib` at a commit, from a URL that the shared workspace's configuration can
 quote. -/
@@ -188,22 +248,25 @@ private theorem shareable_gitPins : gitPins (rootEntries shareableManifest #[]) 
   simp [gitPins, rootEntries, selectedEntry, shareableManifest, shareableEntry, List.eraseDups_cons]
   rfl
 
-/-- `selectPins` admits a pin set exactly for a shareable manifest and overrides file
-(`selectPins_shares_iff`): it admits one for a manifest that pins `mathlib` by Git at a commit,
-with no overrides file, and refuses the same manifest without a packages directory. That the pins
-it admits are those of the entries that Lake selects is `selectPins_sound`. -/
+/-- `selectPins` admits a pin set exactly for a shareable input (`selectPins_shares_iff`): it
+admits one for a manifest that pins `mathlib` by Git at a commit, with no overrides file and no
+path entry, and refuses the same manifest without a packages directory. That the pins it admits
+are those of the entries that Lake selects is `selectPins_sound`. -/
 theorem checked_selectPins : Regula.ExecutableContract selectPins (fun select =>
     Regula.Decides (fun result : Except String (Option Pins) => ∃ pins, result = .ok (some pins))
-      Shareable (Function.uncurry select)) :=
-  ⟨.of_iff (fun input => selectPins_shares_iff input.1 input.2)
-    ⟨(shareableManifest, #[]), (selectPins_shares_iff _ _).mpr
-      ⟨by simp [shareableManifest], shareableEntry, _, _, none, none, rfl, rfl, by decide, by
-        dsimp only
-        rw [shareable_gitPins]
-        simp [pinsRefusal, shareableEntry, isObjectName, isComponent, inSubdirectory,
-          List.eraseDups_cons]
-        rfl⟩⟩
-    ⟨({ shareableManifest with packagesDir? := none }, #[]), fun ⟨_, refused⟩ => by
+      Shareable (Function.uncurry (Function.uncurry select))) :=
+  ⟨.of_iff (fun input => selectPins_shares_iff input.1.1 input.1.2 input.2)
+    ⟨((shareableManifest, #[]), false), (selectPins_shares_iff shareableManifest #[] false).mpr
+      ⟨by simp [shareableManifest], fun entry dir hSelected hPath => by
+        have hMem := (selectedEntry_some hSelected).2
+        simp only [rootEntries, shareableManifest, Array.append_empty, Array.mem_singleton] at hMem
+        subst hMem
+        simp [shareableEntry] at hPath,
+        shareableEntry, _, _, none, none, rfl, rfl, (pinsRefusal_eq_none_iff _ _ _).mp (by
+          rw [shareable_gitPins]
+          simp [pinsRefusal, shareableEntry, isObjectName, isComponent, inSubdirectory]
+          rfl)⟩⟩
+    ⟨(({ shareableManifest with packagesDir? := none }, #[]), false), fun ⟨_, refused⟩ => by
       simp [Function.uncurry, selectPins] at refused⟩⟩
 
 attribute [regula_decision]

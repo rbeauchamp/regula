@@ -123,8 +123,8 @@ theorem selectedEntry_eq : selectedEntry = LakeSelection.effectiveEntry := rfl
 Git entries in (`LakeSelection.packagesDir`), whatever packages directory the root configuration
 gives. -/
 theorem packagesDir_eq {manifest : _root_.Lake.Manifest}
-    {overrides : Array _root_.Lake.PackageEntry} {pins : Pins}
-    (h : selectPins manifest overrides = .ok (some pins)) (relPkgsDir : FilePath) :
+    {overrides : Array _root_.Lake.PackageEntry} {ownRegula : Bool} {pins : Pins}
+    (h : selectPins manifest overrides ownRegula = .ok (some pins)) (relPkgsDir : FilePath) :
     LakeSelection.packagesDir manifest.packagesDir? relPkgsDir = pins.packagesDir := by
   rw [(selectPins_sound h).1]
   rfl
@@ -132,8 +132,8 @@ theorem packagesDir_eq {manifest : _root_.Lake.Manifest}
 /-- The Mathlib source and commit of the pins that the driver admits are those of the entry that
 Lake materializes `mathlib` from (`LakeSelection.effectiveEntry`, `LakeSelection.gitPin`). -/
 theorem mathlib_effective {manifest : _root_.Lake.Manifest}
-    {overrides : Array _root_.Lake.PackageEntry} {pins : Pins}
-    (h : selectPins manifest overrides = .ok (some pins)) :
+    {overrides : Array _root_.Lake.PackageEntry} {ownRegula : Bool} {pins : Pins}
+    (h : selectPins manifest overrides ownRegula = .ok (some pins)) :
     ∃ entry,
       LakeSelection.effectiveEntry (rootEntries manifest overrides) `mathlib = some entry ∧
         LakeSelection.gitPin entry = some (pins.mathlibUrl, pins.mathlibRev) := by
@@ -144,8 +144,8 @@ theorem mathlib_effective {manifest : _root_.Lake.Manifest}
 from (`LakeSelection.effectiveEntry`), at the pin's commit, and the pin names its checkout
 directory. Conversely, each Git entry that Lake materializes a package from is a pin. -/
 theorem git_effective {manifest : _root_.Lake.Manifest}
-    {overrides : Array _root_.Lake.PackageEntry} {pins : Pins}
-    (h : selectPins manifest overrides = .ok (some pins)) :
+    {overrides : Array _root_.Lake.PackageEntry} {ownRegula : Bool} {pins : Pins}
+    (h : selectPins manifest overrides ownRegula = .ok (some pins)) :
     (∀ entry pin, (entry, pin) ∈ pins.git →
       LakeSelection.effectiveEntry (rootEntries manifest overrides) entry.name = some entry ∧
         pin.name = entry.dirName ∧ (LakeSelection.gitPin entry).map Prod.snd = some pin.rev) ∧
@@ -168,8 +168,9 @@ theorem git_effective {manifest : _root_.Lake.Manifest}
 Lake materializes into that directory below the packages directory (`LakeSelection.checkoutDir`),
 at that entry's commit. -/
 theorem checkoutPin_effective {manifest : _root_.Lake.Manifest}
-    {overrides : Array _root_.Lake.PackageEntry} {pins : Pins} {dir : String} {pin : Pin}
-    (h : selectPins manifest overrides = .ok (some pins))
+    {overrides : Array _root_.Lake.PackageEntry} {ownRegula : Bool} {pins : Pins} {dir : String}
+    {pin : Pin}
+    (h : selectPins manifest overrides ownRegula = .ok (some pins))
     (hPin : checkoutPin pins.git dir = some pin) :
     ∃ entry,
       LakeSelection.effectiveEntry (rootEntries manifest overrides) entry.name = some entry ∧
