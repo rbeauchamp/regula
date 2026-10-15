@@ -1,16 +1,17 @@
 import RegulaVerification
 import Regula.Removal
 import Regula.Destination
+import Regula.Checker.LakeSelection
 
 /-! # The removal and write check of the verification driver
 
 `scripts/verify.sh` runs the verification driver with `lean --run` before the package is built, so
-it imports only Lean's library: it cannot import the filesystem observer, and it does not run the
-check itself. This module imports it, and its build fails when the compiled code of the driver
-reaches a removal outside the observer, or a write of a file or a directory, except the calls that
-the check admits in every program (`Regula.Removal.sharedPairs`) and the driver's own calls that
-it names. It names each as the pair of the declaration of a source that makes it and the primitive
-that it calls (`Regula.Removal.checkProgram`):
+it imports only the toolchain's libraries: it cannot import the filesystem observer, and it does
+not run the check itself. This module imports it, and its build fails when the compiled code of
+the driver reaches a removal outside the observer, or a write of a file or a directory, except the
+calls that the check admits in every program (`Regula.Removal.sharedPairs`) and the driver's own
+calls that it names. It names each as the pair of the declaration of a source that makes it and
+the primitive that it calls (`Regula.Removal.checkProgram`):
 
 - the removals of a directory, in `RegulaVerification.removeDecided`, which takes the proof that
   `RegulaVerification.removal` decided the removal, the decision that
@@ -42,7 +43,14 @@ So a new write or removal of the driver at another place, such as a direct `IO.F
 destination or an opening of a file to write it, fails this build. So does a pair of this list
 that admits no call of the driver. No decision of `RegulaCore.Removal` decides the moves and the
 writes. Issue 389 asks for a decision of each of the removals that a theorem relates to
-`RegulaCore.Removal`. -/
+`RegulaCore.Removal`.
+
+The driver reads the root package's manifest and package overrides file with Lake's own readers
+before the first acceptance step (`RegulaVerification.dependencyFree`). `rootFiles_eq` and
+`readRoot_eq` prove that read the checker's (`Regula.Checker.Workspace.readRoot`), and
+`dependencyFree_effective` proves that Lake's selection (`Regula.Checker.LakeSelection`) takes no
+entry for any name from a read that the driver accepts. A control below runs that read and check on
+files that Lake's own encoder writes. -/
 
 run_cmd Regula.Removal.checkProgram (named := [
   (``RegulaVerification.removeDecided, ``IO.FS.removeDirAll),
@@ -134,3 +142,64 @@ run_cmd do
   | .ok () => pure ()
   | .error error => throwError "the control of the driver's writes at a file that is not a \
       document of Regula failed: {error}"
+
+-- The first acceptance step's check that the root package requires nothing, over the driver's read
+-- of a root's manifest and package overrides file: a manifest that records no package is accepted,
+-- and again after each refused case is undone; an overrides file that records an entry, a manifest
+-- that records a package and an absent manifest are refused.
+run_cmd do
+  let outcome ← (Regula.Filesystem.withOwnTempDir fun root => do
+    let manifest := root / "lake-manifest.json"
+    let overrides := root / ".lake" / "package-overrides.json"
+    IO.FS.createDirAll (root / ".lake")
+    let entry : _root_.Lake.PackageEntry :=
+      { name := `batteries, inherited := false
+        src := .git "https://example.invalid/batteries" "9999999999999999999999999999999999999999"
+          none none }
+    let lock (packages : Array _root_.Lake.PackageEntry) : _root_.Lake.Manifest :=
+      { name := `regula, lakeDir := ".lake", fixedToolchain := false
+        packagesDir? := some ".lake/packages", packages }
+    let free : IO Bool := do
+      return RegulaVerification.dependencyFree
+        (← RegulaVerification.readRoot (RegulaVerification.rootFiles root))
+    let require (what : String) (holds : Bool) : IO Unit :=
+      unless holds do throw <| IO.userError what
+    (lock #[]).save manifest
+    require "refused a root that requires nothing" (← free)
+    (lock #[entry]).save overrides
+    require "accepted an overrides file that records an entry" !(← free)
+    Regula.Filesystem.removeFound overrides
+    require "refused a root that requires nothing, after the overrides file" (← free)
+    (lock #[entry]).save manifest
+    require "accepted a manifest that records a package" !(← free)
+    Regula.Filesystem.removeFound manifest
+    require "accepted an absent manifest" !(← free)
+    (lock #[]).save manifest
+    require "refused a root that requires nothing, after the absent manifest" (← free)).toBaseIO
+  match outcome with
+  | .ok () => pure ()
+  | .error error => throwError "the control of the driver's dependency check failed: {error}"
+
+namespace Regula.ProgramCheck.Verification
+open Regula.Checker
+
+/-- The driver's manifest and package overrides file of a root are the checker's. -/
+theorem rootFiles_eq : RegulaVerification.rootFiles = Workspace.rootFiles := rfl
+
+/-- The driver's read of those two files is the checker's: the same two reads by Lake's readers, in
+the same order. -/
+theorem readRoot_eq : RegulaVerification.readRoot = Workspace.readRoot := rfl
+
+/-- A read that `dependencyFree` accepts is a manifest and the entries of an overrides file from
+which Lake's selection takes no entry for any name: `LakeSelection.effectiveEntry` of the entries
+that `LakeSelection.rootEntries` gives for that read is `none`. -/
+theorem dependencyFree_effective
+    {read : Option (_root_.Lake.Manifest × Array _root_.Lake.PackageEntry)}
+    (h : RegulaVerification.dependencyFree read = true) :
+    ∃ manifest overrides, read = some (manifest, overrides) ∧
+      ∀ name, LakeSelection.effectiveEntry (manifest.packages ++ overrides) name = none := by
+  obtain ⟨manifest, rfl, hPackages⟩ := (RegulaVerification.dependencyFree_iff read).mp h
+  exact ⟨manifest, #[], rfl, fun name => by
+    simp [hPackages, LakeSelection.effectiveEntry, LakeSelection.lastEntry]⟩
+
+end Regula.ProgramCheck.Verification
