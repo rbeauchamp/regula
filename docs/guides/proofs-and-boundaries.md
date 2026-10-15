@@ -740,6 +740,8 @@ Assumes: Git `2.54.0` reads command-scope configuration after local and worktree
 
 Assumes: Git `2.54.0` decodes configuration keys through its own decoder (`builtin/config.c:74-104,487-591,1264-1266`, `config.c:1492-1523`). No matching key gives exit 1. The adapter refuses an extension setting even when its value is false.
 
+Assumes: Git `2.54.0` also gives exit 1 for a configuration file that it cannot open (`builtin/config.c:583-585,609`, `config.c:1382-1398,1607-1609`, `wrapper.c:401-420`). The adapter first reads the whole file, which must be a regular file. It admits exit 1 only with no output.
+
 Assumes: Git `2.54.0` resolves metadata paths through `--git-path` (`builtin/rev-parse.c:752-759,776-785`). Its path resolver selects the effective object store (`path.c:375-376`).
 
 Assumes: Git `2.54.0` resolves pointer files and common directories (`builtin/rev-parse.c:723-731`, `setup.c:303-324`). All captured metadata has no writer.
@@ -4033,22 +4035,24 @@ known work tree holds the root package and the dependency), so a dependency in a
 or of a root package outside each work tree, is not owned. A Git dependency that Lake clones has a
 work tree of its own, and so does a submodule, thus neither is owned.
 
-`gitWorkTree` first reads `.git` and `HEAD` of the directory and of each ancestor
-(`mem_discoveryPlaces`). If nothing is at any of them, no repository can hold the directory. Then
-`gitWorkTree` gives no work tree, and it does not run Git.
+`gitWorkTree` first reads the directories where Git looks for a repository. They are the
+directory and each ancestor below the ceiling that `GIT_CEILING_DIRECTORIES` gives, or each
+ancestor and the root without a ceiling (`mem_discoveryDirectories`). At each of them, nothing may
+be at `HEAD`. Nothing may be at `.git` either, or `.git` is a directory with nothing at its `HEAD`,
+`objects` and `refs`. Then no repository can hold the directory, and `gitWorkTree` gives no work
+tree without running Git.
 
-Otherwise `gitWorkTree` runs `git rev-parse --show-toplevel` in the directory, without `GIT_DIR`
-and `GIT_WORK_TREE`. It removes only the final newline from the path that Git prints
-(`checked_printedPath?`). When Git states that it found no repository, with status 128 and its
-exact report, `gitWorkTree` gives no work tree. Each other failure of Git stops the audit with the
-report of Git.
+Otherwise `gitWorkTree` runs `git rev-parse --show-toplevel` in the directory, without `GIT_DIR`,
+`GIT_WORK_TREE` and `GIT_COMMON_DIR`, and with the same ceiling. It removes only the final newline
+from the path that Git prints (`checked_printedPath?`). Each failure of Git stops the audit with the
+report of Git. For a repository with an unreadable `HEAD`, Git reports that it found no
+repository, so that report is not read as absence either.
 
-Thus a repository that Git cannot read, such as a linked work tree with an unreadable `.git` file,
-is not taken as no repository. **Trusted:** Git `2.54.0` finds a repository only where
-such an entry is, and it writes that report only when its search ends with no repository. The
-search stops at the root or at a directory of `GIT_CEILING_DIRECTORIES`. `gitWorkTree` cites these
-from the source of Git. **Trusted:** the filesystem resolves the real paths, and no process changes
-them while the audit reads them.
+Thus a repository that Git cannot read, such as one with an unreadable `HEAD` or `.git` file, is
+not taken as no repository. **Trusted:** Git `2.54.0` looks for a repository only at those
+directories, and only where such an entry is. `gitWorkTree` cites this from the source of Git.
+**Trusted:** the filesystem resolves the real paths, and no process changes them while the audit
+reads them.
 
 Ownership has a supported scope. Each audit, incremental or fresh, refuses two things before it
 builds the project or a copy. `checkDefaultLayout` refuses an owned package, the root package

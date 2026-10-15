@@ -897,17 +897,24 @@ def gitPath (root : FilePath) (args : Array String) : IO FilePath := do
 /-- The closed configuration case has no extension, include or worktree-redirection setting.
 Git decodes the captured file; Regula does not reproduce Git's precedence or include rules.
 Even a disabled extension setting refuses, so the domain does not depend on its value grammar.
+Git also exits 1 when it cannot open the file, so the file must first be a regular file that this
+process reads whole, and exit 1 is admitted only with no output.
 
 Assumes: Git 2.54.0 `builtin/config.c:74-104,487-591,1264-1266` and `config.c:1492-1523`
 implement --file, --no-includes, --name-only and --get-regexp through Git's configuration decoder;
-absent matches exit 1. Configuration and all
-captured metadata have no concurrent writer. -/
+absent matches exit 1. `builtin/config.c:583-585,609` ignores the result of the read and exits 1
+when nothing matched. `config.c:1607-1609,1382-1398` opens the file with `fopen_or_warn`, and
+`wrapper.c:401-420` returns no file for each failure, warning except for ENOENT and ENOTDIR.
+Configuration and all captured metadata have no concurrent writer. -/
 def admitGitConfig (root config : FilePath) : IO Unit := do
+  unless (← observeMetadata config).type == .file do
+    throw <| IO.userError s!"copy Git configuration is not a regular file: {config}"
+  discard <| IO.FS.readBinFile config
   let out ← gitOutput root #["config", "--file", config.toString, "--no-includes", "--name-only",
     "--get-regexp", "^(extensions\\.|include\\.|includeif\\.|core\\.worktree$)"]
   if out.exitCode == 0 then
     throw <| IO.userError s!"copy Git configuration is outside the closed case: {out.stdout.trimAscii}"
-  unless out.exitCode == 1 do
+  unless out.exitCode == 1 && out.stdout.isEmpty && out.stderr.isEmpty do
     throw <| IO.userError s!"copy Git configuration unavailable: {out.stderr}"
 
 /-- Refuse alternate object stores at the path Git itself resolves. The supported qualification
