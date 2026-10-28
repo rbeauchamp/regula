@@ -12,6 +12,8 @@ prescribe a directory layout for other Lean projects. Read the current
 - **Contracts, examples, and checker internals:** [Lean module map](../../lean/README.md).
 - **Standalone consumers:** [example projects](../../examples/README.md).
 - **Planned work:** the [roadmap](https://github.com/users/rbeauchamp/projects/8); each item needs a design pass before implementation.
+- **The smaller Regula:** the [specification](../../specification/README.md) of its rules, its input and its
+  leaves, which the owner confirms before the code changes.
 
 The root `lakefile.lean` sets the package source directory to `lean/`. Module
 names and imports remain independent of that physical prefix: for example,
@@ -28,6 +30,10 @@ only. Run Lake commands
 from the repository root, and the `audit/` package's in `audit/` (or with `lake -d audit`).
 Lake's elaborated library and executable inventory owns source discovery; directory names alone
 do not establish audit ownership.
+
+The `regula_specification` package in [`specification/`](../../specification/lakefile.toml) holds the
+formal statements of the [specification of the smaller Regula](../../specification/README.md). To
+check them, use `lake build` in that directory. No acceptance step builds it yet.
 
 ## Develop and verify
 

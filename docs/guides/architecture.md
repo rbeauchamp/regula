@@ -34,6 +34,10 @@ root package and MD4Lean only. The `regula_mathlib` package in
 Mathlib: a Mathlib adopter of the root package that the separate
 [Mathlib integration check](contributing.md#mathlib-integration-check) accepts and lints.
 
+The `regula_specification` package in [`specification/`](../../specification/lakefile.toml) holds the
+formal statements of the [specification of the smaller Regula](../../specification/README.md). It
+requires lean-intent and the root package, and no acceptance step builds it yet.
+
 Executables: `axiomGate` (declaration, execution and documentation audits), `lint` (the
 `lake lint` driver), `regula` (project setup and offline guidance), `docFenceAudit`,
 `freshChecker` (optional serialized-graph check), `checkerSelftest`, `qualify`, `ruleExamples`

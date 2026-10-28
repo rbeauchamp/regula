@@ -1,0 +1,28 @@
+name = "regula_specification"
+defaultTargets = ["RegulaSpecification"]
+
+# The specification of the smaller Regula (`README.md` in this directory): each rule's formal
+# statement, written as an intent record of lean-intent. It is specification, not implementation:
+# nothing of the root package imports it, and it changes no rule's behaviour. `lake build` here
+# checks every statement and every theorem about the statements.
+
+# lean-intent, at the head of its port (rbeauchamp/lean-intent pull request #8, branch
+# `fm/lean-intent-port`). It requires no package.
+[[require]]
+name = "lean-intent"
+git = "https://github.com/rbeauchamp/lean-intent"
+rev = "61faee20a441894cce5420850796ee355c3c53b1"
+
+# The root package, for `RegulaCore.RuleId` only: the fate table matches Regula's own closed
+# rule registry exhaustively, so a rule that the registry gains or loses fails this build until
+# the table gives it a fate.
+[[require]]
+name = "regula"
+path = ".."
+
+[leanOptions]
+autoImplicit = false
+relaxedAutoImplicit = false
+
+[[lean_lib]]
+name = "RegulaSpecification"
