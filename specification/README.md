@@ -17,7 +17,7 @@ A statement of what a rule or the checker must do is specification, and it has n
 
 The pinned toolchain is `leanprover/lean4:v4.34.1` (`lean-toolchain`). A citation such as `Lean/Util/CollectAxioms.lean:146-151` is a path below `src/lean/` of that tag, with its lines. A citation that starts with `src/` is a path below the root of that tag.
 
-The formal statements are in the Lean library `RegulaSpecification` in this directory. The library requires the port of lean-intent at commit `61faee20a441894cce5420850796ee355c3c53b1`, which is the head of [lean-intent pull request 8](https://github.com/rbeauchamp/lean-intent/pull/8). That pull request is not merged. The library also requires the root package, for the closed rule identity `Regula.RuleId` only. To check all statements and theorems, use `lake build` in this directory.
+The formal statements are in the Lean library `RegulaSpecification` in this directory. The library requires lean-intent at commit `da9cacf377ec681f50d0eb4d5a5bb98fe6de76fe`. That commit on lean-intent's `main` merged [lean-intent pull request 8](https://github.com/rbeauchamp/lean-intent/pull/8), the port of lean-intent to intent records. The library also requires the root package, for the closed rule identity `Regula.RuleId` only. To check all statements and theorems, use `lake build --wfail` in this directory.
 
 ## The shape of a rule
 
@@ -31,7 +31,7 @@ For each rule, the package gives a case that the rule must refuse and a case tha
 
 The freedom `SameReports` is what each record leaves unsaid. It is the order and the repetition of the reported subjects, and the result on an input that the admission refuses. O1 holds for each record. **Proved** by lean-intent: `LeanIntent.o1_wellTyped`.
 
-The lean-intent port does not yet state three obligations. These are the cone check ([lean-intent#2]), the consequence ledger ([lean-intent#3]) and the owner's confirmation record ([lean-intent#5]). **Open**: for each record of this document, these three obligations wait for those issues.
+lean-intent does not yet state three obligations. These are the cone check ([lean-intent#2]), the consequence ledger ([lean-intent#3]) and the owner's confirmation record ([lean-intent#5]). **Open**: for each record of this document, these three obligations wait for those issues.
 
 ## The verdict
 
@@ -358,7 +358,7 @@ For each of the seven rules: the fate is retired, with leaf [#488]. There is no 
 - **Domain**: each declared deliverable: an implementation and its intent record.
 - **Input**: the declared deliverables, the statements that theorems of claimed modules prove, and the owner's confirmation record.
 - **Formal statement**: `Violates6001`, with `IntentPart.Fails`. A finding names the deliverable and the part that fails.
-- **Accepted risks**: lean-intent does not yet state three parts. Here the independence is the approximation "the record does not reach the implementation". `Goal.keeps` and the field `confirmed` stand for what [lean-intent#3] and [lean-intent#5] define. **Open**: [#485] uses lean-intent's own statements when they exist, and a project declares a deliverable in the form that lean-intent gives.
+- **Accepted risks**: lean-intent does not yet state three parts. Here the independence is the approximation "the record does not reach the implementation". `Goal.keeps` and the field `confirmed` stand for what [lean-intent#3] and [lean-intent#5] define. **Open**: [#485] uses lean-intent's own statements when they exist, and a project declares a deliverable in the form that lean-intent gives. Such a project requires lean-intent, which is private. So only a project with access to lean-intent can declare a deliverable until lean-intent can be fetched without credentials.
 - **Supersedes**: none.
 
 ## The rules that apply to a declaration
@@ -398,7 +398,7 @@ None of these issues closes before the change that replaces it lands. The rule e
 
 ## Regula's check of its own library
 
-The self-check runs inside local acceptance, the gate before each merge. It is not a separate diagnostic that no gate runs. Since 2026-10-28, the owner's decision makes the local validation, not CI, the merge gate of Regula. The test step of that validation runs the two acceptance commands of [`AGENTS.md`](../AGENTS.md).
+The self-check runs inside local acceptance, the gate before each merge. It is not a separate diagnostic that no gate runs. Since 2026-10-28, the owner's decision makes the local validation, not CI, the merge gate of Regula. The test step of that validation runs the local gate, `lean --run lean/Regula/DiagnosticsGate.lean local`, and its steps include the two acceptance commands of [`AGENTS.md`](../AGENTS.md).
 
 - Regula's manifest claims each library of its root package, except a library that it excludes with a reason. The core and the shell of the checker are claimed.
 - The first acceptance command, `./scripts/verify.sh`, runs the three commands of the gate on Regula's own package. It refuses the change when a command fails or the checker gives a finding.
@@ -406,7 +406,9 @@ The self-check runs inside local acceptance, the gate before each merge. It is n
 
 This placement removes the cause of [#489]. There, a refusal of the self-audit reached `main`, because no gate ran the self-audit for a pull request after the CI and Diagnostics workflows stopped. **Open**: until [#487] lands, the present self-audit must run inside acceptance in the same way. That is the change that the fix of [#489] makes.
 
-The Lean package of this specification is not yet in acceptance, because it requires a commit of lean-intent that is not on lean-intent's `main`. **Open**: when the port of lean-intent merges, a change moves the pin to that merge. The same change adds `lake build` of this package to the first acceptance command.
+No acceptance step builds the Lean package of this specification yet, so the merge gate does not check its statements. The package requires lean-intent, which is a private repository. Provisioning and acceptance run Git with no global or system configuration (`Regula.Filesystem.Construction.isolationEnvironment`), so they have no credentials to fetch it. **Measured**: with that configuration, `git ls-remote` of lean-intent fails with `could not read Username`.
+
+**Open**: the owner chooses between a public lean-intent and an exception for its acquisition. Then a change adds `lake build --wfail` of this package to the first acceptance command. Until then, the author of a change to this directory builds the package with their own Git access.
 
 ## Decisions of this specification
 

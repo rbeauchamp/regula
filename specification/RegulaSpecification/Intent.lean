@@ -9,7 +9,7 @@ claimed module; each of lean-intent's obligations O1 to O5 is proved of it; the 
 reach its implementation; each consequence the owner confirmed or declined is still proved; and
 the implementation fulfils the record. A finding names the deliverable and the part that fails.
 
-lean-intent's port states O1 to O5 and the refinement link. It does not yet state the cone check
+lean-intent states O1 to O5 and the refinement link. It does not yet state the cone check
 (lean-intent #2), the consequence ledger (lean-intent #3) or the owner's confirmation record
 (lean-intent #5). Here independence is the approximation `¬ Reaches record impl`, and `keeps` and
 `confirmed` stand for the statements those issues will define; #485 replaces each with

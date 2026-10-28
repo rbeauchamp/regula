@@ -33,7 +33,9 @@ do not establish audit ownership.
 
 The `regula_specification` package in [`specification/`](../../specification/lakefile.toml) holds the
 formal statements of the [specification of the smaller Regula](../../specification/README.md). To
-check them, use `lake build` in that directory. No acceptance step builds it yet.
+check them, use `lake build --wfail` in that directory, with Git access to the private lean-intent
+repository. No acceptance step builds the package yet, so the merge gate does not check it.
+Acceptance runs Git with no global or system configuration, so it cannot fetch lean-intent.
 
 ## Develop and verify
 
