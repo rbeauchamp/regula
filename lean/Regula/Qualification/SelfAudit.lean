@@ -122,7 +122,8 @@ structure ModuleObservation where
   /-- Each `@[regula_decision]` registration the module writes for a function of another loaded
   module (`Regula.Collect.registrationsElsewhere`), with that module and the collector's
   observation of the registration (`Regula.Collect.decisionResult?`). The module's audit decides
-  its RG1008 requirement, since no other audit loads the registration. -/
+  its RG1008 requirement: the audit of the declaring module does not load the registration, and
+  each other audit decides only its own declarations and registrations. -/
   registeredElsewhere : Array (Name × RegulaPolicy.Declaration.Registration)
 
 /-- Whether `owner`'s artifact is the pinned toolchain's own `Lake` module: the file that the search

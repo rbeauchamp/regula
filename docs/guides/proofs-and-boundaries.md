@@ -2025,9 +2025,9 @@ Which report states a kind depends on the library that holds the registration:
   warning-free build, and the `self-audit` diagnostic holds each registration to [RG1007],
   including that the kind is stated about the implementation and that neither its acceptance
   predicate nor its specification mentions it, to [RG1009], and each registered decision to [RG1008] against
-  the decision contracts of its own module, since that diagnostic audits each module in its own
-  environment. It is not part of acceptance and prints the number of registrations, not their
-  kinds.
+  the decision contracts of the module that registers it, since that diagnostic audits each
+  module in its own environment. It is not part of acceptance and prints the number of
+  registrations, not their kinds.
 
 The tables below cover the decisions of both groups.
 
