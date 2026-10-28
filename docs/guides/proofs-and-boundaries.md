@@ -5385,7 +5385,7 @@ document that names a different release than the latest listed one, as the text 
 repository's address in quotation marks, exactly as `gitUrl` writes it. Thus `agree` also refuses
 unless the root `README.md` and the adoption guide each have a `require` of each form
 (`unpinned_eq_nil_iff`). `agree` also reads each mention of a release in the root `README.md` with the text reading `setMentions`. It refuses a mention that names a different release than the latest listed one or its toolchain (`mentionsAgree_iff`). It also refuses a `README.md` without a mention of each kind (`unmentioned_eq_nil_iff`). The kernel checks the edited modules' theorems when
-the release pull request's checks and CI's checks of the release commit build them:
+the local gate on the release pull request and CI's checks of the release commit build them:
 `releases_ascending`, `releases_follow`, `installed_listed`, `release_attributes_rules` (when
 `installed` is a release, no lifecycle position of any rule is `.unreleased`; on the release
 commit this is the gate before anything is published), `lifecycle_listed` (every release a rule's
@@ -5406,8 +5406,9 @@ trusted.
 
 **Proved** in `lean/Regula/DiagnosticsGate.lean`, checked by the kernel in ordinary acceptance's
 build and each time a step of the [diagnostics workflow](../../.github/workflows/diagnostics.yml)
-elaborates it (its `diagnostics` job on every pull request, and `applies` whenever it runs):
-`verdict`, the decision of the required `diagnostics` check over the workflow's `needs` context,
+elaborates it (its `diagnostics` job and `applies` when they run, and the steps `local` and
+`digests` of the local gate): `verdict`, the decision of the `diagnostics` job over the workflow's
+`needs` context,
 passes exactly when the job `applies` succeeded, every job it decided is one the gate needs, and
 every job the gate needs passed when it was decided to apply and was skipped when it was decided
 not to (`verdict_iff`, with `admits_iff`). So a failed or cancelled job is refused, as is one
@@ -5424,8 +5425,8 @@ checked-out commit without exactly two parents. Reading the event, the changed p
 context's JSON and the decisions `applies` wrote is operational, and a result, event or decision
 the steps do not know fails them. **Trusted:** GitHub (the event, the merge commit, the `needs`
 context and its report of a matrix job as succeeded only when every job of it did, a job's `if:`,
-timeouts, cancellation, that an `always()` job runs on a cancelled run, and the ruleset that
-requires `diagnostics`) and `git` (the commits it fetched and the paths `diff-tree` lists). That
+timeouts, cancellation, and that an `always()` job runs on a cancelled run) and `git` (the commits
+it fetched and the paths `diff-tree` lists). That
 every partition job of the workflow is in the gate's `needs` and has its `if:` read its own
 decision is the workflow's wiring, which no step observes; a needed job without a decision and a
 decided job the gate does not need fail the gate. The
@@ -5438,6 +5439,19 @@ upload. **Proved:** when the campaigns apply, `digestRefusals` refuses nothing e
 digests are present, well-formed and equal (`digestRefusals_eq_nil_iff`). When they do not apply,
 it requires no digest. **Trusted:** the artifacts that GitHub carries between the jobs, and
 `shasum`. Equal digests are read as equal inputs, an assumption of collision resistance.
+
+The local gate runs from the same file. The no-mistakes validation pipeline runs it on each commit
+that it validates ([contributor guide](contributing.md#the-local-gate)).
+
+**Proved:** `runSteps` reports no step exactly when each step ended with exit code 0
+(`runSteps_eq_none_iff`). A step that it reports is one of the steps, with its own code, which is
+not 0 (`runSteps_eq_some`). `Regula.Campaigns.Diagnostics.localVerifications_eq` proves the
+`verify.sh` invocations of `localSteps` exactly those of the jobs that check a change, in order.
+
+The step `digests` refuses unless `digestRefusals` refuses nothing with the campaigns required.
+**Trusted:** that the theorems in `Id` describe the run in `IO` of the same definition. Also
+trusted: the start and the exit code of each process, the programs of the steps, and the pipeline
+that runs the gate.
 
 ## Rule examples and the corpus runner
 
@@ -5835,7 +5849,8 @@ of a canonical serialization of its input to a file below `tmp/`.
 
 The `diagnostics` gate of the workflow compares the two digests
 (`Regula.DiagnosticsGate.digestRefusals`). When the campaigns apply, it refuses a missing,
-malformed or different digest. Equal SHA-256 digests are read as equal inputs. This is an
+malformed or different digest, and the step `digests` of the local gate does the same. Equal
+SHA-256 digests are read as equal inputs. This is an
 assumption of collision resistance, not a theorem. The comparison takes the place of an accepting
 fresh gate on the restored copy.
 

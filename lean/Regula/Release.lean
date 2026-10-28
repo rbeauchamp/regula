@@ -51,8 +51,8 @@ mentions (`setMentions`) that name them (`mentionsAgree`), with a mention of eac
 ## Steps
 
 `main` never carries a release label: `Regula.installed` (`RegulaCore/Edition.lean`) is
-`.unreleased` on every commit of `main` and of a pull request, which `unreleased` checks in CI's
-required `verify` job.
+`.unreleased` on every commit of `main` and of a pull request, which `unreleased` checks in the
+local gate and in CI's `verify` job.
 
 `open` derives the version and creates the commit of the release pull request as a child of the
 `main` commit the workflow runs on: the release appended with its toolchain to `Regula.releases`,
@@ -2034,14 +2034,12 @@ def openRelease : IO Unit := do
       in that run's job summary. If this pull request is still open, close it before that run: \
       the workflow refuses to create a branch while it observes a release pull request for the \
       version it derives open, and a pull request that lists another version is stale.\n\n\
-      Every check of this pull request passes before it merges. Until the release is \
-      published, its `site` check builds and checks the artifact with a preview at \
+      The local gate passes on this pull request before it merges. Until the release is \
+      published, its site check builds and checks the artifact with a preview at \
       `v/{v.spelling}/`, rendered from this branch, which carries no release label; the \
       release's own edition exists only once CI builds it from the release commit, and no \
-      artifact with a preview is deployed. The required checks are `verify`, `title`, \
-      `diagnostics`, `diagnostics rule-examples 1/3`, `diagnostics rule-examples 2/3`, \
-      `diagnostics rule-examples 3/3`, `site`, \
-      `mathlib integration` and code scanning's `CodeQL` and `Analyze (actions)`.\n\n\
+      artifact with a preview is deployed. Code scanning also reports its `CodeQL` and \
+      `Analyze (actions)` checks on it.\n\n\
       The Release workflow created this signed branch, which is named after its commit, and a \
       maintainer opened this pull request from the link in the job summary, which started its \
       checks. The workflow writes a branch only by creating a new one and moves none, so it \
@@ -2112,12 +2110,13 @@ def agree : IO Unit := do
     mentions of a release name {tag} or leanprover/lean4:{toolchain}: \
     {", ".intercalate (mentions.map fun m => s!"{m.file}:{m.line}")}"
 
-/-- The title of the pull request the `title` step checks: `TITLE`, the title the `pull_request`
-event it runs on carries. Refused on any other event. -/
+/-- The title of the pull request the `title` step checks: `TITLE`, the title that the dispatch of
+the `Title` workflow it runs on gives, or that a `pull_request` event carries. Refused on any other
+event. -/
 private def pullTitle : IO String := do
   match ← env "GITHUB_EVENT_NAME" with
-  | "pull_request" => env "TITLE"
-  | event => fail s!"the title step runs on pull_request, not {event}"
+  | "workflow_dispatch" | "pull_request" => env "TITLE"
+  | event => fail s!"the title step runs on workflow_dispatch or pull_request, not {event}"
 
 /-- Refuse unless the pull request's title (`pullTitle`) is a Conventional Commits header
 (`parseHeader`): squash merges make it the subject of the pull request's commit on `main`, from

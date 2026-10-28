@@ -2,23 +2,25 @@ name: Title
 
 # A pull request merges by squash, so its title becomes the subject of its commit on main, and the
 # Release workflow derives the next version from those subjects' Conventional Commits types
-# (docs/guides/contributing.md#pull-request-titles). This required check refuses a title that is
-# not a Conventional Commits header. It runs again when the title is edited and on every push, so
-# it always reports on the head commit. The check is lean/Regula/Release.lean's `title` step, and
-# reads the title the pull_request event carries.
+# (docs/guides/contributing.md#pull-request-titles). This check refuses a title that is not a
+# Conventional Commits header. It runs on dispatch, with the title to check as its input, and never
+# on a pull request: the no-mistakes validation pipeline drafts each title as such a header, and a
+# release leaves its bump undecided, for its `bump` input to give, when a subject since the previous
+# release is not one (Regula.Release.derive_eq_none). The check is
+# lean/Regula/Release.lean's `title` step, and reads the title the dispatch gives.
 on:
-  pull_request:
-    types: [opened, edited, reopened, synchronize]
+  workflow_dispatch:
+    inputs:
+      title:
+        description: The pull request title to check.
+        type: string
+        required: true
 
 permissions:
   contents: read
 
-concurrency:
-  group: title-${{ github.event.pull_request.number }}
-  cancel-in-progress: true
-
 jobs:
-  # The required check provisions the released compiler itself.
+  # The check provisions the released compiler itself.
   title:
     if: always()
     runs-on: ubuntu-24.04
@@ -33,5 +35,5 @@ jobs:
 
       - name: Refuse a title that is not a Conventional Commits header
         env:
-          TITLE: ${{ github.event.pull_request.title }}
+          TITLE: ${{ inputs.title }}
         run: lean --run lean/Regula/Release.lean title

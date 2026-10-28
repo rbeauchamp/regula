@@ -4191,9 +4191,9 @@ private unsafe def runStructural (layout : SourceLayout) (repo : FilePath) (jobs
           ((results.filter (·.1 == StructuralGroup.clusters)).map (·.2.1)) ++
           (if selected == selfHostedShard || selected == selfHostedRestoredShard then
             s!". The self-hosted identity is decided only where both digests are compared: the \
-              CI diagnostics gate compares {selfHostedDigestPath repo .positive} and \
-              {selfHostedDigestPath repo .restored}, so a local claim needs the unsharded \
-              structural run or a comparison of those two files."
+              diagnostics gate and the local gate compare {selfHostedDigestPath repo .positive} \
+              and {selfHostedDigestPath repo .restored}, so a claim of this shard alone needs the \
+              unsharded structural run or a comparison of those two files."
           else "")
   if ran .cycle then
     IO.println <| "self-test library cycle: " ++ verdict .cycle ++

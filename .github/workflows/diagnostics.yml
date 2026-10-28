@@ -10,28 +10,21 @@ name: Diagnostics
 # Regula.DiagnosticsGate.campaigns, which the inventory of campaigns (Regula.Campaigns) counts. They
 # are diagnostics, not a partition of ordinary acceptance.
 #
-# The workflow runs on every pull request, every push to main, nightly and on dispatch. Its first
+# The workflow runs nightly and on dispatch, never on a pull request or a push: the gate of a change
+# is the local gate, which runs the campaigns and compares the digests on each commit the
+# no-mistakes validation pipeline validates (docs/guides/contributing.md#the-local-gate). Its first
 # job, `applies`, provisions the released compiler and decides which partition jobs apply to the run
-# (lean/Regula/DiagnosticsGate.lean): the campaigns on a pull request exactly when it changes one
-# of the paths listed there (`inputs`, the only statement of them: the checker, rules, rule
-# examples, adopter fixtures, the application and fixture sources the structural and execution
-# partitions mutate, Lake configuration and manifests, the compiler and dependency setup, and
-# the scripts and configuration that verify.sh reads before a campaign), and on every other
-# run; the nightly rule-example shards on the schedule alone. Each partition job runs only when
+# (lean/Regula/DiagnosticsGate.lean): the campaigns on every run, and the nightly rule-example shards
+# on the schedule alone. Each partition job runs only when
 # it applies. The last job, `diagnostics`, runs once every other job has finished,
 # whatever their results, and passes exactly when `applies` succeeded and each partition job passed
 # and applies, or was skipped and does not apply (`verdict_iff`); a failed, cancelled or timed-out
 # job fails it. When the campaigns apply, it also refuses unless the self-hosted digests that the
 # structural shards 1/5 and 5/5 upload are present, well-formed and equal
-# (`digestRefusals_eq_nil_iff`). The ruleset of main requires that check, so a pull request merges only once every
-# diagnostics job that applies to it has passed on its head commit, and one that changes no input
-# passes it without running a campaign. Every job other than `applies` and
+# (`digestRefusals_eq_nil_iff`). Every job other than `applies` and
 # `diagnostics` is in the `needs` of `diagnostics` and has its `if:` read its own decision; the
 # gate refuses a job it needs that `applies` did not decide, and a decided job it does not need.
 on:
-  pull_request:
-  push:
-    branches: [main]
   schedule:
     - cron: '17 7 * * *'
   workflow_dispatch:
@@ -44,9 +37,7 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  # A JSON object from partition job id to whether that job applies. On a pull request the
-  # checked-out commit is the merge commit GitHub creates, and the step compares it with its first
-  # parent, the head of the base branch: hence the two commits.
+  # A JSON object from partition job id to whether that job applies.
   applies:
     runs-on: ubuntu-24.04
     timeout-minutes: 15
@@ -57,7 +48,6 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-          fetch-depth: 2
 
       # The decision needs the pinned toolchain alone.
       - uses: ./.github/actions/provision
@@ -104,8 +94,8 @@ jobs:
           if-no-files-found: error
           retention-days: 30
 
-  # CI runs the three rule-example shards on every change. Like the campaigns above, they also
-  # run nightly on an unchanged main, where a failure shows drift in the runner image or the
+  # The local gate runs the three rule-example shards on every change. Like the campaigns above,
+  # they also run nightly on an unchanged main, where a failure shows drift in the runner image or the
   # restored toolchain cache rather than in the pinned sources.
   rule-examples-nightly:
     name: nightly diagnostics rule-examples ${{ matrix.shard }}
@@ -127,7 +117,7 @@ jobs:
       - name: Qualify (same command and seven-minute limit as local)
         run: ./scripts/verify.sh diagnostics rule-examples ${{ matrix.shard }}
 
-  # The required check. `always()`, not `!cancelled()`: a skipped job reports success, so the
+  # The gate of the run. `always()`, not `!cancelled()`: a skipped job reports success, so the
   # gate runs on a cancelled run too, where it fails.
   diagnostics:
     needs: [applies, campaign, rule-examples-nightly]

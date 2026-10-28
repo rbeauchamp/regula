@@ -262,22 +262,22 @@ theorem mem_jobPartitions (partition : Partition) :
 
 /-- A job of a workflow that runs `verify.sh`. -/
 inductive Job where
-  /-- CI's `verify`: both acceptance steps, on every pull request and push to `main`. -/
+  /-- CI's `verify`: both acceptance steps, on every push to `main`, whose release and site jobs
+  need it, and on dispatch. -/
   | ciVerify
-  /-- CI's `mathlib integration`, on every pull request and push to `main`. -/
+  /-- CI's `mathlib integration`, on dispatch. -/
   | ciMathlib
-  /-- CI's `rule-examples` shards, on every pull request and push to `main`. -/
+  /-- CI's `rule-examples` shards, on every push to `main`, whose site build reads their exports,
+  and on dispatch. -/
   | ciRuleExamples
-  /-- CI's `site`, on every pull request and push to `main`. -/
+  /-- CI's `site`, on every push to `main`, which it publishes, and on dispatch. -/
   | ciSite
-  /-- The diagnostics workflow's `campaign` jobs, on every pull request that changes an input of
-  the campaigns (`Regula.DiagnosticsGate.inputs`), every push to `main`, nightly and on
-  dispatch; the `diagnostics` gate, a required check, needs them. -/
+  /-- The diagnostics workflow's `campaign` jobs, nightly and on dispatch; the workflow's
+  `diagnostics` job needs them. -/
   | diagnosticsCampaign
   /-- The diagnostics workflow's nightly rule-example shards. -/
   | diagnosticsNightly
-  /-- The dogfood workflow's `self` jobs, when its paths change, on every push to `main` and
-  nightly. -/
+  /-- The dogfood workflow's `self` jobs, nightly and on dispatch. -/
   | dogfoodSelf
   /-- The dogfood workflow's `default-path` job, nightly and on dispatch. -/
   | dogfoodDefaultPath
@@ -287,6 +287,15 @@ inductive Job where
 def Job.all : List Job :=
   [.ciVerify, .ciMathlib, .ciRuleExamples, .ciSite, .diagnosticsCampaign, .diagnosticsNightly,
     .dogfoodSelf, .dogfoodDefaultPath]
+
+/-- Whether the job checks a change, so that the local gate (`Regula.DiagnosticsGate.localSteps`)
+runs its steps on each commit it validates: every job except two that no change starts. The
+nightly rule-example shards run on the schedule alone and show drift in the runner image or the
+restored toolchain cache; the lint of the root package on its default path runs on the schedule
+and on dispatch. -/
+def Job.checksChange : Job → Bool
+  | .diagnosticsNightly | .dogfoodDefaultPath => false
+  | .ciVerify | .ciMathlib | .ciRuleExamples | .ciSite | .diagnosticsCampaign | .dogfoodSelf => true
 
 /-- The `verify.sh` invocations each job runs. -/
 def Job.invocations : Job → List (List String)

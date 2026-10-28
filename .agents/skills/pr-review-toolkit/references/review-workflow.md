@@ -95,8 +95,8 @@ Choose checks from AGENTS.md and the applicable checklist rows:
 | Instructions or editorial changes with unchanged Lean claims and inputs | References, instruction behavior, and scoped review. |
 
 Reuse prior semantic or diagnostic evidence when its relevant inputs, toolchain, and claim
-remain unchanged; identify the earlier snapshot and why it still applies. CI is a separate
-exact-PR-head gate. AGENTS.md owns commands, deadlines, and integration requirements.
+remain unchanged; identify the earlier snapshot and why it still applies. The local gate is a separate
+gate of the exact commit. AGENTS.md owns commands, deadlines, and integration requirements.
 After integration, locate and await the main push workflow for the exact merge SHA.
 Record its terminal outcome separately from reviewed-head/synthetic-merge checks;
 failed, skipped or unfinished required stages leave delivery reconciliation open.

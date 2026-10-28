@@ -180,9 +180,7 @@ semantic conformance.
 Checker changes receive focused qualification for affected capabilities and invocation
 paths under standard §7.8. Long mutation, external-adopter, build-integration,
 and optional serialized-graph campaigns are diagnostics, not automatic merge gates, except
-the required CI checks (`diagnostics rule-examples 1/3`, `2/3`, `3/3`, `site`, `mathlib integration`)
-and those the diagnostics workflow runs: its required `diagnostics` check refuses a merge unless
-each of them that applies passed.
+those that the local gate runs.
 Retain their controls and applicable evidence; never relabel an unrun campaign PASS.
 `./scripts/verify.sh diagnostics [partition]` runs a selected existing campaign under
 the same 420-second deadline; `rule-examples 1/3`, `2/3` and `3/3` run the corpus in three shards.
@@ -193,14 +191,26 @@ Use `./scripts/verify.sh serialized-graph` for an explicit separate graph-checki
 Do not partition either acceptance step further to evade its limit. A requested broader
 claim still needs its actual evidence.
 
-On every PR and `main`, CI runs both acceptance steps in one job, the three rule-example
-shards, and then `./scripts/verify.sh site`, which builds and checks the rule-reference site (its own
-420-second limit; never part of acceptance). A separate job runs `./scripts/verify.sh mathlib`,
-the Mathlib integration check, the only CI check that needs Mathlib (never part of acceptance). The
-[contributor guide](docs/guides/contributing.md#choose-focused-diagnostics) lists which
-workflow runs each diagnostic and when; the
-[website guide](docs/guides/website.md#publication) owns publication. Merge requires passing
-CI on the reviewed PR head, applicable focused review and diagnostics.
+The merge gate is the local gate, `lean --run lean/Regula/DiagnosticsGate.lean local`. The
+no-mistakes validation pipeline runs it as its Test step on each commit that it validates, as
+`.no-mistakes.yaml` configures. It runs the steps of each workflow job that checks a change, in
+sequence, and stops at the first failure:
+
+- The two acceptance steps.
+- `./scripts/verify.sh mathlib`, the Mathlib integration check. It is the only check that uses
+  Mathlib, and it is not part of acceptance.
+- The three rule-example shards.
+- `./scripts/verify.sh site`, which builds and checks the rule-reference site under its own
+  420-second limit. It is not part of acceptance.
+- The campaigns of the diagnostics workflow, with its comparison of the self-hosted digests.
+- The self-lint and the four self-audit shards of the dogfood workflow.
+
+CI does not run on pull requests. On `main` it runs what the release and the publication of the
+site use, and each workflow can run on dispatch. The
+[contributor guide](docs/guides/contributing.md#the-local-gate) lists the steps of the gate and
+which workflow runs each diagnostic and when. The
+[website guide](docs/guides/website.md#publication) owns publication. Merge requires a pass of the
+local gate on the reviewed head, applicable focused review and diagnostics.
 Preserve PR, signature, history, and conversation protections. Finish authorized publication,
 exact-head merge, and owned branch cleanup. Skill/handoff-only edits need proportionate
 checks when Lean inputs and claims are unchanged.

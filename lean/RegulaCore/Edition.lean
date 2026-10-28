@@ -195,8 +195,8 @@ def Build.startsLine : Build → Bool
   | .release v => v.semver.patch == 0
   | .unreleased => true
 
-/-- This build of Regula: always `.unreleased` on `main` and in every pull request, which CI's
-required `verify` job checks. The only build labelled `.release v` is the release commit that CI
+/-- This build of Regula: always `.unreleased` on `main` and in every pull request, which the local
+gate and CI's `verify` job check. The only build labelled `.release v` is the release commit that CI
 on `main` creates once `main` lists `v` unpublished: a child of the head of `main`, not on `main`,
 whose only change sets this label. CI checks it with its label (acceptance, the rule-example
 shards and the site build) before anything is published; publishing the release then creates tag

@@ -52,7 +52,8 @@ def environmentsShards : Nat := 6
 def buildPolicyShards : Nat := 3
 
 /-- The number of shards of the rule-example corpus (`Regula.Qualification.RuleExamples.check`
-selects any `K/N`), each a required check of CI with its own evidence file (`shardEvidence`). -/
+selects any `K/N`), each a step of the local gate and a job of CI with its own evidence file
+(`shardEvidence`). -/
 def ruleExampleShards : Nat := 3
 
 /-- A group of qualification controls that neither the self-test's partitions nor another mode
