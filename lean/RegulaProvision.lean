@@ -5,9 +5,10 @@ import Lake.Toml.Grammar
 
 /-! # Dependency provisioning
 
-Default setup checks the released compiler and acquires no dependencies. Only the explicit
-Mathlib integration command provisions Mathlib; the website's Verso has its own command.
-The root package, the example library and the website require no Mathlib.
+Default setup checks the released compiler and acquires one dependency: the lean-intent checkout
+of the specification package (`provisionSpecification`), which the first acceptance step builds.
+Only the explicit Mathlib integration command provisions Mathlib; the website's Verso has its own
+command. The root package, the example library and the website require no Mathlib.
 
 Local Mathlib provisioning reuses one read-only store per pinned Mathlib revision and exact
 compiler commit. It fetches upstream artifacts and builds missing modules and exported native
@@ -1463,6 +1464,24 @@ def provisionVerso (repo : FilePath) : IO Unit := do
       one checkout, so pin the same commit in the two manifests"
   stream (← isolationEnvironment) (repo / "website") "lake" #["build", "verso/VersoManual"]
 
+/-- The package of the specification of the smaller Regula (`specification/README.md`). It
+requires lean-intent by Git and the root package by path. -/
+def specificationPackage : String := "specification"
+
+/-- Provision the specification package's lean-intent with the released compiler, by Lake's own
+load of that package under the Git isolation: `lake resolve-deps` loads its workspace and builds
+nothing (Lake v4.34.1 `Lake/CLI/Main.lean:974-979`). The load clones a Git entry whose checkout is
+absent and checks out the entry's commit, which fails when the clone lacks that commit. It fetches
+nothing for a checkout that is already at that commit (`Lake/Load/Materialize.lean:255-264`,
+`Lake/Util/Git.lean:163-167`). The first acceptance step clones its copy's lean-intent from this
+checkout (`RegulaVerification.specificationBuild`). -/
+def provisionSpecification (repo : FilePath) : IO Unit := do
+  unless (← IO.FS.readFile (repo / "lean-toolchain")) ==
+      (← IO.FS.readFile (repo / specificationPackage / "lean-toolchain")) do
+    throw <| IO.userError s!"provisioning: {specificationPackage}/lean-toolchain differs from the \
+      root"
+  stream (← isolationEnvironment) (repo / specificationPackage) "lake" #["resolve-deps"]
+
 /-- Check the exact supported compiler before provisioning any dependency artifacts. -/
 def requireReleasedCompiler (repo : FilePath) : IO Unit := do
   requireCompiler repo
@@ -1493,7 +1512,9 @@ def main (args : List String) : IO Unit := do
   RegulaProvision.requireReleasedSetup repo
   match args with
   | [] =>
-    IO.println "provisioning: default verification needs no dependency acquisition"
+    RegulaProvision.provisionSpecification repo
+    IO.println s!"provisioning: the {RegulaProvision.specificationPackage} package's lean-intent \
+      is at the commit of its manifest; default verification needs no other dependency"
   | ["mathlib"] =>
     RegulaProvision.requireMathlibApplies repo
     if (← IO.getEnv "GITHUB_ACTIONS") == some "true" then

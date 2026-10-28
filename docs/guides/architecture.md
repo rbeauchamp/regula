@@ -36,9 +36,8 @@ Mathlib: a Mathlib adopter of the root package that the separate
 
 The `regula_specification` package in [`specification/`](../../specification/lakefile.toml) holds the
 formal statements of the [specification of the smaller Regula](../../specification/README.md). It
-requires lean-intent and the root package. No acceptance step builds it yet, because lean-intent is
-a private repository and acceptance runs Git with no global or system configuration, so without
-credentials.
+requires lean-intent and the root package. The first acceptance step builds it in its copy, with
+warnings as errors, from the lean-intent checkout that default provisioning makes.
 
 Executables: `axiomGate` (declaration, execution and documentation audits), `lint` (the
 `lake lint` driver), `regula` (project setup and offline guidance), `docFenceAudit`,

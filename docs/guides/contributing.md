@@ -33,9 +33,8 @@ do not establish audit ownership.
 
 The `regula_specification` package in [`specification/`](../../specification/lakefile.toml) holds the
 formal statements of the [specification of the smaller Regula](../../specification/README.md). To
-check them, use `lake build --wfail` in that directory, with Git access to the private lean-intent
-repository. No acceptance step builds the package yet, so the merge gate does not check it.
-Acceptance runs Git with no global or system configuration, so it cannot fetch lean-intent.
+check them, use `lake build --wfail` in that directory. The first acceptance step builds the
+package in its copy with warnings as errors, so the merge gate checks it.
 
 ## Develop and verify
 
@@ -68,7 +67,7 @@ acceptance step performs Lake-semantic discovery and a clean, warning-free build
 inspection, so a redundant preliminary clean build is unnecessary; `lake build` remains the
 development command. Each command has its own hard seven-minute
 limit; a timeout is an incomplete run, not acceptance. `./scripts/provision.sh` runs before
-that limit, under its own 30-minute limit; it validates the released compiler and acquires no dependencies. The [local gate](#the-local-gate) runs the two commands in that order, after it provisions
+that limit, under its own 30-minute limit; it validates the released compiler and acquires one dependency, the specification package's lean-intent. The [local gate](#the-local-gate) runs the two commands in that order, after it provisions
 the pinned Verso artifacts.
 
 Ordinary acceptance puts the accepted record at `tmp/acceptance-link.json` only after each of
@@ -250,7 +249,7 @@ rm -rf .lake/packages/{batteries,aesop,Qq,proofwidgets,importGraph,LeanSearchCli
 
 Existing stable shared-store receipts and keys remain compatible. A receipt whose origin is `source` fails decoding; its store is neither reused nor pruned. Removed source-mode and snapshot configuration files are refused during setup. Provisioning does not migrate or delete source stores.
 
-Run `lean --run lean/RegulaProvision.lean verso` to provision the pinned Verso. The default provisioning command validates the released compiler and acquires no dependencies. Verification invokes commands directly with their declared arguments and working directories. The existing setup and acceptance deadlines still apply. Git, package build hooks, compiler binaries, cache storage, process execution and filesystem operations remain trusted boundaries.
+Run `lean --run lean/RegulaProvision.lean verso` to provision the pinned Verso. The default provisioning command validates the released compiler. It acquires one dependency: the lean-intent checkout of the `specification/` package, by Lake's `lake resolve-deps` in that directory. Verification invokes commands directly with their declared arguments and working directories. The existing setup and acceptance deadlines still apply. Git, package build hooks, compiler binaries, cache storage, process execution and filesystem operations remain trusted boundaries.
 
 [AGENTS.md](../../AGENTS.md#changes-and-verification) owns verification and merge policy.
 The [CI workflow](../../.github/workflows/ci.yml) defines runner and cache configuration.
