@@ -964,8 +964,11 @@ private def runConstruction (parent : FilePath) (domain source : String) (target
 shared constructor. Untracked links and special source entries fail before installation. Tracked
 index mode 120000 entries become target-text regular files, and the generated Git config sets
 core.symlinks=false. Every provisioner Git command removes the shared observer's repository-local
-environment and disables system/global config, with command-scope core.symlinks=false. Extensions,
-includes, redirects, alternates and indexed/stored spelling differences refuse. Files use 0644
+environment and disables system/global config, with command-scope core.symlinks=false. Extensions
+but worktreeConfig, includes, redirects, with that extension per-worktree settings but the hooks
+directory and the author's identity, alternates and indexed/stored spelling differences refuse,
+and the copy omits the per-worktree configuration file (`Construction.admitCopyGitConfig`,
+`Construction.omitStoredEntry`). Files use 0644
 except indexed 100755 files use 0755; directories use 0755.
 Index modes and target text come from Git's ls-files and blob protocols, never a followed link.
 `Construction.gitConstruct_io` describes the executed index/build account's exact plain tree.
