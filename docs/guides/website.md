@@ -194,8 +194,9 @@ example a directory containing only a `regula` link to `_site`).
 
 ## Publication
 
-The [local gate](contributing.md#the-local-gate) runs the checks of `verify`, `rule-examples` and
-`site` below on each change. CI runs these jobs on each push to `main` and on dispatch, and not on
+The [local gate](contributing.md#the-local-gate) runs the checks of `verify` and `rule-examples` and
+the builds of `site` below on each change. It leaves out the site check, which reads the private
+repository with no credentials. CI runs these jobs on each push to `main` and on dispatch, and not on
 a pull request:
 
 1. `verify`: the two [acceptance](contributing.md#develop-and-verify) steps. Its first step
@@ -248,8 +249,8 @@ a pull request:
 Each run on `main` cancels older runs of `main`, the deploy job refuses to publish a revision
 that is no longer the head of `main` (for example a manual re-run of an older run, which
 re-checks because the check is part of that job), and deployments are serialized in the
-`github-pages` concurrency group. The local gate runs the site check and the three corpus shards
-on each change. Thus a change that the local gate passed has passed its site build and check. The site can
+`github-pages` concurrency group. The local gate runs the three corpus shards
+on each change, but not the site check. The site can
 lag `main` while checks run or after they fail; each page states its commit. Repository Pages
 settings use **GitHub Actions** as the source. There is no custom domain or paid hosting. Actions are pinned by commit SHA.
 

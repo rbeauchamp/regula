@@ -96,7 +96,7 @@ jobs:
   # the nightly schedule ran them before: on an unchanged main a failure shows drift in the runner
   # image or the restored toolchain cache rather than in the pinned sources.
   rule-examples-nightly:
-    name: nightly diagnostics rule-examples ${{ matrix.shard }}
+    name: drift diagnostics rule-examples ${{ matrix.shard }}
     needs: applies
     if: fromJSON(needs.applies.outputs.decisions)['rule-examples-nightly']
     runs-on: ubuntu-24.04

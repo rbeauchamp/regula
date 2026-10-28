@@ -63,9 +63,9 @@ checks a change (`Regula.Campaigns.Job.checksChange`), in the order of the inven
 the provisioning that the workflow's provisioning action makes for them: pinned Verso before the
 documentation step, the site and the fourth self-audit shard need it, and Mathlib before its
 integration check. `Regula.Campaigns.Diagnostics.localVerifications_eq` proves its invocations of
-`./scripts/verify.sh` exactly the invocations of those jobs, in order, but those of `hostedOnly`:
-`enumeration-failure`, whose check runs on a GitHub-hosted Linux runner only, and which the
-diagnostics workflow runs on dispatch (`hostedOnly_checked` shows it one of those invocations).
+`./scripts/verify.sh` exactly the invocations of those jobs, in order, but those of `notRunHere`:
+`site`, whose check reads the repository without credentials, and `enumeration-failure`, whose check
+runs on a GitHub-hosted Linux runner only (`notRunHere_checked` shows each one such invocation).
 Its other steps are the other commands those jobs run: the release checks of CI's `verify`, the
 builds before CI's `site` check, and the comparison of the self-hosted digests (`checkDigests`)
 that the `diagnostics` job makes; that they are is read from the workflow files, not checked. The
@@ -175,7 +175,7 @@ inductive Event where
   | pullRequest
   /-- A push to `main`. -/
   | push
-  /-- The nightly schedule. -/
+  /-- The schedule, which no longer starts the workflow. -/
   | schedule
   /-- A dispatch of the workflow on a branch. -/
   | workflowDispatch
@@ -440,17 +440,23 @@ def Step.command : Step → String × List String × String
   | .run program arguments dir => (program, arguments, dir)
 
 /-- The invocations of jobs that check a change that the local gate leaves out, because their check
-refuses to run anywhere but on a GitHub-hosted Linux runner, which the machine that runs the gate
-is not: `diagnostics enumeration-failure` maps a loop device through device-mapper and mounts it
-with passwordless `sudo` (`Regula.Qualification.Enumeration.unsupported?`), so elsewhere it ends as
-unsupported. The diagnostics workflow still runs it on dispatch. -/
-def hostedOnly : List (List String) := [["diagnostics", "enumeration-failure"]]
+cannot run on the machine that runs the gate:
+
+- `site` reads the repository's tags with `git ls-remote` and fetches its release assets with
+  `curl`, both without credentials (`Regula.Site.Build.remoteTags`,
+  `Regula.Site.Build.releaseAssetUrl`), which a private repository refuses;
+- `diagnostics enumeration-failure` maps a loop device through device-mapper and mounts it with
+  passwordless `sudo` (`Regula.Qualification.Enumeration.unsupported?`), so anywhere but on a
+  GitHub-hosted Linux runner it ends as unsupported.
+
+Their workflows still run them on dispatch. -/
+def notRunHere : List (List String) := [["site"], ["diagnostics", "enumeration-failure"]]
 
 /-- The steps of the local gate, in order. Each comes from the workflow job named beside it, a job
 that checks a change (`Regula.Campaigns.Job.checksChange`), and the jobs come in the order of
 `Regula.Campaigns.Job.all`: CI's `verify`, `mathlib integration`, `rule-examples` and `site`, the
 diagnostics workflow's `campaign` jobs with the comparison of its `diagnostics` job, and the dogfood
-workflow's `self` jobs. The invocations of `hostedOnly` are left out. A provisioning step comes
+workflow's `self` jobs. The invocations of `notRunHere` are left out. A provisioning step comes
 first where the job's provisioning action provisions it. -/
 def localSteps : List Step :=
   let program (file : String) (arguments : List String) : Step :=
@@ -466,11 +472,12 @@ def localSteps : List Step :=
     program "lean/RegulaProvision.lean" ["mathlib"], .verify ["mathlib"]] ++
   -- CI's `rule-examples`, whose exports the site check reads.
   shards "rule-examples" 3 ++
-  -- CI's `site`, which builds the site's tools and the example library first.
+  -- CI's `site`: the builds of the site's tools and of the example library; its check `site` is in
+  -- `notRunHere`.
   [.run "lake" ["build", "axiomGate", "ruleExampleQualification", "site", "AuditApp"] ".",
-    .run "lake" ["build", "Audit"] "audit", .verify ["site"]] ++
+    .run "lake" ["build", "Audit"] "audit"] ++
   -- The diagnostics workflow's `campaign` jobs, then its `diagnostics` job's digest comparison.
-  (campaignInvocations.filter (!hostedOnly.contains ·)).map .verify ++
+  (campaignInvocations.filter (!notRunHere.contains ·)).map .verify ++
     [program "lean/Regula/DiagnosticsGate.lean" ["digests"]] ++
   -- The dogfood workflow's `self` jobs.
   .verify ["diagnostics", "self-lint"] :: shards "self-audit" 4

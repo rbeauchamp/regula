@@ -348,7 +348,7 @@ no-mistakes validation pipeline runs it as its Test step, in the disposable chec
 at each commit that it validates. The file [`.no-mistakes.yaml`](../../.no-mistakes.yaml) on `main`
 configures it. The gate runs the steps of each workflow job that checks a change, in sequence, in
 the checkout. At the first step that ends with an exit code that is not 0, the gate stops and fails.
-None of the workflows of the repository runs on a pull request.
+None of the workflow files in `.github/workflows/` runs on a pull request.
 
 The steps are these, in this order (`Regula.DiagnosticsGate.localSteps`):
 
@@ -357,22 +357,23 @@ The steps are these, in this order (`Regula.DiagnosticsGate.localSteps`):
 3. `./scripts/verify.sh` and `./scripts/verify.sh docs`.
 4. `lean --run lean/RegulaProvision.lean mathlib`, then `./scripts/verify.sh mathlib`.
 5. `./scripts/verify.sh diagnostics rule-examples 1/3`, `2/3` and `3/3`.
-6. The two builds of CI's `site` job, then `./scripts/verify.sh site`.
+6. The two builds of CI's `site` job.
 7. The invocations that `Regula.DiagnosticsGate.campaigns` lists, but `diagnostics enumeration-failure`.
 8. `lean --run lean/Regula/DiagnosticsGate.lean digests`, which compares the two self-hosted digests.
 9. `./scripts/verify.sh diagnostics self-lint` and the four shards of `self-audit`.
 
 The theorem `Regula.Campaigns.Diagnostics.localVerifications_eq` shows that the `verify.sh`
 invocations of the gate are those of the jobs that check a change (`Job.checksChange`), in order.
-The exception is the list `Regula.DiagnosticsGate.hostedOnly`. The registry checks require those
+The exceptions are the list `Regula.DiagnosticsGate.notRunHere`. The registry checks require those
 invocations to be the steps of the workflow files. Each `verify.sh` invocation keeps its own
 420-second limit, and the gate adds no limit. The other steps are copied from the workflow files,
 and no check compares them.
 
-The gate does not run `./scripts/verify.sh diagnostics enumeration-failure`, the one member of
-`hostedOnly`. Its check maps a loop device through device-mapper and mounts it with `sudo`. Thus
-it runs only on a GitHub-hosted Linux runner, and on a different machine it ends as unsupported.
-The diagnostics workflow runs it on dispatch.
+The gate does not run the two invocations of `notRunHere`, because their checks cannot run on the
+machine of the gate. Their workflows run them on dispatch.
+
+- `./scripts/verify.sh site` reads the tags of the repository with `git ls-remote` and gets the release assets with `curl`, with no credentials. A private repository refuses the two reads.
+- `./scripts/verify.sh diagnostics enumeration-failure` maps a loop device through device-mapper and mounts it with `sudo`. Thus it runs only on a GitHub-hosted Linux runner.
 
 The gate does not select steps by the paths that a change touches. Lake decides what a step
 builds again, from its own traces in the checkout. The first acceptance step builds in a new copy,
@@ -383,8 +384,8 @@ that it can give to a run is the artifact cache of Lake, and the commands of
 
 The gate does not check the title of a pull request. The pipeline runs no command after it writes
 the title, and it writes each title as a Conventional Commits header. The
-[Title workflow](../../.github/workflows/title.yml) checks a title on dispatch. A check that used
-the Linux runner of GitHub, but that one, now runs on macOS.
+[Title workflow](../../.github/workflows/title.yml) checks a title on dispatch. Each other step of
+the gate runs on macOS.
 
 ### Campaigns no workflow runs
 
@@ -1199,10 +1200,9 @@ until the release commit has passed the same checks as `main`:
    observes a release pull request for that version open, it
    [refuses and creates no branch](#rebuilding-the-release-pull-request)
    (`Regula.Release.branchAction`); a run that creates a branch creates one of its own and moves
-   none. The
-   local gate must pass on the head of this pull request before it merges. Until the release is
-   published, the site check of the gate, like the site build of every unreleased commit that lists the release, builds
-   and checks the artifact with a preview of the release's edition, rendered from that commit
+   none. The local gate must pass on the head of this pull request before it merges. Until the
+   release is published, the site check, like the site build of every unreleased commit that
+   lists the release, builds and checks the artifact with a preview of the release's edition, rendered from that commit
    without a release label ([versions](website.md#versions-and-routes)): the release's own
    edition exists only once CI builds it from the release commit, and an artifact with a preview
    is never deployed.

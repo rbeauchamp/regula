@@ -7,7 +7,7 @@
 # need. The pipeline's Test step is the gate instead. It runs `commands.test` in the run's disposable
 # checkout at the commit it validates, and an exit code other than 0 parks it. The command is the
 # local gate, which runs the steps of every workflow job that checks a change one after another,
-# except one that runs only on a GitHub-hosted Linux runner, and stops at the first that fails
+# except two whose checks cannot run on this machine, and stops at the first that fails
 # (docs/guides/contributing.md#the-local-gate). It runs them on every commit, never a selection by
 # the paths a change touches. What a step rebuilds is Lake's decision, from its own traces in the
 # checkout, and the first acceptance step builds in a new copy, as it does by hand. No
@@ -17,9 +17,9 @@
 # `commands.test` as a targeted command that leaves broad regression to CI; here no CI is left to
 # run it.
 #
-# `no_ci` declares that none of the repository's workflows reports a check on a pull request, so a
-# pull request with no checks can count as ready. A check that GitHub still reports is processed as
-# before.
+# `no_ci` declares that none of the workflow files in `.github/workflows/` reports a check on a pull
+# request, so a pull request with no checks can count as ready. A check that GitHub still reports is
+# processed as before.
 #
 # The title of a pull request is not a check of a commit, and no-mistakes runs no command after it
 # writes the title. `pr.title_format` stays unset, so no-mistakes drafts each title as a Conventional

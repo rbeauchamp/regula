@@ -200,8 +200,8 @@ sequence, and stops at the first failure:
 - `./scripts/verify.sh mathlib`, the Mathlib integration check. It is the only check that uses
   Mathlib, and it is not part of acceptance.
 - The three rule-example shards.
-- `./scripts/verify.sh site`, which builds and checks the rule-reference site under its own
-  420-second limit. It is not part of acceptance.
+- The builds of the tools of the rule-reference site. The gate leaves out `./scripts/verify.sh site`,
+  which reads the private repository with no credentials and thus cannot run here.
 - The campaigns of the diagnostics workflow, with its comparison of the self-hosted digests. It
   leaves out `enumeration-failure`, which runs only on a GitHub-hosted Linux runner.
 - The self-lint and the four self-audit shards of the dogfood workflow.

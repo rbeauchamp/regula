@@ -5447,7 +5447,7 @@ that it validates ([contributor guide](contributing.md#the-local-gate)).
 (`runSteps_eq_none_iff`). A step that it reports is one of the steps, with its own code, which is
 not 0 (`runSteps_eq_some`). `Regula.Campaigns.Diagnostics.localVerifications_eq` proves the
 `verify.sh` invocations of `localSteps` exactly those of the jobs that check a change, in order,
-but those of `hostedOnly`.
+but those of `notRunHere`.
 
 The step `digests` refuses unless `digestRefusals` refuses nothing with the campaigns required.
 **Trusted:** that the theorems in `Id` describe the run in `IO` of the same definition. Also
