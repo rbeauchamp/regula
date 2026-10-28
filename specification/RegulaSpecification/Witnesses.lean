@@ -24,7 +24,8 @@ namespace Witnesses
 /-- A safe, computable, project constant with nothing marked. -/
 def plain (name module : Name) (kind : Kind) (uses : List Name) : Decl :=
   { name, module, kind, isUnsafe := false, isPartial := false, uses, implementedBy := none,
-    isExtern := false, isNoncomputable := false, isBoolTest := false, inToolchain := false }
+    isExtern := false, isInitialized := false, isNoncomputable := false, isBoolTest := false,
+    inToolchain := false }
 
 /-- A constant of the toolchain's own library. -/
 def toolchain (name : Name) (kind : Kind) : Decl :=
@@ -49,6 +50,7 @@ def base : Input where
   manifest := [⟨`Good, .claimed .choiceFree .report⟩, ⟨`app, .claimed .standardLogical .checked⟩]
   modules := [⟨`Good, [`Init], [`Lean.declRangeExt]⟩, ⟨`App, [`Init, `Good], []⟩]
   decls := baseDecls
+  loads := [`Good, `App]
   contracts := [⟨`Good.f_spec, `Good.f, 0, .decides, [`Good.Spec], []⟩]
   decisions := [`Good.f]
   decidableResults := []

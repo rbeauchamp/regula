@@ -7,11 +7,12 @@ import RegulaSpecification.Intent
 /-!
 # The verdict of a run, and RG2001
 
-Regula's verdict is a closed type with three values. A build that Lean could not load, or an input
-that the admission refuses, is `incomplete` (RG2001), never read as absent; a well-formed input
-passes exactly when every kept and new rule holds of it. `gate_o5` proves the record determinate:
-any two verdict functions that meet it are equal, so the record leaves nothing unsaid about the
-verdict.
+Regula's verdict is a closed type with three values. The input of a run is a bundle of loaded
+environments (`Bundle`). A build that Lean could not load, or a bundle that the admission refuses,
+is `incomplete` (RG2001), never read as absent; an empty claim is refused too. A well-formed bundle
+passes exactly when every kept and new rule holds of each of its environments. `gate_o5` proves
+the record determinate: any two verdict functions that meet it are equal, so the record leaves
+nothing unsaid about the verdict.
 -/
 
 namespace RegulaSpecification
@@ -42,22 +43,47 @@ inductive Verdict where
   | incomplete
   deriving DecidableEq, Repr
 
+/-- The closed input of a run: one `Input` for each environment that the shell loads. A single
+environment cannot hold the `main` of two executables, so the libraries and each executable root
+are loaded in environments of their own. Each environment carries the same targets, claim and
+module records, and its own constants and the statements its theorems prove. -/
+structure Bundle where
+  /-- The loaded environments. -/
+  envs : List Input
+
+/-- The admission of a bundle: at least one environment, each well-formed; one project in all of
+them; each module of each target loaded in one of them; and a claim of at least one target, so
+that an empty claim is not read as a pass. -/
+structure Bundle.WellFormed (b : Bundle) : Prop where
+  nonempty : b.envs ≠ []
+  each : ∀ i ∈ b.envs, i.WellFormed
+  oneProject : ∀ i ∈ b.envs, ∀ j ∈ b.envs,
+    i.targets = j.targets ∧ i.manifest = j.manifest ∧ i.modules = j.modules
+  covered : ∀ i ∈ b.envs, ∀ t ∈ i.targets, ∀ m ∈ t.modules, ∃ j ∈ b.envs, m ∈ j.loads
+  claims : ∃ i ∈ b.envs, ∃ t, i.ClaimedTarget t
+
+/-- Every kept and new rule holds of each environment of the bundle. -/
+def Bundle.AllHold (a : Allowlists) (b : Bundle) : Prop :=
+  ∀ i ∈ b.envs, RegulaSpecification.AllHold a i
+
 /-- The intent record of the verdict. `none` is a build Lean could not load. -/
-def gateRecord (a : Allowlists) : IntentRecord (Option Input → Verdict) where
-  shape := .function (Option Input) (fun _ => Verdict)
+def gateRecord (a : Allowlists) : IntentRecord (Option Bundle → Verdict) where
+  shape := .function (Option Bundle) (fun _ => Verdict)
   dom := []
   props := [
     ⟨"RG2001: a build that Lean could not load is incomplete", fun g => g none = .incomplete⟩,
     ⟨"an input the admission refuses is incomplete",
-      fun g => ∀ i : Input, ¬ i.WellFormed → g (some i) = .incomplete⟩,
+      fun g => ∀ b : Bundle, ¬ b.WellFormed → g (some b) = .incomplete⟩,
     ⟨"a well-formed input is complete, and passes exactly when every rule holds",
-      fun g => ∀ i : Input, i.WellFormed → g (some i) ≠ .incomplete ∧ (g (some i) = .pass ↔ AllHold a i)⟩]
-  vocab := [⟨"well-formed input", Input, Input.WellFormed⟩]
+      fun g => ∀ b : Bundle, b.WellFormed →
+        g (some b) ≠ .incomplete ∧ (g (some b) = .pass ↔ b.AllHold a)⟩]
+  vocab := [⟨"well-formed input", Bundle, Bundle.WellFormed⟩]
 
-theorem gate_meets_iff (a : Allowlists) (g : Option Input → Verdict) :
+theorem gate_meets_iff (a : Allowlists) (g : Option Bundle → Verdict) :
     (gateRecord a).Meets g ↔ g none = .incomplete ∧
-      (∀ i : Input, ¬ i.WellFormed → g (some i) = .incomplete) ∧
-      ∀ i : Input, i.WellFormed → g (some i) ≠ .incomplete ∧ (g (some i) = .pass ↔ AllHold a i) := by
+      (∀ b : Bundle, ¬ b.WellFormed → g (some b) = .incomplete) ∧
+      ∀ b : Bundle, b.WellFormed →
+        g (some b) ≠ .incomplete ∧ (g (some b) = .pass ↔ b.AllHold a) := by
   simp [IntentRecord.Meets, IntentRecord.Dom, IntentRecord.Props, gateRecord]
 
 /-- The verdict is determinate: two verdict functions that meet the record are equal. -/
@@ -69,16 +95,16 @@ theorem gate_o5 (a : Allowlists) : O5 (gateRecord a) .eq := by
   funext o
   cases o with
   | none => rw [hu'.1, hv'.1]
-  | some i =>
-    by_cases hi : i.WellFormed
-    · obtain ⟨hun, hup⟩ := hu'.2.2 i hi
-      obtain ⟨hvn, hvp⟩ := hv'.2.2 i hi
-      by_cases hall : AllHold a i
+  | some b =>
+    by_cases hb : b.WellFormed
+    · obtain ⟨hun, hup⟩ := hu'.2.2 b hb
+      obtain ⟨hvn, hvp⟩ := hv'.2.2 b hb
+      by_cases hall : b.AllHold a
       · rw [hup.mpr hall, hvp.mpr hall]
-      · have h1 : u (some i) ≠ .pass := fun h => hall (hup.mp h)
-        have h2 : v (some i) ≠ .pass := fun h => hall (hvp.mp h)
-        cases hx : u (some i) <;> cases hy : v (some i) <;> simp_all
-    · rw [hu'.2.1 i hi, hv'.2.1 i hi]
+      · have h1 : u (some b) ≠ .pass := fun h => hall (hup.mp h)
+        have h2 : v (some b) ≠ .pass := fun h => hall (hvp.mp h)
+        cases hx : u (some b) <;> cases hy : v (some b) <;> simp_all
+    · rw [hu'.2.1 b hb, hv'.2.1 b hb]
 
 /-- O4: the verdict function is total. -/
 theorem gate_o4 (a : Allowlists) : O4 (gateRecord a) := o4_function _ rfl

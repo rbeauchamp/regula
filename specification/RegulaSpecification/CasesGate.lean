@@ -5,7 +5,8 @@ import RegulaSpecification.CasesExecution
 
 The record of the verdict meets O2, O2 before a run, O3 and O4, and O5 with equality
 (`gate_o5`): it determines the verdict of each input. The checker that always passes and the
-checker that is always incomplete each fail it.
+checker that is always incomplete each fail it. A bundle with no environment, or with a claim of
+no target, is refused (`no_claim_refused`).
 -/
 
 namespace RegulaSpecification
@@ -23,16 +24,51 @@ theorem not_wf_duplicated : ¬ duplicated.WellFormed := by
   have := h.unique
   simp [duplicated, withDecls, base, baseDecls, plain, toolchain, helperDecl] at this
 
+/-- The compliant project, loaded in one environment. -/
+def baseBundle : Bundle := ⟨[base]⟩
+
+theorem wf_baseBundle : baseBundle.WellFormed where
+  nonempty := by simp [baseBundle]
+  each i hi := by
+    simp only [baseBundle, List.mem_singleton] at hi
+    subst hi
+    exact wf_base
+  oneProject i hi j hj := by
+    simp only [baseBundle, List.mem_singleton] at hi hj
+    subst hi hj
+    exact ⟨rfl, rfl, rfl⟩
+  covered i hi t ht m hm := by
+    simp only [baseBundle, List.mem_singleton] at hi
+    subst hi
+    refine ⟨base, by simp [baseBundle], ?_⟩
+    simp only [base, List.mem_cons, List.not_mem_nil, or_false] at ht
+    rcases ht with rfl | rfl <;> simp at hm <;> simp [base, hm]
+  claims := ⟨base, by simp [baseBundle], `Good, .choiceFree, .report, by simp [base]⟩
+
+/-- A bundle with an environment that the admission refuses. -/
+def duplicatedBundle : Bundle := ⟨[duplicated]⟩
+
+theorem not_wf_duplicatedBundle : ¬ duplicatedBundle.WellFormed :=
+  fun h => not_wf_duplicated (h.each duplicated (by simp [duplicatedBundle]))
+
+/-- A project whose claim excludes each target is refused, so an empty claim is no pass. -/
+theorem no_claim_refused :
+    ¬ (⟨[{ base with manifest := [⟨`Good, .excluded⟩, ⟨`app, .excluded⟩] }]⟩ : Bundle).WellFormed := by
+  rintro ⟨-, -, -, -, i, hi, t, p, e, he⟩
+  simp only [List.mem_singleton] at hi
+  subst hi
+  simp at he
+
 open Classical in
 /-- A verdict function that meets the record. -/
-noncomputable def verdictOf (a : Allowlists) : Option Input → Verdict
+noncomputable def verdictOf (a : Allowlists) : Option Bundle → Verdict
   | none => .incomplete
-  | some i => if i.WellFormed then (if AllHold a i then .pass else .fail) else .incomplete
+  | some b => if b.WellFormed then (if b.AllHold a then .pass else .fail) else .incomplete
 
 theorem verdictOf_meets (a : Allowlists) : (gateRecord a).Meets (verdictOf a) := by
   rw [gate_meets_iff]
-  refine ⟨rfl, fun i hi => by simp [verdictOf, hi], fun i hi => ?_⟩
-  by_cases hall : AllHold a i <;> simp [verdictOf, hi, hall]
+  refine ⟨rfl, fun b hb => by simp [verdictOf, hb], fun b hb => ?_⟩
+  by_cases hall : b.AllHold a <;> simp [verdictOf, hb, hall]
 
 /-- The checker that always passes misses the build that Lean could not load. -/
 theorem always_pass_fails (a : Allowlists) : ¬ (gateRecord a).Meets (fun _ => .pass) := by
@@ -43,7 +79,7 @@ theorem always_pass_fails (a : Allowlists) : ¬ (gateRecord a).Meets (fun _ => .
 theorem always_incomplete_fails (a : Allowlists) :
     ¬ (gateRecord a).Meets (fun _ => .incomplete) := by
   rw [gate_meets_iff]
-  exact fun h => (h.2.2 base wf_base).1 rfl
+  exact fun h => (h.2.2 baseBundle wf_baseBundle).1 rfl
 
 theorem gate_adequate (a : Allowlists) :
     O2 (gateRecord a) ∧ O2Run (gateRecord a) ∧ O3 (gateRecord a) ∧ O4 (gateRecord a) ∧
@@ -54,14 +90,15 @@ theorem gate_adequate (a : Allowlists) :
     intro p hp
     simp only [gateRecord, List.mem_singleton] at hp
     subst hp
-    exact ⟨base, wf_base⟩
+    exact ⟨baseBundle, wf_baseBundle⟩
   · rw [o3_correct]
     intro p hp
     simp only [gateRecord, List.mem_cons, List.not_mem_nil, or_false] at hp
     rcases hp with rfl | rfl | rfl
     · exact ⟨fun _ => .pass, by decide⟩
-    · exact ⟨fun _ => .pass, fun h => absurd (h duplicated not_wf_duplicated) (by decide)⟩
-    · exact ⟨fun _ => .incomplete, fun h => (h base wf_base).1 rfl⟩
+    · exact ⟨fun _ => .pass,
+        fun h => absurd (h duplicatedBundle not_wf_duplicatedBundle) (by decide)⟩
+    · exact ⟨fun _ => .incomplete, fun h => (h baseBundle wf_baseBundle).1 rfl⟩
 
 end Witnesses
 

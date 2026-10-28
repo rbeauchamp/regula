@@ -48,6 +48,9 @@ structure Decl where
   implementedBy : Option Name
   /-- Whether it is `@[extern]` (`Lean.isExtern`). -/
   isExtern : Bool
+  /-- Whether an `initialize` or `builtin_initialize` declaration sets its value when the program
+  starts (`Lean.getInitFnNameFor?`). -/
+  isInitialized : Bool
   /-- Whether Lean marks it `noncomputable` (`Lean.isNoncomputable`). -/
   isNoncomputable : Bool
   /-- Whether its type's result is `Bool`, or it is an instance of `BEq`: a Boolean test. -/
@@ -173,8 +176,10 @@ structure Input where
   manifest : List Entry
   /-- The root-package modules Lake builds, as loaded. -/
   modules : List ModuleRecord
-  /-- Every constant of the environment that importing the built modules loads. -/
+  /-- Every constant of one environment that the shell loads. -/
   decls : List Decl
+  /-- The modules that environment imports (the module names of its header). -/
+  loads : List Name
   /-- The executable contracts of claimed modules. -/
   contracts : List Contract
   /-- The functions that claimed modules register as decision functions. -/

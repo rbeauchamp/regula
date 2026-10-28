@@ -116,13 +116,16 @@ def w3002 : Witnessed Violates3002 where
     .step mainDecl (.root _) main_mem rfl
       (Or.inr (Or.inr ⟨rfl, base_no_main_helper, by simp [mainDecl, plain]⟩)),
     ⟨plain `Good.f `Good .definition [], by simp [base, baseDecls], rfl, rfl,
-      Or.inr (Or.inr base_has_helper)⟩, by simp [unproved]⟩
+      Or.inr (Or.inl base_has_helper)⟩, Or.inl (by simp [unproved])⟩
   admitted := base
   admitted_wf := wf_base
   fine := `Good.f
   fine_admitted := by
-    rintro ⟨-, -, -, -, h⟩
-    exact h (by simp [base])
+    rintro ⟨-, -, -, -, h | ⟨d, hd, hn, -, he⟩⟩
+    · exact h (by simp [base])
+    · simp only [base, baseDecls, List.mem_cons, List.not_mem_nil, or_false] at hd
+      rcases hd with rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl <;>
+        simp [plain, toolchain, helperDecl, Input.Unbindable] at hn he
 
 theorem rg3002_adequate : O2 rg3002 ∧ O2Run rg3002 ∧ O3 rg3002 ∧ O4 rg3002 ∧
     O5 rg3002 (.rel SameReports) := adequate w3002
@@ -130,6 +133,29 @@ theorem rg3002_adequate : O2 rg3002 ∧ O2Run rg3002 ∧ O3 rg3002 ∧ O4 rg3002
 theorem rg3002_noisy : ¬ rg3002.Meets w3002.support :=
   noisy_fails w3002 (show (`Good.f : Name) ∈ base.decls.map (·.name) by
     simp [base, baseDecls, plain, toolchain, helperDecl])
+
+/-- `Good.f` made `@[extern]`, with its correspondence still proved. -/
+def externF : Decl := { plain `Good.f `Good .definition [] with isExtern := true }
+
+def declsExtern : List Decl :=
+  [toolchain ``propext .axiom, plain `Good.t `Good .theorem [``propext], externF, helperDecl,
+    plain `Good.Spec `Good .definition [], plain `Good.f_spec `Good .theorem [`Good.f, `Good.Spec],
+    plain `Good.intent `Good .definition [], mainDecl]
+
+/-- A checked executable that reaches an `@[extern]` function violates RG3002, although a theorem
+states its correspondence: no theorem of Lean speaks of the foreign code. -/
+theorem rg3002_refuses_extern : Violates3002 { base with decls := declsExtern } `Good.f := by
+  have noHelper : ¬ ({ base with decls := declsExtern } : Input).HasHelper `main := by
+    rintro ⟨h, hh, hn, -⟩
+    simp only [declsExtern, List.mem_cons, List.not_mem_nil, or_false] at hh
+    rcases hh with rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl <;>
+      simp [plain, toolchain, helperDecl, externF, mainDecl] at hn
+  refine ⟨`main, ⟨appTarget, by simp [base, appTarget], rfl,
+    ⟨.standardLogical, by simp [base, appTarget]⟩, mainDecl, by simp [declsExtern], rfl, rfl,
+    by simp [mainDecl, plain, appTarget]⟩, ?_, ⟨externF, by simp [declsExtern], rfl, rfl,
+    Or.inr (Or.inr (Or.inl rfl))⟩, Or.inr ⟨externF, by simp [declsExtern], rfl, rfl, Or.inl rfl⟩⟩
+  exact .step mainDecl (.root _) (by simp [declsExtern]) rfl
+    (Or.inr (Or.inr ⟨rfl, noHelper, by simp [mainDecl, plain]⟩))
 
 /-! ## RG6001 -/
 

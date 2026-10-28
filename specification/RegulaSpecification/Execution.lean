@@ -51,11 +51,21 @@ def ExecutableRoot (r : Name) (e : Execution) : Prop :=
   ∃ t ∈ i.targets, t.kind = .executable ∧ (∃ p, ⟨t.name, .claimed p e⟩ ∈ i.manifest) ∧
     ∃ d ∈ i.decls, d.name = r ∧ r = `main ∧ d.module ∈ t.modules
 
+/-- `d` is code whose run no theorem of Lean can bind to a kernel value: foreign code (`@[extern]`),
+a partial definition that is not a recursion helper, whose kernel value is opaque, or a value that
+an initializer sets when the program starts. -/
+def Unbindable (d : Decl) : Prop :=
+  d.isExtern = true ∨ (d.isPartial = true ∧ ¬ i.RecursionHelper d) ∨ d.isInitialized = true
+
 /-- `c` is an execution boundary outside the toolchain: compiled code runs something other than
 its kernel definition there. -/
 def Boundary (c : Name) : Prop :=
   ∃ d ∈ i.decls, d.name = c ∧ d.inToolchain = false ∧
-    (d.implementedBy.isSome = true ∨ d.isExtern = true ∨ i.HasHelper c)
+    (d.implementedBy.isSome = true ∨ i.HasHelper c ∨ i.Unbindable d)
+
+/-- `c` is a boundary outside the toolchain that no correspondence theorem can discharge. -/
+def UnbindableBoundary (c : Name) : Prop :=
+  ∃ d ∈ i.decls, d.name = c ∧ d.inToolchain = false ∧ i.Unbindable d
 
 end Input
 
@@ -70,9 +80,10 @@ def Violates3001 (i : Input) (c : Name) : Prop :=
   ∃ r e, i.ExecutableRoot r e ∧ i.Executes r c ∧ ¬ i.Resolves c
 
 /-- RG3002: under a checked execution claim, the closure reaches a boundary that no theorem of a
-claimed module states the correspondence of. -/
+claimed module states the correspondence of, or a boundary that no theorem can bind (`Unbindable`). -/
 def Violates3002 (i : Input) (c : Name) : Prop :=
-  ∃ r, i.ExecutableRoot r .checked ∧ i.Executes r c ∧ i.Boundary c ∧ Goal.corresponds c ∉ i.proved
+  ∃ r, i.ExecutableRoot r .checked ∧ i.Executes r c ∧ i.Boundary c ∧
+    (Goal.corresponds c ∉ i.proved ∨ i.UnbindableBoundary c)
 
 /-- The intent record of RG1006. -/
 def rg1006 := ruleRecord "RG1006" Violates1006

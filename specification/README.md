@@ -48,7 +48,7 @@ A run of the checker gives one of three verdicts: `pass`, `fail` or `incomplete`
 
 - A build that Lean could not load is `incomplete`. This is [RG2001].
 - An input that the admission refuses is `incomplete`. Missing evidence is not read as an empty set.
-- A well-formed input is not `incomplete`. It passes exactly when all kept and new rules hold of it (`AllHold`).
+- A well-formed input is not `incomplete`. It passes exactly when all kept and new rules hold of each of its environments (`Bundle.AllHold`).
 
 **Proved**: `gate_o5`. Two verdict functions that meet the record are equal, so the record leaves nothing unsaid about the verdict.
 
@@ -69,15 +69,18 @@ The closed input is the type `Input` in [`RegulaSpecification/Input.lean`](Regul
 | The root package's targets, with the modules, options and extra Lean arguments of each target | Lake's own load of the workspace |
 | The claim: the classification of each target | `foundation_manifest.json`, a closed format that Regula defines |
 | Each module of the root package that Lake builds: its imports and the names of the environment extensions with entries in its `.olean` files | `Lean.readModuleDataParts` |
-| Each constant of the environment that the import of these modules loads | `Lean.importModules` with `loadExts := false` |
+| Each constant of each environment that the shell loads, with the modules it imports | `Lean.importModules` with `loadExts := false` |
 
 The input has no source text, message, info tree, option set in source, build log or list of files. A rule does not decide what it cannot read in this input. This is the boundary of the input.
 
-The admission refuses an input that does not have the closed form (`Input.WellFormed`). These are the conditions:
+One environment cannot hold the `main` of two executables, because Lean refuses a constant that two imported modules declare. So the shell loads the libraries in one environment, and the root of each executable with its imports in an environment of its own. The input of a run is that list of environments (`Bundle` in [`RegulaSpecification/Gate.lean`](RegulaSpecification/Gate.lean)). Each environment has the same targets, claim and module records.
 
-- Each name is the name of one constant.
-- Each constant that a constant mentions is loaded.
-- Each module that Lake gives for a target is loaded.
+The admission refuses an input that does not have the closed form (`Bundle.WellFormed` and `Input.WellFormed`). These are the conditions:
+
+- The input has at least one environment.
+- In each environment, each name is the name of one constant, and each constant that a constant mentions is loaded.
+- Each module that Lake gives for a target is loaded, in some environment.
+- The claim claims at least one target. A claim of nothing is not read as a pass. **Proved**: `no_claim_refused`.
 
 The shell refuses a module if it cannot read the `.olean` files of the module, and the verdict is `incomplete`. A read error is not an absent file ([#441]).
 
@@ -247,10 +250,10 @@ But the list of `lake check` is fixed, and it gives no axiom set for each consta
 #### [RG3002]: execution boundaries
 
 - **Fate**: kept. Leaf: [#487].
-- **Intent**: under a checked execution claim, each boundary that the closure reaches has a theorem of a claimed module that states its correspondence. A boundary is a runtime replacement, an `extern` constant or a recursion helper outside the toolchain.
+- **Intent**: under a checked execution claim, each boundary that the closure reaches has a theorem of a claimed module that states its correspondence. A boundary is a runtime replacement, a recursion helper or code that no theorem can bind, outside the toolchain.
 - **Domain**: each boundary in the execution closure of a claimed executable with the execution mode `checked`.
 - **Input**: the closure, the boundaries and the statements that theorems of claimed modules prove.
-- **Formal statement**: `Violates3002`, with `Input.Boundary` and `Goal.corresponds`.
+- **Formal statement**: `Violates3002`, with `Input.Boundary`, `Input.Unbindable` and `Goal.corresponds`. Code that no theorem can bind fails the rule with any theorem. It is an `extern` constant, a partial definition that is not a recursion helper, or a value that `initialize` sets. A theorem of Lean speaks of a kernel value, and such code runs something else. **Proved**: `rg3002_refuses_extern`.
 - **Accepted risks**: the rule reads compiled code from the kernel values, not from the compiled code in the build. **Open**: the exact correspondence statement for each kind of boundary, for example the recursion equation of a helper. Leaf [#487] gives these statements.
 - **Supersedes**: none.
 
@@ -441,6 +444,16 @@ The first acceptance command also builds the Lean package of this specification 
 - The first step builds the package in its copy of the project (`RegulaVerification.specificationBuild`). Lake clones lean-intent from the provisioned checkout, so the step reads no network. The theorem `ordinary_builds_specification` places the build among the commands that run in order. A failure of one of them fails the step.
 - **Measured**: with each Git protocol but `file` refused, the clone from the provisioned checkout gave the pinned commit. A clone that lacked that commit failed with `unable to read tree`.
 
+## The Mathlib integration package
+
+Regula's own package uses no Mathlib. Only the package in `integration/mathlib/`, a Mathlib adopter that the gate's Mathlib step builds, requires Mathlib. It ties each move of the toolchain to a Mathlib release. Today it is the only check of three behaviours. These are the Mathlib linter set that [RG2006] requires, foundation labels through Mathlib's constants, and the observation of Mathlib's syntax and tactics.
+
+- **Fate**: retired with leaf [#484], which removes the last rule with behaviour of its own for Mathlib.
+- After the leaves, no kept rule has a branch for Mathlib. [RG1001] to [RG1005] read the axiom sets of loaded constants, and the constants of Mathlib are constants like the others. Leaf [#483] removes the observation of elaboration. The Mathlib linter requirement of [RG2006] goes to written guidance.
+- The members of the two allowlists of [#484] stay related to Mathlib. `RG2007` refuses an extension that its list does not name, and [RG2006] refuses an option that its list does not name. So a Mathlib attribute such as `to_additive`, or a Mathlib option such as `weak.linter.mathlibStandardSet`, is usable in claimed code only if the list names it. That is data, not a branch of a rule. **Open**: [#484] fixes those members from an observation of a real Mathlib project, and records it.
+- Acorn is a Mathlib project, and its gate runs Regula. Thus Acorn then checks the same integration on real code. **Accepted risk**: a change of Regula that breaks a Mathlib project fails Acorn's gate when Acorn takes the change, not Regula's merge gate.
+- **Open**: the cost of `lake check` on an export that holds Mathlib is not measured. Leaf [#482] measures it on Acorn.
+
 ## Decisions of this specification
 
 These decisions change what the leaves build. Each has its reason.
@@ -449,6 +462,9 @@ These decisions change what the leaves build. Each has its reason.
 - Axioms come from the constants, not from the recorded table. The present standard already refuses that table (§7.4), and the input loads no extension state.
 - A recursion helper is identified by its form, and the regeneration of its base goes away. A helper is not logical evidence. Its behaviour is a question of execution, which [RG3002] decides when a claim asks for it.
 - [RG2006] reads only Lake's configuration. No record of an option in source exists (**measured**).
+- The input is a list of environments, one for the libraries and one for each executable root. A single environment would refuse each project with two executables.
+- An input with no claimed target is `incomplete`. Only a nonempty claim can pass.
+- Under a checked execution claim, code that no theorem can bind fails [RG3002]. A theorem cannot discharge it, as the present standard says of `extern` in §7.6.
 - The requirements of `linter.missingDocs` and of Mathlib's standard linters go to written guidance with the documentation rules. They guard failures that are cheap to see and correct.
 - A decision registration becomes a declaration, so that a claimed module uses no tool module and no attribute that Lean does not define.
 - The target toolchain is `v4.35.0`, and the move to it lands before the leaves. Its `lake check` replays each constant in scope from an export, in a process that loads no `.olean` file of the project. It also bounds each axiom by the standard three. The `leanchecker` of `v4.34.1` with a module list did less.
@@ -487,6 +503,8 @@ What the specification requires:
 - Each declared deliverable has an intent record and the proofs of `RG6001`.
 - A pass of the gate requires all three commands of Lean `v4.35.0`: `lake build --wfail`, `lake check`, and the checker.
 - Each claimed target is a default target of the root package [RG2002]. A claimed library that plain `lake build` does not build fails.
+- A claim of no target gives `incomplete`, not a pass.
+- Under `execution: checked`, an executable that reaches `@[extern]` code, a `partial def` that is not a recursion helper, or a value that `initialize` sets fails [RG3002]. No theorem changes that.
 - Regula, lean-intent and Acorn move to Lean `v4.35.0` before the leaves start, each in a change of its own. This pull request stays on `v4.34.1`.
 - Regula passes its own check inside its first acceptance command.
 
