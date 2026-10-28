@@ -26,6 +26,59 @@ theorem checked_admitGitName : Regula.ExecutableContract admitGitName
 
 attribute [regula_decision] admitGitName
 
+/-- The admission of a copy source's Git settings accepts exactly when each name of its common
+configuration that the selector pattern selects is the worktreeConfig extension, and, when that
+extension is among them, each name of its per-worktree configuration is the hooks directory or a
+part of the author's identity. A source whose common configuration selects no name is admitted
+whatever its per-worktree names, which Git does not read without the extension. -/
+theorem admitGitSettings_iff (selected worktree : List String) :
+    admitGitSettings (selected, worktree) = .ok () ↔
+      (∀ name ∈ selected, name = "extensions.worktreeconfig") ∧
+      ("extensions.worktreeconfig" ∈ selected →
+        ∀ name ∈ worktree, name = "core.hookspath" ∨ name = "user.email" ∨ name = "user.name") := by
+  have common : selected.find? (· != worktreeExtension) = none ↔
+      ∀ name ∈ selected, name = "extensions.worktreeconfig" := by
+    simp [List.find?_eq_none, worktreeExtension]
+  have perWorktree : worktree.find? (fun name =>
+        selected.contains worktreeExtension && !worktreeSettings.contains name) = none ↔
+      ("extensions.worktreeconfig" ∈ selected →
+        ∀ name ∈ worktree, name = "core.hookspath" ∨ name = "user.email" ∨ name = "user.name") := by
+    simp only [List.find?_eq_none, worktreeExtension, worktreeSettings, List.contains_eq_mem,
+      Bool.and_eq_true, decide_eq_true_eq, Bool.not_eq_true', decide_eq_false_iff_not,
+      List.mem_cons, List.not_mem_nil, or_false, not_and, Decidable.not_not]
+    exact ⟨fun h present name mem => h name mem present, fun h name mem present => h present name mem⟩
+  rw [← common, ← perWorktree]
+  unfold admitGitSettings
+  cases selected.find? (· != worktreeExtension) <;>
+    cases worktree.find? (fun name =>
+      selected.contains worktreeExtension && !worktreeSettings.contains name) <;> simp
+
+/-- The executed admission of a copy source's Git settings decides its complete domain of pairs of
+selected common names and per-worktree names. -/
+theorem checked_admitGitSettings : Regula.ExecutableContract admitGitSettings
+    (Regula.Decides (· = .ok ()) (fun settings =>
+      (∀ name ∈ settings.1, name = "extensions.worktreeconfig") ∧
+      ("extensions.worktreeconfig" ∈ settings.1 → ∀ name ∈ settings.2,
+        name = "core.hookspath" ∨ name = "user.email" ∨ name = "user.name"))) :=
+  ⟨.of_iff (fun settings => admitGitSettings_iff settings.1 settings.2)
+    ⟨(["extensions.worktreeconfig"], ["core.hookspath"]), rfl⟩
+    ⟨(["extensions.noop"], []), by simp [admitGitSettings_iff]⟩⟩
+
+attribute [regula_decision] admitGitSettings
+
+/-- An entry is kept by `omitEntry relative` exactly when it is an entry of `items` whose path does
+not start with `relative`: the entries at and below `relative` are the ones omitted. -/
+theorem mem_omitEntry (relative : List String) (items : List Item) (item : Item) :
+    item ∈ omitEntry relative items ↔ item ∈ items ∧ ¬ relative <+: item.relative := by
+  unfold omitEntry
+  rw [List.mem_filter]
+  cases h : relative.isPrefixOf item.relative
+  · have outside : ¬ relative <+: item.relative := fun p => by
+      simp [List.isPrefixOf_iff_prefix.mpr p] at h
+    simp [outside]
+  · have inside : relative <+: item.relative := List.isPrefixOf_iff_prefix.mp h
+    simp [inside]
+
 open System Regula.StateTriple
 
 /-- `printedLine?` reads `text` as `line` exactly when `text` is `line` followed by one newline, and
