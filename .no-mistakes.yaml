@@ -15,7 +15,7 @@
 # The listing prints the driver that Lake reports for the root package, and prints nothing when Lake
 # reports none. It fails, and so blocks rather than passes, when Lake cannot load the package or the
 # driver cannot be printed as one identifier. It reads the package with Lake's own loader and builds
-# nothing. Regula's controls, mutations and rule examples are not tests that Lake knows, so the
+# no target. Regula's controls, mutations and rule examples are not tests that Lake knows, so the
 # listing does not print them. The library name in the command is macOS's: on another system the
 # command fails.
 #
