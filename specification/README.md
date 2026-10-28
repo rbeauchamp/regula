@@ -140,7 +140,7 @@ Each entry below has the same fields. The domain is the set of subjects that the
 
 ### The foundation profile
 
-The rules [RG1001] to [RG1005] read the transitive axiom set of each constant (`Input.AxiomOf`), which comes from the loaded constants (see "What the input can show"). The four rules [RG1002] to [RG1005] refine one refusal. **Proved**: `rg1005_of_hole`, `rg1005_of_unknown` and `rg1005_of_compiler`. Each axiom that [RG1002], [RG1003] or [RG1004] names also violates [RG1005] for each profile. Thus a wrong choice between these rules changes the rule of a finding, but not the verdict.
+The rules [RG1001] to [RG1005] read the transitive axiom set `Input.AxiomOf` of each constant, which comes from the loaded constants. The four rules [RG1002] to [RG1005] refine one refusal. **Proved**: `rg1005_of_hole`, `rg1005_of_unknown` and `rg1005_of_compiler`. Each axiom that [RG1002], [RG1003] or [RG1004] names also violates [RG1005] for each profile. Thus a wrong choice between these rules changes the rule of a finding, but not the verdict.
 
 #### [RG1001]: project axioms
 
@@ -306,7 +306,7 @@ The rules [RG1001] to [RG1005] read the transitive axiom set of each constant (`
 - **Domain**: each claimed module.
 - **Input**: none of Regula. The checker gives the list of claimed modules for the command.
 - **Formal statement**: none of Regula. The property is `leanchecker`'s (see "What the input can show").
-- **Accepted risks**: the modules of dependencies are not replayed. Their own builds checked them. The pinned Lake has no `check` command (`Lake/CLI/` has no `Check.lean`). Issue [#309] records that Lean 4.35 adds `lake check --paranoid`, which replays with more kernels. It stays optional. **Assumed**: `leanchecker` reads the same `.olean` files as the checker.
+- **Accepted risks**: the modules of dependencies are not replayed. Their own builds checked them. The pinned Lake has no `check` command, and `Lake/CLI/` has no `Check.lean`. Issue [#309] records that Lean 4.35 adds `lake check --paranoid`, which replays with more kernels and stays optional. **Assumed**: `leanchecker` reads the same `.olean` files as the checker.
 - **Supersedes**: [#309]. Its recommendation goes to Lean's own replay and axiom tools. It closes with [#482].
 
 #### [RG2006]: the configuration of claimed targets
