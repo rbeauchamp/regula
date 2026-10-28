@@ -362,8 +362,8 @@ says so).
 
 `./scripts/verify.sh site` runs under the deadline of every `verify.sh` mode
 ([contributor guide](contributing.md#develop-and-verify)); it is not part of acceptance.
-CI and the local gate build the site tooling in the preceding step, with a 20-minute step limit
-in CI. In CI, Verso is provisioned from cache by the shared provisioning action (in the job's
+CI builds the site tooling in the preceding step, with a 20-minute step limit. The local gate
+makes the same builds with no limit, but it leaves out the site check. In CI, Verso is provisioned from cache by the shared provisioning action (in the job's
 45-minute limit on a miss). Pinned dependencies are cached by toolchain and lock digest; no accepted verdict is
 cached. Link checking grows with the number of release editions. Observed timings are
 observations, not guarantees.

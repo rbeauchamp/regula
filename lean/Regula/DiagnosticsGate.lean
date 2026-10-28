@@ -61,7 +61,7 @@ they were not, no digest is required.
 `localSteps` lists the steps of the local gate. They are the steps of each workflow job that
 checks a change (`Regula.Campaigns.Job.checksChange`), in the order of the inventory's jobs, after
 the provisioning that the workflow's provisioning action makes for them: pinned Verso before the
-documentation step, the site and the fourth self-audit shard need it, and Mathlib before its
+documentation step, which needs it, as the fourth self-audit shard does, and Mathlib before its
 integration check. `Regula.Campaigns.Diagnostics.localVerifications_eq` proves its invocations of
 `./scripts/verify.sh` exactly the invocations of those jobs, in order, but those of `notRunHere`:
 `site`, whose check reads the repository without credentials, and `enumeration-failure`, whose check
@@ -440,16 +440,15 @@ def Step.command : Step → String × List String × String
   | .run program arguments dir => (program, arguments, dir)
 
 /-- The invocations of jobs that check a change that the local gate leaves out, because their check
-cannot run on the machine that runs the gate:
+cannot pass on the machine that runs the gate:
 
-- `site` reads the repository's tags with `git ls-remote` and fetches its release assets with
-  `curl`, both without credentials (`Regula.Site.Build.remoteTags`,
-  `Regula.Site.Build.releaseAssetUrl`), which a private repository refuses;
+- `site` reads the repository's tags with `git ls-remote` without credentials
+  (`Regula.Site.Build.remoteTags`), which fails while the repository is private, in CI as well,
+  whose `site` job checks out without credentials;
 - `diagnostics enumeration-failure` maps a loop device through device-mapper and mounts it with
   passwordless `sudo` (`Regula.Qualification.Enumeration.unsupported?`), so anywhere but on a
-  GitHub-hosted Linux runner it ends as unsupported.
-
-Their workflows still run them on dispatch. -/
+  GitHub-hosted Linux runner it ends as unsupported; the diagnostics workflow runs it on
+  dispatch. -/
 def notRunHere : List (List String) := [["site"], ["diagnostics", "enumeration-failure"]]
 
 /-- The steps of the local gate, in order. Each comes from the workflow job named beside it, a job

@@ -2038,8 +2038,9 @@ def openRelease : IO Unit := do
       the workflow refuses to create a branch while it observes a release pull request for the \
       version it derives open, and a pull request that lists another version is stale.\n\n\
       Before this pull request merges, the local gate \
-      (`lean --run lean/Regula/DiagnosticsGate.lean local`) must pass on its head. Until the \
-      release is published, the site check builds and checks the artifact with a preview at \
+      (`lean --run lean/Regula/DiagnosticsGate.lean local`) must pass on its head; it leaves \
+      out the site check. Until the release is published, a site build of this branch \
+      (`./scripts/verify.sh site`) builds and checks the artifact with a preview at \
       `v/{v.spelling}/`, rendered from this branch, which carries no release label; the \
       release's own edition exists only once CI builds it from the release commit, and no \
       artifact with a preview is deployed.\n\n\

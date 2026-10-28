@@ -201,7 +201,7 @@ sequence, and stops at the first failure:
   Mathlib, and it is not part of acceptance.
 - The three rule-example shards.
 - The builds of the tools of the rule-reference site. The gate leaves out `./scripts/verify.sh site`,
-  which reads the private repository with no credentials and thus cannot run here.
+  which reads the repository with no credentials and thus fails while the repository is private.
 - The campaigns of the diagnostics workflow, with its comparison of the self-hosted digests. It
   leaves out `enumeration-failure`, which runs only on a GitHub-hosted Linux runner.
 - The self-lint and the four self-audit shards of the dogfood workflow.

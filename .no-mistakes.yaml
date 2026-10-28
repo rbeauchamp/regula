@@ -7,7 +7,7 @@
 # need. The pipeline's Test step is the gate instead. It runs `commands.test` in the run's disposable
 # checkout at the commit it validates, and an exit code other than 0 parks it. The command is the
 # local gate, which runs the steps of every workflow job that checks a change one after another,
-# except two whose checks cannot run on this machine, and stops at the first that fails
+# except two whose checks cannot pass on this machine, and stops at the first that fails
 # (docs/guides/contributing.md#the-local-gate). It runs them on every commit, never a selection by
 # the paths a change touches. What a step rebuilds is Lake's decision, from its own traces in the
 # checkout, and the first acceptance step builds in a new copy, as it does by hand. No
