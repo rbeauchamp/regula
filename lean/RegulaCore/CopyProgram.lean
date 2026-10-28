@@ -909,7 +909,7 @@ Assumes: Git 2.54.0 `builtin/config.c:72,112-113,1350,1358` declare --file, -z, 
 `builtin/config.c:482-495,583-585,609,1524-1529` select the names that the pattern matches, ignore
 the result of the read and exit 1 when nothing matched; `builtin/config.c:385-399,447-466,995-1016`
 print each name and a NUL for -z with --name-only. `config.c:881-919,925-970` builds each name as a
-C string, so it holds no NUL. `config.c:1606-1609,1382-1398` opens the file with `fopen_or_warn`,
+C string, so it holds no NUL. `config.c:1607-1610,1382-1398` opens the file with `fopen_or_warn`,
 and `wrapper.c:401-420` returns no file for each failure, warning except for ENOENT and ENOTDIR.
 Configuration and all captured metadata have no concurrent writer. -/
 def settingNames (root config : FilePath) (query : Array String) : IO (List String) := do
@@ -972,12 +972,18 @@ file that holds only `worktreeSettings` (`admitGitSettings`). The extension's va
 the file is held to that case even where the value disables it. Without the extension, Git does not
 read the file, and neither does this routine. Git decodes each file (`settingNames`).
 
-Assumes: Git 2.54.0 `setup.c:584-599,611-634,717-748,750-791` reads the repository format, the
+With the extension, Git also takes `core.bare` from the common `config` for a linked work tree,
+which it ignores there without the extension. Neither copy changes the `core.bare` of that file,
+and an admitted `config.worktree` sets none, so Git takes a copy to be bare exactly when it takes
+its source to be.
+
+Assumes: Git 2.54.0 `setup.c:584-599,611-632,717-748,750-791` reads the repository format, the
 worktreeConfig extension included, from the common directory's `config` alone, and with that
-extension reads `core.bare` and `core.worktree` from `gitDir/config.worktree` too; `config.c:1515-1581` reads the
-settings of `gitDir/config.worktree`, when the extension is on and the file is readable, after the
-common `config`. A per-worktree setting of any name `selectorPattern` selects is not in
-`worktreeSettings`. -/
+extension reads `core.bare` and `core.worktree` from `gitDir/config.worktree` too;
+`setup.c:792-806` then applies `core.bare` and `core.worktree` from the two files also where a
+`commondir` file is present. `config.c:1515-1581` reads the settings of `gitDir/config.worktree`,
+when the extension is on and the file is readable, after the common `config`. A per-worktree
+setting of any name `selectorPattern` selects is not in `worktreeSettings`. -/
 def admitCopyGitConfig (root gitDir common : FilePath) : IO Unit := do
   let selected ← settingNames root (common / "config") #["--get-regexp", selectorPattern]
   let worktree ← if !selected.isEmpty && selected.all (· == worktreeExtension) then

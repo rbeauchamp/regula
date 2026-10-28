@@ -208,8 +208,9 @@ run_cmd do
       unless worktreeItems.map (·.relative) == plain.map (·.relative) &&
           (← Construction.kindWith Construction.observer (worktreeCopy / ".git/config.worktree")).isNone &&
           hooks.exitCode == 1 && hooks.stdout.isEmpty && clean.exitCode == 0 && clean.stdout.isEmpty do
-        throw <| IO.userError s!"Git copy of a source with admitted per-worktree settings is not the \
-          plain copy, or reads a per-worktree setting: {hooks.stdout}{clean.stdout}{clean.stderr}"
+        throw <| IO.userError s!"Git copy of a source with admitted per-worktree settings lacks \
+          the paths of the plain copy, reads a per-worktree setting or is not clean: \
+          {hooks.stdout}{clean.stdout}{clean.stderr}"
       -- A per-worktree setting that would change the copy, redirect its work tree or read another
       -- file refuses, also while the extension's value disables it.
       for (key, value, disabled) in [("core.symlinks", "true", false),
@@ -306,7 +307,8 @@ run_cmd do
       Regula.Qualification.Slot.materializeGit (runSlot / ".git") (linked / ".git")
       let runHooks ← Construction.gitOutput runSlot #["config", "--get", "core.hookspath"]
       let runBare ← Construction.gitOutput runSlot #["rev-parse", "--is-bare-repository"]
-      unless runHooks.exitCode == 1 && runHooks.stdout.isEmpty && runBare.stdout == "false\n" &&
+      unless runHooks.exitCode == 1 && runHooks.stdout.isEmpty && runBare.exitCode == 0 &&
+          runBare.stdout == "false\n" &&
           (← Construction.kindWith Construction.observer (runSlot / ".git/config.worktree")).isNone do
         throw <| IO.userError s!"Git slot of a run's linked work tree reads a per-worktree setting: \
           {runHooks.stdout}{runBare.stdout}{runBare.stderr}"
