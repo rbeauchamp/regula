@@ -2076,6 +2076,11 @@ def decisionResult? (registered : NameSet) (info : ConstantInfo) :
   unless registered.contains info.name do return none
   return some (if ← returnsDecidable info.type then .decidable else .other)
 
+/-- The loaded module that declares `declaration`: the module of its imported index in `env`, or
+`none` when no loaded module declares it. -/
+def loadedHome (env : Environment) (declaration : Name) : Option Name :=
+  (env.getModuleIdxFor? declaration).bind fun home => env.header.moduleNames[home.toNat]?
+
 /-- Refuses the first `@[regula_decision]` registration that one of the loaded `modules` writes
 for a declaration none of them declares, naming the registering module and the declaration. An
 inventory of `modules` records no declaration for it, so its RG1008 requirement would go
@@ -2085,8 +2090,7 @@ def ownedDecisionRegistrations (env : Environment) (modules : List Name) : Excep
   let foreign := env.header.moduleNames.zipIdx.findSome? fun (moduleName, index) =>
     if modules.contains moduleName then
       (decisionExtension.getModuleEntries env index).findSome? fun declaration =>
-        let owned := (env.getModuleIdxFor? declaration).any fun home =>
-          (env.header.moduleNames[home.toNat]?).any modules.contains
+        let owned := (loadedHome env declaration).any modules.contains
         if owned then none else some (moduleName, declaration)
     else none
   match foreign with
@@ -2096,6 +2100,114 @@ def ownedDecisionRegistrations (env : Environment) (modules : List Name) : Excep
         of this inventory declares {declaration}: a registration is a requirement of the \
         inventory that owns the function, so register it in a module of the library that \
         declares it"
+
+/-- The registrations `entries` that the module `writer` writes, each a registered declaration
+with the loaded module that declares it (`none` when no loaded module does), less those of the
+declarations of `writer`: an error names the first registration whose declaration no loaded
+module declares, and otherwise the others are kept in order, each with its module
+(`mem_registeredElsewhere`, `registeredElsewhere_eq_error`, `registeredElsewhere_ok`). -/
+def registeredElsewhere (writer : Name) :
+    List (Name × Option Name) → Except Name (List (Name × Name))
+  | [] => .ok []
+  | (declaration, none) :: _ => .error declaration
+  | (declaration, some home) :: rest => do
+    let found ← registeredElsewhere writer rest
+    return if home = writer then found else (declaration, home) :: found
+
+/-- A kept registration is exactly a registration of `entries` whose declaration a loaded module
+other than `writer` declares. -/
+theorem mem_registeredElsewhere {writer : Name} {entries : List (Name × Option Name)}
+    {found : List (Name × Name)} (accepted : registeredElsewhere writer entries = .ok found)
+    (declaration home : Name) :
+    (declaration, home) ∈ found ↔ (declaration, some home) ∈ entries ∧ home ≠ writer := by
+  induction entries generalizing found with
+  | nil =>
+    simp only [registeredElsewhere, Except.ok.injEq] at accepted
+    subst accepted
+    simp
+  | cons entry rest ih =>
+    obtain ⟨registered, home?⟩ := entry
+    cases home? with
+    | none => simp [registeredElsewhere] at accepted
+    | some module =>
+      cases rested : registeredElsewhere writer rest with
+      | error _ =>
+        simp only [registeredElsewhere, rested] at accepted
+        cases accepted
+      | ok kept =>
+        simp only [registeredElsewhere, rested] at accepted
+        have inner := ih rested
+        by_cases own : module = writer
+        · simp only [own, ite_true] at accepted
+          cases accepted
+          subst own
+          simp only [inner, List.mem_cons, Prod.mk.injEq, Option.some.injEq]
+          constructor
+          · exact fun ⟨member, other⟩ => ⟨.inr member, other⟩
+          · rintro ⟨⟨-, rfl⟩ | member, other⟩
+            · exact absurd rfl other
+            · exact ⟨member, other⟩
+        · simp only [own, ite_false] at accepted
+          cases accepted
+          simp only [inner, List.mem_cons, Prod.mk.injEq, Option.some.injEq]
+          constructor
+          · rintro (⟨rfl, rfl⟩ | ⟨member, other⟩)
+            · exact ⟨.inl ⟨rfl, rfl⟩, own⟩
+            · exact ⟨.inr member, other⟩
+          · rintro ⟨⟨rfl, rfl⟩ | member, other⟩
+            · exact .inl ⟨rfl, rfl⟩
+            · exact .inr ⟨member, other⟩
+
+/-- A refusal names a registration of `entries` whose declaration no loaded module declares. -/
+theorem registeredElsewhere_eq_error {writer declaration : Name}
+    {entries : List (Name × Option Name)}
+    (refused : registeredElsewhere writer entries = .error declaration) :
+    (declaration, none) ∈ entries := by
+  induction entries with
+  | nil => simp [registeredElsewhere] at refused
+  | cons entry rest ih =>
+    obtain ⟨registered, home?⟩ := entry
+    cases home? with
+    | none =>
+      simp only [registeredElsewhere, Except.error.injEq] at refused
+      subst refused
+      exact List.mem_cons_self
+    | some module =>
+      cases rested : registeredElsewhere writer rest with
+      | error named =>
+        simp only [registeredElsewhere, rested] at refused
+        cases refused
+        exact List.mem_cons_of_mem _ (ih rested)
+      | ok kept =>
+        simp only [registeredElsewhere, rested] at refused
+        split at refused <;> cases refused
+
+/-- Registrations whose declarations loaded modules declare are never refused. -/
+theorem registeredElsewhere_ok {writer : Name} {entries : List (Name × Option Name)}
+    (declared : ∀ entry ∈ entries, entry.2.isSome) :
+    ∃ found, registeredElsewhere writer entries = .ok found := by
+  cases result : registeredElsewhere writer entries with
+  | ok found => exact ⟨found, rfl⟩
+  | error declaration =>
+    have := declared _ (registeredElsewhere_eq_error result)
+    simp at this
+
+/-- The `@[regula_decision]` registrations that the loaded module `writer` writes for declarations
+of another loaded module, each with that module, in the order Lean saved them: `registeredElsewhere`
+of each registration with its `loadedHome`. An inventory of `writer` alone records no declaration
+for them, so a caller that audits `writer` alone and reads them here decides their RG1008
+requirement itself, as the self-audit does with the contracts of `writer`. Refuses a `writer` that
+`env` did not load and a registration whose declaration no loaded module declares. -/
+def registrationsElsewhere (env : Environment) (writer : Name) :
+    Except String (List (Name × Name)) := do
+  let some index := env.getModuleIdx? writer
+    | throw s!"module {writer} is not loaded, so its `@[regula_decision]` registrations are unknown"
+  let entries := (decisionExtension.getModuleEntries env index).toList.map fun declaration =>
+    (declaration, loadedHome env declaration)
+  match registeredElsewhere writer entries with
+  | .ok found => return found
+  | .error declaration => throw s!"module {writer} registers {declaration} with \
+      `@[regula_decision]`, and no loaded module declares {declaration}"
 
 /-- For each imported module index: whether the module is `target` or transitively imports it.
 This is the least fixed point of "is `target` or imports a marked module": a pass that marks

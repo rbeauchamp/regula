@@ -141,7 +141,7 @@ The contracts are about the data that the functions get. Lean does not prove the
 - That the lists of tracked files are correct. Git gives them.
 - That the baseline and the documents of the base revision are correct. Git gives them.
 - That the parents of a commit, the commit of a name and the merge base are correct. Git gives them.
-- That the value which CI gives is correct: the commit before a push, and the head of a pull request. GitHub gives that value for the event, and no local run has it.
+- That the value which CI gives is correct: the commit before a push. GitHub gives that value for the event, and no local run has it.
 - That a digest is the SHA-256 digest of a file. The `shasum` program gives it.
 - That md4c and GitHub read a document with the same result.
 - That the code which makes pieces from the result of md4c is correct. That code is in [`markdown/RegulaMarkdown.lean`](../../markdown/RegulaMarkdown.lean). It has controls, but no theorem.
@@ -162,8 +162,8 @@ Check B2 compares the baseline with the base revision. The base revision is a co
 
 | Start of the check | Base revision |
 | --- | --- |
-| A developer, with no variable | The merge base of `HEAD` and `origin/main`. |
-| CI, a pull request | The first parent of the merge commit that CI examines. The second parent must be the head of the pull request. |
+| A developer or the local gate, with no variable | The merge base of `HEAD` and `origin/main`. |
+| The variable, with `pull:` and the head of a pull request | The first parent of the merge commit that the check examines. The second parent must be the head of the pull request. |
 | CI, a push | The commit before the push. |
 | CI, a manual start of the workflow | The first parent of the commit. |
 | CI, the release commit | The release commit. |
@@ -181,7 +181,7 @@ If Git does not give the base revision, B2 does not accept the baseline, and no 
 
 - A variable that is empty, that does not have one of the two forms, or that gives an empty commit.
 - A commit that Git does not have. Examples are the 40 zeros of the first push of a branch, and the first parent of a commit with no parent.
-- A pull request where the commit that CI examines is not a merge commit with the head of the pull request as its second parent.
+- A start with `pull:`, where the examined commit is not a merge commit with the head of the pull request as its second parent.
 - A checkout where Git does not have the commit or the parents that the start uses. For example, in a checkout with no history, Git gives no parent of the commit. There, Git gives a merge base only if the two revisions are the same commit. Thus the `verify` job of CI gets the full history.
 
 If the base revision has a baseline, B2 compares the two baselines:

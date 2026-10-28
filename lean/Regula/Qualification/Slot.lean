@@ -23,8 +23,9 @@ termination is claimed); the consumer path — control admission and terminal
 qualification — consumes captured data and the real ROOT checkout and never
 dereferences the slot path.
 Preparation asks Git to resolve its metadata and common directory, then constructs a
-self-contained copy. Alternate object stores, configuration extensions/includes and
-core.worktree redirects refuse. The ROOT copy's Git stays inside the slot, and preparation
+self-contained copy. Alternate object stores and each Git setting outside the closed case of a
+copy source refuse (`Construction.admitCopyGitConfig`), and Git reads no per-worktree
+configuration file of the source for the copy. The ROOT copy's Git stays inside the slot, and preparation
 points manifest dependencies only at captured shared
 roots, compares captured source/config inputs byte-exactly, records relocation
 truthfully, and refuses on any containment violation. A ROOT, original or copy, whose package
@@ -116,13 +117,23 @@ def maxWalkDepth : Nat := 4096
 
 /-- Construct self-contained plain metadata using Git's own pointer and common-directory
 resolution. Linked-worktree common metadata is captured beneath `common`; the one generated
-commondir file selects it. Alternates, extension/include settings and core.worktree redirects
-are outside the closed case and refuse before any destination is written.
+commondir file selects it. Alternates and each setting outside the closed configuration case of a
+copy source (`Construction.admitCopyGitConfig`: an extension but worktreeConfig, an include,
+a core.worktree redirect, and, with that extension, a per-worktree setting but the hooks directory
+and the author's identity) refuse before any destination is written. The copy omits the
+per-worktree configuration file `config.worktree` of the source's own Git directory
+(`Construction.omitStoredEntry`), so Git reads the slot's configuration from the copied common
+`config` alone. The files `config.worktree` below `common`, that of the main work tree and those
+below `common/worktrees` with the source's own among them, are copied as they are and are no file
+of the slot's configuration.
 
 Assumes: Git 2.54.0 `builtin/rev-parse.c:723-731` uses resolve_gitdir for --resolve-git-dir;
-`setup.c:303-324` resolves commondir. Construction's gitPath, admitGitConfig, admitGitObjects
-and gitProcessArgs document their path/config/environment assumptions. All captured source
-metadata is stable and has no concurrent writer. -/
+`setup.c:303-324` resolves commondir. The configuration sequence of `config.c:1534-1537` reads the
+per-worktree file of the Git directory, not of the common directory or of another work tree. Git's
+listing of work trees reads `core.bare` from the common directory's own `config.worktree` for the
+main work tree alone (`worktree.c:89-109`). Construction's gitPath, admitCopyGitConfig,
+admitGitObjects and gitProcessArgs document their path/config/environment assumptions. All
+captured source metadata is stable and has no concurrent writer. -/
 def materializeGit (slotGit : FilePath) (sourceGit : FilePath) : IO Unit := do
   let initial ← Regula.Filesystem.Construction.capture sourceGit
   let some root := sourceGit.parent | throw <| IO.userError "slot Git source has no parent"
@@ -135,9 +146,11 @@ def materializeGit (slotGit : FilePath) (sourceGit : FilePath) : IO Unit := do
     (gitOptions ++ #["rev-parse", "--path-format=absolute", "--git-common-dir"])
   let commonItems ← if common == directory then pure []
     else Regula.Filesystem.Construction.capture common ["common"]
-  Regula.Filesystem.Construction.admitGitConfig root (common / "config")
+  Regula.Filesystem.Construction.admitCopyGitConfig root directory common
   Regula.Filesystem.Construction.admitGitObjects root gitOptions
   let localItems := localItems.filter (·.relative != ["commondir"])
+  let localItems ←
+    Regula.Filesystem.Construction.omitStoredEntry directory [] "config.worktree" localItems
   let generated := if common == directory then [] else
     [⟨["commondir"], .file "common\n".toUTF8⟩]
   Regula.Filesystem.construct slotGit

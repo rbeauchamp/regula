@@ -1,14 +1,42 @@
 # Configuration of the no-mistakes validation pipeline that every change to Regula passes through.
+# no-mistakes reads every setting here only from the copy of this file on the default branch, so a
+# change to it governs the runs that start after its merge.
 #
-# Regula establishes the claims of a change by types, constructions, contracts, machine-checked
-# proofs and derivation, not by tests. The pipeline's reviewer, test and fix agents learn that rule
-# only from this file, so it declares `test.tests_as_evidence` with `policy: forbid`. With it,
-# each agent of the pipeline that could write, ask for or review a test is told not to use a test
-# as evidence, and missing evidence is reported as a missing proof, contract or derivation, or as an
-# open claim. A change whose listing of tests prints an identifier that the listing of its base
-# does not print is blocked at the Test step, at publication and on CI repairs. no-mistakes reads
-# this setting only from the copy of this file on the default branch, so a change to it governs the
-# runs that start after its merge.
+# The gate of a change. GitHub Actions does not check a change: the workflows that checked pull
+# requests and pushes run on dispatch, and on main only what the release and the site publication
+# need. The pipeline's Test step is the gate instead. It runs `commands.test` in the run's disposable
+# checkout at the commit it validates, and an exit code other than 0 parks it. The command is the
+# local gate, which runs the steps of every workflow job that checks a change one after another,
+# except two whose checks cannot pass on this machine, and stops at the first that fails
+# (docs/guides/contributing.md#the-local-gate). It runs them on every commit, never a selection by
+# the paths a change touches. What a step rebuilds is Lake's decision, from its own traces in the
+# checkout, and the first acceptance step builds in a new copy, as it does by hand. No
+# `build_outputs` is declared: for Lake, the only store it may seed is Lake's artifact cache, and
+# every command that `scripts/verify.sh` starts runs with `LAKE_ARTIFACT_CACHE=false`
+# (`RegulaVerification.start`), so a seeded cache would go unread. no-mistakes documents
+# `commands.test` as a targeted command that leaves broad regression to CI; here no CI is left to
+# run it.
+#
+# `no_ci` declares that none of the workflow files in `.github/workflows/` reports a check on a pull
+# request, so a pull request with no checks can count as ready. A check that GitHub still reports is
+# processed as before.
+#
+# The title of a pull request is not a check of a commit, and no-mistakes runs no command after it
+# writes the title. `pr.title_format` stays unset, so no-mistakes drafts each title as a Conventional
+# Commits header; the `Title` workflow checks a title on dispatch.
+#
+# Memory. The gate's Lake builds run as many jobs as the machine has cores and its Lean processes run
+# with no memory limit, so nothing bounds its peak, and the step takes the machine's whole heavy-work
+# budget (16 GiB on the 24 GiB Mac that runs it, which keeps 8 GiB in reserve).
+#
+# Tests are not evidence. Regula establishes the claims of a change by types, constructions,
+# contracts, machine-checked proofs and derivation, not by tests. The pipeline's reviewer, test and
+# fix agents learn that rule only from this file, so it declares `test.tests_as_evidence` with
+# `policy: forbid`. With it, each agent of the pipeline that could write, ask for or review a test
+# is told not to use a test as evidence, and missing evidence is reported as a missing proof,
+# contract or derivation, or as an open claim. A change whose listing of tests prints an identifier
+# that the listing of its base does not print is blocked at the Test step, at publication and on CI
+# repairs.
 #
 # The listing is lean/Regula/TestListing.lean, whose module docstring states what it reads and
 # what it trusts. Lake knows one kind of test, the package's test driver, which `lake test` runs.
@@ -19,11 +47,20 @@
 # listing does not print them. The library name in the command is macOS's: on another system the
 # command fails.
 #
-# Memory. Measured on 2026-10-27 on a checkout with no .lake directory: `lake env` peaked at
-# 0.75 GB resident and the program at 1.9 GB resident, most of it Lean's and Lake's .olean files,
-# which the system maps from disk; the largest footprint of either was 0.15 GB. The command runs
-# through `no-mistakes admit` with a bound above the two together, so it waits until the bound
-# fits the machine's memory budget beside all other admitted work. Nothing enforces the bound.
+# Memory of the listing. Measured on 2026-10-27 on a checkout with no .lake directory: `lake env`
+# peaked at 0.75 GB resident and the program at 1.9 GB resident, most of it Lean's and Lake's .olean
+# files, which the system maps from disk; the largest footprint of either was 0.15 GB. The command
+# runs through `no-mistakes admit` with a bound above the two together, so it waits until the bound
+# fits the machine's memory budget beside all other admitted work. Inside work that is already
+# admitted, such as the Test step that `heavy_steps` declares, `admit` runs it within that share
+# instead. Nothing enforces the bound.
+no_ci: true
+commands:
+  test: lean --run lean/Regula/DiagnosticsGate.lean local
+heavy_steps:
+  test:
+    memory: 16GiB
+    limit: none; the whole heavy-work budget, because nothing bounds the peak of the gate's builds
 test:
   tests_as_evidence:
     policy: forbid

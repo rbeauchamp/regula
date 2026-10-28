@@ -60,8 +60,8 @@ acceptance step performs Lake-semantic discovery and a clean, warning-free build
 inspection, so a redundant preliminary clean build is unnecessary; `lake build` remains the
 development command. Each command has its own hard seven-minute
 limit; a timeout is an incomplete run, not acceptance. `./scripts/provision.sh` runs before
-that limit, under its own 30-minute limit; it validates the released compiler and acquires no dependencies. CI runs both commands, in that order in one job, after restoring or
-provisioning the pinned Verso artifacts.
+that limit, under its own 30-minute limit; it validates the released compiler and acquires no dependencies. The [local gate](#the-local-gate) runs the two commands in that order, after it provisions
+the pinned Verso artifacts.
 
 Ordinary acceptance puts the accepted record at `tmp/acceptance-link.json` only after each of
 its commands ended with exit status 0. Its driver first makes one copy of the checkout in
@@ -151,15 +151,16 @@ lean --run lean/RegulaProvision.lean mathlib   # setup: the shared, read-only Ma
 not provisioned (`lean --run lean/RegulaProvision.lean mathlib-applies --require`), then runs
 `lake exe axiomGate` in the package, the fresh acceptance of its
 claimed surface against its own `foundation_manifest.json`, and then `lake lint` there. It is never
-part of acceptance and no acceptance step, diagnostic or site build depends on it. In CI the
-`mathlib integration` job of [`ci.yml`](../../.github/workflows/ci.yml) runs it on every pull
-request and on `main`; it is the only job that restores or provisions Mathlib.
+part of acceptance and no acceptance step, diagnostic or site build depends on it. The
+[local gate](#the-local-gate) runs it for each change, and the `mathlib integration` job of
+[`ci.yml`](../../.github/workflows/ci.yml) runs it on dispatch. That job is the only job that
+restores or provisions Mathlib.
 
 Its result is about the Lean toolchain in `integration/mathlib/lean-toolchain` and the Mathlib
 revision pinned in `integration/mathlib/lake-manifest.json`, and about nothing else. The proved decision
 `RegulaProvision.mathlibApplies` (`mathlibApplies_iff`) accepts exactly when the root and
-integration toolchain selectors are equal. A mismatch fails setup and the integration job;
-CI always schedules that job on ordinary pull requests and `main`.
+integration toolchain selectors are equal. A mismatch fails setup and the integration check.
+The local gate runs that check for each change.
 
 ### Share one Mathlib across local copies
 
@@ -256,7 +257,7 @@ checker behavior:
 | Partition | Focus |
 | --- | --- |
 | `fixtures`, `fixtures 1/5` to `fixtures 5/5` | Positive controls and intentionally invalid Lean declarations, then the Markdown scanner controls and the in-process fence corpus. A shard checks one fixture in five, by its position in module-name order, not the file order of `fixtures.json`. The last shard also runs the scanner controls and the fence corpus. |
-| `structural`, `structural 1/5` to `structural 5/5` | Surface discovery, ownership, contamination, required application contracts, decision contracts that one surface counts for a different surface, and admission reuse between environments; a shard runs part of the controls. The shards together run all of them but the self-hosted identity. Shards 1/5 and 5/5 write its two digests, `tmp/self-hosted-digest/positive.sha256` and `restored.sha256`. Only the CI `diagnostics` gate compares them, so a local claim rests on the unsharded `structural` run or a comparison of the two files. |
+| `structural`, `structural 1/5` to `structural 5/5` | Surface discovery, ownership, contamination, required application contracts, decision contracts that one surface counts for a different surface, and admission reuse between environments; a shard runs part of the controls. The shards together run all of them but the self-hosted identity. Shards 1/5 and 5/5 write its two digests, `tmp/self-hosted-digest/positive.sha256` and `restored.sha256`. The `diagnostics` gate and the local gate compare them, so a claim of one shard rests on the unsharded `structural` run or a comparison of the two files. |
 | `execution`, `execution 1/4` to `execution 4/4` | Execution evidence: each compiler-path mutation and correspondence control with its positive and fresh restoration; a shard runs part of the controls, and the shards together run all of them. |
 | `cli`, `cli 1/6` to `cli 6/6` | Command-line behavior and diagnostics: each fixture through a real `axiomGate --file` run, then the source-attribution controls. A fixture with a `fileAuditExclusion` in its manifest entry is left out and named with its reason. The fixtures partition still checks it. A shard checks one fixture in six, by its position in module-name order. The last shard also runs the source-attribution controls. Then it runs the control of a process without a task manager and the control of a run that stops early. For those two controls it builds `qualify`, `site`, `ruleExamples` and `ruleExampleQualification`. |
 | `environments`, `environments 1/6` to `environments 6/6` | Isolated environments, documentation scanning, and external adopters. Shard 1/6 runs the public fence corpus. Shard 2/6 runs the `lakefile.toml` adopter, and 3/6 runs the `lakefile.lean` and relative-path adopters. Shard 4/6 runs the clean-checkout documentation fences and `freshChecker`. Shard 5/6 runs the clean-checkout `--file` control, and 6/6 runs the public surface. |
@@ -312,8 +313,9 @@ claimed graph, so run the driver when that graph, claim or driver changes, and r
 coverage already obtained for the same inputs rather than repeating the same roots in a raw
 invocation. Diagnostics do not replace a failed acceptance run.
 
-The [diagnostics workflow](../../.github/workflows/diagnostics.yml) runs on every pull request,
-every push to `main`, nightly and on dispatch. Its first job, `applies`
+The [diagnostics workflow](../../.github/workflows/diagnostics.yml) runs on dispatch, and on no
+schedule, pull request or push.
+Its first job, `applies`
 (`lean --run lean/Regula/DiagnosticsGate.lean applies`), provisions the pinned release and
 decides which jobs apply. It runs the
 invocations that `Regula.DiagnosticsGate.campaigns` lists, and `applies` writes them for the matrix
@@ -321,34 +323,67 @@ of the `campaign` job. These are `producers`, `history`, the shards of the struc
 lint-driver partitions of the self-test, and five groups of qualification controls. The other
 partitions and groups are too long for a job, except `readers`. No job has the generated website
 sources, Verso and a provisioned Mathlib together, which `readers` builds on. The table of
-[campaigns no workflow runs](#campaigns-no-workflow-runs) names them. They run as parallel jobs, each with its own hard 420-second limit, on a pull
-request exactly when it changes one of the paths `Regula.DiagnosticsGate.inputs` lists (the checker, rules, rule examples, the
-adopter fixtures in `examples/lake-lint-toml` and `examples/build-lint`, the fixtures of the
-controls in `examples/fixtures`, the application and fixture sources the structural and execution
-controls mutate, Lake configuration, manifests, or
-the compiler and dependency setup: the provisioning program and its decision contracts, the
-provisioning action, the verification scripts and the configuration they read before a campaign),
-and on every other run; it also runs the three `rule-examples` shards nightly. Its last job,
-`diagnostics`, is a required check of the ruleset of `main`. It reports on every pull request and
-passes exactly when `applies` succeeded and each partition job passed and applies, or was
-skipped and does not apply, so a pull request merges only once every one of these jobs that
-applies to it has passed on its head commit, and a failed, cancelled or timed-out one refuses the
-merge. A pull request that changes none of the listed paths, such as one that changes only
-documentation, passes it without running a campaign
+[campaigns no workflow runs](#campaigns-no-workflow-runs) names them.
+They run as parallel jobs, each with its own hard 420-second limit, on each run of the workflow.
+The workflow also runs the three `rule-examples` shards on dispatch. Its last job, `diagnostics`,
+passes exactly when `applies` succeeded and each partition job passed and applies, or was skipped
+and does not apply. A failed, cancelled or timed-out job fails it
 ([proofs and boundaries](proofs-and-boundaries.md#the-diagnostics-gate)).
-[CI](../../.github/workflows/ci.yml) runs the three shards on every pull request and push to `main`,
-where they feed `./scripts/verify.sh site` ([website guide](website.md)). These campaigns are
+On each push to `main`, [CI](../../.github/workflows/ci.yml) runs the three shards, where they
+feed `./scripts/verify.sh site` ([website guide](website.md)). These campaigns are
 capability-triggered diagnostics (standard §7.8), not a partition of ordinary acceptance.
 The [dogfood workflow](../../.github/workflows/dogfood.yml) runs `self-lint` and the four shards of
-`self-audit` as parallel jobs under the same limit when Lean sources, Lake configuration, manifests or
-that compiler and dependency setup change, on every push to `main`, and nightly. They are not part of acceptance.
-None of these jobs is a required check of the ruleset of `main`. The workflow runs on a pull request only when those paths change. A required check from it does not report on a different pull request, so that pull request cannot merge.
-It runs `self-lint-default` only nightly and on dispatch, as one more job under the same limit. It is not a check of a pull request or of a push.
+`self-audit` as parallel jobs under the same limit, on dispatch alone. They are not part of
+acceptance. It also runs `self-lint-default` as one more job under the same limit.
 
 When the campaigns apply, the `diagnostics` job also compares two digests. The shard
 `structural 1/5` uploads the SHA-256 digest of the fresh input that the self-hosted positive's
 fresh gate accepted. The shard `structural 5/5` uploads that of its restored self-hosted copy.
 The gate refuses unless the two are present, well-formed and equal.
+
+### The local gate
+
+The merge gate is the local gate, `lean --run lean/Regula/DiagnosticsGate.lean local`. The
+no-mistakes validation pipeline runs it as its Test step, in the disposable checkout of the run,
+at each commit that it validates. The file [`.no-mistakes.yaml`](../../.no-mistakes.yaml) on `main`
+configures it. The gate runs the steps of each workflow job that checks a change, in sequence, in
+the checkout. At the first step that ends with an exit code that is not 0, the gate stops and fails.
+None of the workflow files in `.github/workflows/` runs on a pull request.
+
+The steps are these, in this order (`Regula.DiagnosticsGate.localSteps`):
+
+1. `lean --run lean/RegulaProvision.lean verso`, which provisions the pinned Verso.
+2. `lean --run lean/Regula/Release.lean unreleased` and `agree`, the release checks of CI's `verify` job.
+3. `./scripts/verify.sh` and `./scripts/verify.sh docs`.
+4. `lean --run lean/RegulaProvision.lean mathlib`, then `./scripts/verify.sh mathlib`.
+5. `./scripts/verify.sh diagnostics rule-examples 1/3`, `2/3` and `3/3`.
+6. The two builds of CI's `site` job.
+7. The invocations that `Regula.DiagnosticsGate.campaigns` lists, but `diagnostics enumeration-failure`.
+8. `lean --run lean/Regula/DiagnosticsGate.lean digests`, which compares the two self-hosted digests.
+9. `./scripts/verify.sh diagnostics self-lint` and the four shards of `self-audit`.
+
+The theorem `Regula.Campaigns.Diagnostics.localVerifications_eq` shows that the `verify.sh`
+invocations of the gate are those of the jobs that check a change (`Job.checksChange`), in order.
+The exceptions are the list `Regula.DiagnosticsGate.notRunHere`. The registry checks require those
+invocations to be the steps of the workflow files. Each `verify.sh` invocation keeps its own
+420-second limit, and the gate adds no limit. The other steps are copied from the workflow files,
+and no check compares them.
+
+The gate does not run the two invocations of `notRunHere`:
+
+- `./scripts/verify.sh site` reads the tags of the repository with `git ls-remote`, with no credentials. While the repository is private, that read fails, in CI as well.
+- `./scripts/verify.sh diagnostics enumeration-failure` maps a loop device through device-mapper and mounts it with `sudo`. Thus it runs only on a GitHub-hosted Linux runner. The diagnostics workflow runs it on dispatch.
+
+The gate does not select steps by the paths that a change touches. Lake decides what a step
+builds again, from its own traces in the checkout. The first acceptance step builds in a new copy,
+as it does by hand. A later Test round of the same run uses the build output that the earlier round
+left in the checkout. The configuration declares no `build_outputs` of no-mistakes. The only store
+that it can give to a run is the artifact cache of Lake, and the commands of
+`./scripts/verify.sh` run with that cache off.
+
+The gate does not check the title of a pull request. The pipeline runs no command after it writes
+the title, and it writes each title as a Conventional Commits header. The
+[Title workflow](../../.github/workflows/title.yml) checks a title on dispatch.
 
 ### Campaigns no workflow runs
 
@@ -560,6 +595,12 @@ editor hooks. Lean's import and kernel replay, the collector's observations, too
 paths, the worker processes and their JSON transport are trusted. The unchecked cast in Lean's
 `getModuleEntries` that gives the elaboration observer's record its type is trusted too. It is
 sound only for entries that the running Regula's observer wrote.
+
+A module of the library can register a function that a different module of the library declares,
+for example a decoder of `Regula.CompilerObservation`. The audit of the module that writes the
+registration decides [RG1008] for that function, with the decision contracts of that module. The
+self-audit refuses a registration of a function that is not in the library, and its report lists
+each registration of this type.
 
 The self-audit also refuses a one-sided comparison of `Json` values, the defect of
 [#269](https://github.com/rbeauchamp/regula/issues/269). It inspects each module of each library
@@ -958,7 +999,8 @@ decision contract and the attribute `regula_decision`.
 The start of the check gives the base revision of check B2. The
 [writing rules](writing.md#the-baseline) give the base revision for each start. The workflow
 gives the start to the documentation step in the variable `REGULA_PROSE_START`. The `verify`
-job of CI gets the full history of the repository. If Git does not give the base revision,
+job of CI gets the full history of the repository. The local gate gives no start, thus B2 uses
+the merge base of `HEAD` and `origin/main`. If Git does not give the base revision,
 check B2 does not accept the baseline.
 
 The controls of the base revision are repositories that the executable makes with Git in a
@@ -1028,8 +1070,9 @@ universally over supplied finite observations. A changed worker protocol require
 public-entrypoint controls for omitted, duplicate and substituted keys, wrong modes and
 snapshots, worker crash and malformed versions; changed library or overlay coverage requires a
 fresh imported-client control and exact Lake inventory checks. Do not add the multi-minute
-groups to every ordinary acceptance run. Existing CI builds transitively check all proof and
-adapter modules; the required CI diagnostics and budgets are described above.
+groups to every ordinary acceptance run. The builds of the local gate transitively check all
+proof and adapter modules. The diagnostics that the local gate runs, and their budgets, are
+described above.
 After fixes, reuse a diagnostic only with an explicit unchanged-relevant-input argument.
 
 ## Pull request titles
@@ -1038,9 +1081,9 @@ Pull requests merge by squash, so a pull request's title becomes the subject of 
 `main` and its description that commit's body. The title is a
 [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/) header,
 `type(scope)!: summary`: a type in lower case, an optional scope, `!` for a breaking change, then
-`: ` and a summary. The required `title` check ([`title.yml`](../../.github/workflows/title.yml),
-`lean --run lean/Regula/Release.lean title`) refuses any other title, and runs again when the
-title is edited. The type decides what the commit calls for in the next release:
+`: ` and a summary. The `title` check ([`title.yml`](../../.github/workflows/title.yml),
+`lean --run lean/Regula/Release.lean title`) refuses any other title. It runs on dispatch, with
+the title as its input, and the no-mistakes pipeline writes each title as such a header. The type decides what the commit calls for in the next release:
 
 | Type | Use it for | Release |
 | --- | --- | --- |
@@ -1110,8 +1153,8 @@ release, so the first own-numbered release is `0.2.0`; its lifecycle stamps
 (`.release ⟨4, 34, 0⟩`) and its rule reference `/v/4.34.0/` keep its tag's number. Its
 `lakefile.lean` declares no version, which Lake reads as `0.0.0`, so Lake and Reservoir rank it
 below every later release too ([Reservoir](#reservoir)). `main`'s `lakefile.lean` declares the
-latest release's version (`0.0.0` until `0.2.0`), and a step of the required `verify` check,
-before acceptance (`lean --run lean/Regula/Release.lean agree`), refuses a version Lake reads
+latest release's version (`0.0.0` until `0.2.0`), and a release check of the local gate and of
+CI's `verify` job, before acceptance (`lean --run lean/Regula/Release.lean agree`), refuses a version Lake reads
 that is not the latest listed release's, and an adoption-guide compatibility table that is not
 the one `Regula.releases` gives.
 
@@ -1127,7 +1170,8 @@ The same step reads each mention of a release in the root `README.md`. The text 
 
 `main` never carries a release label: `Regula.installed`
 ([`RegulaCore.Edition`](../../lean/RegulaCore/Edition.lean)) is `.unreleased` on every commit of
-`main` and of a pull request, which the first step of the required `verify` check enforces
+`main` and of a pull request, which the first release check of the local gate and of CI's `verify`
+job enforces
 (`lean --run lean/Regula/Release.lean unreleased`). The only build labelled a release is the
 release commit that CI creates beside `main`, and the site build refuses a release label once
 the release's tag names another commit (`labelAdmitted_release_iff`). Nothing public exists
@@ -1155,21 +1199,17 @@ until the release commit has passed the same checks as `main`:
    the signature. It creates the branch `release/v<version>-<commit>`, named after that commit
    (`Regula.Release.pullBranch`), and writes to its job summary the
    link that opens the pull request `chore(release): Regula v<version> for Lean <toolchain>`,
-   title and description filled in. A maintainer opens the pull request from that link, which
-   starts its checks, and merging it through normal review is the decision to release. While it
+   title and description filled in. A maintainer opens the pull request from that link and runs the
+   local gate on its head, and merging it through normal review is the decision to release. While it
    observes a release pull request for that version open, it
    [refuses and creates no branch](#rebuilding-the-release-pull-request)
    (`Regula.Release.branchAction`); a run that creates a branch creates one of its own and moves
-   none. Every
-   check of this pull request passes before it merges. Until the release is published, its
-   `site` check, like the site build of every unreleased commit that lists the release, builds
-   and checks the artifact with a preview of the release's edition, rendered from that commit
+   none. The local gate must pass on the head of this pull request before it merges. The gate
+   leaves out the site check. Until the release is published, the site build of each unreleased
+   commit that lists the release builds and checks the artifact with a preview of the release's edition, rendered from that commit
    without a release label ([versions](website.md#versions-and-routes)): the release's own
    edition exists only once CI builds it from the release commit, and an artifact with a preview
-   is never deployed. The required checks are `verify`, `title`, `diagnostics`,
-   `diagnostics rule-examples 1/3`, `diagnostics rule-examples 2/3`, `diagnostics rule-examples 3/3`,
-   `site`, `mathlib integration`
-   and code scanning's `CodeQL` and `Analyze (actions)`.
+   is never deployed.
 2. **candidate** (`ci.yml`, the `candidate` job on `main`): once acceptance and the three rule-example
    shards pass on a commit of `main` that lists a release not yet published, it refuses unless
    the releases GitHub reports published are exactly the releases listed before it
@@ -1259,8 +1299,8 @@ introduced), published releases other than those it keeps listed (an earlier lis
 yet published, or a published release not listed), a `main` that already lists the release
 with nothing left to change, and a release pull request for its version that it observes open.
 
-Who opens the pull request, and when its checks start: a maintainer opens it from the link in the
-job summary of **open**, and opening it starts its checks. No workflow creates a pull request,
+Who opens the pull request, and how it is checked: a maintainer opens it from the link in the
+job summary of **open**, and runs the local gate on its head. No workflow creates a pull request,
 because the repository does not let GitHub Actions create one.
 
 Adopters update by changing the tag, and `lean-toolchain` when the release supports another
@@ -1274,8 +1314,8 @@ a new run:
 
 1. Close the release pull request.
 2. Run the Release workflow.
-3. Open a fresh pull request from the link in that run's job summary, which starts its checks, as
-   on a first run.
+3. Open a fresh pull request from the link in that run's job summary, and run the local gate on
+   its head, as on a first run.
 
 **open** keeps two guarantees, of different strength.
 

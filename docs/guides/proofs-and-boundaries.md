@@ -250,8 +250,8 @@ only if the owner of the workspace sets `REGULA_ORDINARY_LAKEFILES=1` in the env
 With the assertion, the owner states that the lakefiles of the workspace are ordinary
 configuration. The plain shape is a conservative guard under that assertion. It is not a
 guarantee against a lakefile that someone wrote to defeat it. The verification of Regula makes
-the assertion in the timed check of its own code (`diagnostics self-lint`). A nightly check of
-its root package, `diagnostics self-lint-default`, runs without it.
+the assertion in the timed check of its own code (`diagnostics self-lint`). A check of its root
+package that runs on dispatch, `diagnostics self-lint-default`, runs without it.
 
 The driver reads the assertion only from its environment, and any value other than `1` is
 refused with exit 2 (`Regula.Checker.Lint.ownerAssertion_eq_true_iff`). Lake v4.34.1 runs the
@@ -684,15 +684,15 @@ The Git clone adapter emits the indexed worktree and its captured `.git` metadat
 
 The adapter also emits untracked regular files beneath the package's own `.lake/build`, admitted by the same no-follow capture. Other untracked files are not emitted. Thus provisioned dependencies retain their reusable build outputs. `Construction.gitBuildFiles_mem` states the exact selection, including exclusion of paths already supplied by the index.
 
-The Git adapter has a closed source domain. Git decodes the configuration and resolves metadata paths. Extension settings, includes, `core.worktree` redirects and alternate object stores refuse before destination creation. The clone requires a plain, self-contained `.git` directory.
+The Git adapter has a closed source domain, and Git decodes the configuration and resolves metadata paths. Extension settings other than `extensions.worktreeConfig`, includes, `core.worktree` redirects and alternate object stores refuse before destination creation. If the common configuration has that extension, the file `config.worktree` of the Git directory of the source can have only `core.hooksPath`, `user.name` and `user.email`. `Construction.admitGitSettings_iff` states this decision over the names that Git decodes from the two files. The clone omits that file, so Git reads the configuration of the clone from its `config` file alone. The clone requires a plain, self-contained `.git` directory.
 
 Index paths must be valid UTF-8 and match the stored directory-entry names exactly. `Construction.admitGitName_iff` states the exact-name guard's complete membership condition. A case-folded spelling refuses before capture or blob reading. The adapter does not interpret `core.ignoreCase`.
 
 After Git confirms that the source common directory is its own metadata, the clone omits the captured `commondir` instruction. The observer supplies its stored spelling. The copied metadata thus has no instruction that selects the original common directory.
 
-The qualification slot asks Git to resolve pointer files and `commondir`. It constructs common metadata beneath its own Git directory. It refuses alternates at the path Git resolves for the effective object store. It parses no alternate entry and has no fallback path resolver.
+The qualification slot asks Git to resolve pointer files and `commondir`. It constructs common metadata beneath its own Git directory. It refuses alternates at the path Git resolves for the effective object store. It parses no alternate entry and has no fallback path resolver. It admits the same Git settings as the clone. It omits the file `config.worktree` of the Git directory of the source, so Git reads no such file of the source for the slot.
 
-`Construction.gitFiles_sound` relates each index entry to its regular-file instruction. `Construction.gitConstruct_io` states the exact plain tree of the executed writer. The tree has those indexed files, admitted build outputs, their directories and admitted Git metadata. The generated configuration and omitted common instruction determine that metadata. It contains no link. Destination byte fidelity remains trusted.
+`Construction.gitFiles_sound` relates each index entry to its regular-file instruction. `Construction.gitConstruct_io` states the exact plain tree of the executed writer. The tree has those indexed files, admitted build outputs, their directories and admitted Git metadata. The generated configuration, the omitted common instruction and the omitted file `config.worktree` determine that metadata. It contains no link. Destination byte fidelity remains trusted.
 
 Assumes: Trusted Git reports complete index modes, paths and object identifiers with `ls-files --format/-z`. Installed Git `2.54.0` documents this protocol in `git-ls-files(1)`. See `--format`, `-z` and `FIELD NAMES`. The source index and worktree have no writer. The adapter admits `.git` through no-follow capture before Git reads it.
 
@@ -2026,9 +2026,9 @@ Which report states a kind depends on the library that holds the registration:
   warning-free build, and the `self-audit` diagnostic holds each registration to [RG1007],
   including that the kind is stated about the implementation and that neither its acceptance
   predicate nor its specification mentions it, to [RG1009], and each registered decision to [RG1008] against
-  the decision contracts of its own module, since that diagnostic audits each module in its own
-  environment. It is not part of acceptance and prints the number of registrations, not their
-  kinds.
+  the decision contracts of the module that registers it, since that diagnostic audits each
+  module in its own environment. It is not part of acceptance and prints the number of
+  registrations, not their kinds.
 
 The tables below cover the decisions of both groups.
 
@@ -2100,6 +2100,7 @@ Two-way decisions (`Regula.Decides`), each with an accepted and a refused input:
 | `RegulaVerification.passed` | Each command of a step ended with exit status 0 (`passed_iff`). | The driver of `scripts/verify.sh` uses it before it operates one more command, before its success line and before it moves the acceptance record. |
 | `Construction.projectRelative` | No root `tmp`. Documentation includes cache-named directories. Elsewhere no component is `.git`, `.lake`, `.cache` or `.regula-scratch` (`checked_projectRelative`). | The selection that the shared cold constructor executes. The constructor's filesystem theorems name their primitive hypotheses. |
 | `Construction.admitGitName` (accepts on `.ok ()`) | The name is one of the stored directory-entry names, compared exactly (`admitGitName_iff`, `checked_admitGitName`). | The exact-name guard of each component of an index path that the Git adapter copies (`admitGitPath`). |
+| `Construction.admitGitSettings` (accepts on `.ok ()`) | Each name that the common configuration of a copy source selects is `extensions.worktreeconfig`. When the extension is among them, each name of the file `config.worktree` is `core.hookspath`, `user.email` or `user.name` (`admitGitSettings_iff`, `checked_admitGitSettings`). | The Git settings that the Git adapter and the qualification slot admit from a source (`admitCopyGitConfig`). |
 | `Construction.printedLine?`, `Construction.printedPath?`, and their copies `CompilerObservation.printedLine?` and `printedPrefix?` (accept on `some`) | `PrintedLine`, `PrintedPath`: the text is one line followed by one newline, and for `PrintedPath` that line is an absolute path. The line is not empty and holds no newline, carriage return or NUL (`checked_printedLine?`, `checked_printedPath?`). Each copy is the same function (`printedLine?_eq_printedLine?`, `printedPrefix?_eq_printedPath?`). | The reads of a printed path or line in `Construction.gitPath`, `Checker.gitWorkTree`, `Launcher.resolvedLean`, `printedLeanPath`, `Toolchain.selectedLean` and `CompilerObservation.findSysroot`. |
 | `RegulaVerification.removal` (accepts on `.remove`) | A directory is at the place by a read that follows no link, and its real path is the place (`removal_remove_iff`). | The driver removes its copy and the `_site` directory only by this decision. The two reads of the file system are trusted. |
 | `Regula.Removal.removal` (accepts on `.remove`) | A read that follows no link finds an entry of the given kind at the place. Its real path is the place, or a symbolic link is a name in a directory at its own place (`removal_remove_iff`). | Each program of the package removes a directory, a file or a symbolic link only by this decision, through `Regula.Filesystem`. The exceptions are the library calls that `Regula.Removal.libraryRemovals` gives, and the removals of the two drivers that `Regula.ProgramCheck.Verification` and `Regula.ProgramCheck.Provision` give. The removals of `bv_decide` that `Regula.Removal.tacticRemovals` gives are also exceptions. The reads of the file system are trusted. |
@@ -2193,7 +2194,7 @@ imports only the toolchain:
   no program imports: `RegulaProvision.Decisions` registers `component?`, `admits`, `mathlibStep`, `cloneStep`, `found`, `prunes`, `retires`,
   `mathlibApplies` and `selectPins`;
   `RegulaVerification.Decisions` registers `parseMode`, `dependencyFree`, `select`, `passed`,
-  `removal` and `prebuildCovers`. The shared constructor registers `projectRelative`, `admitGitName`, `printedPath?` and `printedLine?` in `RegulaCore.CopyConstruction`.
+  `removal` and `prebuildCovers`. The shared constructor registers `projectRelative`, `admitGitName`, `admitGitSettings`, `printedPath?` and `printedLine?` in `RegulaCore.CopyConstruction`.
   Each kind restates a theorem the program proves about the same definition, except those of
   `component?` and `selectPins` (`checked_component`, `checked_selectPins`).
 
@@ -2235,6 +2236,28 @@ and the other registering it: the audit reports the function under [RG1008] whil
 decides it and accepts it, recorded as registered, with the contract. It runs both for plain
 files and for `module`s, where the registering module imports the declaring one privately, so
 Lean saves the registration with that module's private data.
+
+The `self-audit` diagnostic audits each module of the excluded `Regula` library alone, but for a
+registration its inventory is the library. `Regula.Collect.registrationsElsewhere` reads each
+registration that a module writes for a function of a different module. The audit of the module
+that writes the registration decides [RG1008] for that function with the decision contracts of
+that module. The campaign refuses a registration of a function if Lake does not give its module as
+a module of the library (`SelfAudit.outsideLibrary`). Thus the audit of `Regula.Checker.Common`
+decides the two decoders of `Regula.CompilerObservation` that it registers, with their contracts
+`checked_printedPrefix?` and `checked_compilerPrintedLine?`.
+
+Lean proves these facts about the pure parts of this check:
+
+- `Collect.mem_registeredElsewhere`: the reading keeps a registration exactly when a different
+  loaded module declares its function.
+- `Collect.registeredElsewhere_eq_error`: the reading refuses only a registration of a function
+  that no loaded module declares.
+- `SelfAudit.mem_elsewhereFailures`: each kept registration gets the result of `decisionFailure`.
+- `SelfAudit.mem_outsideLibrary`: `outsideLibrary`, which the campaign refuses, gives exactly the
+  registrations of a function that is not in the library.
+
+The read of the registrations and of the module of each function from the environment is
+operational, not proved.
 
 In a project audit a registration also counts the decision contracts of each claimed surface that
 names its surface in `decides`. Thus a library that imports only the toolchain and
@@ -5386,7 +5409,7 @@ document that names a different release than the latest listed one, as the text 
 repository's address in quotation marks, exactly as `gitUrl` writes it. Thus `agree` also refuses
 unless the root `README.md` and the adoption guide each have a `require` of each form
 (`unpinned_eq_nil_iff`). `agree` also reads each mention of a release in the root `README.md` with the text reading `setMentions`. It refuses a mention that names a different release than the latest listed one or its toolchain (`mentionsAgree_iff`). It also refuses a `README.md` without a mention of each kind (`unmentioned_eq_nil_iff`). The kernel checks the edited modules' theorems when
-the release pull request's checks and CI's checks of the release commit build them:
+the local gate on the release pull request and CI's checks of the release commit build them:
 `releases_ascending`, `releases_follow`, `installed_listed`, `release_attributes_rules` (when
 `installed` is a release, no lifecycle position of any rule is `.unreleased`; on the release
 commit this is the gate before anything is published), `lifecycle_listed` (every release a rule's
@@ -5407,8 +5430,9 @@ trusted.
 
 **Proved** in `lean/Regula/DiagnosticsGate.lean`, checked by the kernel in ordinary acceptance's
 build and each time a step of the [diagnostics workflow](../../.github/workflows/diagnostics.yml)
-elaborates it (its `diagnostics` job on every pull request, and `applies` whenever it runs):
-`verdict`, the decision of the required `diagnostics` check over the workflow's `needs` context,
+elaborates it (its `diagnostics` job and `applies` when they run, and the steps `local` and
+`digests` of the local gate): `verdict`, the decision of the `diagnostics` job over the workflow's
+`needs` context,
 passes exactly when the job `applies` succeeded, every job it decided is one the gate needs, and
 every job the gate needs passed when it was decided to apply and was skipped when it was decided
 not to (`verdict_iff`, with `admits_iff`). So a failed or cancelled job is refused, as is one
@@ -5425,8 +5449,8 @@ checked-out commit without exactly two parents. Reading the event, the changed p
 context's JSON and the decisions `applies` wrote is operational, and a result, event or decision
 the steps do not know fails them. **Trusted:** GitHub (the event, the merge commit, the `needs`
 context and its report of a matrix job as succeeded only when every job of it did, a job's `if:`,
-timeouts, cancellation, that an `always()` job runs on a cancelled run, and the ruleset that
-requires `diagnostics`) and `git` (the commits it fetched and the paths `diff-tree` lists). That
+timeouts, cancellation, and that an `always()` job runs on a cancelled run) and `git` (the commits
+it fetched and the paths `diff-tree` lists). That
 every partition job of the workflow is in the gate's `needs` and has its `if:` read its own
 decision is the workflow's wiring, which no step observes; a needed job without a decision and a
 decided job the gate does not need fail the gate. The
@@ -5439,6 +5463,20 @@ upload. **Proved:** when the campaigns apply, `digestRefusals` refuses nothing e
 digests are present, well-formed and equal (`digestRefusals_eq_nil_iff`). When they do not apply,
 it requires no digest. **Trusted:** the artifacts that GitHub carries between the jobs, and
 `shasum`. Equal digests are read as equal inputs, an assumption of collision resistance.
+
+The local gate runs from the same file. The no-mistakes validation pipeline runs it on each commit
+that it validates ([contributor guide](contributing.md#the-local-gate)).
+
+**Proved:** `runSteps` reports no step exactly when each step ended with exit code 0
+(`runSteps_eq_none_iff`). A step that it reports is one of the steps, with its own code, which is
+not 0 (`runSteps_eq_some`). `Regula.Campaigns.Diagnostics.localVerifications_eq` proves the
+`verify.sh` invocations of `localSteps` exactly those of the jobs that check a change, in order,
+but those of `notRunHere`.
+
+The step `digests` refuses unless `digestRefusals` refuses nothing with the campaigns required.
+**Trusted:** that the theorems in `Id` describe the run in `IO` of the same definition. Also
+trusted: the start and the exit code of each process, the programs of the steps, and the pipeline
+that runs the gate.
 
 ## Rule examples and the corpus runner
 
@@ -5836,7 +5874,8 @@ of a canonical serialization of its input to a file below `tmp/`.
 
 The `diagnostics` gate of the workflow compares the two digests
 (`Regula.DiagnosticsGate.digestRefusals`). When the campaigns apply, it refuses a missing,
-malformed or different digest. Equal SHA-256 digests are read as equal inputs. This is an
+malformed or different digest, and the step `digests` of the local gate does the same. Equal
+SHA-256 digests are read as equal inputs. This is an
 assumption of collision resistance, not a theorem. The comparison takes the place of an accepting
 fresh gate on the restored copy.
 
@@ -6050,7 +6089,7 @@ it above. These are estimates, not a bound, and the CI runs of that change give 
 times.
 
 The unsharded `diagnostics lint-driver` runs every group in one invocation. On the slower runners
-it does not end before its deadline, thus CI runs the five shards.
+it does not end before its deadline, thus CI and the local gate run the five shards.
 
 **Other proved oracles.** Quantifiers range over supplied Lean values; the IO drivers call each
 `ExecutableContract.run`, so the evidence is required by their source linkage and erased at
