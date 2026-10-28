@@ -2235,6 +2235,28 @@ decides it and accepts it, recorded as registered, with the contract. It runs bo
 files and for `module`s, where the registering module imports the declaring one privately, so
 Lean saves the registration with that module's private data.
 
+The `self-audit` diagnostic audits each module of the excluded `Regula` library alone, but for a
+registration its inventory is the library. `Regula.Collect.registrationsElsewhere` reads each
+registration that a module writes for a function of a different module. The audit of the module
+that writes the registration decides [RG1008] for that function with the decision contracts of
+that module. The campaign refuses a registration of a function if Lake does not give its module as
+a module of the library (`SelfAudit.outsideLibrary`). Thus the audit of `Regula.Checker.Common`
+decides the two decoders of `Regula.CompilerObservation` that it registers, with their contracts
+`checked_printedPrefix?` and `checked_compilerPrintedLine?`.
+
+Lean proves these facts about the pure parts of this check:
+
+- `Collect.mem_registeredElsewhere`: the reading keeps a registration exactly when a different
+  loaded module declares its function.
+- `Collect.registeredElsewhere_eq_error`: the reading refuses only a registration of a function
+  that no loaded module declares.
+- `SelfAudit.mem_elsewhereFailures`: each kept registration gets the result of `decisionFailure`.
+- `SelfAudit.mem_outsideLibrary`: `outsideLibrary`, which the campaign refuses, gives exactly the
+  registrations of a function that is not in the library.
+
+The read of the registrations and of the module of each function from the environment is
+operational, not proved.
+
 In a project audit a registration also counts the decision contracts of each claimed surface that
 names its surface in `decides`. Thus a library that imports only the toolchain and
 `Regula.Decision` can hold the function, and a library with a proof dependency can state its kind.

@@ -18,7 +18,9 @@ observations the live linter's shared collector (`Regula.Collect.declaration`) c
 axioms each declaration reaches in the kernel that admission replayed (`Admission.validate`), the
 executed `RegulaPolicy.checked_decisionFailure` decision (RG1008) against the decision contracts
 the same module registers (`RegulaPolicy.decidedImplementations` of the recorded contracts of its
-declarations), and the live linter's module-header (RG5001: docstring present and first, no
+declarations), for its own declarations and for each function that another module of the library
+declares and this module registers (`Regula.Collect.registrationsElsewhere`; the campaign refuses
+a registration of a function outside the library), and the live linter's module-header (RG5001: docstring present and first, no
 repeated import) and material-documentation presence predicates
 (`Regula.Linter.Documentation`, RG5001–RG5003). Authored `unsafe`/`partial` declarations, the
 pinned toolchain's Lake axioms that in-process Lake APIs reach, and the axioms Lean's
@@ -117,6 +119,11 @@ structure ModuleObservation where
   /-- The finding texts of the comparison rule and of the absence rule for the module
   (`ruleFindings`). -/
   ruleFindings : Array String
+  /-- Each `@[regula_decision]` registration the module writes for a function of another loaded
+  module (`Regula.Collect.registrationsElsewhere`), with that module and the collector's
+  observation of the registration (`Regula.Collect.decisionResult?`). The module's audit decides
+  its RG1008 requirement, since no other audit loads the registration. -/
+  registeredElsewhere : Array (Name × RegulaPolicy.Declaration.Registration)
 
 /-- Whether `owner`'s artifact is the pinned toolchain's own `Lake` module: the file that the search
 path finds for it is, by real path, the toolchain's. That this is the file Lean read rests on the
@@ -447,20 +454,32 @@ private unsafe def observe (toolchainLib : FilePath) (moduleName : Name) (source
     | .ok admission => pure admission
     | .error failure => return .error failure.detail
   let admitted := (admission.receipt.admitted.filter (·.1 == moduleName)).size
-  if let .error refusal := Regula.Collect.ownedDecisionRegistrations env [moduleName] then
-    return .error refusal
+  -- The library, not the module, owns a registration: a function of another module of it that
+  -- this module registers is decided here, and `check` refuses one outside the library.
+  let elsewhere ← match Regula.Collect.registrationsElsewhere env moduleName with
+    | .ok found => pure found
+    | .error refusal => return .error refusal
   let own := Regula.Probe.ownedConstants env [moduleName]
   let ctx : Elab.Command.Context := {
     fileName := "<operational-self-audit>", fileMap := FileMap.ofString "",
     snap? := none, cancelTk? := none }
   let scope ← Regula.Collect.ContractScope.new env admission.replayed.axioms
   let collected ← EIO.toIO' <|
-    (show Elab.Command.CommandElabM (Array RegulaPolicy.Declaration) from
-      own.mapM fun (name, _) =>
-        Regula.Collect.declaration name .snapshot scope (some admission.replayed)).run ctx
+    (show Elab.Command.CommandElabM
+        (Array RegulaPolicy.Declaration × Array (Name × RegulaPolicy.Declaration.Registration)) from
+      do
+      let declarations ← own.mapM fun (name, _) =>
+        Regula.Collect.declaration name .snapshot scope (some admission.replayed)
+      let registrations ← elsewhere.toArray.mapM fun (name, home) => do
+        let some info := env.find? name
+          | throwError "{moduleName} registers {name}, which the environment does not hold"
+        let decisionResult ← Elab.Command.liftTermElabM
+          (Regula.Collect.decisionResult? scope.decisions info)
+        return (home, { name, decisionResult : RegulaPolicy.Declaration.Registration })
+      return (declarations, registrations)).run ctx
       |>.run (Elab.Command.mkState env)
-  let declarations : Array RegulaPolicy.Declaration ← match collected with
-    | .ok (declarations, _) => pure declarations
+  let (declarations, registeredElsewhere) ← match collected with
+    | .ok (collected, _) => pure collected
     | .error ex => return .error (← ex.toMessageData.toString)
   let mut toolchain : Array Name := #[]
   for d in declarations do
@@ -478,7 +497,7 @@ private unsafe def observe (toolchainLib : FilePath) (moduleName : Name) (source
       material := material.push (name, ← Linter.Documentation.declarationFailure env name)
   return .ok {
     «module» := moduleName, declarations, admitted, toolchain, header, material,
-    ruleFindings := ruleFindings moduleName own }
+    ruleFindings := ruleFindings moduleName own, registeredElsewhere }
 
 /-- Text of one violation finding at the declaration's module. -/
 private def declarationText (id : RuleId) (name : Name) (detail : String) (moduleName : Name) :
@@ -502,6 +521,26 @@ structure OmissionReport where
 /-- The text of an omission report: the declaration, its module and the detail. -/
 def OmissionReport.text (r : OmissionReport) : String :=
   s!"{r.declaration} ({r.module}): {r.detail}"
+
+/-- A function that the audited module registers with `@[regula_decision]` and another loaded
+module declares, with that module (`ModuleObservation.registeredElsewhere`). The worker decides its
+RG1008 requirement; the campaign refuses it unless Lake discovers the module in the library
+(`outsideLibrary`). Each name travels as its structural components (`RegistryCodec.nameJson`),
+which `RegistryCodec.parseName` reads back exactly (`RegistryCodec.name_roundtrip`). -/
+structure RegisteredElsewhere where
+  /-- The registered function. -/
+  declaration : Name
+  /-- The module that declares it. -/
+  «module» : Name
+
+instance : ToJson RegisteredElsewhere where
+  toJson r := Json.mkObj [("declaration", RegistryCodec.nameJson r.declaration),
+    ("module", RegistryCodec.nameJson r.module)]
+
+instance : FromJson RegisteredElsewhere where
+  fromJson? j := do
+    return { declaration := ← RegistryCodec.parseName (← j.getObjVal? "declaration")
+             «module» := ← RegistryCodec.parseName (← j.getObjVal? "module") }
 
 /-- One module's region-free verdict, transported from its worker process as JSON. -/
 structure ModuleResult where
@@ -531,7 +570,32 @@ structure ModuleResult where
   /-- Each declaration of the module for which Lean's `collectAxioms` omits axioms it reaches in
   the replayed kernel, reported rather than failed. -/
   tableOmissions : Array OmissionReport
+  /-- Each function of another module that the module registers, whose RG1008 requirement
+  `violations` decides. -/
+  registeredElsewhere : Array RegisteredElsewhere
   deriving ToJson, FromJson
+
+/-- The RG1008 failures of `registrations`, the registrations a module writes for functions of
+other modules, against `decided`, the implementations that the module's own contracts decide: each
+registration that `checked_decisionFailure` fails, with its failure, in order. -/
+def elsewhereFailures (registrations : Array RegulaPolicy.Declaration.Registration)
+    (decided : Array Name) : Array (RegulaPolicy.Declaration.Registration × DeclarationFailure) :=
+  registrations.filterMap fun r => (checked_decisionFailure.run r decided).map (r, ·)
+
+/-- A registration fails exactly when the executed decision requirement fails it
+(`decisionFailure_eq_some_iff`), so each registration is decided and none is dropped. -/
+theorem mem_elsewhereFailures {registrations : Array RegulaPolicy.Declaration.Registration}
+    {decided : Array Name} {r : RegulaPolicy.Declaration.Registration}
+    {failure : DeclarationFailure} :
+    (r, failure) ∈ elsewhereFailures registrations decided ↔
+      r ∈ registrations ∧ decisionFailure r decided = some failure := by
+  simp only [elsewhereFailures, Regula.ExecutableContract.run_eq, Array.mem_filterMap,
+    Option.map_eq_some_iff, Prod.mk.injEq]
+  constructor
+  · rintro ⟨found, member, failed, failure_eq, rfl, rfl⟩
+    exact ⟨member, failure_eq⟩
+  · rintro ⟨member, failure_eq⟩
+    exact ⟨r, member, failure, failure_eq, rfl, rfl⟩
 
 /-- Decide one module's observations with the axioms its own environment attributes to the
 toolchain; every retained value is a freshly rendered string. -/
@@ -552,9 +616,14 @@ private def decide (o : ModuleObservation) : Except String ModuleResult := do
   let mut partialDefinitions := #[]
   let mut dependents := #[]
   let mut contracts := 0
-  -- A registered decision is decided by a contract of its own module: each module is audited in
-  -- its own environment, so a contract in another module of the library does not count.
+  -- A registered decision is decided by a contract of the module that writes the registration:
+  -- each module is audited in its own environment, so a contract in another module of the
+  -- library does not count.
   let decided := decidedImplementations (recordedContracts o.declarations)
+  for (r, failure) in elsewhereFailures (o.registeredElsewhere.map (·.2)) decided do
+    -- The registration is the module's requirement, so its finding is located at the module.
+    let id := ruleForFailure failure
+    violations := violations.push (← declarationText id r.name (descriptor id).applicability o.module)
   for d in o.declarations do
     if d.executableContract.isSome then contracts := contracts + 1
     match d.unsafeRecBase with
@@ -581,7 +650,8 @@ private def decide (o : ModuleObservation) : Except String ModuleResult := do
   return ⟨o.module.toString, o.declarations.size, o.admitted, contracts, violations,
       unsafeDeclarations,
     partialDefinitions,
-    toolchain.names.map toString, dependents, omissions⟩
+    toolchain.names.map toString, dependents, omissions,
+    o.registeredElsewhere.map fun (home, r) => { declaration := r.name, «module» := home }⟩
 
 /-- The omission reports of all module results, each kept: no report is merged with another,
 so two modules that declare one name keep a report each. Each module has one result, and a
@@ -593,6 +663,34 @@ def omissionReports (results : Array ModuleResult) : Array OmissionReport :=
 theorem mem_omissionReports {results : Array ModuleResult} {r : OmissionReport} :
     r ∈ omissionReports results ↔ ∃ m ∈ results, r ∈ m.tableOmissions := by
   simp [omissionReports, Array.mem_flatMap]
+
+/-- The registrations of `results` whose function a module outside `modules` declares, each with
+the result of the module that writes it. Lake discovers `modules`, the modules of the library, so
+the library owns each other registration a result holds. -/
+def outsideLibrary (modules : Array Name) (results : Array ModuleResult) :
+    Array (ModuleResult × RegisteredElsewhere) :=
+  results.flatMap fun m =>
+    (m.registeredElsewhere.filter fun r => !modules.contains r.module).map (m, ·)
+
+/-- A registration is refused exactly when a result holds it and its module is not a module of the
+library. -/
+theorem mem_outsideLibrary {modules : Array Name} {results : Array ModuleResult}
+    {m : ModuleResult} {r : RegisteredElsewhere} :
+    (m, r) ∈ outsideLibrary modules results ↔
+      m ∈ results ∧ r ∈ m.registeredElsewhere ∧ r.module ∉ modules := by
+  simp only [outsideLibrary, Array.mem_flatMap, Array.mem_map, Array.mem_filter, Prod.mk.injEq,
+    Bool.not_eq_true']
+  constructor
+  · rintro ⟨found, member, r', ⟨registered, outside⟩, rfl, rfl⟩
+    exact ⟨member, registered, by simpa using outside⟩
+  · rintro ⟨member, registered, outside⟩
+    exact ⟨m, member, r, ⟨registered, by simpa using outside⟩, rfl, rfl⟩
+
+/-- The refusal of a registration that `outsideLibrary` finds. -/
+def outsideLibraryText (m : ModuleResult) (r : RegisteredElsewhere) : String :=
+  s!"{m.module}: module {m.module} registers {r.declaration} with `@[regula_decision]`, and no \
+    module of library {library} declares {r.declaration}: a registration is a requirement of the \
+    inventory that owns the function, so register it in a module of the library that declares it"
 
 /-- Worker: observe and decide exactly one module, printing only its JSON result. -/
 unsafe def worker (moduleName source : String) : IO Unit := do
@@ -704,6 +802,8 @@ def check (shard : Option (Fin shards) := none) (jobs : Nat := 4) : IO Unit := d
     absenceFixtureControls repo self
   let results := outcomes.filterMap fun | .ok r => some r | .error _ => none
   let incomplete := outcomes.filterMap fun | .ok _ => none | .error e => some e
+  let incomplete := incomplete ++
+    (outsideLibrary info.modules results).map fun (m, r) => outsideLibraryText m r
   let incomplete := incomplete ++ jsonOutcomes.filterMap fun | .ok _ => none | .error e => some e
   let incomplete := incomplete ++ jsonControls.filterMap fun (label, passed) =>
     if passed then none else some s!"Json comparison control failed: {label}"
@@ -728,6 +828,10 @@ def check (shard : Option (Fin shards) := none) (jobs : Nat := 4) : IO Unit := d
     {declarations} declaration(s) inspected, {admitted} constant(s) of the \
     modules' own data (every one neither unsafe nor partial) kernel-admitted, \
     {contracts} executable contract registration(s)"
+  let elsewhere := results.flatMap fun m =>
+    m.registeredElsewhere.map fun r => s!"{r.declaration} ({r.module}, registered in {m.module})"
+  IO.println s!"decision registrations of a function of another module{scope}: {elsewhere.size}, \
+    each decided under RG1008 with the contracts of the module that writes it: {elsewhere.toList}"
   IO.println s!"Json comparisons{scope}: each of those modules of {library} and \
     {guarded.length} module(s) of the other libraries but Fixtures and of executable roots \
     {roots.toList} inspected, \
