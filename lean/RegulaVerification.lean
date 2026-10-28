@@ -52,7 +52,8 @@ def environmentsShards : Nat := 6
 def buildPolicyShards : Nat := 3
 
 /-- The number of shards of the rule-example corpus (`Regula.Qualification.RuleExamples.check`
-selects any `K/N`), each a required check of CI with its own evidence file (`shardEvidence`). -/
+selects any `K/N`), each a step of the local gate and a job of CI with its own evidence file
+(`shardEvidence`). -/
 def ruleExampleShards : Nat := 3
 
 /-- A group of qualification controls that neither the self-test's partitions nor another mode
@@ -1697,7 +1698,11 @@ export (`shardEvidence`) only when it records the current sources of the checker
 of `diagnostics rule-examples` that writes the corpus receipt reads it, and that attempt marks it
 here first. `Regula.Site.Deployment.gate` admits the site artifact (`siteOutput`) only for a clean
 build of the commit it deploys. The gate of the diagnostics workflow reads the self-hosted digests
-only from the artifacts of the jobs of its commit (`Regula.DiagnosticsGate.digestPath`). No reader
+only from the artifacts of the jobs of its commit (`Regula.DiagnosticsGate.digestPath`). The step
+`digests` of the local gate reads them in the checkout after the structural shards of the same run
+of `local`, each of which removes its digest when it starts
+(`Regula.Checker.CheckerSelftest.clearSelfHostedDigest`); a run of `digests` by hand reads what the
+checkout holds. No reader
 in this repository reads `tmp/environment-census.json` or `tmp/acceptance-fences.json`. -/
 def beginAttempt (args : List String) : IO Unit := do
   let mut refused : Array String := #[]

@@ -185,7 +185,7 @@ Any change to a module source, the corpus or the Lake configuration makes earlie
 exports stale; the site build refuses them, so rerun the three shards. The checker embeds its commit
 when `lean/Regula/Checker/Producer.lean` is compiled, and Lake reuses that build after a new
 commit; the site build then refuses the evidence as another commit's. Delete
-`.lake/build/lib/lean/Regula/Checker/Producer.*` before rerunning the shards. CI builds fresh. A
+`.lake/build/lib/lean/Regula/Checker/Producer.*` before rerunning the shards. CI builds fresh, and so does the first Test round of a no-mistakes run. A
 worktree with uncommitted changes produces a labelled local preview. Every build requests the
 release asset of every release and reads the repository's tags with `git ls-remote`
 ([versions](#versions-and-routes)), so a build needs network access. The artifact expects to be
@@ -194,13 +194,16 @@ example a directory containing only a `regula` link to `_site`).
 
 ## Publication
 
-CI runs on every pull request and on `main`:
+The [local gate](contributing.md#the-local-gate) runs the checks of `verify` and `rule-examples` and
+the builds of `site` below on each change. It leaves out the site check, which reads the private
+repository with no credentials. CI runs these jobs on each push to `main` and on dispatch, and not on
+a pull request:
 
 1. `verify`: the two [acceptance](contributing.md#develop-and-verify) steps. Its first step
    refuses a commit whose `Regula.installed` is a release: only the release commit, which is not
    on `main`, carries a release label.
 2. `rule-examples` (three shards): the corpus campaign; each uploads its export. The diagnostics
-   workflow also runs the three shards nightly on `main`.
+   workflow also runs the three shards on dispatch.
 3. `candidate` (`main` only, after `verify` and `rule-examples`): when `main` lists a release that
    is not yet published and this commit is still the head of `main`, creates the release commit (a
    signed child of this commit whose only change sets `Regula.installed` to the release), points
@@ -221,8 +224,8 @@ CI runs on every pull request and on `main`:
 7. `site` (after `rule-examples`, and after `candidate` and `publish` passed or were skipped):
    builds the site tooling, then `./scripts/verify.sh site` over this run's exports, and uploads
    the checked `_site/` as `site-<commit>` (preview). Running after `publish`, it takes a release's
-   edition from the asset published in the same run. On the release pull request, and on any
-   other unreleased commit that lists a release not yet published, it previews that release's
+   edition from the asset published in the same run. On the commit of the release pull request, and
+   on any other unreleased commit that lists a release not yet published, it previews that release's
    edition instead ([versions](#versions-and-routes)) and passes. On `main` only,
    `Deployment gate` refuses an artifact built from uncommitted changes, from another commit than
    `GITHUB_SHA`, or with a release edition that is not its asset, rendered from source or
@@ -246,10 +249,8 @@ CI runs on every pull request and on `main`:
 Each run on `main` cancels older runs of `main`, the deploy job refuses to publish a revision
 that is no longer the head of `main` (for example a manual re-run of an older run, which
 re-checks because the check is part of that job), and deployments are serialized in the
-`github-pages` concurrency group. The ruleset of `main` requires the `site` check and the three corpus
-shards. A pull request does not merge if its site build or check fails. The required checks are
-`verify`, `title`, `diagnostics`, `diagnostics rule-examples 1/3`, `diagnostics rule-examples 2/3`,
-`diagnostics rule-examples 3/3`, `site`, `mathlib integration` and code scanning's `CodeQL` and `Analyze (actions)`. The site can
+`github-pages` concurrency group. The local gate runs the three corpus shards
+on each change, but not the site check. The site can
 lag `main` while checks run or after they fail; each page states its commit. Repository Pages
 settings use **GitHub Actions** as the source. There is no custom domain or paid hosting. Actions are pinned by commit SHA.
 
@@ -321,8 +322,8 @@ build refuses a release without an asset, so a release edition cannot silently d
 deployment or be replaced: publishing a release creates its tag, so a published release whose
 asset is missing has a tag and is refused, not previewed. A build whose `installed` is a release
 refuses once that tag names another commit (`labelAdmitted_release_iff`); the tags are read with
-`git ls-remote` because CI checkouts have no tags. That no commit of `main` or of a pull request
-carries a release label is the first step of `verify`. A deployment serves every release edition
+`git ls-remote` because CI checkouts have no tags. The step `unreleased` of `verify` and of the local gate
+refuses a release label on `main` or on a pull request. A deployment serves every release edition
 from its asset: the build records in `build.json` whether its artifact is `publishable` (every
 release edition is its asset, `publishable_iff`), and `Deployment gate` refuses an artifact that
 is not. Only a clean build that rendered its release's
@@ -361,9 +362,9 @@ says so).
 
 `./scripts/verify.sh site` runs under the deadline of every `verify.sh` mode
 ([contributor guide](contributing.md#develop-and-verify)); it is not part of acceptance.
-In CI the site tooling is built in the preceding step (20-minute step limit) and Verso is
-provisioned from cache by the shared provisioning action (within the job's 45-minute limit on
-a miss). Pinned dependencies are cached by toolchain and lock digest; no accepted verdict is
+CI builds the site tooling in the preceding step, with a 20-minute step limit. The local gate
+makes the same builds with no limit, but it leaves out the site check. In CI, Verso is provisioned from cache by the shared provisioning action (in the job's
+45-minute limit on a miss). Pinned dependencies are cached by toolchain and lock digest; no accepted verdict is
 cached. Link checking grows with the number of release editions. Observed timings are
 observations, not guarantees.
 

@@ -2,17 +2,24 @@ import Lean
 
 /-! # The diagnostics gate
 
-The `Diagnostics` workflow (`.github/workflows/diagnostics.yml`) runs on every pull request, every
-push to `main`, nightly and on dispatch. Its first job, `applies`, provisions the released compiler
-and decides which partition jobs apply to the run; each partition job runs only when it applies. Its last job,
-`diagnostics`, runs once every other job has finished, whatever their results, and passes exactly
-when `applies` succeeded and each partition job passed and applies, or was skipped and does not
-apply. It is the check that the ruleset of `main` requires, so it reports on every pull request.
-Both steps run with the pinned toolchain alone, so they need no build:
+The `Diagnostics` workflow (`.github/workflows/diagnostics.yml`) runs on dispatch alone. Its
+first job, `applies`, provisions the released compiler and decides which partition jobs apply to
+the run; each partition job runs only when it applies. Its last job, `diagnostics`, runs once every
+other job has finished, whatever their results, and passes exactly when `applies` succeeded and
+each partition job passed and applies, or was skipped and does not apply.
+
+The gate of a change is the local gate (`localSteps`), which the no-mistakes validation pipeline
+runs on each commit it validates (its `commands.test` in `.no-mistakes.yaml`). It runs the steps of
+every workflow job that checks a change one after another in the checkout, the diagnostics
+campaigns among them, and compares the self-hosted digests as the `diagnostics` job does. Each mode
+of this program runs with the pinned toolchain alone, so the program needs no build before it
+starts:
 
 ```text
 lean --run lean/Regula/DiagnosticsGate.lean applies  # decide which partition jobs apply
 lean --run lean/Regula/DiagnosticsGate.lean gate     # refuse unless each passed as it applies
+lean --run lean/Regula/DiagnosticsGate.lean local    # run every step of the local gate in order
+lean --run lean/Regula/DiagnosticsGate.lean digests  # refuse unless the self-hosted digests agree
 ```
 
 ## Which jobs apply
@@ -23,12 +30,12 @@ execution controls mutate, Lake configuration and manifests, `scripts/verify.sh`
 provisioning programs with their decision contracts, the workflow and the provisioning action. `decisions` decides each
 partition job by its job id: the campaigns (`campaign`) on every run other than a pull request's
 (`campaign_of_ne`), and on a pull request's exactly when one of its changed paths is an input
-(`campaign_pullRequest_iff`); the nightly rule-example shards (`rule-examples-nightly`) on the
-schedule alone. A pull request whose every changed path lies in `docs/` or `website/`, or is
-`README.md` or `AGENTS.md`, runs no campaign (`campaign_documentation`). A pull request's changed
-paths are those at which the checked-out commit, the merge commit GitHub creates and tests,
-differs from its first parent, the head of the base branch: every path added, deleted or modified
-there, a rename as both of its paths.
+(`campaign_pullRequest_iff`); the rule-example shards of `rule-examples-nightly` on the schedule
+and on dispatch, which is the only event the workflow now runs on. A pull request whose every
+changed path lies in `docs/` or `website/`, or is `README.md` or `AGENTS.md`, runs no campaign
+(`campaign_documentation`). A pull request's changed paths are those at which the checked-out
+commit, the merge commit GitHub creates and tests, differs from its first parent, the head of the
+base branch: every path added, deleted or modified there, a rename as both of its paths.
 
 ## The gate
 
@@ -49,14 +56,35 @@ SHA-256 digest of the fresh input the self-hosted positive's fresh gate accepted
 are present, well-formed and equal, and names each problem (`digestRefusals_eq_nil_iff`); when
 they were not, no digest is required.
 
+## The local gate
+
+`localSteps` lists the steps of the local gate. They are the steps of each workflow job that
+checks a change (`Regula.Campaigns.Job.checksChange`), in the order of the inventory's jobs, after
+the provisioning that the workflow's provisioning action makes for them: pinned Verso before the
+documentation step, which needs it, as the fourth self-audit shard does, and Mathlib before its
+integration check. `Regula.Campaigns.Diagnostics.localVerifications_eq` proves its invocations of
+`./scripts/verify.sh` exactly the invocations of those jobs, in order, but those of `notRunHere`:
+`site`, whose check reads the repository without credentials, and `enumeration-failure`, whose check
+runs on a GitHub-hosted Linux runner only (`notRunHere_checked` shows each one such invocation).
+Its other steps are the other commands those jobs run: the release checks of CI's `verify`, the
+builds before CI's `site` check, and the comparison of the self-hosted digests (`checkDigests`)
+that the `diagnostics` job makes; that they are is read from the workflow files, not checked. The
+step `local` refuses an empty list, runs the steps one after another and stops at the first whose
+exit code is not 0, which fails it (`runSteps`, `runSteps_eq_none_iff`). Each `verify.sh`
+invocation keeps its own 420-second deadline, and the gate adds none: it waits for each step to
+end. A step killed by a signal ends with a code other than 0. The earlier build outputs that a step
+reuses are those that Lake's own traces admit in the checkout; the first acceptance step builds in
+a new copy with no artifact cache, as it does by hand.
+
 ## Boundaries
 
-`verdict`, `admits`, `decisions` and `digestRefusals` are the decisions the steps execute; their
-theorems are checked by the kernel each time `lean --run` elaborates this file. GitHub (the event,
-the merge commit it creates for a pull request, the `needs` context, a job's `if:` that reads the
-decision, the job results, timeouts, cancellation, the artifacts it carries, and the ruleset that
-requires the check) and `git` (the commits it fetched and the paths `diff-tree` lists) are trusted
-and observed, not proved. Equal SHA-256 digests are read as equal inputs, an assumption of
+`verdict`, `admits`, `decisions`, `digestRefusals` and `runSteps` are the decisions the steps
+execute; their theorems are checked by the kernel each time `lean --run` elaborates this file.
+Running a step, its exit code and what it prints are trusted effects of the operating system and
+of the step's own program. GitHub (the event, the merge commit it creates for a pull request, the
+`needs` context, a job's `if:` that reads the decision, the job results, timeouts, cancellation and
+the artifacts it carries) and `git` (the commits it fetched and the paths `diff-tree` lists) are
+trusted and observed, not proved. Equal SHA-256 digests are read as equal inputs, an assumption of
 collision resistance, not a theorem.
 -/
 
@@ -147,7 +175,7 @@ inductive Event where
   | pullRequest
   /-- A push to `main`. -/
   | push
-  /-- The nightly schedule. -/
+  /-- The schedule, which no longer starts the workflow. -/
   | schedule
   /-- A dispatch of the workflow on a branch. -/
   | workflowDispatch
@@ -167,25 +195,32 @@ def campaignApplies : Event → List (List String) → Bool
   | .pullRequest, changed => changed.any isInput
   | _, _ => true
 
-/-- Whether the nightly rule-example shards apply to a run of `event`: on the schedule alone. -/
+/-- Whether the rule-example shards of `rule-examples-nightly` apply to a run of `event`: on the
+schedule, which no longer starts the workflow, and on dispatch, so that the job can be started by
+hand. -/
 def nightlyApplies : Event → Bool
-  | .schedule => true
-  | _ => false
+  | .schedule | .workflowDispatch => true
+  | .pullRequest | .push => false
 
-/-- The invocations of `./scripts/verify.sh` that the `campaign` jobs run, one job for each, in the
-order of the job's matrix: the step `applies` writes them as its output `campaigns`, and the
-matrix reads that output. `Regula.Campaigns.Diagnostics.campaigns_eq` proves them the
-invocations of `Regula.Campaigns.Job.diagnosticsCampaign`, which the inventory of campaigns
+/-- The arguments of the invocations of `./scripts/verify.sh` that the `campaign` jobs run, one job
+for each, in the order of the job's matrix. `Regula.Campaigns.Diagnostics.campaigns_eq` proves them
+the invocations of `Regula.Campaigns.Job.diagnosticsCampaign`, which the inventory of campaigns
 requires to cover every campaign it does not name with a reason. The shards of the fixtures, cli,
 environments and build-policy partitions and the groups `environment-census`, `snapshot-history`
 and `policy-domain` are not among them: each is too long for a job. -/
-def campaigns : List String :=
-  let shards (name : String) (count : Nat) : List String :=
-    (List.range count).map fun index => s!"diagnostics {name} {index + 1}/{count}"
-  ["diagnostics producers", "diagnostics history"] ++ shards "lint-driver" 5 ++
+def campaignInvocations : List (List String) :=
+  let shards (name : String) (count : Nat) : List (List String) :=
+    (List.range count).map fun index => ["diagnostics", name, s!"{index + 1}/{count}"]
+  [["diagnostics", "producers"], ["diagnostics", "history"]] ++ shards "lint-driver" 5 ++
     shards "structural" 5 ++ shards "execution" 4 ++
     ["input-inventory", "acceptance-controls", "documentation-controls",
-      "focused-controls", "enumeration-failure"].map ("diagnostics " ++ ·)
+      "focused-controls", "enumeration-failure"].map (["diagnostics", ·])
+
+/-- The invocations of `campaignInvocations`, each spelled as its arguments joined by spaces: the
+step `applies` writes them as its output `campaigns`, and the matrix of the `campaign` job reads
+that output. -/
+def campaigns : List String :=
+  campaignInvocations.map (" ".intercalate)
 
 /-- Which partition jobs apply to a run of `event` whose changed paths are `changed`, by job id:
 the decision `applies` writes and each partition job's `if:` reads. -/
@@ -383,6 +418,116 @@ theorem digestRefusals_eq_nil_iff (required : Bool) (positive restored : Option 
         rintro rfl
         exact Bool.false_ne_true (hp.symm.trans hr)
 
+/-! ## The local gate -/
+
+/-- A step of the local gate. -/
+inductive Step where
+  /-- `./scripts/verify.sh ARGUMENTS`, in the root of the checkout. -/
+  | verify (arguments : List String)
+  /-- `PROGRAM ARGUMENTS`, with `PROGRAM` found on `PATH` as a workflow step finds it, in the
+  directory `dir` of the checkout, relative to its root. -/
+  | run (program : String) (arguments : List String) (dir : String)
+  deriving DecidableEq, Repr
+
+/-- The arguments of a step that invokes `./scripts/verify.sh`; none for any other step. -/
+def Step.verifyArguments : Step → Option (List String)
+  | .verify arguments => some arguments
+  | .run .. => none
+
+/-- The program a step starts, its arguments and the directory it runs in. -/
+def Step.command : Step → String × List String × String
+  | .verify arguments => ("./scripts/verify.sh", arguments, ".")
+  | .run program arguments dir => (program, arguments, dir)
+
+/-- The invocations of jobs that check a change that the local gate leaves out, because their check
+cannot pass on the machine that runs the gate:
+
+- `site` reads the repository's tags with `git ls-remote` without credentials
+  (`Regula.Site.Build.remoteTags`), which fails while the repository is private, in CI as well,
+  whose `site` job checks out without credentials;
+- `diagnostics enumeration-failure` maps a loop device through device-mapper and mounts it with
+  passwordless `sudo` (`Regula.Qualification.Enumeration.unsupported?`), so anywhere but on a
+  GitHub-hosted Linux runner it ends as unsupported; the diagnostics workflow runs it on
+  dispatch. -/
+def notRunHere : List (List String) := [["site"], ["diagnostics", "enumeration-failure"]]
+
+/-- The steps of the local gate, in order. Each comes from the workflow job named beside it, a job
+that checks a change (`Regula.Campaigns.Job.checksChange`), and the jobs come in the order of
+`Regula.Campaigns.Job.all`: CI's `verify`, `mathlib integration`, `rule-examples` and `site`, the
+diagnostics workflow's `campaign` jobs with the comparison of its `diagnostics` job, and the dogfood
+workflow's `self` jobs. The invocations of `notRunHere` are left out. A provisioning step comes
+first where the job's provisioning action provisions it. -/
+def localSteps : List Step :=
+  let program (file : String) (arguments : List String) : Step :=
+    .run "lean" ("--run" :: file :: arguments) "."
+  let shards (name : String) (count : Nat) : List Step :=
+    (List.range count).map fun index => .verify ["diagnostics", name, s!"{index + 1}/{count}"]
+  -- CI's `verify`, which provisions pinned Verso for the documentation step.
+  [program "lean/RegulaProvision.lean" ["verso"],
+    program "lean/Regula/Release.lean" ["unreleased"],
+    program "lean/Regula/Release.lean" ["agree"],
+    .verify [], .verify ["docs"],
+    -- CI's `mathlib integration`, which provisions the pinned Mathlib.
+    program "lean/RegulaProvision.lean" ["mathlib"], .verify ["mathlib"]] ++
+  -- CI's `rule-examples`, whose exports the site check reads.
+  shards "rule-examples" 3 ++
+  -- CI's `site`: the builds of the site's tools and of the example library; its check `site` is in
+  -- `notRunHere`.
+  [.run "lake" ["build", "axiomGate", "ruleExampleQualification", "site", "AuditApp"] ".",
+    .run "lake" ["build", "Audit"] "audit"] ++
+  -- The diagnostics workflow's `campaign` jobs, then its `diagnostics` job's digest comparison.
+  (campaignInvocations.filter (!notRunHere.contains ·)).map .verify ++
+    [program "lean/Regula/DiagnosticsGate.lean" ["digests"]] ++
+  -- The dogfood workflow's `self` jobs.
+  .verify ["diagnostics", "self-lint"] :: shards "self-audit" 4
+
+/-- Run `steps` in order with `run`, which runs a step and gives its exit code, and stop at the
+first step whose code is not 0: that step with its code, or none when every step ended with 0. -/
+def runSteps {m : Type → Type} [Monad m] (run : Step → m UInt32) :
+    List Step → m (Option (Step × UInt32))
+  | [] => pure none
+  | step :: rest => do
+    let code ← run step
+    if code == 0 then runSteps run rest else pure (some (step, code))
+
+/-- One step of `runSteps`, for steps whose codes `code` gives: the rest runs only after a step
+whose code is 0. -/
+theorem runSteps_cons (code : Step → UInt32) (step : Step) (rest : List Step) :
+    runSteps (m := Id) (fun s => pure (code s)) (step :: rest) =
+      if code step == 0 then runSteps (m := Id) (fun s => pure (code s)) rest
+      else some (step, code step) := rfl
+
+/-- The decision of `runSteps`, for steps whose codes `code` gives: no step is reported exactly
+when every step's code is 0. -/
+theorem runSteps_eq_none_iff (code : Step → UInt32) (steps : List Step) :
+    runSteps (m := Id) (fun s => pure (code s)) steps = none ↔ ∀ s ∈ steps, code s = 0 := by
+  induction steps with
+  | nil => exact ⟨(fun _ _ m => nomatch m), fun _ => rfl⟩
+  | cons step rest ih =>
+    rw [runSteps_cons]
+    by_cases h : code step = 0
+    · simp [h, ih]
+    · simp [h]
+
+/-- A step that `runSteps` reports is one of the steps, and its code is its own and not 0. -/
+theorem runSteps_eq_some (code : Step → UInt32) (steps : List Step) (s : Step) (c : UInt32)
+    (h : runSteps (m := Id) (fun s => pure (code s)) steps = some (s, c)) :
+    s ∈ steps ∧ c = code s ∧ c ≠ 0 := by
+  induction steps with
+  | nil =>
+    have none_eq : (none : Option (Step × UInt32)) = some (s, c) := h
+    cases none_eq
+  | cons step rest ih =>
+    rw [runSteps_cons] at h
+    by_cases hc : code step = 0
+    · simp only [hc, beq_self_eq_true, ite_true] at h
+      obtain ⟨m, e, ne⟩ := ih h
+      exact ⟨List.mem_cons_of_mem _ m, e, ne⟩
+    · have skip : (code step == 0) = false := by simpa using hc
+      simp only [skip, Bool.false_eq_true, ite_false] at h
+      obtain ⟨rfl, rfl⟩ := Prod.mk.inj (Option.some.inj h)
+      exact ⟨List.mem_cons_self, rfl, hc⟩
+
 /-! ## Steps -/
 
 private def env (name : String) : IO String := do
@@ -517,14 +662,49 @@ def checkGate : IO Unit := do
       fresh gate accepted"
   IO.println "every diagnostics job that applies passed, and every other one was skipped"
 
+/-- The `digests` step of the local gate: refuse unless the self-hosted digests that the structural
+shards `1/5` and `5/5` wrote in the checkout are present, well-formed and equal, as the `gate` step
+requires when the campaigns apply (`digestRefusals`). -/
+def checkDigests : IO Unit := do
+  let refusals := digestRefusals true (← readDigest "positive") (← readDigest "restored")
+  for refusal in refusals do IO.println refusal
+  unless refusals.isEmpty do
+    fail "the restored self-hosted copy's fresh input is not shown to be the one the positive's \
+      fresh gate accepted"
+  IO.println "the self-hosted digests are present, well-formed and equal"
+
+/-- Run `step` in the checkout, with the standard streams of this process, and give its exit
+code. -/
+private def runStep (step : Step) : IO UInt32 := do
+  let (program, arguments, dir) := step.command
+  IO.println s!"local gate: {" ".intercalate (program :: arguments)} (in {dir})"
+  (← IO.getStdout).flush
+  let child ← IO.Process.spawn
+    { cmd := program, args := arguments.toArray, cwd := some (System.FilePath.mk dir),
+      stdin := .null }
+  child.wait
+
+/-- The `local` step: run the steps of the local gate in order (`runSteps`), and refuse at the
+first whose exit code is not 0, or when it has no step. -/
+def runLocal : IO Unit := do
+  if localSteps.isEmpty then fail "the local gate has no step, so it checks nothing"
+  if let some (step, code) ← runSteps runStep localSteps then
+    let (program, arguments, dir) := step.command
+    fail s!"{" ".intercalate (program :: arguments)} (in {dir}) ended with exit code \
+      {code}, so the local gate refuses the change"
+  IO.println s!"local gate: each of its {localSteps.length} steps ended with exit code 0"
+
 end Regula.DiagnosticsGate
 
-/-- Command line of `lean --run lean/Regula/DiagnosticsGate.lean`: `applies` or `gate`; returns 2
-on a usage error. -/
+/-- Command line of `lean --run lean/Regula/DiagnosticsGate.lean`: `applies`, `gate`, `local` or
+`digests`; returns 2 on a usage error. -/
 def main (args : List String) : IO UInt32 := do
   match args with
   | ["applies"] => Regula.DiagnosticsGate.writeDecisions; return 0
   | ["gate"] => Regula.DiagnosticsGate.checkGate; return 0
+  | ["local"] => Regula.DiagnosticsGate.runLocal; return 0
+  | ["digests"] => Regula.DiagnosticsGate.checkDigests; return 0
   | _ =>
-    IO.eprintln "usage: lean --run lean/Regula/DiagnosticsGate.lean (applies | gate)"
+    IO.eprintln
+      "usage: lean --run lean/Regula/DiagnosticsGate.lean (applies | gate | local | digests)"
     return 2
