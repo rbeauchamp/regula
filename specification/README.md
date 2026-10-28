@@ -13,6 +13,8 @@ Each claim has one of four marks:
 - **Assumed**: a statement about Lean, Lake or the operating system that no proof here examines. The leaf that builds on it must prove it or keep it as a named assumption.
 - **Open**: an obligation that this document does not discharge, with the work that discharges it.
 
+A statement of what a rule or the checker must do is specification, and it has no mark. The marks are for claims about Lean, Lake, the build and the theorems of the package.
+
 The pinned toolchain is `leanprover/lean4:v4.34.1` (`lean-toolchain`). A citation such as `Lean/Util/CollectAxioms.lean:146-151` is a path below `src/lean/` of that tag, with its lines. A citation that starts with `src/` is a path below the root of that tag.
 
 The formal statements are in the Lean library `RegulaSpecification` in this directory. The library requires the port of lean-intent at commit `61faee20a441894cce5420850796ee355c3c53b1`, which is the head of [lean-intent pull request 8](https://github.com/rbeauchamp/lean-intent/pull/8). That pull request is not merged. The library also requires the root package, for the closed rule identity `Regula.RuleId` only. To check all statements and theorems, use `lake build` in this directory.
