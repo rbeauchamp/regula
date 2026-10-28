@@ -29,7 +29,8 @@ below every later release (`lakeLt_declared`, `admits_lake`).
 
 A release's version is derived, not chosen (`nextVersion`). Pull requests merge by squash, so
 each commit of `main` is one pull request, whose title, a Conventional Commits header that the
-`title` step requires, is the commit's subject. Of the commits of `main` since the previous
+no-mistakes validation pipeline drafts and the `title` step checks on dispatch, is the commit's
+subject. Of the commits of `main` since the previous
 release, a breaking change (`type!:`, or a `BREAKING CHANGE:` footer) calls for a major bump, or
 a minor one before 1.0; `feat` for a minor bump; `fix` and `perf` for a patch; and every other
 type for none (`Header.bump`, `called`, `derive`). A `lean-toolchain` other than the previous
@@ -51,8 +52,8 @@ mentions (`setMentions`) that name them (`mentionsAgree`), with a mention of eac
 ## Steps
 
 `main` never carries a release label: `Regula.installed` (`RegulaCore/Edition.lean`) is
-`.unreleased` on every commit of `main` and of a pull request, which `unreleased` checks in CI's
-required `verify` job.
+`.unreleased` on every commit of `main` and of a pull request, which `unreleased` checks in the
+local gate and in CI's `verify` job.
 
 `open` derives the version and creates the commit of the release pull request as a child of the
 `main` commit the workflow runs on: the release appended with its toolchain to `Regula.releases`,
@@ -69,8 +70,8 @@ a release in place of one published by then. GitHub creates and signs the commit
 `open` refuses unless GitHub reports its signature verified. It creates the branch
 `release/v<version>-<commit>` (`pullBranch`), named after that commit, and writes the link that
 opens its pull request to the job summary; a maintainer opens the pull request from that link,
-which starts its checks, and merges it through normal review. `main`'s rules count a push by the
-workflow to the branch of an open pull request as an unattributed change, and block its merge
+runs the local gate on its head, and merges it through normal review. `main`'s rules count a push
+by the workflow to the branch of an open pull request as an unattributed change, and block its merge
 until a review approves it, so `open` keeps two guarantees, of different strength. The refusal
 holds for what `open` observed: just before it writes the branch, it lists the pull requests
 GitHub reports open, and while one of them is from a branch `release/v<version>-…` of this
@@ -1761,15 +1762,17 @@ def refuseOpen (v : Version) (pull : String) : IO Unit := do
 
 /-- The open step's only write of a branch: create `branch` at `commit` (`createBranch`) and
 write the link that opens its pull request, with `title` and `body` filled in, to the job summary
-and the log. The pull request is a maintainer's to open, and opening it starts its checks. The
-workflow never creates a pull request: the repository does not let GitHub Actions create one. -/
+and the log. The pull request is a maintainer's to open, and the maintainer runs the local gate
+on its head. The workflow never creates a pull request: the repository does not let GitHub
+Actions create one. -/
 def createUnopened (repo branch commit title body : String) : IO Unit := do
   createBranch repo branch commit
   let link := s!"https://github.com/{repo}/compare/main...{branch}?expand=1&title=\
     {percentEncode title}&body={percentEncode body}"
   summarize s!"### Open the pull request `{title}`\n\nThis run created the signed branch \
     `{branch}`, which names `{commit}`; no run of this workflow moves it. Open its pull \
-    request from [this link]({link}); opening it starts its checks. If another release pull \
+    request from [this link]({link}), then run the local gate \
+    (`lean --run lean/Regula/DiagnosticsGate.lean local`) on its head. If another release pull \
     request is still open (one for another version, or one opened after this run looked), \
     close it: this run left it and its branch as they were, and it is stale.\n"
   IO.println s!"created branch {branch}, which names {commit}; open its pull request from {link}"
@@ -2034,17 +2037,16 @@ def openRelease : IO Unit := do
       in that run's job summary. If this pull request is still open, close it before that run: \
       the workflow refuses to create a branch while it observes a release pull request for the \
       version it derives open, and a pull request that lists another version is stale.\n\n\
-      Every check of this pull request passes before it merges. Until the release is \
-      published, its `site` check builds and checks the artifact with a preview at \
+      Before this pull request merges, the local gate \
+      (`lean --run lean/Regula/DiagnosticsGate.lean local`) must pass on its head; it leaves \
+      out the site check. Until the release is published, a site build of this branch \
+      (`./scripts/verify.sh site`) builds and checks the artifact with a preview at \
       `v/{v.spelling}/`, rendered from this branch, which carries no release label; the \
       release's own edition exists only once CI builds it from the release commit, and no \
-      artifact with a preview is deployed. The required checks are `verify`, `title`, \
-      `diagnostics`, `diagnostics rule-examples 1/3`, `diagnostics rule-examples 2/3`, \
-      `diagnostics rule-examples 3/3`, `site`, \
-      `mathlib integration` and code scanning's `CodeQL` and `Analyze (actions)`.\n\n\
+      artifact with a preview is deployed.\n\n\
       The Release workflow created this signed branch, which is named after its commit, and a \
-      maintainer opened this pull request from the link in the job summary, which started its \
-      checks. The workflow writes a branch only by creating a new one and moves none, so it \
+      maintainer opened this pull request from the link in the job summary. The workflow writes a \
+      branch only by creating a new one and moves none, so it \
       never changes this one; a run that derives {tag} and observes this pull request open \
       refuses and creates none."
 
@@ -2112,12 +2114,13 @@ def agree : IO Unit := do
     mentions of a release name {tag} or leanprover/lean4:{toolchain}: \
     {", ".intercalate (mentions.map fun m => s!"{m.file}:{m.line}")}"
 
-/-- The title of the pull request the `title` step checks: `TITLE`, the title the `pull_request`
-event it runs on carries. Refused on any other event. -/
+/-- The title of the pull request the `title` step checks: `TITLE`, the title that the dispatch of
+the `Title` workflow it runs on gives, or that a `pull_request` event carries. Refused on any other
+event. -/
 private def pullTitle : IO String := do
   match ← env "GITHUB_EVENT_NAME" with
-  | "pull_request" => env "TITLE"
-  | event => fail s!"the title step runs on pull_request, not {event}"
+  | "workflow_dispatch" | "pull_request" => env "TITLE"
+  | event => fail s!"the title step runs on workflow_dispatch or pull_request, not {event}"
 
 /-- Refuse unless the pull request's title (`pullTitle`) is a Conventional Commits header
 (`parseHeader`): squash merges make it the subject of the pull request's commit on `main`, from

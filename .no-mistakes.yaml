@@ -1,0 +1,37 @@
+# Configuration of the no-mistakes validation pipeline that every change to Regula passes through.
+# no-mistakes reads every setting here only from the copy of this file on the default branch, so a
+# change to it governs the runs that start after its merge.
+#
+# The gate of a change. GitHub Actions does not check a change: the workflows that checked pull
+# requests and pushes run on dispatch, and on main only what the release and the site publication
+# need. The pipeline's Test step is the gate instead. It runs `commands.test` in the run's disposable
+# checkout at the commit it validates, and an exit code other than 0 parks it. The command is the
+# local gate, which runs the steps of every workflow job that checks a change one after another,
+# except two whose checks cannot pass on this machine, and stops at the first that fails
+# (docs/guides/contributing.md#the-local-gate). It runs them on every commit, never a selection by
+# the paths a change touches. What a step rebuilds is Lake's decision, from its own traces in the
+# checkout, and the first acceptance step builds in a new copy, as it does by hand. No
+# `build_outputs` is declared: for Lake, the only store it may seed is Lake's artifact cache, and
+# every command that `scripts/verify.sh` starts runs with `LAKE_ARTIFACT_CACHE=false`
+# (`RegulaVerification.start`), so a seeded cache would go unread. no-mistakes documents
+# `commands.test` as a targeted command that leaves broad regression to CI; here no CI is left to
+# run it.
+#
+# `no_ci` declares that none of the workflow files in `.github/workflows/` reports a check on a pull
+# request, so a pull request with no checks can count as ready. A check that GitHub still reports is
+# processed as before.
+#
+# The title of a pull request is not a check of a commit, and no-mistakes runs no command after it
+# writes the title. `pr.title_format` stays unset, so no-mistakes drafts each title as a Conventional
+# Commits header; the `Title` workflow checks a title on dispatch.
+#
+# Memory. The gate's Lake builds run as many jobs as the machine has cores and its Lean processes run
+# with no memory limit, so nothing bounds its peak, and the step takes the machine's whole heavy-work
+# budget (16 GiB on the 24 GiB Mac that runs it, which keeps 8 GiB in reserve).
+no_ci: true
+commands:
+  test: lean --run lean/Regula/DiagnosticsGate.lean local
+heavy_steps:
+  test:
+    memory: 16GiB
+    limit: none; the whole heavy-work budget, because nothing bounds the peak of the gate's builds

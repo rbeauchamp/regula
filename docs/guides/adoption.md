@@ -37,7 +37,7 @@ supports. This table lists every release, newest first, with its one toolchain:
 | `v0.2.0` | `leanprover/lean4:v4.34.0` | [v/0.2.0/](https://rbeauchamp.github.io/regula/v/0.2.0/) |
 | `v4.34.0` | `leanprover/lean4:v4.34.0` | [v/4.34.0/](https://rbeauchamp.github.io/regula/v/4.34.0/) |
 
-The release steps generate the table from the release data, and CI refuses a table that
+The release steps generate the table from the release data, and Regula's checks refuse a table that
 disagrees with it; a row is added when a release's pull request merges, shortly before CI
 publishes the release. The [releases page](https://github.com/rbeauchamp/regula/releases)
 has each release's notes. Choose the newest release for your `lean-toolchain`, set your
@@ -49,8 +49,8 @@ example `v0.10.0`. `git tag --sort=-v:refname` and the tag list of GitHub show i
 select a release by its position in such a list of tags. Select it from the table.
 
 The two snippets below require the release of the first row of the table. The release pull
-request sets their release when it adds that row, and CI refuses a change that makes them require
-a different release.
+request sets their release when it adds that row, and Regula's checks refuse a change that makes
+them require a different release.
 
 `lakefile.toml`:
 

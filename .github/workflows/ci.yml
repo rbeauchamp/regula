@@ -1,7 +1,11 @@
 name: CI
 
+# CI runs on every push to main and on dispatch, never on a pull request: the gate of a change is the
+# local gate that the no-mistakes validation pipeline runs on each commit it validates
+# (docs/guides/contributing.md#the-local-gate). On main, `verify` and `rule-examples` are the checks
+# the release jobs need and the source of the site's examples, and `site` and `deploy` publish the
+# rule-reference site. `mathlib` runs on dispatch alone.
 on:
-  pull_request:
   push:
     branches: [main]
   workflow_dispatch:
@@ -17,7 +21,7 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  # Required acceptance check; setup failures fail this job.
+  # Acceptance; setup failures fail this job.
   verify:
     if: always()
     runs-on: ubuntu-24.04
@@ -54,20 +58,18 @@ jobs:
       - name: Verify (same command and seven-minute limit as local)
         run: ./scripts/verify.sh
 
-      # Second required step with its own 420 seconds: the checks of the Markdown documents Git
+      # Second step with its own 420 seconds: the checks of the Markdown documents Git
       # tracks (which need the Git checkout), the fresh acceptance of the example package in
       # audit/, then every docs/ Lean fence and every `lean` block of the Verso standard (built
       # fresh and rendered), admitted only when its inputs equal the accepted ordinary inputs at
       # this same commit. `REGULA_PROSE_START` gives the start of the run to check B2. For a
-      # pull request it is `pull:` and the head of the pull request: the base revision is the
-      # first parent of the checked-out merge commit, whose second parent must be that head. For
-      # a push it is `before:` and the commit before the push, and for a manual start `before:`
+      # push it is `before:` and the commit before the push, and for a manual start `before:`
       # and the first parent of the checked-out commit: the base revision is that commit, and
       # the check asks Git for no merge base. Each other event gives an empty value, which the
       # check refuses.
       - name: Verify documentation fences (same command and seven-minute limit as local)
         env:
-          REGULA_PROSE_START: ${{ github.event_name == 'pull_request' && format('pull:{0}', github.event.pull_request.head.sha) || github.event_name == 'push' && format('before:{0}', github.event.before) || github.event_name == 'workflow_dispatch' && format('before:{0}^', github.sha) || '' }}
+          REGULA_PROSE_START: ${{ github.event_name == 'push' && format('before:{0}', github.event.before) || github.event_name == 'workflow_dispatch' && format('before:{0}^', github.sha) || '' }}
         run: ./scripts/verify.sh docs
 
   # The Mathlib integration check (docs/guides/contributing.md#mathlib-integration-check): the
@@ -78,6 +80,7 @@ jobs:
   # A mismatched pin fails the integration preflight instead of skipping the check.
   mathlib:
     name: mathlib integration
+    if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-24.04
     # Provisioning has its own allowance; the verify.sh step enforces exactly 420 seconds.
     timeout-minutes: 45
@@ -297,12 +300,12 @@ jobs:
   # explanations and this run's admitted corpus exports, rendered with pinned Verso and
   # checked. Separate from, and never a partition of, 420-second acceptance. On main it runs after
   # `publish`, so it takes a release's edition from the asset published in this run. `candidate`
-  # and `publish` are skipped on pull requests; `publish` is also skipped when there is nothing to
-  # release, and when `release-verify` or `release-site` fails. While the latest listed release
-  # has neither asset nor tag, on the release pull request and on main until it is published, the
-  # build previews its edition from this commit and records the artifact as not publishable
-  # (Regula.releaseSource_preview_iff): the pull request's check passes, and on main the
-  # deployment gate below refuses, so this job fails and nothing is deployed.
+  # and `publish` are skipped on a dispatch on another branch; `publish` is also skipped when there
+  # is nothing to release, and when `release-verify` or `release-site` fails. While the latest
+  # listed release has neither asset nor tag, on a dispatch on the release pull request's branch and
+  # on main until it is published, the build previews its edition from this commit and records the
+  # artifact as not publishable (Regula.releaseSource_preview_iff): on that branch the job passes,
+  # and on main the deployment gate below refuses, so this job fails and nothing is deployed.
   site:
     needs: [rule-examples, candidate, publish]
     if: >-
@@ -363,7 +366,7 @@ jobs:
   # revision's acceptance and site jobs passed. This job holds the deployment token, so it runs
   # no checkout, provisioning or project code: only a dependency-free re-check (re-run with this
   # job) that main is still at this revision, then deploy-pages.
-  # Like `site`, it tolerates skipped release jobs (pull requests and runs with nothing to release).
+  # Like `site`, it tolerates skipped release jobs (runs with nothing to release).
   deploy:
     needs: [verify, site]
     if: >-
