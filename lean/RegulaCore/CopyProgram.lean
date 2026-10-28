@@ -894,28 +894,113 @@ def gitPath (root : FilePath) (args : Array String) : IO FilePath := do
     | throw <| IO.userError "Git metadata path is not one absolute path"
   return path
 
-/-- The closed configuration case has no extension, include or worktree-redirection setting.
-Git decodes the captured file; Regula does not reproduce Git's precedence or include rules.
-Even a disabled extension setting refuses, so the domain does not depend on its value grammar.
-Git also exits 1 when it cannot open the file, so the file must first be a regular file that this
-process reads whole, and exit 1 is admitted only with no output.
+/-- The names of the settings in the configuration file `config` that the `git config` arguments
+`query` select (`--get-regexp PATTERN` or `--list`), each as Git decodes it from that file alone,
+in the file's order. With `--no-includes` an include setting is one more name, and no other file is
+read. Git ends each name with a NUL (`-z`) and no name holds a NUL, so the names are read exactly.
+Exit 1 with no output, which `--get-regexp` gives when nothing matches, gives no name. Git also
+exits 1 when it cannot open the file, so the file must first be a regular file that this process
+reads whole. Any other exit, output on standard error, and output that does not end with a NUL are
+thrown.
 
-Assumes: Git 2.54.0 `builtin/config.c:74-104,487-591,1264-1266` and `config.c:1492-1523`
-implement --file, --no-includes, --name-only and --get-regexp through Git's configuration decoder;
-absent matches exit 1. `builtin/config.c:583-585,609` ignores the result of the read and exits 1
-when nothing matched. `config.c:1607-1609,1382-1398` opens the file with `fopen_or_warn`, and
-`wrapper.c:401-420` returns no file for each failure, warning except for ENOENT and ENOTDIR.
+Assumes: Git 2.54.0 `builtin/config.c:72,112-113,1350,1358` declare --file, -z, --name-only,
+--get-regexp and --list; `builtin/config.c:980-983` reads no include for --no-includes;
+`builtin/config.c:1464-1476` lists every setting and dies when it cannot read the file;
+`builtin/config.c:482-495,583-585,609,1524-1529` select the names that the pattern matches, ignore
+the result of the read and exit 1 when nothing matched; `builtin/config.c:385-399,447-466,995-1016`
+print each name and a NUL for -z with --name-only. `config.c:881-919,925-970` builds each name as a
+C string, so it holds no NUL. `config.c:1606-1609,1382-1398` opens the file with `fopen_or_warn`,
+and `wrapper.c:401-420` returns no file for each failure, warning except for ENOENT and ENOTDIR.
 Configuration and all captured metadata have no concurrent writer. -/
-def admitGitConfig (root config : FilePath) : IO Unit := do
+def settingNames (root config : FilePath) (query : Array String) : IO (List String) := do
   unless (← observeMetadata config).type == .file do
     throw <| IO.userError s!"copy Git configuration is not a regular file: {config}"
   discard <| IO.FS.readBinFile config
-  let out ← gitOutput root #["config", "--file", config.toString, "--no-includes", "--name-only",
-    "--get-regexp", "^(extensions\\.|include\\.|includeif\\.|core\\.worktree$)"]
-  if out.exitCode == 0 then
-    throw <| IO.userError s!"copy Git configuration is outside the closed case: {out.stdout.trimAscii}"
-  unless out.exitCode == 1 && out.stdout.isEmpty && out.stderr.isEmpty do
+  let out ← gitOutput root
+    (#["config", "--file", config.toString, "--no-includes", "--name-only", "-z"] ++ query)
+  if out.exitCode == 1 && out.stdout.isEmpty && out.stderr.isEmpty then return []
+  unless out.exitCode == 0 && out.stderr.isEmpty &&
+      (out.stdout.isEmpty || out.stdout.endsWith "\x00") do
     throw <| IO.userError s!"copy Git configuration unavailable: {out.stderr}"
+  return (out.stdout.splitOn "\x00").dropLast
+
+/-- The names of the settings of a common Git configuration that select another configuration file,
+a repository format or another work tree: each extension, include and conditional include, and
+`core.worktree`, as a pattern of `git config --get-regexp`. Git matches it against each name as it
+decodes it, its section and variable in lower case. -/
+def selectorPattern : String := "^(extensions\\.|include\\.|includeif\\.|core\\.worktree$)"
+
+/-- The closed configuration case has no extension, include or worktree-redirection setting
+(`selectorPattern`). Git decodes the file (`settingNames`); Regula does not reproduce Git's
+precedence or include rules. Even a disabled extension setting refuses, so the domain does not
+depend on its value grammar. A copy source has a wider case (`admitCopyGitConfig`). -/
+def admitGitConfig (root config : FilePath) : IO Unit := do
+  let names ← settingNames root config #["--get-regexp", selectorPattern]
+  unless names.isEmpty do
+    throw <| IO.userError s!"copy Git configuration is outside the closed case: {" ".intercalate names}"
+
+/-- The setting of a common Git configuration that makes Git read the per-worktree configuration
+file `config.worktree` in each work tree's own Git directory, as Git decodes its name. -/
+def worktreeExtension : String := "extensions.worktreeconfig"
+
+/-- The settings that a copy source's per-worktree configuration file may hold, as Git decodes
+their names: the directory of hooks and the author's identity, which no-mistakes writes into the
+checkout of each of its runs. A copy carries no per-worktree configuration file
+(`omitStoredEntry`), so none of them reaches a copy. -/
+def worktreeSettings : List String := ["core.hookspath", "user.email", "user.name"]
+
+/-- Admit the settings of a copy source's Git configuration: `settings.1` holds the names of its
+common configuration that `selectorPattern` selects, and `settings.2` those of its per-worktree
+configuration file. Each selected name must be `worktreeExtension`, and when one is, each
+per-worktree name must be in `worktreeSettings` (`admitGitSettings_iff`). The refusal names the
+first name outside that case. -/
+def admitGitSettings (settings : List String × List String) : Except IO.Error Unit :=
+  match settings.1.find? (· != worktreeExtension) with
+  | some name => .error (IO.userError s!"copy Git configuration is outside the closed case: {name}")
+  | none =>
+    match settings.2.find? fun name =>
+        settings.1.contains worktreeExtension && !worktreeSettings.contains name with
+    | some name => .error
+      (IO.userError s!"copy Git per-worktree configuration is outside the closed case: {name}")
+    | none => .ok ()
+
+/-- The closed configuration case of a copy source whose own Git directory is `gitDir` and whose
+common directory is `common`. Its common `config` has no extension but `worktreeExtension`, no
+include and no `core.worktree` (`selectorPattern`). With that extension, Git also reads the
+per-worktree `config.worktree` of `gitDir`, so that file, when something is there, must be a regular
+file that holds only `worktreeSettings` (`admitGitSettings`). The extension's value is not read, so
+the file is held to that case even where the value disables it. Without the extension, Git does not
+read the file, and neither does this routine. Git decodes each file (`settingNames`).
+
+Assumes: Git 2.54.0 `setup.c:584-599,611-634,717-748,750-791` reads the repository format, the
+worktreeConfig extension included, from the common directory's `config` alone, and with that
+extension reads `core.bare` and `core.worktree` from `gitDir/config.worktree` too; `config.c:1515-1581` reads the
+settings of `gitDir/config.worktree`, when the extension is on and the file is readable, after the
+common `config`. A per-worktree setting of any name `selectorPattern` selects is not in
+`worktreeSettings`. -/
+def admitCopyGitConfig (root gitDir common : FilePath) : IO Unit := do
+  let selected ← settingNames root (common / "config") #["--get-regexp", selectorPattern]
+  let worktree ← if !selected.isEmpty && selected.all (· == worktreeExtension) then
+      match ← kindWith observer (gitDir / "config.worktree") with
+      | none => pure []
+      | some _ => settingNames root (gitDir / "config.worktree") #["--list"]
+    else pure []
+  IO.ofExcept (admitGitSettings (selected, worktree))
+
+/-- `items` less each entry at or below `relative` (`mem_omitEntry`). -/
+def omitEntry (relative : List String) (items : List Item) : List Item :=
+  items.filter fun item => !relative.isPrefixOf item.relative
+
+/-- `items`, whose entries hold the entries of the directory `directory` below `base`, less the
+entry that `directory` stores under `name` and each entry below it, when something is there. The
+entry is named as the directory stores it (`observeRealPath`), so a spelling of `name` that the
+filesystem folds to a stored entry omits that entry, without interpreting case. -/
+def omitStoredEntry (directory : FilePath) (base : List String) (name : String)
+    (items : List Item) : IO (List Item) := do
+  if (← kindWith observer (directory / name)).isNone then return items
+  let some stored := (← observeRealPath (directory / name)).fileName
+    | throw <| IO.userError s!"copy Git entry has no stored name: {directory / name}"
+  return omitEntry (base ++ [stored]) items
 
 /-- Refuse alternate object stores at the path Git itself resolves. The supported qualification
 and pinned dependency inputs have a self-contained effective object store. No alternate path is
@@ -1063,15 +1148,17 @@ Tracked links are represented by Git's own blobs. Every other source entry is ad
 the general capture, so an untracked link or special entry is still refused before construction.
 Indexed files, captured Git metadata and admitted untracked regular `.lake/build` files are emitted.
 After Git confirms that the common directory is the source's own .git, its captured commondir
-instruction is omitted using the observer's stored name, including case-folded spellings.
+instruction is omitted using the observer's stored name, including case-folded spellings, and so is
+its per-worktree configuration file `config.worktree` (`omitStoredEntry`): Git reads the clone's
+configuration from its `config` alone, as from a source without that file.
 
 Assumes: installed Git 2.54.0 git-ls-files(1), --format, -z and FIELD NAMES, reports the complete
 index with unquoted paths, object identifiers and modes. The source has no index or worktree
 writer. git-cat-file(1) supplies index link blobs without following a source link. git-config(1),
 core.symlinks, specifies target-text regular files when false and retained index link types.
-The source .git is a plain, self-contained metadata directory, with no extension, include or
-worktree-redirection settings and no alternates. Each index path equals the stored names byte
-for byte. Git environment/config observations use `gitProcessArgs`, `admitGitConfig` and
+The source .git is a plain, self-contained metadata directory in the closed configuration case of
+a copy source (`admitCopyGitConfig`), with no alternates. Each index path equals the stored names
+byte for byte. Git environment/config observations use `gitProcessArgs`, `admitCopyGitConfig` and
 `admitGitObjects`; their Assumes entries name the trusted sources. Git status remains trusted.
 Lean/Lake v4.34.1
 `Lake/Util/Git.lean:198-203` tests cleanliness with `git diff --exit-code HEAD`;
@@ -1083,17 +1170,15 @@ def copyGit (source target : FilePath) : IO (List Item) := do
   let metadata ← captureWith enumerator.observer (fun _ => true) 4096 (source / ".git") [".git"]
   let ⟨_, .directory⟩ :: _ := metadata
     | throw <| IO.userError "Git source metadata is not a plain directory"
-  admitGitConfig source (source / ".git/config")
+  admitCopyGitConfig source (source / ".git") (source / ".git")
   let common ← gitPath source #["rev-parse", "--path-format=absolute", "--git-common-dir"]
   unless common == (← observeRealPath (source / ".git")) do
     throw <| IO.userError "copy Git metadata has an external common directory"
   -- Equality establishes that no common-directory instruction is needed in the clone. Observe
   -- its stored name so the same omission covers a case-folded spelling without interpreting it.
-  let metadata ← if (← kindWith observer (source / ".git/commondir")).isSome then do
-      let some name := (← observeRealPath (source / ".git/commondir")).fileName
-        | throw <| IO.userError "copy Git common instruction has no stored name"
-      pure (metadata.filter fun item => ![".git", name].isPrefixOf item.relative)
-    else pure metadata
+  let metadata ← omitStoredEntry (source / ".git") [".git"] "commondir" metadata
+  -- The clone carries no per-worktree configuration, whatever settings the source's holds.
+  let metadata ← omitStoredEntry (source / ".git") [".git"] "config.worktree" metadata
   admitGitObjects source
   let (exitCode, indexBytes, stderr) ← gitBinaryOutput source
     #["--no-lazy-fetch", "--no-optional-locks", "--no-replace-objects", "ls-files", "-z",

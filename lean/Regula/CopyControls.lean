@@ -146,7 +146,7 @@ run_cmd do
         "-c", "user.email=construction@example.invalid", "-c", "commit.gpgsign=false",
         "commit", "--quiet", "-m", "controlled index"]
       let target := base / "git-target"
-      discard <| Construction.copyGit source target
+      let plain ← Construction.copyGit source target
       unless (← readFile (target / ".lake/build/lib/Cached.olean")) == "reusable build output" &&
           !(← Regula.Filesystem.isPresent (target / ".lake/cache")) &&
           !(← Regula.Filesystem.isPresent (target / "untracked")) do
@@ -183,12 +183,46 @@ run_cmd do
       else removeOwn .file (source / ".git/commondir")
       -- Configuration scope, repository selectors, stored index spellings and alternate stores
       -- are external Git/filesystem boundaries. Each control targets one closed-domain refusal.
-      fixture "git" #["-C", source.toString, "config", "extensions.worktreeConfig", "true"]
-      Construction.appendFileWith Construction.observer (source / ".git") "config.worktree"
-        "[core]\n\tsymlinks = true\n".toUTF8
-      refused "Git worktree extension" "outside the closed case" <|
-        discard <| Construction.copyGit source (base / "extension-output")
-      fixture "git" #["-C", source.toString, "config", "--unset", "extensions.worktreeConfig"]
+      -- The closed case of a copy source: its common configuration sets no selector but the
+      -- worktreeConfig extension, and its per-worktree file holds only the hooks directory and the
+      -- author's identity, the settings no-mistakes writes into the checkout of a run. A refused
+      -- setting refuses before any destination entry, so its output path is never created.
+      let config := fun (args : Array String) =>
+        fixture "git" (#["-C", source.toString, "config"] ++ args)
+      for (key, value) in [("extensions.noop", "true"), ("include.path", "absent-include"),
+          ("includeIf.onbranch:main.path", "absent-include"), ("core.worktree", source.toString)] do
+        config #[key, value]
+        refused s!"Git setting {key}" s!"copy Git configuration is outside the closed case: \
+            {key.toLower}" <|
+          discard <| Construction.copyGit source (base / "setting-output")
+        config #["--unset", key]
+      config #["extensions.worktreeConfig", "true"]
+      for (key, value) in [("core.hooksPath", (base / "hooks").toString),
+          ("user.name", "Construction Control"), ("user.email", "construction@example.invalid")] do
+        config #["--worktree", key, value]
+      let worktreeCopy := base / "worktree-output"
+      let worktreeItems ← Construction.copyGit source worktreeCopy
+      let hooks ← Construction.gitOutput worktreeCopy #["config", "--get", "core.hookspath"]
+      let clean ← Construction.gitOutput worktreeCopy
+        #["-c", "core.fileMode=true", "status", "--porcelain", "--untracked-files=all"]
+      unless worktreeItems.map (·.relative) == plain.map (·.relative) &&
+          (← Construction.kindWith Construction.observer (worktreeCopy / ".git/config.worktree")).isNone &&
+          hooks.exitCode == 1 && hooks.stdout.isEmpty && clean.exitCode == 0 && clean.stdout.isEmpty do
+        throw <| IO.userError s!"Git copy of a source with admitted per-worktree settings is not the \
+          plain copy, or reads a per-worktree setting: {hooks.stdout}{clean.stdout}{clean.stderr}"
+      -- A per-worktree setting that would change the copy, redirect its work tree or read another
+      -- file refuses, also while the extension's value disables it.
+      for (key, value, disabled) in [("core.symlinks", "true", false),
+          ("core.worktree", source.toString, false), ("include.path", "absent-include", false),
+          ("core.symlinks", "true", true)] do
+        config #["--worktree", key, value]
+        if disabled then config #["extensions.worktreeConfig", "false"]
+        refused s!"Git per-worktree setting {key}" s!"per-worktree configuration is outside the \
+            closed case: {key.toLower}" <|
+          discard <| Construction.copyGit source (base / "setting-output")
+        if disabled then config #["extensions.worktreeConfig", "true"]
+        config #["--worktree", "--unset", key]
+      config #["--unset", "extensions.worktreeConfig"]
       removeOwn .file (source / ".git/config.worktree")
       -- Git exits 1 for a configuration file it cannot open, as for one with no such setting, so
       -- each of these is refused only by the read that comes before Git.
@@ -258,6 +292,31 @@ run_cmd do
       let copiedHead ← Construction.gitOutput slot #["cat-file", "-e", "HEAD^{commit}"]
       unless copiedHead.exitCode == 0 do
         throw <| IO.userError s!"Git-resolved slot common metadata lost its objects: {copiedHead.stderr}"
+      -- A no-mistakes run's shape: the worktreeConfig extension in the common configuration, the
+      -- hooks directory in the main and the linked work trees' own files, and `core.bare` in the
+      -- main one's. The slot omits the linked file, and Git does not read the main one's for it.
+      config #["extensions.worktreeConfig", "true"]
+      config #["--worktree", "core.bare", "true"]
+      config #["--worktree", "core.hooksPath", (base / "hooks").toString]
+      let linkedConfig := fun (args : Array String) =>
+        fixture "git" (#["-C", linked.toString, "config", "--worktree"] ++ args)
+      linkedConfig #["core.hooksPath", (base / "hooks").toString]
+      let runSlot := base / "run-slot"
+      construct runSlot []
+      Regula.Qualification.Slot.materializeGit (runSlot / ".git") (linked / ".git")
+      let runHooks ← Construction.gitOutput runSlot #["config", "--get", "core.hookspath"]
+      let runBare ← Construction.gitOutput runSlot #["rev-parse", "--is-bare-repository"]
+      unless runHooks.exitCode == 1 && runHooks.stdout.isEmpty && runBare.stdout == "false\n" &&
+          (← Construction.kindWith Construction.observer (runSlot / ".git/config.worktree")).isNone do
+        throw <| IO.userError s!"Git slot of a run's linked work tree reads a per-worktree setting: \
+          {runHooks.stdout}{runBare.stdout}{runBare.stderr}"
+      linkedConfig #["core.symlinks", "true"]
+      refused "Git slot per-worktree setting" "per-worktree configuration is outside the closed \
+          case: core.symlinks" <|
+        Regula.Qualification.Slot.materializeGit (base / "run-slot-output") (linked / ".git")
+      removeOwn .file (leaf / "config.worktree")
+      removeOwn .file (source / ".git/config.worktree")
+      config #["--unset", "extensions.worktreeConfig"]
       construct (source / ".git/cache") []
       construct (source / ".git/objects/cache") []
       Construction.appendFileWith Construction.observer (source / ".git/objects/info") "alternates"
