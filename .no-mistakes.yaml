@@ -1,0 +1,30 @@
+# Configuration of the no-mistakes validation pipeline that every change to Regula passes through.
+#
+# Regula establishes the claims of a change by types, constructions, contracts, machine-checked
+# proofs and derivation, not by tests. The pipeline's reviewer, test and fix agents learn that rule
+# only from this file, so it declares `test.tests_as_evidence` with `policy: forbid`. With it,
+# each agent of the pipeline that could write, ask for or review a test is told not to use a test
+# as evidence, and missing evidence is reported as a missing proof, contract or derivation, or as an
+# open claim. A change whose listing of tests prints an identifier that the listing of its base
+# does not print is blocked at the Test step, at publication and on CI repairs. no-mistakes reads
+# this setting only from the copy of this file on the default branch, so a change to it governs the
+# runs that start after its merge.
+#
+# The listing is lean/Regula/TestListing.lean, whose module docstring states what it reads and
+# what it trusts. Lake knows one kind of test, the package's test driver, which `lake test` runs.
+# The listing prints the driver that Lake reports for the root package, and prints nothing when Lake
+# reports none. It fails, and so blocks rather than passes, when Lake cannot load the package or the
+# driver cannot be printed as one identifier. It reads the package with Lake's own loader and builds
+# nothing. Regula's controls, mutations and rule examples are not tests that Lake knows, so the
+# listing does not print them. The library name in the command is macOS's: on another system the
+# command fails.
+#
+# Memory. Measured on 2026-10-27 on a checkout with no .lake directory: `lake env` peaked at
+# 0.75 GB resident and the program at 1.9 GB resident, most of it Lean's and Lake's .olean files,
+# which the system maps from disk; the largest footprint of either was 0.15 GB. The command runs
+# through `no-mistakes admit` with a bound above the two together, so it waits until the bound
+# fits the machine's memory budget beside all other admitted work. Nothing enforces the bound.
+test:
+  tests_as_evidence:
+    policy: forbid
+    list_command: no-mistakes admit --memory 3GiB --limit "none; measured peaks 0.75 GB and 1.9 GB resident" -- lake env lean --load-dynlib=libLake_shared.dylib --run lean/Regula/TestListing.lean

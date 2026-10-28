@@ -1021,10 +1021,11 @@ write through an open handle, a write by a started process, or a temporary file 
 pair permits the call of its function by its caller for each path to that caller, thus also
 Regula's own call of `Lake.Manifest.saveEntries`.
 
-Nine programs elaborate Lean source, such as the Lake configuration of a project: `axiomGate`,
-`lint`, `ruleExamples`, `freshChecker`, `docFenceAudit`, `checkerSelftest`, `qualify`, `regula` and
-`site`. Their check states this with `elaborates := true`, and it fails if the compiled code of the
-linked modules outside Lean's toolchain disagrees. This is conservative reachability in the compiled
+Ten programs elaborate Lean source, such as the Lake configuration of a project. They are
+`axiomGate`, `lint`, `ruleExamples`, `freshChecker`, `docFenceAudit`, `checkerSelftest`, `qualify`,
+`regula`, `site` and the test listing `Regula.TestListing`. Their check states this with
+`elaborates := true`, and it fails if the compiled code of the linked modules outside Lean's
+toolchain disagrees. This is conservative reachability in the compiled
 code. A declaration that the program does not run counts, and so does a reference to the elaborator
 that it does not call. Three more programs state it because they link such code:
 `ruleExampleQualification`, `regula-markdown` and the registry checks.

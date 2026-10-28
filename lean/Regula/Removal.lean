@@ -89,9 +89,10 @@ so a walk of them would reach every tactic in every program that links Lean's el
 trusted to run none. A module is the toolchain's by its name, under the hypothesis that
 `toolchainModules` states and `lake exe qualify observers` checks.
 
-Nine programs elaborate, and their checks state it: `axiomGate`, `lint`, `ruleExamples`,
-`freshChecker`, `docFenceAudit`, `checkerSelftest`, `qualify`, `regula` and `site`. Each elaborates
-the Lake configuration of a project when it loads its workspace (`Lake.importConfigFile`). Some also
+Ten programs elaborate, and their checks state it: `axiomGate`, `lint`, `ruleExamples`,
+`freshChecker`, `docFenceAudit`, `checkerSelftest`, `qualify`, `regula`, `site` and the test listing
+(`Regula.TestListing`). Each elaborates the Lake configuration of a project when it loads its
+workspace or, for the test listing, its package (`Lake.importConfigFile`). Some also
 elaborate the project's modules in Regula's frontend, in their own process or in a worker of
 `axiomGate`, or regenerate the recursion of a declaration that they audit, which runs its
 `decreasing_by` tactics. Three more state it by the conservative reachability alone: they link code
