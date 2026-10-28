@@ -1761,19 +1761,20 @@ def Declaration.Assessed.neutral (d : Declaration.Assessed) : Declaration.Assess
     d.neutral.toInspected = d.toInspected := rfl
 
 /-- The roots of the library packages the Lean toolchain ships as its own code: `Init`, `Std`,
-`Lean` and `Lake`. In the audit, a module under one of them is toolchain code only with an admitted
-origin (`ToolchainOrigin`); the name alone never makes it so. The removal check of a program reads
-the name alone, under the workspace hypothesis that `Regula.Removal.toolchainModules` states and
-`lake exe qualify observers` checks for the root, `markdown/` and `audit/` workspaces of this
-repository only.
+`Lean`, `Lake` and `LeanExport`. In the audit, a module under one of them is toolchain code only
+with an admitted origin (`ToolchainOrigin`); the name alone never makes it so. The removal check of
+a program reads the name alone, under the workspace hypothesis that
+`Regula.Removal.toolchainModules` states and `lake exe qualify observers` checks for the root,
+`markdown/` and `audit/` workspaces of this repository only.
 
-Assumes: the Lean 4.34.1 release installs the compiled modules of these four packages in its
+Assumes: the Lean 4.35.0 release installs the compiled modules of these five packages in its
 library directory `lib/lean`, beside only the root modules of its executables (`LakeMain`,
 `LeanChecker`, `LeanIR` and `Leanc`), as a listing of that directory shows (Lake's sources are
 `src/lake/Lake` of the release), so a module whose loaded `.olean` is its own file there is the
-toolchain's. -/
+toolchain's. Lean 4.35.0 adds `LeanExport`, whose modules Lake's own modules import
+(`src/lake/Lake/CLI/Main.lean:29`, `src/lake/Lake/Check/Axioms.lean:9`). -/
 def ToolchainRoot (root : Lean.Name) : Prop :=
-  root = `Init ∨ root = `Std ∨ root = `Lean ∨ root = `Lake
+  root = `Init ∨ root = `Std ∨ root = `Lean ∨ root = `Lake ∨ root = `LeanExport
 
 instance : DecidablePred ToolchainRoot := fun _ => by unfold ToolchainRoot; infer_instance
 
@@ -1826,8 +1827,8 @@ structure FoundationStatement where
 `Quot.sound {α : Sort u} {r : α → α → Prop} {a b : α} : r a b → Quot.mk r a = Quot.mk r b` and
 `Classical.choice {α : Sort u} : Nonempty α → α`.
 
-Assumes: Lean 4.34.1 declares `propext` in `Init/Core.lean:1607`, `Classical.choice` in
-`Init/Prelude.lean:809` and `Quot.sound` in `Init/Prelude.lean:4776`, with these statements. The
+Assumes: Lean 4.35.0 declares `propext` in `Init/Core.lean:1612`, `Classical.choice` in
+`Init/Prelude.lean:865` and `Quot.sound` in `Init/Prelude.lean:4776`, with these statements. The
 build of `Regula.RegistryChecks` admits the toolchain's constants it was compiled against with
 `admitFoundation` and fails when one differs. -/
 def foundationStatements : Array FoundationStatement :=

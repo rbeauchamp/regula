@@ -2,7 +2,7 @@ import Regula.Checker.Workspace
 
 /-! # Lake's selection of a workspace's packages and their files
 
-What Lake v4.34.1 selects when it loads a workspace, shared by the checks that must follow it. Lake's
+What Lake v4.35.0 selects when it loads a workspace, shared by the checks that must follow it. Lake's
 loaded workspace records each package's directory, configuration file and manifest file, but not
 the entries it materialized the packages from (`withRootSelection`). So one read of the
 workspace's manifest and package overrides file gives the entries (`RootSelection`), and Lake's
@@ -29,7 +29,7 @@ is the entry that Lake materializes that package from (`effectiveEntry`), and `l
 states which entry it is.
 
 Assumes:
-- Lake v4.34.1 inserts the entries of a workspace's manifest and then those of its package
+- Lake v4.35.0 inserts the entries of a workspace's manifest and then those of its package
   overrides file into a name map, in that order, and materializes each dependency from the entry
   that the map holds for its name (`Lake/Load/Resolve.lean:599-613`). An insertion replaces the
   entry that the map holds for the name. -/
@@ -78,7 +78,7 @@ theorem effectiveEntry_eq_some {entries : Array _root_.Lake.PackageEntry} {name 
 def gitPin (entry : _root_.Lake.PackageEntry) : Option (String × String) :=
   match entry.src with
   | .git url rev _ _ => some (url, rev)
-  | .path _ => none
+  | .path .. => none
 
 /-- The first entry among `verso`, by its name, whose package two workspaces both pin by Git at a
 different source or revision: the workspace whose root entries are `verso` and the one whose root
@@ -116,10 +116,10 @@ that Lake loads the package from, given the name `configFile` that Lake resolves
 extension, that file, and for one without, its Lean file and its TOML file.
 
 Assumes:
-- Lake v4.34.1 loads a package from its configuration name in its directory when that name has an
+- Lake v4.35.0 loads a package from its configuration name in its directory when that name has an
   extension. For a name without one it loads `<name>.lean` when that exists and `<name>.toml`
   otherwise (`Lake/Load/Package.lean:93-118`). A dependency's name is the `configFile` of the entry
-  it is materialized from (`Lake/Load/Materialize.lean:136-137`, `Lake/Load/Resolve.lean:43`), and
+  it is materialized from (`Lake/Load/Materialize.lean:149-150`, `Lake/Load/Resolve.lean:43`), and
   a workspace root's is `lakefile` unless its load configuration names another
   (`Lake/Load/Config.lean:44`, `Lake/Config/Defaults.lean:26`). -/
 def configCandidates (configFile : FilePath) : List FilePath :=
@@ -142,10 +142,10 @@ theorem rootConfigFile_lake (env : _root_.Lake.Env) (dir : FilePath) :
 that a build of that package checks out (`rootEntries`).
 
 Assumes:
-- Lake v4.34.1 gives the root package of a workspace the `relManifestFile` of its load
+- Lake v4.35.0 gives the root package of a workspace the `relManifestFile` of its load
   configuration (`Lake/Load/Package.lean:35-51`), `lake-manifest.json` unless it names another
   (`Lake/Load/Config.lean:54`), and the directory `wsDir` (`Lake/Load/Config.lean:40-42`). The
-  `lake` command names no other manifest (`Lake/CLI/Main.lean:116-130`), nor does
+  `lake` command names no other manifest (`Lake/CLI/Main.lean:131-145`), nor does
   `Workspace.withRootWorkspace`. -/
 def ownRootFiles (dir : FilePath) : FilePath × FilePath :=
   Workspace.rootFiles dir
@@ -171,7 +171,7 @@ overrides file. Each file is read by Lake's own reader (`Workspace.readRoot`), s
 refuses is refused here too.
 
 Assumes:
-- Lake v4.34.1 materializes a workspace's dependencies from its manifest and its package overrides
+- Lake v4.35.0 materializes a workspace's dependencies from its manifest and its package overrides
   file when its manifest exists, and otherwise resolves its requirements anew without reading the
   overrides file (`Lake/Load/Workspace.lean:61-69`, `Lake/Load/Resolve.lean:603`,
   `Lake/Load/Resolve.lean:472-519`). -/
@@ -184,7 +184,7 @@ workspace's Git entries into: `recorded`, the one its manifest records, or else 
 one its root configuration gives (`Lake.Workspace.relPkgsDir`).
 
 Assumes:
-- Lake v4.34.1 materializes each Git entry of a workspace below `manifest.packagesDir?.getD
+- Lake v4.35.0 materializes each Git entry of a workspace below `manifest.packagesDir?.getD
   ws.relPkgsDir` (`Lake/Load/Resolve.lean:598`), and `ws.relPkgsDir` is the `packagesDir` of the
   root package's configuration (`Lake/Config/Workspace.lean:184-185`,
   `Lake/Config/Package.lean:216-217`). -/
@@ -193,15 +193,18 @@ def packagesDir (recorded : Option FilePath) (relPkgsDir : FilePath) : FilePath 
 
 /-- The directory, relative to the workspace's directory, that Lake materializes `entry` at before
 it takes the entry's subdirectory, given the workspace's packages directory `packagesDir`
-(`packagesDir`): a path entry's directory, and a Git entry's checkout `packagesDir / dirName`.
+(`packagesDir`): the directory of a path entry that Lake does not copy, and `packagesDir / dirName`
+for a path entry that Lake copies and for a Git entry's checkout.
 
 Assumes:
-- Lake v4.34.1 materializes a path entry at its directory and clones a Git entry at that checkout
-  (`Lake/Load/Materialize.lean:241-246`), joined as Lake joins paths
-  (`Lake/Util/FilePath.lean:42-48`). -/
+- Lake v4.35.0 materializes a path entry that it does not copy at its directory, one that it copies
+  at a copy `packagesDir / dirName`, and a Git entry at that checkout
+  (`Lake/Load/Materialize.lean:183-197`, `Lake/Load/Materialize.lean:271-276`), joined as Lake
+  joins paths (`Lake/Util/FilePath.lean:42-51`). -/
 def checkoutDir (packagesDir : FilePath) (entry : _root_.Lake.PackageEntry) : FilePath :=
   match entry.src with
-  | .path dir => dir
+  | .path dir false => dir
+  | .path _ true => _root_.Lake.joinRelative packagesDir entry.dirName
   | .git .. => _root_.Lake.joinRelative packagesDir entry.dirName
 
 /-- The directory, relative to the workspace's directory, that Lake materializes `entry` into,
@@ -209,8 +212,8 @@ given the workspace's packages directory `packagesDir` (`packagesDir`): its `che
 Git entry's subdirectory when it names one.
 
 Assumes:
-- Lake v4.34.1 materializes a Git entry that names a subdirectory below its checkout
-  (`Lake/Load/Materialize.lean:264`), joined as Lake joins paths
+- Lake v4.35.0 materializes a Git entry that names a subdirectory below its checkout
+  (`Lake/Load/Materialize.lean:280`), joined as Lake joins paths
   (`Lake/Util/FilePath.lean:42-48`), and gives the package that directory as its `relDir`
   (`Lake/Load/Resolve.lean:42`, `Lake/Load/Package.lean:35-51`). -/
 def entryDir (packagesDir : FilePath) (entry : _root_.Lake.PackageEntry) : FilePath :=
@@ -219,21 +222,24 @@ def entryDir (packagesDir : FilePath) (entry : _root_.Lake.PackageEntry) : FileP
     _root_.Lake.joinRelative (checkoutDir packagesDir entry) subDir
   | _ => checkoutDir packagesDir entry
 
-/-- The remote URL that Lake records for a package that it materializes from `entry`: empty for a
-path entry, and for a Git entry its URL as `Lake.Git.filterUrl?` gives it, or empty when that
-gives none.
+/-- The remote URL that Lake records for a package that it materializes from `entry`, given the map
+`urlMap` of package names to URLs that Lake read from `LAKE_PKG_URL_MAP`: empty for a path entry,
+and for a Git entry the URL that `urlMap` gives its name, or else its own URL, as
+`Lake.Git.filterUrl?` gives it, or empty when that gives none.
 
 Assumes:
-- Lake v4.34.1 records these (`Lake/Load/Materialize.lean:243`, `Lake/Load/Materialize.lean:266`,
-  `Lake/Load/Resolve.lean:47`, `Lake/Load/Package.lean:35-51`). -/
-def entryRemoteUrl (entry : _root_.Lake.PackageEntry) : String :=
+- Lake v4.35.0 records these (`Lake/Load/Materialize.lean:274`, `Lake/Load/Materialize.lean:278`,
+  `Lake/Load/Materialize.lean:281`, `Lake/Load/Resolve.lean:47`, `Lake/Load/Package.lean:35-51`),
+  with `urlMap` its `Lake.Env.pkgUrlMap` (`Lake/Config/Env.lean:37`). -/
+def entryRemoteUrl (urlMap : NameMap String) (entry : _root_.Lake.PackageEntry) : String :=
   match entry.src with
-  | .path _ => ""
-  | .git url .. => (_root_.Lake.Git.filterUrl? url).getD ""
+  | .path .. => ""
+  | .git url .. => (_root_.Lake.Git.filterUrl? (urlMap.getD entry.name url)).getD ""
 
 /-- What Lake's load of a workspace selected for its dependencies: the entries, in Lake's order,
 that it materializes them from (`effectiveEntry`), the packages directory of its Git entries
-(`packagesDir`), and whether the load wrote the entries itself (`written`). -/
+(`packagesDir`), whether the load wrote the entries itself (`written`), and the map of package
+names to URLs that the load read from `LAKE_PKG_URL_MAP` (`urlMap`). -/
 structure RootSelection where
   /-- The entries of the workspace's manifest, then those of its package overrides file. -/
   entries : Array _root_.Lake.PackageEntry
@@ -242,6 +248,8 @@ structure RootSelection where
   /-- Whether the workspace had no manifest before the load, so that Lake resolved its
   requirements anew and wrote `entries` to the manifest from the packages it materialized. -/
   written : Bool := false
+  /-- The map of package names to URLs that the load read from `LAKE_PKG_URL_MAP`. -/
+  urlMap : NameMap String := {}
 
 /-- Whether the package `pkg` that Lake loaded agrees with `entry` of the selection `selection` on
 each field that the load records from the entry it materializes a package from: the name, the
@@ -252,21 +260,21 @@ too, unless the load wrote the entry (`RootSelection.written`). A Git revision a
 flag are not recorded by the load.
 
 Assumes:
-- Lake v4.34.1 loads a package from the load configuration that it builds from the entry
-  (`Lake/Load/Resolve.lean:33-46`, `Lake/Load/Materialize.lean:124-137`), whose configuration name
+- Lake v4.35.0 loads a package from the load configuration that it builds from the entry
+  (`Lake/Load/Resolve.lean:33-46`, `Lake/Load/Materialize.lean:137-150`), whose configuration name
   it resolves (`Lake/Load/Resolve.lean:70`, `Lake/Load/Package.lean:93-118`), and records these
   fields of that configuration in the package (`Lake/Load/Package.lean:35-51`).
-- When Lake v4.34.1 resolves a requirement anew, the remote URL it records comes from the
+- When Lake v4.35.0 resolves a requirement anew, the remote URL it records comes from the
   requirement, or from Reservoir, while the entry it writes names the URL it cloned from, which
-  `LAKE_PKG_URL_MAP` can replace (`Lake/Load/Materialize.lean:183-185`,
-  `Lake/Load/Materialize.lean:196-213`, `Lake/Load/Materialize.lean:219-223`). Lake reads a
+  `LAKE_PKG_URL_MAP` can replace (`Lake/Load/Materialize.lean:213-215`,
+  `Lake/Load/Materialize.lean:226-243`, `Lake/Load/Materialize.lean:249-253`). Lake reads a
   package's remote URL only for the repository of its release archive
-  (`Lake/Build/Package.lean:128-130`), which selects none of the files that these checks read. -/
+  (`Lake/Build/Package.lean:155-157`), which selects none of the files that these checks read. -/
 def agrees (selection : RootSelection) (pkg : _root_.Lake.Package)
     (entry : _root_.Lake.PackageEntry) : Bool :=
   pkg.baseName == entry.name && pkg.scope == entry.scope &&
     pkg.relDir == entryDir selection.packagesDir entry &&
-    (selection.written || pkg.remoteUrl == entryRemoteUrl entry) &&
+    (selection.written || pkg.remoteUrl == entryRemoteUrl selection.urlMap entry) &&
     (configCandidates entry.configFile).contains pkg.relConfigFile &&
     pkg.relManifestFile == entry.manifestFile?.getD _root_.Lake.defaultManifestFile
 
@@ -278,19 +286,29 @@ theorem agrees_fields {selection : RootSelection} {pkg : _root_.Lake.Package}
     pkg.relDir = entryDir selection.packagesDir entry ∧
       pkg.relConfigFile ∈ configCandidates entry.configFile ∧
       pkg.relManifestFile = entry.manifestFile?.getD _root_.Lake.defaultManifestFile ∧
-      (selection.written = false → pkg.remoteUrl = entryRemoteUrl entry) := by
+      (selection.written = false → pkg.remoteUrl = entryRemoteUrl selection.urlMap entry) := by
   simp only [agrees, Bool.and_eq_true, Bool.or_eq_true, beq_iff_eq, List.contains_iff_mem] at h
   exact ⟨h.1.1.1.2, h.1.2, h.2, fun written => h.1.1.2.resolve_left (by simp [written])⟩
 
 /-- Refuse unless each package that Lake loaded in the workspace `ws` other than the root has an
-entry in `selection` (`effectiveEntry`) and agrees with it on each field that the load records
-(`agrees`). -/
+entry in `selection` (`effectiveEntry`), that entry is not a path entry that Lake copies, and the
+package agrees with it on each field that the load records (`agrees`). Lake keeps the copy of such
+an entry below the packages directory without bringing it up to date with the entry's directory
+(`Lake/Load/Materialize.lean:183-197`, `Lake/Load/Materialize.lean:271-274`), and the checks that
+take a path entry's packages, such as the copy of a project (`Lake.copyProject`), read the entry's
+directory. -/
 def checkSelection (ws : _root_.Lake.Workspace) (selection : RootSelection) : IO Unit := do
   for pkg in ws.packages do
     if pkg.isRoot then continue
     let some entry := effectiveEntry selection.entries pkg.baseName
       | throw <| IO.userError s!"lake-workspace-load-failed: Lake loaded the package \
           {pkg.baseName}, for which {ws.manifestFile} and {ws.packageOverridesFile} have no entry"
+    if entry.src matches .path _ true then
+      throw <| IO.userError s!"lake-workspace-load-failed: Lake loaded the package \
+        {pkg.baseName} from a copy of its path entry in {ws.manifestFile} or \
+        {ws.packageOverridesFile} below the packages directory, which Lake does not bring up to \
+        date; Regula reads a path entry's own directory, so it refuses a path entry that Lake \
+        copies"
     unless agrees selection pkg entry do
       throw <| IO.userError s!"lake-workspace-load-failed: Lake loaded the package \
         {pkg.baseName} from {pkg.relDir} with configuration {pkg.relConfigFile}, manifest \
@@ -314,7 +332,7 @@ reads no overrides file. The selection is then the entries of that manifest, rea
 and marked as written (`RootSelection.written`).
 
 Assumes:
-- Lake v4.34.1 materializes the dependencies from the manifest and the overrides file when the
+- Lake v4.35.0 materializes the dependencies from the manifest and the overrides file when the
   manifest exists, and otherwise resolves them anew and writes the manifest
   (`Lake/Load/Workspace.lean:61-69`, `Lake/Load/Resolve.lean:587-627`,
   `Lake/Load/Resolve.lean:521-560`). The entries it materialized from are not recorded in the
@@ -346,7 +364,8 @@ def withRootSelection {α : Type} (dir : FilePath)
     let selection : RootSelection := {
       entries := manifest.packages ++ overrides
       packagesDir := packagesDir manifest.packagesDir? ws.relPkgsDir
-      written := read.isNone }
+      written := read.isNone
+      urlMap := ws.lakeEnv.pkgUrlMap }
     checkSelection ws selection
     action ws selection
 
@@ -360,7 +379,7 @@ def pathPackages (ws : _root_.Lake.Workspace) (selection : RootSelection) :
     if pkg.isRoot then none
     else match effectiveEntry selection.entries pkg.baseName with
       | some entry => match entry.src with
-        | .path _ => some (pkg, entry)
+        | .path .. => some (pkg, entry)
         | .git .. => none
       | none => none
 
@@ -372,9 +391,9 @@ manifest and package overrides file of the workspace the package roots (`ownRoot
 toolchain file.
 
 Assumes:
-- Lake v4.34.1 reads the manifest that a dependency's entry records when it materializes the
-  dependency, and none when the entry records none (`Lake/Load/Materialize.lean:272-277`).
-- Lake v4.34.1 reads a package's toolchain at `lean-toolchain` in its directory
+- Lake v4.35.0 reads the manifest that a dependency's entry records when it materializes the
+  dependency, and none when the entry records none (`Lake/Load/Materialize.lean:287-292`).
+- Lake v4.35.0 reads a package's toolchain at `lean-toolchain` in its directory
   (`Lake/Util/Version.lean:230`, `Lake/Util/Version.lean:304-305`). -/
 def lakeInputs (configFile : FilePath) (manifestFile? : Option FilePath) (anchor : FilePath) :
     List FilePath :=

@@ -30,7 +30,7 @@ private def unsupported {α : Type} (reason : String) : IO α :=
 as an absolute path: `<entry>/git` for the first entry of `path`, split at each `:`, that holds a regular file named `git`, which must run with
 `--version` and exit 0. Each case outside that rule is reported as unsupported (`unsupported`).
 
-Assumes: Lean v4.34.1 starts a child with `execvp` (`src/runtime/process.cpp:510`), and the
+Assumes: Lean v4.35.0 starts a child with `execvp` (`src/runtime/process.cpp:510`), and the
 search is the libc's. This function models only these cases of it. With `PATH` set and nonempty,
 the search tries `<entry>/git` for each entry in order. An entry whose `git` is absent (`ENOENT`)
 is skipped: macOS 27 `exec(3)` (DESCRIPTION, the paragraph on ambiguous errors: a stat that finds

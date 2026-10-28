@@ -2035,7 +2035,7 @@ private unsafe def structuralPartB (layout : SourceLayout) (executables : Bool)
         for (path, bytes) in placed do IO.FS.writeBinFile path bytes
     -- A changed observer source that compiles to other code: an added public definition gives
     -- the module's C file another declaration, and Lake compiles its object from the C file's
-    -- content (`Module.cFacetConfig`, `Lake/Build/Module.lean` lines 1184 to 1198), so the object
+    -- content (`Module.cFacetConfig`, `Lake/Build/Module.lean` lines 1195 to 1209), so the object
     -- the library links changes and Lake links the library again, whose bytes differ. A change
     -- that leaves the C file as it was, such as a comment, leaves the placed library current.
     let observerSource := sources / "RegulaObserver.lean"
@@ -3423,7 +3423,7 @@ import only Lean. A project that requires `regula` from the tool loads the tool'
 plugin.
 
 - Rebuilt in place: the observer source gains a public definition, so its C file and object change
-  (`Module.cFacetConfig`, `Lake/Build/Module.lean` lines 1184 to 1198), and Lake links the
+  (`Module.cFacetConfig`, `Lake/Build/Module.lean` lines 1195 to 1209), and Lake links the
   library again at its `sharedLibFile`, the path the gate read at its start
   (`LeanLib.recBuildShared`, `Lake/Build/Library.lean` lines 128 to 152), with other bytes. The
   audit must refuse the project under RG2003. An admission by the library's path, or by an

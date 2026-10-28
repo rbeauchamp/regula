@@ -4,7 +4,7 @@ import Regula.TaskManager
 
 /-! # Git isolation of Lake's own Git commands
 
-Lake v4.34.1 starts each of its Git commands with the environment of the process that runs Lake
+Lake v4.35.0 starts each of its Git commands with the environment of the process that runs Lake
 (`Regula.Filesystem.Construction.processEnvironment`). These controls give that environment the
 selectors of a competing private repository (`GIT_DIR`, `GIT_WORK_TREE`, `GIT_COMMON_DIR`,
 `GIT_INDEX_FILE`, `GIT_OBJECT_DIRECTORY`), a command configuration that conflicts with the
@@ -127,7 +127,7 @@ private def intended (root url : FilePath) (rev : String) : IO Bool := do
     | .ok manifest => match manifest.packages with
       | #[entry] => entry.name == `dep && match entry.src with
         | .git entryUrl entryRev _ _ => entryUrl == url.toString && entryRev == rev
-        | .path _ => false
+        | .path .. => false
       | _ => false
     | .error _ => false
   unless (← Regula.Filesystem.entryIfPresent (clone / link.1)) == some .file do return false

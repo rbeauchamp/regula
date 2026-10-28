@@ -80,7 +80,7 @@ termination argument executable and cannot fail: each use follows a successful `
 def isWs (c : Char) : Bool := c = '\t' || c = '\n' || c = '\r' || c = ' '
 
 /-- The position after the whitespace at `p`. It restates the `skipWs` that Std's `ws` calls
-(`Std/Internal/Parsec/String.lean`, v4.34.1), which is private to Std, so no proof here can name
+(`Std/Internal/Parsec/String.lean`, v4.35.0), which is private to Std, so no proof here can name
 it. -/
 def skipWs {s : String} (p : s.Pos) : s.Pos :=
   if h : p ≠ s.endPos then
@@ -92,7 +92,7 @@ termination_by p
 def ws : Parser Unit := fun it => .success ⟨_, skipWs it.2⟩ ()
 
 /-- The characters of a JSON string after its opening quote, through its closing quote. Lean's
-`Json.Parser.strCore` is `partial` (`Lean/Data/Json/Parser.lean:75`, v4.34.1), so no proof unfolds
+`Json.Parser.strCore` is `partial` (`Lean/Data/Json/Parser.lean:75`, v4.35.0), so no proof unfolds
 it; this is its definition, made total by `descend`. -/
 def strCore (acc : String) (start : Input) : Result String := (show Parser String from do
   let c ← peek!
@@ -259,7 +259,7 @@ mutual
 /-- One JSON value and the whitespace after it. Total by well-founded recursion on the remaining
 input: every recursive call is guarded, and `array`/`object` measure one more than the `value`
 they call at the same input. Lean's `Json.Parser.anyCore`, `arrayCore` and `objectCore` are
-`partial` (`Lean/Data/Json/Parser.lean:233`, `:204`, `:217`, v4.34.1), so no proof unfolds them,
+`partial` (`Lean/Data/Json/Parser.lean:233`, `:204`, `:217`, v4.35.0), so no proof unfolds them,
 and `objectCore` keeps the last of two members with one name. As `objectCore` does, `object`
 inserts each member into the object's tree as it reads it. -/
 def value (start : Input) : Result Json := (show Parser Json from do
@@ -320,7 +320,7 @@ def parse (text : String) : Except String Json :=
 /-! ### Printing -/
 
 /-- Append the JSON text of the character `c` inside a string to `acc`: Lean's `escapeAux`
-(`Lean/Data/Json/Printer.lean:36`, v4.34.1). `Json.escape` applies it to each character only
+(`Lean/Data/Json/Printer.lean:36`, v4.35.0). `Json.escape` applies it to each character only
 when its private byte table (`needEscape`, `Printer.lean:65`) finds one to escape, and appends the
 string as it is otherwise, which is the same text; a proof here cannot name either private
 definition. -/
@@ -382,7 +382,7 @@ end
 
 /-- The compact JSON text of `j`: no whitespace, object members in the order of their tree. It
 replaces Lean's `Json.compress`, which is `partial` (`Lean/Data/Json/Printer.lean:167`,
-v4.34.1), so that `JsonRoundTrip` can state what `parse` returns for the text. It follows
+v4.35.0), so that `JsonRoundTrip` can state what `parse` returns for the text. It follows
 `Json.compress` except for a number with a positive exponent (`numberText`). That the texts are
 byte-identical for the other values, and that the result writers' documents hold no number with a
 positive exponent, are observations from reading the sources, not theorems. Its stack depth grows

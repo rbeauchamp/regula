@@ -195,7 +195,7 @@ made, with the environment that Lake gives the uncached workspace.
 `uncachedWorkspace_unreadable` and `uncachedWorkspace_unwritable` prove that Lake's predicates
 `Package.isArtifactCacheReadable` and `isArtifactCacheWritable` then give `false` for these
 packages. The settings of the workspace and `LAKE_ARTIFACT_CACHE` do not change this result.
-Lake `v4.34.1` uses these predicates to decide each read and each write of the cache. A build
+Lake `v4.35.0` uses these predicates to decide each read and each write of the cache. A build
 finds its packages only through the workspace and these dependency records. These two
 facts come from the source code of Lake, not from a proof. Before the build,
 `dropRestoredTraces` removes the trace of each root-package module that records a restore from
@@ -230,7 +230,7 @@ meets a wall-clock limit. Lake's facets, parsing, traces and process effects rem
 **`lake lint` dispatch.** Lake's lint dispatch builds only the driver, so the driver first builds its
 audit worker `regula/axiomGate` in the workspace `lake lint` ran in (never the `--project`
 directory). That workspace built the driver, so it resolves the same `regula`, dependencies and
-toolchain; a failed worker build is `INCOMPLETE`. Lake v4.34.1 does not change the driver's working
+toolchain; a failed worker build is `INCOMPLETE`. Lake v4.35.0 does not change the driver's working
 directory, and passes the dispatching workspace's package library directories, then
 `LEAN_SYSROOT/lib/lean`, then any inherited `LEAN_PATH`, as its `LEAN_PATH`. The root package's
 library directory is the last of the workspace's. The driver loads only the root configuration of
@@ -254,7 +254,7 @@ the assertion in the timed check of its own code (`diagnostics self-lint`). A ch
 package that runs on dispatch, `diagnostics self-lint-default`, runs without it.
 
 The driver reads the assertion only from its environment, and any value other than `1` is
-refused with exit 2 (`Regula.Checker.Lint.ownerAssertion_eq_true_iff`). Lake v4.34.1 runs the
+refused with exit 2 (`Regula.Checker.Lint.ownerAssertion_eq_true_iff`). Lake v4.35.0 runs the
 driver with its own environment plus variables of the workspace, and none of them is
 `REGULA_ORDINARY_LAKEFILES`. A package configuration can decide some of those variables, such as
 `LAKE_ARTIFACT_CACHE`, but it cannot set or override this one. That is read from Lake's
@@ -376,12 +376,12 @@ record.
 A `needs` entry of a target of the plain shape may also name that shared library, as
 `isObserverNeed` decides. [RG2006] requires each target that loads the observer to list it there.
 The entry builds the library that the plugin entry names, and nothing else. Without it, Lake
-v4.34.1 can build the library several times at the same time in a fresh build. Those builds write
+v4.35.0 can build the library several times at the same time in a fresh build. Those builds write
 the same files.
 
 With the entry, Lake builds the library before the modules of the target fetch their plugins. Lake
 also mixes the trace of the target's `needs` into each module's trace, whatever the target's
-`platformIndependent` (`Lake/Build/Module.lean` lines 591 and 600 to 603). So a module that Lake
+`platformIndependent` (`Lake/Build/Module.lean` lines 603 and 612 to 615). So a module that Lake
 replays was elaborated with the observer that the build has.
 
 Regula declares no `presetup` facet. The audit's own builds run the facet that the workspace
@@ -670,7 +670,7 @@ Regula constructs its copies through `Regula.Filesystem`. The general routine re
 
 `observer_appendFile` includes ancestor admission when the leaf writer extends an established plain parent. Its initial tree is a precondition, not an authentication of arbitrary old entries. Errors can leave partial private output. Callers refuse that output before a Lake load. These theorems state entry kinds and locations, not byte fidelity, permissions or later process effects.
 
-Assumes: Lean `v4.34.1` uses POSIX lstat for `symlinkMetadata` (`Init/System/IO.lean:1151-1156`, `runtime/io.cpp:1160-1179`). Windows is refused because this read follows links there.
+Assumes: Lean `v4.35.0` uses POSIX lstat for `symlinkMetadata` (`Init/System/IO.lean:1151-1156`, `runtime/io.cpp:1160-1179`). Windows is refused because this read follows links there.
 
 Assumes: An admitted listing program exits with a nonzero code after a failed read of a directory. [Assumptions of directory enumeration](#assumptions-of-directory-enumeration) gives the admitted programs, their sources and the controls.
 
@@ -746,19 +746,19 @@ Assumes: Git `2.54.0` resolves metadata paths through `--git-path` (`builtin/rev
 
 Assumes: Git `2.54.0` resolves pointer files and common directories (`builtin/rev-parse.c:723-731`, `setup.c:303-324`). All captured metadata has no writer.
 
-Assumes: Lean `v4.34.1` applies process environment changes in order (`Init/System/IO.lean:1441-1448`). The shared observer's removals follow caller settings. Cold Git adapters pass the embedded source through stdin (`IO.Process.output`, `Init/System/IO.lean:1544-1557`, `--stdin --run`, `Lean/Shell.lean:497-518,552-560`). Interpreter fidelity remains trusted.
+Assumes: Lean `v4.35.0` applies process environment changes in order (`Init/System/IO.lean:1441-1448`). The shared observer's removals follow caller settings. Cold Git adapters pass the embedded source through stdin (`IO.Process.output`, `Init/System/IO.lean:1544-1557`, `--stdin --run`, `Lean/Shell.lean:498-519,553-561`). Interpreter fidelity remains trusted.
 
-Assumes: Lake `v4.34.1` starts each Git command with no environment of its own (`Lake/Util/Git.lean:87-100`, `Lake/Util/Proc.lean:29-34,61-80`). Lean then gives the command the environment of the process that runs Lake (`Init/System/IO.lean:1434-1450`).
+Assumes: Lake `v4.35.0` starts each Git command with no environment of its own (`Lake/Util/Git.lean:91-109`, `Lake/Util/Proc.lean:29-34,61-80`). Lean then gives the command the environment of the process that runs Lake (`Init/System/IO.lean:1434-1450`).
 
 Assumes: Git `2.54.0` reads `GIT_CONFIG_COUNT` and the numbered keys and values below it in command scope (`config.c:711-779`, `config.c:622-628`). Git reads command scope after the other scopes (`config.c:1515-1581`). Git `2.31.0` added these variables, and Git `2.32.0` added `GIT_CONFIG_GLOBAL`.
 
 Assumes: Git `2.54.0` keeps `GIT_CONFIG_COUNT` for a command that it starts in a different repository (`run-command.c:1979-1994`). Thus a Git command that a Git command starts also gets `core.symlinks=false`.
 
-Assumes: Lean `v4.34.1` names the executable that runs with `IO.appPath` (`Init/System/IO.lean:952-955`). A child gets the streams, the working directory and the environment of its parent, with changes in sequence (`runtime/process.cpp:436-515`). Lean's wait gives `128 + n` for a child that signal `n` stopped (`runtime/process.cpp:354-367`).
+Assumes: Lean `v4.35.0` names the executable that runs with `IO.appPath` (`Init/System/IO.lean:952-955`). A child gets the streams, the working directory and the environment of its parent, with changes in sequence (`runtime/process.cpp:436-515`). Lean's wait gives `128 + n` for a child that signal `n` stopped (`runtime/process.cpp:354-367`).
 
-Assumes: Lake `v4.34.1` names the file of an executable with its `exeName` and the extension of the platform (`Lake/Config/LeanExe.lean:66-69`). The guard compares that name with the file name of `IO.appPath`.
+Assumes: Lake `v4.35.0` names the file of an executable with its `exeName` and the extension of the platform (`Lake/Config/LeanExe.lean:66-69`). The guard compares that name with the file name of `IO.appPath`.
 
-Assumes: Lake `v4.34.1` tests cleanliness with `git diff --exit-code HEAD` (`Util/Git.lean:198-203`). Matching-revision dependencies with changes get a warning (`Load/Materialize.lean:255-258`).
+Assumes: Lake `v4.35.0` tests cleanliness with `git diff --exit-code HEAD` (`Util/Git.lean:216-220`). A dependency already at its revision, or one it has just checked out, with changes gets a warning (`Load/Materialize.lean:57-58`, `:81-82`, `:104-107`).
 
 `copyProject` captures the manifest at Lake's loaded `ws.manifestFile`. Its packages fallback is `ws.relPkgsDir`. Each resolved dependency receives a typed path override, including inherited and transitive dependencies. Owned dependencies point into the copy, and trusted dependencies point to their original roots. The copy always retains the captured manifest and runs ordinary loads.
 
@@ -770,17 +770,17 @@ The copy keeps the exclusions of names such as `.lake` and `.cache`, and checks 
 
 `Construction.firstUnwritten_eq_none` proves that the copy refuses none exactly when the files it would write cover each such path (`Construction.Covers`). The constructor's own guard requires the same paths, so `Construction.constructSelected_io` states that a successful construction holds a regular file at each. `Construction.packageEntries_eq_some` states the path: the recorded components without `.`. Before it captures anything, the copy refuses a package, library or executable with an absolute `srcDir`, since Lake joins it unchanged. The copy also refuses a packages directory that it captures and that is itself a link, as it refuses each link that it captures.
 
-Assumes: Lake `v4.34.1`, `Load/Resolve.lean:590-627`, applies overrides during ordinary materialization. `Load/Resolve.lean:201-235` traverses dependencies transitively. Path entries do not clone packages (`Load/Materialize.lean:239-277`).
+Assumes: Lake `v4.35.0`, `Load/Resolve.lean:590-627`, applies overrides during ordinary materialization. `Load/Resolve.lean:201-235` traverses dependencies transitively. Path entries fetch no package (`Load/Materialize.lean:271-274`). Regula refuses a path entry that Lake copies below the packages directory (`Load/Materialize.lean:183-197`, `Regula.Checker.LakeSelection.checkSelection`).
 
-Assumes: Lake `v4.34.1` materializes a Git entry at its directory name in the packages directory (`Load/Materialize.lean:246`). It puts the package below that checkout at the subdirectory that the entry names (`Load/Materialize.lean:264`). It loads a package's configuration file and the manifest that its entry records at their recorded paths, joined to the package's directory (`Load/Package.lean:96-117`, `Load/Materialize.lean:272-277`).
+Assumes: Lake `v4.35.0` materializes a Git entry at its directory name in the packages directory (`Load/Materialize.lean:276`). It puts the package below that checkout at the subdirectory that the entry names (`Load/Materialize.lean:280`). It loads a package's configuration file and the manifest that its entry records at their recorded paths, joined to the package's directory (`Load/Package.lean:96-117`, `Load/Materialize.lean:287-292`).
 
 Assumes: `IO.FS.realPath` is POSIX `realpath(3)`, which resolves each link and each `.`, `..` and empty component. On Darwin it gives each component at the name that the volume keeps (`ReadsReal`). So each spelling of one entry that a folding volume admits has one real path. A `realpath(3)` that keeps the spelling it gets, as on a folding volume elsewhere, leaves an entry that a different spelling names unpruned.
 
 Assumes: POSIX path resolution, under which a `.` component names the directory before it. The copy holds no link, since the constructor creates none.
 
-Assumes: Lean `v4.34.1` `FilePath.join` gives an absolute right operand as it stands (`Init/System/FilePath.lean:126-130`).
+Assumes: Lean `v4.35.0` `FilePath.join` gives an absolute right operand as it stands (`Init/System/FilePath.lean:126-130`).
 
-Assumes: Lake `v4.34.1` can build each module that `LeanLibConfig.isBuildableModule` admits (`Config/LeanLibConfig.lean:128-130`), which `Lake.packageModules` lists. It reads the module's source below its library's `srcDir` (`Config/Module.lean:83-90`, `Config/LeanLib.lean:34-35`). A build reaches only the modules that a glob selects and their imports (`Build/Library.lean:36-60`, `:67-72`), so the copy's domain can exceed what a build reads.
+Assumes: Lake `v4.35.0` can build each module that `LeanLibConfig.isBuildableModule` admits (`Config/LeanLibConfig.lean:140-142`), which `Lake.packageModules` lists. It reads the module's source below its library's `srcDir` (`Config/Module.lean:83-90`, `Config/LeanLib.lean:34-35`). A build reaches only the modules that a glob selects and their imports (`Build/Library.lean:36-61`, `:67-72`), so the copy's domain can exceed what a build reads.
 
 Assumes: A full update or a missing manifest bypasses overrides (`Load/Workspace.lean:64-69`, `Load/Resolve.lean:269-333`). Existing-project copies do neither. Generated update fixtures state their closed input domain where they create it.
 
@@ -808,15 +808,15 @@ The fresh documentation census relocates each original snapshot. `Documentation.
 
 `configurationRelative` supplies the same path decision for relocation and the account. `relocateConfigurationPath_relative` and `configurationAccount_relative` state the two results. Fresh-audit controls check exact configuration accounts for absolute selections, including pruned paths. They also give the result of each selection to the rule-example comparison, which reads the manifest at the request's `policy` path.
 
-The cold drivers embed the shared constructor's source with Lean's `include_str` and interpret that source before package artifacts exist. Assumes: Lean `v4.34.1`, `Lean/Elab/BuiltinTerm.lean:437-445`, `elabIncludeStr`, reads those bytes during elaboration. The compiler and interpreter remain trusted. The constructor has one source implementation, with checked correspondence to its filesystem model.
+The cold drivers embed the shared constructor's source with Lean's `include_str` and interpret that source before package artifacts exist. Assumes: Lean `v4.35.0`, `Lean/Elab/BuiltinTerm.lean:437-445`, `elabIncludeStr`, reads those bytes during elaboration. The compiler and interpreter remain trusted. The constructor has one source implementation, with checked correspondence to its filesystem model.
 
-Workspace loading runs only in compiled executables, including its control in `qualify combined`. The interpreted cold drivers run the constructor and external programs, and collect no Lake workspace in their process. Assumes: Lake `v4.34.1` runs its initialization state in the compiled loader (`Load/Lean/Elab.lean:28`). These executables enable `supportInterpreter` to expose core symbols when Lake elaborates configuration (`Config/LeanExeConfig.lean:54-68`).
+Workspace loading runs only in compiled executables, including its control in `qualify combined`. The interpreted cold drivers run the constructor and external programs, and collect no Lake workspace in their process. Assumes: Lake `v4.35.0` runs its initialization state in the compiled loader (`Load/Lean/Elab.lean:28`). These executables enable `supportInterpreter` to expose core symbols when Lake elaborates configuration (`Config/LeanExeConfig.lean:54-68`).
 
 The interpreter refuses an uninitialized declaration with `Unreachable` (`src/library/ir_interpreter.cpp:919-928`). A seven-line cache observation aborts interpreted and passes compiled. That observation identifies a backend boundary, not a failure of the filesystem-model hypotheses.
 
 The provisioning registration link in the original integration workspace is separate from constructing a copy. Lake-generated entries, original trusted dependencies and deliberately planted diagnostic aliases remain outside the plain-copy guarantee.
 
-Lean `v4.34.1` has no operation that makes a symbolic link. Thus `RegulaProvision.installLinkWith` makes the registration link with `ln -s` in a new directory beside the place of the link. It then moves the link to its place with one rename, and it removes the directory. The function `mkdir(2)` makes that directory. It fails if an entry of any type is at the place of the directory, and it follows no link there.
+Lean `v4.35.0` has no operation that makes a symbolic link. Thus `RegulaProvision.installLinkWith` makes the registration link with `ln -s` in a new directory beside the place of the link. It then moves the link to its place with one rename, and it removes the directory. The function `mkdir(2)` makes that directory. It fails if an entry of any type is at the place of the directory, and it follows no link there.
 
 No read of that place comes before the creation of the directory. Thus no check can become stale before the creation acts. The operand of `ln` is the only name in the new empty directory.
 
@@ -1118,7 +1118,7 @@ The theorem `RegulaRender.moves_operations` is about the moves that the refusal 
 operations are one `mkdir` and one `rename` for each destination where something is, and they
 include no removal. The theorem is about the plan, not about the file system.
 
-In Lean 4.34.1, `IO.FS.createDir` calls `mkdir` and `IO.FS.rename` calls `rename` of POSIX. That
+In Lean 4.35.0, `IO.FS.createDir` calls `mkdir` and `IO.FS.rename` calls `rename` of POSIX. That
 `mkdir` is exclusive and that `rename` moves a symbolic link itself are assumptions about POSIX. On
 Windows, `IO.FS.rename` replaces what is at its destination, thus the refusal moves nothing there
 and reports each destination. The assumptions do not include a process that changes a destination
@@ -1818,7 +1818,7 @@ It reads the setting alone and not who wrote it. So a project may write such a s
 
 The set is the result of a search, `Regula.Checker.GeneratedSettingSearch.search`. It reads the
 compiled code of the modules `Lean` and `Lake` for each syntax node of a `set_option` kind. The
-registry checks run it and refuse unless its result is that set. In Lean v4.34.1 the set has
+registry checks run it and refuse unless its result is that set. In Lean v4.35.0 the set has
 four settings:
 
 | Setting | Written by |
@@ -1844,7 +1844,7 @@ Examples are `run_cmd`, `run_elab`, a `try_suggestion` generator and a simproc. 
 that such code elaborates gets the same decision.
 
 The observer records the options that Lean's `set_option` elaborator set. Of the builtin commands
-of Lean v4.34.1, only `unlock_limits` also assigns the options of the enclosing scope. It sets three
+of Lean v4.35.0, only `unlock_limits` also assigns the options of the enclosing scope. It sets three
 resource limits to `0`, which [RG2006] accepts, as `unlockLimits_accepted` states. Elaborator code
 can change an option for its own commands, through `withScope`. Examples are `autoImplicit` in the
 `ToExpr` deriving handler and `quotPrecheck.allowSectionVars` in a `local notation`. Such a change
@@ -1875,7 +1875,7 @@ claim loads the observer into its compilation and decides on that record.
 Each other option that a target sets in `leanOptions` or with `-D` must be in the closed accepted
 set `RegulaPolicy.Community.Accepted`, at an accepted value. The function `accepts` decides that
 set (`accepts_iff`). The accepted values were read from the option registrations at Lean
-`v4.34.1` and at the pinned Mathlib. That such a value stops no default warning is an argument
+`v4.35.0` and at the pinned Mathlib. That such a value stops no default warning is an argument
 from those registrations, not a theorem. The exception is a raised `exponentiation.threshold`,
 which stops the warning that a power was not evaluated, because Lean then evaluates the power.
 
@@ -1888,7 +1888,7 @@ starts that count at zero, and the elaborator counts its own heartbeats from the
 
 The sources are `check_heartbeat` in `src/runtime/interrupt.cpp`, `lean_add_decl` in
 `src/kernel/environment.cpp`, `run_task` in `src/runtime/object.cpp` and `CoreM.toIO` in
-`src/Lean/CoreM.lean` of Lean `v4.34.1`. This is read from the source and is not a theorem. The
+`src/Lean/CoreM.lean` of Lean `v4.35.0`. This is read from the source and is not a theorem. The
 check starts its own elaborator state on the environment, with fixed options. Thus its verdict,
 checked, refused or unresolved, is a function of the environment, the check and the heartbeat
 budgets. The walk builds its index of theorems before the first check, so no check pays for it.
@@ -3646,7 +3646,7 @@ inferred from any pure proof.
   that a module of the region declares. `Admission.covers_regionOf` and `Admission.mem_before`
   prove this. The kernel gives the fact for a module that it checked, because it refuses a
   declaration that uses a constant its environment does not hold. The docstring of `ImportScoped`
-  gives the source lines of Lean v4.34.1.
+  gives the source lines of Lean v4.35.0.
 
   The fact is trusted for the modules outside the owned modules. These modules can contain
   unchecked declarations, as all trusted code can. The fact is not assumed for an owned module,
@@ -3714,7 +3714,7 @@ inferred from any pure proof.
   outside the owned modules, an owned module that holds a renamed copy of the name is replayed. This
   is also true if an environment that did not load that module offered the owned module.
 
-  The argument below uses four facts about Lean v4.34.1 for `Identical` copies. The docstrings of
+  The argument below uses four facts about Lean v4.35.0 for `Identical` copies. The docstrings of
   `Admission.duplicatesIn` and `Admission.copiesAgree` give their source lines under `Assumes:`.
   First, Lean's import keeps one of the copies that it read under each name, and attributes the
   name to the first module that lists it. Second, `Expr.eqv` is an equivalence relation, thus
@@ -3723,7 +3723,7 @@ inferred from any pure proof.
   the stored record when it is `Identical` to the regenerated one.
 
   The third fact is about the C++ kernel, and no theorem models it. Thus the third fact is
-  trusted, as `Admission.checkOwn` already trusts it. These source lines of Lean v4.34.1
+  trusted, as `Admission.checkOwn` already trusts it. These source lines of Lean v4.35.0
   support it:
 
   - `src/kernel/expr_eq_fn.cpp:98-110`: the structural equality `expr_eq_fn<false>` of the kernel
@@ -3738,9 +3738,9 @@ inferred from any pure proof.
     `src/kernel/expr.h:164-165`: the infer, whnf, unfold and definitional-equality caches of the
     type checker use that `operator==` as their key. Thus in one check, the kernel already gives an
     expression the result that it computed for an equal expression under `Expr.eqv`.
-  - `src/kernel/type_checker.cpp:135`, `153`, `223`, `803`, `1261` and `1269` read binder names
+  - `src/kernel/type_checker.cpp:135`, `153`, `223`, `770`, `1222` and `1230` read binder names
     and annotations only to label a local declaration. A fresh name from `m_ngen` gives the
-    identity of that declaration. Line `879` copies them into an eta-expanded lambda, and line
+    identity of that declaration. Line `846` copies them into an eta-expanded lambda, and line
     `219` uses a let name only in an error message. `src/kernel/local_ctx.cpp:104-113` and
     `src/kernel/inductive.cpp:227`, `707`, `934`, `1142` and `1167` copy them only into the
     binders, parameters and records that they make. Apart from `expr_eq_fn`, only
@@ -3755,7 +3755,7 @@ inferred from any pure proof.
   `Regula.Checker.Environment`. The declaration report gets `admission.modules ++ admission.reused`,
   which is the same set if a module is replayed or reused.
 
-  For renamed copies, the argument uses more facts about Lean v4.34.1. The docstring of
+  For renamed copies, the argument uses more facts about Lean v4.35.0. The docstring of
   `Admission.renamedCopy` gives their source lines under `Assumes:`. First, `Expr.replace` changes
   exactly the constants that `Admission.renameExpr` selects. Second, the check of a declaration
   reads a constant only under a name that the declaration or a constant that the check read refers
@@ -3768,10 +3768,10 @@ inferred from any pure proof.
   have a name private to a module, for example the recursor of a private inductive type. But a
   recursor is not a theorem or a definition, thus it is not a copy of `n` and not a joined name.
 
-  The third fact has two exceptions. `reduce_native` runs the compiled code of the constant that
-  `Lean.reduceBool` or `Lean.reduceNat` gets. The kernel makes no term with these two names. Two
-  steps for nested inductive types make names of auxiliary types from the names of inductive types.
-  They also compare a name with the prefix `_nested`. No joined name is an inductive type, and no
+  Lean v4.35.0 removed `reduce_native` and the constants `Lean.reduceBool` and `Lean.reduceNat`.
+  Thus the kernel runs no compiled code. The third fact has one exception. Two steps for nested
+  inductive types make names of auxiliary types from the names of inductive types. They also
+  compare a name with the prefix `_nested`. No joined name is an inductive type, and no
   private name has that prefix.
 
   In `validate`, reuse changes only the copies that `replayMap` gives to the kernel and the copies
@@ -3833,14 +3833,15 @@ inferred from any pure proof.
     The field `all` of a theorem or a definition gives its mutual block, and it can be different.
     `renameConstant` renames each name private to `src` in it, but `τ` changes only the names of
     the block. The kernel does not read `all`, as `src/lean/Lean/Declaration.lean:124-130` of Lean
-    v4.34.1 states. The searches below also read only types and values.
+    v4.35.0 states. The searches below also read only types and values.
   - If a declaration `d` does not reach `n`, the two environments hold the same constant under
     each name that its check reads. By condition 4, no name of `Admission.kernelNames` reaches `n`
     either. Thus the two checks of `d` give the same result.
-  - If `d` reaches `n`, it reaches neither `Lean.reduceBool` nor `Lean.reduceNat`. The terms of its
-    check come from `d` and from the constants that it reaches, thus the check runs no compiled
-    code. By the facts above, the check of `d` in the first environment is then the check of `τ d`
-    in the second, name for name. The two checks give the same result.
+  - If `d` reaches `n`, it reaches neither `Lean.reduceBool` nor `Lean.reduceNat`, by condition 3.
+    Regula keeps that condition from Lean v4.34.1, in which the kernel ran compiled code for these
+    two names. The kernel of Lean v4.35.0 runs no compiled code. By the facts above, the check of `d` in the first
+    environment is then the check of `τ d` in the second, name for name. The two checks give the
+    same result.
   - A declaration that reaches `n` is not a joined name, by condition 5. If it is not a copy of
     `n`, it refers to no joined name, thus `τ d` is `d`. If it is the copy under `n`, `τ` changes
     `r` into `c`.
@@ -3894,12 +3895,11 @@ inferred from any pure proof.
   renamed copies do not agree. The census still gives a shared name to the module that Lean's import
   attributes it to, through `Probe.ownedConstants`.
 
-  A claimed constant that reaches `Lean.reduceBool` or `Lean.reduceNat` also reaches the axiom
-  `Lean.trustCompiler`, which no claim admits. A module that imports `Init` cannot declare a name
-  of `Admission.kernelNames` again. Thus the witnesses of conditions 3 and 4 are `#guard` commands
-  of `Admission` that run `agrees` on module data that the commands write. The same commands also
-  run `agrees` with a module that is not owned. These module data do not obey
-  `Admission.ImportScoped`, thus the commands observe `agrees` and are not instances of
+  Lean v4.35.0 declares neither `Lean.reduceBool` nor `Lean.reduceNat`, and a module that imports
+  `Init` cannot declare a name of `Admission.kernelNames` again. Thus the witnesses of conditions
+  3 and 4 are `#guard` commands of `Admission` that run `agrees` on module data that the commands
+  write. The same commands also run `agrees` with a module that is not owned. These module data do
+  not obey `Admission.ImportScoped`, thus the commands observe `agrees` and are not instances of
   `Admission.agrees_iff`. Each of these cases has a witness without that difference, which `agrees`
   accepts:
 
@@ -4275,7 +4275,7 @@ assembly belong to the project routes.
 | `Collect.declaration` (`.snapshot`, `.replayCandidate`) | The canonical facts `Probe` uses, with replay and helper observations in the second form. | Replay and role authentication. |
 
 **The constructor-index exception is removed.** No unsafe constructor-index wrapper `T.ctorIdx._impl`
-is admitted. The supported compiler, Lean 4.34.1, generates none: it builds `T.ctorIdx` by
+is admitted. The supported compiler, Lean 4.35.0, generates none: it builds `T.ctorIdx` by
 `casesOn` and has no `getObjTagNat`. The exception admitted such a wrapper on a compiler that
 generates one. Its observation, `Collect.constructorIndexObservation`, took the base's runtime
 replacement as positive evidence, and an audited project can write that mark. So the exception was
@@ -5112,7 +5112,7 @@ identity are trusted.
 
 ## Generated declaration families
 
-Every family of declarations Lean v4.34.0 adds to the environment on its own, read from its source
+Every family of declarations Lean v4.35.0 adds to the environment on its own, read from its source
 (`src/lean` of the toolchain; paths below are relative to it), with the `GeneratedFamily` that
 relates it to the declaration it was generated from and the environment fact that clause reads
 (`Collect.generatedBy?`), or why it is reported at its own location. `Std/`, `Init/` and `lake/`
@@ -5128,46 +5128,46 @@ declaration related to one that is itself related (such as `T.c.injEq` to `T.c`,
 
 | Declarations | Generator | Related by | Control |
 | --- | --- | --- | --- |
-| constructor `T.c`, structure `S.mk` | kernel `inductDecl`, `Lean/Elab/MutualInductive.lean:1429` | `constructor`: `ConstructorVal.induct` | `Channel.mk` |
-| `T.rec`, nested `T.rec_N` | kernel; `Lean/Elab/MutualInductive.lean:1241-1252` | `recursor`: `isRecCore` | `Channel.rec` |
-| `T.recOn`, `T.casesOn`, `T.below[_N]`, `T.brecOn[_N]`, `T.ctorElim`, `T.c.elim` | `Lean/Meta/Constructions/RecOn.lean:18-39`, `CasesOn.lean:19-26`, `BRecOn.lean:59-326`, `CtorElim.lean:108-210` | `recursor`: `isAuxRecursor` | `Channel.casesOn` |
+| constructor `T.c`, structure `S.mk` | kernel `inductDecl`, `Lean/Elab/MutualInductive.lean:1433` | `constructor`: `ConstructorVal.induct` | `Channel.mk` |
+| `T.rec`, nested `T.rec_N` | kernel; `Lean/Elab/MutualInductive.lean:1245-1256` | `recursor`: `isRecCore` | `Channel.rec` |
+| `T.recOn`, `T.casesOn`, `T.below[_N]`, `T.brecOn[_N]`, `T.ctorElim`, `T.c.elim` | `Lean/Meta/Constructions/RecOn.lean:26-58`, `CasesOn.lean:28-81`, `BRecOn.lean:59-326`, `CtorElim.lean:108-210` | `recursor`: `isAuxRecursor` | `Channel.casesOn` |
 | `T.brecOn.go`, `T.brecOn.eq` | `Lean/Meta/Constructions/BRecOn.lean:193-308` | `recursor`: generated with the marked `T.brecOn` (`isBRecOnRecursor`) | |
-| `T.noConfusion`, `T.c.noConfusion` | `Lean/Meta/Constructions/NoConfusion.lean:210-354, 402-430` | `recursor`: `isNoConfusion` | |
-| `T.noConfusionType` | `Lean/Meta/Constructions/NoConfusion.lean:72-145, 375-400` | `typeConstruction`: `T.noConfusion` is marked | `Channel.noConfusionType` |
+| `T.noConfusion`, `T.c.noConfusion` | `Lean/Meta/Constructions/NoConfusion.lean:210-353, 401-429` | `recursor`: `isNoConfusion` | |
+| `T.noConfusionType` | `Lean/Meta/Constructions/NoConfusion.lean:72-145, 374-399` | `typeConstruction`: `T.noConfusion` is marked | `Channel.noConfusionType` |
 | `T.ctorIdx` | `Lean/Meta/Constructions/CtorIdx.lean:41-96` | `typeConstruction`: its precondition (`ctorIdxGenerated`) | `Channel.ctorIdx` |
 | `T.ctorElimType` | `Lean/Meta/Constructions/CtorElim.lean:80-106` | `typeConstruction`: `T.ctorElim` is marked | |
-| `T._sizeOf_N`, `T._sizeOf_inst` | `Lean/Meta/SizeOf.lean:126-187, 513-528` | `typeConstruction`: its precondition (`sizeOfGenerated`) | `Channel._sizeOf_1`, `Channel._sizeOf_inst` |
+| `T._sizeOf_N`, `T._sizeOf_inst` | `Lean/Meta/SizeOf.lean:126-187, 514-529` | `typeConstruction`: its precondition (`sizeOfGenerated`) | `Channel._sizeOf_1`, `Channel._sizeOf_inst` |
 | `T.c.sizeOf_spec` | `Lean/Meta/SizeOf.lean:424-473` | `constructorLemma`: its precondition (`sizeOfGenerated`) | `Channel.mk.sizeOf_spec` |
 | `T._sizeOf_N_eq` | `Lean/Meta/SizeOf.lean:350-388` | own location: generated only for some nested types while proving the spec theorems, and nothing records which | |
 | `T.c.inj`, `T.c.injEq` | `Lean/Meta/Injective.lean:108-178` | `constructorLemma`: its precondition (`injectivityGenerated`) | `Channel.mk.injEq` |
 | `T.c.hinj`, `T.ctorIdx.hinj` | `Lean/Meta/Injective.lean:280-303`, `Lean/Meta/CtorIdxHInj.lean:14-71` | `reservedName`: `isReservedName` | |
 | field projection `S.x`, subobject parent projection `S.toP` | `Lean/Meta/Structure.lean:50-119` | `projection`: `getProjectionFnInfo?` | `Channel.value` |
-| parent projection `S.toP` that is not a subobject | `Lean/Elab/Structure.lean:1409-1440` | `projection`: `getAuxParentProjectionInfo?` | |
-| `S.mk._flat_ctor` | `Lean/Elab/Structure.lean:1229-1240` | `constructorLemma`: its precondition (a registered structure) | `Channel.mk._flat_ctor` |
-| `S.x._default`, `S.x._inherited_default` | `Lean/Elab/Structure.lean:1354-1392` | `fieldDefault`: Lean's own lookup (`getEffectiveDefaultFnForField?`) | `Rec.x._default` |
-| `S.x._autoParam` | `Lean/Elab/Structure.lean:1120-1123` | own location: a `Syntax` value, which uses no axiom, so it has no [RG1005] finding | |
+| parent projection `S.toP` that is not a subobject | `Lean/Elab/Structure.lean:1410-1441` | `projection`: `getAuxParentProjectionInfo?` | |
+| `S.mk._flat_ctor` | `Lean/Elab/Structure.lean:1230-1241` | `constructorLemma`: its precondition (a registered structure) | `Channel.mk._flat_ctor` |
+| `S.x._default`, `S.x._inherited_default` | `Lean/Elab/Structure.lean:1355-1393` | `fieldDefault`: Lean's own lookup (`getEffectiveDefaultFnForField?`) | `Rec.x._default` |
+| `S.x._autoParam` | `Lean/Elab/Structure.lean:1121-1124` | own location: a `Syntax` value, which uses no axiom, so it has no [RG1005] finding | |
 | an inductive predicate's `T.below` (an inductive type) and `T.brecOn` (a theorem) | `Lean/Meta/IndPredBelow.lean:83-234` | own location: Lean marks only `T.below.casesOn`; `T.below`'s constructors and recursors are related to `T.below` | |
 | computed fields: `T._impl` and its constructions, `T.casesOn._override`, `T.c._override`, `T.f._override` | `Lean/Elab/ComputedFields.lean:107-205` | own location: `T._impl` is tied to `T` by its name alone; an `_override` is recorded only as an `implemented_by` target, which an author can write too | |
-| coinductive `T._functor`, its constructions and `T.functor_unfold` | `Lean/Elab/MutualInductive.lean:1359-1409`, `Lean/Elab/Coinductive.lean:118-495` | own location: tied to `T` by its name alone | |
+| coinductive `T._functor`, its constructions and `T.functor_unfold` | `Lean/Elab/MutualInductive.lean:1363-1413`, `Lean/Elab/Coinductive.lean:120-497` | own location: tied to `T` by its name alone | |
 | `S.ext`, `S.ext_iff` | `Lean/Elab/Tactic/Ext.lean:104-176` | own location: requested by the `@[ext]` attribute the author writes, which records the theorem, not the structure; it has the attribute's range | |
 | derived instance `instCT` and its handler functions (`instCT.decEq`, `.beq`, `.repr`, `.hash`, `.ord`, `.toJson`, `.fromJson`, `.default`, `.toExpr`) | `Lean/Elab/Deriving/Util.lean:95-163`, `Lean/Elab/Deriving/Basic.lean:178-272` | own location: Lean records the instance, not the type it derives it for | |
 | enumeration `T.ofNat`, `T.ofNat_ctorIdx` | `Lean/Elab/Deriving/DecEq.lean:222-262` | own location: tied to `T` by its name alone | `Word.ofNat` (a user-written one, not related) |
 | `T.match_on_same_ctor` and its `.het` | `Lean/Meta/Constructions/CasesOnSameCtor.lean:29-229` | `matcher` (`isMatcherCore`) and `recursor` (`isAuxRecursor`) | |
 | `instBEqT.beq_spec`, `instOrdT.ord_spec`, `inst.field_spec` | `Lean/Meta/MethodSpecs.lean:126-227` | `reservedName`, to the instance | |
 | `TypeName`'s `instImpl`, `RpcEncodable`'s packet type | `Lean/Elab/Deriving/TypeName.lean:17-27`, `Lean/Server/Rpc/Deriving.lean:100-141` | own location: hygienic names that nothing records a relation for | |
-| matcher `f.match_N` | `Lean/Meta/Match/Match.lean:1087-1125` | `matcher`: `isMatcherCore` | `firstIndex.match_1` |
+| matcher `f.match_N` | `Lean/Meta/Match/Match.lean:1094-1132` | `matcher`: `isMatcherCore` | `firstIndex.match_1` |
 | `f.match_N.eq_K`, `.splitter`, `.congr_eq_K` | `Lean/Meta/Match/MatchEqs.lean:151-322` | `reservedName` or `matcher`: `isMatchEqName?` | |
 | `f.match_N._arg_pusher` | `Lean/Elab/PreDefinition/WF/Unfold.lean:98-165` | own location: tied to the matcher by its name alone | |
 | `f._sparseCasesOn_N`, its `.else_eq` | `Lean/Meta/Constructions/SparseCasesOn.lean:65-145`, `SparseCasesOnEq.lean:86-92` | `recursor`: `isSparseCasesOn`; `.else_eq` by `reservedName` | |
 | `f.eq_K`, `f.eq_def`, `f.eq_unfold` | `Lean/Elab/PreDefinition/Eqns.lean:366-399`, `Lean/Meta/Eqns.lean:326-327`, `Lean/Elab/PreDefinition/EqUnfold.lean:26-70` | `equationLemma`: `Meta.declFromEqLikeName` | `countdown.eq_1`; the user-written `later.eq_7`, declared before `later` (not related) |
 | `f._f`, `f._sunfold` | `Lean/Elab/PreDefinition/Structural/Main.lean:95-106`, `SmartUnfolding.lean:17-74` | `structural`: `Structural.eqnInfoExt`, or `f`'s value uses `f._f` | `walkDown._f`, `walkDown._sunfold` |
 | `f._unary`, `f._mutual` | `Lean/Elab/PreDefinition/WF/PackMutual.lean:66-104` | `wellFounded`: `WF.eqnInfoExt`'s `declNameNonRec` | `countPair._unary` |
-| `partial_fixpoint`'s `f.mutual` | `Lean/Elab/PreDefinition/PartialFixpoint/Main.lean:193-217` | `wellFounded`: `PartialFixpoint.eqnInfoExt`'s `declNameNonRec` | |
-| `f.induct`, `.induct_unfolding`, `.mutual_induct`, `.fun_cases`, `partial_fixpoint`'s `.fixpoint_induct`, `.coinduct`, `.partial_correctness`, `f.congr_simp`, `f.hcongr_N`, `T.enumToBitVec` and its lemmas | `Lean/Meta/Tactic/FunInd.lean:910-1548`, `Lean/Elab/PreDefinition/PartialFixpoint/Induction.lean:105-426`, `Lean/Meta/CongrTheorems.lean:392-480`, `Lean/Meta/Tactic/BVDecide/Normalize/Enums.lean:41-379` | `reservedName`: `isReservedName` | `countPair.induct` |
+| `partial_fixpoint`'s `f.mutual` | `Lean/Elab/PreDefinition/PartialFixpoint/Main.lean:195-219` | `wellFounded`: `PartialFixpoint.eqnInfoExt`'s `declNameNonRec` | |
+| `f.induct`, `.induct_unfolding`, `.mutual_induct`, `.fun_cases`, `partial_fixpoint`'s `.fixpoint_induct`, `.coinduct`, `.partial_correctness`, `.strong_induct`, `.strong_coinduct`, `.strong_mutual_induct`, `f.congr_simp`, `f.hcongr_N`, `T.enumToBitVec` and its lemmas | `Lean/Meta/Tactic/FunInd.lean:910-1548`, `Lean/Elab/PreDefinition/PartialFixpoint/Induction.lean:105-532`, `Lean/Meta/CongrTheorems.lean:392-480`, `Lean/Meta/Tactic/BVDecide/Normalize/Enums.lean:41-379` | `reservedName`: `isReservedName` | `countPair.induct` |
 | `f._unsafe_rec` | `Lean/Elab/PreDefinition/Basic.lean:255-295` | `recursionHelper`: the admitted helper authorization, which observed Lean's recursion compiler regenerate it (`Findings.stepOf`) | `countUp._unsafe_rec` |
-| `f._proof_N` | `Lean/Meta/Tactic/AuxLemma.lean:43-79`, `Lean/Meta/Closure.lean:457-460`; in a `module` file, a `by` proof Lean elaborates in the exporting context (`Lean/Elab/SyntheticMVars.lean:475-527`): in a declaration's header, or in the body of an exposed definition, including its `where` and `let rec` helpers, whose tactic blocks run under the definition's name (`Lean/Elab/MutualDef.lean:551`, `Lean/Elab/LetRec.lean:66-67, 101`) | `auxiliaryLemma`: a constituent of `f`'s declaration (its type or value, or, for an inductive type, the type, a constructor's type or a field's default value of any type of its mutual block, which Lean elaborates under its first type's name: `Lean/Elab/MutualInductive.lean:1566, 1588`), its equation information's value, or the function its well-founded equation information names uses it, or else the statement of `f.eq_def` (`Meta.declFromEqLikeName`), which `WF.mkUnfoldEq` states from the pre-definition it cleans separately (`Lean/Elab/PreDefinition/WF/Main.lean:84-89`); or else the value of `f._unsafe_rec` uses it, and its chain runs through that admitted helper; or else the type or value of a declaration of its module uses it, and its chain runs through that declaration: one named under `f` at any depth that is not itself a generated auxiliary declaration (it is not auxiliary-named, or it has a recorded declaration range), such as a `where` or `let rec` helper `f.go`, or another auxiliary declaration with no recorded range that is itself related in one of these ways, under whatever declaration that one is named (Lean abstracts a proof nested in a proof); one nothing related uses, as `GuessLex` can leave, keeps its own location | `countdown._proof_1`, `countUp._proof_3` (through `countUp.eq_def`), `sumButLast._proof_1` (through `sumButLast._unsafe_rec`), `middle._proof_1` (through `middle._proof_2`), the `_proof_N` of `initialize counter`'s action; the user-written `middle._proof_8`, `middle._proof_9`, `Util._proof_8` and `later._proof_8`, which have declaration ranges (not related); a header proof and a helper's proof of a `module` file are not observed |
+| `f._proof_N` | `Lean/Meta/Tactic/AuxLemma.lean:43-79`, `Lean/Meta/Closure.lean:457-460`; in a `module` file, a `by` proof Lean elaborates in the exporting context (`Lean/Elab/SyntheticMVars.lean:475-527`): in a declaration's header, or in the body of an exposed definition, including its `where` and `let rec` helpers, whose tactic blocks run under the definition's name (`Lean/Elab/MutualDef.lean:551`, `Lean/Elab/LetRec.lean:66-67, 101`) | `auxiliaryLemma`: a constituent of `f`'s declaration (its type or value, or, for an inductive type, the type, a constructor's type or a field's default value of any type of its mutual block, which Lean elaborates under its first type's name: `Lean/Elab/MutualInductive.lean:1571, 1593`), its equation information's value, or the function its well-founded equation information names uses it, or else the statement of `f.eq_def` (`Meta.declFromEqLikeName`), which `WF.mkUnfoldEq` states from the pre-definition it cleans separately (`Lean/Elab/PreDefinition/WF/Main.lean:84-89`); or else the value of `f._unsafe_rec` uses it, and its chain runs through that admitted helper; or else the type or value of a declaration of its module uses it, and its chain runs through that declaration: one named under `f` at any depth that is not itself a generated auxiliary declaration (it is not auxiliary-named, or it has a recorded declaration range), such as a `where` or `let rec` helper `f.go`, or another auxiliary declaration with no recorded range that is itself related in one of these ways, under whatever declaration that one is named (Lean abstracts a proof nested in a proof); one nothing related uses, as `GuessLex` can leave, keeps its own location | `countdown._proof_1`, `countUp._proof_3` (through `countUp.eq_def`), `sumButLast._proof_1` (through `sumButLast._unsafe_rec`), `middle._proof_1` (through `middle._proof_2`), the `_proof_N` of `initialize counter`'s action; the user-written `middle._proof_8`, `middle._proof_9`, `Util._proof_8` and `later._proof_8`, which have declaration ranges (not related); a header proof and a helper's proof of a `module` file are not observed |
 | `f._simp_N`, `f._cbv_eval_N` | `Lean/Meta/Tactic/Simp/SimpTheorems.lean:453-471`, `Lean/Meta/Tactic/Cbv/CbvEvalExt.lean:61-64` | `auxiliaryLemma`: as for `f._proof_N` (a tactic's lemma), or it uses `f` (an attribute's lemma) | |
-| `f._private_N`, `f.grind_N`, `f._impossible_N`, `inst._aux_N`, `f.unsafe_impl_N`, `f._expr_def_N`, `f._cert_def_N`, `f._reflection_def_N` | `Lean/Elab/BuiltinTerm.lean:451-465`, `Lean/Meta/Tactic/Grind/Main.lean:497-498`, `Lean/Elab/Tactic/Impossible.lean:88-92`, `Lean/Meta/WrapInstance.lean:185-283`, `Lean/Elab/BuiltinNotation.lean:556-579`, `Lean/Meta/Tactic/BVDecide/TacticContext.lean:40-42` | `auxiliaryLemma`: as for `f._proof_N` | |
+| `f._private_N`, `f.grind_N`, `f._impossible_N`, `inst._aux_N`, `f.unsafe_impl_N`, `f._expr_def_N`, `f._cert_def_N`, `f._reflection_def_N` | `Lean/Elab/BuiltinTerm.lean:451-465`, `Lean/Meta/Tactic/Grind/Main.lean:483-484`, `Lean/Elab/Tactic/Impossible.lean:88-92`, `Lean/Meta/WrapInstance.lean:185-283`, `Lean/Elab/BuiltinNotation.lean:556-579`, `Lean/Meta/Tactic/BVDecide/TacticContext.lean:40-42` | `auxiliaryLemma`: as for `f._proof_N` | |
 | `f.unsafe_N` | `Lean/Elab/BuiltinNotation.lean:556-579` | own location: recorded only as the `implemented_by` target of `f.unsafe_impl_N` | |
 | RPC wrapper `f._rpc_wrapped` | `Lean/Server/Rpc/RequestHandling.lean:113-139` | `auxiliaryLemma`: `Server.userRpcProcedures` | |
 | the action `initFn` of `initialize id : T ← e` | `Lean/Elab/Declaration.lean:342-369` | `auxiliaryLemma`: `id`'s init attribute (`getInitFnNameFor?`); an unnamed `initialize` keeps its own location | `counter`'s action |
@@ -5180,14 +5180,15 @@ declaration related to one that is itself related (such as `T.c.injEq` to `T.c`,
 | `decl._regBuiltin.…` | `Lean/Compiler/InitAttr.lean:149-157` | own location: only Lean's own builtin attributes create it | |
 | declarations of `register_option`, `register_simp_attr`, `register_label_attr`, `register_linter_set` | `Lean/Data/Options.lean:230-255`, `Lean/Meta/Tactic/Simp/RegisterCommand.lean:15-30`, `Lean/LabelAttribute.lean:84-91`, `Lean/Linter/Sets.lean:35-37` | own location: generated by a command, not from a declaration | |
 | doc role wrappers `decl.getArgs`, `decl.mdRenderer` | `Lean/Elab/DocString.lean:601-654, 1120-1148` | own location: its extension records it under the role it implements, not the declaration it wraps | |
-| `show_panel_widgets`, `set_library_suggestions`, `register_try?_tactic`, unnamed `unif_hint`, `declare_config_elab`, `store_traces_as`, `reprove` and `init_quot` declarations | `Lean/Widget/Commands.lean:79-94`, `Lean/LibrarySuggestions/Basic.lean:441-447`, `Lean/Elab/Tactic/Try.lean:316-347`, `Init/NotationExtra.lean:69-82`, `Lean/Elab/ConfigEval/DeriveEvalTerm.lean:100-125`, `Lean/PostprocessTraces/StoredTraces.lean:127-155`, `Lean/Util/Reprove.lean:28-50`, `Lean/Elab/BuiltinCommand.lean:286-287` | own location: generated by a command, not from a declaration | |
+| `show_panel_widgets`, `set_library_suggestions`, `register_try?_tactic`, unnamed `unif_hint`, `declare_config_elab`, `store_traces_as`, `reprove` and `init_quot` declarations | `Lean/Widget/Commands.lean:79-94`, `Lean/LibrarySuggestions/Basic.lean:536-542`, `Lean/Elab/Tactic/Try.lean:316-347`, `Init/NotationExtra.lean:69-82`, `Lean/Elab/ConfigEval/DeriveEvalTerm.lean:100-125`, `Lean/PostprocessTraces/StoredTraces.lean:127-155`, `Lean/Util/Reprove.lean:28-50`, `Lean/Elab/BuiltinCommand.lean:286-287` | own location: generated by a command, not from a declaration | |
 
-Not declarations of the environment: `_example` and `#eval` temporaries
-(`Lean/Elab/MutualDef.lean:1196-1204`, `Lean/Elab/BuiltinEvalCommand.lean:232`), the compiler's
+Not declarations of the environment: `_example`, `#eval` and `recall` temporaries
+(`Lean/Elab/MutualDef.lean:1196-1204`, `Lean/Elab/BuiltinEvalCommand.lean:232`,
+`Lean/Elab/Recall.lean:45-63`), the compiler's
 `_boxed`, `_lam_N`, `_elam_N`, `_redArg`, `_closed_N` and `_spec` names (`Lean/Compiler/LCNF/`),
 and the `_private.<Mod>.0.` and `._@.…_hyg.N` spellings of other declarations
-(`Lean/PrivateName.lean:27-64`, `Init/Prelude.lean:5756-5846`), which the clauses read through
-`extractMacroScopes` and `privateToUserName`. Not generated in v4.34.0: `binductionOn`,
+(`Lean/PrivateName.lean:27-64`, `Init/Prelude.lean:5825-5915`), which the clauses read through
+`extractMacroScopes` and `privateToUserName`. Not generated in v4.35.0: `binductionOn`,
 `toCtorIdx`, `_binary`, `_auxLemma`, `_cstage1` and `_cstage2`.
 
 ## Project setup and releases
@@ -6340,20 +6341,20 @@ statement that does not use its checked operation.
 `RegulaCore.Filesystem` gives the model of the file system and its assumptions.
 `Regula.Filesystem.observer` is its observer for the programs of the package.
 `RegulaCore.Removal` gives the last three checked operations of the table. Each `lean` source
-below is a file of the Lean 4 repository at `v4.34.1`, below `src`.
+below is a file of the Lean 4 repository at `v4.35.0`, below `src`.
 
 | Declaration | Status | Contract | Sources |
 | --- | --- | --- | --- |
-| `ReadsEntry` | trusted | `symlinkMetadata` gives the type of the entry at a path and changes nothing. It fails with `noFileOrDirectory` only when no entry is at the path. | [`Init/System/IO.lean#L1151-L1156`](https://github.com/leanprover/lean4/blob/v4.34.1/src/Init/System/IO.lean#L1151-L1156), [`runtime/io.cpp#L1160-L1179`](https://github.com/leanprover/lean4/blob/v4.34.1/src/runtime/io.cpp#L1160-L1179), [`runtime/io.cpp#L276-L279`](https://github.com/leanprover/lean4/blob/v4.34.1/src/runtime/io.cpp#L276-L279), POSIX.1-2024 `lstat()` |
-| `ReadsReal` | trusted | `realPath` gives the real path of a path and changes nothing. It fails only when there is no real path. | [`Init/System/IO.lean#L873-L879`](https://github.com/leanprover/lean4/blob/v4.34.1/src/Init/System/IO.lean#L873-L879), [`runtime/io.cpp#L1054-L1066`](https://github.com/leanprover/lean4/blob/v4.34.1/src/runtime/io.cpp#L1054-L1066), POSIX.1-2024 `realpath()`, Apple Libc-1752.120.2 `stdlib/FreeBSD/realpath.c#L216-L243` and `#L348-L358` |
-| `RemovesTree` | trusted | `removeDirAll` of a directory at its real path keeps the entry at each path in its frame (`Model.Unchanged`), when it succeeds and when it fails. | [`Init/System/IO.lean#L1330-L1342`](https://github.com/leanprover/lean4/blob/v4.34.1/src/Init/System/IO.lean#L1330-L1342), [`runtime/io.cpp#L1160-L1179`](https://github.com/leanprover/lean4/blob/v4.34.1/src/runtime/io.cpp#L1160-L1179), [`runtime/io.cpp#L1197-L1207`](https://github.com/leanprover/lean4/blob/v4.34.1/src/runtime/io.cpp#L1197-L1207), [`runtime/io.cpp#L1351-L1364`](https://github.com/leanprover/lean4/blob/v4.34.1/src/runtime/io.cpp#L1351-L1364), POSIX.1-2024 `lstat()`, `unlink()` and `rmdir()`, POSIX.1-2024 `<sys/stat.h>` |
-| `RemovesEntry` | trusted | `removeFile` of a path keeps the entry at each path in its frame (`Model.Unchanged`), when it succeeds and when it fails. The path is at its real path, or it is a symbolic link in a directory at its real path (`Model.InOwnDirectory`). | [`Init/System/IO.lean#L881-L886`](https://github.com/leanprover/lean4/blob/v4.34.1/src/Init/System/IO.lean#L881-L886), [`runtime/io.cpp#L1351-L1364`](https://github.com/leanprover/lean4/blob/v4.34.1/src/runtime/io.cpp#L1351-L1364), POSIX.1-2024 `unlink()`, POSIX.1-2024 `<sys/stat.h>` |
-| `Renames` | trusted | `rename` keeps the entry at each path in the frame of its two paths (`Model.Kept`), when it succeeds and when it fails. The source is at its real path, and the destination has a parent at its real path. | [`Init/System/IO.lean#L903-L909`](https://github.com/leanprover/lean4/blob/v4.34.1/src/Init/System/IO.lean#L903-L909), [`runtime/io.cpp#L1209-L1238`](https://github.com/leanprover/lean4/blob/v4.34.1/src/runtime/io.cpp#L1209-L1238), POSIX.1-2024 `rename()`, POSIX.1-2024 `<sys/stat.h>` |
-| `removeDirectory` | checked | After a removal that succeeds, no entry is at the path: `removeDirectory_gone`, which uses only `ReadsEntry`. | [`Init/System/IO.lean#L1330-L1342`](https://github.com/leanprover/lean4/blob/v4.34.1/src/Init/System/IO.lean#L1330-L1342) |
-| `removeEntry` | checked | After a removal that succeeds, no entry is at the path: `removeEntry_gone`, which uses only `ReadsEntry`. | [`Init/System/IO.lean#L881-L886`](https://github.com/leanprover/lean4/blob/v4.34.1/src/Init/System/IO.lean#L881-L886) |
-| `removeOwnWith` | checked | After a removal that succeeds, no entry is at the path: `removeOwnWith_gone`, which uses only `ReadsEntry`. | [`Init/System/IO.lean#L1330-L1342`](https://github.com/leanprover/lean4/blob/v4.34.1/src/Init/System/IO.lean#L1330-L1342), [`Init/System/IO.lean#L881-L886`](https://github.com/leanprover/lean4/blob/v4.34.1/src/Init/System/IO.lean#L881-L886) |
-| `removeFoundWith` | checked | After a removal that succeeds, no entry is at the path: `removeFoundWith_gone`, which uses only `ReadsEntry`. | [`Init/System/IO.lean#L1330-L1342`](https://github.com/leanprover/lean4/blob/v4.34.1/src/Init/System/IO.lean#L1330-L1342), [`Init/System/IO.lean#L881-L886`](https://github.com/leanprover/lean4/blob/v4.34.1/src/Init/System/IO.lean#L881-L886) |
-| `replaceWith` | checked | After a move that succeeds, nothing is at the source and a file is at the destination: `replaceWith_moved`, which uses only `ReadsEntry`. | [`Init/System/IO.lean#L903-L909`](https://github.com/leanprover/lean4/blob/v4.34.1/src/Init/System/IO.lean#L903-L909) |
+| `ReadsEntry` | trusted | `symlinkMetadata` gives the type of the entry at a path and changes nothing. It fails with `noFileOrDirectory` only when no entry is at the path. | [`Init/System/IO.lean#L1151-L1156`](https://github.com/leanprover/lean4/blob/v4.35.0/src/Init/System/IO.lean#L1151-L1156), [`runtime/io.cpp#L1160-L1179`](https://github.com/leanprover/lean4/blob/v4.35.0/src/runtime/io.cpp#L1160-L1179), [`runtime/io.cpp#L276-L279`](https://github.com/leanprover/lean4/blob/v4.35.0/src/runtime/io.cpp#L276-L279), POSIX.1-2024 `lstat()` |
+| `ReadsReal` | trusted | `realPath` gives the real path of a path and changes nothing. It fails only when there is no real path. | [`Init/System/IO.lean#L873-L879`](https://github.com/leanprover/lean4/blob/v4.35.0/src/Init/System/IO.lean#L873-L879), [`runtime/io.cpp#L1054-L1066`](https://github.com/leanprover/lean4/blob/v4.35.0/src/runtime/io.cpp#L1054-L1066), POSIX.1-2024 `realpath()`, Apple Libc-1752.120.2 `stdlib/FreeBSD/realpath.c#L216-L243` and `#L348-L358` |
+| `RemovesTree` | trusted | `removeDirAll` of a directory at its real path keeps the entry at each path in its frame (`Model.Unchanged`), when it succeeds and when it fails. | [`Init/System/IO.lean#L1330-L1342`](https://github.com/leanprover/lean4/blob/v4.35.0/src/Init/System/IO.lean#L1330-L1342), [`runtime/io.cpp#L1160-L1179`](https://github.com/leanprover/lean4/blob/v4.35.0/src/runtime/io.cpp#L1160-L1179), [`runtime/io.cpp#L1197-L1207`](https://github.com/leanprover/lean4/blob/v4.35.0/src/runtime/io.cpp#L1197-L1207), [`runtime/io.cpp#L1351-L1364`](https://github.com/leanprover/lean4/blob/v4.35.0/src/runtime/io.cpp#L1351-L1364), POSIX.1-2024 `lstat()`, `unlink()` and `rmdir()`, POSIX.1-2024 `<sys/stat.h>` |
+| `RemovesEntry` | trusted | `removeFile` of a path keeps the entry at each path in its frame (`Model.Unchanged`), when it succeeds and when it fails. The path is at its real path, or it is a symbolic link in a directory at its real path (`Model.InOwnDirectory`). | [`Init/System/IO.lean#L881-L886`](https://github.com/leanprover/lean4/blob/v4.35.0/src/Init/System/IO.lean#L881-L886), [`runtime/io.cpp#L1351-L1364`](https://github.com/leanprover/lean4/blob/v4.35.0/src/runtime/io.cpp#L1351-L1364), POSIX.1-2024 `unlink()`, POSIX.1-2024 `<sys/stat.h>` |
+| `Renames` | trusted | `rename` keeps the entry at each path in the frame of its two paths (`Model.Kept`), when it succeeds and when it fails. The source is at its real path, and the destination has a parent at its real path. | [`Init/System/IO.lean#L903-L909`](https://github.com/leanprover/lean4/blob/v4.35.0/src/Init/System/IO.lean#L903-L909), [`runtime/io.cpp#L1209-L1238`](https://github.com/leanprover/lean4/blob/v4.35.0/src/runtime/io.cpp#L1209-L1238), POSIX.1-2024 `rename()`, POSIX.1-2024 `<sys/stat.h>` |
+| `removeDirectory` | checked | After a removal that succeeds, no entry is at the path: `removeDirectory_gone`, which uses only `ReadsEntry`. | [`Init/System/IO.lean#L1330-L1342`](https://github.com/leanprover/lean4/blob/v4.35.0/src/Init/System/IO.lean#L1330-L1342) |
+| `removeEntry` | checked | After a removal that succeeds, no entry is at the path: `removeEntry_gone`, which uses only `ReadsEntry`. | [`Init/System/IO.lean#L881-L886`](https://github.com/leanprover/lean4/blob/v4.35.0/src/Init/System/IO.lean#L881-L886) |
+| `removeOwnWith` | checked | After a removal that succeeds, no entry is at the path: `removeOwnWith_gone`, which uses only `ReadsEntry`. | [`Init/System/IO.lean#L1330-L1342`](https://github.com/leanprover/lean4/blob/v4.35.0/src/Init/System/IO.lean#L1330-L1342), [`Init/System/IO.lean#L881-L886`](https://github.com/leanprover/lean4/blob/v4.35.0/src/Init/System/IO.lean#L881-L886) |
+| `removeFoundWith` | checked | After a removal that succeeds, no entry is at the path: `removeFoundWith_gone`, which uses only `ReadsEntry`. | [`Init/System/IO.lean#L1330-L1342`](https://github.com/leanprover/lean4/blob/v4.35.0/src/Init/System/IO.lean#L1330-L1342), [`Init/System/IO.lean#L881-L886`](https://github.com/leanprover/lean4/blob/v4.35.0/src/Init/System/IO.lean#L881-L886) |
+| `replaceWith` | checked | After a move that succeeds, nothing is at the source and a file is at the destination: `replaceWith_moved`, which uses only `ReadsEntry`. | [`Init/System/IO.lean#L903-L909`](https://github.com/leanprover/lean4/blob/v4.35.0/src/Init/System/IO.lean#L903-L909) |
 
 The theorems `removeDirectory_spec` and `removeEntry_spec` are about the removal of a directory, a
 file or a link at its own place, in a model. After a removal that succeeds, no entry is at the
@@ -6373,9 +6374,9 @@ entry after the removal has the same type as before, or no entry is at the path 
 the tree, other than `.` and `..`, is also in the tree. A symbolic link is not a directory, thus
 the tree does not go into a symbolic link.
 
-The tree includes the entries that `removeDirAll` of Lean 4.34.1 visits when no different process
+The tree includes the entries that `removeDirAll` of Lean 4.35.0 visits when no different process
 writes
-([`Init/System/IO.lean#L1335-L1342`](https://github.com/leanprover/lean4/blob/v4.34.1/src/Init/System/IO.lean#L1335-L1342)).
+([`Init/System/IO.lean#L1335-L1342`](https://github.com/leanprover/lean4/blob/v4.35.0/src/Init/System/IO.lean#L1335-L1342)).
 It also has a name with no entry in a directory of the tree. It also has a different spelling of
 an entry, for example a different case on a volume that ignores case. These names add no file to
 the files of the tree. The first names no file, and the second names the file of the entry.
@@ -6386,8 +6387,8 @@ values identify a file in the system. A second name of a file has the same ident
 different case of a name on a volume that ignores case, an APFS firmlink, a bind mount and a hard
 link. Thus the frame does not include a second name of an entry of the removed tree.
 
-The `IO.FS.Metadata` of Lean 4.34.1 has no device and no file number
-([`Init/System/IO.lean#L1115-L1129`](https://github.com/leanprover/lean4/blob/v4.34.1/src/Init/System/IO.lean#L1115-L1129)).
+The `IO.FS.Metadata` of Lean 4.35.0 has no device and no file number
+([`Init/System/IO.lean#L1115-L1129`](https://github.com/leanprover/lean4/blob/v4.35.0/src/Init/System/IO.lean#L1115-L1129)).
 Thus no observer reads `Model.ident`, and no decision uses it. It only identifies the files that
 the frame is about.
 
@@ -6398,7 +6399,7 @@ the target is in the frame, if the tree does not have it with a different name. 
 no different process that writes, the removal keeps the entry of the target. A path with no entry
 is in the frame, thus no entry appears outside the removed path.
 
-`removeDirAll` of Lean 4.34.1 resolves each path of the tree again at each call. During the
+`removeDirAll` of Lean 4.35.0 resolves each path of the tree again at each call. During the
 removal, a different process can replace a directory of the tree with a symbolic link. It can also
 change what a path of the tree resolves to in a different way, for example with a rename. Then the
 walk can go out of the tree and remove entries outside it. This is the race of CVE-2022-21658. In
@@ -6410,14 +6411,14 @@ gives the name that the volume keeps for each component. Apple Libc-1752.120.2
 macOS 27.0.1 with APFS: `realpath dir/FILE` printed `.../Dir/file`. Thus `atOwnPlace` gives
 `false` for a different case of such a name. `ReadsReal` gives this source.
 
-The assumptions are for a POSIX system. On Windows, `symlinkMetadata` of Lean 4.34.1 follows a
+The assumptions are for a POSIX system. On Windows, `symlinkMetadata` of Lean 4.35.0 follows a
 symbolic link. Also, `realPath` gives the path that it got when it cannot find the real path
-([`runtime/io.cpp#L1032-L1033`](https://github.com/leanprover/lean4/blob/v4.34.1/src/runtime/io.cpp#L1032-L1033)).
+([`runtime/io.cpp#L1032-L1033`](https://github.com/leanprover/lean4/blob/v4.35.0/src/runtime/io.cpp#L1032-L1033)).
 Thus the observer refuses these two reads and each removal of a directory on Windows.
 
 ### Assumptions of directory enumeration
 
-Lean `v4.34.1` reads a directory with `readdir` until it gives null, and then it returns the names that it has read ([`runtime/io.cpp#L1076-L1098`](https://github.com/leanprover/lean4/blob/v4.34.1/src/runtime/io.cpp#L1076-L1098)). A failed read also gives null, so `System.FilePath.readDir` can return fewer names and no error. Regula lists each directory through an admitted `ls` program instead, which `Construction.locate` selects. An admitted `ls` examines `errno` after each `readdir`, and it exits with a nonzero code after a failed read. `Construction.Enumerator.names` refuses unless the program exits with code 0 and writes no error text.
+Lean `v4.35.0` reads a directory with `readdir` until it gives null, and then it returns the names that it has read ([`runtime/io.cpp#L1076-L1098`](https://github.com/leanprover/lean4/blob/v4.35.0/src/runtime/io.cpp#L1076-L1098)). A failed read also gives null, so `System.FilePath.readDir` can return fewer names and no error. Regula lists each directory through an admitted `ls` program instead, which `Construction.locate` selects. An admitted `ls` examines `errno` after each `readdir`, and it exits with a nonzero code after a failed read. `Construction.Enumerator.names` refuses unless the program exits with code 0 and writes no error text.
 
 A copy, the capture of a directory and a Git copy each locate the program one time and list each directory through it.
 
@@ -6446,9 +6447,9 @@ Three checks run the real code. `qualify enumeration` runs `Regula.Filesystem.co
 
 The step is a diagnostic of the repository's own checkout, and it runs after provisioning. It builds the modules of each package with Lake, as the other steps of `./scripts/verify.sh` do. So Lake can update or fetch a dependency there, as it does in those steps. Before it builds, the check refuses a package with a Git dependency that is not checked out. Each Lake process runs without the repository environment of Git, so an inherited `GIT_DIR` cannot select a different repository for Lake's Git commands.
 
-Assumes: Lean's native traversal of an expression, `Expr.foldConsts`, finds each constant in it ([`Lean/Util/FoldConsts.lean#L24-L53`](https://github.com/leanprover/lean4/blob/v4.34.1/src/Lean/Util/FoldConsts.lean#L24-L53)). Its logical body returns its initial value, so the theorem `readerReferences_eq_nil_iff` is about the filter over its result and not about the traversal.
+Assumes: Lean's native traversal of an expression, `Expr.foldConsts`, finds each constant in it ([`Lean/Util/FoldConsts.lean#L24-L53`](https://github.com/leanprover/lean4/blob/v4.35.0/src/Lean/Util/FoldConsts.lean#L24-L53)). Its logical body returns its initial value, so the theorem `readerReferences_eq_nil_iff` is about the filter over its result and not about the traversal.
 
-Lean and Lake read directories in two more places. `IO.FS.removeDirAll` lists a directory with `readDir` before it removes the directory ([`Init/System/IO.lean#L1335-L1342`](https://github.com/leanprover/lean4/blob/v4.34.1/src/Init/System/IO.lean#L1335-L1342)). After a failed read, entries remain, so its last `removeDir` fails and the removal stops with an error.
+Lean and Lake read directories in two more places. `IO.FS.removeDirAll` lists a directory with `readDir` before it removes the directory ([`Init/System/IO.lean#L1335-L1342`](https://github.com/leanprover/lean4/blob/v4.35.0/src/Init/System/IO.lean#L1335-L1342)). After a failed read, entries remain, so its last `removeDir` fails and the removal stops with an error.
 
 Lake finds the modules of a glob with Lean's `forEachModuleInDir`, which uses `readDir`. Lake also reads the files of an `inputDir` target with `walkDir`. A failed read there gives Lake fewer modules or files without an error, and Regula trusts these reads of Lake.
 

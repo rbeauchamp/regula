@@ -75,11 +75,11 @@ and only it prints the census line, which proves that the negative control ran t
 named root facet is reported; a different facet and a text-only decoy are not. Regula's own root facet is not
 reported as replaced by its own declaration. The empty-Regula-glob case uses the already-built
 auditor's `--project` path: through Lake's lint driver, that glob already stops the run earlier
-by shadowing the driver's Regula imports. Lake v4.34.1 builds that executable before running it
+by shadowing the driver's Regula imports. Lake v4.35.0 builds that executable before running it
 (`Lake/CLI/Actions.lean:89-99`), resolves imports through workspace lookup
 (`Lake/Build/Module.lean:30-37`), and takes the first configured glob match without checking
 source existence (`Lake/Config/Workspace.lean:279-280`, `Lake/Config/Module.lean:41-59`,
-`Lake/Config/LeanLibConfig.lean:128-130`). These observations do not prove Lake's loader. -/
+`Lake/Config/LeanLibConfig.lean:140-142`). These observations do not prove Lake's loader. -/
 private def facetReport (repo adopter : FilePath) : IO (Array String) := do
   BuildLintQualification.setup repo adopter
   let lakefile := adopter / "lakefile.lean"
@@ -189,7 +189,7 @@ private def facetReport (repo adopter : FilePath) : IO (Array String) := do
   failures := failures ++ (← assess renamed (← runElsewhere))
   -- External filesystem/Lake boundary: the overridden root facet would create a configured
   -- directory and source. Lake still enumerates an explicit .one when the source is absent
-  -- (v4.34.1, Lake/Config/Glob.lean:55), so the report must precede its missing-source refusal.
+  -- (v4.35.0, Lake/Config/Glob.lean:55), so the report must precede its missing-source refusal.
   IO.FS.writeFile (otherRegula / "lakefile.lean") otherConfig
   IO.FS.writeFile elsewhereLakefile
     (← IO.FS.readFile (repo / "examples" / "fixtures" / "generated-source" / "lakefile.lean"))
@@ -201,7 +201,7 @@ private def facetReport (repo adopter : FilePath) : IO (Array String) := do
     excludes := cross.excludes.push "manifest-incomplete" }
   failures := failures ++ (← assess generated (← runElsewhere))
   -- A glob over the absent directory: Lean's `forEachModuleInDir` reads it during the package
-  -- inventory (v4.34.1, Lean/Util/Path.lean:35), so the report must precede that refusal too.
+  -- inventory (v4.35.0, Lean/Util/Path.lean:35), so the report must precede that refusal too.
   mutate elsewhereLakefile "globs := #[.one `Generated.Value]" "globs := #[.submodules `Generated]"
   failures := failures ++ (← assess { generated with
       label := "facet-report/generated-directory"
@@ -760,10 +760,10 @@ and the macro's own definition, which contains one, a `#guard_panic`, and a sile
 `run_cmd` logs, so the module imports `Lean.Elab.Command`. Each source form of `set_option` that
 RG2006 does not accept is a violation that names it at the option's name: a command, a command's
 `in`, a term's, a tactic's, and one that a macro of the module writes; the decision reads the
-setting alone. A `#guard_msgs` around a command with an unused `have` is no control: Lean 4.34.1
+setting alone. A `#guard_msgs` around a command with an unused `have` is no control: Lean 4.35.0
 elaborates the guarded command with `elabCommandTopLevel` (`Lean/Elab/GuardMsgs.lean` line 200),
 which lints it, since only a command that contains `#guard_msgs` goes unlinted
-(`Lean/Elab/Command.lean` line 868), and the warning the docstring does not expect fails the build
+(`Lean/Elab/Command.lean` line 911), and the warning the docstring does not expect fails the build
 with an error (`Lean/Elab/GuardMsgs.lean` line 248). A one-declaration disable of
 `linter.missingDocs`, a community linter, is accepted, as is the same disable before a macro that
 expands to one theorem or before a theorem whose name has a namespace. The same disable before a
@@ -781,7 +781,7 @@ audit reads no record, RG2003 refuses the claimed modules as not observed and na
 and `doctor`'s RG2006 finding names the `needs` entry, which RG2006 requires. A target with both
 entries and `platformIndependent := true` is accepted by RG2006 and RG2003 on a marked rebuild,
 since the field takes the workspace out of the plain shape; that the `needs` trace then reaches
-each module's trace is read from Lake (`Lake/Build/Module.lean` lines 600 to 603,
+each module's trace is read from Lake (`Lake/Build/Module.lean` lines 612 to 615,
 `Lake/Build/Library.lean` lines 162 to 169), not exercised here. A dependency's `presetup` facet
 that Lake does not store
 (`memoize := false`) is accepted, required before `regula` and after it, and one that drops the
@@ -886,9 +886,9 @@ private def observerEscapes (repo adopter : FilePath) : IO (Array String) := do
   -- The import moves the block down to line 10.
   write <| "-- The control's reason: a declaration the documentation linter may skip.\n\
     set_option linter.missingDocs false in\nset_option experimental.intrinsic true in\n\
-    set_option mvcgen.warning false in\n/-- Returns its argument. -/\n\
+    set_option experimental.vcgen true in\n/-- Returns its argument. -/\n\
     def contracted (n : Nat) : Id Nat\n  ensures r => r = n\n  := pure n"
-  mutate additional "/-! A configured module" "import Std.Internal.Do\n/-! A configured module"
+  mutate additional "/-! A configured module" "import Std.WP\n/-! A configured module"
   failures := failures ++ (← expect adopter {
       label := "observer/community-disable-contract", exitCode := 1,
       contains := #["RG2006", "Widget.Additional:11:11: set_option linter.missingDocs false",
@@ -995,7 +995,7 @@ private def observerEscapes (repo adopter : FilePath) : IO (Array String) := do
   -- A target with both entries and `platformIndependent := true` is accepted by RG2006 and RG2003.
   -- The field takes the workspace out of the plain shape, so the run is a marked rebuild and
   -- replays no module; that the `needs` trace reaches each module's trace under the field is read
-  -- from Lake (`Lake/Build/Module.lean` lines 600 to 603, `Lake/Build/Library.lean` lines 162 to
+  -- from Lake (`Lake/Build/Module.lean` lines 612 to 615, `Lake/Build/Library.lean` lines 162 to
   -- 169), not exercised by this control.
   IO.FS.writeFile lakefile lakefileText
   mutate lakefile "globs := #[.andSubmodules `Widget]"

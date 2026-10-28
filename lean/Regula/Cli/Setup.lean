@@ -636,7 +636,7 @@ holds, each module Lake's glob of the root's submodules finds in its source dire
 `Module.leanFile`, and the file the import closure of the claimed modules, the claimed roots
 included, read under each of those names, every file by its canonical path.
 
-Assumes: Lake v4.34.1 selects the language from `relConfigFile`, not the resolved `configFile`
+Assumes: Lake v4.35.0 selects the language from `relConfigFile`, not the resolved `configFile`
 (`Lake/Load/Package.lean:100`), under `LakeConfig.language`'s assumptions. -/
 def observe (root : FilePath) : IO Project := do
   -- Without a manifest every root target is claimed, as in the starter `init` writes; a target the

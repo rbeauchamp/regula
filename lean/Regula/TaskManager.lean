@@ -75,14 +75,14 @@ refusal to need no task manager and to start no process. The qualification of th
 programs (`Regula.Qualification.Observers`) requires that literal to be the executable name that
 Lake's loaded workspace declares for the program's root.
 
-Assumes: Lean 4.34.1's compiled `main` runs the initializer of the program's root module, which
+Assumes: Lean 4.35.0's compiled `main` runs the initializer of the program's root module, which
 runs those of the modules it imports, then `lean_io_mark_end_initialization` and only then
 `lean_init_task_manager`, in every run, whatever `LEAN_NUM_THREADS` says
 (`src/Lean/Compiler/LCNF/EmitC.lean:1127-1131`). So no initializer runs with a task manager, and
 what one does without it is the same in every run: a task that it starts runs on the
 initializer's thread before the call returns (`lean_task_spawn_core`,
-`src/runtime/object.cpp:1200-1206`), and a promise that it creates ends the process with a panic
-(`lean_promise_new`, `src/runtime/object.cpp:1321-1326`).
+`src/runtime/object.cpp:1184-1190`), and a promise that it creates ends the process with a panic
+(`lean_promise_new`, `src/runtime/object.cpp:1305-1310`).
 `guard` runs after every initializer, so the runs that it refuses are those whose initialization
 completed, and `LEAN_NUM_THREADS` changes nothing that runs before it. -/
 def guard (program : String) (refuse : String → List String → IO UInt32)

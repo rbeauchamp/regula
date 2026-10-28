@@ -475,7 +475,7 @@ example : sumWf 10 = 55 := by decide +kernel
 
 The elaborator does not unfold the `@[irreducible]` well-founded definition at default transparency, so a plain `decide` fails before any kernel replay starts. This is an elaboration-domain failure, not a kernel fact. The preceding `decide +kernel` proves the same statement by kernel replay.
 
-```lean (fails := "did not reduce to `isTrue` or `isFalse`")
+```lean (fails := "failed to reduce")
 import Audit.Economy
 
 example : Economy.sumWf 10 = 55 := by decide

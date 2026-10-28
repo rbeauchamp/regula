@@ -199,13 +199,13 @@ theorem pinsRefusal_eq_none_iff (url rev : String) (git : Array (Lake.PackageEnt
 /-- What an admitted pin set establishes of the Mathlib package's manifest, the entries of its
 package overrides file and whether the entry selected for `regula` is Regula's own integration
 entry (`ownRegulaWith`), over the entries that Lake selects (`rootEntries`, `selectedEntry`): the
-manifest records a packages directory; each selected path entry is the one for `regula`, and it is
-Regula's own; the entry selected for `mathlib` is a Git entry, and the Git pins are admissible
+manifest records a packages directory; each selected path entry is the one for `regula`, it is
+Regula's own, and Lake does not copy it; the entry selected for `mathlib` is a Git entry, and the Git pins are admissible
 (`PinsAdmissible`). -/
 def Shareable (input : (Lake.Manifest × Array Lake.PackageEntry) × Bool) : Prop :=
   input.1.1.packagesDir? ≠ none ∧
-    (∀ entry dir, selectedEntry (rootEntries input.1.1 input.1.2) entry.name = some entry →
-      entry.src = .path dir → entry.name = `regula ∧ input.2 = true) ∧
+    (∀ entry dir copy, selectedEntry (rootEntries input.1.1 input.1.2) entry.name = some entry →
+      entry.src = .path dir copy → entry.name = `regula ∧ input.2 = true ∧ copy = false) ∧
     ∃ entry url rev inputRev subDir,
       selectedEntry (rootEntries input.1.1 input.1.2) `mathlib = some entry ∧
         entry.src = .git url rev inputRev subDir ∧
@@ -261,7 +261,7 @@ theorem checked_selectPins : Regula.ExecutableContract selectPins (fun select =>
       Shareable (Function.uncurry (Function.uncurry select))) :=
   ⟨.of_iff (fun input => selectPins_shares_iff input.1.1 input.1.2 input.2)
     ⟨((shareableManifest, #[]), false), (selectPins_shares_iff shareableManifest #[] false).mpr
-      ⟨by simp [shareableManifest], fun entry dir hSelected hPath => by
+      ⟨by simp [shareableManifest], fun entry dir copy hSelected hPath => by
         have hMem := (selectedEntry_some hSelected).2
         simp only [rootEntries, shareableManifest, Array.append_empty, Array.mem_singleton] at hMem
         subst hMem

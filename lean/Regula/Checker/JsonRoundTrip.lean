@@ -15,7 +15,7 @@ printer that callers run. The compiled code of the core functions they call that
 `implemented_by`, `extern` or a runtime override is trusted, since no kernel proof evaluates it.
 Among them, `Nat.repr` runs `Nat.reprFast`, `String.push`, `String.append` and
 `String.Pos.next` are `extern`, and `String.Pos.get` is overridden in the runtime
-(`Init/Data/Repr.lean` and `Init/Data/String/`, v4.34.1).
+(`Init/Data/Repr.lean` and `Init/Data/String/`, v4.35.0).
 
 The proof walks the text a character at a time. `At it cs` says that the parser's position `it`
 is before exactly the characters `cs`; each lemma below advances it over the text one printed

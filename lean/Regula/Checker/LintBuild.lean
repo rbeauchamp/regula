@@ -443,8 +443,8 @@ def isObserverPlugin (own : Bool) (key : _root_.Lake.PartialBuildKey) : Bool :=
 
 /-- Whether the `needs` entry `key` of a library or an executable is the observer's key that a
 `plugins` entry may name (`isObserverPlugin`). A target that loads the observer lists the same key
-in `needs`, because Lake v4.34.1 can otherwise build a `plugins` key several times at once. It
-fetches each module's plugins (`Module.recFetchPreSetup`, `Lake/Build/Module.lean` line 580)
+in `needs`, because Lake v4.35.0 can otherwise build a `plugins` key several times at once. It
+fetches each module's plugins (`Module.recFetchPreSetup`, `Lake/Build/Module.lean` line 592)
 through a facet fetch whose continuation runs on a worker thread (`PartialBuildKey.fetchInCore`,
 `Lake/Build/Target/Fetch.lean` lines 54 to 66), and its job memo is a read and then a write of
 one reference (`fetchOrCreate`, `Lake/Util/Store.lean` lines 47 to 55), so concurrent fetches
@@ -470,7 +470,7 @@ def leanConfigChecks (config : _root_.Lake.LeanConfig) (own : Bool) : List (Name
     (`dynlibs, config.dynlibs.isEmpty),
     (`plugins, config.plugins.all (isObserverPlugin own ·.key)),
     (`requiresModuleSystem, !config.requiresModuleSystem),
-    (`allowNonModules, !config.allowNonModules)]
+    (`allowNonModules, !config.allowNonModules), (`precompileImports, !config.precompileImports)]
 
 /-- The tests against Lake's defaults of the fields of a package's configuration. The fields of
 `packageFields` have no test. -/
@@ -491,6 +491,7 @@ def packageChecks {key origin : Name} (config : _root_.Lake.PackageConfig key or
       (`restoreAllArtifacts?, config.restoreAllArtifacts?.isNone),
       (`libPrefixOnWindows, !config.libPrefixOnWindows),
       (`allowImportAll, !config.allowImportAll), (`builtinLint?, config.builtinLint?.isNone),
+      (`checks, config.checks.isEmpty),
       (`fixedToolchain, !config.fixedToolchain),
       (`packagesDir, decide (config.packagesDir = _root_.Lake.defaultPackagesDir))]
 
@@ -503,6 +504,7 @@ def libraryChecks {name : Name} (config : _root_.Lake.LeanLibConfig name)
     [(`libName, config.libName.isEmpty), (`libPrefixOnWindows, !config.libPrefixOnWindows),
       (`extraDepTargets, config.extraDepTargets.isEmpty),
       (`precompileModules, !config.precompileModules),
+      (`precompileLibrary, !config.precompileLibrary),
       (`defaultFacets, config.defaultFacets == #[_root_.Lake.LeanLib.leanArtsFacet]),
       (`nativeFacets, nativeFacets), (`allowImportAll, !config.allowImportAll)]
 
@@ -562,8 +564,10 @@ or `LeanExeConfig.mk` whose `nativeFacets` is the whole term `defaultNativeFacet
 aside (`sameUpToProofs` with the theorems of the file), an `InputDirConfig.mk` whose filter is the
 whole term `starPatternTerm`, or an `InputFileConfig`. A custom target, whose constant's value is
 `DSL.mkTargetDecl`, is left to its kind, which `TargetShape.Plain` never admits. Any other term
-gives `false`; the positions are those of Lake's constructors, and a term at another position is
-not one of these terms. -/
+gives `false`; the positions are those of Lake's constructors at Lake v4.35.0, which adds
+`precompileLibrary` before `nativeFacets` in `LeanLibConfig`
+(`Lake/Config/LeanLibConfig.lean:75-83`), and a term at another position is not one of these
+terms. -/
 def defaultFunctionFields (config : ModuleData) : Bool :=
   let value? (name : Name) := (config.constants.find? (·.name == name)).bind (·.value?)
   let theorems : NameSet := config.constants.foldl (init := {}) fun names constant =>
@@ -582,8 +586,8 @@ def defaultFunctionFields (config : ModuleData) : Bool :=
       let value ← configuration.value?
       match configuration.type.getAppFn.constName? with
       | some ``_root_.Lake.LeanLibConfig =>
-          guard (value.isAppOfArity ``_root_.Lake.LeanLibConfig.mk 13 &&
-            sameUpToProofs theorems defaultNativeFacetsTerm (value.getArg! 11))
+          guard (value.isAppOfArity ``_root_.Lake.LeanLibConfig.mk 14 &&
+            sameUpToProofs theorems defaultNativeFacetsTerm (value.getArg! 12))
       | some ``_root_.Lake.LeanExeConfig =>
           guard (value.isAppOfArity ``_root_.Lake.LeanExeConfig.mk 9 &&
             sameUpToProofs theorems defaultNativeFacetsTerm (value.getArg! 8))
@@ -848,7 +852,7 @@ def targetShape (package : _root_.Lake.Package)
 target, and for `lakefile.lean` its compiled configuration (`leanConfigReading`). A `lakefile.toml`
 declares no facet and has no compiled configuration file: Lake's TOML loader gives it no facet.
 
-Assumes: Lake v4.34.1 selects the language from `relConfigFile`, not the resolved `configFile`
+Assumes: Lake v4.35.0 selects the language from `relConfigFile`, not the resolved `configFile`
 (`Lake/Load/Package.lean:100`), under `LakeConfig.language`'s assumptions. -/
 def packageShape (ws : _root_.Lake.Workspace) (package : _root_.Lake.Package) :
     IO PackageShape := do

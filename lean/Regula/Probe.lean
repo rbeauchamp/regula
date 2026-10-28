@@ -120,14 +120,14 @@ def ownedConstants (env : Environment) (modules : List Name) :
 
 /-- The name, canonical `.olean` path and direct imports of every module loaded in `env`, in
 header order. The path is the file where Lean's search path finds the module now
-(`Lean.findOLean`), not a record of the file that Lean read, which Lean 4.34.1 keeps nowhere in the
+(`Lean.findOLean`), not a record of the file that Lean read, which Lean 4.35.0 keeps nowhere in the
 environment.
 
 Assumes:
 - `env` was imported in this process by `importModules` with no artifacts supplied, as
   `Regula.Checker.Environment.importReportEnvironment` imports the environment of each caller.
   Lean then read each module from the file that `Lean.findOLean` gave at the import
-  (`loadData`, `Lean/Environment.lean:2231-2238`, and `readModuleDataPartsOfMod`, `:2078-2082`).
+  (`loadData`, `Lean/Environment.lean:2232-2239`, and `readModuleDataPartsOfMod`, `:2079-2083`).
 - Between the import and this lookup, nothing changed that the lookup reads: the search path, and
   in each of its directories the directory or `.olean` file of the module's root, the module's
   `.olean` and the symbolic links on their paths. `Lean.SearchPath.findWithExt` reads the
@@ -422,16 +422,16 @@ and `admits`), the check itself, and the fixed options and heartbeat budgets (`c
 an earlier check reaches it. An elaborator resource limit that ends the check is its result's
 error message (`checkVerdict`).
 
-Assumes: Lean 4.34.1 counts the kernel's heartbeats in a counter of the thread, one at each system
+Assumes: Lean 4.35.0 counts the kernel's heartbeats in a counter of the thread, one at each system
 check, and ends an admission when the count exceeds the budget (`check_heartbeat`,
 `src/runtime/interrupt.cpp:18`, `51-55`); `addDeclCore` sets the budget and not the count
 (`lean_add_decl`, `src/kernel/environment.cpp:287-295`); a task of priority above
 `LEAN_MAX_PRIO` runs on a new thread, which sets that count to zero before it runs the task
-(`enqueue`, `spawn_dedicated_worker` and `run_task`, `src/runtime/object.cpp:808-810`,
-`884-903`); without a task manager, Lean runs a task on the caller's thread
-(`lean_task_spawn_core`, `src/runtime/object.cpp:1200-1206`), which `publishCheck` refuses; the
+(`enqueue`, `spawn_dedicated_worker` and `run_task`, `src/runtime/object.cpp:792-794`,
+`868-887`); without a task manager, Lean runs a task on the caller's thread
+(`lean_task_spawn_core`, `src/runtime/object.cpp:1184-1190`), which `publishCheck` refuses; the
 elaborator's heartbeats are counted from the value at the start of the check (`CoreM.toIO`,
-`src/Lean/CoreM.lean:440-449`); and elaboration and kernel admission, under fixed options, are
+`src/Lean/CoreM.lean:454-463`); and elaboration and kernel admission, under fixed options, are
 functions of the environment and the check. Trusted: the operating system's scheduling and memory;
 a process that runs out of memory ends, and the run's deadline ends a check that runs too long. -/
 def runCheck (env : Environment) (cached : Std.HashMap Name (Array Name))
@@ -467,14 +467,14 @@ report (`requireDedicatedThreads`) and the guard of each program of the package
 (`Regula.TaskManager.guard`) use it. The observation of the process is a trusted boundary, and
 nothing here proves it.
 
-Assumes: Lean 4.34.1 gives `Task.Priority.dedicated` the value 9 (`src/Init/Core.lean:677`), above
+Assumes: Lean 4.35.0 gives `Task.Priority.dedicated` the value 9 (`src/Init/Core.lean:677`), above
 `LEAN_MAX_PRIO`, 8, and below `LEAN_SYNC_PRIO`, the largest `unsigned`
 (`src/runtime/object.cpp:71-72`); the task manager runs a task of such a priority on a new thread
 that it starts for that task (`enqueue_core` and `spawn_dedicated_worker`,
-`src/runtime/object.cpp:808-811` and `884-893`), while `LEAN_SYNC_PRIO` would run it on the
-caller's thread (`804-807`). Without a task manager, Lean runs the task on the caller's thread
-before it returns (`lean_task_spawn_core`, `src/runtime/object.cpp:1200-1206`), which `IO.asTask`
-calls (`lean_io_as_task`, `src/runtime/io.cpp:1553-1556`). Assumes: two threads that run at once
+`src/runtime/object.cpp:792-795` and `868-877`), while `LEAN_SYNC_PRIO` would run it on the
+caller's thread (`788-791`). Without a task manager, Lean runs the task on the caller's thread
+before it returns (`lean_task_spawn_core`, `src/runtime/object.cpp:1184-1190`), which `IO.asTask`
+calls (`lean_io_as_task`, `src/runtime/io.cpp:1551-1554`). Assumes: two threads that run at once
 have different identifiers (`lean_io_get_tid`, `src/runtime/process.cpp:340-352`,
 `pthread_threadid_np` on macOS and `gettid` on Linux); the caller's thread runs until the task has
 ended, because it waits for it. -/
@@ -607,7 +607,7 @@ private theorem compilerDependenciesLookup_frame (env : Environment) (name other
 /-- Every `@[export]` entry of `env`, a declaration with its export name: the entries of each
 imported module, then those of the current one.
 
-Assumes: Lean 4.34.1 stores the `@[export]` name of a declaration of an imported module among the
+Assumes: Lean 4.35.0 stores the `@[export]` name of a declaration of an imported module among the
 entries of that module, and of a declaration of the current module in the attribute's state
 (`getParamFromExt?`, `src/Lean/Attributes.lean:306-318`). -/
 private def exportEntries (env : Environment) : List (Name × Name) :=
@@ -698,24 +698,24 @@ when the environment has that constant and it is `partial`. The edge is how the 
 (`RegulaPolicy.ExecutionRoot.carries`); no name is parsed.
 
 Assumes:
-- Lean v4.34.1 compiles an opaque constant through the constant `mkUnsafeRecName` names for it,
+- Lean v4.35.0 compiles an opaque constant through the constant `mkUnsafeRecName` names for it,
   when the environment has one: the code generator looks that name up before the constant itself
-  (`getDeclInfo?`, `src/lean/Lean/Compiler/LCNF/ToDecl.lean:105-107`; `declIsNotUnsafe`, lines
-  109-118).
-- Lean v4.34.1 elaborates a `partial def` by adding the opaque constant and then its helper under
+  (`getDeclInfo?`, `src/lean/Lean/Compiler/LCNF/ToDecl.lean:25-27`; `declIsNotUnsafe`, lines
+  29-38).
+- Lean v4.35.0 elaborates a `partial def` by adding the opaque constant and then its helper under
   that name with `partial` definition safety, in one command (`addAndCompilePartial`,
   `src/lean/Lean/Elab/PreDefinition/Main.lean:20-36`; `addAndCompilePartialRec`,
   `src/lean/Lean/Elab/PreDefinition/Basic.lean:280-294`), so the two share a declaring module and
   so a toolchain origin.
-- Lean 4.34.1 compiles a constant with an `extern` attribute from that attribute alone, and any
+- Lean 4.35.0 compiles a constant with an `extern` attribute from that attribute alone, and any
   other constant with an initializer (`getInitFnNameFor?`) to an extern declaration with no
-  entries (`toDecl`, `src/Lean/Compiler/LCNF/ToDecl.lean:148-155`), which its IR replaces with a
+  entries (`toDecl`, `src/Lean/Compiler/LCNF/ToDecl.lean:68-75`), which its IR replaces with a
   body that is `unreachable` (`lowerDecl`, `src/Lean/Compiler/IR/ToIR.lean:194-200`;
   `mkDummyExternDecl`, `src/Lean/Compiler/IR/Basic.lean:386-388`); the module's initialization
   sets the constant to the value its initializer returned (`emitDeclInit`,
   `src/Lean/Compiler/LCNF/EmitC.lean:986-1004`), and the initializer is a retained call of the
   constant's IR (`collectDecl`, `src/Lean/Compiler/IR/EmitUtil.lean:52-60`).
-- Lean 4.34.1 generates code for every `extern`, and for no other constant that has an
+- Lean 4.35.0 generates code for every `extern`, and for no other constant that has an
   `implemented_by` target when it is compiled (`shouldGenerateCode`,
   `src/lean/Lean/Compiler/LCNF/Main.lean:34`, `:40`); a target added after the constant was
   compiled, as `attribute [implemented_by]` after `initialize` adds one, leaves its IR and
@@ -1047,7 +1047,7 @@ result is no `Sort`). Role metadata never removes an otherwise eligible root, in
 tagged declarations. Erasure is read only where it decides the answer
 (`RootFacts.root_erased`).
 
-Assumes: Lean 4.34.1 emits the C `main` function of a module from the compiled function body
+Assumes: Lean 4.35.0 emits the C `main` function of a module from the compiled function body
 named `main` that the module itself holds, whatever the declaration's safety
 (`emitMainFnIfNeeded`, `src/Lean/Compiler/LCNF/EmitC.lean:1084-1092`); an imported module's
 compiled bodies are the ones `Lean.IR.findEnvDecl` returns. -/
@@ -1090,16 +1090,16 @@ axioms of both are those it reaches in the environment (`KernelAxioms.reachedAxi
 kernel of this audit replayed an imported module.
 
 Assumes:
-- Lean v4.34.1 maps each imported constant to the module that declares it
-  (`Environment.getModuleIdxFor?`, `src/lean/Lean/Environment.lean:1195-1197`).
+- Lean v4.35.0 maps each imported constant to the module that declares it
+  (`Environment.getModuleIdxFor?`, `src/lean/Lean/Environment.lean:1196-1198`).
   That map also holds auxiliary names of the code generator that are not kernel constants
   (`src/lean/Lean/Environment.lean:241-243`), so a prefix is recorded only when the environment
   contains it.
 - The audited environment is imported at `OLeanLevel.private`, the default of `importModules`
-  (`src/lean/Lean/Environment.lean:2433-2440`), which treats every import as `import all`
+  (`src/lean/Lean/Environment.lean:2434-2441`), which treats every import as `import all`
   (line 2182). So the constants that a `module` file keeps private, its generated native-proof
   axioms among them, are in the environment.
-- Lean v4.34.1 gives a generated name the private form of its module while a `module` file
+- Lean v4.35.0 gives a generated name the private form of its module while a `module` file
   elaborates without exporting (`DeclNameGenerator.mkUniqueName.curr`,
   `src/lean/Lean/CoreM.lean:121-125`), and `privateToUserName` removes that form
   (`src/lean/Lean/PrivateName.lean:29-30`, `:32-35`, `:62-64`). -/

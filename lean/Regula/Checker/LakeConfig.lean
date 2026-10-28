@@ -17,7 +17,7 @@ open System
 /-- The language of a selected relative configuration path, or an error for an unsupported
 extension. Callers pass `Package.relConfigFile`, which Lake retains after selection.
 
-Assumes: Lake v4.34.1's loader, with no explicit `configLang?`, selects the language from
+Assumes: Lake v4.35.0's loader, with no explicit `configLang?`, selects the language from
 `relConfigFile.extension` (`Lake/Load/Package.lean:100-109`), and completes an extensionless
 relative path with the selected extension (`:110-123`). Regula's workspace loader uses that
 default. The resolved `configFile` can name a symlink target with a different extension. -/

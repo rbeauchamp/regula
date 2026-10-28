@@ -120,7 +120,7 @@ overlay loads in its place. Return `true` exactly when this inventory includes
 key for the facet report, after the existing provider guard passes.
 
 Assumes:
-- Lean v4.34.1's `IO.FS.readBinFile` supplies the source bytes: trusted runtime and filesystem
+- Lean v4.35.0's `IO.FS.readBinFile` supplies the source bytes: trusted runtime and filesystem
   observation; this check does not verify that external read mechanism.
 - Source files remain stable through workspace discovery and facet observation: trusted
   filesystem and process boundary; this check does not lock out other processes. -/
@@ -544,11 +544,12 @@ def captureConfigurationInputs (repo : FilePath) : IO Regula.CopyConfiguration.I
 The manifest and packages fallback are precisely the loaded workspace's values. Overrides retain
 Lake's typed entry name and the loaded package's configuration and manifest paths.
 
-Assumes: Lake v4.34.1 `Load/Resolve.lean:590-627` applies this name map to every dependency
+Assumes: Lake v4.35.0 `Load/Resolve.lean:590-627` applies this name map to every dependency
 of an ordinary load; `Load/Resolve.lean:201-235` visits dependencies transitively. Path entries
-(`Load/Materialize.lean:239-277`) neither clone nor remove packages. Full updates and loads without
-a manifest bypass overrides (`Load/Workspace.lean:64-69`, `Load/Resolve.lean:269-333`); copies
-retain the captured manifest and are used only for ordinary loads. -/
+that Lake does not copy fetch and remove nothing (`Load/Materialize.lean:272-274`, `:196-197`).
+Full updates and loads without a manifest bypass overrides (`Load/Workspace.lean:64-69`,
+`Load/Resolve.lean:269-333`); copies retain the captured manifest and are used only for ordinary
+loads. -/
 def relocateDependencies (inputs : Regula.CopyConfiguration.Inputs) (manifest : _root_.Lake.Manifest)
     (project : FilePath) : Except String (FilePath × Array _root_.Lake.PackageEntry) := do
   -- Return the same fallback Lake uses together with the overrides; copyProject uses this
@@ -774,19 +775,19 @@ it. That load of the project prints the facet report that `facets` requests.
 Assumes: the shared constructor's native primitive contracts and no concurrent source or
 destination writer. Lake's loaded workspace and manifest stay fixed while captured.
 
-Assumes: Lake v4.34.1 materializes a Git entry at its name in the packages directory
-(`Lake/Load/Materialize.lean:246`), and puts the package below that checkout at the subdirectory
-that the entry names, when it names one (`Lake/Load/Materialize.lean:264`). It loads a package's configuration file and the manifest that
+Assumes: Lake v4.35.0 materializes a Git entry at its name in the packages directory
+(`Lake/Load/Materialize.lean:276`), and puts the package below that checkout at the subdirectory
+that the entry names, when it names one (`Lake/Load/Materialize.lean:280`). It loads a package's configuration file and the manifest that
 its entry records at their recorded paths, joined to the package's directory
-(`Lake/Load/Package.lean:96-117`, `Lake/Load/Materialize.lean:272-277`), and the override that
+(`Lake/Load/Package.lean:96-117`, `Lake/Load/Materialize.lean:287-292`), and the override that
 `relocateDependencies` writes records the loaded `relConfigFile` and `relManifestFile`. A library's
-module is one that Lake can build when `isBuildableModule` admits it (`Lake/Config/LeanLibConfig.lean:128-130`), which `buildableModules`
+module is one that Lake can build when `isBuildableModule` admits it (`Lake/Config/LeanLibConfig.lean:140-142`), which `buildableModules`
 enumerates. Lake builds only the modules that a glob selects and their imports
-(`Lake/Build/Library.lean:36-60`, `:67-72`), a subset of these. It reads a module's Lean source at
+(`Lake/Build/Library.lean:36-61`, `:67-72`), a subset of these. It reads a module's Lean source at
 `Lean.modToFilePath` of its library's `srcDir` (`Lake/Config/Module.lean:83-90`). That `srcDir` is
 the package's joined with the library's (`Lake/Config/LeanLib.lean:34-35`,
-`Lake/Config/Package.lean:352-353`), and an executable's root module has the executable's own
-(`Lake/Config/LeanExe.lean:45-51`). Lean v4.34.1 `FilePath.join` gives an absolute right operand
+`Lake/Config/Package.lean:356-357`), and an executable's root module has the executable's own
+(`Lake/Config/LeanExe.lean:45-51`). Lean v4.35.0 `FilePath.join` gives an absolute right operand
 as it stands (`Init/System/FilePath.lean:126-130`).
 
 Assumes: `IO.FS.realPath` is POSIX realpath(3) (`Init/System/IO.lean:873-879`,
@@ -991,7 +992,7 @@ direct requirement is a path to the checkout; this retained manifest permits ord
 including inherited/transitive dependencies, without full updates. A fixture deliberately testing
 an update must state its closed path-only dependency domain at that call.
 
-Assumes: Lake v4.34.1 ordinary materialization and path-entry behavior stated by
+Assumes: Lake v4.35.0 ordinary materialization and path-entry behavior stated by
 `relocateDependencies`; the adopter is privately owned and its manifest is absent. -/
 def pinAdopter (repo project : FilePath) : IO Unit :=
   Workspace.withRootWorkspace repo fun ws => do
@@ -1561,7 +1562,7 @@ replaces the facet that Regula's `lakefile.lean` declares when its package is re
 module facet can replace a step of each module's build, such as the `presetup` facet that loads
 the plugins. A `lakefile.toml` declares none. A configuration file that cannot be read fails.
 
-Assumes: Lake v4.34.1 selects the language from `relConfigFile`, not the resolved `configFile`
+Assumes: Lake v4.35.0 selects the language from `relConfigFile`, not the resolved `configFile`
 (`Lake/Load/Package.lean:100`), under `LakeConfig.language`'s assumptions. -/
 def otherFacets (ws : _root_.Lake.Workspace) (running : Option String)
     (package : _root_.Lake.Package) : IO Nat := do
@@ -1608,7 +1609,7 @@ def onlyRegulaFacets (ws : _root_.Lake.Workspace) : IO Bool := do
 library's `weakArgsRecord` mixed into its job's when the library belongs to the root package
 (`Package.isRoot`). The job of `existing` runs for every library, so what it builds or writes is
 kept. Lake mixes the trace of that facet's job into the dependency trace of each module of the
-library (`Lake/Build/Module.lean`, line 591), which sets no option of the module's elaboration. -/
+library (`Lake/Build/Module.lean`, line 603), which sets no option of the module's elaboration. -/
 def weakArgsExtraDep
     (existing : _root_.Lake.LibraryFacetConfig _root_.Lake.LeanLib.extraDepFacet) :
     _root_.Lake.LibraryFacetConfig _root_.Lake.LeanLib.extraDepFacet :=
@@ -1622,7 +1623,7 @@ def weakArgsExtraDep
 
 /-- The log of one job of a build, as Lake's build monitor judges it: Lake counts a job that is not
 optional as failed when its log holds an entry at the build's failure level or above
-(`Monitor.reportJob`, `Lake/Build/Run.lean` lines 119 to 129). -/
+(`Monitor.reportJob`, `Lake/Build/Run.lean` lines 112 to 123). -/
 structure JobLog where
   /-- The job's caption in Lake's build monitor. -/
   caption : String
@@ -1637,13 +1638,13 @@ structure JobLog where
   deriving Inhabited
 
 /-- Whether `jobs` show that Lake elaborated `module` in this build: some job has the caption Lake
-gives a module's job, its name (`Module.recBuildLean`, `Lake/Build/Module.lean` line 1005), and
+gives a module's job, its name (`Module.recBuildLean`, `Lake/Build/Module.lean` line 1017), and
 each such job ran a build action. Lake resets a job's action when it registers the job
 (`JobState.renew`, `Lake/Build/Job/Register.lean` lines 20 and 44), so the action of a module's job
 is that of its own work, and that job runs a build action only to elaborate the module
 (`Module.buildLean`).
 
-Assumes: in Lake v4.34.1 a module's job is the only job captioned with its name that records a
+Assumes: in Lake v4.35.0 a module's job is the only job captioned with its name that records a
 build action, and records one exactly when the build elaborated the module. -/
 def elaboratedIn (jobs : Array JobLog) (module : Name) : Bool :=
   let named := jobs.filter (·.caption == module.toString)
@@ -1721,13 +1722,13 @@ partial def forwardJobs (own lake : IO.Ref (Array _root_.Lake.OpaqueJob))
 
 /-- `build`, with each job it registers kept in `record` as Lake's build monitor reads it. Lake's
 monitor judges the jobs registered in the build's job queue and the job that runs the build itself
-(`Workspace.runBuild`, `Lake/Build/Run.lean` lines 427 to 436). This runs `build` with a queue of
+(`Workspace.runBuild`, `Lake/Build/Run.lean` lines 456 to 465). This runs `build` with a queue of
 its own, moves each job registered there to Lake's queue once registered (`forwardJobs`), waits for
 each and for the job `build` returns, and records the log of each and that of the job that runs it,
 so `record` holds exactly the logs Lake's monitor judges. A registered job's log is read from its
 completed task, after Lake's own capture of its standard output and error (`Job.async`,
 `Lake/Build/Job/Monad.lean` line 173) has added its entry. The job that runs the build is also
-captured that way (`Workspace.startBuild`, `Lake/Build/Run.lean` line 363), but only after this
+captured that way (`Workspace.startBuild`, `Lake/Build/Run.lean` line 392), but only after this
 returns, so this runs `build` under the same capture (`withLoggedIO`, `Lake/Util/Log.lean` line
 437) and records that job's log afterwards: the rest of this writes nothing to standard output or
 error, so Lake's capture adds no entry. A module of the build whose messages

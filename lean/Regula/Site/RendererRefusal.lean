@@ -143,11 +143,11 @@ private def reproduction (website program scratch : FilePath)
 Assumes: POSIX.1-2024: `mkdir()` fails with `ENAMETOOLONG` when a component of its path is longer
 than `NAME_MAX` (https://pubs.opengroup.org/onlinepubs/9799919799/functions/mkdir.html), whatever
 the privileges of the process, and `getconf NAME_MAX DIR` gives that limit for the file system of
-`DIR` (https://pubs.opengroup.org/onlinepubs/9799919799/utilities/getconf.html). Lean 4.34.1 maps
+`DIR` (https://pubs.opengroup.org/onlinepubs/9799919799/utilities/getconf.html). Lean 4.35.0 maps
 `ENAMETOOLONG` to libuv's `UV_ENAMETOOLONG` and gives it as `IO.Error.invalidArgument` with the
 path and libuv's message for that code (`src/runtime/io.cpp:195, 256-274`). `IO.Error.toString`
 prints that error as `invalid argument (error code: N, name too long)` and a line `  file: PATH`
-(`src/Init/System/IOError.lean:256-258, 277`). libuv 1.52.1, which Lean 4.34.1 links
+(`src/Init/System/IOError.lean:256-258, 277`). libuv 1.52.1, which Lean 4.35.0 links
 (`lib/libuv.a`), gives the message `name too long` for `UV_ENAMETOOLONG` and for no other code
 (`UV_ERRNO_MAP` in `include/uv.h`, https://github.com/libuv/libuv/blob/v1.52.1/include/uv.h). -/
 private def refusals (program scratch : FilePath) (name : String)
@@ -252,11 +252,11 @@ and find their executables with `lake query --json`, then run the issue's reprod
 scratch directory. The first failure stops it. It runs after `lake exe site build`, which builds
 the website package and generates the sources of `regula-site`.
 
-Assumes: Lake 4.34.1 builds the executable of a `lean_exe` target at `LeanExe.file`, the package's
+Assumes: Lake 4.35.0 builds the executable of a `lean_exe` target at `LeanExe.file`, the package's
 `binDir` with the executable's file name, and gives that path as the target's result
 (`src/lake/Lake/Build/Executable.lean:22-31, 38-40`, `src/lake/Lake/Config/LeanExe.lean:72-73`).
 `lake query --json` prints the result of each target that it names in that order, each as a
-compact JSON value (`src/lake/Lake/CLI/Main.lean:281, 942-952`,
+compact JSON value (`src/lake/Lake/CLI/Main.lean:299, 992-1002`,
 `src/lake/Lake/Config/OutFormat.lean:61, 78-81`). A path is a JSON string of its text on Linux and
 macOS (`src/Lean/Data/Json/FromToJson/Basic.lean:108-109`,
 `src/lake/Lake/Util/FilePath.lean:29-36`), and a compact JSON string escapes a line feed

@@ -8,38 +8,38 @@ meta import Regula.Decision
 
 /-! # Generated native-proof axiom names
 
-In the Lean 4.34.1 sources cited below, every proof by native evaluation goes through
+In the Lean 4.35.0 sources cited below, every proof by native evaluation goes through
 `Lean.Meta.nativeEqTrue tacticName e` (`Lean/Meta/Native.lean`). After compiling and running `e`,
 it adds an axiom `e = true` named `mkAuxDeclName (`_native ++ tacticName ++ `ax)`, and
 `DeclNameGenerator.mkUniqueName` (`Lean/CoreM.lean`) turns that infix into
 `namePrefix ++ infix` with each generator index appended by `Name.appendIndexAfter`, made private
 to the module (`mkPrivateName`) while a `module` file elaborates without exporting.
 
-Those sources (`src/lean`: `Init`, `Std`, `Lean` and `Lake`) call `nativeEqTrue` at exactly
-two sites, which pass exactly three tactic names (`NativeTactic`); every caller chain ends in one of
-eight tactic elaborators:
-* `elabNativeDecideCore` (`Lean/Elab/Tactic/Decide.lean:59`), called only by `evalDecideCore`
-  (`:82`), which is called only by `evalDecide` (`:186`, passing `decide`, reaching the call
-  only with `+native`) and `evalNativeDecide` (`:190`, passing `native_decide`).
+Those sources (`src/lean`: `Init`, `Std`, `Lean`, `Lake` and `LeanExport`) call `nativeEqTrue` at
+exactly two sites, which pass exactly three tactic names (`NativeTactic`); every caller chain ends
+in one of eight tactic elaborators:
+* `elabNativeDecideCore` (`Lean/Elab/Tactic/Decide.lean:72`), called only by `evalDecideCore`
+  (`:95`), which is called only by `evalDecide` (`:200`, passing `decide`, reaching the call
+  only with `+native`) and `evalNativeDecide` (`:205`, passing `native_decide`).
 * `LratCert.toReflectionProof` (`Lean/Meta/Tactic/BVDecide/Prover/Bitblast.lean:39`, passing
   `bv_decide`), called only by `lratBitblaster` (`:100`) and `lratChecker` (`:115`).
-  `lratBitblaster` is called only by `bvUnsat` (`Lean/Meta/Tactic/BVDecide/Main.lean:26`),
-  through `bvDecide'` and `bvDecide` (`:42`, `:55`); `bvDecide` is called by
+  `lratBitblaster` is called only by `bvUnsat` (`Lean/Meta/Tactic/BVDecide/Main.lean:25`),
+  through `bvDecide'` and `bvDecide` (`:41`, `:54`); `bvDecide` is called by
   `BVDecide.evalBvDecide` (`Lean/Elab/Tactic/BVDecide.lean:199`), `BVTrace.evalBvTrace` (`:161`)
-  and `Grind.evalBvDecide` (`Lean/Elab/Tactic/Grind/BVDecide.lean:36`). `lratChecker` is called
+  and `Grind.evalBvDecide` (`Lean/Elab/Tactic/Grind/BVDecide.lean:37`). `lratChecker` is called
   only by `BVCheck.bvCheck` (`Lean/Elab/Tactic/BVDecide.lean:122`), through `BVCheck.evalBvCheck`
   (`:124`). `BVTrace.evalBvTrace` is called by `BVDecide.evalBvTraceTactic` (`:213`) and
-  `Grind.evalBvTrace` (`Lean/Elab/Tactic/Grind/BVDecide.lean:47`); `BVCheck.evalBvCheck` by
+  `Grind.evalBvTrace` (`Lean/Elab/Tactic/Grind/BVDecide.lean:48`); `BVCheck.evalBvCheck` by
   `BVDecide.evalBvCheckTactic` (`Lean/Elab/Tactic/BVDecide.lean:233`) and `Grind.evalBvCheck`
-  (`Lean/Elab/Tactic/Grind/BVDecide.lean:65`).
+  (`Lean/Elab/Tactic/Grind/BVDecide.lean:66`).
 
 No term, command, conversion or `do`-element elaborator reaches either site. Five of the eight
 elaborators are registered in Lean's tactic table (`builtin_tactic`: `evalNativeDecide`,
 `evalDecide`, `evalBvDecide`, `evalBvTraceTactic`, `evalBvCheckTactic`) and three in `grind`'s
 interactive-mode table (`builtin_grind_tactic`, `Lean/Elab/Tactic/Grind/Basic.lean:116`:
 `Grind.evalBvDecide`, `evalBvTrace`, `evalBvCheck`), entered through `grind =>` or `sym =>`
-(`Lean/Elab/Tactic/Grind/Main.lean:342`, `:351`). The only toolchain macro that expands to one of
-these tactics is `trivial`, to `decide` without `+native` (`Init/Tactics.lean:1494`), which adds no
+(`Lean/Elab/Tactic/Grind/Main.lean:343`, `:352`). The only toolchain macro that expands to one of
+these tactics is `trivial`, to `decide` without `+native` (`Init/Tactics.lean:1537`), which adds no
 axiom. So the three name families cover every axiom the toolchain's native proofs generate,
 whichever tactic, wrapper or command reached the call.
 

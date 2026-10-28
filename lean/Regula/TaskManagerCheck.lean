@@ -62,21 +62,21 @@ namespace Regula.TaskManagerCheck
 
 open Lean IR
 
-/-- The C functions of the Lean 4.34.1 runtime that need the task manager, each as the `extern`
+/-- The C functions of the Lean 4.35.0 runtime that need the task manager, each as the `extern`
 attribute of Lean's library names it: the functions of `src/runtime/object.cpp` and
 `src/runtime/io.cpp` that read the task manager (`g_task_manager`) or start a task or a promise
 through a function that reads it (`lean_task_spawn_core`, `lean_task_map_core`,
 `lean_task_bind_core`, `lean_promise_new`).
 
-Assumes: Lean 4.34.1, by a search of `src/runtime` for `g_task_manager`, `lean_task_spawn_core`,
+Assumes: Lean 4.35.0, by a search of `src/runtime` for `g_task_manager`, `lean_task_spawn_core`,
 `lean_task_map_core`, `lean_task_bind_core`, `lean_promise_new` and `lean_io_promise_new`:
 `Task.spawn`, `Task.map`
 and `Task.bind` are bound to `lean_task_spawn`, `lean_task_map` and `lean_task_bind`
 (`src/Init/Core.lean:686`, `701` and `717`), which call the functions of the same name with
-`_core` (`src/include/lean/lean.h:1438-1446`); the `IO` operations on tasks and promises are bound
+`_core` (`src/include/lean/lean.h:1553-1561`); the `IO` operations on tasks and promises are bound
 to the other names (`src/Init/System/IO.lean:244`, `257`, `271`, `505`, `511`, `555` and `573`,
 `src/Init/System/Promise.lean:40`, `48` and `54`), whose C functions read the task manager or
-call one that does (`src/runtime/io.cpp:1553-1601`, `src/runtime/object.cpp:1200-1365`); and no
+call one that does (`src/runtime/io.cpp:1551-1599`, `src/runtime/object.cpp:1184-1349`); and no
 C function of the runtime outside `src/runtime/object.cpp`, `src/runtime/io.cpp`,
 `src/runtime/uv` and the wrappers of `lean.h` above calls one of them. -/
 def symbols : List String :=
@@ -88,9 +88,9 @@ def symbols : List String :=
 /-- The prefix of the C functions of the runtime's asynchronous input and output, each of which
 counts as one that needs the task manager.
 
-Assumes: in Lean 4.34.1, the functions of `src/runtime/uv` that start an operation return a
+Assumes: in Lean 4.35.0, the functions of `src/runtime/uv` that start an operation return a
 promise (`lean_promise_new` or `lean_io_promise_new`, for example `lean_uv_timer_next` and
-`lean_uv_tcp_connect`, `src/runtime/uv/timer.cpp:114-124` and `src/runtime/uv/tcp.cpp:124-140`);
+`lean_uv_tcp_connect`, `src/runtime/uv/timer.cpp:117-127` and `src/runtime/uv/tcp.cpp:135-151`);
 the prefix counts all of them, which can only add programs that need the guard. -/
 def uvPrefix : String := "lean_uv_"
 
@@ -106,7 +106,7 @@ def needsTaskManager : ExternEntry → Bool
 through `IO.Process.spawn`, and so do Lake's `captureProc`, `proc` and `testProc`, which run every
 Git command of Lake.
 
-Assumes: Lean 4.34.1 binds `IO.Process.spawn` to `lean_io_process_spawn`
+Assumes: Lean 4.35.0 binds `IO.Process.spawn` to `lean_io_process_spawn`
 (`src/Init/System/IO.lean:1489`), and no other `extern` declaration of Lean's library outside
 `src/runtime/uv` (`uvPrefix`) is bound to a C function that starts a process, by a search of
 `src` for the `extern` attributes whose names hold `spawn`, `process`, `exec`, `fork` or
@@ -133,19 +133,22 @@ def boundBy (env : Environment) (bound : ExternEntry → Bool) (name : Name) : B
   | some (.extern _ _ _ data) => data.entries.any bound
   | _ => false
 
-/-- The C functions of the Lean 4.34.1 runtime, each by the declaration bound to it, that compute a
+/-- The C functions of the Lean 4.35.0 runtime, each by the declaration bound to it, that compute a
 value from their arguments: arithmetic, comparison and conversion of natural numbers and of
-fixed-width integers, hashing and comparison of strings and names, the reads of an array and the
-update of an array that the caller holds, the address of an object, and whether the platform is
-Windows. None of them applies an argument, writes a reference or starts a process. A C function
+fixed-width integers, hashing and comparison of strings and names, the reads of an array, the
+update of an array that the caller holds and the copy of an array's linearity marker
+(`Array.propagateMark`, which Lean 4.35.0 adds), the address of an object, and whether the platform
+is Windows. None of them applies an argument, writes a reference or starts a process. A C function
 outside this list counts as one that can do more (`evaluatesValue`); the list holds those that
 the initialization code of the package's programs needs.
 
 Assumes: each is bound to the C function of the same role that `include/lean/lean.h` of the
-toolchain declares at lines 1009-1139 (arrays), 1387-1390 (strings), 1520-1661 (natural numbers),
-2151-2222 (`UInt64` and `USize`) and 3120-3123 (`lean_ptr_addr`, `lean_name_eq`), or to
+toolchain declares at lines 1058-1199 (arrays), 1502-1505 (strings), 1635-1776 (natural numbers),
+2267-2338 (`UInt64` and `USize`) and 3236-3239 (`lean_ptr_addr`, `lean_name_eq`), or to
 `lean_system_platform_windows` (`src/Init/System/Platform.lean:22`); each computes its result from
-its arguments, and an update copies a shared array before it writes. -/
+its arguments, and an update copies a shared array before it writes, or panics when that array
+is marked linear and Lean is set to abort on a non-linear use (`src/runtime/object.cpp:2794-2800`).
+-/
 def valueExterns : List Name :=
   [``Nat.add, ``Nat.mul, ``Nat.div, ``Nat.decEq, ``Nat.decLt, ``Nat.decLe,
     ``UInt64.ofNatLT, ``UInt64.toUSize, ``UInt64.xor, ``UInt64.shiftRight, ``UInt64.decEq,
@@ -153,16 +156,17 @@ def valueExterns : List Name :=
     ``USize.land, ``USize.shiftRight, ``USize.decEq, ``USize.decLe, ``mixHash, ``String.hash,
     ``String.compare, ``Lean.Name.beq, ``Array.mkEmpty, ``Array.replicate, ``Array.size,
     ``Array.getInternal, ``Array.getInternalBorrowed, ``Array.get!InternalBorrowed,
-    ``Array.ugetBorrowed, ``Array.set, ``Array.uset, ``Array.push, ``ptrAddrUnsafe,
-    ``System.Platform.getIsWindows]
+    ``Array.ugetBorrowed, ``Array.set, ``Array.uset, ``Array.push, ``Array.propagateMark,
+    ``ptrAddrUnsafe, ``System.Platform.getIsWindows]
 
 /-- The C functions that write a reference, by the declarations bound to them, which
 `ST.Prim.Ref.modifyUnsafe` calls: only `registrations` may call them.
 
-Assumes: Lean 4.34.1 binds them to `lean_st_ref_take` and `lean_st_ref_set`
-(`src/Init/System/ST.lean:190-195`, `:199-202`), which read or store their argument in the
-reference and apply nothing. -/
-def referenceExterns : List Name := [``ST.Prim.Ref.take, ``ST.Prim.Ref.set]
+Assumes: Lean 4.35.0 binds them to `lean_st_ref_take` and `lean_st_ref_put`
+(`src/Init/System/ST.lean:192-195`, `:202-204`), which read or store their argument in the
+reference and apply nothing. Lean 4.35.0 defines `ST.Prim.Ref.set` by `ST.Prim.Ref.swap` instead
+(`:199-200`), and `modifyUnsafe` no longer calls it. -/
+def referenceExterns : List Name := [``ST.Prim.Ref.take, ``ST.Prim.Ref.put]
 
 /-- The initializers, by their full names, that register the elaborators of Lean's builtin
 `bv_decide` and `bv_trace` tactics and of their `grind` forms. Each applies `addBuiltin` to the
@@ -170,7 +174,7 @@ tactic table, the key, the name and the elaborator (`src/Lean/KeyedDeclsAttribut
 which stores the elaborator, a closure, in the table's reference (`:104-105`). The elaborators
 reach `Lean.Meta.Tactic.BVDecide.External.runInterruptible`, which starts the SAT solver
 (`src/Lean/Meta/Tactic/BVDecide/External.lean:98-100`; `src/Lean/Elab/Tactic/BVDecide.lean:189-204`,
-`src/Lean/Elab/Tactic/Grind/BVDecide.lean:28-40`). The check admits one of these initializers when
+`src/Lean/Elab/Tactic/Grind/BVDecide.lean:29-41`). The check admits one of these initializers when
 its evaluation calls only `valueExterns` and `referenceExterns` and applies no closure
 (`evaluatesValue`); it follows every other initializer that reaches the same runner.
 
@@ -270,7 +274,7 @@ application builds a closure, whose code it does not run. Each traversal reads a
 declarations; when one stops there with work left, the result is incomplete, and every
 declaration, each root among them, is to be inspected (`Propagation.inspects`).
 
-Assumes: in Lean 4.34.1's compiled code a full application (`Lean.IR.Expr.fap`) runs the code of
+Assumes: in Lean 4.35.0's compiled code a full application (`Lean.IR.Expr.fap`) runs the code of
 the declaration applied, a partial application (`Lean.IR.Expr.pap`) builds a closure only, and the
 application of a closure (`Lean.IR.Expr.ap`) runs that closure
 (`src/Lean/Compiler/IR/Basic.lean:192-197`). -/
@@ -354,7 +358,7 @@ it has the closed form of the guard: `Regula.TaskManager.guard "name" refuse run
 application to the one argument of `fun args => …` (`guardOf`); `none` otherwise. The guard is then
 the first code of `main` that runs.
 
-Assumes: in compiled Lean 4.34.1 code, evaluating a string literal or a constant of function type
+Assumes: in compiled Lean 4.35.0 code, evaluating a string literal or a constant of function type
 runs no code of the program: it gives the literal, a closure of the constant, or the value that the
 constant's initializer computed before `main`. The compiler gives a definition of function type a
 parameter for each argument of its type, so it does not evaluate the definition when it initializes

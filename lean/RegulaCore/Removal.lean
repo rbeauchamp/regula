@@ -596,15 +596,15 @@ theorem replaceWith_spec (M : Model) (readsEntry : ReadsEntry M) (readsReal : Re
     replaceWith_run M readsEntry readsReal renames source destination before
 
 attribute [regula_checked filesystem removeOwnWith_gone
-  (lean "v4.34.1" "Init/System/IO.lean#L1330-L1342")
-  (lean "v4.34.1" "Init/System/IO.lean#L881-L886")] removeOwnWith
+  (lean "v4.35.0" "Init/System/IO.lean#L1330-L1342")
+  (lean "v4.35.0" "Init/System/IO.lean#L881-L886")] removeOwnWith
 
 attribute [regula_checked filesystem removeFoundWith_gone
-  (lean "v4.34.1" "Init/System/IO.lean#L1330-L1342")
-  (lean "v4.34.1" "Init/System/IO.lean#L881-L886")] removeFoundWith
+  (lean "v4.35.0" "Init/System/IO.lean#L1330-L1342")
+  (lean "v4.35.0" "Init/System/IO.lean#L881-L886")] removeFoundWith
 
 attribute [regula_checked filesystem replaceWith_moved
-  (lean "v4.34.1" "Init/System/IO.lean#L903-L909")] replaceWith
+  (lean "v4.35.0" "Init/System/IO.lean#L903-L909")] replaceWith
 
 /-! ## The operations in `IO` -/
 

@@ -30,7 +30,7 @@ decided, and `requireOwnDirectory` and `requireNoLinkedEntries` check a place be
 makes or loads something there.
 
 Each operation is `@[noinline]`, so its call of the library's operation stays in its own compiled
-code and is not copied into a caller's. On Windows, Lean 4.34.1's
+code and is not copied into a caller's. On Windows, Lean 4.35.0's
 `System.FilePath.symlinkMetadata` follows a symbolic link at the path, which `ReadsEntry` does not
 allow, and `IO.FS.removeDirAll` uses it on each entry. Its `IO.FS.realPath` gives the path itself
 when it cannot resolve it (`runtime/io.cpp#L1032-L1033`), which `ReadsReal` does not allow. So on
@@ -51,7 +51,7 @@ open System Regula.StateTriple Regula.Removal
 
 /-- The error of an operation that the observer does not run on Windows, with the reason. -/
 def windowsRefusal (operation : String) (path : FilePath) (reason : String) : IO.Error :=
-  IO.userError s!"{operation} {path}: refused on Windows, where Lean 4.34.1's {reason}"
+  IO.userError s!"{operation} {path}: refused on Windows, where Lean 4.35.0's {reason}"
 
 /-- Why the observer refuses a read of an entry and a removal of a directory on Windows. -/
 def linkFollowed : String :=
@@ -98,7 +98,7 @@ private def observer : Ops IO where
 construct them exclusively. Links and special entries are refused before they can be opened.
 `observer_copy` describes the exact resulting tree, under native primitive hypotheses.
 
-Assumes: Lean v4.34.1 lstat (`Init/System/IO.lean:1151-1156`, `runtime/io.cpp:1160-1179`), an
+Assumes: Lean v4.35.0 lstat (`Init/System/IO.lean:1151-1156`, `runtime/io.cpp:1160-1179`), an
 admitted listing program that exits nonzero after a failed read of a directory
 (`Construction.ReadsNames` names each program `Construction.locate` admits, with its source),
 exclusive mkdir (`runtime/io.cpp:1181-1195`), and exclusive file creation
@@ -147,7 +147,7 @@ def writeJson (target : FilePath) (json : Lean.Json) : IO Unit :=
 /-- Grant 0755 to a known copied program before executing it. Refuse any non-regular entry or
 path through an alias. The private destination has no concurrent writer during chmod.
 
-Assumes: Lean v4.34.1 `Init/System/IO.lean:1650` sets the regular file's access rights. -/
+Assumes: Lean v4.35.0 `Init/System/IO.lean:1650` sets the regular file's access rights. -/
 def makeExecutable (path : FilePath) : IO Unit := do
   unless (← observeMetadata path).type == .file && (← observeRealPath path) == path do
     throw <| IO.userError s!"copied executable is not a regular file at its own place: {path}"
@@ -384,7 +384,7 @@ order, stopping at the first that fails. The entry's name and the new directory'
 name of one entry (`EntryName`), so the new directory is beside the entry and the rename moves the
 entry into it. When the directory is made, it is new and empty, so the rename replaces nothing. A
 symbolic link at `path` is moved, not the file that it points to. It removes nothing, and a copy
-that it moves aside stays there. It stops before it acts on Windows, where Lean 4.34.1 renames with
+that it moves aside stays there. It stops before it acts on Windows, where Lean 4.35.0 renames with
 `MoveFileEx` and replaces what is there (`src/runtime/io.cpp#L1219-L1222`).
 
 Assumes: POSIX.1-2024 (https://pubs.opengroup.org/onlinepubs/9799919799/functions/mkdir.html,
@@ -392,7 +392,7 @@ https://pubs.opengroup.org/onlinepubs/9799919799/functions/rename.html). `mkdir(
 it fails with `EEXIST` when anything is at the path, a symbolic link among them. `rename()` is
 atomic within one file system, renames a symbolic link at its first path itself and does not follow
 it, removes nothing when nothing is at its second path, and fails with `EXDEV` across file systems
-and with `EBUSY` or `EXDEV` on a mount point. Lean 4.34.1's `IO.FS.createDir` calls `mkdir` and
+and with `EBUSY` or `EXDEV` on a mount point. Lean 4.35.0's `IO.FS.createDir` calls `mkdir` and
 `IO.FS.rename` calls `rename` on these systems (`src/runtime/io.cpp#L1181-L1195`, `#L1209-L1236`).
 No process makes an entry in the new directory between the two operations, which is trusted. -/
 def moveAside (path : FilePath) : IO (Option FilePath) := do
@@ -743,7 +743,7 @@ at `path` (`observeMetadata`), or `none` when Lean reports that nothing is there
 failure of the read is thrown (`RegulaCore.Filesystem.entryType`). It fails on Windows, where the
 observer reads no entry.
 
-Assumes: Lean v4.34.1 `symlinkMetadata` (`Init/System/IO.lean:1155-1156`) is
+Assumes: Lean v4.35.0 `symlinkMetadata` (`Init/System/IO.lean:1155-1156`) is
 `lean_io_symlink_metadata` (`runtime/io.cpp:1160-1179`), which calls `lstat(2)` through libuv and
 gives `noFileOrDirectory` for `ENOENT` and for no other error (`runtime/io.cpp:201`, `:276-279`). -/
 def entryIfPresent (path : FilePath) : IO (Option IO.FS.FileType) :=

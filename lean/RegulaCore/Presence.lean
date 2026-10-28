@@ -2,7 +2,7 @@ module
 
 /-! # Whether a path is present
 
-Lean 4.34.1's `System.FilePath.pathExists` and `System.FilePath.isDir` give `false` for every error
+Lean 4.35.0's `System.FilePath.pathExists` and `System.FilePath.isDir` give `false` for every error
 of their `metadata` read, not only for a missing file (`Init/System/IO.lean:1162-1172`), so a
 permission error, an I/O error or a path that is too long reads as absence. The reads of this
 module give absence only for the error that says that nothing is at the path, and throw every other
@@ -35,7 +35,7 @@ symbolic links as `pathExists` does, or `none` when Lean reports that nothing is
 Each other failure, such as a permission error, is thrown (`metadataIfPresent_ok`,
 `metadataIfPresent_absent`, `metadataIfPresent_error`).
 
-Assumes: Lean v4.34.1 `metadata` (`Init/System/IO.lean:1149`) is `lean_io_metadata`
+Assumes: Lean v4.35.0 `metadata` (`Init/System/IO.lean:1149`) is `lean_io_metadata`
 (`runtime/io.cpp:1143-1158`), which calls `stat(2)` through libuv and gives `noFileOrDirectory` for
 `ENOENT` and for no other error (`runtime/io.cpp:201`, `:276-279`). A dangling symbolic link is
 therefore absent, and a path through a file (`ENOTDIR`) is an error. -/
@@ -60,7 +60,7 @@ every other failure thrown (`realPathIfPresent_absent`, `realPathIfPresent_error
 of `realpath(3)` on POSIX, a denied permission among them, so its error cannot say that nothing is
 there: the read of `metadata` decides that, and a failure of the resolution after it is thrown.
 
-Assumes: Lean v4.34.1 `realPath` (`Init/System/IO.lean:879`) is `lean_io_realpath`
+Assumes: Lean v4.35.0 `realPath` (`Init/System/IO.lean:879`) is `lean_io_realpath`
 (`runtime/io.cpp:1014-1067`), whose POSIX branch calls `realpath(3)` and gives
 `noFileOrDirectory` with `ENOENT` for each of its failures (`runtime/io.cpp:86-91`, `:1054-1066`).
 `realpath(3)`, like `stat(2)`, follows each symbolic link. -/

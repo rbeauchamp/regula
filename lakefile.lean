@@ -9,7 +9,7 @@ open Lake DSL
 --
 -- When `LEAN_SYSROOT` is not set, the child's path comes from `Lean.findSysroot`, which removes the
 -- whitespace at the ends of the prefix that `lean --print-prefix` prints
--- (`Lean/Util/Path.lean:180-187` of Lean v4.34.1). For an installation directory whose name ends
+-- (`Lean/Util/Path.lean:180-187` of Lean v4.35.0). For an installation directory whose name ends
 -- in a space, it names another directory. That cannot cause a wrong acceptance. The guard accepts
 -- only a child that exits with 0, which the policy source does only after
 -- `RegulaPolicy.Compiler.checkCurrent` accepts the child's own version and commit. It also
@@ -75,9 +75,9 @@ package «regula» where
 -- own `plugins` setting, which Lake's `presetup` facet fetches, passes to `lean --plugin` and mixes
 -- into each module's trace. `@/` names this package whether it is the root or a dependency, so an
 -- adopter that requires it builds its modules as this checkout does. Each target also lists the
--- same key in `needs`: Lake v4.34.1 can build a `plugins` key several times at once in a fresh
+-- same key in `needs`: Lake v4.35.0 can build a `plugins` key several times at once in a fresh
 -- build (`Lake/Build/Target/Fetch.lean` lines 54 to 66), and it builds a target's `needs` before
--- its modules fetch their plugins (`Lake/Build/Module.lean` lines 546 to 557, lean4#13598), so the
+-- its modules fetch their plugins (`Lake/Build/Module.lean` lines 558 to 569, lean4#13598), so the
 -- observer is built once, and mixes the trace of the `needs` into each module's trace whatever the
 -- target's `platformIndependent`, so a replayed module was elaborated with the observer the build
 -- has. An adopter's claimed targets load the observer the same way, as

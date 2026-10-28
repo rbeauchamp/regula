@@ -17,12 +17,12 @@ A target loads the observer through Lake's own `plugins` setting, which names th
 library: `@regula/RegulaObserver:shared`, or `@/RegulaObserver:shared` in Regula's own
 `lakefile.lean`, and RG2006 requires the same key in its `needs`
 (`RegulaPolicy.Community.BuildOptions.observerNeed`). Lake's `presetup` facet hands a module's
-plugins to Lean (`Lake/Build/Module.lean` lines 545 to 624, 1008 and 1062,
+plugins to Lean (`Lake/Build/Module.lean` lines 557 to 636, 1020 and 1074,
 `ModulePreSetup.plugins`). It first awaits the job of the target's `needs`
 (`LeanLib.recBuildExtraDepTargets`, `Lake/Build/Library.lean` lines 162 to 169), so a fresh build
 builds the observer once, and mixes that job's trace into the module's trace, which Lake compares
 to decide whether to replay the module, whatever the target's `platformIndependent`
-(`Lake/Build/Module.lean` lines 591 and 600 to 603). A module replayed under that trace was
+(`Lake/Build/Module.lean` lines 603 and 612 to 615). A module replayed under that trace was
 elaborated with the observer the build has; the trace of the plugins alone is left out when
 `platformIndependent` is `true`. Regula declares no `presetup` facet. The
 audit's builds run the facet that the workspace configures unchanged and keep each completed
@@ -177,7 +177,7 @@ The copy's build then elaborates the observer's modules itself and compiles them
 library again unless the hash of its inputs, the compiled objects and libraries it links, its traced
 arguments, the Lean version and the platform, equals the placed trace's, a hash that no path enters
 (`LeanLib.recBuildShared`, `Lake/Build/Library.lean` lines 128 to 152; `buildLeanSharedLibSync`
-and `buildArtifactUnlessUpToDate`, `Lake/Build/Common.lean` lines 1015 to 1029 and 685 to 726,
+and `buildArtifactUnlessUpToDate`, `Lake/Build/Common.lean` lines 1032 to 1046 and 689 to 730,
 which an audit's build reaches with Lake's artifact cache off, through `checkHashUpToDate'`, lines
 213 to 222). So a copy
 whose observer source compiles to the running Regula's objects loads this file unchanged, and
@@ -203,7 +203,7 @@ def presetupPlugins? (completed : Std.HashMap (Name × Name) _root_.Lake.ModuleP
 
 /-- The source file of the completed `presetup` of `module` of `package` in `completed`
 (`Presetups.completed`), the file that Lake's `leanArts` facet compiles the module from
-(`Module.recBuildLean`, `Lake/Build/Module.lean` lines 1006 to 1009), or none when no such job
+(`Module.recBuildLean`, `Lake/Build/Module.lean` lines 1018 to 1021), or none when no such job
 completed. -/
 def presetupSource? (completed : Std.HashMap (Name × Name) _root_.Lake.ModulePreSetup)
     (package module : Name) : Option FilePath :=
@@ -222,15 +222,15 @@ only when the running Regula's observer wrote them, which `decideRecord` reads a
 that another extension of that name wrote is outside what the record establishes. An error when
 the running process registered no extension for the record.
 
-Assumes: in Lean v4.34.1, a module's data holds, under each registered persistent extension's
+Assumes: in Lean v4.35.0, a module's data holds, under each registered persistent extension's
 name, the entries its `exportEntriesFn` returned (`computeExtEntries`, `Lean/Environment.lean`
-lines 1837 to 1856), an import places them in the state of the extension of that name as the
-module's entries (`setImportedEntries`, lines 1931 to 1949), and `getModuleEntries` returns a
+lines 1838 to 1857), an import places them in the state of the extension of that name as the
+module's entries (`setImportedEntries`, lines 1932 to 1950), and `getModuleEntries` returns a
 module's entries from the state at the extension's index at the extension's entry type (lines
-1671 to 1677). An empty environment holds the initial state of each registered extension (lines
-1530 to 1544), and `EnvExtension.modifyState` with `asyncMode := .local` writes the state at the
-extension's index in the array that `getModuleEntries` reads at its default level (lines 1406,
-1416 and 1417, and 1360 to 1369). -/
+1672 to 1678). An empty environment holds the initial state of each registered extension (lines
+1531 to 1545), and `EnvExtension.modifyState` with `asyncMode := .local` writes the state at the
+extension's index in the array that `getModuleEntries` reads at its default level (lines 1407,
+1417 and 1418, and 1361 to 1370). -/
 def recordEntries (data : ModuleData) : IO (Array RegulaObserver.Record) := do
   let some view := (← persistentEnvExtensionsRef.get).find?
       (·.toEnvExtension.idx == RegulaObserver.records.toEnvExtension.idx)

@@ -771,17 +771,17 @@ def Command.launch (command : Command) : Priority → String × Array String
   | .low => ("nice", #["-n", "19", command.program] ++ command.args)
 
 /-- The shared constructor's exact source, embedded by Lean before any root artifact exists.
-Assumes: Lean v4.34.1 `Lean/Elab/BuiltinTerm.lean:437-445` elabIncludeStr reads this source at elaboration;
+Assumes: Lean v4.35.0 `Lean/Elab/BuiltinTerm.lean:437-445` elabIncludeStr reads this source at elaboration;
 the pinned Lean interpreter executes it. There is no second tree-walk implementation. -/
 def constructionSource : String := include_str "RegulaCore/CopyProgram.lean"
 
 /-- Run the shared construction source's entrypoint (`Construction.sourceMain`) with `args` before
 cold artifacts exist, and decode the JSON it prints; `what` names the observation in an error.
 
-Assumes: Lean v4.34.1 `IO.Process.output` supplies stdin and waits for the child
+Assumes: Lean v4.35.0 `IO.Process.output` supplies stdin and waits for the child
 (`Init/System/IO.lean:1544-1557`);
 `Lean/Util/Path.lean:85-86` identifies the interpreter. `--stdin --run`
-(`Lean/Shell.lean:497-518,552-560`) executes the embedded source without a temporary file or
+(`Lean/Shell.lean:498-519,553-561`) executes the embedded source without a temporary file or
 removal; interpreter execution is trusted. -/
 private def construction {α : Type} [Lean.FromJson α] (what : String) (args : Array String) :
     IO α := do
@@ -986,11 +986,11 @@ theorem removal_nothing_iff (observed : Observed) :
   cases place <;> cases sameLocation <;> simp [removal]
 
 /-- The metadata of the entry at `path`, by a read that does not follow a symbolic link at `path`
-itself: `System.FilePath.symlinkMetadata`, refused on Windows, where that function of Lean 4.34.1
+itself: `System.FilePath.symlinkMetadata`, refused on Windows, where that function of Lean 4.35.0
 follows such a link, as the package's observer refuses it (`Regula.Filesystem.observeMetadata`). -/
 def entryMetadata (path : System.FilePath) : IO IO.FS.Metadata :=
   if System.Platform.isWindows then
-    throw <| IO.userError s!"lstat {path}: refused on Windows, where Lean 4.34.1's \
+    throw <| IO.userError s!"lstat {path}: refused on Windows, where Lean 4.35.0's \
       System.FilePath.symlinkMetadata follows a symbolic link at the path"
   else path.symlinkMetadata
 
@@ -1010,7 +1010,7 @@ def removeDecided (path : System.FilePath) (observed : Observed)
 
 /-- What the driver observes of `path` before a removal: what is there, by a read that follows
 no link at the path, and, when a directory is there, whether its real path is the path. Only
-`place` decides that nothing is there: a failure of either read is thrown, since Lean 4.34.1's
+`place` decides that nothing is there: a failure of either read is thrown, since Lean 4.35.0's
 `realPath` gives `noFileOrDirectory` for each failure of `realpath(3)`
 (https://github.com/rbeauchamp/regula/issues/430). `removal` reads `sameLocation` only for a
 directory. -/
@@ -1584,10 +1584,10 @@ def invalidated : Mode → List (String × String)
 proves this `Regula.Checker.Workspace.rootFiles`.
 
 Assumes:
-- Lake v4.34.1 gives the root package of a workspace the manifest `lake-manifest.json` of its
+- Lake v4.35.0 gives the root package of a workspace the manifest `lake-manifest.json` of its
   directory unless its load configuration names another (`Lake/Load/Config.lean:54`,
   `Lake/Load/Package.lean:35-51`), and the `lake` command names no other
-  (`Lake/CLI/Main.lean:116-130`). It reads the package overrides file
+  (`Lake/CLI/Main.lean:131-145`). It reads the package overrides file
   `.lake/package-overrides.json` of that directory (`Lake/Config/Workspace.lean:212-213`,
   `Lake/Config/Package.lean:208-213`). -/
 def rootFiles (dir : System.FilePath) : System.FilePath × System.FilePath :=
@@ -1601,10 +1601,10 @@ refuses, are thrown. `Regula.ProgramCheck.Verification.readRoot_eq` proves this 
 read, `Regula.Checker.Workspace.readRoot`.
 
 Assumes:
-- Lake v4.34.1's load reads the manifest with `Lake.Manifest.load?`
+- Lake v4.35.0's load reads the manifest with `Lake.Manifest.load?`
   (`Lake/Load/Workspace.lean:61-69`) and the overrides file with `Lake.Manifest.tryLoadEntries`
   (`Lake/Load/Resolve.lean:603`), which give nothing only for an absent file
-  (`Lake/Load/Manifest.lean:268-272`, `:301-305`). -/
+  (`Lake/Load/Manifest.lean:272-276`, `:305-309`). -/
 def readRoot (files : System.FilePath × System.FilePath) :
     IO (Option (Lake.Manifest × Array Lake.PackageEntry)) := do
   let some manifest ← Lake.Manifest.load? files.1 | return none
@@ -1619,7 +1619,7 @@ is refused: Lake would resolve the requirements anew. The Mathlib integration pa
 `integration/mathlib/` records its own pins.
 
 Assumes:
-- Lake v4.34.1 materializes the dependencies of a workspace with a manifest from the manifest's
+- Lake v4.35.0 materializes the dependencies of a workspace with a manifest from the manifest's
   entries and then the overrides file's, and refuses one whose configuration requires a package
   when both record none (`Lake/Load/Workspace.lean:61-69`, `Lake/Load/Resolve.lean:599-609`). -/
 def dependencyFree : Option (Lake.Manifest × Array Lake.PackageEntry) → Bool

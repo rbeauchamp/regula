@@ -633,12 +633,12 @@ none, for packages that the Verso package does not pin yet, whose entries then b
 package's own. `captureVersoPackage` binds it as an input of the load.
 
 Assumes:
-- Lake v4.34.1 loads the manifest that a dependency's entry records when it materializes the
-  dependency (`Lake/Load/Materialize.lean:272-277`), takes only the dependency's `fixedToolchain`
-  from it (`Lake/Load/Materialize.lean:143-146`), and materializes every dependency of a workspace
+- Lake v4.35.0 loads the manifest that a dependency's entry records when it materializes the
+  dependency (`Lake/Load/Materialize.lean:287-292`), takes only the dependency's `fixedToolchain`
+  from it (`Lake/Load/Materialize.lean:156-159`), and materializes every dependency of a workspace
   from the entries of its root (`Lake/Load/Resolve.lean:599-613`). `lake update` adds the entries
   of that manifest, or of `lake-manifest.json` when the entry records none, for names it has no
-  entry for, and writes them to the root's manifest (`Lake/Load/Materialize.lean:124-129`,
+  entry for, and writes them to the root's manifest (`Lake/Load/Materialize.lean:137-142`,
   `Lake/Load/Resolve.lean:293-303`, `Lake/Load/Resolve.lean:521-536`). -/
 def sharedPinMismatch (package : FilePath) : IO (Option String) :=
   LakeSelection.withRootSelection package (requireManifest := true) fun ws selection => do

@@ -201,7 +201,7 @@ def checkContainment (slot : ProducerSlot) (copy : FilePath)
       | .git .. =>
         throw <| IO.userError s!"slot manifest entry is a Git entry, which Lake would clone \
           inside the slot: {entry.name}"
-      | .path dir =>
+      | .path dir _ =>
         let resolved := if dir.isAbsolute then dir else copy / dir
         let sharedRoot := match ← Regula.Filesystem.realPathIfPresent resolved with
           | some real => shared.contains real
@@ -320,11 +320,11 @@ strictly (`Regula.Filesystem.isDirectory`): a failure of that read other than a 
 throws, where Lake's filter reads it as no directory.
 
 Assumes:
-- Lake v4.34.1 gives an `input_file` target the file `pkg.dir / path`
+- Lake v4.35.0 gives an `input_file` target the file `pkg.dir / path`
   (`Lake/Config/InputFile.lean:21-22`), and an `input_dir` target each file that
   `System.FilePath.walkDir` finds below `pkg.dir / path`, other than a directory, whose path, as
   that walk gives it, its filter admits (`Lake/Config/InputFile.lean:35-36`, `:43-44`,
-  `Lake/Build/InputFile.lean:42-44`, `Lake/Build/Common.lean:812-823`).
+  `Lake/Build/InputFile.lean:42-44`, `Lake/Build/Common.lean:815-826`).
 - `Package.configTargets` gives each target of the package of the kind it names
   (`Lake/Config/ConfigTarget.lean:36-42`), and the root package's directory is the directory that
   its load configuration names, the real path of `root` (`loadConfig`). -/
@@ -394,7 +394,7 @@ def prepareSlot (originalRoot : FilePath) (slot : ProducerSlot)
     -- invoke any declared executable. Grant 0755 precisely to the root's Lake-declared binaries.
     Regula.Checker.Workspace.withRootWorkspace originalRoot fun ws => do
       for executable in ws.root.leanExes do
-        -- Lake v4.34.1 Config/LeanExe.lean:68-73 supplies the executable's exact output path.
+        -- Lake v4.35.0 Config/LeanExe.lean:68-73 supplies the executable's exact output path.
         let relative := executable.file.normalize.components.drop originalRoot.normalize.components.length
         let path := Regula.Filesystem.Construction.location copy relative
         match ← Regula.Filesystem.Construction.kindWith Regula.Filesystem.Construction.observer path with
@@ -462,7 +462,7 @@ def prepareSlotProject (slot : ProducerSlot) (project : FilePath)
   let manifest ← IO.ofExcept <| _root_.Lake.Manifest.parse
     (← Regula.Filesystem.readFile (slot.root / "root/lake-manifest.json"))
   let packages ← manifest.packages.mapM fun entry => do
-    unless entry.src matches .path _ do
+    unless entry.src matches .path .. do
       throw <| IO.userError s!"slot dependency was not prepared as a path: {entry.name}"
     pure {entry with inherited := true}
   let rootEntry : _root_.Lake.PackageEntry :=

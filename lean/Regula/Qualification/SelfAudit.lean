@@ -308,7 +308,7 @@ def jsonFindings (moduleName : Name) (owned : Array (Name × ConstantInfo)) : Ar
 
 /-! ### Reads that take an unreadable path for an absent one
 
-Lean 4.34.1's `System.FilePath.pathExists` and `System.FilePath.isDir` return `false` for every
+Lean 4.35.0's `System.FilePath.pathExists` and `System.FilePath.isDir` return `false` for every
 error of `System.FilePath.metadata`, not only for `noFileOrDirectory`
 (`Init/System/IO.lean:1162-1173`), so a path that cannot be read, such as one under a directory
 without search permission, reads as absent (https://github.com/rbeauchamp/regula/issues/430).
@@ -348,7 +348,7 @@ def absenceReadAllowlist : Array (Name × Name × String) := #[]
 
 /-- Whether the term `e` names one of `absenceReaders`, by Lean's `Expr.find?`.
 
-Assumes: Lean v4.34.1's `Expr.find?` is `findImpl?` (`src/lean/Lean/Util/FindExpr.lean:16-19`),
+Assumes: Lean v4.35.0's `Expr.find?` is `findImpl?` (`src/lean/Lean/Util/FindExpr.lean:16-19`),
 an `opaque` with `@[extern "lean_find_expr"]`, so its logical body is not the traversal that runs
 and no theorem about it reaches that traversal. Its C++ (`src/kernel/for_each_fn.cpp:164-185`)
 runs `for_each_fn<true>` (`:21-90`), which applies the predicate to each `.const` subterm and

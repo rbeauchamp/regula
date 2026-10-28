@@ -12,7 +12,7 @@ about the helper's result as the compiled code has.
 
 Both are `abbrev`s, not `def`s, so that Lean's `linter.defProp` passes them
 without being turned off: it skips a definition whose reducibility hints are
-`abbrev` (Lean 4.34.1, `Lean/Linter/DefProp.lean`). Lean compiles them by the
+`abbrev` (Lean 4.35.0, `Lean/Linter/DefProp.lean`). Lean compiles them by the
 same structural and well-founded recursion, with the same helpers, as the
 `def`s (observed).
 -/

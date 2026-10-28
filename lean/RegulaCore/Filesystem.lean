@@ -22,7 +22,7 @@ operations as actions on the state:
 * `Model.real`: what `realpath(3)` resolves a path to, which is absolute and has no `.` or `..`
   component and no symbolic link;
 * `Model.ident`: the file that a path names (`FileId`), its device and its number on the device,
-  as `lstat(2)` reports them. Lean 4.34.1's `IO.FS.Metadata` has neither
+  as `lstat(2)` reports them. Lean 4.35.0's `IO.FS.Metadata` has neither
   (`Init/System/IO.lean#L1115-L1129`), so no operation reads it and no decision depends on it: it
   names the files that the frame of a removal speaks about (`Model.Unchanged`).
 
@@ -75,7 +75,7 @@ rest on the five assumptions alone.
 
 The assumptions are stated for a POSIX system, where `symlinkMetadata` calls `lstat`,
 `removeDirAll` reads each entry without following a symbolic link, and `realPath` calls
-`realpath`. In Lean 4.34.1 on Windows, `symlinkMetadata` follows a link and `realPath` can give a
+`realpath`. In Lean 4.35.0 on Windows, `symlinkMetadata` follows a link and `realPath` can give a
 path it did not resolve, so the observer refuses those reads and every directory removal there.
 
 The frame of a removal (`Model.Unchanged`) leaves out each path that names, before the removal,
@@ -139,7 +139,7 @@ structure Model where
   real : World → FilePath → Option FilePath
   /-- The file that a path names in a state, as `lstat(2)` reports its device and number: a
   symbolic link at the path's last component is the file, not followed. `none` when nothing is
-  there. Lean 4.34.1's `IO.FS.Metadata` has no device or inode field
+  there. Lean 4.35.0's `IO.FS.Metadata` has no device or inode field
   (`Init/System/IO.lean#L1115-L1129`), so no operation reads it and no decision depends on it: it
   names the files that the frame of a removal speaks about (`Model.Unchanged`). -/
   ident : World → FilePath → Option FileId
@@ -160,7 +160,7 @@ inductive Within (directory : FilePath) : FilePath → Prop where
 
 /-- The tree of `directory` in the state `w`: `directory` itself, and each path whose last
 component is a name, not `.` or `..`, and whose parent is in the tree and is a directory as
-`lstat(2)` reports it. It includes each entry that Lean 4.34.1's `IO.FS.removeDirAll` visits
+`lstat(2)` reports it. It includes each entry that Lean 4.35.0's `IO.FS.removeDirAll` visits
 (`Init/System/IO.lean#L1335-L1342`) in a run where no other process changes the filesystem. It also
 holds each name with no entry in a directory of the tree, and each other spelling of a visited
 entry, such as another case of its name on a volume that ignores case. As `lstat(2)` reports them,
@@ -237,9 +237,9 @@ def Absent : IO.Error → Prop
 `noFileOrDirectory` only when nothing is there. It can also fail in other ways when nothing is
 there, for example with `ENOTDIR` when a component of the path is not a directory. -/
 @[regula_assumption filesystem
-  (lean "v4.34.1" "Init/System/IO.lean#L1151-L1156")
-  (lean "v4.34.1" "runtime/io.cpp#L1160-L1179")
-  (lean "v4.34.1" "runtime/io.cpp#L276-L279")
+  (lean "v4.35.0" "Init/System/IO.lean#L1151-L1156")
+  (lean "v4.35.0" "runtime/io.cpp#L1160-L1179")
+  (lean "v4.35.0" "runtime/io.cpp#L276-L279")
   (document filesystem "POSIX.1-2024, lstat()")]
 def ReadsEntry (M : Model) : Prop :=
   ∀ path before, ⦃fun w => ⌜w = before⌝⦄ M.ops.symlinkMetadata path
@@ -247,7 +247,7 @@ def ReadsEntry (M : Model) : Prop :=
       fun error w => ⌜w = before ∧ (Absent error → M.entry before path = none)⌝⟩⦄
 
 /-- `realPath` gives what `realpath(3)` resolves the path to and changes nothing. It fails exactly
-when `realpath(3)` fails. On Windows, Lean 4.34.1's `realPath` gives the path itself when it cannot
+when `realpath(3)` fails. On Windows, Lean 4.35.0's `realPath` gives the path itself when it cannot
 resolve it (`runtime/io.cpp#L1032-L1033`), so the observer refuses it there.
 
 On a volume that ignores case or Unicode normalization, Darwin's `realpath(3)` gives the name that
@@ -256,8 +256,8 @@ macOS 27.0.1 (APFS), where `realpath dir/FILE` printed `.../Dir/file`. It keeps 
 on a volume where `getattrlist(2)` is not supported, where it falls back to `lstat(2)`
 (`realpath.c#L238-L243`), and glibc's keeps it in a Linux directory that folds case. -/
 @[regula_assumption filesystem
-  (lean "v4.34.1" "Init/System/IO.lean#L873-L879")
-  (lean "v4.34.1" "runtime/io.cpp#L1054-L1066")
+  (lean "v4.35.0" "Init/System/IO.lean#L873-L879")
+  (lean "v4.35.0" "runtime/io.cpp#L1054-L1066")
   (document filesystem "POSIX.1-2024, realpath()")
   (document filesystem "Apple Libc-1752.120.2, stdlib/FreeBSD/realpath.c#L216-L243 and \
     #L348-L358: Darwin's realpath(3) replaces each path component with the name that \
@@ -290,10 +290,10 @@ the tree resolves to: `removeDirAll` resolves each path again at each call
 (`Init/System/IO.lean#L1335-L1342`), so the walk can leave the tree and remove entries outside it,
 such as the target of the link (the race of CVE-2022-21658). -/
 @[regula_assumption filesystem
-  (lean "v4.34.1" "Init/System/IO.lean#L1330-L1342")
-  (lean "v4.34.1" "runtime/io.cpp#L1160-L1179")
-  (lean "v4.34.1" "runtime/io.cpp#L1197-L1207")
-  (lean "v4.34.1" "runtime/io.cpp#L1351-L1364")
+  (lean "v4.35.0" "Init/System/IO.lean#L1330-L1342")
+  (lean "v4.35.0" "runtime/io.cpp#L1160-L1179")
+  (lean "v4.35.0" "runtime/io.cpp#L1197-L1207")
+  (lean "v4.35.0" "runtime/io.cpp#L1351-L1364")
   (document filesystem "POSIX.1-2024, lstat(), unlink() and rmdir()")
   (document filesystem "POSIX.1-2024, <sys/stat.h>: st_ino and st_dev taken together uniquely \
     identify the file within the system")]
@@ -319,8 +319,8 @@ second hard link. The assumption is false where two names of one file report dif
 such as two mounts of one network or FUSE file system, and on a file system whose file numbers are
 not stable. -/
 @[regula_assumption filesystem
-  (lean "v4.34.1" "Init/System/IO.lean#L881-L886")
-  (lean "v4.34.1" "runtime/io.cpp#L1351-L1364")
+  (lean "v4.35.0" "Init/System/IO.lean#L881-L886")
+  (lean "v4.35.0" "runtime/io.cpp#L1351-L1364")
   (document filesystem "POSIX.1-2024, unlink()")
   (document filesystem "POSIX.1-2024, <sys/stat.h>: st_ino and st_dev taken together uniquely \
     identify the file within the system")]
@@ -344,8 +344,8 @@ assumption is false where two names of one file report different devices, on a f
 file numbers are not stable, and when another process changes the parent of either path while the
 rename runs. -/
 @[regula_assumption filesystem
-  (lean "v4.34.1" "Init/System/IO.lean#L903-L909")
-  (lean "v4.34.1" "runtime/io.cpp#L1209-L1238")
+  (lean "v4.35.0" "Init/System/IO.lean#L903-L909")
+  (lean "v4.35.0" "runtime/io.cpp#L1209-L1238")
   (document filesystem "POSIX.1-2024, rename()")
   (document filesystem "POSIX.1-2024, <sys/stat.h>: st_ino and st_dev taken together uniquely \
     identify the file within the system")]
@@ -429,7 +429,7 @@ def entryType {m : Type → Type} [Monad m] [MonadExceptOf IO.Error m] (ops : Op
 /-- Whether an entry that is not a symbolic link is at `path` and its real path is `path` itself
 (`Model.AtOwnPlace`): `false` when nothing is there (`entryType`), when a symbolic link is there,
 whose real path is never the link, and when the real path is another path. A failure of either
-read is thrown, never read as `false`: Lean 4.34.1's `realPath` gives `noFileOrDirectory` for each
+read is thrown, never read as `false`: Lean 4.35.0's `realPath` gives `noFileOrDirectory` for each
 failure of `realpath(3)`, so only `entryType` decides that nothing is there
 (https://github.com/rbeauchamp/regula/issues/430). On a volume that ignores case or Unicode
 normalization, it is `false` for another spelling of a stored name where `realpath(3)` gives the
@@ -584,10 +584,10 @@ theorem removeEntry_gone (M : Model) (reads : ReadsEntry M) (path : FilePath) :
     · exact fun _ => trivial
 
 attribute [regula_checked filesystem removeDirectory_gone
-  (lean "v4.34.1" "Init/System/IO.lean#L1330-L1342")] removeDirectory
+  (lean "v4.35.0" "Init/System/IO.lean#L1330-L1342")] removeDirectory
 
 attribute [regula_checked filesystem removeEntry_gone
-  (lean "v4.34.1" "Init/System/IO.lean#L881-L886")] removeEntry
+  (lean "v4.35.0" "Init/System/IO.lean#L881-L886")] removeEntry
 
 /-- `removeDirectory` of a directory at its own place removes it and keeps the entry at each path
 of its frame (`Model.Unchanged`), each path not spelled within the directory, below a parent at its

@@ -194,7 +194,7 @@ def copyWith {m : Type → Type} [Monad m] [MonadExceptOf IO.Error m] (ops : Ops
 
 /-! ## Directory enumeration
 
-Lean v4.34.1's `System.FilePath.readDir` cannot tell the end of a directory from a failed read: its
+Lean v4.35.0's `System.FilePath.readDir` cannot tell the end of a directory from a failed read: its
 native loop (`runtime/io.cpp:1076-1098`) stops at the first null `readdir` result and returns the
 names it has read. Regula lists a directory through an admitted GNU coreutils `ls` instead. A program
 is admitted only when its own source, at the release that its identity line names, establishes that
@@ -303,7 +303,7 @@ def listingEnvironment : Array (String × Option String) :=
 /-- Run a listing program with `args`; its exit code, its complete output as bytes and its error
 text.
 
-Assumes: Lean v4.34.1 `Init/System/IO.lean:1002-1003,1544-1557` reads binary stdout, drains stderr
+Assumes: Lean v4.35.0 `Init/System/IO.lean:1002-1003,1544-1557` reads binary stdout, drains stderr
 and waits for the process, and `Init/System/IO.lean:1441-1448` applies the environment changes in
 order. Process execution is trusted. -/
 def listingOutput (program : String) (args : Array String) : IO (UInt32 × ByteArray × String) := do
@@ -402,7 +402,7 @@ def listDirectory (path : FilePath) : IO (Array IO.FS.DirEntry) := do
   return ((← listNames path).map fun name => { root := path, fileName := name }).toArray
 
 /-- Each path below `root`, parents before their children, descending into each directory that
-`enter` admits. It is `System.FilePath.walkDir` of Lean v4.34.1 (`Init/System/IO.lean:1174-1200`),
+`enter` admits. It is `System.FilePath.walkDir` of Lean v4.35.0 (`Init/System/IO.lean:1174-1200`),
 written again here so that each directory is listed through `enumerator`. Like `walkDir`, it
 follows links to directories and ignores an entry that vanishes during the walk. Unlike it, `depth`
 bounds the nesting and its exhaustion refuses, so a cycle of links fails instead of running
@@ -428,19 +428,19 @@ def walkDirectory (root : FilePath) (enter : FilePath → IO Bool := fun _ => pu
     (depth : Nat := 4096) : IO (Array FilePath) := do
   walkWith (← locate) enter depth root #[]
 
-/-- The no-follow observer. Lean 4.34.1 follows links on Windows, so it refuses there.
+/-- The no-follow observer. Lean 4.35.0 follows links on Windows, so it refuses there.
 
-Assumes: Lean v4.34.1 `Init/System/IO.lean:1151-1156` and `runtime/io.cpp:1160-1179`
+Assumes: Lean v4.35.0 `Init/System/IO.lean:1151-1156` and `runtime/io.cpp:1160-1179`
 call lstat on POSIX and report the final entry itself. No concurrent writer replaces a source
 entry between this read and the later byte read; Lean exposes no O_NOFOLLOW file-open mode. -/
 @[noinline] def observeMetadata (path : FilePath) : IO IO.FS.Metadata := do
   if System.Platform.isWindows then
-    throw <| IO.userError "copy refused on Windows: Lean 4.34.1 symlinkMetadata follows links"
+    throw <| IO.userError "copy refused on Windows: Lean 4.35.0 symlinkMetadata follows links"
   path.symlinkMetadata
 
 /-- Canonical-path observation, refused on Windows.
 
-Assumes: Lean v4.34.1 `Init/System/IO.lean:873-879` and `runtime/io.cpp:1054-1066` realpath resolve
+Assumes: Lean v4.35.0 `Init/System/IO.lean:873-879` and `runtime/io.cpp:1054-1066` realpath resolve
 all present components on POSIX. Source and destination have no concurrent writer. -/
 def observeRealPath (target : FilePath) : IO FilePath := do
   if System.Platform.isWindows then throw <| IO.userError "copy refused on Windows"
@@ -448,7 +448,7 @@ def observeRealPath (target : FilePath) : IO FilePath := do
 
 /-- Exclusive file creation at the exact destination, which never follows a final link.
 
-Assumes: Lean v4.34.1 `Init/System/IO.lean:651-660`, `runtime/io.cpp:409` implement
+Assumes: Lean v4.35.0 `Init/System/IO.lean:651-660`, `runtime/io.cpp:409` implement
 Mode.writeNew with O_EXCL; `Init/System/IO.lean:1650` sets the new file's permissions.
 No concurrent writer replaces a destination ancestor or the new file during construction. -/
 def writeNew (target : FilePath) (bytes : ByteArray) (rights : UInt32 := 420) : IO Unit := do
@@ -460,7 +460,7 @@ def writeNew (target : FilePath) (bytes : ByteArray) (rights : UInt32 := 420) : 
 /-- Exclusive mkdir followed by the fixed directory mode 0755. The destination is privately
 owned throughout, with no concurrent writer replacing the new directory.
 
-Assumes: Lean v4.34.1 `Init/System/IO.lean:900,1650` and `runtime/io.cpp:1181-1195`
+Assumes: Lean v4.35.0 `Init/System/IO.lean:900,1650` and `runtime/io.cpp:1181-1195`
 implement exclusive mkdir and setting access rights. -/
 def createDirectory (target : FilePath) : IO Unit := do
   IO.FS.createDir target
@@ -789,7 +789,7 @@ configuration is disabled and namespaces are also removed. The final overrides m
 environment changes.
 
 Assumes: Git 2.54.0 `environment.c:151-187` reads GIT_NAMESPACE as a reference namespace;
-`config.c:1498-1512` skips system config and both global files with these settings. Lean v4.34.1
+`config.c:1498-1512` skips system config and both global files with these settings. Lean v4.35.0
 `Init/System/IO.lean:1441-1448` applies env changes in order. -/
 def repositoryEnvironment (names : Array String) : Array (String × Option String) :=
   names.map (fun name => (name, none)) ++ #[("GIT_NAMESPACE", none),
@@ -824,7 +824,7 @@ names removed and `isolationSettings` set, each name once. A Git name that a set
 takes the setting (`GIT_CONFIG_COUNT`), so applying the array twice changes nothing
 (`Regula.GitIsolation.processEnvironment_isolated`).
 
-Assumes: Lake v4.34.1 `Lake/Util/Git.lean:87-100` starts each Git command through
+Assumes: Lake v4.35.0 `Lake/Util/Git.lean:91-109` starts each Git command through
 `Lake/Util/Proc.lean:29-34,61-80` with no `env` and the default `inheritEnv := true`
 (`Init/System/IO.lean:1434-1450`), so it receives its starter's environment unchanged. -/
 def processEnvironment (names : Array String) : Array (String × Option String) :=
@@ -853,7 +853,7 @@ def gitOutput (root : FilePath) (args : Array String) : IO IO.Process.Output := 
 
 /-- Binary Git output through the same isolated process arguments as text observations.
 
-Assumes: Lean v4.34.1 `Init/System/IO.lean:1002-1003,1544-1557` reads binary stdout, drains stderr
+Assumes: Lean v4.35.0 `Init/System/IO.lean:1002-1003,1544-1557` reads binary stdout, drains stderr
 and waits for the process. Process and Git output fidelity are trusted. -/
 def gitBinaryOutput (root : FilePath) (args : Array String) : IO (UInt32 × ByteArray × String) := do
   let options ← gitProcessArgs {cmd := "git", args, cwd := some root}
@@ -1136,7 +1136,7 @@ def gitConstructWith {m : Type → Type} [Monad m] [MonadExceptOf IO.Error m] (o
 Neither filters nor textconv nor follow-symlinks is requested.
 
 Assumes: installed Git 2.54.0 git-cat-file(1), SYNOPSIS and DESCRIPTION, returns the exact blob
-contents for `cat-file blob OBJECT`. Lean v4.34.1 `Init/System/IO.lean:1002-1003,1544-1557`
+contents for `cat-file blob OBJECT`. Lean v4.35.0 `Init/System/IO.lean:1002-1003,1544-1557`
 reads binary stdout, drains stderr and waits for the process. Process execution and Git object
 fidelity are trusted. Git 2.54.0 git(1), --no-lazy-fetch, --no-optional-locks and
 --no-replace-objects, prevents lazy fetching, optional lock-taking writes and replacement
@@ -1166,9 +1166,10 @@ The source .git is a plain, self-contained metadata directory in the closed conf
 a copy source (`admitCopyGitConfig`), with no alternates. Each index path equals the stored names
 byte for byte. Git environment/config observations use `gitProcessArgs`, `admitCopyGitConfig` and
 `admitGitObjects`; their Assumes entries name the trusted sources. Git status remains trusted.
-Lean/Lake v4.34.1
-`Lake/Util/Git.lean:198-203` tests cleanliness with `git diff --exit-code HEAD`;
-`Lake/Load/Materialize.lean:255-258` warns if a matching-revision checkout has that diff.
+Lean/Lake v4.35.0
+`Lake/Util/Git.lean:216-220` tests cleanliness with `git diff --exit-code HEAD`;
+`Lake/Load/Materialize.lean:57-58`, `:81-82`, `:104` and `:105-107` warn if a checkout at the
+revision, or one just checked out, has that diff.
 The copy locates its listing program once and lists each directory it reads through that program;
 `admitGitPath` lists each directory once for the whole index. -/
 def copyGit (source target : FilePath) : IO (List Item) := do

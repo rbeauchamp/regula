@@ -107,9 +107,9 @@ is an axiom, and its universe parameters and type. The parts are the `.olean` an
 equal exactly when the same parts exist and each resolves to the library's file. A name `env`
 does not hold has no observation, and no declaration of `env` reaches it.
 
-Assumes: Lean 4.34.1 loads each imported module from the `.olean` that `findOLean` resolves on the
+Assumes: Lean 4.35.0 loads each imported module from the `.olean` that `findOLean` resolves on the
 search path and, for a module of the module system, the `.olean.server` and `.olean.private` beside
-it (`Lean/Environment.lean:2077-2090`, `Lean/Util/Path.lean:117-125`), the files this reads. That
+it (`Lean/Environment.lean:2078-2091`, `Lean/Util/Path.lean:117-125`), the files this reads. That
 holds under the hypotheses of `loadedFromLibrary`: Lean read the module through its search path,
 and nothing that the lookup reads changed since the import. -/
 def foundationObservations (env : Environment) : IO (Array RegulaPolicy.FoundationObservation) := do
@@ -2941,10 +2941,12 @@ private def injectivityGenerated (ctor : ConstructorVal) : MetaM Bool := do
 
 /-- Whether Lean's `SizeOf` generator (`Meta.mkSizeOfInstances`, run for every inductive type it
 declares) generates `c.sizeOf_spec` for every constructor `c` of `t`, under Lean's default options:
-`SizeOf` is declared and `t` is not a class, not an inductive predicate and not `unsafe`. -/
+`SizeOf` is declared, `t` is not a class, not an inductive predicate and not `unsafe`, and it
+eliminates into every universe (`isLargeEliminating`, which Lean v4.35.0 requires of it:
+`Lean/Meta/SizeOf.lean:496-497`). -/
 private def sizeOfGenerated (t : InductiveVal) : MetaM Bool := do
   return (← getEnv).contains ``SizeOf && !isClass (← getEnv) t.name && !t.isUnsafe &&
-    !(← Meta.isInductivePredicate t.name)
+    !(← Meta.isInductivePredicate t.name) && (← isLargeEliminating t.name)
 
 /-- Whether Lean's `ctorIdx` generator (`mkCtorIdx`, run for every inductive type it declares)
 generates `t.ctorIdx`, under Lean's default options: `Nat` is declared, `t` is not a family of
@@ -3851,9 +3853,9 @@ computes what the search with no table computes (`KernelAxioms.tableThrough_agre
 
 Assumes: under the same imports, the table satisfies `MemoInv` in `env` too
 (`KernelAxioms.MemoInv.transfer`): each imported constant of the environment it was computed in is
-an imported constant of `env` with the same successors and kind. Lean 4.34.1 builds the kernel's
+an imported constant of `env` with the same successors and kind. Lean 4.35.0 builds the kernel's
 imported constants, and the module of each, from the header's module data alone
-(`Lean/Environment.lean:2329-2346`), and refuses a later declaration of a name it holds
+(`Lean/Environment.lean:2330-2347`), and refuses a later declaration of a name it holds
 (`Lean/AddDecl.lean:134-136`). The same constants (`sameConstant`) have the same kind and equal
 fields that a search reads, and equal expressions are alpha-equivalent up to binder annotations
 (`Expr.eqv`, `Lean/Expr.lean:805-809`), so they use the same constants. -/

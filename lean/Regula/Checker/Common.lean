@@ -790,7 +790,7 @@ its own: Lake would load the observer twice. With `own`, the configuration is on
 `regula` itself, whose package loads no plugin, as its checkout's `lakefile.lean`: the target loads
 its own observer (`observerPluginOwn`) and lists it in `needs` (`observerNeedOwn`).
 
-Assumes: Lake v4.34.1 `Lake/Config/LeanLib.lean:183-184` gives a library's modules the package's
+Assumes: Lake v4.35.0 `Lake/Config/LeanLib.lean:198-199` gives a library's modules the package's
 plugins followed by the library's own, with no removal of a repeated one, and
 `Lake/Config/Module.lean:188-189` gives a module its library's. An executable's root is a module of
 the library that `Lake/Config/LeanExe.lean:29-50` makes from the executable's configuration, with
@@ -1116,11 +1116,11 @@ its imports and `isModule`, and its constants in every part `importModules` read
 some of its theorems weakened to axioms, so its server and private parts are read too.
 
 Assumes:
-- Lean v4.34.1 writes a `module` file as an exported, a server and a private part, and any other
-  file as one part (`writeModule`, `src/lean/Lean/Environment.lean:1901-1909`), named by
-  `OLeanLevel.adjustFileName` (`:1820-1823`). The parts must be read together
-  (`readModuleDataParts`, `:1765-1790`), and the private part holds every constant of the module
-  (`mkModuleData`, `:1868-1872`), a theorem among them as a theorem (`:2249-2251`). -/
+- Lean v4.35.0 writes a `module` file as an exported, a server and a private part, and any other
+  file as one part (`writeModule`, `src/lean/Lean/Environment.lean:1902-1910`), named by
+  `OLeanLevel.adjustFileName` (`:1821-1824`). The parts must be read together
+  (`readModuleDataParts`, `:1766-1791`), and the private part holds every constant of the module
+  (`mkModuleData`, `:1869-1873`), a theorem among them as a theorem (`:2250-2252`). -/
 def readModuleCensus (olean : FilePath) : IO (ModuleData × Array ConstantInfo) := do
   let (main, _) ← readModuleData olean
   if !main.isModule then return (main, main.constants)

@@ -133,7 +133,7 @@ def loadWorker (project copies : String) : IO Unit := do
   let dependencies ← inventory.dependencies.mapM fun dependency => do
     return (dependency.package, (← IO.FS.realPath dependency.root).toString)
   let overrides := overrides.map fun entry => (entry.name.toString, match entry.src with
-    | .path dir => dir.toString
+    | .path dir _ => dir.toString
     | .git url .. => url)
   let sources ← ownedSources.filterM fun (path : String) =>
     Regula.Filesystem.isPresent (copy / path)

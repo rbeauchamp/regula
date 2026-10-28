@@ -92,10 +92,10 @@ Git entry of its manifest, replaced by the entry of the same name of its package
 in the directory `Lake.PackageEntry.dirName` below the manifest's packages directory. A package
 with no manifest has none.
 
-Assumes: Lake v4.34.1 combines the entries of the manifest (`Lake.Manifest.load?`) and of the
+Assumes: Lake v4.35.0 combines the entries of the manifest (`Lake.Manifest.load?`) and of the
 package overrides file (`Lake.Workspace.packageOverridesFile`) in this way, and checks a Git entry
 out in that directory (`src/lake/Lake/Load/Resolve.lean:587-628`,
-`src/lake/Lake/Load/Materialize.lean:250-252`). -/
+`src/lake/Lake/Load/Materialize.lean:276-279`). -/
 def gitDependencies (workspace : _root_.Lake.Workspace) : IO (List (String × FilePath)) := do
   let some manifest ← _root_.Lake.Manifest.load? workspace.manifestFile | return []
   let overrides ← _root_.Lake.Manifest.tryLoadEntries workspace.packageOverridesFile
@@ -122,7 +122,7 @@ refuses a dependency that is not checked out, and the modules are those of the p
 and executables (`Regula.Checker.Lake.packageModules`), other than those of the libraries
 `excluded`.
 
-Assumes: Lake v4.34.1 loads the configuration of the package as `lake build` loads it there
+Assumes: Lake v4.35.0 loads the configuration of the package as `lake build` loads it there
 (`loadWorkspaceRoot`, `src/lake/Lake/Load/Workspace.lean:31-54,63`), and a library's modules are
 those its globs select (`LeanLib.getModuleArray`, `src/lake/Lake/Config/Module.lean:61-66`), found
 by Lake's glob reader (`Glob.forEachModuleIn`, `src/lake/Lake/Config/Glob.lean:53-59`), which
@@ -150,7 +150,7 @@ a Git command of Lake cannot select another repository through an inherited `GIT
 command-scope `core.symlinks=false`. Lake can still update or fetch a dependency, as it does in the
 other steps.
 
-Assumes: Lake v4.34.1 resolves `+M` to the module `M` of the first package of the workspace that
+Assumes: Lake v4.35.0 resolves `+M` to the module `M` of the first package of the workspace that
 builds it (`src/lake/Lake/CLI/Build.lean:178-183`, `src/lake/Lake/Config/Workspace.lean:286-288`),
 the root package first (`:103-105`) and an executable's root before a library's module
 (`src/lake/Lake/Config/LeanExe.lean:133-135`). It builds the module's compiled files

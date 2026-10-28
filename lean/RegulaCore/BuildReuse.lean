@@ -36,13 +36,13 @@ Assumes:
 - The verification driver made its copy new, with no build output (trusted for the first step's
   `driverCopy` origin already, `AxiomGate.driverCopy`).
 - The elaboration of the root package reads no file outside its project tree other than the pinned
-  toolchain: `include_str` (Lean v4.34.1, `Lean/Elab/BuiltinTerm.lean`, `elabIncludeStr`) reads a
+  toolchain: `include_str` (Lean v4.35.0, `Lean/Elab/BuiltinTerm.lean`, `elabIncludeStr`) reads a
   path relative to the module's source, and the root package's uses name files of its tree. Trusted.
 - Both builds use the root package's own Lean options and no artifact cache: the driver's
   `lake build` with `LAKE_ARTIFACT_CACHE=false` (`RegulaVerification.start`) and the documentation
   step's `Build.run` with no option override.
 - Lake writes each artifact of a module below `lib/lean` or `ir` of the build directory at the
-  module's path with an extension (Lean v4.34.1, `Lean.modToFilePath`; Lake `Module.oleanFile` and
+  module's path with an extension (Lean v4.35.0, `Lean.modToFilePath`; Lake `Module.oleanFile` and
   the other module artifact files), and the root package's build directory holds artifacts of its
   own modules only. Trusted. -/
 

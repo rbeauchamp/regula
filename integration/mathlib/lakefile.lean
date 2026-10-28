@@ -33,8 +33,14 @@ lean_lib «MathlibAudit» where
   -- with it.
   plugins := #[`@regula/RegulaObserver:shared]
   needs := #[`@regula/RegulaObserver:shared]
+  -- Mathlib v4.35.0 sets `requiresModuleSystem`, so Lake v4.35.0 warns when a file without a
+  -- `module` header imports it (`Lake/Build/Module.lean:416-424`). These files cannot be modules:
+  -- `MathlibAudit.Refinement` imports the root package's `AuditApp.Limiter`, which is not one, and
+  -- a `module` file cannot import a file that is not. So the library declares that it mixes the
+  -- two, Lake's own opt-out (`Lake/Config/LeanConfig.lean:282-299`).
+  allowNonModules := true
 
 require regula from "../.."
 
 require mathlib from git
-  "https://github.com/leanprover-community/mathlib4" @ "d13f23b723b8a846827a245b89c10fc7d3f11612"
+  "https://github.com/leanprover-community/mathlib4" @ "56a005855ea17e0b0958f73ec801ae140b0a1679"
