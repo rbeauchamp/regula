@@ -272,14 +272,14 @@ inductive Job where
   | ciRuleExamples
   /-- CI's `site`, on every push to `main`, which it publishes, and on dispatch. -/
   | ciSite
-  /-- The diagnostics workflow's `campaign` jobs, nightly and on dispatch; the workflow's
-  `diagnostics` job needs them. -/
+  /-- The diagnostics workflow's `campaign` jobs, on dispatch; the workflow's `diagnostics` job
+  needs them. -/
   | diagnosticsCampaign
-  /-- The diagnostics workflow's nightly rule-example shards. -/
+  /-- The diagnostics workflow's rule-example shards of `rule-examples-nightly`, on dispatch. -/
   | diagnosticsNightly
-  /-- The dogfood workflow's `self` jobs, nightly and on dispatch. -/
+  /-- The dogfood workflow's `self` jobs, on dispatch. -/
   | dogfoodSelf
-  /-- The dogfood workflow's `default-path` job, nightly and on dispatch. -/
+  /-- The dogfood workflow's `default-path` job, on dispatch. -/
   | dogfoodDefaultPath
   deriving DecidableEq, Repr
 
@@ -289,10 +289,11 @@ def Job.all : List Job :=
     .dogfoodSelf, .dogfoodDefaultPath]
 
 /-- Whether the job checks a change, so that the local gate (`Regula.DiagnosticsGate.localSteps`)
-runs its steps on each commit it validates: every job except two that no change starts. The
-nightly rule-example shards run on the schedule alone and show drift in the runner image or the
-restored toolchain cache; the lint of the root package on its default path runs on the schedule
-and on dispatch. -/
+runs its steps on each commit it validates. Two jobs do not: no pull request or push started them
+at the base of the local gate, where they ran on the schedule (the default-path lint also on
+dispatch). They are the rule-example shards of `rule-examples-nightly`, which show drift in the
+runner image or the restored toolchain cache, and the lint of the root package on its default
+path; both now run on dispatch. -/
 def Job.checksChange : Job → Bool
   | .diagnosticsNightly | .dogfoodDefaultPath => false
   | .ciVerify | .ciMathlib | .ciRuleExamples | .ciSite | .diagnosticsCampaign | .dogfoodSelf => true

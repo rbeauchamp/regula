@@ -196,13 +196,14 @@ no-mistakes validation pipeline runs it as its Test step on each commit that it 
 `.no-mistakes.yaml` configures. It runs the steps of each workflow job that checks a change, in
 sequence, and stops at the first failure:
 
-- The two acceptance steps.
+- The release checks `unreleased` and `agree`, and the two acceptance steps.
 - `./scripts/verify.sh mathlib`, the Mathlib integration check. It is the only check that uses
   Mathlib, and it is not part of acceptance.
 - The three rule-example shards.
 - `./scripts/verify.sh site`, which builds and checks the rule-reference site under its own
   420-second limit. It is not part of acceptance.
-- The campaigns of the diagnostics workflow, with its comparison of the self-hosted digests.
+- The campaigns of the diagnostics workflow, with its comparison of the self-hosted digests. It
+  leaves out `enumeration-failure`, which runs only on a GitHub-hosted Linux runner.
 - The self-lint and the four self-audit shards of the dogfood workflow.
 
 CI does not run on pull requests. On `main` it runs what the release and the publication of the

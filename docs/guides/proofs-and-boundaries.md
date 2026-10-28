@@ -250,8 +250,8 @@ only if the owner of the workspace sets `REGULA_ORDINARY_LAKEFILES=1` in the env
 With the assertion, the owner states that the lakefiles of the workspace are ordinary
 configuration. The plain shape is a conservative guard under that assertion. It is not a
 guarantee against a lakefile that someone wrote to defeat it. The verification of Regula makes
-the assertion in the timed check of its own code (`diagnostics self-lint`). A nightly check of
-its root package, `diagnostics self-lint-default`, runs without it.
+the assertion in the timed check of its own code (`diagnostics self-lint`). A check of its root
+package that runs on dispatch, `diagnostics self-lint-default`, runs without it.
 
 The driver reads the assertion only from its environment, and any value other than `1` is
 refused with exit 2 (`Regula.Checker.Lint.ownerAssertion_eq_true_iff`). Lake v4.34.1 runs the
@@ -5446,7 +5446,8 @@ that it validates ([contributor guide](contributing.md#the-local-gate)).
 **Proved:** `runSteps` reports no step exactly when each step ended with exit code 0
 (`runSteps_eq_none_iff`). A step that it reports is one of the steps, with its own code, which is
 not 0 (`runSteps_eq_some`). `Regula.Campaigns.Diagnostics.localVerifications_eq` proves the
-`verify.sh` invocations of `localSteps` exactly those of the jobs that check a change, in order.
+`verify.sh` invocations of `localSteps` exactly those of the jobs that check a change, in order,
+but those of `hostedOnly`.
 
 The step `digests` refuses unless `digestRefusals` refuses nothing with the campaigns required.
 **Trusted:** that the theorems in `Id` describe the run in `IO` of the same definition. Also
@@ -6064,7 +6065,7 @@ it above. These are estimates, not a bound, and the CI runs of that change give 
 times.
 
 The unsharded `diagnostics lint-driver` runs every group in one invocation. On the slower runners
-it does not end before its deadline, thus CI runs the five shards.
+it does not end before its deadline, thus CI and the local gate run the five shards.
 
 **Other proved oracles.** Quantifiers range over supplied Lean values; the IO drivers call each
 `ExecutableContract.run`, so the evidence is required by their source linkage and erased at

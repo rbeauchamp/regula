@@ -98,7 +98,7 @@ Reuse prior semantic or diagnostic evidence when its relevant inputs, toolchain,
 remain unchanged; identify the earlier snapshot and why it still applies. The local gate is a separate
 gate of the exact commit. AGENTS.md owns commands, deadlines, and integration requirements.
 After integration, locate and await the main push workflow for the exact merge SHA.
-Record its terminal outcome separately from reviewed-head/synthetic-merge checks;
+Record its terminal outcome separately from the reviewed head's local gate;
 failed, skipped or unfinished required stages leave delivery reconciliation open.
 
 ## Report and stop

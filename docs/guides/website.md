@@ -185,7 +185,7 @@ Any change to a module source, the corpus or the Lake configuration makes earlie
 exports stale; the site build refuses them, so rerun the three shards. The checker embeds its commit
 when `lean/Regula/Checker/Producer.lean` is compiled, and Lake reuses that build after a new
 commit; the site build then refuses the evidence as another commit's. Delete
-`.lake/build/lib/lean/Regula/Checker/Producer.*` before rerunning the shards. CI builds fresh. A
+`.lake/build/lib/lean/Regula/Checker/Producer.*` before rerunning the shards. CI builds fresh, and so does the first Test round of a no-mistakes run. A
 worktree with uncommitted changes produces a labelled local preview. Every build requests the
 release asset of every release and reads the repository's tags with `git ls-remote`
 ([versions](#versions-and-routes)), so a build needs network access. The artifact expects to be
@@ -202,7 +202,7 @@ a pull request:
    refuses a commit whose `Regula.installed` is a release: only the release commit, which is not
    on `main`, carries a release label.
 2. `rule-examples` (three shards): the corpus campaign; each uploads its export. The diagnostics
-   workflow also runs the three shards nightly on `main`.
+   workflow also runs the three shards on dispatch.
 3. `candidate` (`main` only, after `verify` and `rule-examples`): when `main` lists a release that
    is not yet published and this commit is still the head of `main`, creates the release commit (a
    signed child of this commit whose only change sets `Regula.installed` to the release), points
@@ -249,7 +249,7 @@ Each run on `main` cancels older runs of `main`, the deploy job refuses to publi
 that is no longer the head of `main` (for example a manual re-run of an older run, which
 re-checks because the check is part of that job), and deployments are serialized in the
 `github-pages` concurrency group. The local gate runs the site check and the three corpus shards
-on each change. Thus a change does not merge if its site build or check fails. The site can
+on each change. Thus a change that the local gate passed has passed its site build and check. The site can
 lag `main` while checks run or after they fail; each page states its commit. Repository Pages
 settings use **GitHub Actions** as the source. There is no custom domain or paid hosting. Actions are pinned by commit SHA.
 

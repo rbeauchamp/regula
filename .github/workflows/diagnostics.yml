@@ -10,12 +10,12 @@ name: Diagnostics
 # Regula.DiagnosticsGate.campaigns, which the inventory of campaigns (Regula.Campaigns) counts. They
 # are diagnostics, not a partition of ordinary acceptance.
 #
-# The workflow runs nightly and on dispatch, never on a pull request or a push: the gate of a change
-# is the local gate, which runs the campaigns and compares the digests on each commit the
+# The workflow runs on dispatch alone, never on a schedule, a pull request or a push: the gate of a
+# change is the local gate, which runs the campaigns and compares the digests on each commit the
 # no-mistakes validation pipeline validates (docs/guides/contributing.md#the-local-gate). Its first
 # job, `applies`, provisions the released compiler and decides which partition jobs apply to the run
-# (lean/Regula/DiagnosticsGate.lean): the campaigns on every run, and the nightly rule-example shards
-# on the schedule alone. Each partition job runs only when
+# (lean/Regula/DiagnosticsGate.lean): the campaigns and the three rule-example shards of
+# `rule-examples-nightly` on every run. Each partition job runs only when
 # it applies. The last job, `diagnostics`, runs once every other job has finished,
 # whatever their results, and passes exactly when `applies` succeeded and each partition job passed
 # and applies, or was skipped and does not apply (`verdict_iff`); a failed, cancelled or timed-out
@@ -25,8 +25,6 @@ name: Diagnostics
 # `diagnostics` is in the `needs` of `diagnostics` and has its `if:` read its own decision; the
 # gate refuses a job it needs that `applies` did not decide, and a decided job it does not need.
 on:
-  schedule:
-    - cron: '17 7 * * *'
   workflow_dispatch:
 
 permissions:
@@ -94,9 +92,9 @@ jobs:
           if-no-files-found: error
           retention-days: 30
 
-  # The local gate runs the three rule-example shards on every change. Like the campaigns above,
-  # they also run nightly on an unchanged main, where a failure shows drift in the runner image or the
-  # restored toolchain cache rather than in the pinned sources.
+  # The local gate runs the three rule-example shards on every change. Here they run on dispatch, as
+  # the nightly schedule ran them before: on an unchanged main a failure shows drift in the runner
+  # image or the restored toolchain cache rather than in the pinned sources.
   rule-examples-nightly:
     name: nightly diagnostics rule-examples ${{ matrix.shard }}
     needs: applies

@@ -2,7 +2,7 @@ import Lean
 
 /-! # The diagnostics gate
 
-The `Diagnostics` workflow (`.github/workflows/diagnostics.yml`) runs nightly and on dispatch. Its
+The `Diagnostics` workflow (`.github/workflows/diagnostics.yml`) runs on dispatch alone. Its
 first job, `applies`, provisions the released compiler and decides which partition jobs apply to
 the run; each partition job runs only when it applies. Its last job, `diagnostics`, runs once every
 other job has finished, whatever their results, and passes exactly when `applies` succeeded and
@@ -30,12 +30,12 @@ execution controls mutate, Lake configuration and manifests, `scripts/verify.sh`
 provisioning programs with their decision contracts, the workflow and the provisioning action. `decisions` decides each
 partition job by its job id: the campaigns (`campaign`) on every run other than a pull request's
 (`campaign_of_ne`), and on a pull request's exactly when one of its changed paths is an input
-(`campaign_pullRequest_iff`); the nightly rule-example shards (`rule-examples-nightly`) on the
-schedule alone. A pull request whose every changed path lies in `docs/` or `website/`, or is
-`README.md` or `AGENTS.md`, runs no campaign (`campaign_documentation`). A pull request's changed
-paths are those at which the checked-out commit, the merge commit GitHub creates and tests,
-differs from its first parent, the head of the base branch: every path added, deleted or modified
-there, a rename as both of its paths.
+(`campaign_pullRequest_iff`); the rule-example shards of `rule-examples-nightly` on the schedule
+and on dispatch, which is the only event the workflow now runs on. A pull request whose every
+changed path lies in `docs/` or `website/`, or is `README.md` or `AGENTS.md`, runs no campaign
+(`campaign_documentation`). A pull request's changed paths are those at which the checked-out
+commit, the merge commit GitHub creates and tests, differs from its first parent, the head of the
+base branch: every path added, deleted or modified there, a rename as both of its paths.
 
 ## The gate
 
@@ -63,15 +63,18 @@ checks a change (`Regula.Campaigns.Job.checksChange`), in the order of the inven
 the provisioning that the workflow's provisioning action makes for them: pinned Verso before the
 documentation step, the site and the fourth self-audit shard need it, and Mathlib before its
 integration check. `Regula.Campaigns.Diagnostics.localVerifications_eq` proves its invocations of
-`./scripts/verify.sh` exactly the invocations of those jobs, in order. Its other steps are the
-other commands those jobs run: the release checks of CI's `verify`, the builds before CI's `site`
-check, and the comparison of the self-hosted digests (`checkDigests`) that the `diagnostics` job
-makes. The step `local` runs them one after another and stops at the first whose exit code is not
-0, which fails it (`runSteps`, `runSteps_eq_none_iff`). Each `verify.sh` invocation keeps its own
-420-second deadline, and the gate adds none: it waits for each step to end. A step killed by a
-signal ends with a code other than 0. The earlier build outputs that a step reuses are those that
-Lake's own traces admit in the checkout; the first acceptance step builds in a new copy with no
-artifact cache, as it does by hand.
+`./scripts/verify.sh` exactly the invocations of those jobs, in order, but those of `hostedOnly`:
+`enumeration-failure`, whose check runs on a GitHub-hosted Linux runner only, and which the
+diagnostics workflow runs on dispatch (`hostedOnly_checked` shows it one of those invocations).
+Its other steps are the other commands those jobs run: the release checks of CI's `verify`, the
+builds before CI's `site` check, and the comparison of the self-hosted digests (`checkDigests`)
+that the `diagnostics` job makes; that they are is read from the workflow files, not checked. The
+step `local` refuses an empty list, runs the steps one after another and stops at the first whose
+exit code is not 0, which fails it (`runSteps`, `runSteps_eq_none_iff`). Each `verify.sh`
+invocation keeps its own 420-second deadline, and the gate adds none: it waits for each step to
+end. A step killed by a signal ends with a code other than 0. The earlier build outputs that a step
+reuses are those that Lake's own traces admit in the checkout; the first acceptance step builds in
+a new copy with no artifact cache, as it does by hand.
 
 ## Boundaries
 
@@ -192,10 +195,12 @@ def campaignApplies : Event → List (List String) → Bool
   | .pullRequest, changed => changed.any isInput
   | _, _ => true
 
-/-- Whether the nightly rule-example shards apply to a run of `event`: on the schedule alone. -/
+/-- Whether the rule-example shards of `rule-examples-nightly` apply to a run of `event`: on the
+schedule, which no longer starts the workflow, and on dispatch, so that the job can be started by
+hand. -/
 def nightlyApplies : Event → Bool
-  | .schedule => true
-  | _ => false
+  | .schedule | .workflowDispatch => true
+  | .pullRequest | .push => false
 
 /-- The arguments of the invocations of `./scripts/verify.sh` that the `campaign` jobs run, one job
 for each, in the order of the job's matrix. `Regula.Campaigns.Diagnostics.campaigns_eq` proves them
@@ -434,12 +439,19 @@ def Step.command : Step → String × List String × String
   | .verify arguments => ("./scripts/verify.sh", arguments, ".")
   | .run program arguments dir => (program, arguments, dir)
 
+/-- The invocations of jobs that check a change that the local gate leaves out, because their check
+refuses to run anywhere but on a GitHub-hosted Linux runner, which the machine that runs the gate
+is not: `diagnostics enumeration-failure` maps a loop device through device-mapper and mounts it
+with passwordless `sudo` (`Regula.Qualification.Enumeration.unsupported?`), so elsewhere it ends as
+unsupported. The diagnostics workflow still runs it on dispatch. -/
+def hostedOnly : List (List String) := [["diagnostics", "enumeration-failure"]]
+
 /-- The steps of the local gate, in order. Each comes from the workflow job named beside it, a job
 that checks a change (`Regula.Campaigns.Job.checksChange`), and the jobs come in the order of
 `Regula.Campaigns.Job.all`: CI's `verify`, `mathlib integration`, `rule-examples` and `site`, the
 diagnostics workflow's `campaign` jobs with the comparison of its `diagnostics` job, and the dogfood
-workflow's `self` jobs. A provisioning step comes first where the job's provisioning action
-provisions it. -/
+workflow's `self` jobs. The invocations of `hostedOnly` are left out. A provisioning step comes
+first where the job's provisioning action provisions it. -/
 def localSteps : List Step :=
   let program (file : String) (arguments : List String) : Step :=
     .run "lean" ("--run" :: file :: arguments) "."
@@ -458,7 +470,8 @@ def localSteps : List Step :=
   [.run "lake" ["build", "axiomGate", "ruleExampleQualification", "site", "AuditApp"] ".",
     .run "lake" ["build", "Audit"] "audit", .verify ["site"]] ++
   -- The diagnostics workflow's `campaign` jobs, then its `diagnostics` job's digest comparison.
-  campaignInvocations.map .verify ++ [program "lean/Regula/DiagnosticsGate.lean" ["digests"]] ++
+  (campaignInvocations.filter (!hostedOnly.contains ·)).map .verify ++
+    [program "lean/Regula/DiagnosticsGate.lean" ["digests"]] ++
   -- The dogfood workflow's `self` jobs.
   .verify ["diagnostics", "self-lint"] :: shards "self-audit" 4
 
@@ -666,8 +679,9 @@ private def runStep (step : Step) : IO UInt32 := do
   child.wait
 
 /-- The `local` step: run the steps of the local gate in order (`runSteps`), and refuse at the
-first whose exit code is not 0. -/
+first whose exit code is not 0, or when it has no step. -/
 def runLocal : IO Unit := do
+  if localSteps.isEmpty then fail "the local gate has no step, so it checks nothing"
   if let some (step, code) ← runSteps runStep localSteps then
     let (program, arguments, dir) := step.command
     fail s!"{" ".intercalate (program :: arguments)} (in {dir}) ended with exit code \

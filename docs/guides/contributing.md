@@ -313,7 +313,8 @@ claimed graph, so run the driver when that graph, claim or driver changes, and r
 coverage already obtained for the same inputs rather than repeating the same roots in a raw
 invocation. Diagnostics do not replace a failed acceptance run.
 
-The [diagnostics workflow](../../.github/workflows/diagnostics.yml) runs nightly and on dispatch.
+The [diagnostics workflow](../../.github/workflows/diagnostics.yml) runs on dispatch, and on no
+schedule, pull request or push.
 Its first job, `applies`
 (`lean --run lean/Regula/DiagnosticsGate.lean applies`), provisions the pinned release and
 decides which jobs apply. It runs the
@@ -324,7 +325,7 @@ partitions and groups are too long for a job, except `readers`. No job has the g
 sources, Verso and a provisioned Mathlib together, which `readers` builds on. The table of
 [campaigns no workflow runs](#campaigns-no-workflow-runs) names them.
 They run as parallel jobs, each with its own hard 420-second limit, on each run of the workflow.
-The workflow also runs the three `rule-examples` shards nightly. Its last job, `diagnostics`,
+The workflow also runs the three `rule-examples` shards on dispatch. Its last job, `diagnostics`,
 passes exactly when `applies` succeeded and each partition job passed and applies, or was skipped
 and does not apply. A failed, cancelled or timed-out job fails it
 ([proofs and boundaries](proofs-and-boundaries.md#the-diagnostics-gate)).
@@ -332,7 +333,7 @@ On each push to `main`, [CI](../../.github/workflows/ci.yml) runs the three shar
 feed `./scripts/verify.sh site` ([website guide](website.md)). These campaigns are
 capability-triggered diagnostics (standard §7.8), not a partition of ordinary acceptance.
 The [dogfood workflow](../../.github/workflows/dogfood.yml) runs `self-lint` and the four shards of
-`self-audit` as parallel jobs under the same limit, nightly and on dispatch. They are not part of
+`self-audit` as parallel jobs under the same limit, on dispatch alone. They are not part of
 acceptance. It also runs `self-lint-default` as one more job under the same limit.
 
 When the campaigns apply, the `diagnostics` job also compares two digests. The shard
@@ -343,11 +344,11 @@ The gate refuses unless the two are present, well-formed and equal.
 ### The local gate
 
 The merge gate is the local gate, `lean --run lean/Regula/DiagnosticsGate.lean local`. The
-no-mistakes validation pipeline runs it as its Test step, in a disposable checkout of each commit
-that it validates. The file [`.no-mistakes.yaml`](../../.no-mistakes.yaml) on `main` configures
-it. The gate runs the steps of each workflow job that checks a change, in sequence, in the
-checkout. At the first step that ends with an exit code that is not 0, the gate stops and fails.
-No workflow runs on a pull request, thus a pull request has no check of a workflow.
+no-mistakes validation pipeline runs it as its Test step, in the disposable checkout of the run,
+at each commit that it validates. The file [`.no-mistakes.yaml`](../../.no-mistakes.yaml) on `main`
+configures it. The gate runs the steps of each workflow job that checks a change, in sequence, in
+the checkout. At the first step that ends with an exit code that is not 0, the gate stops and fails.
+None of the workflows of the repository runs on a pull request.
 
 The steps are these, in this order (`Regula.DiagnosticsGate.localSteps`):
 
@@ -357,25 +358,33 @@ The steps are these, in this order (`Regula.DiagnosticsGate.localSteps`):
 4. `lean --run lean/RegulaProvision.lean mathlib`, then `./scripts/verify.sh mathlib`.
 5. `./scripts/verify.sh diagnostics rule-examples 1/3`, `2/3` and `3/3`.
 6. The two builds of CI's `site` job, then `./scripts/verify.sh site`.
-7. The invocations that `Regula.DiagnosticsGate.campaigns` lists.
+7. The invocations that `Regula.DiagnosticsGate.campaigns` lists, but `diagnostics enumeration-failure`.
 8. `lean --run lean/Regula/DiagnosticsGate.lean digests`, which compares the two self-hosted digests.
 9. `./scripts/verify.sh diagnostics self-lint` and the four shards of `self-audit`.
 
 The theorem `Regula.Campaigns.Diagnostics.localVerifications_eq` shows that the `verify.sh`
 invocations of the gate are those of the jobs that check a change (`Job.checksChange`), in order.
-The registry checks require those invocations to be the steps of the workflow files. Each
-`verify.sh` invocation keeps its own 420-second limit, and the gate adds no limit.
+The exception is the list `Regula.DiagnosticsGate.hostedOnly`. The registry checks require those
+invocations to be the steps of the workflow files. Each `verify.sh` invocation keeps its own
+420-second limit, and the gate adds no limit. The other steps are copied from the workflow files,
+and no check compares them.
+
+The gate does not run `./scripts/verify.sh diagnostics enumeration-failure`, the one member of
+`hostedOnly`. Its check maps a loop device through device-mapper and mounts it with `sudo`. Thus
+it runs only on a GitHub-hosted Linux runner, and on a different machine it ends as unsupported.
+The diagnostics workflow runs it on dispatch.
 
 The gate does not select steps by the paths that a change touches. Lake decides what a step
 builds again, from its own traces in the checkout. The first acceptance step builds in a new copy,
-as it does by hand. The configuration declares no `build_outputs` of no-mistakes. The only store
+as it does by hand. A later Test round of the same run uses the build output that the earlier round
+left in the checkout. The configuration declares no `build_outputs` of no-mistakes. The only store
 that it can give to a run is the artifact cache of Lake, and the commands of
 `./scripts/verify.sh` run with that cache off.
 
 The gate does not check the title of a pull request. The pipeline runs no command after it writes
 the title, and it writes each title as a Conventional Commits header. The
 [Title workflow](../../.github/workflows/title.yml) checks a title on dispatch. A check that used
-the Linux runner of GitHub now runs on macOS.
+the Linux runner of GitHub, but that one, now runs on macOS.
 
 ### Campaigns no workflow runs
 
@@ -1185,18 +1194,18 @@ until the release commit has passed the same checks as `main`:
    the signature. It creates the branch `release/v<version>-<commit>`, named after that commit
    (`Regula.Release.pullBranch`), and writes to its job summary the
    link that opens the pull request `chore(release): Regula v<version> for Lean <toolchain>`,
-   title and description filled in. A maintainer opens the pull request from that link, which
-   starts its checks, and merging it through normal review is the decision to release. While it
+   title and description filled in. A maintainer opens the pull request from that link and runs the
+   local gate on its head, and merging it through normal review is the decision to release. While it
    observes a release pull request for that version open, it
    [refuses and creates no branch](#rebuilding-the-release-pull-request)
    (`Regula.Release.branchAction`); a run that creates a branch creates one of its own and moves
    none. The
-   local gate passes on this pull request before it merges. Until the release is published, its
-   site check, like the site build of every unreleased commit that lists the release, builds
+   local gate must pass on the head of this pull request before it merges. Until the release is
+   published, the site check of the gate, like the site build of every unreleased commit that lists the release, builds
    and checks the artifact with a preview of the release's edition, rendered from that commit
    without a release label ([versions](website.md#versions-and-routes)): the release's own
    edition exists only once CI builds it from the release commit, and an artifact with a preview
-   is never deployed. Code scanning also reports its `CodeQL` and `Analyze (actions)` checks on it.
+   is never deployed.
 2. **candidate** (`ci.yml`, the `candidate` job on `main`): once acceptance and the three rule-example
    shards pass on a commit of `main` that lists a release not yet published, it refuses unless
    the releases GitHub reports published are exactly the releases listed before it
@@ -1286,8 +1295,8 @@ introduced), published releases other than those it keeps listed (an earlier lis
 yet published, or a published release not listed), a `main` that already lists the release
 with nothing left to change, and a release pull request for its version that it observes open.
 
-Who opens the pull request, and when its checks start: a maintainer opens it from the link in the
-job summary of **open**, and opening it starts its checks. No workflow creates a pull request,
+Who opens the pull request, and how it is checked: a maintainer opens it from the link in the
+job summary of **open**, and runs the local gate on its head. No workflow creates a pull request,
 because the repository does not let GitHub Actions create one.
 
 Adopters update by changing the tag, and `lean-toolchain` when the release supports another
@@ -1301,8 +1310,8 @@ a new run:
 
 1. Close the release pull request.
 2. Run the Release workflow.
-3. Open a fresh pull request from the link in that run's job summary, which starts its checks, as
-   on a first run.
+3. Open a fresh pull request from the link in that run's job summary, and run the local gate on
+   its head, as on a first run.
 
 **open** keeps two guarantees, of different strength.
 

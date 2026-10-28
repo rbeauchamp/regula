@@ -4,14 +4,11 @@ name: Dogfood
 # the repository's own `lake lint` through `regula/lint` in both packages, and the operational
 # self-audit of the excluded `Regula` library, in four shards that together audit every module the
 # single run does. Neither is part of acceptance; each verify.sh partition keeps its own 420-second
-# limit. It runs nightly and on dispatch, never on a pull request or a push: the gate of a change is
-# the local gate, which runs the `self` campaigns on each commit the no-mistakes validation
+# limit. It runs on dispatch alone, never on a schedule, a pull request or a push: the gate of a
+# change is the local gate, which runs the `self` campaigns on each commit the no-mistakes validation
 # pipeline validates (docs/guides/contributing.md#the-local-gate). The default-path lint of the
-# root package, without the owner's `REGULA_ORDINARY_LAKEFILES=1`, runs only nightly and on
-# dispatch.
+# root package, without the owner's `REGULA_ORDINARY_LAKEFILES=1`, runs on dispatch too.
 on:
-  schedule:
-    - cron: '47 7 * * *'
   workflow_dispatch:
 
 permissions:
@@ -52,7 +49,7 @@ jobs:
         run: ./scripts/verify.sh ${{ matrix.campaign }}
 
   default-path:
-    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    if: github.event_name == 'workflow_dispatch'
     name: diagnostics self-lint-default
     runs-on: ubuntu-24.04
     # Provisioning has its own allowance; verify.sh enforces exactly 420 seconds.

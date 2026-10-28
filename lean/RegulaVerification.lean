@@ -1698,7 +1698,11 @@ export (`shardEvidence`) only when it records the current sources of the checker
 of `diagnostics rule-examples` that writes the corpus receipt reads it, and that attempt marks it
 here first. `Regula.Site.Deployment.gate` admits the site artifact (`siteOutput`) only for a clean
 build of the commit it deploys. The gate of the diagnostics workflow reads the self-hosted digests
-only from the artifacts of the jobs of its commit (`Regula.DiagnosticsGate.digestPath`). No reader
+only from the artifacts of the jobs of its commit (`Regula.DiagnosticsGate.digestPath`). The step
+`digests` of the local gate reads them in the checkout after the structural shards of the same run
+of `local`, each of which removes its digest when it starts
+(`Regula.Checker.CheckerSelftest.clearSelfHostedDigest`); a run of `digests` by hand reads what the
+checkout holds. No reader
 in this repository reads `tmp/environment-census.json` or `tmp/acceptance-fences.json`. -/
 def beginAttempt (args : List String) : IO Unit := do
   let mut refused : Array String := #[]
