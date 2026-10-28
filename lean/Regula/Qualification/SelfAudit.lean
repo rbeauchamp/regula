@@ -20,8 +20,8 @@ executed `RegulaPolicy.checked_decisionFailure` decision (RG1008) against the de
 the same module registers (`RegulaPolicy.decidedImplementations` of the recorded contracts of its
 declarations), for its own declarations and for each function that another module of the library
 declares and this module registers (`Regula.Collect.registrationsElsewhere`; the campaign refuses
-a registration of a function outside the library), and the live linter's module-header (RG5001: docstring present and first, no
-repeated import) and material-documentation presence predicates
+a registration of a function outside the library), and the live linter's module-header (RG5001:
+docstring present and first, no repeated import) and material-documentation presence predicates
 (`Regula.Linter.Documentation`, RG5001–RG5003). Authored `unsafe`/`partial` declarations, the
 pinned toolchain's Lake axioms that in-process Lake APIs reach, and the axioms Lean's
 `collectAxioms` omits for a declaration are reported, never failed.
@@ -465,8 +465,8 @@ private unsafe def observe (toolchainLib : FilePath) (moduleName : Name) (source
     snap? := none, cancelTk? := none }
   let scope ← Regula.Collect.ContractScope.new env admission.replayed.axioms
   let collected ← EIO.toIO' <|
-    (show Elab.Command.CommandElabM
-        (Array RegulaPolicy.Declaration × Array (Name × RegulaPolicy.Declaration.Registration)) from
+    (show Elab.Command.CommandElabM (Array RegulaPolicy.Declaration ×
+        Array (Name × RegulaPolicy.Declaration.Registration)) from
       do
       let declarations ← own.mapM fun (name, _) =>
         Regula.Collect.declaration name .snapshot scope (some admission.replayed)
@@ -623,7 +623,8 @@ private def decide (o : ModuleObservation) : Except String ModuleResult := do
   for (r, failure) in elsewhereFailures (o.registeredElsewhere.map (·.2)) decided do
     -- The registration is the module's requirement, so its finding is located at the module.
     let id := ruleForFailure failure
-    violations := violations.push (← declarationText id r.name (descriptor id).applicability o.module)
+    violations :=
+      violations.push (← declarationText id r.name (descriptor id).applicability o.module)
   for d in o.declarations do
     if d.executableContract.isSome then contracts := contracts + 1
     match d.unsafeRecBase with
