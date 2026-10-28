@@ -11,8 +11,8 @@ open LeanIntent
 
 namespace Witnesses
 
-def goodTarget : Target := ⟨`Good, .library, [`Good], strict, []⟩
-def appTarget : Target := ⟨`app, .executable, [`App], strict, []⟩
+def goodTarget : Target := ⟨`Good, .library, [`Good], strict, [], true⟩
+def appTarget : Target := ⟨`app, .executable, [`App], strict, [], true⟩
 
 /-- Changing only the modules of `base`, with each target module still loaded. -/
 theorem wf_modules (ms : List ModuleRecord) (hg : ∃ r ∈ ms, r.name = `Good)
@@ -29,9 +29,10 @@ theorem wf_modules (ms : List ModuleRecord) (hg : ∃ r ∈ ms, r.name = `Good)
 def w2002 : Witnessed Violates2002 where
   support i := i.targets.map (·.name) ++ i.manifest.map (·.target)
   support_complete _ _ h := by
-    rcases h with ⟨⟨tg, htg, hn⟩, -⟩ | ⟨⟨e, he, hn⟩, -⟩ | ⟨x, hx, hn, -⟩
+    rcases h with ⟨⟨tg, htg, hn⟩, -⟩ | ⟨⟨e, he, hn⟩, -⟩ | ⟨x, hx, hn, -⟩ | ⟨x, hx, hn, -⟩
     · exact List.mem_append_left _ (List.mem_map.mpr ⟨tg, htg, hn⟩)
     · exact List.mem_append_right _ (List.mem_map.mpr ⟨e, he, hn⟩)
+    · exact List.mem_append_left _ (List.mem_map.mpr ⟨x, hx, hn⟩)
     · exact List.mem_append_left _ (List.mem_map.mpr ⟨x, hx, hn⟩)
   refused := { base with manifest := [⟨`Good, .claimed .choiceFree .report⟩] }
   refused_wf := wf_congr wf_base rfl rfl rfl
@@ -42,11 +43,13 @@ def w2002 : Witnessed Violates2002 where
   admitted_wf := wf_base
   fine := `Good
   fine_admitted := by
-    rintro (⟨-, h⟩ | ⟨-, h⟩ | ⟨x, hx, hn, hk, -⟩)
+    rintro (⟨-, h⟩ | ⟨-, h⟩ | ⟨x, hx, hn, hk, -⟩ | ⟨x, hx, -, -, hd⟩)
     · exact h (by simp [Input.entriesFor, base])
     · exact h ⟨goodTarget, by simp [base, goodTarget], rfl⟩
     · simp only [base, List.mem_cons, List.not_mem_nil, or_false] at hx
       rcases hx with rfl | rfl <;> simp at hn hk
+    · simp only [base, List.mem_cons, List.not_mem_nil, or_false] at hx
+      rcases hx with rfl | rfl <;> simp at hd
 
 theorem rg2002_adequate : O2 rg2002 ∧ O2Run rg2002 ∧ O3 rg2002 ∧ O4 rg2002 ∧
     O5 rg2002 (.rel SameReports) := adequate w2002
@@ -54,6 +57,13 @@ theorem rg2002_adequate : O2 rg2002 ∧ O2Run rg2002 ∧ O3 rg2002 ∧ O4 rg2002
 theorem rg2002_noisy : ¬ rg2002.Meets w2002.support :=
   noisy_fails w2002 (show (`Good : Name) ∈ base.targets.map (·.name) ++ base.manifest.map (·.target)
     by simp [base])
+
+/-- A claimed executable that is not a default target violates RG2002: `lake check` would not
+check its modules. -/
+theorem rg2002_refuses_nondefault :
+    Violates2002 { base with targets := [goodTarget, { appTarget with isDefault := false }] } `app :=
+  Or.inr (Or.inr (Or.inr ⟨{ appTarget with isDefault := false }, by simp, rfl,
+    ⟨.standardLogical, .checked, by simp [base]⟩, rfl⟩))
 
 /-! ## RG2004 -/
 
@@ -86,7 +96,7 @@ theorem rg2004_noisy : ¬ rg2004.Meets w2004.support :=
 
 /-! ## RG2006 -/
 
-def laxTarget : Target := ⟨`Good, .library, [`Good], [(`relaxedAutoImplicit, "false")], []⟩
+def laxTarget : Target := ⟨`Good, .library, [`Good], [(`relaxedAutoImplicit, "false")], [], true⟩
 
 def w2006 (allowed : Name → Prop) (ha : allowed `autoImplicit)
     (hr : allowed `relaxedAutoImplicit) : Witnessed (Violates2006 allowed) where

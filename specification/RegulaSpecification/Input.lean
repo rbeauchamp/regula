@@ -86,6 +86,9 @@ structure Target where
   /-- Every other way the target changes Lean's process: plugins, dynamic libraries and every
   extra Lean argument that is not a `-D` option. -/
   extras : List String
+  /-- Whether it is a default target of the root package (`defaultTargets` in Lake's load).
+  `lake check` checks only the modules of the default targets. -/
+  isDefault : Bool
   deriving DecidableEq, Repr
 
 /-- The foundation profiles a surface can claim. -/

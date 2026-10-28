@@ -44,7 +44,8 @@ def baseDecls : List Decl :=
 
 /-- The compliant project. -/
 def base : Input where
-  targets := [⟨`Good, .library, [`Good], strict, []⟩, ⟨`app, .executable, [`App], strict, []⟩]
+  targets :=
+    [⟨`Good, .library, [`Good], strict, [], true⟩, ⟨`app, .executable, [`App], strict, [], true⟩]
   manifest := [⟨`Good, .claimed .choiceFree .report⟩, ⟨`app, .claimed .standardLogical .checked⟩]
   modules := [⟨`Good, [`Init], [`Lean.declRangeExt]⟩, ⟨`App, [`Init, `Good], []⟩]
   decls := baseDecls
@@ -104,7 +105,7 @@ theorem base_known_propext : base.Known ``propext :=
   ⟨by simp [logicalAxioms], toolchain ``propext .axiom, by simp [base, baseDecls], rfl, rfl⟩
 
 theorem base_claims_good : base.Claimed `Good .choiceFree .report :=
-  ⟨⟨`Good, .library, [`Good], strict, []⟩, by simp [base], by simp, by simp [base]⟩
+  ⟨⟨`Good, .library, [`Good], strict, [], true⟩, by simp [base], by simp, by simp [base]⟩
 
 theorem base_claimed_t : base.ClaimedName `Good.t :=
   ⟨plain `Good.t `Good .theorem [``propext], by simp [base, baseDecls], rfl, _, _, base_claims_good⟩

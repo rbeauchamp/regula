@@ -15,9 +15,18 @@ Each claim has one of four marks:
 
 A statement of what a rule or the checker must do is specification, and it has no mark. The marks are for claims about Lean, Lake, the build and the theorems of the package.
 
-The pinned toolchain is `leanprover/lean4:v4.34.1` (`lean-toolchain`). A citation such as `Lean/Util/CollectAxioms.lean:146-151` is a path below `src/lean/` of that tag, with its lines. A citation that starts with `src/` is a path below the root of that tag.
+The pinned toolchain is `leanprover/lean4:v4.34.1` (`lean-toolchain`). A citation such as `Lean/Util/CollectAxioms.lean:146-151` is a path below `src/lean/` of that tag, with its lines. A citation that starts with `src/` is a path below the root of that tag. A citation marked `v4.35.0` is a path below `src/lean/` of the tag `v4.35.0`.
 
 The formal statements are in the Lean library `RegulaSpecification` in this directory. The library requires lean-intent at commit `da9cacf377ec681f50d0eb4d5a5bb98fe6de76fe`. That commit on lean-intent's `main` merged [lean-intent pull request 8](https://github.com/rbeauchamp/lean-intent/pull/8), the port of lean-intent to intent records. The library also requires the root package, for the closed rule identity `Regula.RuleId` only. To check all statements and theorems, use `lake build --wfail` in this directory.
+
+## The target toolchain
+
+The smaller Regula targets Lean `v4.35.0`, the stable release of 2026-10-12. Its tools do the work of the rules that go to Lean (see "What Lean v4.35.0's tools do").
+
+- Regula, lean-intent and Acorn move to `v4.35.0` together, because a Lean package and its dependents build with one toolchain. A Regula on a newer toolchain than lean-intent or Acorn cannot be their dependency or their dependent.
+- The move is a change of its own in each repository: lean-intent first, then Regula, then Acorn. It lands before the leaves [#482] to [#488] start.
+- When the moves of lean-intent and Regula land, a change moves the pin of this package to the commit of lean-intent on `v4.35.0`.
+- **Open**: the observations of "What the input can show" are on `v4.34.1`. The leaf that builds on an observation repeats it on `v4.35.0`.
 
 ## The shape of a rule
 
@@ -43,13 +52,13 @@ A run of the checker gives one of three verdicts: `pass`, `fail` or `incomplete`
 
 **Proved**: `gate_o5`. Two verdict functions that meet the record are equal, so the record leaves nothing unsaid about the verdict.
 
-A pass of the project's gate is the result of three commands on one finished build:
+A pass of the project's gate is the result of three commands of the target toolchain on one finished build:
 
 1. `lake build --wfail` for the claimed targets.
-2. `lake env leanchecker` with each claimed module as an argument.
+2. `lake check`. On macOS it is `lake check --inadvisably-no-sandbox` (see [RG2005]).
 3. The checker of Regula over the finished build.
 
-The checker starts none of these processes. The project's local gate or its CI runs the three commands in sequence on one checkout. **Assumed**: no process changes the build between the three commands. The checker gives the list of claimed modules for the second command, so that no module list is written by hand.
+The checker starts none of these processes. The project's local gate or its CI runs the three commands in sequence on one checkout. **Assumed**: no process changes the build between the three commands. `lake check` takes no module list. It checks the modules of the default targets of the root package, so [RG2002] refuses a claimed target that is not a default target.
 
 ## The closed input
 
@@ -95,11 +104,9 @@ These results settle the questions of feasibility that the new design raises. Th
   - **Measured**: a module with `syntax`, `macro_rules`, `macro`, `elab` and `initialize` commands had entries of five extensions. These are `Lean.Parser.parserExtension`, `Lean.Elab.macroAttribute`, `Lean.Elab.Term.termElabAttribute`, `_private.Lean.Compiler.MetaAttr.0.Lean.metaExt` and `Lean.regularInitAttr`. The modules without such commands had none of them.
   - The source declares the command and tactic elaborator extensions with their declaration names, at `Lean/Elab/Command.lean:611` and `Lean/Elab/Tactic/Basic.lean:147`. **Assumed** from that source.
 - A structural recursive definition `f` has a recursion helper. **Measured**: Lean added `f._unsafe_rec`, a partial and not unsafe definition in the module of `f`. The definition `f` itself was safe and not partial.
-- Kernel replay is a tool of the toolchain.
-  - `leanchecker` is in `bin/` of the toolchain, and its source is `LeanChecker.lean`.
-  - It replays the new constants of each module that an argument names into the environment of its imports, at `LeanChecker.lean:12-33` and `91-113`. An argument also selects each module that has it as a prefix.
-  - With no argument, it checks only the modules below the package name of `lake-manifest.json` with an uppercase first letter, at `LeanChecker.lean:38-52`. Thus the gate gives each claimed module as an argument.
-  - It does not check axioms.
+- At `v4.34.1`, kernel replay is the program `leanchecker` with a module list. At the target toolchain, `lake check` replaces it in the gate (see the next section).
+  - `leanchecker` replays the new constants of each module that an argument names into the environment of its imports, at `LeanChecker.lean:12-33` and `91-113`.
+  - With no argument, it checks only the modules below the package name of `lake-manifest.json` with an uppercase first letter, at `LeanChecker.lean:38-52`. It does not check axioms.
   - **Assumed**: each item about `leanchecker` is from its source, and no proof here examines it.
 - A warning fails the build with `--wfail`.
   - The option sets the level that fails the build to `warning`, at `Lake/CLI/Main.lean:288`. A job fails when its log has an entry of that level, at `Lake/Build/Run.lean:125`.
@@ -107,6 +114,23 @@ These results settle the questions of feasibility that the new design raises. Th
   - Lake sees only a message that Lean logs.
   - **Assumed**: each item about `--wfail` is from the source of Lake, and no proof here examines it.
 - `Lean.findSysroot` can find a toolchain that is not the pinned one. **Measured**: a program started with the pinned `lean --run` found the search path of an unpinned toolchain through `findSysroot`. Thus the shell takes the toolchain from Lake's load, not from `findSysroot`.
+
+### What Lean v4.35.0's tools do
+
+These items are read from the source of the tag `v4.35.0`. **Assumed**: each of them is from that source, and no proof here examines it. The release notes of `v4.35.0` are not a source of this document.
+
+- `lake check` builds the default targets of the root package in a `bwrap` sandbox, and then exports them.
+  - The build is a `lake check` with no option of its own, so it does not have `--wfail` (`Lake/CLI/Check.lean:338-354`, `Lake/CLI/Main.lean:1218-1226`).
+  - The modules are those of the default libraries, and the root of each default executable with its imports in the package (`Lake/Build/Package.lean:40-61`).
+- The export holds each constant in scope with a name that is not internal, and the constants that each one mentions (`LeanExport/Basic.lean:458-472`). A name is internal when one of its parts starts with `_` (`Lean/Data/Name.lean:125-128`). Thus the export includes the constants of the dependencies and of the toolchain.
+- `lake check` replays the export with `leanchecker --silent --from-export`, after any other kernel that it runs (`Lake/CLI/Check.lean:459-472`). No `.olean` file of the project is loaded into the process that gives the verdict.
+- It refuses each axiom other than `propext`, `Classical.choice` and `Quot.sound` that a constant of the export mentions (`Lake/CLI/Check.lean:662-675` and `770`, `Lake/Check/Axioms.lean:57-71`).
+  - The list is fixed, and no option changes it.
+  - For each axiom, it reports one constant that mentions it, not the axiom set of each constant.
+  - An axiom that no constant mentions is not refused.
+- `--paranoid` adds five kernels that the toolchain bundles: `leanchecker-paranoid`, `lean4lean`, `nanoda` (the program `nanoda_bin`), `con-leche` and `con-ron` (`Lake/CLI/Check.lean:569-580`). **Measured**: the five programs are in `bin/` of the installed `v4.35.0` toolchain on macOS.
+- Outside Linux, `lake check` and `lake comparator` refuse to start without `--inadvisably-no-sandbox`. With it, they print that the run is not trustworthy (`Lake/CLI/Check.lean:599-612`).
+- `lake comparator` judges a solution module against a challenge module (`Lake/CLI/Check.lean:515-527`, `Lake/Check/Axioms.lean:73-91`). Each theorem that its configuration names must have the statement of the challenge and use only the axioms that the configuration permits. Then the kernels check the solution.
 
 ## The rules
 
@@ -129,7 +153,7 @@ The registry of Regula has 24 rules (`Regula.RuleId`). The function `fate` in [`
 | [RG2002] | Kept | `rg2002`, `Violates2002` |
 | [RG2003] | Handed to Lean: `lake build --wfail` | No statement of Regula |
 | [RG2004] | Kept | `rg2004`, `Violates2004` |
-| [RG2005] | Handed to Lean: `lake env leanchecker` | No statement of Regula |
+| [RG2005] | Handed to Lean: `lake check` | No statement of Regula |
 | [RG2006] | Kept, with less scope | `rg2006`, `Violates2006` |
 | [RG3001] | Kept | `rg3001`, `Violates3001` |
 | [RG3002] | Kept | `rg3002`, `Violates3002` |
@@ -144,6 +168,10 @@ Each entry below has the same fields. The domain is the set of subjects that the
 
 The rules [RG1001] to [RG1005] read the transitive axiom set `Input.AxiomOf` of each constant, which comes from the loaded constants. The four rules [RG1002] to [RG1005] refine one refusal. **Proved**: `rg1005_of_hole`, `rg1005_of_unknown` and `rg1005_of_compiler`. Each axiom that [RG1002], [RG1003] or [RG1004] names also violates [RG1005] for each profile. Thus a wrong choice between these rules changes the rule of a finding, but not the verdict.
 
+The second command of the gate, `lake check`, also bounds the axioms. It refuses each axiom other than `propext`, `Classical.choice` and `Quot.sound` that a constant in scope mentions, dependencies and toolchain included. So a pass of the gate bounds each constant by the standard-logical profile, and that bound has two independent computations.
+
+But the list of `lake check` is fixed, and it gives no axiom set for each constant. So it cannot decide choice-free or kernel-only, an axiom that no constant uses, or the rule of a finding. Thus the axiom sets of these rules stay Regula's input, computed from the constants that the shell loads. `lake comparator` permits a list that its configuration gives, but only for the theorems of a challenge, and the gate has no challenge.
+
 #### [RG1001]: project axioms
 
 - **Fate**: kept. Leaf: [#487].
@@ -151,7 +179,7 @@ The rules [RG1001] to [RG1005] read the transitive axiom set `Input.AxiomOf` of 
 - **Domain**: each constant of a claimed module.
 - **Input**: the kind of each constant and its module.
 - **Formal statement**: `Violates1001`. A constant of a claimed module with the kind `axiom` violates the rule. The axiom of a native proof is included, and [RG1004] also reports the constants that use it.
-- **Accepted risks**: none in addition to the risks of the input.
+- **Accepted risks**: none in addition to the risks of the input. `lake check` refuses an axiom only when a constant mentions it, so it does not do the work of this rule.
 - **Supersedes**: none.
 
 #### [RG1002]: proof holes
@@ -274,16 +302,16 @@ The rules [RG1001] to [RG1005] read the transitive axiom set `Input.AxiomOf` of 
 #### [RG2002]: the classification of the targets
 
 - **Fate**: kept. Leaf: [#487].
-- **Intent**: the claim classifies each target of the root package exactly one time and names no target that Lake does not have. It classifies an executable as each library that contains its root module.
+- **Intent**: the claim classifies each target of the root package exactly one time and names no target that Lake does not have. It classifies an executable as each library that contains its root module. Each claimed target is a default target of the root package, because `lake check` checks only the modules of the default targets ([RG2005]).
 - **Domain**: each target that Lake gives or that the claim names.
-- **Input**: Lake's targets and the claim.
-- **Formal statement**: `Violates2002`.
+- **Input**: Lake's targets, with the default targets of its load, and the claim.
+- **Formal statement**: `Violates2002`. **Proved**: `rg2002_refuses_nondefault`. A claimed executable that is not a default target violates the rule.
 - **Accepted risks**: **Open**: the reader of `foundation_manifest.json` accepts only the text that its writer gives for a claim. Leaf [#487] proves this of the reader, as for the present format.
 - **Supersedes**: none.
 
 #### [RG2003]: a warning-free build
 
-- **Fate**: handed to Lean, as `lake build --wfail` for the claimed targets. Leaf: [#482].
+- **Fate**: handed to Lean, as `lake build --wfail` of the target toolchain for the claimed targets. Leaf: [#482]. `lake check` does not do the work of this rule, because its build does not have `--wfail`. At `v4.35.0`, the option sets the level that fails the build at `Lake/CLI/Main.lean:307`, and the job fails at `Lake/Build/Run.lean:118`.
 - **Intent**: each claimed module elaborates from source with no error and no warning.
 - **Domain**: each module of a claimed target.
 - **Input**: none of Regula. Lake decides from the messages that Lean logs (see "What the input can show").
@@ -303,13 +331,14 @@ The rules [RG1001] to [RG1005] read the transitive axiom set `Input.AxiomOf` of 
 
 #### [RG2005]: kernel admission
 
-- **Fate**: handed to Lean, as `lake env leanchecker` with each claimed module as an argument. Leaf: [#482].
-- **Intent**: Lean's kernel checks each constant of each claimed module again from the build. Thus no code can add a constant that the kernel did not check.
-- **Domain**: each claimed module.
-- **Input**: none of Regula. The checker gives the list of claimed modules for the command.
-- **Formal statement**: none of Regula. The property is `leanchecker`'s (see "What the input can show").
-- **Accepted risks**: the modules of dependencies are not replayed. Their own builds checked them. The pinned Lake has no `check` command, and `Lake/CLI/` has no `Check.lean`. Issue [#309] records that Lean 4.35 adds `lake check --paranoid`, which replays with more kernels and stays optional. **Assumed**: `leanchecker` reads the same `.olean` files as the checker.
-- **Supersedes**: [#309]. Its recommendation goes to Lean's own replay and axiom tools. It closes with [#482].
+- **Fate**: handed to Lean, as `lake check` of the target toolchain. Leaf: [#482].
+- **Intent**: Lean's kernel checks each constant of each claimed module again, from an export of the build. The process that checks it loads no `.olean` file of the project. Thus no code can add a constant that the kernel did not check.
+- **Domain**: each module of a default target of the root package, and each constant in its scope. Each claimed target is a default target ([RG2002]).
+- **Input**: none of Regula.
+- **Formal statement**: none of Regula. The property is that of `lake check` (see "What Lean v4.35.0's tools do").
+- **Decision**: `--paranoid` is optional. The owner trusts Lean's kernel, and the gate requires that kernel. A project can add the five other kernels. **Open**: the cost of `--paranoid` is not measured. The export of a module that imports Lean holds all of Lean, as Regula's does. Leaf [#482] measures it, and the owner can then make it required.
+- **Accepted risks**: on macOS the gate runs `lake check --inadvisably-no-sandbox`, because the sandbox requires Linux. Then the build and the export run outside the sandbox, as `lake build` does. The trusted base already holds that code honest, so the soundness argument does not change. On Linux, the sandbox runs. A constant with an internal name that no exported constant mentions is not replayed, and it is part of no proof of an exported constant. **Assumed**: the build of `lake check` gives the modules that the first command built.
+- **Supersedes**: [#309]. Its recommendation goes to `lake check` of `v4.35.0`. It closes with [#482].
 
 #### [RG2006]: the configuration of claimed targets
 
@@ -347,7 +376,7 @@ For each of the seven rules: the fate is retired, with leaf [#488]. There is no 
 - **Input**: the names of the environment extensions that have entries in the `.olean` files of the module.
 - **Formal statement**: `Violates2007`, for the allowlist `declarative`. `ClosedAllowlist` requires that the allowlist admits none of `metaExtensions`. **Proved**: `rg2007_refuses_meta`, and `rg2007_adequate` for each closed allowlist that admits `Lean.declRangeExt`.
 - **Feasibility**: settled. The registrations leave named entries (**measured**), and a name outside the allowlist is refused, an unknown name included.
-- **Accepted risks**: a command that runs code (`#eval`, `run_cmd`, `run_elab`, `run_meta`) leaves no record (**measured**), so the rule cannot see it. If such code changes constants, `leanchecker` and the axiom sets find it. If it removes messages, `--wfail` does not see them. If it changes entries of an admitted extension, such as compiled code, a claim of execution can be false. 
+- **Accepted risks**: a command that runs code (`#eval`, `run_cmd`, `run_elab`, `run_meta`) leaves no record (**measured**), so the rule cannot see it. If such code changes constants, `lake check` and the axiom sets find it. If it removes messages, `--wfail` does not see them. If it changes entries of an admitted extension, such as compiled code, a claim of execution can be false.
 - **Open**: the owner can ask to close this gap. Then the checker reads the commands of each claimed module with Lean's parser, and refuses a command outside a closed set. That is a second input, which this design leaves out.
 - **Supersedes**: [#468] and [#462] close with [#484], because a claimed module can no longer declare their macros.
 
@@ -358,8 +387,7 @@ For each of the seven rules: the fate is retired, with leaf [#488]. There is no 
 - **Domain**: each declared deliverable: an implementation and its intent record.
 - **Input**: the declared deliverables, the statements that theorems of claimed modules prove, and the owner's confirmation record.
 - **Formal statement**: `Violates6001`, with `IntentPart.Fails`. A finding names the deliverable and the part that fails.
-- **Accepted risks**: lean-intent does not yet state three parts. Here the independence is the approximation "the record does not reach the implementation". `Goal.keeps` and the field `confirmed` stand for what [lean-intent#3] and [lean-intent#5] define. **Open**: [#485] uses lean-intent's own statements when they exist, and a project declares a deliverable in the form that lean-intent gives. Such a project requires lean-intent, which is private. So only a project with access to lean-intent can declare a deliverable until lean-intent can be fetched without credentials.
-- **Supersedes**: none.
+- **Accepted risks**: lean-intent does not yet state three parts. Here the independence is the approximation "the record does not reach the implementation". `Goal.keeps` and the field `confirmed` stand for what [lean-intent#3] and [lean-intent#5] define. **Open**: [#485] uses lean-intent's own statements when they exist, and a project declares a deliverable in the form that lean-intent gives.- **Supersedes**: none.
 
 ## The rules that apply to a declaration
 
@@ -394,7 +422,7 @@ None of these issues closes before the change that replaces it lands. The rule e
 | [#434] | Not superseded. It is about the builder of the rule-reference site, which the epic does not change. It stays open as its own work. |
 | [#391], [#380] | Superseded by [#486] and [#488], which remove the campaigns. The margin of each check that remains stays a criterion. |
 | [#381] | Not superseded. The 420-second limit of each acceptance step stays, and the self-check makes the first step longer. It stays open until acceptance is in its limit after [#487]. |
-| [#309] | Superseded by [#482]. Lean's own replay and axiom tools take its role, and `lake check` stays optional. |
+| [#309] | Superseded by [#482]. `lake check` of `v4.35.0` takes its role in the gate, and `--paranoid` stays optional. |
 
 ## Regula's check of its own library
 
@@ -402,13 +430,16 @@ The self-check runs inside local acceptance, the gate before each merge. It is n
 
 - Regula's manifest claims each library of its root package, except a library that it excludes with a reason. The core and the shell of the checker are claimed.
 - The first acceptance command, `./scripts/verify.sh`, runs the three commands of the gate on Regula's own package. It refuses the change when a command fails or the checker gives a finding.
-- This step is in the 420-second limit of the first command.
+- Each claimed library of Regula is a default target of its root package ([RG2002]). Today plain `lake build` there builds no `Regula` library, so that list changes.
+- This step is in the 420-second limit of the first command. **Open**: Regula's modules import Lean, so the export of `lake check` holds all of Lean. Its cost is not measured. Leaf [#482] measures it against the limit.
 
 This placement removes the cause of [#489]. There, a refusal of the self-audit reached `main`, because no gate ran the self-audit for a pull request after the CI and Diagnostics workflows stopped. **Open**: until [#487] lands, the present self-audit must run inside acceptance in the same way. That is the change that the fix of [#489] makes.
 
-No acceptance step builds the Lean package of this specification yet, so the merge gate does not check its statements. The package requires lean-intent, which is a private repository. Provisioning and acceptance run Git with no global or system configuration (`Regula.Filesystem.Construction.isolationEnvironment`), so they have no credentials to fetch it. **Measured**: with that configuration, `git ls-remote` of lean-intent fails with `could not read Username`.
+The first acceptance command also builds the Lean package of this specification with warnings as errors. Thus the merge gate checks its statements before each merge.
 
-**Open**: the owner chooses between a public lean-intent and an exception for its acquisition. Then a change adds `lake build --wfail` of this package to the first acceptance command. Until then, the author of a change to this directory builds the package with their own Git access.
+- Default provisioning runs `lake resolve-deps` in this directory (`RegulaProvision.provisionSpecification`). That is Lake's own load of the package, and it checks lean-intent out at the commit of `lake-manifest.json`. The repository of lean-intent is public, so this fetch uses no credentials under Regula's Git isolation.
+- The first step builds the package in its copy of the project (`RegulaVerification.specificationBuild`). Lake clones lean-intent from the provisioned checkout, so the step reads no network. The theorem `ordinary_builds_specification` places the build among the commands that run in order. A failure of one of them fails the step.
+- **Measured**: with each Git protocol but `file` refused, the clone from the provisioned checkout gave the pinned commit. A clone that lacked that commit failed with `unable to read tree`.
 
 ## Decisions of this specification
 
@@ -420,7 +451,11 @@ These decisions change what the leaves build. Each has its reason.
 - [RG2006] reads only Lake's configuration. No record of an option in source exists (**measured**).
 - The requirements of `linter.missingDocs` and of Mathlib's standard linters go to written guidance with the documentation rules. They guard failures that are cheap to see and correct.
 - A decision registration becomes a declaration, so that a claimed module uses no tool module and no attribute that Lean does not define.
-- The checker gives the list of claimed modules for `leanchecker`, because `leanchecker` with no argument checks only the modules below the package name.
+- The target toolchain is `v4.35.0`, and the move to it lands before the leaves. Its `lake check` replays each constant in scope from an export, in a process that loads no `.olean` file of the project. It also bounds each axiom by the standard three. The `leanchecker` of `v4.34.1` with a module list did less.
+- Each claimed target is a default target, because `lake check` takes no module list and checks the default targets.
+- `--paranoid` is optional, because the owner trusts Lean's kernel and its cost is not measured.
+- On macOS, the gate runs `lake check --inadvisably-no-sandbox`. The sandbox requires Linux, and a virtual machine on the owner's Mac is a service of the machine that no task starts.
+- `lake comparator` has no role in the gate, because the gate has no challenge. **Open**: it can serve the check of `RG6001` that a project proves each consequence that the owner confirmed. Leaf [#485] and [lean-intent#5] decide.
 
 ## The trusted base
 
@@ -428,14 +463,14 @@ These statements stay assumed after the leaves. Each is a statement about a syst
 
 - Lean's kernel, elaborator, compiler and runtime, and Lake's load and build. The owner trusts Lean and its kernel.
 - `Lean.importModules` with `loadExts := false` loads exactly the constants of the `.olean` files, and `collectAxioms` then walks their bodies.
-- `leanchecker` reads the same `.olean` files as the checker, and no process changes the build between the commands of the gate.
+- `lake check` exports and replays the modules that the first command built, and no process changes the build between the commands of the gate. On macOS, `lake check` runs without its sandbox.
 - The shell finds the toolchain's own library only below the pinned toolchain, and Lean refuses an `.olean` file of a different Lean version.
 - Compiled code follows the kernel value of a constant, except at a runtime replacement or a recursion helper.
 - Lake's load gives each module that it builds, and its elaboration of a `lakefile.lean` is honest code.
 - The code of a claimed module is honest code: it runs no command that changes messages, options or entries of an admitted extension. `RG2007` cannot see such a command.
 - The meta-code of a dependency is honest code, as the present standard states.
 
-The axiom sets and the kernel replay read only the constants of the build. Thus the statement about the code of a claimed module can make a hygiene check wrong, or a claim of execution false. It cannot make an unsound proof of a claimed module pass. The cause is that `leanchecker` replays each constant of that module against the `.olean` files of its imports. The other statements stay part of the trusted base of soundness.
+The axiom sets and the kernel replay read only the constants of the build. Thus the statement about the code of a claimed module can make a hygiene check wrong, or a claim of execution false. It cannot make an unsound proof of a claimed module pass. The cause is that `lake check` replays each constant in scope from its export, and refuses each axiom beyond the standard three. The other statements stay part of the trusted base of soundness.
 
 ## Consequences for the owner's confirmation
 
@@ -450,7 +485,9 @@ What the specification requires:
 - A claimed target sets `autoImplicit` and `relaxedAutoImplicit` to `false`, sets only options of the allowlist, and loads no plugin [RG2006].
 - A decision function is registered by a declaration, not by `@[regula_decision]`. This changes the interface for adopters.
 - Each declared deliverable has an intent record and the proofs of `RG6001`.
-- A pass of the gate requires all three commands: `lake build --wfail`, `lake env leanchecker` with each claimed module, and the checker.
+- A pass of the gate requires all three commands of Lean `v4.35.0`: `lake build --wfail`, `lake check`, and the checker.
+- Each claimed target is a default target of the root package [RG2002]. A claimed library that plain `lake build` does not build fails.
+- Regula, lean-intent and Acorn move to Lean `v4.35.0` before the leaves start, each in a change of its own. This pull request stays on `v4.34.1`.
 - Regula passes its own check inside its first acceptance command.
 
 What it allows:
@@ -459,6 +496,8 @@ What it allows:
 - `#eval` and `run_cmd` in a claimed module pass, and no rule sees them.
 - Tactics and notation of dependencies, and attributes on the allowlist such as `@[simp]`, pass.
 - A claimed declaration with no docstring passes, and a broken Lean example in Markdown documentation passes. These are written guidance now.
+- On macOS, `lake check` runs with `--inadvisably-no-sandbox` and prints that the run is not trustworthy. The code of the project then runs outside a sandbox, as it does in `lake build`.
+- A gate with only Lean's own kernel passes. `--paranoid`, which adds five more kernels, is optional.
 
 What it rules out:
 
@@ -473,6 +512,7 @@ What it leaves unsaid:
 - The exact correspondence statement of each kind of execution boundary, which [#487] fixes.
 - How a project declares a deliverable, and how the owner's confirmation record is made: [#485], [lean-intent#3] and [lean-intent#5].
 - If the commands that run code in a claimed module must be refused too. That requires a second input, which reads the commands with Lean's parser.
+- The cost of `lake check` and of `--paranoid` on an export that holds all of Lean, which [#482] measures.
 
 [#281]: https://github.com/rbeauchamp/regula/issues/281
 [#295]: https://github.com/rbeauchamp/regula/issues/295

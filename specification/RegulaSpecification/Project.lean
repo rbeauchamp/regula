@@ -38,13 +38,15 @@ def ClaimedTarget (t : Name) : Prop := ∃ p e, (⟨t, .claimed p e⟩ : Entry) 
 end Input
 
 /-- RG2002: the claim does not classify target `t` exactly once, names a target Lake does not
-have, or classifies an executable differently from a library that contains its root. -/
+have, classifies an executable differently from a library that contains its root, or claims a
+target that is not a default target, whose modules `lake check` would not check. -/
 def Violates2002 (i : Input) (t : Name) : Prop :=
   ((∃ tg ∈ i.targets, tg.name = t) ∧ i.entriesFor t ≠ 1) ∨
     ((∃ e ∈ i.manifest, e.target = t) ∧ ¬ ∃ tg ∈ i.targets, tg.name = t) ∨
     (∃ x ∈ i.targets, x.name = t ∧ x.kind = .executable ∧ ∃ l ∈ i.targets, l.kind = .library ∧
       (∃ m ∈ x.modules, m ∈ l.modules) ∧
-      ∃ cx cl, (⟨x.name, cx⟩ : Entry) ∈ i.manifest ∧ (⟨l.name, cl⟩ : Entry) ∈ i.manifest ∧ cx ≠ cl)
+      ∃ cx cl, (⟨x.name, cx⟩ : Entry) ∈ i.manifest ∧ (⟨l.name, cl⟩ : Entry) ∈ i.manifest ∧ cx ≠ cl) ∨
+    (∃ x ∈ i.targets, x.name = t ∧ i.ClaimedTarget t ∧ x.isDefault = false)
 
 /-- RG2004: a root-package module that Lake builds is not covered, or a claimed module imports a
 module of an excluded target. -/

@@ -15,8 +15,9 @@ namespace RegulaSpecification
 inductive LeanTool where
   /-- `lake build --wfail`: a warning or an error that Lake logs fails the build. -/
   | wfail
-  /-- `lake env leanchecker` with each claimed module: Lean's kernel replays its constants. -/
-  | leanchecker
+  /-- `lake check` of Lean `v4.35.0`: Lean's kernel replays an export of the default targets, and
+  each axiom outside `propext`, `Classical.choice` and `Quot.sound` that it mentions is refused. -/
+  | lakeCheck
   deriving DecidableEq, Repr
 
 /-- What happens to a rule. -/
@@ -37,7 +38,7 @@ def fate : RuleId → Fate
   | .escapeHatch | .executableContract | .decisionContract | .sharedTest => .kept
   | .environment | .configuration | .coverage | .communityConfiguration => .kept
   | .sourceBuild => .handedToLean .wfail
-  | .admission => .handedToLean .leanchecker
+  | .admission => .handedToLean .lakeCheck
   | .executionUnresolved | .executionBoundary => .kept
   | .fenceStructure | .positiveExample | .negativeExample | .trustedExample => .retired
   | .moduleDocumentation | .materialDocumentation | .materialIntent => .retired
