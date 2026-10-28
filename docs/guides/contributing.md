@@ -596,6 +596,12 @@ paths, the worker processes and their JSON transport are trusted. The unchecked 
 `getModuleEntries` that gives the elaboration observer's record its type is trusted too. It is
 sound only for entries that the running Regula's observer wrote.
 
+A module of the library can register a function that a different module of the library declares,
+for example a decoder of `Regula.CompilerObservation`. The audit of the module that writes the
+registration decides [RG1008] for that function, with the decision contracts of that module. The
+self-audit refuses a registration of a function that is not in the library, and its report lists
+each registration of this type.
+
 The self-audit also refuses a one-sided comparison of `Json` values, the defect of
 [#269](https://github.com/rbeauchamp/regula/issues/269). It inspects each module of each library
 except `Fixtures`, and each executable root that no library contains. Lake builds them first, and a
