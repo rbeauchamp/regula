@@ -36,7 +36,11 @@
 # had written. It reads the template from the same default-branch commit as this file, so a change
 # to the template governs the runs that start after its merge. Such a description is not fitted to
 # the publication budget as an ordinary one is: when the author's text, closing references and
-# recorded evidence do not fit, the PR step fails instead of dropping any of them.
+# recorded evidence do not fit, the PR step fails instead of dropping any of them. Of the last 40
+# descriptions before this setting, five were 57 to 63 KB in ordinary mode, and three of those had
+# dropped earlier update rounds to fit. So `pr.appendix: minimal` keeps the generated appendix to
+# the Intent section, a one-line risk summary and the pipeline's signature and attestation: it
+# leaves out the Testing logs and the pipeline's round history, which stay in the run's log.
 #
 # Memory. The gate's Lake builds run as many jobs as the machine has cores and its Lean processes run
 # with no memory limit, so nothing bounds its peak, and the step takes the machine's whole heavy-work
@@ -80,3 +84,4 @@ test:
     list_command: no-mistakes admit --memory 3GiB --limit "none; measured peaks 0.75 GB and 1.9 GB resident" -- lake env lean --load-dynlib=libLake_shared.dylib --run lean/Regula/TestListing.lean
 pr:
   template: .github/pull_request_template.md
+  appendix: minimal
