@@ -1,12 +1,10 @@
-/-! # Reads of absence that the self-audit refuses
+/-! # Lean's reads of absence
 
-A control input, outside every library of the package, so that no audited module names Lean's two
-readers that take a path which cannot be read for an absent one (issue 430). The self-audit's
-absence rule must refuse `legacyPresent`, which calls `System.FilePath.pathExists`, and
-`legacyDirectory`, which is `System.FilePath.isDir` itself, without an argument, and nothing else
-here: `Regula.Qualification.SelfAudit.absenceFixtures` states these findings, and
-`absenceFixtureControls` checks them. `Regula.AbsenceControls` runs `main` with `lean --run` on a
-path that cannot be read, which prints what the two give for it. -/
+A control input, outside every library of the package, that names Lean's two readers that take a
+path which cannot be read for an absent one (issue 430): `legacyPresent`, which calls
+`System.FilePath.pathExists`, and `legacyDirectory`, which is `System.FilePath.isDir` itself,
+without an argument. `Regula.AbsenceControls` runs `main` with `lean --run` on a path that cannot
+be read, which prints what the two give for it. -/
 
 namespace AbsenceReads
 

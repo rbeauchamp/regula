@@ -18,9 +18,8 @@ guard in every compiled program that can start a process. `enter` starts a progr
 the running executable is the file that Lake builds for that program (`runsAs`). When isolation is
 missing in any other process, such as one that the Lean frontend runs (`lean --run`), a plugin of
 `lean` or a renamed copy of the executable, `enter` refuses before `run` and names the variables to
-unset or set. `requireIsolated` is the refusal of Lake's in-process loader
-(`Regula.Checker.Workspace`) in a process whose environment lacks an entry, which a caller that no
-guard runs can reach.
+unset or set. `requireIsolated` refuses in a process whose environment lacks an entry; no program
+of the package calls it.
 
 ## What stays trusted
 
@@ -76,8 +75,8 @@ def executableFile (program : String) : String :=
 plugin of `lean` or in a renamed copy of the executable, it is not.
 
 The file name is not evidence of how the process was entered, so this is a diagnostic with a
-stated limit. `lake exe qualify observers` refuses a program of the package whose name is that of
-a program of the toolchain, such as `lean`. A frontend started under the file name of a Regula
+stated limit. That no program of the package has the name of a program of the toolchain, such as
+`lean`, is not checked. A frontend started under the file name of a Regula
 executable, such as a hard link to `lean`, still passes. Then `restart` starts that frontend with
 `restarted` as its first argument, and it exits with a code other than 0 (observed: v4.35.0 `lean`
 prints `unrecognized option` and exits with 1). Neither process runs the program, so nothing runs

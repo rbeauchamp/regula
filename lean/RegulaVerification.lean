@@ -423,8 +423,8 @@ it from an observation that follows no link at the path.
 
 **Outside this decision:** a process that replaces an entry below the directory with a link
 while the removal runs. `IO.FS.removeDirAll` examines each entry and then opens it by its path,
-so such a process can make it remove the entries of a different directory. The checker removes
-its own scratch directories with the same function (`Regula.Scratch`).
+so such a process can make it remove the entries of a different directory. Regula's programs remove
+their own scratch directories with the same function (`Regula.Scratch`).
 
 The filesystem observer of the package's programs (`Regula.Filesystem`) decides its removals with
 `Regula.Removal.removal`, which this module cannot import. `RegulaVerification.removal_shared`, in
@@ -532,13 +532,12 @@ def removeOwn (path : System.FilePath) : IO Unit := do
 
 /-! ## The copy of the first acceptance step
 
-The first acceptance step makes its builds in a private copy of the project, and the
-acceptance gate audits that copy. The gate executable imports the claimed libraries, so those
-libraries are compiled before the gate can run, and a gate that made its own copy would compile
-them a second time. This driver is the only process of the step that runs before any project
-artifact exists, so it makes the copy.
+The first acceptance step makes its builds in a private copy of the project, and its last command
+runs the checker (`lake lint`) on the build of that copy. The checker writes no file, and this
+driver is the only process of the step that runs before any project artifact exists, so it makes
+the copy.
 
-The copy is in a new scratch directory of the checker's scratch area, by the protocol of
+The copy is in a new scratch directory of Regula's scratch area, by the protocol of
 `Regula.Scratch`, which this module cannot import: the reclamation of the marked directories
 when no scratch owner lives, an ownership marker beside the directory, and a shared lock on the
 area's lock file for as long as the copy is in use. So a first step that starts while no other
@@ -583,9 +582,9 @@ structure Copy where
   project : System.FilePath
   /-- The pending acceptance record of this run, in the scratch directory beside the copy. Only
   this run has the path: the scratch directory has a new name and is created by a call that
-  fails when the name exists, and the record by one that fails when the file exists. The gate of
-  this run writes it, and this run promotes it (`run`). A record that no run
-  promoted is removed with its scratch directory, by this run or by a reclamation. -/
+  fails when the name exists, and the record by one that fails when the file exists. This run
+  writes it (`Copy.record`) and promotes it (`run`). A record that no run promoted is removed with
+  its scratch directory, by this run or by a reclamation. -/
   pending : System.FilePath
   /-- The handle that holds the shared lock of the scratch area while the copy is in use. -/
   lock : IO.FS.Handle
@@ -623,12 +622,13 @@ def reclaim (area : System.FilePath) : BaseIO Unit := do
     announce s!"could not read the scratch area {area} for its reclamation: {error}"
 
 /-- Make the copy of the project at the real path `root`, by the steps of
-`Regula.Scratch.withScratch` in its order. When the lock of the checker's scratch area can be
+`Regula.Scratch.withScratch` in its order. When the lock of Regula's scratch area can be
 taken exclusively, no scratch owner lives, and the marked directories are removed first
 (`reclaim`). Then: take the shared lock of the area, create the ownership marker of a new name
 exclusively, create the directory of that name, which must not exist, and copy the project into
-its directory `project` (`copyTree`). So the checker's reclamation and that of a later driver
-remove the directory of a driver that died, and remove none while this driver holds the lock.
+its directory `project` (`copyTree`). So the reclamation of `Regula.Scratch` and that of a later
+driver remove the directory of a driver that died, and remove none while this driver holds the
+lock.
 The copy reserves an empty root `.lake`, excluding the original root's default build state.
 
 After a reclamation the exclusive lock is converted to the shared one without an `unlock`
@@ -759,7 +759,7 @@ def linked (value : Lean.Json) (tree : List (String × String)) : Bool :=
 
 /-- Remove the copy: its scratch directory, then its marker, then the lock, in the order of
 `Regula.Scratch.withScratch`. The directory is removed only as `removeOwn` decides. A failure is
-reported and is no error of the step: the checker's reclamation removes the directory later. -/
+reported and is no error of the step: a later reclamation removes the directory (`reclaim`). -/
 def Copy.remove (copy : Copy) : BaseIO Unit := do
   let remove : IO Unit := do
     removeOwn copy.scratch
@@ -784,11 +784,10 @@ def requireLink (root : System.FilePath) : IO Unit := do
 
 /-! ## The destinations the driver writes
 
-The driver writes three kinds of file in the project's `tmp` directory: the acceptance link
-(`linkPath`), the receipt of the whole rule-example corpus (`corpusEvidence`), and the export of
-each of the corpus's shards (`shardEvidence`). It writes each by the rules of the destinations of
-the package's programs (`Regula.Destination`), which this module cannot import, so the rules are
-written a second time here:
+The driver writes one file in the project's `tmp` directory, the acceptance link (`linkPath`):
+its mark (`incompleteLink`, by `writeDocument`) and the accepted record (by `promote`). It writes it
+by the rules of the destinations of the package's programs (`Regula.Destination`), which this
+module cannot import, so the rules are written a second time here:
 
 - It finds the entry that a destination names before it makes anything, as the real path of its
   longest present prefix and the names below it, and stops when one of those names is `..`

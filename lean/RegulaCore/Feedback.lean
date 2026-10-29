@@ -4,8 +4,8 @@ public import RegulaCore.Rule
 
 /-! # Agent-first finding text
 
-Every finding a Regula run prints is rendered here from the rule registry (`descriptor`), so
-the checker needs no website or other tool to say how to comply. A finding's text states what
+These definitions render the text of a finding from the rule registry (`descriptor`), so the text
+needs no website or other tool to say how to comply. A finding's text states what
 is wrong and where (`messageLine`), the rule's one-line remedy, and the rule's page and offline
 `lake exe regula explain` command as pointers. The first time a rule fires in a run its finding
 also carries the requirement, the rationale, the common compliant rewrites and a minimal
@@ -17,16 +17,15 @@ rule's guidance once.
 ## Main declarations
 
 - `standalone`, `firstText`, `laterText`: the three text forms of one finding. `standalone`
-  is `Regula.Diagnostic.text` (editor messages and the JSON `text` field); `firstText`
-  extends it (`firstText_extends`).
+  is the text of a finding alone; `firstText` extends it (`firstText_extends`).
 - `Entry`, `Entry.cmp`, `sortEntries`: the total order of a run's findings (project scope,
   then modules, then source files by position, then rule, the declaration the finding is grouped
   under, that declaration's own finding before those attributed to it, and message).
 - `sortEntries_perm`, `sortEntries_sorted`, `sortEntries_eq_of_perm`: every finding is
   reported exactly once, in that order, and the order does not depend on detection order.
 - `tagFirst`, `render`, `step`: a run's text, with guidance on exactly the findings whose rule
-  no earlier finding has (`tagFirst_append`). `step` is the streaming form the checker's
-  emitter executes (`renderFrom_cons`).
+  no earlier finding has (`tagFirst_append`). `step` is the streaming form of `renderFrom`
+  (`renderFrom_cons`).
 - `mem_firsts`, `firsts_nodup`, `firsts_length_le`: the rules that receive guidance are
   exactly the rules that fired, each once, so a run prints at most one guidance block per
   registered rule whatever its number of findings.
@@ -36,10 +35,9 @@ rule's guidance once.
 
 ## Boundaries
 
-These are properties of the rendered text as a function of the findings a run supplies. That
-the checker supplies every finding it established, and that the process writes these lines to
-its output, are properties of the operational checker (`Regula.Checker.RunFeedback`), not of
-these definitions. The text's adequacy as guidance is review of the registry prose.
+These are properties of the rendered text as a function of the findings a caller supplies. No
+program of this version prints these texts: `lake lint` prints each finding as one line
+(`Regula.Shell.line`). The text's adequacy as guidance is review of the registry prose.
 -/
 
 @[expose] public section

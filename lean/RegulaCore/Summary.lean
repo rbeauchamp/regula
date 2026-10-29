@@ -13,12 +13,12 @@ This module imports nothing, so each of those users can import it.
 
 namespace Regula.Site
 
-/-- The summary of Regula, in Markdown: the proof defects it refuses and the fixes it gives.
-Its plain text is at most 350 characters, the limit of the description of a GitHub
-repository. -/
+/-- The summary of Regula, in Markdown: the proof defects it refuses, and the rule page of each
+finding, which gives the fix. Its plain text is at most 350 characters, the limit of the
+description of a GitHub repository. -/
 def summary : String :=
   "A strict linter for Lean. Regula refuses proof holes, project axioms and proofs that trust \
-    the compiler. Each finding gives a fix."
+    the compiler. Each finding links to its rule page, which gives the fix."
 
 /-- Markdown text without its backticks: the plain text of Markdown whose only markup is code
 spans, as the summary is. -/

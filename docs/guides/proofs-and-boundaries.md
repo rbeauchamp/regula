@@ -126,20 +126,24 @@ new observation does not claim, as while a starter manifest fails [RG2002], is n
 writes the starter manifest only after `Manifest.parse` reads the text back as exactly that
 manifest. That the lakefile edits realize the model's `apply` is not a theorem. The command
 checks only these consequences when it runs. That `allClaimed` holds only when the observed
-targets are every root `lean_lib` and `lean_exe` is how `observe` builds the observation, and the
-extra `lean` arguments it reads are those of the audit's inventory, read by the same
-`Lake.libraryOptions` and `Lake.executableOptions`. `doctor` runs the audit's own [RG2002] functions
-(`Manifest.loadFor`, `Acceptance.surfaceAssignments`, `AxiomGate.checkClassification`) and [RG2006]
-decision (`Community.failures`) over Lake's resolved options of each claimed target. It applies
-Mathlib's options when the workspace contains Mathlib, where the audit applies them to a target
-whose modules import Mathlib: by `conforming_of_mathlib` a target `doctor` accepts also passes the
-audit, while `doctor` may ask a target that imports no Mathlib for Mathlib's options, which
-`init` writes under `weak.` so they are then ignored. A module below a library root that no
-library includes is a failing setup issue only when a claimed module (of a library or executable
-the manifest does not exclude) reaches it by import through the package's modules, which the
-audit rejects as outside every library; any other such module is a `note` that does not count
-toward `doctor`'s exit status. That reachability is read from import headers, not from a
-build, and Lake's own lookup `Workspace.findModule?` gives the file of each import.
+targets are every root `lean_lib` and `lean_exe` is how `observe` builds the observation. The
+extra `lean` arguments that it reads are those that Lake gives each target (`weakLeanArgs` and
+`leanArgs`). When the project has a manifest, `doctor` also prints the [RG2002] and [RG2006] findings of the
+checker. `Regula.Cli.Setup.projectInput` gives their input with no build: the targets that Lake
+loads and the claim, read as the checker reads them (`Regula.Load.targets`, `Regula.Load.claim`).
+Over this input, `doctor` runs the decision of the checker,
+`Regula.Closed.Input.configurationFindings`, with the option allowlist of the checker
+(`Regula.Shell.allowed`). It prints each finding in the form of the checker, one line for each.
+The required options of a setup issue include the options of Mathlib when the workspace contains
+Mathlib. `init` writes them under `weak.`, so a target that imports no Mathlib ignores them. By
+`conforming_of_mathlib`, a target that has the options of Mathlib also has the options without
+Mathlib. A module below a library root that no library includes can be a failing setup issue. It
+is one only when a claimed module (of a library or executable the manifest does not exclude)
+reaches it by import through the package's modules. `lake lint` reports such a module under
+[RG2004]. Any other
+such module is a `note` that does not count toward `doctor`'s exit status. That reachability is
+read from import headers, not from a build, and Lake's own lookup `Workspace.findModule?` gives
+the file of each import.
 `doctor` and `init` refuse a project in which Lake resolves a module of that closure to a source file that does not exist.
 The module can be a claimed module or a module that a module of the closure imports.
 A build of that module fails when it reads the file (`Module.recFetchInput`).
@@ -152,11 +156,10 @@ finding states how many modules the library leaves out and names at most
 `wrapFrom`): `moduleSummary_complete` proves those names are a prefix of the modules and the
 count is exactly the rest, and `wrapFrom_flatten` that grouping keeps each name, in order; that
 the finding text is `moduleLines` is by definition, and the line width is layout. The starter
-manifest lists each `lean_exe` with the first library containing its root module, so, by its
-definition rather than a theorem, it meets `RootsClassifiedAlike` unless a root lies in two
-libraries; a library whose modules are all such roots is refused as [RG2002] by `doctor`. `doctor`
-prints one [RG2006] finding for the claimed targets that share a claim and the same failure
-detail, where the audit prints one per target. The agent-guidance file is found operationally:
+manifest lists each `lean_exe` with the first library containing its root module, and it gives
+each target the same claim. Thus each executable has the claim of each library that contains its
+root ([RG2002]). This follows from its definition, not from a theorem. The agent-guidance file is
+found operationally:
 from the Lake root up to the nearest directory holding a `.git` entry (Git itself is not run),
 the nearest `AGENTS.md` with the section, else the nearest that exists, else the repository
 root's; the skill files are read and written at that repository root (the Lake root outside a Git
@@ -188,9 +191,8 @@ decision reports no toolchain issue exactly when that resolved identity
 is an issue `init` does not fix. Elan's listing, that it runs a listed toolchain without
 installing, and the report are trusted.
 
-Only the exact [supported toolchain](toolchains.md) is admitted. Historical diagnostic
-envelopes with `purpose: compiler-qualification` are refused by ordinary result readers;
-there is no runtime qualification switch or candidate publication mode.
+Only the exact [supported toolchain](toolchains.md) is admitted. There is no runtime
+qualification switch or candidate publication mode.
 
 **Trusted:** Lake's loader, its TOML grammar, Lean's import-header parser and Lean's frontend,
 which elaborates a `lakefile.lean` as Lake does to locate the `package`, `lean_lib` and
@@ -309,7 +311,7 @@ Regula's code reads and changes systems that no Lean proof can examine. These ex
 the file system, processes, the process environment, Lake, Lean, the file locks of the operating
 system and Git. `RegulaPolicy.External.System` gives them. A contract gives what Regula's code
 uses of an operation of such a system. A theorem about code that uses the operation has the
-contract as a hypothesis, and the checker shows it for each declaration. At this time, only the
+contract as a hypothesis. At this time, only the
 file system has contracts.
 
 ### Assumptions, checked operations and observers
@@ -377,12 +379,9 @@ about Lean or Lake, and a document in the Lean 4 repository or in the documentat
 `leanprover/lean4`, `lean-lang.org` or `leanprover.github.io` in its reference. It does not find a
 reference that names such a place with a different text.
 
-The controls `Fixtures.Mutations.StaleAssumptionSource` and
-`Fixtures.Mutations.UnpinnedAssumptionSource` show these refusals. The controls
-`Fixtures.Mutations.ImportedRoleTarget` and `Fixtures.Mutations.NonPredicateAssumption` show the
-refusals of a role for an imported constant and of an assumption that is not a predicate. The
-control `Fixtures.Mutations.UnrelatedCheckedContract` shows the refusal of a contract with a
-statement that does not use its checked operation.
+No retained control shows these refusals, or the refusals of a role for an imported constant, of
+an assumption that is not a predicate and of a contract with a statement that does not use its
+checked operation. The controls of the previous checker are removed.
 
 ### The file system
 
@@ -493,23 +492,10 @@ Lean and Lake read directories in two more places. `IO.FS.removeDirAll` lists a 
 
 Lake finds the modules of a glob with Lean's `forEachModuleInDir`, which uses `readDir`. Lake also reads the files of an `inputDir` target with `walkDir`. A failed read there gives Lake fewer modules or files without an error, and Regula trusts these reads of Lake.
 
-### What the checker shows
+### What the contracts do not establish
 
-The checker walks the constants from each declaration in the kernel that replayed it. It records
-the assumptions and the checked operations that the walk reaches. Result schema 17 gives them as
-`assumptions` and `checkedOperations`. The `--verbose` output gives them as `assumptions=` and
-`checked=`. The walk is the search forward of the table of axioms, into the type and the value of
-each constant, thus also into each proof. The theorem `RegulaPolicy.Assumptions.table_some` proves
-that the table of the checker gives this walk.
-
-A hypothesis can write out the predicate of an assumption, with no name of a declaration with a
-role. The walk does not find an assumption in such a hypothesis. It finds the assumption only
-through a constant that the proof uses, for example a theorem with the assumption as a hypothesis.
-A theorem that proves an assumption for one model also shows that assumption.
-
-The control `Fixtures.Positive.RestsOnAssumption` examines the lists in the record of each theorem.
-
-This section does not establish these properties:
+The checker does not report the assumptions or the checked operations of a declaration. The
+contracts of the external systems do not establish these properties:
 
 - That the real system satisfies the assumptions. Regula trusts each one, with its sources.
 - That no different process changes the file system while the code runs. Such a process can make

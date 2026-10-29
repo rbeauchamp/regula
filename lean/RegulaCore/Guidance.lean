@@ -8,7 +8,7 @@ import RegulaCore.Verdict
 
 The `regula` executable prints these texts; nothing here needs a network or another tool.
 Every text is generated from the rule registry (`descriptor`), the rule explanations (`guide`)
-and the `lake lint` exit classes (`Regula.Checker.Lint.Outcome`) of the installed Regula
+and the `lake lint` exit codes (`Regula.Closed.Verdict.exitCodes`) of the installed Regula
 build, so it matches that build by construction.
 
 ## Main declarations

@@ -280,14 +280,13 @@ requires of claimed code:
   proofs, including `ExecutableContract` registrations, in `snake_case`; propositions and
   types in `UpperCamelCase`; other terms in `lowerCamelCase`.
 - **Options and linters.** Every library and executable builds with `autoImplicit` and
-  `relaxedAutoImplicit` off and `linter.missingDocs` on (the package `leanOptions`; only the
-  `Fixtures` controls turn the linter off); `MathlibAudit` also enables Mathlib's standard linter set
+  `relaxedAutoImplicit` off and `linter.missingDocs` on (the package `leanOptions`); `MathlibAudit` also enables Mathlib's standard linter set
   with the §6.7 exclusions (`mathlibLinters` in `integration/mathlib/lakefile.lean`). [RG2006] checks these options on the claimed targets. Declare universes and
   implicit binders explicitly, and give every public declaration, constructor and field a
   docstring that states what it is or guarantees, no more than its definition and proofs
   establish (standard §5.1).
 - **Module docstrings.** Each module starts, directly after its imports and before any
-  `public section`, with a `/-! # Title … -/` docstring ([RG5001] checks the position).
+  `public section`, with a `/-! # Title … -/` docstring. This is a written rule, and no check reads the position ([RG5001] is retired).
 - **Evaluation is observation.** Prefer a kernel-checked `example … := by decide` to a
   `#guard`; where kernel reduction is infeasible, keep the `#guard` with a comment saying it is
   a compiled-evaluation observation.

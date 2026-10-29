@@ -12,9 +12,9 @@ import Lean.Elab.Frontend
 `init` writes the setup a project is missing, and `doctor` reports every missing or wrong piece
 with its fix. Both execute the proved decision of `RegulaCore.Setup` over what they observe:
 `init` writes exactly the edits of `Regula.Setup.plan` (so `plan_idempotent` says what a second
-run writes: nothing), and `doctor` prints `Regula.Setup.issues` together with the linter's own
-RG2002 manifest validation and RG2006 option decision, in the linter's finding text, one RG2006
-finding for the targets that share a claim and failures.
+run writes: nothing), and `doctor` prints `Regula.Setup.issues` together with the checker's own
+RG2002 and RG2006 findings (`Regula.Closed.Input.configurationFindings`), one line for each, in
+the checker's form (`Regula.Shell.line`).
 
 ## Main declarations
 
@@ -58,11 +58,12 @@ claimed modules, the claimed roots included, already read under the same name, c
 canonical path (`IO.FS.realPath`). That closure resolves each import with Lake's own lookup
 (`resolveImport`) and reads the headers of the files Lake gives those modules alone; the files the
 walk below each library root finds decide only what `doctor` reports a library leaves out. A
-`.git` entry marks the repository root for the agent guidance; Git itself is not run. RG2006 in
-`doctor` applies Mathlib's options when the workspace contains Mathlib, where the linter applies
-them to a target whose modules import Mathlib; by
-`RegulaPolicy.Community.conforming_of_mathlib`, a target `doctor` accepts also passes the
-linter's decision. Elan's listing and that
+`.git` entry marks the repository root for the agent guidance; Git itself is not run. The
+required options of a setup issue include Mathlib's when the workspace contains Mathlib, and
+`init` writes those under `weak.`; by `RegulaPolicy.Community.conforming_of_mathlib`, a target
+that has Mathlib's required options also has the core-only ones. `doctor`'s RG2002 and RG2006
+findings are the checker's own decision over the targets Lake loads and the claim
+(`projectInput`), with the checker's option allowlist. Elan's listing and that
 compiler's report of its own version and commit are trusted; nothing is installed, and a pin
 that does not resolve is a setup issue. -/
 
@@ -809,8 +810,9 @@ def starterRationale : String :=
   "the reason for the claim, and strengthen it where the library allows."
 
 /-- Every root `lean_lib` claimed `standard-logical` with `report` execution; every root
-`lean_exe` is claimed with the first library that contains its root module, as RG2002 requires
-(`RegulaPolicy.RootsClassifiedAlike`), and with the first library when none does. -/
+`lean_exe` is claimed with the first library that contains its root module, and with the first
+library when none does. Every target has the same claim, so the checker's RG2002 finds no
+executable classified differently from a library that contains its root. -/
 def starterManifest (targets : List Regula.Closed.Target) : Manifest :=
   let libraries := (targets.filter (·.kind == .library)).toArray
   let home (exe : Regula.Closed.Target) : Nat :=

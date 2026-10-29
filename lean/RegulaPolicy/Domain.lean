@@ -280,8 +280,8 @@ def CorrespondenceTerms.text (terms : CorrespondenceTerms) : String :=
   s!"proof={terms.proof.display}; required={terms.required.display}"
 
 /-- The kernel's answer to the theorem the checker declares, without adding it, to compare a
-runtime replacement with its reference: a closed proof, checked against the required proposition
-(`Probe.kernelAnswer`). Only the result of the kernel's own check selects the constructor. -/
+runtime replacement with its reference: a closed proof, checked against the required proposition.
+Only the result of the kernel's own check selects the constructor. -/
 inductive KernelAnswer where
   /-- The kernel admitted the theorem. `axioms` are its transitive axioms, and `terms` hold its
   proof and the required proposition, each as its exact term with a display. -/
@@ -1212,10 +1212,9 @@ structure SharedNames where
   others : Array Lean.Name := #[]
   /-- The functions of the class `SharedClass.boolean` that the two sides share when the
   specification is read by the rule of a statement, which also enters the declaration of the
-  input type of the kind from the input, and that are not in `booleans`
-  (`RegulaPolicy.StatementReading`). The other side is the same in the two readings. The
-  specification reaches each of them only through a constant of the input type that its body
-  does not name (`RegulaPolicy.StatementReading.through_input`). No registration is refused
+  input type of the kind from the input, and that are not in `booleans`. The other side is the
+  same in the two readings. The specification reaches each of them only through a constant of the
+  input type that its body does not name. No registration is refused
   for them: the record names them so that a review sees, for example, an invariant of the input
   that names a test of the implementation. -/
   throughTypes : Array Lean.Name := #[]
@@ -1444,8 +1443,7 @@ structure Declaration.KernelChecked where
   (`nativeAxiomOrigin?`) and whose type is `e = true` with `e` in that tactic's asserted shape
   (`decide p` for `native_decide` and `decide +native`, `verifyBVExpr expr cert` over the run's
   own auxiliary definitions for `bv_decide`): the `repr` of `e`, naming each of those auxiliary
-  definitions by its unindexed base. Otherwise `none`. A function of the name and the type: the
-  pure decision `NativeStatement.recognize?` decides the shape and returns `e`. -/
+  definitions by its unindexed base. Otherwise `none`. A function of the name and the type. -/
   nativeStatement : Option String
   deriving Repr, DecidableEq
 
@@ -1475,20 +1473,18 @@ structure Declaration.ToolchainObserved where
   /-- For an `_unsafe_rec` helper inspected as a replay candidate: the route by which Lean's own
   recursion compiler, rerun on the values of the helper's group (each helper's calls to its group
   standing for the recursive calls), reproduced the observed base and every auxiliary definition it
-  generated, up to compilation erasure (`Collect.unsafeRecRegeneration`): structural recursion, or
+  generated, up to compilation erasure: structural recursion, or
   well-founded recursion with every decreasing proof elided. It is recorded only where Lean's
   kernel also checked, for each helper of the group, the recursion equation of its base for the
-  helper's value, with no axiom outside Standard-Logical (`Collect.recursionEquationChecked`).
+  helper's value, with no axiom outside Standard-Logical.
   `none` when neither route did or an equation was not checked, and for every other declaration or
   inspection stage. What a project writes (termination arguments, reducibility statuses, matcher
-  and equation records) selects which regeneration runs; the pure decision
-  `Erasure.reproduces` and the kernel decide. -/
+  and equation records) selects which regeneration runs; the pure comparison and the kernel
+  decide. -/
   unsafeRecRegenerated : Option RecursionOrigin
   /-- For a replay candidate with a statement: whether an independent native evaluation of
   `e` returned `true` (`false` also when the replay failed). The evaluation runs the compiled
-  code of the definitions `e` mentions. The observing pass takes the recognition of the
-  candidate (`NativeStatement.Recognition`): `e` with the proof that the decision returns it for
-  that tactic, prefix and type. So it evaluates no other expression. -/
+  code of the definitions `e` mentions. -/
   nativeReplay : Option Bool
   /-- The axioms the constant transitively depends on, sorted and without duplicates: those it
   reaches in the kernel that replayed it (`KernelAxioms.axiomTable`), or, for an editor
@@ -1530,8 +1526,8 @@ structure Declaration.ProjectWritten where
   /-- Lean's declaration ranges as it recorded them, when it did: the raw evidence. Admission and
   finding locations read the admitted pair (`Declaration.ranges`), not this. -/
   recordedRanges : Option Ranges
-  /-- The declaration Lean generated this one from, one step, as the environment records it
-  (`Regula.Collect.generatedFrom?`): a constructor's inductive type, a projection's structure
+  /-- The declaration Lean generated this one from, one step, as the environment records it: a
+  constructor's inductive type, a projection's structure
   constructor, a recursor's or equation lemma's declaration, and so on; `none` when Lean did not
   generate it from another declaration. -/
   generatedFrom : Option Lean.Name
@@ -1554,7 +1550,7 @@ structure Declaration.ProjectWritten where
   tableOmissions : Array Lean.Name := #[]
   /-- The assumptions about an external system that the declaration rests on: each declaration
   with the role `assumption` (`Regula.Assumption`) that the walk of the constants it uses, proofs
-  included, reaches from it (`RegulaPolicy.Assumptions.RestsOn`), in the kernel that replayed it.
+  included, reaches from it, in the kernel that replayed it.
   The roles are attributes that a project writes. Empty for an editor snapshot. -/
   assumptions : Array Lean.Name := #[]
   /-- The checked operations that the declaration rests on: each declaration with the role
@@ -1757,8 +1753,7 @@ def Declaration.Assessed.neutral (d : Declaration.Assessed) : Declaration.Assess
 `Lean`, `Lake` and `LeanExport`. In the audit, a module under one of them is toolchain code only
 with an admitted origin (`ToolchainOrigin`); the name alone never makes it so. The removal check of
 a program reads the name alone, under the workspace hypothesis that
-`Regula.Removal.toolchainModules` states and `lake exe qualify observers` checks for the root,
-`markdown/` and `audit/` workspaces of this repository only.
+`Regula.Removal.toolchainModules` states, which is assumed, not checked.
 
 Assumes: the Lean 4.35.0 release installs the compiled modules of these five packages in its
 library directory `lib/lean`, beside only the root modules of its executables (`LakeMain`,
@@ -1774,8 +1769,8 @@ instance : DecidablePred ToolchainRoot := fun _ => by unfold ToolchainRoot; infe
 /-- Origin observations are admitted only when the resolved and expected canonical paths agree
 for a module under a toolchain root (`ToolchainRoot`), whatever the module's name. That the
 paths are the module's loaded `.olean` and its copy in the pinned toolchain's library, and so
-identify the toolchain's own artifact, is the probe's filesystem observation, under the hypotheses
-of `Regula.Probe.loadedModuleOrigins`, not a property of this type. -/
+identify the toolchain's own artifact, is an assumption about the observation that supplies them,
+not a property of this type. -/
 structure ToolchainOrigin where
   /-- The module that declares the toolchain-owned boundary. -/
   moduleName : Lean.Name
@@ -1846,11 +1841,11 @@ def foundationStatements : Array FoundationStatement :=
         (.forallE `h (Lean.mkApp (Lean.mkConst `Nonempty [u]) (.bvar 0)) (.bvar 1) .default)
         .implicit }]
 
-/-- What the probe observes of a constant of the audited environment named as a foundation axiom:
-the module the environment holds it from, the canonical paths of the files that module was loaded
-from and of the same files in the toolchain's library, whether it is an axiom, and its universe
-parameters and type. That the paths are those files is the probe's filesystem observation, under
-the hypotheses that `Regula.Collect.foundationObservations` states, not a property of this type. -/
+/-- What an observation records of a constant of the audited environment named as a foundation
+axiom: the module the environment holds it from, the canonical paths of the files that module was
+loaded from and of the same files in the toolchain's library, whether it is an axiom, and its
+universe parameters and type. That the paths are those files is an assumption about the
+observation that supplies them, not a property of this type. -/
 structure FoundationObservation where
   /-- The constant's name. -/
   name : Lean.Name
@@ -2166,9 +2161,7 @@ theorem toolchainOrigin_roundtrip (o : ToolchainOrigin) :
 environment fixes for the constant the record is made at. Its ownership is the membership of that
 module in the claim's owned modules, so the environment's module and the claim fix it, and no mark
 decides it. Authored marks and traversal through project-written edges decide which records exist.
-A field that the data of a mark enters is project-written (`ExecutionBoundary.ProjectWritten`).
-`Probe.observeNode` sets the name to the observed constant, the module to the environment's
-attribution of it, and ownership to membership in the claim's owned modules. -/
+A field that the data of a mark enters is project-written (`ExecutionBoundary.ProjectWritten`). -/
 structure ExecutionBoundary.ToolchainObserved where
   /-- The constant at the boundary. -/
   name : Lean.Name
@@ -2204,8 +2197,8 @@ executable root. `boundary` is one of `runtime-replacement`, `compiler-simplific
 `compiler-trusted-proof` or `initialized-value`; `correspondence` is
 `checked`, `trusted`, or `unresolved`. Each field the pass sets at one constant is declared in
 the part that says where its value comes from. Its position and its callers are computed over the
-walk of the root, through the edges of the project-written part of the name records
-(`ExecutionWalk.NodeRecord.ProjectWritten`), so they are fields of the boundary itself. Its callers
+walk of the root, through the edges of the project-written part of the name records, so they are
+fields of the boundary itself. Its callers
 are the sources of the compiled edges whose target is its observed name. -/
 structure ExecutionBoundary extends ExecutionBoundary.ToolchainObserved,
     ExecutionBoundary.ProjectWritten where
@@ -2278,9 +2271,7 @@ instance (b : ExecutionBoundary) : Decidable b.NeedsHistory :=
 /-- The observed part of a visit: the fields whose value the environment fixes for the constant the
 visit is made at, which are that constant and its module. Authored marks and traversal through
 project-written edges decide which records exist. A field that the data of a mark enters is
-project-written, as a boundary's kind and replacement. `ExecutionWalk.assemble` copies the visited
-name and the module of its record (`NodeRecord.ToolchainObserved.moduleName`) into this part.
-IR-only names may lack module attribution. -/
+project-written, as a boundary's kind and replacement. IR-only names may lack module attribution. -/
 structure ExecutionVisit.ToolchainObserved where
   /-- The visited constant. -/
   name : Lean.Name
@@ -2302,16 +2293,12 @@ Current replacements remain distinct from successfully observed historical choic
 active simplifications are used for cycle detection, not claimed compiler calls. The closure has no
 parts of its own: each visit carries the observed part of its name
 (`ExecutionVisit.ToolchainObserved`), and its parent and the closure's other fields are computed
-over the names that the walk reached through the edges of the project-written part of their records
-(`ExecutionWalk.NodeRecord.ProjectWritten`). Each edge set is named for the record field whose
-targets it copies. Beside the records, `ExecutionWalk.assemble` takes `rootCompiled`, the root's own
-compiled-code requirement. When it holds, the root is in `requiredCode`, and so in `unavailableCode`
-with a reported unavailable-code path when its compiler body is unavailable; without it, the root is
+over the names that the walk reached through the edges of the project-written part of their
+records. Each edge set is named for the record field whose targets it copies. `rootCompiled` is the
+root's own compiled-code requirement. When it holds, the root is in `requiredCode`, and so in
+`unavailableCode` with a reported unavailable-code path when its compiler body is unavailable; without it, the root is
 required only as a compiled dependency of a reached name. `rootCompiled` is project-written, because
-the root's marks and tags enter it. `Probe.executionWalk` computes it as false exactly when the root
-has an `@[implemented_by]` or `@[macro_inline]` mark; when the root is a projection function, with
-or without IR; when it has no IR and is an auxiliary recursor, a `noConfusion` or a matcher; or when
-it has no IR and is a `brecOn` helper that `brecOnHelpers` finds by its structure. -/
+the root's marks and tags enter it. -/
 structure ExecutionClosure where
   /-- Every name the walk reached, sorted and without duplicates. -/
   nodes : Array Lean.Name
@@ -2346,11 +2333,7 @@ def ExecutionClosure.edges (c : ExecutionClosure) (compilerEdges : Array (Lean.N
 /-- The observed part of a root's account: the fields whose value the environment fixes for the
 constant the account is made at, which are that constant and its module. Authored marks and
 traversal through project-written edges decide which records exist. A field that the data of a mark
-enters is project-written, as a boundary's kind and replacement. `Probe.environmentReport` makes a
-root record for each name of `executableRoots` (each eligible owned definition or opaque constant
-and each `@[init]` or `@[builtin_init]` action) and each root of a registered contract with no
-refusal, with the name set to that constant and the module to the environment's attribution of
-it. -/
+enters is project-written, as a boundary's kind and replacement. -/
 structure ExecutionRoot.ToolchainObserved where
   /-- The root constant. -/
   name : Lean.Name
@@ -2361,8 +2344,8 @@ structure ExecutionRoot.ToolchainObserved where
 /-- The execution account of one owned executable root: the boundaries and unresolved paths its
 closure reaches, its compiled edges and the closure itself. Its name and module are in the observed
 part (`ExecutionRoot.ToolchainObserved`). The other fields are computed over the walk of the root,
-through the edges of the project-written part of the name records it reads
-(`ExecutionWalk.NodeRecord.ProjectWritten`), and from the root's own compiled-code requirement
+through the edges of the project-written part of the name records it reads, and from the root's
+own compiled-code requirement
 (`rootCompiled`, described at `ExecutionClosure`), which can add the root's unavailable-code path to
 `unresolved`. So they are fields of the account itself. -/
 structure ExecutionRoot extends ExecutionRoot.ToolchainObserved where
@@ -2383,7 +2366,7 @@ structure ModuleOrigin where
   /-- The module's name. -/
   name : Lean.Name
   /-- The canonical path of the `.olean` file it was loaded from, as Lean's search path finds it
-  after the import, under the hypotheses of `Regula.Probe.loadedModuleOrigins`. -/
+  after the import. -/
   olean : String
   /-- Its direct imports, as its module header records them. -/
   imports : Array Lean.Name

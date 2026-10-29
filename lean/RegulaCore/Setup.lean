@@ -91,9 +91,9 @@ manifest and the guidance files, then observes the project again and refuses unl
 is empty, the new `uncovered` has no entry for a library the plan gave a glob (`uncovered_run`),
 and each claimed target of both observations, matched by kind and name, has the same
 `Observation.arguedBy` (`arguedBy_run`). That the file edits realize `apply` is not a theorem;
-the command checks only those consequences at run time. RG2006 itself is decided per claimed
-target over Lake's resolved options by `RegulaPolicy.Community.failures`, reading the same `-D`
-candidates as `Target.argues`; `init` writes an option into the package's configuration only
+the command checks only those consequences at run time. The checker decides RG2006 itself per
+claimed target over the options Lake gives it (`Regula.Closed.Input.configurationFindings`), with
+its own reading of each `-D` argument (`Regula.Load.splitArgs`); `init` writes an option into the package's configuration only
 when every root target is claimed and no claimed target's `-D` candidate sets it, into claimed
 targets' own configurations otherwise, never into a configuration that reaches a target whose `-D`
 candidate sets it, and never changes a value the package or a target already gives. That

@@ -99,9 +99,9 @@ refusal's, and mark it through one writer.
 
 `Regula.TaskManagerCheck.checkProgram` requires a compiled program that needs the task manager or
 starts a process to define `main` as `guard` applied to a string literal and two constants, and its
-refusal to need no task manager and to start no process. The qualification of the package's
-programs (`Regula.Qualification.Observers`) requires that literal to be the executable name that
-Lake's loaded workspace declares for the program's root.
+refusal to need no task manager and to start no process. It records that literal
+(`Regula.TaskManagerCheck.named`), and no program reads the record, so that the literal is the
+executable name that Lake's loaded workspace declares for the program's root is not checked.
 
 Assumes: Lean 4.35.0's compiled `main` runs the initializer of the program's root module, which
 runs those of the modules it imports, then `lean_io_mark_end_initialization` and only then

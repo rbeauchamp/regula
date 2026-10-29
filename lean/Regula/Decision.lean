@@ -17,15 +17,16 @@ intended one.
 A function is registered where it is declared (`@[regula_decision] def f`) or, for a function
 whose module cannot import this one, in a module of the same inventory that imports it
 (`attribute [regula_decision] f`). The attribute itself accepts any declaration: which
-declarations an audit owns is not known while a file is elaborated. The audit refuses a
-registration that one of its modules writes for a declaration outside its inventory
-(`Regula.Collect.ownedDecisionRegistrations`), since it could not decide that requirement.
+declarations an audit owns is not known while a file is elaborated. The checker reads the
+registrations that claimed modules write (`Regula.Load`), and decides the RG1008 requirement only
+for a registered function of a claimed module (`Regula.Closed.Input.contractFindings`); it reports
+nothing for a registration of another function.
 
 A file that is not a `module` imports this module with `import Regula.Decision`. A `module`
 imports it with `meta import Regula.Decision`: the attribute is needed only while the file is
 elaborated, and under that import Lean refuses a definition of the file that would run this
 module's imports. The extension that holds the registrations is an ordinary definition, not a
-`meta` one, so the collector reads them through it (`Regula.Collect.declaration`). -/
+`meta` one, so the checker reads its module entries (`Regula.Load`). -/
 
 public section
 
@@ -77,8 +78,7 @@ initialize
 registers and those every loaded module does, each of which is the module that declares the
 function or one that imports it. A registration only adds the RG1008 requirement, so every loaded
 registration counts, whichever module wrote it. One pass over the loaded modules computes the
-set; a caller that asks about many declarations of one environment computes it once
-(`Regula.Collect.ContractScope`). -/
+set. -/
 def decisionRegistrations (env : Lean.Environment) : Lean.NameSet :=
   (Array.range env.header.moduleNames.size).foldl (init := decisionExtension.getState env)
     fun registered index =>

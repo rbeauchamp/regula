@@ -1,6 +1,6 @@
 # Adopt Regula
 
-A strict linter for Lean. Regula refuses proof holes, project axioms and proofs that trust the compiler. Each finding gives a fix.
+A strict linter for Lean. Regula refuses proof holes, project axioms and proofs that trust the compiler. Each finding links to its rule page, which gives the fix.
 
 This guide is the full procedure to adopt Regula. For a first try on one module, see [Try it](../../README.md#try-it) in the README.
 

@@ -36,9 +36,8 @@ module that declares the constant, and once. Each constant is declared by one mo
 can carry a second role for it, and `roles` meets each constant at most once.
 
 A `module` imports this module with `meta import Regula.Assumption`, as it imports
-`Regula.Decision`; the extension is an ordinary definition, so the checker reads the roles through
-it (`roles`). The attributes record what is written and decide nothing: which assumptions a claim
-rests on is read from the constants it uses (`RegulaPolicy.Assumptions`). -/
+`Regula.Decision`; the extension is an ordinary definition, so a reader of the roles reads them
+through it (`roles`). The attributes record what is written and decide nothing. -/
 
 public section
 

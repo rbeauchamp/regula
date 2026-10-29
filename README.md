@@ -1,6 +1,6 @@
 # Regula
 
-A strict linter for Lean. Regula refuses proof holes, project axioms and proofs that trust the compiler. Each finding gives a fix.
+A strict linter for Lean. Regula refuses proof holes, project axioms and proofs that trust the compiler. Each finding links to its rule page, which gives the fix.
 
 Use Regula when you depend on Lean code that you do not read line by line, or when you publish results as proved. It checks each declaration in the libraries you select. It also checks proof dependencies through imports. You choose which foundation axioms each library can use.
 

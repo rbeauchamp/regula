@@ -40,11 +40,9 @@ executable entry when every library entry is known
 (`unknownEntry?_some`); a text `parse` refuses keeps that earlier refusal. `parseValue_toJson`
 is the round trip at the `Json` value boundary; `structural_roundtrip` and `restrict_roundtrip`
 apply it, with the identity stage, to the self-hosted structural copy and to the structural
-project's manifest. The text boundary stays trusted: `PolicyCodec.parse` is total and
-`JsonRoundTrip.parse_compress_ws` states its parse of the text `PolicyCodec.compress` writes for
-a value whose object trees are search trees, followed by any run of JSON whitespace, none
-included, but no theorem here relates the text of a manifest to `toJson`, and manifests written in Lean are
-printed with `Json.compress`, which is `partial`.
+project's manifest. The text boundary stays trusted: `PolicyCodec.parse` is total, but no theorem
+here relates the text of a manifest to `toJson`, and manifests written in Lean are printed with
+`Json.compress`, which is `partial`.
 The refusal-class theorems prove the message of malformed JSON, an unknown top-level or surface
 key, a non-2 schema version, empty surfaces and a bad surface `execution`, each given an
 otherwise accepted prefix. The module reads no file: the shell reads the manifest's text

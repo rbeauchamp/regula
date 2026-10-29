@@ -55,7 +55,7 @@ package «regula» where
   -- Reservoir (https://reservoir.lean-lang.org) lists these, and each release tag with the version
   -- its lakefile declares.
   description := "A strict linter for Lean. Regula refuses proof holes, project axioms and proofs \
-    that trust the compiler. Each finding gives a fix."
+    that trust the compiler. Each finding links to its rule page, which gives the fix."
   keywords := #["linter", "devtool", "cli", "formal-verification", "software-verification"]
   homepage := "https://rbeauchamp.github.io/regula/"
   license := "MIT AND Apache-2.0"
