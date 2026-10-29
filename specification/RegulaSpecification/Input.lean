@@ -75,7 +75,9 @@ structure Decl where
   isInitialized : Bool
   /-- Whether Lean marks it `noncomputable` (`Lean.isNoncomputable`). -/
   isNoncomputable : Bool
-  /-- Whether its type's result is `Bool`, or it is an instance of `BEq`: a Boolean test. -/
+  /-- Whether its type's result is `Bool`, or it is an instance of `BEq`, and it is no field's
+  projection function: a Boolean test. A projection reads a field of data, which no definition
+  computes. -/
   isBoolTest : Bool
   /-- Whether its module belongs to the Lean toolchain's own library (`Init`, `Std`, `Lean`). -/
   inToolchain : Bool

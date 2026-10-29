@@ -26,12 +26,13 @@ namespace Input
 variable (i : Input)
 
 /-- `d` is the recursion helper of a safe base in the same module: a partial, safe-flagged
-definition named `f._unsafe_rec` beside a safe, total `f` with no `@[implemented_by]`. -/
+definition named `f._unsafe_rec` beside a safe, total definition `f` with no `@[implemented_by]`.
+The base of a `partial def` is an opaque constant, so its helper is not one. -/
 def RecursionHelper (d : Decl) : Prop :=
   d.isPartial = true ∧ d.isUnsafe = false ∧ d.implementedBy = none ∧ d.isExtern = false ∧
-    ∃ base ∈ i.decls, d.name = Name.str base.name "_unsafe_rec" ∧ base.module = d.module ∧
-      base.isUnsafe = false ∧ base.isPartial = false ∧ base.implementedBy = none ∧
-      base.isExtern = false
+    ∃ base ∈ i.decls, d.name = Name.str base.name "_unsafe_rec" ∧ base.kind = .definition ∧
+      base.module = d.module ∧ base.isUnsafe = false ∧ base.isPartial = false ∧
+      base.implementedBy = none ∧ base.isExtern = false
 
 /-- `c` is in the execution closure of `r`: `r`, or a constant that the compiled code of a
 constant of the closure runs. -/
