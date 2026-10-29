@@ -468,7 +468,7 @@ It excludes root `tmp` and, outside `docs`, VCS, build, cache and scratch direct
 The step has five commands, which the function `RegulaVerification.commands` gives. The build,
 the registry checks and the qualification controls operate in the copy. The fourth command builds
 the copy's `specification/` package with warnings as errors. It starts in the root of the checkout,
-so Lake clones lean-intent from the provisioned checkout. The last command is the gate that the
+so Lake fetches lean-intent from the provisioned clone. The last command is the gate that the
 copy built. The theorem `ordinary_places` gives the directory of each command.
 
 Before these commands, the driver builds what the gate audits and runs. The function

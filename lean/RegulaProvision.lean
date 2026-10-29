@@ -5,8 +5,8 @@ import Lake.Toml.Grammar
 
 /-! # Dependency provisioning
 
-Default setup checks the released compiler and acquires one dependency: the lean-intent checkout
-of the specification package (`provisionSpecification`), which the first acceptance step builds.
+Default setup checks the released compiler and acquires one dependency: a full Git clone of the
+specification package's lean-intent (`provisionSpecification`), which the first acceptance step builds.
 Only the explicit Mathlib integration command provisions Mathlib; the website's Verso has its own
 command. The root package, the example library and the website require no Mathlib.
 
@@ -1468,19 +1468,56 @@ def provisionVerso (repo : FilePath) : IO Unit := do
 requires lean-intent by Git and the root package by path. -/
 def specificationPackage : String := "specification"
 
-/-- Provision the specification package's lean-intent with the released compiler, by Lake's own
-load of that package under the Git isolation: `lake resolve-deps` loads its workspace and builds
-nothing (Lake v4.34.1 `Lake/CLI/Main.lean:974-979`). The load clones a Git entry whose checkout is
-absent and checks out the entry's commit, which fails when the clone lacks that commit. It fetches
-nothing for a checkout that is already at that commit (`Lake/Load/Materialize.lean:255-264`,
-`Lake/Util/Git.lean:163-167`). The first acceptance step clones its copy's lean-intent from this
-checkout (`RegulaVerification.specificationBuild`). -/
+/-- The Git source and commit from which Lake's load of the package at `package` materializes the
+Git package `name`: those of the entry selected for `name` (`selectedEntry`) among the entries of its
+manifest and package overrides file (`rootFiles`), read by Lake's own readers (`readRoot`). -/
+def manifestSource (repo : FilePath) (package : String) (name : Name) : IO (String × String) := do
+  let files := rootFiles (repo / package)
+  let some (manifest, overrides) ← readRoot files
+    | throw <| IO.userError s!"provisioning: {files.1} is absent, so Lake would resolve the \
+        requirements of {package} anew, at revisions that no file records"
+  match (selectedEntry (rootEntries manifest overrides) name).map Lake.PackageEntry.src with
+  | some (.git url rev _ _) => return (url, rev)
+  | _ => throw <| IO.userError s!"provisioning: {files.1} with {files.2} materializes no Git \
+      package {name}"
+
+/-- The full Git clone of the specification package's lean-intent that default provisioning keeps,
+relative to the repository root. It is below the root `.lake`, which the copy of the first
+acceptance step leaves out, and it is not the checkout of Lake's packages directory: Lake v4.35.0
+makes that one a partial clone with `git fetch --filter=tree:0` (`Lake/Util/Git.lean:160-170`),
+which cannot give its commits to a further fetch. -/
+def leanIntentClone : FilePath := ".lake/regula-provision/lean-intent"
+
+/-- Whether the Git repository at `dir` holds the commit `rev`, under the Git isolation. -/
+private def hasCommit (isolation : Array (String × Option String)) (dir : FilePath) (rev : String) :
+    IO Bool := do
+  let out ← IO.Process.output {
+    cmd := "git", args := #["cat-file", "-e", s!"{rev}^\{commit}"], cwd := some dir,
+    env := isolation, stdin := .null }
+  return out.exitCode == 0
+
+/-- Provision the specification package's lean-intent with the released compiler: a full Git clone,
+under the Git isolation, of the source and commit that the package's manifest records
+(`manifestSource`), at `leanIntentClone`. An absent clone is cloned. A clone that lacks the commit
+fetches from its source. A clone that still lacks it, or a path that holds no repository, refuses
+the setup. The first acceptance step fetches its copy's lean-intent from this clone
+(`RegulaVerification.specificationBuild`). -/
 def provisionSpecification (repo : FilePath) : IO Unit := do
   unless (← IO.FS.readFile (repo / "lean-toolchain")) ==
       (← IO.FS.readFile (repo / specificationPackage / "lean-toolchain")) do
     throw <| IO.userError s!"provisioning: {specificationPackage}/lean-toolchain differs from the \
       root"
-  stream (← isolationEnvironment) (repo / specificationPackage) "lake" #["resolve-deps"]
+  let (url, rev) ← manifestSource repo specificationPackage `«lean-intent»
+  let isolation ← isolationEnvironment
+  let clone := repo / leanIntentClone
+  unless ← isPresent clone do
+    if let some parent := clone.parent then IO.FS.createDirAll parent
+    stream isolation repo "git" #["clone", "--quiet", url, clone.toString]
+  unless ← hasCommit isolation clone rev do
+    stream isolation clone "git" #["fetch", "--quiet", "origin"]
+  unless ← hasCommit isolation clone rev do
+    throw <| IO.userError s!"provisioning: {clone} does not hold commit {rev} of {url}, which \
+      {specificationPackage}/lake-manifest.json pins for lean-intent"
 
 /-- Check the exact supported compiler before provisioning any dependency artifacts. -/
 def requireReleasedCompiler (repo : FilePath) : IO Unit := do

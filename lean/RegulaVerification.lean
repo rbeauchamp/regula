@@ -388,22 +388,21 @@ def otherTargets : List String :=
 toolchain. It requires lean-intent by Git and the root package by path. -/
 def specificationPackage : String := "specification"
 
-/-- The lean-intent checkout that default provisioning materializes for the specification package
-(`RegulaProvision.provisionSpecification`), relative to the repository root: the packages
-directory that the package's manifest records and the entry's directory. -/
-def leanIntentCheckout : String := "specification/.lake/packages/lean-intent"
+/-- The full clone of lean-intent that default provisioning keeps for the specification package
+(`RegulaProvision.leanIntentClone`), relative to the repository root. -/
+def leanIntentCheckout : String := ".lake/regula-provision/lean-intent"
 
 /-- The build of the specification package of the copy with warnings as errors, started in the
 checkout's root. The copy has no `.lake` of the checkout (`Construction.projectRelative`), so the
-copy's specification package has no lean-intent checkout. Lake then clones it from the URL that
-`LAKE_PKG_URL_MAP` maps lean-intent to, here the provisioned checkout (`leanIntentCheckout`), and
-checks out the commit of the package's manifest. The map's keys are names, so the key is spelled
-`«lean-intent»`, as the manifest spells the entry's name. A clone that lacks that commit fails the
-checkout, and so the build (Lake v4.34.1 `Lake/Load/Materialize.lean:262-264`,
-`Lake/Config/Env.lean:205-209`). Lake runs that clone with no working directory of its own
-(`Lake/Util/Git.lean:99-100`), so the relative path names the checkout's directory. So the build
-reads no network. Its dependency `regula` is the copy's root, whose modules the step's first build
-built. -/
+copy's specification package has no lean-intent checkout. Lake v4.35.0 then makes one: it
+initializes a repository whose remote is the URL that `LAKE_PKG_URL_MAP` maps lean-intent to, here
+the provisioned clone (`leanIntentCheckout`), fetches the commit of the package's manifest from it,
+and checks that commit out (`Lake/Load/Materialize.lean:37-105`, `Lake/Load/Materialize.lean:270-281`
+and `Lake/Config/Env.lean:205-209`). A fetch that cannot give that commit fails the build. Lake
+resolves a local path from its own working directory, the checkout's root, so the relative path
+names the provisioned clone, and the build reads no network. The map's keys are names, so the key
+is spelled `«lean-intent»`, as the manifest spells the entry's name. Its dependency `regula` is the
+copy's root, whose modules the step's first build built. -/
 def specificationBuild (copy : String) : Command :=
   { program := "lake"
     args := #["-d", (System.FilePath.mk copy / specificationPackage).toString, "build", "--wfail",

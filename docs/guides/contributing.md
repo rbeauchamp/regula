@@ -249,7 +249,7 @@ rm -rf .lake/packages/{batteries,aesop,Qq,proofwidgets,importGraph,LeanSearchCli
 
 Existing stable shared-store receipts and keys remain compatible. A receipt whose origin is `source` fails decoding; its store is neither reused nor pruned. Removed source-mode and snapshot configuration files are refused during setup. Provisioning does not migrate or delete source stores.
 
-Run `lean --run lean/RegulaProvision.lean verso` to provision the pinned Verso. The default provisioning command validates the released compiler. It acquires one dependency: the lean-intent checkout of the `specification/` package, by Lake's `lake resolve-deps` in that directory. Verification invokes commands directly with their declared arguments and working directories. The existing setup and acceptance deadlines still apply. Git, package build hooks, compiler binaries, cache storage, process execution and filesystem operations remain trusted boundaries.
+Run `lean --run lean/RegulaProvision.lean verso` to provision the pinned Verso. The default provisioning command validates the released compiler. It acquires one dependency: a full Git clone, in `.lake/regula-provision/lean-intent`, of the lean-intent commit that `specification/lake-manifest.json` pins. Verification invokes commands directly with their declared arguments and working directories. The existing setup and acceptance deadlines still apply. Git, package build hooks, compiler binaries, cache storage, process execution and filesystem operations remain trusted boundaries.
 
 [AGENTS.md](../../AGENTS.md#changes-and-verification) owns verification and merge policy.
 The [CI workflow](../../.github/workflows/ci.yml) defines runner and cache configuration.
