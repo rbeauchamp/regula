@@ -77,7 +77,7 @@ in that copy. The gate that the copy built audits the build output of the copy. 
 builds the claimed libraries one time.
 
 In the copy, the driver first builds the claimed targets and the gate. Then the gate runs beside
-the other three commands, which run at low priority.
+the other four commands, which run at low priority.
 
 `qualify unique-constants` refuses a constant that two modules of one claimed environment
 declare, if one of them is a module of the root package. Lean makes an equation lemma in the first
