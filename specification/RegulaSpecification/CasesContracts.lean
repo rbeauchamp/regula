@@ -29,7 +29,7 @@ theorem base_reaches_Spec {e : Name} (h : base.Reaches `Good.Spec e) : e = `Good
     simp [plain, toolchain, helperDecl] at hS hu ⊢
 
 theorem base_safe_f : base.SafeComputable `Good.f :=
-  ⟨plain `Good.f `Good .definition [], by simp [base, baseDecls], rfl, rfl, rfl, rfl⟩
+  ⟨fDecl, by simp [fDecl, base, baseDecls], rfl, rfl, rfl, rfl⟩
 
 /-! ## RG1007 -/
 

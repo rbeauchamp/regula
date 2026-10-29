@@ -2,11 +2,12 @@
 # The closed input
 
 Every kept and new rule of the smaller Regula reads one closed input: the declarations Lean loads
-from the finished build, Lake's own list of the targets and modules it builds, and the project's
-claim (`foundation_manifest.json`). This module states that input as data, independently of any
-implementation. Each field says which interface of Lean or Lake gives it; that the shell reads the
-field through that interface is the implementation's obligation (#483), not a fact this module
-establishes.
+from the finished build, with the compiled code that the build records for each, Lake's own list
+of the targets and modules it builds, and the project's claim (`foundation_manifest.json`). This
+module states that input as data, independently of any implementation. Each field says which
+interface of Lean or Lake gives it; that the shell reads the field through that interface is the
+implementation's obligation (#483), not a fact this module establishes. The mechanism that reads
+compiled code is #487's.
 
 The input carries no source text, no message, no info tree, no option set in source, no build log
 and no file listing: what a rule cannot read here, it does not decide.
@@ -28,6 +29,20 @@ inductive Kind where
   | recursor
   deriving DecidableEq, Repr
 
+/-- One point at which compiled code departs from a kernel value: where the kernel value has the
+constant `reference`, compiled code runs `runs`. A runtime replacement (`@[implemented_by]`), a
+`@[csimp]` rewrite at a call site, local or global, a recursion helper, and each other departure
+give one. -/
+structure Departure where
+  /-- The constant that the kernel value has at this point. -/
+  reference : Name
+  /-- The constant that compiled code runs in its place. -/
+  runs : Name
+  /-- Whether a module of the toolchain's own library makes the departure: a replacement or a
+  `@[csimp]` lemma that such a module registers, or the recursion helper of a toolchain constant. -/
+  inToolchain : Bool
+  deriving DecidableEq, Repr
+
 /-- One constant of the loaded environment, as Lean reports it from the build's `.olean` files. -/
 structure Decl where
   /-- Its name. A loaded environment holds at most one constant of each name. -/
@@ -44,12 +59,15 @@ structure Decl where
   value of a definition, theorem or opaque constant, the type of an axiom, constructor or
   recursor, and the type and constructors of an inductive type. -/
   uses : List Name
-  /-- The constant `@[implemented_by]` names, if any (`Lean.Compiler.getImplementedBy?`). -/
+  /-- The constant `@[implemented_by]` names, if any (`Lean.Compiler.getImplementedBy?`). Only the
+  form of a recursion helper (RG1006) reads it: the execution closure reads `compiled` and
+  `departures`. -/
   implementedBy : Option Name
-  /-- The constant that a `@[csimp]` lemma makes compiled code run in place of this one, if any:
-  the target of an entry of Lean's csimp extension (`Lean.Compiler.CSimp.ext`) whose source is
-  this constant, read from the entries in the `.olean` parts of the modules. -/
-  csimpTarget : Option Name
+  /-- The constants its compiled code runs, as the build's compiled code records them. -/
+  compiled : List Name
+  /-- Each point at which its compiled code departs from its kernel value, as the build's compiled
+  code records it. -/
+  departures : List Departure
   /-- Whether it is `@[extern]` (`Lean.isExtern`). -/
   isExtern : Bool
   /-- Whether an `initialize` or `builtin_initialize` declaration sets its value when the program
@@ -163,18 +181,42 @@ inductive Obligation where
   | nondegenerate
   deriving DecidableEq, Repr
 
-/-- A statement that a theorem of a claimed module proves, read from the theorem's type, which
-must be exactly the statement that the matching goal former gives. -/
+/-- A constant named by its module and its name. Two environments can each hold a constant of one
+name, such as the `main` of two executables, and the module tells them apart. -/
+structure QualName where
+  /-- The module whose `.olean` holds the constant. -/
+  module : Name
+  /-- The name of the constant. -/
+  name : Name
+  deriving DecidableEq, Repr
+
+/-- A deliverable that the owner's record names: its implementation and its intent record, each
+by its module and its name. -/
+structure Deliverable where
+  impl : QualName
+  record : QualName
+  deriving DecidableEq, Repr
+
+/-- A statement that a theorem proves, read from the theorem's type, which must be exactly the
+statement that the matching goal former gives. A constant of a statement about a deliverable has
+its module, which the environment that holds the theorem gives (`Environment.getModuleIdxFor?`). -/
 inductive Goal where
   /-- The obligation `k` of the intent record `record`. -/
-  | obligation (k : Obligation) (record : Name)
+  | obligation (k : Obligation) (record : QualName)
   /-- The confirmed consequence `consequence` of the intent record `record`. -/
-  | keeps (record consequence : Name)
+  | keeps (record consequence : QualName)
   /-- The implementation `impl` fulfils the intent record `record`. -/
-  | fulfils (impl record : Name)
-  /-- The execution boundary at `c` corresponds to the reference `c`: an equality of the
-  constant compiled code runs with `c`. -/
-  | corresponds (c : Name)
+  | fulfils (impl record : QualName)
+  /-- The correspondence of the departure at which compiled code runs `runs` in place of
+  `reference`. For a runtime replacement or a `@[csimp]` rewrite it is the equality
+  `@reference = @runs`, which a `@[csimp]` lemma states. -/
+  | corresponds (reference runs : Name)
+  deriving DecidableEq, Repr
+
+/-- A statement and the theorem that proves it. -/
+structure Proof where
+  statement : Goal
+  theorem_ : Name
   deriving DecidableEq, Repr
 
 /-- The closed input of one run. -/
@@ -195,14 +237,14 @@ structure Input where
   decisions : List Name
   /-- The decision functions whose result type is `Decidable`. -/
   decidableResults : List Name
-  /-- The deliverables that the owner's committed confirmation record names, each an implementation
-  and its intent record, or `none` when the project has no such record. The project's own code does
-  not name them, so removing a declaration removes no obligation. -/
-  inventory : Option (List (Name × Name))
-  /-- The statements that theorems of claimed modules prove. -/
-  proved : List Goal
+  /-- The deliverables that the owner's committed confirmation record names, or `none` when the
+  project has no such record. The project's own code does not name them, so removing a declaration
+  removes no obligation. -/
+  inventory : Option (List Deliverable)
+  /-- Each statement that a theorem of the environment proves, with the theorem. -/
+  proved : List Proof
   /-- The owner's confirmed or declined consequences: an intent record and a consequence. -/
-  confirmed : List (Name × Name)
+  confirmed : List (QualName × QualName)
 
 namespace Input
 
@@ -223,6 +265,13 @@ def ExcludedModule (m : Name) : Prop := i.InTarget m .excluded
 
 /-- `c` names a constant of a claimed module. -/
 def ClaimedName (c : Name) : Prop := ∃ d ∈ i.decls, d.name = c ∧ i.ClaimedModule d.module
+
+/-- The constant `q` is in the input, in the module that `q` names, and that module is claimed. -/
+def ClaimedConst (q : QualName) : Prop :=
+  ∃ d ∈ i.decls, d.name = q.name ∧ d.module = q.module ∧ i.ClaimedModule d.module
+
+/-- A theorem of a claimed module proves `g`. -/
+def ProvedClaimed (g : Goal) : Prop := ∃ q ∈ i.proved, q.statement = g ∧ i.ClaimedName q.theorem_
 
 /-- `c` names a constant of the input. -/
 def Resolves (c : Name) : Prop := ∃ d ∈ i.decls, d.name = c

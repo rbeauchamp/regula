@@ -5,7 +5,9 @@ import RegulaSpecification.CasesExecution
 
 RG6001 reads the bundle: its record meets lean-intent's obligations (`rg6001_adequate`), a project
 with no record or with a named deliverable that no environment has is refused, and two executables
-whose environments each hold one complete deliverable pass (`rg6001_admits_split`).
+whose environments each hold one complete deliverable pass (`rg6001_admits_split`). Each
+deliverable is named by module and name, so the evidence of one `main` is not evidence of a `main`
+in a different module (`rg6001_refuses_bare_evidence`).
 
 The record of the verdict meets O2, O2 before a run, O3 and O4, and O5 with equality
 (`gate_o5`): it determines the verdict of each input. The checker that always passes and the
@@ -62,109 +64,116 @@ theorem wf_baseBundle : baseBundle.WellFormed := wf_single wf_base base_loads ba
 
 /-! ## RG6001 -/
 
-/-- The parts of a deliverable that a finding can name. -/
-def partsOf (b : Bundle) (f : Name) : List (Name × IntentPart) :=
-  [(f, .record), (f, .implementation), (f, .obligation .o1), (f, .obligation .o2),
-    (f, .obligation .o3), (f, .obligation .o4), (f, .obligation .o5), (f, .obligation .o2Run),
-    (f, .obligation .nondegenerate), (f, .dependsOnImplementation), (f, .fulfilment)] ++
-    b.confirmed.map fun q => (f, .consequence q.2)
+/-- The parts of the deliverable `x` that a finding can name. -/
+def partsOf (b : Bundle) (x : Deliverable) : List (Deliverable × IntentPart) :=
+  [(x, .record), (x, .implementation), (x, .obligation .o1), (x, .obligation .o2),
+    (x, .obligation .o3), (x, .obligation .o4), (x, .obligation .o5), (x, .obligation .o2Run),
+    (x, .obligation .nondegenerate), (x, .dependsOnImplementation), (x, .fulfilment)] ++
+    b.confirmed.map fun q => (x, .consequence q.2)
 
-def withoutFulfilment : List Goal :=
-  [.obligation .o1 `Good.intent, .obligation .o2 `Good.intent, .obligation .o3 `Good.intent,
-    .obligation .o4 `Good.intent, .obligation .o5 `Good.intent, .obligation .o2Run `Good.intent,
-    .obligation .nondegenerate `Good.intent, .corresponds `Good.f]
+def withoutFulfilment : List Proof :=
+  [⟨.obligation .o1 goodDeliverable.record, `Good.t⟩,
+    ⟨.obligation .o2 goodDeliverable.record, `Good.t⟩,
+    ⟨.obligation .o3 goodDeliverable.record, `Good.t⟩,
+    ⟨.obligation .o4 goodDeliverable.record, `Good.t⟩,
+    ⟨.obligation .o5 goodDeliverable.record, `Good.t⟩,
+    ⟨.obligation .o2Run goodDeliverable.record, `Good.t⟩,
+    ⟨.obligation .nondegenerate goodDeliverable.record, `Good.t⟩,
+    ⟨.corresponds `Good.f `Good.f._unsafe_rec, `Good.t⟩]
 
 def refused6001 : Bundle := ⟨[{ base with proved := withoutFulfilment }]⟩
 
-theorem base_claimed_f : base.ClaimedName `Good.f :=
-  ⟨plain `Good.f `Good .definition [], by simp [base, baseDecls], rfl, _, _, base_claims_good⟩
+theorem base_claimed_f : base.ClaimedConst goodDeliverable.impl :=
+  ⟨fDecl, f_mem, rfl, rfl, _, _, base_claims_good⟩
 
 def w6001 : Witnessed Violates6001 where
-  support b := (b.inventory.getD []).flatMap (fun p => partsOf b p.1) ++
-    [(Name.anonymous, .inventory)]
+  support b := (b.inventory.getD []).flatMap (partsOf b) ++ [(noDeliverable, .inventory)]
   support_complete b s h := by
-    rcases h with ⟨record, hmem, hasked, -⟩ | ⟨-, rfl⟩
-    · refine List.mem_append_left _ (List.mem_flatMap.mpr ⟨(s.1, record), hmem, ?_⟩)
-      obtain ⟨f, part⟩ := s
+    rcases h with ⟨hmem, hasked, -⟩ | ⟨-, rfl⟩
+    · refine List.mem_append_left _ (List.mem_flatMap.mpr ⟨s.1, hmem, ?_⟩)
+      obtain ⟨x, part⟩ := s
       cases part with
       | obligation k => cases k <;> simp [partsOf]
       | consequence c =>
-        exact List.mem_append_right _ (List.mem_map.mpr ⟨(record, c), hasked, rfl⟩)
+        exact List.mem_append_right _ (List.mem_map.mpr ⟨(x.record, c), hasked, rfl⟩)
       | inventory => exact False.elim hasked
       | _ => simp [partsOf]
     · exact List.mem_append_right _ (by simp)
   refused := refused6001
   refused_wf := wf_single (wf_congr wf_base rfl rfl rfl) base_loads base_claims_target
-  bad := (`Good.f, .fulfilment)
+  bad := (goodDeliverable, .fulfilment)
   bad_violates := by
-    refine Or.inl ⟨`Good.intent, by simp [refused6001, Bundle.inventory, base], trivial, ?_⟩
+    refine Or.inl ⟨by simp [refused6001, Bundle.inventory, base], trivial, ?_⟩
     rintro ⟨i, hi, -, hp⟩
     simp only [refused6001, List.mem_singleton] at hi
     subst hi
-    simp [IntentPart.Holds, withoutFulfilment] at hp
+    simp [IntentPart.Holds, Input.ProvedClaimed, withoutFulfilment] at hp
   admitted := baseBundle
   admitted_wf := wf_baseBundle
-  fine := (`Good.f, .fulfilment)
+  fine := (goodDeliverable, .fulfilment)
   fine_admitted := by
-    rintro (⟨r, hr, -, h⟩ | ⟨h, -⟩)
-    · simp [baseBundle, Bundle.inventory, base] at hr
-      subst hr
-      exact h ⟨base, by simp [baseBundle], base_claimed_f, by simp [IntentPart.Holds, base]⟩
+    rintro (⟨-, -, h⟩ | ⟨h, -⟩)
+    · exact h ⟨base, by simp [baseBundle], base_claimed_f,
+        ⟨⟨.fulfils goodDeliverable.impl goodDeliverable.record, `Good.t⟩, by simp [base, proofsOf],
+          rfl, base_claimed_t⟩⟩
     · simp [baseBundle, Bundle.inventory, base] at h
 
 theorem rg6001_adequate : O2 rg6001 ∧ O2Run rg6001 ∧ O3 rg6001 ∧ O4 rg6001 ∧
     O5 rg6001 (.rel SameReports) := adequate w6001
 
 theorem rg6001_noisy : ¬ rg6001.Meets w6001.support :=
-  noisy_fails w6001 (show ((`Good.f : Name), IntentPart.fulfilment) ∈
-    (baseBundle.inventory.getD []).flatMap (fun p => partsOf baseBundle p.1) ++
-      [(Name.anonymous, IntentPart.inventory)] from
+  noisy_fails w6001 (show (goodDeliverable, IntentPart.fulfilment) ∈
+    (baseBundle.inventory.getD []).flatMap (partsOf baseBundle) ++
+      [(noDeliverable, IntentPart.inventory)] from
     List.mem_append_left _ (List.mem_flatMap.mpr
-      ⟨(`Good.f, `Good.intent), by simp [baseBundle, Bundle.inventory, base], by simp [partsOf]⟩))
+      ⟨goodDeliverable, by simp [baseBundle, Bundle.inventory, base], by simp [partsOf]⟩))
 
 /-- A project with no committed confirmation record violates RG6001, so an empty inventory is not
 read as one that passes. -/
 theorem rg6001_refuses_no_record :
-    Violates6001 ⟨[{ base with inventory := none }]⟩ (Name.anonymous, .inventory) :=
+    Violates6001 ⟨[{ base with inventory := none }]⟩ (noDeliverable, .inventory) :=
   Or.inr ⟨rfl, rfl⟩
+
+/-- A deliverable whose implementation `Gone` no environment has. -/
+def goneDeliverable : Deliverable := ⟨⟨`Good, `Gone⟩, ⟨`Good, `Good.intent⟩⟩
 
 /-- A deliverable that the owner's record names and that no environment of the project has
 violates RG6001. -/
 theorem rg6001_refuses_missing :
-    Violates6001 ⟨[{ base with inventory := some [(`Gone, `Good.intent)] }]⟩
-      (`Gone, .implementation) := by
-  refine Or.inl ⟨`Good.intent, by simp [Bundle.inventory], trivial, ?_⟩
+    Violates6001 ⟨[{ base with inventory := some [goneDeliverable] }]⟩
+      (goneDeliverable, .implementation) := by
+  refine Or.inl ⟨by simp [Bundle.inventory], trivial, ?_⟩
   rintro ⟨i, hi, ⟨d, hd, hn, -⟩, -⟩
   simp only [List.mem_singleton] at hi
   subst hi
   simp only [base, baseDecls, List.mem_cons, List.not_mem_nil, or_false] at hd
   rcases hd with rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl <;>
-    simp [plain, toolchain, helperDecl] at hn
+    simp [plain, toolchain, helperDecl, goneDeliverable] at hn
 
-/-! ### Two executables, each with a deliverable that the other does not load -/
+/-! ### Two executables, each with a `main` in its own module -/
 
 def splitTargets : List Target :=
   [⟨`appA, .executable, [`AppA], strict, [], true⟩, ⟨`appB, .executable, [`AppB], strict, [], true⟩]
 
-/-- The statements that the deliverable with implementation `f` and intent record `r` needs. -/
-def proofsOf (f r : Name) : List Goal :=
-  [.obligation .o1 r, .obligation .o2 r, .obligation .o3 r, .obligation .o4 r, .obligation .o5 r,
-    .obligation .o2Run r, .obligation .nondegenerate r, .fulfils f r]
+/-- The deliverable of the executable whose root module is `m`: its `main` and the intent record
+`m.intent`. -/
+def splitDeliverable (m : Name) : Deliverable := ⟨⟨m, `main⟩, ⟨m, Name.str m "intent"⟩⟩
 
 /-- The environment of the executable whose root module is `m`: it loads `m` only, which declares
-the implementation `m.run` and its intent record `m.intent` and proves each statement they need. -/
+`main`, its intent record `m.intent`, and the theorem `m.proof` of each statement they need. -/
 def splitEnv (m : Name) : Input where
   targets := splitTargets
   manifest :=
     [⟨`appA, .claimed .standardLogical .report⟩, ⟨`appB, .claimed .standardLogical .report⟩]
   modules := [⟨`AppA, [`Init], []⟩, ⟨`AppB, [`Init], []⟩]
-  decls := [plain (Name.str m "run") m .definition [], plain (Name.str m "intent") m .definition []]
+  decls := [plain `main m .definition [], plain (Name.str m "intent") m .definition [],
+    plain (Name.str m "proof") m .theorem []]
   loads := [m]
   contracts := []
   decisions := []
   decidableResults := []
-  inventory := some [(`AppA.run, `AppA.intent), (`AppB.run, `AppB.intent)]
-  proved := proofsOf (Name.str m "run") (Name.str m "intent")
+  inventory := some [splitDeliverable `AppA, splitDeliverable `AppB]
+  proved := proofsOf (splitDeliverable m) (Name.str m "proof")
   confirmed := []
 
 def splitBundle : Bundle := ⟨[splitEnv `AppA, splitEnv `AppB]⟩
@@ -173,7 +182,7 @@ theorem wf_splitEnv (m : Name) : (splitEnv m).WellFormed := by
   refine ⟨by simp [splitEnv, plain], ?_, ?_⟩
   · intro d hd u hu
     simp only [splitEnv, List.mem_cons, List.not_mem_nil, or_false] at hd
-    rcases hd with rfl | rfl <;> simp [plain] at hu
+    rcases hd with rfl | rfl | rfl <;> simp [plain] at hu
   · intro t ht n hn
     simp only [splitEnv, splitTargets, List.mem_cons, List.not_mem_nil, or_false] at ht
     rcases ht with rfl | rfl <;> simp at hn <;> subst hn <;> simp [splitEnv]
@@ -208,41 +217,40 @@ theorem splitEnv_claimed {m : Name} (hm : m = `AppA ∨ m = `AppB) :
 /-- In the environment of `m`, each part that the owner's record asks of the deliverable of `m`
 holds. -/
 theorem splitEnv_holds {m : Name} (hm : m = `AppA ∨ m = `AppB) {part : IntentPart}
-    (hasked : part.Asked [] (Name.str m "intent")) :
-    part.Holds (splitEnv m) (Name.str m "run") (Name.str m "intent") := by
-  have claimed (s : String) (hs : s = "run" ∨ s = "intent") :
-      (splitEnv m).ClaimedName (Name.str m s) := by
-    rcases hs with rfl | rfl
-    · exact ⟨plain (Name.str m "run") m .definition [], by simp [splitEnv], rfl,
-        splitEnv_claimed hm⟩
-    · exact ⟨plain (Name.str m "intent") m .definition [], by simp [splitEnv], rfl,
-        splitEnv_claimed hm⟩
+    (hasked : part.Asked [] (splitDeliverable m).record) :
+    part.Holds (splitEnv m) (splitDeliverable m) := by
+  have proved (g : Goal) (hg : ⟨g, Name.str m "proof"⟩ ∈ (splitEnv m).proved) :
+      (splitEnv m).ProvedClaimed g :=
+    ⟨_, hg, rfl, plain (Name.str m "proof") m .theorem [], by simp [splitEnv], rfl,
+      splitEnv_claimed hm⟩
   cases part with
-  | record => exact claimed "intent" (Or.inr rfl)
-  | implementation => exact claimed "run" (Or.inl rfl)
-  | obligation k => cases k <;> simp [IntentPart.Holds, splitEnv, proofsOf]
+  | record => exact ⟨plain (Name.str m "intent") m .definition [], by simp [splitEnv], rfl, rfl,
+      splitEnv_claimed hm⟩
+  | implementation => exact ⟨plain `main m .definition [], by simp [splitEnv], rfl, rfl,
+      splitEnv_claimed hm⟩
+  | obligation k => exact proved _ (by cases k <;> simp [splitEnv, proofsOf, splitDeliverable])
   | dependsOnImplementation =>
-    show ¬ (splitEnv m).Reaches (Name.str m "intent") (Name.str m "run")
+    show ¬ (splitEnv m).Reaches (Name.str m "intent") `main
     intro h
     have := reaches_closed (i := splitEnv m) (fun n => n = Name.str m "intent") (by
       intro d hd _ u hu
       simp only [splitEnv, List.mem_cons, List.not_mem_nil, or_false] at hd
-      rcases hd with rfl | rfl <;> simp [plain] at hu) rfl h
+      rcases hd with rfl | rfl | rfl <;> simp [plain] at hu) rfl h
     simp at this
   | consequence c => simp [IntentPart.Asked] at hasked
-  | fulfilment => simp [IntentPart.Holds, splitEnv, proofsOf]
+  | fulfilment => exact proved _ (by simp [splitEnv, proofsOf, splitDeliverable])
   | inventory => trivial
 
-/-- Two executables whose environments each hold one complete deliverable, which the environment
-of the other does not load, form a well-formed bundle that RG6001 admits: the rule reads the
-bundle, so neither deliverable is reported missing. -/
+/-- Two executables, each with a `main` in its own module and a complete deliverable that the
+environment of the other does not load, form a well-formed bundle that RG6001 admits. -/
 theorem rg6001_admits_split :
     splitBundle.WellFormed ∧ `AppA ∉ (splitEnv `AppB).loads ∧ `AppB ∉ (splitEnv `AppA).loads ∧
+      (splitDeliverable `AppA).impl.name = (splitDeliverable `AppB).impl.name ∧
       ∀ s, ¬ Violates6001 splitBundle s := by
-  refine ⟨wf_splitBundle, by simp [splitEnv], by simp [splitEnv], ?_⟩
-  rintro ⟨f, part⟩ (⟨r, hr, hasked, hfail⟩ | ⟨h, -⟩)
-  · simp [splitBundle, Bundle.inventory, splitEnv] at hr
-    rcases hr with ⟨rfl, rfl⟩ | ⟨rfl, rfl⟩
+  refine ⟨wf_splitBundle, by simp [splitEnv], by simp [splitEnv], rfl, ?_⟩
+  rintro ⟨x, part⟩ (⟨hx, hasked, hfail⟩ | ⟨h, -⟩)
+  · simp [splitBundle, Bundle.inventory, splitEnv] at hx
+    rcases hx with rfl | rfl
     · exact hfail ⟨splitEnv `AppA, by simp [splitBundle],
         splitEnv_holds (part := .implementation) (Or.inl rfl) trivial,
         splitEnv_holds (Or.inl rfl) hasked⟩
@@ -250,6 +258,109 @@ theorem rg6001_admits_split :
         splitEnv_holds (part := .implementation) (Or.inr rfl) trivial,
         splitEnv_holds (Or.inr rfl) hasked⟩
   · simp [splitBundle, Bundle.inventory, splitEnv] at h
+
+/-! ### Two `main` constants with one intent record in a shared library -/
+
+def sharedTargets : List Target :=
+  [⟨`Lib, .library, [`Lib], strict, [], true⟩,
+    ⟨`appA, .executable, [`AppA], strict, [], true⟩, ⟨`appB, .executable, [`AppB], strict, [], true⟩]
+
+/-- The intent record `Lib.intent` of the shared library. -/
+def libRecord : QualName := ⟨`Lib, `Lib.intent⟩
+
+/-- The deliverable of the executable whose root module is `m`: its `main` and `Lib.intent`. -/
+def sharedDeliverable (m : Name) : Deliverable := ⟨⟨m, `main⟩, libRecord⟩
+
+/-- The proofs, by the theorem `Lib.proof`, of each obligation of `Lib.intent`. -/
+def libProofs : List Proof :=
+  [⟨.obligation .o1 libRecord, `Lib.proof⟩, ⟨.obligation .o2 libRecord, `Lib.proof⟩,
+    ⟨.obligation .o3 libRecord, `Lib.proof⟩, ⟨.obligation .o4 libRecord, `Lib.proof⟩,
+    ⟨.obligation .o5 libRecord, `Lib.proof⟩, ⟨.obligation .o2Run libRecord, `Lib.proof⟩,
+    ⟨.obligation .nondegenerate libRecord, `Lib.proof⟩]
+
+/-- The environment of the executable whose root module is `m`: it loads `Lib`, with the record and
+its obligations, and `m`, with `main` and the theorem `m.proof`, which proves `extra`. -/
+def sharedEnv (m : Name) (extra : List Proof) : Input where
+  targets := sharedTargets
+  manifest := [⟨`Lib, .claimed .standardLogical .report⟩,
+    ⟨`appA, .claimed .standardLogical .report⟩, ⟨`appB, .claimed .standardLogical .report⟩]
+  modules := [⟨`Lib, [`Init], []⟩, ⟨`AppA, [`Init, `Lib], []⟩, ⟨`AppB, [`Init, `Lib], []⟩]
+  decls := [plain `Lib.intent `Lib .definition [], plain `Lib.proof `Lib .theorem [],
+    plain `main m .definition [], plain (Name.str m "proof") m .theorem []]
+  loads := [`Lib, m]
+  contracts := []
+  decisions := []
+  decidableResults := []
+  inventory := some [sharedDeliverable `AppA, sharedDeliverable `AppB]
+  proved := libProofs ++ extra
+  confirmed := []
+
+/-- The environment of `AppA`, which proves that its `main` fulfils `Lib.intent`. -/
+def sharedA : Input :=
+  sharedEnv `AppA [⟨.fulfils (sharedDeliverable `AppA).impl libRecord, `AppA.proof⟩]
+
+/-- The environment of `AppB`, which proves nothing of its `main`. -/
+def sharedB : Input := sharedEnv `AppB []
+
+def sharedBundle : Bundle := ⟨[sharedA, sharedB]⟩
+
+theorem wf_sharedEnv {m : Name} (hm : m = `AppA ∨ m = `AppB) (extra : List Proof) :
+    (sharedEnv m extra).WellFormed := by
+  refine ⟨?_, ?_, ?_⟩
+  · rcases hm with rfl | rfl <;> simp [sharedEnv, plain]
+  · intro d hd u hu
+    simp only [sharedEnv, List.mem_cons, List.not_mem_nil, or_false] at hd
+    rcases hd with rfl | rfl | rfl | rfl <;> simp [plain] at hu
+  · intro t ht n hn
+    simp only [sharedEnv, sharedTargets, List.mem_cons, List.not_mem_nil, or_false] at ht
+    rcases ht with rfl | rfl | rfl <;> simp at hn <;> subst hn <;> simp [sharedEnv]
+
+theorem wf_sharedBundle : sharedBundle.WellFormed where
+  nonempty := by simp [sharedBundle]
+  each i hi := by
+    simp only [sharedBundle, List.mem_cons, List.not_mem_nil, or_false] at hi
+    rcases hi with rfl | rfl
+    · exact wf_sharedEnv (Or.inl rfl) _
+    · exact wf_sharedEnv (Or.inr rfl) _
+  oneProject i hi j hj := by
+    simp only [sharedBundle, List.mem_cons, List.not_mem_nil, or_false] at hi hj
+    rcases hi with rfl | rfl <;> rcases hj with rfl | rfl <;> exact ⟨rfl, rfl, rfl, rfl, rfl⟩
+  covered i hi t ht n hn := by
+    have ht' : t ∈ sharedTargets := by
+      simp only [sharedBundle, List.mem_cons, List.not_mem_nil, or_false] at hi
+      rcases hi with rfl | rfl <;> exact ht
+    simp only [sharedTargets, List.mem_cons, List.not_mem_nil, or_false] at ht'
+    rcases ht' with rfl | rfl | rfl <;> simp at hn <;> subst hn
+    · exact ⟨sharedA, by simp [sharedBundle], by simp [sharedA, sharedEnv]⟩
+    · exact ⟨sharedA, by simp [sharedBundle], by simp [sharedA, sharedEnv]⟩
+    · exact ⟨sharedB, by simp [sharedBundle], by simp [sharedB, sharedEnv]⟩
+  claims := ⟨sharedA, by simp [sharedBundle], `appA, .standardLogical, .report,
+    by simp [sharedA, sharedEnv]⟩
+
+/-- Two executables whose `main` constants share the name `main` and the intent record
+`Lib.intent`: the environment of `AppA` holds the fulfilment of its deliverable, which under bare
+names would be the entry of `AppB` too. RG6001 still refuses the deliverable of `AppB`, because
+its `main` is in `AppB`, and no environment that has it there proves its fulfilment. -/
+theorem rg6001_refuses_bare_evidence :
+    sharedBundle.WellFormed ∧
+      IntentPart.fulfilment.Holds sharedA (sharedDeliverable `AppA) ∧
+      (sharedDeliverable `AppA).impl.name = (sharedDeliverable `AppB).impl.name ∧
+      (sharedDeliverable `AppA).record = (sharedDeliverable `AppB).record ∧
+      Violates6001 sharedBundle (sharedDeliverable `AppB, .fulfilment) := by
+  refine ⟨wf_sharedBundle, ⟨⟨.fulfils (sharedDeliverable `AppA).impl libRecord, `AppA.proof⟩,
+    by simp [sharedA, sharedEnv], rfl, plain `AppA.proof `AppA .theorem [],
+    by simp [sharedA, sharedEnv], rfl, .standardLogical, .report,
+    ⟨`appA, .executable, [`AppA], strict, [], true⟩, by simp [sharedA, sharedEnv, sharedTargets],
+    by simp [plain], by simp [sharedA, sharedEnv]⟩, rfl, rfl,
+    Or.inl ⟨by simp [sharedBundle, Bundle.inventory, sharedA, sharedEnv], trivial, ?_⟩⟩
+  rintro ⟨i, hi, ⟨d, hd, hn, hmod, -⟩, q, hq, hs, -⟩
+  simp only [sharedBundle, List.mem_cons, List.not_mem_nil, or_false] at hi
+  rcases hi with rfl | rfl
+  · simp only [sharedA, sharedEnv, List.mem_cons, List.not_mem_nil, or_false] at hd
+    rcases hd with rfl | rfl | rfl | rfl <;> simp [plain, sharedDeliverable] at hn hmod
+  · simp only [sharedB, sharedEnv, libProofs, List.append_nil, List.mem_cons, List.not_mem_nil,
+      or_false] at hq
+    rcases hq with rfl | rfl | rfl | rfl | rfl | rfl | rfl <;> simp at hs
 
 /-- A bundle with an environment that the admission refuses. -/
 def duplicatedBundle : Bundle := ⟨[duplicated]⟩

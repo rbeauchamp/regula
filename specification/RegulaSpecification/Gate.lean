@@ -68,26 +68,30 @@ instance : Admission Bundle := ⟨Bundle.WellFormed⟩
 
 /-- The deliverables that the owner's record names, as the first environment carries them, or
 `none` when the project has no such record. The admission makes them those of each environment. -/
-def Bundle.inventory (b : Bundle) : Option (List (Name × Name)) :=
+def Bundle.inventory (b : Bundle) : Option (List Deliverable) :=
   b.envs.head?.bind (·.inventory)
 
 /-- The owner's confirmed or declined consequences, as the first environment carries them. The
 admission makes them those of each environment. -/
-def Bundle.confirmed (b : Bundle) : List (Name × Name) :=
+def Bundle.confirmed (b : Bundle) : List (QualName × QualName) :=
   (b.envs.head?.map (·.confirmed)).getD []
 
-/-- The part `part` of deliverable `(impl, record)` fails in the bundle: the owner's record asks
-it, and no environment that has `impl` in a claimed module satisfies it. So `implementation` fails
-when no environment has `impl` in a claimed module. -/
-def IntentPart.Fails (b : Bundle) (impl record : Name) (part : IntentPart) : Prop :=
-  part.Asked b.confirmed record ∧ ¬ ∃ i ∈ b.envs, i.ClaimedName impl ∧ part.Holds i impl record
+/-- The part `part` of the deliverable `x` fails in the bundle: the owner's record asks it, and no
+environment in which the implementation is a constant of a claimed module, in the module that the
+record names, satisfies it. So `implementation` fails when no environment has it there, and the
+evidence of a constant of the same name in a different module never counts. -/
+def IntentPart.Fails (b : Bundle) (x : Deliverable) (part : IntentPart) : Prop :=
+  part.Asked b.confirmed x.record ∧ ¬ ∃ i ∈ b.envs, i.ClaimedConst x.impl ∧ part.Holds i x
+
+/-- The subject of the finding of a project with no committed confirmation record. -/
+def noDeliverable : Deliverable := ⟨⟨.anonymous, .anonymous⟩, ⟨.anonymous, .anonymous⟩⟩
 
 /-- RG6001, new: a part of a deliverable that the owner's record names fails in the bundle, or the
 project has no such record. The rule reads the bundle, not one environment, so a deliverable of one
 executable is not reported missing from the environment of another. -/
-def Violates6001 (b : Bundle) (s : Name × IntentPart) : Prop :=
-  (∃ record, (s.1, record) ∈ b.inventory.getD [] ∧ s.2.Fails b s.1 record) ∨
-    (b.inventory = none ∧ s = (Name.anonymous, .inventory))
+def Violates6001 (b : Bundle) (s : Deliverable × IntentPart) : Prop :=
+  (s.1 ∈ b.inventory.getD [] ∧ s.2.Fails b s.1) ∨
+    (b.inventory = none ∧ s = (noDeliverable, .inventory))
 
 /-- The intent record of RG6001. -/
 def rg6001 := ruleRecord "RG6001" Violates6001

@@ -143,7 +143,7 @@ def partialDecl : Decl := { plain `Good.p `Good .definition [] with isPartial :=
 theorem helper_mem : helperDecl ∈ base.decls := by simp [base, baseDecls]
 
 theorem base_helper : base.RecursionHelper helperDecl :=
-  ⟨rfl, rfl, rfl, rfl, plain `Good.f `Good .definition [], by simp [base, baseDecls], rfl, rfl,
+  ⟨rfl, rfl, rfl, rfl, fDecl, by simp [fDecl, base, baseDecls], rfl, rfl,
     rfl, rfl, rfl, rfl⟩
 
 def w1006 : Witnessed Violates1006 where

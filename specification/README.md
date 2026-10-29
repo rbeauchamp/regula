@@ -63,7 +63,7 @@ The checker starts none of these processes. The project's local gate or its CI r
 
 ## The closed input
 
-The closed input is the type `Input` in [`RegulaSpecification/Input.lean`](RegulaSpecification/Input.lean). Each field is one of these four parts, and each part comes from the owner of its data:
+The closed input is the type `Input` in [`RegulaSpecification/Input.lean`](RegulaSpecification/Input.lean). Each field is one of these five parts, and each part comes from the owner of its data:
 
 | Part | Owner and interface |
 | --- | --- |
@@ -71,6 +71,7 @@ The closed input is the type `Input` in [`RegulaSpecification/Input.lean`](Regul
 | The claim: the classification of each target | `foundation_manifest.json`, a closed format that Regula defines |
 | Each module of the root package that Lake builds: its imports and the names of the environment extensions with entries in its `.olean` files | `Lean.readModuleDataParts` |
 | Each constant of each environment that the shell loads, with the modules it imports | `Lean.importModules` with `loadExts := false` |
+| The compiled code of each constant: the constants that it runs, and the points where it departs from the kernel value | The build's compiled code. **Open**: leaf [#487] gives the mechanism that reads it, and leaf [#483] the input that carries it. |
 
 The input has no source text, message, info tree, option set in source, build log or list of files. A rule does not decide what it cannot read in this input. This is the boundary of the input.
 
@@ -241,21 +242,21 @@ But the list of `lake check` is fixed, and it gives no axiom set for each consta
 #### [RG3001]: the execution closure resolves
 
 - **Fate**: kept. Leaf: [#487].
-- **Intent**: the execution closure of each claimed executable contains only constants of the input, and no cycle of runtime replacements. Thus no account of execution leaves out a path, and each path ends in a definition.
+- **Intent**: the execution closure of each claimed executable contains only constants of the input, and no cycle of departures. Thus no account of execution leaves out a path, and each path ends in a definition.
 - **Domain**: each name in the execution closure of the `main` of a claimed executable.
-- **Input**: the constants, their runtime replacements and the recursion helpers.
-- **Formal statement**: `Violates3001`, with `Input.Executes` and `Input.Replaces`. A runtime replacement is the constant that `implemented_by` names, or the target of a `@[csimp]` lemma (`Decl.ReplacedBy`). Compiled code runs the replacement of a constant if it has one. Else it runs the helper if there is one, else the constants that the value mentions. A constant on a cycle of replacements violates the rule, because the cycle runs no definition. **Proved**: `rg3001_refuses_cycle`.
-- **Accepted risks**: the admission already requires each mentioned constant to be loaded. Thus the rule can fail only for a replacement that names an absent constant. **Assumed**: compiled code follows the kernel value of a constant, except at a replacement or a helper. Leaf [#487] keeps this as a named assumption. **Assumed**: the shell reads the `@[csimp]` lemmas of each module from the entries of Lean's csimp extension in its `.olean` parts. Leaves [#483] and [#487] establish this.
+- **Input**: the constants, and the compiled code of each: the constants that it runs and its departures.
+- **Formal statement**: `Violates3001`, with `Input.Executes` and `Input.DepartsTo`. The closure follows the constants that the build's compiled code runs (`Decl.compiled`), not the kernel values. A departure (`Departure`) is a point where compiled code runs a constant in place of the constant that the kernel value has. A runtime replacement, a `@[csimp]` rewrite at a call site, local or global, and a recursion helper each give one. A constant on a cycle of departures to different constants violates the rule, because the cycle runs no definition. **Proved**: `rg3001_refuses_cycle`.
+- **Accepted risks**: the admission requires each constant that a kernel value mentions to be loaded, but not each constant that compiled code runs. So the rule fails for compiled code that runs an absent constant. **Assumed**: the executable runs the code compiled from the code that the build records. **Open**: leaf [#487] gives the mechanism that reads compiled code, and leaf [#483] the input that carries it. **Open**: the compiler adds auxiliary definitions, such as specializations, that are not constants of the environment. Leaf [#487] counts their code as code of the constant that they serve.
 - **Supersedes**: none.
 
 #### [RG3002]: execution boundaries
 
 - **Fate**: kept. Leaf: [#487].
-- **Intent**: under a checked execution claim, each boundary that the closure reaches has a theorem of a claimed module that states its correspondence. A boundary is an `implemented_by` replacement, a recursion helper or code that no theorem can bind, outside the toolchain. A constant that a `@[csimp]` lemma replaces is not a boundary, because the lemma is its correspondence.
-- **Domain**: each boundary in the execution closure of a claimed executable with the execution mode `checked`.
-- **Input**: the closure, the boundaries and the statements that theorems of claimed modules prove.
-- **Formal statement**: `Violates3002`, with `Input.Boundary`, `Input.Unbindable` and `Goal.corresponds`. Code that no theorem can bind fails the rule with any theorem. It is an `extern` constant, a partial definition that is not a recursion helper, or a value that `initialize` sets. A theorem of Lean speaks of a kernel value, and such code runs something else. The closure goes on to the target of a `@[csimp]` lemma, so an `extern` target fails the rule too. **Proved**: `rg3002_refuses_extern` and `rg3002_refuses_csimp_extern`.
-- **Accepted risks**: the rule reads compiled code from the kernel values, not from the compiled code in the build. **Open**: the exact correspondence statement for each kind of boundary, for example the recursion equation of a helper. Leaf [#487] gives these statements.
+- **Intent**: under a checked execution claim, each boundary that the closure reaches has a correspondence. A boundary is a departure that no module of the toolchain makes, or code outside the toolchain that no theorem can bind. A correspondence counts only when its theorem is safe and the profile of the claim admits each axiom of the theorem.
+- **Domain**: each constant in the execution closure of a claimed executable with the execution mode `checked`.
+- **Input**: the closure, the departures and flags of each constant, and each statement that a theorem proves, with the theorem and its axioms.
+- **Formal statement**: `Violates3002`, with `Input.BoundaryAt`, `Input.Corresponds`, `Input.AdmittedProof` and `Input.Unbindable`. A `@[csimp]` lemma states `@f = @g`, which is the correspondence of the departure that it makes. Code that no theorem can bind fails the rule with any theorem. It is an `extern` constant, a partial definition that is not a recursion helper, or a value that `initialize` sets. **Proved**: `rg3002_refuses_extern`, `rg3002_refuses_csimp_extern`, `rg3002_refuses_unsafe_proof` and `rg3002_refuses_unadmitted_proof`.
+- **Accepted risks**: an unsafe theorem is not evidence, because the exporter of `lake check` skips unsafe constants (`LeanExport/Basic.lean:59` and `255` at `v4.35.0`). Lean registers an unsafe `@[csimp]` lemma too (`Lean/Compiler/CSimpAttr.lean:68` at `v4.35.0`), so the rule requires a safe theorem. **Assumed** from those sources. **Assumed**: the executable runs the code compiled from the code that the build records, as for [RG3001]. **Open**: the exact correspondence statement for each kind of departure, for example the recursion equation of a helper. Leaf [#487] gives these statements.
 - **Supersedes**: none.
 
 ### Contracts
@@ -388,9 +389,9 @@ For each of the seven rules: the fate is retired, with leaf [#488]. There is no 
 
 - **Fate**: new. Leaf: [#485].
 - **Intent**: the owner's committed confirmation record names the deliverables, not the project's code. For each one, theorems of claimed modules prove these things. The implementation and the intent record exist. lean-intent's obligations O1 to O5, O2 before a run and its degenerate check hold of the record. It does not reach its implementation, and it keeps each consequence that the owner answered. The implementation fulfils it.
-- **Domain**: each deliverable that the owner's record names: an implementation and its intent record. A project with no such record fails, so an empty inventory passes only when the record says so.
-- **Input**: the owner's confirmation record, the statements that theorems of claimed modules prove, and the constants, in all environments of the bundle.
-- **Formal statement**: `Violates6001`, with `IntentPart.Fails`. The rule checks the inventory over the bundle, not over one environment. A part holds when some environment with the implementation in a claimed module satisfies it. A finding names the deliverable and the part that fails. **Proved**: `rg6001_refuses_no_record`, `rg6001_refuses_missing` and `rg6001_admits_split`. In the last, two environments each hold one complete deliverable that the other does not load, and the bundle passes.
+- **Domain**: each deliverable that the owner's record names: an implementation and its intent record, each by its module and its name. A project with no such record fails, so an empty inventory passes only when the record says so.
+- **Input**: the owner's confirmation record, the statements that theorems of claimed modules prove, and the constants with their modules, in all environments of the bundle.
+- **Formal statement**: `Violates6001`, with `IntentPart.Fails`. The rule checks the inventory over the bundle, and a part holds when an environment with the implementation in its named, claimed module satisfies it. Goals and consequences name constants by module and name too (`QualName`). A finding names the deliverable and the part that fails. **Proved**: `rg6001_refuses_no_record`, `rg6001_refuses_missing`, `rg6001_admits_split` and `rg6001_refuses_bare_evidence`. In the last two, two executables each have a `main`, and only the environment of each `main` gives its evidence.
 - **Accepted risks**: lean-intent now provides the cone check (`LeanIntent.Cone`) and the consequence answers (`LeanIntent.Answers`), but the records of this document do not yet use them. Here the independence is the approximation "the record does not reach the implementation". `Goal.keeps` and the field `confirmed` stand for the consequence answers and the owner's confirmation record. **Open**: [#485] uses lean-intent's own statements, and the link to the owner's confirmation record ([lean-intent#5]) stays open for [#485]. That record also carries the order of the confirmation and the implementation, and the owner's act, which no build shows.
 - **Supersedes**: none.
 
@@ -403,7 +404,7 @@ For a constant of a claimed module, this table gives the rules that examine it a
 | Each constant of a claimed module | [RG1002], [RG1003], [RG1004], [RG1005], [RG1006], and [RG1001] if its kind is `axiom` | Its kind, its transitive axiom set, the profile of its module, its flags and its marks |
 | A theorem with the type `ExecutableContract f R` | [RG1007], and [RG1009] for a decision kind | The contract in its type, the constants that each constant mentions, and the Boolean tests |
 | A registered decision function | [RG1008] | The registrations, the contracts and the result type |
-| A constant in the execution closure of a claimed executable | [RG3001], and [RG3002] under a checked execution claim | The closure, the boundaries and the statements that theorems prove |
+| A constant in the execution closure of a claimed executable | [RG3001], and [RG3002] under a checked execution claim | The compiled code, its departures, and the theorems that prove each correspondence |
 | The implementation of a declared deliverable | `RG6001` | The deliverables, the statements that theorems prove, and the owner's answers |
 | Each claimed module | [RG2004], `RG2007`, and Lean's [RG2003] and [RG2005] | Lake's modules, the imports, the extension names, and Lean's own tools |
 | Each target | [RG2002], and [RG2006] if it is claimed | Lake's targets and the claim |
@@ -469,6 +470,8 @@ These decisions change what the leaves build. Each has its reason.
 - The input is a list of environments, one for the libraries and one for each executable root. A single environment would refuse each project with two executables.
 - An input with no claimed target is `incomplete`. Only a nonempty claim can pass.
 - Under a checked execution claim, code that no theorem can bind fails [RG3002]. A theorem cannot discharge it, as the present standard says of `extern` in §7.6.
+- The execution closure comes from the build's compiled code, not from kernel values and attributes. A local `@[csimp]` lemma changes the compiled code that follows it, but the build exports no entry of it (`Lean/ScopedEnvExtension.lean:96-104` and `191-198` at `v4.35.0`). **Assumed** from that source.
+- A correspondence counts only when its theorem is safe and the profile of the claim admits its axioms. Lean registers an unsafe `@[csimp]` lemma too, as [RG3002] records.
 - The requirements of `linter.missingDocs` and of Mathlib's standard linters go to written guidance with the documentation rules. They guard failures that are cheap to see and correct.
 - A decision registration becomes a declaration, so that a claimed module uses no tool module and no attribute that Lean does not define.
 - The target toolchain is `v4.35.0`, and Regula moved to it in [#494], before the leaves. Its `lake check` replays each constant in scope from an export, in a process that loads no `.olean` file of the project. It also bounds each axiom by the standard three. The `leanchecker` of `v4.34.1` with a module list did less.
@@ -485,8 +488,8 @@ These statements stay assumed after the leaves. Each is a statement about a syst
 - `Lean.importModules` with `loadExts := false` loads exactly the constants of the `.olean` files, and `collectAxioms` then walks their bodies.
 - `lake check` exports and replays the modules that the first command built, and no process changes the build between the commands of the gate. On macOS, `lake check` runs without its sandbox.
 - The shell finds the toolchain's own library only below the pinned toolchain, and Lean refuses an `.olean` file of a different Lean version.
-- Compiled code follows the kernel value of a constant, except at a runtime replacement (`implemented_by` or a `@[csimp]` lemma) or a recursion helper.
-- The shell reads the `@[csimp]` lemmas of each module from the entries of Lean's csimp extension in its `.olean` parts.
+- The executable runs the code compiled from the code that the build records.
+- A departure that a module of the toolchain makes computes what the kernel value computes.
 - Lake's load gives each module that it builds, and its elaboration of a `lakefile.lean` is honest code.
 - The code of a claimed module is honest code: it runs no command that changes messages, options or entries of an admitted extension. `RG2007` cannot see such a command.
 - The meta-code of a dependency is honest code, as the present standard states.

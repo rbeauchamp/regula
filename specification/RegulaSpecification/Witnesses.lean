@@ -10,9 +10,11 @@ prove that neither the checker that reports nothing nor the one that reports eve
 it. A statement that a do-nothing checker met, or that refused the compliant case, would fail here.
 
 `base` is one claimed library `Good` (choice-free, reported execution) and one claimed executable
-`app` (standard-logical, checked execution). `Good.t` is a theorem that uses `propext`; `Good.f` is
-a safe recursive definition with the recursion helper Lean adds, a decision contract `Good.f_spec`
-against `Good.Spec`, and a deliverable with the intent record `Good.intent`; `main` runs `Good.f`.
+`app` (standard-logical, checked execution). `Good.t` is a theorem that uses `propext`, and the
+cases read it as the theorem of each statement that `base` proves. `Good.f` is a safe recursive
+definition, whose compiled code runs the recursion helper Lean adds, with a decision contract
+`Good.f_spec` against `Good.Spec`, and a deliverable with the intent record `Good.intent`. The
+compiled code of `main` runs `Good.f`.
 -/
 
 namespace RegulaSpecification
@@ -24,8 +26,8 @@ namespace Witnesses
 /-- A safe, computable, project constant with nothing marked. -/
 def plain (name module : Name) (kind : Kind) (uses : List Name) : Decl :=
   { name, module, kind, isUnsafe := false, isPartial := false, uses, implementedBy := none,
-    csimpTarget := none, isExtern := false, isInitialized := false, isNoncomputable := false, isBoolTest := false,
-    inToolchain := false }
+    compiled := uses, departures := [], isExtern := false, isInitialized := false,
+    isNoncomputable := false, isBoolTest := false, inToolchain := false }
 
 /-- A constant of the toolchain's own library. -/
 def toolchain (name : Name) (kind : Kind) : Decl :=
@@ -37,10 +39,26 @@ def strict : List (Name × String) := [(`autoImplicit, "false"), (`relaxedAutoIm
 def helperDecl : Decl :=
   { plain `Good.f._unsafe_rec `Good .definition [`Good.f._unsafe_rec] with isPartial := true }
 
+/-- Where the kernel value has `Good.f`, compiled code runs its recursion helper. -/
+def helperDeparture : Departure := ⟨`Good.f, `Good.f._unsafe_rec, false⟩
+
+/-- `Good.f`, whose compiled code departs to its recursion helper. -/
+def fDecl : Decl := { plain `Good.f `Good .definition [] with departures := [helperDeparture] }
+
+/-- The deliverable of `base`. -/
+def goodDeliverable : Deliverable := ⟨⟨`Good, `Good.f⟩, ⟨`Good, `Good.intent⟩⟩
+
+/-- The proofs, by the theorem `t`, of each statement that the deliverable `x` needs. -/
+def proofsOf (x : Deliverable) (t : Name) : List Proof :=
+  [⟨.obligation .o1 x.record, t⟩, ⟨.obligation .o2 x.record, t⟩, ⟨.obligation .o3 x.record, t⟩,
+    ⟨.obligation .o4 x.record, t⟩, ⟨.obligation .o5 x.record, t⟩, ⟨.obligation .o2Run x.record, t⟩,
+    ⟨.obligation .nondegenerate x.record, t⟩, ⟨.fulfils x.impl x.record, t⟩]
+
+/-- The constants of `base`. The third is `fDecl`, written out so that `simp` reads its fields. -/
 def baseDecls : List Decl :=
   [toolchain ``propext .axiom, plain `Good.t `Good .theorem [``propext],
-    plain `Good.f `Good .definition [], helperDecl, plain `Good.Spec `Good .definition [],
-    plain `Good.f_spec `Good .theorem [`Good.f, `Good.Spec],
+    { plain `Good.f `Good .definition [] with departures := [helperDeparture] }, helperDecl,
+    plain `Good.Spec `Good .definition [], plain `Good.f_spec `Good .theorem [`Good.f, `Good.Spec],
     plain `Good.intent `Good .definition [], plain `main `App .definition [`Good.f]]
 
 /-- The compliant project. -/
@@ -54,11 +72,9 @@ def base : Input where
   contracts := [⟨`Good.f_spec, `Good.f, 0, .decides, [`Good.Spec], []⟩]
   decisions := [`Good.f]
   decidableResults := []
-  inventory := some [(`Good.f, `Good.intent)]
-  proved := [.obligation .o1 `Good.intent, .obligation .o2 `Good.intent,
-    .obligation .o3 `Good.intent, .obligation .o4 `Good.intent, .obligation .o5 `Good.intent,
-    .obligation .o2Run `Good.intent, .obligation .nondegenerate `Good.intent,
-    .fulfils `Good.f `Good.intent, .corresponds `Good.f]
+  inventory := some [goodDeliverable]
+  proved :=
+    proofsOf goodDeliverable `Good.t ++ [⟨.corresponds `Good.f `Good.f._unsafe_rec, `Good.t⟩]
   confirmed := []
 
 /-- `base` with the constants `extra` added in module `Good`. -/

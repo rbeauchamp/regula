@@ -1,4 +1,4 @@
-import RegulaSpecification.RuleRecord
+import RegulaSpecification.Foundation
 
 /-!
 # Escape hatches and execution: RG1006, RG3001 and RG3002
@@ -9,20 +9,17 @@ partial definition beside its safe base). That a helper computes what its base d
 execution question, which RG3002 decides under a checked execution claim.
 
 RG3001 and RG3002 read the execution closure of an executable target: from its `main`, the
-constants compiled code can run. A constant with a runtime replacement runs the replacement, one
-with a recursion helper runs the helper, and every other constant runs the constants its value
-mentions. A runtime replacement is the constant that `@[implemented_by]` names, or the target of a
-`@[csimp]` lemma.
+constants that the build's compiled code runs (`Decl.compiled`). Compiled code departs from a
+kernel value where it runs a constant other than the one the kernel value has there
+(`Departure`): a runtime replacement, a `@[csimp]` rewrite at a call site, local or global, a
+recursion helper, or any other. Each departure that the toolchain's own library does not make is
+a boundary. Under a checked execution claim it needs a correspondence, which counts only when the
+theorem that proves it is safe and uses only axioms that the claim's profile admits.
 -/
 
 namespace RegulaSpecification
 
 open Lean (Name)
-
-/-- Compiled code runs `n` in place of `d`: `n` is the constant that `@[implemented_by]` names on
-`d`, or the target of a `@[csimp]` lemma about `d`. -/
-def Decl.ReplacedBy (d : Decl) (n : Name) : Prop :=
-  d.implementedBy = some n ∨ d.csimpTarget = some n
 
 namespace Input
 
@@ -36,32 +33,25 @@ def RecursionHelper (d : Decl) : Prop :=
       base.isUnsafe = false ∧ base.isPartial = false ∧ base.implementedBy = none ∧
       base.isExtern = false
 
-/-- `c` has a recursion helper in the input. -/
-def HasHelper (c : Name) : Prop :=
-  ∃ h ∈ i.decls, h.name = Name.str c "_unsafe_rec" ∧ i.RecursionHelper h
-
-/-- The constants compiled code runs where it runs `d`. -/
-def Runs (d : Decl) (n : Name) : Prop :=
-  d.ReplacedBy n ∨
-    (d.implementedBy = none ∧ d.csimpTarget = none ∧ i.HasHelper d.name ∧
-      n = Name.str d.name "_unsafe_rec") ∨
-    (d.implementedBy = none ∧ d.csimpTarget = none ∧ ¬ i.HasHelper d.name ∧ n ∈ d.uses)
-
-/-- `c` is in the execution closure of `r`. -/
+/-- `c` is in the execution closure of `r`: `r`, or a constant that the compiled code of a
+constant of the closure runs. -/
 inductive Executes : Name → Name → Prop
   | root (r : Name) : Executes r r
-  | step {r c n : Name} (d : Decl) : Executes r c → d ∈ i.decls → d.name = c → i.Runs d n →
+  | step {r c n : Name} (d : Decl) : Executes r c → d ∈ i.decls → d.name = c → n ∈ d.compiled →
       Executes r n
 
-/-- `c` reaches `n` through one or more runtime replacements (`@[implemented_by]` or `@[csimp]`). -/
-inductive Replaces : Name → Name → Prop
-  | one {c n : Name} (d : Decl) : d ∈ i.decls → d.name = c → d.ReplacedBy n → Replaces c n
-  | more {c m n : Name} (d : Decl) : d ∈ i.decls → d.name = c → d.ReplacedBy m →
-      Replaces m n → Replaces c n
+/-- Compiled code runs `n` in place of a different constant `c` at a departure of the input. -/
+def Departs (c n : Name) : Prop :=
+  ∃ d ∈ i.decls, ∃ x ∈ d.departures, x.reference = c ∧ x.runs = n ∧ c ≠ n
 
-/-- `r` is the `main` of an executable target claimed with execution mode `e`. -/
-def ExecutableRoot (r : Name) (e : Execution) : Prop :=
-  ∃ t ∈ i.targets, t.kind = .executable ∧ (∃ p, ⟨t.name, .claimed p e⟩ ∈ i.manifest) ∧
+/-- `c` reaches `n` through one or more departures, each to a different constant. -/
+inductive DepartsTo : Name → Name → Prop
+  | one {c n : Name} : i.Departs c n → DepartsTo c n
+  | more {c m n : Name} : i.Departs c m → DepartsTo m n → DepartsTo c n
+
+/-- `r` is the `main` of an executable target claimed with profile `p` and execution mode `e`. -/
+def ExecutableRoot (r : Name) (p : Profile) (e : Execution) : Prop :=
+  ∃ t ∈ i.targets, t.kind = .executable ∧ ⟨t.name, .claimed p e⟩ ∈ i.manifest ∧
     ∃ d ∈ i.decls, d.name = r ∧ r = `main ∧ d.module ∈ t.modules
 
 /-- `d` is code whose run no theorem of Lean can bind to a kernel value: foreign code (`@[extern]`),
@@ -70,16 +60,25 @@ an initializer sets when the program starts. -/
 def Unbindable (d : Decl) : Prop :=
   d.isExtern = true ∨ (d.isPartial = true ∧ ¬ i.RecursionHelper d) ∨ d.isInitialized = true
 
-/-- `c` is an execution boundary outside the toolchain: compiled code runs something other than
-its kernel definition there. A constant that only a `@[csimp]` lemma replaces is not one: the
-lemma, which the kernel checks, is its correspondence, and `Runs` reaches its target in turn. -/
-def Boundary (c : Name) : Prop :=
-  ∃ d ∈ i.decls, d.name = c ∧ d.inToolchain = false ∧
-    (d.implementedBy.isSome = true ∨ i.HasHelper c ∨ i.Unbindable d)
-
-/-- `c` is a boundary outside the toolchain that no correspondence theorem can discharge. -/
+/-- `c` is a constant outside the toolchain whose code no correspondence theorem can bind. -/
 def UnbindableBoundary (c : Name) : Prop :=
   ∃ d ∈ i.decls, d.name = c ∧ d.inToolchain = false ∧ i.Unbindable d
+
+/-- `x` is a boundary in the compiled code of `c`: a departure there that the toolchain's own
+library does not make. -/
+def BoundaryAt (c : Name) (x : Departure) : Prop :=
+  ∃ d ∈ i.decls, d.name = c ∧ x ∈ d.departures ∧ x.inToolchain = false
+
+/-- The theorem `t` is safe, neither unsafe nor partial, and profile `p` admits each axiom of its
+transitive axiom set. -/
+def AdmittedProof (p : Profile) (t : Name) : Prop :=
+  (∃ d ∈ i.decls, d.name = t ∧ d.isUnsafe = false ∧ d.isPartial = false) ∧
+    ∀ a, i.AxiomOf t a → i.Admits p a
+
+/-- The departure `x` has a correspondence under profile `p`: a theorem that `AdmittedProof`
+admits proves it. A `@[csimp]` lemma is one such theorem for the departure it makes. -/
+def Corresponds (p : Profile) (x : Departure) : Prop :=
+  ∃ q ∈ i.proved, q.statement = .corresponds x.reference x.runs ∧ i.AdmittedProof p q.theorem_
 
 end Input
 
@@ -89,15 +88,16 @@ def Violates1006 (i : Input) (c : Name) : Prop :=
     ¬ i.RecursionHelper d
 
 /-- RG3001: the execution closure of a claimed executable reaches a name the input does not
-resolve, or a constant on a cycle of runtime replacements, which runs no definition. -/
+resolve, or a constant on a cycle of departures, which runs no definition. -/
 def Violates3001 (i : Input) (c : Name) : Prop :=
-  ∃ r e, i.ExecutableRoot r e ∧ i.Executes r c ∧ (¬ i.Resolves c ∨ i.Replaces c c)
+  ∃ r p e, i.ExecutableRoot r p e ∧ i.Executes r c ∧ (¬ i.Resolves c ∨ i.DepartsTo c c)
 
-/-- RG3002: under a checked execution claim, the closure reaches a boundary that no theorem of a
-claimed module states the correspondence of, or a boundary that no theorem can bind (`Unbindable`). -/
+/-- RG3002: under a checked execution claim with profile `p`, the closure reaches code that no
+theorem can bind (`Unbindable`), or a constant whose compiled code has a boundary with no
+correspondence that `p` admits. -/
 def Violates3002 (i : Input) (c : Name) : Prop :=
-  ∃ r, i.ExecutableRoot r .checked ∧ i.Executes r c ∧ i.Boundary c ∧
-    (Goal.corresponds c ∉ i.proved ∨ i.UnbindableBoundary c)
+  ∃ r p, i.ExecutableRoot r p .checked ∧ i.Executes r c ∧
+    (i.UnbindableBoundary c ∨ ∃ x, i.BoundaryAt c x ∧ ¬ i.Corresponds p x)
 
 /-- The intent record of RG1006. -/
 def rg1006 := ruleRecord "RG1006" Violates1006
