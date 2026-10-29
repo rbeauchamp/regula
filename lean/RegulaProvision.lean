@@ -1511,7 +1511,7 @@ def provisionSpecification (repo : FilePath) : IO Unit := do
   let isolation ← isolationEnvironment
   let clone := repo / leanIntentClone
   unless ← isPresent clone do
-    if let some parent := clone.parent then IO.FS.createDirAll parent
+    -- Git creates the leading directories itself (Git v2.54.0, builtin/clone.c:1043-1051).
     stream isolation repo "git" #["clone", "--quiet", url, clone.toString]
   unless ← hasCommit isolation clone rev do
     stream isolation clone "git" #["fetch", "--quiet", "origin"]
