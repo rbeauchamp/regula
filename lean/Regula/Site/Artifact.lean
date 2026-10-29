@@ -36,11 +36,10 @@ be uploaded.
   the site in each document of `Regula.Markdown.stableDocuments` a file of the tree
   (`siteAnchors`), one page per registered
   rule in the development and installed editions and no other rule
-  route, page content equal to the admitted example text, every scanned link of the whole tree
+  route, page content equal to the registry's example text, every scanned link of the whole tree
   resolving under the project base path (`linkErrors_nil_iff`), every rule ID in the prose of the
   development edition linked to its page there (`Regula.Prose.htmlErrors_nil_iff`), and the
-  registry's own site validator (`axiomGate --validate-site`) over the observed pages and emitted
-  rule IDs.
+  page with its checked example for each registered rule.
 
 ## Boundaries
 
@@ -53,7 +52,7 @@ Deployment is verified separately against the live site (`Regula.Site.Deployment
 
 namespace Regula.Site.Build
 
-open Lean System Regula.Site Regula.Qualification
+open Lean System Regula.Site
 open Regula.Destination (siteAssemblingMarker holdsSiteArtifact siteArtifactDecision)
 
 /-- Render the generated manual. The website package pins its own Verso lock; the root
@@ -132,8 +131,6 @@ def notFound (ident : Identity) : String :=
         escape (treeUrl ident) ++ "\"><code>" ++ escape (shortRevision ident.revision) ++
         "</code></a>.</p>")
 
-private def shardField (j : Json) (k : String) : Json := (j.getObjVal? k).toOption.getD .null
-
 /-- The identity of one build. -/
 def identityFields (g : Generated) : List (String × Json) := [
     ("schemaVersion", toJson (2 : Nat)), ("site", .str siteBase),
@@ -141,14 +138,9 @@ def identityFields (g : Generated) : List (String × Json) := [
     ("dirty", .bool g.ident.dirty), ("toolchain", .str g.ident.toolchain),
     ("producerVersion", .str g.ident.producerVersion),
     ("versoRevision", .str g.ident.versoRevision),
-    ("rules", toJson (g.summaries.map fun s => Json.mkObj [
-      ("id", .str s.rule.spelling), ("route", .str s.rule.route),
-      ("helpUrl", .str (helpUrl s.rule)), ("example", .str s.kind),
-      ("violationStatus", .str s.violationStatus), ("fixedStatus", .str s.fixedStatus),
-      ("emitted", toJson (s.emitted.map RuleId.spelling)), ("corpusShard", .str s.shard)])),
-    ("evidence", toJson (g.shards.map fun s => Json.mkObj [
-      ("shard", shardField s "shard"), ("attempt", shardField s "attempt"),
-      ("selected", shardField s "selected")]))]
+    ("rules", toJson (g.examples.map fun (id, ex) => Json.mkObj [
+      ("id", .str id.spelling), ("route", .str id.route), ("helpUrl", .str (helpUrl id)),
+      ("example", .str ex.kind)]))]
 
 /-- The `build.json` of a release edition this build renders, the installed release's or a
 preview of a release not yet published: the identity of the build that made that copy. -/
@@ -348,27 +340,11 @@ def checkArtifact (root out : FilePath) (g : Generated) (tag : TagState)
       bare := bare ++ Regula.Prose.htmlErrors Edition.dev.root p (← utf8 p bytes)
   requireChecks [⟨s!"{bare.length} rule ID(s) in the development edition's prose that are not \
     links to their rule pages: {bare.take 10}", bare.isEmpty⟩]
-  -- The registry's own validator over the page inventory, the pages whose example content was
-  -- checked above and every emitted rule ID.
-  let registry := out.parent.getD root / "site-registry.json"
-  let artifact := out.parent.getD root / "site-artifact.json"
-  let exported ← run root (root / ".lake/build/bin/axiomGate").toString
-      #["--registry-out", registry.toString]
-  requireChecks [⟨s!"registry export\n{exported.stdout}{exported.stderr}", exported.exitCode == 0⟩]
-  let emitted := (g.examples.flatMap fun (_, ex) => ex.findings.map (·.rule)).eraseDups
-  writeJson artifact (Json.mkObj [
-    ("required", toJson (RuleId.all.map RegistryCodec.ruleJson)),
-    ("emitted", toJson (emitted.map RegistryCodec.ruleJson)),
-    ("pages", toJson (RuleId.all.map fun id => Json.mkObj [
-      ("id", RegistryCodec.ruleJson id), ("route", toJson id.route),
-      ("checkedExample", toJson (checkedPages.contains id))]))])
-  let validated ← run root (root / ".lake/build/bin/axiomGate").toString
-      #["--validate-site", registry.toString, artifact.toString]
-  requireChecks
-      [⟨s!"registry site validation\n{validated.stdout}{validated.stderr}",
-          validated.exitCode == 0⟩]
-  Regula.Filesystem.removeOwn .file registry
-  Regula.Filesystem.removeOwn .file artifact
+  -- Every registered rule has its page with its checked example. A rule ID in the generated
+  -- examples is a `RuleId`, so each one that the pages show is a registered rule.
+  let unchecked := RuleId.all.filter (!checkedPages.contains ·)
+  requireChecks [⟨s!"every registered rule has its page with its checked example; without: \
+    {unchecked.map RuleId.spelling}", unchecked.isEmpty⟩]
   let recorded ← IO.FS.readFile (out / "build.json")
   requireChecks [⟨"build identity",
     recorded == (buildJson g tag sources (stable.map (·.1))).pretty ++ "\n"⟩]
@@ -469,14 +445,14 @@ def invalidateRefused (out : FilePath) : IO Unit := do
   if let some reason := refused then throw (IO.userError reason)
 
 /-- Complete build: refuse a release label whose tag names another commit, decide each release
-edition's source, admit evidence, generate, render, collect the release editions, assemble and
+edition's source, generate, render, collect the release editions, assemble and
 check. A clean build that rendered its release's edition, the release commit's before its
 release is published, also writes that edition as the release asset. An unreleased build that
 previews a release not yet published, the release pull request's, writes no asset and says that
 its artifact is not publishable. A relative `out` is taken from the real path of the working
 directory, and a link, `.` or `..` among its components stops the build before it makes or removes
 anything (`invalidateArtifact`). -/
-def build (evidencePaths : List FilePath) (out : FilePath) : IO Unit := do
+def build (out : FilePath) : IO Unit := do
   -- Invalidate an earlier artifact before any step can fail.
   let out ← invalidateArtifact out
   let root ← rootDirectory
@@ -490,7 +466,7 @@ def build (evidencePaths : List FilePath) (out : FilePath) : IO Unit := do
     carries a release label, and main and pull requests keep Regula.installed .unreleased",
     labelAdmitted installed tag⟩]
   let sources ← releaseSources root fun v => tagState tags v ident.revision
-  let g ← evidence root ident evidencePaths
+  let g ← registryExamples root ident
   generate root g
   let edition ← render root (root / "tmp/site-render") ident.revision.val
   let editions ← IO.ofExcept (publishedCopies (← releaseCopies root g edition sources))

@@ -28,11 +28,6 @@ lean_lib «MathlibAudit» where
   -- inventory is the semantic inventory consumed by the declaration gate.
   globs := #[.andSubmodules `MathlibAudit]
   leanOptions := mathlibLinters
-  -- Regula's elaboration observer, which each claimed target loads (RG2003, RG2006) and lists in
-  -- `needs` (RG2006), so that a fresh build builds it once and a replayed module was elaborated
-  -- with it.
-  plugins := #[`@regula/RegulaObserver:shared]
-  needs := #[`@regula/RegulaObserver:shared]
   -- Mathlib v4.35.0 sets `requiresModuleSystem`, so Lake v4.35.0 warns when a file without a
   -- `module` header imports it (`Lake/Build/Module.lean:416-424`). These files cannot be modules:
   -- `MathlibAudit.Refinement` imports the root package's `AuditApp.Limiter`, which is not one, and

@@ -1,24 +1,21 @@
-import Regula.Qualification.RuleExamples
-import Regula.Checker.ResultProtocol
+import Regula.Site.Support
 import RegulaCore.SiteDocs
 import RegulaCore.SiteTheme
 import Regula.Filesystem
-import Regula.Checker.LakeSelection
+import Lake.Load.Manifest
 
 /-! # Rule-reference site builder
 
-Operational builder of the published rule reference. It admits the rule-example corpus
-evidence, generates the Verso sources from the registry (`RegulaCore.Rule`), the rule
-explanations (`RegulaCore.Guide`) and the admitted records, renders them with the pinned Verso
+Operational builder of the published rule reference. It generates the Verso sources from the
+registry (`RegulaCore.Rule`), with each rule's example pair, and the rule explanations
+(`RegulaCore.Guide`), renders them with the pinned Verso
 package in `website/`, assembles the GitHub Pages artifact with the permanent edition of every
 release and checks it.
 
 ## Main declarations
 
-- `admitShard`: a corpus shard export is used only when it is `COMPLETED`, admitted by the
-  proved `ruleExampleQualification` executable, and its recorded checker, corpus and
-  configuration bytes equal the current sources.
-- `exampleOf`: the display form of one rule's two admitted records.
+- `registryExamples`: the display form of each rule's example pair, which no run of the checker
+  produced.
 - `remoteTags`, `tagState`, `downloadRelease`, `extractRelease`: the observations the release
   decisions (`labelAdmitted`, `releaseSource`, `publishable`) take: which commit, if any, a
   release tag names, whether a release's GitHub asset exists, and the permanent copy it holds.
@@ -38,175 +35,44 @@ another removal than the observer's and those of Lean's and Lake's libraries tha
 `Regula.Removal.libraryRemovals` and `Regula.Removal.tacticRemovals` list, a removal being a call
 that removes or replaces an entry (`Regula.Removal.checkProgram`). Those of `tacticRemovals` are
 the removals of `bv_decide`, trusted active effects of the elaboration that the program runs.
-Workspace paths of the
-disposable qualification projects are displayed as `<example>`, `<scratch>` and `<regula>`; the
-exact records remain in the corpus export this build consumed.
 -/
 
 namespace Regula.Site.Build
 
-open Lean System Regula.Site Regula.Qualification RegulaQualification.Evidence
+open Lean System Regula.Site
 
-/-- The required object member `key` of `j` (`Member.object`). -/
-private def obj (j : Json) (key : String) : IO Json := IO.ofExcept (object j key)
-/-- The required member `key` of `j`, decoded as `α` (`Member.get`). -/
-private def typed (α : Type) [FromJson α] (j : Json) (key : String) : IO α :=
-  IO.ofExcept (RegulaQualification.Member.get α j key)
-/-- The optional text member `key` of `j`: `none` when it is absent or `null`, and its text when it
-is a string. Any other value is refused, and the refusal names the member (`Member.get`). -/
-private def optionalStr (j : Json) (key : String) : IO (Option String) :=
-  match value j key with
-  | .error _ => pure none
-  | .ok _ => typed (Option String) j key
-private def str (j : Json) (key : String) : IO String := IO.ofExcept (text j key)
-private def arr (j : Json) (key : String) : IO (Array Json) := IO.ofExcept (array j key)
-private def has (j : Json) (key : String) (expected : Json) : Bool :=
-  (value j key).toOption.any (Regula.JsonAgreement.conforms · expected)
-
-/-- The pinned Verso revision of the website package: the commit of the Git entry that Lake's load
-of the website's workspace materializes `verso` from (`LakeSelection.effectiveEntry`), among the
-entries of its manifest and then those of its package overrides file
-(`LakeSelection.rootEntries`). A website without a manifest, or one that materializes `verso`
-from no Git entry, is refused. -/
+/-- The pinned Verso revision of the website package: the commit of the last Git entry named
+`verso` among the entries of its manifest and then those of its package overrides file, each read
+by Lake's own reader, from which Lake's load of the website's workspace materializes `verso`
+(`Lake/Load/Resolve.lean:598-616` at v4.35.0). A website without a manifest, or one that
+materializes `verso` from no Git entry, is refused. -/
 def versoRevision (root : FilePath) : IO String := do
-  let files := Regula.Checker.LakeSelection.ownRootFiles (root / "website")
-  let entries ← Regula.Checker.LakeSelection.rootEntries files
-  let some (_, rev) := (Regula.Checker.LakeSelection.effectiveEntry entries `verso).bind
-      Regula.Checker.LakeSelection.gitPin
-    | throw <| IO.userError s!"website: {files.1} with {files.2} materializes no Git package verso"
-  return rev
+  let dir := root / "website"
+  let some manifest ← Lake.Manifest.load? (dir / "lake-manifest.json")
+    | throw <| IO.userError s!"website: {dir}/lake-manifest.json is absent"
+  let overrides ← Lake.Manifest.tryLoadEntries (dir / ".lake" / "package-overrides.json")
+  match ((manifest.packages ++ overrides).findRev? (·.name == `verso)).map (·.src) with
+  | some (Lake.PackageEntrySrc.git _ rev _ _) => return rev
+  | _ => throw <| IO.userError s!"website: {dir} materializes no Git package verso"
+
+/-- Whether the object `j` has the field `key` with the value `expected`. -/
+private def has (j : Json) (key : String) (expected : Json) : Bool :=
+  (j.getObjVal? key).toOption == some expected
 
 private def git (root : FilePath) (args : Array String) : IO String := do
   let result ← run root "git" args
   requireChecks [⟨s!"git {args}: {result.stderr}", result.exitCode == 0⟩]
   return result.stdout
 
-/-- Build identity: the checked-out commit, whether the worktree is modified, and the
-producer identity the checker executables embed. -/
+/-- Build identity: the checked-out commit, whether the worktree is modified, the toolchain
+and Regula's version (`Regula.installed`). -/
 def identity (root : FilePath) : IO Identity := do
   let head := (← git root #["rev-parse", "HEAD"]).trimAscii.toString
   let some revision := Commit.parse? head | throw <|
                                              IO.userError s!"not a commit identifier: {head}"
   let dirty := !(← git root #["status", "--porcelain", "--untracked-files=normal"]).isEmpty
-  let producer := Regula.Checker.ResultProtocol.producer
-  return { revision, dirty, toolchain := producer.toolchain, producerVersion :=
-             producer.producerVersion,
+  return { revision, dirty, toolchain := Lean.versionString, producerVersion := installed.spelling,
            versoRevision := ← versoRevision root }
-
-/-- The paths of the checker, corpus and configuration sources of the checkout at `root` that a
-corpus shard export records (`RuleExamples.sourcePaths`), over the root package's module sources. -/
-def sourcePathsAt (root : FilePath) : IO (Array FilePath) := do
-  let inventory ← Regula.Checker.Lake.rootSurfaceInventory root
-  Regula.Qualification.RuleExamples.sourcePaths root (inventory.moduleSources.map Prod.snd)
-
-/-- The checker, corpus and configuration sources of the checkout at `root` as they are now, in the
-form that a corpus shard export records them (`RuleExamples.snapshot`): the current sources that
-`admitShard` compares an export with. -/
-def currentSources (root : FilePath) : IO Json := do
-  Regula.Qualification.RuleExamples.snapshot (← sourcePathsAt root)
-
-/-- Admit one corpus shard export: completed, admitted by the proved qualifier executable,
-and recorded against exactly the current checker, corpus and configuration sources. -/
-def admitShard (root : FilePath) (current : Json) (path : FilePath) : IO Json := do
-  let shard ← readJson path
-  requireChecks [
-    ⟨s!"{path}: corpus export outcome is COMPLETED", has shard "outcome" (.str "COMPLETED")⟩,
-    ⟨s!"{path}: corpus export schema 1", has shard "schemaVersion" (toJson (1 : Nat))⟩,
-    ⟨s!"{path}: evidence was recorded for other checker, corpus or configuration sources than this \
-      checkout",
-      has shard "checkerAfter" current && has shard "checkerBefore" current⟩]
-  let admitted ← run root (root / ".lake/build/bin/ruleExampleQualification").toString
-      #[path.toString] cleanEnv
-  requireChecks
-      [⟨s!"{path}: corpus admission refused\n{admitted.stdout}{admitted.stderr}",
-          admitted.exitCode == 0⟩]
-  return shard
-
-/-- Replace workspace paths of a disposable qualification project for display. -/
-def displayText (project : String) (text : String) : String :=
-  let scratch := (System.FilePath.mk project).parent.map (·.toString) |>.getD project
-  ((text.replace (scratch ++ "/slot/root") "<regula>").replace project "<example>").replace scratch
-      "<scratch>"
-
-/-- Whether `uri` lies in the scratch directory of `project` (`Regula.Scratch.directory`), where
-the checker keeps its isolated copy. -/
-def inScratch (project uri : String) : Bool :=
-  uri.startsWith ((Regula.Scratch.directory (System.FilePath.mk project)).toString ++ "/")
-
-/-- Workspace-relative display path of an input of `project`, if it is one of the project's
-own inputs rather than the checker's isolated copy or a documentation snippet alias. -/
-def relativeInput (project uri : String) : Option String :=
-  match uri.dropPrefix? (project ++ "/") with
-  | some rest =>
-    let rest := rest.toString
-    if inScratch project uri || (uri.splitOn "#").length > 1 then none else some rest
-  | none => none
-
-/-- Every input file of one record: its sources and its configuration files (absent ones as
-`none`), by workspace-relative path, with display-normalized content. -/
-def inputs (record : Json) : IO (List (String × Option String)) := do
-  let request ← obj record "request"
-  let project ← str request "project"
-  let sources ← arr (← obj record "before") "sources"
-  let fromSources ← sources.toList.filterMapM fun s => do
-    return (relativeInput project (← str s "uri")).map fun p => (p, s)
-  let fromSources ← fromSources.mapM fun (p, s) => do
-                                                    return (p, some
-                                                        (displayText project (← str s "source")))
-  let config ← typed (Array (String × Option String)) request "configuration"
-  let fromConfig := config.toList.filterMap fun (uri, content) =>
-    (relativeInput project uri).map fun p => (p, content.map (displayText project))
-  return (fromSources ++ fromConfig).foldl
-      (fun acc (p, c) => if acc.any (·.1 == p) then acc else acc ++ [(p, c)]) []
-
-private def lookup (xs : List (String × Option String)) (p : String) : Option String :=
-  (xs.find? (·.1 == p)).bind (·.2)
-
-/-- The text Lean prints for a name a result diagnostic writes (`RegistryCodec.printedNameJson`),
-or the JSON itself when it is not such a name. -/
-def nameText (j : Json) : String :=
-  match Regula.RegistryCodec.parsePrintedNameJson j with
-  | .ok n => n.toString
-  | .error _ => j.compress
-
-private def ruleOf (s : String) : IO RuleId := do
-  match RuleId.parse? s with
-  | some id => pure id
-  | none => throw <| IO.userError s!"unknown rule ID in evidence: {s}"
-
-/-- Display form of one finding of a violating record. -/
-def findingOf (project : String) (d : Json) : IO FindingView := do
-  let rule ← ruleOf (← str d "id")
-  let args ← obj d "arguments"
-  let subjectText ← optionalStr args "subject"
-  let (subjectKind, subject) := match value args "declaration", value args "root", subjectText with
-    | .ok n, _, _ => ("Declaration", nameText n)
-    | _, .ok n, _ => ("Execution root", nameText n)
-    | _, _, some s => ("Subject", displayText project s)
-    | _, _, none => ("Finding", "")
-  let location ← obj d "location"
-  let place ← match (← str location "kind") with
-    | "source" => do
-      let uri ← str location "uri"
-      let path := match uri.dropPrefix? (project ++ "/") with
-        | some rest =>
-          let rest := rest.toString
-          match rest.splitOn "/project/" with
-          | [_, post] =>
-            if inScratch project uri then post ++ " (the audit's fresh isolated copy)" else rest
-          | _ => rest
-        | none => displayText project uri
-      let range ← obj location "lspSelectionRange"
-      let start ← obj range "start"
-      let line := (← typed Nat start "line") + 1
-      let column := (← typed Nat start "character") + 1
-      pure s!"{path}, line {line}, column {column}"
-    | "module" => pure s!"module `{nameText (← IO.ofExcept (value location "name"))}`"
-    | _ => pure ("project " ++ displayText project (← str location "identity"))
-  let claim ← optionalStr d "claim"
-  return { rule, severity := ← str d "severity", impact := ← str d "impact", mode := ← str d "mode",
-           claim, subjectKind, subject, detail := displayText project
-               (← str (← obj d "arguments") "detail"), location := place }
 
 /-- The fixture of rule `id` whose exact text is `text`, if any. -/
 def fixtureOf (root : FilePath) (id : RuleId) (text : String) : IO (Option String) := do
@@ -218,61 +84,6 @@ def fixtureOf (root : FilePath) (id : RuleId) (text : String) : IO (Option Strin
     if (← IO.FS.readFile entry.path) == text then
       return some s!"examples/rules/{id.spelling}/{entry.fileName}"
   return none
-
-/-- The audit that produced a rule-example record, as its page states it. -/
-private def requestText (request : Json) : IO String := do
-  let kind ← str request "kind"
-  let project ← str request "project"
-  let subject := displayText project (← str request "subject")
-  let claim := (← optionalStr request "claim").getD "none"
-  let execution := (← optionalStr request "execution").getD "report"
-  return match kind with
-    | "file" => s!"a fresh single-file audit of `{subject}` (`axiomGate --file`, claim `{claim}`, \
-      execution `{execution}`)"
-    | "policyNegative" => s!"a single-file policy inspection of `{subject}` that keeps Lean's \
-      original compiler warning"
-    | "documentation" => s!"a documentation fence audit of `{subject}`"
-    | _ => s!"a fresh whole-project audit of `{subject}` (`axiomGate`)"
-
-/-- The display form of one rule's admitted violation and fix records. -/
-def exampleOf (root : FilePath) (id : RuleId) (violation fixed : Json) : IO
-    (Example × EvidenceSummary) := do
-  let vInputs ← inputs violation
-  let fInputs ← inputs fixed
-  let paths := (vInputs.map (·.1) ++ fInputs.map (·.1)).eraseDups.mergeSort (· ≤ ·)
-  let shown (p : String) (t : Option String) : IO (Option ShownFile) := do
-    match t with
-    | some text => return some { path := p, fixture := ← fixtureOf root id text, text }
-    | none => return none
-  let displayed ← str violation "source"
-  let mut changed : List ChangedFile := []
-  let mut context : List ShownFile := []
-  for p in paths do
-    let v := lookup vInputs p
-    let f := lookup fInputs p
-    if v != f then
-      changed := changed ++ [{ path := p, violation := ← shown p v, fixed := ← shown p f }]
-    else if v == some displayed then
-      if let some s ← shown p v then context := context ++ [s]
-  requireChecks [⟨s!"{id.spelling}: the violating and corrected inputs differ", !changed.isEmpty⟩]
-  let request ← obj violation "request"
-  let project ← str request "project"
-  let result ← obj violation "result"
-  let findings ← (← arr result "diagnostics").toList.mapM (findingOf project)
-  requireChecks
-      [⟨s!"{id.spelling}: the violating run reports the rule", findings.any (·.rule == id)⟩]
-  let status (s : String) : IO RunStatus := match RunStatus.parse? s with
-    | some st => pure st
-    | none => throw <| IO.userError s!"{id.spelling}: unknown run status {s}"
-  let ex : Example := {
-    kind := ← str violation "kind", request := ← requestText request,
-    violationStatus := ← status (← str result "status"), fixedStatus := ← status
-        (← str (← obj fixed "result") "status"),
-    changed, context, findings }
-  return (ex,
-      { rule := id, kind := ex.kind, violationStatus := ex.violationStatus.spelling, fixedStatus :=
-          ex.fixedStatus.spelling,
-                emitted := (findings.map (·.rule)).eraseDups, shard := "" })
 
 private def writeModule (dir : FilePath) (name : String) (content : String) : IO Unit := do
   let path := dir / (System.FilePath.mk ((name.replace "." "/") ++ ".lean"))
@@ -373,55 +184,26 @@ def extractRelease (root : FilePath) (v : ReleaseVersion) : IO (List (String × 
 structure Generated where
   /-- The identity of the build: commit, dirtiness, toolchain and producer versions. -/
   ident : Identity
-  /-- Each rule's checked example, derived from its corpus records, in `RuleId.all` order. -/
+  /-- Each rule's example, from the registry's example pair, in `RuleId.all` order. -/
   examples : List (RuleId × Example)
-  /-- Each rule's evidence row, with the corpus shard that ran it, in `RuleId.all` order. -/
-  summaries : List EvidenceSummary
-  /-- The admitted corpus shard exports, in the order given. -/
-  shards : List Json
 
-/-- Admit the shards and derive every rule's example. The shards must select disjoint
-rules whose union is the registry, and contain one fix and one violation record per rule. -/
-def evidence (root : FilePath) (ident : Identity) (shardPaths : List FilePath) : IO Generated := do
-  let current ← currentSources root
-  let shards ← shardPaths.mapM (admitShard root current)
-  let selected ← shards.mapM fun s => do
-    return (← typed (List String) s "selected")
-  let all := selected.flatten
-  requireChecks [⟨"corpus shards select every registered rule exactly once",
-    all.Nodup && all.length == RuleId.all.length && RuleId.all.all
-        (fun id => all.contains id.spelling)⟩]
-  let records ← shards.flatMapM fun s => do return (← arr s "records").toList
-  let producer := Regula.Checker.ResultProtocol.producer
-  let mut examples := []
-  let mut summaries := []
-  for id in RuleId.all do
-    let mine ← records.filterM fun r => return (← str r "rule") == id.spelling
-    let byPhase (phase : String) : IO Json := do
-      let matching ← mine.filterM fun r => return (← str r "phase") == phase
-      let [r] := matching | throw <|
-                             IO.userError s!"{id.spelling}: expected exactly one {phase} record"
-      let result ← obj r "result"
-      requireChecks [
-        ⟨s!"{id.spelling}/{phase}: result toolchain {producer.toolchain}", has result "toolchain"
-            (.str producer.toolchain)⟩,
-        ⟨s!"{id.spelling}/{phase}: result producer version", has result "producerVersion"
-            (.str producer.producerVersion)⟩,
-        ⟨s!"{id.spelling}/{phase}: result source revision is this commit",
-          has result "sourceRevision" (.str ident.revision.val) ||
-          (ident.dirty && has result "sourceRevision"
-              (.str (ident.revision.val ++ ":unreleased-worktree")))⟩]
-      return r
-    let violation ← byPhase "Violation"
-    let fixed ← byPhase "Fixed"
-    requireChecks [⟨s!"{id.spelling}: corrected run is a completed positive",
-      has fixed "kind" (.str "positive") && has (← obj fixed "result") "status" (.str "completed")⟩]
-    let (ex, summary) ← exampleOf root id violation fixed
-    let shard := match selected.findIdx? (·.contains id.spelling) with
-      | some i => s!"{i + 1}/{shardPaths.length}" | none => "?"
-    examples := examples ++ [(id, ex)]
-    summaries := summaries ++ [{ summary with shard }]
-  return { ident, examples, summaries, shards }
+/-- Each rule's example: the noncompliant and the compliant file of the registry's example pair
+(`RuleDescriptor.examples`), shown as the input the correction changes. No run of the checker
+produced it, so it has no run status and no findings. -/
+def registryExamples (root : FilePath) (ident : Identity) : IO Generated := do
+  let examples ← RuleId.all.mapM fun id => do
+    let e := (descriptor id).examples
+    let shown (path text : String) : IO ShownFile := do
+      return { path, fixture := ← fixtureOf root id text, text }
+    let violation ← shown (e.noncompliantPath id) e.noncompliant
+    let fixed ← shown (e.compliantPath id) e.compliant
+    requireChecks [⟨s!"{id.spelling}: the noncompliant and compliant examples differ",
+      e.noncompliant != e.compliant⟩]
+    return (id, ({ kind := "registry", request := "", violationStatus := none
+                   fixedStatus := none, context := [], findings := []
+                   changed := [{ path := e.noncompliantPath id, violation := some violation
+                                 fixed := some fixed }] } : Example))
+  return { ident, examples }
 
 /-- Generate every Verso module of the manual into `website/Generated`, with the site
 stylesheet (`Regula.Site.stylesheet`) as `website/Generated/regula.css`, which the website

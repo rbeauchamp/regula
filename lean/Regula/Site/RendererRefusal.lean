@@ -1,5 +1,6 @@
 import Regula.Site.Build
 import Regula.TaskManager
+import Regula.Scratch
 
 /-! # The control of the renderers' destinations (issue 424)
 
@@ -25,7 +26,7 @@ control. `lake exe site renderer-refusal` runs it, after `lake exe site build` i
 
 namespace Regula.Site.RendererRefusal
 
-open System Regula.Qualification
+open System Regula.Site
 
 /-- Whether something is at `path`, by a read that follows no symbolic link: `false` only when
 nothing is there, and every other failure of the read thrown
@@ -56,7 +57,7 @@ private def newSuffix (text : String) : Bool :=
 /-- Require that the refused run `output` of the program `program` stopped as its guard does:
 exit code 1 and the guard's reason line on standard error (`Regula.TaskManager.refusalLine`). -/
 private def requireRefused (program : String) (output : IO.Process.Output) : IO Unit := do
-  let line := Regula.TaskManager.refusalLine program Regula.Probe.taskManagerMissingReason
+  let line := Regula.TaskManager.refusalLine program Regula.TaskManager.taskManagerMissingReason
   requireChecks [⟨s!"{program} with LEAN_NUM_THREADS=0 did not refuse with exit 1 and the \
     guard's line {repr line} {shown output}",
     output.exitCode == 1 && (output.stderr.splitOn "\n").contains line⟩]
@@ -272,7 +273,7 @@ def control (root : FilePath) : IO Unit := do
     | _, _ => throw (IO.userError s!"lake query of regula-site and regula-standard did not give \
         their two executables {shown built}")
   let refusing := cleanEnv.push ("LEAN_NUM_THREADS", some "0")
-  Regula.Checker.withScratch root "site-renderer-refusal" fun scratch => do
+  let _ ← Regula.Scratch.withScratch root "site-renderer-refusal" fun scratch => do
     reproduction website standard scratch cleanEnv refusing
     for (name, program) in [("regula-standard", standard), ("regula-site", site)] do
       refusals program scratch name refusing

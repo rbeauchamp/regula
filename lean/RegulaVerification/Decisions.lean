@@ -101,14 +101,14 @@ theorem removal_shared (observed : Observed) (parentOwn : Bool) :
   obtain ⟨place, sameLocation⟩ := observed
   cases place <;> cases sameLocation <;> cases parentOwn <;> decide
 
-/-- `prebuildCovers` accepts exactly a surface manifest of the shape `claimedTargets` reads all of
-whose claimed targets are targets of the prebuild (`prebuildCovers_iff`). It accepts a manifest
-with no surface and refuses one with no `surfaces` field. That `claimedTargets` reads the claimed
-targets as the checker's manifest reader does is not claimed. -/
-theorem checked_prebuildCovers : Regula.ExecutableContract prebuildCovers
+/-- `buildCovers` accepts exactly a surface manifest of the shape `claimedTargets` reads all of
+whose claimed targets are targets of the first acceptance step's build (`buildCovers_iff`). It
+accepts a manifest with no surface and refuses one with no `surfaces` field. That
+`claimedTargets` reads the claimed targets as the checker's manifest reader does is not claimed. -/
+theorem checked_buildCovers : Regula.ExecutableContract buildCovers
     (Regula.Decides (· = true) (fun manifest => ∃ targets,
-      claimedTargets manifest = some targets ∧ ∀ target ∈ targets, target ∈ gateTargets)) :=
-  ⟨.of_iff prebuildCovers_iff
+      claimedTargets manifest = some targets ∧ ∀ target ∈ targets, target ∈ surfaceTargets)) :=
+  ⟨.of_iff buildCovers_iff
     ⟨Lean.Json.mkObj [("surfaces", Lean.Json.arr #[])], by decide +kernel⟩
     ⟨Lean.Json.null, by decide +kernel⟩⟩
 
@@ -167,6 +167,6 @@ theorem siteAssemblingMarker_shared :
     siteAssemblingMarker = Regula.Destination.siteAssemblingMarker :=
   rfl
 
-attribute [regula_decision] parseMode dependencyFree select passed removal prebuildCovers
+attribute [regula_decision] parseMode dependencyFree select passed removal buildCovers
 
 end RegulaVerification

@@ -2,10 +2,16 @@
   "schema-version": 2,
   "surfaces": [
     {
+      "library": "RegulaInterface",
+      "claim": "standard-logical",
+      "execution": "report",
+      "rationale": "The published checker interfaces that claimed modules and adopters import: executable contracts and the decision kinds (Regula.Contract), decision registration (Regula.Decision), material claims (Regula.MaterialClaim) and assumptions (Regula.Assumption). Every declaration is checked under its exact transitive axiom set. The registration attributes are elaboration-time code that Lean runs; their effect on a module's .olean is trusted, not proved."
+    },
+    {
       "library": "RegulaPolicy",
       "claim": "standard-logical",
       "execution": "report",
-      "rationale": "Pure policy categories, structural identities, admitted observations, and invariant-preserving collections used by the checker. Every declaration is checked under its exact transitive axiom set. The library proves finite-observation classification, declaration/execution decisions and concrete acceptance. The operational adapters collect complete request-indexed jobs through these definitions. Their proofs do not authenticate compiler or filesystem observations, compiled machine code, or semantic adequacy."
+      "rationale": "Pure policy categories, structural identities and invariant-preserving collections that the rule registry, the manifest reader and the option allowlist of RG2006 read. Every declaration is checked under its exact transitive axiom set. Their proofs concern the supplied data, not the authenticity of compiler or filesystem observations, compiled machine code, or semantic adequacy."
     },
     {
       "library": "RegulaVerification",
@@ -17,19 +23,19 @@
       "library": "RegulaProvision",
       "claim": "standard-logical",
       "execution": "report",
-      "rationale": "Toolchain-only dependency provisioning, which acquires no Mathlib by default and, when asked for the Mathlib integration package, provisions one shared, read-only Mathlib per pinned revision and toolchain, and the module that registers its decisions' kinds. The proofs concern the pure decisions it executes: receipt admission is sound, only a link to the shared checkout is kept for Mathlib, removal from a copy is confined to links and clean Git checkouts, only a receipt that names a shared directory identifies it for removal, registering drops no copy, a shared directory is removed only when it is not the current one and no registered copy still links it, and the Mathlib integration check applies exactly to a copy whose integration package selects the repository's toolchain. The packages it pins are those that Lake's load of the integration package materializes: the entry selected for each name is the last of the manifest's entries and then the package overrides file's, and the packages directory is the one the manifest records, a manifest without one being refused (selectPins_sound, mem_gitPins, gitPins_complete, checkoutPin_gitPins); Regula.ProgramCheck.Provision proves its read of the two files and these choices those of the checker's Regula.Checker.LakeSelection. Copies execute the shared construction source, whose observer-model contracts are in RegulaCore.CopyConstruction. The shared-cache link is made in a new directory that mkdir creates. RegulaProvision.Link proves over the filesystem model, for the operations the driver runs, that an entry already at that directory's place makes the link installation fail with nothing changed by it, from the assumption RefusesOccupied that mkdir refuses an existing entry, and that a run which succeeds leaves a link at the path and no entry at that place, from the assumption ReadsEntry that the driver's read of an entry is the model's. RegulaProvision.Ownership proves over the filesystem model, for the read of a real path that the driver runs, that the pins it admits leave out only the path entry for regula whose directory resolves to the real path of the root being provisioned, from the assumption ReadsReal that this read is the model's; Regula.ProgramCheck.Provision proves this read the filesystem observer's. Git, Lake and its manifest readers, chmod, ln, mkdir, that read of an entry, rename, rmdir, file locking and Mathlib's cache tool remain trusted process and filesystem effects."
+      "rationale": "Toolchain-only dependency provisioning, which acquires no Mathlib by default and, when asked for the Mathlib integration package, provisions one shared, read-only Mathlib per pinned revision and toolchain, and the module that registers its decisions' kinds. The proofs concern the pure decisions it executes: receipt admission is sound, only a link to the shared checkout is kept for Mathlib, removal from a copy is confined to links and clean Git checkouts, only a receipt that names a shared directory identifies it for removal, registering drops no copy, a shared directory is removed only when it is not the current one and no registered copy still links it, and the Mathlib integration check applies exactly to a copy whose integration package selects the repository's toolchain. The packages it pins are those that Lake's load of the integration package materializes: the entry selected for each name is the last of the manifest's entries and then the package overrides file's, and the packages directory is the one the manifest records, a manifest without one being refused (selectPins_sound, mem_gitPins, gitPins_complete, checkoutPin_gitPins). Copies execute the shared construction source, whose observer-model contracts are in RegulaCore.CopyConstruction. The shared-cache link is made in a new directory that mkdir creates. RegulaProvision.Link proves over the filesystem model, for the operations the driver runs, that an entry already at that directory's place makes the link installation fail with nothing changed by it, from the assumption RefusesOccupied that mkdir refuses an existing entry, and that a run which succeeds leaves a link at the path and no entry at that place, from the assumption ReadsEntry that the driver's read of an entry is the model's. RegulaProvision.Ownership proves over the filesystem model, for the read of a real path that the driver runs, that the pins it admits leave out only the path entry for regula whose directory resolves to the real path of the root being provisioned, from the assumption ReadsReal that this read is the model's. Git, Lake and its manifest readers, chmod, ln, mkdir, that read of an entry, rename, rmdir, file locking and Mathlib's cache tool remain trusted process and filesystem effects."
     },
     {
       "library": "RegulaQualification",
       "claim": "standard-logical",
       "execution": "report",
-      "rationale": "Pure observation-validation contracts used by Lean qualification drivers. Soundness, completeness, first-refusal and composition concern the supplied Lean data, not authenticity of process/filesystem/compiler observations. Runtime and library boundaries are reported separately."
+      "rationale": "The pure qualification assertions that the site's programs evaluate: evaluate accepts exactly a list whose assertions all hold and otherwise names its first false one. The contract concerns the supplied Lean data, not the authenticity of process, filesystem or compiler observations."
     },
     {
       "library": "RegulaCore",
       "claim": "standard-logical",
       "execution": "report",
-      "rationale": "The rule registry and the pure checker projections the operational checker executes: claim request, scope admission for every supplied coordinate check, transcript-coordinate and source-range admission for every UTF-16 column function, declaration rules and reasons, foundation labels, execution rules and failure text, census assembly from decoded manifest and Lake records, and the report account every rendered success and completed status projects from one accepted run, and the comparison of a JSON value with an encoding that the decoders and the qualification checks run. Their contracts concern the supplied declarations, transcripts and records. The shared filesystem constructor has a contract over the existing observer model, with checked correspondence to its IO program and explicit native primitive hypotheses. The Git isolation of a process tree has the proved decision of whether an environment has it, and the proof that one start under it gives it, over a trusted model of how Lean gives a child its environment. Lean's UTF-16 column function, manifest parsing, Lake loading, environment extraction, compiler and native filesystem effects remain trusted observations."
+      "rationale": "The rule registry and the pure decisions that the checker's programs execute: the rule identities and descriptors, the guidance and setup decisions of the regula command, the site's editions, pages and checks, the Markdown and prose checks, and the shared filesystem constructor, whose contract is over the existing observer model, with checked correspondence to its IO program and explicit native primitive hypotheses. The Git isolation of a process tree has the proved decision of whether an environment has it, and the proof that one start under it gives it, over a trusted model of how Lean gives a child its environment. Their contracts concern the supplied data; Lake loading, the compiler and native filesystem effects remain trusted observations."
     },
     {
       "library": "AuditApp",
@@ -43,54 +49,22 @@
   ],
   "excluded-libraries": [
     {
-      "library": "Fixtures",
-      "rationale": "Positive controls and intentionally invalid mutations are queryable for exact contamination checks but are not part of the conforming Audit surface."
-    },
-    {
-      "library": "RegulaObserver",
-      "rationale": "Regula's elaboration observer: a Lean plugin, loaded into the elaboration of each module of the root package, that records in the module's .olean the options its source set, the #guard_msgs and #guard_panic commands it ran and the messages Lean kept out of the build's output. It decides nothing and imports only Lean, so it is not elaborated with itself; the audit reads its record and decides RG2003 with the proved RegulaPolicy.Elaboration.failures and RG2006 with RegulaPolicy.Community.sourceFailures. Its reading of Lean's info trees and messages is trusted at the pinned Lean, not proved."
-    },
-    {
       "library": "Regula",
-      "rationale": "Operational Lean checker code is not a conforming proof surface; acceptance does not re-elaborate or report its declarations. It holds the adapters around the claimed RegulaPolicy and RegulaCore decisions: Lake and environment observation, frontend transcripts, Lean's LSP UTF-16 column conversion, compiler and worker processes, JSON transport, filesystem provenance and text rendering. Its external observation paths are mutation-qualified separately; its proved transport-admission theorems are kernel-checked by the warning-as-error lake build and bounded to Standard-Logical by an in-module ceiling over the axioms each reaches (RegulaPolicy.KernelAxioms.reachedAxioms). Outside acceptance, the self-audit diagnostic (./scripts/verify.sh diagnostics self-audit) kernel-admits every module and decides every declaration with the proved operational decision RegulaPolicy.operationalFailure: the Standard-Logical declaration rules, with authored unsafe/partial declarations and the pinned toolchain's Lake axioms in non-proposition definitions reported rather than failed, and module documentation required."
+      "rationale": "Regula's checker shell and the repository's own programs, which are not a conforming proof surface yet: the closed input and its loader (Regula.Load, which reads the finished build through Lean's and Lake's interfaces and frees each environment's data with an unsafe call), the rule functions over the input, whose proofs against the specification of the smaller Regula are leaf #487's, the manifest reader, the regula command, the site builder, the local gate, the release checks and the registry checks. Their process, filesystem, Lake and Lean observations are trusted."
+    },
+    {
+      "library": "RegulaControls",
+      "rationale": "The controls of the check that each program of the package runs: planted programs that the removal and write check and the task manager check must refuse or accept. They are inputs of those checks, not a conforming proof surface, and their compile needs about 30 GiB (issue #497), so the local gate builds them in a step of its own."
     }
   ],
   "excluded-executables": [
     {
-      "executable": "qualify",
-      "rationale": "Operational qualification dispatcher and IO adapters in the excluded Regula library. It invokes proved observation oracles from the positive RegulaQualification library; filesystem, process and compiler observations are not authenticated by those proofs."
-    },
-    {
-      "executable": "axiomGate",
-      "rationale": "Checker tooling executable; its root module belongs to the excluded Regula library and is qualified by the §7.8 mutation suite, not claimed as a conforming proof surface."
-    },
-    {
-      "executable": "docFenceAudit",
-      "rationale": "Checker tooling executable; its root module belongs to the excluded Regula library and is qualified by the §7.8 mutation suite, not claimed as a conforming proof surface."
-    },
-    {
-      "executable": "freshChecker",
-      "rationale": "Checker tooling executable; its root module belongs to the excluded Regula library and is qualified by the §7.8 mutation suite, not claimed as a conforming proof surface."
-    },
-    {
-      "executable": "checkerSelftest",
-      "rationale": "Checker tooling executable; its root module belongs to the excluded Regula library and is qualified by the §7.8 mutation suite, not claimed as a conforming proof surface."
-    },
-    {
-      "executable": "ruleExamples",
-      "rationale": "Source-owned rule fixture diagnostic qualification adapter; not a conforming program surface."
-    },
-    {
-      "executable": "ruleExampleQualification",
-      "rationale": "Source-owned rule receipt admission tooling; not a conforming program surface."
-    },
-    {
       "executable": "site",
-      "rationale": "Rule-reference site builder; its root module belongs to the excluded Regula library. It generates the website from the registry, the rule explanations and admitted rule-example evidence, renders it with the pinned Verso package and checks the artifact through the claimed RegulaCore.Site decisions; its process, filesystem and Verso observations are not a conforming proof surface."
+      "rationale": "Rule-reference site builder; its root module belongs to the excluded Regula library. It generates the website from the registry and the rule explanations, renders it with the pinned Verso package and checks the artifact through the claimed RegulaCore.Site decisions; its process, filesystem and Verso observations are not a conforming proof surface."
     },
     {
       "executable": "lint",
-      "rationale": "Lake lint driver; its root module belongs to the excluded Regula library. It dispatches to the axiomGate project audit and classifies its exit; its exit classification is the claimed RegulaCore.Lint contract; qualified by the §7.8 lint-driver campaign, not claimed as a conforming proof surface."
+      "rationale": "Lake lint driver, Regula's checker; its root module belongs to the excluded Regula library. It loads the finished build, runs the rule functions over the closed input and prints their findings; its loader and rule functions are not yet proved, which is leaf #487's work."
     },
     {
       "executable": "regula",

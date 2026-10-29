@@ -87,22 +87,14 @@ code of Lean's toolchain is followed from those roots, and its own initializers 
 registers what its module defines, and the registration of an elaborator or a tactic refers to it,
 so a walk of them would reach every tactic in every program that links Lean's elaborator. They are
 trusted to run none. A module is the toolchain's by its name, under the hypothesis that
-`toolchainModules` states and `lake exe qualify observers` checks.
+`toolchainModules` states.
 
-Ten programs elaborate, and their checks state it: `axiomGate`, `lint`, `ruleExamples`,
-`freshChecker`, `docFenceAudit`, `checkerSelftest`, `qualify`, `regula`, `site` and the test listing
-(`Regula.TestListing`). Each elaborates the Lake configuration of a project when it loads its
-workspace or, for the test listing, its package (`Lake.importConfigFile`). Some also
-elaborate the project's modules in Regula's frontend, in their own process or in a worker of
-`axiomGate`, or regenerate the recursion of a declaration that they audit, which runs its
-`decreasing_by` tactics. Three more state it by the conservative reachability alone: they link code
-that elaborates and that their `main` does not run. `ruleExampleQualification`, and the registry
-checks that the first acceptance step runs with `lean --run`, link Regula's frontend
-(`Regula.Checker.Frontend`) and Lake's loader of a configuration. `regula-markdown` links
-`Regula.Collect` through the guard of Lean's task manager (`Regula.TaskManager`, which imports
-`Regula.Probe`), where the regeneration of a declaration's recursion runs its `decreasing_by`
-tactics. So the check classes every program that starts through that guard as one that
-elaborates.
+The programs whose check states that they elaborate are `lint`, `regula`, `regula-markdown` and the
+test listing (`Regula.TestListing`). `lint` and `regula` elaborate the Lake configuration of a
+project when they load its workspace, and the test listing that of its package
+(`Lake.importConfigFile`). The check classes a program by the conservative reachability of its
+compiled code, so a program that links code that elaborates states it too, whether its `main` runs
+that code or not.
 
 Elaboration runs the commands, terms and tactics of the source, with their effects, as `lake
 build` runs them on the same source. They are trusted active effects of the program, which the
@@ -570,41 +562,15 @@ def tacticWrites : List (Name × Name) :=
   [(`Std.Tactic.BVDecide.LRAT.dumpLRATProof, ``IO.FS.writeBinFile),
     (`Lean.Meta.Tactic.BVDecide.lratBitblaster, ``IO.FS.writeFile)]
 
-/-- The writes of Regula's own declarations that more than one program reaches, each with the
-declaration of a source that makes it (`sourceDeclaration`). Each writes below a directory that the
-program made for its own run, never at a destination that its arguments name:
-
-- the lock of the scratch area, the marker of a scratch directory and the directory, in
-  `Regula.Scratch.withScratch`;
-- the identity document of an acceptance link, below the scratch directory, which it removes after
-  reading its digest, in `Regula.Checker.AcceptanceLink.identity`;
-- the directories of the copy's `.lake/build`, which did not exist, where the observer moves the
-  retained build output of an acceptance link, in `Regula.Checker.AcceptanceLink.placeRetained`;
-- the scratch of a project's fences, below the copy, in
-  `Regula.Checker.Documentation.auditBuiltProject`;
-- the claim of a memoized history worker's output and the directories of a probe's overlay, below
-  the directories of the run, in `Regula.Checker.Environment.historyWorkerOutput` and
-  `Regula.Checker.Environment.linkProbeOverlay`;
-- the running observer library, with its trace and hash files, in the build directory of a copy of
-  Regula's package, in `Regula.Checker.Observer.Snapshot.write`;
-- the directory of a module root in the build output of a control's project, in
-  `Regula.Checker.exposeToolchainRoot`.
-
-The copies of projects and the sources of the modules that an audit compiles are written by the
-shared constructor, whose writes are those of the writer of `Regula.Filesystem` (`writers`). -/
+/-- The writes of Regula's own declarations that a program reaches, each with the declaration of a
+source that makes it (`sourceDeclaration`): the lock of the scratch area, the marker of a scratch
+directory and the directory, in `Regula.Scratch.withScratch`. Each is below Regula's own
+`.lake/regula-scratch/` of the project, never at a destination that the program's arguments name.
+The other programs of the package write through the shared constructor, whose writes are those of
+the writer of `Regula.Filesystem` (`writers`), and through the pairs that each program names. -/
 def packageWrites : List (Name × Name) :=
   [(`Regula.Scratch.withScratch, ``IO.FS.Handle.mk),
-    (`Regula.Scratch.withScratch, ``IO.FS.createDir),
-    (`Regula.Checker.AcceptanceLink.identity, ``IO.FS.writeFile),
-    (`Regula.Checker.AcceptanceLink.placeRetained, ``IO.FS.createDirAll),
-    (`Regula.Checker.Documentation.auditBuiltProject, ``IO.FS.createDirAll),
-    (mkPrivateNameCore `Regula.Checker.Environment
-        `Regula.Checker.Environment.historyWorkerOutput, ``IO.FS.Handle.mk),
-    (mkPrivateNameCore `Regula.Checker.Environment `Regula.Checker.Environment.linkProbeOverlay,
-      ``IO.FS.createDirAll),
-    (`Regula.Checker.Observer.Snapshot.write, ``IO.FS.createDirAll),
-    (`Regula.Checker.Observer.Snapshot.write, ``IO.FS.writeBinFile),
-    (`Regula.Checker.exposeToolchainRoot, ``IO.FS.createDirAll)]
+    (`Regula.Scratch.withScratch, ``IO.FS.createDir)]
 
 /-- The pair of `pairs` that admits the call of `primitive` by `caller`, if one does: the pair of
 `caller`, of the declaration of a source in whose compiled code it is (`sourceDeclaration`), or of

@@ -1,7 +1,4 @@
-import Regula.Linter
-
-/-! Doubling with its specification. The `Regula.Linter` import enables Regula's
-live feedback in this module and in every module that imports it. -/
+/-! Doubling with its specification. -/
 
 namespace Gadget
 

@@ -1,4 +1,3 @@
-import Regula.Probe
 import Regula.GitIsolation
 
 /-! # The refusal of a program without Lean's task manager, and its start under Git isolation
@@ -11,7 +10,7 @@ with code 1 or, when `LEAN_ABORT_ON_PANIC` is set, aborts, and a wait for any of
 reads no task manager. So a run of a program that needs one can end with the exit code of a verdict
 that no completed run established (issue 393).
 
-`Regula.Probe.taskManagerMissing` observes whether the process has a task manager, through Lean's
+`taskManagerMissing` observes whether the process has a task manager, through Lean's
 own scheduling of a task. `guard` runs a program only when it has one. Otherwise it refuses before
 the program starts: it prints one reason line and runs the program's own refusal, which marks each
 result destination that the arguments name incomplete, with the reason, and returns the program's
@@ -40,6 +39,35 @@ Verso's write behaviour and a resumed render reads the saved state of an earlier
 
 namespace Regula.TaskManager
 
+/-- The reason that `taskManagerMissing` gives for a process without Lean's task manager. -/
+def taskManagerMissingReason : String :=
+  "Lean's task manager is not running in this process: a task of priority \
+    `Task.Priority.dedicated` ran on the thread that started it (Lean starts none when \
+    LEAN_NUM_THREADS is 0)"
+
+/-- Why this process has no Lean task manager, or `none` when it has one. It runs one task of
+priority `Task.Priority.dedicated` and compares the thread the task ran on with the thread of the
+caller: the same thread means that Lean has no task manager. It observes Lean's own scheduling of a
+task, not the value of `LEAN_NUM_THREADS`, and it needs no task manager itself. The guard of each
+program of the package (`guard`) uses it. The observation of the process is a trusted boundary, and
+nothing here proves it.
+
+Assumes: Lean 4.35.0 gives `Task.Priority.dedicated` the value 9 (`src/Init/Core.lean:677`), above
+`LEAN_MAX_PRIO`, 8, and below `LEAN_SYNC_PRIO`, the largest `unsigned`
+(`src/runtime/object.cpp:71-72`); the task manager runs a task of such a priority on a new thread
+that it starts for that task (`enqueue_core` and `spawn_dedicated_worker`,
+`src/runtime/object.cpp:792-795` and `868-877`), while `LEAN_SYNC_PRIO` would run it on the
+caller's thread (`788-791`). Without a task manager, Lean runs the task on the caller's thread
+before it returns (`lean_task_spawn_core`, `src/runtime/object.cpp:1184-1190`), which `IO.asTask`
+calls (`lean_io_as_task`, `src/runtime/io.cpp:1551-1554`). Assumes: two threads that run at once
+have different identifiers (`lean_io_get_tid`, `src/runtime/process.cpp:340-352`,
+`pthread_threadid_np` on macOS and `gettid` on Linux); the caller's thread runs until the task has
+ended, because it waits for it. -/
+def taskManagerMissing : IO (Option String) := do
+  let caller ← IO.getTID
+  let thread ← IO.ofExcept (← IO.wait (← IO.asTask (prio := .dedicated) IO.getTID))
+  return if thread == caller then some taskManagerMissingReason else none
+
 /-- The line that `guard` prints for the program `program` refused for `reason`. -/
 def refusalLine (program reason : String) : String :=
   s!"{program}: INCOMPLETE: {reason}; no run started, so there is no result"
@@ -49,7 +77,7 @@ run writes it: `guard` marks each destination with it before the run starts. -/
 def startedReason : String := "the run has not completed"
 
 /-- The program `program` on the arguments `args`, refused before it starts when this process has
-no task manager (`Regula.Probe.taskManagerMissing`): `guard` then prints the reason on one line
+no task manager (`taskManagerMissing`): `guard` then prints the reason on one line
 to standard error (`refusalLine`) and returns what `refuse` returns on the reason and `args`.
 `refuse` is the program's refusal: it marks each result destination of `args` incomplete, with the
 reason, and returns the program's exit code of a run that established no result. Otherwise `guard`
@@ -88,7 +116,7 @@ completed, and `LEAN_NUM_THREADS` changes nothing that runs before it. -/
 def guard (program : String) (refuse : String → List String → IO UInt32)
     (run : List String → IO UInt32) (args : List String) : IO UInt32 := do
   let (again, args) := Regula.GitIsolation.strip args
-  if let some reason ← Regula.Probe.taskManagerMissing then
+  if let some reason ← taskManagerMissing then
     IO.eprintln (refusalLine program reason)
     refuse reason args
   else

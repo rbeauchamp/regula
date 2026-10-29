@@ -2,6 +2,7 @@ import Regula.Removal
 import Regula.TaskManagerCheck
 import Regula.Site.Artifact
 import Regula.Site.RendererRefusal
+import Regula.Site.Standard
 
 /-! # Site builder entry point
 
@@ -9,11 +10,9 @@ Command-line entrypoint of the rule-reference site builder (`lake exe site`). -/
 
 open System
 
-/-- The build that an argument list names, `site build --out DIR --evidence SHARD...`: its output
-directory and evidence shards. -/
-def parseSiteBuild : List String → Option (FilePath × List FilePath)
-  | "build" :: "--out" :: out :: "--evidence" :: evidence@(_ :: _) =>
-    some (out, evidence.map FilePath.mk)
+/-- The build that an argument list names, `site build --out DIR`: its output directory. -/
+def parseSiteBuild : List String → Option FilePath
+  | ["build", "--out", out] => some out
   | _ => none
 
 /-- The output directory that an argument list names from its leading arguments,
@@ -25,23 +24,23 @@ def siteOutputNamed : List String → Option FilePath
 
 /-- On an argument list that the parser accepts, the directory named by its leading arguments is
 the build's own. -/
-theorem siteOutputNamed_of_parse {args : List String} {out : FilePath} {evidence : List FilePath}
-    (h : parseSiteBuild args = some (out, evidence)) : siteOutputNamed args = some out := by
+theorem siteOutputNamed_of_parse {args : List String} {out : FilePath}
+    (h : parseSiteBuild args = some out) : siteOutputNamed args = some out := by
   unfold parseSiteBuild at h
   split at h
   · cases h; rfl
   · cases h
 
-/-- `site build --out DIR --evidence SHARD...` builds and checks the Pages artifact, and
+/-- `site build --out DIR` builds and checks the Pages artifact, and
 `site renderer-refusal`, run after it, checks what the website's renderers leave when they render
 and when they refuse a run without Lean's task manager (`Regula.Site.RendererRefusal.control`). -/
 def siteMain (args : List String) : IO UInt32 := do
   match parseSiteBuild args, args with
-  | some (out, evidence), _ =>
-    Regula.Site.Build.build evidence out
+  | some out, _ =>
+    Regula.Site.Build.build out
     return 0
   | none, ["renderer-refusal"] =>
-    Regula.Site.RendererRefusal.control (← Regula.Qualification.rootDirectory)
+    Regula.Site.RendererRefusal.control (← Regula.Site.rootDirectory)
     IO.println "site renderer-refusal: PASS (regula-standard renders from the saved state of a \
       delayed render, which keeps a file of its output directory, and after a refused run with the \
       same options a resumed render stops; the refusals of regula-site and regula-standard without \
@@ -51,8 +50,15 @@ def siteMain (args : List String) : IO UInt32 := do
       count whose new directory's name is longer than NAME_MAX, and moves nothing for options \
       that Verso's parser refuses)"
     return 0
+  | none, ["standard", html, docs] =>
+    Regula.Site.Standard.check (← Regula.Site.rootDirectory) html docs
+    IO.println "site standard: PASS (the rendered standard defines each anchor that the registry \
+      and the documentation link, its checklist rows are exactly Regula.checklistRows, each cited \
+      section has a source file, and each rule ID in its prose links to its rule page)"
+    return 0
   | none, _ =>
-    IO.eprintln "usage: lake exe site build --out DIR --evidence SHARD.json [SHARD.json ...]"
+    IO.eprintln "usage: lake exe site build --out DIR"
+    IO.eprintln "       lake exe site standard HTML DOCS"
     IO.eprintln "       lake exe site renderer-refusal"
     return 2
 
@@ -78,8 +84,8 @@ def main : List String → IO UInt32 :=
 -- (`Regula.Removal.rawRemovals`) are those of the filesystem observer and those that
 -- `Regula.Removal.sharedPairs` lists, and those named here, each by the declaration of a source
 -- that makes it: the build of this module fails otherwise, and when a name here admits no call
--- (`Regula.Removal.checkProgram`). The program elaborates Lean source, so its check states it.
-run_cmd Regula.Removal.checkProgram (elaborates := true) (named := [
+-- (`Regula.Removal.checkProgram`). The program elaborates no Lean source.
+run_cmd Regula.Removal.checkProgram (elaborates := false) (named := [
   -- The artifact that `site build` assembles at its destination, after its refusal
   -- (`Regula.Site.Build.artifactRefusal`).
   (``Regula.Site.Build.assemble, ``IO.FS.createDirAll),
@@ -97,21 +103,7 @@ run_cmd Regula.Removal.checkProgram (elaborates := true) (named := [
   -- The destinations that the control of the renderers' refusals seeds, in its scratch directory
   -- (`Regula.Site.RendererRefusal.control`).
   (`Regula.Site.RendererRefusal.seed, ``IO.FS.createDirAll),
-  (`Regula.Site.RendererRefusal.seed, ``IO.FS.writeFile),
-  -- The writes of the campaigns that `qualify` runs and names (`Regula.Qualification.Main`), in
-  -- the modules of them that this program links: their projects and slots, and the raw
-  -- observations of a rule-example production beside its evidence
-  -- (`Regula.Qualification.RuleExamples`). The compiled code of those modules is among the
-  -- program's roots (`Regula.Removal.programRoots`).
-  (``Regula.Qualification.prepareCoreProject, ``IO.FS.createDirAll),
-  (``Regula.Qualification.rootImportsGuardControl, ``IO.FS.writeFile),
-  (`Regula.Qualification.RuleExamples.observe, ``IO.FS.Handle.mk),
-  (`Regula.Qualification.RuleExamples.produce, ``IO.FS.createDir),
-  (`Regula.Qualification.RuleExamples.produce, ``IO.FS.createDirAll),
-  (`Regula.Qualification.RuleExamples.produce, ``IO.FS.writeBinFile),
-  (`Regula.Qualification.RuleExamples.produce, ``IO.FS.writeFile),
-  (``Regula.Qualification.RuleExamples.check, ``IO.FS.createDirAll),
-  (``Regula.Qualification.Slot.prepareSlot, ``IO.FS.writeFile)])
+  (`Regula.Site.RendererRefusal.seed, ``IO.FS.writeFile)])
 
 -- A program that needs Lean's task manager starts through its guard (`Regula.TaskManager.guard`),
 -- and its refusal needs none: the build of this module fails otherwise
