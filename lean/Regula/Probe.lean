@@ -61,12 +61,12 @@ compiler simplifications, `@[implemented_by]` replacements, `@[extern]` declarat
 toolchain native-runtime primitives and other external code, unsafe/partial/opaque
 computation, compiler-trusting proof axioms, and initialized values. A replacement, `extern`,
 unsafe or partial computation, or initialized value declared in an origin-checked `Init`, `Std`,
-`Lean` or `Lake` module carries that module's toolchain origin: it is the toolchain's trusted
-base, and a toolchain replacement is followed through its current target without source history or
-correspondence. A module's origin is checked by the file where Lean's search path finds it after
-the import, under the hypotheses of `loadedModuleOrigins`. An unsafe constant whose type Lean's
-`Meta.isProp` finds to be a proposition, such as `lcProof`, is a proof the compiler erases and is
-no boundary. Each
+`Lean`, `Lake` or `LeanExport` module carries that module's toolchain origin: it is the
+toolchain's trusted base, and a toolchain replacement is followed through its current target
+without source history or correspondence. A module's origin is checked by the file where Lean's
+search path finds it after the import, under the hypotheses of `loadedModuleOrigins`. An unsafe
+constant whose type Lean's `Meta.isProp` finds to be a proposition, such as `lcProof`, is a proof
+the compiler erases and is no boundary. Each
 boundary is marked `checked` (kernel-definitional equality, a standard-logical
 correspondence theorem of a module that the audit replays or of the toolchain, or a
 kernel-checked opaque body), `trusted`, or
