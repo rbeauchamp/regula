@@ -613,7 +613,7 @@ regula explain RG1005`), from the same list the checker runs:
 > `lake lint` groups a declaration Lean generated under the one it came from if it is a constructor; projection; recursor such as `casesOn`; equation lemma; reserved name such as `f.induct`; matcher; fixpoint helper; structural helper; auxiliary declaration such as `f._proof_1`; constructor lemma; type construction; field default; recursion helper `f._unsafe_rec`. Other declarations keep their own location. Fix the one reported or a definition it uses that adds the axiom.
 
 Each family is named by an example, not by every member; the
-[enumeration of the declarations Lean v4.34.0 generates](proofs-and-boundaries.md#generated-declaration-families)
+[enumeration of the declarations Lean v4.35.0 generates](proofs-and-boundaries.md#generated-declaration-families)
 lists them all, with the family that covers each or why it keeps its own location. So
 `Channel.mk.injEq`, generated from the constructor `Channel.mk`, is reported at the structure
 `Channel`. The [RG1005] findings under one declaration at one location print as one block, which

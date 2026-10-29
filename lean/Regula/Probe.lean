@@ -783,9 +783,9 @@ private def observeNode (env : Environment) (ownedModules : List Name)
   | return note record s!"{name}: module attribution is unavailable"
   let owned := ownedModules.contains moduleName
   -- The admitted origin of the constant's module when it is the toolchain's own compiled
-  -- `Init`, `Std`, `Lean` or `Lake` module. A trusted boundary of an ownable kind there belongs to
-  -- the toolchain's trusted base; `implemented_by` and `extern` data can only be set in the
-  -- declaring module, so the declaration's module decides who owns the boundary.
+  -- `Init`, `Std`, `Lean`, `Lake` or `LeanExport` module. A trusted boundary of an ownable kind
+  -- there belongs to the toolchain's trusted base; `implemented_by` and `extern` data can only be
+  -- set in the declaring module, so the declaration's module decides who owns the boundary.
   let toolchain := toolchainModules.find? moduleName
   -- The occurrence of a boundary is its position in the root's list, which `assemble` gives.
   let entry (boundary : BoundaryKind) (correspondence : Correspondence)

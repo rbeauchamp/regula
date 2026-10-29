@@ -8,7 +8,7 @@ environment (`Regula.Collect.generatedBy?`, trying them in the order of `Generat
 and a compiled recursion helper is related by the admitted helper authorization
 (`Regula.Findings.stepOf`). The RG1005 guidance names these families from the same list
 (`GeneratedFamily.text`), each by its family name, with an example where one helps; it does not
-list every member. The enumeration of the declarations Lean v4.34.0 generates, with the family
+list every member. The enumeration of the declarations Lean v4.35.0 generates, with the family
 that covers each or the reason it is reported at its own location, is in
 `docs/guides/proofs-and-boundaries.md#generated-declaration-families`. -/
 

@@ -434,7 +434,7 @@ metadata, not authenticated binary identity.
   `GeneratedFamily.all` and `GeneratedFamily.text`, and `RegistryChecks` requires the adoption
   guide to quote it verbatim, so the guidance and the guide name exactly the families the checker
   relates; the [enumeration](proofs-and-boundaries.md#generated-declaration-families) records
-  every family Lean v4.34.0 generates and why each is related or not. In a declaration-policy
+  every family Lean v4.35.0 generates and why each is related or not. In a declaration-policy
   finding of a project audit, a file audit or a rule example (the rules `Policy.ruleForMember`
   decides), `arguments.sourceDeclaration` is the end of that chain over the audited declarations
   (`Findings.sourceName?`), and `sourceName?_eq_some_iff` proves it is exactly the name the

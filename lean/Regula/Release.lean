@@ -1575,7 +1575,7 @@ private def str (j : Json) (key : String) : IO String := IO.ofExcept (j.getObjVa
 decode the JSON it prints; `what` names the observation in an error. No Git policy is
 reimplemented here.
 
-Assumes: Lean v4.34.1 `Lean/Elab/BuiltinTerm.lean:437-445` captures include_str source;
+Assumes: Lean v4.35.0 `Lean/Elab/BuiltinTerm.lean:437-445` captures include_str source;
 `IO.Process.output` supplies stdin and waits for the child (`Init/System/IO.lean:1544-1557`);
 `Lean/Util/Path.lean:85-86` identifies the interpreter. `--stdin --run`
 (`Lean/Shell.lean:498-519,553-561`) executes the embedded source without a temporary file or

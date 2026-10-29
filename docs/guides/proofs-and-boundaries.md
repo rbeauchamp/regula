@@ -1029,7 +1029,8 @@ code. A declaration that the program does not run counts, and so does a referenc
 that it does not call. Three more programs state it because they link such code:
 `ruleExampleQualification`, `regula-markdown` and the registry checks.
 
-The check takes a module as part of Lean's toolchain by its name: `Init`, `Std`, `Lean` or `Lake`.
+The check takes a module as part of Lean's toolchain by its name: `Init`, `Std`, `Lean`, `Lake` or
+`LeanExport`.
 `lake exe qualify observers` checks that no package of the root, `markdown/` or `audit/` workspace
 provides a module under these names. The builds in the Mathlib integration's workspace and in an
 adopter's rely on this unchecked.
@@ -5694,10 +5695,10 @@ The `qualify` campaigns and what they observe:
   guard of a started program cannot query that Git with the `PATH` of the control.
 - `observers`: the record of the removal check of each program of the package, and the check of
   `Main`, the root of `auditApp`. It also refuses an executable with no record of the task-manager
-  check. It refuses a module under `Init`, `Std`, `Lean` or `Lake` in a package of the root,
-  `markdown/` or `audit/` workspace (`checkToolchainWorkspaces`), after its control. It also
-  refuses a guard name that is not the Lake name of its executable, or that names a program of the
-  Lean toolchain.
+  check. It refuses a module under `Init`, `Std`, `Lean`, `Lake` or `LeanExport` in a package of
+  the root, `markdown/` or `audit/` workspace (`checkToolchainWorkspaces`), after its control. It
+  also refuses a guard name that is not the Lake name of its executable, or that names a program of
+  the Lean toolchain.
 - `acceptance fences`: fence-compilation packet mutations with positive restoration.
 - `acceptance-snapshots`: `dependencies` (ignored Git and non-Git dependency input coverage and
   mutation), `history` ([RG3001] fresh, incremental and build-lint history refusal and restoration)

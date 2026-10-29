@@ -704,8 +704,8 @@ list that the single run audits. The dogfood workflow runs the four shards, and 
 The shard `self-audit 4/4` also builds each library of the package except `Fixtures`, and the
 executable `auditApp`. Then it runs `lake exe qualify observers`, which refuses unless each
 program records its removal check and each executable its task-manager check. It also refuses a
-module named under `Init`, `Std`, `Lean` or `Lake` in a package of the root, `markdown/` or `audit/`
-workspace. The single run does the same. On the slower CI runners, the
+module named under `Init`, `Std`, `Lean`, `Lake` or `LeanExport` in a package of the root,
+`markdown/` or `audit/` workspace. The single run does the same. On the slower CI runners, the
 shard 4/4 has the shortest audit of the four. Thus this check runs there, and not in the first
 acceptance step.
 

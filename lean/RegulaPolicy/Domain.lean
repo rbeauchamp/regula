@@ -87,8 +87,8 @@ inductive BoundaryKind where
   /-- A `@[csimp]`-shaped constant-equality lemma may let the compiler replace this constant
   with another. -/
   | «compilerSimplification»
-  /-- An `@[extern]` constant of a toolchain module (`Init`, `Std`, `Lean` or `Lake`) whose origin
-  was admitted, implemented by the toolchain's own native code. -/
+  /-- An `@[extern]` constant of a toolchain module (`Init`, `Std`, `Lean`, `Lake` or `LeanExport`)
+  whose origin was admitted, implemented by the toolchain's own native code. -/
   | «nativeRuntime»
   /-- Any other `@[extern]` constant: a trusted extern boundary outside the authenticated toolchain
   base, with no claim about the language or origin of the code bound to its symbol. -/
@@ -1790,7 +1790,7 @@ structure ToolchainOrigin where
   actual : String
   /-- The canonical path of that module's `.olean` in the toolchain's library directory. -/
   expected : String
-  /-- The module is under `Init`, `Std`, `Lean` or `Lake`. -/
+  /-- The module is under `Init`, `Std`, `Lean`, `Lake` or `LeanExport`. -/
   toolchainModule : ToolchainRoot moduleName.getRoot
   /-- The resolved path is not empty. -/
   nonempty : actual ≠ ""
@@ -1798,8 +1798,8 @@ structure ToolchainOrigin where
   agrees : actual = expected
   deriving Repr, DecidableEq
 
-/-- Admit an origin observation: an error unless the module is under `Init`, `Std`, `Lean` or `Lake`
-and `actual` is nonempty and equal to `expected` (`toolchainOrigin_roundtrip`). -/
+/-- Admit an origin observation: an error unless the module is under `Init`, `Std`, `Lean`, `Lake`
+or `LeanExport` and `actual` is nonempty and equal to `expected` (`toolchainOrigin_roundtrip`). -/
 @[regula_decision]
 def admitToolchainOrigin (moduleName : Lean.Name) (actual expected : String) :
     Except String ToolchainOrigin :=

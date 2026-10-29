@@ -3533,8 +3533,8 @@ accept; the `Lib` environment replays its nine modules, with both copies of each
 only `Lib.Near`, `Lib.Far`, `Lib.Odd`, `Lib.Even`, `Lib.Up` and `Lib.Down` as `shared`; the `App`
 environment reuses `Lib.Base`, `Lib.Left` and `Lib.Right`, though it attributes the copies of
 `Lib.Right` to `Lib.Left`, and replays the other six and `App.Main`, again listing those six as
-`shared`. Each constant that reaches `Lean.reduceBool` reaches the axiom `Lean.trustCompiler`,
-which no claim admits, so the exclusion of native reduction has its witnesses in `Admission`. -/
+`shared`. Lean v4.35.0 declares neither `Lean.reduceBool` nor `Lean.reduceNat`, so the exclusion
+of native reduction has its witnesses in `Admission`. -/
 private def sharedCopiesControl (repo : FilePath) : IO (Array String) :=
   withScratch repo "shared-copies-control" fun project =>
     withScratch repo "shared-copies-result" fun output => do

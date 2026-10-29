@@ -33,16 +33,16 @@ checked here: its environment is imported and checked as each `checkProgram` che
 (`Regula.Removal.rawRemovals`, `Regula.Removal.programRefusal`,
 `Regula.TaskManagerCheck.refusal`).
 
-The removal check reads a linked module under `Init`, `Std`, `Lean` or `Lake` as Lean's own by its
-name, under the hypothesis that no package of the workspace that builds the program provides one
-(`Regula.Removal.toolchainModules`). This campaign checks that hypothesis for three workspaces of
-this repository, the root package's, the `markdown/` package's and the `audit/` package's
-(`checkToolchainWorkspaces`): it loads each with Lake, and refuses a module under those roots that
-a package of it provides, the root package or a dependency, and an entry of those roots in the
-library directory of a package. Its control, a workspace whose dependency package provides
-`Lean.Planted`, runs first (`toolchainControl`). The Mathlib integration's workspace, which builds
-programs of the package too, and an adopter's workspace are not checked: their builds rest on the
-hypothesis unchecked.
+The removal check reads a linked module under `Init`, `Std`, `Lean`, `Lake` or `LeanExport` as
+Lean's own by its name, under the hypothesis that no package of the workspace that builds the
+program provides one (`Regula.Removal.toolchainModules`). This campaign checks that hypothesis for
+three workspaces of this repository, the root package's, the `markdown/` package's and the
+`audit/` package's (`checkToolchainWorkspaces`): it loads each with Lake, and refuses a module
+under those roots that a package of it provides, the root package or a dependency, and an entry of
+those roots in the library directory of a package. Its control, a workspace whose dependency
+package provides `Lean.Planted`, runs first (`toolchainControl`). The Mathlib integration's
+workspace, which builds programs of the package too, and an adopter's workspace are not checked:
+their builds rest on the hypothesis unchecked.
 
 The campaign acquires no dependency, under the hypothesis of `toolchainFindings` that no other
 process changes the manifest, the package overrides or a dependency's checkout between its check

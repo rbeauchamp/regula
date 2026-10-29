@@ -89,7 +89,7 @@ establish this, since a project or a dependency can supply a module under `Init`
 
 Assumes: Lean read the module through its search path at the import, as an import with no
 artifacts supplied does (`Regula.Probe.loadedModuleOrigins`), and as the import of a module under
-`Init`, `Std`, `Lean` or `Lake` does in a build by Lake, under the hypothesis of
+`Init`, `Std`, `Lean`, `Lake` or `LeanExport` does in a build by Lake, under the hypothesis of
 `Regula.Removal.toolchainModules`; and nothing that the lookup reads changed since the import: the
 search path, and the files, directories and symbolic links on it that name the module's root and
 the module (`Lean/Util/Path.lean:61-65`). -/
@@ -3134,7 +3134,7 @@ field default) applies only to a declaration with no recorded declaration range
 (`findDeclarationRangesCore?`), since Lean records one for every declaration an author writes and
 none for these generated ones. A declaration left unrelated is reported at its own location,
 while one related wrongly would misreport what the author wrote as generated, so a clause is
-narrowed rather than widened. The enumeration of the families Lean v4.34.0 generates, with their
+narrowed rather than widened. The enumeration of the families Lean v4.35.0 generates, with their
 generators, is in `docs/guides/proofs-and-boundaries.md#generated-declaration-families`.
 - `constructor` (a): its inductive type (`ConstructorVal.induct`);
 - `projection` (a): a structure projection's constructor (`ProjectionFunctionInfo.ctorName`), or,
