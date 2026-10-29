@@ -19,11 +19,15 @@ open Lean (Name)
 /-- The three axioms of Lean's logic that a profile can admit. -/
 def logicalAxioms : List Name := [``propext, ``Quot.sound, ``Classical.choice]
 
-/-- The axioms by which Lean's kernel trusts the compiler. -/
-def compilerAxioms : List Name := [``Lean.ofReduceBool, ``Lean.ofReduceNat, ``Lean.trustCompiler]
+/-- The axioms of the toolchain by which Lean's kernel trusts the compiler. Lean v4.35.0 declares none:
+`Lean.ofReduceBool`, `Lean.ofReduceNat` and `Lean.trustCompiler`, which v4.34.1 declared
+(`Init/Core.lean:2338`, `2396` and `2409` there), are gone. A native proof still adds an axiom of its
+own (`NativeProofAxiom`). -/
+def compilerAxioms : List Name := []
 
 /-- `a` has the name form of the axiom that a native proof (`native_decide`, `decide +native`,
-`bv_decide`) adds at Lean v4.34.1: `<declaration>._native.<tactic>.<suffix>`. -/
+`bv_decide`) adds at Lean v4.34.1 and v4.35.0: `<declaration>._native.<tactic>.<suffix>`
+(`Lean/Meta/Native.lean:45` and `75-82` at v4.35.0). -/
 def NativeProofAxiom (a : Name) : Prop :=
   ∃ p tactic suffix, a = Name.str (Name.str (Name.str p "_native") tactic) suffix
 
@@ -128,8 +132,6 @@ theorem rg1005_of_compiler {i : Input} {c : Name} (h : Violates1004 i c) : Viola
   refine rg1005_of_known hc ha fun hk => ?_
   rcases hn with hn | hn
   · exact native_not_logical hn hk.1
-  · have := hk.1
-    simp only [compilerAxioms, List.mem_cons, List.not_mem_nil, or_false] at hn
-    rcases hn with rfl | rfl | rfl <;> simp [logicalAxioms] at this
+  · simp [compilerAxioms] at hn
 
 end RegulaSpecification

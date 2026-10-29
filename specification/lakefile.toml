@@ -11,7 +11,7 @@ defaultTargets = ["RegulaSpecification"]
 [[require]]
 name = "lean-intent"
 git = "https://github.com/rbeauchamp/lean-intent"
-rev = "da9cacf377ec681f50d0eb4d5a5bb98fe6de76fe"
+rev = "06ae93d6593cacf4285054e1e0f7a75a76edf4d4"
 
 # The root package, for `RegulaCore.RuleId` only: the fate table matches Regula's own closed
 # rule registry exhaustively, so a rule that the registry gains or loses fails this build until

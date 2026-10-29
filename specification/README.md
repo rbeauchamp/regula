@@ -15,7 +15,7 @@ Each claim has one of four marks:
 
 A statement of what a rule or the checker must do is specification, and it has no mark. The marks are for claims about Lean, Lake, the build and the theorems of the package.
 
-The pinned toolchain is `leanprover/lean4:v4.34.1` (`lean-toolchain`). A citation such as `Lean/Util/CollectAxioms.lean:146-151` is a path below `src/lean/` of that tag, with its lines. A citation that starts with `src/` is a path below the root of that tag. A citation marked `v4.35.0` is a path below `src/lean/` of the tag `v4.35.0`.
+Regula pins `leanprover/lean4:v4.35.0` (`lean-toolchain`), and so does this package. Most observations and citations of this document were made at `v4.34.1`, the toolchain that Regula pinned before. A citation such as `Lean/Util/CollectAxioms.lean:146-151` is a path below `src/lean/` of the tag `v4.34.1`, with its lines. A citation that starts with `src/` is a path below the root of that tag. A citation marked `v4.35.0` is a path below `src/lean/` of the tag `v4.35.0`.
 
 The formal statements are in the Lean library `RegulaSpecification` in this directory. The library requires lean-intent at commit `da9cacf377ec681f50d0eb4d5a5bb98fe6de76fe`. That commit on lean-intent's `main` merged [lean-intent pull request 8](https://github.com/rbeauchamp/lean-intent/pull/8), the port of lean-intent to intent records. The library also requires the root package, for the closed rule identity `Regula.RuleId` only. To check all statements and theorems, use `lake build --wfail` in this directory.
 
@@ -25,7 +25,8 @@ The smaller Regula targets Lean `v4.35.0`, the stable release of 2026-10-12. Its
 
 - Regula, lean-intent and Acorn move to `v4.35.0` together, because a Lean package and its dependents build with one toolchain. A Regula on a newer toolchain than lean-intent or Acorn cannot be their dependency or their dependent.
 - The move is a change of its own in each repository: lean-intent first, then Regula, then Acorn. It lands before the leaves [#482] to [#488] start.
-- When the moves of lean-intent and Regula land, a change moves the pin of this package to the commit of lean-intent on `v4.35.0`.
+- lean-intent moved in [lean-intent pull request 12](https://github.com/rbeauchamp/lean-intent/pull/12), and Regula in [#494]. This package pins lean-intent at commit `06ae93d6593cacf4285054e1e0f7a75a76edf4d4` of its `main`, on `v4.35.0`.
+- At `v4.35.0` the toolchain declares no axiom by which the kernel trusts the compiler, so `compilerAxioms` is empty ([RG1004]).
 - **Open**: the observations of "What the input can show" are on `v4.34.1`. The leaf that builds on an observation repeats it on `v4.35.0`.
 
 ## The shape of a rule
@@ -211,7 +212,7 @@ But the list of `lake check` is fixed, and it gives no axiom set for each consta
 - **Intent**: no constant of a claimed module depends on the axiom of a native proof. It also depends on no axiom by which the kernel trusts the compiler. Thus no proof rests on compiled code.
 - **Domain**: each constant of a claimed module.
 - **Input**: the transitive axiom set of each constant, and the names of its axioms.
-- **Formal statement**: `Violates1004`, with `NativeProofAxiom` and `compilerAxioms`. At the pinned toolchain, `native_decide`, `decide +native` and `bv_decide` add an ordinary axiom with the name `<declaration>._native.<tactic>.<suffix>` (`Lean/Meta/Native.lean:37-90`). **Assumed** from that source. **Proved**: `rg1005_of_compiler`.
+- **Formal statement**: `Violates1004`, with `NativeProofAxiom` and `compilerAxioms`. At `v4.34.1` and at `v4.35.0`, `native_decide`, `decide +native` and `bv_decide` add an ordinary axiom with the name `<declaration>._native.<tactic>.<suffix>` (`Lean/Meta/Native.lean:37-90`, and `45` and `75-82` at `v4.35.0`). At `v4.35.0`, `compilerAxioms` is empty, because the toolchain declares no axiom by which the kernel trusts the compiler. **Assumed** from that source. **Proved**: `rg1005_of_compiler`.
 - **Accepted risks**: the rule identifies the axiom of a native proof by its name. An author can give an axiom that name. Then [RG1004] reports it in place of [RG1003], and the verdict is the same.
 - **Supersedes**: none.
 
@@ -440,9 +441,10 @@ This placement removes the cause of [#489]. There, a refusal of the self-audit r
 
 The first acceptance command also builds the Lean package of this specification with warnings as errors. Thus the merge gate checks its statements before each merge.
 
-- Default provisioning runs `lake resolve-deps` in this directory (`RegulaProvision.provisionSpecification`). That is Lake's own load of the package, and it checks lean-intent out at the commit of `lake-manifest.json`. The repository of lean-intent is public, so this fetch uses no credentials under Regula's Git isolation.
-- The first step builds the package in its copy of the project (`RegulaVerification.specificationBuild`). Lake clones lean-intent from the provisioned checkout, so the step reads no network. The theorem `ordinary_builds_specification` places the build among the commands that run in order. A failure of one of them fails the step.
-- **Measured**: with each Git protocol but `file` refused, the clone from the provisioned checkout gave the pinned commit. A clone that lacked that commit failed with `unable to read tree`.
+- Default provisioning keeps a full Git clone of lean-intent in `.lake/regula-provision/lean-intent` (`RegulaProvision.provisionSpecification`). It reads the source and the commit from `lake-manifest.json` with Lake's own reader. The repository of lean-intent is public, so the clone uses no credentials under Regula's Git isolation.
+- The clone is not the checkout in Lake's packages directory. Lake `v4.35.0` makes that one a partial clone with `--filter=tree:0` (`Lake/Util/Git.lean:160-170` at `v4.35.0`), and a partial clone cannot give its commits to a further fetch.
+- The first step builds the package in its copy of the project (`RegulaVerification.specificationBuild`). Lake fetches the pinned commit from the provisioned clone, so the step reads no network. The theorem `ordinary_builds_specification` places the build among the commands that run in order. A failure of one of them fails the step.
+- **Measured** on `v4.35.0`, with each Git protocol but `file` refused: the fetch from a full clone gave the pinned commit. The fetch from Lake's partial checkout failed with `bad tree object`.
 
 ## The Mathlib integration package
 
@@ -467,7 +469,7 @@ These decisions change what the leaves build. Each has its reason.
 - Under a checked execution claim, code that no theorem can bind fails [RG3002]. A theorem cannot discharge it, as the present standard says of `extern` in §7.6.
 - The requirements of `linter.missingDocs` and of Mathlib's standard linters go to written guidance with the documentation rules. They guard failures that are cheap to see and correct.
 - A decision registration becomes a declaration, so that a claimed module uses no tool module and no attribute that Lean does not define.
-- The target toolchain is `v4.35.0`, and the move to it lands before the leaves. Its `lake check` replays each constant in scope from an export, in a process that loads no `.olean` file of the project. It also bounds each axiom by the standard three. The `leanchecker` of `v4.34.1` with a module list did less.
+- The target toolchain is `v4.35.0`, and Regula moved to it in [#494], before the leaves. Its `lake check` replays each constant in scope from an export, in a process that loads no `.olean` file of the project. It also bounds each axiom by the standard three. The `leanchecker` of `v4.34.1` with a module list did less.
 - Each claimed target is a default target, because `lake check` takes no module list and checks the default targets.
 - `--paranoid` is optional, because the owner trusts Lean's kernel and its cost is not measured.
 - On macOS, the gate runs `lake check --inadvisably-no-sandbox`. The sandbox requires Linux, and a virtual machine on the owner's Mac is a service of the machine that no task starts.
@@ -505,7 +507,7 @@ What the specification requires:
 - Each claimed target is a default target of the root package [RG2002]. A claimed library that plain `lake build` does not build fails.
 - A claim of no target gives `incomplete`, not a pass.
 - Under `execution: checked`, an executable that reaches `@[extern]` code, a `partial def` that is not a recursion helper, or a value that `initialize` sets fails [RG3002]. No theorem changes that.
-- Regula, lean-intent and Acorn move to Lean `v4.35.0` before the leaves start, each in a change of its own. This pull request stays on `v4.34.1`.
+- Regula, lean-intent and Acorn move to Lean `v4.35.0` before the leaves start, each in a change of its own. The moves of lean-intent and Regula have landed, and Acorn moves next.
 - Regula passes its own check inside its first acceptance command.
 
 What it allows:
@@ -570,6 +572,7 @@ What it leaves unsaid:
 [#487]: https://github.com/rbeauchamp/regula/issues/487
 [#488]: https://github.com/rbeauchamp/regula/issues/488
 [#489]: https://github.com/rbeauchamp/regula/issues/489
+[#494]: https://github.com/rbeauchamp/regula/pull/494
 [lean-intent#2]: https://github.com/rbeauchamp/lean-intent/issues/2
 [lean-intent#3]: https://github.com/rbeauchamp/lean-intent/issues/3
 [lean-intent#5]: https://github.com/rbeauchamp/lean-intent/issues/5
