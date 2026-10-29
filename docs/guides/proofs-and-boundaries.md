@@ -465,19 +465,21 @@ The copy selects source files through `Construction.projectRelative` (`checked_p
 
 It excludes root `tmp` and, outside `docs`, VCS, build, cache and scratch directories. Documentation includes cache-named subdirectories. An empty root `.lake` excludes the original root's default build state. Other selected files, including artifacts under `docs`, can enter. The builds compile each module.
 
-The step has four commands, which the function `RegulaVerification.commands` gives. The build,
-the registry checks and the qualification controls operate in the copy. The last command is the
-gate that the copy built. The theorem `ordinary_places` gives the directory of each command.
+The step has five commands, which the function `RegulaVerification.commands` gives. The build,
+the registry checks and the qualification controls operate in the copy. The fourth command builds
+the copy's `specification/` package with warnings as errors. It starts in the root of the checkout,
+so Lake fetches lean-intent from the provisioned clone. The last command is the gate that the
+copy built. The theorem `ordinary_places` gives the directory of each command.
 
 Before these commands, the driver builds what the gate audits and runs. The function
 `RegulaVerification.prebuild` gives that build, in the copy. Its targets are the list
 `RegulaVerification.gateTargets`: each target that `foundation_manifest.json` claims and the
 executable `axiomGate`. The step refuses a manifest that claims a target outside that list, by
-the decision `prebuildCovers`. Then the gate runs beside the other three commands, which run one
+the decision `prebuildCovers`. Then the gate runs beside the other four commands, which run one
 after the other at low priority. The theorem `inOrder_append_beside` shows that the two groups are
-the four commands, each one time.
+the five commands, each one time.
 
-The step's build is the first of the three commands. It names each target of the prebuild again,
+The step's build is the first of the four commands. It names each target of the prebuild again,
 as the theorem `prebuild_named` shows, and it builds the targets that the prebuild did not build.
 
 The driver starts the gate in the root of the checkout as `lake -d COPY exe axiomGate
@@ -6155,8 +6157,10 @@ execution, and calling a proved oracle does not prove the driver or its IO effec
   the kinds of the driver's decisions ([above](#decisions-not-registered-with-regula_decision)). Process
   execution remains IO.
 - The theorem `RegulaVerification.ordinary_places` gives the directory of each command of the
-  first step. Three commands operate in the copy, and the gate starts in the root of the
-  checkout.
+  first step. Three commands operate in the copy. The build of the copy's specification package
+  and the gate start in the root of the checkout. The theorem
+  `RegulaVerification.ordinary_builds_specification` shows that the step builds that package with
+  warnings as errors, among the commands that run in order.
 - The theorem `RegulaVerification.inOrder_append_beside` shows that the schedule runs each
   command of a mode one time. The theorem `beside_prebuilt` shows that the command beside the
   others is the gate of the copy. It also shows that a prebuild in the copy names `axiomGate` and

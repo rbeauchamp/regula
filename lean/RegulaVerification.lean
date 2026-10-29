@@ -383,6 +383,32 @@ def otherTargets : List String :=
     "+Regula.Campaigns.Verification:olean",
     "+Regula.Campaigns.Diagnostics:olean", "+Regula.ProgramCheck.Verification:olean"]
 
+/-- The package of the specification of the smaller Regula (`specification/README.md`), the name
+`RegulaProvision.specificationPackage` written again here because this driver imports only the
+toolchain. It requires lean-intent by Git and the root package by path. -/
+def specificationPackage : String := "specification"
+
+/-- The full clone of lean-intent that default provisioning keeps for the specification package
+(`RegulaProvision.leanIntentClone`), relative to the repository root. -/
+def leanIntentCheckout : String := ".lake/regula-provision/lean-intent"
+
+/-- The build of the specification package of the copy with warnings as errors, started in the
+checkout's root. The copy has no `.lake` of the checkout (`Construction.projectRelative`), so the
+copy's specification package has no lean-intent checkout. Lake v4.35.0 then makes one: it
+initializes a repository whose remote is the URL that `LAKE_PKG_URL_MAP` maps lean-intent to, here
+the provisioned clone (`leanIntentCheckout`), fetches the commit of the package's manifest from it,
+and checks that commit out (`Lake/Load/Materialize.lean:37-105`, `Lake/Load/Materialize.lean:270-281`
+and `Lake/Config/Env.lean:205-209`). A fetch that cannot give that commit fails the build. Lake
+resolves a local path from its own working directory, the checkout's root, so the relative path
+names the provisioned clone, and the build reads no network. The map's keys are names, so the key
+is spelled `«lean-intent»`, as the manifest spells the entry's name. Its dependency `regula` is the
+copy's root, whose modules the step's first build built. -/
+def specificationBuild (copy : String) : Command :=
+  { program := "lake"
+    args := #["-d", (System.FilePath.mk copy / specificationPackage).toString, "build", "--wfail",
+      "RegulaSpecification"]
+    env := #[("LAKE_PKG_URL_MAP", s!"\{\"«lean-intent»\":\"{leanIntentCheckout}\"}")] }
+
 /-- A `qualify` selection under the driver's deadline. -/
 private def qualify (selection : Array String) : Command :=
   lake (#["exe", "qualify", "--under-deadline"] ++ selection)
@@ -443,9 +469,12 @@ def commands (copy pending : String) : Mode → List Command
       lakeIn copy ("build" :: gateTargets ++ otherTargets).toArray,
       lakeIn copy #["env", "lean", "--run", "lean/Regula/RegistryChecks.lean"],
       lakeIn copy #["exe", "qualify", "--under-deadline", "combined"],
+      -- The specification package of the copy, with warnings as errors, from the repository
+      -- root, so that Lake clones its lean-intent from the provisioned checkout.
+      specificationBuild copy,
       -- Last, and from the repository root: the gate of the copy audits the copy, reads the
       -- linked documents of the checkout and writes the pending record of the run (`pending`).
-      -- It runs beside the three commands above (`beside`).
+      -- It runs beside the four commands above (`beside`).
       lake #["-d", copy, "exe", "axiomGate", "--acceptance-link", pending, "--verso",
           versoStandard, "--driver-copy", copy]]
   | .docs => [
@@ -579,11 +608,11 @@ theorem commands_nonempty (copy pending : String) (mode : Mode) :
   | _ => simp [commands, ruleExampleShard, selftest]
 
 /-- The first acceptance step runs its build, the registry checks and the combined qualification
-in the copy, and the gate from the repository root: the gate is the last of its commands, and it
-is the only command of the step that runs in the checkout. It runs beside the others
+in the copy, and then the build of the copy's specification package and the gate from the
+repository root: the gate is the last of its commands, and it runs beside the others
 (`beside_prebuilt`). -/
 theorem ordinary_places (copy pending : String) :
-    (commands copy pending .ordinary).map (·.dir) = [copy, copy, copy, "."] := rfl
+    (commands copy pending .ordinary).map (·.dir) = [copy, copy, copy, ".", "."] := rfl
 
 /-! ## The schedule of the first acceptance step
 
@@ -656,6 +685,14 @@ is: the schedule drops no command and adds none. -/
 theorem inOrder_append_beside (copy pending : String) (mode : Mode) :
     inOrder copy pending mode ++ beside copy pending mode = commands copy pending mode :=
   List.take_append_drop _ _
+
+/-- The first acceptance step builds the specification package of its copy with warnings as
+errors, one after another with its other commands but the gate (`inOrder`), so a failure of that
+build fails the step (`passed_iff`). -/
+theorem ordinary_builds_specification (copy pending : String) :
+    specificationBuild copy ∈ inOrder copy pending .ordinary ∧
+      (specificationBuild copy).args.toList.drop 2 = ["build", "--wfail", "RegulaSpecification"] :=
+  ⟨by simp [inOrder, commands, besideCount], rfl⟩
 
 /-- The command that runs beside the others is the gate of the copy, `lake -d COPY exe
 axiomGate`, and a prebuild in `COPY` names `axiomGate` and every claimed target the gate builds

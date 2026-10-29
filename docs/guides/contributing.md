@@ -12,6 +12,8 @@ prescribe a directory layout for other Lean projects. Read the current
 - **Contracts, examples, and checker internals:** [Lean module map](../../lean/README.md).
 - **Standalone consumers:** [example projects](../../examples/README.md).
 - **Planned work:** the [roadmap](https://github.com/users/rbeauchamp/projects/8); each item needs a design pass before implementation.
+- **The smaller Regula:** the [specification](../../specification/README.md) of its rules, its input and its
+  leaves, which the owner confirms before the code changes.
 
 The root `lakefile.lean` sets the package source directory to `lean/`. Module
 names and imports remain independent of that physical prefix: for example,
@@ -28,6 +30,11 @@ only. Run Lake commands
 from the repository root, and the `audit/` package's in `audit/` (or with `lake -d audit`).
 Lake's elaborated library and executable inventory owns source discovery; directory names alone
 do not establish audit ownership.
+
+The `regula_specification` package in [`specification/`](../../specification/lakefile.toml) holds the
+formal statements of the [specification of the smaller Regula](../../specification/README.md). To
+check them, use `lake build --wfail` in that directory. The first acceptance step builds the
+package in its copy with warnings as errors, so the merge gate checks it.
 
 ## Develop and verify
 
@@ -60,7 +67,7 @@ acceptance step performs Lake-semantic discovery and a clean, warning-free build
 inspection, so a redundant preliminary clean build is unnecessary; `lake build` remains the
 development command. Each command has its own hard seven-minute
 limit; a timeout is an incomplete run, not acceptance. `./scripts/provision.sh` runs before
-that limit, under its own 30-minute limit; it validates the released compiler and acquires no dependencies. The [local gate](#the-local-gate) runs the two commands in that order, after it provisions
+that limit, under its own 30-minute limit; it validates the released compiler and acquires one dependency, the specification package's lean-intent. The [local gate](#the-local-gate) runs the two commands in that order, after it provisions
 the pinned Verso artifacts.
 
 Ordinary acceptance puts the accepted record at `tmp/acceptance-link.json` only after each of
@@ -70,7 +77,7 @@ in that copy. The gate that the copy built audits the build output of the copy. 
 builds the claimed libraries one time.
 
 In the copy, the driver first builds the claimed targets and the gate. Then the gate runs beside
-the other three commands, which run at low priority.
+the other four commands, which run at low priority.
 
 `qualify unique-constants` refuses a constant that two modules of one claimed environment
 declare, if one of them is a module of the root package. Lean makes an equation lemma in the first
@@ -242,7 +249,7 @@ rm -rf .lake/packages/{batteries,aesop,Qq,proofwidgets,importGraph,LeanSearchCli
 
 Existing stable shared-store receipts and keys remain compatible. A receipt whose origin is `source` fails decoding; its store is neither reused nor pruned. Removed source-mode and snapshot configuration files are refused during setup. Provisioning does not migrate or delete source stores.
 
-Run `lean --run lean/RegulaProvision.lean verso` to provision the pinned Verso. The default provisioning command validates the released compiler and acquires no dependencies. Verification invokes commands directly with their declared arguments and working directories. The existing setup and acceptance deadlines still apply. Git, package build hooks, compiler binaries, cache storage, process execution and filesystem operations remain trusted boundaries.
+Run `lean --run lean/RegulaProvision.lean verso` to provision the pinned Verso. The default provisioning command validates the released compiler. It acquires one dependency: a full Git clone, in `.lake/regula-provision/lean-intent`, of the lean-intent commit that `specification/lake-manifest.json` pins. Verification invokes commands directly with their declared arguments and working directories. The existing setup and acceptance deadlines still apply. Git, package build hooks, compiler binaries, cache storage, process execution and filesystem operations remain trusted boundaries.
 
 [AGENTS.md](../../AGENTS.md#changes-and-verification) owns verification and merge policy.
 The [CI workflow](../../.github/workflows/ci.yml) defines runner and cache configuration.
