@@ -1,4 +1,6 @@
-import Lake.CLI.Main
+import Lake.CLI.Error
+import Lake.Load.Package
+import Lake.Util.IO
 
 /-! # The listing of the tests that Lake knows for Regula's package
 
@@ -18,33 +20,44 @@ test driver.
 The program needs Lake's own compiled library, which `--load-dynlib` loads before the program
 runs. `lake env` puts the toolchain's library directory first on the search path of shared
 libraries (`Lake.Workspace.augmentedEnvVars`, `Lake/Config/Workspace.lean:409-431`,
-`Lake/CLI/Main.lean:1158-1167`). Without that library, `lean --run` stopped in the load of every
+`Lake/CLI/Main.lean:1260-1269`). Without that library, `lean --run` stopped in the load of every
 `lakefile.lean` tried, at code that Lean's interpreter could not run, and exited with status 1
-(observed with Lean v4.34.1). A `lakefile.toml` loaded without it. The file name of the library is
+(observed with Lean v4.34.1, and with Lean v4.35.0 on this repository's `lakefile.lean`). A
+`lakefile.toml` loaded without it. The file name of the library is
 macOS's. On another system the command fails, so its listing blocks rather than passes.
 
 ## What Lake knows as a test
 
-Lake v4.34.1 knows one test of a package: its test driver, `Lake.Package.testDriver`, which
+Lake v4.35.0 knows one test of a package: its test driver, `Lake.Package.testDriver`, which
 `lake test` runs when the package is the root of the workspace (`Lake/CLI/Actions.lean:71-85`).
 The driver is the package's `testDriver` setting, or the one script, executable or library tagged
 `@[test_driver]`. A package with both, or with two tagged, does not load
 (`Lake/Load/Lean/Eval.lean:145-161`). `lake check-test` reports the driver only by its exit
 status. That status is 1 for an empty driver and also for a package that does not load
-(`Lake/CLI/Main.lean:154-158`, `:1044-1047`, `Lake/Util/MainM.lean:72-75`, `:80-82`), so this
+(`Lake/CLI/Main.lean:178-181`, `:1094-1097`, `Lake/Util/MainM.lean:72-75`, `:80-82`), so this
 program reads the driver itself.
 
 ## How it reads the package
 
 It makes the calls that `lake check-test` makes when no option is given
-(`Lake/CLI/Main.lean:154-158`, `:1044-1047`):
+(`Lake/CLI/Main.lean:172-181`, `:1094-1097`):
 - Lake's search for the Lean and Lake installations (`Lake.findInstall?`);
-- the load configuration of the working directory (`Lake.LakeOptions.mkLoadConfig`,
-  `Main.lean:116-130`);
+- the load configuration of the working directory, which `loadConfig` makes as
+  `Lake.LakeOptions.mkLoadConfig` makes it from the options that hold only those installations
+  (`Main.lean:131-145`), as `Regula.ProgramCheck.TestListing.loadConfig_eq` proves;
 - the load of the package alone (`Lake.loadPackage`, `Lake/Load/Package.lean:135-139`).
 
+The program does not call `mkLoadConfig`. The module that declares it, `Lake.CLI.Main`, imports
+the code of every command of Lake. Among them are `lake check` and `lake comparator`, which remove
+the temporary files that they make (`Lake.CLI.Check`). The check of the program starts from each
+compiled declaration without parameters of each module that the program imports
+(`Regula.Removal.initializersOf`). One of `Lake.CLI.Check` reaches those removals, so the check
+would find them, although the program runs neither command. This module imports only Lake's load
+of a package (`Lake.Load.Package`), the path operations that it uses too (`Lake.Util.IO`) and the
+errors of Lake's commands (`Lake.CLI.Error`), none of which links `Lake.CLI.Check`.
+
 It runs the load with Lake's default log configuration, which is the command's when no option is
-given (`Lake/CLI/Main.lean:85-92`, `:160-161`, `Lake/Util/Log.lean:125-128`, `:597-611`).
+given (`Lake/CLI/Main.lean:100-107`, `:178-179`, `Lake/Util/Log.lean:125-128`, `:597-612`).
 Lake's messages go to standard error, and an error, or an entry of the error level in the log,
 fails the load (`Lake.LogIO.toBaseIO`, `Lake/Util/Log.lean:630-638`). The command passes its
 arguments to the load configuration (`lakeArgs?`), which only the load of a workspace reads
@@ -52,7 +65,7 @@ arguments to the load configuration (`lakeArgs?`), which only the load of a work
 runs its compiler guard, and writes the compiled configuration below `.lake/config`, as
 `lake check-test` does. It builds no target. When the configuration file is there, `lake env`
 first loads the workspace itself and fails when Lake cannot load it
-(`Lake/CLI/Main.lean:1158-1167`).
+(`Lake/CLI/Main.lean:1260-1269`).
 
 ## Boundaries
 
@@ -113,6 +126,36 @@ theorem listing_ok_iff (driver : String) (lines : List String) :
         false_and, false_or, ne_eq, not_false_eq_true, true_and, false_iff, not_and]
       exact fun each => absurd (all_iff.mpr each) allPrintable
 
+/-- The load configuration of the working directory, with the installations `elanInstall?`,
+`leanInstall?` and `lakeInstall?`: the one that `Lake.LakeOptions.mkLoadConfig` makes from the
+options that hold only these installations, with the same failures in the same order
+(`Regula.ProgramCheck.TestListing.loadConfig_eq`). It fails when the working directory does not
+resolve, then when the Lake installation is missing, then when the Lean installation is missing,
+and then when Lake cannot compute its environment from them. -/
+def loadConfig (elanInstall? : Option Lake.ElanInstall) (leanInstall? : Option Lake.LeanInstall)
+    (lakeInstall? : Option Lake.LakeInstall) : EIO Lake.CliError Lake.LoadConfig := do
+  let some wsDir ← Lake.resolvePath? "."
+    | throw <| .missingRootDir "."
+  let lake ← match lakeInstall? with
+    | none => throw .unknownLakeInstall
+    | some lake => pure lake
+  let lean ← match leanInstall? with
+    | none => throw .unknownLeanInstall
+    | some lean => pure lean
+  let lakeEnv ← Lake.Env.compute lake lean elanInstall? none |>.adapt fun msg => .invalidEnv msg
+  return {
+    lakeArgs? := some #[]
+    lakeEnv
+    wsDir
+    relConfigFile := Lake.defaultConfigFile
+    packageOverrides := #[]
+    lakeOpts := {}
+    leanOpts := Lean.Options.empty
+    reconfigure := false
+    updateDeps := false
+    updateToolchain := true
+  }
+
 end Regula.TestListing
 
 open Regula.TestListing in
@@ -121,8 +164,7 @@ when it reports none. Exit with status 1 when Lake cannot load the package or th
 printed as one line (`listing`), and with status 0 otherwise. -/
 def main : IO UInt32 := do
   let (elanInstall?, leanInstall?, lakeInstall?) ← Lake.findInstall?
-  let options : Lake.LakeOptions := { elanInstall?, leanInstall?, lakeInstall? }
-  match ← options.mkLoadConfig.toBaseIO with
+  match ← (loadConfig elanInstall? leanInstall? lakeInstall?).toBaseIO with
   | .error error =>
       IO.eprintln s!"error: {error}"
       return 1
