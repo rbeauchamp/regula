@@ -152,6 +152,11 @@ structure Contract where
 /-- The obligations lean-intent states of an intent record. -/
 inductive Obligation where
   | o1 | o2 | o3 | o4 | o5
+  /-- O2 before a run: the record has a model (`LeanIntent.O2Run`). -/
+  | o2Run
+  /-- lean-intent's degenerate check: each degenerate subject of the record's type that meets it is
+  one the owner confirmed (`LeanIntent.Degenerate`). -/
+  | nondegenerate
   deriving DecidableEq, Repr
 
 /-- A statement that a theorem of a claimed module proves, read from the theorem's type, which
@@ -186,8 +191,10 @@ structure Input where
   decisions : List Name
   /-- The decision functions whose result type is `Decidable`. -/
   decidableResults : List Name
-  /-- The deliverables the project declares: an implementation and its intent record. -/
-  deliverables : List (Name × Name)
+  /-- The deliverables that the owner's committed confirmation record names, each an implementation
+  and its intent record, or `none` when the project has no such record. The project's own code does
+  not name them, so removing a declaration removes no obligation. -/
+  inventory : Option (List (Name × Name))
   /-- The statements that theorems of claimed modules prove. -/
   proved : List Goal
   /-- The owner's confirmed or declined consequences: an intent record and a consequence. -/

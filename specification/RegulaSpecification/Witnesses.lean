@@ -54,9 +54,10 @@ def base : Input where
   contracts := [⟨`Good.f_spec, `Good.f, 0, .decides, [`Good.Spec], []⟩]
   decisions := [`Good.f]
   decidableResults := []
-  deliverables := [(`Good.f, `Good.intent)]
+  inventory := some [(`Good.f, `Good.intent)]
   proved := [.obligation .o1 `Good.intent, .obligation .o2 `Good.intent,
     .obligation .o3 `Good.intent, .obligation .o4 `Good.intent, .obligation .o5 `Good.intent,
+    .obligation .o2Run `Good.intent, .obligation .nondegenerate `Good.intent,
     .fulfils `Good.f `Good.intent, .corresponds `Good.f]
   confirmed := []
 

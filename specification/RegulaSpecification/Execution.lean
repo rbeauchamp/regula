@@ -46,6 +46,12 @@ inductive Executes : Name → Name → Prop
   | step {r c n : Name} (d : Decl) : Executes r c → d ∈ i.decls → d.name = c → i.Runs d n →
       Executes r n
 
+/-- `c` reaches `n` through one or more runtime replacements (`@[implemented_by]`). -/
+inductive Replaces : Name → Name → Prop
+  | one {c n : Name} (d : Decl) : d ∈ i.decls → d.name = c → d.implementedBy = some n → Replaces c n
+  | more {c m n : Name} (d : Decl) : d ∈ i.decls → d.name = c → d.implementedBy = some m →
+      Replaces m n → Replaces c n
+
 /-- `r` is the `main` of an executable target claimed with execution mode `e`. -/
 def ExecutableRoot (r : Name) (e : Execution) : Prop :=
   ∃ t ∈ i.targets, t.kind = .executable ∧ (∃ p, ⟨t.name, .claimed p e⟩ ∈ i.manifest) ∧
@@ -75,9 +81,9 @@ def Violates1006 (i : Input) (c : Name) : Prop :=
     ¬ i.RecursionHelper d
 
 /-- RG3001: the execution closure of a claimed executable reaches a name the input does not
-resolve. -/
+resolve, or a constant on a cycle of runtime replacements, which runs no definition. -/
 def Violates3001 (i : Input) (c : Name) : Prop :=
-  ∃ r e, i.ExecutableRoot r e ∧ i.Executes r c ∧ ¬ i.Resolves c
+  ∃ r e, i.ExecutableRoot r e ∧ i.Executes r c ∧ (¬ i.Resolves c ∨ i.Replaces c c)
 
 /-- RG3002: under a checked execution claim, the closure reaches a boundary that no theorem of a
 claimed module states the correspondence of, or a boundary that no theorem can bind (`Unbindable`). -/

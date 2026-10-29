@@ -53,25 +53,45 @@ theorem wf3001 : refused3001.WellFormed := by
   rcases hd with rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl <;>
     simp [decls3001, plain, toolchain, helperDecl, replaced, mainDecl]
 
+/-- The names the RG3001 witness can report: each constant, and each name a constant runs. -/
+def support3001 (i : Input) : List Name :=
+  i.decls.map (·.name) ++
+    i.decls.flatMap fun d => d.uses ++ d.implementedBy.toList ++ [Name.str d.name "_unsafe_rec"]
+
+theorem no_replaces_base (c : Name) : ¬ base.Replaces c c := by
+  intro h
+  have : ∃ d ∈ base.decls, d.implementedBy.isSome = true := by
+    cases h with
+    | one d hd _ hi => exact ⟨d, hd, by simp [hi]⟩
+    | more d hd _ hi _ => exact ⟨d, hd, by simp [hi]⟩
+  obtain ⟨d, hd, hi⟩ := this
+  simp only [base, baseDecls, List.mem_cons, List.not_mem_nil, or_false] at hd
+  rcases hd with rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl <;>
+    simp [plain, toolchain, helperDecl] at hi
+
 def w3001 : Witnessed Violates3001 where
-  support i := i.decls.flatMap fun d => d.uses ++ d.implementedBy.toList ++ [Name.str d.name "_unsafe_rec"]
+  support := support3001
   support_complete i c h := by
-    obtain ⟨r, e, ⟨-, -, -, -, d, hd, hn, -⟩, hx, hnr⟩ := h
-    cases hx with
-    | root => exact absurd ⟨d, hd, hn⟩ hnr
-    | step d' _ hd' hn' hrun =>
-      refine List.mem_flatMap.mpr ⟨d', hd', ?_⟩
-      rcases hrun with h | ⟨-, -, rfl⟩ | ⟨-, -, h⟩
-      · simp [h]
-      · simp
-      · simp [h]
+    obtain ⟨r, e, ⟨-, -, -, -, d, hd, hn, -⟩, hx, hnr | hcyc⟩ := h
+    · cases hx with
+      | root => exact absurd ⟨d, hd, hn⟩ hnr
+      | step d' _ hd' hn' hrun =>
+        refine List.mem_append_right _ (List.mem_flatMap.mpr ⟨d', hd', ?_⟩)
+        rcases hrun with h | ⟨-, -, rfl⟩ | ⟨-, -, h⟩
+        · simp [h]
+        · simp
+        · simp [h]
+    · cases hcyc with
+      | one d hd hn _ => exact List.mem_append_left _ (List.mem_map.mpr ⟨d, hd, hn⟩)
+      | more d hd hn _ _ => exact List.mem_append_left _ (List.mem_map.mpr ⟨d, hd, hn⟩)
   refused := refused3001
   refused_wf := wf3001
   bad := `Gone
   bad_violates := by
     refine ⟨`main, .checked, ⟨appTarget, by simp [refused3001, base, appTarget], rfl,
       ⟨.standardLogical, by simp [refused3001, base, appTarget]⟩, mainDecl,
-      by simp [refused3001, decls3001], rfl, rfl, by simp [mainDecl, plain, appTarget]⟩, ?_, ?_⟩
+      by simp [refused3001, decls3001], rfl, rfl, by simp [mainDecl, plain, appTarget]⟩, ?_,
+      Or.inl ?_⟩
     · refine .step replaced (.step mainDecl (.root _) (by simp [refused3001, decls3001]) rfl
         (Or.inr (Or.inr ⟨rfl, ?_, by simp [mainDecl, plain, replaced]⟩)))
         (by simp [refused3001, decls3001]) rfl (Or.inl rfl)
@@ -87,16 +107,35 @@ def w3001 : Witnessed Violates3001 where
   admitted_wf := wf_base
   fine := `Good.f
   fine_admitted := by
-    rintro ⟨-, -, -, -, h⟩
-    exact h ⟨plain `Good.f `Good .definition [], by simp [base, baseDecls], rfl⟩
+    rintro ⟨-, -, -, -, h | h⟩
+    · exact h ⟨plain `Good.f `Good .definition [], by simp [base, baseDecls], rfl⟩
+    · exact no_replaces_base _ h
 
 theorem rg3001_adequate : O2 rg3001 ∧ O2Run rg3001 ∧ O3 rg3001 ∧ O4 rg3001 ∧
     O5 rg3001 (.rel SameReports) := adequate w3001
 
 theorem rg3001_noisy : ¬ rg3001.Meets w3001.support :=
-  noisy_fails w3001 (show (`Good.f : Name) ∈ base.decls.flatMap (fun d =>
-    d.uses ++ d.implementedBy.toList ++ [Name.str d.name "_unsafe_rec"]) from
-    List.mem_flatMap.mpr ⟨mainDecl, main_mem, by simp [mainDecl, plain]⟩)
+  noisy_fails w3001 (show (`Good.f : Name) ∈ support3001 base from
+    List.mem_append_left _ (by simp [base, baseDecls, plain]))
+
+/-- `Good.f` and `Good.g` replace each other. -/
+def cycleF : Decl := { plain `Good.f `Good .definition [] with implementedBy := some `Good.g }
+def cycleG : Decl := { plain `Good.g `Good .definition [] with implementedBy := some `Good.f }
+
+/-- A claimed executable that reaches a cycle of runtime replacements violates RG3001, although
+each name of the cycle resolves. -/
+theorem rg3001_refuses_cycle :
+    Violates3001 { base with decls := [cycleF, cycleG, mainDecl] } `Good.f := by
+  have noHelper : ¬ ({ base with decls := [cycleF, cycleG, mainDecl] } : Input).HasHelper `main := by
+    rintro ⟨h, hh, hn, -⟩
+    simp only [List.mem_cons, List.not_mem_nil, or_false] at hh
+    rcases hh with rfl | rfl | rfl <;> simp [plain, cycleF, cycleG, mainDecl] at hn
+  refine ⟨`main, .checked, ⟨appTarget, by simp [base, appTarget], rfl,
+    ⟨.standardLogical, by simp [base, appTarget]⟩, mainDecl, by simp, rfl, rfl,
+    by simp [mainDecl, plain, appTarget]⟩, ?_, Or.inr ?_⟩
+  · exact .step mainDecl (.root _) (by simp) rfl
+      (Or.inr (Or.inr ⟨rfl, noHelper, by simp [mainDecl, plain]⟩))
+  · exact .more cycleF (by simp) rfl rfl (.one cycleG (by simp) rfl rfl)
 
 /-! ## RG3002 -/
 
@@ -161,44 +200,69 @@ theorem rg3002_refuses_extern : Violates3002 { base with decls := declsExtern } 
 
 /-- The parts of a deliverable that a finding can name. -/
 def partsOf (i : Input) (f : Name) : List (Name × IntentPart) :=
-  [(f, .record), (f, .obligation .o1), (f, .obligation .o2), (f, .obligation .o3),
-    (f, .obligation .o4), (f, .obligation .o5), (f, .dependsOnImplementation), (f, .fulfilment)] ++
+  [(f, .record), (f, .implementation), (f, .obligation .o1), (f, .obligation .o2),
+    (f, .obligation .o3), (f, .obligation .o4), (f, .obligation .o5), (f, .obligation .o2Run),
+    (f, .obligation .nondegenerate), (f, .dependsOnImplementation), (f, .fulfilment),
+    (f, .inventory)] ++
     i.confirmed.map fun q => (f, .consequence q.2)
 
 def withoutFulfilment : List Goal :=
   [.obligation .o1 `Good.intent, .obligation .o2 `Good.intent, .obligation .o3 `Good.intent,
-    .obligation .o4 `Good.intent, .obligation .o5 `Good.intent, .corresponds `Good.f]
+    .obligation .o4 `Good.intent, .obligation .o5 `Good.intent, .obligation .o2Run `Good.intent,
+    .obligation .nondegenerate `Good.intent, .corresponds `Good.f]
 
 def w6001 : Witnessed Violates6001 where
-  support i := i.deliverables.flatMap fun p => partsOf i p.1
+  support i := (i.inventory.getD []).flatMap (fun p => partsOf i p.1) ++
+    [(Name.anonymous, .inventory)]
   support_complete i s h := by
-    obtain ⟨record, hmem, hf⟩ := h
-    refine List.mem_flatMap.mpr ⟨(s.1, record), hmem, ?_⟩
-    obtain ⟨f, part⟩ := s
-    cases part with
-    | obligation k => cases k <;> simp [partsOf]
-    | consequence c => exact List.mem_append_right _ (List.mem_map.mpr ⟨(record, c), hf.1, rfl⟩)
-    | _ => simp [partsOf]
+    rcases h with ⟨record, hmem, hf⟩ | ⟨-, rfl⟩
+    · refine List.mem_append_left _ (List.mem_flatMap.mpr ⟨(s.1, record), hmem, ?_⟩)
+      obtain ⟨f, part⟩ := s
+      cases part with
+      | obligation k => cases k <;> simp [partsOf]
+      | consequence c =>
+        exact List.mem_append_right _ (List.mem_map.mpr ⟨(record, c), hf.1, rfl⟩)
+      | _ => simp [partsOf]
+    · exact List.mem_append_right _ (by simp)
   refused := { base with proved := withoutFulfilment }
   refused_wf := wf_congr wf_base rfl rfl rfl
   bad := (`Good.f, .fulfilment)
-  bad_violates := ⟨`Good.intent, by simp [base], by simp [IntentPart.Fails, withoutFulfilment]⟩
+  bad_violates :=
+    Or.inl ⟨`Good.intent, by simp [base], by simp [IntentPart.Fails, withoutFulfilment]⟩
   admitted := base
   admitted_wf := wf_base
   fine := (`Good.f, .fulfilment)
   fine_admitted := by
-    rintro ⟨r, hr, h⟩
-    simp only [base, List.mem_singleton, Prod.mk.injEq, true_and] at hr
-    subst hr
-    exact h (by simp [base])
+    rintro (⟨r, hr, h⟩ | ⟨h, -⟩)
+    · simp only [base, Option.getD_some, List.mem_singleton, Prod.mk.injEq, true_and] at hr
+      subst hr
+      exact h (by simp [base])
+    · simp [base] at h
 
 theorem rg6001_adequate : O2 rg6001 ∧ O2Run rg6001 ∧ O3 rg6001 ∧ O4 rg6001 ∧
     O5 rg6001 (.rel SameReports) := adequate w6001
 
 theorem rg6001_noisy : ¬ rg6001.Meets w6001.support :=
   noisy_fails w6001 (show ((`Good.f : Name), IntentPart.fulfilment) ∈
-    base.deliverables.flatMap (fun p => partsOf base p.1) from
-    List.mem_flatMap.mpr ⟨(`Good.f, `Good.intent), by simp [base], by simp [partsOf]⟩)
+    (base.inventory.getD []).flatMap (fun p => partsOf base p.1) ++
+      [(Name.anonymous, IntentPart.inventory)] from
+    List.mem_append_left _
+      (List.mem_flatMap.mpr ⟨(`Good.f, `Good.intent), by simp [base], by simp [partsOf]⟩))
+
+/-- A project with no committed confirmation record violates RG6001, so an empty inventory is not
+read as one that passes. -/
+theorem rg6001_refuses_no_record :
+    Violates6001 { base with inventory := none } (Name.anonymous, .inventory) :=
+  Or.inr ⟨rfl, rfl⟩
+
+/-- A deliverable that the owner's record names and the project lacks violates RG6001. -/
+theorem rg6001_refuses_missing :
+    Violates6001 { base with inventory := some [(`Gone, `Good.intent)] } (`Gone, .implementation) := by
+  refine Or.inl ⟨`Good.intent, by simp, ?_⟩
+  rintro ⟨d, hd, hn, -⟩
+  simp only [base, baseDecls, List.mem_cons, List.not_mem_nil, or_false] at hd
+  rcases hd with rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl <;>
+    simp [plain, toolchain, helperDecl] at hn
 
 end Witnesses
 

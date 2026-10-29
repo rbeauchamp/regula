@@ -2,7 +2,7 @@
 
 This document specifies the smaller, stricter Regula that the epic [#480] asks for. Issue [#481] asks for it before any code changes. For each rule of Regula's registry, it gives one fate: kept, handed to Lean, or retired. It also specifies two new rules and the one input that all rules read. It gives the fate of each open issue that the epic lists, and how Regula checks its own library.
 
-The owner confirms the plain-word consequences of this document before the leaves [#482] to [#488] start. Until a leaf changes it, the [standard](https://rbeauchamp.github.io/regula/dev/standard/) keeps its present text, and the present checker keeps its present behaviour. This document changes no rule.
+The owner confirmed the plain-word consequences of this document on 2026-10-29 ([the confirmation record](confirmation.md)). The leaves [#482] to [#488] start after this document merges. Until a leaf changes it, the [standard](https://rbeauchamp.github.io/regula/dev/standard/) keeps its present text, and the present checker keeps its present behaviour. This document changes no rule.
 
 ## How to read this document
 
@@ -241,10 +241,10 @@ But the list of `lake check` is fixed, and it gives no axiom set for each consta
 #### [RG3001]: the execution closure resolves
 
 - **Fate**: kept. Leaf: [#487].
-- **Intent**: the execution closure of each claimed executable contains only constants of the input. Thus no account of execution leaves out a path.
+- **Intent**: the execution closure of each claimed executable contains only constants of the input, and no cycle of runtime replacements. Thus no account of execution leaves out a path, and each path ends in a definition.
 - **Domain**: each name in the execution closure of the `main` of a claimed executable.
 - **Input**: the constants, their runtime replacements and the recursion helpers.
-- **Formal statement**: `Violates3001`, with `Input.Executes`. Compiled code runs the replacement of a constant if it has one. Else it runs the helper if there is one, else the constants that the value mentions.
+- **Formal statement**: `Violates3001`, with `Input.Executes` and `Input.Replaces`. Compiled code runs the replacement of a constant if it has one. Else it runs the helper if there is one, else the constants that the value mentions. A constant on a cycle of replacements violates the rule, because the cycle runs no definition. **Proved**: `rg3001_refuses_cycle`.
 - **Accepted risks**: the admission already requires each mentioned constant to be loaded. Thus the rule can fail only for a replacement that names an absent constant. **Assumed**: compiled code follows the kernel value of a constant, except at a replacement or a helper. Leaf [#487] keeps this as a named assumption.
 - **Supersedes**: none.
 
@@ -387,11 +387,12 @@ For each of the seven rules: the fate is retired, with leaf [#488]. There is no 
 #### `RG6001`: the obligations of each deliverable
 
 - **Fate**: new. Leaf: [#485].
-- **Intent**: for each deliverable that a project declares, theorems of claimed modules prove five things. The intent record exists, and lean-intent's obligations O1 to O5 hold of it. It does not reach its implementation, and it keeps each consequence that the owner answered. The implementation fulfils it.
-- **Domain**: each declared deliverable: an implementation and its intent record.
-- **Input**: the declared deliverables, the statements that theorems of claimed modules prove, and the owner's confirmation record.
-- **Formal statement**: `Violates6001`, with `IntentPart.Fails`. A finding names the deliverable and the part that fails.
-- **Accepted risks**: lean-intent does not yet state three parts. Here the independence is the approximation "the record does not reach the implementation". `Goal.keeps` and the field `confirmed` stand for what [lean-intent#3] and [lean-intent#5] define. **Open**: [#485] uses lean-intent's own statements when they exist, and a project declares a deliverable in the form that lean-intent gives.- **Supersedes**: none.
+- **Intent**: the owner's committed confirmation record names the deliverables, not the project's code. For each one, theorems of claimed modules prove these things. The implementation and the intent record exist. lean-intent's obligations O1 to O5, O2 before a run and its degenerate check hold of the record. It does not reach its implementation, and it keeps each consequence that the owner answered. The implementation fulfils it.
+- **Domain**: each deliverable that the owner's record names: an implementation and its intent record. A project with no such record fails, so an empty inventory passes only when the record says so.
+- **Input**: the owner's confirmation record, the statements that theorems of claimed modules prove, and the constants.
+- **Formal statement**: `Violates6001`, with `IntentPart.Fails`. A finding names the deliverable and the part that fails. **Proved**: `rg6001_refuses_no_record` and `rg6001_refuses_missing`.
+- **Accepted risks**: lean-intent does not yet state three parts. Here the independence is the approximation "the record does not reach the implementation". `Goal.keeps` and the field `confirmed` stand for what [lean-intent#3] and [lean-intent#5] define. **Open**: [#485] uses lean-intent's own statements when they exist, and the owner's record takes the form that lean-intent gives. That record also carries the order of the confirmation and the implementation, and the owner's act, which no build shows.
+- **Supersedes**: none.
 
 ## The rules that apply to a declaration
 
@@ -433,6 +434,7 @@ None of these issues closes before the change that replaces it lands. The rule e
 The self-check runs inside local acceptance, the gate before each merge. It is not a separate diagnostic that no gate runs. Since 2026-10-28, the owner's decision makes the local validation, not CI, the merge gate of Regula. The test step of that validation runs the local gate, `lean --run lean/Regula/DiagnosticsGate.lean local`, and its steps include the two acceptance commands of [`AGENTS.md`](../AGENTS.md).
 
 - Regula's manifest claims each library of its root package, except a library that it excludes with a reason. The core and the shell of the checker are claimed.
+- Regula registers its own admission decisions with two-way contracts. [RG1008] keeps the one-way kinds for adopters.
 - The first acceptance command, `./scripts/verify.sh`, runs the three commands of the gate on Regula's own package. It refuses the change when a command fails or the checker gives a finding.
 - Each claimed library of Regula is a default target of its root package ([RG2002]). Today plain `lake build` there builds no `Regula` library, so that list changes.
 - This step is in the 420-second limit of the first command. **Open**: Regula's modules import Lean, so the export of `lake check` holds all of Lean. Its cost is not measured. Leaf [#482] measures it against the limit.
@@ -492,7 +494,7 @@ The axiom sets and the kernel replay read only the constants of the build. Thus 
 
 ## Consequences for the owner's confirmation
 
-The owner confirms or declines each consequence below before the leaves start. Each answer becomes a requirement that later revisions of this document keep.
+The owner confirmed each consequence below on 2026-10-29, with each recommendation of the review ([the confirmation record](confirmation.md)). Each answer becomes a requirement that later revisions of this document keep.
 
 What the specification requires:
 
@@ -502,7 +504,9 @@ What the specification requires:
 - A claimed module has no macro, `notation`, `syntax`, `elab`, `initialize` or attribute of its own (`RG2007`). Such code can be in an excluded library, but a claimed module cannot import that library [RG2004]. Thus a project cannot use its own notation in claimed code. Notation of a dependency, such as Mathlib's, stays usable.
 - A claimed target sets `autoImplicit` and `relaxedAutoImplicit` to `false`, sets only options of the allowlist, and loads no plugin [RG2006].
 - A decision function is registered by a declaration, not by `@[regula_decision]`. This changes the interface for adopters.
-- Each declared deliverable has an intent record and the proofs of `RG6001`.
+- The owner's committed confirmation record names the deliverables of a project. Each has an intent record and the proofs of `RG6001`, among them lean-intent's O2 before a run and its degenerate check. A deliverable that the record names and the project lacks fails, and so does a project with no record.
+- The record does not reach its implementation. The owner's record, not the build, carries the order of confirmation and implementation.
+- A cycle of runtime replacements, such as `f` replaced by `g` and `g` by `f`, fails [RG3001].
 - A pass of the gate requires all three commands of Lean `v4.35.0`: `lake build --wfail`, `lake check`, and the checker.
 - Each claimed target is a default target of the root package [RG2002]. A claimed library that plain `lake build` does not build fails.
 - A claim of no target gives `incomplete`, not a pass.
@@ -513,7 +517,7 @@ What the specification requires:
 What it allows:
 
 - `set_option maxHeartbeats 400000 in` before a claimed theorem passes, because no rule reads options in source. `set_option linter.unusedVariables false` in source also passes, and its warnings do not appear.
-- `#eval` and `run_cmd` in a claimed module pass, and no rule sees them.
+- `#eval` and `run_cmd` in a claimed module pass, and no rule sees them. This is an accepted risk. Its refusal would require a second input, which reads the commands with Lean's parser.
 - Tactics and notation of dependencies, and attributes on the allowlist such as `@[simp]`, pass.
 - A claimed declaration with no docstring passes, and a broken Lean example in Markdown documentation passes. These are written guidance now.
 - On macOS, `lake check` runs with `--inadvisably-no-sandbox` and prints that the run is not trustworthy. The code of the project then runs outside a sandbox, as it does in `lake build`.
@@ -531,7 +535,6 @@ What it leaves unsaid:
 - The members of the two allowlists, which [#484] fixes.
 - The exact correspondence statement of each kind of execution boundary, which [#487] fixes.
 - How a project declares a deliverable, and how the owner's confirmation record is made: [#485], [lean-intent#3] and [lean-intent#5].
-- If the commands that run code in a claimed module must be refused too. That requires a second input, which reads the commands with Lean's parser.
 - The cost of `lake check` and of `--paranoid` on an export that holds all of Lean, which [#482] measures.
 
 [#281]: https://github.com/rbeauchamp/regula/issues/281
