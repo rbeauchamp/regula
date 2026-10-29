@@ -51,10 +51,6 @@
     {
       "library": "Regula",
       "rationale": "Regula's checker shell and the repository's own programs, which are not a conforming proof surface yet: the closed input and its loader (Regula.Load, which reads the finished build through Lean's and Lake's interfaces and frees each environment's data with an unsafe call), the rule functions over the input, whose proofs against the specification of the smaller Regula are leaf #487's, the manifest reader, the regula command, the site builder, the local gate, the release checks and the registry checks. Their process, filesystem, Lake and Lean observations are trusted."
-    },
-    {
-      "library": "RegulaControls",
-      "rationale": "The controls of the check that each program of the package runs: planted programs that the removal and write check and the task manager check must refuse or accept. They are inputs of those checks, not a conforming proof surface, and their compile needs about 30 GiB (issue #497), so the local gate builds them in a step of its own."
     }
   ],
   "excluded-executables": [

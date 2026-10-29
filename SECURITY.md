@@ -76,10 +76,9 @@ write that stores a compiled body that Lean's compiler did not make and a native
 `_unsafe_rec` companion that Regula does not inspect is also such a change. The checks of Regula
 that read compiled code trust that the project makes none of these changes.
 
-Regula checks the modules of the root package only. It reads each one from the root package's
-build. A module of a target is refused when Lean's search path finds its `.olean` outside that
-build, for example when a dependency has a module with the same name. The run is then
-`incomplete`. The modules of a dependency are not checked. The modules of Regula in a project's
+Regula checks the modules of the root package only, and it reads each one from the root
+package's build. When Lean's search path finds the `.olean` of a module of a target outside that
+build, the run is `incomplete`. A dependency with a module of the same name can cause this. The modules of a dependency are not checked. The modules of Regula in a project's
 dependencies are Regula's code, and Regula's own gate checks them.
 
 Lake builds the program that runs the check, the `lake lint` driver, before the check. The
@@ -94,8 +93,8 @@ A vulnerability is a way to break one of these guarantees on purpose:
   declaration breaks a guarantee that the
   [rule reference](https://rbeauchamp.github.io/regula/dev/rules/) states.
 - **Regula acting outside what it documents.** The checker that `lake lint` runs writes no file.
-  It starts itself again once, in an environment that isolates Git, where Lake's load of the
-  workspace can run Git. Regula's other programs run external programs with argument arrays,
+  It starts a second process of itself, in an environment that isolates Git, where Lake's load of
+  the workspace can run Git. Regula's other programs run external programs with argument arrays,
   never through a generated shell program, and keep scratch work under the project's
   `.lake/regula-scratch/`. An input, such as a path or a module or file name, that makes Regula's
   own code run a command, or write or delete a file, beyond what its
@@ -111,16 +110,15 @@ A vulnerability is a way to break one of these guarantees on purpose:
 - **Deliberate changes to Lean's environment, compiler or build.** A way to make a check pass with
   code that is not honest code, as the [scope](#scope) tells, is not a vulnerability. To ask that
   Regula find more such changes, open a [public issue](https://github.com/rbeauchamp/regula/issues).
-- **Code the build runs.** The build that a check needs runs the code of the project with your
-  permissions. Lake runs a `lakefile.lean`, and elaboration runs the macros, elaborators and
+- **Code the build runs.** The build that comes before a check runs the code of the project with
+  your permissions. Lake runs a `lakefile.lean`, and elaboration runs the macros, elaborators and
   tactics of the project. Regula is not a sandbox: its trust boundary includes the pinned Lean
   process and the libraries that it imports. Thus code that attacks the checker process or your
   computer in this way is outside that boundary. Check only code that you would build.
 - **What Regula trusts.** Regula trusts Lean's kernel, elaborator, compiler and runtime, Lake, Git,
   the filesystem, the operating system and GNU timeout. It also trusts each package that the
   project requires, for example Mathlib. Regula does not replay declarations through Lean's
-  kernel. It reads the declarations of the project and of these packages from the data that their
-  builds wrote. Report a vulnerability of one of these items to its maintainers. Regula also
+  kernel, and it reads the declarations of the project and of these packages from their builds. Report a vulnerability of one of these items to its maintainers. Regula also
   trusts the GitHub services that a release uses: Actions, commit-signature verification, tags and
   immutable releases.
 - **Semantic review.** Whether a theorem states what you meant, and the other

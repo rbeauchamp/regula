@@ -48,11 +48,11 @@ definition with no parameter whose value starts one. A definition with no parame
 holds a closure that starts a process passes it. A traversal that stops at its bound leaves every
 root to inspect, also the one that starts a process that the cut-off would drop
 (`Regula.TaskManagerCheck.doesMore`). Each planted declaration is added for its control
-alone and removed after it, so this module declares no `main` and records no program. The
-self-audit builds this module with the whole `Regula` library, and that build fails when a control
-does not give the expected result. -/
+alone and removed after it, so this module declares no `main` and records no program. The local
+gate builds this module, the one module of the package in `controls/`, and that build fails when a
+control does not give the expected result. -/
 
-namespace Regula.ProgramCheck.Controls
+namespace RegulaControls
 
 open Lean Elab Command
 
@@ -509,4 +509,4 @@ run_cmd withoutModifyingEnv do
     throwError "no bound stopped the traversal before it reached the root that starts a process, \
       so this control does not exercise the cut-off"
 
-end Regula.ProgramCheck.Controls
+end RegulaControls

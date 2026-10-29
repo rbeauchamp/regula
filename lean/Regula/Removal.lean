@@ -89,9 +89,9 @@ so a walk of them would reach every tactic in every program that links Lean's el
 trusted to run none. A module is the toolchain's by its name, under the hypothesis that
 `toolchainModules` states.
 
-The programs whose check states that they elaborate are `lint`, `regula`, `regula-markdown` and the
-test listing (`Regula.TestListing`). `lint` and `regula` elaborate the Lake configuration of a
-project when they load its workspace, and the test listing that of its package
+The programs whose check states that they elaborate are `lint`, `regula` and the test listing
+(`Regula.TestListing`). `lint` and `regula` elaborate the Lake configuration of a project when they
+load its workspace, and the test listing that of its package
 (`Lake.importConfigFile`). The check classes a program by the conservative reachability of its
 compiled code, so a program that links code that elaborates states it too, whether its `main` runs
 that code or not.

@@ -224,7 +224,7 @@ The merge gate of a change is the local gate, `lean --run lean/Regula/Diagnostic
 3. `./scripts/verify.sh` and `./scripts/verify.sh docs`, the two acceptance steps. The first step runs the checker on the build of Regula itself.
 4. `lean --run lean/RegulaProvision.lean mathlib` and `./scripts/verify.sh mathlib`, the [Mathlib integration check](#mathlib-integration-check).
 5. `lake build site AuditApp` and `lake build Audit` in `audit/`, the builds of the tools of the rule-reference site.
-6. `lake build RegulaControls`, the controls of the check that each program of the package runs. Its compile needs about 30 GiB (issue #497). Thus no CI job builds it, and the first acceptance step leaves it out.
+6. `lake build` in `controls/`, the controls of the check that each program of the package runs. Its compile needs about 30 GiB (issue #497). Thus no CI job builds it, and the first acceptance step leaves it out.
 
 The gate leaves out `./scripts/verify.sh site`. That check reads the tags of the repository with no credentials, thus it fails while the repository is private. The `site` job of [`ci.yml`](../../.github/workflows/ci.yml) runs it on `main`.
 

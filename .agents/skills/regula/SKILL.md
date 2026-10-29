@@ -52,9 +52,9 @@ theorem gcdValue : Nat.gcd 1071 462 = 21 := by decide
 theorem commute (x y : BitVec 8) : x * y = y * x := BitVec.mul_comm x y
 ```
 
-### [RG1006](https://rbeauchamp.github.io/regula/dev/rules/RG1006/) Unsafe and partial declarations require exact helper authentication
+### [RG1006](https://rbeauchamp.github.io/regula/dev/rules/RG1006/) Unsafe and partial declarations are refused, except a recursion helper
 
-Claimed modules declare nothing `unsafe` or `partial`, authored or generated, except a generated recursion helper passing its exact §7.4 authentication.
+Claimed modules declare nothing `unsafe` or `partial`, authored or generated, except the recursion helper `f._unsafe_rec` of a safe definition `f` in the same module, admitted by its form.
 Fix: Write a safe, terminating definition (structural recursion or `termination_by`), or move the unsafe/partial code out of the claimed surface.
 
 ```lean
@@ -228,8 +228,8 @@ def spell (n : Nat) := toString n
 
 ### [RG3001](https://rbeauchamp.github.io/regula/dev/rules/RG3001/) Execution closure must have no unresolved paths
 
-Every path in an executable root's execution closure resolves; no metaprogram hides replacement history.
-Fix: Remove the construction that prevents the analysis (for example a metaprogramming command such as `run_cmd` in the module), or make the missing compiled code available, then rerun.
+Every name in an executable root's execution closure resolves, and no runtime replacement runs itself again through a cycle of replacements.
+Fix: Make the missing compiled code available, or break the cycle of runtime replacements, then build again and rerun `lake lint`.
 
 ```lean
 import Lean

@@ -198,8 +198,8 @@ sequence, and stops at the first failure:
   Mathlib, and it is not part of acceptance.
 - The builds of the tools of the rule-reference site. The gate leaves out `./scripts/verify.sh site`,
   which reads the repository with no credentials and thus fails while the repository is private.
-- `lake build RegulaControls`, the controls of the check that each program runs. Its compile needs
-  about 30 GiB, so no CI job builds it.
+- `lake build` in `controls/`, the controls of the check that each program runs. Its compile
+  needs about 30 GiB, so no CI job builds it.
 
 CI does not run on pull requests. On `main` it runs what the release and the publication of the
 site use, and each workflow can run on dispatch. The

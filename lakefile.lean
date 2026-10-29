@@ -156,12 +156,6 @@ lean_lib «Regula» where
     .one `Regula.ProgramCheck.Verification]
   needs := #[`@/compilerObservationSource, `@/absenceReadsFixture]
 
-lean_lib «RegulaControls» where
-  -- The controls of the check that each program runs (`Regula.Removal.checkProgram`,
-  -- `Regula.TaskManagerCheck.checkProgram`). Its compile needs about 30 GiB (issue #497), so the
-  -- local gate builds it in a step of its own, outside the 420-second acceptance step.
-  globs := #[.one `Regula.ProgramCheck.Controls]
-
 lean_exe «lint» where
   -- Lake lint driver: `lintDriver = "regula/lint"` in an adopting package and in this one.
   root := `Regula.LintMain

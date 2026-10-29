@@ -291,7 +291,7 @@ But the list of `lake check` is fixed, and it gives no axiom set for each consta
 - **Fate**: kept. Leaf: [#487].
 - **Intent**: the specification of a decision contract states its meaning in other terms than the code. Thus it reaches no Boolean test outside the toolchain that the implementation or the acceptance predicate also reaches.
 - **Domain**: each decision contract of a claimed module.
-- **Input**: the contract, the constants that each constant mentions, the result type of each constant, and whether it is a field's projection function.
+- **Input**: the contract, the constants that each constant mentions, the result type of each constant, and if it is a field's projection function.
 - **Formal statement**: `Violates1009`, with `Input.ProjectTest`. A field's projection function is not a Boolean test: it reads a field of data, which no definition computes.
 - **Accepted risks**: none in addition to the risks of the input.
 - **Supersedes**: none.

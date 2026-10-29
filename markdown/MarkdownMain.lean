@@ -1451,12 +1451,10 @@ def main : List String → IO UInt32 :=
 -- The removals and the writes that the compiled code of the program reaches from its roots
 -- (`Regula.Removal.rawRemovals`) are those of the filesystem observer, those that
 -- `Regula.Removal.sharedPairs` lists and those that are named here: the build of this module fails
--- otherwise (`Regula.Removal.checkProgram`). Its modules link `Regula.Collect` through the guard of
--- Lean's task manager (`Regula.TaskManager`, which imports `Regula.Probe`), and the regeneration of
--- a declaration's recursion there runs its `decreasing_by` tactics, so its check states that it
--- elaborates: the class is conservative reachability from every compiled declaration of its
--- modules (`Regula.Removal.programRoots`).
-run_cmd Regula.Removal.checkProgram (elaborates := true) (named := [
+-- otherwise (`Regula.Removal.checkProgram`). No compiled declaration of its modules reaches Lean's
+-- elaborator, so its check states that it does not elaborate: the class is conservative
+-- reachability from every compiled declaration of its modules (`Regula.Removal.programRoots`).
+run_cmd Regula.Removal.checkProgram (elaborates := false) (named := [
   -- The files of the controls, each below the temporary directory that its control made
   -- (`Regula.Filesystem.withOwnTempDir`): the repositories of the controls and their baselines.
   (``Regula.Controlled.Run.makeRepository, ``IO.FS.createDirAll),
