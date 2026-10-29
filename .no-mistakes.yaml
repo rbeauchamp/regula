@@ -25,6 +25,23 @@
 # writes the title. `pr.title_format` stays unset, so no-mistakes drafts each title as a Conventional
 # Commits header; the `Title` workflow checks a title on dispatch.
 #
+# The description of a pull request becomes the body of its one commit on main, and it records the
+# reasons for the change. `pr.template` names the template of that description,
+# .github/pull_request_template.md: its top-level headings are the sections that each description
+# carries, and its text tells the author what each section holds. no-mistakes drafts a new
+# description from the template and refuses a draft that changes, drops or reorders one of those
+# headings. On each later run it keeps the text that an author wrote before and after its generated
+# appendix and refreshes only that appendix. Without the setting, a re-push after a rebase or the
+# repair of a conflict drafted the whole description again and dropped the sections that authors
+# had written. It reads the template from the same default-branch commit as this file, so a change
+# to the template governs the runs that start after its merge. Such a description is not fitted to
+# the publication budget as an ordinary one is: when the author's text, closing references and
+# recorded evidence do not fit, the PR step fails instead of dropping any of them. Of the last 40
+# descriptions before this setting, five were 57 to 63 KB in ordinary mode, and three of those had
+# dropped earlier update rounds to fit. So `pr.appendix: minimal` keeps the generated appendix to
+# the Intent section, a one-line risk summary and the pipeline's signature and attestation: it
+# leaves out the Testing logs and the pipeline's round history, which stay in the run's log.
+#
 # Memory. The gate's Lake builds run as many jobs as the machine has cores and its Lean processes run
 # with no memory limit, so nothing bounds its peak, and the step takes the machine's whole heavy-work
 # budget (16 GiB on the 24 GiB Mac that runs it, which keeps 8 GiB in reserve).
@@ -65,3 +82,6 @@ test:
   tests_as_evidence:
     policy: forbid
     list_command: no-mistakes admit --memory 3GiB --limit "none; measured peaks 0.75 GB and 1.9 GB resident" -- lake env lean --load-dynlib=libLake_shared.dylib --run lean/Regula/TestListing.lean
+pr:
+  template: .github/pull_request_template.md
+  appendix: minimal
