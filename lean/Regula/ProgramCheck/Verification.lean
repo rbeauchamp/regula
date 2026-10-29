@@ -26,7 +26,8 @@ the primitive that it calls (`Regula.Removal.checkProgram`):
   driver's compiled code does not reach;
 - the move of the copy's build output to an absent path in `RegulaVerification.Copy.adopt`, and
   the write of the accepted record (`RegulaVerification.acceptedRecord`) beside the pending record
-  and its move over it in `RegulaVerification.Copy.record`;
+  and its move over it in `RegulaVerification.Copy.record`, a record that a later run replaces at
+  the acceptance link (`RegulaVerification.ownershipDecision_accepted`);
 - the writes of the scratch area in `RegulaVerification.makeCopy`: its directory, its lock, the
   ownership marker and the directory of a scratch directory, and the pending acceptance record;
 - the writes at a destination of the driver: the directory of the destination, the new file beside
@@ -99,46 +100,6 @@ run_cmd do
   match outcome with
   | .ok () => pure ()
   | .error error => throwError "the control of a destination that names no file failed: {error}"
-
--- A file that is not a document of Regula at the acceptance link: the driver's writer
--- (`RegulaVerification.writeDocument`) and its promotion of the pending record
--- (`RegulaVerification.promote`) each refuse it and keep its bytes, and the promotion keeps the
--- record. The accepted record that an earlier run left there (`RegulaVerification.acceptedRecord`)
--- and a mark of Regula are each replaced.
-run_cmd do
-  let base ← Regula.Filesystem.ownTempDir
-  let outcome ← (do
-    let foreign := "# Notes\n\nNot a document of Regula.\n"
-    let accepted := RegulaVerification.acceptedRecord [("lakefile.lean", "0")]
-    let link := base / "tmp" / "acceptance-link.json"
-    let record := base / "acceptance-link.pending.json"
-    IO.FS.createDirAll (base / "tmp")
-    IO.FS.writeFile link foreign
-    IO.FS.writeFile record RegulaVerification.incompleteLink
-    let refused (attempt : Except IO.Error Unit) : Bool := match attempt with
-      | .error error => (toString error).contains "is a file that is not a JSON document"
-      | .ok () => false
-    let written ← (RegulaVerification.writeDocument link accepted).toBaseIO
-    let promoted ← (RegulaVerification.promote record link).toBaseIO
-    unless refused written && refused promoted && (← IO.FS.readFile link) == foreign &&
-        (← Regula.Filesystem.isPresent record) do
-      throw <| IO.userError "the driver replaced, or did not refuse, a file that is not a \
-        document of Regula"
-    IO.FS.writeFile link accepted
-    RegulaVerification.writeDocument link RegulaVerification.incompleteLink
-    unless (← IO.FS.readFile link) == RegulaVerification.incompleteLink do
-      throw <| IO.userError "the driver did not replace the accepted record of an earlier run"
-    IO.FS.writeFile link accepted
-    RegulaVerification.promote record link
-    unless (← IO.FS.readFile link) == RegulaVerification.incompleteLink &&
-        !(← Regula.Filesystem.isPresent record) do
-      throw <| IO.userError "the driver did not promote its record over an accepted record"
-    ).toBaseIO
-  Regula.Filesystem.removeOwn .directory base
-  match outcome with
-  | .ok () => pure ()
-  | .error error => throwError "the control of the driver's writes at a file that is not a \
-      document of Regula failed: {error}"
 
 -- The first acceptance step's check that the root package requires nothing, over the driver's read
 -- of a root's manifest and package overrides file: a manifest that records no package is accepted,

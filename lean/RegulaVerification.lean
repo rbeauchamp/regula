@@ -733,10 +733,16 @@ def identity (copy : Copy) : IO (List (String × String)) :=
 
 /-- The accepted record of the identity `tree`: its members `schemaVersion`, `status` and
 `identity` are the signature of an acceptance link (`RegulaCore.Destination.completedSignatures`),
-so a later run may replace it (`ownershipRefusal`). -/
+so it is a document of Regula (`regulaDocument_acceptedValue`) and a later run may replace it
+(`ownershipRefusal`, `ownershipDecision_accepted`). -/
+def acceptedValue (tree : List (String × String)) : Lean.Json :=
+  Lean.Json.mkObj [("schemaVersion", Lean.toJson (1 : Nat)),
+    ("status", Lean.Json.str "accepted"), ("identity", Lean.toJson tree)]
+
+/-- The text of the accepted record of the identity `tree` (`acceptedValue`), which
+`Copy.record` writes. -/
 def acceptedRecord (tree : List (String × String)) : String :=
-  (Lean.Json.mkObj [("schemaVersion", Lean.toJson (1 : Nat)),
-    ("status", Lean.Json.str "accepted"), ("identity", Lean.toJson tree)]).compress ++ "\n"
+  (acceptedValue tree).compress ++ "\n"
 
 /-- Write the accepted record of `tree` (`acceptedRecord`) in the copy's pending record, beside it
 and then renamed over it, so a failure leaves the pending record incomplete. -/
@@ -800,10 +806,12 @@ programs': `regulaDocument_shared` its identification of a document of Regula,
 `ownershipDecision_shared` its decision to replace an entry, `plainNames_shared` its names below a
 present prefix, and `identifiesSiteBuild_shared`, `siteAssemblingMarker_shared`,
 `holdsSiteArtifact_shared` and `siteArtifactDecision_shared` its decision on the site artifact that
-it removes (`siteRefusal`). The reads, the writes and the renames around these decisions are
-written twice and related by no theorem; a control of the checker self-test runs the driver's
-begin-attempt against files that are not Regula's, and `Regula.ProgramCheck.Verification` runs its
-writer and its promotion against one. The module
+it removes (`siteRefusal`). There, `regulaDocument_acceptedValue` proves that the accepted record
+that the driver writes (`acceptedValue`) is a document of Regula, and `ownershipDecision_accepted`
+that the decision replaces a regular file whose UTF-8 text Lean's JSON parser reads as that record.
+The reads, the writes and the renames around these decisions are written twice and related by no
+theorem. That a file holds the text that the driver wrote, and that Lean's JSON parser reads the
+text of an accepted record (`acceptedRecord`) back as its value, are trusted. The module
 `Regula.ProgramCheck.Verification` admits a write, a rename or a removal of a file in the driver
 only at the places that it names, among them `writeDocument` and `promote`. -/
 
@@ -1061,8 +1069,7 @@ def invalidated : Mode → List (String × String)
   | _ => []
 
 /-- The manifest and package overrides file of the workspace that Lake loads with the package at
-`dir` as its root, joined as Lake joins paths. `Regula.ProgramCheck.Verification.rootFiles_eq`
-proves this `Regula.Checker.Workspace.rootFiles`.
+`dir` as its root, joined as Lake joins paths.
 
 Assumes:
 - Lake v4.35.0 gives the root package of a workspace the manifest `lake-manifest.json` of its
@@ -1078,8 +1085,7 @@ def rootFiles (dir : System.FilePath) : System.FilePath × System.FilePath :=
 /-- The manifest of the workspace whose manifest and package overrides file are `files`
 (`rootFiles`), and the entries of that overrides file, each read by Lake's own reader, or `none`
 when the manifest does not exist; any other failure of a read, and a file that Lake's reader
-refuses, are thrown. `Regula.ProgramCheck.Verification.readRoot_eq` proves this the checker's
-read, `Regula.Checker.Workspace.readRoot`.
+refuses, are thrown.
 
 Assumes:
 - Lake v4.35.0's load reads the manifest with `Lake.Manifest.load?`

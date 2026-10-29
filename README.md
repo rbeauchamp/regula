@@ -18,18 +18,18 @@ theorem double (n : Nat) : n + n = 2 * n := by sorry
 theorem twice (n : Nat) : 2 * n = n + n := (double n).symm
 ```
 
-Regula also refuses `twice`, because its proof depends on `double`. Here are the findings, with omitted text marked by `…`:
+Regula also refuses `twice`, because its proof depends on `double`. Here are the findings of `lake lint` for this module as `Demo.Shortcut`, with omitted text marked by `…`:
 
 ```text
 …
-RG1002 [violation; …]: double: … axioms=["sorryAx"] -> hole
-  fix: Complete the proof. …
+RG1002 double (module Demo.Shortcut): depends on sorryAx https://rbeauchamp.github.io/regula/dev/rules/RG1002/
 …
-RG1002 [violation; …]: twice: … axioms=["sorryAx"] -> hole
+RG1002 twice (module Demo.Shortcut): depends on sorryAx https://rbeauchamp.github.io/regula/dev/rules/RG1002/
 …
+regula: fail, … findings
 ```
 
-Each finding gives the rule, the location and the fix. The [rule reference](https://rbeauchamp.github.io/regula/rules/) gives each rule and shows an example with its correction.
+Each finding gives the rule, the constant, its module, what is wrong and the page of the rule. The last line gives the verdict. A finding does not print the fix. The page of its rule gives the fix, and `lake exe regula explain <RULE-ID>` prints it offline. The [rule reference](https://rbeauchamp.github.io/regula/rules/) gives each rule and shows an example with its correction.
 
 ## Try it
 
@@ -48,13 +48,17 @@ EOF
 lake update regula
 ```
 
-Save the example above as `Shortcut.lean` in `demo`. Then examine the file:
+The release `v0.11.1` still has the earlier commands: `axiomGate`, the options of `lake lint` and its exit code 3. The [README of that release](https://github.com/rbeauchamp/regula/blob/v0.11.1/README.md) documents them. Until the next release, use that README with this pin. The rest of this README describes `main`.
+
+Save the example above as `Demo/Shortcut.lean` in `demo`, and add `import Demo.Shortcut` to `Demo.lean`. Then set up Regula, build the project and examine its build:
 
 ```sh
-lake exe axiomGate --file Shortcut.lean   # exit 1: proof holes in double and twice
+lake exe regula init
+lake build
+lake lint   # exit 1: RG1002 for double and twice
 ```
 
-The first command that runs Regula compiles it. This command checks one file, not the full project.
+The first command that runs Regula compiles it. `init` writes the configuration that is missing, for example the lint driver and the manifest. `lake build` builds the project with a warning at the `sorry`. `lake lint` reads that build.
 
 ## Add it to your project
 
@@ -63,28 +67,31 @@ Add the `[[require]]` table above to your `lakefile.toml`. For `lakefile.lean`, 
 ```sh
 lake update regula
 lake exe regula init
+lake build --wfail
 lake lint
 ```
 
-`init` adds missing configuration and runs `doctor`, which reports the remaining setup steps. It does not change values that you set. Correct each finding. Then run `lake lint` again.
+`init` adds missing configuration and runs `doctor`, which reports the remaining setup steps. It does not change values that you set. Correct each finding. Then run `lake build --wfail` and `lake lint` again.
 
-`lake lint` requires a build with no warnings. The first run often stops at missing docstrings or a `sorry` warning ([RG2003], exit 3). Correct those warnings before the proof checks can run.
+`lake lint` examines the finished build, and it builds nothing. Thus build first with `lake build --wfail`, which refuses each warning, also a `sorry` warning. That build decides [RG2003]. `lake lint` exits 0 for a pass and 1 for a fail. It exits 2 for an incomplete run, for example a module without its `.olean` file.
 
-The starter `foundation_manifest.json` permits the usual classical axioms: `propext`, `Quot.sound` and `Classical.choice`. The [adoption guide](docs/guides/adoption.md) covers library selection, stricter foundations, CI, editor diagnostics and updates.
+The starter `foundation_manifest.json` permits the usual classical axioms: `propext`, `Quot.sound` and `Classical.choice`. The [adoption guide](docs/guides/adoption.md) covers library selection, stricter foundations, CI and updates.
 
 ## What a pass means
 
 Regula checks the libraries and executable roots that your manifest selects. Its checks include:
 
 - Proof holes, project axioms, imported axioms outside the selected foundation, and proofs that trust the compiler, such as `native_decide`.
-- Declaration and module coverage, required documentation, build warnings and Lean options.
+- The classification of targets, the coverage of modules and Lean options.
 - Reachable execution boundaries such as `extern` and `implemented_by`. In `checked` mode, boundaries outside the Lean toolchain require proofs of correspondence ([RG3002]).
+
+`lake lint` does not check documentation or build warnings. `lake build --wfail` refuses each warning, and the options that `init` writes turn on Lean's warning for a missing docstring.
 
 A pass does not show that your theorems state the intended claims. Review their statements, assumptions, invariants and documentation against the [standard's compliance checklist](https://rbeauchamp.github.io/regula/standard/8-compliance-audit/).
 
-Regula trusts Lean's kernel, compiler and runtime, Lake and the operating system. It also trusts packages outside your Git work tree. It does not replay those packages in Lean's kernel. Code loaded by name at runtime and spawned processes are outside its execution account. See the [assurance boundaries](docs/guides/proofs-and-boundaries.md) and [security scope](SECURITY.md#scope) for the full limits.
+Regula trusts Lean's kernel, compiler and runtime, Lake and the operating system. It reads the declarations of your project and of its packages from their builds. It replays no declaration in Lean's kernel. Code loaded by name at runtime and spawned processes are outside its execution account. See the [assurance boundaries](docs/guides/proofs-and-boundaries.md) and [security scope](SECURITY.md#scope) for the full limits.
 
-Keep Lean's warnings and the community linters. For independent kernel replay, run `lake exe freshChecker` beside Regula. It runs the toolchain's own `leanchecker` by its path, as described in [Validating a Lean Proof](https://lean-lang.org/doc/reference/latest/ValidatingProofs/).
+Keep Lean's warnings and the community linters. For independent kernel replay, run the toolchain's own `leanchecker` by its path beside Regula, as described in [Validating a Lean Proof](https://lean-lang.org/doc/reference/latest/ValidatingProofs/).
 
 Regula accepts no `sorry`, so use it when you complete proofs. For Mathlib pull requests, use Mathlib's CI. Use [Comparator](https://github.com/leanprover/comparator) to check an untrusted proof against a fixed statement.
 
@@ -93,7 +100,7 @@ Regula accepts no `sorry`, so use it when you complete proofs. For Mathlib pull 
 `init` adds an `AGENTS.md` instruction to read `lake exe regula agent-guide` before the agent writes Lean. Use `lake exe regula init --skill` to install that briefing as a skill instead.
 
 - `lake exe regula explain <RULE-ID>` gives the full rule without a network connection.
-- `lake lint -- --json-out PATH` writes findings and fixes as versioned JSON. The [adoption guide](docs/guides/adoption.md#4-run-lake-lint) defines the exit codes.
+- `lake lint` takes no options and writes no file. It prints one line for each finding, then the verdict. The [adoption guide](docs/guides/adoption.md#4-run-lake-lint) defines the exit codes.
 
 ## Supported toolchain
 
