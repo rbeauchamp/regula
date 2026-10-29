@@ -24,7 +24,7 @@ namespace Witnesses
 /-- A safe, computable, project constant with nothing marked. -/
 def plain (name module : Name) (kind : Kind) (uses : List Name) : Decl :=
   { name, module, kind, isUnsafe := false, isPartial := false, uses, implementedBy := none,
-    isExtern := false, isInitialized := false, isNoncomputable := false, isBoolTest := false,
+    csimpTarget := none, isExtern := false, isInitialized := false, isNoncomputable := false, isBoolTest := false,
     inToolchain := false }
 
 /-- A constant of the toolchain's own library. -/

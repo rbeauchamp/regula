@@ -5,14 +5,15 @@ import RegulaSpecification.Project
 import RegulaSpecification.Intent
 
 /-!
-# The verdict of a run, and RG2001
+# The verdict of a run, RG2001, and the new RG6001
 
 Regula's verdict is a closed type with three values. The input of a run is a bundle of loaded
 environments (`Bundle`). A build that Lean could not load, or a bundle that the admission refuses,
 is `incomplete` (RG2001), never read as absent; an empty claim is refused too. A well-formed bundle
-passes exactly when every kept and new rule holds of each of its environments. `gate_o5` proves
-the record determinate: any two verdict functions that meet it are equal, so the record leaves
-nothing unsaid about the verdict.
+passes exactly when every kept rule and RG2007 hold of each of its environments, and RG6001 holds
+of the bundle: the owner's inventory is the project's, and each deliverable is in the environments
+that load its module. `gate_o5` proves the record determinate: any two verdict functions that meet
+it are equal, so the record leaves nothing unsaid about the verdict.
 -/
 
 namespace RegulaSpecification
@@ -27,14 +28,14 @@ structure Allowlists where
   /-- The environment extensions a claimed module may have entries of (RG2007). -/
   extensions : Name → Prop
 
-/-- Every kept and new rule holds of the input. -/
+/-- Every rule that reads one environment holds of the input: each kept rule, and RG2007. -/
 def AllHold (a : Allowlists) (i : Input) : Prop :=
   (∀ c, ¬ Violates1001 i c) ∧ (∀ c, ¬ Violates1002 i c) ∧ (∀ c, ¬ Violates1003 i c) ∧
     (∀ c, ¬ Violates1004 i c) ∧ (∀ c, ¬ Violates1005 i c) ∧ (∀ c, ¬ Violates1006 i c) ∧
     (∀ c, ¬ Violates1007 i c) ∧ (∀ c, ¬ Violates1008 i c) ∧ (∀ c, ¬ Violates1009 i c) ∧
     (∀ t, ¬ Violates2002 i t) ∧ (∀ m, ¬ Violates2004 i m) ∧ (∀ t, ¬ Violates2006 a.options i t) ∧
     (∀ m, ¬ Violates2007 a.extensions i m) ∧ (∀ c, ¬ Violates3001 i c) ∧
-    (∀ c, ¬ Violates3002 i c) ∧ (∀ s, ¬ Violates6001 i s)
+    (∀ c, ¬ Violates3002 i c)
 
 /-- The verdict of a run. -/
 inductive Verdict where
@@ -45,26 +46,56 @@ inductive Verdict where
 
 /-- The closed input of a run: one `Input` for each environment that the shell loads. A single
 environment cannot hold the `main` of two executables, so the libraries and each executable root
-are loaded in environments of their own. Each environment carries the same targets, claim and
-module records, and its own constants and the statements its theorems prove. -/
+are loaded in environments of their own. Each environment carries the same targets, claim, module
+records and owner's record, and its own constants and the statements its theorems prove. -/
 structure Bundle where
   /-- The loaded environments. -/
   envs : List Input
 
 /-- The admission of a bundle: at least one environment, each well-formed; one project in all of
-them; each module of each target loaded in one of them; and a claim of at least one target, so
-that an empty claim is not read as a pass. -/
+them, with one owner's record; each module of each target loaded in one of them; and a claim of at
+least one target, so that an empty claim is not read as a pass. -/
 structure Bundle.WellFormed (b : Bundle) : Prop where
   nonempty : b.envs ≠ []
   each : ∀ i ∈ b.envs, i.WellFormed
   oneProject : ∀ i ∈ b.envs, ∀ j ∈ b.envs,
-    i.targets = j.targets ∧ i.manifest = j.manifest ∧ i.modules = j.modules
+    i.targets = j.targets ∧ i.manifest = j.manifest ∧ i.modules = j.modules ∧
+      i.inventory = j.inventory ∧ i.confirmed = j.confirmed
   covered : ∀ i ∈ b.envs, ∀ t ∈ i.targets, ∀ m ∈ t.modules, ∃ j ∈ b.envs, m ∈ j.loads
   claims : ∃ i ∈ b.envs, ∃ t, i.ClaimedTarget t
 
-/-- Every kept and new rule holds of each environment of the bundle. -/
+instance : Admission Bundle := ⟨Bundle.WellFormed⟩
+
+/-- The deliverables that the owner's record names, as the first environment carries them, or
+`none` when the project has no such record. The admission makes them those of each environment. -/
+def Bundle.inventory (b : Bundle) : Option (List (Name × Name)) :=
+  b.envs.head?.bind (·.inventory)
+
+/-- The owner's confirmed or declined consequences, as the first environment carries them. The
+admission makes them those of each environment. -/
+def Bundle.confirmed (b : Bundle) : List (Name × Name) :=
+  (b.envs.head?.map (·.confirmed)).getD []
+
+/-- The part `part` of deliverable `(impl, record)` fails in the bundle: the owner's record asks
+it, and no environment that has `impl` in a claimed module satisfies it. So `implementation` fails
+when no environment has `impl` in a claimed module. -/
+def IntentPart.Fails (b : Bundle) (impl record : Name) (part : IntentPart) : Prop :=
+  part.Asked b.confirmed record ∧ ¬ ∃ i ∈ b.envs, i.ClaimedName impl ∧ part.Holds i impl record
+
+/-- RG6001, new: a part of a deliverable that the owner's record names fails in the bundle, or the
+project has no such record. The rule reads the bundle, not one environment, so a deliverable of one
+executable is not reported missing from the environment of another. -/
+def Violates6001 (b : Bundle) (s : Name × IntentPart) : Prop :=
+  (∃ record, (s.1, record) ∈ b.inventory.getD [] ∧ s.2.Fails b s.1 record) ∨
+    (b.inventory = none ∧ s = (Name.anonymous, .inventory))
+
+/-- The intent record of RG6001. -/
+def rg6001 := ruleRecord "RG6001" Violates6001
+
+/-- Every rule holds: each rule that reads one environment holds of each environment of the
+bundle, and RG6001 holds of the bundle. -/
 def Bundle.AllHold (a : Allowlists) (b : Bundle) : Prop :=
-  ∀ i ∈ b.envs, RegulaSpecification.AllHold a i
+  (∀ i ∈ b.envs, RegulaSpecification.AllHold a i) ∧ ∀ s, ¬ Violates6001 b s
 
 /-- The intent record of the verdict. `none` is a build Lean could not load. -/
 def gateRecord (a : Allowlists) : IntentRecord (Option Bundle → Verdict) where

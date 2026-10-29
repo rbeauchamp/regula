@@ -1,7 +1,7 @@
 import RegulaSpecification.CasesProject
 
 /-!
-# Cases of RG3001, RG3002 and RG6001, and the obligations of the verdict
+# Cases of RG3001 and RG3002
 -/
 
 namespace RegulaSpecification
@@ -28,8 +28,8 @@ theorem base_no_main_helper : ¬ base.HasHelper `main := by
 theorem base_has_helper : base.HasHelper `Good.f := ⟨helperDecl, helper_mem, rfl, base_helper⟩
 
 theorem base_executes_f : base.Executes `main `Good.f :=
-  .step mainDecl (.root _) main_mem rfl (Or.inr (Or.inr ⟨rfl, base_no_main_helper, by simp [mainDecl,
-    plain]⟩))
+  .step mainDecl (.root _) main_mem rfl
+    (Or.inr (Or.inr ⟨rfl, rfl, base_no_main_helper, by simp [mainDecl, plain]⟩))
 
 /-! ## RG3001 -/
 
@@ -56,18 +56,19 @@ theorem wf3001 : refused3001.WellFormed := by
 /-- The names the RG3001 witness can report: each constant, and each name a constant runs. -/
 def support3001 (i : Input) : List Name :=
   i.decls.map (·.name) ++
-    i.decls.flatMap fun d => d.uses ++ d.implementedBy.toList ++ [Name.str d.name "_unsafe_rec"]
+    i.decls.flatMap fun d =>
+      d.uses ++ d.implementedBy.toList ++ d.csimpTarget.toList ++ [Name.str d.name "_unsafe_rec"]
 
 theorem no_replaces_base (c : Name) : ¬ base.Replaces c c := by
   intro h
-  have : ∃ d ∈ base.decls, d.implementedBy.isSome = true := by
+  have : ∃ d ∈ base.decls, ∃ n, d.ReplacedBy n := by
     cases h with
-    | one d hd _ hi => exact ⟨d, hd, by simp [hi]⟩
-    | more d hd _ hi _ => exact ⟨d, hd, by simp [hi]⟩
-  obtain ⟨d, hd, hi⟩ := this
+    | one d hd _ hi => exact ⟨d, hd, _, hi⟩
+    | more d hd _ hi _ => exact ⟨d, hd, _, hi⟩
+  obtain ⟨d, hd, n, hi⟩ := this
   simp only [base, baseDecls, List.mem_cons, List.not_mem_nil, or_false] at hd
   rcases hd with rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl <;>
-    simp [plain, toolchain, helperDecl] at hi
+    simp [Decl.ReplacedBy, plain, toolchain, helperDecl] at hi
 
 def w3001 : Witnessed Violates3001 where
   support := support3001
@@ -77,7 +78,8 @@ def w3001 : Witnessed Violates3001 where
       | root => exact absurd ⟨d, hd, hn⟩ hnr
       | step d' _ hd' hn' hrun =>
         refine List.mem_append_right _ (List.mem_flatMap.mpr ⟨d', hd', ?_⟩)
-        rcases hrun with h | ⟨-, -, rfl⟩ | ⟨-, -, h⟩
+        rcases hrun with (h | h) | ⟨-, -, -, rfl⟩ | ⟨-, -, -, h⟩
+        · simp [h]
         · simp [h]
         · simp
         · simp [h]
@@ -93,8 +95,8 @@ def w3001 : Witnessed Violates3001 where
       by simp [refused3001, decls3001], rfl, rfl, by simp [mainDecl, plain, appTarget]⟩, ?_,
       Or.inl ?_⟩
     · refine .step replaced (.step mainDecl (.root _) (by simp [refused3001, decls3001]) rfl
-        (Or.inr (Or.inr ⟨rfl, ?_, by simp [mainDecl, plain, replaced]⟩)))
-        (by simp [refused3001, decls3001]) rfl (Or.inl rfl)
+        (Or.inr (Or.inr ⟨rfl, rfl, ?_, by simp [mainDecl, plain, replaced]⟩)))
+        (by simp [refused3001, decls3001]) rfl (Or.inl (Or.inl rfl))
       rintro ⟨h, hh, hn, -⟩
       simp only [refused3001, decls3001, List.mem_cons, List.not_mem_nil, or_false] at hh
       rcases hh with rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl <;>
@@ -134,8 +136,8 @@ theorem rg3001_refuses_cycle :
     ⟨.standardLogical, by simp [base, appTarget]⟩, mainDecl, by simp, rfl, rfl,
     by simp [mainDecl, plain, appTarget]⟩, ?_, Or.inr ?_⟩
   · exact .step mainDecl (.root _) (by simp) rfl
-      (Or.inr (Or.inr ⟨rfl, noHelper, by simp [mainDecl, plain]⟩))
-  · exact .more cycleF (by simp) rfl rfl (.one cycleG (by simp) rfl rfl)
+      (Or.inr (Or.inr ⟨rfl, rfl, noHelper, by simp [mainDecl, plain]⟩))
+  · exact .more cycleF (by simp) rfl (Or.inl rfl) (.one cycleG (by simp) rfl (Or.inl rfl))
 
 /-! ## RG3002 -/
 
@@ -153,7 +155,7 @@ def w3002 : Witnessed Violates3002 where
   bad := `Good.f
   bad_violates := ⟨`main, base_root,
     .step mainDecl (.root _) main_mem rfl
-      (Or.inr (Or.inr ⟨rfl, base_no_main_helper, by simp [mainDecl, plain]⟩)),
+      (Or.inr (Or.inr ⟨rfl, rfl, base_no_main_helper, by simp [mainDecl, plain]⟩)),
     ⟨plain `Good.f `Good .definition [], by simp [base, baseDecls], rfl, rfl,
       Or.inr (Or.inl base_has_helper)⟩, Or.inl (by simp [unproved])⟩
   admitted := base
@@ -194,75 +196,30 @@ theorem rg3002_refuses_extern : Violates3002 { base with decls := declsExtern } 
     by simp [mainDecl, plain, appTarget]⟩, ?_, ⟨externF, by simp [declsExtern], rfl, rfl,
     Or.inr (Or.inr (Or.inl rfl))⟩, Or.inr ⟨externF, by simp [declsExtern], rfl, rfl, Or.inl rfl⟩⟩
   exact .step mainDecl (.root _) (by simp [declsExtern]) rfl
-    (Or.inr (Or.inr ⟨rfl, noHelper, by simp [mainDecl, plain]⟩))
+    (Or.inr (Or.inr ⟨rfl, rfl, noHelper, by simp [mainDecl, plain]⟩))
 
-/-! ## RG6001 -/
+/-- `Good.f` made fast by a `@[csimp]` lemma whose target `Good.fFast` is `@[extern]`. -/
+def csimpF : Decl := { plain `Good.f `Good .definition [] with csimpTarget := some `Good.fFast }
+def externFast : Decl := { plain `Good.fFast `Good .definition [] with isExtern := true }
 
-/-- The parts of a deliverable that a finding can name. -/
-def partsOf (i : Input) (f : Name) : List (Name × IntentPart) :=
-  [(f, .record), (f, .implementation), (f, .obligation .o1), (f, .obligation .o2),
-    (f, .obligation .o3), (f, .obligation .o4), (f, .obligation .o5), (f, .obligation .o2Run),
-    (f, .obligation .nondegenerate), (f, .dependsOnImplementation), (f, .fulfilment),
-    (f, .inventory)] ++
-    i.confirmed.map fun q => (f, .consequence q.2)
-
-def withoutFulfilment : List Goal :=
-  [.obligation .o1 `Good.intent, .obligation .o2 `Good.intent, .obligation .o3 `Good.intent,
-    .obligation .o4 `Good.intent, .obligation .o5 `Good.intent, .obligation .o2Run `Good.intent,
-    .obligation .nondegenerate `Good.intent, .corresponds `Good.f]
-
-def w6001 : Witnessed Violates6001 where
-  support i := (i.inventory.getD []).flatMap (fun p => partsOf i p.1) ++
-    [(Name.anonymous, .inventory)]
-  support_complete i s h := by
-    rcases h with ⟨record, hmem, hf⟩ | ⟨-, rfl⟩
-    · refine List.mem_append_left _ (List.mem_flatMap.mpr ⟨(s.1, record), hmem, ?_⟩)
-      obtain ⟨f, part⟩ := s
-      cases part with
-      | obligation k => cases k <;> simp [partsOf]
-      | consequence c =>
-        exact List.mem_append_right _ (List.mem_map.mpr ⟨(record, c), hf.1, rfl⟩)
-      | _ => simp [partsOf]
-    · exact List.mem_append_right _ (by simp)
-  refused := { base with proved := withoutFulfilment }
-  refused_wf := wf_congr wf_base rfl rfl rfl
-  bad := (`Good.f, .fulfilment)
-  bad_violates :=
-    Or.inl ⟨`Good.intent, by simp [base], by simp [IntentPart.Fails, withoutFulfilment]⟩
-  admitted := base
-  admitted_wf := wf_base
-  fine := (`Good.f, .fulfilment)
-  fine_admitted := by
-    rintro (⟨r, hr, h⟩ | ⟨h, -⟩)
-    · simp only [base, Option.getD_some, List.mem_singleton, Prod.mk.injEq, true_and] at hr
-      subst hr
-      exact h (by simp [base])
-    · simp [base] at h
-
-theorem rg6001_adequate : O2 rg6001 ∧ O2Run rg6001 ∧ O3 rg6001 ∧ O4 rg6001 ∧
-    O5 rg6001 (.rel SameReports) := adequate w6001
-
-theorem rg6001_noisy : ¬ rg6001.Meets w6001.support :=
-  noisy_fails w6001 (show ((`Good.f : Name), IntentPart.fulfilment) ∈
-    (base.inventory.getD []).flatMap (fun p => partsOf base p.1) ++
-      [(Name.anonymous, IntentPart.inventory)] from
-    List.mem_append_left _
-      (List.mem_flatMap.mpr ⟨(`Good.f, `Good.intent), by simp [base], by simp [partsOf]⟩))
-
-/-- A project with no committed confirmation record violates RG6001, so an empty inventory is not
-read as one that passes. -/
-theorem rg6001_refuses_no_record :
-    Violates6001 { base with inventory := none } (Name.anonymous, .inventory) :=
-  Or.inr ⟨rfl, rfl⟩
-
-/-- A deliverable that the owner's record names and the project lacks violates RG6001. -/
-theorem rg6001_refuses_missing :
-    Violates6001 { base with inventory := some [(`Gone, `Good.intent)] } (`Gone, .implementation) := by
-  refine Or.inl ⟨`Good.intent, by simp, ?_⟩
-  rintro ⟨d, hd, hn, -⟩
-  simp only [base, baseDecls, List.mem_cons, List.not_mem_nil, or_false] at hd
-  rcases hd with rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl <;>
-    simp [plain, toolchain, helperDecl] at hn
+/-- A checked executable whose `main` calls a constant that a `@[csimp]` lemma replaces with an
+`@[extern]` constant violates RG3002 at that `@[extern]` constant: compiled code runs the target,
+and no theorem of Lean speaks of the foreign code. -/
+theorem rg3002_refuses_csimp_extern :
+    Violates3002 { base with decls := [csimpF, externFast, mainDecl] } `Good.fFast := by
+  have noHelper :
+      ¬ ({ base with decls := [csimpF, externFast, mainDecl] } : Input).HasHelper `main := by
+    rintro ⟨h, hh, hn, -⟩
+    simp only [List.mem_cons, List.not_mem_nil, or_false] at hh
+    rcases hh with rfl | rfl | rfl <;> simp [plain, csimpF, externFast, mainDecl] at hn
+  refine ⟨`main, ⟨appTarget, by simp [base, appTarget], rfl,
+    ⟨.standardLogical, by simp [base, appTarget]⟩, mainDecl, by simp, rfl, rfl,
+    by simp [mainDecl, plain, appTarget]⟩, ?_, ⟨externFast, by simp, rfl, rfl,
+    Or.inr (Or.inr (Or.inl rfl))⟩, Or.inr ⟨externFast, by simp, rfl, rfl, Or.inl rfl⟩⟩
+  exact .step csimpF
+    (.step mainDecl (.root _) (by simp) rfl
+      (Or.inr (Or.inr ⟨rfl, rfl, noHelper, by simp [mainDecl, plain, csimpF]⟩)))
+    (by simp) rfl (Or.inl (Or.inr rfl))
 
 end Witnesses
 

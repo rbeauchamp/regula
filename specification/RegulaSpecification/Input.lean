@@ -46,6 +46,10 @@ structure Decl where
   uses : List Name
   /-- The constant `@[implemented_by]` names, if any (`Lean.Compiler.getImplementedBy?`). -/
   implementedBy : Option Name
+  /-- The constant that a `@[csimp]` lemma makes compiled code run in place of this one, if any:
+  the target of an entry of Lean's csimp extension (`Lean.Compiler.CSimp.ext`) whose source is
+  this constant, read from the entries in the `.olean` parts of the modules. -/
+  csimpTarget : Option Name
   /-- Whether it is `@[extern]` (`Lean.isExtern`). -/
   isExtern : Bool
   /-- Whether an `initialize` or `builtin_initialize` declaration sets its value when the program

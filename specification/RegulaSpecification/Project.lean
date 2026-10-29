@@ -54,12 +54,14 @@ def Violates2004 (i : Input) (m : Name) : Prop :=
   ∃ r ∈ i.modules, r.name = m ∧
     (¬ i.Covered m ∨ (i.ClaimedModule m ∧ ∃ n ∈ r.imports, i.ExcludedModule n))
 
-/-- RG2006: a claimed target does not turn automatic implicits off, sets an option outside the
-allowlist `allowed`, or changes Lean's process another way (a plugin, a dynamic library or an
-extra argument). -/
+/-- RG2006: a claimed target does not turn automatic implicits off, gives either option of
+automatic implicits a value other than `false` at any position of its options, sets an option
+outside the allowlist `allowed`, or changes Lean's process another way (a plugin, a dynamic
+library or an extra argument). -/
 def Violates2006 (allowed : Name → Prop) (i : Input) (t : Name) : Prop :=
   ∃ tg ∈ i.targets, tg.name = t ∧ i.ClaimedTarget t ∧
     ((`autoImplicit, "false") ∉ tg.options ∨ (`relaxedAutoImplicit, "false") ∉ tg.options ∨
+      (∃ o ∈ tg.options, (o.1 = `autoImplicit ∨ o.1 = `relaxedAutoImplicit) ∧ o.2 ≠ "false") ∨
       (∃ o ∈ tg.options, ¬ allowed o.1) ∨ tg.extras ≠ [])
 
 /-- RG2007, new: a claimed module has entries of an environment extension outside the allowlist

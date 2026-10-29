@@ -10,7 +10,9 @@ Each kept or new rule is a pure function from the closed input to the list of su
 (declarations, modules, targets or deliverables). Its intent record (`LeanIntent.IntentRecord`)
 has that function as its subject and one property: on every well-formed input, the function
 reports a subject exactly when the subject violates the rule (`ruleRecord`). The rule's meaning
-is therefore all in its violation predicate, which each rule module defines and documents.
+is therefore all in its violation predicate, which each rule module defines and documents. A rule
+reads one environment (`Input`), or the bundle of every environment of a run (`Bundle`); the
+class `Admission` gives the well-formedness of each.
 
 The theorems below discharge lean-intent's obligations for such a record from two witnesses that
 each rule supplies (`Witnessed`): a well-formed input on which a subject violates the rule, and a
@@ -24,50 +26,58 @@ namespace RegulaSpecification
 open Lean (Name)
 open LeanIntent
 
-/-- A rule's checker: from the closed input to the subjects it reports. -/
-abbrev Checker (S : Type) : Type := Input → List S
+/-- The admission of a rule's input: what the shell refuses, as incomplete, before any rule runs. -/
+class Admission (α : Type) where
+  /-- The input has the closed form. -/
+  WellFormed : α → Prop
 
-variable {S : Type}
+instance : Admission Input := ⟨Input.WellFormed⟩
+
+/-- A rule's checker: from the closed input to the subjects it reports. -/
+abbrev Checker (α S : Type) : Type := α → List S
+
+variable {α S : Type} [Admission α]
 
 /-- The one property of a rule's record: on each well-formed input, the checker reports a subject
 exactly when the subject violates the rule. -/
-def reportsExactly (rule : String) (V : Input → S → Prop) : Clause (Checker S) :=
+def reportsExactly (rule : String) (V : α → S → Prop) : Clause (Checker α S) :=
   ⟨rule ++ ": reports exactly the violations of each well-formed input",
-    fun f => ∀ i, i.WellFormed → ∀ s, s ∈ f i ↔ V i s⟩
+    fun f => ∀ i, Admission.WellFormed i → ∀ s, s ∈ f i ↔ V i s⟩
 
 /-- The intent record of a rule whose violations `V` states. Its vocabulary is the admission and
 the violation predicate. -/
-def ruleRecord (rule : String) (V : Input → S → Prop) : IntentRecord (Checker S) where
-  shape := .function Input (fun _ => List S)
+def ruleRecord (rule : String) (V : α → S → Prop) : IntentRecord (Checker α S) where
+  shape := .function α (fun _ => List S)
   dom := []
   props := [reportsExactly rule V]
-  vocab := [⟨"well-formed input", Input, Input.WellFormed⟩,
-    ⟨rule ++ " violation", Input × S, fun p => V p.1 p.2⟩]
+  vocab := [⟨"well-formed input", α, Admission.WellFormed⟩,
+    ⟨rule ++ " violation", α × S, fun p => V p.1 p.2⟩]
 
 /-- Two checkers report the same subjects on every well-formed input. -/
-def SameReports (f g : Checker S) : Prop := ∀ i, i.WellFormed → ∀ s, s ∈ f i ↔ s ∈ g i
+def SameReports (f g : Checker α S) : Prop :=
+  ∀ i, Admission.WellFormed i → ∀ s, s ∈ f i ↔ s ∈ g i
 
 /-- The witnesses a rule's record needs: a well-formed input on which `bad` violates the rule, a
 well-formed input on which `fine` does not, and a finite list of the candidates of each input. -/
-structure Witnessed (V : Input → S → Prop) where
+structure Witnessed (V : α → S → Prop) where
   /-- The candidates of an input: every subject that can violate the rule there. -/
-  support : Input → List S
+  support : α → List S
   support_complete : ∀ i s, V i s → s ∈ support i
   /-- The case the rule must rule out. -/
-  refused : Input
-  refused_wf : refused.WellFormed
+  refused : α
+  refused_wf : Admission.WellFormed refused
   bad : S
   bad_violates : V refused bad
   /-- The case the rule must admit. -/
-  admitted : Input
-  admitted_wf : admitted.WellFormed
+  admitted : α
+  admitted_wf : Admission.WellFormed admitted
   fine : S
   fine_admitted : ¬ V admitted fine
 
-variable {rule : String} {V : Input → S → Prop}
+variable {rule : String} {V : α → S → Prop}
 
-theorem meets_iff (f : Checker S) :
-    (ruleRecord rule V).Meets f ↔ ∀ i, i.WellFormed → ∀ s, s ∈ f i ↔ V i s := by
+theorem meets_iff (f : Checker α S) :
+    (ruleRecord rule V).Meets f ↔ ∀ i, Admission.WellFormed i → ∀ s, s ∈ f i ↔ V i s := by
   simp [IntentRecord.Meets, IntentRecord.Dom, IntentRecord.Props, ruleRecord, reportsExactly]
 
 /-- The checker that reports nothing does not meet the record: it misses the refused case. -/
@@ -86,7 +96,7 @@ theorem noisy_fails (w : Witnessed V) (hfine : w.fine ∈ w.support w.admitted) 
 
 open Classical in
 /-- A checker that meets the record: the candidates that violate the rule. -/
-noncomputable def exact (w : Witnessed V) : Checker S :=
+noncomputable def exact (w : Witnessed V) : Checker α S :=
   fun i => (w.support i).filter fun s => decide (V i s)
 
 theorem exact_meets (w : Witnessed V) : (ruleRecord rule V).Meets (exact w) := by

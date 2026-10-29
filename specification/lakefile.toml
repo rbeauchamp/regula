@@ -6,8 +6,9 @@ defaultTargets = ["RegulaSpecification"]
 # nothing of the root package imports it, and it changes no rule's behaviour. `lake build` here
 # checks every statement and every theorem about the statements.
 
-# lean-intent, at the commit on its `main` that merged its port (rbeauchamp/lean-intent pull
-# request #8). It requires no package.
+# lean-intent, at commit 30fe70d on its `main`, after its umbrella modules were removed. The
+# specification imports three of its modules: `LeanIntent.Record`, `LeanIntent.Obligations` and
+# `LeanIntent.Progress`. It requires no package.
 [[require]]
 name = "lean-intent"
 git = "https://github.com/rbeauchamp/lean-intent"

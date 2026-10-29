@@ -120,9 +120,11 @@ def w2006 (allowed : Name → Prop) (ha : allowed `autoImplicit)
     rintro ⟨tg, htg, hn, -, h⟩
     simp only [base, List.mem_cons, List.not_mem_nil, or_false] at htg
     rcases htg with rfl | rfl
-    · rcases h with h | h | ⟨o, ho, hno⟩ | h
+    · rcases h with h | h | ⟨o, ho, -, hv⟩ | ⟨o, ho, hno⟩ | h
       · simp [strict] at h
       · simp [strict] at h
+      · simp only [strict, List.mem_cons, List.not_mem_nil, or_false] at ho
+        rcases ho with rfl | rfl <;> exact hv rfl
       · simp only [strict, List.mem_cons, List.not_mem_nil, or_false] at ho
         rcases ho with rfl | rfl
         · exact hno ha
@@ -134,6 +136,19 @@ theorem rg2006_adequate (allowed : Name → Prop) (ha : allowed `autoImplicit)
     (hr : allowed `relaxedAutoImplicit) :
     O2 (rg2006 allowed) ∧ O2Run (rg2006 allowed) ∧ O3 (rg2006 allowed) ∧ O4 (rg2006 allowed) ∧
       O5 (rg2006 allowed) (.rel SameReports) := adequate (w2006 allowed ha hr)
+
+/-- `Good` with the strict options followed by `autoImplicit` set to `true`. -/
+def overrideTarget : Target :=
+  { goodTarget with options := strict ++ [(`autoImplicit, "true")] }
+
+/-- A claimed target whose options are the strict options followed by `autoImplicit` set to `true`
+violates RG2006, for each allowlist: the rule refuses each value other than `false`, whatever its
+position, so no order of the options turns automatic implicits on. -/
+theorem rg2006_refuses_override (allowed : Name → Prop) :
+    Violates2006 allowed { base with targets := [overrideTarget, appTarget] } `Good :=
+  ⟨overrideTarget, by simp, rfl, ⟨.choiceFree, .report, by simp [base]⟩,
+    Or.inr (Or.inr (Or.inl ⟨(`autoImplicit, "true"), by simp [overrideTarget], Or.inl rfl,
+      by simp⟩))⟩
 
 /-! ## RG2007 -/
 

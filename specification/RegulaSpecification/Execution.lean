@@ -11,19 +11,25 @@ execution question, which RG3002 decides under a checked execution claim.
 RG3001 and RG3002 read the execution closure of an executable target: from its `main`, the
 constants compiled code can run. A constant with a runtime replacement runs the replacement, one
 with a recursion helper runs the helper, and every other constant runs the constants its value
-mentions.
+mentions. A runtime replacement is the constant that `@[implemented_by]` names, or the target of a
+`@[csimp]` lemma.
 -/
 
 namespace RegulaSpecification
 
 open Lean (Name)
 
+/-- Compiled code runs `n` in place of `d`: `n` is the constant that `@[implemented_by]` names on
+`d`, or the target of a `@[csimp]` lemma about `d`. -/
+def Decl.ReplacedBy (d : Decl) (n : Name) : Prop :=
+  d.implementedBy = some n ∨ d.csimpTarget = some n
+
 namespace Input
 
 variable (i : Input)
 
 /-- `d` is the recursion helper of a safe base in the same module: a partial, safe-flagged
-definition named `f._unsafe_rec` beside a safe, total `f` with no runtime replacement. -/
+definition named `f._unsafe_rec` beside a safe, total `f` with no `@[implemented_by]`. -/
 def RecursionHelper (d : Decl) : Prop :=
   d.isPartial = true ∧ d.isUnsafe = false ∧ d.implementedBy = none ∧ d.isExtern = false ∧
     ∃ base ∈ i.decls, d.name = Name.str base.name "_unsafe_rec" ∧ base.module = d.module ∧
@@ -36,9 +42,10 @@ def HasHelper (c : Name) : Prop :=
 
 /-- The constants compiled code runs where it runs `d`. -/
 def Runs (d : Decl) (n : Name) : Prop :=
-  d.implementedBy = some n ∨
-    (d.implementedBy = none ∧ i.HasHelper d.name ∧ n = Name.str d.name "_unsafe_rec") ∨
-    (d.implementedBy = none ∧ ¬ i.HasHelper d.name ∧ n ∈ d.uses)
+  d.ReplacedBy n ∨
+    (d.implementedBy = none ∧ d.csimpTarget = none ∧ i.HasHelper d.name ∧
+      n = Name.str d.name "_unsafe_rec") ∨
+    (d.implementedBy = none ∧ d.csimpTarget = none ∧ ¬ i.HasHelper d.name ∧ n ∈ d.uses)
 
 /-- `c` is in the execution closure of `r`. -/
 inductive Executes : Name → Name → Prop
@@ -46,10 +53,10 @@ inductive Executes : Name → Name → Prop
   | step {r c n : Name} (d : Decl) : Executes r c → d ∈ i.decls → d.name = c → i.Runs d n →
       Executes r n
 
-/-- `c` reaches `n` through one or more runtime replacements (`@[implemented_by]`). -/
+/-- `c` reaches `n` through one or more runtime replacements (`@[implemented_by]` or `@[csimp]`). -/
 inductive Replaces : Name → Name → Prop
-  | one {c n : Name} (d : Decl) : d ∈ i.decls → d.name = c → d.implementedBy = some n → Replaces c n
-  | more {c m n : Name} (d : Decl) : d ∈ i.decls → d.name = c → d.implementedBy = some m →
+  | one {c n : Name} (d : Decl) : d ∈ i.decls → d.name = c → d.ReplacedBy n → Replaces c n
+  | more {c m n : Name} (d : Decl) : d ∈ i.decls → d.name = c → d.ReplacedBy m →
       Replaces m n → Replaces c n
 
 /-- `r` is the `main` of an executable target claimed with execution mode `e`. -/
@@ -64,7 +71,8 @@ def Unbindable (d : Decl) : Prop :=
   d.isExtern = true ∨ (d.isPartial = true ∧ ¬ i.RecursionHelper d) ∨ d.isInitialized = true
 
 /-- `c` is an execution boundary outside the toolchain: compiled code runs something other than
-its kernel definition there. -/
+its kernel definition there. A constant that only a `@[csimp]` lemma replaces is not one: the
+lemma, which the kernel checks, is its correspondence, and `Runs` reaches its target in turn. -/
 def Boundary (c : Name) : Prop :=
   ∃ d ∈ i.decls, d.name = c ∧ d.inToolchain = false ∧
     (d.implementedBy.isSome = true ∨ i.HasHelper c ∨ i.Unbindable d)
