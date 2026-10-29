@@ -2,7 +2,7 @@ import Lean.Util.FoldConsts
 
 /-! # The reference check of Lean's directory readers
 
-Lean v4.34.1's `System.FilePath.readDir` calls `readdir` until it returns null and returns what it
+Lean v4.35.0's `System.FilePath.readDir` calls `readdir` until it returns null and returns what it
 collected, so it cannot tell the end of a directory from a failed read (issue 408), and
 `System.FilePath.walkDir` lists through it. Each program of Regula lists a directory through
 `Regula.Filesystem.Construction.listNames`, `listDirectory` or `walkDirectory`, which refuse a
@@ -26,7 +26,7 @@ def directoryReaders : List Name := [``System.FilePath.readDir, ``System.FilePat
 with those readers, as `ConstantInfo.getUsedConstantsAsSet` collects the constants of a
 declaration.
 
-Assumes: Lean v4.34.1 runs `Expr.foldConsts` through its `implemented_by` replacement
+Assumes: Lean v4.35.0 runs `Expr.foldConsts` through its `implemented_by` replacement
 `FoldConstsImpl.foldUnsafe` (`src/lean/Lean/Util/FoldConsts.lean:24-47`), which applies its
 function to the name of each `.const` subterm and to the structure of each `.proj` subterm, each
 shared subterm visited once. Its logical body returns the initial value (`:51-53`), so no theorem

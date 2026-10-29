@@ -20,7 +20,7 @@ in-process through the real program must give every file.
 `failure` injects a real failed read of a directory. On a GitHub-hosted Linux runner, whose machine
 is discarded after the job, it builds an ext4 image, maps it through device-mapper with one block
 of a large directory replaced by the `error` target, and mounts it read-only. The real `ls` must
-exit nonzero with an input/output error, `System.FilePath.readDir` of Lean v4.34.1 must return
+exit nonzero with an input/output error, `System.FilePath.readDir` of Lean v4.35.0 must return
 fewer entries without an error, which is the defect of issue 408, and `Regula.Filesystem.copy`
 must refuse with no destination. The same image mapped without the error must copy completely.
 Anywhere else it refuses as unsupported, never as a pass. -/
@@ -221,7 +221,7 @@ def withMapping {α : Type} (root : FilePath) (name table : String) (mount : Fil
     finally discard <| privileged root #["umount", mount.toString]
   finally discard <| privileged root #["dmsetup", "remove", "--retry", name]
 
-/-- The number of entries that Lean v4.34.1's `System.FilePath.readDir` returns for `path`, read
+/-- The number of entries that Lean v4.35.0's `System.FilePath.readDir` returns for `path`, read
 in a separate `lean` process from source text, so that no declaration of Regula refers to it. -/
 def readDirCount (root path : FilePath) : IO (UInt32 × String) := do
   let result ← IO.Process.output {

@@ -334,7 +334,7 @@ theorem mathlibApplies_iff (toolchain integration : String) :
 
 /-! ### Lake's selection of the pinned packages
 
-What Lake v4.34.1's load of a workspace materializes its dependencies from, given its manifest and
+What Lake v4.35.0's load of a workspace materializes its dependencies from, given its manifest and
 the entries of its package overrides file as Lake's own readers decode them (`readRoot`). This
 program runs before the package is built, so it cannot import `Regula.Checker.LakeSelection`,
 which states these rules for the checker; `Regula.ProgramCheck.Provision` proves `rootFiles`,
@@ -346,10 +346,10 @@ checker's. -/
 this `Regula.Checker.Workspace.rootFiles`.
 
 Assumes:
-- Lake v4.34.1 gives the root package of a workspace the manifest `lake-manifest.json` of its
+- Lake v4.35.0 gives the root package of a workspace the manifest `lake-manifest.json` of its
   directory unless its load configuration names another (`Lake/Load/Config.lean:54`,
   `Lake/Load/Package.lean:35-51`), and the `lake` command names no other
-  (`Lake/CLI/Main.lean:116-130`). It reads the package overrides file
+  (`Lake/CLI/Main.lean:131-145`). It reads the package overrides file
   `.lake/package-overrides.json` of that directory (`Lake/Config/Workspace.lean:212-213`,
   `Lake/Config/Package.lean:208-213`). -/
 def rootFiles (dir : FilePath) : FilePath × FilePath :=
@@ -360,7 +360,7 @@ def rootFiles (dir : FilePath) : FilePath × FilePath :=
 from, in Lake's order: the manifest's, then `overrides`, those of its package overrides file.
 
 Assumes:
-- Lake v4.34.1 materializes the dependencies of a workspace that has a manifest from these entries
+- Lake v4.35.0 materializes the dependencies of a workspace that has a manifest from these entries
   in this order (`Lake/Load/Workspace.lean:61-69`, `Lake/Load/Resolve.lean:599-605`). -/
 def rootEntries (manifest : Lake.Manifest) (overrides : Array Lake.PackageEntry) :
     Array Lake.PackageEntry :=
@@ -371,7 +371,7 @@ def rootEntries (manifest : Lake.Manifest) (overrides : Array Lake.PackageEntry)
 proves this `Regula.Checker.LakeSelection.effectiveEntry`.
 
 Assumes:
-- Lake v4.34.1 inserts the entries into a name map in order, and materializes each dependency from
+- Lake v4.35.0 inserts the entries into a name map in order, and materializes each dependency from
   the entry that the map holds for its name (`Lake/Load/Resolve.lean:599-613`). An insertion
   replaces the entry that the map holds for the name. -/
 def selectedEntry (entries : Array Lake.PackageEntry) (name : Name) :
@@ -391,14 +391,14 @@ that is a Git entry, with the name of its checkout directory (`Lake.PackageEntry
 commit.
 
 Assumes:
-- Lake v4.34.1 clones a Git entry at `Lake.PackageEntry.dirName` below the packages directory, and
-  checks the entry's commit out there (`Lake/Load/Materialize.lean:241-264`). -/
+- Lake v4.35.0 materializes a Git entry at `Lake.PackageEntry.dirName` below the packages
+  directory, and checks the entry's commit out there (`Lake/Load/Materialize.lean:275-281`). -/
 def gitPins (entries : Array Lake.PackageEntry) : Array (Lake.PackageEntry × Pin) :=
   (entries.toList.map (·.name)).eraseDups.toArray.filterMap fun name =>
     (selectedEntry entries name).bind fun entry =>
       match entry.src with
       | .git _ rev _ _ => some (entry, ⟨entry.dirName, rev⟩)
-      | .path _ => none
+      | .path .. => none
 
 /-- Each Git pin is the entry selected for its name, a Git entry at the pin's commit, and its
 checkout directory has the pin's name. -/
@@ -470,7 +470,7 @@ a quotation mark, a backslash or a control character of Lake's TOML grammar
 pins with one checkout directory.
 
 Assumes:
-- Lake v4.34.1 refuses a basic string that holds a control character (`Lake.Toml.isControlChar`)
+- Lake v4.35.0 refuses a basic string that holds a control character (`Lake.Toml.isControlChar`)
   unescaped, ends one at an unescaped quotation mark and reads an escape after a backslash
   (`Lake/Toml/Grammar.lean:30-31`, `:139-151`). -/
 def pinsRefusal (url rev : String) (git : Array (Lake.PackageEntry × Pin)) : Option String :=
@@ -499,38 +499,44 @@ own entry is left out of the shared workspace, which requires no `regula`.
 Assumes:
 - The pinned Mathlib requires no package named `regula`: its configuration requires `batteries`,
   `Qq`, `aesop`, `proofwidgets`, `importGraph`, `LeanSearchClient` and `plausible`, and its
-  manifest records those and `Cli` (Mathlib `d13f23b7`, `lakefile.lean:9-19`,
+  manifest records those and `Cli` (Mathlib `56a00585`, `lakefile.lean:9-19`,
   `lake-manifest.json`). -/
 def pathRefusal (manifest : Lake.Manifest) (overrides : Array Lake.PackageEntry)
     (ownRegula : Bool) : Option String :=
   ((rootEntries manifest overrides).toList.map (·.name)).eraseDups.findSome? fun name =>
     (selectedEntry (rootEntries manifest overrides) name).bind fun entry =>
       match entry.src with
-      | .path dir =>
-        if name == `regula && ownRegula then none
+      | .path dir copy =>
+        if name == `regula && ownRegula && !copy then none
         else
           let source := if overrides.any (·.name == name) then "the package overrides file"
             else "the manifest"
-          some s!"{entry.prettyName}: {source} gives a path entry ({dir}), which provisioning \
-            cannot pin: it shares only Git checkouts, and leaves out only Regula's own entry at \
-            the root that it provisions"
+          if copy then
+            some s!"{entry.prettyName}: {source} gives a path entry ({dir}) that Lake copies \
+              below the packages directory, which provisioning does not share or check: Lake \
+              keeps a copy that it has made, so the copy can differ from {dir}"
+          else
+            some s!"{entry.prettyName}: {source} gives a path entry ({dir}), which provisioning \
+              cannot pin: it shares only Git checkouts, and leaves out only Regula's own entry \
+              at the root that it provisions"
       | .git .. => none
 
 /-- `pathRefusal` refuses nothing exactly when each path entry that Lake materializes a package
-from is the one selected for `regula`, and `ownRegula` holds. -/
+from, whether Lake copies it or not, is the one selected for `regula`, `ownRegula` holds, and Lake
+does not copy it. -/
 theorem pathRefusal_eq_none_iff {manifest : Lake.Manifest} {overrides : Array Lake.PackageEntry}
     {ownRegula : Bool} :
     pathRefusal manifest overrides ownRegula = none ↔
-      ∀ entry dir, selectedEntry (rootEntries manifest overrides) entry.name = some entry →
-        entry.src = .path dir → entry.name = `regula ∧ ownRegula = true := by
+      ∀ entry dir copy, selectedEntry (rootEntries manifest overrides) entry.name = some entry →
+        entry.src = .path dir copy → entry.name = `regula ∧ ownRegula = true ∧ copy = false := by
   simp only [pathRefusal, List.findSome?_eq_none_iff, List.mem_eraseDups, List.mem_map]
   constructor
-  · intro h entry dir hSelected hPath
+  · intro h entry dir copy hSelected hPath
     have refused := h entry.name ⟨entry, by simpa using (selectedEntry_some hSelected).2, rfl⟩
     simp only [hSelected, Option.bind_some, hPath] at refused
     split at refused
-    · next hOwn => simpa using hOwn
-    · cases refused
+    · next hOwn => simpa [and_assoc] using hOwn
+    · split at refused <;> cases refused
   · rintro h name -
     match hSelected : selectedEntry (rootEntries manifest overrides) name with
     | none => rfl
@@ -538,9 +544,9 @@ theorem pathRefusal_eq_none_iff {manifest : Lake.Manifest} {overrides : Array La
       have hName := (selectedEntry_some hSelected).1
       match hSrc : entry.src with
       | .git .. => simp [hSrc]
-      | .path dir =>
-        have ⟨hRegula, hOwn⟩ := h entry dir (by rw [hName]; exact hSelected) hSrc
-        simp [hSrc, ← hName, hRegula, hOwn]
+      | .path dir copy =>
+        have ⟨hRegula, hOwn, hCopy⟩ := h entry dir copy (by rw [hName]; exact hSelected) hSrc
+        simp [hSrc, ← hName, hRegula, hOwn, hCopy]
 
 /-- The pins of the Mathlib package whose manifest is `manifest` and whose package overrides file
 has the entries `overrides`, as Lake's load of it materializes them: the packages directory that
@@ -612,14 +618,14 @@ for `mathlib` is absent or a path entry. -/
 theorem selectPins_none {manifest : Lake.Manifest} {overrides : Array Lake.PackageEntry}
     {ownRegula : Bool} (h : selectPins manifest overrides ownRegula = .ok none) :
     ∀ entry, selectedEntry (rootEntries manifest overrides) `mathlib = some entry →
-      ∃ dir, entry.src = .path dir := by
+      ∃ dir copy, entry.src = .path dir copy := by
   intro entry hEntry
   unfold selectPins at h
   split at h
   · cases h
   · rw [hEntry] at h
     match hSrc : entry.src with
-    | .path dir => exact ⟨dir, rfl⟩
+    | .path dir copy => exact ⟨dir, copy, rfl⟩
     | .git url rev inputRev subDir =>
       simp only [Option.map_some, hSrc] at h
       split at h <;> cases h
@@ -644,7 +650,7 @@ structure Ran where
   stderr : String
 
 /-- Shared constructor source embedded by Lean; the cold provisioner imports only the toolchain.
-Assumes: Lean v4.34.1 `Lean/Elab/BuiltinTerm.lean:437-445` elabIncludeStr reads this source at elaboration,
+Assumes: Lean v4.35.0 `Lean/Elab/BuiltinTerm.lean:437-445` elabIncludeStr reads this source at elaboration,
 and the pinned Lean interpreter executes it before project artifacts exist. -/
 def constructionSource : String := include_str "RegulaCore/CopyProgram.lean"
 
@@ -652,10 +658,10 @@ def constructionSource : String := include_str "RegulaCore/CopyProgram.lean"
 cold artifacts exist, and decode the JSON it prints; `what` names the observation in an error.
 The interpreter reads its source from stdin, without a temporary file or removal.
 
-Assumes: Lean v4.34.1 `IO.Process.output` supplies stdin and waits for the child
+Assumes: Lean v4.35.0 `IO.Process.output` supplies stdin and waits for the child
 (`Init/System/IO.lean:1544-1557`);
 `Lean/Util/Path.lean:85-86` identifies the running toolchain. `--stdin --run`
-(`Lean/Shell.lean:497-518,552-560`) faithfully executes constructionSource. -/
+(`Lean/Shell.lean:498-519,553-561`) faithfully executes constructionSource. -/
 private def construction {α : Type} [FromJson α] (what : String) (args : Array String) : IO α := do
   let out ← IO.Process.output {
     cmd := ((← Lean.getBuildDir) / "bin/lean").toString
@@ -752,7 +758,7 @@ def isPresent (path : System.FilePath) : IO Bool := do
 with `noFileOrDirectory`, and the read's error for every other error, so that a path that cannot be
 read is not taken for an absent one.
 
-Assumes: Lean v4.34.1 `symlinkMetadata` (`Init/System/IO.lean:1155-1156`) is
+Assumes: Lean v4.35.0 `symlinkMetadata` (`Init/System/IO.lean:1155-1156`) is
 `lean_io_symlink_metadata` (`runtime/io.cpp:1160-1179`), which calls `lstat(2)` through libuv and
 gives `noFileOrDirectory` for `ENOENT` and for no other error (`runtime/io.cpp:201`, `:276-279`). -/
 private def kind? (path : FilePath) : IO (Option IO.FS.FileType) := do
@@ -873,7 +879,7 @@ def installLinkWith {m : Type → Type} [Monad m] [MonadExceptOf IO.Error m] (op
 /-- `mkdir(2)` of the directory in which the link is made, and then its mode 0700, so that only
 this user can write in it.
 
-Assumes: Lean v4.34.1 `IO.FS.createDir` (`Init/System/IO.lean:895-900`) calls `mkdir` once and
+Assumes: Lean v4.35.0 `IO.FS.createDir` (`Init/System/IO.lean:895-900`) calls `mkdir` once and
 reports its error (`runtime/io.cpp:1181-1195`); `mkdir` fails with `EEXIST` when any entry is at
 the path, and follows no symbolic link there (POSIX.1-2024 `mkdir()`). This is
 `RegulaProvision.RefusesOccupied`. `IO.Prim.setAccessRights` (`Init/System/IO.lean:1650`,
@@ -905,7 +911,7 @@ when no other process writes there. -/
 
 /-- `IO.FS.rename`: the move of the link that `installLinkWith` made over its place.
 
-Assumes: Lean v4.34.1 `IO.FS.rename` (`Init/System/IO.lean:903-909`) calls `rename(2)`
+Assumes: Lean v4.35.0 `IO.FS.rename` (`Init/System/IO.lean:903-909`) calls `rename(2)`
 (`runtime/io.cpp:1209-1238`), which moves a symbolic link itself and replaces a link or a file at
 the destination, not its target. -/
 @[noinline] private def moveLink (source destination : FilePath) : IO Unit :=
@@ -913,14 +919,14 @@ the destination, not its target. -/
 
 /-- `IO.FS.removeFile`: the removal of a link that `installLinkWith` made and did not move.
 
-Assumes: Lean v4.34.1 `IO.FS.removeFile` (`Init/System/IO.lean:881-886`) calls `unlink(2)`
+Assumes: Lean v4.35.0 `IO.FS.removeFile` (`Init/System/IO.lean:881-886`) calls `unlink(2)`
 (`runtime/io.cpp:1351-1364`), which removes a symbolic link, not its target. -/
 @[noinline] private def removeLink (path : FilePath) : IO Unit :=
   IO.FS.removeFile path
 
 /-- `IO.FS.removeDir`: the removal of the directory that `installLinkWith` made.
 
-Assumes: Lean v4.34.1 `IO.FS.removeDir` (`Init/System/IO.lean:888-894`) calls `rmdir(2)`
+Assumes: Lean v4.35.0 `IO.FS.removeDir` (`Init/System/IO.lean:888-894`) calls `rmdir(2)`
 (`runtime/io.cpp:1197-1207`), which removes only an empty directory. -/
 @[noinline] private def removeStage (path : FilePath) : IO Unit :=
   IO.FS.removeDir path
@@ -1001,16 +1007,16 @@ refuses, are thrown, as Lake's load throws them. `Regula.ProgramCheck.Provision.
 proves this `Regula.Checker.Workspace.readRoot`, the checker's one read of the two files.
 
 Assumes:
-- Lake v4.34.1's load reads a workspace's manifest with `Lake.Manifest.load?`
+- Lake v4.35.0's load reads a workspace's manifest with `Lake.Manifest.load?`
   (`Lake/Load/Workspace.lean:61-69`) and its package overrides file with
   `Lake.Manifest.tryLoadEntries` (`Lake/Load/Resolve.lean:603`), which give no manifest and no
-  entries only for a file that is absent (`Lake/Load/Manifest.lean:268-272`, `:301-305`). -/
+  entries only for a file that is absent (`Lake/Load/Manifest.lean:272-276`, `:305-309`). -/
 def readRoot (files : FilePath × FilePath) :
     IO (Option (Lake.Manifest × Array Lake.PackageEntry)) := do
   let some manifest ← Lake.Manifest.load? files.1 | return none
   return some (manifest, ← Lake.Manifest.tryLoadEntries files.2)
 
-/-- The real path of `target`: `IO.FS.realPath`, refused on Windows, where Lean 4.34.1's gives the
+/-- The real path of `target`: `IO.FS.realPath`, refused on Windows, where Lean 4.35.0's gives the
 path itself when it cannot resolve it (`runtime/io.cpp:1032-1033`), which
 `Regula.Filesystem.ReadsReal` does not allow. The refusal's text is the filesystem observer's.
 This program cannot import `Regula.Filesystem`; `Regula.ProgramCheck.Provision.observeRealPath_eq`
@@ -1033,14 +1039,15 @@ written over the read of a real path `realPath`: the driver runs it at `observeR
 `RegulaCore.Filesystem`.
 
 Assumes:
-- Lake v4.34.1 materializes a path entry at its directory, relative to the workspace's directory
-  (`Lake/Load/Materialize.lean:241-243`, `Lake/Load/Resolve.lean:42`,
+- Lake v4.35.0 materializes a path entry that it does not copy (`copy` false) at its directory,
+  relative to the workspace's directory, and one that it copies at a copy below the packages
+  directory (`Lake/Load/Materialize.lean:183-197`, `:271-274`, `Lake/Load/Resolve.lean:42`,
   `Lake/Util/FilePath.lean:42-48`). -/
 def ownRegulaWith {m : Type → Type} [Monad m] [MonadExceptOf IO.Error m]
     (realPath : FilePath → m FilePath) (repo : FilePath) (entries : Array Lake.PackageEntry) :
     m Bool :=
   match (selectedEntry entries `regula).map Lake.PackageEntry.src with
-  | some (.path dir) => do
+  | some (.path dir false) => do
     let resolved ← resolveWith realPath (Lake.joinRelative (repo / mathlibPackage) dir)
     let root ← resolveWith realPath repo
     match resolved, root with

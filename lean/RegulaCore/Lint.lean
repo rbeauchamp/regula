@@ -417,7 +417,7 @@ theorem projectStages_required (c : Claim)
 /-- Whether the driver's working directory is the root of the workspace that dispatched it: the
 library directory `root` of the working directory's root package is the entry of the `LEAN_PATH`
 the driver received just before the first entry `lakeLib`, the library directory of the
-dispatching Lake. Lake v4.34.1 (`Package.lint`, `env`, `Workspace.augmentedLeanPath`) passes the
+dispatching Lake. Lake v4.35.0 (`Package.lint`, `env`, `Workspace.augmentedLeanPath`) passes the
 dispatching workspace's `leanPath`, then `lakeLib`, then any inherited `LEAN_PATH`
 (`Config/Workspace.lean:391-392`, `Config/Env.lean:254`), and that `leanPath` ends with the root
 package's library directory, since it puts each package before the ones loaded ahead of it and the
@@ -733,7 +733,7 @@ def namedOptions (configured : List String) : List String :=
 
 /-- An extra refusal, for the package's `lintDriverArgs` `configured` as the driver reads them
 from the default configuration of the working-directory workspace, given the arguments `args`
-the driver received. Lake v4.34.1 (`Package.lint`) passes `configured ++ caller`, where `caller`
+the driver received. Lake v4.35.0 (`Package.lint`) passes `configured ++ caller`, where `caller`
 holds the arguments after `--` on the `lake lint` command line. The configured arguments must
 begin `args`, parse alone, and give only options of `packageConfigurable`
 (`configuredRefusal_eq_none`). The driver's guarantees do not rest on it: whatever the
@@ -742,10 +742,10 @@ resolves there, and the success line and the result name the manifest (`decision
 
 Assumes: Lake loaded the default configuration file of that workspace, without `-f`/`--file`
 or `-K` options, and that file gives the same `lintDriverArgs` when the driver loads it again.
-Lake v4.34.1 passes neither option to the driver: `CLI/Main.lean:214` and `:342-344` set
-`configFile` only for the load (`:123`, `:1076-1089`), `CLI/Actions.lean:20-21` spawns the driver
+Lake v4.35.0 passes neither option to the driver: `CLI/Main.lean:232` and `:361-363` set
+`configFile` only for the load (`:138`, `:1133-1146`), `CLI/Actions.lean:20-21` spawns the driver
 with the augmented environment of `Config/Workspace.lean:417-431` and `Config/Env.lean:287-305`,
-which names no package configuration, and `CLI/Main.lean:346-348` drops the `--` separator. The
+which names no package configuration, and `CLI/Main.lean:365-367` drops the `--` separator. The
 file can change between the two loads: `Load/Lean/Elab.lean:231-281` hashes the file as it is at
 each load and releases the configuration lock after it. -/
 def configuredRefusal (configured args : List String) : Option String :=
@@ -867,7 +867,7 @@ the claimed build omits the audit-build marker when the plain-shape guard
 and why (`Lake.buildAuditTargets`); without it the build always has the marker.
 
 Assumes: the variable comes from the caller of `lake lint`, never from a package configuration.
-Lake v4.34.1 spawns the driver with `IO.Process.spawn` and `env := ← getAugmentedEnv`
+Lake v4.35.0 spawns the driver with `IO.Process.spawn` and `env := ← getAugmentedEnv`
 (`CLI/Actions.lean:20-21`), which keeps the environment Lake received and sets only the
 variables of `Config/Workspace.lean:417-431` and `Config/Env.lean:287-305`, none of them this
 one. A package configuration can decide some of those, such as `LAKE_ARTIFACT_CACHE`
@@ -890,7 +890,7 @@ theorem ownerAssertion_eq_true_iff (value : Option String) :
 artifact to read it, and it loads only the root configuration of the working directory, so it
 resolves no dependency and writes no manifest.
 
-Assumes: that load writes only what Lake v4.34.1's `importConfigFile` writes for a `lakefile.lean`
+Assumes: that load writes only what Lake v4.35.0's `importConfigFile` writes for a `lakefile.lean`
 whose compiled configuration is not up to date, and nothing for a `lakefile.toml`: the
 configuration directory and `.lake` when absent (`Load/Lean/Elab.lean:184` and `:293`), the
 configuration's lock file (`:207`), its trace (`:223`, `:246-253` and `:294`, removed again at

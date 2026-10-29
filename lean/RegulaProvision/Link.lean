@@ -44,11 +44,11 @@ structure LinkModel where
 
 /-- The creation of a directory fails and changes nothing when an entry is at the path, whatever
 its type: a directory, a symbolic link, which it does not follow, a regular file or a special
-file. Lean 4.34.1's `IO.FS.createDir` calls `mkdir` once and reports its error, and the driver
+file. Lean 4.35.0's `IO.FS.createDir` calls `mkdir` once and reports its error, and the driver
 sets the directory's mode only after `mkdir` succeeds (`RegulaProvision.linkOps`). -/
 @[regula_assumption filesystem
-  (lean "v4.34.1" "Init/System/IO.lean#L895-L900")
-  (lean "v4.34.1" "runtime/io.cpp#L1181-L1195")
+  (lean "v4.35.0" "Init/System/IO.lean#L895-L900")
+  (lean "v4.35.0" "runtime/io.cpp#L1181-L1195")
   (document filesystem "POSIX.1-2024, mkdir(): [EEXIST] The named file exists; if the path \
     names a symbolic link, mkdir() fails with [EEXIST]")]
 def RefusesOccupied (L : LinkModel) : Prop :=

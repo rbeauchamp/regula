@@ -9,16 +9,18 @@ registers the extension; `RegulaObserver` registers the linters that fill it, so
 reads records, such as Regula's checker, imports this module alone and runs no observer.
 
 Lean runs each linter with the environment it had before the linter (`withoutModifyingEnv`,
-`Lean/Elab/Command.lean` lines 510 to 516 at Lean 4.34.1), so a linter cannot add an entry to the
-module's environment. The extension's state is instead two references that the linters write, and
+`Lean/Elab/Command.lean` lines 538 to 547 at Lean 4.35.0), so a linter cannot add an entry to the
+module's environment, except to Lean's code-quality log, whose entries Lean collects from each
+linter run and adds before it writes the `.olean` (lines 543 to 546, `Lean/Elab/Frontend.lean`
+lines 349 and 350). The extension's state is instead two references that the linters write, and
 its `exportEntriesFn` reads them when Lean writes the `.olean`. That function is pure in Lean's
-interface (`Lean/Environment.lean` line 1647), so the read is the opaque `readHandles`, which never
+interface (`Lean/Environment.lean` line 1648), so the read is the opaque `readHandles`, which never
 blocks: a reference that holds nothing gives a record whose part is absent, and the audit refuses
 a module whose record is not complete.
 
-Assumes: in Lean 4.34.1 the command-line frontend writes the `.olean` only after reporting every
-snapshot of the module, the tasks of every linter among them (`Lean/Elab/Frontend.lean` lines 334,
-and 381 to 385), so a reference holds what a linter wrote when `readHandles` reads it. Code that
+Assumes: in Lean 4.35.0 the command-line frontend writes the `.olean` only after reporting every
+snapshot of the module, the tasks of every linter among them (`Lean/Elab/Frontend.lean` lines 341,
+and 385 to 389), so a reference holds what a linter wrote when `readHandles` reads it. Code that
 runs during the module's own elaboration can write either reference or unregister the linters;
 that is an in-process change outside what the record establishes. -/
 namespace RegulaObserver
@@ -98,7 +100,7 @@ structure Commands where
   /-- Where each command before the terminal command starts. -/
   positions : Array Position
   /-- Where each command is whose syntax contains `#guard_msgs`: Lean runs no linter on such a
-  command (`Lean/Elab/Command.lean` line 868). -/
+  command (`Lean/Elab/Command.lean` line 911). -/
   skipped : Array Position
   deriving Inhabited
 

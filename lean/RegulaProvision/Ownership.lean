@@ -30,19 +30,20 @@ open System Regula.StateTriple Regula.Filesystem
 
 /-- Regula's own integration entry among `entries`, the entries of the Mathlib package of the
 Regula root `repo`, in the state `w` of the model `M`: the entry selected for `regula` is a path
-entry whose directory, joined to the Mathlib package's directory as Lake joins it, has a real path,
-and that real path is the real path of `repo`. -/
+entry that Lake does not copy (`copy` false), whose directory, joined to the Mathlib package's
+directory as Lake joins it, has a real path, and that real path is the real path of `repo`. -/
 def OwnRegula (M : Model) (w : M.World) (repo : FilePath) (entries : Array Lake.PackageEntry) :
     Prop :=
-  ∃ dir, (selectedEntry entries `regula).map Lake.PackageEntry.src = some (.path dir) ∧
+  ∃ dir, (selectedEntry entries `regula).map Lake.PackageEntry.src = some (.path dir false) ∧
     ∃ real, M.real w (Lake.joinRelative (repo / mathlibPackage) dir) = some real ∧
       M.real w repo = some real
 
-/-- Each path entry that Lake selects among `entries` is the one for `regula`, and it is Regula's
-own integration entry in the state `w` of the model `M` (`OwnRegula`). -/
+/-- Each path entry that Lake selects among `entries`, whether Lake copies it or not, is the one for
+`regula`, and it is Regula's own integration entry in the state `w` of the model `M` (`OwnRegula`),
+which Lake does not copy. -/
 def PathsOwn (M : Model) (w : M.World) (repo : FilePath) (entries : Array Lake.PackageEntry) :
     Prop :=
-  ∀ entry dir, selectedEntry entries entry.name = some entry → entry.src = .path dir →
+  ∀ entry dir copy, selectedEntry entries entry.name = some entry → entry.src = .path dir copy →
     entry.name = `regula ∧ OwnRegula M w repo entries
 
 /-- A run of `resolveWith` at the model's read of a real path changes nothing, never fails, and
@@ -68,8 +69,8 @@ theorem ownRegula_run (M : Model) (readsReal : ReadsReal M) (repo : FilePath)
   unfold ownRegulaWith
   match hSelected : (selectedEntry entries `regula).map Lake.PackageEntry.src with
   | none => exact ⟨rfl, by simp [OwnRegula, hSelected]⟩
-  | some (.git ..) => exact ⟨rfl, by simp [OwnRegula, hSelected]⟩
-  | some (.path dir) =>
+  | some (.git ..) | some (.path _ true) => exact ⟨rfl, by simp [OwnRegula, hSelected]⟩
+  | some (.path dir false) =>
     refine Satisfies.bind (resolve_run M readsReal _ before) ?_
     rintro resolved w ⟨rfl, hResolved⟩
     refine Satisfies.bind (resolve_run M readsReal _ w) ?_
@@ -102,9 +103,9 @@ theorem pinsWith_admitted (M : Model) (readsReal : ReadsReal M) (repo : FilePath
       (fun _ _ => False) := by
   refine (pinsWith_run M readsReal repo manifest overrides before).mono ?_ (fun _ _ h => h)
   rintro result w ⟨rfl, own, rfl, hOwn⟩
-  refine ⟨rfl, fun pins admitted entry dir hSelected hPath => ?_⟩
-  have ⟨hName, hTrue⟩ :=
-    pathRefusal_eq_none_iff.mp (selectPins_sound admitted).2.2.2.1 entry dir hSelected hPath
+  refine ⟨rfl, fun pins admitted entry dir copy hSelected hPath => ?_⟩
+  have ⟨hName, hTrue, _⟩ :=
+    pathRefusal_eq_none_iff.mp (selectPins_sound admitted).2.2.2.1 entry dir copy hSelected hPath
   exact ⟨hName, hOwn.mp hTrue⟩
 
 /-! ## The runs in `IO` -/

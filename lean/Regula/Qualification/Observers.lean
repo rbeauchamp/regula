@@ -33,16 +33,16 @@ checked here: its environment is imported and checked as each `checkProgram` che
 (`Regula.Removal.rawRemovals`, `Regula.Removal.programRefusal`,
 `Regula.TaskManagerCheck.refusal`).
 
-The removal check reads a linked module under `Init`, `Std`, `Lean` or `Lake` as Lean's own by its
-name, under the hypothesis that no package of the workspace that builds the program provides one
-(`Regula.Removal.toolchainModules`). This campaign checks that hypothesis for three workspaces of
-this repository, the root package's, the `markdown/` package's and the `audit/` package's
-(`checkToolchainWorkspaces`): it loads each with Lake, and refuses a module under those roots that
-a package of it provides, the root package or a dependency, and an entry of those roots in the
-library directory of a package. Its control, a workspace whose dependency package provides
-`Lean.Planted`, runs first (`toolchainControl`). The Mathlib integration's workspace, which builds
-programs of the package too, and an adopter's workspace are not checked: their builds rest on the
-hypothesis unchecked.
+The removal check reads a linked module under `Init`, `Std`, `Lean`, `Lake` or `LeanExport` as
+Lean's own by its name, under the hypothesis that no package of the workspace that builds the
+program provides one (`Regula.Removal.toolchainModules`). This campaign checks that hypothesis for
+three workspaces of this repository, the root package's, the `markdown/` package's and the
+`audit/` package's (`checkToolchainWorkspaces`): it loads each with Lake, and refuses a module
+under those roots that a package of it provides, the root package or a dependency, and an entry of
+those roots in the library directory of a package. Its control, a workspace whose dependency
+package provides `Lean.Planted`, runs first (`toolchainControl`). The Mathlib integration's
+workspace, which builds programs of the package too, and an adopter's workspace are not checked:
+their builds rest on the hypothesis unchecked.
 
 The campaign acquires no dependency, under the hypothesis of `toolchainFindings` that no other
 process changes the manifest, the package overrides or a dependency's checkout between its check
@@ -79,7 +79,7 @@ def recordedBy (marker : Name) (names : Array Name) : Array Name :=
     else none
 
 /-- The roots of Lean's toolchain (`RegulaPolicy.ToolchainRoot`), as a list. -/
-def toolchainRoots : List Name := [`Init, `Std, `Lean, `Lake]
+def toolchainRoots : List Name := [`Init, `Std, `Lean, `Lake, `LeanExport]
 
 /-- A name is one of `toolchainRoots` exactly when it is a root of Lean's toolchain. -/
 theorem mem_toolchainRoots_iff (root : Name) :
@@ -149,12 +149,12 @@ commits in the workspace `ws`, which is loaded with its root package alone
 (`Lake.loadWorkspaceRoot`): a superset of those that Lake's loader can acquire when it loads the
 workspace. With a manifest, the loader materializes each dependency from its entry of
 `loaderEntries`, and a dependency with no entry there is an error, not an acquisition
-(`Lake/Load/Resolve.lean:611-622`). `Lake.PackageEntry.materialize` leaves a Git package as it is,
-with no fetch, clone or checkout, exactly when its directory below the manifest's packages
-directory exists and its `HEAD` is the pinned commit (`Lake/Load/Materialize.lean:237-264`). Each
-Git entry of `loaderEntries` whose checkout is not so is listed. The list can also name an entry
-that the loader never reaches, such as a stale entry of the manifest, so a refusal by it is
-conservative; `lake update` removes such an entry. With no manifest, the loader resolves every
+(`Lake/Load/Resolve.lean:611-622`). `Lake.PackageEntry.materialize` fetches and checks out
+no Git package whose checkout below the manifest's packages directory has a `.git` and whose `HEAD`
+is the pinned commit; it may still set the remote's URL (`Lake/Load/Materialize.lean:37-59`,
+`:275-281`). Each Git entry of `loaderEntries` whose checkout is not so is listed. The list can
+also name an entry that the loader never reaches, such as a stale entry of the manifest, so a
+refusal by it is conservative; `lake update` removes such an entry. With no manifest, the loader resolves every
 dependency anew (`Lake/Load/Workspace.lean:61-69`), so a root package that declares a dependency
 gives the entry `lake-manifest.json`. -/
 def unprovisioned (ws : _root_.Lake.Workspace) : IO (Array String) := do
@@ -166,7 +166,7 @@ def unprovisioned (ws : _root_.Lake.Workspace) : IO (Array String) := do
   for (_, entry) in loaderEntries manifest overrides do
     if let .git (rev := rev) .. := entry.src then
       let checkout : _root_.Lake.GitRepo := ⟨packages / entry.dirName⟩
-      unless (← checkout.dirExists) && (← checkout.getHeadRevision?) == some rev do
+      unless (← checkout.gitExists) && (← checkout.getHeadRevision?) == some rev do
         missing := missing.push entry.prettyName
   return missing
 

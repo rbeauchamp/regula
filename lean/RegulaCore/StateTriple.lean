@@ -7,12 +7,12 @@ The models of external systems (`Regula.Filesystem.Model`) give their operations
 such a triple, with a precondition and postconditions that are propositions about the state, as a
 statement about the run of the action from each state. The toolchain's `EStateM.run_bind` and
 `EStateM.run_pure` give the runs of `bind` and `pure`; `run_throw` and `run_tryCatch` give those of
-`throw` and `tryCatchThe`, which Lean 4.34.1 states for `throw` at `PUnit` only and for
+`throw` and `tryCatchThe`, which Lean 4.35.0 states for `throw` at `PUnit` only and for
 `tryCatchThe` not at all. Proofs about the code of a model's operations go through them.
 
-`Std.Do`'s tactic `mvcgen` would discharge these triples, but in Lean 4.34.1 it warns that it is
-experimental, and a claimed module keeps every default warning ([RG2003]); so the proofs reason
-about runs instead.
+`Std.Do`'s tactic `mvcgen` would discharge these triples, but in Lean 4.35.0 it warns that it is
+deprecated in favour of `vcgen`, which warns that it is experimental, and a claimed module keeps
+every default warning ([RG2003]); so the proofs reason about runs instead.
 
 ## `IO` run as a model
 

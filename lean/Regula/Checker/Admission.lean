@@ -698,12 +698,12 @@ def ownerIn (env : Environment) (m : Name) : Option Nat :=
 data of its header, its constant under each name and its attribution of each name.
 
 Assumes:
-- Lean v4.34.1, `src/lean/Lean/Environment.lean:155-160` and `179-183`: the index of a module in
+- Lean v4.35.0, `src/lean/Lean/Environment.lean:155-160` and `179-183`: the index of a module in
   `EnvironmentHeader.modules`, and so in `moduleNames`, is its `ModuleIdx`; `finalizeImport`
-  builds `moduleData` from the same array of modules (`2312-2316`) and records both in the header
-  (`2368-2370`), so `env.header.moduleData` holds at each index the data of the module
+  builds `moduleData` from the same array of modules (`2313-2317`) and records both in the header
+  (`2369-2371`), so `env.header.moduleData` holds at each index the data of the module
   `getModuleIdx?` gives that index.
-- Lean v4.34.1, `src/lean/Lean/Environment.lean:2332-2347` (`finalizeImport`): for each constant
+- Lean v4.35.0, `src/lean/Lean/Environment.lean:2333-2348` (`finalizeImport`): for each constant
   of each loaded module, in the order of the module indices, the import keeps under its name one
   of the copies it read (the first, replaced by a later one that `subsumesInfo` accepts over it),
   which `Environment.find?` returns, and attributes the name to the first module whose constants
@@ -863,11 +863,11 @@ declarations, as any trusted code may. It is not assumed of an owned module: `li
 references of every owned module in full, and `agrees_iff` takes this fact as a hypothesis.
 
 Assumes:
-- Lean v4.34.1, `src/lean/Lean/Environment.lean:2438-2449` (`importModules`) with `2177-2225`
+- Lean v4.35.0, `src/lean/Lean/Environment.lean:2439-2450` (`importModules`) with `2178-2226`
   (`importModulesCore.go`): the environment a module is elaborated in loads each module of its
   import closure, following the `imports` of each loaded module's data, and `finalizeImport` at
-  `2307-2362` holds exactly the constants of those modules' data (`2332-2343`).
-- Lean v4.34.1, `src/kernel/type_checker.cpp:101-102` (`infer_constant`) with
+  `2308-2363` holds exactly the constants of those modules' data (`2333-2344`).
+- Lean v4.35.0, `src/kernel/type_checker.cpp:101-102` (`infer_constant`) with
   `src/kernel/environment.cpp:78-83` (`get`), trusted: the kernel's check of a declaration looks
   up each constant its type and value use and refuses one the environment does not hold
   (`unknown_constant_exception`). The constructors of an inductive type, a constructor's own name
@@ -1392,20 +1392,20 @@ theorem reach_before_iff {modules : Array ModuleData} {inside : Nat → Bool}
 
 /-- The constants Lean's kernel can read in the check of a declaration although neither the
 declaration nor a constant the check read refers to them: the types and constructors that a
-literal stands for, the results of a reduced `Nat` comparison or native reduction, and the
-constants of the check of the quotient declaration.
+literal stands for, the results of a reduced `Nat` comparison, and the constants of the check of
+the quotient declaration.
 
 Assumes:
-- Lean v4.34.1, `src/kernel/inductive.cpp:1359-1402` (trusted): a `Nat` literal stands for
+- Lean v4.35.0, `src/kernel/inductive.cpp:1359-1402` (trusted): a `Nat` literal stands for
   `Nat.zero` or `Nat.succ`, and a `String` literal for `String.ofList` of `List.cons` and
   `List.nil` at `Char`, with `Char.ofNat`, which `src/kernel/inductive.h:95-97` and
-  `src/kernel/type_checker.cpp:421-422` and `1146-1147` build.
-- Lean v4.34.1, `src/kernel/type_checker.cpp:318-320` with `src/lean/Lean/Expr.lean:621-627`: the
+  `src/kernel/type_checker.cpp:421-422` and `1107-1108` build.
+- Lean v4.35.0, `src/kernel/type_checker.cpp:318-320` with `src/lean/Lean/Expr.lean:621-627`: the
   type of a literal is `Nat` or `String`.
-- Lean v4.34.1, `src/kernel/type_checker.cpp:624` and `699` with `src/library/util.cpp:708-709` and
-  `src/library/constants.cpp:147-150` (trusted): a reduced `Nat.beq` or `Nat.ble`, or a native
-  reduction of `Lean.reduceBool`, gives `Bool.true` or `Bool.false`.
-- Lean v4.34.1, `src/kernel/quot.cpp:41-113` (trusted): the check of the quotient declaration
+- Lean v4.35.0, `src/kernel/type_checker.cpp:669` with `src/library/util.cpp:708-709` and
+  `src/library/constants.cpp:147-150` (trusted): a reduced `Nat.beq` or `Nat.ble` gives `Bool.true`
+  or `Bool.false`. The kernel of Lean v4.35.0 reduces no constant by running compiled code.
+- Lean v4.35.0, `src/kernel/quot.cpp:41-113` (trusted): the check of the quotient declaration
   reads `Eq` and builds `Quot`, `Quot.mk`, `Quot.lift` and `Quot.ind`. -/
 def kernelNames : List Name :=
   [``Nat, ``Nat.zero, ``Nat.succ, ``String, ``String.ofList, ``Char, ``Char.ofNat, ``List.nil,
@@ -1558,17 +1558,20 @@ theorem reach_copiesNext_iff {find : Name → Option ConstantInfo} {attributed :
     | step hm _ ih => exact .step (mem_copiesNext.mpr hm) ih
 
 /-- The names that reach `Lean.reduceBool` or `Lean.reduceNat`, among the names that one search
-forward along `copiesNext` from `roots` meets: a search back from the two primitives along the
-references that search recorded (`predecessors`). The search forward reads the copies of each name
-it meets, and so the constants of each module that holds one (`copiesIndexes`). It meets a name
-that no module declares and follows no reference from it. `none` when a search runs out of
-`fuel`. -/
+forward along `copiesNext` from `roots` meets: a search back from the two names along the
+references that search recorded (`predecessors`). The two were the constants whose argument the
+kernel of Lean v4.34.1 reduced by running compiled code. Lean v4.35.0 has neither, and its kernel
+runs no compiled code, so a module can declare either name only as an ordinary constant; the
+search still finds the names that reach one, as it did at Lean v4.34.1. The search forward reads
+the copies of each name it meets, and so the constants of each module that holds one
+(`copiesIndexes`). It meets a name that no module declares and follows no reference from it.
+`none` when a search runs out of `fuel`. -/
 def nativeReaching (modules : Array ModuleData) (attributed : Name → Option Nat)
     (dups : Duplicates) (fuel : Nat) (roots : List Name) : Option (Std.HashSet Name) :=
   match searchEdges (copiesNext (copiesIndexes modules) attributed dups) fuel roots with
   | some (_, edges) =>
     let preds := predecessors edges
-    search (fun y => (preds.getD y []).toArray) fuel [``Lean.reduceBool, ``Lean.reduceNat]
+    search (fun y => (preds.getD y []).toArray) fuel [`Lean.reduceBool, `Lean.reduceNat]
   | none => none
 
 /-- Whether neither `n` nor a name of `above` is among the names that `native` gives as reaching
@@ -1594,7 +1597,7 @@ theorem nativeFree_iff {find : Name → Option ConstantInfo} {attributed : Name 
     nativeFree (nativeReaching modules attributed (duplicatesOf find attributed modules) fuel roots)
         above n = true ↔
       ∀ d, Leads modules d n →
-        ¬ (Leads modules d ``Lean.reduceBool ∨ Leads modules d ``Lean.reduceNat) := by
+        ¬ (Leads modules d `Lean.reduceBool ∨ Leads modules d `Lean.reduceNat) := by
   have start : ∀ s, s ∈ n :: above.toList ↔ Leads modules s n := fun s => by
     rw [← reachesIn_iff habove]
     simp only [reachesIn, List.mem_cons, Std.HashSet.mem_toList, Bool.or_eq_true, beq_iff_eq,
@@ -1616,9 +1619,9 @@ theorem nativeFree_iff {find : Name → Option ConstantInfo} {attributed : Name 
   simp only [search, Option.isSome_map] at forward
   obtain ⟨⟨seen, edges⟩, hforward⟩ := Option.isSome_iff_exists.mp forward
   obtain ⟨complete, -, -, edgeOK⟩ := searchEdges_some hforward
-  have backClosed : ∀ x ∈ ``Lean.reduceBool :: ``Lean.reduceNat :: declaredNames modules,
+  have backClosed : ∀ x ∈ `Lean.reduceBool :: `Lean.reduceNat :: declaredNames modules,
       ∀ y ∈ ((predecessors edges).getD x []).toArray,
-      y ∈ ``Lean.reduceBool :: ``Lean.reduceNat :: declaredNames modules := by
+      y ∈ `Lean.reduceBool :: `Lean.reduceNat :: declaredNames modules := by
     intro x _ y hy
     simp only [List.mem_toArray, mem_predecessors] at hy
     obtain ⟨e, he, rfl, hx⟩ := hy
@@ -1627,7 +1630,7 @@ theorem nativeFree_iff {find : Name → Option ConstantInfo} {attributed : Name 
     obtain ⟨j, hj⟩ := Array.mem_iff_getElem?.mp hdata
     exact List.mem_cons_of_mem _ (List.mem_cons_of_mem _ (mem_declaredNames ⟨data, hj, c, hc, hcn⟩))
   obtain ⟨reaching, hback⟩ := Option.isSome_iff_exists.mp
-    (search_isSome (fuel := fuel) (start := [``Lean.reduceBool, ``Lean.reduceNat])
+    (search_isSome (fuel := fuel) (start := [`Lean.reduceBool, `Lean.reduceNat])
       (fun s hs => by
         rcases List.mem_cons.mp hs with rfl | hs
         · exact List.mem_cons_self
@@ -1635,7 +1638,7 @@ theorem nativeFree_iff {find : Name → Option ConstantInfo} {attributed : Name 
       backClosed (by simp only [List.length_cons]; omega))
   obtain ⟨backComplete, backSound⟩ := search_some hback
   have mem : ∀ d ∈ seen,
-      d ∈ reaching ↔ Leads modules d ``Lean.reduceBool ∨ Leads modules d ``Lean.reduceNat := by
+      d ∈ reaching ↔ Leads modules d `Lean.reduceBool ∨ Leads modules d `Lean.reduceNat := by
     intro d hd
     have back : ∀ a, Reach (fun y => ((predecessors edges).getD y []).toArray) a d ↔
         Leads modules d a := fun _ =>
@@ -1890,16 +1893,16 @@ since `σ` replaces one prefix by another and no name of `B` is private to `dst`
   searches below read only types and values (`successorsOf`).
 * The kernel reads a constant's name only to look the constant up, to compare it with another
   constant's name or a fixed name of Lean's core (none of them private), to hash it for caches
-  keyed by equality, and to label diagnostics. It runs compiled code only to evaluate the constant
-  that `Lean.reduceBool` or `Lean.reduceNat` is applied to. Without that evaluation its check of a
+  keyed by equality, and to label diagnostics. It runs no compiled code: Lean v4.35.0 removed its
+  native reduction with the constants `Lean.reduceBool` and `Lean.reduceNat`. So its check of a
   declaration `d` in the first environment is, name for name under `τ`, its check of `τ d` in the
   second, with the same verdict.
 * A declaration that is not joined and is not a copy of `n` refers to no joined name, so `τ d` is
-  `d`. If it reaches `n`, it reaches neither primitive (`uniformUpToPrivate`), and no term of its
-  check contains one: the terms come from `d` and the constants it reaches, and the kernel builds
-  none with a primitive. If it does not reach `n`, both environments hold the same constant under
-  every name its check reads: those it reaches and those that `kernelNames` reach, none of which
-  reaches `n`.
+  `d`. If it reaches `n`, it reaches no constant named `Lean.reduceBool` or `Lean.reduceNat`
+  (`uniformUpToPrivate`), a condition kept from Lean v4.34.1, whose kernel ran compiled code for
+  the two, and the previous point gives its check the same verdict. If it does not reach `n`,
+  both environments hold the same constant under every name its check reads: those it reaches and
+  those that `kernelNames` reach, none of which reaches `n`.
 * A joined declaration reaches no `n`, and neither does a copy of `n`, since `n` lies on no cycle
   (`uniformUpToPrivate`). Both environments hold the same constant under every name its check
   reads.
@@ -1914,19 +1917,19 @@ not `identical` to the held constant has its proof checked by `checkProof`, whic
 held constant's axioms by the previous sentence.
 
 Assumes:
-- Lean v4.34.1, `src/lean/Lean/Meta/Match/MatchEqs.lean:143-155`: the splitter and the match
+- Lean v4.35.0, `src/lean/Lean/Meta/Match/MatchEqs.lean:143-155`: the splitter and the match
   equations of a `match` are realized under `mkPrivateName` of the module being elaborated, the
   name private to that module (`src/lean/Lean/Modifiers.lean:23-26`, with `privatePrefix` as
   `src/lean/Lean/PrivateName.lean:27-30` builds it), in each module that needs them
-  (`realizeConst`, `src/lean/Lean/Environment.lean:2709-2760`). This is why such copies arise; the
+  (`realizeConst`, `src/lean/Lean/Environment.lean:2710-2761`). This is why such copies arise; the
   decision does not rest on it.
-- Lean v4.34.1, `src/lean/Lean/Util/ReplaceExpr.lean:16-20` with `src/kernel/replace_fn.cpp:97-145`
+- Lean v4.35.0, `src/lean/Lean/Util/ReplaceExpr.lean:16-20` with `src/kernel/replace_fn.cpp:97-145`
   (trusted: the C++ is not modeled): `Expr.replace f e` returns `f`'s result for a subterm where
   `f` returns one, keeps a constant, sort, literal or variable where it returns none, and
   otherwise rebuilds the node from its children, keeping the structure name and index of a
   projection. So `renameExpr` renames exactly the constants private to `src`, and the names a
   renamed constant refers to are those of the original with `σ` applied.
-- Lean v4.34.1, `src/lean/Lean/Util/FoldConsts.lean:67-74` and `src/kernel` (trusted): the kernel's
+- Lean v4.35.0, `src/lean/Lean/Util/FoldConsts.lean:67-74` and `src/kernel` (trusted): the kernel's
   check of a declaration reads a constant only under a name that occurs in the declaration or in
   a constant it read (the names `ConstantInfo.getUsedConstantsAsSet` gives, `successorsOf`), under
   a name of `kernelNames`, or as the recursor of an inductive type it read, whose rules refer only
@@ -1937,29 +1940,26 @@ Assumes:
   is neither a theorem nor a definition: it is no copy of `n`, which `sameTheorem` admits only as
   a theorem, and no joined name, whose constant `renameConstant` renames only as a theorem or a
   safe definition and `identical` relates only to a constant of the same kind.
-- Lean v4.34.1, `src/lean/Lean/Declaration.lean:124-130` and `144-146` (trusted): the kernel does
+- Lean v4.35.0, `src/lean/Lean/Declaration.lean:124-130` and `144-146` (trusted): the kernel does
   not read the field `all` of a definition or a theorem: `src/kernel/declaration.h:104-146` gives
   `definition_val` and `theorem_val` no accessor of it, and `get_all` is read only for inductive
   types (`inductive.cpp:1100` and `1197`).
-- Lean v4.34.1, `src/kernel/type_checker.cpp:604-605` and `1343-1344` (trusted):
-  `Lean.reduceBool` and `Lean.reduceNat` are the only constants whose argument the kernel reduces
-  by running compiled code, `reduce_native` at `614-633`, which `whnf` calls at `759-769` after
-  unfolding nothing more than `whnf_core` does, and `is_def_eq_core` at `1101-1103`. It acts only on
-  an application of one of the two to a constant, and the kernel otherwise uses the two names only
-  in these comparisons, so it builds no term containing them.
-- Lean v4.34.1, `src/kernel` (trusted): `const_name` and `is_constant` with a name, the kernel's
+- Lean v4.35.0, `src/kernel/type_checker.cpp` (trusted): the kernel reduces no constant by running
+  compiled code. Lean v4.35.0 removed `reduce_native` with its calls in `whnf` and
+  `is_def_eq_core`, and the constants `Lean.reduceBool` and `Lean.reduceNat` from
+  `src/Init/Core.lean`, so a module can declare a constant of either name only as an ordinary one.
+- Lean v4.35.0, `src/kernel` (trusted): `const_name` and `is_constant` with a name, the kernel's
   access to the name of a constant, appear in `declaration.cpp:153`, `177-178` and `196-197`,
   `expr.cpp:351`, `expr.h:249-251` and `366-371`, `expr_eq_fn.cpp:83`, `inductive.cpp:55-57`,
   `91-118`, `147-157`, `315-317`, `414-416`, `922-966`, `1026-1072` and `1227`, `inductive.h:36`,
   `68`, `81-82` and `126-127`, `instantiate.cpp:238`, `quot.h:41-83` and
-  `type_checker.cpp:102-116`, `254-256`, `425-427`, `529-530`, `557-566`, `617-627`, `716`,
-  `891-892`, `1162-1164`, `1181-1182` and `1209`. Each looks the constant up, compares its name with
+  `type_checker.cpp:102-116`, `254-256`, `425-427`, `529-530`, `557-566`, `686`, `858-859`,
+  `1123-1125`, `1142-1143` and `1170`. Each looks the constant up, compares its name with
   another constant's name or a fixed name of Lean's core, rebuilds the constant with other
-  universe levels, or prints the name, with two exceptions. `reduce_native` at `614-633` runs the
-  compiled code of the constant that `Lean.reduceBool` or `Lean.reduceNat` is applied to.
-  `inductive.cpp:924` and `966` derive the names of the auxiliary types of a nested inductive
-  declaration from names of inductive types, which are neither theorems nor definitions, and
-  `1227` tests a name against the reserved prefix `_nested`, which no private name has. -/
+  universe levels, or prints the name, with one exception: `inductive.cpp:924` and `966` derive
+  the names of the auxiliary types of a nested inductive declaration from names of inductive
+  types, which are neither theorems nor definitions, and `1227` tests a name against the reserved
+  prefix `_nested`, which no private name has. -/
 def renamedCopy (links : Links) (src dst n : Name) (fixed alone : Name → Bool)
     (srcFind dstFind : Name → Option ConstantInfo) (above : Std.HashSet Name)
     (c r : ConstantInfo) : Bool :=
@@ -2315,7 +2315,7 @@ def UniformUpToPrivate (modules : Array ModuleData) (names : Array Name)
     (attributed : Name → Option Nat) (fixed : Name → Prop) (n : Name) : Prop :=
   ¬ (∃ m, Refers modules m n ∧ Leads modules n m) ∧
     (∀ d, Leads modules d n →
-      ¬ ((Leads modules d ``Lean.reduceBool ∨ Leads modules d ``Lean.reduceNat) ∨
+      ¬ ((Leads modules d `Lean.reduceBool ∨ Leads modules d `Lean.reduceNat) ∨
         d ∈ kernelNames)) ∧
     UniformBy modules names attributed (fun j data src dst index c r =>
       RenamedCopy modules src dst n fixed (Alone modules attributed j) ((constantsByName data)[·]?)
@@ -2597,12 +2597,11 @@ theorem fixedIn_iff {roles : Std.HashSet Name} {find : Name → Option ConstantI
 
 /-! ### Witnesses of the exclusions
 
-A claimed constant that reaches `Lean.reduceBool` also reaches the axiom `Lean.trustCompiler`,
-which no claim admits, and Lean refuses a second declaration of a name of `kernelNames` in a
-module that imports `Init`, so these witnesses run `agrees` on module data written here, not on
-modules Lean built. `W.Dst` and `W.Src` import `W.Base`, and each declares a private `flag` and a
-copy of `W.lemma` whose proof applies a function of `W.Base` to that `flag`, so the two copies
-differ only in the private name. `W.Use` imports `W.Src` and is not owned, so it is in the region
+Lean v4.35.0 declares no `Lean.reduceBool`, and Lean refuses a second declaration of a name of
+`kernelNames` in a module that imports `Init`, so these witnesses run `agrees` on module data
+written here, not on modules Lean built. `W.Dst` and `W.Src` import `W.Base`, and each declares
+a private `flag` and a copy of `W.lemma` whose proof applies a function of `W.Base` to that
+`flag`, so the two copies differ only in the private name. `W.Use` imports `W.Src` and is not owned, so it is in the region
 of the owned modules (`regionOf`), and `W.Base` is not. No witness module declares
 `Lean.reduceBool`, `Bool` or `W.prove`: the forward search of `nativeReaching` meets such a name,
 which is how it meets `Lean.reduceBool`, and follows no reference from it, since it has no copy.
@@ -2640,7 +2639,7 @@ private def witnessAgrees (apply : Name) (extra : Array ConstantInfo)
     witnessTheorem `W.lemma (proof m)]
   let base := #[
     witnessDefinition `W.rb false
-      (.lam `b (.const ``Bool []) (.app (.const ``Lean.reduceBool []) (.bvar 0)) .default),
+      (.lam `b (.const ``Bool []) (.app (.const `Lean.reduceBool []) (.bvar 0)) .default),
     witnessDefinition `W.keep false (.lam `b (.const ``Bool []) (.bvar 0) .default)]
   let modules := #[witnessModule #[] base, witnessModule #[`W.Base] (copy `W.Dst),
     witnessModule #[`W.Base] (copy `W.Src ++ extra), witnessModule #[`W.Src] importer]
@@ -2755,13 +2754,13 @@ constant of the kernel to match. A fresh replay of the module would not check it
 changes nothing for it, and it keeps the boundary admission states for such helpers.
 
 Assumes:
-- Lean v4.34.1, `src/lean/Lean/Environment.lean:2332-2347` (`finalizeImport`): the import, of the
+- Lean v4.35.0, `src/lean/Lean/Environment.lean:2333-2348` (`finalizeImport`): the import, of the
   audited environment and of the replay base alike, keeps under each name one of the copies it
   read, so a constant held under a name is one of the loaded copies.
-- Lean v4.34.1, `src/lean/Lean/Expr.lean:804-812`: `Expr.eqv`, Lean's `==` on expressions, is
+- Lean v4.35.0, `src/lean/Lean/Expr.lean:804-812`: `Expr.eqv`, Lean's `==` on expressions, is
   alpha-equivalence with binder annotations ignored, an equivalence relation, so `Identical` is
   symmetric and transitive. Trusted: the C++ `lean_expr_eqv` is not modeled.
-- Lean v4.34.1, `src/kernel/expr_eq_fn.cpp:98-110` (trusted: the C++ is not modeled): the
+- Lean v4.35.0, `src/kernel/expr_eq_fn.cpp:98-110` (trusted: the C++ is not modeled): the
   kernel's structural equality `expr_eq_fn<false>` ignores exactly the binder names and binder
   annotations of lambdas and foralls and the names of lets, and compares every other part (mdata,
   projections, constant names and universe levels at `81-84`, literals, bound variables, the
@@ -2770,13 +2769,13 @@ Assumes:
   `src/lean/Lean/Expr.lean:488`, `497` and `506`, the hash of a binder or a let mixes only its
   subterms, so the hash test at `expr_eq_fn.cpp:46` does not separate alpha-equivalent
   expressions.
-- Lean v4.34.1, `src/kernel/type_checker.h:26-42` with `src/kernel/expr_maps.h:15` and
+- Lean v4.35.0, `src/kernel/type_checker.h:26-42` with `src/kernel/expr_maps.h:15` and
   `src/kernel/expr.h:164-165` (trusted): the type checker's infer, whnf, unfold and
   definitional-equality caches are keyed by that `==`, so within one check the kernel already
   answers for an expression with the result it computed for any `Expr.eqv`-equal one.
-- Lean v4.34.1, `src/kernel/type_checker.cpp:135`, `153`, `223`, `803`, `1261` and `1269`
+- Lean v4.35.0, `src/kernel/type_checker.cpp:135`, `153`, `223`, `770`, `1222` and `1230`
   (trusted): binder names and annotations are read only to label a local declaration whose
-  identity is a fresh name from `m_ngen`; `879` copies them into an eta-expanded lambda, and `219`
+  identity is a fresh name from `m_ngen`; `846` copies them into an eta-expanded lambda, and `219`
   uses a let name only in an error message. `src/kernel/local_ctx.cpp:104-113` and
   `src/kernel/inductive.cpp:227`, `707`, `934`, `1142` and `1167` copy them only into the binders,
   parameters and records they build. Outside `expr_eq_fn`, no file of `src/kernel` compares binder
@@ -2784,12 +2783,12 @@ Assumes:
   miss more often. So no kernel decision branches on what `Expr.eqv` ignores: the kernel's check of
   a declaration, and of every declaration that consults it, gives the same verdict for two
   `Identical` constants, the boundary `checkOwn` already rests on.
-- Lean v4.34.1, `src/lean/Lean/Replay.lean:120-128` and `148-163`: replay adds an inductive type
+- Lean v4.35.0, `src/lean/Lean/Replay.lean:120-128` and `148-163`: replay adds an inductive type
   through the kernel, which generates its constructors and recursors, and accepts the stored
   record of each when the derived `==`, which compares expressions with `Expr.eqv`, equates it
   with the generated one (`152`, `163`). So for a constructor or a recursor the kernel may hold a
   regenerated record that is `Identical` to the stored copy.
-- Lean v4.34.1, `src/lean/Lean/Replay.lean:176-189` (trusted, as for every replay):
+- Lean v4.35.0, `src/lean/Lean/Replay.lean:176-189` (trusted, as for every replay):
   `Kernel.Environment.replay` checks each constant it adds, and it adds only the constants that
   are neither `unsafe` nor `partial` (`180-183`), replaying a dependency only when it is one of
   them (`replayConstant`, `74-77`). -/
@@ -3678,7 +3677,7 @@ copy `Environment.find?` returns (the last one loaded, `Lean.finalizeImport`), w
 and value reports read, so on these names the replayed kernel holds the audited environment's
 constants, except that for a constructor or a recursor it holds the record it regenerates from the
 inductive type, which replay accepts only when it is `Identical` to the stored one
-(`src/lean/Lean/Replay.lean:148-163` in Lean v4.34.1). -/
+(`src/lean/Lean/Replay.lean:148-163` in Lean v4.35.0). -/
 def replayMap (base kept : Name → Option ConstantInfo) (copies : Array Copy) :
     Std.HashMap Name ConstantInfo :=
   copies.foldl (init := {}) fun replay copy =>

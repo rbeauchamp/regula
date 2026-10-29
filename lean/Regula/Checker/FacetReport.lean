@@ -76,15 +76,15 @@ Lake's own environment importer, attribute inventory and evaluator. The file's t
 An unreadable or unevaluable configuration fails the observation.
 
 Assumes:
-- Lake v4.34.1 stores the loaded configuration at `LoadConfig.configDir` with its configuration
+- Lake v4.35.0 stores the loaded configuration at `LoadConfig.configDir` with its configuration
   file name and `.olean` extension (`Lake/Load/Lean/Elab.lean:180-187`).
-- Lake v4.34.1 imports that file with `importConfigFileCore`, including imported and local
+- Lake v4.35.0 imports that file with `importConfigFileCore`, including imported and local
   library-facet entries (`Lake/Load/Lean/Elab.lean:103-159`).
-- Lake v4.34.1 evaluates every `libraryFacetAttr.getAllEntries` entry with `evalConstCheck` as
+- Lake v4.35.0 evaluates every `libraryFacetAttr.getAllEntries` entry with `evalConstCheck` as
   `LibraryFacetDecl` (`Lake/Load/Lean/Eval.lean:181-192`).
-- Lake v4.34.1 loads no facet declaration from TOML (`Lake/Load/Toml.lean:483-502` and
+- Lake v4.35.0 loads no facet declaration from TOML (`Lake/Load/Toml.lean:483-502` and
   `Lake/Config/LakefileConfig.lean:28`).
-- Lake v4.34.1 selects the language from `relConfigFile`, not the resolved `configFile`
+- Lake v4.35.0 selects the language from `relConfigFile`, not the resolved `configFile`
   (`Lake/Load/Package.lean:100`), under `LakeConfig.language`'s assumptions.
 - The loaded files and package directories stay unchanged during this read: trusted filesystem
   and process boundary; this observer does not lock out other processes.
@@ -109,7 +109,7 @@ def packageDeclarations (ws : _root_.Lake.Workspace) (regulaPackages : Array Nam
 contributes each entry, including entries imported by its configuration.
 
 Assumes:
-- Lake v4.34.1 inserts the root's facets first (`Lake/Load/Workspace.lean:36-39`), then each
+- Lake v4.35.0 inserts the root's facets first (`Lake/Load/Workspace.lean:36-39`), then each
   dependency's (`Lake/Load/Resolve.lean:69-74`); insertion overwrites the same facet key
   (`Lake/Config/FacetConfig.lean:43-45`).
 - Each package's compiled configuration has the entries read by `packageDeclarations`, under

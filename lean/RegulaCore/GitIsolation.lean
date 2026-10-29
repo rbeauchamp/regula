@@ -23,7 +23,7 @@ open Regula.Filesystem.Construction
 /-- The value of `name` after the changes `changes`, applied left to right to `initial`: a change
 of `name` replaces the value, `none` removes it.
 
-Assumes: Lean v4.34.1 `Init/System/IO.lean:1441-1450` describes a child's environment as the
+Assumes: Lean v4.35.0 `Init/System/IO.lean:1441-1450` describes a child's environment as the
 parent's with `env` applied left to right, and `runtime/process.cpp:461-469` applies each entry
 with `setenv` or `unsetenv` in that order between `fork` and `execvp`; each update succeeds for an
 admitted name. -/

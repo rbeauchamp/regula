@@ -101,7 +101,7 @@ def sysroot (base : FilePath) : IO (String × Bool) := do
 
 /-- The control of `CompilerObservation.printedSysroot` for a program that starts and fails, and
 whether it fails with the error that `IO.Process.run` gives for that run, as `Lean.findSysroot`
-does (`Lean/Util/Path.lean:180-187` of Lean v4.34.1). The program is the `lake` of the toolchain
+does (`Lean/Util/Path.lean:180-187` of Lean v4.35.0). The program is the `lake` of the toolchain
 that elaborates this module, by its absolute path, which refuses the option `--print-prefix`. The
 control first runs it with that option itself. It is incomplete, so it fails, unless that run exits
 with a status other than 0 and its error output holds Lake's own refusal of the option. Lean's
@@ -110,10 +110,10 @@ the status alone does not show that Lake ran. The read must then fail with the t
 `IO.Process.run` gives for that status and error output (`Init/System/IO.lean:1567-1573`), which
 holds Lake's refusal, so the read's own run started too.
 
-Assumes: Lake v4.34.1 refuses an unknown long option by throwing
-`CliError.unknownLongOption` (`Lake/CLI/Main.lean:386`), whose text is
+Assumes: Lake v4.35.0 refuses an unknown long option by throwing
+`CliError.unknownLongOption` (`Lake/CLI/Main.lean:431`), whose text is
 ``unknown long option '<option>'`` (`Lake/CLI/Error.lean:66`), and prints that text as an error
-and exits with a status other than 0 (`Lake/CLI/Main.lean:154-158`). -/
+and exits with a status other than 0 (`Lake/CLI/Main.lean:172-176`). -/
 def failedSysroot : IO (String × Bool) := do
   let name := "Regula.CompilerObservation.printedSysroot of a program that fails"
   let lake := ((← Lean.getBuildDir) / "bin" / "lake").withExtension

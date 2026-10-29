@@ -125,7 +125,7 @@ A `plugins` entry of the package also loads the plugin into each of its targets.
 `needs` setting for a package, so each target lists the key in its own `needs`.
 
 [RG2006] requires the two entries. The `needs` entry makes Lake build the plugin before the modules
-of the target fetch it. Without it, a fresh build with Lake v4.34.1 can start several builds of the
+of the target fetch it. Without it, a fresh build with Lake v4.35.0 can start several builds of the
 plugin at the same time. They write the same files, so the build can fail with a corrupted file.
 
 Lake also puts the trace of the `needs` into the trace of each module, whatever the target's
@@ -135,10 +135,10 @@ the module's trace.
 
 Lake fetches a module's plugins on a worker thread, and its record of started jobs is a read and
 then a write
-([`Fetch.lean`](https://github.com/leanprover/lean4/blob/v4.34.1/src/lake/Lake/Build/Target/Fetch.lean#L54-L66),
-[`Store.lean`](https://github.com/leanprover/lean4/blob/v4.34.1/src/lake/Lake/Util/Store.lean#L47-L55)).
+([`Fetch.lean`](https://github.com/leanprover/lean4/blob/v4.35.0/src/lake/Lake/Build/Target/Fetch.lean#L54-L66),
+[`Store.lean`](https://github.com/leanprover/lean4/blob/v4.35.0/src/lake/Lake/Util/Store.lean#L47-L55)).
 It builds the target's `needs` before that fetch
-([`Module.lean`](https://github.com/leanprover/lean4/blob/v4.34.1/src/lake/Lake/Build/Module.lean#L546-L557),
+([`Module.lean`](https://github.com/leanprover/lean4/blob/v4.35.0/src/lake/Lake/Build/Module.lean#L558-L569),
 [Lean issue 13598](https://github.com/leanprover/lean4/issues/13598)), so the fetch finds the plugin
 built.
 
@@ -363,7 +363,7 @@ neither an `IO` type nor recursion determines it. Compiler-trusting axioms (from
 Regula calculates this set from the declarations that Lean's kernel replayed. The set can be larger
 than the set that `#print axioms` shows. For an imported declaration, `#print axioms` reads the
 axiom table that Lean wrote for its module, and that table can omit axioms. For example, Lean
-4.34.1 writes no axiom for `Float`, but the constructor of `Float` reaches `propext` and
+4.35.0 writes no axiom for `Float`, but the constructor of `Float` reaches `propext` and
 `Quot.sound`. The audit reports each declaration for which the table omits an axiom, and it does
 not fail it for that.
 
@@ -373,7 +373,7 @@ not fail it for that.
 | Mode | Meaning |
 | --- | --- |
 | `report` (default) | Every execution boundary reached from an owned executable root is reported with its kind and correspondence state; trusted boundaries are recorded, not failed. |
-| `checked` | Additionally fails on any trusted boundary your project or a dependency owns: an unproved `implemented_by` replacement, a `csimp` equality whose proof is not admitted, an `extern`, unsafe or partial code, a constant with an initializer, or a compiler-trusting proof. A constant and the `partial` implementation Lean runs for it (a constant of `partial` definition safety) are one finding and one counted boundary, not two: a recursor that Mathlib's `compile_inductive%` compiled, or a dependency's `partial def`, is reported once per root, in a finding that also names that implementation (`…, with its implementation …`), the recursor's generated one or the `partial def`'s `_unsafe_rec` helper. A `partial def` that an `implemented_by` replacement or a `csimp` equality names as its target is not such an implementation: it keeps its own finding, which names its helper, and its own count, beside the replacement's or equality's. A later record of one trusted boundary in a root (the same constant, kind, replacement and toolchain origin, as two constants of one `csimp` equality's type give) is reported and counted with the first. The Lean toolchain's own replacements, externs, unsafe and partial code, and constants with initializers (in `Init`, `Std`, `Lean` and `Lake`, checked by where Lean loaded the module from, not by its name) are its trusted base: they pass, and the default output gives only their count; `--verbose` and `--json-out` list each once for the whole audit, with the environments and roots that reach it. The account covers the code your roots reference; code a program loads or evaluates by name at runtime (for example with `Lean.Environment.evalConst` or a spawned process) is outside it. |
+| `checked` | Additionally fails on any trusted boundary your project or a dependency owns: an unproved `implemented_by` replacement, a `csimp` equality whose proof is not admitted, an `extern`, unsafe or partial code, a constant with an initializer, or a compiler-trusting proof. A constant and the `partial` implementation Lean runs for it (a constant of `partial` definition safety) are one finding and one counted boundary, not two: a recursor that Mathlib's `compile_inductive%` compiled, or a dependency's `partial def`, is reported once per root, in a finding that also names that implementation (`…, with its implementation …`), the recursor's generated one or the `partial def`'s `_unsafe_rec` helper. A `partial def` that an `implemented_by` replacement or a `csimp` equality names as its target is not such an implementation: it keeps its own finding, which names its helper, and its own count, beside the replacement's or equality's. A later record of one trusted boundary in a root (the same constant, kind, replacement and toolchain origin, as two constants of one `csimp` equality's type give) is reported and counted with the first. The Lean toolchain's own replacements, externs, unsafe and partial code, and constants with initializers (in `Init`, `Std`, `Lean`, `Lake` and `LeanExport`, checked by where Lean loaded the module from, not by its name) are its trusted base: they pass, and the default output gives only their count; `--verbose` and `--json-out` list each once for the whole audit, with the environments and roots that reach it. The account covers the code your roots reference; code a program loads or evaluates by name at runtime (for example with `Lean.Environment.evalConst` or a spawned process) is outside it. |
 
 In both modes an unresolved path blocks the execution claim. Native arithmetic, the Lean runtime
 and the toolchain's own library code remain trusted in every mode; the checker verifies Lean
@@ -613,7 +613,7 @@ regula explain RG1005`), from the same list the checker runs:
 > `lake lint` groups a declaration Lean generated under the one it came from if it is a constructor; projection; recursor such as `casesOn`; equation lemma; reserved name such as `f.induct`; matcher; fixpoint helper; structural helper; auxiliary declaration such as `f._proof_1`; constructor lemma; type construction; field default; recursion helper `f._unsafe_rec`. Other declarations keep their own location. Fix the one reported or a definition it uses that adds the axiom.
 
 Each family is named by an example, not by every member; the
-[enumeration of the declarations Lean v4.34.0 generates](proofs-and-boundaries.md#generated-declaration-families)
+[enumeration of the declarations Lean v4.35.0 generates](proofs-and-boundaries.md#generated-declaration-families)
 lists them all, with the family that covers each or why it keeps its own location. So
 `Channel.mk.injEq`, generated from the constructor `Channel.mk`, is reported at the structure
 `Channel`. The [RG1005] findings under one declaration at one location print as one block, which

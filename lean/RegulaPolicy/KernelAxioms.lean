@@ -1266,11 +1266,11 @@ is how the search meets a name that `env` holds as an axiom although it was decl
 the module system exported it without its body, and only the table of the module that holds the
 body records what the body uses.
 
-Assumes: in a module, Lean 4.34.1 exports a theorem, and a definition or an opaque constant whose
+Assumes: in a module, Lean 4.35.0 exports a theorem, and a definition or an opaque constant whose
 body is not exposed, as an axiom (`Lean/AddDecl.lean:112-125`); it records the declared kind of
 each such name (`Lean/AddDecl.lean:146-148`), which `getOriginalConstKind?` reads
 (`Lean/OriginalConstKind.lean:25-29`), and an importer that does not `import all` the module loads
-its exported constants (`Lean/Environment.lean:2029-2033`). The record is the table that module
+its exported constants (`Lean/Environment.lean:2030-2034`). The record is the table that module
 computed when it was compiled (`Lean/Util/CollectAxioms.lean:120-143`), a trusted input: the
 importer has no body to search. -/
 def hiddenAxioms (env : Environment) (name : Name) : Option (Array Name) :=

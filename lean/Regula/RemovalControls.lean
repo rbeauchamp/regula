@@ -52,10 +52,10 @@ Assumes, for the control of `NAME_MAX`: POSIX.1-2024: `mkdir()` fails with `ENAM
 component of its path is longer than `NAME_MAX`
 (https://pubs.opengroup.org/onlinepubs/9799919799/functions/mkdir.html), whatever the privileges
 of the process, and `getconf NAME_MAX DIR` gives that limit for the file system of `DIR`
-(https://pubs.opengroup.org/onlinepubs/9799919799/utilities/getconf.html). Lean 4.34.1 maps
+(https://pubs.opengroup.org/onlinepubs/9799919799/utilities/getconf.html). Lean 4.35.0 maps
 `ENAMETOOLONG` to libuv's `UV_ENAMETOOLONG` and gives it as `IO.Error.invalidArgument` with the
 path and libuv's message for that code (`src/runtime/io.cpp:195, 256-274`). libuv 1.52.1, which
-Lean 4.34.1 links (`lib/libuv.a`), gives the message `name too long` for `UV_ENAMETOOLONG` and for
+Lean 4.35.0 links (`lib/libuv.a`), gives the message `name too long` for `UV_ENAMETOOLONG` and for
 no other code (`UV_ERRNO_MAP` in `include/uv.h`,
 https://github.com/libuv/libuv/blob/v1.52.1/include/uv.h).
 

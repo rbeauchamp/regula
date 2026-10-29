@@ -33,11 +33,11 @@ directory, the saved state of each delayed mode of pages and the word count, in 
 The match on `OutputConfig` names each of its fields, and the match on `EmitHtml` each of its
 constructors, so a revision of Verso that adds one fails the build of this module.
 
-Assumes: Verso `cad4b633`, `src/verso-manual/VersoManual.lean`: a render writes below its output
-directory (TeX at 426, single-page HTML at 748, multi-page HTML at 840), `.delay f` writes its saved
-state to `f` (1078, through `SavedState.save`, 954-955), and the word count is written to its file
-(1053-1056, through `wordCount`, 728). A render, a resumed one too, also writes the cache files of
-its remote configuration: both emitters call `updateRemotes` (750, 839), which writes them
+Assumes: Verso `304b8561`, `src/verso-manual/VersoManual.lean`: a render writes below its output
+directory (TeX at 428, single-page HTML at 751, multi-page HTML at 843), `.delay f` writes its saved
+state to `f` (1081, through `SavedState.save`, 957-958), and the word count is written to its file
+(1056-1059, through `wordCount`, 731). A render, a resumed one too, also writes the cache files of
+its remote configuration: both emitters call `updateRemotes` (753, 842), which writes them
 (`src/multi-verso/MultiVerso.lean`, 670 and 673). This inventory excludes them, since a refused run
 starts no Verso and so writes none of them. -/
 def destinations (config : RenderConfig) : List FilePath :=
@@ -114,8 +114,8 @@ Verso's own parser (`versoOptions`) and moves the destinations of that reading a
 the options, it prints why and moves nothing: a run with those options writes nothing either, since
 `manualMain` parses them before it writes anything.
 
-Assumes: Verso `cad4b633`, `src/verso-manual/VersoManual.lean`: `manualMain` parses its options with
-`opts` (1043) before it writes anything. -/
+Assumes: Verso `304b8561`, `src/verso-manual/VersoManual.lean`: `manualMain` parses its options with
+`opts` (1046) before it writes anything. -/
 def refuse (program : String) (config : RenderConfig) (args : List String) : IO UInt32 := do
   match ← (versoOptions config args).toBaseIO with
   | .error error =>

@@ -684,7 +684,7 @@ directory to readdir, with an error other than ENOENT. Linux v6.8 ext4 returns a
 (`fs/ext4/dir.c:199-204`) but skips a block that fails its checksum or holds a malformed entry with
 only a kernel log message (`:216-224`, `:258-266`). No concurrent writer changes the source or
 destination during an observation. -/
-@[regula_assumption filesystem (lean "v4.34.1" "Init/System/IO.lean#L1544-L1557")
+@[regula_assumption filesystem (lean "v4.35.0" "Init/System/IO.lean#L1544-L1557")
   (document filesystem "GNU coreutils v9.0 to v9.12 src/ls.c print_dir (v9.0 lines 3008-3068, \
     v9.12 lines 3024-3077), file_failure and the ZERO_OPTION case: ls --zero, and a readdir \
     error other than ENOENT gives a nonzero exit status; v9.5 src/ls.c:3064-3066 clears ENOENT")
@@ -708,9 +708,9 @@ def ReadsNames (C : CopyModel) : Prop :=
 /-- Reading bytes changes no filesystem state. File-content fidelity is a trusted
 IO boundary; the construction theorem describes entry kinds and locations.
 
-Assumes: Lean v4.34.1 `Init/System/IO.lean:1211-1221` readBinFile only observes the source;
+Assumes: Lean v4.35.0 `Init/System/IO.lean:1211-1221` readBinFile only observes the source;
 no concurrent writer changes the source. -/
-@[regula_assumption filesystem (lean "v4.34.1" "Init/System/IO.lean#L1211-L1221")
+@[regula_assumption filesystem (lean "v4.35.0" "Init/System/IO.lean#L1211-L1221")
   (trusted "reading bytes preserves the modeled filesystem state")]
 def ReadsBytes (C : CopyModel) : Prop :=
   ∀ path before, Satisfies ((C.ops.bytes path).run before)
@@ -719,11 +719,11 @@ def ReadsBytes (C : CopyModel) : Prop :=
 /-- Exclusive mkdir creates an empty root at an absent destination, or adds one empty child
 directory to an existing exact tree. The frame includes every other tree entry.
 
-Assumes: Lean v4.34.1 `Init/System/IO.lean:900`, `runtime/io.cpp:1181-1195`, POSIX mkdir create
+Assumes: Lean v4.35.0 `Init/System/IO.lean:900`, `runtime/io.cpp:1181-1195`, POSIX mkdir create
 only that directory and fail when the exact destination is occupied. No concurrent writer changes
 an ancestor or adds another entry during construction. -/
-@[regula_assumption filesystem (lean "v4.34.1" "Init/System/IO.lean#L894-L900")
-  (lean "v4.34.1" "runtime/io.cpp#L1181-L1195")
+@[regula_assumption filesystem (lean "v4.35.0" "Init/System/IO.lean#L894-L900")
+  (lean "v4.35.0" "runtime/io.cpp#L1181-L1195")
   (document filesystem "POSIX.1-2024, mkdir(): exclusive directory creation")]
 def CreatesDirectories (C : CopyModel) : Prop :=
   (∀ root before, C.filesystem.entry before root = none →
@@ -738,11 +738,11 @@ def CreatesDirectories (C : CopyModel) : Prop :=
 /-- Exclusive file creation adds exactly one regular entry to the constructed tree. Opening
 writeNew fails on every existing final entry, including a directory, FIFO and dangling link.
 
-Assumes: Lean v4.34.1 `Init/System/IO.lean:651-660`, `runtime/io.cpp:409` use O_EXCL. Writes,
+Assumes: Lean v4.35.0 `Init/System/IO.lean:651-660`, `runtime/io.cpp:409` use O_EXCL. Writes,
 flush and chmod act only on the created regular file; the destination has no concurrent writer.
 This theorem does not establish permission or byte preservation. -/
-@[regula_assumption filesystem (lean "v4.34.1" "Init/System/IO.lean#L651-L660")
-  (lean "v4.34.1" "runtime/io.cpp#L409")
+@[regula_assumption filesystem (lean "v4.35.0" "Init/System/IO.lean#L651-L660")
+  (lean "v4.35.0" "runtime/io.cpp#L409")
   (document filesystem "POSIX.1-2024, open(): O_CREAT and O_EXCL never follow a final link")]
 def CreatesFiles (C : CopyModel) : Prop :=
   ∀ root done relative bytes rights before, Relative relative → relative ≠ [] →

@@ -124,7 +124,7 @@ resolves, updates and materializes no dependency and writes no manifest; it writ
 destination and no audited artifact, and the writes of that load are the assumption of `Observed`.
 That workspace (`repoRoot`, which builds the worker and is the audited project) is the
 dispatching one when its root library directory ends the dispatching part of the `LEAN_PATH` the
-driver received: Lake v4.34.1 runs the driver without changing its working directory, so
+driver received: Lake v4.35.0 runs the driver without changing its working directory, so
 `lake -d DIR lint` from another project would otherwise build and audit that project.
 `Package.lint` spawns it through `env` with `Workspace.augmentedEnvVars`: `LEAN_PATH` is the
 dispatching workspace's `leanPath`, then the library directory of the toolchain-collocated Lake

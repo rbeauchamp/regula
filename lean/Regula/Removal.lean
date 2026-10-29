@@ -158,7 +158,7 @@ caller (`@[inline]`), where the check reads the mode of its opening (`opensToWri
 def writePrimitives : List Name :=
   [``IO.FS.writeFile, ``IO.FS.writeBinFile, ``IO.FS.createDirAll, ``IO.FS.withFile]
 
-/-- The C functions of the Lean 4.34.1 runtime that write a file or make an entry, by a search of
+/-- The C functions of the Lean 4.35.0 runtime that write a file or make an entry, by a search of
 the `extern` declarations of its library (`src/lean`) for the functions of the filesystem: the
 opening of a file (`IO.FS.Handle.mk`), the truncation of an open file (`IO.FS.Handle.truncate`), the
 making of a directory (`IO.FS.createDir`) and of a hard link (`IO.FS.hardLink`), and the writes of
@@ -177,7 +177,7 @@ gives (`IO.FS.Handle.mk`). Only the mode `IO.FS.Mode.read`, the number 0, opens 
 writing. -/
 def openSymbol : String := "lean_io_prim_handle_mk"
 
-/-- The C functions of the Lean 4.34.1 runtime that remove or replace an entry, by a search of its
+/-- The C functions of the Lean 4.35.0 runtime that remove or replace an entry, by a search of its
 sources (`src/runtime`, `src/library`) for `unlink`, `rmdir`, `rename` and `remove`. They are the
 functions that `IO.FS.removeFile`, `IO.FS.removeDir` and `IO.FS.rename` are bound to
 (`Init/System/IO.lean`), and the one that `Lean.CompactedRegion.save` is bound to, which writes a
@@ -248,12 +248,12 @@ def altCalls : Alt → Calls
   | .ctor _ rest | .default rest => bodyCalls rest
 end
 
-/-- The binding of `IO.FS.Handle.mk` whose C call the check has read, as Lean 4.34.1 declares it
+/-- The binding of `IO.FS.Handle.mk` whose C call the check has read, as Lean 4.35.0 declares it
 (`Init/System/IO.lean:795`): one standard entry for every backend, which calls `openSymbol` with
 the arguments of the declaration in order. -/
 def readableOpen : ExternAttrData := { entries := [.standard `all openSymbol] }
 
-/-- The compiled parameters of that binding in Lean 4.34.1: the path, borrowed, the mode as one
+/-- The compiled parameters of that binding in Lean 4.35.0: the path, borrowed, the mode as one
 byte, and the world, which the C function does not take. -/
 def readableOpenParams : Array IRType := #[.object, .uint8, .void]
 
@@ -397,7 +397,7 @@ def auxiliarySource (env : Environment) (name : Name) : Option Name :=
   if shareable env name then some (sourceDeclaration env name) else none
 
 /-- The calls of a removal primitive in Lean's library that a program of the package reaches, each
-with the declaration that makes it, for Lean 4.34.1. The check admits each of them without
+with the declaration that makes it, for Lean 4.35.0. The check admits each of them without
 establishing what it removes.
 
 Lake's entries are trusted exemptions. Lake makes these removals and moves itself when a program
@@ -428,20 +428,18 @@ refuses an entry already at its place (`RegulaProvision.installLink_refused`).
   the reason above: in a build, they remove stale artifacts, their `.hash` files and no-build
   traces, and a downloaded archive before it is fetched again and unpacked into a package's build
   directory (`Lake/Util/IO.lean:23`, `Lake/Build/Common.lean:313-326`,
-  `Lake/Build/Package.lean:140-150`, `Lake/Build/Actions.lean:178`, `Lake/Config/Cache.lean:558`).
+  `Lake/Build/Package.lean:167-177`, `Lake/Build/Actions.lean:178`, `Lake/Config/Cache.lean:558`).
   Regula's builds turn off Lake's artifact cache
   (`Regula.Checker.Workspace.uncachedWorkspace_unreadable`, `uncachedWorkspace_unwritable`), not
   the fetch of a release archive.
-- `Lake.updateGitRepo`, specialized at `Lake.materializeGitRepo`, with `IO.FS.removeDirAll`.
-  Trusted exemption, for the reason above: it removes the clone of a dependency,
-  `<workspace>/<packages>/<name>`, when a directory is there whose remote is not the dependency's
-  URL (`Lake/Load/Materialize.lean:64-82` and `:251-261`). Unless the two are the same text, it
-  compares their real paths and reads each failure of `IO.FS.realPath`, whatever its error, as a
-  different URL (`:67-70`), so a remote that names an unreadable path is removed too (issue #441).
-  The declarations that materialize a Git dependency reach that removal through specializations
-  that Lake's compiler shares, so each makes it too (`attributions`): `Lake.Dependency.materialize`,
-  its local `materializeGit`, and `Lake.PackageEntry.materialize`
-  (`Lake/Load/Materialize.lean:174-260`).
+- `Lake.removeDirAllIfExists`, with `IO.FS.removeDir`. Trusted exemption, for the reason above: it
+  removes the copy of a path dependency that Lake copies, `<workspace>/<packages>/<name>`, before
+  `Lake.Dependency.materialize` copies the dependency there again
+  (`Lake/Load/Materialize.lean:183-197`, `Lake/Util/IO.lean:52-67`), without following a symbolic
+  link. Regula refuses a workspace with
+  such a dependency only after Lake has loaded it (`Regula.Checker.LakeSelection.checkSelection`).
+  Lean 4.35.0's Lake no longer removes the repository of a Git dependency whose remote differs: it
+  sets the remote's URL instead (`Lake/Load/Materialize.lean:44-54`).
 - `Lake.reuseManifest`, specialized at `Lake.Workspace.updateAndMaterializeCore`, with
   `IO.FS.rename`. Trusted exemption, for the reason above: it moves the packages directory that a
   loaded manifest names to the workspace's (`Lake/Load/Resolve.lean:252-283`).
@@ -455,19 +453,13 @@ def libraryRemovals : List (Name × Name) :=
     (`Lake.removeFileIfExists, ``IO.FS.removeFile),
     (`Lake.downloadArtifactCore, ``IO.FS.removeFile),
     (`Lake.download, ``IO.FS.removeFile),
-    (mkPrivateNameCore `Lake.Load.Materialize `Lake.updateGitRepo ++ `_at_ ++
-        mkPrivateNameCore `Lake.Load.Materialize `Lake.materializeGitRepo ++ `spec_0,
-      ``IO.FS.removeDirAll),
-    (`Lake.Dependency.materialize, ``IO.FS.removeDirAll),
-    (mkPrivateNameCore `Lake.Load.Materialize `Lake.Dependency.materialize.materializeGit,
-      ``IO.FS.removeDirAll),
-    (`Lake.PackageEntry.materialize, ``IO.FS.removeDirAll),
+    (`Lake.removeDirAllIfExists, ``IO.FS.removeDir),
     (mkPrivateNameCore `Lake.Load.Resolve `Lake.reuseManifest ++ `_at_ ++
         mkPrivateNameCore `Lake.Load.Resolve `Lake.Workspace.updateAndMaterializeCore ++ `spec_3,
       ``IO.FS.rename),
     (`Lake.Workspace.updateAndMaterialize, ``IO.FS.rename)]
 
-/-- The removals of `bv_decide`, a tactic of Lean's library, for Lean 4.34.1: the three variants of
+/-- The removals of `bv_decide`, a tactic of Lean's library, for Lean 4.35.0: the three variants of
 `IO.FS.withTempFile` in its frontends, each of which removes the temporary file that `withTempFile`
 made in the system's temporary directory (`Init/System/IO.lean:1353`), holding the problem that it
 gives a SAT solver or the proof that the solver writes. The tactic's initializers reach them, so
@@ -500,25 +492,31 @@ def writers : List (Name × Name) :=
     (``Regula.Filesystem.Construction.createDirectory, ``IO.FS.createDir)]
 
 /-- The calls of a primitive that writes in Lean's library that a program of the package reaches,
-each with the declaration of a source that makes it (`sourceDeclaration`), for Lean 4.34.1. The
+each with the declaration of a source that makes it (`sourceDeclaration`), for Lean 4.35.0. The
 check admits each of them without establishing what it writes.
 
 - Lake's writes, a trusted exemption for the reason of Lake's removals in `libraryRemovals`: each
   acts on the workspace that the program asked Lake to load or build, as `lake build` or
   `lake update` would there. They write a compiled configuration and its lock
   (`Lake.importConfigFile`, `Lake/Load/Lean/Elab.lean:180`), a manifest and the overrides of its
-  packages (`Lake.Manifest.save`, `Lake.Manifest.saveEntries`, `Lake/Load/Manifest.lean:275` and
-  `:308`), the toolchain file of an update (`Lake.Workspace.updateAndMaterializeCore`, and
+  packages (`Lake.Manifest.save`, `Lake.Manifest.saveEntries`, `Lake/Load/Manifest.lean:279` and
+  `:312`), the toolchain file of an update (`Lake.Workspace.updateAndMaterializeCore`, and
   `Lake.Workspace.updateAndMaterialize` through its specialization of it,
   `Lake/Load/Resolve.lean:551-560`), and in a build its outputs, traces, hashes and metadata, the
   arguments of a compiler or an archiver, the entries of its artifact cache and an unpacked release
   archive (`Lake/Build/Actions.lean:29`, `:121` and `:186`, `Lake/Build/Common.lean:177`, `:376`,
   `:401`, `:454` and `:648`, `Lake/Build/Library.lean`, whose two facets of a static library share
   compiled code, `:119-124`, `Lake/Config/Cache.lean:183` and `:434`, `Lake/Util/IO.lean:18`,
-  `:31`, `:41` and `:70`). Regula's own code also calls `Lake.Manifest.saveEntries` and
-  `Lake.Manifest.save`, to write the overrides of the packages and the manifest of a project that
-  it made for its run (`Regula.Checker.LintQualification`, `Regula.Qualification.CopyRelocation`),
-  which the same pairs admit, as they admit every caller (`admitted`).
+  `:31`, `:41` and `:70`), and in a load the directory of a Git dependency's repository, which it
+  creates where no `.git` is before it initializes the repository there
+  (`Lake.PackageEntry.materialize`, and `Lake.Dependency.materialize` through its local
+  `materializeGit`, each through a specialization of `Lake.materializeGitRepo`,
+  `Lake/Load/Materialize.lean:69-73`), and the copy of a path dependency that Lake copies
+  (`Lake.copyDirAll`, `Lake/Util/IO.lean:75-84`). Regula's own code also calls
+  `Lake.Manifest.saveEntries` and `Lake.Manifest.save`, to write the overrides of the packages and
+  the manifest of a project that it made for its run (`Regula.Checker.LintQualification`,
+  `Regula.Qualification.CopyRelocation`), which the same pairs admit, as they admit every caller
+  (`admitted`).
 
 The writes of a tactic of Lean's library are listed apart (`tacticWrites`). -/
 def libraryWrites : List (Name × Name) :=
@@ -545,9 +543,14 @@ def libraryWrites : List (Name × Name) :=
     (`Lake.createParentDirs, ``IO.FS.createDirAll),
     (`Lake.writeFileIfNew, ``IO.FS.Handle.mk),
     (`Lake.writeBinFileIfNew, ``IO.FS.Handle.mk),
-    (`Lake.copyFile, ``IO.FS.writeBinFile)]
+    (`Lake.copyFile, ``IO.FS.writeBinFile),
+    (`Lake.copyDirAll, ``IO.FS.createDirAll),
+    (mkPrivateNameCore `Lake.Load.Materialize `Lake.Dependency.materialize.materializeGit,
+      ``IO.FS.createDirAll),
+    (`Lake.Dependency.materialize, ``IO.FS.createDirAll),
+    (`Lake.PackageEntry.materialize, ``IO.FS.createDirAll)]
 
-/-- The writes of `bv_decide`, a tactic of Lean's library, for Lean 4.34.1, admitted as its
+/-- The writes of `bv_decide`, a tactic of Lean's library, for Lean 4.35.0, admitted as its
 removals are (`tacticRemovals`):
 
 - the graph of a problem, which `lratBitblaster` writes at `aig.gv` in the working directory of the
@@ -556,7 +559,7 @@ removals are (`tacticRemovals`):
   symbolic link at that name, so that it writes the file at the link's target, a destination of
   the program too;
 - the LRAT proof that `bv_decide?` trims, which `dumpLRATProof` writes over the one that the SAT
-  solver wrote (`Std/Tactic/BVDecide/LRAT/Parser.lean:420`, `Lean/Elab/Tactic/BVDecide.lean:181`),
+  solver wrote (`Std/Tactic/BVDecide/LRAT/Parser.lean:432`, `Lean/Elab/Tactic/BVDecide.lean:181`),
   in the directory of the source file that the process elaborates, named after that file, the
   declaration and the position of the tactic (`Lean/Elab/Tactic/BVDecide.lean:113-148`).
 
@@ -659,7 +662,7 @@ The rule also takes a closed term and a ground value, which the initializer does
 code that first reads a closed term computes it, and a ground value is static data. So the
 declarations are a superset of those that the initializers run.
 
-Assumes: Lean v4.34.1 `src/Lean/Compiler/LCNF/EmitC.lean:986-1004` emits, for each compiled
+Assumes: Lean v4.35.0 `src/Lean/Compiler/LCNF/EmitC.lean:986-1004` emits, for each compiled
 declaration of the module in turn (`:1047-1049`), a call of the action of an `[init]` or
 `[builtin_init]` declaration, a call of the initialization function that a declaration with no
 parameter names, and otherwise the evaluation of a declaration with no parameter that is neither
@@ -803,10 +806,10 @@ def rawRemovalsFrom (env : Environment) (observers : Array Name) (roots : Array 
     raw, unknown := unknown ++ work, unused := named.toArray.filter (!exercised.contains ·) }
 
 /-- The modules among `modules` under a root of the packages that Lean's toolchain ships as its own
-code, `Init`, `Std`, `Lean` and `Lake` (`RegulaPolicy.ToolchainRoot`), decided by the module's
-name: Lean 4.34.1 keeps no record of the file from which it read a module, so the check cannot
-read where an imported module came from (`EnvironmentHeader` holds no path, and the frontend
-passes the artifacts of `--setup` to the import alone, `Lean/Elab/Frontend.lean:294-304`).
+code, `Init`, `Std`, `Lean`, `Lake` and `LeanExport` (`RegulaPolicy.ToolchainRoot`), decided by
+the module's name: Lean 4.35.0 keeps no record of the file from which it read a module, so the
+check cannot read where an imported module came from (`EnvironmentHeader` holds no path, and the
+frontend passes the artifacts of `--setup` to the import alone, `Lean/Elab/Frontend.lean:294-304`).
 
 Assumes:
 - No package of the workspace that builds the checked program provides a module under these roots
@@ -814,7 +817,7 @@ Assumes:
   file of such a root. Lake supplies the artifact of an import only when the import is a module of
   a package of the workspace (`Lake/Build/Module.lean:35-37` and `:243-276`). The `lean` process
   of a module's build reads every other module through its search path
-  (`Lean/Environment.lean:2229-2246`): the library directory of each package of the workspace,
+  (`Lean/Environment.lean:2230-2247`): the library directory of each package of the workspace,
   which Lake sets as `LEAN_PATH` (`Lake/Config/Monad.lean:138-139`,
   `Lake/Build/Actions.lean:63`), then the toolchain's `lib/lean` (`Lean/Util/Path.lean:95-96`,
   `:108-110`). It reads a module from the first of them that has its root's directory or `.olean`
@@ -866,7 +869,7 @@ def rawRemovals (env : Environment) (root : Name) (named : List (Name × Name) :
   { rawRemovalsFrom env (filesystemObservers env) roots named with
     foreign := foreignObservers env }
 
-/-- The declarations of Lean 4.34.1's library through which a program runs Lean's elaborator on
+/-- The declarations of Lean 4.35.0's library through which a program runs Lean's elaborator on
 source that it reads: its frontends (`Lean.Elab.runFrontend`, `Lean.Elab.IO.processCommands`,
 `Lean.Elab.Frontend.processCommand`, `Lean.Language.Lean.process`) and the dispatchers of its
 elaborators (`Lean.Elab.Command.elabCommandTopLevel`, `Lean.Elab.Command.elabCommand`,

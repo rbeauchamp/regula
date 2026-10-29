@@ -718,9 +718,9 @@ failure, with its output, is this one's. A restarted elaboration whose environme
 entry fails, naming what to set. So a control fails only on what it observes, never on the shell's
 Git environment.
 
-Assumes: Lean v4.34.1 `Init/System/IO.lean:1420-1450` inherits the environment and the working
+Assumes: Lean v4.35.0 `Init/System/IO.lean:1420-1450` inherits the environment and the working
 directory by default and applies `env` left to right (`runtime/process.cpp:436-515`); Lake
-v4.34.1 starts the elaboration of a module with its `LEAN_PATH` in the environment
+v4.35.0 starts the elaboration of a module with its `LEAN_PATH` in the environment
 (`Lake/Build/Actions.lean:59-65`, `compileLeanModule`). -/
 def checkIsolated (file : FilePath) : IO Unit := do
   let (isolation, missing) ← Regula.GitIsolation.observe

@@ -45,7 +45,7 @@ def overridesText (copyRoot : FilePath) (text : String) : String :=
   | .error _ => text
   | .ok entries =>
     let entries := entries.map fun entry => match entry.src with
-      | .path dir => { entry with src := .path (relative copyRoot dir.toString) }
+      | .path dir copy => { entry with src := .path (relative copyRoot dir.toString) copy }
       | .git .. => entry
     (Json.mkObj [("schemaVersion", toJson _root_.Lake.Manifest.version),
       ("packages", toJson entries)]).pretty
@@ -61,7 +61,7 @@ private def overrideDirectories (text : String) : Array String :=
   match _root_.Lake.Manifest.parseEntries text with
   | .error _ => #[]
   | .ok entries => entries.filterMap fun entry => match entry.src with
-    | .path dir => some dir.toString
+    | .path dir _ => some dir.toString
     | .git .. => none
 
 -- Two copies at roots whose names hold a double quote, which Lake's JSON escapes, record the same

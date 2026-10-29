@@ -70,7 +70,7 @@ prefix of its directory that is present (`Regula.Filesystem.observeRealPath`), w
 the working directory when it is relative, and the names below that prefix (`plainNames`), the last
 of them the entry's own. The entry itself is not resolved, so a link at `path` is a place of its
 own. A prefix is absent only when its entry, by a read that follows no link, is not there: Lean
-4.34.1's `realPath` gives `noFileOrDirectory` for each failure of `realpath(3)`, so that failure
+4.35.0's `realPath` gives `noFileOrDirectory` for each failure of `realpath(3)`, so that failure
 alone establishes no absence, and an entry there that it cannot resolve, a symbolic link among
 them, is reported as one that cannot be resolved, with the error. It is the reason to refuse `path`
 when its last component names no file (`System.FilePath.fileName`), such as `out/`, `out/.` or

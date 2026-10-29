@@ -107,7 +107,7 @@ limits `maxHeartbeats`, `synthInstance.maxHeartbeats`, `maxRecDepth`, `maxSynthP
 registered by Lean, Mathlib or Qq at its registered default (`printSettings`). Raising a positive
 resource limit lets Lean do work it would otherwise stop, and lowering one only stops that work
 sooner; `0` means no limit for `maxHeartbeats`, `synthInstance.maxHeartbeats` and `maxRecDepth`
-(`Lean/CoreM.lean:487`, `Lean/Exception.lean:248`), so Lean does all the work and hides no
+(`Lean/CoreM.lean:501`, `Lean/Exception.lean:248`), so Lean does all the work and hides no
 warning. The exception is `exponentiation.threshold`: raising it stops the warning that a power
 was not evaluated (`Lean/Util/SafeExponentiation.lean:29`), because Lean evaluates the power
 instead. A pretty-printer option changes the text some linters compare, so only its default is
@@ -192,7 +192,7 @@ structure BuildOptions where
   `needs`, and an executable's through the library of its root, before the modules
   (`LeanLib.recBuildExtraDepTargets`, `Lake/Build/Library.lean` lines 162 to 169) and mixes that
   job's trace into the trace of each module whatever the target's `platformIndependent`
-  (`Lake/Build/Module.lean` lines 591 and 600 to 603), so a module Lake replays was elaborated with
+  (`Lake/Build/Module.lean` lines 603 and 612 to 615), so a module Lake replays was elaborated with
   the observer the build has. The trace of the plugins alone is left out of a module's trace when
   `platformIndependent` is `true`. The entry also keeps a fresh build from building the observer
   several times at once. -/
@@ -516,7 +516,7 @@ theorem meets_of_sets (o : BuildOptions) (r : Name × OptionValue) (h : sets o r
 
 /-- The Mathlib revision whose option registrations `mathlibWarningSettings` was read from: the one
 `integration/mathlib/lakefile.lean` pins, read with the Batteries revision of its manifest. -/
-def acceptedMathlib : String := "d13f23b723b8a846827a245b89c10fc7d3f11612"
+def acceptedMathlib : String := "56a005855ea17e0b0958f73ec801ae140b0a1679"
 
 /-- Each `linter.` and `warn.` option that Lean `acceptedRelease` registers with
 `register_builtin_option` or `register_option`, cited by file and line under `src/lean/` of the
@@ -552,6 +552,8 @@ def leanWarningSettings : List (Name × OptionValue) := [
   (`linter.tactic.unusedName, .bool true),
   -- Lean/Elab/Tactic/RCases.lean:23
   (`linter.unusedRCasesPattern, .bool true),
+  -- Lean/Elab/Tactic/Rwa.lean:22
+  (`linter.unnecessaryRwa, .bool true),
   -- Lean/Elab/Tactic/Simp.lean:675
   (`linter.unusedSimpArgs, .bool true),
   -- Lean/Elab/Tactic/Simpa.lean:21
@@ -568,8 +570,9 @@ def leanWarningSettings : List (Name × OptionValue) := [
   (`linter.constructorNameAsVariable, .bool true),
   -- Lean/Linter/DefProp.lean:26
   (`linter.defProp, .bool true),
-  -- Lean/Linter/Deprecated.lean:19
+  -- Lean/Linter/Deprecated.lean:23, 28
   (`linter.deprecated, .bool true),
+  (`linter.deprecated.deprecatedTarget, .bool true),
   -- Lean/Linter/DocsOnAlt.lean:21
   (`linter.tactic.docsOnAlt, .bool true),
   -- Lean/Linter/Extra/DupNamespace.lean:30, 35
@@ -618,7 +621,7 @@ test option, at their default `false`. `linter.style.header.license`, a string, 
 in `Accepted`. Options registered only under `scripts/` or `MathlibTest/`, which no Mathlib module
 imports, are not listed. -/
 def mathlibWarningSettings : List (Name × OptionValue) := [
-  -- Mathlib/Init.lean:85, 119, 127
+  -- Mathlib/Init.lean:88, 122, 130
   (`linter.mathlibStandardSet, .bool true),
   (`linter.nightlyRegressionSet, .bool true),
   (`linter.weeklyLintSet, .bool true),
@@ -638,11 +641,11 @@ def mathlibWarningSettings : List (Name × OptionValue) := [
   (`linter.style.native, .bool true),
   (`linter.style.nativeDecide, .bool true),
   (`linter.style.maxHeartbeats, .bool true),
-  -- Mathlib/Tactic/Linter/DirectoryDependency.lean:70
+  -- Mathlib/Tactic/Linter/DirectoryDependency.lean:72
   (`linter.directoryDependency, .bool true),
   -- Mathlib/Tactic/Linter/DocPrime.lean:37
   (`linter.docPrime, .bool true),
-  -- Mathlib/Tactic/Linter/DocString.lean:30, 38, 48
+  -- Mathlib/Tactic/Linter/DocString.lean:31, 39, 49
   (`linter.style.docString, .bool true),
   (`linter.style.docString.empty, .bool true),
   (`linter.style.docStringVerso, .bool true),
@@ -650,8 +653,6 @@ def mathlibWarningSettings : List (Name × OptionValue) := [
   (`linter.style.emptyLine, .bool true),
   -- Mathlib/Tactic/Linter/FlexibleLinter.lean:108
   (`linter.flexible, .bool true),
-  -- Mathlib/Tactic/Linter/GlobalAttributeIn.lean:90
-  (`linter.globalAttributeIn, .bool true),
   -- Mathlib/Tactic/Linter/HashCommandLinter.lean:36
   (`linter.hashCommand, .bool true),
   -- Mathlib/Tactic/Linter/HaveILetI.lean:44
@@ -690,36 +691,35 @@ def mathlibWarningSettings : List (Name × OptionValue) := [
   (`linter.style.nameCheck, .bool true),
   (`linter.style.openClassical, .bool true),
   (`linter.style.show, .bool true),
-  -- Mathlib/Tactic/Linter/TextBased.lean:278, 298, 314, 401, 506, 558, 587
+  -- Mathlib/Tactic/Linter/TextBased.lean:275, 295, 311, 398, 535, 564
   (`linter.adaptationNote, .bool true),
   (`linter.trailingWhitespace, .bool true),
   (`linter.whitespaceBeforeSemicolon, .bool true),
   (`linter.unicodeLinter, .bool true),
-  (`linter.pythonStyle, .bool true),
   (`linter.modulesUpperCamelCase, .bool true),
   (`linter.modulesForbiddenWindows, .bool true),
-  -- Mathlib/Tactic/Linter/UnusedInstancesInType.lean:315, 356
+  -- Mathlib/Tactic/Linter/UnusedInstancesInType.lean:305, 346
   (`linter.unusedDecidableInType, .bool true),
   (`linter.unusedFintypeInType, .bool true),
   -- Mathlib/Tactic/Linter/UnusedTactic.lean:64
   (`linter.unusedTactic, .bool true),
-  -- Mathlib/Tactic/Linter/UpstreamableDecl.lean:65, 77, 85
+  -- Mathlib/Tactic/Linter/UpstreamableDecl.lean:70, 82, 90
   (`linter.upstreamableDecl, .bool true),
   (`linter.upstreamableDecl.defs, .bool true),
   (`linter.upstreamableDecl.private, .bool true),
   -- Mathlib/Tactic/Linter/Whitespace.lean:40, 47
   (`linter.style.whitespace, .bool true),
   (`linter.style.whitespace.verbose, .bool true),
-  -- Mathlib/Tactic/SetNotationForOrder.lean:115
+  -- Mathlib/Tactic/SetNotationForOrder.lean:116
   (`linter.setNotationForOrder, .bool true),
   -- Mathlib/Tactic/Simps/Basic.lean:267, 272
   (`linter.simpsNoConstructor, .bool true),
   (`linter.simpsUnusedCustomDeclarations, .bool true),
-  -- Mathlib/Tactic/TacticAnalysis.lean:47, 375
+  -- Mathlib/Tactic/TacticAnalysis.lean:53, 384
   (`linter.tacticAnalysis, .bool true),
   (`linter.tacticAnalysis.dummy, .bool false),
-  -- Mathlib/Tactic/TacticAnalysis/Declarations.lean:184, 199, 207, 217, 227, 245, 271, 299, 366,
-  --   376, 387, 507, 516, 525, 537, 546, 559, 593, 704, 715, 726
+  -- Mathlib/Tactic/TacticAnalysis/Declarations.lean:184, 199, 207, 217, 227, 250, 276, 304, 371,
+  --   381, 392, 512, 521, 530, 542, 551, 564, 598, 709, 720, 731
   (`linter.tacticAnalysis.regressions.linarithToGrind, .bool true),
   (`linter.tacticAnalysis.regressions.ringToGrind, .bool true),
   (`linter.tacticAnalysis.regressions.omegaToLia, .bool true),
@@ -741,10 +741,10 @@ def mathlibWarningSettings : List (Name × OptionValue) := [
   (`linter.tacticAnalysis.verifyGrind, .bool true),
   (`linter.tacticAnalysis.verifyGrindSuggestions, .bool true),
   (`linter.tacticAnalysis.verifyGrindOnly, .bool true),
-  -- Mathlib/Tactic/Tauto.lean:239, 249
+  -- Mathlib/Tactic/Tauto.lean:238, 248
   (`linter.tacticAnalysis.tautoToGrind, .bool true),
   (`linter.tacticAnalysis.regressions.tautoToGrind, .bool true),
-  -- Mathlib/Tactic/Translate/Core.lean:126, 133, 140, 147, 154, 160, 165, 171
+  -- Mathlib/Tactic/Translate/Core.lean:121, 128, 135, 142, 149, 155, 160, 166
   (`linter.existingAttributeWarning, .bool true),
   (`linter.translateGenerateName, .bool true),
   (`linter.translateExisting, .bool true),
@@ -756,9 +756,9 @@ def mathlibWarningSettings : List (Name × OptionValue) := [
   -- Mathlib/Util/CountHeartbeats.lean:252, 263
   (`linter.countHeartbeats, .bool true),
   (`linter.countHeartbeatsApprox, .bool false),
-  -- Batteries/Linter/UnnecessarySeqFocus.lean:40
+  -- Batteries/Linter/UnnecessarySeqFocus.lean:42
   (`linter.unnecessarySeqFocus, .bool true),
-  -- Batteries/Linter/UnreachableTactic.lean:28
+  -- Batteries/Linter/UnreachableTactic.lean:27
   (`linter.unreachableTactic, .bool true),
   -- Batteries/Tactic/Lint/Simp.lean:69
   (`linter.simpNF.respectTransparency, .bool true)
@@ -861,7 +861,7 @@ def printSettings : List (Name × OptionValue) := [
   (`pp.raw.showInfo, .bool false),
   (`pp.raw.maxDepth, .nat 32),
   (`pp.rawOnError, .bool false),
-  -- Mathlib/Data/Prod/Basic.lean:312
+  -- Mathlib/Data/Prod/Basic.lean:310
   (`pp.numericProj.prod, .bool true),
   -- Mathlib/Util/PPOptions.lean:24
   (`pp.mathlib.binderPredicates, .bool true),
@@ -884,21 +884,21 @@ def checkSwitches : List Name := [`warningAsError, `debugAssertions]
 /-- Resource limits: raising one lets Lean do work that it would otherwise stop with an error
 (`maxHeartbeats`, `synthInstance.maxHeartbeats`, `maxRecDepth`, `maxSynthPendingDepth`), keep a
 type-class answer that it would otherwise discard and fail without (`synthInstance.maxSize`,
-`Lean/Meta/SynthInstance.lean` lines 25 and 467), or skip with a warning
+`Lean/Meta/SynthInstance.lean` lines 25 and 471), or skip with a warning
 (`exponentiation.threshold`, whose warning reports a power it did not evaluate, so raising it
 stops that warning while Lean evaluates the power). Lowering a positive limit stops that work
 sooner, with an error where Lean stops it; lowering `synthInstance.maxSize` instead makes the search
 drop each larger answer with only a trace message (`addAnswer`, `Lean/Meta/SynthInstance.lean`),
 which can change the instance it finds, but stops no warning, which is what RG2006 needs of an
 accepted value. `0` means no limit for `maxHeartbeats` and `synthInstance.maxHeartbeats`
-(`Lean/CoreM.lean:487`) and for `maxRecDepth` (`Lean/Exception.lean:248`), so Lean does all the
+(`Lean/CoreM.lean:501`) and for `maxRecDepth` (`Lean/Exception.lean:248`), so Lean does all the
 work and hides no warning. -/
 def resourceLimits : List Name :=
   [`maxHeartbeats, `synthInstance.maxHeartbeats, `maxRecDepth, `maxSynthPendingDepth,
     `synthInstance.maxSize, `exponentiation.threshold]
 
 /-- The Lean release whose source the arguments for the accepted options were read from. -/
-def acceptedRelease : String := "4.34.1"
+def acceptedRelease : String := "4.35.0"
 
 /-- The arguments for the accepted options were read for the release this source revision
 supports, so a move to another release fails the build until they are read again. -/
@@ -1654,7 +1654,7 @@ declaration command and each other is a scope command (`scopeKinds`). A command 
 elaborator of its own elaborates, or a command that could not be followed (the anonymous kind),
 is neither.
 
-Assumes: at the pinned Lean v4.34.1, the builtin macro `expandNamespacedDeclaration`
+Assumes: at the pinned Lean v4.35.0, the builtin macro `expandNamespacedDeclaration`
 (`Lean/Elab/Declaration.lean` lines 149 to 157) expands a declaration named `Foo.bar` to
 `namespace Foo`, `end_local_scope`, the declaration named `bar` and `end Foo`, which this accepts,
 and the builtin macro `expandDefContract` (`Lean/Elab/Tactic/Do/Contract.lean` lines 89 to 147)
@@ -1703,8 +1703,8 @@ theorem communityDisable_iff (s : SourceSetting) :
 /-- The settings that the pinned Lean's own code writes as `set_option` syntax into the code it
 generates, as (option, value) pairs: `match.ignoreUnusedAlts` set to `true` by the `deriving BEq`
 and `deriving Ord` handlers (`Lean/Elab/Deriving/BEq.lean` line 205, `Lean/Elab/Deriving/Ord.lean`
-line 161), `smartUnfolding` set to `false` by `rfl'` (`Init/Tactics.lean` line 444),
-`tactic.hygienic` set to `false` by `unhygienic` (`Init/Tactics.lean` line 1238) and
+line 161), `smartUnfolding` set to `false` by `rfl'` (`Init/Tactics.lean` line 487),
+`tactic.hygienic` set to `false` by `unhygienic` (`Init/Tactics.lean` line 1281) and
 `trace.grind.ematch.instance` set to `true` in the suggestion of `grind_lint inspect`
 (`Lean/Elab/Tactic/Grind/Lint.lean` line 149). `Regula.Checker.GeneratedSettingSearch.search`
 computes these pairs from the compiled code of the modules `Lean` and `Lake`, and the registry

@@ -86,8 +86,8 @@ the printed prefix read by `printedPrefix?` (only the final newline is removed) 
 `Lean.findSysroot`'s removal of the whitespace at its ends. Output that is not one absolute path
 printed as a line is thrown.
 
-Assumes: Lean v4.34.1 `lean --print-prefix` prints `getBuildDir` with `IO.println` and exits with 0
-(`Lean/Shell.lean:470-472`): the parent of the real path of the directory of its executable
+Assumes: Lean v4.35.0 `lean --print-prefix` prints `getBuildDir` with `IO.println` and exits with 0
+(`Lean/Shell.lean:471-473`): the parent of the real path of the directory of its executable
 (`Lean/Util/Path.lean:85-86`, `Init/System/IO.lean:1305-1309`), an absolute path. -/
 def printedSysroot (lean : String) : IO System.FilePath := do
   let out ← IO.Process.run { cmd := lean, args := #["--print-prefix"] }
@@ -98,7 +98,7 @@ def printedSysroot (lean : String) : IO System.FilePath := do
 /-- The installation directory of the Lean toolchain, as `Lean.findSysroot` finds it, with the
 printed prefix read exactly: the value of `LEAN_SYSROOT` as it is when it is set, else the prefix
 that the `lean` which `PATH` resolves prints (`printedSysroot`). `Lean.findSysroot` removes the
-whitespace at the ends of that prefix (`Lean/Util/Path.lean:180-187` of Lean v4.34.1), so an
+whitespace at the ends of that prefix (`Lean/Util/Path.lean:180-187` of Lean v4.35.0), so an
 installation directory whose name ends in a space would be read as another one. -/
 def findSysroot : IO System.FilePath := do
   if let some root ← IO.getEnv "LEAN_SYSROOT" then return root
@@ -109,7 +109,7 @@ value of `LEAN_SYSROOT` when it is set, else the prefix that the `lean` which `P
 prints. A process that Lake starts (`lake exe`, `lake env`, `lake lint`) has `LEAN_SYSROOT` set, so
 for it no program that `PATH` resolves takes part.
 Assumes: Lake sets `LEAN_SYSROOT` for each program it starts to the absolute installation directory
-it detected (`Lake.Env.baseVars`, `Lake/Config/Env.lean:302` of Lean v4.34.1). `identifiedRoot`
+it detected (`Lake.Env.baseVars`, `Lake/Config/Env.lean:302` of Lean v4.35.0). `identifiedRoot`
 refuses an installation whose `lean` is another compiler. The filesystem's resolution of the path
 is trusted. -/
 def toolchainRoot : IO System.FilePath := do

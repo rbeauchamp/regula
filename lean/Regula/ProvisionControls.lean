@@ -79,7 +79,7 @@ private def kind (path : FilePath) : IO (Option IO.FS.FileType) := do
   | .error (.noFileOrDirectory ..) => return none
   | .error error => throw error
 
-/-- The text of the symbolic link at `path`, as `readlink -n` prints it: Lean v4.34.1 has no
+/-- The text of the symbolic link at `path`, as `readlink -n` prints it: Lean v4.35.0 has no
 operation that reads it. -/
 private def linkText (path : FilePath) : IO String := do
   let out ← IO.Process.output

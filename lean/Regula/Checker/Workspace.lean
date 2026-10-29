@@ -35,14 +35,14 @@ private def detectEnvironment : IO _root_.Lake.Env := do
   | .ok env => return env
   | .error error => throw <| IO.userError s!"lake-workspace-load-failed: {error}"
 
-/-- The configuration file that Lake v4.34.1's rule gives the package at `dir` whose configuration
+/-- The configuration file that Lake v4.35.0's rule gives the package at `dir` whose configuration
 is named `relConfigFile`, with each candidate observed strictly: `relConfigFile` with the extension
 `lean` when it is present, else with the extension `toml` when it is present, else none. Lake's
 `resolveConfigFile` takes the same order for a name without an extension
 (`Lake/Load/Package.lean:107-119`). Both candidates are observed through
 `Regula.Filesystem.realPathIfPresent`, so a failure of either observation other than a missing
 file is thrown with its error. Lake instead resolves each candidate with `Lake.resolvePath`
-(`Lake/Util/IO.lean:75-89`), which gives no path for every failure of `realPath`, so a
+(`Lake/Util/IO.lean:87-101`), which gives no path for every failure of `realPath`, so a
 `lakefile.lean` that cannot be resolved, such as a link into a directory without search
 permission, is passed over for a `lakefile.toml` beside it. -/
 def configChoice (dir relConfigFile : FilePath) : IO (Option FilePath) := do
@@ -67,7 +67,7 @@ the package, is known and has an extension, unless Lake loaded it from the file 
 Regula observes what Lake builds, so it compares a choice wherever Lake may have made one in this
 load. Lake chooses between the two candidates only for a name without an extension
 (`Lake/Load/Package.lean:107-119`), and resolves each with `Lake.resolvePath?`
-(`Lake/Util/IO.lean:75-89`), which gives no path for each failure of `realPath`, and none when the
+(`Lake/Util/IO.lean:87-101`), which gives no path for each failure of `realPath`, and none when the
 path it gives cannot be read. A read of `lakefile.lean` that fails once, with any error, therefore
 makes Lake load `lakefile.toml`, and a strict read of the candidates after the load that succeeds
 does not show that Lake's read succeeded: only the comparison of the file that Lake loaded with the
@@ -110,10 +110,10 @@ refuses, are thrown. It is the one read of the two files that the checker's sele
 `Regula.ProgramCheck.Provision.readRoot_eq` proves the provisioning program's own copy equal to it.
 
 Assumes:
-- Lake v4.34.1's load reads a workspace's manifest with `Lake.Manifest.load?`
+- Lake v4.35.0's load reads a workspace's manifest with `Lake.Manifest.load?`
   (`Lake/Load/Workspace.lean:61-69`) and its package overrides file with
   `Lake.Manifest.tryLoadEntries` (`Lake/Load/Resolve.lean:603`), which give no manifest and no
-  entries only for a file that is absent (`Lake/Load/Manifest.lean:268-272`, `:301-305`). -/
+  entries only for a file that is absent (`Lake/Load/Manifest.lean:272-276`, `:305-309`). -/
 def readRoot (files : FilePath × FilePath) :
     IO (Option (_root_.Lake.Manifest × Array _root_.Lake.PackageEntry)) := do
   let some manifest ← _root_.Lake.Manifest.load? files.1 | return none
@@ -126,14 +126,14 @@ manifest does not exist. The last entry for a package's name is the one that Lak
 package from, and Lake loads the package from that entry's configuration name (`configRequest`).
 
 Assumes:
-- Lake v4.34.1's `loadWorkspace`, with neither `updateDeps` nor further overrides in its load
+- Lake v4.35.0's `loadWorkspace`, with neither `updateDeps` nor further overrides in its load
   configuration, as `loadConfig` sets neither, materializes the dependencies from the manifest
   when it exists (`Lake/Load/Workspace.lean:61-69`). It inserts the manifest's entries and then
   the overrides file's into a name map, materializes each dependency from the entry for its name
   (`Lake/Load/Resolve.lean:598-616`), and loads it from that entry's `configFile`
-  (`Lake/Load/Materialize.lean:136-137`, `Lake/Load/Resolve.lean:33-46`).
+  (`Lake/Load/Materialize.lean:149-150`, `Lake/Load/Resolve.lean:33-46`).
 - Without a manifest, Lake resolves the requirements anew: an entry that it makes names
-  `lakefile` (`Lake/Load/Materialize.lean:231`, `Lake/Load/Manifest.lean:90`), and an entry that
+  `lakefile` (`Lake/Load/Materialize.lean:261`, `Lake/Load/Manifest.lean:92`), and an entry that
   it takes from a dependency's manifest keeps that manifest's name
   (`Lake/Load/Resolve.lean:293-302`, `:306-325`), in an order that this read does not follow, so no
   name is known.
@@ -350,7 +350,7 @@ def uncachedWorkspace (ws : _root_.Lake.Workspace) : _root_.Lake.Workspace :=
       rw [uncachedPackage_depIdxs] at hi
       simpa [packages] using ws.depIdxs_packages q hq i hi }
 
-/-- Lake v4.34.1 reaches each read of its artifact cache in a build only when
+/-- Lake v4.35.0 reaches each read of its artifact cache in a build only when
 `Package.isArtifactCacheWritable` or `Package.isArtifactCacheReadable` returns `true`, and each
 write only when `Package.isArtifactCacheWritable` does (`fetchCore` in `Lake/Build/Module.lean`,
 `Module.packLtar`, and `buildArtifactUnlessUpToDate` in `Lake/Build/Common.lean`). For every
@@ -379,7 +379,7 @@ theorem uncachedWorkspace_unwritable {ws : _root_.Lake.Workspace}
     uncached_reaches reach]
 
 /-- Whether `text`, the content of a module's Lake trace file, records a restore from Lake's
-artifact cache instead of a build: Lake v4.34.1 writes such a trace (`BuildMetadata.ofFetch`)
+artifact cache instead of a build: Lake v4.35.0 writes such a trace (`BuildMetadata.ofFetch`)
 with `synthetic` set and an empty log, and replays that empty log while the trace's input hash
 matches. Text that Lake cannot read as a trace is not such a record: Lake rebuilds the module. -/
 def restoredTrace (text : String) : Bool :=
@@ -416,7 +416,7 @@ def dropRestoredTraces (ws : _root_.Lake.Workspace) : IO Unit := do
       (mod.filePath (build / ws.root.config.leanLibDir.normalize) "trace")
 
 /-- Whether `text`, the content of a module's Lake trace file, records an elaboration: Lake can
-read it as a trace, and it does not record a restore from the artifact cache. Lake v4.34.1 writes
+read it as a trace, and it does not record a restore from the artifact cache. Lake v4.35.0 writes
 such a trace with the log of the elaboration that produced the module's artifacts, and replays
 that log while the trace's input hash matches. -/
 def elaborationTrace (text : String) : Bool :=
@@ -424,7 +424,7 @@ def elaborationTrace (text : String) : Bool :=
   | .ok data => !data.synthetic
   | .error _ => false
 
-/-- The caption and value of one input of a Lake trace file as Lake v4.34.1 writes it, a
+/-- The caption and value of one input of a Lake trace file as Lake v4.35.0 writes it, a
 two-element array of the caption and either a hash or the array of that input's own inputs
 (`serializeInputs`, `Lake/Build/Common.lean` lines 129 to 136), or none for other JSON. -/
 def pairOf? : Json → Option (String × Json)
@@ -550,11 +550,11 @@ theorem valueRecords_iff (admits : String → Bool) : ∀ json : Json,
 termination_by json => sizeOf json
 
 /-- Whether `text`, the content of a module's Lake trace file, records among the inputs of the
-elaboration it holds one whose caption `admits` accepts. Lake v4.34.1 writes, with an elaboration's
+elaboration it holds one whose caption `admits` accepts. Lake v4.35.0 writes, with an elaboration's
 log, the caption of each input of its trace at any depth (`BuildMetadata.ofBuildCore`,
 `serializeInputs`, `Lake/Build/Common.lean` lines 129 to 145).
 
-Assumes: Lake v4.34.1 writes a module's trace file in this form, with the inputs of the elaboration
+Assumes: Lake v4.35.0 writes a module's trace file in this form, with the inputs of the elaboration
 whose log it holds. -/
 def traceRecords (admits : String → Bool) (text : String) : Bool :=
   match _root_.Lake.BuildMetadata.parse text with
@@ -577,13 +577,13 @@ theorem traceRecords_iff (admits : String → Bool) (text : String) :
     rintro ⟨_, hOk, -⟩
     cases hError.symm.trans hOk
 
-/-- The characters `stdout:` and a line break, with which Lake v4.34.1 starts the information
+/-- The characters `stdout:` and a line break, with which Lake v4.35.0 starts the information
 entry it logs for a run of output lines of a program that are not a message of it
 (`unparsedCompilerOutput`). -/
 def stdoutPrefix : List Char := ['s', 't', 'd', 'o', 'u', 't', ':', '\n']
 
 /-- Whether `entry` is one that Lake can have made from output of the Lean compiler that is not a
-Lean message. Lake v4.34.1's `compileLeanModule` runs `lean --json`, which prints each message as
+Lean message. Lake v4.35.0's `compileLeanModule` runs `lean --json`, which prints each message as
 one JSON line on its standard output, and logs each line that parses as a Lean message through
 `LogEntry.ofSerialMessage`. It logs each run of other standard output lines as one information
 entry, `stdout:`, a line break and the text (`Lake/Build/Actions.lean`, lines 66 to 81), so a
@@ -597,7 +597,7 @@ An entry Lake made from a Lean message whose file name has no line break is neve
 (`unparsedCompilerOutput_ofSerialMessage`), and `lineBreakSourcePaths` refuses the modules whose
 message file name has one.
 
-Assumes: Lake v4.34.1 logs the standard output of `lean --json` that is not a Lean message only as
+Assumes: Lake v4.35.0 logs the standard output of `lean --json` that is not a Lean message only as
 such an entry. -/
 def unparsedCompilerOutput (entry : _root_.Lake.LogEntry) : Bool :=
   entry.level == .info && stdoutPrefix.isPrefixOf entry.message.toList
@@ -644,13 +644,13 @@ theorem unparsedCompilerOutput_ofSerialMessage (message : SerialMessage)
   · rfl
   · exact absurd (List.isPrefixOf_iff_prefix.mp hPrefix) (not_stdoutPrefix_prefix h hFirst tail)
 
-/-- The file name Lake v4.34.1 gives each message of the elaboration of a module of `pkg` from
+/-- The file name Lake v4.35.0 gives each message of the elaboration of a module of `pkg` from
 `srcFile`, the source file of its `presetup` facet's result: `Module.buildLean` passes `lean` that
-file and its path relative to the package's directory (`Lake/Build/Module.lean` lines 981 to 989),
+file and its path relative to the package's directory (`Lake/Build/Module.lean` lines 993 to 1001),
 and `compileLeanModule` names each parsed message by `mkRelPathString` of that relative path
-(`Lake/Build/Actions.lean` line 72).
+(`Lake/Build/Actions.lean` line 73).
 
-Assumes: Lake v4.34.1 names each message of a module's elaboration as this does, and its `leanArts`
+Assumes: Lake v4.35.0 names each message of a module's elaboration as this does, and its `leanArts`
 facet compiles from its `presetup` facet's result. -/
 def messageFileName (pkg : _root_.Lake.Package) (srcFile : System.FilePath) : String :=
   _root_.Lake.mkRelPathString (_root_.Lake.relPathFrom pkg.dir srcFile)

@@ -2,7 +2,7 @@ import RegulaCore.GitIsolation
 
 /-! # Starting a program under Git isolation
 
-Lake v4.34.1 starts each of its Git commands with no environment of its own
+Lake v4.35.0 starts each of its Git commands with no environment of its own
 (`Regula.Filesystem.Construction.processEnvironment`), when it materializes a dependency, when it
 builds a module of a dependency package and looks up a prebuilt archive, and in its command line
 tools. So a Git command that Lake runs for Regula, in Regula's own process or in a Lake child, has
@@ -66,7 +66,7 @@ def describe (entries : Array (String × Option String)) : String :=
 /-- The file name of the executable that Lake builds for the `lean_exe` whose executable name is
 `program`: `program` with the platform's executable extension.
 
-Assumes: Lake v4.34.1 names the file of an executable by its `exeName` and
+Assumes: Lake v4.35.0 names the file of an executable by its `exeName` and
 `System.FilePath.exeExtension` (`Lake/Config/LeanExe.lean:66-69`). -/
 def executableFile (program : String) : String :=
   ((System.FilePath.mk program).addExtension System.FilePath.exeExtension).toString
@@ -79,11 +79,11 @@ The file name is not evidence of how the process was entered, so this is a diagn
 stated limit. `lake exe qualify observers` refuses a program of the package whose name is that of
 a program of the toolchain, such as `lean`. A frontend started under the file name of a Regula
 executable, such as a hard link to `lean`, still passes. Then `restart` starts that frontend with
-`restarted` as its first argument, and it exits with a code other than 0 (observed: v4.34.1 `lean`
+`restarted` as its first argument, and it exits with a code other than 0 (observed: v4.35.0 `lean`
 prints `unrecognized option` and exits with 1). Neither process runs the program, so nothing runs
 without isolation, and that exit status is the result.
 
-Assumes: Lean v4.34.1 `Init/System/IO.lean:952-955` (`IO.appPath`) names the running
+Assumes: Lean v4.35.0 `Init/System/IO.lean:952-955` (`IO.appPath`) names the running
 executable. -/
 def runsAs (program : String) : IO Bool := do
   return (← IO.appPath).fileName == some (executableFile program)
@@ -91,7 +91,7 @@ def runsAs (program : String) : IO Bool := do
 /-- Start this executable again on `args` under `isolation`, after `restarted`, with the inherited
 standard streams and working directory, and return the exit status that Lean's wait gives for it.
 
-Assumes: Lean v4.34.1 `Init/System/IO.lean:952-955` (`IO.appPath`) names the running executable;
+Assumes: Lean v4.35.0 `Init/System/IO.lean:952-955` (`IO.appPath`) names the running executable;
 `Init/System/IO.lean:1420-1450` inherits the three streams, the working directory and the
 environment by default and applies `env` left to right (`runtime/process.cpp:436-515`);
 `runtime/process.cpp:354-367` returns the exit code, or `128 + n` for a child that signal `n`

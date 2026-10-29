@@ -36,7 +36,7 @@ def LegacyCompilerTrust.parse? : String → Option LegacyCompilerTrust
     parse? c.spelling = some c := by cases c <;> rfl
 
 /-- The capability declared by this source revision and re-observed before policy admission. -/
-def legacyCompilerTrust : LegacyCompilerTrust := .present
+def legacyCompilerTrust : LegacyCompilerTrust := .absent
 
 /-- An observed capability equal to the one used by this compiled policy.
 Its proof concerns the supplied observation; compiler installation and extraction are trusted. -/
@@ -59,10 +59,10 @@ theorem admitCapability_iff (observed : LegacyCompilerTrust) :
   split <;> simp_all
 
 /-- The one compiler release supported by this source revision. -/
-def version : String := "4.34.1"
+def version : String := "4.35.0"
 
 /-- The full compiler commit declared by this source revision. -/
-def commit : String := "5045d0056413266e57c625dcd7c365b10e377c52"
+def commit : String := "eb6cafb7290e8bd5f2937522d8d804f58f02bafc"
 
 /-- The exact identity relation used by inventory and plan admission. -/
 def Supports (observedVersion observedCommit : String) : Prop :=

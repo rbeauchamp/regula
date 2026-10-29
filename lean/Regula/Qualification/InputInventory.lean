@@ -19,12 +19,12 @@ are built, it writes the record again with `buildSucceeded` and whether `Example
 (`addedBuilt`).
 
 Assumes:
-- Lake `v4.34.1` fetches a library's default facets in their order
+- Lake `v4.35.0` fetches a library's default facets in their order
   (`LeanLib.recBuildDefaultFacets`, `src/lean/lake/Lake/Build/Library.lean:177`), and a facet's
   `FetchM` action runs when it is fetched, before the fetch returns its job (`ensureJob`,
   `src/lean/lake/Lake/Build/Job/Register.lean:47`), so the fault is on disk before the facet
   fetches `leanArts`.
-- Lake `v4.34.1` collects a library's modules from its globs when that library's `modules` facet
+- Lake `v4.35.0` collects a library's modules from its globs when that library's `modules` facet
   is fetched (`LeanLib.recCollectLocalModules`, `src/lean/lake/Lake/Build/Library.lean:36`),
   which `leanArts` fetches first (`LeanLib.recBuildLean`, line 67), so a module the fault adds is
   collected and built by the same build.

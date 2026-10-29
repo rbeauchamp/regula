@@ -18,21 +18,21 @@ which register the two linters below (`Lean/LoadDynlib.lean` lines 95 to 118).
 
 - The stateful linter folds each command's observations in source order: Lean chains its runs
   through the previous command's state, so its run at the terminal command follows every earlier
-  run (`Lean/Elab/Command.lean` lines 556 to 597). That run writes the fold.
+  run (`Lean/Elab/Command.lean` lines 591 to 641). That run writes the fold.
 - The module linter runs at the terminal command with the syntax of every earlier command
-  (`Lean/Elab/Command.lean` lines 513 and 514) and writes their count and where each command is
-  that contains `#guard_msgs`, on which Lean runs no linter (line 868).
+  (`Lean/Elab/Command.lean` lines 541, 542 and 569 to 572) and writes their count and where each
+  command is that contains `#guard_msgs`, on which Lean runs no linter (line 911).
 
-Assumes: in Lean 4.34.1 Lean runs both linters on every command whose syntax contains no
+Assumes: in Lean 4.35.0 Lean runs both linters on every command whose syntax contains no
 `#guard_msgs`, the terminal command included, whatever the options and errors
-(`Lean/Elab/Command.lean` lines 338 to 368 and 865 to 871), with the command's complete info trees
-(lines 520 to 545 and 567 to 597). The stateful linter reads the command's messages, silent ones
+(`Lean/Elab/Command.lean` lines 340 to 379 and 908 to 914), with the command's complete info trees
+(lines 549 to 588 and 605 to 639). The stateful linter reads the command's messages, silent ones
 included, as its own post runs: those of the command's elaboration, of the ordinary linters, whose
-task the stateful linters wait for (lines 541 and 563 to 566), and of each stateful linter's pre
-and of the posts that run before its own (lines 416 to 425). Lean loads the plugin before it runs
-the initializers of the module's imports (`Lean/Environment.lean` line 2446), so a stateful linter
-that imported code registers runs its post after the observer's (`Lean/Elab/Command.lean` lines 190
-to 192), and Lean starts the next command with no messages (`Lean/Language/Lean.lean` line 760).
+task the stateful linters wait for (lines 577 and 628 to 631), and of each stateful linter's pre
+and of the posts that run before its own (lines 438 to 449). Lean loads the plugin before it runs
+the initializers of the module's imports (`Lean/Environment.lean` line 2447), so a stateful linter
+that imported code registers runs its post after the observer's (`Lean/Elab/Command.lean` lines 192
+to 194), and Lean starts the next command with no messages (`Lean/Language/Lean.lean` line 761).
 Lean gives a plugin no later point at which it can read a command's messages. A message that such a
 linter logs is outside the record: that linter is code that runs inside the audited elaboration,
 like a trusted plugin.
@@ -63,7 +63,7 @@ def guardKinds : Array Name := #[``Lean.guardMsgsCmd, ``Lean.guardPanicCmd]
 arguments as the option's name and value: the command, term, tactic and `grind` tactic forms of
 `set_option` (`Lean/Elab/BuiltinCommand.lean` line 517, `Lean/Elab/BuiltinTerm.lean` line 416,
 `Lean/Elab/Tactic/BuiltinTactic.lean` line 217, `Lean/Elab/Tactic/Grind/BuiltinTactic.lean` line
-524). The linters that also call it (`Lean/Linter/Basic.lean` line 45,
+546). The linters that also call it (`Lean/Linter/Basic.lean` line 45,
 `Lean/Linter/MissingDocs.lean` line 321) record no information node, and repeat a `set_option` of
 the source. -/
 def setOptionKinds : Array Name :=
@@ -113,7 +113,7 @@ expanded them, where `steps` holds each macro expansion that Lean elaborated (`m
 syntax before and after it. A command that a macro expanded gives the kinds of its expansion. A
 list of commands, a node of kind `null` such as a macro's expansion to several commands, gives the
 kinds of each of its commands, since Lean elaborates such a list command by command
-(`Lean.Elab.Command.elabCommand`, `Lean/Elab/Command.lean` lines 698 to 703). Any other command,
+(`Lean.Elab.Command.elabCommand`, `Lean/Elab/Command.lean` lines 741 to 746). Any other command,
 one that no macro expanded, gives its own kind. On each path at most `fuel` expansions are
 followed; one more gives the anonymous kind, which no decision accepts. The recursion ends, since
 an argument of a list is a smaller syntax tree and each expansion uses up `fuel`. -/
@@ -254,7 +254,7 @@ def simpUserOption (found : Found) : Bool :=
         n.getArgs.any (sameOccurrence · found.info.stx)).isSome
 
 /-- The setting that `found` records, or none when the code that recorded it sets no option of the
-source. Lean v4.34.1 records an option's name in four places, which
+source. Lean v4.35.0 records an option's name in four places, which
 `Regula.Checker.GeneratedSettingSearch.producers` lists: `Lean.Elab.elabSetOption`, which the
 `set_option` forms call; the documentation command `{set_option name value}` (`docSetter`); the
 documentation role `{option}` (`docReference`), which sets none; and a `simp` user option
@@ -288,7 +288,7 @@ kind in `env`, as `Lean.Elab.expandMacroImpl?` finds one (`Lean/Elab/Util.lean` 
 as the syntax before and after each. Only these are steps that `leafKinds` follows: a macro runs
 in `MacroM` and returns syntax, so it changes no message and no state of the command. A command
 whose elaborator records an expansion itself, as `Lean.Elab.Command.adaptExpander` does
-(`Lean/Elab/Command.lean` lines 874 to 876), stays a command that no macro expanded. -/
+(`Lean/Elab/Command.lean` lines 917 to 919), stays a command that no macro expanded. -/
 def macroSteps (env : Environment) (expansions : Array (Name × Syntax × Syntax)) :
     Array (Syntax × Syntax) :=
   expansions.filterMap fun (elaborator, before, after) =>

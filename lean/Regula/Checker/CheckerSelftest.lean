@@ -2035,7 +2035,7 @@ private unsafe def structuralPartB (layout : SourceLayout) (executables : Bool)
         for (path, bytes) in placed do IO.FS.writeBinFile path bytes
     -- A changed observer source that compiles to other code: an added public definition gives
     -- the module's C file another declaration, and Lake compiles its object from the C file's
-    -- content (`Module.cFacetConfig`, `Lake/Build/Module.lean` lines 1184 to 1198), so the object
+    -- content (`Module.cFacetConfig`, `Lake/Build/Module.lean` lines 1195 to 1209), so the object
     -- the library links changes and Lake links the library again, whose bytes differ. A change
     -- that leaves the C file as it was, such as a comment, leaves the placed library current.
     let observerSource := sources / "RegulaObserver.lean"
@@ -3423,7 +3423,7 @@ import only Lean. A project that requires `regula` from the tool loads the tool'
 plugin.
 
 - Rebuilt in place: the observer source gains a public definition, so its C file and object change
-  (`Module.cFacetConfig`, `Lake/Build/Module.lean` lines 1184 to 1198), and Lake links the
+  (`Module.cFacetConfig`, `Lake/Build/Module.lean` lines 1195 to 1209), and Lake links the
   library again at its `sharedLibFile`, the path the gate read at its start
   (`LeanLib.recBuildShared`, `Lake/Build/Library.lean` lines 128 to 152), with other bytes. The
   audit must refuse the project under RG2003. An admission by the library's path, or by an
@@ -3533,8 +3533,8 @@ accept; the `Lib` environment replays its nine modules, with both copies of each
 only `Lib.Near`, `Lib.Far`, `Lib.Odd`, `Lib.Even`, `Lib.Up` and `Lib.Down` as `shared`; the `App`
 environment reuses `Lib.Base`, `Lib.Left` and `Lib.Right`, though it attributes the copies of
 `Lib.Right` to `Lib.Left`, and replays the other six and `App.Main`, again listing those six as
-`shared`. Each constant that reaches `Lean.reduceBool` reaches the axiom `Lean.trustCompiler`,
-which no claim admits, so the exclusion of native reduction has its witnesses in `Admission`. -/
+`shared`. Lean v4.35.0 declares neither `Lean.reduceBool` nor `Lean.reduceNat`, so the exclusion
+of native reduction has its witnesses in `Admission`. -/
 private def sharedCopiesControl (repo : FilePath) : IO (Array String) :=
   withScratch repo "shared-copies-control" fun project =>
     withScratch repo "shared-copies-result" fun output => do

@@ -43,7 +43,7 @@ open Regula.Checker.Account (Residual)
 empty value, so a section of this type is nonempty however long it is
 (`NonemptyText.toString_ne_empty`), and no proof of that reads the text. A proof that decides
 whether a string literal is empty reduces the literal in the kernel, at a cost that grows with its
-length: on Lean v4.34.1 the kernel turns a literal into `String.ofList` of its characters
+length: on Lean v4.35.0 the kernel turns a literal into `String.ofList` of its characters
 (`string_lit_to_constructor`, `src/kernel/inductive.cpp`), and its bytes are
 `List.toByteArray`, whose loop pushes every byte before it returns any
 (`Init/Prelude.lean`). Write one with `text! "…"`. -/
@@ -113,11 +113,11 @@ rest, split by `NonemptyText.ofString?` when the literal is elaborated, so the t
 literal (`toString_ofString?`). An empty literal is an elaboration error.
 
 Assumes:
-- Lean v4.34.1 `Init/Meta/Defs.lean` (`TSyntax.getString`, line 1357): the literal's value is
+- Lean v4.35.0 `Init/Meta/Defs.lean` (`TSyntax.getString`, line 1354): the literal's value is
   `isStrLit?`, the decoding that `elabStrLit` (`Lean/Elab/BuiltinTerm.lean`, line 198) gives an
   ordinary string literal.
-- Lean v4.34.1 `Init/Meta/Defs.lean` (`Syntax.mkCharLit` and `Syntax.mkStrLit`, lines 870 and
-  878): the literals they write with `Char.quote` and `String.quote` (`Init/Data/Repr.lean`, lines
+- Lean v4.35.0 `Init/Meta/Defs.lean` (`Syntax.mkCharLit` and `Syntax.mkStrLit`, lines 867 and
+  875): the literals they write with `Char.quote` and `String.quote` (`Init/Data/Repr.lean`, lines
   383 and 400) elaborate back to the character and string given (`elabCharLit` and `elabStrLit`,
   `Lean/Elab/BuiltinTerm.lean`, lines 248 and 198, through `decodeCharLit` and `decodeStrLit`). -/
 local macro "text! " literal:str : term =>
@@ -478,7 +478,7 @@ def guide : RuleId → Guide
         "The label is computed from the exact transitive set; a proof that merely could avoid an \
           axiom still carries it until rewritten.",
         "The table Lean records for a module can omit axioms that a declaration reaches: the \
-          pinned Lean 4.34.1 records no axiom for `Float`, whose constructor's type reaches \
+          pinned Lean 4.35.0 records no axiom for `Float`, whose constructor's type reaches \
           `propext` and `Quot.sound`. `#print axioms` can then show a smaller set, and a lower \
           label, than the checker, and the audit reports the omission (RG2005). The editor, which \
           has no replayed kernel, searches the constants its environment holds, and reads that \
@@ -1727,7 +1727,7 @@ def guide : RuleId → Guide
           a target that loads the observer through `plugins` without the same key in `needs`, \
           and the finding names the entry to add. `doctor` reports that finding; an audit of \
           such a target stops first at RG2003, whose line for each claimed module names both \
-          entries. Lake v4.34.1 builds a target's `needs` before \
+          entries. Lake v4.35.0 builds a target's `needs` before \
           its modules fetch their plugins, so a fresh build builds the observer once, and mixes \
           the trace of the `needs` into each module's trace whatever the target's \
           `platformIndependent`. So Lake replays a module only when the build has the observer \
@@ -1738,7 +1738,7 @@ def guide : RuleId → Guide
           exclusions `linter.style.header`, `linter.hashCommand` and `linter.style.longFile` at \
           `false`, `false` and `0`; `linter.style.header.license` at a nonempty string, which \
           selects the header the header linter accepts; each `linter.…` and `warn.…` option that \
-          Lean v4.34.1 or the pinned Mathlib and Batteries register, at the one value that \
+          Lean v4.35.0 or the pinned Mathlib and Batteries register, at the one value that \
           silences nothing its default reports (`RegulaPolicy.Community.warningSettings`); \
           `warningAsError` and \
           `debugAssertions` at `true`, which add checks; the resource limits `maxHeartbeats`, \
@@ -1805,7 +1805,7 @@ def guide : RuleId → Guide
           records an option's name for the documentation role `{option}`, which refers to an \
           option, and for a `simp` user option such as `simp +user.name`, which sets it in the \
           tactic's own configuration; neither sets an option of the scope, so the rule reads \
-          neither (`Regula.Checker.GeneratedSettingSearch.producers`). Of Lean v4.34.1's builtin \
+          neither (`Regula.Checker.GeneratedSettingSearch.producers`). Of Lean v4.35.0's builtin \
           commands, one other assigns \
           the options of the enclosing scope: `unlock_limits` sets `maxHeartbeats`, \
           `maxRecDepth` and `synthInstance.maxHeartbeats` to `0`, which the rule accepts \
@@ -1868,10 +1868,10 @@ def guide : RuleId → Guide
           claimed target of such a surface, including an executable whose own root does not \
           import Mathlib, needs the Mathlib options.",
         "The accepted value of each `linter.…` and `warn.…` option was read from its \
-          registration's description at Lean v4.34.1 and the pinned Mathlib and Batteries; that \
+          registration's description at Lean v4.35.0 and the pinned Mathlib and Batteries; that \
           it silences nothing its default reports is not proved \
           (`RegulaPolicy.Community.warningSettings`); each `pp.…` option's default was read \
-          from its registration at Lean v4.34.1, the pinned Mathlib and Qq \
+          from its registration at Lean v4.35.0, the pinned Mathlib and Qq \
           (`RegulaPolicy.Community.printSettings`). A move to another Lean release fails the \
           build until these arguments are read again (`acceptedRelease_eq`); nothing checked ties \
           the list to the Mathlib pin.",
@@ -1920,10 +1920,10 @@ def guide : RuleId → Guide
           error before it recorded the kernel's answer, is unresolved.",
         "Replacement history is reconstructed by fresh re-elaboration; metaprogramming commands \
           such as `run_cmd`, `run_elab` or module-local elaborators make it unavailable.",
-        "A path through the Lean toolchain's own origin-checked `Init`, `Std`, `Lean` or `Lake` \
-          modules does not need that history: a toolchain replacement is followed through the \
-          current target its compiled module records, as part of the toolchain's trusted base, \
-          so no toolchain replacement is reported as unresolved for missing history."]
+        "A path through the Lean toolchain's own origin-checked `Init`, `Std`, `Lean`, `Lake` or \
+          `LeanExport` modules does not need that history: a toolchain replacement is followed \
+          through the current target its compiled module records, as part of the toolchain's \
+          trusted base, so no toolchain replacement is reported as unresolved for missing history."]
       rationaleDetail := []
       proofShape := []
       established := [
@@ -1975,13 +1975,13 @@ def guide : RuleId → Guide
           computation, or initialized value can: a `csimp` simplification or a compiler-trusting \
           proof axiom never does, even on a constant declared in `Init`.",
         "The toolchain owns a replacement, `extern`, unsafe or partial computation, or initialized \
-          value declared in one of its own `Init`, `Std`, `Lean` or `Lake` modules, decided by \
-          where Lean loaded that module from (the pinned toolchain's library, an observation of \
-          the probe after the import, which rests on no change to the files of Lean's search \
-          path in between), not by its name. Such a boundary is the toolchain's trusted base: it \
-          passes and is reported for the whole audit in the audit's toolchain trusted base, as \
-          one entry with every environment and root that reaches it or as a `partial` \
-          implementation that such an entry names.",
+          value declared in one of its own `Init`, `Std`, `Lean`, `Lake` or `LeanExport` \
+          modules, decided by where Lean loaded that module from (the pinned toolchain's \
+          library, an observation of the probe after the import, which rests on no change to \
+          the files of Lean's search path in between), not by its name. Such a boundary is the \
+          toolchain's trusted base: it passes and is reported for the whole audit in the audit's \
+          toolchain trusted base, as one entry with every environment and root that reaches it \
+          or as a `partial` implementation that such an entry names.",
         "A `partial` implementation that a trusted boundary names as the code run in its place \
           is reported with that boundary where both are trusted and have the same owner (both \
           the toolchain's, or neither): the coverage counts take the two as one boundary, and \
@@ -2034,8 +2034,8 @@ def guide : RuleId → Guide
           compiler or external code; a Lean equality does not prove external machine code. These \
           stay trusted and reported.",
         "Anything about code the program selects at runtime rather than references: a constant \
-          it evaluates by name (`Lean.Environment.evalConst`, `Lean.Meta.reduceBoolNative`), a \
-          dynamic library or plugin it loads, or a process it spawns. The account is the static \
+          it evaluates by name (`Lean.Environment.evalConst`, `Lean.Environment.evalConstCheck`), \
+          a dynamic library or plugin it loads, or a process it spawns. The account is the static \
           closure; such code is data to it, and the toolchain primitive that runs it is trusted \
           base. The `initialize` and `[init]` actions of modules that the project imports but \
           does not own, static or at runtime, are likewise not roots of their own: the account \
