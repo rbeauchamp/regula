@@ -1025,7 +1025,6 @@ inductive Failure where
 then each option outside the accepted set in option order, then each contradicting `-D` in
 argument order, then a target that does not load Regula's elaboration observer or that loads it
 without the same key in its `needs`. -/
-@[regula_decision]
 def failures (o : BuildOptions) (mathlib : Bool) : List Failure :=
   (required mathlib).filterMap (fun r =>
       if meets o r then none else some (.option r.1 r.2 (valuesOf o r.1))) ++
@@ -1798,7 +1797,6 @@ theorem sourceAccepted_iff (o : BuildOptions) (mathlib : Bool) (s : SourceSettin
 
 /-- The options that a claimed module's source set and RG2006 does not accept, in source
 order. -/
-@[regula_decision]
 def sourceFailures (o : BuildOptions) (mathlib : Bool) (settings : List SourceSetting) :
     List SourceSetting :=
   settings.filter (!sourceAccepted o mathlib ·)

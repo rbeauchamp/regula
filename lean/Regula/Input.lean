@@ -8,9 +8,9 @@ Lake's own list of the targets and the modules it builds, and the project's clai
 (`foundation_manifest.json`). It carries no source text, message, info tree, option set in source,
 build log or file listing, so a rule cannot decide anything that is not here.
 
-The types follow the specification of the smaller Regula (`specification/RegulaSpecification/Input.lean`,
-`Gate.lean`): `Decl`, `ModuleRecord`, `Target`, `Entry`, `Contract`, `Input` and `Bundle` have the
-specification's fields, and `Bundle.refusal?` decides the specification's admission
+The types follow the specification of the smaller Regula
+(`specification/RegulaSpecification/Input.lean`, `Gate.lean`): `Decl`, `ModuleRecord`, `Target`,
+`Entry`, `Contract`, `Input` and `Bundle` have the specification's fields, and `Bundle.refusal?` decides the specification's admission
 (`Bundle.WellFormed`, `Input.WellFormed`). That the shell (`Regula.Load`) fills each field through
 the interface its docstring names is the loader's obligation; that each rule function of
 `Regula.Rules` decides the specification's violation predicate is #487's obligation, not a theorem
@@ -33,13 +33,21 @@ open Lean (Name NameMap NameSet)
 
 /-- The kind of a constant, one for each constructor of Lean's `ConstantInfo`. -/
 inductive Kind where
+  /-- `ConstantInfo.axiomInfo`. -/
   | «axiom»
+  /-- `ConstantInfo.defnInfo`. -/
   | «definition»
+  /-- `ConstantInfo.thmInfo`. -/
   | «theorem»
+  /-- `ConstantInfo.opaqueInfo`. -/
   | «opaque»
+  /-- `ConstantInfo.quotInfo`. -/
   | quotient
+  /-- `ConstantInfo.inductInfo`. -/
   | «inductive»
+  /-- `ConstantInfo.ctorInfo`. -/
   | constructor
+  /-- `ConstantInfo.recInfo`. -/
   | recursor
   deriving DecidableEq, Repr, Inhabited
 
@@ -80,7 +88,8 @@ structure Decl where
   isInitialized : Bool
   /-- Whether Lean marks it `noncomputable` (`Lean.isNoncomputable`). -/
   isNoncomputable : Bool
-  /-- Whether its type's result is `Bool` or `BEq _`: a Boolean test. -/
+  /-- Whether its type's result is `Bool` or `BEq _` and it is no field's projection function: a
+  Boolean test. -/
   isBoolTest : Bool
   /-- Whether its module belongs to the Lean toolchain's own library. -/
   inToolchain : Bool
@@ -98,7 +107,9 @@ structure ModuleRecord where
 
 /-- The two kinds of Lake target that a claim classifies. -/
 inductive TargetKind where
+  /-- A `lean_lib`. -/
   | library
+  /-- A `lean_exe`. -/
   | executable
   deriving DecidableEq, Repr, Inhabited
 
@@ -121,39 +132,52 @@ structure Target where
 
 /-- The foundation profiles a surface can claim. -/
 inductive Profile where
+  /-- No axiom. -/
   | kernelOnly
+  /-- `propext` and `Quot.sound` only. -/
   | choiceFree
+  /-- `propext`, `Quot.sound` and `Classical.choice`. -/
   | standardLogical
   deriving DecidableEq, Repr, Inhabited
 
 /-- The execution mode a surface claims. -/
 inductive Execution where
+  /-- Execution boundaries are not checked. -/
   | report
+  /-- Each reachable execution boundary needs an admitted correspondence. -/
   | checked
   deriving DecidableEq, Repr, Inhabited
 
 /-- How the claim classifies one target. -/
 inductive Classification where
+  /-- Claimed with a profile and an execution mode. -/
   | claimed (profile : Profile) (execution : Execution)
+  /-- Excluded from every claimed surface. -/
   | excluded
   deriving DecidableEq, Repr, Inhabited
 
 /-- One entry of the claim: a target and its classification. -/
 structure Entry where
+  /-- The target, by its Lake name. -/
   target : Name
+  /-- How the claim classifies it. -/
   classification : Classification
   deriving DecidableEq, Repr, Inhabited
 
 /-- The decision kind of an executable contract. -/
 inductive ContractKind where
+  /-- `Regula.Decides`. -/
   | decides
+  /-- `Regula.DecidesSoundly`. -/
   | decidesSoundly
+  /-- `Regula.DecidesCompletely`. -/
   | decidesCompletely
   /-- Any other relation: a contract that is not a decision kind. -/
   | other
   deriving DecidableEq, Repr, Inhabited
 
-/-- One executable contract: a theorem whose type is `ExecutableContract f R`, read from its type. -/
+/-- One executable contract: a theorem whose type is `ExecutableContract f R`, read from its
+type. -/
 structure Contract where
   /-- The theorem. -/
   theorem_ : Name
@@ -172,8 +196,11 @@ structure Contract where
 
 /-- A theorem that states the correspondence `@reference = @runs` of a departure. -/
 structure Correspondence where
+  /-- The constant that the kernel value has. -/
   reference : Name
+  /-- The constant that compiled code runs in its place. -/
   runs : Name
+  /-- The theorem that states `@reference = @runs`. -/
   theorem_ : Name
   deriving DecidableEq, Repr, Inhabited
 
@@ -201,6 +228,7 @@ structure Input where
 
 /-- The closed input of one run: one `Input` for each environment the shell loads. -/
 structure Bundle where
+  /-- The input of each environment. -/
   envs : List Input
   deriving Inhabited
 
@@ -229,6 +257,18 @@ def claimsOf (m : Name) : List (Profile × Execution) :=
           | .excluded => none
         else none)
     else acc
+
+/-- The profile and execution mode of each claim of each module, as `claimsOf` gives them, computed
+once for all modules. -/
+def claimTable : NameMap (List (Profile × Execution)) :=
+  i.targets.foldl (init := {}) fun table t =>
+    let claims := i.manifest.filterMap fun e =>
+      if e.target == t.name then
+        match e.classification with
+        | .claimed p x => some (p, x)
+        | .excluded => none
+      else none
+    t.modules.foldl (fun table m => table.insert m ((table.find? m).getD [] ++ claims)) table
 
 /-- Whether module `m` is claimed. -/
 def claimedModule (m : Name) : Bool := !(i.claimsOf m).isEmpty

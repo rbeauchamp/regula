@@ -610,7 +610,10 @@ registered here because `RegulaPolicy.Compiler` imports only `Init`, so that the
 can elaborate it alone, and `admitIdentity` and `admitToolchainOrigin` are registered here with
 it, where their witnesses reduce. For the same reason `Compiler.admitCapability` and
 `Compiler.accepts` are registered with `@[regula_decision]` below, from this module of their
-library, and not where they are declared. -/
+library, and not where they are declared. The decisions whose contracts this module states are
+registered there too, beside their contracts: a module that loads the declaration of one without
+this module has no registration of it, and each environment that has the registration has the
+contract (RG1008). -/
 theorem checked_admitCapability : Regula.ExecutableContract Compiler.admitCapability
     (Regula.Decides (·.isOk = true) (· = Compiler.legacyCompilerTrust)) :=
   ⟨.of_iff admitCapability_isOk_iff
@@ -632,7 +635,8 @@ theorem checked_compilerAccepts : Regula.ExecutableContract Compiler.accepts (fu
     ⟨("", ""), fun accepted =>
       absurd ((Compiler.accepts_iff "" "").mp accepted).1 (by decide)⟩⟩
 
-attribute [regula_decision] Compiler.admitCapability Compiler.accepts
+attribute [regula_decision] Compiler.admitCapability Compiler.accepts admitIdentity
+  admitToolchainOrigin admitFoundation Community.failures Community.sourceFailures
 
 /-- Origin admission succeeds exactly for a toolchain module with a nonempty origin equal to the
 expected one. -/

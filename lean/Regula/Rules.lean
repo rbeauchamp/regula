@@ -1,5 +1,7 @@
+import Std.Data.HashSet
 import Regula.Input
 import RegulaCore.RuleId
+import RegulaCore.Verdict
 
 /-!
 # The rules over the closed input
@@ -39,22 +41,26 @@ def nativeProofAxiom : Name → Bool
 /-- One finding: a rule and the subject that violates it, with the module of the subject when it is
 a constant or a module, and a detail. -/
 structure Finding where
+  /-- The rule that the subject violates. -/
   rule : RuleId
+  /-- The constant, module or target that violates it. -/
   subject : Name
+  /-- The module of the subject, when it is a constant or a module. -/
   module : Option Name
+  /-- What the rule found. -/
   detail : String
   deriving Inhabited
-
-/-- The verdict of a run. -/
-inductive Verdict where
-  | pass
-  | fail
-  | incomplete
-  deriving DecidableEq, Repr, Inhabited
 
 namespace Input
 
 variable (i : Input) (idx : NameMap Decl)
+
+/-- A step budget for a search over the input: the number of constants and of the names each
+constant mentions, runs and departs to. A breadth-first search pops each name it visits once and
+each other name at most once for each time a visited name gives it, so it ends within this many
+steps plus the number of its seeds. -/
+def budget : Nat :=
+  i.decls.foldl (fun n d => n + 1 + d.uses.length + d.compiled.length + d.departures.length) 0
 
 /-- Every name reachable from `seeds` through `next`, the seeds included: a breadth-first search
 whose step budget is the number of names it can visit. An exhausted budget is an error. -/
@@ -78,7 +84,9 @@ def usesOf (n : Name) : List Name := (idx.find? n).elim [] (·.uses)
 /-- The state of the axiom search: the transitive axiom set of each constant whose search
 completed, and the depth of each constant on the search's stack. -/
 structure AxiomSearch where
+  /-- The transitive axiom set of each constant whose search completed. -/
   done : NameMap (List Name) := {}
+  /-- The depth of each constant on the stack of the search. -/
   onStack : NameMap Nat := {}
 
 private def addAll (acc axs : List Name) : List Name :=
@@ -89,7 +97,8 @@ reaches only through a constant on the stack, and the least depth of such a cons
 set is stored once its search reached no constant below it on the stack, so each strongly connected
 set of constants is searched to its end from its first constant. The budget `fuel` bounds the
 depth, which the number of constants bounds; an exhausted budget is an error. -/
-def axiomVisit : Nat → Name → Nat → StateT AxiomSearch (Except String) (List Name × Option Nat)
+def axiomVisit :
+    Nat → Name → Nat → StateT AxiomSearch (Except String) (List Name × Option Nat)
   | 0, _, _ => throw "the axiom search exhausted its budget"
   | fuel + 1, n, depth => do
     let s ← get
@@ -137,12 +146,13 @@ def admits : Profile → Name → Bool
 /-- The constants of claimed modules. -/
 def claimedDecls : List Decl := i.decls.filter (i.claimedModule ·.module)
 
-/-- `d` is the recursion helper of a safe base in the same module. -/
+/-- `d` is the recursion helper of a safe recursive definition in the same module. The base is a
+definition: the base of a `partial def` is an opaque constant, so its helper is no exception. -/
 def recursionHelper (d : Decl) : Bool :=
   d.isPartial && !d.isUnsafe && d.implementedBy.isNone && !d.isExtern &&
     match d.name with
     | .str base "_unsafe_rec" => match idx.find? base with
-      | some b => b.module == d.module && !b.isUnsafe && !b.isPartial &&
+      | some b => b.kind == .definition && b.module == d.module && !b.isUnsafe && !b.isPartial &&
           b.implementedBy.isNone && !b.isExtern
       | none => false
     | _ => false
@@ -153,7 +163,10 @@ private def finding (rule : RuleId) (d : Decl) (detail : String) : Finding :=
 /-- RG1001 to RG1006 for each constant of a claimed module. -/
 def declarationFindingsM : StateT AxiomSearch (Except String) (List Finding) := do
   let mut out := []
-  for d in i.claimedDecls do
+  let table := i.claimTable
+  for d in i.decls do
+    let claims := (table.find? d.module).getD []
+    if claims.isEmpty then continue
     if d.kind == .axiom then
       out := out ++ [finding .projectAxiom d "declares an axiom"]
     let axioms ← axiomsWith idx d.name
@@ -166,7 +179,7 @@ def declarationFindingsM : StateT AxiomSearch (Except String) (List Finding) := 
     let compiler := axioms.filter fun a => nativeProofAxiom a || compilerAxioms.contains a
     unless compiler.isEmpty do
       out := out ++ [finding .compilerTrusting d s!"depends on the native-proof axioms {compiler}"]
-    for (p, _) in i.claimsOf d.module do
+    for (p, _) in claims do
       let excess := axioms.filter (!admits idx p ·)
       unless excess.isEmpty do
         out := out ++ [finding .profileExceeded d s!"depends on {excess}, outside its profile"]
@@ -188,7 +201,7 @@ def claimedName (c : Name) : Bool := (idx.find? c).any (i.claimedModule ·.modul
 /-- RG1007 to RG1009. -/
 def contractFindings : Except String (List Finding) := do
   let mut out := []
-  let bound := idx.size
+  let bound := i.budget
   for k in i.contracts do
     unless claimedName i idx k.theorem_ do continue
     let some thm := idx.find? k.theorem_ | continue
@@ -239,13 +252,14 @@ def executionFindings : Except String (List Finding) := do
     d.departures.foldl (init := m) fun m x =>
       if x.reference == x.runs then m
       else m.insert x.reference (x.runs :: (m.find? x.reference).getD [])
-  let bound := idx.size + departs.size
+  let bound := i.budget
   for (root, p, e) in executableRoots i idx do
     let closure ← reach (fun n => (idx.find? n).elim [] (·.compiled)) [root.name] bound
     for c in closure.toList do
       match idx.find? c with
       | none =>
-        out := out ++ [{ rule := .executionUnresolved, subject := c, module := none,
+        out := out ++ [{
+          rule := .executionUnresolved, subject := c, module := none
           detail := s!"is run by the compiled code of {root.module}.main and is no constant" }]
       | some d =>
         let onward ← reach (fun n => (departs.find? n).getD []) ((departs.find? c).getD []) bound
@@ -271,8 +285,9 @@ def executionFindings : Except String (List Finding) := do
 def librariesOf (m : Name) : List Target :=
   i.targets.filter fun t => t.kind == .library && t.modules.contains m
 
-/-- RG2002, RG2004 and RG2006, with the option allowlist `allowed`. -/
-def projectFindings (allowed : Name × String → Bool) : List Finding := Id.run do
+/-- RG2002 and RG2006, with the option allowlist `allowed`: they read only Lake's targets and the
+claim, so a project with no build has them too (`regula doctor`). -/
+def configurationFindings (allowed : Name × String → Bool) : List Finding := Id.run do
   let mut out := []
   let project (rule : RuleId) (subject : Name) (detail : String) : Finding :=
     { rule, subject, module := none, detail }
@@ -296,38 +311,53 @@ def projectFindings (allowed : Name × String → Bool) : List Finding := Id.run
               s!"classified differently from the library {l.name} that contains its root"]
     if i.claimedTarget x.name && !x.isDefault then
       out := out ++ [project .configuration x.name "is claimed but is not a default target"]
-  -- RG2004
-  for r in i.modules do
-    let libs := librariesOf i r.name
-    let covered := libs.length == 1 || (libs.isEmpty &&
-      i.targets.any fun t => t.kind == .executable && t.modules.contains r.name)
-    unless covered do
-      out := out ++ [{ rule := .coverage, subject := r.name, module := some r.name,
-        detail := s!"is in {libs.length} libraries" }]
-    if i.claimedModule r.name then
-      for n in r.imports do
-        if i.excludedModule n then
-          out := out ++ [{ rule := .coverage, subject := r.name, module := some r.name,
-            detail := s!"is claimed and imports {n}, a module of an excluded target" }]
   -- RG2006
   for t in i.targets do
     unless i.claimedTarget t.name do continue
-    let unset := [`autoImplicit, `relaxedAutoImplicit].filter fun o => !t.options.contains (o, "false")
+    let unset := [`autoImplicit, `relaxedAutoImplicit].filter fun o =>
+      !t.options.contains (o, "false")
     unless unset.isEmpty do
       out := out ++ [project .communityConfiguration t.name s!"does not set {unset} to false"]
     for o in t.options do
       if (o.1 == `autoImplicit || o.1 == `relaxedAutoImplicit) && o.2 != "false" then
         out := out ++ [project .communityConfiguration t.name s!"sets {o.1} to {o.2}"]
       else unless allowed o do
-        out := out ++ [project .communityConfiguration t.name s!"sets {o.1} to {o.2}, outside the allowlist"]
+        out := out ++ [project .communityConfiguration t.name
+          s!"sets {o.1} to {o.2}, outside the allowlist"]
     unless t.extras.isEmpty do
-      out := out ++ [project .communityConfiguration t.name s!"changes Lean's process with {t.extras}"]
+      out := out ++ [project .communityConfiguration t.name
+        s!"changes Lean's process with {t.extras}"]
   return out
+
+/-- RG2004: each module of the root package that Lake builds is in exactly one library, or in none
+and the root of an executable, and no claimed module imports a module of an excluded target. -/
+def coverageFindings : List Finding := Id.run do
+  let mut out := []
+  for r in i.modules do
+    let libs := librariesOf i r.name
+    let covered := libs.length == 1 || (libs.isEmpty &&
+      i.targets.any fun t => t.kind == .executable && t.modules.contains r.name)
+    unless covered do
+      out := out ++ [{
+        rule := .coverage, subject := r.name, module := some r.name
+        detail := s!"is in {libs.length} libraries" }]
+    if i.claimedModule r.name then
+      for n in r.imports do
+        if i.excludedModule n then
+          out := out ++ [{
+            rule := .coverage, subject := r.name, module := some r.name
+            detail := s!"is claimed and imports {n}, a module of an excluded target" }]
+  return out
+
+/-- RG2002, RG2004 and RG2006, with the option allowlist `allowed`. -/
+def projectFindings (allowed : Name × String → Bool) : List Finding :=
+  i.configurationFindings allowed ++ i.coverageFindings
 
 end Input
 
 /-- Every finding of one environment, with the option allowlist `allowed`. -/
-def Input.findings (allowed : Name × String → Bool) (i : Input) : Except String (List Finding) := do
+def Input.findings (allowed : Name × String → Bool) (i : Input) :
+    Except String (List Finding) := do
   let idx := i.index
   return (← i.declarationFindings idx) ++ (← i.contractFindings idx) ++
     (← i.executionFindings idx) ++ i.projectFindings allowed
@@ -341,7 +371,8 @@ def dedupe (fs : List Finding) : List Finding :=
 /-- The verdict of a run and its findings, or the reason the run is incomplete. A refused input,
 or a search that exhausted its budget, is incomplete; a well-formed input passes exactly when no
 rule reports a subject. -/
-def run (allowed : Name × String → Bool) (b : Bundle) : Verdict × List Finding × Option String :=
+def run (allowed : Name × String → Bool) (b : Bundle) :
+    Verdict × List Finding × Option String :=
   match b.refusal? with
   | some why => (.incomplete, [], some why)
   | none =>
