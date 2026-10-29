@@ -1,8 +1,8 @@
 import RegulaCore.Feedback
 import RegulaCore.Guide
-import RegulaCore.Lint
 import RegulaCore.Prose
 import RegulaCore.Setup
+import RegulaCore.Verdict
 
 /-! # Offline rule guidance for agents
 
@@ -44,7 +44,7 @@ acceptance build includes.
 namespace Regula.Guidance
 
 open Regula.Site (guide)
-open Regula.Checker.Lint (Outcome)
+open Regula.Closed (Verdict)
 
 /-- Registry prose with repository links written as paths relative to the Regula package root. -/
 def packageProse (text : String) : String := text.replace "(@repo/" "("
@@ -66,10 +66,8 @@ private def numbered (xs : List String) : String :=
   String.join
       ((List.range xs.length).zip xs |>.map fun (i, p) => s!"{i + 1}. " ++ packageProse p ++ "\n")
 
-/-- The `lake lint` exit classes, from the driver's own classification. -/
-def exitCodes : String :=
-  ", ".intercalate ([Outcome.accepted, .violation, .configuration, .incomplete].map fun o =>
-    toString o.exitCode ++ " " ++ o.label)
+/-- The `lake lint` exit codes, from the checker's own table (`Verdict.exitCodes`). -/
+def exitCodes : String := Verdict.exitCodes
 
 /-- The checked example pair when an adopter can apply it as shown; otherwise where the
 qualification inputs are and the correction they demonstrate. -/
@@ -86,6 +84,21 @@ def examples (id : RuleId) : String :=
       "The checked pair (`" ++ e.noncompliantPath id ++ "`, `" ++ e.compliantPath id ++
       "`) consists of qualification inputs, not project files. " ++ e.caption ++ "\n\n"
 
+/-- What checks the rule now: `lake lint` for each rule that Regula's checker reports, the Lake
+command that a rule handed to Lean goes to, or no check for a retired rule (the specification's
+`fate`). -/
+def checkedBy : RuleId → String
+  | .sourceBuild => "`lake build --wfail`, which decides it in place of Regula (issue #482)"
+  | .admission => "`lake check`, to which the specification hands it (issue #482); Regula's checker \
+      does not report it"
+  | .fenceStructure | .positiveExample | .negativeExample | .trustedExample
+  | .moduleDocumentation | .materialDocumentation | .materialIntent =>
+    "no check: the rule is retired to written guidance (issue #488)"
+  | .projectAxiom | .proofHole | .unknownAxiom | .compilerTrusting | .profileExceeded
+  | .escapeHatch | .executableContract | .decisionContract | .sharedTest | .environment
+  | .configuration | .coverage | .communityConfiguration | .executionUnresolved
+  | .executionBoundary => "`lake lint`, over the finished build"
+
 /-- The full rule as Markdown. For a rule whose subjects a registration attribute selects
 (`registrationFor`: `@[regula_material]` or `@[regula_decision]`), only source options and flags
 are said not to change the result. -/
@@ -96,10 +109,10 @@ def explain (id : RuleId) : String :=
   "**Requirement.** " ++ d.requirement ++ "\n\n" ++
   "- Category: " ++ d.category.label ++ "; scope: " ++ d.scope.label ++ "; subreason: `" ++
     d.applicability ++ "`\n" ++
-  "- Checked in: " ++ ", ".intercalate (d.evidenceModes.map Regula.Site.modeLabel) ++ "\n" ++
   "- Normative clauses: " ++ "; ".intercalate (d.normativeClauses.map fun c =>
     c.label ++ " (`" ++ c.source ++ "`, " ++ c.url ++ ")") ++ "\n" ++
-  "- Message form: `" ++ d.messageTemplate ++ "`\n" ++
+  "- Checked by: " ++ checkedBy id ++ "\n" ++
+  "- Finding form: `" ++ Regula.Closed.findingForm ++ "`\n" ++
   "- Rule page: " ++ helpUrl id ++ "\n\n" ++
   "## Problem\n\n" ++ packageProse g.problem.toString ++ "\n\n" ++
   "## Why it matters\n\n" ++ paragraphs (d.rationale :: g.rationaleDetail) ++
@@ -116,7 +129,7 @@ def explain (id : RuleId) : String :=
     String.join (g.residuals.map fun r => "- `" ++ r.spelling ++ "`: " ++ r.description ++ ".\n") ++
     "\n" ++
   "Paths are relative to the Regula package root (in an adopting project, " ++
-  "`.lake/packages/regula/`). The examples are the checked rule-example corpus.\n"
+  "`.lake/packages/regula/`). The examples are the rule's registered example pair.\n"
 
 /-- The compact index of every rule. -/
 def rulesIndex : String :=
@@ -138,8 +151,8 @@ def writingSections : List (String × String × List RuleId) := [
   ("Executable code",
       "Applies to `ExecutableContract` registrations, `@[regula_decision]` functions and code \
         reached from executable roots. The shared-test rule compares names: a copy of a test \
-        under a second name passes. A shared function with a result other than `Bool` or `BEq` \
-        is not refused, and the account of the contract names it for review.",
+        under a second name passes. A shared function with a result other than `Bool` or `BEq`, \
+        and a field of a structure that the two sides read, are not refused.",
     [.executableContract, .decisionContract, .sharedTest, .executionBoundary,
       .executionUnresolved]),
   ("Project configuration",
@@ -206,26 +219,20 @@ def agentGuideIn (e : Edition) : String :=
   "writing Lean, not only after the linter runs. This is the complete mechanical rule set of \
     the " ++
   "installed Regula version, ordered for writing code.\n\n" ++
-  "- Check with `lake lint` (`lake lint -- --fresh` for a fresh-source audit). Exit codes: " ++
-      exitCodes ++ ".\n" ++
-  "- `lake lint -- --json-out tmp/regula.json` also writes every finding with its location, " ++
-  "remedy and rule guidance (result schema 21: names as Lean prints them, and each source text " ++
-  "once, in `sourceTexts`, which a `sourceText` member indexes). When a \
-    stage did not complete, `complete` is false " ++
-  "and `stagesNotRun` names the stages, so fixing these findings can reveal more.\n" ++
-  "- A finding names its rule ID, what is wrong and where, and the fix. The first finding of " ++
-  "each rule adds why, common rewrites and a compliant example (or, where the checked files are " ++
-  "qualification inputs, the correction). `lake exe regula explain <ID>` prints the full rule " ++
-  "offline; `lake exe regula rules` lists all rules.\n" ++
+  "- Build the claimed targets with `lake build --wfail`, then check the finished build with " ++
+  "`lake lint`. Exit codes: " ++ exitCodes ++ ".\n" ++
+  "- A finding is one line: its rule ID, the constant and its module, what is wrong, and the " ++
+  "link to the rule's page. `lake exe regula explain <ID>` prints the full rule, with why, " ++
+  "common rewrites and a compliant example, offline; `lake exe regula rules` lists all rules.\n" ++
   "- When you mention a rule ID in an issue, a comment, a pull request or a document, link it " ++
-  "to the rule's page for the installed Regula build, the link a finding's `rule:` line " ++
+  "to the rule's page for the installed Regula build, the link that a finding " ++
   "prints: `" ++ citation e .executionBoundary ++ "`.\n" ++
   "- No option, attribute or flag waives a rule on a claimed surface. Do not disable a Lean " ++
   "warning, weaken a statement, or drop a registration to pass.\n" ++
   "- Follow the Lean community's style, naming and documentation conventions (standard §6.7). " ++
   "Every claimed target enables `linter.missingDocs` (document every definition) in its " ++
   "`leanOptions`, with the other options " ++ citation e .communityConfiguration ++
-  " checks; `lake lint` " ++
+  " checks; `lake build --wfail` " ++
   "rejects their warnings. Run Batteries' linters with `lake build && lake exe runLinter`. " ++
   "Disable a community linter only for a single declaration, " ++
   "where its guidance allows, with the reason; that never discharges a rule.\n" ++

@@ -18,8 +18,8 @@ block of the standard and every Lean fence below `docs/` follows the
 ## Use Regula
 
 - [Adopt Regula](guides/adoption.md): `require`, `lake exe regula init` and `doctor`, surfaces,
-  profiles, `lake lint`, updating, editor diagnostics, limits, and the semantic obligations
-  commands cannot establish.
+  profiles, `lake lint`, updating, findings, limits, and the semantic obligations that commands
+  cannot establish.
 - [Rule-reference website](guides/website.md): sources, guarantees, build, publication and
   versions of the generated rule reference, and the rule-change workflow.
 - [Performance notes](guides/performance-notes.md): practical guidance for efficient Lean code.

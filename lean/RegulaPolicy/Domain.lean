@@ -1575,12 +1575,7 @@ law observer's report of a registration whose requirement reduces to a decision 
 kernel-checked requirement and prints its parts with the notations in force. It is kept apart
 from `Declaration.ToolchainObserved` so that no part a decision takes (`Declaration.Inspected`,
 `Declaration.Assessed`, `Declaration.Role`, `Declaration.Registration`) holds it: a decision that
-read it would have to change its signature. The roles and the name-keyed decision give the same
-answer whatever it holds (`authorize_withEvidence`, `policyForName_withEvidence`), and so does the
-decision on a member when the reports of the inventory's records and of the member are replaced
-together (`policyFor_withEvidence`). The admission boundary of a supplied record (`recordFailure`)
-compares whole records, this part included, so it refuses a supplied record whose report differs
-from the report of the inventory's record. -/
+read it would have to change its signature. -/
 structure Declaration.Reported where
   /-- For a registration whose requirement reduces to `Regula.DecidesSoundly`,
   `Regula.DecidesCompletely`, `Regula.Decides` or `Regula.DecisionEquivalence`: the carrier, its
@@ -1594,10 +1589,8 @@ declared in the part that says where its value comes from: kernel-checked declar
 (`Declaration.KernelChecked`), a toolchain observation (`Declaration.ToolchainObserved`), or
 environment state an audited project can write (`Declaration.ProjectWritten`). The classification
 is of the source of each value. The report-only observations are in a fourth part
-(`Declaration.Reported`), which no part that a rule's decision takes includes. The admission
-boundary of a supplied record (`recordFailure`) compares whole records, this part included. No
-theorem of this library proves an
-observation truthful. -/
+(`Declaration.Reported`), which no part that a rule's decision takes includes. No theorem of this
+library proves an observation truthful. -/
 structure Declaration extends Declaration.Inspected, Declaration.ProjectWritten,
     Declaration.Reported
   deriving Repr, DecidableEq
@@ -1800,7 +1793,6 @@ structure ToolchainOrigin where
 
 /-- Admit an origin observation: an error unless the module is under `Init`, `Std`, `Lean`, `Lake`
 or `LeanExport` and `actual` is nonempty and equal to `expected` (`toolchainOrigin_roundtrip`). -/
-@[regula_decision]
 def admitToolchainOrigin (moduleName : Lean.Name) (actual expected : String) :
     Except String ToolchainOrigin :=
   if hm : ToolchainRoot moduleName.getRoot then
@@ -1906,7 +1898,6 @@ theorem foundationAuthentic_iff (o : FoundationObservation) :
 first that is not the toolchain's (`FoundationAuthentic`), so that no declaration of an
 environment whose `propext`, `Quot.sound` or `Classical.choice` is another constant is decided as
 resting on the foundation those names stand for. -/
-@[regula_decision]
 def admitFoundation (observed : Array FoundationObservation) : Except String Unit :=
   match observed.find? fun o => !foundationAuthentic o with
   | some o => .error s!"the environment's {o.name} is not the toolchain's foundation axiom: it is \

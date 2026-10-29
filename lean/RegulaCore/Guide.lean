@@ -1,15 +1,15 @@
-import RegulaCore.Account
+import RegulaCore.Residual
+import RegulaCore.Rule
 
 /-! # Rule explanations for the rule-reference site
 
 `guide` is the explanatory prose for every rule, as one exhaustive definition over the closed
 `RuleId`: adding a rule without its explanation is a compile error, and the site generator
 renders a page from `guide id` together with the registry descriptor `descriptor id` and
-the checked example evidence of that rule. Nothing here is a second rule vocabulary: rule
-identity, title, category, clauses, modes and routes come from `descriptor`, and so do the
-agent-facing requirement, short rationale, remedy, rewrites and example pair that every
-diagnostic and the `regula` command also print. This module holds only the longer site and
-`regula explain` prose.
+the example pair of that rule. Nothing here is a second rule vocabulary: rule identity, title,
+category, clauses, modes and routes come from `descriptor`, and so do the agent-facing
+requirement, short rationale, remedy, rewrites and example pair that the `regula` command also
+prints. This module holds only the longer site and `regula explain` prose.
 
 ## Main declarations
 
@@ -37,7 +37,7 @@ Presentation structure follows Microsoft's CA1416 page as one illustrative refer
 
 namespace Regula.Site
 
-open Regula.Checker.Account (Residual)
+open Regula.Review (Residual)
 
 /-- Text with at least one character, held as its first character and the rest. The type has no
 empty value, so a section of this type is nonempty however long it is
@@ -181,27 +181,49 @@ theorem Guide.wellFormed_iff_listsNonempty (g : Guide) : g.WellFormed ↔ g.List
   ⟨fun wellFormed => wellFormed.2.1,
     fun lists => ⟨g.problem.toString_ne_empty, lists, g.linkage.toString_ne_empty⟩⟩
 
-/-- Shared statement: the proved linkage of the rules that the declaration decision decides. -/
-private def declarationLinkage : NonemptyText :=
-  text! "The shared declaration decision `RegulaPolicy.declarationFailure` (its first failed \
-    requirement, `declarationFailure_ordered`) is mapped to a rule by the injective \
-    `Regula.ruleForFailure`. Project, file and documentation audits run it through \
-    `Regula.Checker.Policy.checked_memberRule` (`ruleForMember_eq`); the editor runs \
-    `Regula.Linter.checked_editorDecision`. For the same member and request, the editor passes \
-    exactly when the project decision selects no rule or only RG1008, which the editor does not \
-    render (`Regula.Checker.Policy.editor_decision_none_iff`), a rule it renders is the project \
-    decision's rule (`editor_decision_rule`), and a pending result withholds a project rule whose \
-    failure needs generated-role evidence (`editor_decision_pending`). The editor's request \
-    domain is the project's without teaching (`editor_request_sound`, \
-    `editor_request_complete`). The observed declaration fields and generated-role evidence are \
-    hypotheses of these theorems."
+/-- Shared statement: the linkage of a kept rule, whose subjects the function `function` reports
+against the predicate `predicate` of the specification module `file`. -/
+private def keptLinkage (function predicate file : String) : NonemptyText :=
+  (text! "The function `") ++ (function ++ "` reports the subjects of `RegulaSpecification." ++
+    predicate ++ "`, which `specification/RegulaSpecification/" ++ file ++ "` states. No \
+    theorem yet states that it reports exactly those subjects: issue #487 proves it. The \
+    shell's read of the build through Lake's load and Lean's import of the `.olean` files \
+    (`Regula.Load.loadBundle`) is trusted, not proved.")
+
+/-- Shared statement: the first trigger item of a documentation rule that is retired. -/
+private def retiredTrigger : String :=
+  "Regula's checker does not report this rule. The specification retires it to written \
+    guidance, and issue #488 completes the retirement. Its intent stays a written instruction for \
+    the project and its review."
+
+/-- Shared statement: why the documentation rules are retired. -/
+private def retiredRationale : String :=
+  "A broken documentation example or a missing docstring is cheap to see and cheap to correct by \
+    hand. Under the owner's rule of cost, such a rule stays a written instruction and an accepted \
+    risk, not a check."
+
+/-- Shared statement: what a pass establishes of a rule that Regula's checker does not report. -/
+private def notReported : String :=
+  "Nothing: a pass of `lake lint` says nothing about this rule."
+
+/-- Shared statement: the linkage of a documentation rule that is retired. -/
+private def retiredLinkage : NonemptyText :=
+  text! "None. Regula's checker does not report this rule. The specification gives it the fate \
+    retired (`RegulaSpecification.fate`), and issue #488 completes the retirement."
 
 /-- Shared statement: foundation labels. -/
 private def foundationTable : String :=
   "The three logical labels are Kernel-only (no axioms), Choice-Free (a subset of `propext` and \
     `Quot.sound`) and Standard-Logical (additionally `Classical.choice`). A surface's `claim` in \
-    `foundation_manifest.json` is the upper bound; each declaration is labeled from its own exact \
-    axiom set."
+    `foundation_manifest.json` is the upper bound for each constant of its modules."
+
+/-- Shared statement: how the axiom set of a constant is computed. -/
+private def axiomSet : String :=
+  "The transitive axiom set of a constant is each axiom that it reaches through the constants \
+    that each constant mentions, as `Lean.collectAxioms` walks them: the type and value of a \
+    definition, theorem or opaque constant, the type of an axiom, constructor or recursor, and \
+    the type and constructors of an inductive type. Imported constants are included. The loader \
+    reads the constants that Lean loads from the `.olean` files of the build."
 
 /-- The explanation of each rule. -/
 def guide : RuleId → Guide
@@ -210,12 +232,13 @@ def guide : RuleId → Guide
         an axiom without evidence, so every theorem that uses it is only conditional on an \
         assumption that no proof discharges."
       trigger := [
-        "The checker inspects every constant attributed to an owned module in the completed Lean \
-          environment. A `ConstantInfo.axiomInfo` there is rejected with applicability \
-          `project-axiom`.",
-        "The rule applies whether or not any other declaration uses the axiom, and to private, \
-          protected, internal-looking and generated names alike. A name or namespace never exempts \
-          it."]
+        "`Regula.Closed.Input.declarationFindings` reads each constant of a claimed module from \
+          the environments that the shell loads from the build. It reports the constant when its \
+          kind is `axiom` (`ConstantInfo.axiomInfo`).",
+        "The rule applies whether or not a declaration uses the axiom. Private, protected and \
+          generated names count alike, and a name or a namespace exempts nothing. The axiom that a \
+          native proof adds is a constant of its module too, so this rule reports it, and RG1004 \
+          reports the constants that use it."]
       rationaleDetail := [
         "Lean 4 has no `constant` command; an `opaque` definition with a body is kernel-checked \
           and is classified separately, not as an axiom."]
@@ -224,241 +247,162 @@ def guide : RuleId → Guide
           so the exact theorem statement shows what it depends on. Its transitive axiom set must \
           then fit the surface's foundation profile."]
       established := [
-        "No owned constant of the checked modules is a logical axiom (the complete inventory \
-          itself is RG2004).",
-        "The rule is evaluated from Lean's elaborated environment after checked admission, not \
-          from source text."]
+        "No constant of a claimed module is an axiom, in the environments that the shell loaded. \
+          RG2004 decides which modules the build holds and which of them are claimed.",
+        "The rule reads the declarations that Lean loads from the `.olean` files of the build, \
+          not the source text."]
       notEstablished := [
         "That the hypotheses replacing an axiom are satisfiable or appropriate: that is the \
           claim's intent and non-vacuity review.",
-        "Anything about axioms of imported, unowned dependencies; those are reported through the \
-          transitive axiom sets of RG1003 and RG1005."]
-      configuration := [
-        "Authenticated native-proof axioms generated by `native_decide`, `decide +native`, \
-          `bv_decide`, `bv_decide?` or `bv_check` are not project axioms: they are classified as \
-          compiler-trusting and rejected by RG1004 instead."]
+        "Anything about axioms of imported dependencies. The transitive axiom sets of RG1003 and \
+          RG1005 report those."]
+      configuration := []
       limitations := [
-        "The editor linter reports this rule for completed declarations of the current file \
-          (`editorSnapshot`); a clean editor buffer is not a project result.",
-        "A metaprogram that adds declarations still produces owned constants; they are inspected \
-          like authored ones."]
+        "A metaprogram that adds declarations still adds constants of its module. The rule reads \
+          them like written ones.",
+        "The rule reads the constants of the claimed modules that the build holds. A module that \
+          Lake does not build for a target is no input (RG2004)."]
       residuals := [.intent, .nonvacuity]
       checklist := ["FOUND-01", "TYPE-04", "THEOREM-09", "THEOREM-01", "DECL-03", "BUILD-01"]
-      linkage := declarationLinkage
-      sources :=
-          ["lean/RegulaCore/Policy.lean", "lean/RegulaPolicy/Decision.lean",
-              "lean/Regula/Findings.lean", "website/RegulaStandard/LogicProofPatterns.lean"] }
+      linkage := keptLinkage "Regula.Closed.Input.declarationFindings" "Violates1001"
+        "Foundation.lean"
+      sources := ["lean/Regula/Rules.lean", "lean/Regula/Load.lean",
+        "specification/RegulaSpecification/Foundation.lean",
+        "website/RegulaStandard/LogicProofPatterns.lean"] }
   | .proofHole => {
       problem := text! "The declaration depends on `sorryAx`: a `sorry`, an `admit`, an unfinished \
         tactic proof, or an imported declaration with such a hole occurs in its transitive axiom \
         set. The proposition is not proved."
       trigger := [
-        "The checker computes the exact transitive axiom set of every owned declaration in the \
-          kernel that replayed it (RG2005): the axioms reached through the types and values of the \
-          constants it uses and the constructors of each inductive type, imported constants \
-          included. It does not read the table of axioms that \
-          Lean records for each module when the module is compiled, which `collectAxioms` and \
-          `#print axioms` read for an imported declaration. If `sorryAx` belongs to the set, the \
-          declaration is rejected with applicability `hole`.",
-        "Theorems, proof-valued definitions and instances, and data definitions are all inspected; \
-          alternate syntax (`admit`, a tactic `sorry`) is caught because the kernel term contains \
-          `sorryAx`.",
-        "Lean itself warns `declaration uses 'sorry'` by default, and an elaboration error \
-          recovered as `sorry` is an error. In `lake lint`, `axiomGate` and the build-lint \
-          `policy` target that warning or error stops the audit at the warning-free build check \
-          before policy inspection, so an owned `sorry` in a claimed module is reported as RG2003 \
-          and the result is INCOMPLETE (`lake lint` exit 3); a single-file `axiomGate --file F \
-          --claim P` audit reports it as a RG2003 violation. This rule's own finding appears in \
-          the editor, in a file audit without `--claim` (which does not reject warnings), and in \
-          project and claimed-file audits when no warning was emitted (for example a hole \
-          inherited from an imported declaration, or `set_option warn.sorry false`, which does not \
-          waive the rule)."]
+        axiomSet,
+        "`Regula.Closed.Input.declarationFindings` reports a constant of a claimed module when \
+          `sorryAx` is in its transitive axiom set. A `sorry`, an `admit`, an unfinished tactic \
+          proof and a hole of an imported declaration all put `sorryAx` in the kernel term.",
+        "Lean itself warns `declaration uses 'sorry'` by default, so `lake build --wfail` fails \
+          first on a hole in a claimed module (RG2003). This rule also reports a hole that the \
+          warning does not show, such as one inherited from an import or one under \
+          `set_option warn.sorry false`."]
       rationaleDetail := []
       proofShape := [
         "The completed declaration keeps the same statement. Weakening the proposition until it is \
           easy to prove changes the requirement and is a semantic review failure, even though this \
           rule then passes."]
       established := [
-        "No owned declaration of the checked scope has `sorryAx` in its exact transitive axiom \
-          set."]
+        "No constant of a claimed module has `sorryAx` in its transitive axiom set, computed from \
+          the constants that the shell loaded."]
       notEstablished := [
         "That the completed proof proves the intended statement; the proposition itself is \
           reviewed against its intent.",
-        "Lean's own warning for `sorry` is a separate compiler diagnostic (RG2003); this rule does \
-          not depend on it, and disabling that warning does not waive this rule."]
+        "Lean's own warning for `sorry` is a build warning (RG2003). This rule does not depend on \
+          it, and turning the warning off does not waive this rule."]
       configuration := []
       limitations := [
-        "In the editor the rule is reported for completed declarations of the current snapshot. A \
-          cancelled collection reports nothing for that declaration; a failed one is reported as \
-          RG2005 (incomplete), never as an invented RG1002. The editor has no replayed kernel: it \
-          searches the constants its environment holds \
-          (`RegulaPolicy.KernelAxioms.reachedAxioms`), and for a theorem or an unexposed \
-          definition that a `module` dependency exports without its body it reads the axioms \
-          that module's table records, which can be fewer than the project audit computes.",
-        "The checked example comes from a diagnostic single-file inspection that keeps Lean's \
-          `sorry` warning as related evidence and continues to policy inspection; the ordinary \
-          project commands stop earlier with RG2003, as described above."]
+        "The axiom set comes from the constants as Lean loaded them from the `.olean` files. \
+          Lean's kernel did not check them again in this run: `lake check` does that (RG2005).",
+        "A search of the constants that exhausts its step budget makes the run INCOMPLETE \
+          (RG2001), not a pass."]
       residuals := [.qualify, .intent]
       checklist := ["FOUND-02", "THEOREM-06", "TYPE-04", "THEOREM-01", "THEOREM-09", "BUILD-01"]
-      linkage := declarationLinkage
-      sources :=
-          ["lean/RegulaCore/Policy.lean", "lean/RegulaPolicy/Decision.lean",
-              "lean/Regula/Findings.lean", "lean/RegulaPolicy/KernelAxioms.lean"] }
+      linkage := keptLinkage "Regula.Closed.Input.declarationFindings" "Violates1002"
+        "Foundation.lean"
+      sources := ["lean/Regula/Rules.lean", "lean/Regula/Load.lean",
+        "specification/RegulaSpecification/Foundation.lean"] }
   | .unknownAxiom => {
-      problem := text! "A declaration's exact transitive axiom set contains an axiom outside \
-        Lean's standard logical foundation (`propext`, `Quot.sound`, `Classical.choice`) that is \
-        neither `sorryAx` nor a compiler-trusting axiom (the `Lean.trustCompiler`, \
-        `Lean.ofReduceBool` and `Lean.ofReduceNat` family when the selected compiler declares it, \
-        or an authenticated native-proof axiom of `native_decide`, `decide +native`, `bv_decide`, \
-        `bv_decide?` or `bv_check`)."
+      problem := text! "A declaration's transitive axiom set contains an axiom outside Lean's \
+        standard logical foundation (`propext`, `Quot.sound` and `Classical.choice` of the \
+        toolchain) that is neither `sorryAx` (RG1002) nor the axiom of a native proof (RG1004)."
       trigger := [
-        "Each axiom in the transitive set is classified. One that is not a standard logical axiom, \
-          `sorryAx` (RG1002) or a compiler-trusting axiom (RG1004) is unknown, and the declaration \
-          is rejected with applicability `unknown-axiom`.",
-        "Imported axioms are not exempt: an owned theorem that uses a dependency's axiom is \
-          rejected even though the axiom is declared elsewhere. A dependency's authenticated \
-          native-proof axiom is compiler-trusting (RG1004) instead."]
+        axiomSet,
+        "`Regula.Closed.Input.declarationFindings` reports a constant of a claimed module when its \
+          transitive axiom set has an axiom that is not known, not `sorryAx` and not the axiom of \
+          a native proof. A known axiom is `propext`, `Quot.sound` or `Classical.choice`, declared \
+          in a module of the toolchain's own library.",
+        "Imported axioms are not exempt: a constant that uses an axiom of a dependency is \
+          reported, though the axiom is declared elsewhere. An axiom named `propext` that a module \
+          of the project declares is not known."]
       rationaleDetail := [
         foundationTable]
       proofShape := [
-        "After the fix, the exact transitive axiom set is a subset of `propext`, `Quot.sound` and \
+        "After the fix, the transitive axiom set is a subset of `propext`, `Quot.sound` and \
           `Classical.choice` and fits the surface claim (RG1005)."]
       established := [
-        "Every axiom in the transitive set of each owned declaration is either a standard logical \
-          axiom or rejected by a more specific rule."]
+        "Each axiom in the transitive set of each constant of a claimed module is a known axiom, \
+          `sorryAx` or the axiom of a native proof. RG1002 and RG1004 report the last two."]
       notEstablished := [
-        "Anything about the unowned dependency beyond its axioms; imported declarations are a \
-          declared trust boundary, identified by the exact dependency state (RG2001)."]
+        "Anything about an imported dependency beyond its axioms. Imported declarations are a \
+          trusted boundary."]
       configuration := []
       limitations := [
-        "Classification uses exact constant names and authenticated compiler evidence, not name \
-          patterns; a lookalike name gets no special treatment."]
+        "The loader decides that a module is in the toolchain's library from the place of its \
+          `.olean` file: below the library directory of the toolchain that `LEAN_SYSROOT` names. \
+          That Lean finds the toolchain's library only there is an assumption, as the \
+          specification states.",
+        "The axiom of a native proof is recognized by its name form \
+          `<declaration>._native.<tactic>.<suffix>`. An axiom with that name form is reported as \
+          RG1004 in place of RG1003, with the same verdict."]
       residuals := [.qualify]
       checklist := ["FOUND-03", "TYPE-04", "THEOREM-01", "THEOREM-09", "BUILD-01"]
-      linkage := declarationLinkage
-      sources :=
-          ["lean/RegulaCore/Policy.lean", "lean/RegulaPolicy/Domain.lean",
-              "lean/RegulaPolicy/Foundation.lean",
-              "lean/RegulaPolicy/Decision.lean"] }
+      linkage := keptLinkage "Regula.Closed.Input.declarationFindings" "Violates1003"
+        "Foundation.lean"
+      sources := ["lean/Regula/Rules.lean", "lean/Regula/Load.lean",
+        "specification/RegulaSpecification/Foundation.lean"] }
   | .compilerTrusting => {
-      problem := text! "A declaration on a positive surface depends on a compiler-trusting axiom: \
-        a native-proof axiom generated by `native_decide`, `decide +native`, `bv_decide`, \
-        `bv_decide?` or `bv_check`, or a member of the `Lean.trustCompiler`, `Lean.ofReduceBool` \
-        and `Lean.ofReduceNat` family declared by the selected compiler. Its proof trusts compiled code and the Lean compiler, not the \
-        kernel."
+      problem := text! "A declaration of a claimed module depends on the axiom that a native proof \
+        adds. `native_decide`, `decide +native` and `bv_decide` evaluate with compiled code and \
+        add an axiom that asserts the result. The proof then trusts compiled code and the Lean \
+        compiler, not the kernel."
       trigger := [
-        "`native_decide` and `decide +native` evaluate a decision procedure with compiled code, \
-          and `bv_decide`, `bv_decide?` and `bv_check` check a SAT certificate with compiled \
-          code; each adds an axiom asserting the result through `Lean.Meta.nativeEqTrue`, named \
-          after the tactic name it passes (`._native.native_decide.ax_…`, \
-          `._native.decide.ax_…`, `._native.bv_decide.ax_…`), and private to the module when a \
-          `module` file elaborates the proof without exporting. The checker authenticates such an \
-          axiom from three observations: its name is one the scheme generates under the name of \
-          a declaration of its module; it asserts `e = true` with `e` in the tactic's exact \
-          shape, and an independent native replay of `e` returns `true`; and a fresh \
-          re-elaboration shows that the command introducing that declaration adds an axiom of \
-          the same origin and statement, and that no `axiom` declaration occurs in that \
-          command's syntax or macro expansions. An axiom of an imported module that the audit \
-          does not own is no project axiom, so it needs only the first two, with the replay run \
-          on the imported constant. The axiom and every declaration depending on it \
-          are then classified compiler-trusting and rejected with applicability \
-          `compiler-trusting`. The legacy `Lean.trustCompiler`, `Lean.ofReduceBool` \
-          and `Lean.ofReduceNat` names are compiler-trusting only when an isolated, origin-checked \
-          Core observation confirms the complete family and matches the compiled policy. If the \
-          compiler has removed them, project or dependency axioms with those names receive no \
-          compiler exception.",
-        "Final environment metadata cannot authorize a generated native-proof axiom. For an \
-          axiom of an audited module, fresh re-elaboration of the exact source establishes it; \
-          for one of an imported module, the native replay of its statement does. An \
-          unauthenticated axiom that only looks native is not compiler-trusting."]
+        "At Lean v4.35.0, `native_decide`, `decide +native` and `bv_decide` add an ordinary axiom \
+          named `<declaration>._native.<tactic>.<suffix>` (`Lean/Meta/Native.lean`). \
+          `Regula.Closed.Input.declarationFindings` reports a constant of a claimed module when \
+          its transitive axiom set has an axiom of that name form \
+          (`Regula.Closed.nativeProofAxiom`).",
+        "It also reports an axiom of `Regula.Closed.compilerAxioms`, the axioms by which the \
+          kernel trusts the compiler. At v4.35.0 the toolchain declares none, so the list is \
+          empty.",
+        "The axiom itself is a constant of its module. RG1001 reports it, and this rule reports \
+          it too, since its own axiom set holds it."]
       rationaleDetail := []
       proofShape := [
         "The replacement proof proves the same proposition. Kernel reduction (`decide`, `rfl`) is \
           permitted, subject to the surface's foundation profile."]
       established := [
-        "No positive declaration depends on a compiler-trusting axiom: an authenticated \
-          native-proof axiom or a member of the legacy compiler-trust family declared by that compiler."]
+        "No constant of a claimed module has, in its transitive axiom set, an axiom with the name \
+          form of a native proof or an axiom of `compilerAxioms`."]
       notEstablished := [
-        "Performance of the kernel replacement proof; cost claims are separate (R-COST)."]
-      configuration := [
-        "Authenticated native proofs are reported separately in documentation teaching mode \
-          (`lean-trusted-compiler` fences) and remain excluded from conforming positives."]
+        "Performance of the kernel replacement proof; cost claims are separate (R-COST).",
+        "That an axiom with that name form came from a native proof: the rule reads the name \
+          only."]
+      configuration := []
       limitations := [
-        "The editor may defer authentication and report a pending result; the project command \
-          completes it.",
-        "An unauthenticated axiom that merely looks native is not compiler-trusting; it is \
-          rejected as an unknown axiom (RG1003) or project axiom (RG1001).",
-        "Authentication does not depend on the surrounding syntax: a native tactic anywhere in a \
-          declaration's elaboration is covered, in a tactic sequence or combinator, a nested \
-          `by` block, a `grind =>` or `sym =>` block, a `where` clause, a declaration with \
-          parameters (`+revert`), attributes or a namespaced, public or private name, under \
-          `set_option … in`, in ordinary and `module` files.",
-        "An axiom with a native name and a natively true statement stays a project axiom \
-          (RG1001) when the source declares it, as an `axiom` command written directly or \
-          produced by a macro, even one whose elaboration fails after adding it, or when a \
-          different command adds it than the one introducing the declaration its name belongs \
-          to. The declaration check reads syntax, quoted syntax included, and matches no names, \
-          so a command that both contains `axiom` syntax and uses a native tactic has no native \
-          axiom authenticated; its native axioms fail closed as RG1001 and RG1003. A custom \
-          tactic, elaborator or metaprogram that adds such an axiom without declaring it is \
-          classified compiler-trusting: the axiom asserts only what native evaluation confirmed.",
-        "The build is matched to the fresh re-elaboration by generated origin and asserted \
-          statement. When two commands add axioms of the same origin and statement, for \
-          example an authored spoof beside the genuine proof, neither is authenticated and both \
-          fail closed as RG1001 and RG1003.",
-        "An imported native-proof axiom has no command provenance. A dependency's authored \
-          `axiom` with a generated native name under a declaration of its own module, whose \
-          statement replays `true`, is compiler-trusting where an audited declaration uses it: \
-          the classification states a reliance on the compiler, not which code added the axiom. \
-          One whose statement does not replay `true`, or whose name's prefix names no declaration \
-          of its module, is an unknown axiom (RG1003)."]
+        "The rule identifies the axiom of a native proof by its name. An author can give an \
+          axiom that name. This rule then reports it in place of RG1003, and the verdict is the \
+          same.",
+        "The name form is that of Lean v4.35.0. A different release of Lean can name these \
+          axioms in a different form. The rule then reports them as RG1003."]
       residuals := [.qualify, .cost]
       checklist :=
           ["FOUND-05", "FOUND-03", "THEOREM-10", "THEOREM-01", "THEOREM-06", "DECL-03", "COMP-01",
               "BUILD-01"]
-      linkage := declarationLinkage ++ " The compiler-trusting and native role sets come from \
-        `RegulaPolicy.authorize`. `RegulaPolicy.authorizedNativeAxioms_iff` characterizes the \
-        authenticated owned native roles and `authorizedImportedNativeAxioms_iff` the imported \
-        ones (`ImportedNativeOK`), and `Roles.native_owned` shows that no imported record \
-        classifies an owned declaration. `native_generated` shows that each native role is a \
-        name Lean's `nativeEqTrue` scheme generates for `native_decide`, `decide +native` or \
-        `bv_decide` under a prefix related to an inventory declaration or imported record by \
-        `GeneratedPrefix`, and `native_provenance` that its statement was natively replayed and \
-        either that a command of its module's fresh transcript adds an axiom of the same origin \
-        and statement while its recorded syntax declares no axiom, or that it is an imported \
-        record of a module of no inventory declaration. `generatedPrefix_iff` shows that, for a declaration \
-        name without macro scopes, these are exactly the names the generator gives that \
-        declaration in its own module in either privacy mode. The execution probe classifies by \
-        `RegulaPolicy.compilerTrustingAxiomName`, which `compilerTrustingAxiomName_iff` \
-        characterizes as exactly those generated names and the enabled legacy compiler axioms. Both \
-        characterizations assume the runtime string append `RuntimeStringAppend`. The pure \
-        decision `RegulaPolicy.NativeStatement.recognize?` decides the shape of the statement \
-        that the replay reads, from a tactic, a prefix and a type. \
-        `NativeStatement.asserted?_sound` proves, with no hypothesis, that an accepted type is \
-        the statement of that tactic under that prefix (`NativeStatement.Statement`); \
-        `NativeStatement.asserted?_complete` proves that such a statement is accepted, with the \
-        hypothesis `RuntimeStringAppend` for `bv_decide` only; and \
-        `NativeStatement.checked_recognize` registers the sound kind only. That the tactic and \
-        the prefix given to the decision are those of the axiom's name is read from \
-        `Regula.Collect.nativeRecognition?`, not proved, and no theorem states that the type is \
-        the axiom's. The native replay of the accepted expression (`Regula.Collect`) is an \
-        operational observation, not a proof."
-      sources :=
-          ["lean/RegulaPolicy/Decision.lean", "lean/RegulaPolicy/NativeAxiom.lean",
-              "lean/RegulaPolicy/NativeStatement.lean", "lean/Regula/Collect.lean",
-              "lean/Regula/Checker/Frontend.lean", "lean/RegulaCore/Policy.lean"] }
+      linkage := keptLinkage "Regula.Closed.Input.declarationFindings" "Violates1004"
+        "Foundation.lean"
+      sources := ["lean/Regula/Rules.lean", "lean/Regula/Load.lean",
+        "specification/RegulaSpecification/Foundation.lean"] }
   | .profileExceeded => {
-      problem := text! "A declaration's exact transitive axiom set is admissible, but its least \
-        foundation label is stronger than the claim of the surface it belongs to."
+      problem := text! "A declaration's transitive axiom set has an axiom that the profile of its \
+        surface does not admit: its least foundation label is stronger than the claim of the \
+        surface it belongs to."
       trigger := [
-        "Each declaration receives the least label containing its exact axiom set. If that label \
-          exceeds the surface maximum, the declaration is rejected with applicability \
-          `label-exceeds-claim`.",
-        "The exact axiom set is computed in the kernel that replayed the declaration (RG2005), \
-          as for RG1002: the axioms reached through the types and values of the constants it \
-          uses and the constructors of each inductive type. It is not the table of axioms that \
-          each module records when compiled, which `#print axioms` reads for an imported \
-          declaration.",
+        "Each claimed target gives its modules the profile of its surface in \
+          `foundation_manifest.json`. `Regula.Closed.Input.declarationFindings` reports a \
+          constant of a claimed module when its transitive axiom set has an axiom that a profile \
+          of its module does not admit.",
+        "Kernel-only admits no axiom. Choice-free admits `propext` and `Quot.sound`. \
+          Standard-logical also admits `Classical.choice`. Each admitted axiom is the toolchain's \
+          own constant.",
+        "Each axiom that RG1002, RG1003 or RG1004 names is outside each profile, so this rule \
+          reports it as well. A wrong choice between those rules changes the rule of a finding, \
+          but not the verdict.",
         foundationTable]
       rationaleDetail := []
       proofShape := [
@@ -466,292 +410,90 @@ def guide : RuleId → Guide
           the surface claims Standard-Logical; executable behavior is a separate account (RG1007, \
           RG3001, RG3002)."]
       established := [
-        "Every declaration's exact axiom set is within the selected surface maximum."]
+        "Each constant's transitive axiom set is within the profile of each claimed target of its \
+          module."]
       notEstablished := [
         "Which label a declaration should have: the claim is a project decision, reviewed with its \
           rationale."]
       configuration := [
-        "The surface maximum is the `claim` of its entry in `foundation_manifest.json`; `axiomGate \
-          --file F --claim PROFILE` audits one file under an explicit profile. In the editor, \
-          `regula.localFoundation` selects local feedback only."]
+        "The profile is the `claim` of the surface in `foundation_manifest.json`: `kernel-only`, \
+          `choice-free` or `standard-logical`. A claim of `compiler-trusting` makes the run \
+          INCOMPLETE (RG2001): the checker checks no such profile."]
       limitations := [
-        "The label is computed from the exact transitive set; a proof that merely could avoid an \
-          axiom still carries it until rewritten.",
-        "The table Lean records for a module can omit axioms that a declaration reaches: the \
-          pinned Lean 4.35.0 records no axiom for `Float`, whose constructor's type reaches \
-          `propext` and `Quot.sound`. `#print axioms` can then show a smaller set, and a lower \
-          label, than the checker, and the audit reports the omission (RG2005). The editor, which \
-          has no replayed kernel, searches the constants its environment holds, and reads that \
-          table only for a theorem or an unexposed definition that a `module` dependency exports \
-          without its body."]
+        axiomSet,
+        "The table of axioms that Lean records for a module is not read. That table can omit an \
+          axiom: Lean 4.35.0 records none for `Float`, whose constructor's type reaches `propext` \
+          and `Quot.sound`. `#print axioms` can then show a smaller set than this rule.",
+        "A proof that could avoid an axiom still carries it until it is rewritten."]
       residuals := [.qualify]
       checklist := ["FOUND-03", "FOUND-04", "BUILD-02", "THEOREM-01", "THEOREM-10", "BUILD-01"]
-      linkage := declarationLinkage
-      sources :=
-          ["lean/RegulaPolicy/Domain.lean", "lean/RegulaPolicy/Foundation.lean",
-              "lean/RegulaCore/Policy.lean",
-              "lean/RegulaPolicy/KernelAxioms.lean",
-              "website/RegulaStandard/MathematicalFoundations.lean"] }
+      linkage := keptLinkage "Regula.Closed.Input.declarationFindings" "Violates1005"
+        "Foundation.lean"
+      sources := ["lean/Regula/Rules.lean", "lean/Regula/Load.lean",
+        "specification/RegulaSpecification/Foundation.lean",
+        "website/RegulaStandard/MathematicalFoundations.lean"] }
   | .escapeHatch => {
-      problem := text! "An owned declaration is marked `unsafe` or `partial` and does not satisfy \
-        the recursion-helper relation (regeneration of its base together with the base's \
-        kernel-checked recursion equation)."
+      problem := text! "A declaration of a claimed module is `unsafe` or `partial`, and it is not \
+        the recursion helper that Lean adds for a safe recursive definition."
       trigger := [
-        "Authored `unsafe` and `partial` declarations are escape hatches: an unsafe declaration is \
-          checked only in Lean's unsafe mode, cannot be used by safe declarations or proofs and is \
-          not replayed as logical evidence, and a partial definition has no termination proof. \
-          They are rejected with applicability `escape-hatch`.",
-        "One exception is the range-less partial helper Lean generates for a safe, \
-          termination-checked recursive `def` (structural or well-founded recursion, a `where` \
-          or `mutual` definition, a recursive `abbrev`, or a derived `DecidableEq`, `BEq`, \
-          `Hashable` or `Repr` function on a recursive inductive that is neither nested nor \
-          mutual). It is admitted by exact match (standard §7.4): rerunning Lean's recursion \
-          compiler on the helper's recursion, with only the toolchain's own preprocessing rules \
-          and the checker's built-in syntax handlers, regenerates the observed base, up to \
-          compilation erasure (the two values are the same once every proof and every type of \
-          each is erased, so an erased term matches only an erased term, never one that \
-          compilation keeps), the base's axioms are within Standard-Logical, and Lean's kernel \
-          checks the recursion equation of each helper of the group: with the helper's value \
-          `fun xs => body` and every helper of the group replaced by its base `f`, the theorem \
-          `∀ xs, f xs = body`, in the inspected environment, by a proof that uses no axiom \
-          outside Standard-Logical. The checker builds that statement from the helper's value \
-          and gives it to the kernel itself. A proof to try is taken from a constant named \
-          `f.eq_def`, whoever declared it, from the theorem Lean realizes for `f` or for the \
-          regenerated definition, or from reflexivity where the result is a proof, with every \
-          constant the search adds put back as its value; the kernel checks it against the \
-          checker's statement, and nothing else about it is consulted. The regeneration selects \
-          what is compared and no longer carries the claim about values: a base that the \
-          regeneration reproduces through matcher metadata or \
-          through `below` and `brecOn` declarations the audited module wrote is rejected where \
-          it does not satisfy the equation. Which code added the helper does not matter, and \
-          neither do declaration order, a nested proof shared with \
-          an earlier declaration, a proof written as a tactic block or as a term, or whether a \
-          `public` definition of a `module` file is exposed: the comparison uses no name of a \
-          theorem Lean abstracts from a nested proof. Nor, for the forms standard §7.4 lists, \
-          does it matter which definitions were irreducible where the definition was elaborated \
-          (`attribute [local irreducible]`, `attribute [irreducible]` afterwards, `unseal`): the \
-          regeneration runs a second time with no definition irreducible (each given the status \
-          its declaration shows), and the comparison \
-          takes a `match` that passes a variable through as the `match` that uses it directly, \
-          where Lean's kernel checks that the two are equal for that matcher. Nor does the \
-          reducibility status matter that a function the definition calls had where it was \
-          compiled, where that differs from the status at the end of the audit, whatever module \
-          declares the function and whether a global attribute given afterwards or a `local` \
-          one made the difference (`reducible`, `instance_reducible`, `implicit_reducible`, \
-          `semireducible` or `irreducible`): where neither regeneration reproduces the base, \
-          the checker runs the two decisions Lean's recursion compilers take below default \
-          transparency (which parameters are fixed, and which toolchain `wf_preprocess` rule \
-          rewrites the body), records which definitions they ask about, and regenerates under \
-          the statuses that change them, first under the assignment the observed base selects \
-          by the parameters it keeps fixed and the mentions of a function it keeps. Where none \
-          of those reproduces the base, it regenerates under the statuses a global attribute \
-          can have replaced on the definitions of the helper's own module that the helper \
-          reaches. An \
-          assignment only selects which regeneration runs. The limitations below state what \
-          this leaves out. The regeneration and the comparison \
-          run with Lean's smart unfolding off, so no declaration named `g._sunfold` is read for \
-          the unfolding of `g`.",
-        "No unsafe constructor-index helper (`T.ctorIdx._impl`) is admitted. The pinned compiler \
-          generates none, and the exception for one was removed until a port to a compiler that \
-          generates it; such a port must establish the helper's admission from kernel-checked \
-          data and toolchain observations alone.",
-        "A `partial def` is an opaque declaration that Lean runs through its generated helper. \
-          The finding names the `partial def`, at its source range, not the helper; this includes \
-          the `partial def` functions that deriving `BEq`, `Hashable`, `Repr` or `Ord` generates \
-          for a nested or mutual inductive (and deriving `Ord` for any recursive one).",
-        "A helper of a safe definition that the regeneration does not reproduce, or for whose \
-          recursion equation the checker finds no proof the kernel accepts, is reported under \
-          the helper's name (see the limitations below); its definition may be correct."]
-      rationaleDetail := []
+        "`Regula.Closed.Input.declarationFindings` reports a constant of a claimed module that \
+          Lean marks unsafe (`ConstantInfo.isUnsafe`) or partial (`ConstantInfo.isPartial`). An \
+          unsafe declaration is checked only in Lean's unsafe mode and is no logical evidence. A \
+          partial definition has no termination proof.",
+        "The one exception is a recursion helper (`Regula.Closed.Input.recursionHelper`): a \
+          partial constant `f._unsafe_rec`, not unsafe, not `extern` and with no `implemented_by` \
+          replacement. It is in the module of a safe, total definition `f` that is not `extern` \
+          and has no replacement.",
+        "At Lean v4.35.0 a `partial def f` is an opaque constant `f` with a partial helper \
+          `f._unsafe_rec`. The base `f` is no definition, so its helper is no exception. The \
+          finding names the helper `f._unsafe_rec`, not the `partial def`."]
+      rationaleDetail := [
+        "A helper is no logical evidence: Lean's kernel refuses a safe constant that mentions a \
+          partial one (`src/kernel/type_checker.cpp`). What a helper computes is a question of \
+          execution, which RG3002 decides under a checked execution claim."]
       proofShape := [
         "A total replacement keeps the same domain and result type; if it changes behavior, state \
           and prove the relation to the intended function."]
       established := [
-        "No authored unsafe or partial declaration is on the claimed surface. Every admitted \
-          recursion helper is Lean's compilation of a safe definition: its base, of the same \
-          module and type, is what Lean's own recursion compiler regenerates from the helper's \
-          recursion, up to compilation erasure, and is kernel-checked with Standard-Logical \
-          axioms. Lean's kernel has checked, with Standard-Logical axioms, that the base \
-          satisfies the recursion equation of each helper of the group, whatever matcher \
-          metadata, `below` and `brecOn` declarations, `_sunfold` declarations or reducibility \
-          statuses the audited module wrote. From that equation it is argued, not \
-          kernel-checked, that whenever the helper returns, it returns the base's value: by \
-          induction on the helper's evaluation, each recursive call that returns having \
-          returned the base's value."]
+        "No constant of a claimed module is unsafe or partial, apart from a recursion helper of a \
+          safe definition of the same module, by the form above."]
       notEstablished := [
         "That unsafe or partial code elsewhere is logically unsound; the rule concerns evidence, \
           not a claim that such code is wrong.",
-        "That a recursion helper terminates whenever the base does. Lean compiles the base from a body \
-          its `wf_preprocess` rules rewrote and the helper from the original, and Lean documents \
-          that a rewrite can remove a subterm the compiled code still evaluates or delay one \
-          under a binder; a toolchain rule can, through a reducible definition that ignores an \
-          argument. The helper's termination trusts that preprocessing, as every well-founded \
-          definition Lean accepts does.",
-        "That the regeneration observation is truthful or that a helper's compiled code matches \
-          its value; these rest on the pinned Lean toolchain and on Regula's own unproved \
-          regeneration comparison. The claim about values does not rest on the regeneration: \
-          it rests on the kernel-checked recursion equation, on the compiled code running the \
-          helper's value, and on the argument from the equation to the values, for which there \
-          is no theorem.",
+        "What a recursion helper computes: the rule identifies a helper by its form. Under a \
+          checked execution claim, RG3002 decides the code that runs.",
         "Termination proofs' adequacy for cost claims."]
-      configuration := [
-        "`partial_fixpoint` helpers are not covered by the recursive-helper exception."]
+      configuration := []
       limitations := [
-        "A helper is not admitted where the regeneration does not reproduce its base. The \
-          regeneration is given the helper's value and its base's termination argument, and it \
-          reruns Lean's structural and well-founded compilers in the environment the audit \
-          inspects (at the end of the audit), and there again with no definition irreducible, \
-          and in both under the reducibility assignments it searches, \
-          with Lean's default options and the toolchain's own rules, not with the options, rules \
-          and attributes in force where the definition was compiled. The forms known to fall \
-          outside are a `partial_fixpoint` definition, a base compiled through a fixpoint \
-          combinator other \
-          than `WellFounded.fix` and `WellFounded.Nat.fix`, a base whose compilation used a \
-          `wf_preprocess` rule registered outside the Lean toolchain, one elaborated with \
-          `set_option wf.preprocess false` or with a toolchain rule removed by \
-          `attribute [-wf_preprocess]` when a rule so disabled would have rewritten its body, or \
-          one whose compilation depended on a reducibility status the search does not find. \
-          Lean reads a status with its recording put aside while it reduces the discriminant \
-          of a `match` below default transparency; the search asks again in an environment \
-          where no definition unfolds for its status, so such a status is found, of whichever \
-          module and whatever it was. A `wf_preprocess` rule that applies only where several \
-          functions unfold together is found by following the first of them through the \
-          functions Lean then newly asks about. The argument of standard §7.4 leaves out a \
-          status Lean reads with no recording and outside a `match` (where it tests whether a \
-          type is a class, and where instance resolution meets a `reducible` head it did not \
-          unfold in a term with a metavariable), which only the statuses a global attribute \
-          can have replaced on the definitions of the helper's own module reach, and a rule \
-          that needs several functions of which none, unfolded, makes Lean ask about another \
-          once more than before. Neither was observed to reject a definition Lean accepts. \
-          Give such a function its \
-          reducibility where it is declared. Otherwise a definition for which the only \
-          difference is that ordinary (semireducible) definitions are irreducible at one of the \
-          two points \
-          (`attribute [local irreducible]`, `attribute [irreducible]` after the definition, \
-          `unseal`), or that an `abbrev` is irreducible at the end of the audit, is admitted.",
-        "A helper for which the definitions whose reducibility status changes a decision of \
-          Lean's recursion compilers allow more than 63 assignments of another status is tried \
-          under the assignment its observed base selects and then under the first 63 single \
-          candidate changes only. One candidate change gives one definition another status \
-          and, where it was followed through the definitions it newly asks about or paired \
-          with another definition, those definitions theirs, so it can assign \
-          statuses to several definitions. If none \
-          reproduces its base the helper is undecided, neither admitted nor rejected: the \
-          checker stops with an error that names it, and the audit is incomplete, not a \
-          violation of this rule. A helper no attempt within the bound reproduces may still be \
-          what Lean generated, so a violation would assert what the checker has not \
-          established, and the helper is not admitted either way. \
-          `Fixtures.Mutations.ReducibilitySearchBoundUnsafeRecForge` shows the outcome for a \
-          forged helper; the helper Lean generated for a definition of that shape is admitted \
-          under the assignment its base selects. The statuses a global attribute can have \
-          replaced on the definitions of the helper's module that it reaches, tried after \
-          those, have the same bound: where they allow more than 63 assignments only the first \
-          63 single changes are tried, and a helper none of them reproduces is undecided in the \
-          same way (`Fixtures.Mutations.ReducibilityFallbackBoundUnsafeRecForge`).",
-        "A change of a function's status that leaves the preprocessed body as it was is \
-          followed through the definitions it makes Lean's preprocessing newly ask about, \
-          without their unfolding: all of them at once, less the constants a toolchain rule's \
-          left-hand side mentions, each made `reducible`, then those with the status that \
-          unfolds least, and then all with those constants. It is then tried \
-          together with each other definition its run asked about in that way, one at a time. \
-          The first of those paths is followed to its end; beside it one change is followed \
-          through at most 64 runs of the preprocessing. Where those are used up with a change \
-          still not run, a helper nothing reproduces is undecided, the audit incomplete and \
-          not a violation, with an error that names which bound was reached.",
-        "A helper is not admitted where the checker finds no proof of its recursion equation \
-          that the kernel accepts. It looks for one only in a constant named `f.eq_def`, which \
-          Lean adds with a well-founded definition, in the theorem Lean realizes for a \
-          structural definition or for the regenerated one, and in reflexivity for a definition \
-          whose type is a proposition. Who declared a candidate is not checked, only that the \
-          kernel accepts it as a proof of the checker's statement. A well-founded definition \
-          and helper that a metaprogram adds with no theorem of that name are therefore \
-          rejected although the helper computes the base \
-          (`fixtures_forged_measured_bare` of `Fixtures.Mutations.MeasuredMatchUnsafeRecForge`); \
-          such a metaprogram adds `f.eq_def` too, copied from Lean's theorem or proved itself.",
-        "Editor feedback may be pending until the project command completes the relevant \
-          regeneration."]
+        "A metaprogram can add a constant of the helper's form. The kernel checks the base's \
+          definition, and the helper's code is what runs.",
+        "The regeneration of the base from the helper that standard §7.4 describes is not run. \
+          Issue #486 removes it with its code."]
       residuals := [.qualify, .cost, .intent]
       checklist := ["COMP-02", "THEOREM-05", "THEOREM-01", "DECL-03", "BUILD-01"]
-      linkage := declarationLinkage ++ " `RegulaPolicy.authorizedUnsafeRecHelpers_iff` \
-        characterizes the admitted recursion helpers, `authorizedUnsafeRecHelpers_base` gives \
-        each a recorded observation (the regeneration together with the kernel-checked \
-        recursion equation) and a safe base with Standard-Logical axioms \
-        (neither proves the observation truthful), and \
-        `Regula.Checker.Policy.partialParent_rule` with `subject_contract` reports a \
-        `partial def`'s helper under the `partial def`. \
-        `Roles.safetyHelpers_iff` binds the admitted helpers to the same inventory. The comparison \
-        that records a recursion helper's observation is the pure decision \
-        `RegulaPolicy.Erasure.reproduces` over the regenerated and the observed values, the \
-        observations of their terms and whether the observing pass finished. \
-        `Erasure.reproduces_iff` proves that it accepts exactly a regeneration whose pass \
-        finished, that added at least one definition, and whose every value `Erasure.EqualWithin` \
-        relates to the observed value of its name; `Erasure.equalWithin_iff` proves that the \
-        comparison of two values accepts exactly the values that relation relates, one \
-        constructor for each comparison rule; and `Erasure.checked_reproduces` registers the \
-        kind. The observations themselves and the regeneration (`Regula.Collect`) are operational."
-      sources :=
-          ["lean/RegulaPolicy/Decision.lean", "lean/RegulaPolicy/Erasure.lean",
-              "lean/Regula/Collect.lean", "lean/RegulaCore/Policy.lean"] }
+      linkage := keptLinkage "Regula.Closed.Input.declarationFindings" "Violates1006"
+        "Execution.lean"
+      sources := ["lean/Regula/Rules.lean", "lean/Regula/Load.lean",
+        "specification/RegulaSpecification/Execution.lean"] }
   | .executableContract => {
-      problem := text! "A closed `ExecutableContract f R` registration does not have the supported \
-        shape: it is not closed, it names no complete implementation constant, the \
-        implementation is not an eligible executable definition, or it states a decision kind \
-        that is not about the implementation on every argument or whose specification mentions \
+      problem := text! "An `ExecutableContract f R` of a claimed module does not constrain the \
+        code that callers run: it applies its implementation to arguments, the implementation is \
+        not safe, total and computable, or a decision contract states its specification through \
         the implementation."
       trigger := [
-        "The checker recognizes declarations of type `Regula.ExecutableContract f R` as executable \
-          promises about `f`. It rejects, with applicability `executable-contract`, a registration \
-          with free parameters, a partially applied or term-parameterized implementation, or an \
-          implementation that is missing, noncomputable, unsafe, partial, proposition-valued, \
-          type-producing or not an executable definition.",
-        "A registration whose requirement `R f` reduces to an application of \
-          `Regula.DecidesSoundly`, `Regula.DecidesCompletely` or `Regula.Decides` is a decision \
-          registration. The checker reads the kind from the head constant of that elaborated \
-          requirement, so an alias of a kind is recognized and no theorem text or name is matched, \
-          and it reports the kind with the direction a one-way kind leaves open.",
-        "A registration whose requirement reduces to `Regula.DecisionEquivalence`, a law of the \
-          two directions with no outcome, is not a decision registration: it is an ordinary \
-          requirement (`RegulaPolicy.Carrier.kind?_ofStructureName?`). The law observer reports \
-          each registration of a kind or a law and refuses none: it links the report only when \
-          the decided function is `f` itself under any number of `Function.uncurry` and nothing \
-          else, at the registration's own universe parameters, with every argument supplied \
-          (`RegulaPolicy.DecidedObservation.unlinked?_eq_none_iff`), and otherwise reports it \
-          as `unsupported`, or as `mismatch` for another constant or other levels.",
-        "It rejects a decision registration whose kind is stated about a function other than `f` \
-          on its arguments, on a packing of them, or with its result erased. A packing is `f` \
-          applied to every field of the variable of one function, each field once and in the \
-          order of the fields, where the variable's type has one constructor and no index \
-          (`RegulaPolicy.FieldPacking.covers`). `Function.uncurry` and the two erasures \
-          (`Regula.Dependent.isSome` and `Regula.Dependent.isOk`) can each be applied, any \
-          number of times, to `f` or to that field application. No other way of supplying the \
-          arguments is read as a packing, and no other function of the result as an erasure: \
-          these three constants are read by name.",
-        "A function that fixes an argument or gives a field twice decides `f` on part of its \
-          domain. A structure with a field that `f` does not take, such as a proof about the \
-          other fields, can restrict the domain, and so can an index: a type with an index holds \
-          only the tuples whose fields compute that index. Lean's `structure` command makes no \
-          projection for such a type, but Lean's kernel admits a primitive projection on it, so \
-          the checker reads the index count from the type's kernel-checked declaration. It reads \
-          whether an argument is a field from the kernel-checked value of the projection, not \
-          from Lean's record of projection functions, which a project can write.",
-        "It rejects a decision registration whose decided function has a result that is a \
-          function: `f` with an argument left, through `f` itself, `Function.uncurry` or a field \
-          application. The result type of the kind, with every definition unfolded, then has a \
-          leading binder, and the finding gives the number of them. The decision on the packing \
-          and on that number is one pure function (`RegulaPolicy.DecidedFunction.covers`).",
-        "That refusal is a conservative structural restriction. A kind whose acceptance predicate \
-          reads a function-valued result at one fixed value of the argument is the kind of one \
-          slice of `f` (`Regula.Decides.iff_slice`) and says nothing of `f` at another value. A \
-          kind whose acceptance predicate quantifies over the argument can constrain every \
-          value, and the checker, which does not read the acceptance predicate, refuses it too. \
-          The remedy for both is to supply the argument.",
-        "It rejects a decision registration that states its kind about `f` at universe levels \
-          other than the universe parameters of `f`, each once: such a kind holds of some \
-          universe instances of `f` and not of the others. The finding names the levels.",
-        "It rejects a decision registration whose acceptance predicate or specification mentions \
-          `f`: `f` is among the constants the term mentions, closed under the types and \
-          unfoldable values of those constants and the constructors of their inductive types. \
-          The finding names the constants through which `f` is reached.",
+        "The loader reads each theorem whose type, under its binders, is \
+          `Regula.ExecutableContract f R` (`Regula.Load.contractOf`). The implementation is the \
+          head constant of `f`, and the arguments that `f` applies it to are the arguments it \
+          fixes.",
+        "The condition `R` is a decision contract when its body, under a function binder, is an \
+          application of `Regula.Decides`, `Regula.DecidesSoundly` or `Regula.DecidesCompletely` \
+          (`Regula.Load.decisionOf`). The constants of its specification argument are the \
+          specification. Those of its acceptance predicate and of the decided function are the \
+          acceptance predicate's.",
+        "`Regula.Closed.Input.contractFindings` reports the theorem when `f` fixes an argument, \
+          when the implementation is unsafe, partial or noncomputable, or when the contract is a \
+          decision contract whose specification reaches the implementation through the constants \
+          that each constant mentions.",
         "Lean's type checker separately checks the supplied proof of `R f`."]
       rationaleDetail := [
         "A checker with only a soundness theorem can refuse every input, and one with only a \
@@ -771,228 +513,66 @@ def guide : RuleId → Guide
           predicate and a specification: `Regula.Decides accepts spec` for both directions, \
           `Regula.DecidesSoundly accepts spec` when a refusal may be wrong, \
           `Regula.DecidesCompletely accepts spec` when an acceptance may be. A function of several \
-          arguments is decided on their product, with every argument supplied: `fun g => \
-          Regula.Decides accepts spec (Function.uncurry g)` for two arguments, with `spec` over \
-          the pairs, and one more `Function.uncurry` for each further argument.",
-        "Where the type of an argument depends on an earlier argument, or an argument is a type, \
-          an instance or a proof, the kind is stated about `f` applied to every field of one \
-          structure, in the order of the fields: `fun g => Regula.Decides accepts spec (fun \
-          input : Input => g input.a input.b input.c)`, with `spec` over `Input`, a structure \
-          whose fields are the arguments. For two arguments the structure can be a pair \
-          (`Prod`, `Sigma`, `PSigma` or `Subtype`). A kind about a function with universe \
-          parameters is stated at those parameters, as `@f.{u}` in a registration with the \
-          universe parameter `u`.",
-        "Where the result type depends on the arguments, the kind is stated about an erasure of \
-          the result, a function whose type does not depend on the input: \
-          `Regula.Dependent.isSome g` for an `Option` of a payload and `Regula.Dependent.isOk g` \
-          for an `Except` of one, both to `Bool`. So `R` is `fun g => Regula.Decides (· = true) \
-          spec (Regula.Dependent.isOk g)`, and the acceptance predicate reads the erased result \
-          and nothing else."]
+          arguments is decided on their product: `fun g => Regula.Decides accepts spec \
+          (Function.uncurry g)` for two arguments, with `spec` over the pairs.",
+        "Where the type of an argument depends on an earlier argument, state the kind about `f` \
+          applied to the fields of one structure whose fields are the arguments \
+          (`Regula.Decides.of_packing`). Where the result type depends on the arguments, state it \
+          about an erasure of the result: `Regula.Dependent.isSome g` for an `Option` of a \
+          payload and `Regula.Dependent.isOk g` for an `Except` of one."]
       established := [
-        "The registration is closed, names an eligible executable constant, and Lean checked a \
-          proof of the stated predicate about it.",
-        "For a decision registration: Lean checked the directions its kind names about `f` \
-          against the written specification, with an accepted input for a sound kind and a \
-          refused input for a complete kind, and neither the acceptance predicate nor the \
-          specification mentions `f`.",
-        "For a decision registration: the report names each function outside Lean's own library \
-          that the specification and `f` or the acceptance predicate both reach, by name, in \
-          two classes. A function with a result of `Bool` or `BEq` is named at any depth, and \
-          RG1009 refuses the registration for it. Each other function is named where the \
-          specification reaches it first, and no registration is refused for it. The search \
-          for that class stops at each named function, so a function of that class that only \
-          a named function calls is not named. A function with a result of `Bool` or `BEq` \
-          that the two sides share only through the declaration of the input type is named \
-          apart, and no registration is refused for it.",
-        "For a linked report of a kind or a law: one proposition for each fact its carrier \
-          proves, about that registration's own acceptance predicate, specification and decided \
-          function, and no other fact. Each listed fact follows from the carrier, and each \
-          unlisted one fails for some instance of it (`RegulaPolicy.Carrier.facts_sound`, \
-          `RegulaPolicy.Carrier.facts_exact`). An unlinked report holds no fact by its type \
-          (`RegulaPolicy.ContractEvidence.facts_unlinked`). Each expression and proposition is \
-          recorded as its exact term beside Lean's display of it (`RegulaPolicy.Shown`). The \
-          roles and the name-keyed decision ignore the report, and so does the decision on a \
-          member when the inventory's reports and the member's change together \
-          (`RegulaPolicy.policyFor_withEvidence`). The admission boundary of a supplied record \
-          (`RegulaPolicy.recordFailure`) compares whole records and refuses one whose report \
-          differs from the inventory's. The \
-          account lists one entry for each observed registration \
-          (`Regula.Checker.Account.mem_evidenceOf`)."]
-      notEstablished := [
-        "That `R` expresses the intended behavior (R-INTENT) and that every caller uses the \
-          contracted implementation (R-INVARIANT). Every accepted account lists these as open for \
-          each reported contract.",
-        "That a function acting as a checker is registered, or registered with a kind: RG1008 \
-          requires a decision contract only of a function the project registers with \
-          `@[regula_decision]`, and which functions are checkers is a project's own declaration \
-          (R-INVARIANT).",
-        "For a decision registration: that the specification is the intended one or is \
-          independent of the implementation in substance (a copy of the implementation under \
-          another name passes, and so does a copy of a helper), the direction a one-way kind \
-          leaves open, and which value an accepting result carries.",
-        "For a decision registration: anything about a function that the report names as \
-          shared. When the specification and `f` both call a function, a change of that function \
-          changes the two together. Each direction then holds or fails as its proof does, and \
-          a proof that goes through the shared function on the two sides can stay valid \
-          although the meaning changed. The same holds of a function that the specification \
-          and the acceptance predicate both call. Whether the specification is about the function, \
-          as it is about an encoding or a state transition, or only uses it to prepare the \
-          input, remains review (R-INTENT). Where the function has a result of `Bool` or \
-          `BEq`, RG1009 refuses the registration.",
-        "For a decision registration: that the acceptance predicate is the intended reading of a \
-          result (R-INTENT). A constant function has no two-way kind \
-          (`Regula.Decides.not_of_constant`). But when the result of `f` determines its input, \
-          as the result of the identity function does, an acceptance predicate can restate the \
-          specification: `Regula.Decides spec spec id` holds of every specification that some \
-          input satisfies and some input does not.",
-        "For a law: any outcome. A law holds on an empty domain, where `f` neither accepts nor \
-          refuses an input (`Regula.DecisionEquivalence.of_empty`). It excludes a function that \
-          refuses every input only when the specification is satisfiable, and one that accepts \
-          every input only when it is refutable.",
-        "For a linked report: that each stated proposition is the statement of its fact. The \
-          observing pass builds it from Lean's own `Exists`, `Not` and function types, since the \
-          audited environment need not hold `RegulaPolicy`; this correspondence is not a \
+        "The contract fixes no argument of its implementation, and the implementation is safe, \
+          total and computable. Lean checked a proof of the stated condition, as for each \
           theorem.",
+        "For a decision contract: the specification does not reach the implementation through \
+          the constants that each constant mentions."]
+      notEstablished := [
+        "That `R` expresses the intended behavior (R-INTENT) and that each caller uses the \
+          contracted implementation (R-INVARIANT).",
+        "That a function acting as a checker is registered: RG1008 requires a decision contract \
+          only of a function that the project registers with `@[regula_decision]`.",
+        "For a decision contract: that the specification is independent of the implementation in \
+          substance. A specification can restate the body of `f` without its name, and a copy of \
+          `f` under a different name passes. Shared Boolean tests are RG1009.",
+        "That the decided function in the condition is `f` on its whole domain: the rule reads the \
+          implementation from the contract's first argument, not from the condition.",
+        "For a law (`Regula.DecisionEquivalence`): any outcome. A law holds on an empty domain, \
+          where `f` neither accepts nor refuses an input (`Regula.DecisionEquivalence.of_empty`).",
         "Behavior of compiled code beyond the Lean definition; execution boundaries are RG3001 and \
           RG3002."]
       configuration := []
       limitations := [
-        "Term-parameterized and partial-application registrations are unsupported shapes, not \
-          proofs of incorrectness; restate them as closed full-domain contracts.",
-        "A result type whose dependency on the input neither erasure removes, such as an \
-          inductive family indexed by the input, has no kind: return `Decidable _`, or register \
-          an ordinary requirement, which is reported with no kind. A registration cannot supply \
-          an erasure of its own: one stated for every payload type can read the payload type, \
-          and \"the payload type has a value\" is the specification of a proof-carrying \
-          payload, whatever the function returns.",
-        "A result of a subtype type that depends on the input, `{r : ρ // P x r}`, has no kind \
-          until [issue 243](https://github.com/rbeauchamp/regula/issues/243) is decided: an \
-          erasure that returns the value of the subtype would keep a free acceptance predicate \
-          on a data value. Such a function returns `Decidable p`, or is registered with an \
-          ordinary requirement.",
-        "In a file with a `module` header, the editor does not read a decision kind whose \
-          decided function applies to its variable an imported constant that Lean gives the \
-          file as an axiom, as it gives the projection function of a proof field: the editor \
-          cannot tell whether that argument is a field. It reports the reading as incomplete \
-          under RG2005 and names `lake lint`, which reads the kind.",
-        "The fields are those of one structure: a field of a field, as in a nested pair, is not \
-          read as a field. Nested dependent pairs are also costly: each projection of a pair \
-          carries the pair's type, so the elaborated statement grows by a large factor with each \
-          argument. Declare one structure for three or more arguments whose types depend on \
-          each other.",
-        "A kind requires an input with a proof: an accepted input for a sound kind and a refused \
-          input for a complete kind. For a function with universe parameters the witness is at \
-          every universe level, so its types are universe-polymorphic, such as `PUnit`.",
-        "A requirement that contains a kind inside a larger proposition, such as a conjunction, \
-          is reported with no kind: the kind is read from the head constant only. Register the \
-          further clauses separately.",
-        "A specification that mentions the implementation only inside a proof term written in \
-          the registration is refused like any other mention; state it without the \
-          implementation. A proof that Lean abstracts into an auxiliary theorem of a named \
-          definition is not followed: that theorem's statement is searched and its proof is \
-          not, so a mention that occurs only in such a proof is not reported. The specification \
-          does not depend on which proof of that statement it is.",
-        "The search for shared functions compares names. The specification and the acceptance \
-          predicate are statements. For each of the two it follows the types of constants, the \
-          unfoldable values of definitions, a definition of a proposition among them, and the \
-          constructors of inductive types, and it reads no value of a `Decidable` instance. For \
-          `f` it follows the unfoldable values of definitions and the types of constants that \
-          are no inductive type, constructor or recursor. It reads the value of a `Decidable` \
-          instance, which a function runs. It does not read the value of a definition of a \
-          type, of a proposition or of a record of propositions, which a function does not run. \
-          It does not read the body of a named proof declaration, and it reads no module of \
-          Lean's own library. A proof term that is written inline in the specification or in \
-          the acceptance predicate is a part of that term, so the search reads the constants \
-          that it names. For a function with a result of `Bool` or `BEq` it reads at any \
-          depth, also below a named function of the other class. For the other class it does \
-          not read below a named function. A second definition with the text of a helper is a \
-          different constant, and the search does not find it. A second definition with a \
-          theorem that the two are equal is not named either, and it is not a second statement \
-          of the meaning.",
-        "Data and statements are not named: an inductive type with its constructors, its \
-          recursor and its projection functions, a definition whose value is a type, a \
-          proposition or a record of propositions, a proof, a definition with a result of \
-          `Decidable p`, and a constant that is no function. Whether a definition is a function \
-          is read from its type alone: it takes an argument, or its result is a structure with \
-          a field that takes one, as `BEq` is. Which definitions Lean generated \
-          for a type or as a matcher is read from Lean's records, which a project can write. \
-          That reading only keeps a function out of the second class: a function with a result \
-          of `Bool` or `BEq` is named unless its kernel-checked value is a field's projection \
-          function. A field of a structure is read one level deep, at the arguments of the \
-          structure type."]
+        "The kind is read from the head constant of the condition's body, without unfolding. A \
+          definition that stands for a kind is read as no kind, and the contract is then an \
+          ordinary one.",
+        "A condition that holds a kind inside a larger proposition, such as a conjunction, has no \
+          kind. Register the further clauses separately.",
+        "`Regula.DecisionEquivalence`, a law of the two directions with no outcome, is no decision \
+          kind."]
       residuals := [.intent, .invariant, .qualify]
       checklist :=
           ["BUILD-03", "THEOREM-07", "SCOPE-02", "SCOPE-03", "TYPE-01", "THEOREM-01",
               "THEOREM-03", "COMP-01", "BUILD-01", "BUILD-02"]
-      linkage := declarationLinkage ++ " Extracting the contract observation (`Regula.Collect`), \
-        including the reduction that reads a decision kind and the reading of the decided \
-        function and of its universe levels, is operational. Three decisions in it are proved. \
-        The search that guards each reduction, and the search for a mention of the \
-        implementation, return a route exactly when a constant of the term leads to a target \
-        through the records of the observing pass, and a returned route follows those records \
-        (`RegulaPolicy.MentionSearch.checked_search`, `search_sound`). What a record lists is \
-        read from the environment, and that a constant with no record leads to no target is \
-        argued and is not machine-checked. A head constant is read as a kind \
-        exactly when it is that kind's structure \
-        (`RegulaPolicy.DecisionKind.ofStructureName?_eq_some_iff`), and a decided function of a \
-        form that is read is accepted exactly when its field application, if it has one, is on \
-        a type with one constructor and no index with the arguments its fields in order, and \
-        the kind's result type has no leading binder (`RegulaPolicy.DecidedFunction.covers_iff` \
-        with `RegulaPolicy.FieldPacking.covers_iff`). Two steps from those numbers to the claim \
-        are argued from Lean's typing rules and are not machine-checked. A result type with no \
-        leading binder is the type of a result that takes no argument, so no argument of the \
-        implementation is left. A type with one constructor and no index has a value for every \
-        tuple of fields, so the packing reaches every tuple of arguments, which is the \
-        hypothesis of `Regula.Decides.of_packing`. The names of the shared functions are proved \
-        over what the search reads of each shared definition \
-        (`RegulaPolicy.SharedDefinition`: its kind, whether its value is a projection function, \
-        and the form of its result type). A name is in a class of the record exactly when a \
-        definition of that class has it (`RegulaPolicy.mem_sharedNames_booleans`, \
-        `RegulaPolicy.mem_sharedNames_others`), and each class is a stated condition on those \
-        readings (`RegulaPolicy.SharedDefinition.class_eq_boolean_iff`, `class_eq_other_iff`). \
-        The search that finds the shared definitions, and the reading of each, are operational. \
-        The law observer's reading of a carrier and of its decided function is operational; \
-        whether that reading links the report is one registered decision \
-        (`RegulaPolicy.DecidedObservation.checked_unlinked`), and the facts it lists are proved \
-        sound and exact for the carrier (`RegulaPolicy.Carrier.facts_exact`). That each stated \
-        proposition is the statement of its fact is the observing pass's construction, not a \
-        theorem."
-      sources :=
-          ["lean/Regula/Contract.lean", "lean/Regula/Collect.lean", "lean/Regula/Probe.lean",
-              "lean/RegulaPolicy/Domain.lean", "lean/RegulaPolicy/Evidence.lean",
-              "lean/RegulaPolicy/MentionSearch.lean", "lean/RegulaCore/Policy.lean"] }
+      linkage := keptLinkage "Regula.Closed.Input.contractFindings" "Violates1007"
+        "Contracts.lean" ++ " The reading of a contract from its theorem's type \
+        (`Regula.Load.contractOf`, `Regula.Load.decisionOf`) is operational."
+      sources := ["lean/Regula/Contract.lean", "lean/Regula/Rules.lean", "lean/Regula/Load.lean",
+        "specification/RegulaSpecification/Contracts.lean"] }
   | .decisionContract => {
       problem := text! "A function registered as a decision with `@[regula_decision]` has no \
-        decision contract in its inventory or in a surface whose `decides` names its library, and \
-        its result type is not `Decidable _`. Nothing then states \
-        whether the function accepts only what its specification allows, everything its \
-        specification allows, or both."
+        decision contract in a claimed module, and its result type is not `Decidable _`. Nothing \
+        then states whether the function accepts only what its specification allows, everything \
+        its specification allows, or both."
       trigger := [
-        "The checker reads the `@[regula_decision]` registration of every owned declaration from \
-          the completed Lean environment, and whether the declaration's type, with its arguments \
-          opened and its result type reduced, ends in `Decidable _`. A registration counts \
-          whether the module that declares the function wrote it or another loaded module did.",
-        "A registered declaration whose result type is not `Decidable _` is rejected, with \
-          applicability `decision-contract`, unless a declaration of the same inventory records an \
-          `ExecutableContract` that names it as the implementation, states a decision kind \
-          (`Regula.DecidesSoundly`, `Regula.DecidesCompletely` or `Regula.Decides`) and was not \
-          refused under RG1007. The inventory is the declarations of the audited environment that \
-          owns the function: its library, an executable root inspected alone, a file, or a group \
-          of documentation fences. A law, `Regula.DecisionEquivalence`, is not a kind \
-          and does not count.",
-        "In a project audit, a contract of another claimed surface counts too when the manifest \
-          names the function's library in that surface's `decides`. It is the record that \
-          surface's environment holds in the same run, and that environment loaded the \
-          function's module from the same `.olean` file with the same imports.",
-        "Every registered declaration has the requirement, whatever else the checker records of \
-          it: one a project registers explicitly, such as a structure projection, and one named \
-          like a generated declaration. Lean applies the registration after compilation, so it \
-          is not copied to the `_unary` or `_mutual` definition Lean generates for a function \
-          defined by well-founded recursion.",
-        "The rule is decided after the declaration's other requirements (RG1001 to RG1007 and \
-          RG1009), so it is reported for a declaration that meets them. The editor does not \
-          render it: a contract normally follows its function, in a later command or module, so \
-          a snapshot of one command cannot decide whether the inventory has one."]
+        "The loader reads the registrations from the module entries of `Regula.decisionExtension` \
+          in the `.olean` files that each environment loads. A registration counts in each \
+          environment that loads the module that wrote it.",
+        "`Regula.Closed.Input.contractFindings` reports a registered function of a claimed module \
+          when its result type is not `Decidable _` and no theorem of a claimed module in the \
+          same environment is a decision contract (RG1007) about it.",
+        "The rule reads each environment apart, and a contract counts only where its module is \
+          loaded. So write the registration where the contract's environment loads it, such as \
+          with `attribute [regula_decision] f` beside the contract."]
       rationaleDetail := [
         "Standard §7.5 requires that removing evidence while its requirement remains fails the \
           gate. For a contract no caller consumes through `ExecutableContract.run`, deleting the \
@@ -1003,81 +583,46 @@ def guide : RuleId → Guide
           §3.2.4). It carries no witness that both outcomes occur: `Decidable True` qualifies."]
       proofShape := [
         "`ExecutableContract f (Regula.Decides accepts spec)`, or `Regula.DecidesSoundly` or \
-          `Regula.DecidesCompletely` for a declared one-way guarantee, in the library that \
-          declares `f`. RG1007 gives the supported shape of the registration, with a structure \
-          of the arguments for a function with a dependent argument type or a type argument, \
-          and an erasure of the result (`Regula.Dependent.isSome` or `isOk`) for one with a \
-          dependent result type. The registration may also be in a claimed surface whose \
-          `decides` names the library of `f`.",
+          `Regula.DecidesCompletely` for a declared one-way guarantee, in a claimed module that \
+          each environment of the registration loads. RG1007 gives the shape of the contract.",
         "Or a result type `Decidable (spec x)`, as a `DecidablePred spec` instance has."]
       established := [
-        "Every owned declaration registered with `@[regula_decision]` whose result type is not \
-          `Decidable _` is the implementation of an accepted decision contract of its inventory, \
-          or of a surface that the manifest relates to its own in the same run. The account \
-          reports its kind, and for a contract of another surface, that surface.",
-        "Removing that contract while the registration stays is rejected."]
+        "Each function that a claimed module registers with `@[regula_decision]`, and whose result \
+          type is not `Decidable _`, is the implementation of a decision contract of a claimed \
+          module in each environment that holds the registration.",
+        "Removing that contract while the registration stays is reported."]
       notEstablished := [
-        "That every function that acts as a checker is registered: the registration is the \
+        "That each function that acts as a checker is registered: the registration is the \
           project's own declaration, and removing it removes the requirement (R-INVARIANT).",
         "That the contract's specification is the intended one (R-INTENT), that a one-way kind \
           should have been two-way, or which value an accepting result carries.",
         "For a `Decidable` result: that the decided proposition is the intended one, that both \
           outcomes occur, or that the instance is computable.",
-        "That callers act on the function's verdict (R-INVARIANT).",
-        "That a relation the manifest declares between two surfaces is the intended one: the \
-          manifest is the project's configuration."]
+        "That callers act on the function's verdict (R-INVARIANT)."]
       configuration := [
         "`@[regula_decision]` is declared in `Regula.Decision`, a published checker interface a \
           claimed module may import: `import Regula.Decision`, or `meta import Regula.Decision` \
           in a file that is a `module`. Write it on the definition (`@[regula_decision] def \
-          f`), or with `attribute [regula_decision] f` in a module of the same library that \
-          imports `f`, for a function whose own module cannot import `Regula.Decision`.",
-        "A claimed surface of the manifest may list other claimed surfaces in `decides`. The \
-          recorded contracts of its declarations then count toward the registered decisions of \
-          each surface it names. The function stays registered in its own library."]
+          f`), or with `attribute [regula_decision] f` in a module that imports `f`."]
       limitations := [
-        "A contract in another library, executable root or file of the project does not count \
-          unless the manifest relates the two surfaces: the inventory is that of the audited \
-          environment that owns the function. Register the contract in the function's \
-          library, or name that library in the `decides` of the surface that holds the \
-          contract. A file or a group of documentation fences has no manifest that relates \
-          surfaces.",
-        "A registration that an audited module writes for a declaration outside its inventory \
-          stops the audit without a verdict, naming the module and the declaration: that \
-          inventory records no declaration to decide the requirement for. Register a function \
-          in a module of the library that declares it.",
-        "A function whose result type depends on its arguments in a way neither erasure \
-          removes, or for which no accepted or refused input can be given with a proof, has no \
-          decision kind (limitations of RG1007). Return `Decidable _`, or leave the \
-          function unregistered and record why.",
-        "A function in `IO`, `MetaM` or another monad comes into scope through the pure decision \
-          it runs: register that decision.",
-        "The registration is environment state an audited project writes. It only adds a \
-          requirement; no registration or option waives one.",
-        "The editor never reports this rule; `lake lint` or a file audit does."]
+        "A contract in a module that an environment of the registration does not load does not \
+          count there. Put the registration beside the contract, or the contract beside the \
+          function.",
+        "A function whose result type depends on its arguments in a way neither erasure removes, \
+          or for which no accepted or refused input can be given with a proof, has no decision \
+          kind (RG1007). Return `Decidable _`, or leave the function unregistered and record why.",
+        "A function in `IO`, `MetaM` or a different monad comes into scope through the pure \
+          decision it runs: register that decision.",
+        "The registration is environment state that a claimed module writes. It only adds a \
+          requirement; no registration or option waives one. The specification makes a \
+          registration a declaration of a type of Regula's interface, which issue #487 gives its \
+          form."]
       residuals := [.intent, .invariant, .qualify]
       checklist := ["THEOREM-07", "BUILD-03"]
-      linkage := text! "`RegulaPolicy.policyFor` decides the rule after the declaration's own \
-        requirements. `policyFor_decisionContract_iff` proves it reports the decision failure \
-        exactly for an inventory member that meets those requirements, is registered with a \
-        result type other than `Decidable _`, and is the implementation of no accepted decision \
-        contract of the inventory (`DecisionRegistered`); `policyFor_ordered` gives its place \
-        after the other failures, and `Roles.decided_iff` ties the decided implementations to \
-        the contracts the inventory counts (`Inventory.decisionContracts`). In a project \
-        census `census_decided_iff` states those contracts: the inventory's own and those of the \
-        surfaces the claim relates to its own (`countedContracts`), only its own where none is related \
-        (`census_decided_iff_of_unrelated`), and \
-        `accepted_counted_judgment` that each counted contract's registration met its own \
-        requirements in its own environment of the same accepted run. Project, file and \
-        documentation audits run it through \
-        `Regula.Checker.Policy.checked_memberRule` (`ruleForMember_eq`). The editor's decision \
-        does not run it (`Regula.Checker.Policy.editor_decision_ne_decisionContract`). Reading \
-        the registration and the result type (`Regula.Collect`) is operational, and so is each \
-        recorded contract."
-      sources :=
-          ["lean/Regula/Decision.lean", "lean/RegulaPolicy/Decision.lean",
-              "lean/RegulaPolicy/Specification.lean", "lean/RegulaPolicy/Plan.lean",
-              "lean/Regula/Collect.lean", "lean/RegulaCore/Policy.lean"] }
+      linkage := keptLinkage "Regula.Closed.Input.contractFindings" "Violates1008"
+        "Contracts.lean"
+      sources := ["lean/Regula/Decision.lean", "lean/Regula/Rules.lean", "lean/Regula/Load.lean",
+        "specification/RegulaSpecification/Contracts.lean"] }
   | .sharedTest => {
       problem := text! "The specification of a decision contract and its implementation, or its \
         acceptance predicate, both reach one function with a result of `Bool` or `BEq`. The \
@@ -1085,34 +630,19 @@ def guide : RuleId → Guide
         is a theorem that compares the test with itself at that point, so it does not state \
         the condition a second time."
       trigger := [
-        "For each `ExecutableContract` registration with a decision kind that RG1007 does not \
-          refuse, the checker searches the two sides of the kind. One side is the \
-          specification. The other side is the implementation with the acceptance predicate.",
-        "The registration is rejected, with applicability `shared-test`, when the specification \
-          reaches a function with a result of `Bool`, or a definition with a result of `BEq`, \
-          that the other side reaches too. The search for such a function reads at any depth: \
-          also below a function of another result type that the two sides share. The finding \
-          names each such function after `shared-booleans=`.",
-        "The checker does not enter the declaration of the input type of the kind from the \
-          input (`RegulaPolicy.StatementReading.reads`). It reads the specification from the \
-          body of its function abstraction under its variable. When the specification is a \
-          definition, alone or applied to its variable alone, the search reads the body of that \
-          definition's value. It does not follow a projection of a field of the input back to \
-          the input type, or to the type that an `abbrev` input type unfolds to. It follows \
-          everything else as before.",
-        "The checker reads the acceptance predicate by the rule of a statement, the declaration \
-          of the result type included. A value of the result type occurs only in `accepts (f x)`, \
-          so a test that the declaration of the result type names can be a part of that side.",
-        "A test that the two sides share only through the declaration of the input type, such \
-          as a test that an invariant of a field of the input states, is not counted. The \
-          report names it after `shared-through-types=`. A specification that names the input \
-          type in any other way, or that reads a field whose result type has such an \
-          invariant and is not the input type, reaches the test, and it is counted.",
-        "A function of Lean's own library is not counted, and no module of that library is \
-          read. A structure projection is not counted. A definition with a result of \
-          `Decidable p` is not counted, and the specification's side does not read its value.",
-        "The rule is decided after RG1007 for the same registration and before RG1005. The \
-          editor renders it at the registration theorem."]
+        "For each decision contract of a claimed module, `Regula.Closed.Input.contractFindings` \
+          searches the constants that the specification reaches, and those that the \
+          implementation and the acceptance predicate reach. Each search follows the constants \
+          that each constant mentions: the type and value of a definition, theorem or opaque \
+          constant, and the type and constructors of an inductive type.",
+        "It reports the contract when the two searches reach one Boolean test outside the \
+          toolchain: a constant whose type's result is `Bool` or `BEq _`, whose module is not in \
+          the toolchain's library, and that is no field's projection function. The finding names \
+          each shared test.",
+        "A field's projection function reads a field of data, which no definition computes, so \
+          the two sides may both read a field of the input. The loader reads whether a constant \
+          is a projection from its kernel-checked value (`Regula.Load.projectionValue`), not from \
+          Lean's record of projection functions."]
       rationaleDetail := [
         "A kind is a theorem about the present definitions. When the specification and the \
           implementation both call `test`, a change of `test` changes the two together. Each \
@@ -1120,441 +650,195 @@ def guide : RuleId → Guide
           `test` on the two sides stays valid although the meaning changed. In the smallest \
           case the specification is `test x = true`, the function is `test`, and the proof of \
           the two directions is `Iff.rfl`.",
-        "A test that only the declaration of the input type names is no part of the \
-          specification at any input. A kind compares `accepts (f x)` with `spec x` for each \
-          `x`. A change of the test changes which inputs there are, on the two sides together, \
-          and the comparison at an input is the one that it was. A specification that names \
-          the input type in another way can depend on the test at an input, and the test is \
-          counted.",
         "A proposition in the place of the test is a second statement, in other terms: a \
           quantifier, an order relation or an equation in place of a fold, a comparison \
-          function or a `BEq`. The theorem that the test decides the proposition, or the \
-          `Decidable` instance that the function runs, is then a proof that connects two \
-          statements."]
+          function or a `BEq`. The theorem that the test decides the proposition is then a proof \
+          that connects two statements."]
       proofShape := [
         "`def P (x : α) : Prop := …`, `instance (x : α) : Decidable (P x) := …`, a function \
           that runs `decide (P x)` or `if P x then … else …`, and `ExecutableContract f \
           (Regula.Decides accepts P)`.",
         "Or a function that keeps its test, a theorem `test x = true ↔ P x`, and an instance \
-          `decidable_of_iff _ (test_iff x)`: the specification names `P`, and the function \
-          reaches the test through the instance.",
+          `decidable_of_iff _ (test_iff x)` that the function runs. The specification names `P` \
+          and not the instance: the search follows the value of each constant that it reaches, \
+          an instance's too.",
         "For a comparison of values of a type with a derived `BEq`: `deriving DecidableEq`, and \
           `=` in the specification."]
       established := [
-        "The record of every accepted decision registration names no function with a result of \
-          `Bool` or `BEq`, outside Lean's own library, that the specification and the other \
-          side both reach, at any depth of the specification, apart from the declaration of the \
-          input type that the search enters from the input.",
-        "The account still names each other function that the two sides share, where the \
-          specification reaches it first (`shared-others=`)."]
+        "The specification of each decision contract of a claimed module and its implementation \
+          or acceptance predicate reach no shared Boolean test outside the toolchain, through the \
+          constants that each constant mentions."]
       notEstablished := [
         "That the specification is the intended one (R-INTENT). The rule compares names. A \
-          copy of a test under a second name is a different constant and passes, and so does a \
-          proposition that copies the expression of the test with `= true`. A test with no name \
-          of its own passes too: a function abstraction inside a shared function, or inside a \
-          shared record of functions.",
-        "Anything about a shared function of another result type, such as a function that \
-          returns a list or a record. The account names it and no registration is refused for \
-          it. Whether the specification is about that function, as it is about an encoding or \
-          a state transition, remains review (R-INTENT).",
+          copy of a test under a different name is a different constant and passes, and so does \
+          a proposition that copies the expression of the test with `= true`.",
+        "Anything about a shared function of a different result type, such as a function that \
+          returns a list or a record. Whether the specification is about that function remains \
+          review (R-INTENT).",
         "Anything about a test of Lean's own library, which the two sides can both call.",
-        "Anything about a test that the two sides share only through the declaration of the \
-          input type (`shared-through-types=`), such as a test that an invariant of the input \
-          states. Whether the invariant is the intended one remains review.",
         "A test that only a runtime replacement runs (`implemented_by`, `extern`, `csimp`): the \
           search reads kernel-checked values. RG3001 and RG3002 account for the replacement."]
       configuration := []
       limitations := [
-        "The search compares constants by name. It follows the types of constants, the \
-          unfoldable values of definitions and the constructors of inductive types from the \
-          specification, apart from the declaration of the input type that it enters from the \
-          input, and from the acceptance predicate. From the implementation it follows the types \
-          of constants and the unfoldable values of definitions. It does not read the body of a \
-          named proof declaration, and it reads no value of a `Decidable` instance on the \
-          specification's side (limitations of RG1007). \
-          A proof term that is written inline in a specification is a part of that term, so a \
-          test that it names is counted and the registration is refused, which is the safe \
-          side.",
-        "In a file with a `module` header, the editor has an imported function as an axiom \
-          when its module does not export the value. The class of such a function is read from \
-          its type, so the editor refuses a registration that shares one with a result of \
-          `Bool` or `BEq`. The editor does not read below such a function. Where a test could \
-          be shared only below one, the editor reports the reading as incomplete under RG2005 \
-          and names `lake lint`, which has each value. That is where it searches the two \
-          sides, finds no shared test, and one of two cases holds. Each side reaches an \
-          imported constant with no value in the file, a function or not, whose value the \
-          search of that side would read. Or one side reaches one, and the other side reaches \
-          a test that the rule counts. A specification that is such an imported definition, \
-          alone or applied to its variable alone, is such a constant: the editor does not read \
-          it through its type, since `lake lint` reads its body.",
-        "A definition that the body of the specification names among other terms, or that the \
-          value of a named specification names, has its type read. Where that type names the \
-          input type, the search reads the declaration of the input type there. So \
-          `fun input => AdmitSpec input ∧ 0 < input.amount` reads the declaration of the type \
-          of `input`, and plain `AdmitSpec` does not.",
-        "Whether a definition is a function is read from its type alone: it takes an argument, \
-          or its result is a structure with a field that takes one. A constant of type `Bool` \
-          is not a function and is not counted.",
-        "A type that the specification passes to a function that is no projection of a field is \
-          read, with its declaration: the reading cannot tell a function that quantifies over \
-          its type argument from one that does not. So `xs[i]` reads the element type of an \
-          array, which it passes to the instance of `GetElem`. A registration whose \
-          specification indexes a collection of a type whose invariant names a test of the \
-          implementation is refused.",
-        "A registration that RG1007 refuses, and one with no decision kind, has no search and \
-          names no function."]
+        "The search follows the value of each definition that it reaches, a `Decidable` \
+          instance's included, and the constructors of each inductive type, the input type's \
+          included. So a test that an instance of the specification runs, or that an invariant of \
+          the input type names, is shared when the implementation reaches it too.",
+        "The search reads the value of a theorem that it reaches, so a test that a proof in the \
+          specification names is shared too. That refuses more, which is the safe side.",
+        "A constant of type `Bool` that takes no argument is a Boolean test too: its type's result \
+          is `Bool`.",
+        "The rule searches each decision contract, also one that RG1007 reports."]
       residuals := [.intent, .qualify]
       checklist := ["THEOREM-07", "BUILD-03"]
-      linkage := declarationLinkage ++ " The decision of this rule is \
-        `RegulaPolicy.sharedTestFailure`, which `declarationFailure` runs after the recorded \
-        refusals of the contract. `RegulaPolicy.checked_sharedTestFailure` proves that it \
-        reports nothing exactly when the record names no function of the class `boolean` \
-        (`RegulaPolicy.SharedTestOK`). A name is in that class of the record exactly when the \
-        search read a definition of that class with that name \
-        (`RegulaPolicy.mem_sharedNames_booleans`), and the class is a stated condition on what \
-        was read of the definition (`RegulaPolicy.SharedDefinition.class_eq_boolean_iff`). What \
-        the search follows from each constant of the specification is the decision \
-        `RegulaPolicy.StatementReading.reads`, with the two-way kind \
-        `RegulaPolicy.StatementReading.checked_reads`, and `RegulaPolicy.StatementReading.reading` \
-        closes it over the records of the observing pass (`reading_some`). It reaches only what \
-        the rule of a statement reaches (`read_subset_withTypes`), so it refuses no \
-        registration that the earlier search accepted. What the rule reaches and the reading \
-        does not, the rule reaches from a constant of the input type that the reading does not \
-        reach (`RegulaPolicy.StatementReading.through_input`), and a name is shared only \
-        through the input type exactly as `RegulaPolicy.mem_sharedNames_throughTypes` states. \
-        The acceptance predicate is read by the rule of a statement. A record that names no \
-        test has no test that the reading of the specification reaches and that the \
-        implementation or the acceptance predicate reaches \
-        (`RegulaPolicy.StatementReading.no_shared_test`). The observing pass, the search for \
-        the implementation and the reading of each definition (`Regula.Collect`) are \
-        operational."
-      sources :=
-          ["lean/RegulaPolicy/Decision.lean", "lean/RegulaPolicy/Specification.lean",
-              "lean/RegulaPolicy/Domain.lean", "lean/RegulaPolicy/StatementReading.lean",
-              "lean/Regula/Collect.lean", "lean/Regula/Contract.lean"] }
+      linkage := keptLinkage "Regula.Closed.Input.contractFindings" "Violates1009"
+        "Contracts.lean"
+      sources := ["lean/Regula/Rules.lean", "lean/Regula/Load.lean",
+        "specification/RegulaSpecification/Contracts.lean", "lean/Regula/Contract.lean"] }
   | .environment => {
-      problem := text! "The declared Lean environment could not be loaded or identified, so the \
-        requested audit could not run. The result is INCOMPLETE, not a violation of the source."
+      problem := text! "The shell could not load the finished build, or the input it loaded does \
+        not have the closed form. The run cannot decide the rules, so the result is INCOMPLETE, \
+        not a violation of the source."
       trigger := [
-        "Setup checks load the Lake workspace, resolve dependencies to exact source states, and \
-          establish the compiler assumptions the audit needs. A failure (for example \
-          `lake-workspace-load-failed` when a required package directory is missing) is reported \
-          with impact `incomplete`.",
-        "RG2001 is also the finding for any other error that escapes the audit before a more \
-          specific rule classifies it (for example a malformed Lake query result). Read the \
-          detail: it names the failing step. Such an error is INCOMPLETE, never a pass.",
-        "A checker worker that loads a built environment for inspection and fails (for example \
-          an import conflict, or Lean's maximum recursion depth) is RG2001 too: the detail names \
-          the environment it was inspecting and carries the worker's own error text, and the \
-          result lists the stages that completed before it."]
+        "`Regula.Load.loadBundle` loads the workspace with Lake under the toolchain that \
+          `LEAN_SYSROOT` names, and reads `foundation_manifest.json` with \
+          `Regula.Checker.Manifest.parse`. It reads the `.olean` files of each module of the root \
+          package that Lake builds, and imports the modules with `Lean.importModules`.",
+        "A read that fails refuses the input. Examples are a missing `.olean` file, a module of a \
+          target whose `.olean` file is outside the root package's build, a manifest that the \
+          parser refuses, and a claim of `compiler-trusting`.",
+        "`Regula.Closed.Bundle.refusal?` then refuses an input without the closed form: a name \
+          declared twice in one environment, a constant that mentions a name that the \
+          environment does not hold, a module of a target with no record or loaded in no \
+          environment, environments that do not carry one project, or a claim of no target.",
+        "A search over the constants that exhausts its step budget is INCOMPLETE too. The last \
+          line of the run names the reason, and `lake lint` exits 2."]
       rationaleDetail := []
       proofShape := []
       established := [
-        "A passing result was produced in the declared environment: Lake loaded the workspace with \
-          the exact toolchain and resolved dependency state the result reports. An unavailable or \
-          unidentified environment is incomplete and never accepted."]
+        "A passing result read the build that Lake's load of the workspace names, with the \
+          toolchain that runs `lake lint`, and the input had the closed form. A build that \
+          cannot be loaded, and an input without the closed form, are INCOMPLETE and never a \
+          pass."]
       notEstablished := [
-        "That a dependency checkout matches its recorded revision's content: dependency \
-          acquisition is a trusted mechanism.",
-        "Anything about the source; no declaration was inspected."]
+        "That a dependency checkout matches its recorded revision: Lake's acquisition of \
+          dependencies is trusted.",
+        "That the build is current with the source: `lake lint` reads the `.olean` files that the \
+          build left, and it builds nothing. Run `lake build --wfail` first (RG2003)."]
       configuration := [
-        "There is no configuration that turns an incomplete setup into a pass."]
+        "There is no configuration that turns an incomplete run into a pass."]
       limitations := [
-        "This page's example is a diagnostic demonstration: the violating run is INCOMPLETE by \
-          design and is not accepted negative evidence. Its corrected counterpart passed a \
-          completed positive check."]
+        "That Lean refuses an `.olean` file that a different Lean version wrote \
+          (`Lean.readModuleData`) is an assumption, as the specification states."]
       residuals := [.qualify]
       checklist := ["DECL-01", "DECL-04"]
-      linkage := text! "None. Setup failures and escaped audit errors reach this rule by their \
-        error message prefix, failing closed to INCOMPLETE; that classification is not proved."
-      sources :=
-          ["lean/Regula/Checker/Workspace.lean", "lean/Regula/Checker/Lake.lean",
-              "lean/Regula/Checker/ResultProtocol.lean"] }
+      linkage := text! "None for the read of the build: `Regula.Load.loadBundle` reads it through \
+        Lake's and Lean's own interfaces, which are trusted. `Regula.Closed.run` gives INCOMPLETE \
+        when `Regula.Closed.Bundle.refusal?` refuses the bundle or a search exhausts its budget, \
+        by its definition and with no theorem. That `Bundle.refusal?` decides `Bundle.WellFormed` \
+        of the specification's `gateRecord` (`specification/RegulaSpecification/Gate.lean`) is \
+        not yet proved: issue #487 proves it."
+      sources := ["lean/Regula/Load.lean", "lean/Regula/Input.lean", "lean/Regula/Shell.lean",
+        "specification/RegulaSpecification/Gate.lean"] }
   | .configuration => {
-      problem := text! "The surface manifest (`foundation_manifest.json`, schema 2) is invalid or \
-        does not classify every root-package library and executable exactly once."
+      problem := text! "The claim in `foundation_manifest.json` does not classify each library \
+        and executable of the root package exactly once, names a target that Lake does not have, \
+        classifies an executable differently from a library that contains its root module, or \
+        claims a target that is not a default target."
       trigger := [
-        "The checker parses the manifest and reconciles it with Lake's elaborated root package. \
-          Unknown keys, duplicates, a wrong schema version, an unknown `execution` value, an empty \
-          `surfaces` array, a missing rationale, an unclassified or unknown target, and an \
-          executable whose root module belongs to a library classified differently (claimed in \
-          another surface, or claimed where the library is excluded, or the reverse) are \
-          rejected (`manifest-schema`, `manifest-incomplete`, `manifest-conflict` and related \
-          subreasons). A claimed executable whose root belongs to its own surface's library is \
-          accepted unless every module of that library is such a root; the root is then \
-          inspected once, in the executable's environment.",
-        "In the editor, an invalid local request (for example an unknown `regula.localFoundation` \
-          value) is reported under this rule for the current file only."]
+        "`Regula.Closed.Input.configurationFindings` reads Lake's targets of the root package, \
+          with the default targets of its load, and the claim. It reports a target that the claim \
+          classifies zero times or more than once, and an entry of the claim that names no target \
+          of Lake.",
+        "It reports an executable that the claim classifies differently from a library that \
+          contains its root module, and a claimed target that is not a default target. A claimed \
+          target must be a default target because `lake check` checks only the modules of the \
+          default targets (RG2005).",
+        "A manifest that `Regula.Checker.Manifest.parse` refuses, such as one with an unknown key, \
+          a wrong schema version or a missing rationale, makes the run INCOMPLETE (RG2001): the \
+          input then has no claim to check."]
       rationaleDetail := []
       proofShape := []
       established := [
-        "The manifest has the exact schema and classifies every root-package library and \
-          executable exactly once, each executable alike with every library that contains its \
-          root module."]
+        "The claim classifies each library and executable of the root package exactly once, names \
+          no target that Lake does not have, classifies each executable as each library that \
+          contains its root module, and claims only default targets."]
       notEstablished := [
         "That the chosen claims and exclusions are appropriate for the project; that is reviewed \
           with each rationale.",
         "Exclusions do not permit a claimed module to import an excluded one (RG2004)."]
       configuration := [
-        "The manifest is the configuration; there is no flag that accepts an invalid manifest, and \
-          the schema requires at least one nonempty library surface. \
-          `--manifest PATH` and `--project DIR` select which files are audited, not how strictly.",
-        "`lake lint` exits 2 (INVALID CONFIGURATION) when only this rule rejects."]
+        "The manifest is the configuration; there is no flag that accepts an invalid manifest.",
+        "`lake exe regula doctor` reports this rule's findings from Lake's load and the claim, \
+          without a build."]
       limitations := [
-        "Executable-only packages are valid Lean projects but unsupported by manifest schema 2.",
-        "A claimed library needs a module besides its claimed executables' roots: its own \
-          environment would otherwise be empty, which the checker does not support.",
-        "The editor never guesses an omitted project scope."]
+        "That the reader of `foundation_manifest.json` accepts only the text that its writer gives \
+          for a claim is an open proof of issue #487. `Regula.Checker.Manifest.parse_sound` and \
+          `parseValue_complete` state what an accepted manifest satisfies."]
       residuals := [.qualify, .intent, .invariant]
       checklist := ["DECL-04", "SCOPE-05", "BUILD-04", "DECL-01", "BUILD-01"]
-      linkage := text! "`Regula.Checker.Manifest.parse_sound` and `parseValue_complete` for the \
-        manifest (kernel-checked in the excluded `Regula` library) and \
-        `Regula.Linter.checked_editorRequest` for the editor's request. An executable root's \
-        classification is `RegulaPolicy.RootsClassifiedAlike`: `AxiomGate.checkClassification` \
-        decides it before the build of the project audit, `lake lint` and the build linter, and \
-        in `doctor` and `--explain-config`, and every accepted project claim decides it again in \
-        `TargetPartitionOK`; the nonempty-library check decides `ClaimCandidate.Valid`'s \
-        condition over the executed surface assignment. Routing a failure to this rule by its \
-        `manifest-` prefix is not proved."
-      sources :=
-          ["lean/Regula/Checker/Manifest.lean", "lean/Regula/Checker/Lake.lean",
-              "lean/Regula/Checker/AxiomGate.lean", "lean/RegulaPolicy/Plan.lean",
-              "lean/Regula/Findings.lean"] }
+      linkage := keptLinkage "Regula.Closed.Input.configurationFindings" "Violates2002"
+        "Project.lean"
+      sources := ["lean/Regula/Checker/Manifest.lean", "lean/Regula/Rules.lean",
+        "lean/Regula/Load.lean", "specification/RegulaSpecification/Project.lean"] }
   | .sourceBuild => {
-      problem := text! "The claimed source did not elaborate warning-free under the audit's build: \
-        the build failed or emitted a warning."
+      problem := text! "The claimed source did not elaborate warning-free: its build failed or \
+        logged a warning."
       trigger := [
-        "The audit builds the claimed targets itself with Lake's failure level at `warning`, as \
-          `lake build --wfail` does, so the build fails when a job it requires logs a warning or \
-          an error. Any warning fails, including when the source sets `warningAsError` to false \
-          locally (for a single-file audit, when any `--claim` is requested). Lake gives each \
-          message the level of its Lean severity, so an information message never fails the \
-          build, whatever its text. Lake logs standard output of the compiler that is not a \
-          Lean message as information, so the build also fails when a job it requires logs \
-          such an entry, which can be a warning whose line other output corrupted. Lake logs \
-          other programs' standard output in the same form, and such an entry at information \
-          level fails the build too; output Lake logs at trace level, as for a quiet program \
-          that succeeds, does not. A module compiled from a source path that, as Lake names it \
-          in messages, has a line break or is unknown fails the build, since its messages could \
-          not be told from such output. A single-file audit \
-          compiles the file with `lean --json` and reads each message's severity in the same \
-          way; output that is not a Lean message counts as an error. The original compiler \
-          message is preserved in the finding.",
-        "The audit's builds neither read nor write Lake's artifact cache, whatever the project's \
-          `enableArtifactCache` or the `LAKE_ARTIFACT_CACHE` environment variable says, and a \
-          claimed module whose build trace records a restore from that cache is elaborated again. \
-          The trace Lake writes for a module it restores from the cache holds no compiler \
-          messages, so such a module could not show its warnings.",
-        "The audit's build requests the Lean artifacts of every module of each claimed library and \
-          the root module of each claimed executable, whatever the library's default facets, so \
-          Lake elaborates each claimed module or replays the messages its build trace records. \
-          After the build, each claimed module's trace must record an elaboration; a claimed \
-          module without one fails the build, and the finding is incomplete. The build finds each \
-          claimed library and executable among the root package's own targets by the name the \
-          manifest checks, not by reading that name as Lake target syntax, in which a `/` names \
-          a package; a name that matches none of them, or a library without a module, fails the \
-          build.",
-        "Each claimed target loads Regula's elaboration observer, a Lean plugin, into the \
-          elaboration of its modules through Lake's own `plugins` setting \
-          (``plugins := #[`@regula/RegulaObserver:shared]``) with the same key in its \
-          `needs`, which RG2006 requires, so an ordinary build and the audit's build elaborate \
-          them alike. The observer records in \
-          each module's `.olean` every `#guard_msgs` and `#guard_panic` command it ran, also \
-          one a macro produced, and every warning or error that Lean keeps out of the build's \
-          output (a silent message). A claimed module that runs such a command or has such a \
-          message fails the build, with its line and column. So does a claimed module that the \
-          observer did not observe: the plugin was not among those Lean loaded for it or its \
-          target does not list the plugin's key in `needs`, so the audit reads no record; its \
-          `.olean` holds no complete record; or a command of it was neither linted nor skipped \
-          for `#guard_msgs`. \
-          Every build of a claimed surface decides this: those of `lake lint`, `axiomGate`, the \
-          build-lint `policy` target, `freshChecker` and the documentation audit's claimed \
-          build. A file audit with a claim (`axiomGate --file F --claim P`) loads the observer \
-          into its compilation of `F` and decides on that record in the same way, naming `F`. \
-          No lakefile option, environment variable or command-line flag turns it off. The \
-          only build that does not count the observer's findings is the build of a Verso \
-          documentation package that `docFenceAudit --verso` runs, such as Regula's own \
-          standard, whose `lean` blocks show messages with `#guard_msgs`; that build decides no \
-          claim.",
-        "In project runs (`lake lint`, `axiomGate`, the build-lint `policy` target) a warning or \
-          failed build stops the audit before policy inspection, so the finding is incomplete and \
-          the result INCOMPLETE (`lake lint` exit 3). A single-file `axiomGate --file F --claim P` \
-          audit reports a completed source rejection as a violation, as in the checked example; \
-          without `--claim` warnings do not fail a file audit (an elaboration error is still a \
-          RG2003 violation), a file that elaborates and passes the declaration rules is CLASSIFIED \
-          rather than accepted, and a failed build of the manifest's claimed targets it depends on \
-          is INCOMPLETE."]
+        "Regula's checker does not report this rule. The specification hands it to Lake: \
+          `lake build --wfail` of the claimed targets fails when a job logs a warning or an \
+          error. Issue #482 completes the hand-over.",
+        "Run `lake build --wfail` before `lake lint`. `lake lint` reads the `.olean` files that \
+          the build left, and it does not see the messages of the build."]
       rationaleDetail := []
       proofShape := [
         "The fix must not change the proposition or behavior being claimed; if it does, review the \
           statement again."]
       established := [
-        "Every claimed module elaborated from source without errors or warnings under the audit's \
-          build: the build elaborated it, or, in an incremental run, replayed the messages of the \
-          elaboration that wrote its build trace, where that elaboration ran under the audit-build \
-          marker, earlier in the same run, or under the `weakLeanArgs` that the trace file \
-          records as its library's current ones. The build requested each claimed module's \
-          artifacts itself, and no claimed module was restored from Lake's artifact cache. In \
-          each claimed module, Regula's elaboration observer ran on every command that Lean \
-          lints and recorded no `#guard_msgs` or `#guard_panic` and no silent warning or \
-          error."]
+        notReported,
+        "A pass of `lake build --wfail` establishes that no job of the build logged a warning or \
+          an error."]
       notEstablished := [
-        "Fresh source elaboration unless the run is fresh: `lake lint` without `--fresh` is \
-          incremental and trusts the build traces Lake recorded in the project's build directory \
-          to hold each up-to-date module's messages.",
-        "That no linter was disabled: a disabled linter emits nothing for this rule to reject. \
-          RG2006 rejects a source option that turns off one of Lean's default warnings, and \
-          admits only the one-declaration form for a community linter.",
-        "That the record of the elaboration observer is the observer's own, and that no message \
-          was removed: code that runs in the module's elaboration, of the project or of an \
-          imported module, such as an initializer, a command or term elaborator or a tactic, \
-          could write or remove the record, or remove a message before the observer reads it \
-          (standard §7).",
-        "A message that a stateful linter of an imported module logs after the observer's own \
-          linter ran on the command: Lean loads the plugin before the imports' initializers, so \
-          such a linter runs later, and Lean gives a plugin no later point to read the messages. \
-          That linter is code that runs in the module's elaboration (standard §7)."]
+        "That no linter was turned off: a linter that is off logs nothing. An option that a \
+          source file sets leaves no record, and no rule reads it.",
+        "That no message was removed: code that runs while Lean elaborates a module can remove a \
+          message (standard §7)."]
       configuration := [
-        "`warningAsError := false` in the source cannot hide a warning from the audit. Disabling a \
-          linter stops it from emitting, which makes this rule pass without establishing the \
-          property the linter checks. Never disable Lean's default warnings, such as \
-          `linter.unusedVariables` (for example with `set_option linter.unusedVariables false`); \
-          RG2006 rejects it in a claimed module.",
-        "A community linter reports through build warnings, so this rule rejects its findings, \
-          whether a dependency turns it on for every importer (such as Mathlib's \
-          `linter.unusedTactic`) or the project enables it (such as `linter.missingDocs` and \
-          Mathlib's `weak.linter.mathlibStandardSet`, which standard §6.7 requires). Where the \
-          community's guidance allows an exception, disable that linter for one declaration \
-          (`set_option linter.NAME false in`) with a comment giving the reason (standard §6.2). \
-          RG2006 admits that form and no other; review checks the reason.",
+        "`warningAsError := false` in a source file cannot hide a warning from `--wfail`, which \
+          sets the level that fails the build. Turning a linter off stops it from logging, which \
+          the build cannot see.",
         "`@[nolint NAME]` is not read: Batteries' `#lint` command reads it, and it turns off no \
-          linter that reports through a build warning, so it hides nothing from this rule.",
-        "Show an expected message in documentation or a test outside the claimed surface: a \
-          claimed module that runs `#guard_msgs` or `#guard_panic` fails, since those commands \
-          drop or replace the messages of the commands they run."]
+          linter that reports through a build warning."]
       limitations := [
-        "`lake lint` builds with Regula's audit-build marker, except when the workspace owner \
-          sets `REGULA_ORDINARY_LAKEFILES=1` in the environment of `lake lint`, asserting \
-          that the workspace's lakefiles are ordinary configuration, and a conservative \
-          plain-shape guard admits the workspace. The marker turns the local linter off \
-          whatever the source sets `linter.regula` to, so Regula's own local findings are not \
-          build warnings there and its policy stages report those rules. `axiomGate` and the \
-          build-lint `policy` target keep ordinary options, so in a module that imports \
-          `Regula.Linter` a local Regula finding is a build warning and makes the result \
-          INCOMPLETE under this rule. Regula's `lakefile.lean` replaces Lake's `extraDep` \
-          facet with one that records each root and Regula library's identity and \
-          `weakLeanArgs` in its modules' traces. The project audit and `lake lint` print a \
-          facet report naming a root `extraDep` library facet that Regula replaces, with the \
-          consequence (work unique to its overridden configuration may be lost) and remedy \
-          (move that work to \
-          `extraDepTargets` or `needs`). The report uses Lake's loaded declarations, changes no \
-          audit exit class and does not restore the configuration. Without the marker, a claimed module replayed \
-          from before the run whose trace lacks its own library's current record is not \
-          established (INCOMPLETE), as when another dependency declares a library or module facet.",
-        "Regula declares no `presetup` facet; the audit's build runs the one the workspace \
-          configures and reads from each claimed module's completed `presetup` whether Lean \
-          loaded the running Regula's observer, compared by content. A facet that drops the \
-          observer from a claimed module's plugins leaves the module not observed, and so does \
-          a target that does not list the observer in `needs`, since Lake could then replay an \
-          `.olean` that another observer wrote.",
-        "That the observer's record holds what Lean elaborated is read from Lean's source at \
-          the pinned release, not proved.",
-        "That each claimed module's trace records an elaboration is checked after the build \
-          (`Workspace.elaborationTrace`); that Lake replays the messages such a trace holds is \
-          read from Lake's source."]
+        "Lake sees only a message that Lean logs. Lean drops some messages itself, and code that \
+          a claimed module runs can remove one. Such a gap can hide a warning. It does not change \
+          what the kernel checks or the axiom sets, as the specification states."]
       residuals := [.qualify]
       checklist := ["DECL-01", "BUILD-01", "DOC-01"]
-      linkage := text! "Acceptance side only: an accepted run satisfies `RegulaPolicy.BuildOK`. A \
-        Lake build's observation satisfies it exactly when it ran at failure level `warning`, \
-        exited 0, no required job (`Lake.observedFetch`) logged an entry that \
-        `Workspace.unparsedCompilerOutput` selects, and, without the audit-build marker, each \
-        claimed module replayed from before the run has its own current record, and each claimed \
-        module's observer record is `Complete` (`Acceptance.buildObservation_ok_iff`, \
-        `Lake.mem_reusedModules_iff`, `Lake.traceRecords_ownRecord_iff`, \
-        `RegulaPolicy.Elaboration.failures_eq_nil_iff`). The collected unparsed compiler output \
-        is empty exactly when no job that is not optional logged such an entry \
-        (`Lake.unparsedOutput_eq_empty_iff`). \
-        Lake's entry for a Lean message whose file name has no line break is never selected \
-        (`unparsedCompilerOutput_ofSerialMessage`); `lineBreakSourcePaths` fails the others. A \
-        build key that compiles a module and passes that check names a package of the \
-        workspace and a source file from which Lake names the module's messages with no line \
-        break, the hypothesis of that theorem (`Workspace.sourcePathFailure?_eq_none`), and the \
-        check passes exactly when no key of the build's store fails it \
-        (`lineBreakSourcePaths_eq_empty_iff`). That Lake fails a build whose required job logs \
-        an entry at its failure level, and the forms of its entries, are read from Lake's \
-        source. A single-file compilation adds no diagnostic for an information message, a \
-        warning for a warning message and an error for nonblank output that is not a message \
-        (`SourceAudit.diagnose_information`, `diagnose_warning`, `diagnose_other`), and it \
-        passes exactly when the compiler exited 0 with no error and, where warnings are \
-        refused, no warning (`SourceAudit.compilationPassed_iff`). Where the build of a claim \
-        is split so that the scope check runs between its two parts, the second part requests \
-        exactly the claimed targets, never a smaller set \
-        (`Lake.ClaimedBuildPlan.completionTargets_exact`), the build stage counts as complete \
-        before the scope check exactly when no second part remains (`build_completed_iff`), \
-        and a claim without executables is built in one part \
-        (`Lake.claimedBuildPlan_without_executables`). That those targets make Lake elaborate \
-        or replay each claimed module is read from Lake's source. A module's trace holds its own \
-        library's record exactly when Lake reads it as a trace with an input, at some depth, \
-        whose caption Lean's JSON parser reads as that record (`Lake.ownRecord_iff`): the \
-        reader inverts the record (`Lake.weakArgsRecordOf?_eq_some_iff`), and the records of \
-        two libraries that differ in package or name differ \
-        (`Lake.weakArgsRecordJson_injective`), so a record that a trace holds for another \
-        library is never taken for the module's own. That Regula's facet wrote the record when \
-        Lake built the module is the trust in recorded traces that standard §7.11 states for \
-        the incremental gate. Regula's own `extraDep` facet is recognized by identity: \
-        `Lake.regulaFacetAdmitted_iff` accepts a package's configuration exactly when its text \
-        and that of the running Regula's `lakefile.lean` are both read and equal, the file \
-        declares one library facet of its own, and it has that facet's constant \
-        (`Lake.regulaFacetName`). With \
-        `REGULA_ORDINARY_LAKEFILES=1`, `lake lint` omits the marker only where the registered \
-        decision `Lake.auditMarkerNeeded` admits the workspace: it asks for the marker exactly \
-        when a package is not of the plain shape, or a module of the root package does not \
-        resolve to its one source or imports the linter's module \
-        (`Lake.auditMarkerNeeded_iff`, `Lake.PackageShape.plain_iff`, \
-        `Lake.checked_auditMarkerNeeded`), and the printed reason is present exactly when it \
-        asks (`Lake.markerReason_isSome`). That the shapes it reads describe the workspace rests \
-        on Lake's configuration, its compiled configuration files and its `transImports` facet. \
-        Lake's own cache predicates refuse the cache for every package that a package of the \
-        build's workspace reaches \
-        (`Workspace.uncachedWorkspace_unreadable`, `uncachedWorkspace_unwritable`); that Lake \
-        consults them before each cache access is read from Lake's source. A trace that records \
-        an elaboration (`Workspace.elaborationTrace`) is never one removed as a restore from the \
-        cache (`Workspace.restoredTrace_eq_false_of_elaborationTrace`)."
-      sources :=
-          ["lean/Regula/Checker/Lake.lean", "lean/Regula/Checker/LintBuild.lean",
-              "lean/Regula/Checker/Workspace.lean",
-              "lean/Regula/Checker/Diagnostics.lean", "lean/Regula/Checker/ResultProtocol.lean",
-              "lean/Regula/Checker/Acceptance.lean", "lean/Regula/Checker/SourceAudit.lean",
-              "lean/Regula/Checker/Observer.lean", "lean/RegulaObserver.lean",
-              "lean/RegulaObserver/Record.lean", "lean/RegulaPolicy/Elaboration.lean"] }
+      linkage := text! "None of Regula. The property is Lake's: at v4.35.0 `--wfail` sets the \
+        level that fails the build (`Lake/CLI/Main.lean`), and a job that logs a message at that \
+        level fails (`Lake/Build/Run.lean`). Regula's checker no longer observes the elaboration. \
+        Issue #482 completes the hand-over."
+      sources := ["specification/README.md", "specification/RegulaSpecification/Fates.lean"] }
   | .coverage => {
-      problem := text! "The exact module and declaration inventory from Lake does not match the \
-        owned coverage: a claimed library imports an excluded or checker-probe module, a module is \
-        outside every manifested library, or ownership cannot be determined."
+      problem := text! "A module of the root package that Lake builds is in no library and is not \
+        the root of an executable, or it is in more than one library, or a claimed module imports \
+        a module of an excluded target."
       trigger := [
-        "Module inventory comes from Lake's elaborated configuration and Lean's recorded module \
-          indices, not from file lists or name prefixes. The checker resolves each imported \
-          root-package module's origin and rejects unexpected project modules, imports of excluded \
-          modules into claimed ones, and unknown ownership (`unexpected-project-module` and \
-          related subreasons).",
-        "A root-package module outside every manifested library that a claimed module imports \
-          stops that environment's inspection, since kernel admission cannot classify it: the \
-          finding names the module and the modules that import it. The single-file audit \
-          (`axiomGate --file`) reports such an import the same way, naming the audited file by \
-          its path where it is an importer.",
-        "The impact depends on the subreason. A forbidden import or a module outside every \
-          manifested library (`unexpected-project-module`) is a violation (`lake lint` exit 1 \
-          unless the same run also has an incomplete finding). A configured module that was \
-          omitted or not freshly built, or a declaration attributed outside the claimed surface, \
-          is incomplete evidence (INCOMPLETE, `lake lint` exit 3)."]
+        "The loader takes the modules of each target from Lake (`LeanLib.getModuleArray`, and the \
+          root of each executable). It adds each module of the root package that their imports \
+          reach. A module of the root package is one whose `.olean` file lies below the root \
+          package's build directory.",
+        "`Regula.Closed.Input.coverageFindings` reports a module that is in no library and is \
+          the root of no executable, a module that is in more than one library, and a claimed \
+          module that imports a module of an excluded target."]
       rationaleDetail := []
       proofShape := [
         "The removed import must not have supplied evidence the claim still relies on."]
       established := [
-        "For a project audit, the claimed modules are exactly Lake's configured modules for the \
-          claimed targets, and every owned constant is attributed to one of them.",
-        "For a single-file audit, every module the file loads from the root package's build \
-          output is a module of one of the package's Lake libraries or an executable's root."]
+        "Each module of the root package that Lake builds is in exactly one library, or in none \
+          and the root of an executable, and no claimed module imports a module of an excluded \
+          target."]
       notEstablished := [
         "That the chosen library boundaries are the ones the project intends to claim; that is \
           reviewed with the manifest rationale."]
@@ -1562,815 +846,346 @@ def guide : RuleId → Guide
         "An exclusion in the manifest never permits a claimed module to import the excluded \
           one."]
       limitations := [
-        "The editor is explicitly partial and does not report this rule. A single-file audit \
-          reports only a module outside every Lake library that the file imports, not the whole \
-          project's inventory coverage."]
+        "That Lake's load gives each module that it builds for the root package, the modules that \
+          only an import adds included, is an assumption about Lake's interface, as the \
+          specification states.",
+        "A module that the globs of a library leave out, but that a claimed module imports, is in \
+          no library. Add it to the globs of a library, for example with `.andSubmodules`."]
       residuals := [.qualify]
       checklist :=
           ["DECL-02", "DECL-03", "SCOPE-05", "DECL-01", "DECL-04", "BUILD-01",
               "BUILD-03", "BUILD-04"]
-      linkage := text! "Acceptance side only: an accepted run satisfies `RegulaPolicy.ScopeOK`, \
-        over the surface assignments of `Regula.Checker.Acceptance.checked_surfaceAssignments`, \
-        and `RegulaPolicy.census_covers_claimed_targets` shows that every module of a claimed Lake \
-        target is a positive module of the accepted census. The inventory checks are \
-        operational."
-      sources :=
-          ["lean/Regula/Checker/Lake.lean", "lean/Regula/Probe.lean",
-              "lean/Regula/Checker/AxiomGate.lean", "lean/RegulaPolicy/Plan.lean"] }
+      linkage := keptLinkage "Regula.Closed.Input.coverageFindings" "Violates2004"
+        "Project.lean"
+      sources := ["lean/Regula/Rules.lean", "lean/Regula/Load.lean",
+        "specification/RegulaSpecification/Project.lean"] }
   | .admission => {
-      problem := text! "Required evidence is missing, incomplete, unsupported or invalid: owned \
-        declarations did not pass kernel admission, a frozen source or `.olean` file changed \
-        during the audit, or authentication the result needs could not complete. The result is \
-        INCOMPLETE."
+      problem := text! "A constant of a claimed module was not checked again by Lean's kernel from \
+        an export of the build. Without that check, code that runs while Lean elaborates a module \
+        could add a constant that the kernel did not check."
       trigger := [
-        "Before accepting proof evidence the checker replays every owned logical declaration and \
-          its owned dependencies through Lean's kernel (`Admission.validate`); an environment \
-          reuses, instead of repeating, an earlier environment's replay of a claimed library \
-          module over the identical import closure and frozen `.olean` parts (including \
-          `.olean.private`). Each replayed module's own copy of a name is checked: a lemma \
-          Lean realizes in two modules, such as an equation lemma, is admitted when the copies \
-          are theorems of the same statement, universe parameters and mutual block and each \
-          owned copy that is not identical to the replayed or trusted one passes the kernel \
-          with a proof that does not reach its own name and reaches the same axioms. A \
-          declaration that fails replay, source or `.olean` bytes that changed after they were \
-          frozen, or a required authentication that failed is reported here with impact \
-          `incomplete`.",
-        "The axioms of each owned declaration that the foundation rules (RG1001 to RG1005) read \
-          are computed in the replayed kernel: those reached through the types and values of the \
-          constants it uses and the constructors of each inductive type. Lean records a table of \
-          axioms for each module when it is compiled, and `collectAxioms` reads it for an \
-          imported declaration. Each step of `collectAxioms` is a step of that computation, so a \
-          table computed from the replayed constants records no axiom the declaration does not \
-          reach. Admission therefore reports here, with impact `incomplete`, a declaration for \
-          which `collectAxioms` reports such an axiom, and names the declaration and the two \
-          axiom sets. A table that omits an axiom is reported, not failed: it is no finding, \
-          since Lean's own computation of a table can omit axioms reached through an inductive \
-          type's constructors (RG1005), and the rules decide on the replayed axioms. A project \
-          audit counts such declarations in its summary (`axiom tables:`), and its `--verbose` \
-          line of each, the JSON report and the self-audit give the two sets and the omitted \
-          axioms.",
-        "In the editor, this rule marks results that need fresh evidence only the project command \
-          collects, and those messages name `lake lint`. The editor also reports it, as \
-          incomplete, when its own analysis of a declaration fails or the module has elaboration \
-          errors.",
-        "In a file with a `module` header, the editor also reports a decision kind as incomplete \
-          when its decided function gives the implementation an argument that applies, to the \
-          variable of that function, a constant that the environment has only as an axiom. Lean \
-          gives such a file an imported theorem in that form, and the projection function of a \
-          proof field is a theorem, so the editor cannot tell whether the argument is a field \
-          (limitations of RG1007). The message names `lake lint`, which reads the kind.",
-        "In such a file the editor also reports its reading of the functions that the two \
-          sides of a decision registration share as incomplete, when a function with a result \
-          of `Bool` or `BEq` could be shared only below an imported function whose value the \
-          file does not have (limitations of RG1009). A function with such a result is shared \
-          only where each side reaches it. So where one side is read completely and reaches \
-          none, nothing can be shared, and the editor gives no notice. It gives the notice \
-          where it searches the two sides, finds no shared function with such a result \
-          (RG1009), and one of two cases holds. Each side reaches an imported constant, a \
-          function or not, whose value the search of that side would read and the file does \
-          not have. Or one side reaches one, and the other side reaches a function with such a \
-          result that RG1009 counts. The message names `lake lint`, which has each value."]
+        "Regula's checker does not report this rule. The specification hands it to `lake check` \
+          of the toolchain. It checks each constant of the modules of the default targets again \
+          in Lean's kernel, from an export of the build, in a process that loads no `.olean` file \
+          of the project. Issue #482 completes the hand-over.",
+        "RG2002 requires each claimed target to be a default target, so `lake check` covers each \
+          claimed module."]
       rationaleDetail := []
       proofShape := [
         "The replayed declaration must type-check in the kernel with exactly its stated type and \
           value."]
       established := [
-        "Every owned logical declaration and its owned dependencies passed kernel replay (every \
-          other copy of a theorem that another loaded module also declares is identical to the \
-          replayed or trusted one, or passed the kernel's check under a fresh name with a \
-          proof that does not reach its own name and reaches the same axioms), and the frozen \
-          sources were unchanged during the audit. A failed admission or changed source is \
-          incomplete and never accepted.",
-        "The axioms the foundation rules read for each owned declaration are exactly those it \
-          reaches in the replayed kernel, and no axiom that `collectAxioms` reports for it is \
-          outside them; each axiom it omits is reported. An `unsafe` or `partial` declaration, \
-          which replay does not check, is read as the audited environment keeps it.",
-        "Proved about the executed definitions: the axioms computed for a declaration are \
-          exactly those it reaches among the constants the search reads \
-          (`KernelAxioms.axiomTable_some`, `KernelAxioms.ReachesAxiom`), and the account's count \
-          of omissions is exactly the inventory's declarations that record one \
-          (`Account.checked_account`)."]
+        notReported,
+        "A pass of `lake check` establishes that Lean's kernel checked each constant in its scope \
+          again."]
       notEstablished := [
-        "Imported dependencies that the audit does not own, those outside the root package's Git \
-          work tree, are not replayed; they remain the declared trusted base, and the account \
-          names each of them. The axioms a declaration reaches through them are read from their \
-          constants as imported.",
-        "Modules under the checker's reserved prefixes (`Regula`, `RegulaPolicy`) in an owned \
-          path dependency are the checker's own code, whose source is the checker's own text: \
-          the audit does not inspect them and replays one only where it imports a replayed \
-          module, so the account names the dependency that provides them among the trusted \
-          dependencies.",
-        "Incremental admission does not establish fresh source elaboration."]
+        "Anything that Regula's rules decide: `lake check` checks constants again, and it decides \
+          no profile and no rule of a finding."]
       configuration := [
-        "No option waives admission. A failed generated-role authentication cannot waive RG1001 or \
-          RG1006."]
+        "`lake check --paranoid` adds the other kernels. The specification makes it optional."]
       limitations := [
-        "This page's example is a diagnostic demonstration: the violating run is INCOMPLETE by \
-          design and is not accepted negative evidence. Its corrected counterpart passed a \
-          completed positive check."]
+        "On macOS the gate runs `lake check --inadvisably-no-sandbox`, because the sandbox \
+          requires Linux. The build and the export then run outside the sandbox, as `lake build` \
+          does."]
       residuals := [.qualify]
       checklist :=
           ["DECL-01", "DECL-02", "FOUND-05", "SCOPE-02", "TYPE-01", "THEOREM-01", "THEOREM-03",
               "THEOREM-07", "DECL-03", "DECL-04", "COMP-02", "COMP-04", "BUILD-01", "BUILD-04"]
-      linkage := text! "Acceptance side only: an accepted run satisfies \
-        `RegulaPolicy.AdmissionOK`. Admission runs three registered decisions: \
-        `Admission.checkHeader` (`checked_checkHeader`, two-way), `Admission.admitReplay` \
-        (`admitReplay_eq_ok`, `checked_admitReplay`, one-way) and `Admission.checkTable` \
-        (`checked_checkTable`, two-way), and `mem_required` states the required keys. These \
-        theorems are about the request that the decisions take. The module data, the replay \
-        set, the reported and reused modules, the lookup `kept`, the import of the replay base, \
-        `shared`, `offerable` (`ownedAgrees` with `agrees` over `duplicatesIn` of the audited \
-        environment and the owned modules) and the replayed kernel are observed or trusted, as the section \"Receipt \
-        validation: decisions and observing pass\" of the guide of proofs and boundaries says. \
-        The editor's deferral to the project audit of a result that needs generated-role \
-        evidence is \
-        `Regula.Checker.Policy.editor_decision_pending`. Its deferral of a decision kind that it \
-        does not read is operational collector code (`hiddenField?` in \
-        `Regula.Collect`), which that theorem does not cover: the collector records the \
-        registration with no failure of its kind, so the editor decision reports no RG1007 \
-        finding for that record, and the linter reports the reading as incomplete. Its deferral \
-        of the shared functions that it does not read is operational collector code too \
-        (`sharedReading` in `Regula.Collect`): that record names no shared function with a \
-        result of `Bool` or `BEq`, so the editor decision reports no RG1009 finding for it."
-      sources :=
-          ["lean/Regula/Checker/Admission.lean", "lean/RegulaPolicy/KernelAxioms.lean",
-              "lean/Regula/Checker/SourceAudit.lean", "lean/Regula/Checker/SourceBinding.lean"] }
+      linkage := text! "None of Regula. The property is that of `lake check` of Lean v4.35.0, as \
+        the specification describes it. Issue #482 completes the hand-over."
+      sources := ["specification/README.md", "specification/RegulaSpecification/Fates.lean"] }
   | .communityConfiguration => {
-      problem := text! "A claimed library or executable is built with automatic implicits on or \
-        without Lean's `linter.missingDocs`, sets for all its modules an option outside RG2006's \
-        accepted set, such as a linter or one of Lean's own `warn.*` warnings turned off beyond \
-        the three Mathlib-repository linters that standard §6.7 excludes, overrides these options \
-        with a `-D` extra `lean` argument, or, in a surface that imports Mathlib, leaves Mathlib's \
-        standard linter set or its exclusions unset, or does not load Regula's \
-        elaboration observer through its `plugins` with the same key in its `needs`."
+      problem := text! "A claimed library or executable leaves automatic implicits on, sets an \
+        option outside RG2006's allowlist, or changes Lean's process with a plugin, a dynamic \
+        library or a different Lean argument."
       trigger := [
-        "After the claimed surfaces build, the checker reads Lake's resolved configuration of \
-          every claimed library and executable: its `leanOptions` (build type, package, then \
-          target, a later entry replacing an earlier one) and its `weakLeanArgs` and \
-          `moreLeanArgs`. The proved decision `RegulaPolicy.Community.failures` rejects the \
-          target, with applicability `community-configuration`, when `autoImplicit` or \
-          `relaxedAutoImplicit` is not set to `false` or `linter.missingDocs` is not set to \
-          `true`, when `leanOptions` or a `-D name=value` among the extra arguments sets any \
-          other option outside the accepted set, at any value and whether Lean declares the \
-          option or not, or when a `-D` gives a required option a value the rule does not admit.",
-        "Each claimed target must also load Regula's elaboration observer through Lake's own \
-          `plugins` setting, on the target or on its package: \
-          ``plugins := #[`@regula/RegulaObserver:shared]`` in `lakefile.lean`, or \
-          `plugins = [\"@regula/RegulaObserver:shared\"]` in `lakefile.toml`; Regula's own \
-          `lakefile.lean` writes it `@/RegulaObserver:shared`. The decision rejects a target \
-          whose resolved plugins name no such target, and the finding names the line to add. \
-          `doctor` reports that finding; an audit of such a target stops first at RG2003, \
-          whose line for each module that Lean elaborated without the observer names the same \
-          entry. The target must also list the same key in its `needs`: \
-          ``needs := #[`@regula/RegulaObserver:shared]`` in `lakefile.lean`, or \
-          `needs = [\"@regula/RegulaObserver:shared\"]` in `lakefile.toml`. The decision rejects \
-          a target that loads the observer through `plugins` without the same key in `needs`, \
-          and the finding names the entry to add. `doctor` reports that finding; an audit of \
-          such a target stops first at RG2003, whose line for each claimed module names both \
-          entries. Lake v4.35.0 builds a target's `needs` before \
-          its modules fetch their plugins, so a fresh build builds the observer once, and mixes \
-          the trace of the `needs` into each module's trace whatever the target's \
-          `platformIndependent`. So Lake replays a module only when the build has the observer \
-          that elaborated it; under `platformIndependent := true` the plugins' own trace is not \
-          in the module's trace. The observer records the options the source sets, which the \
-          rule reads below, and the messages that RG2003 decides.",
-        "The accepted set holds the required options at the values the rule admits; the §6.7 \
-          exclusions `linter.style.header`, `linter.hashCommand` and `linter.style.longFile` at \
-          `false`, `false` and `0`; `linter.style.header.license` at a nonempty string, which \
-          selects the header the header linter accepts; each `linter.…` and `warn.…` option that \
-          Lean v4.35.0 or the pinned Mathlib and Batteries register, at the one value that \
-          silences nothing its default reports (`RegulaPolicy.Community.warningSettings`); \
-          `warningAsError` and \
-          `debugAssertions` at `true`, which add checks; the resource limits `maxHeartbeats`, \
-          `synthInstance.maxHeartbeats`, `synthInstance.maxSize`, `maxRecDepth`, \
-          `maxSynthPendingDepth` and \
-          `exponentiation.threshold` at any number, since raising a positive one lets Lean do \
-          work it would otherwise stop or skip, and `0` means no limit for `maxHeartbeats`, \
-          `synthInstance.maxHeartbeats` and `maxRecDepth`; and \
-          each `pp.…` option that Lean, Mathlib or Qq register, at its default \
-          (`RegulaPolicy.Community.printSettings`). A pretty-printer option changes the text \
-          some linters compare, such as Mathlib's whitespace linter with `pp.unicode` off, so a \
-          non-default one belongs in an editor or user setting, not in a target's options. Any \
-          other `linter.…`, `warn.…` or `pp.…` option, or a listed one at another value, is \
-          rejected: \
-          `linter.unusedVariables.analyzeTactics` passes only at `false`, since at `true` it \
-          counts a parameter as used when a tactic state mentions it.",
-        "A target of a surface whose loaded environments contain a Mathlib module must also set \
-          `weak.linter.mathlibStandardSet` to `true`, `weak.linter.hashCommand` to `false` and \
-          `weak.linter.style.longFile` to `0`, and `weak.linter.style.header` to `false`, or to \
-          `true` when the target also gives `weak.linter.style.header.license` the license line \
-          Mathlib's header linter expects in `leanOptions`, with every value that `leanOptions` or \
-          any `-D` gives it a nonempty string; a `-D` alone does not configure the license line.",
-        "A key's leading `weak.` component is read as the option it sets; a target that gives one \
-          option under both spellings must give a value the rule admits under each. The name \
-          alone decides: whether Lean applies a `weak.` entry depends on which modules declare \
-          the option, so an entry such as `weak.warn.example` that no module declares is \
-          rejected although Lean ignores it; delete it. A string value \
-          counts as Lean parses it for the option: `\"false\"` is `false` and `\"0\"` is `0`. \
-          One finding per target lists every failure.",
-        "In each module of a claimed surface, and in the file that `axiomGate --file F --claim P` \
-          audits, the rule also reads the options the source set, as Regula's elaboration \
-          observer recorded them while Lean elaborated it (RG2003): `set_option` as a command, \
-          before one command (`… in`), in a term, in a tactic block or in a `grind` block, \
-          including one that a macro wrote, and `{set_option name value}` in a documentation \
-          comment, which sets the option for the rest of the comment. The proved decision \
-          `RegulaPolicy.Community.sourceFailures` rejects each that the target itself \
-          could not set at that value, with two exceptions. The first is \
-          `set_option linter.NAME false in` before a command that Lean elaborates, once every \
-          macro has expanded it, as exactly one declaration command with only `namespace`, \
-          `end` and internal `end_local_scope` commands around it \
-          (`RegulaPolicy.Community.oneDeclaration`), such as a declaration, one whose name has \
-          a namespace, or Mathlib's `lemma`, which turns a community linter off for it \
-          (standard §6.2). Before any other command it is rejected: a `section` of several \
-          declarations, a command that macros expand to several declarations, such as a `def` \
-          with a `requires` or `ensures` contract, or a command that an elaborator of its own \
-          elaborates, such as Mathlib's `irreducible_def` or Batteries' `alias`, even where it \
-          declares one constant. The second is a setting that the pinned Lean's \
-          own generated code writes as `set_option` syntax \
-          (`RegulaPolicy.Community.generatedSettings`): `match.ignoreUnusedAlts true` in \
-          `deriving BEq` and `deriving Ord`, `smartUnfolding false` in `rfl'`, \
-          `tactic.hygienic false` in `unhygienic` and `trace.grind.ematch.instance true` in \
-          `grind_lint inspect`. The rule accepts it wherever it occurs and does not read who \
-          wrote it, so a project may write it too; for `match.ignoreUnusedAlts true`, which \
-          hides Lean's \"Redundant alternative\" error, that is an open limit (issue #422). \
-          So the source cannot turn one of Lean's default warnings off, set \
-          `linter.all` to `false` or `autoImplicit` to `true`, or set a `debug.` option or a \
-          `trace.` option outside that set, and an option whose value is not a literal is rejected. Code of the project \
-          that Lean runs while it elaborates the module, such as `run_cmd`, `run_elab`, a \
-          `try_suggestion` generator or a simproc, gets the same decision as the source text. \
-          The finding names each option with its \
-          module, line and column.",
-        "The rule reads the options that Lean's `set_option` elaborator \
-          (`Lean.Elab.elabSetOption`) and the documentation command `{set_option}` set. Lean also \
-          records an option's name for the documentation role `{option}`, which refers to an \
-          option, and for a `simp` user option such as `simp +user.name`, which sets it in the \
-          tactic's own configuration; neither sets an option of the scope, so the rule reads \
-          neither (`Regula.Checker.GeneratedSettingSearch.producers`). Of Lean v4.35.0's builtin \
-          commands, one other assigns \
-          the options of the enclosing scope: `unlock_limits` sets `maxHeartbeats`, \
-          `maxRecDepth` and `synthInstance.maxHeartbeats` to `0`, which the rule accepts \
-          (`RegulaPolicy.Community.unlockLimits_accepted`). An option that elaborator code \
-          changes for its own commands is not read, such as `autoImplicit` in the `ToExpr` \
-          deriving handler or `quotPrecheck.allowSectionVars` in a `local notation`.",
-        "Every `-D` that `lean` reads starts at the first `D` of an argument that begins with a \
-          single `-` (`-D`, or after flags as in `-qD`), with its value after the `D` or in the \
-          next argument; the rule reads every such candidate, so it can also reject one that \
-          `lean` does not read as a `-D`, such as the value of `-o`. Any extra argument that \
-          sets no option is allowed."]
+        "`Regula.Closed.Input.configurationFindings` reads the options that Lake gives each \
+          claimed target: its `leanOptions`, and each `-D` argument of its `weakLeanArgs` and \
+          `leanArgs`. Each other Lean argument, plugin and dynamic library is an extra.",
+        "It reports a claimed target that does not set `autoImplicit` and `relaxedAutoImplicit` to \
+          `false`, that sets either to a different value at any position, that sets an option \
+          outside the allowlist, or that has an extra.",
+        "Until issue #484 fixes the allowlist, it is the set that the rule accepted before this \
+          checker (`Regula.Shell.allowed`): the required options at their values \
+          (`RegulaPolicy.Community.baseline`), Mathlib's standard linter set with its exclusions \
+          (`RegulaPolicy.Community.mathlibBaseline`), and each option that \
+          `RegulaPolicy.Community.accepts` admits. An option set under a leading `weak.` \
+          component is read as the option without it, as Lean reads it \
+          (`RegulaPolicy.Community.optionOf`)."]
       rationaleDetail := [
         "Standard §7.1 requires the options because they decide which binders a declaration's \
-          elaborated type has. Standard §6.7 adopts the community's linters as its conventions \
-          baseline, and a linter enforces its convention only where it is on: RG2003 rejects \
-          warnings, not a missing linter. A list of the options that can stop a warning would \
-          have to name every switch Lean and its dependencies declare, so the rule closes the \
-          list the other way: only options that cannot stop a default warning pass, except that \
-          raising `exponentiation.threshold` stops the warning that a power was not evaluated, \
-          because Lean evaluates it."]
+          elaborated type has. A closed allowlist refuses each option that it does not name, so \
+          an unknown option is refused too."]
       proofShape := []
       established := [
-        "Every claimed library and executable is built through Lake with automatic implicits \
-          off and `linter.missingDocs` on, sets no option for all its modules outside the \
-          accepted set and, in a Mathlib surface, enables the standard set with exactly the \
-          §6.7 exclusions, or with the header linter on and its license line configured; no `-D` \
-          extra `lean` argument overrides these options, and \
-          each loads Regula's elaboration observer through its plugins with the same key in its \
-          `needs`."]
+        "Each claimed target sets `autoImplicit` and `relaxedAutoImplicit` to `false` and to no \
+          other value, sets only options of the allowlist, and has no plugin, no dynamic library \
+          and no Lean argument other than a `-D` option."]
       notEstablished := [
-        "That a community linter turned off for one declaration has the reason standard §6.2 \
-          requires; review checks it.",
-        "`@[nolint NAME]`, which the rule does not read: Batteries' `#lint` reads it, and it \
-          turns off no linter that reports through a build warning.",
-        "Any bound on a resource limit of the accepted set: `maxHeartbeats`, \
-          `synthInstance.maxHeartbeats`, `synthInstance.maxSize`, `maxRecDepth`, \
-          `maxSynthPendingDepth` and \
-          `exponentiation.threshold` pass at any number, and raising one lets Lean do the work it \
-          would otherwise skip, such as evaluating a power above `exponentiation.threshold` \
-          instead of warning that it did not. `0` means no limit for `maxHeartbeats`, \
-          `synthInstance.maxHeartbeats` and `maxRecDepth`, so Lean does all the work. A project \
-          that wants a limit fixed checks it itself.",
-        "That the community linters' own checks pass, such as a docstring on every public \
-          declaration; their warnings are RG2003's.",
-        "That extra `lean` arguments other than `-D`, such as `--plugin` or `--setup`, leave the \
-          options unchanged."]
+        "That an option set in a source file is admitted: such an option leaves no record, so the \
+          rule does not read it.",
+        "That `linter.missingDocs` or Mathlib's standard linters are on: the rule does not \
+          require them. That requirement goes to written guidance (standard §6.7).",
+        "That the community linters' own checks pass, such as a docstring on each public \
+          declaration; their warnings fail `lake build --wfail` (RG2003)."]
       configuration := [
         "The Lake configuration is the input; no manifest field, source option or command-line \
-          flag exempts a claimed target.",
-        "A Mathlib target that keeps the header linter on names its license line in `leanOptions`: \
-          ``⟨`weak.linter.style.header, true⟩, ⟨`weak.linter.style.header.license, \
-          \"Released under the MIT license as described in the repository LICENSE.\"⟩``; a \
-          `lakefile.toml` gives both in the array form of `leanOptions`, since its \
-          `[leanOptions]` table cannot hold both keys. Without the license option the target \
-          must set the header linter to `false`."]
+          flag exempts a claimed target."]
       limitations := [
-        "Options given on `lake`'s own command line are not read; the rule reads what Lake \
-          resolves for the workspace the audit loads.",
-        "Whether a surface imports Mathlib is read from all of its loaded environments, so every \
-          claimed target of such a surface, including an executable whose own root does not \
-          import Mathlib, needs the Mathlib options.",
-        "The accepted value of each `linter.…` and `warn.…` option was read from its \
-          registration's description at Lean v4.35.0 and the pinned Mathlib and Batteries; that \
-          it silences nothing its default reports is not proved \
-          (`RegulaPolicy.Community.warningSettings`); each `pp.…` option's default was read \
-          from its registration at Lean v4.35.0, the pinned Mathlib and Qq \
-          (`RegulaPolicy.Community.printSettings`). A move to another Lean release fails the \
-          build until these arguments are read again (`acceptedRelease_eq`); nothing checked ties \
-          the list to the Mathlib pin.",
-        "The `-D` reading is assumed to cover the command-line parser of the Lean executable, \
-          as read from Lean's `Lean.Shell` source and its getopt handling; that correspondence \
-          is neither proved nor observed.",
-        "That Mathlib's header linter compares the second header line with \
-          `linter.style.header.license` is read from its source at the pinned release and \
-          assumed; the rule checks that the license option is configured, not that the modules' \
-          header lines match it.",
-        "The rule runs in project audits only; editor feedback does not read Lake configuration.",
-        "That the package `regula` the plugins name is Regula is the workspace owner's \
-          assertion; RG2003 checks from the build that Lean loaded the running Regula's \
-          observer for each claimed module."]
+        "Options given on `lake`'s own command line are not read; the rule reads what Lake's load \
+          of the workspace gives.",
+        "The members of the allowlist are those of the rule before this checker, until issue #484 \
+          fixes them."]
       residuals := [.qualify, .intent]
       checklist := ["DECL-01", "DOC-01"]
-      linkage := text! "`RegulaPolicy.Community.failures_eq_nil_iff`, `accepts_iff`, \
-        `conforming_of_mathlib`, `conforming_missingDocs`, `conforming_header`, \
-        `header_on_unlicensed_fails`, `licensed_iff`, `licensed_header_passes`, \
-        `unlicensed_header_fails`, `leanArgument_mem_failures_iff`, \
-        `unaccepted_mem_failures_iff`, `warn_sorry_option_fails`, \
-        `docVersoSuggestions_option_fails`, `unlisted_linter_option_fails`, \
-        `analyzeTactics_option_fails`, `ppUnicode_option_fails`, `ppOneline_option_fails`, \
-        `accepted_families_pass`, \
-        `undeclared_weak_argument_fails`, `acceptedRelease_eq`, `optionOf_eq_replacePrefix`, \
-        `missingDocs_unset_fails`, `observer_unloaded_fails` and `observer_unneeded_fails`. \
-        Reading Lake's target configuration is operational."
-      sources := ["lean/RegulaPolicy/Community.lean", "lean/Regula/Checker/Lake.lean",
-        "lean/Regula/Checker/AxiomGate.lean", "website/RegulaStandard/CodeOrganization.lean"] }
+      linkage := keptLinkage "Regula.Closed.Input.configurationFindings" "Violates2006"
+        "Project.lean" ++ " `RegulaPolicy.Community.accepts_iff` proves that `accepts` decides \
+        `RegulaPolicy.Community.Accepted`."
+      sources := ["lean/Regula/Rules.lean", "lean/Regula/Load.lean", "lean/Regula/Shell.lean",
+        "lean/RegulaPolicy/Community.lean", "specification/RegulaSpecification/Project.lean",
+        "website/RegulaStandard/CodeOrganization.lean"] }
   | .executionUnresolved => {
-      problem := text! "The conservative execution closure of an executable root has a path the \
-        checker could not resolve: a missing compiled body, unavailable replacement history, an \
-        unsupported evaluator, or a cycle of replacement edges. The execution claim is INCOMPLETE."
+      problem := text! "The execution closure of a claimed executable runs a name that is no \
+        constant of the input, or a constant on a cycle of departures, which runs no definition. \
+        An account of execution would then leave out a path."
       trigger := [
-        "For every owned executable root the checker follows retained compiler edges, logical \
-          value dependencies, `csimp` candidates, observed `implemented_by` choices and partial \
-          helpers. Anything it cannot resolve or classify is reported with applicability \
-          `execution-unresolved` and impact `incomplete`, in both `report` and `checked` execution \
-          modes.",
-        "The executable roots include the action of each `initialize` block, named or anonymous, \
-          and of each `[init]` or `[builtin_init]` declaration of an owned module, as Lean's \
-          initializer attributes record it, whatever its name: Lean runs that action at startup \
-          or import, where no other root need reference it.",
-        "A comparison of a replacement with its reference is decided only by the kernel's \
-          answer. A comparison that the kernel stopped before it decided, or that raised an \
-          error before it recorded the kernel's answer, is unresolved.",
-        "Replacement history is reconstructed by fresh re-elaboration; metaprogramming commands \
-          such as `run_cmd`, `run_elab` or module-local elaborators make it unavailable.",
-        "A path through the Lean toolchain's own origin-checked `Init`, `Std`, `Lean`, `Lake` or \
-          `LeanExport` modules does not need that history: a toolchain replacement is followed \
-          through the current target its compiled module records, as part of the toolchain's \
-          trusted base, so no toolchain replacement is reported as unresolved for missing history."]
+        "For the `main` of each claimed executable, `Regula.Closed.Input.executionFindings` \
+          follows the constants that the build's compiled code runs, from the code of `main`. \
+          The loader reads that code with `Lean.IR.findEnvDecl` (`Regula.Load.compiledOf`). It \
+          counts the code of each auxiliary definition that the compiler adds as code of the \
+          constant that it serves.",
+        "It reports a name in that closure that is no constant of the input, and a constant on a \
+          cycle of departures. A departure is a point where compiled code runs a constant in \
+          place of the constant that the kernel value has: a runtime replacement, a `@[csimp]` \
+          rewrite or a recursion helper.",
+        "The rule applies in the `report` and `checked` execution modes."]
       rationaleDetail := []
       proofShape := []
       established := [
-        "Every path in each owned executable root's conservative closure was resolved and \
-          classified; an unresolved path is incomplete and never accepted."]
+        "Each name that the compiled code of a claimed executable's `main` runs, through the code \
+          of each constant that it reaches, is a constant of the input, and none is on a cycle of \
+          departures."]
       notEstablished := [
-        "That the conservative closure is the program's actual runtime call graph: candidates and \
-          historical choices overapproximate it, and a safe program can be rejected.",
-        "That the executable roots are complete: the census of roots, the initializer actions \
-          among them, is read from Lean's records of each owned module, not proved."]
+        "That the executable runs the code that the build records: that is an assumption, as the \
+          specification states.",
+        "That the closure is the program's call graph at run time: code that the program selects \
+          by name at run time, such as with `evalConst`, is data to it."]
       configuration := [
-        "No execution mode waives an unresolved path."]
+        "No execution mode waives this rule."]
       limitations := [
-        "This page's example is a diagnostic demonstration: the violating run is INCOMPLETE by \
-          design and is not accepted negative evidence. Its corrected counterpart passed a \
-          completed positive check.",
-        "The editor does not analyze execution: it reports neither this rule nor a pending notice \
-          for it. Only `lake lint`, `axiomGate` (including `--file`) and the build-lint `policy` \
-          target do."]
+        "The reading of compiled code is the loader's mechanism, which issue #487 replaces or \
+          proves (the specification's open obligation).",
+        "The closure starts at `main`. An `initialize` action that the code of `main` does not \
+          reach is outside it."]
       residuals := [.qualify, .invariant, .intent]
       checklist := ["COMP-03", "SCOPE-05", "SCOPE-03", "THEOREM-05", "BUILD-01", "BUILD-03"]
-      linkage := text! "`RegulaPolicy.executionFailureRecords_empty_iff`, \
-        `RegulaPolicy.executionFindings_empty_iff`, `RegulaPolicy.unresolved_reported`, \
-        `Regula.Checker.Policy.checked_executionFailures` and `executionRule_injective`. \
-        `RegulaPolicy.ExecutionWalk.checked_walk` decides the walk over the records of the probe: \
-        `walk_sound` and `walk_complete`. `RegulaPolicy.DefeqComparison.ofAttempt_incomplete_iff` \
-        and `ofAttempt_error`: a comparison is incomplete, and so unresolved, exactly when the \
-        kernel stopped before it decided or the attempt raised an error. Root discovery, the \
-        kernel's answer and reading each record from the environment and compiler IR are \
-        operational. `RegulaPolicy.ExecutionWalk.assemble_account` states that `assemble` builds \
-        the account that the visits and their records give (`AccountOf`), the unresolved paths \
-        included. A cycle message lists the names on a cycle of visited replacement edges and the \
-        names from which such a cycle can be reached (`OnReplacementCycle`). It does not state the \
-        order of those names or of the messages for code."
-      sources :=
-          ["lean/Regula/Probe.lean", "lean/RegulaPolicy/ExecutionWalk.lean",
-              "lean/RegulaPolicy/StackWalk.lean", "lean/RegulaCore/Policy.lean",
-              "lean/Regula/Checker/RuleDiagnostics.lean"] }
+      linkage := keptLinkage "Regula.Closed.Input.executionFindings" "Violates3001"
+        "Execution.lean" ++ " The reading of compiled code (`Regula.Load.compiledOf`) is \
+        operational."
+      sources := ["lean/Regula/Rules.lean", "lean/Regula/Load.lean",
+        "specification/RegulaSpecification/Execution.lean"] }
   | .executionBoundary => {
-      problem := text! "On a surface claiming `\"execution\": \"checked\"`, a reachable boundary \
-        the project or a dependency owns lacks kernel-checked correspondence: for example an \
-        `implemented_by` replacement without an admitted equality proof, an external `extern`, or \
-        unsafe or partial computation."
+      problem := text! "On a surface claiming `\"execution\": \"checked\"`, a boundary that the \
+        execution closure reaches has no correspondence: a departure outside the toolchain that \
+        no admitted theorem proves, or code outside the toolchain that no theorem can bind, such \
+        as an `extern` constant."
       trigger := [
-        "Each reached boundary gets a kind and a correspondence state. Under checked execution, a \
-          boundary that is `trusted` rather than `checked` is rejected with applicability \
-          `execution-trusted-boundary` in every root that reaches it, unless the boundary itself \
-          carries an admitted toolchain origin. Only a replacement, `extern`, unsafe or partial \
-          computation, or initialized value can: a `csimp` simplification or a compiler-trusting \
-          proof axiom never does, even on a constant declared in `Init`.",
-        "The toolchain owns a replacement, `extern`, unsafe or partial computation, or initialized \
-          value declared in one of its own `Init`, `Std`, `Lean`, `Lake` or `LeanExport` \
-          modules, decided by where Lean loaded that module from (the pinned toolchain's \
-          library, an observation of the probe after the import, which rests on no change to \
-          the files of Lean's search path in between), not by its name. Such a boundary is the \
-          toolchain's trusted base: it passes and is reported for the whole audit in the audit's \
-          toolchain trusted base, as one entry with every environment and root that reaches it \
-          or as a `partial` implementation that such an entry names.",
-        "A `partial` implementation that a trusted boundary names as the code run in its place \
-          is reported with that boundary where both are trusted and have the same owner (both \
-          the toolchain's, or neither): the coverage counts take the two as one boundary, and \
-          where neither is the toolchain's, they are one finding that names both. A \
-          toolchain-owned pair has no finding, and the toolchain trusted base lists \
-          it as one entry that names the implementation, unless a root reaches the \
-          implementation without the boundary that carries it. A `partial` implementation is \
-          a constant of `partial` definition safety: the implementation a metaprogram such as \
-          Mathlib's `compile_inductive%` adds for a recursor, named as the target of a `csimp` \
-          candidate or of an `implemented_by` replacement, or the `_unsafe_rec` helper Lean \
-          generates for a `partial def`, named by that `partial def`'s own boundary. A \
-          `partial def` named as the target of a candidate or replacement is not one: it is an \
-          opaque constant compiled through that helper, so it keeps its own finding and count, \
-          and only its helper is reported with it. A second record of one trusted boundary (the \
-          same constant, kind, replacement and toolchain origin, as two constants of one \
-          equality's type give a `csimp` candidate) is reported and counted with the first in \
-          the same way. The account in `--json-out` keeps every record, and `--verbose` lists \
-          the implementation under its boundary as its `implementation` and a later record as \
-          `restated`.",
-        "A correspondence is checked only when a closed proof of `∀ xs, f xs = g xs` over the \
-          reference's complete elaborated domain passes kernel admission, with only standard \
-          logical axioms and no extra premises.",
-        "A theorem that supplies such a proof counts only from a module whose declarations the \
-          audit replayed through Lean's kernel (the root package's, or a path dependency's in its \
-          Git work tree) or from an origin-checked toolchain module. A theorem of a dependency \
-          the audit does not own supplies no evidence: only that dependency's build vouches for \
-          it."]
+        "For the `main` of each executable claimed with `\"execution\": \"checked\"`, \
+          `Regula.Closed.Input.executionFindings` reads each constant of the execution closure \
+          (RG3001).",
+        "It reports a constant outside the toolchain whose code no theorem can bind: an `extern` \
+          constant, a partial constant that is not a recursion helper, or a value that \
+          `initialize` sets.",
+        "It reports a departure that no module of the toolchain makes and that has no \
+          correspondence. A correspondence is a theorem `@f = @g`, with `f` the constant of the \
+          kernel value and `g` the constant that runs. It counts when the theorem is not unsafe \
+          or partial and the claim's profile admits each of its axioms. A `@[csimp]` lemma is \
+          such a theorem for the departure that it makes."]
       rationaleDetail := []
       proofShape := [
-        "`∀ xs, f.{us} xs = g.{us} xs` over the reference's complete dependent domain, closed, \
-          with no additional hypotheses, admitted by the kernel. An actual domain hypothesis is \
-          legitimate; an extra premise such as `False` is not."]
+        "`@f = @g` for the constant `f` of the kernel value and the constant `g` that runs, closed \
+          and with axioms that the claim's profile admits."]
       established := [
-        "Every reached boundary of a checked surface without an admitted toolchain origin has \
-          kernel-admitted correspondence; each one without it has a failure record in every root \
-          whose account contains it (`RegulaPolicy.project_boundary_reported`).",
-        "Every such failure record is reported: as its boundary's own finding, or, for a \
-          `partial` implementation reported with the boundary that runs it, in that boundary's \
-          finding, which names it, or, for a later record of a trusted boundary, in the finding \
-          that reports the first record (`RegulaPolicy.failure_reported`). Every finding is a \
-          record (`RegulaPolicy.executionFindings_sound`), and the findings are empty exactly \
-          when the records are (`RegulaPolicy.executionFindings_empty_iff`).",
-        "Each toolchain-owned boundary of every environment an audit inspects is the boundary of \
-          exactly one entry of the audit's toolchain trusted base or, when every root that \
-          reaches it carries it, an implementation that the entry of a boundary carrying it \
-          names; each entry lists exactly the environments and roots that reach it \
-          (`RegulaPolicy.checked_toolchainBase`)."]
+        "Under a checked claim, each departure outside the toolchain that the closure reaches has \
+          a correspondence that the profile admits, and the closure reaches no code outside the \
+          toolchain that no theorem can bind."]
       notEstablished := [
-        "Correctness of the toolchain's own replacements, unsafe code and native primitives, the \
-          compiler or external code; a Lean equality does not prove external machine code. These \
-          stay trusted and reported.",
-        "Anything about code the program selects at runtime rather than references: a constant \
-          it evaluates by name (`Lean.Environment.evalConst`, `Lean.Environment.evalConstCheck`), \
-          a dynamic library or plugin it loads, or a process it spawns. The account is the static \
-          closure; such code is data to it, and the toolchain primitive that runs it is trusted \
-          base. The `initialize` and `[init]` actions of modules that the project imports but \
-          does not own, static or at runtime, are likewise not roots of their own: the account \
-          covers only those that an existing root reaches, through the constant that the action \
-          initializes. Those of owned modules are executable roots (RG3001).",
-        "That the executable roots are the ones the project intends to cover (R-INVARIANT)."]
+        "Correctness of the toolchain's own replacements, `extern` code and native primitives, or \
+          of the compiler. A Lean equality does not prove external machine code.",
+        "Anything about code that the program selects at run time, such as a constant it \
+          evaluates by name, a dynamic library it loads or a process it starts.",
+        "The exact correspondence statement for each kind of departure, such as the recursion \
+          equation of a helper: the specification leaves it open for issue #487."]
       configuration := [
-        "`execution` in the surface manifest (`report` or `checked`), or `--execution checked` for \
-          a single-file audit, selects the mode. `report` mode reports trusted boundaries without \
-          failing them; it is not a fix for a checked claim."]
+        "`execution` in the surface of `foundation_manifest.json` (`report` or `checked`) selects \
+          the mode. `report` mode does not apply this rule; it is not a fix for a checked claim."]
       limitations := [
-        "Proof search is deliberately incomplete: a candidate whose remaining premises cannot be \
-          instantiated supplies no evidence, and the boundary stays trusted."]
+        "An unsafe theorem is no evidence, so a correspondence counts only from a theorem that is \
+          not unsafe or partial.",
+        "That the executable runs the code that the build records is an assumption, as for \
+          RG3001."]
       residuals := [.intent, .invariant, .qualify]
       checklist :=
           ["COMP-03", "COMP-04", "SCOPE-03", "SCOPE-05", "THEOREM-05", "BUILD-01", "BUILD-03"]
-      linkage := text! "`RegulaPolicy.executionFailureRecords_empty_iff`, \
-        `RegulaPolicy.executionFindings_empty_iff`, \
-        `Regula.Checker.Policy.checked_executionFailures`, `executionRule_injective`, \
-        `RegulaPolicy.boundaryFailures_toolchain`, `RegulaPolicy.project_boundary_reported`, \
-        `RegulaPolicy.failure_reported`, `RegulaPolicy.executionFindings_sound` and \
-        `RegulaPolicy.checked_toolchainBase`; an accepted run satisfies `RegulaPolicy.BoundaryOK`. \
-        `RegulaPolicy.DefeqComparison.ofAttempt_checked_iff` and `ofAttempt_negative_iff`: a \
-        definitional comparison is checked exactly when the attempt recorded the kernel's \
-        admission of the proof with Standard-Logical axioms, and trusted exactly when it recorded \
-        the kernel's refusal or an admission with a different axiom; an error while it records \
-        the answer, also after an admission, leaves it unresolved. \
-        `RegulaPolicy.ExecutionWalk.checked_walk` decides the walk over the records of the probe. \
-        Root discovery, the kernel's answer, reading each record from compiler IR and observing \
-        module origins are operational. `RegulaPolicy.ExecutionWalk.assemble_account` states that \
-        `assemble` builds the account that the visits and their records give (`AccountOf`), the \
-        unresolved paths included. A cycle message lists the names on a cycle of visited \
-        replacement edges and the names from which such a cycle can be reached \
-        (`OnReplacementCycle`). It does not state the order of those names or of the messages for \
-        code."
-      sources :=
-          ["lean/Regula/Probe.lean", "lean/RegulaPolicy/ExecutionWalk.lean",
-              "lean/RegulaPolicy/StackWalk.lean", "lean/RegulaCore/Policy.lean",
-              "website/RegulaStandard/ToolingAndMachineAudit.lean"] }
+      linkage := keptLinkage "Regula.Closed.Input.executionFindings" "Violates3002"
+        "Execution.lean"
+      sources := ["lean/Regula/Rules.lean", "lean/Regula/Load.lean",
+        "specification/RegulaSpecification/Execution.lean",
+        "website/RegulaStandard/ToolingAndMachineAudit.lean"] }
   | .fenceStructure => {
-      problem := text! "A Markdown file in the checked documentation tree has a malformed Lean \
-        fence classification: an orphan, misplaced, duplicated or misspelled marker, an invalid \
+      problem := text! "A Markdown file in the documentation has a malformed Lean fence \
+        classification: an orphan, misplaced, duplicated or misspelled marker, an invalid \
         expected-error pattern, or an unclosed fence. Or it has a line that can show Lean code \
-        at a place that the audit does not check: a Lean fence in a quotation or a list item, \
-        after indentation, inside another fence or with a different spelling of the language, \
-        or the start tag of a raw HTML code element."
+        at a place that no check reads."
       trigger := [
-        "The documentation scanner classifies every Lean fence in every Markdown file of the \
-          selected tree. An unmarked `lean` fence is positive; an immediately adjacent `<!-- \
-          lean-fail: PATTERN -->` makes the next fence negative; `<!-- lean-trusted-compiler -->` \
-          marks a teaching example. Anything else that looks like a marker, or a structural error, \
-          is rejected with applicability `fence-structure`.",
-        "The pattern grammar is small: `|` separates alternatives, `.*` separates ordered literal \
-          fragments, and an optional leading `(?s)` is accepted for compatibility; other regex \
-          syntax is rejected.",
-        "The shape rule: a line that has, at any place, a run of three or more back-ticks or \
-          tildes that the language of Lean follows must open a `lean` fence in the first column, \
-          outside any fence, and a Lean fence must close with a run in the first column. The \
-          characters after the run name Lean when their first run of letters is `lean`, \
-          without regard to case (`Lean`, `lean4`, `{.lean}`, and `lean` after a form feed or a \
-          no-break space, which some Markdown readers remove). A `&` or a backslash in the first \
-          word after the run gives the line that shape too: Markdown decodes them in an info \
-          string, and a reader takes the first word as the language. That word starts at the \
-          first letter, `&` or backslash after the run and ends at a space. Only the word \
-          `lean` opens a Lean fence.",
-        "The shape is conservative. It does not read the inline structure of Markdown, so it \
-          refuses a line of text with an inline span of three back-ticks that the word `lean` \
-          follows. Two refused lines are `See`, then the span, then `lean examples.`, and \
-          `See`, then the span, then `lean/Regula.`, where the span is the letter `x` between \
-          two runs of three back-ticks. Use an inline span with fewer back-ticks, or different \
-          words.",
-        "A line of a Markdown document with the start tag of `pre`, `code`, `xmp`, `listing` or \
-          `plaintext` is rejected at each place, also inside a fence: the character `<`, the \
-          name without regard to case, then the end of the line, `>`, `/` or a character that \
-          HTML takes as white space (a space, a tab, a form feed, a carriage return).",
-        "A line ends at a line feed, with or without a carriage return before it. A carriage \
-          return that no line feed follows is rejected in a Markdown document, because a \
-          Markdown reader takes it as the end of a line. The character U+0000 is rejected, \
-          because a Markdown reader shows U+FFFD in its place; write `\\x00` in a Lean literal. \
-          A Verso source has neither character."]
-      rationaleDetail := []
+        retiredTrigger,
+        "The intent: a marker of a documentation fence is in its place, each fence is closed, \
+          and Lean code is only in a `lean` fence."]
+      rationaleDetail := [retiredRationale]
       proofShape := []
-      established := [
-        "Every Lean fence in the checked tree has exactly one valid classification.",
-        "Each line that a Markdown reader can take as the opening line of a Lean block is the \
-          opening line of a fence that the audit checks, and that fence closes where the reader \
-          closes it.",
-        "An accepted Markdown document has no start tag of an element that a browser shows as \
-          preformatted text or code: `pre`, `code`, `xmp`, `listing`, `plaintext`."]
+      established := [notReported]
       notEstablished := [
-        "That the prose around a fence describes it faithfully (R-DOC).",
-        "That a Markdown reader follows CommonMark for the end of a line and for the opening \
-          line and the closing line of a fenced block: the second item above rests on reading \
-          its sections on line endings, fenced code blocks and container blocks.",
-        "That Lean reads a carriage return before a line feed as a line feed. The body that \
-          the audit compiles keeps the carriage returns of its line endings, without the line \
-          ending of its last line, and the front end of the compiler \
-          (`Lean.Parser.mkInputContext`) is trusted for them."]
-      configuration := [
-        "The checked tree is the documentation tree the audit selects (`docs/` for `lake exe \
-          docFenceAudit`). There is no per-fence opt-out.",
-        "This rule is a documentation-mode rule; it is not reported by the per-declaration editor \
-          linter."]
+        "That the documentation meets the intent above; that is review (R-DOC)."]
+      configuration := []
       limitations := [
-        "Only Markdown structure is checked here; elaboration results belong to RG4002–RG4004.",
-        "A sample of a Lean fence inside a longer fence is refused, with no exception: show the \
-          fence as a real example, and describe a marker in prose.",
-        "A sample of a raw HTML code tag is written with a character reference (`&lt;pre>`) or \
-          in prose, also inside a fence."]
+        "The `lean` blocks of Regula's own standard are still elaborated when the rule-reference \
+          site builds. That build checks no project's documentation."]
       residuals := [.qualify, .doc]
       checklist := ["DOC-03"]
-      linkage := text! "An accepted run satisfies `RegulaPolicy.DocumentOK`. The scanners report \
-        no violation exactly for a document with lines that are permitted transitions of the fence \
-        protocol and keep the shape rule \
-        (`Regula.Checker.Documentation.checked_scanLines`, `checked_scanVersoLines`), and the \
-        lines are those of the text of the document (`toList_linesOf`). A clean document has a \
-        returned fence for each line of Lean shape (`fence_of_leanShaped`, \
-        `example_of_leanShaped`), and a Markdown document is clean exactly when its lines \
-        without the carriage return of a line ending have no carriage return left and are \
-        clean (`clean_iff_withoutReturn`). In each document, each returned fence lies at its lines \
-        (`scanLines_fence`, `scanVersoLines_fence`). Its body is its body lines joined by line \
-        feeds, and its byte ranges hold its lines and its body (`Scanned.bytes`). A Markdown body \
-        drops a carriage return at its end. In a clean Markdown document, a Lean fence after a \
-        marker line carries that marker (`scanLines_marker`)."
-      sources := ["lean/Regula/Checker/FenceScan.lean", "lean/Regula/Checker/Documentation.lean",
-          "lean/Regula/Checker/Diagnostics.lean", "lean/RegulaPolicy/Pattern.lean"] }
+      linkage := retiredLinkage
+      sources := ["specification/README.md", "specification/RegulaSpecification/Fates.lean"] }
   | .positiveExample => {
-      problem := text! "A positive Lean fence in the documentation did not elaborate verbatim and \
-        warning-free, or it did and then failed admission or the declaration and axiom rules."
+      problem := text! "A positive Lean fence in the documentation does not elaborate verbatim and \
+        warning-free, or it does and then fails the declaration and axiom rules."
       trigger := [
-        "Each positive fence is elaborated exactly as printed, with no inserted imports or \
-          wrappers, against a fresh build of the claimed libraries. It must be warning-free, pass \
-          checked admission, and pass the declaration and axiom rules under Standard-Logical. The \
-          fence failure is reported here together with the underlying finding (for example RG1001 \
-          for an axiom in the example).",
-        "A fence that fails without a source diagnostic (for example a worker that stopped before \
-          completing) is reported as INCOMPLETE, not as a violation."]
-      rationaleDetail := []
+        retiredTrigger,
+        "The intent: a `lean` fence of the documentation elaborates with no warning, and passes \
+          the declaration and axiom rules."]
+      rationaleDetail := [retiredRationale]
       proofShape := [
-        "The fence proves exactly the claim the surrounding prose states. A narrower foundation or \
-          an execution claim in the prose needs its own evidence; fence success establishes only \
-          Standard-Logical admission."]
-      established := [
-        "The positive fence elaborated verbatim, warning-free, passed owned admission and the \
-          declaration and axiom rules."]
+        "The fence proves exactly the claim the surrounding prose states."]
+      established := [notReported]
       notEstablished := [
-        "That the prose describes the fence faithfully (R-DOC, R-INTENT), or any narrower \
-          foundation claim."]
-      configuration := [
-        "No marker makes a failing positive example acceptable; changing it to `lean-fail` changes \
-          what the documentation claims.",
-        "Run `lake exe docFenceAudit`."]
+        "That each `lean` fence elaborates, and that the prose describes it faithfully (R-DOC, \
+          R-INTENT)."]
+      configuration := []
       limitations := [
-        "Examples are checked under the declared toolchain only."]
+        "The `lean` blocks of Regula's own standard are still elaborated when the rule-reference \
+          site builds. That build checks no project's documentation."]
       residuals := [.intent, .qualify]
       checklist := ["DOC-04"]
-      linkage := declarationLinkage ++ " An accepted run satisfies \
-        `RegulaPolicy.ExampleExpectationOK`, and `incomplete_example_refused` refuses an \
-        incomplete example."
-      sources := ["lean/Regula/Checker/Documentation.lean", "lean/Regula/Checker/SourceAudit.lean",
-          "lean/Regula/Checker/Admission.lean"] }
+      linkage := retiredLinkage
+      sources := ["specification/README.md", "specification/RegulaSpecification/Fates.lean"] }
   | .negativeExample => {
-      problem := text! "A fence marked `lean-fail` did not fail as specified: it elaborated \
-        successfully, failed for a different reason, or the worker crashed or timed out."
+      problem := text! "A fence marked `lean-fail` does not fail as specified: it elaborates \
+        successfully, or it fails for a different reason."
       trigger := [
-        "A negative fence must complete with a source rejection, and one effective error message \
-          must match the entire expected pattern. Informational output, a pattern matched across \
-          several messages, a crash, a timeout or a successful elaboration does not pass.",
-        "An example that elaborated successfully or failed with a non-matching message is a \
-          violation; a worker that crashed, timed out or did not complete is INCOMPLETE."]
-      rationaleDetail := []
+        retiredTrigger,
+        "The intent: a `lean-fail` fence fails with one error that matches its pattern."]
+      rationaleDetail := [retiredRationale]
       proofShape := [
         "The pattern is part of the documented claim and is reviewed with the prose."]
-      established := [
-        "The negative fence completed with a source rejection whose single error message matches \
-          the whole pattern."]
+      established := [notReported]
       notEstablished := [
-        "That the rejection happens for the conceptual reason the prose explains beyond the \
-          matched message text."]
-      configuration := [
-        "The marker and its pattern are the configuration; there is no option that accepts a \
-          non-failing negative example."]
+        "That each `lean-fail` fence fails for the reason the prose explains; that is review \
+          (R-DOC)."]
+      configuration := []
       limitations := [
-        "Regula policy rejections of documentation examples can follow successful elaboration; \
-          this rule concerns compiler rejection patterns of `lean-fail` fences."]
+        "No check of a project's documentation runs the fences."]
       residuals := [.qualify, .doc]
       checklist := ["DOC-05"]
-      linkage := text! "`RegulaPolicy.matchesPattern_iff` characterizes the executed matcher."
-      sources :=
-          ["lean/Regula/Checker/Diagnostics.lean", "lean/RegulaPolicy/Pattern.lean",
-              "lean/Regula/Website.lean"] }
+      linkage := retiredLinkage
+      sources := ["specification/README.md", "specification/RegulaSpecification/Fates.lean"] }
   | .trustedExample => {
-      problem := text! "A fence marked `lean-trusted-compiler` did not elaborate warning-free with \
-        an authenticated compiler-trusting declaration: it contains no native proof, or \
-        authentication failed."
+      problem := text! "A fence marked `lean-trusted-compiler` does not elaborate warning-free \
+        with a compiler-trusting declaration: it contains no native proof."
       trigger := [
-        "A teaching fence must elaborate warning-free and the checker must authenticate at least \
-          one compiler-trusting declaration in it, using the same evidence as RG1004. If none is \
-          found, or authentication fails, the fence is rejected with \
-          applicability `trusted-example`.",
-        "The fence is also rejected, with the underlying finding, when any declaration in it fails \
-          the declaration rules under the teaching request (for example RG1001 for an axiom or \
-          RG1006 for an unsafe or partial declaration)."]
-      rationaleDetail := []
-      proofShape := []
-      established := [
-        "The teaching fence elaborated warning-free and contains an authenticated \
+        retiredTrigger,
+        "The intent: a `lean-trusted-compiler` fence elaborates with no warning and contains a \
           compiler-trusting declaration."]
+      rationaleDetail := [retiredRationale]
+      proofShape := []
+      established := [notReported]
       notEstablished := [
-        "Any conformance of the teaching example; it is classified, never counted as a positive \
-          proof."]
-      configuration := [
-        "There is no name-based allowlist for native proofs; authentication is required for every \
-          teaching fence."]
+        "That a teaching fence shows what its prose says; that is review (R-DOC)."]
+      configuration := []
       limitations := [
-        "Teaching fences are re-elaborated for authentication, so their imports are paid twice; \
-          keep them small."]
+        "No check of a project's documentation runs the fences."]
       residuals := [.qualify]
       checklist := ["DOC-05"]
-      linkage := text! "`RegulaPolicy.checked_memberFoundation` and \
-        `Regula.Checker.Policy.labelOf_member`."
-      sources := ["lean/Regula/Checker/Documentation.lean", "lean/Regula/Checker/Frontend.lean",
-          "lean/RegulaPolicy/Decision.lean"] }
+      linkage := retiredLinkage
+      sources := ["specification/README.md", "specification/RegulaSpecification/Fates.lean"] }
   | .moduleDocumentation => {
       problem := text! "A module in a claimed surface has no module docstring (`/-! … -/` or \
         Verso module documentation), has one that is not the first command after its imports, or \
         repeats an import with the same modifiers."
       trigger := [
-        "When a claimed module finishes elaborating, the checker asks Lean for its module \
-          documentation and parses the module's header and first command from its source with \
-          Lean's own parser. The proved decision `RegulaPolicy.ModuleHeader.failures` then \
-          rejects, with applicability `module-documentation`, a module without module \
-          documentation; a module whose first command after the imports is not a module \
-          docstring (for example `@[expose] public section` or a declaration; a \
-          `set_option … in` prefix, the community's form for a Verso module docstring, is read \
-          through); and each import that occurs twice with the same `public`, `meta` and `all` \
-          modifiers. Empty modules are included."]
-      rationaleDetail := []
+        retiredTrigger,
+        "The intent: a claimed module has a module docstring as its first command after the \
+          imports, and it imports no module two times."]
+      rationaleDetail := [retiredRationale]
       proofShape := []
-      established := [
-        "Every claimed module has module documentation, its first command after the imports is \
-          a module docstring, and its header repeats no import."]
+      established := [notReported]
       notEstablished := [
-        "That the documentation identifies all material declarations and assumptions, or \
-          describes them faithfully (R-DOC). Presence and position say nothing about content; no \
-          section layout is imposed.",
-        "Import minimality: an unused or transitively redundant import that is not repeated is \
-          not reported."]
+        "That each claimed module has module documentation that describes it faithfully (R-DOC). \
+          Presence and position say nothing about content."]
       configuration := []
       limitations := [
-        "The editor reports this rule only when the module has finished elaborating without \
-          errors; a module with elaboration errors gets RG2005 (incomplete) instead."]
+        "No check reads the position of a module docstring or a repeated import."]
       residuals := [.doc]
       checklist := ["DOC-01", "DECL-01"]
-      linkage := text! "`RegulaPolicy.ModuleHeader.failures_eq_nil_iff` and `mem_repeated_iff`, \
-        and `Regula.Checker.Acceptance.modulePresence_iff` and `documentationPresence_modes`. \
-        Parsing the module header is operational."
-      sources := ["lean/RegulaPolicy/ModuleHeader.lean", "lean/Regula/Linter/Documentation.lean",
-        "lean/Regula/Checker/AxiomGate.lean",
-            "website/RegulaStandard/DocumentationStandards.lean"] }
+      linkage := retiredLinkage
+      sources := ["specification/README.md", "specification/RegulaSpecification/Fates.lean",
+        "website/RegulaStandard/DocumentationStandards.lean"] }
   | .materialDocumentation => {
       problem := text! "A public declaration registered with `@[regula_material]` as evidence for \
         a material normative claim has no docstring."
       trigger := [
-        "The checker selects public declarations carrying the persistent `@[regula_material]` \
-          registration and asks Lean for their docstrings (`findDocString?`, which includes \
-          inherited documentation). A registered declaration without one is rejected with \
-          applicability `material-documentation`.",
-        "Unregistered declarations are not selected; there is no name heuristic."]
-      rationaleDetail := []
+        retiredTrigger,
+        "The intent: each public `@[regula_material]` declaration has a docstring."]
+      rationaleDetail := [retiredRationale]
       proofShape := [
         "The docstring describes the elaborated statement faithfully."]
-      established := [
-        "Every registered public material declaration has a docstring."]
+      established := [notReported]
       notEstablished := [
-        "That every material declaration is registered, or that the docstring is faithful and \
-          adequate (R-DOC); registration completeness is semantic review.",
-        "Docstrings of unregistered declarations. Standard §6.7 requires claimed libraries to \
-          enable `linter.missingDocs`, whose reports RG2003 rejects; RG2006, not this rule, checks \
-          that option."]
+        "That each registered material declaration has a faithful and adequate docstring \
+          (R-DOC)."]
       configuration := [
         "Registration is `@[regula_material]` from `Regula.MaterialClaim`. Removing a registration \
-          from a material declaration changes the reviewed claim, not only this rule's result."]
+          from a material declaration changes the reviewed claim."]
       limitations := [
-        "Lean's broader `linter.missingDocs` reports public declarations without a docstring only \
-          where it is enabled; this rule covers registered material evidence whatever the options.",
-        "The editor reports this rule only when the module has finished elaborating without \
-          errors; a module with elaboration errors gets RG2005 (incomplete) instead."]
+        "Lean's `linter.missingDocs` reports a public declaration without a docstring where a \
+          target turns it on, and `lake build --wfail` then fails (RG2003)."]
       residuals := [.doc]
       checklist := ["DOC-01"]
-      linkage := text! "`RegulaPolicy.materialDocumentationFailure_eq_none_iff`, \
-        `materialDocumentationFailure_eq_missingDocstring_iff` and \
-        `Regula.ruleForMaterialDocumentation_injective`."
-      sources :=
-          ["lean/Regula/MaterialClaim.lean", "lean/RegulaPolicy/Intent.lean",
-              "lean/Regula/Linter/Documentation.lean"] }
+      linkage := retiredLinkage
+      sources := ["lean/Regula/MaterialClaim.lean", "specification/README.md",
+        "specification/RegulaSpecification/Fates.lean"] }
   | .materialIntent => {
       problem := text! "A registered public material declaration has a docstring without a \
         nonempty labelled Intent section."
       trigger := [
-        "An Intent section is an ATX heading line whose text is exactly `Intent` (one to six `#`, \
-          no closing sequence), followed before the next heading of equal or higher level by at \
-          least one non-heading line with text. Text under deeper subsection headings counts. A \
-          registered docstring without such a section is rejected with applicability \
-          `material-intent`.",
-        "A declaration with no docstring at all is RG5002 only; the two rules partition the \
-          failures."]
-      rationaleDetail := []
+        retiredTrigger,
+        "The intent: each public `@[regula_material]` docstring has a section `# Intent` that is \
+          not empty."]
+      rationaleDetail := [retiredRationale]
       proofShape := [
         "The Intent section states the requirement the declaration must meet; review compares \
           the two."]
-      established := [
-        "Every registered public material declaration's docstring has a nonempty labelled Intent \
-          section, decided by the proved classifier `RegulaPolicy.materialDocumentationFailure`."]
+      established := [notReported]
       notEstablished := [
         "That the intent states what the requirement owner needs, or that the declaration meets it \
-          (R-INTENT, R-DOC). There is no intent detector, length threshold or similarity check.",
-        "Code fences in the docstring are not tracked: a `# Intent` line inside a fenced block \
-          counts as an Intent heading."]
+          (R-INTENT, R-DOC)."]
       configuration := [
-        "The rule checks only declarations registered with `@[regula_material]` from \
-          `Regula.MaterialClaim`. Removing a registration from a material declaration changes the \
-          reviewed claim, not only this rule's result."]
+        "Registration is `@[regula_material]` from `Regula.MaterialClaim`. Removing a registration \
+          from a material declaration changes the reviewed claim."]
       limitations := [
-        "Setext headings and closing sequences such as `# Intent #` are not recognized as Intent \
-          headings.",
-        "The editor reports this rule only when the module has finished elaborating without \
-          errors; a module with elaboration errors gets RG2005 (incomplete) instead."]
+        "No check reads the Intent section of a docstring."]
       residuals := [.intent, .doc]
       checklist := ["DOC-02"]
-      linkage := text! "`RegulaPolicy.materialDocumentationFailure_eq_missingIntent_iff` and \
-        `RegulaPolicy.Intent.hasIntentSection_iff`."
-      sources :=
-          ["lean/RegulaPolicy/Intent.lean", "lean/Regula/MaterialClaim.lean",
-              "lean/Regula/Linter/Documentation.lean"] }
+      linkage := retiredLinkage
+      sources := ["lean/Regula/MaterialClaim.lean", "specification/README.md",
+        "specification/RegulaSpecification/Fates.lean"] }
 
 /-- Every rule's explanation has all required sections. The problem and the linkage are nonempty
 by their type, however long they are (`Guide.wellFormed_iff_listsNonempty`); that every required

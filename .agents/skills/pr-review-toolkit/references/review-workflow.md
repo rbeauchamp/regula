@@ -24,36 +24,27 @@ coordinate expensive commands through one owner to avoid competing builds. Colle
 reviews before modifying their frozen subject. If independent review is unavailable, report
 that gate as incomplete while completing unaffected authorized work.
 
-## Accepted-result review
+## Checker load and verdict review
 
-For acceptance changes, use [the acceptance boundary](../../../../docs/guides/proofs-and-boundaries.md#the-acceptance-boundary)
-and assign distinct fresh-context proof and integration review. The proof review checks
-that the executed collector/finalizer derives complete coverage and approved predicates
-for every required slot, with explicit hypotheses and exact axiom sets. Statement-reference
-or axiom-closure audits alone do not establish proof-body/execution linkage.
+For changes to the checker's load or its verdict, use
+[the acceptance boundary](../../../../docs/guides/proofs-and-boundaries.md#the-acceptance-boundary)
+and assign distinct fresh-context proof and integration review. The proof review checks each
+rule function in `Regula.Rules` against its entry in the specification, with explicit
+hypotheses and exact axiom sets. A theorem about the specification alone does not establish
+that the function the shell runs meets it.
 
-The integration review traces every success branch through `AcceptedRun.report` (and
-`CombinedAccepted` for project/docs), independently frozen requests/censuses, raw packet
-reconstruction and unchanged source/ownership/admission guards. Check exact mode and
-snapshot identity, full replay preservation, infrastructure disjointness/authentication,
-original-file/temporary-copy binding, grouped fence units and optional graph roots.
-Review constructor/caller visibility without claiming hostile in-process unforgeability.
-For a multi-environment census, verify the original full claim and coordinator-fixed
-request partition; local roles, roots, replay, histories and origins must resolve in
-the job's exact environment. Equal names across environments must not be flattened
-or deduplicated, and configuration/discovery/build obligations remain global.
-Help, planning, workers, local editor observations and diagnostic demonstrations must
-stay explicitly non-audit; rendered JSON/status cannot reconstruct a proof.
-For adoption adapters (`lint`, the build `policy` target, native editor messages),
-check that success reaches exit 0 only through the audit's own accepted result
-(`Lint.accepted_sound`), that exit classes follow the recorded status, and that help
-links come from the registry's `helpUrl`. Editor claims need observation in the supported
-client; a link string or browser check alone does not qualify an editor interaction.
+The integration review traces each path of `Regula.Load.loadBundle` and `Regula.Shell.run`.
+Check that a build that Lean cannot load, and an input that does not have the closed form, give
+`incomplete`, and never a value read as absent. Check that exit 0 follows only from the verdict
+`pass` of `Regula.Closed.run` (`Verdict.exitCode`), and that each finding's link comes from the
+registry. For several environments, check that each module of a target is loaded in one of
+them, and that the claim, targets and module records are the same in each.
 
 ## Rule and site changes
 
 A change to a rule reviews its registry descriptor (`RegulaCore/Rule.lean`), its explanation
-(`guide` in `RegulaCore/Guide.lean`), its fixtures and `corpus.json` entry, and its detector together.
+(`guide` in `RegulaCore/Guide.lean`), its example pair, its function in `Regula.Rules` and its
+entry in the specification together.
 Check that the explanation states exactly what the detector rejects, which impact it reports,
 what a pass establishes and which `Residual` obligations stay open, with no suppression advice
 that implies conformance; that the correction preserves the violation's intended proposition or
@@ -88,10 +79,8 @@ Choose checks from AGENTS.md and the applicable checklist rows:
 | --- | --- |
 | Lean definitions or proof claims | Relevant compiler/proof checks and semantic review. |
 | Settled conformance | Complete acceptance command plus applicable semantic rows. |
-| Checker behavior or detection claims | Focused qualification of affected capabilities and invocation paths. |
-| Lake lint driver, build target or editor adapter | `diagnostics lint-driver` or `build-policy` as affected; `qualify native` for linter messages; recorded client observation for editor interaction. |
-| Optional serialized-graph claim | Supported fresh-checker evidence for that exact graph. |
-| Rule metadata, explanations, fixtures or site generation | The three corpus shards and `./scripts/verify.sh site` at the same commit; browser observation of affected pages; semantic review of the explanation. |
+| Checker behavior or detection claims | The rule function against its entry in the specification; a run of `lake lint` on an affected project. |
+| Rule metadata, explanations, example pairs or site generation | `./scripts/verify.sh site` at the same commit; browser observation of affected pages; semantic review of the explanation. |
 | Instructions or editorial changes with unchanged Lean claims and inputs | References, instruction behavior, and scoped review. |
 
 Reuse prior semantic or diagnostic evidence when its relevant inputs, toolchain, and claim

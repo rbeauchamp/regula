@@ -50,75 +50,34 @@ commands below downloads, caches, imports or builds Mathlib; the
 ```sh
 lake build                         # incremental development check (the regula package)
 lake -d audit build                # the standard's example library
-./scripts/verify.sh                 # ordinary acceptance (project surfaces)
-./scripts/verify.sh docs            # checks of tracked Markdown documents, audit/ package, documentation examples and the Verso standard, linked to that acceptance
-./scripts/verify.sh diagnostics fixtures # focused diagnostic qualification
+./scripts/verify.sh                # ordinary acceptance
+./scripts/verify.sh docs           # Markdown, the audit/ package and the Verso standard, linked to that acceptance
 ```
 
-Ordinary acceptance builds its checker executables, type-checks the diagnostic
-modules and audits the root package's claimed Lean surfaces from fresh output. It also runs `qualify combined`. The [dispatcher](../../lean/Regula/Qualification/Main.lean) defines its control sequence.
-It refuses a root package that has no lock manifest, or that has a dependency in its lock manifest
-or package overrides file. It records the content
-identity of the inputs it accepted in `tmp/acceptance-link.json`. `./scripts/verify.sh docs`
-then refuses a rule ID in the prose of a tracked Markdown document that is not a link to its rule page ([rule IDs in documentation](#rule-ids-in-documentation)), refuses a link of the root `README.md` to the rule-reference site that is not a stable address ([links of the root README](#links-of-the-root-readme)), refuses a root `README.md` or adoption guide that does not open with the summary of Regula ([opening of the root README](#opening-of-the-root-readme)), refuses a root `README.md` if its example does not show its module and what Lean and `axiomGate --file` give for it ([example of the root README](#the-example-of-the-root-readme)), audits the `audit/` package's claimed surface from fresh output, checks every Lean example
-under `docs/` and in the Verso standard (each elaborated in the Verso package's workspace, which
-requires both packages), builds the standard in its own copy and renders it, refuses such a rule ID in the prose of the rendered standard, and refuses unless its own freshly captured inputs have the same identity. That command also operates the controls of the [checks of the prose](#the-prose-of-markdown-documents) and of the [check of the vocabulary](#the-vocabulary-of-the-project), and then does those checks. `DOC-*` rows need both commands. Each
-acceptance step performs Lake-semantic discovery and a clean, warning-free build before
-inspection, so a redundant preliminary clean build is unnecessary; `lake build` remains the
-development command. Each command has its own hard seven-minute
-limit; a timeout is an incomplete run, not acceptance. `./scripts/provision.sh` runs before
-that limit, under its own 30-minute limit; it validates the released compiler and acquires one dependency, the specification package's lean-intent. The [local gate](#the-local-gate) runs the two commands in that order, after it provisions
-the pinned Verso artifacts.
+The first step refuses a root package that has no lock manifest, or that has a dependency in its lock manifest or package overrides file. Then its driver makes a copy of the checkout in `.lake/regula-scratch/`. In the copy, it builds each claimed target, the checker and the acceptance tools, with warnings as errors. It runs the registry checks and builds the specification package. Last, it runs the checker (`lake lint`) on the build of the copy.
 
-Ordinary acceptance puts the accepted record at `tmp/acceptance-link.json` only after each of
-its commands ended with exit status 0. Its driver first makes one copy of the checkout in
-`.lake/regula-scratch/`. The build, the registry checks and the qualification controls operate
-in that copy. The gate that the copy built audits the build output of the copy. Thus the step
-builds the claimed libraries one time.
+If each command ended with exit status 0, the driver records the SHA-256 of each file of the copy in `tmp/acceptance-link.json`. If the step passed and the checkout has no build output, the driver moves the build output of the copy to `.lake/build` of the checkout. If the checkout has build output, the driver does not change it. The driver removes the copy at the end of the step. A killed step leaves its copy, and the next first step removes it.
 
-In the copy, the driver first builds the claimed targets and the gate. Then the gate runs beside
-the other four commands, which run at low priority.
+`./scripts/verify.sh docs` makes a new copy of the checkout and compares the SHA-256 of each of its files with the record. If a digest is not there or is different, the step refuses before its first command. It does the same comparison again after its last command. These are its checks:
 
-`qualify unique-constants` refuses a constant that two modules of one claimed environment
-declare, if one of them is a module of the root package. Lean makes an equation lemma in the first
-module that unfolds its definition. If two modules that do not import each other each make it, an
-environment that loads the two can replay a module again. It does so if the two copies do not
-agree or if a module that the audit does not own also declares the name.
-[Admission reuse](proofs-and-boundaries.md#producers) states the conditions.
+- It refuses a rule ID in the prose of a tracked Markdown document that is not a link to its rule page ([rule IDs in documentation](#rule-ids-in-documentation)).
+- It refuses a link of the root `README.md` to the rule-reference site that is not a stable address ([links of the root README](#links-of-the-root-readme)).
+- It refuses a root `README.md` or adoption guide that does not open with the summary of Regula ([opening of the root README](#opening-of-the-root-readme)).
+- It operates the controls of the [checks of the prose](#the-prose-of-markdown-documents) and of the [check of the vocabulary](#the-vocabulary-of-the-project). Then it does those checks.
+- It builds the `audit/` package with warnings as errors and runs the checker on it.
+- It builds the Verso standard, which elaborates each `lean` block where it is written. Then it renders the standard and checks its anchors, the rows of its checklist and the links of its rule IDs.
 
-If the step passed and the checkout has no build output, the driver moves the build output of
-the copy to `.lake/build` of the checkout. After a step that failed, a checkout with no build
-output stays without it. If the checkout has build output, the driver does not change it.
-The driver removes the copy at the end of the step. A killed step leaves its copy. The next
-first step or the next run of the checker removes it.
-
-After it moves the build output, the driver adds digests to the accepted record. These are the
-SHA-256 of each file of the copy and of that build output. The fence audit of
-`./scripts/verify.sh docs` then puts part of that build output in its own copy. That part is the
-files of the modules that its claimed build compiles. It does this only if each digest is equal to the digest of
-the file that it reads.
-
-If a digest is not there or is different, the fence audit builds the claimed libraries in a
-copy with no build output. Thus the libraries that the fences read were compiled from equal files.
-The first step compiled them in a copy with no earlier build output, or this run compiled them. The
-output of the fence audit tells if it placed the first step's build. It does not tell which build
-compiled each library.
-
-The fence audit checks the record first, before it builds. Thus without an accepted record it
-refuses immediately and builds nothing.
+`DOC-*` rows need both commands. Each command has its own hard limit of seven minutes. A timeout is an incomplete run, not acceptance. `./scripts/provision.sh` runs before that limit, under its own limit of 30 minutes. It validates the released compiler and acquires one dependency, the lean-intent of the specification package. The [local gate](#the-local-gate) runs the two commands in that order, after it provisions the pinned Verso artifacts.
 
 Two ordinary attempts at the same time in one checkout are not a supported use.
 
-Each line that starts with `verification:` is
-a progress line of the driver of `./scripts/verify.sh`. Such a line gives the start of a command,
-the end of a command, or a different event of the driver
-([proofs and boundaries](proofs-and-boundaries.md#the-acceptance-boundary)).
+Each line that starts with `verification:` is a progress line of the driver of `./scripts/verify.sh`. Such a line gives the start of a command, the end of a command, or a different event of the driver ([proofs and boundaries](proofs-and-boundaries.md#the-acceptance-boundary)).
 
 The applicable command evidence is required but does not complete the standard's checklist:
 theorem, type and prose rows still require semantic review. A conformance record for this
 repository states the Lean version, the exact dependency source state (including Mathlib when
 present), the claimed Lake modules, declaration coverage and exact axiom results, execution
-boundaries, the applicable fence and checker-qualification results, and any failures or missing
+boundaries, the applicable checker results, and any failures or missing
 evidence. A required check that was skipped leaves its affected row or optional claim
 `INCOMPLETE`; it cannot support conformance. No CI, publication, merge, actual VS Code
 interaction, or full repository semantic conformance is implied by local acceptance or scoped
@@ -138,7 +97,7 @@ library is the claimed surface on which that support is checked:
 | Warning-free elaboration under that linter set ([RG2003]) | Every `MathlibAudit` module |
 | Exact foundation labels through Mathlib dependencies, including `Classical.choice` reached through `ℝ` | `MathlibAudit.DocPrelude`, `MathlibAudit.DocClaims`, `MathlibAudit.Models` |
 | Mathlib syntax, tactics and canonical structures in claimed declarations (`Type*`, `ring`, `norm_num`, `LinearOrder.lift'`, `unitInterval`, `IsOrderedAddMonoid`, `MetricSpace`) | `MathlibAudit.Refinement`, `MathlibAudit.Economy`, `MathlibAudit.DocClaims`, `MathlibAudit.Models` |
-| Material-claim registration and its docstring rules on a Mathlib surface ([RG5002], [RG5003]) | `MathlibAudit.Refinement` |
+| Material-claim registration on a Mathlib surface | `MathlibAudit.Refinement` |
 | Statements about Mathlib's own definitions (`Nat.Perfect`, `Relation.ReflTransGen`, `Even`) | `MathlibAudit.Research`, `MathlibAudit.Refinement`, `MathlibAudit.Basic` |
 | `lake lint` through the `regula/lint` driver in a Mathlib project | The package's `lintDriver` |
 
@@ -155,9 +114,9 @@ lean --run lean/RegulaProvision.lean mathlib   # setup: the shared, read-only Ma
 ```
 
 `./scripts/verify.sh mathlib` first refuses a copy the check does not apply to, or whose Mathlib is
-not provisioned (`lean --run lean/RegulaProvision.lean mathlib-applies --require`), then runs
-`lake exe axiomGate` in the package, the fresh acceptance of its
-claimed surface against its own `foundation_manifest.json`, and then `lake lint` there. It is never
+not provisioned (`lean --run lean/RegulaProvision.lean mathlib-applies --require`). Then it builds
+the package with warnings as errors (`lake build --wfail`) and runs `lake lint` there, against its
+own `foundation_manifest.json`. It is never
 part of acceptance and no acceptance step, diagnostic or site build depends on it. The
 [local gate](#the-local-gate) runs it for each change, and the `mathlib integration` job of
 [`ci.yml`](../../.github/workflows/ci.yml) runs it on dispatch. That job is the only job that
@@ -256,260 +215,22 @@ The [CI workflow](../../.github/workflows/ci.yml) defines runner and cache confi
 Reuse evidence when its relevant inputs and claims remain unchanged; instruction-only
 changes need scoped review rather than another Lean run.
 
-### Choose focused diagnostics
-
-Use `./scripts/verify.sh diagnostics PARTITION` when changes affect the corresponding
-checker behavior:
-
-| Partition | Focus |
-| --- | --- |
-| `fixtures`, `fixtures 1/5` to `fixtures 5/5` | Positive controls and intentionally invalid Lean declarations, then the Markdown scanner controls and the in-process fence corpus. A shard checks one fixture in five, by its position in module-name order, not the file order of `fixtures.json`. The last shard also runs the scanner controls and the fence corpus. |
-| `structural`, `structural 1/5` to `structural 5/5` | Surface discovery, ownership, contamination, required application contracts, decision contracts that one surface counts for a different surface, and admission reuse between environments; a shard runs part of the controls. The shards together run all of them but the self-hosted identity. Shards 1/5 and 5/5 write its two digests, `tmp/self-hosted-digest/positive.sha256` and `restored.sha256`. The `diagnostics` gate and the local gate compare them, so a claim of one shard rests on the unsharded `structural` run or a comparison of the two files. |
-| `execution`, `execution 1/4` to `execution 4/4` | Execution evidence: each compiler-path mutation and correspondence control with its positive and fresh restoration; a shard runs part of the controls, and the shards together run all of them. |
-| `cli`, `cli 1/6` to `cli 6/6` | Command-line behavior and diagnostics: each fixture through a real `axiomGate --file` run, then the source-attribution controls. A fixture with a `fileAuditExclusion` in its manifest entry is left out and named with its reason. The fixtures partition still checks it. A shard checks one fixture in six, by its position in module-name order. The last shard also runs the source-attribution controls. Then it runs the control of a process without a task manager and the control of a run that stops early. For those two controls it builds `qualify`, `site`, `ruleExamples` and `ruleExampleQualification`. |
-| `environments`, `environments 1/6` to `environments 6/6` | Isolated environments, documentation scanning, and external adopters. Shard 1/6 runs the public fence corpus. Shard 2/6 runs the `lakefile.toml` adopter, and 3/6 runs the `lakefile.lean` and relative-path adopters. Shard 4/6 runs the clean-checkout documentation fences and `freshChecker`. Shard 5/6 runs the clean-checkout `--file` control, and 6/6 runs the public surface. |
-| `build-policy`, `build-policy 1/3` to `build-policy 3/3` | Enforcement through the example's ordinary Lake build. A shard runs one mutation case in three. The last shard also runs the disabled-policy control. |
-| `lint-driver`, `lint-driver 1/5` to `lint-driver 5/5` | `lake lint` dispatch and exit classes in both shipped adopters, and the cold compiler guard of `lakefile.lean`: refusal of an inherited `LEAN_SYSROOT` child that fails and of one that succeeds without reporting the running compiler's identity, then a restored load. In a plain workspace the driver keeps the audit-build marker without `REGULA_ORDINARY_LAKEFILES=1`, and with it omits the marker, reports it and reuses the ordinary build. Under the assertion, an import of `Regula.Linter` keeps the marker, and the driver reports the reason. Decision probes of the guard load a changed adopter in the process and check its decision and reason without an audit. A custom target, a library in `needs`, a facet of Lake declared again and a library field outside the list keep the marker. So do a different `nativeFacets`, a lakefile declaration, a theorem that equates two functions, a TOML filter other than `"*"` and an import of `Regula.Linter`. An input file in `needs` and the filter `"*"` keep the plain shape. Lake's artifact cache is on in a private directory, and a claimed module warns. Then two identical `--fresh` runs and an incremental audit of the module that Lake restored from the cache each report [RG2003]. The same holds when only a path dependency turns the cache on in its own configuration, and its module warns. It also holds when the claimed library builds no module by default, and the module was elaborated or restored by an ordinary build. The claimed library can also have the name `foo/bar`, and Lake target syntax reads its spelling `«foo/bar»` as a library of a dependency. Then an incremental audit also reports it. Without the warning, a fresh run is accepted. An adopter's path dependency is replayed in its Git work tree, also with `--fresh`, and trusted and named in a work tree of its own. An adopter in the checker's own work tree owns `regula` and imports `Regula.Linter`. Its fresh audit owns no `Regula` or `RegulaPolicy` module of `regula` and accepts the adopter. On a project from `lake new` in each format, `regula init` writes the glob of its library, and a second run writes nothing. In the `lakefile.toml` project, `lake lint` then reports the missing docstrings, and it accepts the project when they are written. A shard runs part of the control groups, and the five shards together run all of them. |
-| `producers` | [Project producer and documentation qualification](proofs-and-boundaries.md#producers). |
-| `history` | [Source-bound replacement history qualification](proofs-and-boundaries.md#producers). |
-| `self-lint` | This repository's own `REGULA_ORDINARY_LAKEFILES=1 lake lint` through the `regula/lint` driver, in the root and `audit/` packages ([repository conformance](#repository-conformance)). |
-| `self-lint-default` | The root package's `lake lint` without `REGULA_ORDINARY_LAKEFILES`, so with the audit-build marker that an adopter gets by default ([repository conformance](#repository-conformance)). |
-| `self-audit`, `self-audit 1/4` to `self-audit 4/4` | Operational self-audit of the excluded `Regula` library, and the check for one-sided `Json` comparisons in each library except `Fixtures` ([repository conformance](#repository-conformance)). The self-audit also refuses, in each library except `Fixtures`, a declaration if its type or value names Lean's `System.FilePath.pathExists` or `System.FilePath.isDir`. It does not refuse a handler that turns an error of `metadata`, `symlinkMetadata` or `realPath` into `false` or `none` ([#461](https://github.com/rbeauchamp/regula/issues/461)). It does not find a read in Lean or Lake ([#441](https://github.com/rbeauchamp/regula/issues/441)). A shard audits a quarter of the modules, and the four shards together audit all of them. The shard `self-audit 4/4` and the single run also check that each program of the package runs the removal check (`qualify observers`, [proofs and boundaries](proofs-and-boundaries.md#the-acceptance-boundary)). They also check that each executable runs the task-manager check. |
-| `rule-examples`, `rule-examples 1/3` to `rule-examples 3/3` | [Source-owned corpus and diagnostic demonstrations](architecture.md#rule-examples); a shard runs a third of the rules. |
-| `input-inventory` | Root additions and Markdown edits or removals during the prerequisite build of the checker, an actual new-module build and restored fresh controls (`qualify input-inventory`). |
-| `environment-census` | This repository's claimed environments and their mutations (`qualify environments`). |
-| `snapshot-history` | Fresh, incremental and build-lint history refusal and restoration over the dependency snapshot (`qualify acceptance-snapshots history`). |
-| `acceptance-controls` | Fence-compilation packet mutations with positive restoration, and the `dependencies` and `git-status` snapshot groups. Also timeout-selection and spawn failures, and the preparation of a shared producer slot. A stand-in listing program fails a listing, and the copy routine refuses before any receipt or write. The commands are `qualify acceptance fences`, `acceptance-snapshots dependencies` and `git-status`, `receipt-boundaries`, `prep-measure` and `enumeration`. |
-| `documentation-controls` | The two documentation commands keep their pre-build dependency observations. An initial configuration IO failure goes through the project and file result protocols. A fresh audit with the policy manifest `policy.json` passes the project-surface comparison. That comparison refuses a missing selection, an absent selected file and an ambiguous selection. The Verso package's pin check and input capture follow the packages Lake loads by path and the files Lake reads for them. A project's copy leaves out only the dependency directories in its packages directory, loads each through an override and refuses a file it would lose. The dependency inventory accepts a load that `LAKE_PKG_URL_MAP` redirects. The commands are `qualify documentation-dependencies`, `configuration-capture`, `verso-recorded-paths` and `copy-relocation`. |
-| `focused-controls` | The self-test's focused native-adopter, combined-snapshot and policy-transport controls (`checkerSelftest --native-adopter-only`, `--combined-snapshot-only`, `--policy-transport-only`). |
-| `policy-domain` | The self-test's focused policy-domain controls, the policy transport and the public paths (`checkerSelftest --policy-domain-only`). |
-| `enumeration-failure` | A failed read of a directory on a real ext4 file system, through a device-mapper error target (`qualify enumeration-failure`). `ls` reports it, Lean's `readDir` returns fewer entries, and the copy routine refuses. It runs only on a GitHub-hosted Linux runner, and elsewhere it reports that it is not supported. |
-| `readers` | Lake selects and builds each module of each package of the repository. Then `qualify readers` refuses a declaration that refers to `readDir` or `walkDir` ([proofs and boundaries](proofs-and-boundaries.md#assumptions-of-directory-enumeration)). Lake builds them as in the other steps, so it can update or fetch a dependency there. Scratch packages control the check first. Run it after `./scripts/verify.sh site`, with Verso and Mathlib provisioned: it refuses a package with a Git dependency that is not checked out. |
-
-The `environments` clean-checkout `freshChecker` control claims two import-free modules
-written into a copy with no build directory. It establishes that `freshChecker` builds its
-claimed targets itself, checks each maximal root, and reports accepted coverage of exactly
-those modules. The control does not run `leanchecker --fresh` over this repository's claimed
-graph. That replay rechecks Init and Lean once per root; with the earlier Mathlib examples in the
-claimed graph it took more than 360 s.
-It is the optional serialized-graph claim (§7.9), which ordinary acceptance does not include
-and this repository does not make. `./scripts/verify.sh serialized-graph` remains its
-command. Ordinary acceptance's isolated clean build still covers the real claimed surface.
-
-The copy of that control also has a `leanchecker` program in the binary directory of its root
-package. This program is a link to the toolchain's `lean`, and `lake env` puts that directory first
-on `PATH`. The control first runs it as a `leanchecker` of each root and requires each run to fail.
-It accepts a run only if the check of each root passed, thus an accepted run did not start that
-program.
-
-`freshChecker` starts `lake` and `leanchecker` by their paths in the installation directory of the
-toolchain (`Regula.Toolchain.program`). The `lean` of that directory must give the version and the
-commit of the supported compiler.
-
-Omitting `PARTITION` requests the `checkerSelftest` campaign; the `producers`, `history` and
-`rule-examples` campaigns remain separate explicit selections. Each invocation uses the
-same deadline; choose affected checks rather than treating every campaign as a routine
-prerequisite. Checker changes need focused verification of the affected capabilities and public
-invocation paths (standard
-[§7.8](https://rbeauchamp.github.io/regula/dev/standard/7-tooling-and-machine-audit/#78-qualify-checker-implementations-with-independent-mutations));
-the complete `checkerSelftest --build-bound` campaign is for broad qualification, not a per-change
-gate. A selected diagnostic that fails remains a defect, and an unrun campaign is never reported
-as passed. Run `./scripts/verify.sh serialized-graph` (`lake exe freshChecker --verbose`) only for
-the separate serialized-graph claim: that claim needs fresh checker-state evidence for the exact
-claimed graph, so run the driver when that graph, claim or driver changes, and reuse equivalent
-coverage already obtained for the same inputs rather than repeating the same roots in a raw
-invocation. Diagnostics do not replace a failed acceptance run.
-
-The [diagnostics workflow](../../.github/workflows/diagnostics.yml) runs on dispatch, and on no
-schedule, pull request or push.
-Its first job, `applies`
-(`lean --run lean/Regula/DiagnosticsGate.lean applies`), provisions the pinned release and
-decides which jobs apply. It runs the
-invocations that `Regula.DiagnosticsGate.campaigns` lists, and `applies` writes them for the matrix
-of the `campaign` job. These are `producers`, `history`, the shards of the structural, execution and
-lint-driver partitions of the self-test, and five groups of qualification controls. The other
-partitions and groups are too long for a job, except `readers`. No job has the generated website
-sources, Verso and a provisioned Mathlib together, which `readers` builds on. The table of
-[campaigns no workflow runs](#campaigns-no-workflow-runs) names them.
-They run as parallel jobs, each with its own hard 420-second limit, on each run of the workflow.
-The workflow also runs the three `rule-examples` shards on dispatch. Its last job, `diagnostics`,
-passes exactly when `applies` succeeded and each partition job passed and applies, or was skipped
-and does not apply. A failed, cancelled or timed-out job fails it
-([proofs and boundaries](proofs-and-boundaries.md#the-diagnostics-gate)).
-On each push to `main`, [CI](../../.github/workflows/ci.yml) runs the three shards, where they
-feed `./scripts/verify.sh site` ([website guide](website.md)). These campaigns are
-capability-triggered diagnostics (standard §7.8), not a partition of ordinary acceptance.
-The [dogfood workflow](../../.github/workflows/dogfood.yml) runs `self-lint` and the four shards of
-`self-audit` as parallel jobs under the same limit, on dispatch alone. They are not part of
-acceptance. It also runs `self-lint-default` as one more job under the same limit.
-
-When the campaigns apply, the `diagnostics` job also compares two digests. The shard
-`structural 1/5` uploads the SHA-256 digest of the fresh input that the self-hosted positive's
-fresh gate accepted. The shard `structural 5/5` uploads that of its restored self-hosted copy.
-The gate refuses unless the two are present, well-formed and equal.
-
 ### The local gate
 
-The merge gate is the local gate, `lean --run lean/Regula/DiagnosticsGate.lean local`. The
-no-mistakes validation pipeline runs it as its Test step, in the disposable checkout of the run,
-at each commit that it validates. The file [`.no-mistakes.yaml`](../../.no-mistakes.yaml) on `main`
-configures it. The gate runs the steps of each workflow job that checks a change, in sequence, in
-the checkout. At the first step that ends with an exit code that is not 0, the gate stops and fails.
-None of the workflow files in `.github/workflows/` runs on a pull request.
+The merge gate of a change is the local gate, `lean --run lean/Regula/DiagnosticsGate.lean local`. The no-mistakes validation pipeline runs it as its Test step on each commit that it validates, as `.no-mistakes.yaml` configures. It runs these steps in sequence and stops at the first failure:
 
-The steps are these, in this order (`Regula.DiagnosticsGate.localSteps`):
+1. `lean --run lean/RegulaProvision.lean verso`, the provisioning of the pinned Verso.
+2. `lean --run lean/Regula/Release.lean unreleased` and `lean --run lean/Regula/Release.lean agree`, the release checks.
+3. `./scripts/verify.sh` and `./scripts/verify.sh docs`, the two acceptance steps. The first step runs the checker on the build of Regula itself.
+4. `lean --run lean/RegulaProvision.lean mathlib` and `./scripts/verify.sh mathlib`, the [Mathlib integration check](#mathlib-integration-check).
+5. `lake build site AuditApp` and `lake build Audit` in `audit/`, the builds of the tools of the rule-reference site.
+6. `lake build RegulaControls`, the controls of the check that each program of the package runs. Its compile needs about 30 GiB (issue #497). Thus no CI job builds it, and the first acceptance step leaves it out.
 
-1. `lean --run lean/RegulaProvision.lean verso`, which provisions the pinned Verso.
-2. `lean --run lean/Regula/Release.lean unreleased` and `agree`, the release checks of CI's `verify` job.
-3. `./scripts/verify.sh` and `./scripts/verify.sh docs`.
-4. `lean --run lean/RegulaProvision.lean mathlib`, then `./scripts/verify.sh mathlib`.
-5. `./scripts/verify.sh diagnostics rule-examples 1/3`, `2/3` and `3/3`.
-6. The two builds of CI's `site` job.
-7. The invocations that `Regula.DiagnosticsGate.campaigns` lists, but `diagnostics enumeration-failure`.
-8. `lean --run lean/Regula/DiagnosticsGate.lean digests`, which compares the two self-hosted digests.
-9. `./scripts/verify.sh diagnostics self-lint` and the four shards of `self-audit`.
+The gate leaves out `./scripts/verify.sh site`. That check reads the tags of the repository with no credentials, thus it fails while the repository is private. The `site` job of [`ci.yml`](../../.github/workflows/ci.yml) runs it on `main`.
 
-The theorem `Regula.Campaigns.Diagnostics.localVerifications_eq` shows that the `verify.sh`
-invocations of the gate are those of the jobs that check a change (`Job.checksChange`), in order.
-The exceptions are the list `Regula.DiagnosticsGate.notRunHere`. The registry checks require those
-invocations to be the steps of the workflow files. Each `verify.sh` invocation keeps its own
-420-second limit, and the gate adds no limit. The other steps are copied from the workflow files,
-and no check compares them.
+CI does not run on pull requests. On `main`, [`ci.yml`](../../.github/workflows/ci.yml) runs the acceptance that the release jobs need, and it publishes the rule-reference site. Each workflow can also run on dispatch.
 
-The gate does not run the two invocations of `notRunHere`:
-
-- `./scripts/verify.sh site` reads the tags of the repository with `git ls-remote`, with no credentials. While the repository is private, that read fails, in CI as well.
-- `./scripts/verify.sh diagnostics enumeration-failure` maps a loop device through device-mapper and mounts it with `sudo`. Thus it runs only on a GitHub-hosted Linux runner. The diagnostics workflow runs it on dispatch.
-
-The gate does not select steps by the paths that a change touches. Lake decides what a step
-builds again, from its own traces in the checkout. The first acceptance step builds in a new copy,
-as it does by hand. A later Test round of the same run uses the build output that the earlier round
-left in the checkout. The configuration declares no `build_outputs` of no-mistakes. The only store
-that it can give to a run is the artifact cache of Lake, and the commands of
-`./scripts/verify.sh` run with that cache off.
-
-The gate does not check the title of a pull request. The pipeline runs no command after it writes
-the title, and it writes each title as a Conventional Commits header. The
-[Title workflow](../../.github/workflows/title.yml) checks a title on dispatch.
-
-### Campaigns no workflow runs
-
-The inventory `Regula.Campaigns` lists each invocation of `./scripts/verify.sh`, each form of a
-`qualify` selection and each campaign of `checkerSelftest`. Each one runs in a workflow job, or
-the table below gives the reason that no job runs it. The inventory also states which jobs run
-which invocations. The kernel checks its theorem `covered_all` when the module builds. A campaign
-that runs has no reason. Each other campaign has a reason, and the campaigns that the reason
-names run.
-
-Two modules tie the inventory to the programs with theorems. `Regula.Campaigns.Verification`
-relates it to the modes and commands of the verification driver. `Regula.Campaigns.Diagnostics`
-relates it to the matrix of the diagnostics workflow. The first acceptance step builds the two
-modules.
-
-`Regula.RegistryChecks` requires this table without a change. It also reads the `verify.sh` steps
-of each job from its workflow file, with each matrix value in place. It requires them to be the
-invocations that the inventory gives.
-
-Two statements are readings, not theorems. The first is that GitHub runs a job's steps when its
-triggers and `if:` say. The second is that the campaigns a reason names have the controls of the
-campaign that does not run. For a reason that names part of them, its text names the rest.
-
-| Campaign | Why no workflow job runs it |
-| --- | --- |
-| `./scripts/verify.sh serialized-graph` | The optional serialized-graph claim (§7.9), which this repository does not make. |
-| `./scripts/verify.sh diagnostics` | The shards of the structural, execution and lint-driver partitions run. The shards of the fixtures, cli, environments and build-policy partitions are too long for a job. The structural shards do not compare the self-hosted fresh inputs. Shards 1/5 and 5/5 write their digests, and the `diagnostics` gate compares them. |
-| `./scripts/verify.sh diagnostics fixtures` | The shards of the `fixtures` partition are too long for a job. Its slowest shard's check took 172 s in CI. A check of more than 85 s does not leave a quarter of the 420-second deadline. [Issue 391](https://github.com/rbeauchamp/regula/issues/391) is the work to divide them into shards that fit. |
-| `./scripts/verify.sh diagnostics structural` | Its 5 shards run. Together they run each of its controls one time, but for the comparison of the self-hosted fresh inputs. Shards 1/5 and 5/5 write the digests of those inputs, and the `diagnostics` gate compares them. |
-| `./scripts/verify.sh diagnostics execution` | Its 4 shards run. Together they run each of its controls one time. |
-| `./scripts/verify.sh diagnostics cli` | The shards of the `cli` partition are too long for a job. Its slowest shard's check took 196 s in CI. A check of more than 85 s does not leave a quarter of the 420-second deadline. [Issue 391](https://github.com/rbeauchamp/regula/issues/391) is the work to divide them into shards that fit. |
-| `./scripts/verify.sh diagnostics environments` | The shards of the `environments` partition are too long for a job. Its first shard's check was still running after 203 s in CI, when the 420-second deadline ended the job. A check of more than 85 s does not leave a quarter of the 420-second deadline. [Issue 391](https://github.com/rbeauchamp/regula/issues/391) is the work to divide them into shards that fit. |
-| `./scripts/verify.sh diagnostics build-policy` | The shards of the `build-policy` partition are too long for a job. Its slowest shard's check took 137 s in CI. A check of more than 85 s does not leave a quarter of the 420-second deadline. [Issue 391](https://github.com/rbeauchamp/regula/issues/391) is the work to divide them into shards that fit. |
-| `./scripts/verify.sh diagnostics lint-driver` | Its 5 shards run. Together they run each of its controls one time. |
-| `./scripts/verify.sh diagnostics self-audit` | Its 4 shards run. Together they audit each module one time. |
-| `./scripts/verify.sh diagnostics rule-examples` | Its 3 shards run. Together they run the records of each rule one time. |
-| `./scripts/verify.sh diagnostics fixtures 1/5` | The shards of the `fixtures` partition are too long for a job. Its slowest shard's check took 172 s in CI. A check of more than 85 s does not leave a quarter of the 420-second deadline. [Issue 391](https://github.com/rbeauchamp/regula/issues/391) is the work to divide them into shards that fit. |
-| `./scripts/verify.sh diagnostics fixtures 2/5` | The shards of the `fixtures` partition are too long for a job. Its slowest shard's check took 172 s in CI. A check of more than 85 s does not leave a quarter of the 420-second deadline. [Issue 391](https://github.com/rbeauchamp/regula/issues/391) is the work to divide them into shards that fit. |
-| `./scripts/verify.sh diagnostics fixtures 3/5` | The shards of the `fixtures` partition are too long for a job. Its slowest shard's check took 172 s in CI. A check of more than 85 s does not leave a quarter of the 420-second deadline. [Issue 391](https://github.com/rbeauchamp/regula/issues/391) is the work to divide them into shards that fit. |
-| `./scripts/verify.sh diagnostics fixtures 4/5` | The shards of the `fixtures` partition are too long for a job. Its slowest shard's check took 172 s in CI. A check of more than 85 s does not leave a quarter of the 420-second deadline. [Issue 391](https://github.com/rbeauchamp/regula/issues/391) is the work to divide them into shards that fit. |
-| `./scripts/verify.sh diagnostics fixtures 5/5` | The shards of the `fixtures` partition are too long for a job. Its slowest shard's check took 172 s in CI. A check of more than 85 s does not leave a quarter of the 420-second deadline. [Issue 391](https://github.com/rbeauchamp/regula/issues/391) is the work to divide them into shards that fit. |
-| `./scripts/verify.sh diagnostics cli 1/6` | The shards of the `cli` partition are too long for a job. Its slowest shard's check took 196 s in CI. A check of more than 85 s does not leave a quarter of the 420-second deadline. [Issue 391](https://github.com/rbeauchamp/regula/issues/391) is the work to divide them into shards that fit. |
-| `./scripts/verify.sh diagnostics cli 2/6` | The shards of the `cli` partition are too long for a job. Its slowest shard's check took 196 s in CI. A check of more than 85 s does not leave a quarter of the 420-second deadline. [Issue 391](https://github.com/rbeauchamp/regula/issues/391) is the work to divide them into shards that fit. |
-| `./scripts/verify.sh diagnostics cli 3/6` | The shards of the `cli` partition are too long for a job. Its slowest shard's check took 196 s in CI. A check of more than 85 s does not leave a quarter of the 420-second deadline. [Issue 391](https://github.com/rbeauchamp/regula/issues/391) is the work to divide them into shards that fit. |
-| `./scripts/verify.sh diagnostics cli 4/6` | The shards of the `cli` partition are too long for a job. Its slowest shard's check took 196 s in CI. A check of more than 85 s does not leave a quarter of the 420-second deadline. [Issue 391](https://github.com/rbeauchamp/regula/issues/391) is the work to divide them into shards that fit. |
-| `./scripts/verify.sh diagnostics cli 5/6` | The shards of the `cli` partition are too long for a job. Its slowest shard's check took 196 s in CI. A check of more than 85 s does not leave a quarter of the 420-second deadline. [Issue 391](https://github.com/rbeauchamp/regula/issues/391) is the work to divide them into shards that fit. |
-| `./scripts/verify.sh diagnostics cli 6/6` | The shards of the `cli` partition are too long for a job. Its slowest shard's check took 196 s in CI. A check of more than 85 s does not leave a quarter of the 420-second deadline. [Issue 391](https://github.com/rbeauchamp/regula/issues/391) is the work to divide them into shards that fit. |
-| `./scripts/verify.sh diagnostics environments 1/6` | The shards of the `environments` partition are too long for a job. Its first shard's check was still running after 203 s in CI, when the 420-second deadline ended the job. A check of more than 85 s does not leave a quarter of the 420-second deadline. [Issue 391](https://github.com/rbeauchamp/regula/issues/391) is the work to divide them into shards that fit. |
-| `./scripts/verify.sh diagnostics environments 2/6` | The shards of the `environments` partition are too long for a job. Its first shard's check was still running after 203 s in CI, when the 420-second deadline ended the job. A check of more than 85 s does not leave a quarter of the 420-second deadline. [Issue 391](https://github.com/rbeauchamp/regula/issues/391) is the work to divide them into shards that fit. |
-| `./scripts/verify.sh diagnostics environments 3/6` | The shards of the `environments` partition are too long for a job. Its first shard's check was still running after 203 s in CI, when the 420-second deadline ended the job. A check of more than 85 s does not leave a quarter of the 420-second deadline. [Issue 391](https://github.com/rbeauchamp/regula/issues/391) is the work to divide them into shards that fit. |
-| `./scripts/verify.sh diagnostics environments 4/6` | The shards of the `environments` partition are too long for a job. Its first shard's check was still running after 203 s in CI, when the 420-second deadline ended the job. A check of more than 85 s does not leave a quarter of the 420-second deadline. [Issue 391](https://github.com/rbeauchamp/regula/issues/391) is the work to divide them into shards that fit. |
-| `./scripts/verify.sh diagnostics environments 5/6` | The shards of the `environments` partition are too long for a job. Its first shard's check was still running after 203 s in CI, when the 420-second deadline ended the job. A check of more than 85 s does not leave a quarter of the 420-second deadline. [Issue 391](https://github.com/rbeauchamp/regula/issues/391) is the work to divide them into shards that fit. |
-| `./scripts/verify.sh diagnostics environments 6/6` | The shards of the `environments` partition are too long for a job. Its first shard's check was still running after 203 s in CI, when the 420-second deadline ended the job. A check of more than 85 s does not leave a quarter of the 420-second deadline. [Issue 391](https://github.com/rbeauchamp/regula/issues/391) is the work to divide them into shards that fit. |
-| `./scripts/verify.sh diagnostics build-policy 1/3` | The shards of the `build-policy` partition are too long for a job. Its slowest shard's check took 137 s in CI. A check of more than 85 s does not leave a quarter of the 420-second deadline. [Issue 391](https://github.com/rbeauchamp/regula/issues/391) is the work to divide them into shards that fit. |
-| `./scripts/verify.sh diagnostics build-policy 2/3` | The shards of the `build-policy` partition are too long for a job. Its slowest shard's check took 137 s in CI. A check of more than 85 s does not leave a quarter of the 420-second deadline. [Issue 391](https://github.com/rbeauchamp/regula/issues/391) is the work to divide them into shards that fit. |
-| `./scripts/verify.sh diagnostics build-policy 3/3` | The shards of the `build-policy` partition are too long for a job. Its slowest shard's check took 137 s in CI. A check of more than 85 s does not leave a quarter of the 420-second deadline. [Issue 391](https://github.com/rbeauchamp/regula/issues/391) is the work to divide them into shards that fit. |
-| `./scripts/verify.sh diagnostics environment-census` | Too long for a job. Its check took 172 s, and a check of more than 85 s does not leave a quarter of the 420-second deadline. [Issue 391](https://github.com/rbeauchamp/regula/issues/391) is the work to divide it into shards. |
-| `./scripts/verify.sh diagnostics snapshot-history` | Too long for a job. Its check took 104 s, and a check of more than 85 s does not leave a quarter of the 420-second deadline. [Issue 391](https://github.com/rbeauchamp/regula/issues/391) is the work to divide it into shards. |
-| `./scripts/verify.sh diagnostics policy-domain` | Too long for a job. Its check took 158 s, and a check of more than 85 s does not leave a quarter of the 420-second deadline. [Issue 391](https://github.com/rbeauchamp/regula/issues/391) is the work to divide it into shards. |
-| `./scripts/verify.sh diagnostics readers` | No job has the three things that it builds on: the website sources that `./scripts/verify.sh site` generates, Verso and a provisioned Mathlib. |
-| `lake exe qualify registry` | Its controls run in `lake exe qualify combined`: `combined` runs `registry` first. |
-| `lake exe qualify native` | Its controls run in `lake exe qualify combined`: `combined` includes the `native` controls. |
-| `lake exe qualify unique-constants` | Its controls run in `lake exe qualify combined`: `combined` runs `unique-constants` beside `native`. |
-| `lake exe qualify native-launcher` | Too long for a job. Its check took 92 s, and a check of more than 85 s does not leave a quarter of the 420-second deadline. [Issue 391](https://github.com/rbeauchamp/regula/issues/391) is the work to divide it into shards. |
-| `lake exe qualify rule-examples --evidence PATH` | Its controls run in `lake exe qualify rule-examples --evidence PATH --shard K/N`: the shards together run the whole corpus. |
-| `lake exe qualify rule-examples --evidence PATH --rules RULE ...` | Its controls run in `lake exe qualify rule-examples --evidence PATH --shard K/N`: each rule's records are in one shard. |
-| `lake exe qualify producers --evidence PATH` | Its controls run in `lake exe qualify producers`: the same campaign, which also writes its evidence. |
-| `lake exe qualify producers-combined` | `producers` and `history` run, each in a job of its own. |
-| `lake exe qualify self-audit` | Its controls run in `lake exe qualify self-audit --shard K/4`: the four shards together audit all modules. |
-| `lake exe qualify self-audit-module MODULE SOURCE` | An internal entry point that `lake exe qualify self-audit --shard K/4` starts. |
-| `lake exe qualify self-audit-rules-module MODULE` | An internal entry point that `lake exe qualify self-audit --shard K/4` starts. |
-| `lake exe qualify environments --evidence PATH` | Too long for a job. Its check took 172 s, and a check of more than 85 s does not leave a quarter of the 420-second deadline. [Issue 391](https://github.com/rbeauchamp/regula/issues/391) is the work to divide it into shards. |
-| `lake exe qualify acceptance-snapshots history` | Too long for a job. Its check took 104 s, and a check of more than 85 s does not leave a quarter of the 420-second deadline. [Issue 391](https://github.com/rbeauchamp/regula/issues/391) is the work to divide it into shards. |
-| `lake exe qualify acceptance-snapshots all` | Its groups `dependencies` and `git-status` run. Its group `history` is too long for a job. |
-| `lake exe qualify closure-evidence` | Too long for a job. Its check took 105 s, and a check of more than 85 s does not leave a quarter of the 420-second deadline. [Issue 391](https://github.com/rbeauchamp/regula/issues/391) is the work to divide it into shards. |
-| `lake exe qualify copy-relocation-load PROJECT COPIES` | An internal entry point that `lake exe qualify copy-relocation` starts. |
-| `lake exe qualify copy-relocation-git SCRATCH` | An internal entry point that `lake exe qualify copy-relocation` starts. |
-| `lake exe qualify fence-evidence` | Too long for a job. Its check took 140 s, and a check of more than 85 s does not leave a quarter of the 420-second deadline. [Issue 391](https://github.com/rbeauchamp/regula/issues/391) is the work to divide it into shards. |
-| `lake exe qualify frozen-exits` | Too long for a job. Its check took 240 s, and a check of more than 85 s does not leave a quarter of the 420-second deadline. [Issue 391](https://github.com/rbeauchamp/regula/issues/391) is the work to divide it into shards. |
-| `lake exe qualify documentation-source` | Too long for a job. Its check took 182 s, and a check of more than 85 s does not leave a quarter of the 420-second deadline. [Issue 391](https://github.com/rbeauchamp/regula/issues/391) is the work to divide it into shards. |
-| `lake exe qualify documentation-source --source-read-only` | Too long for a job. Its check took 202 s, and a check of more than 85 s does not leave a quarter of the 420-second deadline. [Issue 391](https://github.com/rbeauchamp/regula/issues/391) is the work to divide it into shards. |
-| `lake exe qualify enumeration-copy SOURCE TARGET` | An internal entry point that `lake exe qualify enumeration` starts. |
-| `lake exe qualify readers` | No job has the three things that it builds on: the website sources that `./scripts/verify.sh site` generates, Verso and a provisioned Mathlib. |
-| `lake exe checkerSelftest --forced-collector-only` | Too long for a job. Its check took 336 s, and a check of more than 85 s does not leave a quarter of the 420-second deadline. [Issue 391](https://github.com/rbeauchamp/regula/issues/391) is the work to divide it into shards. |
-| `lake exe checkerSelftest --policy-domain-only` | Too long for a job. Its check took 158 s, and a check of more than 85 s does not leave a quarter of the 420-second deadline. [Issue 391](https://github.com/rbeauchamp/regula/issues/391) is the work to divide it into shards. |
-| `lake exe checkerSelftest --fences-only` | The focused controls include the combined snapshot. The in-process and public fence corpora are controls of the fixtures and environments partitions. The shards of those partitions are too long for a job. |
-| `lake exe checkerSelftest --build-lint-only` | Its controls are those of the build-policy partition. The shards of that partition are too long for a job. |
-| `lake exe checkerSelftest --compiler-paths-only` | The execution shards run its compiler-path mutations. |
-| `lake exe checkerSelftest --transcript-worker MODULE SOURCE REJECT OUT` | An internal entry point that the fixtures shards start, which are too long for a job. |
-| `lake exe checkerSelftest --jobs 4` | The shards of the structural and execution partitions run. It also runs the controls of the fixtures and cli partitions, and their shards are too long for a job. The structural shards do not compare the self-hosted fresh inputs. Shards 1/5 and 5/5 write their digests, and the `diagnostics` gate compares them. |
-| `lake exe checkerSelftest --structural-only --jobs 4` | The shards of the structural and execution partitions run. The structural shards do not compare the self-hosted fresh inputs. Shards 1/5 and 5/5 write their digests, and the `diagnostics` gate compares them. |
-| `lake exe checkerSelftest --build-bound --jobs 4` | The shards of the structural, execution and lint-driver partitions run. The shards of the fixtures, cli, environments and build-policy partitions are too long for a job. The structural shards do not compare the self-hosted fresh inputs. Shards 1/5 and 5/5 write their digests, and the `diagnostics` gate compares them. |
-| `lake exe checkerSelftest --build-bound --partition fixtures --jobs 4` | The shards of the `fixtures` partition are too long for a job. Its slowest shard's check took 172 s in CI. A check of more than 85 s does not leave a quarter of the 420-second deadline. [Issue 391](https://github.com/rbeauchamp/regula/issues/391) is the work to divide them into shards that fit. |
-| `lake exe checkerSelftest --build-bound --partition structural --jobs 4` | Its 5 shards run. Together they run each of its controls one time, but for the comparison of the self-hosted fresh inputs. Shards 1/5 and 5/5 write the digests of those inputs, and the `diagnostics` gate compares them. |
-| `lake exe checkerSelftest --build-bound --partition execution --jobs 4` | Its 4 shards run. Together they run each of its controls one time. |
-| `lake exe checkerSelftest --build-bound --partition cli --jobs 4` | The shards of the `cli` partition are too long for a job. Its slowest shard's check took 196 s in CI. A check of more than 85 s does not leave a quarter of the 420-second deadline. [Issue 391](https://github.com/rbeauchamp/regula/issues/391) is the work to divide them into shards that fit. |
-| `lake exe checkerSelftest --build-bound --partition environments --jobs 4` | The shards of the `environments` partition are too long for a job. Its first shard's check was still running after 203 s in CI, when the 420-second deadline ended the job. A check of more than 85 s does not leave a quarter of the 420-second deadline. [Issue 391](https://github.com/rbeauchamp/regula/issues/391) is the work to divide them into shards that fit. |
-| `lake exe checkerSelftest --build-bound --partition build-policy --jobs 4` | The shards of the `build-policy` partition are too long for a job. Its slowest shard's check took 137 s in CI. A check of more than 85 s does not leave a quarter of the 420-second deadline. [Issue 391](https://github.com/rbeauchamp/regula/issues/391) is the work to divide them into shards that fit. |
-| `lake exe checkerSelftest --build-bound --partition lint-driver --jobs 4` | Its 5 shards run. Together they run each of its controls one time. |
-| `lake exe checkerSelftest --build-bound --partition fixtures --shard 1/5 --jobs 4` | The shards of the `fixtures` partition are too long for a job. Its slowest shard's check took 172 s in CI. A check of more than 85 s does not leave a quarter of the 420-second deadline. [Issue 391](https://github.com/rbeauchamp/regula/issues/391) is the work to divide them into shards that fit. |
-| `lake exe checkerSelftest --build-bound --partition fixtures --shard 2/5 --jobs 4` | The shards of the `fixtures` partition are too long for a job. Its slowest shard's check took 172 s in CI. A check of more than 85 s does not leave a quarter of the 420-second deadline. [Issue 391](https://github.com/rbeauchamp/regula/issues/391) is the work to divide them into shards that fit. |
-| `lake exe checkerSelftest --build-bound --partition fixtures --shard 3/5 --jobs 4` | The shards of the `fixtures` partition are too long for a job. Its slowest shard's check took 172 s in CI. A check of more than 85 s does not leave a quarter of the 420-second deadline. [Issue 391](https://github.com/rbeauchamp/regula/issues/391) is the work to divide them into shards that fit. |
-| `lake exe checkerSelftest --build-bound --partition fixtures --shard 4/5 --jobs 4` | The shards of the `fixtures` partition are too long for a job. Its slowest shard's check took 172 s in CI. A check of more than 85 s does not leave a quarter of the 420-second deadline. [Issue 391](https://github.com/rbeauchamp/regula/issues/391) is the work to divide them into shards that fit. |
-| `lake exe checkerSelftest --build-bound --partition fixtures --shard 5/5 --jobs 4` | The shards of the `fixtures` partition are too long for a job. Its slowest shard's check took 172 s in CI. A check of more than 85 s does not leave a quarter of the 420-second deadline. [Issue 391](https://github.com/rbeauchamp/regula/issues/391) is the work to divide them into shards that fit. |
-| `lake exe checkerSelftest --build-bound --partition cli --shard 1/6 --jobs 4` | The shards of the `cli` partition are too long for a job. Its slowest shard's check took 196 s in CI. A check of more than 85 s does not leave a quarter of the 420-second deadline. [Issue 391](https://github.com/rbeauchamp/regula/issues/391) is the work to divide them into shards that fit. |
-| `lake exe checkerSelftest --build-bound --partition cli --shard 2/6 --jobs 4` | The shards of the `cli` partition are too long for a job. Its slowest shard's check took 196 s in CI. A check of more than 85 s does not leave a quarter of the 420-second deadline. [Issue 391](https://github.com/rbeauchamp/regula/issues/391) is the work to divide them into shards that fit. |
-| `lake exe checkerSelftest --build-bound --partition cli --shard 3/6 --jobs 4` | The shards of the `cli` partition are too long for a job. Its slowest shard's check took 196 s in CI. A check of more than 85 s does not leave a quarter of the 420-second deadline. [Issue 391](https://github.com/rbeauchamp/regula/issues/391) is the work to divide them into shards that fit. |
-| `lake exe checkerSelftest --build-bound --partition cli --shard 4/6 --jobs 4` | The shards of the `cli` partition are too long for a job. Its slowest shard's check took 196 s in CI. A check of more than 85 s does not leave a quarter of the 420-second deadline. [Issue 391](https://github.com/rbeauchamp/regula/issues/391) is the work to divide them into shards that fit. |
-| `lake exe checkerSelftest --build-bound --partition cli --shard 5/6 --jobs 4` | The shards of the `cli` partition are too long for a job. Its slowest shard's check took 196 s in CI. A check of more than 85 s does not leave a quarter of the 420-second deadline. [Issue 391](https://github.com/rbeauchamp/regula/issues/391) is the work to divide them into shards that fit. |
-| `lake exe checkerSelftest --build-bound --partition cli --shard 6/6 --jobs 4` | The shards of the `cli` partition are too long for a job. Its slowest shard's check took 196 s in CI. A check of more than 85 s does not leave a quarter of the 420-second deadline. [Issue 391](https://github.com/rbeauchamp/regula/issues/391) is the work to divide them into shards that fit. |
-| `lake exe checkerSelftest --build-bound --partition environments --shard 1/6 --jobs 4` | The shards of the `environments` partition are too long for a job. Its first shard's check was still running after 203 s in CI, when the 420-second deadline ended the job. A check of more than 85 s does not leave a quarter of the 420-second deadline. [Issue 391](https://github.com/rbeauchamp/regula/issues/391) is the work to divide them into shards that fit. |
-| `lake exe checkerSelftest --build-bound --partition environments --shard 2/6 --jobs 4` | The shards of the `environments` partition are too long for a job. Its first shard's check was still running after 203 s in CI, when the 420-second deadline ended the job. A check of more than 85 s does not leave a quarter of the 420-second deadline. [Issue 391](https://github.com/rbeauchamp/regula/issues/391) is the work to divide them into shards that fit. |
-| `lake exe checkerSelftest --build-bound --partition environments --shard 3/6 --jobs 4` | The shards of the `environments` partition are too long for a job. Its first shard's check was still running after 203 s in CI, when the 420-second deadline ended the job. A check of more than 85 s does not leave a quarter of the 420-second deadline. [Issue 391](https://github.com/rbeauchamp/regula/issues/391) is the work to divide them into shards that fit. |
-| `lake exe checkerSelftest --build-bound --partition environments --shard 4/6 --jobs 4` | The shards of the `environments` partition are too long for a job. Its first shard's check was still running after 203 s in CI, when the 420-second deadline ended the job. A check of more than 85 s does not leave a quarter of the 420-second deadline. [Issue 391](https://github.com/rbeauchamp/regula/issues/391) is the work to divide them into shards that fit. |
-| `lake exe checkerSelftest --build-bound --partition environments --shard 5/6 --jobs 4` | The shards of the `environments` partition are too long for a job. Its first shard's check was still running after 203 s in CI, when the 420-second deadline ended the job. A check of more than 85 s does not leave a quarter of the 420-second deadline. [Issue 391](https://github.com/rbeauchamp/regula/issues/391) is the work to divide them into shards that fit. |
-| `lake exe checkerSelftest --build-bound --partition environments --shard 6/6 --jobs 4` | The shards of the `environments` partition are too long for a job. Its first shard's check was still running after 203 s in CI, when the 420-second deadline ended the job. A check of more than 85 s does not leave a quarter of the 420-second deadline. [Issue 391](https://github.com/rbeauchamp/regula/issues/391) is the work to divide them into shards that fit. |
-| `lake exe checkerSelftest --build-bound --partition build-policy --shard 1/3 --jobs 4` | The shards of the `build-policy` partition are too long for a job. Its slowest shard's check took 137 s in CI. A check of more than 85 s does not leave a quarter of the 420-second deadline. [Issue 391](https://github.com/rbeauchamp/regula/issues/391) is the work to divide them into shards that fit. |
-| `lake exe checkerSelftest --build-bound --partition build-policy --shard 2/3 --jobs 4` | The shards of the `build-policy` partition are too long for a job. Its slowest shard's check took 137 s in CI. A check of more than 85 s does not leave a quarter of the 420-second deadline. [Issue 391](https://github.com/rbeauchamp/regula/issues/391) is the work to divide them into shards that fit. |
-| `lake exe checkerSelftest --build-bound --partition build-policy --shard 3/3 --jobs 4` | The shards of the `build-policy` partition are too long for a job. Its slowest shard's check took 137 s in CI. A check of more than 85 s does not leave a quarter of the 420-second deadline. [Issue 391](https://github.com/rbeauchamp/regula/issues/391) is the work to divide them into shards that fit. |
+The qualification campaigns of the previous checker are removed, with their workflows. Each rule is a function over the closed input of the [specification](../../specification/README.md), and leaf #487 proves the contracts of these functions.
 
 ## Implementation and qualification layout
 
@@ -523,218 +244,23 @@ not claimed as formally verified Lean implementations.
 
 ## Repository conformance
 
-This repository applies the standard to its own code and qualifies the checkers it publishes.
-Its claimed surfaces are classified by the root [`foundation_manifest.json`](../../foundation_manifest.json)
-and [`audit/foundation_manifest.json`](../../audit/foundation_manifest.json); the Mathlib
-integration package has its own
-[`foundation_manifest.json`](../../integration/mathlib/foundation_manifest.json), which only the
-[Mathlib integration check](#mathlib-integration-check) audits. Acceptance
-audits the first two freshly, with every target built under the options of
-[Follow the Lean community's conventions](#follow-the-lean-communitys-conventions).
+This repository applies the standard to its own code. The root [`foundation_manifest.json`](../../foundation_manifest.json) and [`audit/foundation_manifest.json`](../../audit/foundation_manifest.json) classify its claimed surfaces. The Mathlib integration package has its own [`foundation_manifest.json`](../../integration/mathlib/foundation_manifest.json), and only the [Mathlib integration check](#mathlib-integration-check) checks it. Acceptance runs the checker on the first two, after a build with warnings as errors.
 
-- `Audit` uses an all-submodules glob, so Lake's elaborated inventory owns its module set. It is
-  the claimed surface of the `audit/` package, which imports only Lean's core libraries, requires
-  the checker by relative path as an adopter can and is audited against its own surface manifest.
-  The checker is in the same Git work tree, so that audit replays and checks each of its modules
-  that the `Audit` modules import. Its `Regula` and `RegulaPolicy` modules are the checker's own
-  code, and that audit does not own them. `audit/Audit/` is one positive surface
-  holding mathematical models, proofs and executable examples, not the checker, and contains no
-  project axioms, holes, compiler-trusting proofs, authored partial or unsafe declarations,
-  runtime replacements or external declarations; generated partial helpers for safe recursion are
-  separately authenticated under standard
-  [§7.4](https://rbeauchamp.github.io/regula/dev/standard/7-tooling-and-machine-audit/#74-inventory-every-owned-declaration).
-- `AuditApp` and its claimed `auditApp` executable apply the complete-program contracts of
-  standard [§3.7](https://rbeauchamp.github.io/regula/dev/standard/3-logic-proof-patterns/#37-a-compositional-method-for-complete-program-contracts)
-  to their actual definitions: `RequiredContracts` states the required propositions and
-  `required_contracts` supplies their proofs; `executeChecked` requires that evidence, admits
-  capacity and runs the strict state/error script. Its success, first-refusal and append theorems
-  describe the retained successful prefix; the intrinsic `Limiter` bound supplies the state
-  invariant. `checked_executable` registers the exact admission/runner relation through
-  `ExecutableContract`, reusing `executeChecked_exact`, and `Main` invokes its `run` with
-  `required_contracts`. The total `run` and `execute` remain available, so review inspects the
-  actual caller. In `report` mode, the `IO` shell and reached native mechanisms are reported as
-  execution boundaries; these pure contracts do not prove terminal effects or compiler/runtime
-  correctness. `AuditApp` registers its
-  material claims with `@[regula_material]`, so acceptance checks their docstrings and Intent
-  sections.
-- `lean/Fixtures/` holds isolated positive controls and independent mutations, imported by no
-  positive surface. The checker executables are discovered as root-package `lean_exe` targets and
-  recorded in `excluded-executables`: they are operational tooling whose root modules belong to
-  the excluded `Regula` library, qualified by the diagnostic campaigns rather than claimed.
-- Every Lean block of the Verso standard and every `lean` fence of the Markdown below `docs/`
-  (the guides, which scanning does not make normative) is checked verbatim, before environment
-  inspection, by `./scripts/verify.sh docs`.
-- Checker changes receive focused qualification for affected capabilities under standard §7.8;
-  unchanged capability evidence is reused. When this repository claims separate serialized-graph
-  checking, it runs a fresh `leanchecker` pass over every declared root needed for complete module
-  coverage.
-
-Three diagnostics apply Regula to the rest of its own code base; none is part of acceptance.
-`./scripts/verify.sh diagnostics self-lint` runs `REGULA_ORDINARY_LAKEFILES=1 lake lint` through the
-`regula/lint` driver in the root package and then in `audit/`, as the owner of the two packages. Both packages set
-`lintDriver := "regula/lint"`, so it runs over each package's `foundation_manifest.json` in
-incremental mode and checks the same claimed surfaces as acceptance, through the driver's
-dispatch and exit classes. `./scripts/verify.sh diagnostics self-lint-default` runs the root
-package's `lake lint` without `REGULA_ORDINARY_LAKEFILES`, so with the audit-build marker that an
-adopter gets by default. It leaves out the `audit/` package, which runs the same driver code.
-Its default path only adds the rebuild that made the old step exceed its limit. `./scripts/verify.sh
-diagnostics self-audit` checks the excluded operational `Regula` library: `lake build Regula`
-builds every module warning-free ([RG2003], because the package sets `warningAsError`), then
-`qualify self-audit` inspects each module of the library as Lake discovers it, each in its own
-worker (several roots define `main`, so the modules cannot share one environment). For each
-module it kernel-replays every owned declaration that is not `unsafe` or `partial` and calculates
-the axioms of each declaration in that kernel ([RG2005], `Admission.validate`), decides every
-declaration record from the live linter's collector
-(`Regula.Collect.declaration`) with the proved `RegulaPolicy.checked_operationalFailure`
-([RG1001]–[RG1005], [RG1007], [RG1009]) and, where that passes, `RegulaPolicy.checked_decisionFailure`
-([RG1008]) against the decision contracts of the same module, and checks module and
-material-claim docs with the linter's predicates ([RG5001]–[RG5003]). Operational code is held to Standard-Logical with three facts reported, not
-failed: authored `unsafe`/`partial` declarations ([RG1006]), the axioms that Lean's `collectAxioms`
-omits for a declaration, and, in a definition whose type is not
-a proposition, the pinned toolchain's Lake axioms (those a `Lake` module in the toolchain's own
-library directory declares). `operationalFailure_none_iff` states the exact success relation,
-`operationalFailure_ne_escapeHatch` that an escape hatch never fails a declaration,
-`operationalFailure_prop` that a proof gets exactly the conforming decision, and
-`operationalFailure_eq_conforming` that the decision is the conforming one on every declaration
-without a reported fact. The self-audit claims no proof surface and no execution result, and
-applies the linter's collector and decisions to completed modules rather than attaching its
-editor hooks. Lean's import and kernel replay, the collector's observations, toolchain artifact
-paths, the worker processes and their JSON transport are trusted. The unchecked cast in Lean's
-`getModuleEntries` that gives the elaboration observer's record its type is trusted too. It is
-sound only for entries that the running Regula's observer wrote.
-
-A module of the library can register a function that a different module of the library declares,
-for example a decoder of `Regula.CompilerObservation`. The audit of the module that writes the
-registration decides [RG1008] for that function, with the decision contracts of that module. The
-self-audit refuses a registration of a function that is not in the library, and its report lists
-each registration of this type.
-
-The self-audit also refuses a one-sided comparison of `Json` values, the defect of
-[#269](https://github.com/rbeauchamp/regula/issues/269). It inspects each module of each library
-except `Fixtures`, and each executable root that no library contains. Lake builds them first, and a
-worker imports each module alone, with its private declarations. It refuses a declaration if its
-type or value names the instance `Lean.Json.instBEq`. It also refuses one that compares texts of
-`Json.compress`, directly or through `let` bindings. Each entry of
-`SelfAudit.jsonComparisonAllowlist` is exempt, and states its reason.
-
-Each use of that instance names it, so the check finds each such use in the inspected modules. It
-does not find texts that a named helper or a function argument renders before a comparison. It also
-misses a comparison through an instance that Lean or a dependency declares for a type with a `Json`
-field.
-
-The self-audit refuses an allowlist entry if its declaration compares no `Json` values, so each
-entry is a control of the check. It also refuses an entry if it does not inspect the module of the
-entry, such as a module that was renamed. Three fixed controls run too. A declaration named `main`,
-which the allowlist names only in `Regula.RegistryChecks`, is found in a different module. So are
-`compress` texts compared through `let` bindings. A `compress` that no comparison reads is not found.
-
-The self-audit also refuses a declaration of an inspected module if its type or value names Lean's
-`System.FilePath.pathExists` or `System.FilePath.isDir`. The two return `false` for each error of
-the read, such as a denied permission, the defect of
-[#430](https://github.com/rbeauchamp/regula/issues/430). The inspected modules are those of the
-`Json` check. Regula reads through `Regula.Filesystem.isPresent`, `isDirectory`,
-`metadataIfPresent`, `readFileIfPresent`, `entryIfPresent` or `realPathIfPresent` instead. Each of them reads absence
-only when nothing is there, and it passes on each other error. The rule does not refuse a handler
-that turns an error of `metadata`, `symlinkMetadata` or `realPath` into `false` or `none`, which
-issue [#461](https://github.com/rbeauchamp/regula/issues/461) tracks.
-
-Some code cannot import those functions: a program that `lean --run` runs, the copy program and the
-collector that each audited environment loads. Each defines its own copy, and a theorem proves the
-copy equal to the shared read. Each entry of `SelfAudit.absenceReadAllowlist` would state why its
-`false` decides nothing, and the list is empty.
-
-The check does not find such a read in a function of Lean or of a different package, for example
-`Lean.findOLean`. Issue [#441](https://github.com/rbeauchamp/regula/issues/441) tracks those reads,
-and issue [#442](https://github.com/rbeauchamp/regula/issues/442) tracks the `markdown` and
-`website` packages, which the check does not inspect.
-
-The self-audit compiles the two modules in `examples/fixtures/absence-reads` and runs its worker on
-each, as for an audited module. It must refuse a call of `pathExists` and a use of `isDir` without
-an argument in one, and nothing in the other.
-
-In the first acceptance step, `Regula.AbsenceControls` makes a path in a directory without search
-permission. It runs, on that path, the fixture module that calls Lean's readers, the shared reads
-and a caller of each read. It also runs the walk of the shared roots on a symbolic link to that
-path. It runs the removal of a shared store that provisioning cannot read. It loads a root package
-and a dependency with a `lakefile.lean` that links to that path, and Regula's Lake loaders must
-refuse the two. When a model of the file system fails to resolve one path, the removal's
-observation of that path must fail with that error.
-
-After the permissions are given back, the manifest records the choice of `lakefile.toml` that Lake
-made for the dependency. Lake reads that recorded file alone, so the loader must load the
-dependency from it, as Lake's build does. When the links are removed, the loaders must load the
-projects. A `lakefile.lean` is then written beside each `lakefile.toml` that a load read. The
-check of the loaded workspace must refuse each package with a configuration name that has no
-extension.
-
-`Regula.AbsenceControls` also reads the Git work tree of nine directories with `gitWorkTree`. It
-must keep the final space of the name of a top level. Below a `.git` file that names a repository,
-it must give the work tree while the file can be read, and fail while it cannot. The same holds in
-a repository for its `HEAD`. In a bare repository, it must fail.
-
-It must give no work tree for a directory that no repository holds. The same holds for a directory
-with a `.git` directory that holds only a file. Below a ceiling under a repository, it must give
-none, and without the ceiling, the work tree of that repository. With a failing query in place of
-Git, these reads must not run the query. In a repository, each failure of the query must fail the
-read, also one that reports no repository as Git does.
-
-With a ceiling written through a symbolic link, which Git resolves, the reads must leave it out and
-fail as Git fails. A ceiling entry that cannot be read must be left out. Then a directory that no
-repository holds gives none without running the query. A `.git` directory that cannot be read must
-fail the read without running the query. This also holds in the work tree of a repository that Git
-finds above that `.git` directory. A repository nested in a directory with a `.git` directory that
-cannot be read must give its own top level, because Git finds it first.
-
-The control also reads the revision of a repository with `observeGitFacts`. It must give none with
-no commit, the commit after one, and a failure while the file of the branch cannot be read. It must
-fail too where `HEAD` names a branch with a name that Git does not accept.
-
-In the first acceptance step, `Regula.PrintedPathControls` runs the reads of a path that
-`/usr/bin/which`, `printenv`, Elan and `lean` print. The read of `which` must keep the space at the
-start of a relative entry of `PATH`. It must fail for an entry with a newline in its name. The read
-of `printenv` must keep the final space of the last entry of `LEAN_PATH`. The read of Elan must
-give the compiler that builds the module. The read of the prefix that `lean --print-prefix` prints
-must keep the final space of the name of the installation directory.
-
-The toolchain's `lake` refuses the option `--print-prefix`. For it, the read of the prefix must fail
-with the error that `IO.Process.run` gives, as `Lean.findSysroot` does. That control is incomplete,
-so it fails, unless that `lake` exits with a status other than 0 and prints its own refusal of the
-option.
-
-`./scripts/verify.sh diagnostics self-audit 1/4` to `4/4` each run one shard of the self-audit.
-The campaign sorts each list of modules that it inspects by name, and it deals the list to the
-four shards in turn. Thus each shard audits a quarter of each list. The theorem
-`SelfAudit.selected_cover` states that the four selections together are a rearrangement of the
-list that the single run audits. The dogfood workflow runs the four shards, and the local command
-`diagnostics self-audit` runs all of them in one invocation.
-
-The shard `self-audit 4/4` also builds each library of the package except `Fixtures`, and the
-executable `auditApp`. Then it runs `lake exe qualify observers`, which refuses unless each
-program records its removal check and each executable its task-manager check. It also refuses a
-module named under `Init`, `Std`, `Lean`, `Lake` or `LeanExport` in a package of the root,
-`markdown/` or `audit/` workspace. The single run does the same. On the slower CI runners, the
-shard 4/4 has the shortest audit of the four. Thus this check runs there, and not in the first
-acceptance step.
-
-`qualify observers` refuses to load the `markdown/` workspace until the pinned MD4Lean is in
-`.lake/packages`. Run `lean --run lean/RegulaProvision.lean verso` first. The dogfood workflow does
-this for the shard 4/4. Thus the check acquires no dependency if no other process changes the
-checkout or the manifest during the check.
-
-Before its `lake lint` in the root package, `diagnostics self-lint` builds the `lint` driver, its
-worker `axiomGate` and the claimed targets in one `lake build`. Lake's lint dispatch, the driver
-and the audit otherwise build them in sequence. Each of these builds still runs, and it
-builds what is not built.
+- `Audit` is the claimed surface of the `audit/` package. It imports only the core libraries of Lean, and it requires the checker by its path, as an adopter can. `audit/Audit/` holds mathematical models, proofs and executable examples, not the checker.
+- `AuditApp` and its claimed `auditApp` executable apply the complete-program contracts of standard [§3.7](https://rbeauchamp.github.io/regula/dev/standard/3-logic-proof-patterns/#37-a-compositional-method-for-complete-program-contracts) to their actual definitions. `RequiredContracts` states the required propositions, and `required_contracts` supplies their proofs. In `report` mode, the `IO` shell and the native mechanisms that it reaches are execution boundaries.
+- The interfaces that claimed modules import are the claimed library `RegulaInterface`. Thus no claimed module imports a module of the excluded library `Regula` ([RG2004]).
+- The executables `lint`, `regula` and `site` are operational tooling. Their root modules belong to the excluded `Regula` library.
+- Each Lean block of the Verso standard elaborates when `./scripts/verify.sh docs` builds the standard.
 
 The repository's own checklist rows, which apply to this repository only:
 
 | ID | Required result | Normative source | Required Lean-specific verification |
 | --- | --- | --- | --- |
 | DOGFOOD-01 | The repository's own claimed Lean surfaces, classified by the manifests in [Repository conformance](#repository-conformance), satisfy every applicable row of the standard's checklist. | [Repository conformance](#repository-conformance) | Audit each claimed Lake surface as an ordinary claimed surface with no special exemptions; the application's admission, update, and composition contracts are proved about the same computable definitions its executable runs, and its `IO` boundary is reported, never silently excluded. |
-| DOGFOOD-02 | Intentionally invalid fixtures are isolated from the positive elaborated environment. | [§7.2](https://rbeauchamp.github.io/regula/dev/standard/7-tooling-and-machine-audit/#72-define-surfaces-through-lake-semantics), [Repository conformance](#repository-conformance) | Reconcile exact imported project modules. Qualification includes a contamination mutation. |
-| DOGFOOD-03 | Normative prose, representative Lean fixtures, checker diagnostics, and status text make no stronger claim than the same verified property. | [§1.6](https://rbeauchamp.github.io/regula/dev/standard/1-core-principles/#16-claim-boundaries-and-automated-checking), [Repository conformance](#repository-conformance) | Compare advertised capabilities with the checked implementation and applicable qualification evidence. Diagnostic qualification does not prove the checker is universally correct. |
+| DOGFOOD-02 | Intentionally invalid fixtures are isolated from the positive elaborated environment. | [§7.2](https://rbeauchamp.github.io/regula/dev/standard/7-tooling-and-machine-audit/#72-define-surfaces-through-lake-semantics), [Repository conformance](#repository-conformance) | Reconcile exact imported project modules. |
+| DOGFOOD-03 | Normative prose, representative Lean fixtures, checker diagnostics, and status text make no stronger claim than the same verified property. | [§1.6](https://rbeauchamp.github.io/regula/dev/standard/1-core-principles/#16-claim-boundaries-and-automated-checking), [Repository conformance](#repository-conformance) | Compare advertised capabilities with the checked implementation and the contracts of its rule functions. |
 | DOGFOOD-04 | Examples and fixtures reuse or extend matching Lean/Mathlib mathematical definitions. Custom mathematical definitions state their meaning and why existing definitions do not fit; proofs follow the economy guidance in §3.2.5. | [§1.4](https://rbeauchamp.github.io/regula/dev/standard/1-core-principles/#14-principled-mathematical-modeling), [§3.2.5](https://rbeauchamp.github.io/regula/dev/standard/3-logic-proof-patterns/#325-proof-economy-four-cost-domains-and-one-trust-question) | Compare custom mathematical structures, classes, and aliases with the pinned libraries and inspect required justifications. Review proof reuse where it simplifies the argument. A domain definition or teaching proof does not need a claim that no library theorem exists. |
-| DOGFOOD-05 | The complete application enforces its explicit required propositions: omitting executable classification, removing or weakening required evidence while its proposition remains, or weakening admission fails the gate. Semantic review rejects a narrowed requirement set or bypassed application linkage. | [§7.8](https://rbeauchamp.github.io/regula/dev/standard/7-tooling-and-machine-audit/#78-qualify-checker-implementations-with-independent-mutations), [Repository conformance](#repository-conformance) | Inspect `RequiredContracts`, its evidence, and `Main`'s call through `checked_executable.run` to `executeChecked` for adequacy and completeness. The diagnostic campaign includes `app-omitted-exe`, `app-unproved-update`, `app-trivial-update`, `app-weakened-update`, `app-missing-contract-field`, and `app-weakened-admission`, each with its intended diagnostic and a fresh restored control. |
+| DOGFOOD-05 | The complete application enforces its explicit required propositions: omitting executable classification, removing or weakening required evidence while its proposition remains, or weakening admission fails the gate. Semantic review rejects a narrowed requirement set or bypassed application linkage. | [§7.8](https://rbeauchamp.github.io/regula/dev/standard/7-tooling-and-machine-audit/#78-qualify-checker-implementations-with-independent-mutations), [Repository conformance](#repository-conformance) | Inspect `RequiredContracts`, its evidence, and `Main`'s call through `checked_executable.run` to `executeChecked` for adequacy and completeness. |
 
 A repository conformance claim records what [Develop and verify](#develop-and-verify) lists and
 follows the standard's [result rule](https://rbeauchamp.github.io/regula/dev/standard/8-compliance-audit/#result-rule), stating which rows it
@@ -774,9 +300,8 @@ requires of claimed code:
 
 ## Change prose and code together
 
-Keep a teaching example beside the prose when it helps readers. Every Lean fence
-under `docs/`, including this guides directory, and every `lean` block of the Verso standard
-follows the [checked example convention](https://rbeauchamp.github.io/regula/dev/standard/introduction/#lean-example-convention).
+Keep a teaching example beside the prose when it helps readers. Each `lean` block of the Verso
+standard follows the [checked example convention](https://rbeauchamp.github.io/regula/dev/standard/introduction/#lean-example-convention).
 Link to the actual Lean module for larger definitions and proofs; do not copy an
 implementation merely to mirror the chapter structure.
 
@@ -814,7 +339,7 @@ linked. A heading is prose, so a rule ID in one is a link. The one rule ID that 
 a link is a rule page's own, in that page's `title` and `h1`, because a page cannot usefully link
 to itself (`Prose.ownPage`); any other rule's ID there, and any rule ID in the `title` or `h1` of
 another page, is refused. `./scripts/verify.sh docs` checks the standard rendered alone
-(`docFenceAudit --verso`), and `./scripts/verify.sh site` checks every page of the
+(`lake exe site standard`), and `./scripts/verify.sh site` checks every page of the
 development edition; each failure names the file, the line and the ID. The scanner is small and
 strict, not an HTML parser: a page with a `code`, `pre`, `title` or `h1` element, a comment or a
 script that is never closed is refused, since the text after it could not be read as prose. The
@@ -831,9 +356,7 @@ in its GitHub dialect (tables, strikethrough, task lists and autolinks), and
 pieces (prose, code, the edges of links, refusals, and the boundaries between runs and lines)
 for `Regula.Markdown`, which decides on the pieces (`documentErrors_nil_iff`). The theorem is
 about the pieces it is given; the translation has no theorem. Hand-written readers of
-Markdown remain elsewhere in the repository and are no part of this check: the fence scanner of
-the documentation audit (`Regula.Checker.FenceScan`, which finds the `lean` fences and their
-markers), `Regula.Prose.scanGenerated`, which finds the code spans and links of generated
+Markdown remain elsewhere in the repository and are no part of this check: `Regula.Prose.scanGenerated`, which finds the code spans and links of generated
 prose, and `RegulaPolicy.Intent`, which finds the heading lines of a docstring.
 
 - Prose is every text md4c reports outside code spans and code blocks: paragraphs, headings,
@@ -850,7 +373,7 @@ prose, and `RegulaPolicy.Intent`, which finds the heading lines of a docstring.
   inside it is description text, and only a link around the image links it.
 - No HTML is read. A raw HTML block is refused, a comment too, and so is a document with inline
   raw HTML such as `<kbd>`; write it in Markdown. The one raw HTML that is read is a block that
-  is exactly a fence marker of the documentation audit, `<!-- lean-trusted-compiler -->` or
+  is exactly a fence marker, `<!-- lean-trusted-compiler -->` or
   `<!-- lean-fail: PATTERN -->` with no `>` in the pattern: it is one comment and renders as
   nothing (`auditMarker`).
 - A document with a table that has no body row, or with a NUL character, is refused: MD4Lean
@@ -941,19 +464,6 @@ The summary of Regula is one definition, `Regula.Site.summary` in [`lean/RegulaC
 `./scripts/verify.sh docs` reads the top-level blocks of the root `README.md` and of the adoption guide, as md4c gives them. It refuses a document unless its first block is a heading of level 1. Its second block must be the paragraph that md4c reads for the summary alone (`Regula.Markdown.summaryErrors`, `summaryErrors_nil_iff`). Thus the second block is the summary on one line, and a block of a different kind before it is refused.
 
 The same step runs `lake reservoir-config` in the repository root. It refuses a `description` of `lakefile.lean`, as Lake reads it, that is not the summary without its backticks.
-
-#### The example of the root README
-
-The root `README.md` shows the module [`markdown/Readme/Shortcut.lean`](../../markdown/Readme/Shortcut.lean) and the findings of `axiomGate --file` for it. No Lake library contains that file, thus no target of the repository builds it.
-
-`./scripts/verify.sh docs` makes a new Lake project in a temporary directory. The project has the `lean-toolchain` of the repository, and it requires the root package by its path. In that project, the step runs `lean --json` and `lake exe axiomGate --file` on the module. It refuses the `README.md` unless these conditions are true (`Regula.Markdown.demonstrationErrors`, `demonstrationErrors_nil_iff`):
-
-- Its one `lean` code block is the text of the module, byte for byte.
-- Lean gives only the warning that the `README.md` states for the module (`demonstrationMessages`).
-- `axiomGate --file` exits with 1.
-- The output of `axiomGate --file` fits the one `text` code block. A line that is `…` alone stands for any sequence of lines, also for no line. A `…` in a different line stands for any text in that line. Each other character must be equal (`lineFits_plain`).
-
-The step also examines three changed copies of its input. They have a changed `lean` block, a warning of Lean that the `README.md` does not state and a changed finding line. It refuses unless the check refuses each copy, and it shows the refusal of each copy.
 
 ### The vocabulary of the project
 
@@ -1048,39 +558,13 @@ rule ID.
 
 ## Change an acceptance boundary
 
-Use the [acceptance boundary](proofs-and-boundaries.md#the-acceptance-boundary) when changing a driver.
-Freeze the request and independently discovered census before result collection;
-reuse `ResultState.collect`, `finalize` and `AcceptedRun` instead of another transition
-or success Boolean. Require accepted evidence in success renderers. Worker packets
-carry raw observations and strict request identity; serialized `acceptance` fields
-are never proof inputs. Keep file, fresh/incremental project, documentation, optional
-graph and classification-only meanings separate.
-
-Trace the actual theorem-to-execution path and preserve all source/admission guards.
-An axiom census or theorem-statement reference alone does not establish semantic linkage.
-Collection proofs establish universal finite-data guarantees; public positive/refusal/
-restored controls qualify the IO boundary. Record commands, exact relevant input identity,
-failed attempts and pending gates in the issue or its PR rather than inferring coverage
-from a few mutations or a worker exit.
+Use the [acceptance boundary](proofs-and-boundaries.md#the-acceptance-boundary) when you change a driver. Keep the refusal of an input without the closed form: an incomplete input is not a pass. Record commands, the exact relevant input identity, failed attempts and pending gates in the issue or its pull request.
 
 ## Linter and website development
 
-Follow the [architecture](architecture.md). A rule change updates its descriptor, actual detector, source fixtures, expected typed diagnostics and explanatory page together. Regula is agent-first: the descriptor's requirement, rationale, remedy, rewrites and checked example pair are required fields, because every finding, `lake exe regula` and the agent briefing print them; regenerate the dogfooded [skill](../../.agents/skills/regula/SKILL.md) with `lake exe regula skill > .agents/skills/regula/SKILL.md`, which acceptance checks. Follow the [attribution scope](design-influences.md): preserve actual code/license notices and cite relevant component-level design influences; examples such as CA1416, Ruff and Pyrefly are not exclusive design mandates. Never replace semantic review with docstring presence or generated-page counts.
+Follow the [architecture](architecture.md). A rule change updates its descriptor, its function in `Regula.Rules`, its entry in the [specification](../../specification/README.md) and its explanatory page together. Regula is agent-first: the requirement, rationale, remedy, rewrites and example pair of a descriptor are required fields, because `lake exe regula` and the agent briefing print them. Regenerate the [skill](../../.agents/skills/regula/SKILL.md) with `lake exe regula skill > .agents/skills/regula/SKILL.md`, which acceptance checks. Follow the [attribution scope](design-influences.md): keep the actual code and license notices, and cite the relevant design influences of a component. Do not replace semantic review with docstring presence or counts of generated pages.
 
-The [website guide](website.md) specifies the pinned Verso setup, `./scripts/verify.sh site` (after the three rule-example shards), publication and the rule-change workflow. The site build complements, and never partitions, [acceptance](#develop-and-verify). Review workflow must inspect rule IDs, exact scopes/modes, source ranges, versioned help routes and generated-source agreement where affected; no extra mandatory benchmark campaign is introduced.
-
-The acceptance transport groups are maintained, capability-triggered diagnostics. Run
-all affected groups when worker dispatch, codecs, joins, request reconstruction or
-terminal output ownership changes. Their positive/refusal/restoration observations
-qualify those IO boundaries; `collect_success_iff` and `finalize_iff` already quantify
-universally over supplied finite observations. A changed worker protocol requires
-public-entrypoint controls for omitted, duplicate and substituted keys, wrong modes and
-snapshots, worker crash and malformed versions; changed library or overlay coverage requires a
-fresh imported-client control and exact Lake inventory checks. Do not add the multi-minute
-groups to every ordinary acceptance run. The builds of the local gate transitively check all
-proof and adapter modules. The diagnostics that the local gate runs, and their budgets, are
-described above.
-After fixes, reuse a diagnostic only with an explicit unchanged-relevant-input argument.
+The [website guide](website.md) specifies the pinned Verso setup, `./scripts/verify.sh site`, publication and the workflow of a rule change. The site build is not a part of [acceptance](#develop-and-verify).
 
 ## Pull request titles
 
@@ -1217,8 +701,7 @@ until the release commit has passed the same checks as `main`:
    without a release label ([versions](website.md#versions-and-routes)): the release's own
    edition exists only once CI builds it from the release commit, and an artifact with a preview
    is never deployed.
-2. **candidate** (`ci.yml`, the `candidate` job on `main`): once acceptance and the three rule-example
-   shards pass on a commit of `main` that lists a release not yet published, it refuses unless
+2. **candidate** (`ci.yml`, the `candidate` job on `main`): once acceptance passes on a commit of `main` that lists a release not yet published, it refuses unless
    the releases GitHub reports published are exactly the releases listed before it
    (`publishedExactly`): its listed predecessor is then the latest published release
    (`publishedExactly_latest`), and a release whose listed predecessor is not is refused
@@ -1235,7 +718,7 @@ until the release commit has passed the same checks as `main`:
    only change sets `Regula.installed` to the release, and points the branch
    `release/v<version>-candidate` at it.
    The next jobs run on it, with its release label, the checks of `main`: `release-verify` both
-   acceptance steps, and `release-site` the three rule-example shards and the site build, which
+   acceptance steps, and `release-site` the site build, which
    renders the release's edition and writes it as `regula-site-<version>.tar.gz`
    ([versions](website.md#versions-and-routes)). They check out the commit of `main` itself, not
    the release commit: their **adopt** step derives the release commit's content there with
@@ -1259,9 +742,8 @@ until the release commit has passed the same checks as `main`:
 
 Each job keeps the budget of the job on `main` it repeats: `candidate` and `publish` 30 minutes
 each; `release-verify` 45 minutes, like `verify`, with each `verify.sh` step under its own
-420-second deadline; and `release-site` 105 minutes, which is 30 + 30 + 45, the budgets of the two
-`rule-examples` shards and the `site` job it repeats one after another, each `verify.sh` step
-again under its own deadline.
+420-second deadline; and `release-site` 45 minutes, the budget of the `site` job that it repeats, with its `verify.sh`
+step again under its own deadline.
 
 Nothing follows the release: `main` stays unreleased, so there is no reset to merge. Adopters
 require the tag, and Lake fetches a dependency's tags with the repository, so a tag whose commit
@@ -1397,6 +879,7 @@ Git requires such as `rev = "v0.2.0"` name the tag directly and involve no versi
 [RG1008]: https://rbeauchamp.github.io/regula/dev/rules/RG1008/
 [RG1009]: https://rbeauchamp.github.io/regula/dev/rules/RG1009/
 [RG2003]: https://rbeauchamp.github.io/regula/dev/rules/RG2003/
+[RG2004]: https://rbeauchamp.github.io/regula/dev/rules/RG2004/
 [RG2005]: https://rbeauchamp.github.io/regula/dev/rules/RG2005/
 [RG2006]: https://rbeauchamp.github.io/regula/dev/rules/RG2006/
 [RG5001]: https://rbeauchamp.github.io/regula/dev/rules/RG5001/

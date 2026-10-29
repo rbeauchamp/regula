@@ -46,7 +46,9 @@
 # with no memory limit, so nothing bounds its peak, and the step takes the machine's whole heavy-work
 # budget (16 GiB on the 24 GiB Mac that runs it, which keeps 8 GiB in reserve). A measurement of the
 # gate found a peak above that budget, so no smaller bound is safe: the bound stays the whole budget
-# until https://github.com/rbeauchamp/regula/issues/497 is fixed.
+# until https://github.com/rbeauchamp/regula/issues/497 is fixed. The change of issue 483 removes
+# the module of that issue with the rest of the previous checker, and leaves the gate nine steps,
+# which the measurement below did not measure; the bound stays until the gate is measured again.
 #
 # The measurement ran the gate twice on 2026-10-29 on that Mac, on main at 59f1833 (Lean v4.35.0),
 # each time in a new checkout of the shape that the pipeline runs in (a linked worktree of a mirror)

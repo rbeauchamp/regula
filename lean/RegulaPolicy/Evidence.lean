@@ -12,13 +12,7 @@ outcomes it establishes (`Carrier.facts`, proved sound and exact in `Carrier.fac
 implementation (`Linkage`). Each expression and proposition is recorded as its exact term
 (`Term`), beside Lean's display of it, which is of another type (`Shown`). The report is an
 observation in a record part that no part a rule's decision takes includes
-(`RegulaPolicy.Declaration.Reported`). The roles and the name-keyed decision give the same result
-whatever the records report (`RegulaPolicy.authorize_withEvidence`,
-`RegulaPolicy.policyForName_withEvidence`), and so does the decision on a member when the
-inventory's reports and the member's are replaced together (`RegulaPolicy.policyFor_withEvidence`).
-The exception is the admission boundary of a supplied record
-(`RegulaPolicy.recordFailure`): it compares whole records, so it refuses a supplied record whose
-report differs from the inventory's.
+(`RegulaPolicy.Declaration.Reported`).
 Which carriers discharge a `@[regula_decision]` registration is RG1008's decision, which reads the
 kind of the recorded contract (`RegulaPolicy.DecisionKind`) and not this report;
 `RegulaPolicy.Carrier.kind?_ofStructureName?` states that the law `Regula.DecisionEquivalence`
@@ -478,10 +472,7 @@ theorem checked_admitStatements :
 
 /-- The checker's report of one registration whose requirement reduces to a carrier: the exact
 relation, each part as its exact term with Lean's display of it (`Shown`), and the law observer's
-linkage conclusion. It is an observation of the registration it belongs to. What the decisions do
-with it is stated by `RegulaPolicy.policyFor_withEvidence` and its companions, and the admission
-boundary of a supplied record (`RegulaPolicy.recordFailure`) compares it as part of the whole
-record. -/
+linkage conclusion. It is an observation of the registration it belongs to. -/
 structure ContractEvidence where
   /-- The structure the requirement reduces to. -/
   carrier : Carrier
