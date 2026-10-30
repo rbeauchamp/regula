@@ -26,9 +26,8 @@ structure Check where
 def Satisfied (checks : List Check) : Prop :=
   ∀ check ∈ checks, check.holds = true
 
--- Realized here, once, for every module that unfolds `Satisfied`: two modules that each realized
--- it would each hold a copy, which `qualify unique-constants` refuses where one environment loads
--- both.
+-- Realize the equation lemma here, once, so importers that unfold `Satisfied` use the same
+-- declaration.
 section
 attribute [local simp] Satisfied.eq_1
 end

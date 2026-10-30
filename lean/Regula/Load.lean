@@ -27,6 +27,9 @@ What it reads, and through what:
   inherited `LEAN_PATH` and `LEAN_SRC_PATH` are dropped, so the search path is Lake's
   (`Workspace.augmentedLeanPath`). `Lean.findSysroot` is not used: it can find a toolchain that is
   not the pinned one (the specification's measurement).
+  For an implicit workspace, `dispatchedFrom_iff` checks the received `LEAN_PATH` first against
+  the loaded root's library directory: Lake does not change the driver's working directory for
+  `lake -d DIR lint`. A different dispatch is refused before declaration data is read.
 - The targets: the root package's libraries and executables, their modules (`getModuleArray`, an
   executable's root), their options (`leanOptions`, and each `-D` argument of `weakLeanArgs` and
   `leanArgs`), every other argument, plugin and dynamic library as an extra, and whether Lake
@@ -600,11 +603,62 @@ def copyInput (i : Input) : CopyM Input := do
     decisions := ← copyAll i.decisions, decidableResults := ← copyAll i.decidableResults
     proved }
 
-/-- The closed input of the finished build of the workspace at `dir`, or an error that refuses
-it. Each environment is imported, read into the input, copied out of its data, and freed before
-the next one is imported. -/
-unsafe def loadBundle (dir : FilePath) : IO Bundle := do
+/-- How the caller selects the workspace: Lake's dispatch, or an explicit directory. -/
+inductive WorkspaceSelection where
+  /-- The current directory, admitted only when Lake dispatched its workspace. -/
+  | dispatched
+  /-- The directory the caller explicitly selected. -/
+  | named (dir : FilePath)
+
+/-- The directory selected by the caller, before filesystem resolution. -/
+def WorkspaceSelection.directory : WorkspaceSelection → FilePath
+  | .dispatched => "."
+  | .named dir => dir
+
+/-- Whether `root` is the last workspace library directory before Lake's library in the
+received search path. Lake v4.35.0 `Package.lint` runs the driver without changing its directory
+(`Lake/CLI/Actions.lean`), and `Workspace.augmentedLeanPath` supplies workspace libraries, then
+the collocated Lake library, then inherited entries. The root package is first in Lake's package
+array, so `Workspace.leanPath` puts its library last.
+
+Assumes: Lake supplies that composition; its library is not a workspace library; and distinct
+packages do not configure a shared library directory. Under those assumptions the theorem below
+identifies the dispatching root, whatever search path the caller inherited. -/
+def dispatchedFrom (root lakeLib : String) (leanPath : List String) : Bool :=
+  decide ((leanPath.takeWhile (· ≠ lakeLib)).getLast? = some root) &&
+    decide (lakeLib ∈ leanPath)
+
+/-- For every search path of Lake's composition, the dispatch check accepts exactly the last
+workspace library directory. Inherited entries cannot make a different root pass. -/
+theorem dispatchedFrom_iff {root lakeLib : String} {dispatching inherited : List String}
+    (h : lakeLib ∉ dispatching) :
+    dispatchedFrom root lakeLib (dispatching ++ lakeLib :: inherited) = true ↔
+      dispatching.getLast? = some root := by
+  have hall : ∀ a ∈ dispatching, decide (a ≠ lakeLib) = true := by
+    intro a ha
+    simp only [ne_eq, decide_eq_true_eq]
+    exact fun hal => h (hal ▸ ha)
+  have htake : (dispatching ++ lakeLib :: inherited).takeWhile (fun a => decide (a ≠ lakeLib)) =
+      dispatching := by
+    rw [List.takeWhile_append_of_pos hall]
+    simp
+  simp only [dispatchedFrom, htake, Bool.and_eq_true, decide_eq_true_eq]
+  simp
+
+/-- The closed input of the selected finished build, or an error that refuses it. An implicit
+selection must match Lake's dispatch (`dispatchedFrom_iff`). Each environment is imported, read
+into the input, copied out of its data, and freed before the next one is imported. -/
+unsafe def loadBundle (selection : WorkspaceSelection) : IO Bundle := do
+  let dir := selection.directory
   let ws ← loadWorkspace dir
+  match selection with
+  | .dispatched =>
+    let received := (((← IO.getEnv "LEAN_PATH").map SearchPath.parse).getD []).map toString
+    unless dispatchedFrom ws.root.leanLibDir.toString ws.lakeEnv.lake.libDir.toString
+        received do
+      refuse "the current directory is not the workspace Lake dispatched; run `lake lint` \
+        from that workspace's directory"
+  | .named _ => pure ()
   searchPathRef.set ws.augmentedLeanPath
   let ts ← targets ws
   let manifest ← claim dir

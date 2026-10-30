@@ -75,15 +75,16 @@ def coverage (b : Bundle) : String :=
   s!"regula: read {b.envs.length} environments, {modules} modules of the root package, and \
     {claimed} constants of claimed modules in each environment"
 
-/-- Run the checker on the workspace at the one argument, or at the current directory. -/
+/-- Run the checker on the explicitly named workspace, or on the current directory only when
+it is the workspace Lake dispatched. A different implicit workspace is incomplete. -/
 unsafe def run (args : List String) : IO UInt32 := do
-  let dir ← match args with
-    | [] => pure "."
-    | [dir] => pure dir
+  let selection ← match args with
+    | [] => pure Regula.Load.WorkspaceSelection.dispatched
+    | [dir] => pure (Regula.Load.WorkspaceSelection.named dir)
     | _ => do
       IO.eprintln "usage: lint [WORKSPACE]"
       return 2
-  match ← (Regula.Load.loadBundle dir).toBaseIO with
+  match ← (Regula.Load.loadBundle selection).toBaseIO with
   | .error e => report .incomplete [] (some (toString e))
   | .ok bundle =>
     let (verdict, findings, why) := Regula.Closed.run allowed bundle

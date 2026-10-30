@@ -37,6 +37,7 @@ The checker refuses an input that does not have the closed form. The verdict is 
 - Lake loads the workspace, and the claim parses. The claim claims no target as `compiler-trusting`.
 - Each module of a target has its `.olean` files in the build of the root package, and Lean reads them. A read error is a refusal, not an absent file.
 - Lean loads each environment.
+- For an implicit workspace, the current directory is the workspace that Lake dispatched (`Regula.Load.dispatchedFrom_iff`).
 - In each environment, each name is the name of one constant. Each constant that a constant mentions is loaded.
 - Each module of each target is loaded in one of the environments.
 - The claim claims at least one target.
@@ -55,6 +56,7 @@ The loader reads each part through the interface of its owner. These statements 
 
 - The load of the workspace by Lake gives the targets, their modules and the options that Lake builds with.
 - `LEAN_SYSROOT` names the toolchain that Lake runs. `lake lint` and `lake exe` set it.
+- Lake supplies the search path that `Regula.Load.dispatchedFrom_iff` describes. Distinct packages do not share a library directory, and no package uses Lake's library directory.
 - Lean finds the library of the toolchain only below the `lib/lean` directory of the pinned toolchain ([RG1003]).
 - Lean refuses an `.olean` file that a different version of Lean wrote ([RG2001]).
 - `Lean.importModules` with `loadExts := false` loads exactly the constants of the `.olean` files. It sets the module entries of each extension, and it builds no state of an extension.

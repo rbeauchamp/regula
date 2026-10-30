@@ -351,6 +351,7 @@ These are some causes of an incomplete run:
 - Lean cannot read an `.olean` file. A read error is a refusal, not an absent file.
 - The manifest does not parse, claims no target, or claims a target as `compiler-trusting`.
 - `LEAN_SYSROOT` is not set. `lake lint` and `lake exe` set it to the toolchain that Lake runs.
+- The current directory differs from the workspace that Lake selected with `-d`. Run `lake lint` from that workspace's root.
 
 ## Update Regula
 

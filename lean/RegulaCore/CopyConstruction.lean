@@ -225,6 +225,24 @@ theorem checked_projectRelative : Regula.ExecutableContract projectRelative
 
 attribute [regula_decision] projectRelative
 
+/-- Finder metadata is outside the default source domain, at every depth. Thus its bytes
+cannot affect the acceptance identity through default selection. Explicit requirements remain
+separate, as `metadata_selection_iff` states for the selection executed by `sourceMain`. -/
+theorem projectRelative_metadata (relative : List String)
+    (metadata : relative.getLast? = some ".DS_Store") :
+    projectRelative relative = false := by
+  simp [projectRelative, ProjectRelative, metadata]
+
+/-- In the cold constructor's combined selection, a Finder metadata entry is selected exactly
+when a consumer explicitly requires it or a descendant. An explicit dependency is never silently
+dropped; unrelated Finder state is never copied or digested by default. -/
+theorem metadata_selection_iff (required : List (List String)) (relative : List String)
+    (metadata : relative.getLast? = some ".DS_Store") :
+    (requiredPath required relative || projectRelative relative) = true ↔
+      RequiredPath required relative := by
+  rw [projectRelative_metadata relative metadata, Bool.or_false]
+  exact ⟨of_decide_eq_true, decide_eq_true⟩
+
 /-- The explicit-selection decision includes exactly prefixes of its selected paths. -/
 theorem checked_requiredPath : Regula.ExecutableContract requiredPath
     (fun f => ∀ required relative, f required relative = true ↔ RequiredPath required relative) :=
