@@ -44,8 +44,8 @@ def main : List String → IO UInt32 :=
 -- The program prints, and `init` writes the setup files of the project that it sets up. The build
 -- of this module fails when the compiled code of a module outside the toolchain that it links starts
 -- a process or removes a file, or writes at another place, or calls a declaration of the toolchain
--- that reaches one (`Regula.Effects.check`). The two it names are Lake's load of the workspace,
--- whose own Git, Lean and `.lake/config` effects are Lake's.
+-- that reaches one (`Regula.Effects.check`). The two of `Regula.Effects.lakeLoad` are Lake's load
+-- of the workspace, whose own Git, Lean and `.lake/config` effects are Lake's.
 run_cmd Regula.Effects.check (admitted := [
   (`Regula.Cli.Setup.write, ``IO.FS.createDirAll),
   (`Regula.Cli.Setup.write, ``IO.FS.writeFile),

@@ -16,7 +16,9 @@ The root [foundation manifest](../../foundation_manifest.json) has the foundatio
 
 `lake lint` runs the checker of Regula, the `lint` executable (`Regula.LintMain`). The checker has three effects. It loads the finished build, it prints its findings, and it sets its exit code. It starts no process, and it writes and removes no file.
 
-`Regula.Effects.check` enforces this when `Regula.LintMain` builds. The build fails when the compiled code of a linked module outside the toolchain has such an effect. It also fails when that code calls a declaration of the toolchain that reaches one. The exception is the load of the workspace by Lake, which can start processes and write `.lake/config`, as `lake build` can. Lake's Git commands have the environment of the caller.
+`Regula.Effects.check` checks this when `Regula.LintMain` builds. The build fails when the compiled code of a linked module outside the toolchain has such an effect. It also fails when that code calls a declaration of the toolchain that reaches one. The exception is the load of the workspace by Lake, which can start processes and write `.lake/config`, as `lake build` can. Lake's Git commands have the environment of the caller.
+
+This is a build-time check with no theorem. Its coverage rests on Lean's store of compiled code (`declMapExt`, `findEnvDecl`). Nothing proves that a build that passes has no such call.
 
 The checker does not build the project. Build the claimed targets with `lake build --wfail` first. A module without its compiled files makes the run INCOMPLETE.
 

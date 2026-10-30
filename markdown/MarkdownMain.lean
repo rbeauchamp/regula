@@ -563,7 +563,13 @@ baseline file of the working tree that have a tracked Markdown document, also wh
 track that file, and one entry of numbers for each other document with a finding. Thus it writes
 no entry for a path that is not a tracked Markdown document, which check B1 refuses. Check B2 of
 the next run still refuses a new path and a larger number. It keeps entries of
-the earlier baseline (`earlierBaseline`). -/
+the earlier baseline (`earlierBaseline`).
+
+It makes a new file beside the baseline by exclusive creation, which fails when anything, a symbolic
+link included, is at that name, writes and flushes it, and renames it over the baseline. Its name
+holds the process id and random bytes, so a file that a killed run left does not stop a later run. A
+failure before the rename leaves the baseline as it was and removes nothing. A reader reads the
+earlier file or the whole new one. -/
 def writeBaseline (options : Options) : IO UInt32 := do
   let tracked ← match ← trackedFiles options.root with
     | .ok tracked => pure tracked
@@ -603,7 +609,13 @@ def writeBaseline (options : Options) : IO UInt32 := do
   let text := String.ofList (ledgerOf entries).render
   match baselineOf baselineFile text with
   | .ok written =>
-    IO.FS.writeFile (options.root / baselineFile) text
+    let path := options.root / baselineFile
+    let random := (← IO.getRandomBytes 8).foldl (fun value byte => value * 256 + byte.toNat) 0
+    let pending : System.FilePath := s!"{path}.{← IO.Process.getPID}.{random}.pending"
+    let handle ← IO.FS.Handle.mk pending .writeNew
+    handle.putStr text
+    handle.flush
+    IO.FS.rename pending path
     IO.println s!"{baselineFile}: {written.entries.length} entries written"
     return 0
   | .error refusals =>

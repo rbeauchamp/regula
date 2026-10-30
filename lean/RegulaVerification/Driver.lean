@@ -800,15 +800,24 @@ def requireLink (root : System.FilePath) : IO Unit := do
 The driver writes one file, at one fixed path in the project's `tmp` directory (`linkPath`): its
 mark (`incompleteLink`, by `writeLink`) and the accepted record (by `promote`). Each makes the record
 beside the path or in the scratch directory and renames it there, so a reader reads the earlier file
-or the whole new one. `rename(2)` follows no symbolic link at its target, so a link at `linkPath` is
-replaced and its target keeps its bytes, and it fails on a directory there, which stops the step.
-`tmp` being a symbolic link is a choice of whoever made it, and the driver writes through it. -/
+or the whole new one. The file beside the path is new by exclusive creation, which fails on anything
+at its name, so that write follows no symbolic link and changes no other file. `rename(2)` follows
+no symbolic link at its target, so a link at `linkPath` is replaced and its target keeps its bytes,
+and it fails on a directory there, which stops the step. `tmp` being a symbolic link is a choice of
+whoever made it, and the driver writes through it. -/
 
-/-- Write `text` at `path` by a new file beside it, renamed there. -/
+/-- Write `text` at `path`: make a new file beside it by exclusive creation, which fails when
+anything, a symbolic link included, is at that name, write and flush it, and rename it over `path`.
+Its name holds the process id and random bytes, so a file that a killed run left does not stop a
+later run. A failure before the rename leaves `path` as it was and removes nothing. A reader reads
+the earlier file or the whole new one. -/
 def writeLink (path : System.FilePath) (text : String) : IO Unit := do
   if let some directory := path.parent then IO.FS.createDirAll directory
-  let pending : System.FilePath := s!"{path}.{← IO.Process.getPID}.pending"
-  IO.FS.writeFile pending text
+  let random := (← IO.getRandomBytes 8).foldl (fun value byte => value * 256 + byte.toNat) 0
+  let pending : System.FilePath := s!"{path}.{← IO.Process.getPID}.{random}.pending"
+  let handle ← IO.FS.Handle.mk pending .writeNew
+  handle.putStr text
+  handle.flush
   IO.FS.rename pending path
 
 /-- Rename the file at `source`, a record that only this run has the path of, to `path`. -/

@@ -38,7 +38,10 @@ load of a workspace, which runs Git and Lean and writes the compiled configurati
 Lake's, as they are when `lake build` loads the same workspace. The walk reads calls, so a function
 that a toolchain declaration reaches only through a value it is given is read at the place that
 makes the value, when that place is compiled code that the walk reads. A write through a handle that
-an admitted opening made, or to a standard stream, is not a call that the check finds. -/
+an admitted opening made, or to a standard stream, is not a call that the check finds.
+
+`check` is a check at build time, with no theorem. Its coverage rests on Lean's store of compiled
+code (`declMapExt`, `findEnvDecl`), and nothing proves that a build that passes has no such call. -/
 
 namespace Regula.Effects
 
@@ -180,16 +183,18 @@ def refusals (env : Environment) (decls : Array Decl) (admitted : List (Name × 
 /-- The bound on the declarations that `reaching` reads. -/
 def maxDeclarations : Nat := 10_000_000
 
+/-- The declarations of Lake that make up its load of a workspace, whose own effects are Lake's. -/
+def lakeLoad : List Name := [`Lake.loadWorkspace, `Lake.LeanInstall.get]
+
 /-- Each declaration of `callees`, the toolchain's declarations that the program's own code calls,
-outside `boundary`, whose compiled code reaches an effect (`effectOf`) or code that the check cannot
+outside `lakeLoad`, whose compiled code reaches an effect (`effectOf`) or code that the check cannot
 read, with what it reaches. It follows every call from each. A declaration that a finished walk
 found clean is not read again. A walk that stops at the bound counts as reaching something. -/
-def reaching (env : Environment) (callees : Array Name) (boundary : List Name) :
-    Array (Name × String) := Id.run do
+def reaching (env : Environment) (callees : Array Name) : Array (Name × String) := Id.run do
   let mut clean : NameSet := {}
   let mut found := #[]
   for callee in callees do
-    if boundary.contains (baseOf callee) || primitives.contains (baseOf callee) then continue
+    if lakeLoad.contains (baseOf callee) || primitives.contains (baseOf callee) then continue
     let mut seen : NameSet := {}
     let mut work := [callee]
     let mut hit : Option String := none
@@ -225,20 +230,19 @@ def toolchainCallees (decls : Array Decl) : Array Name := Id.run do
         unless own.contains callee do callees := callees.insert callee
   return callees.toArray
 
-/-- The declarations of Lake that make up its load of a workspace, whose own effects are Lake's. -/
-def lakeLoad : List Name := [`Lake.loadWorkspace, `Lake.LeanInstall.get]
-
 /-- Fail the build of the program whose root module this command ends unless the compiled code of
 its own modules has no effect that `admitted` does not name (`refusals`), and each declaration of the
-toolchain that it calls reaches none, except those of `boundary` (`reaching`). It fails when the
-store holds no `main`. -/
-def check (admitted : List (Name × Name) := []) (boundary : List Name := lakeLoad) :
-    Elab.Command.CommandElabM Unit := do
+toolchain that it calls reaches none, except those of `lakeLoad` (`reaching`). It fails when the
+store holds no `main`.
+
+This is a check at build time, with no theorem. Its coverage rests on Lean's store of compiled code
+(`declMapExt`, `findEnvDecl`), and nothing proves that a build that passes has no such call. -/
+def check (admitted : List (Name × Name) := []) : Elab.Command.CommandElabM Unit := do
   let env ← getEnv
   let decls := ownDeclarations env
   unless decls.any (·.name == `main) do
     throwError "the compiled code of this module holds no `main`, so there is no program to check"
-  let reached := (reaching env (toolchainCallees decls) boundary).map fun (callee, effect) =>
+  let reached := (reaching env (toolchainCallees decls)).map fun (callee, effect) =>
     s!"{callee}, of the toolchain, reaches {effect}"
   let found := refusals env decls admitted ++ reached
   unless found.isEmpty do
