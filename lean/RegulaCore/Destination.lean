@@ -29,29 +29,29 @@ open Lean
 their values, and the members that it holds with a given string value. -/
 abbrev Signature := List String × List (String × String)
 
-/-- The signature of each kind of completed document, one entry for each kind:
+/-- The signature of each kind of completed document, one entry for each kind. Two kinds have a
+writer in this version of Regula:
 
-- a result of `axiomGate`, `lake lint` or `ruleExamples`: `sourceTexts`, which its reader
-  (`ResultProtocol.readDocument`) requires; the members that the reader of its guidance
-  (`ResultProtocol.admitGuidance`) requires; `scope`, which the gate reads back from its own
-  result; and the identity members and `unresolved`, which the qualifier of rule examples requires
-  of the result in a record (`RuleExampleQualification.qualify`). The guidance reader requires
-  `request` too when `mode` is not `null`, but the gate writes a result with a mode and without its
-  request, then replaces it with the one that holds it, so the signature leaves `request` out. A
-  result's mark is a result (`resultJson`, `invalidateResult`), so this signature recognizes it
+- an acceptance link, which the verification driver writes (`RegulaVerification.acceptedValue`)
+  and reads (`RegulaVerification.linked`): its members `schemaVersion`, `status` and `identity`;
+- a prose baseline, which `regula-markdown` writes: the members that its reader re-prints exactly
+  (`ProseBaseline`).
+
+The other kinds are documents that earlier versions of Regula wrote, and no program of this
+version writes or reads them. Each signature holds the members that the readers of those versions
+required of its kind, or, for a kind that no reader read, the members that each of its documents
+held, so such a document at a destination stays replaceable:
+
+- a result of the earlier checker; a result's mark was a result, so this signature recognizes it
   too;
-- a registry export: the members that its reader (`validateRegistry`) requires;
-- an acceptance link: the members that its reader (`AcceptanceLink.require`) requires;
-- a worker packet: the members that its reader (`readWorkerPacket`) admits exactly;
-- a published admission: the members that its reader admits exactly;
-- rule-example evidence: the members that its readers (`Site.Build.admitShard` and the corpus
-  qualifier, `RuleExampleQualification`) require;
-- a prose baseline: the members that its reader re-prints exactly (`ProseBaseline`);
-- a serialized-graph result of `freshChecker --json-out`, which no reader reads: the members that
-  each holds, with its mode;
-- a producer export, an environment census, an acceptance receipt and a native-launcher report,
-  which no reader reads: the members that each holds. A census's and a receipt's mark is a census or
-  a receipt with the status `incomplete`, so their signatures recognize it too. -/
+- a registry export;
+- a worker packet;
+- a published admission;
+- rule-example evidence;
+- a serialized-graph result, with its mode;
+- a producer export, an environment census, an acceptance receipt and a native-launcher report. A
+  census's and a receipt's mark is a census or a receipt with the status `incomplete`, so their
+  signatures recognize it too. -/
 def completedSignatures : List Signature :=
   [(["schemaVersion", "producerVersion", "toolchain", "sourceRevision", "scope", "mode", "status",
       "diagnostics", "unresolved", "sourceTexts", "stages", "stagesCompleted", "complete",
@@ -71,15 +71,17 @@ def completedSignatures : List Signature :=
     (["outcome", "equivalent", "totalMillis"], [])]
 
 /-- The signature of each kind of mark, the incomplete document that a program writes before its
-run, one entry for each form that a writer of Regula writes:
+run, one entry for each form that a writer of Regula writes or that one of an earlier version
+wrote:
 
-- the mark of a worker packet, a registry export, a published admission or a prose baseline:
-  `reason` with the status `incomplete`;
-- the mark of an acceptance link, and of a producer export, which holds `attempt` too:
+- the mark of a prose baseline, which `regula-markdown` writes, and of a worker packet, a registry
+  export or a published admission: `reason` with the status `incomplete`;
+- the mark of an acceptance link, which the verification driver writes
+  (`RegulaVerification.incompleteLink`), and of a producer export, which holds `attempt` too:
   `schemaVersion` with the status `incomplete`;
 - the mark of a serialized-graph result: `unresolved` with the status `incomplete` and its mode;
-- the marks of rule-example evidence: `attempt` and `rawDirectory`, which `qualify rule-examples`
-  writes, or `phase`, which the verification driver writes, with the outcome `INCOMPLETE`;
+- the marks of rule-example evidence: `attempt` and `rawDirectory`, or `phase`, with the outcome
+  `INCOMPLETE`;
 - the mark of a native-launcher report: `equivalent` with the outcome `INCOMPLETE`. -/
 def markSignatures : List Signature :=
   [(["reason"], [("status", "incomplete")]),

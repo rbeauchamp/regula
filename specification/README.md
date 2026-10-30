@@ -234,8 +234,8 @@ But the list of `lake check` is fixed, and it gives no axiom set for each consta
 - **Fate**: kept. Leaf: [#487].
 - **Intent**: a claimed module declares nothing that is unsafe or partial. The one exception is the recursion helper that Lean adds for a safe recursive definition.
 - **Domain**: each constant of a claimed module.
-- **Input**: the flags `isUnsafe` and `isPartial`, the names, the modules, and the runtime replacement and `extern` marks of the constants.
-- **Formal statement**: `Violates1006`, with `Input.RecursionHelper`. A helper is a partial constant `f._unsafe_rec`, not unsafe, with no `implemented_by` replacement. It is in the module of a safe, total `f` with no `implemented_by` replacement.
+- **Input**: the flags `isUnsafe` and `isPartial`, the kinds, the names, the modules, and the runtime replacement and `extern` marks of the constants.
+- **Formal statement**: `Violates1006`, with `Input.RecursionHelper`. A helper is a partial constant `f._unsafe_rec`, not unsafe, with no `implemented_by` replacement. It is in the module of a safe, total definition `f` with no `implemented_by` replacement. Lean makes the base of a `partial def` an opaque constant, so the rule reports the helper of a `partial def`.
 - **Accepted risks**: the rule identifies a helper by its form, not by what it computes. A helper is not logical evidence, because Lean's kernel refuses a safe constant that mentions a partial one, at `src/kernel/type_checker.cpp:114-115`. What a helper computes is a question of execution, which [RG3002] decides under a checked execution claim. The regeneration of the base that the present standard requires, in §7.4, goes away with its code in [#486].
 - **Supersedes**: none.
 
@@ -291,8 +291,8 @@ But the list of `lake check` is fixed, and it gives no axiom set for each consta
 - **Fate**: kept. Leaf: [#487].
 - **Intent**: the specification of a decision contract states its meaning in other terms than the code. Thus it reaches no Boolean test outside the toolchain that the implementation or the acceptance predicate also reaches.
 - **Domain**: each decision contract of a claimed module.
-- **Input**: the contract, the constants that each constant mentions, and the result type of each constant.
-- **Formal statement**: `Violates1009`, with `Input.ProjectTest`.
+- **Input**: the contract, the constants that each constant mentions, the result type of each constant, and if it is a field's projection function.
+- **Formal statement**: `Violates1009`, with `Input.ProjectTest`. A field's projection function is not a Boolean test: it reads a field of data, which no definition computes.
 - **Accepted risks**: none in addition to the risks of the input.
 - **Supersedes**: none.
 

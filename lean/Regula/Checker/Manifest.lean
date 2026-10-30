@@ -1,8 +1,9 @@
 import Regula.Checker.PolicyCodec
-import Regula.Checker.Common
-import Regula.Checker.Policy
+import RegulaCore.Profile
 import RegulaPolicy.Guards
-import RegulaCore.Assembly
+import RegulaPolicy.Domain
+import Regula.Input
+import RegulaPolicy.KernelAxioms
 import Lean.Elab.Command
 import Lake.Util.Name
 import Regula.Decision
@@ -39,19 +40,74 @@ executable entry when every library entry is known
 (`unknownEntry?_some`); a text `parse` refuses keeps that earlier refusal. `parseValue_toJson`
 is the round trip at the `Json` value boundary; `structural_roundtrip` and `restrict_roundtrip`
 apply it, with the identity stage, to the self-hosted structural copy and to the structural
-project's manifest. The text boundary stays trusted: `PolicyCodec.parse` is total and
-`JsonRoundTrip.parse_compress_ws` states its parse of the text `PolicyCodec.compress` writes for
-a value whose object trees are search trees, followed by any run of JSON whitespace, none
-included, but no theorem here relates the text of a manifest to `toJson`, and manifests written in Lean are
-printed with `Json.compress`, which is `partial`.
+project's manifest. The text boundary stays trusted: `PolicyCodec.parse` is total, but no theorem
+here relates the text of a manifest to `toJson`, and manifests written in Lean are printed with
+`Json.compress`, which is `partial`.
 The refusal-class theorems prove the message of malformed JSON, an unknown top-level or surface
 key, a non-2 schema version, empty surfaces and a bad surface `execution`, each given an
-otherwise accepted prefix. `loadFor`, the only file reader, adds only file IO to `parseFor`. -/
+otherwise accepted prefix. The module reads no file: the shell reads the manifest's text
+(`Regula.Load.claim`). -/
+
+
+namespace Regula.Checker.Manifest
+
+open Regula.Checker.Policy (Profile)
+
+/-- One claimed surface of `foundation_manifest.json`, as decoded. -/
+structure Surface where
+  /-- The root-package `lean_lib` the surface claims. -/
+  library : String
+  /-- The root-package `lean_exe` targets claimed with the library. -/
+  executables : Array String
+  /-- The foundation profile every declaration of the surface must fit. -/
+  claim : Profile
+  /-- How the surface's execution boundaries are judged: reported or checked. -/
+  execution : RegulaPolicy.ExecutionClaim
+  /-- The manifest's stated reason for the claim. -/
+  rationale : String
+  /-- The other claimed surfaces, by their libraries' names, whose registered decisions the
+  recorded contracts of this surface's declarations count toward (RG1008). Each names another
+  claimed surface of the manifest. -/
+  decides : Array String := #[]
+  deriving Repr
+
+/-- A root-package `lean_lib` the manifest excludes from every claimed surface. -/
+structure ExcludedLibrary where
+  /-- The excluded library's name. -/
+  library : String
+  /-- The manifest's stated reason for the exclusion. -/
+  rationale : String
+  deriving Repr
+
+/-- A root-package `lean_exe` the manifest excludes from every claimed surface. -/
+structure ExcludedExecutable where
+  /-- The excluded executable's name. -/
+  executable : String
+  /-- The manifest's stated reason for the exclusion. -/
+  rationale : String
+  deriving Repr
+
+end Regula.Checker.Manifest
+
+namespace Regula.Checker
+
+/-- The decoded `foundation_manifest.json`: every root-package target, claimed or excluded. -/
+structure Manifest where
+  /-- The claimed surfaces. -/
+  surfaces : Array Manifest.Surface
+  /-- The excluded libraries, each with its reason. -/
+  excludedLibraries : Array Manifest.ExcludedLibrary
+  /-- The excluded executables, each with its reason. -/
+  excludedExecutables : Array Manifest.ExcludedExecutable
+  deriving Repr
+
+end Regula.Checker
 
 namespace Regula.Checker.Manifest
 
 open Lean System
 open Regula.Checker.Policy RegulaPolicy.Guards
+open RegulaPolicy (ExecutionClaim)
 
 /-- The default manifest location: `foundation_manifest.json` at the project root `repo`. -/
 def defaultPath (repo : FilePath) : FilePath :=
@@ -116,14 +172,14 @@ theorem recordedName_lakeTargetName {recorded : String}
   · exact h
 
 /-- The words the manifest's refusals use for one target of `kind`, then for several. -/
-def kindNoun : RegulaPolicy.TargetKind → String × String
+def kindNoun : Regula.Closed.TargetKind → String × String
   | .library => ("library", "libraries")
   | .executable => ("executable", "executables")
 
 /-- The refusal of a manifest entry of `kind`, claimed or excluded, that names no root target of
 that kind: it quotes `entry` and lists each root target of `discovered`, the recorded spellings
 of the Lake inventory, by its `lakeTargetName`. -/
-def unknownTarget (kind : RegulaPolicy.TargetKind) (entry : String) (discovered : Array String) :
+def unknownTarget (kind : Regula.Closed.TargetKind) (entry : String) (discovered : Array String) :
     String :=
   s!"manifest-incomplete: {(kindNoun kind).1} '{entry}' is not a root Lean {(kindNoun kind).1}; \
     the root Lean {(kindNoun kind).2} are {repr (discovered.map lakeTargetName).toList}. Name \
@@ -323,6 +379,15 @@ theorem foldlM_strings {f : Array String → Json → Except String (Array Strin
     obtain ⟨t, rfl, rfl⟩ := hf _ _ _ hmid
     obtain ⟨ys, hout, hrest⟩ := foldlM_strings hf rest _ _ h
     exact ⟨t :: ys, by simp [hout], by simp [hrest]⟩
+
+/-- A JSON array of unique nonempty strings. -/
+def stringArray (what : String) (value : Json) : Except String (Array String) := do
+  let .arr values := value | throw s!"{what}: expected a JSON string array"
+  values.foldlM (init := #[]) fun result item => do
+    let .str text := item | throw s!"{what}: expected a JSON string array"
+    if text.isEmpty || result.contains text then
+      throw s!"{what}: expected unique nonempty strings"
+    return result.push text
 
 /-- `stringArray` returns exactly the strings of the JSON array it accepts, in order. -/
 theorem stringArray_items {what : String} {value : Json} {out : Array String}
@@ -778,7 +843,7 @@ instance (m : Manifest) : Decidable (TargetsRecorded m) := by
 `NamesRecorded` once recorded, when a spelling shows it: the first spelling whose recorded
 spelling is not a well-formed name that is its own recorded spelling, and otherwise the first
 target named more than once, with each spelling the manifest gives it. -/
-def namesRefusal (kind : RegulaPolicy.TargetKind) (spellings : Array String) : Option String :=
+def namesRefusal (kind : Regula.Closed.TargetKind) (spellings : Array String) : Option String :=
   let unreadable := spellings.find? fun s =>
     !decide (TargetName (recordedName s) ∧ recordedName (recordedName s) = recordedName s)
   let repeated := spellings.find? fun s =>
@@ -1799,17 +1864,6 @@ theorem surfaceExecution_nonString {item field : Json} {location : String}
   · rename_i text htext; exact absurd (Except.ok.inj (hfield.symm.trans htext)) (hnot text)
   · simp [throw, throwThe, MonadExceptOf.throw]
 
-/-- Reads the manifest file at `path` for the project `inventory` describes, failing with
-`manifest-missing` when it does not exist: the text is parsed with `parseFor` and the
-inventory's libraries and executables, so a library or executable entry, claimed or excluded,
-that names no root target of its kind is refused here with `unknownTarget`, quoting the entry
-as the file writes it. This module has no other file reader. -/
-def loadFor (path : FilePath) (inventory : Lake.SurfaceInventory) : IO Manifest := do
-  if !(← Regula.Filesystem.isPresent path) then
-    throw <| IO.userError s!"manifest-missing: {path}"
-  IO.ofExcept <| parseFor (inventory.libraries.map (·.library))
-    (inventory.executables.map (·.executable)) path.toString (← IO.FS.readFile path)
-
 /-- Each claimed library and claimed executable, as `lake build` command-line targets. A checker
 build names them with `Lake.claimedTargets` instead, which never reads a name as Lake target
 syntax. -/
@@ -2038,7 +2092,7 @@ theorem restrict_valid {actual : Manifest} {kept : Array String} (hv : actual.Va
 def surfaceJson (s : Surface) : Json :=
   Json.mkObj [
     ("library", .str s.library), ("executables", Json.arr (s.executables.map .str)),
-    ("claim", .str s.claim.toString), ("execution", .str (ExecutionClaim.toString s.execution)),
+    ("claim", .str s.claim.toString), ("execution", .str s.execution.spelling),
     ("rationale", .str s.rationale), ("decides", Json.arr (s.decides.map .str))]
 
 /-- One excluded library in the checker's own JSON schema. -/

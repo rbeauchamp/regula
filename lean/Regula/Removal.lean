@@ -37,11 +37,11 @@ program names and that admits no call fails the check, so the list of each progr
 
 `checkProgram` runs the check for the program whose `main` the environment declares, fails the
 build of the module that runs it when the check finds a call, and records the program in the
-module (`reached`). Each program of the package runs it: at the end of the root module of each
-`lean_exe`, or in a module of `Regula.ProgramCheck` that imports a program that `lean --run` runs
-and that cannot import this module. `lake exe qualify observers` refuses a program of the package
-that no module records, and checks itself the one root that no library module can import,
-`auditApp`'s `Main` (`Regula.Qualification.Observers`).
+module (`reached`). Each program of the package other than `auditApp` runs it: at the end of the
+root module of each `lean_exe`, or in a module of `Regula.ProgramCheck` that imports a program that
+`lean --run` runs and that cannot import this module. No program reads these records, so that each
+program of the package runs the check is not itself checked, and no check runs for the one root
+that no library module can import, `auditApp`'s `Main`.
 
 ## What the check guarantees
 
@@ -87,22 +87,14 @@ code of Lean's toolchain is followed from those roots, and its own initializers 
 registers what its module defines, and the registration of an elaborator or a tactic refers to it,
 so a walk of them would reach every tactic in every program that links Lean's elaborator. They are
 trusted to run none. A module is the toolchain's by its name, under the hypothesis that
-`toolchainModules` states and `lake exe qualify observers` checks.
+`toolchainModules` states.
 
-Ten programs elaborate, and their checks state it: `axiomGate`, `lint`, `ruleExamples`,
-`freshChecker`, `docFenceAudit`, `checkerSelftest`, `qualify`, `regula`, `site` and the test listing
-(`Regula.TestListing`). Each elaborates the Lake configuration of a project when it loads its
-workspace or, for the test listing, its package (`Lake.importConfigFile`). Some also
-elaborate the project's modules in Regula's frontend, in their own process or in a worker of
-`axiomGate`, or regenerate the recursion of a declaration that they audit, which runs its
-`decreasing_by` tactics. Three more state it by the conservative reachability alone: they link code
-that elaborates and that their `main` does not run. `ruleExampleQualification`, and the registry
-checks that the first acceptance step runs with `lean --run`, link Regula's frontend
-(`Regula.Checker.Frontend`) and Lake's loader of a configuration. `regula-markdown` links
-`Regula.Collect` through the guard of Lean's task manager (`Regula.TaskManager`, which imports
-`Regula.Probe`), where the regeneration of a declaration's recursion runs its `decreasing_by`
-tactics. So the check classes every program that starts through that guard as one that
-elaborates.
+The programs whose check states that they elaborate are `lint`, `regula` and the test listing
+(`Regula.TestListing`). `lint` and `regula` elaborate the Lake configuration of a project when they
+load its workspace, and the test listing that of its package
+(`Lake.importConfigFile`). The check classes a program by the conservative reachability of its
+compiled code, so a program that links code that elaborates states it too, whether its `main` runs
+that code or not.
 
 Elaboration runs the commands, terms and tactics of the source, with their effects, as `lake
 build` runs them on the same source. They are trusted active effects of the program, which the
@@ -117,13 +109,8 @@ temporary files that it removes. In a program that does not elaborate, no compil
 its modules outside the toolchain reaches them. The initializers of the toolchain reach them by
 registering the tactic, which only an elaborator runs.
 
-A program elaborates in the working directory in which it was started. Each worker that a program
-of Regula starts runs in the program's working directory or in the project's root, and writes its
-packet in a directory that the program made for the run below it: a scratch directory below
-`.lake/regula-scratch` (`Regula.Scratch.withScratch`), or `tmp/fence-build` of the workspace of a
-documentation audit. So no worker's working directory is the directory of its packet. A
-destination of the program that started it may be in that working directory, where an effect of
-the elaboration reaches it as above.
+A program elaborates in the working directory in which it was started. A destination of the
+program may be in that working directory, where an effect of the elaboration reaches it as above.
 
 ## Boundaries
 
@@ -401,17 +388,17 @@ with the declaration that makes it, for Lean 4.35.0. The check admits each of th
 establishing what it removes.
 
 Lake's entries are trusted exemptions. Lake makes these removals and moves itself when a program
-loads a workspace or builds in its own process (`Regula.Checker.Workspace`). Each acts on the
+loads a workspace or builds in its own process, as `lint` and `regula` load one
+(`Regula.Load.loadWorkspace`). Each acts on the
 workspace that the program asked Lake to load or build, as `lake build` or `lake update` would
 there. Its safety rests on that workspace's own contents: its configuration and targets, the clones
 of its dependencies and the release archives that it fetches, which its adopter trusts as Lake
 does. The same reason holds where a program runs Lake in a copy of a project that it made, such as
-`Regula.Checker.Lake.copyProject`'s or the verification driver's: Lake acts on the copy as it would
+the verification driver's: Lake acts on the copy as it would
 on the workspace it was given. Regula's shared constructor refuses source links and special entries
 and creates only directories and regular files (`Regula.Filesystem.observer_copy`,
-`observer_construct`, under their native primitive hypotheses). It places no packages link: an
-ordinary load uses a retained manifest and typed dependency path overrides. Thus this exemption
-no longer needs a limit for links preserved or placed by Regula's copies. Dependency originals,
+`observer_construct`, under their native primitive hypotheses). It places no packages link. Thus
+this exemption needs no limit for links preserved or placed by Regula's copies. Dependency originals,
 Lake-generated entries and deliberately planted diagnostic aliases remain trusted inputs. The
 provisioning registration link in the original integration workspace is separate from constructing
 a copy. `RegulaProvision.installLinkWith` makes it in a directory that `mkdir` creates, which
@@ -422,23 +409,18 @@ refuses an entry already at its place (`RegulaProvision.installLink_refused`).
   `.lake/config/<index>`, and writes the new one and its siblings, each through a temporary file
   that it renames over the file and removes when the write fails (`Lake/Load/Lean/Elab.lean:244`,
   `:256` and `:262`, `src/library/module.cpp:311-314`, `:403` and `:408`).
-  `Regula.Checker.Workspace.withRootPackage` keeps its own check of `.lake/config/0` too
-  (`Regula.Filesystem.requireNoLinkedEntries`).
 - `Lake.removeFileIfExists`, `Lake.downloadArtifactCore`, `Lake.download`. Trusted exemption, for
   the reason above: in a build, they remove stale artifacts, their `.hash` files and no-build
   traces, and a downloaded archive before it is fetched again and unpacked into a package's build
   directory (`Lake/Util/IO.lean:23`, `Lake/Build/Common.lean:313-326`,
   `Lake/Build/Package.lean:167-177`, `Lake/Build/Actions.lean:178`, `Lake/Config/Cache.lean:558`).
-  Regula's builds turn off Lake's artifact cache
-  (`Regula.Checker.Workspace.uncachedWorkspace_unreadable`, `uncachedWorkspace_unwritable`), not
-  the fetch of a release archive.
+  No program of the package builds in its own process: `lint` and `regula` load a workspace and do
+  not build it.
 - `Lake.removeDirAllIfExists`, with `IO.FS.removeDir`. Trusted exemption, for the reason above: it
   removes the copy of a path dependency that Lake copies, `<workspace>/<packages>/<name>`, before
   `Lake.Dependency.materialize` copies the dependency there again
   (`Lake/Load/Materialize.lean:183-197`, `Lake/Util/IO.lean:52-67`), without following a symbolic
-  link. Regula refuses a workspace with
-  such a dependency only after Lake has loaded it (`Regula.Checker.LakeSelection.checkSelection`).
-  Lean 4.35.0's Lake no longer removes the repository of a Git dependency whose remote differs: it
+  link. Lean 4.35.0's Lake no longer removes the repository of a Git dependency whose remote differs: it
   sets the remote's URL instead (`Lake/Load/Materialize.lean:44-54`).
 - `Lake.reuseManifest`, specialized at `Lake.Workspace.updateAndMaterializeCore`, with
   `IO.FS.rename`. Trusted exemption, for the reason above: it moves the packages directory that a
@@ -512,11 +494,8 @@ check admits each of them without establishing what it writes.
   (`Lake.PackageEntry.materialize`, and `Lake.Dependency.materialize` through its local
   `materializeGit`, each through a specialization of `Lake.materializeGitRepo`,
   `Lake/Load/Materialize.lean:69-73`), and the copy of a path dependency that Lake copies
-  (`Lake.copyDirAll`, `Lake/Util/IO.lean:75-84`). Regula's own code also calls
-  `Lake.Manifest.saveEntries` and `Lake.Manifest.save`, to write the overrides of the packages and
-  the manifest of a project that it made for its run (`Regula.Checker.LintQualification`,
-  `Regula.Qualification.CopyRelocation`), which the same pairs admit, as they admit every caller
-  (`admitted`).
+  (`Lake.copyDirAll`, `Lake/Util/IO.lean:75-84`). The pairs admit these calls whoever calls
+  `Lake.Manifest.saveEntries` or `Lake.Manifest.save` (`admitted`).
 
 The writes of a tactic of Lean's library are listed apart (`tacticWrites`). -/
 def libraryWrites : List (Name × Name) :=
@@ -570,41 +549,15 @@ def tacticWrites : List (Name × Name) :=
   [(`Std.Tactic.BVDecide.LRAT.dumpLRATProof, ``IO.FS.writeBinFile),
     (`Lean.Meta.Tactic.BVDecide.lratBitblaster, ``IO.FS.writeFile)]
 
-/-- The writes of Regula's own declarations that more than one program reaches, each with the
-declaration of a source that makes it (`sourceDeclaration`). Each writes below a directory that the
-program made for its own run, never at a destination that its arguments name:
-
-- the lock of the scratch area, the marker of a scratch directory and the directory, in
-  `Regula.Scratch.withScratch`;
-- the identity document of an acceptance link, below the scratch directory, which it removes after
-  reading its digest, in `Regula.Checker.AcceptanceLink.identity`;
-- the directories of the copy's `.lake/build`, which did not exist, where the observer moves the
-  retained build output of an acceptance link, in `Regula.Checker.AcceptanceLink.placeRetained`;
-- the scratch of a project's fences, below the copy, in
-  `Regula.Checker.Documentation.auditBuiltProject`;
-- the claim of a memoized history worker's output and the directories of a probe's overlay, below
-  the directories of the run, in `Regula.Checker.Environment.historyWorkerOutput` and
-  `Regula.Checker.Environment.linkProbeOverlay`;
-- the running observer library, with its trace and hash files, in the build directory of a copy of
-  Regula's package, in `Regula.Checker.Observer.Snapshot.write`;
-- the directory of a module root in the build output of a control's project, in
-  `Regula.Checker.exposeToolchainRoot`.
-
-The copies of projects and the sources of the modules that an audit compiles are written by the
-shared constructor, whose writes are those of the writer of `Regula.Filesystem` (`writers`). -/
+/-- The writes of Regula's own declarations that a program reaches, each with the declaration of a
+source that makes it (`sourceDeclaration`): the lock of the scratch area, the marker of a scratch
+directory and the directory, in `Regula.Scratch.withScratch`. Each is below Regula's own
+`.lake/regula-scratch/` of the project, never at a destination that the program's arguments name.
+The other programs of the package write through the shared constructor, whose writes are those of
+the writer of `Regula.Filesystem` (`writers`), and through the pairs that each program names. -/
 def packageWrites : List (Name × Name) :=
   [(`Regula.Scratch.withScratch, ``IO.FS.Handle.mk),
-    (`Regula.Scratch.withScratch, ``IO.FS.createDir),
-    (`Regula.Checker.AcceptanceLink.identity, ``IO.FS.writeFile),
-    (`Regula.Checker.AcceptanceLink.placeRetained, ``IO.FS.createDirAll),
-    (`Regula.Checker.Documentation.auditBuiltProject, ``IO.FS.createDirAll),
-    (mkPrivateNameCore `Regula.Checker.Environment
-        `Regula.Checker.Environment.historyWorkerOutput, ``IO.FS.Handle.mk),
-    (mkPrivateNameCore `Regula.Checker.Environment `Regula.Checker.Environment.linkProbeOverlay,
-      ``IO.FS.createDirAll),
-    (`Regula.Checker.Observer.Snapshot.write, ``IO.FS.createDirAll),
-    (`Regula.Checker.Observer.Snapshot.write, ``IO.FS.writeBinFile),
-    (`Regula.Checker.exposeToolchainRoot, ``IO.FS.createDirAll)]
+    (`Regula.Scratch.withScratch, ``IO.FS.createDir)]
 
 /-- The pair of `pairs` that admits the call of `primitive` by `caller`, if one does: the pair of
 `caller`, of the declaration of a source in whose compiled code it is (`sourceDeclaration`), or of
@@ -822,13 +775,8 @@ Assumes:
   `Lake/Build/Actions.lean:63`), then the toolchain's `lib/lean` (`Lean/Util/Path.lean:95-96`,
   `:108-110`). It reads a module from the first of them that has its root's directory or `.olean`
   file (`Lean/Util/Path.lean:61-65`). So a module under these roots is read from the toolchain's
-  `lib/lean`. `lake exe qualify observers` checks this hypothesis for three workspaces of this
-  repository whose builds run the check: the root package's, the `markdown/` package's and the
-  `audit/` package's. It loads each with Lake, and refuses a module under these roots that a
-  package of it provides, the root package or a dependency, and such an entry of a package's
-  library directory (`Regula.Qualification.Observers.checkToolchainWorkspaces`). A build of a
-  checked program in another workspace, the Mathlib integration's or an adopter's, rests on the
-  hypothesis unchecked.
+  `lib/lean`. No program checks this hypothesis: a build of a checked program in any workspace,
+  this repository's, the Mathlib integration's or an adopter's, rests on it unchecked.
 - The content of the toolchain's `lib/lean`, as the toolchain's release installs it, is the
   toolchain's own code (`RegulaPolicy.ToolchainRoot`): trusted installation, not checked here. -/
 def toolchainModules (modules : Std.HashSet Name) : Std.HashSet Name :=
@@ -936,8 +884,8 @@ def elaborationRefusal (env : Environment) (root : Name) (elaborates : Bool) : O
   else none
 
 /-- The prefix of the marker that `checkProgram` adds for each program that it checked: the
-definition `reached ++ root` of type `Unit`, where `root` is the program's root module. `lake exe
-qualify observers` reads the markers from the module data of the package's modules. -/
+definition `reached ++ root` of type `Unit`, where `root` is the program's root module. No program
+reads the markers. -/
 def reached : Name := `Regula.Removal.reached
 
 /-- Why the check refuses the program whose root module is `root`, by what its compiled code

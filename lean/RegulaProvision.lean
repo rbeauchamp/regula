@@ -29,9 +29,9 @@ The integration preflight requires the integration package's toolchain to match 
 with --require, requires provisioned Mathlib as the first step inside the timed integration check.
 
 The pinned packages and their packages directory are those that Lake's load of the integration
-package materializes: each read of a Lake manifest uses Lake's own readers, and the choices among
-their entries are those that `Regula.Checker.LakeSelection` states for the checker
-(`selectPins`, which `Regula.ProgramCheck.Provision` relates to it).
+package materializes: each read of a Lake manifest uses Lake's own readers, and `selectPins`
+chooses among their entries by the rules of Lake's load that `rootEntries` and `selectedEntry`
+assume, trusted, not proved.
 -/
 namespace RegulaProvision
 open System Lean
@@ -336,15 +336,11 @@ theorem mathlibApplies_iff (toolchain integration : String) :
 /-! ### Lake's selection of the pinned packages
 
 What Lake v4.35.0's load of a workspace materializes its dependencies from, given its manifest and
-the entries of its package overrides file as Lake's own readers decode them (`readRoot`). This
-program runs before the package is built, so it cannot import `Regula.Checker.LakeSelection`,
-which states these rules for the checker; `Regula.ProgramCheck.Provision` proves `rootFiles`,
-`readRoot`, `selectedEntry` and the packages directory that `selectPins` takes equal to the
-checker's. -/
+the entries of its package overrides file as Lake's own readers decode them (`readRoot`). Each
+rule is the one that the `Assumes` lines below state of Lake v4.35.0, trusted, not proved. -/
 
 /-- The manifest and package overrides file of the workspace that Lake loads with the package at
-`dir` as its root, joined as Lake joins paths. `Regula.ProgramCheck.Provision.rootFiles_eq` proves
-this `Regula.Checker.Workspace.rootFiles`.
+`dir` as its root, joined as Lake joins paths.
 
 Assumes:
 - Lake v4.35.0 gives the root package of a workspace the manifest `lake-manifest.json` of its
@@ -368,8 +364,7 @@ def rootEntries (manifest : Lake.Manifest) (overrides : Array Lake.PackageEntry)
   manifest.packages ++ overrides
 
 /-- The entry that Lake materializes the package named `name` from, among `entries`
-(`rootEntries`): the last entry with that name. `Regula.ProgramCheck.Provision.selectedEntry_eq`
-proves this `Regula.Checker.LakeSelection.effectiveEntry`.
+(`rootEntries`): the last entry with that name.
 
 Assumes:
 - Lake v4.35.0 inserts the entries into a name map in order, and materializes each dependency from
@@ -1004,8 +999,7 @@ def mathlibPackage : FilePath := "integration/mathlib"
 /-- The manifest of the workspace whose manifest and package overrides file are `files`
 (`rootFiles`), and the entries of that overrides file, each read by Lake's own reader, or `none`
 when the manifest does not exist. Any other failure of a read, and a file that Lake's reader
-refuses, are thrown, as Lake's load throws them. `Regula.ProgramCheck.Provision.readRoot_eq`
-proves this `Regula.Checker.Workspace.readRoot`, the checker's one read of the two files.
+refuses, are thrown, as Lake's load throws them.
 
 Assumes:
 - Lake v4.35.0's load reads a workspace's manifest with `Lake.Manifest.load?`

@@ -8,8 +8,8 @@ Mathlib integration control for two lessons whose Lean/Std forms are
 `audit/Audit/Economy.lean`. Every declaration is hole-free and uses no project axiom.
 
 **A Mathlib tactic on a core definition.** `two_mul_sumTo` proves the Gauss
-identity for the structurally recursive `sumTo` with Mathlib's `ring`; the
-declaration gate reports the axiom set that proof actually has.
+identity for the structurally recursive `sumTo` with Mathlib's `ring`; Regula's
+checker reads the axioms that proof actually has.
 
 **Lawful mixin.** `Flourishable` holds operations only; `LawfulFlourishable`
 is a `Prop`-valued mixin that holds every law, relative to Mathlib's `Preorder`.

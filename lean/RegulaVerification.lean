@@ -6,185 +6,38 @@ import Lake.Load.Manifest
 Cold-start verification plan and operational interpreter. This module imports only
 the pinned toolchain, so it can run before any root-package artifacts exist. Argument
 selection has soundness and round-trip proofs; the interpreter consumes its proof-bearing
-selection. Recipes name Lake targets, not a source-file census. The interpreter schedules every
-command of the selected recipe (`inOrder_append_beside`), starts a command only while every end
-known so far passed, waits for each command it started, and reports success only when `passed`
-accepts how each scheduled command and each prebuild ended (`passed_covers`). The first
-acceptance step makes its builds in a private copy of the project that this driver makes, and
-the acceptance gate audits that copy (`makeCopy`). That step first builds what the gate audits
-and runs (`prebuild`), then runs the gate beside the rest of the step (`beside`), whose commands
-it starts at low scheduling priority (`Priority`).
+selection. Recipes name Lake targets, not a source-file census. The interpreter runs the
+commands of the selected recipe one after another, starts a command only while every end known so
+far passed, and reports success only when `passed` accepts how each of them ended
+(`passed_covers`). The first acceptance step makes its builds in a private copy of the project that
+this driver makes (`makeCopy`), and its last command runs Regula's checker on that copy's build.
+The two acceptance steps are linked by the content identity of the files the copy construction
+selects (`Copy.record`, `requireLink`).
 Process effects remain trusted IO under the shell's single 420-second process-group deadline. -/
 namespace RegulaVerification
 
-/-- The number of shards of the self-test's lint-driver partition, which
-`Regula.Checker.LintQualification.shards` states for the self-test. This module imports only the
-toolchain, so it cannot read that; the self-test refuses a shard it does not have. -/
-def lintDriverShards : Nat := 5
-
-/-- The number of shards of the operational self-audit, which
-`Regula.Qualification.SelfAudit.shards` states for the campaign. This module imports only the
-toolchain, so it cannot read that; `qualify` refuses a shard it does not have. -/
-def selfAuditShards : Nat := 4
-
-/-- The number of shards of the self-test's structural partition, which
-`Regula.Checker.CheckerSelftest.structuralShards` states for the self-test; the self-test refuses
-a shard it does not have. -/
-def structuralShards : Nat := 5
-
-/-- The number of shards of the self-test's execution partition, which
-`Regula.Checker.CheckerSelftest.executionShards` states for the self-test; the self-test refuses
-a shard it does not have. -/
-def executionShards : Nat := 4
-
-/-- The number of shards of each of the self-test's fixtures, cli, environments and build-policy
-partitions, which `Regula.Checker.SelftestArguments.Partition.shards` states for the self-test; the
-self-test refuses a shard it does not have. -/
-def fixturesShards : Nat := 5
-
-@[inherit_doc fixturesShards]
-def cliShards : Nat := 6
-
-@[inherit_doc fixturesShards]
-def environmentsShards : Nat := 6
-
-@[inherit_doc fixturesShards]
-def buildPolicyShards : Nat := 3
-
-/-- The number of shards of the rule-example corpus (`Regula.Qualification.RuleExamples.check`
-selects any `K/N`), each a step of the local gate and a job of CI with its own evidence file
-(`shardEvidence`). -/
-def ruleExampleShards : Nat := 3
-
-/-- A group of qualification controls that neither the self-test's partitions nor another mode
-runs, each run under the deadline of its own `diagnostics` invocation. -/
-inductive Group where
-  /-- `qualify input-inventory`: root and Markdown inventory faults injected during the checker's
-  own build. -/
-  | inputInventory
-  /-- `qualify environments`: this repository's claimed environments and their mutations. -/
-  | environmentCensus
-  /-- `qualify acceptance-snapshots history`: history refusal and restoration. -/
-  | snapshotHistory
-  /-- `qualify acceptance fences`, the `dependencies` and `git-status` snapshot groups,
-  `receipt-boundaries`, `prep-measure` and `enumeration`. -/
-  | acceptanceControls
-  /-- `qualify documentation-dependencies`, `configuration-capture`, `verso-recorded-paths` and
-  `copy-relocation`. -/
-  | documentationControls
-  /-- The self-test's focused native-adopter, combined-snapshot and policy-transport controls. -/
-  | focusedControls
-  /-- The self-test's focused policy-domain controls: the policy transport and the public paths. -/
-  | policyDomain
-  /-- `qualify enumeration-failure`: a failed read of a directory, injected through device-mapper on
-  a GitHub-hosted Linux runner; anywhere else it refuses as unsupported. -/
-  | enumerationFailure
-  /-- `qualify readers`: no declaration of a module of a package of the repository refers to
-  Lean's directory readers. It builds the modules of each package with Lake, as the other modes
-  build, so Lake can update or fetch a dependency there. It runs after provisioning and after the
-  website sources are generated. -/
-  | readers
-  deriving DecidableEq
-
-/-- The name of the group after `diagnostics`. -/
-def Group.label : Group → String
-  | .inputInventory => "input-inventory"
-  | .environmentCensus => "environment-census"
-  | .snapshotHistory => "snapshot-history"
-  | .acceptanceControls => "acceptance-controls"
-  | .documentationControls => "documentation-controls"
-  | .focusedControls => "focused-controls"
-  | .policyDomain => "policy-domain"
-  | .enumerationFailure => "enumeration-failure"
-  | .readers => "readers"
-
-/-- Every group once. -/
-def Group.all : List Group :=
-  [.inputInventory, .environmentCensus, .snapshotHistory, .acceptanceControls,
-    .documentationControls, .focusedControls, .policyDomain, .enumerationFailure, .readers]
-
 /-- Closed vocabulary of supported verification invocations. -/
 inductive Mode where
-  /-- No argument: the first acceptance step, which makes a private copy of the project, builds
-  the acceptance executables and the claimed surfaces of the root package there, runs the
-  registry checks and combined qualification, and audits those surfaces in that copy; the audit
-  runs beside the rest of the step once what it audits is built (`beside`). -/
+  /-- No argument: the first acceptance step. It makes a private copy of the project, builds
+  there with warnings as errors the claimed targets of the root package, the `lint` executable and
+  the modules the step type-checks, runs the registry checks, builds the specification package,
+  and runs Regula's checker on the copy's own build (`lake lint`), the self-check. It records the
+  content identity of the copy's files only when every command passed (`Copy.record`). -/
   | ordinary
-  /-- `docs`: the second acceptance step: the rule-ID check of every tracked Markdown document,
-  the checks C1 to C8 of their prose with the baseline (checks B1 and B2, of which B2 reads the
-  Git history) and the check of the vocabulary `CONTEXT.md` (check C9), with the controls of
-  these checks, the fresh acceptance of the `audit/` package whose modules the standard's
-  examples import, then
-  the documentation audit and the Verso standard's build and render, refused unless its inputs
-  have the content identity the first step recorded. The audit reuses the build output that the
-  first step left only as `Regula.Checker.BuildReuse.reuse` decides from the record of it
-  (`Copy.recordBuild`), and builds in a copy with no build output otherwise. -/
+  /-- `docs`: the second acceptance step, refused unless the files that the copy construction
+  selects have the content identity that the first step recorded (`requireLink`): the controls of
+  the checks of Markdown prose and the check of every tracked Markdown document, the build and the
+  `lake lint` of the `audit/` package, whose modules the standard's examples import, and the build
+  of the Verso standard (each of its `lean` blocks elaborated where it is written), its rendering,
+  and the check of its anchors, checklist rows and rule-ID links (`lake exe site standard`). -/
   | docs
-  /-- `serialized-graph`: the separate serialized-graph check (`freshChecker`). -/
-  | graph
-  /-- `diagnostics`: the checker self-test diagnostic, not acceptance. -/
-  | diagnostics
-  /-- `diagnostics fixtures`: the self-test's fixtures partition. -/
-  | fixtures
-  /-- `diagnostics structural`: the self-test's structural partition. -/
-  | structural
-  /-- `diagnostics execution`: the self-test's execution partition. -/
-  | execution
-  /-- `diagnostics structural INDEX/5`: one of the structural partition's shards, `index` counted
-  from 0 and `INDEX` from 1. -/
-  | structuralShard (index : Fin structuralShards)
-  /-- `diagnostics execution INDEX/4`: one of the execution partition's shards, `index` counted
-  from 0 and `INDEX` from 1. -/
-  | executionShard (index : Fin executionShards)
-  /-- `diagnostics fixtures INDEX/5`: one of the fixtures partition's shards, `index` counted from
-  0 and `INDEX` from 1. -/
-  | fixturesShard (index : Fin fixturesShards)
-  /-- `diagnostics cli INDEX/6`: one of the cli partition's shards. -/
-  | cliShard (index : Fin cliShards)
-  /-- `diagnostics environments INDEX/6`: one of the environments partition's shards. -/
-  | environmentsShard (index : Fin environmentsShards)
-  /-- `diagnostics build-policy INDEX/3`: one of the build-policy partition's shards. -/
-  | buildPolicyShard (index : Fin buildPolicyShards)
-  /-- `diagnostics cli`: the self-test's command-line partition. -/
-  | cli
-  /-- `diagnostics environments`: the self-test's environments partition. -/
-  | environments
-  /-- `diagnostics build-policy`: the self-test's build-policy partition. -/
-  | buildPolicy
-  /-- `diagnostics lint-driver`: the self-test's `lake lint` driver partition. -/
-  | lintDriver
-  /-- `diagnostics lint-driver INDEX/5`: one of the lint-driver partition's shards, `index`
-  counted from 0 and `INDEX` from 1. -/
-  | lintDriverShard (index : Fin lintDriverShards)
-  /-- `diagnostics producers`: the producers qualification campaign. -/
-  | producers
-  /-- `diagnostics history`: the history qualification campaign. -/
-  | history
-  /-- `diagnostics self-lint`: this repository's own `lake lint`. -/
-  | selfLint
-  /-- `diagnostics self-lint-default`: the root package's own `lake lint` on the default path, with
-  the audit-build marker. -/
-  | selfLintDefault
-  /-- `diagnostics self-audit`: the operational self-audit of the excluded `Regula` library. -/
-  | selfAudit
-  /-- `diagnostics self-audit INDEX/4`: one of the self-audit's shards, `index` counted from 0 and
-  `INDEX` from 1. -/
-  | selfAuditShard (index : Fin selfAuditShards)
-  /-- `diagnostics rule-examples`: the whole rule-example corpus in one run. -/
-  | ruleExamples
-  /-- `diagnostics rule-examples INDEX/3`: one of the corpus's shards, `index` counted from 0 and
-  `INDEX` from 1. -/
-  | ruleExamplesShard (index : Fin ruleExampleShards)
-  /-- `diagnostics GROUP`: a group of qualification controls (`Group`). -/
-  | diagnostic (group : Group)
-  /-- `site`: build and check the rule-reference site artifact from the shards' evidence, then
-  check what the website's renderers leave when they render and when they refuse a run without
-  Lean's task manager. -/
+  /-- `site`: build and check the rule-reference site artifact, then check what the website's
+  renderers leave when they render and when they refuse a run without Lean's task manager. -/
   | site
-  /-- `mathlib`: the separate Mathlib integration check, never part of acceptance: the fresh
-  acceptance and the lint of the Mathlib integration package, whose pinned Mathlib
-  `lean --run lean/RegulaProvision.lean mathlib` provisions beforehand. It refuses a copy the
-  check does not apply to (`RegulaProvision.mathlibApplies`) instead of reporting a pass. -/
+  /-- `mathlib`: the separate Mathlib integration check, never part of acceptance: the build with
+  warnings as errors and the `lake lint` of the Mathlib integration package, whose pinned Mathlib
+  `lean --run lean/RegulaProvision.lean mathlib` provisions beforehand. It refuses a copy the check
+  does not apply to (`RegulaProvision.mathlibApplies`) instead of reporting a pass. -/
   | mathlib
   deriving DecidableEq
 
@@ -192,54 +45,11 @@ inductive Mode where
 def arguments : Mode → List String
   | .ordinary => []
   | .docs => ["docs"]
-  | .graph => ["serialized-graph"]
-  | .diagnostics => ["diagnostics"]
-  | .fixtures => ["diagnostics", "fixtures"]
-  | .structural => ["diagnostics", "structural"]
-  | .execution => ["diagnostics", "execution"]
-  | .structuralShard index =>
-      ["diagnostics", "structural", s!"{index.val + 1}/{structuralShards}"]
-  | .executionShard index =>
-      ["diagnostics", "execution", s!"{index.val + 1}/{executionShards}"]
-  | .fixturesShard index => ["diagnostics", "fixtures", s!"{index.val + 1}/{fixturesShards}"]
-  | .cliShard index => ["diagnostics", "cli", s!"{index.val + 1}/{cliShards}"]
-  | .environmentsShard index =>
-      ["diagnostics", "environments", s!"{index.val + 1}/{environmentsShards}"]
-  | .buildPolicyShard index =>
-      ["diagnostics", "build-policy", s!"{index.val + 1}/{buildPolicyShards}"]
-  | .cli => ["diagnostics", "cli"]
-  | .environments => ["diagnostics", "environments"]
-  | .buildPolicy => ["diagnostics", "build-policy"]
-  | .lintDriver => ["diagnostics", "lint-driver"]
-  | .lintDriverShard index =>
-      ["diagnostics", "lint-driver", s!"{index.val + 1}/{lintDriverShards}"]
-  | .producers => ["diagnostics", "producers"]
-  | .history => ["diagnostics", "history"]
-  | .selfLint => ["diagnostics", "self-lint"]
-  | .selfLintDefault => ["diagnostics", "self-lint-default"]
-  | .selfAudit => ["diagnostics", "self-audit"]
-  | .selfAuditShard index =>
-      ["diagnostics", "self-audit", s!"{index.val + 1}/{selfAuditShards}"]
-  | .ruleExamples => ["diagnostics", "rule-examples"]
-  | .ruleExamplesShard index =>
-      ["diagnostics", "rule-examples", s!"{index.val + 1}/{ruleExampleShards}"]
-  | .diagnostic group => ["diagnostics", group.label]
   | .site => ["site"]
   | .mathlib => ["mathlib"]
 
 /-- Every supported mode occurs once; the parser searches only this closed vocabulary. -/
-def modes : List Mode := [.ordinary, .docs, .graph, .diagnostics, .fixtures, .structural,
-  .execution, .cli, .environments, .buildPolicy, .lintDriver, .producers, .history, .selfLint,
-  .selfLintDefault, .selfAudit, .ruleExamples, .site, .mathlib] ++
-  (List.finRange structuralShards).map .structuralShard ++
-  (List.finRange executionShards).map .executionShard ++
-  (List.finRange fixturesShards).map .fixturesShard ++
-  (List.finRange cliShards).map .cliShard ++
-  (List.finRange environmentsShards).map .environmentsShard ++
-  (List.finRange buildPolicyShards).map .buildPolicyShard ++
-  (List.finRange lintDriverShards).map .lintDriverShard ++
-  (List.finRange selfAuditShards).map .selfAuditShard ++
-  (List.finRange ruleExampleShards).map .ruleExamplesShard ++ Group.all.map .diagnostic
+def modes : List Mode := [.ordinary, .docs, .site, .mathlib]
 
 /-- Argument parsing never accepts a prefix of a supported invocation. -/
 def parseMode (args : List String) : Option Mode :=
@@ -253,12 +63,7 @@ theorem parseMode_sound (args : List String) (mode : Mode)
 
 /-- Every documented invocation is accepted; this excludes an always-refusing parser. -/
 theorem parseMode_roundtrip (mode : Mode) : parseMode (arguments mode) = some mode := by
-  cases mode with
-  | structuralShard index | executionShard index | fixturesShard index | cliShard index
-    | environmentsShard index | buildPolicyShard index | lintDriverShard index
-    | selfAuditShard index | ruleExamplesShard index => revert index; decide
-  | diagnostic group => cases group <;> rfl
-  | _ => rfl
+  cases mode <;> rfl
 
 /-- Selection carries the argument-binding proof required by the operational caller. -/
 def select (args : List String) : Option {mode : Mode // args = arguments mode} :=
@@ -291,41 +96,28 @@ def auditPackage : String := "audit"
 
 /-- The Mathlib integration package (`MathlibAudit`): a Mathlib adopter of the root `regula`
 package by relative path, holding the Mathlib-specific behaviour Regula supports. Only the
-`mathlib` mode and the `readers` group of the `diagnostics` mode run Lake in it (`lake exe qualify
-readers` builds its modules); no other mode loads its workspace, so no other mode needs Mathlib. -/
+`mathlib` mode runs Lake in it, so no other mode needs Mathlib. -/
 def mathlibPackage : String := "integration/mathlib"
 
 private def lakeIn (dir : String) (args : Array String) : Command :=
   { program := "lake", args, dir }
 
-/-- The workspace owner's assertion that the lakefiles are ordinary configuration, as the `lint`
-driver reads it from its environment. The name is `Regula.Checker.Lint.ordinaryLakefilesVariable`,
-written again here because this driver imports only the toolchain. -/
-def ownerAssertion : Array (String × String) := #[("REGULA_ORDINARY_LAKEFILES", "1")]
-
-/-- Ordinary acceptance records its accepted input identity here; the separately timed
-documentation step refuses unless its own identity is equal. The driver puts the record here
-only after `passed` accepted every command, before it removes its copy and before the success
-line (`run`), so an accepted record here means
-that every command of the step exited 0. The gate of a run records the identity in the pending
-record of that run (`Copy.pending`), and that record becomes this one only by that promotion, so
-a run that fails or is killed before then leaves this record incomplete. Before the promotion the
-driver may add the record of the build output it left (`Copy.recordBuild`); it changes no other
-field. -/
+/-- Ordinary acceptance records the content identity of the files it accepted here; the separately
+timed documentation step refuses unless the files it checks have the same identity
+(`requireLink`). The driver writes the record only after `passed` accepted every command of the
+step, before it removes its copy and before the success line (`run`), so an accepted record here
+means that every command of the step exited 0. -/
 def linkPath : String := "tmp/acceptance-link.json"
 
 /-- The text of an acceptance record that is not accepted. -/
 def incompleteLink : String := "{\"schemaVersion\":1,\"status\":\"incomplete\"}\n"
 
-/-- The standard's Verso source: package directory, library and its render-only executable.
-Both acceptance steps capture its sources and the package inputs its check reads, including the
-sources of the `audit/` package that its library needs, in the linked identity; the documentation step also builds (elaborating every `lean` block where it is
-written) and renders it, requires every anchor the rule registry and the documentation link, and
-requires the checklist's rows to be exactly `Regula.checklistRows`. -/
-def versoStandard : String := "website:RegulaStandard:regula-standard"
+/-- The package of the standard's Verso sources (`website/`), its library and its render-only
+executable. -/
+def websitePackage : String := "website"
 
-/-- Evidence receipt of one rule-example shard. -/
-def shardEvidence (index : Nat) : String := s!"tmp/rule-examples-{index}of{ruleExampleShards}.json"
+/-- Where the documentation step renders the standard, relative to the repository root. -/
+def standardOutput : String := "tmp/standard-render"
 
 /-- The package of the Markdown checks: md4c's reader and the `regula-markdown` executable. It
 requires only the md4c binding and the root package. -/
@@ -338,50 +130,17 @@ def proseControls : String := "../lean/Fixtures/ControlledProse"
 /-- Rule-reference site artifact directory (the GitHub Pages upload). -/
 def siteOutput : String := "_site"
 
-/-- One of `ruleExampleShards` disjoint corpus shards, selected by rule position in the corpus,
-`index` counted from 1. -/
-private def ruleExampleShard (index : Nat) : List Command := [
-  lake #["build", "axiomGate", "ruleExamples", "ruleExampleQualification", "qualify"],
-  lake #["exe", "qualify", "--under-deadline", "rule-examples", "--evidence", shardEvidence index,
-    "--shard", s!"{index}/{ruleExampleShards}"]]
+/-- The targets that the surface manifest `foundation_manifest.json` claims, which the first
+acceptance step builds with warnings as errors and checks (`buildCovers`). -/
+def surfaceTargets : List String :=
+  ["RegulaInterface", "RegulaPolicy", "RegulaVerification", "RegulaProvision",
+    "RegulaQualification", "RegulaCore", "AuditApp", "auditApp"]
 
-/-- A checker self-test run with the `checkerSelftest` arguments `selection`. The first command
-builds the self-test together with `axiomGate`, which the baseline build of every partition
-names, and with the further targets `tools` of the selection's baseline, so Lake
-schedules the jobs of these builds in one invocation; run one after the other, the gate's own
-modules would start only once the self-test's last module is linked. That command selects
-nothing: the self-test's baseline build still names and builds its targets, finds these built
-and builds any it names that are not here. -/
-private def selftest (selection : Array String) (tools : Array String := #[]) : List Command := [
-  lake (#["build", "checkerSelftest", "axiomGate"] ++ tools),
-  lake (#["exe", "checkerSelftest", "--build-bound"] ++ selection ++ #["--jobs", "4"])]
-
-/-- The further targets the lint-driver controls read from the repository's build: the `lake lint`
-driver, the `regula` command whose `init` they run, the corpus producer `ruleExamples` whose
-marker one control runs, and the module `Regula.Linter` that their adopters import. -/
-private def lintDriverTargets : Array String :=
-  #["lint", "regula", "ruleExamples", "Regula.Linter"]
-
-/-- The targets of the first acceptance step's build that its gate audits or runs: every target
-the surface manifest `foundation_manifest.json` claims (`prebuildCovers`) and the gate's own
-executable. The driver builds them first (`prebuild`), so the gate can start before the rest of
-that build ends. -/
-def gateTargets : List String :=
-  ["RegulaPolicy", "RegulaVerification", "RegulaProvision", "RegulaQualification", "RegulaCore",
-    "AuditApp", "auditApp", "axiomGate"]
-
-/-- The other targets of the first acceptance step's build: the acceptance executables of the
-documentation step and of the qualification controls, and the modules the step type-checks. -/
+/-- The other targets of the first acceptance step's build: the excluded library `Regula`, whose
+modules the checker loads with the rest, and the executables of the checker, of setup and of the
+site. -/
 def otherTargets : List String :=
-  ["docFenceAudit", "qualify",
-    "+Regula.Checker.CheckerSelftest:olean", "+Regula.Checker.FreshChecker:olean",
-    "+Regula.RegistryChecks:olean", "+Regula.Linter:olean", "+Regula.Checker.LintMain:olean",
-    "+Regula.Checker.RuleExamples:olean", "+Regula.Checker.RuleExampleQualificationMain:olean",
-    "+Regula.Cli.Main:olean", "+Regula.Release:olean", "+Regula.DiagnosticsGate:olean",
-    "+Regula.RemovalControls:olean", "+Regula.CopyControls:olean", "+Regula.ProvisionControls:olean",
-    "+Regula.AbsenceControls:olean", "+Regula.PrintedPathControls:olean",
-    "+Regula.Campaigns.Verification:olean",
-    "+Regula.Campaigns.Diagnostics:olean", "+Regula.ProgramCheck.Verification:olean"]
+  ["Regula", "lint", "regula", "site"]
 
 /-- The package of the specification of the smaller Regula (`specification/README.md`), the name
 `RegulaProvision.specificationPackage` written again here because this driver imports only the
@@ -409,305 +168,71 @@ def specificationBuild (copy : String) : Command :=
       "RegulaSpecification"]
     env := #[("LAKE_PKG_URL_MAP", s!"\{\"«lean-intent»\":\"{leanIntentCheckout}\"}")] }
 
-/-- A `qualify` selection under the driver's deadline. -/
-private def qualify (selection : Array String) : Command :=
-  lake (#["exe", "qualify", "--under-deadline"] ++ selection)
-
-/-- The commands of a group: one build of what its controls run, then its selections one after
-another. The `qualify` controls run `axiomGate`, `docFenceAudit` and `ruleExamples` from the
-repository's build; the focused self-test controls run `axiomGate`, and the native-adopter
-control's adopter imports `Regula.Linter`. -/
-def Group.commands : Group → List Command
-  | .inputInventory => [lake #["build", "axiomGate", "docFenceAudit", "ruleExamples", "qualify"],
-      qualify #["input-inventory"]]
-  | .environmentCensus => [lake #["build", "axiomGate", "qualify"],
-      qualify #["environments", "--evidence", "tmp/environment-census.json"]]
-  | .snapshotHistory => [lake #["build", "axiomGate", "qualify"],
-      qualify #["acceptance-snapshots", "history"]]
-  | .acceptanceControls => [
-      lake #["build", "axiomGate", "docFenceAudit", "ruleExamples", "qualify"],
-      qualify #["acceptance", "fences", "--evidence", "tmp/acceptance-fences.json"],
-      qualify #["acceptance-snapshots", "dependencies"],
-      qualify #["acceptance-snapshots", "git-status"],
-      qualify #["receipt-boundaries"],
-      qualify #["prep-measure"],
-      qualify #["enumeration"]]
-  | .documentationControls => [
-      lake #["build", "axiomGate", "docFenceAudit", "ruleExamples", "qualify"],
-      qualify #["documentation-dependencies"],
-      qualify #["configuration-capture"],
-      qualify #["verso-recorded-paths"],
-      qualify #["copy-relocation"]]
-  | .focusedControls => [lake #["build", "checkerSelftest", "axiomGate", "Regula.Linter"],
-      lake #["exe", "checkerSelftest", "--native-adopter-only"],
-      lake #["exe", "checkerSelftest", "--combined-snapshot-only"],
-      lake #["exe", "checkerSelftest", "--policy-transport-only"]]
-  | .policyDomain => [lake #["build", "checkerSelftest", "axiomGate", "Regula.Linter"],
-      lake #["exe", "checkerSelftest", "--policy-domain-only"]]
-  | .enumerationFailure => [lake #["build", "qualify"], qualify #["enumeration-failure"]]
-  | .readers => [lake #["build", "qualify"], qualify #["readers"]]
-
-/-- The targets whose modules `qualify observers` reads: each library of the package except
-`Fixtures`, and `auditApp`, whose root `Main` is in no library. -/
-def observerTargets : Array String :=
-  #["Regula", "RegulaPolicy", "RegulaVerification", "RegulaProvision", "RegulaQualification",
-    "RegulaCore", "AuditApp", "auditApp", "qualify"]
-
-/-- The self-audit shard that also runs `qualify observers`: the fourth, whose audit was the
-shortest of the four on the slower CI runners. -/
-def observersShard : Fin selfAuditShards := ⟨3, by decide⟩
-
-/-- Existing acceptance and diagnostic recipes, executed inside the outer deadline.
-Qualification's private flag retains the already timed process group. `copy` is the root of the
-copy that the first acceptance step builds in, and `pending` the pending record of that run,
-which its gate writes (`makeCopy`); no other mode uses them. -/
-def commands (copy pending : String) : Mode → List Command
+/-- The commands of each mode, run one after another inside the outer deadline. `copy` is the
+root of the copy that the first acceptance step builds in (`makeCopy`); no other mode uses it. -/
+def commands (copy : String) : Mode → List Command
   | .ordinary => [
-      -- The build of the step, in the copy: the acceptance executables, the modules the step
-      -- type-checks, and every claimed target of the root package, which the gate audits in
-      -- this build output. The prebuild built the gate's targets before it (`prebuild_named`).
-      lakeIn copy ("build" :: gateTargets ++ otherTargets).toArray,
+      -- The build of the step, in the copy, with warnings as errors: every claimed target, the
+      -- checker and the other tools, and the modules the step type-checks (RG2003 is Lean's).
+      lakeIn copy (#["build", "--wfail"] ++ (surfaceTargets ++ otherTargets).toArray),
       lakeIn copy #["env", "lean", "--run", "lean/Regula/RegistryChecks.lean"],
-      lakeIn copy #["exe", "qualify", "--under-deadline", "combined"],
       -- The specification package of the copy, with warnings as errors, from the repository
       -- root, so that Lake clones its lean-intent from the provisioned checkout.
       specificationBuild copy,
-      -- Last, and from the repository root: the gate of the copy audits the copy, reads the
-      -- linked documents of the checkout and writes the pending record of the run (`pending`).
-      -- It runs beside the four commands above (`beside`).
-      lake #["-d", copy, "exe", "axiomGate", "--acceptance-link", pending, "--verso",
-          versoStandard, "--driver-copy", copy]]
+      -- Last: Regula's checker on the copy's own build, the self-check.
+      lakeIn copy #["lint"]]
   | .docs => [
-      -- `axiomGate` too, which the check of the example of the root `README.md` below runs.
-      lake #["build", "docFenceAudit", "axiomGate"],
       -- The controls of the checks C1 to C9, B1 and B2: each check accepts its positive controls
       -- and refuses the others, with the exact file, line and check at the start of each
-      -- refusal. The controls of the base revision of check B2, of an entry with no document
-      -- (check B1) and of `--write-baseline` are repositories that the run makes with Git in a
-      -- temporary directory (`markdown/MarkdownMain.lean`).
+      -- refusal (`markdown/MarkdownMain.lean`).
       lakeIn markdownPackage #["exe", "regula-markdown", "--controls", proseControls],
       -- Every Markdown document Git tracks, read by md4c: a rule ID in prose that is not a link
-      -- to its rule page is refused. A link of the root `README.md` to the rule-reference site
-      -- that is not a stable address is refused. So is a root `README.md` whose `lean` block is
-      -- not the module `markdown/Readme/Shortcut.lean`, or whose `text` block does not fit what
-      -- `axiomGate --file` prints for that module in a new Lake project. So is a `CONTEXT.md`
-      -- that is not the print of a vocabulary or that has a source path Git does not track
-      -- (check C9). A finding of the checks C1 to C8 that the baseline `prose-baseline.json` does
-      -- not permit is refused, and so is an entry of the baseline with no tracked Markdown
-      -- document (check B1). A baseline with a new path, a larger number or a different class in
-      -- relation to the base revision is refused, and so is the removal of the baseline (check
-      -- B2). Check B2 reads the Git history: the base revision is the commit that the start of
-      -- the run gives, in the variable `REGULA_PROSE_START` or as the merge base of `HEAD` and
-      -- `origin/main`. The argument is the repository root, relative to the Markdown package.
+      -- to its rule page is refused, and so are the findings of the checks C1 to C9 that the
+      -- baseline `prose-baseline.json` does not permit, and the changes of the baseline that
+      -- checks B1 and B2 refuse. The argument is the repository root, relative to the package.
       lakeIn markdownPackage #["exe", "regula-markdown", ".."],
-      -- The `audit/` package's own fresh acceptance, as an adopter of `regula` runs it: the
-      -- standard's `lean` blocks import its modules, and the linked identity below brackets the
-      -- sources they need.
-      lakeIn auditPackage #["exe", "axiomGate"],
-      lake
-          #["exe", "docFenceAudit", "--acceptance-link", linkPath, "--verso", versoStandard]]
-  | .graph => [lake #["exe", "freshChecker", "--verbose"]]
-  | .diagnostics => selftest #[]
-  | .producers => [
-      lake #["build", "axiomGate", "qualify"],
-      lake #["exe", "qualify", "--under-deadline", "producers"]]
-  | .history => [
-      lake #["build", "axiomGate", "qualify"],
-      lake #["exe", "qualify", "--under-deadline", "history"]]
-  -- Regula on its own code base: the repository's own `lake lint` through `regula/lint` in both
-  -- packages, and the operational self-audit of the excluded `Regula` library after its
-  -- warning-free build. As the owner of both packages, the repository asserts that their lakefiles
-  -- are ordinary configuration (`REGULA_ORDINARY_LAKEFILES=1`, which the driver reads only from
-  -- its environment), so the driver can reuse ordinary build output when the plain-shape guard
-  -- admits the workspace. The first command builds, in one Lake invocation, the `lint` driver,
-  -- its worker `axiomGate` and the claimed targets (`gateTargets`), which `lake lint` otherwise
-  -- builds one after another: Lake's lint dispatch builds the driver, then the driver its worker,
-  -- then the audit its claimed build. That command selects nothing: each of those builds still
-  -- runs and builds anything not built here.
-  | .selfLint => [lake ("build" :: "lint" :: gateTargets).toArray,
-      { lake #["lint"] with env := ownerAssertion },
-      { lakeIn auditPackage #["lint"] with env := ownerAssertion }]
-  -- The root package's run on the default path that an adopter gets, without the owner's
-  -- assertion, so with the audit-build marker. The `audit/` package runs the same driver code, and
-  -- its default path would only add the rebuild that made the old step exceed its limit.
-  | .selfLintDefault => [lake #["lint"]]
-  -- The self-audit, and the record of the removal check of each program of the package, with the
-  -- check of `auditApp`'s `Main` (`qualify observers`), which reads the modules of
-  -- `observerTargets`.
-  | .selfAudit => [
-      lake (#["build"] ++ observerTargets),
-      lake #["exe", "qualify", "--under-deadline", "self-audit"],
-      lake #["exe", "qualify", "--under-deadline", "observers"]]
-  -- A shard of the self-audit: its modules of each list the campaign deals (`SelfAudit.selected`).
-  -- The shard `observersShard` also runs `qualify observers`.
-  | .selfAuditShard index =>
-      lake (#["build"] ++
-          if index == observersShard then observerTargets else #["Regula", "qualify"])
-        :: lake #["exe", "qualify", "--under-deadline", "self-audit", "--shard",
-          s!"{index.val + 1}/{selfAuditShards}"]
-        :: if index == observersShard then
-          [lake #["exe", "qualify", "--under-deadline", "observers"]]
-        else []
-  | .ruleExamples => [
-      lake #["build", "axiomGate", "ruleExamples", "ruleExampleQualification", "qualify"],
-      lake
-          #["exe", "qualify", "--under-deadline", "rule-examples", "--evidence",
-              "tmp/rule-examples.json"]]
-  | .ruleExamplesShard index => ruleExampleShard (index.val + 1)
-  | .diagnostic group => group.commands
+      -- The `audit/` package, as an adopter of `regula` builds and checks it: the standard's
+      -- `lean` blocks import its modules.
+      lakeIn auditPackage #["build", "--wfail"],
+      lakeIn auditPackage #["lint"],
+      -- The Verso standard: its build elaborates each `lean` block where it is written; then its
+      -- rendering, and the check of what it rendered.
+      lakeIn websitePackage #["build", "--wfail", "RegulaStandard", "regula-standard"],
+      lakeIn websitePackage #["exe", "regula-standard", "--output", "../" ++ standardOutput],
+      lake #["exe", "site", "standard", standardOutput ++ "/html-multi", "docs"]]
   | .site => [
-      lake #["build", "axiomGate", "ruleExampleQualification", "site"],
-      lake
-          (#["exe", "site", "build", "--out", siteOutput, "--evidence"] ++
-              ((List.range ruleExampleShards).map (shardEvidence <| · + 1)).toArray),
+      lake #["build", "site"],
+      lake #["exe", "site", "build", "--out", siteOutput],
       -- After the build, which builds the website package and generates the site's sources.
       lake #["exe", "site", "renderer-refusal"]]
-  -- The Mathlib integration check: the integration package's fresh acceptance and lint, as a
-  -- Mathlib adopter of `regula` runs them. Its Mathlib is provisioned beforehand, as setup; the
-  -- first command refuses a copy the check does not apply to (another toolchain than that package selects) and one whose Mathlib is not provisioned, so an
-  -- excluded copy fails here and is never reported as passing.
+  -- The Mathlib integration check: the integration package's build and lint, as a Mathlib adopter
+  -- of `regula` runs them. Its Mathlib is provisioned beforehand, as setup; the first command
+  -- refuses a copy the check does not apply to (another toolchain than that package selects) and
+  -- one whose Mathlib is not provisioned, so an excluded copy fails here and is never reported as
+  -- passing.
   | .mathlib => [
       { program := "lean",
         args := #["--run", "lean/RegulaProvision.lean", "mathlib-applies", "--require"] },
-      lakeIn mathlibPackage #["exe", "axiomGate"], lakeIn mathlibPackage #["lint"]]
-  | .structural => selftest #["--partition", "structural"] #["docFenceAudit", "freshChecker"]
-  -- A shard of a partition: the partition's name, then the shard after `--shard`. The first
-  -- structural shard holds only the self-hosted positive, whose control runs `axiomGate` alone,
-  -- so its build is the self-test and the gate; the other shards also run the other two.
-  | .structuralShard index =>
-      selftest #["--partition", "structural", "--shard", s!"{index.val + 1}/{structuralShards}"]
-        (if index.val == 0 then #[] else #["docFenceAudit", "freshChecker"])
-  | .executionShard index =>
-      selftest #["--partition", "execution", "--shard", s!"{index.val + 1}/{executionShards}"]
-  | .fixturesShard index =>
-      selftest #["--partition", "fixtures", "--shard", s!"{index.val + 1}/{fixturesShards}"]
-  -- The last cli shard also runs `qualify` and `site`, in the control of a process without Lean's
-  -- task manager, so its build names them.
-  | .cliShard index =>
-      selftest #["--partition", "cli", "--shard", s!"{index.val + 1}/{cliShards}"]
-        (if index.val + 1 == cliShards then #["qualify", "site"] else #[])
-  | .environmentsShard index =>
-      selftest #["--partition", "environments", "--shard",
-        s!"{index.val + 1}/{environmentsShards}"]
-  | .buildPolicyShard index =>
-      selftest #["--partition", "build-policy", "--shard", s!"{index.val + 1}/{buildPolicyShards}"]
-  -- The lint-driver controls also run the `lake lint` driver, `regula init` and the corpus
-  -- producer `ruleExamples`, and their adopters import `Regula.Linter`, which their baseline
-  -- names.
-  | .lintDriver => selftest #["--partition", "lint-driver"] lintDriverTargets
-  | .lintDriverShard index =>
-      selftest #["--partition", "lint-driver", "--shard", s!"{index.val + 1}/{lintDriverShards}"]
-        lintDriverTargets
-  | mode => selftest (#["--partition"] ++ ((arguments mode).drop 1).toArray)
+      lakeIn mathlibPackage #["build", "--wfail"], lakeIn mathlibPackage #["lint"]]
 
 /-- Every mode schedules actual work rather than accepting an empty campaign. -/
-theorem commands_nonempty (copy pending : String) (mode : Mode) :
-    commands copy pending mode ≠ [] := by
-  cases mode with
-  | diagnostic group => cases group <;> simp [commands, Group.commands]
-  | _ => simp [commands, ruleExampleShard, selftest]
+theorem commands_nonempty (copy : String) (mode : Mode) : commands copy mode ≠ [] := by
+  cases mode <;> simp [commands]
 
-/-- The first acceptance step runs its build, the registry checks and the combined qualification
-in the copy, and then the build of the copy's specification package and the gate from the
-repository root: the gate is the last of its commands, and it runs beside the others
-(`beside_prebuilt`). -/
-theorem ordinary_places (copy pending : String) :
-    (commands copy pending .ordinary).map (·.dir) = [copy, copy, copy, ".", "."] := rfl
-
-/-! ## The schedule of the first acceptance step
-
-The gate of the first acceptance step reads only what it audits and runs: the claimed targets
-and its own executable. So the driver builds those first, in the copy (`prebuild`), and then runs
-the gate beside the rest of the step (`beside`): the step's build, which builds the targets the
-prebuild did not, the registry checks and the combined qualification, one after another and at
-low scheduling priority (`Priority`). Meanwhile the rest of the step's build writes the build
-output of the other targets, and the gate reads that of its own targets, which the prebuild
-completed. A claimed target the prebuild does not name refuses the step (`prebuildCovers`), so
-two Lake processes cannot build one target at the same time. That Lake rebuilds
-nothing the prebuild built, because each of its traces is unchanged, is Lake's behaviour, not a
-theorem; the gate compares the `.olean` parts of every claimed module before and after its
-inspections, so a change to one fails the audit (`Inspection.changedArtifact?`). The step's
-commands are the same in each schedule (`inOrder_append_beside`), and every target of the
-prebuild is a target of the step's build (`prebuild_named`). -/
-
-/-- The targets a command builds: the arguments after `build` of a `lake build`, and none for any
-other command. -/
-def buildTargets (command : Command) : List String :=
-  if command.program = "lake" ∧ command.args[0]? = some "build" then command.args.toList.drop 1
-  else []
-
-/-- Builds the driver runs in the copy before a mode's `commands`, at the driver's own priority.
-They decide time, never results: each is a `lake build` (`prebuild_builds`), and every target one
-names is named again by a build among those commands in the same directory (`prebuild_named`),
-which builds whatever is missing. The first acceptance step builds the gate's targets, so the
-gate can start before the rest of the step's build has ended. -/
-def prebuild (copy : String) : Mode → List Command
-  | .ordinary => [lakeIn copy ("build" :: gateTargets).toArray]
-  | _ => []
-
-/-- A prebuild only builds: it has a target, which `buildTargets` gives only to a `lake build`. -/
-theorem prebuild_builds (copy : String) (mode : Mode) (command : Command)
-    (h : command ∈ prebuild copy mode) : buildTargets command ≠ [] := by
-  cases mode <;> simp [prebuild] at h
-  subst h
-  simp [buildTargets, lakeIn, gateTargets]
-
-/-- A prebuild selects nothing: each target it names is a target of a build among the mode's own
-commands, in the same directory, which runs to completion before any success report. -/
-theorem prebuild_named (copy pending : String) (mode : Mode) (command : Command) (target : String)
-    (h : command ∈ prebuild copy mode) (named : target ∈ buildTargets command) :
-    ∃ later ∈ commands copy pending mode,
-      later.dir = command.dir ∧ target ∈ buildTargets later := by
-  cases mode <;> simp [prebuild] at h
-  subst h
-  refine ⟨_, List.mem_cons_self, rfl, ?_⟩
-  simp only [buildTargets, lakeIn, List.toList_toArray, List.getElem?_toArray,
-    List.getElem?_cons_zero, and_self, ite_true, List.drop_succ_cons] at named ⊢
-  exact List.mem_append_left _ named
-
-/-- How many of a mode's last `commands` run beside the others (`beside`). The first acceptance
-step runs its gate so; every other mode runs its commands one after another. -/
-def besideCount : Mode → Nat
-  | .ordinary => 1
-  | _ => 0
-
-/-- The commands of `mode` that run one after another: all but its last `besideCount`. -/
-def inOrder (copy pending : String) (mode : Mode) : List Command :=
-  (commands copy pending mode).take ((commands copy pending mode).length - besideCount mode)
-
-/-- The commands of `mode` that each run as a process of their own, started before `inOrder` and
-joined after it: its last `besideCount`. -/
-def beside (copy pending : String) (mode : Mode) : List Command :=
-  (commands copy pending mode).drop ((commands copy pending mode).length - besideCount mode)
-
-/-- The two groups are the mode's commands, each once and in their order, whatever `besideCount`
-is: the schedule drops no command and adds none. -/
-theorem inOrder_append_beside (copy pending : String) (mode : Mode) :
-    inOrder copy pending mode ++ beside copy pending mode = commands copy pending mode :=
-  List.take_append_drop _ _
+/-- The first acceptance step runs its build and the registry checks in the copy, then the build
+of the copy's specification package from the repository root, and last Regula's checker in the
+copy. -/
+theorem ordinary_places (copy : String) :
+    (commands copy .ordinary).map (·.dir) = [copy, copy, ".", copy] := rfl
 
 /-- The first acceptance step builds the specification package of its copy with warnings as
-errors, one after another with its other commands but the gate (`inOrder`), so a failure of that
-build fails the step (`passed_iff`). -/
-theorem ordinary_builds_specification (copy pending : String) :
-    specificationBuild copy ∈ inOrder copy pending .ordinary ∧
-      (specificationBuild copy).args.toList.drop 2 = ["build", "--wfail", "RegulaSpecification"] :=
-  ⟨by simp [inOrder, commands, besideCount], rfl⟩
-
-/-- The command that runs beside the others is the gate of the copy, `lake -d COPY exe
-axiomGate`, and a prebuild in `COPY` names `axiomGate` and every claimed target the gate builds
-(`gateTargets`). That the prebuild has ended before the gate starts is the driver's order (`run`),
-and that Lake then builds nothing for the gate is Lake's behaviour; neither is this theorem. -/
-theorem beside_prebuilt (copy pending : String) (mode : Mode) (command : Command)
-    (h : command ∈ beside copy pending mode) :
-    command.program = "lake" ∧ command.dir = "." ∧
-      command.args.toList.take 4 = ["-d", copy, "exe", "axiomGate"] ∧
-        ∃ early ∈ prebuild copy mode, early.dir = copy ∧
-          ∀ target ∈ gateTargets, target ∈ buildTargets early := by
-  cases mode <;> simp [beside, besideCount, commands, ruleExampleShard, selftest] at h
-  subst h
-  refine ⟨rfl, rfl, rfl, _, List.mem_singleton_self _, rfl, fun target member => ?_⟩
-  simpa [buildTargets, lakeIn] using member
+errors and runs Regula's checker on its copy's build, last; a failure of either fails the step
+(`passed_iff`). -/
+theorem ordinary_checks (copy : String) :
+    specificationBuild copy ∈ commands copy .ordinary ∧
+      (specificationBuild copy).args.toList.drop 2 = ["build", "--wfail", "RegulaSpecification"] ∧
+      (commands copy .ordinary).getLast? = some (lakeIn copy #["lint"]) :=
+  ⟨by simp [commands], rfl, rfl⟩
 
 /-- Whether a step passed, from how its commands ended. An end is `some status` for a command
 that ran to its end with that exit status, and `none` for one that was not run, could not be
@@ -778,35 +303,6 @@ def describe : Option UInt32 → String
 /-- The standard streams of every command: no input, and the driver's own output. -/
 def stdio : IO.Process.StdioConfig := { stdin := .null, stdout := .inherit, stderr := .inherit }
 
-/-- The scheduling priority the driver asks of the operating system for a command. It changes
-when a command gets a processor, never which command runs or what the driver does with its
-end. -/
-inductive Priority where
-  /-- The driver's own priority. -/
-  | normal
-  /-- The lowest priority, for a command that runs while a command of `beside` runs: the
-  scheduler is asked to prefer the command of `beside` whenever both ask for a processor. A
-  command keeps this priority to its end, also after the command of `beside` ended, and the
-  scheduler is asked to prefer any other work at normal priority in the same way. So on a machine
-  that such other work fills, a command at low priority can get little processor time, and the
-  schedule can then take longer than the same commands one after another. -/
-  | low
-
-/-- How the progress line of a start names a priority: nothing for the driver's own. -/
-def Priority.display : Priority → String
-  | .normal => ""
-  | .low => "at low priority: "
-
-/-- The program and the arguments that start `command` at `priority`. At low priority the program
-is the POSIX utility `nice`, which is given the command's own program and arguments, unchanged
-and in their order, after `-n 19`. That `nice` then runs exactly that program with those
-arguments at that priority, and ends with the status the program ends with, is the utility's
-behaviour and is trusted, as is the scheduler's use of the priority. POSIX gives `nice` a status
-other than 0 when it could not run the program. -/
-def Command.launch (command : Command) : Priority → String × Array String
-  | .normal => (command.program, command.args)
-  | .low => ("nice", #["-n", "19", command.program] ++ command.args)
-
 /-- The shared constructor's exact source, embedded by Lean before any root artifact exists.
 Assumes: Lean v4.35.0 `Lean/Elab/BuiltinTerm.lean:437-445` elabIncludeStr reads this source at elaboration;
 the pinned Lean interpreter executes it. There is no second tree-walk implementation. -/
@@ -856,29 +352,26 @@ def walkDirectory (root : System.FilePath) : IO (Array System.FilePath) := do
   let paths : Array String ← construction s!"walk of {root}" #["walk", root.toString, ""]
   return paths.map System.FilePath.mk
 
-/-- Start `command` at `priority` without waiting for it; `none`, with a report, when it could not
-be started. It cannot raise. The child stays in the driver's process group, so the outer
-deadline's kill reaches it. The inherited Lean search paths are removed, so a Lake command
-resolves modules only through the workspace it runs in. `LAKE_ARTIFACT_CACHE` is `false`, so
-Lake's artifact cache is off for each package whose own configuration does not turn it on. These
-builds are not the checker's: the gate's own build of the claimed surface uses no artifact cache
-whatever the configuration says (`Regula.Checker.Lake.Build.run`). An inherited
-`REGULA_ORDINARY_LAKEFILES` is removed, so only a command that gives it (`ownerAssertion`) runs
-with the owner's assertion. Each variable of the command's `env` is set before `isolation`, the
-shared Git isolation (`isolationEnvironment`), which every command receives last, so the Git
-commands that Lake starts for it, and those of the programs it runs, inherit it. A Git command
-also selects command-scope `core.symlinks=false` on its command line before priority wrapping; no
-Git policy is duplicated here. Process execution and signal delivery remain trusted. -/
-def start (isolation : Array (String × Option String)) (priority : Priority) (command : Command) :
+/-- Start `command` without waiting for it; `none`, with a report, when it could not be started.
+It cannot raise. The child stays in the driver's process group, so the outer deadline's kill
+reaches it. The inherited Lean search paths are removed, so a Lake command resolves modules only
+through the workspace it runs in. `LAKE_ARTIFACT_CACHE` is `false`, so Lake's artifact cache is
+off for each package whose own configuration does not turn it on: a module that Lake restores from
+that cache replays no warning, so `lake build --wfail` would not see it. Each variable of the
+command's `env` is set before `isolation`, the shared Git isolation (`isolationEnvironment`), which
+every command receives last, so the Git commands that Lake starts for it, and those of the programs
+it runs, inherit it. A Git command also selects command-scope `core.symlinks=false` on its command
+line; no Git policy is duplicated here. Process execution and signal delivery remain trusted. -/
+def start (isolation : Array (String × Option String)) (command : Command) :
     BaseIO (Option (IO.Process.Child stdio)) := do
-  announce s!"start {priority.display}{command.display}"
+  announce s!"start {command.display}"
   let spawn : IO (IO.Process.Child stdio) := do
     let isolated := if command.program == "git" then
         {command with args := #["-c", "core.symlinks=false"] ++ command.args}
       else command
-    let (program, args) := isolated.launch priority
+    let (program, args) := (isolated.program, isolated.args)
     let env := #[("GHCR_TOKEN", none), ("LEAN_PATH", none), ("LEAN_SRC_PATH", none),
-      ("LAKE_ARTIFACT_CACHE", some "false"), ("REGULA_ORDINARY_LAKEFILES", none)] ++
+      ("LAKE_ARTIFACT_CACHE", some "false")] ++
       command.env.map (fun (name, value) => (name, some value)) ++ isolation
     IO.Process.spawn { stdio with cmd := program, args, cwd := some command.dir, env }
   match ← spawn.toBaseIO with
@@ -896,63 +389,28 @@ def await (command : Command) (child : IO.Process.Child stdio) : BaseIO (Option 
       announce s!"could not wait for {command.display}: {error}"
       return none
 
-/-- Run one command at `priority` to its end and return how it ended. It cannot raise. -/
-def execute (isolation : Array (String × Option String)) (priority : Priority) (command : Command) :
+/-- Run one command to its end and return how it ended. It cannot raise. -/
+def execute (isolation : Array (String × Option String)) (command : Command) :
     BaseIO (Option UInt32) := do
   let started ← IO.monoMsNow
-  let some child ← start isolation priority command | return none
+  let some child ← start isolation command | return none
   let ended ← await command child
   let seconds := ((← IO.monoMsNow) - started) / 1000
   if passed [ended] then announce s!"done in {seconds} s: {command.display}"
   else announce s!"failed in {seconds} s ({describe ended}): {command.display}"
   return ended
 
-/-- Run `commands` one after another, each at `priority`, and return how each ended. A command
+/-- Run `commands` one after another and return how each ended. A command
 runs only while everything that has ended so far passed: `known` holds the ends known before it.
 A command after a failure is not run and has no end. It cannot raise. -/
-def executeInOrder (isolation : Array (String × Option String)) (priority : Priority) :
+def executeInOrder (isolation : Array (String × Option String)) :
     (known : List (Option UInt32)) →
     (commands : List Command) → BaseIO (Ends commands)
   | _, [] => return ⟨[], rfl⟩
   | known, command :: rest => do
-      let ended ← if passed known then execute isolation priority command else pure none
-      let later ← executeInOrder isolation priority (ended :: known) rest
+      let ended ← if passed known then execute isolation command else pure none
+      let later ← executeInOrder isolation (ended :: known) rest
       return ⟨(command, ended) :: later.ends, by simp [later.complete]⟩
-
-/-- Start each of `beside` as a process of its own, run `inOrder` one after another meanwhile,
-then wait for each started command, and return how the commands of each side ended. Nothing is
-started once something has failed (`known`); a command of `inOrder` does not see how a command
-of `beside` ends, since it ends later. This is a `BaseIO` action, which has no exception, so
-nothing can leave between a start and the wait for it: every started command is joined, also when
-another command failed. The driver never kills a child, because that would not stop the child's
-own descendants.
-
-`priority` is the priority of the commands of `inOrder`. Each command of `beside` starts at the
-driver's own priority, and the commands of `inOrder` then run at low priority, because they run
-while it does. With no command in `beside`, they run at the priority the caller gives. That
-priority is chosen once, before the first command of `inOrder`, and a command of `inOrder` keeps
-it to its end, also after every command of `beside` ended. -/
-def executeBeside (isolation : Array (String × Option String)) (priority : Priority) :
-    (known : List (Option UInt32)) →
-    (beside inOrder : List Command) → BaseIO (Ends inOrder × Ends beside)
-  | known, [], inOrder => return (← executeInOrder isolation priority known inOrder, ⟨[], rfl⟩)
-  | known, command :: rest, inOrder => do
-      let started ← IO.monoMsNow
-      let child ← if passed known then start isolation .normal command else pure none
-      let (others, later) ←
-        executeBeside isolation .low (if child.isSome then known else none :: known) rest inOrder
-      let ended ← match child with
-        | none => pure none
-        | some child => do
-            unless passed (others.statuses ++ later.statuses) do
-              announce s!"a command failed; waiting for {command.display}"
-            let waited ← IO.monoMsNow
-            let ended ← await command child
-            let now ← IO.monoMsNow
-            announce s!"joined ({describe ended}) in {(now - started) / 1000} s, \
-              {(now - waited) / 1000} s after the other commands ended: {command.display}"
-            pure ended
-      return (others, ⟨(command, ended) :: later.ends, by simp [later.complete]⟩)
 
 /-! ## Places the driver removes
 
@@ -965,8 +423,8 @@ it from an observation that follows no link at the path.
 
 **Outside this decision:** a process that replaces an entry below the directory with a link
 while the removal runs. `IO.FS.removeDirAll` examines each entry and then opens it by its path,
-so such a process can make it remove the entries of a different directory. The checker removes
-its own scratch directories with the same function (`Regula.Scratch`).
+so such a process can make it remove the entries of a different directory. Regula's programs remove
+their own scratch directories with the same function (`Regula.Scratch`).
 
 The filesystem observer of the package's programs (`Regula.Filesystem`) decides its removals with
 `Regula.Removal.removal`, which this module cannot import. `RegulaVerification.removal_shared`, in
@@ -1074,13 +532,12 @@ def removeOwn (path : System.FilePath) : IO Unit := do
 
 /-! ## The copy of the first acceptance step
 
-The first acceptance step makes its builds in a private copy of the project, and the
-acceptance gate audits that copy. The gate executable imports the claimed libraries, so those
-libraries are compiled before the gate can run, and a gate that made its own copy would compile
-them a second time. This driver is the only process of the step that runs before any project
-artifact exists, so it makes the copy.
+The first acceptance step makes its builds in a private copy of the project, and its last command
+runs the checker (`lake lint`) on the build of that copy. The checker writes no file, and this
+driver is the only process of the step that runs before any project artifact exists, so it makes
+the copy.
 
-The copy is in a new scratch directory of the checker's scratch area, by the protocol of
+The copy is in a new scratch directory of Regula's scratch area, by the protocol of
 `Regula.Scratch`, which this module cannot import: the reclamation of the marked directories
 when no scratch owner lives, an ownership marker beside the directory, and a shared lock on the
 area's lock file for as long as the copy is in use. So a first step that starts while no other
@@ -1125,9 +582,9 @@ structure Copy where
   project : System.FilePath
   /-- The pending acceptance record of this run, in the scratch directory beside the copy. Only
   this run has the path: the scratch directory has a new name and is created by a call that
-  fails when the name exists, and the record by one that fails when the file exists. The gate of
-  this run writes it, and this run promotes it (`run`). A record that no run
-  promoted is removed with its scratch directory, by this run or by a reclamation. -/
+  fails when the name exists, and the record by one that fails when the file exists. This run
+  writes it (`Copy.record`) and promotes it (`run`). A record that no run promoted is removed with
+  its scratch directory, by this run or by a reclamation. -/
   pending : System.FilePath
   /-- The handle that holds the shared lock of the scratch area while the copy is in use. -/
   lock : IO.FS.Handle
@@ -1165,12 +622,13 @@ def reclaim (area : System.FilePath) : BaseIO Unit := do
     announce s!"could not read the scratch area {area} for its reclamation: {error}"
 
 /-- Make the copy of the project at the real path `root`, by the steps of
-`Regula.Scratch.withScratch` in its order. When the lock of the checker's scratch area can be
+`Regula.Scratch.withScratch` in its order. When the lock of Regula's scratch area can be
 taken exclusively, no scratch owner lives, and the marked directories are removed first
 (`reclaim`). Then: take the shared lock of the area, create the ownership marker of a new name
 exclusively, create the directory of that name, which must not exist, and copy the project into
-its directory `project` (`copyTree`). So the checker's reclamation and that of a later driver
-remove the directory of a driver that died, and remove none while this driver holds the lock.
+its directory `project` (`copyTree`). So the reclamation of `Regula.Scratch` and that of a later
+driver remove the directory of a driver that died, and remove none while this driver holds the
+lock.
 The copy reserves an empty root `.lake`, excluding the original root's default build state.
 
 After a reclamation the exclusive lock is converted to the shared one without an `unlock`
@@ -1211,8 +669,8 @@ rename the copy's `.lake/build` to the project's, only when nothing is at that p
 that follows no link. A project with build output, or with anything else at that place, keeps
 it. The rename is in one file system, deletes nothing, and does not follow a link at its target.
 It returns whether it renamed. A rename that fails is reported and is no error of the step: the
-documentation step then builds what it needs. A rename makes the build output one that the
-documentation step may reuse (`Copy.recordBuild`). -/
+documentation step then builds what it needs in the checkout, where Lake decides from its traces
+what to build again. -/
 def Copy.adopt (copy : Copy) (root : System.FilePath) : BaseIO Bool := do
   let made := copy.project / ".lake" / "build"
   let target := root / ".lake" / "build"
@@ -1231,24 +689,11 @@ def Copy.adopt (copy : Copy) (root : System.FilePath) : BaseIO Bool := do
       announce s!"could not move the copy's build output to {target}: {error}"
       return false
 
-/-! ## The record of the build the step leaves
-
-When the step passed and gave its build output to a project that had none (`Copy.adopt`), the
-documentation step may use that build output instead of compiling the same modules again, but only
-as `Regula.Checker.BuildReuse.reuse` decides from what the record says of it: the targets of the
-step's build, the SHA-256 of every file of the copy, taken before any command ran in it, and the
-SHA-256 of every file below `lib` and `ir` of the build output it moved. The record is the pending
-record of the run's own gate with that `build` field added, before the driver promotes it to
-`linkPath`. Nothing else of the step changes: no command, no result and no removal. A digest that
-cannot be taken leaves the record without the field, and the documentation step then compiles
-those modules itself. -/
-
 /-- The SHA-256 of each of `paths`, each relative to `dir` and written with `/`, by the external
 `shasum -a 256` run in `dir` on at most 200 paths at a time, each given as `./` and the path, since
 `shasum` reads standard input for the operand `-`; for each file it prints the digest, two spaces
-and the operand, and any other line in a path's place fails. It is
-`Regula.Checker.AcceptanceLink.digests` written a second time, since this module imports only the
-toolchain. It assumes the output of `shasum` that that function states. -/
+and the operand, and any other line in a path's place fails. The output of
+`shasum` that it reads is trusted. -/
 def digests (dir : System.FilePath) (paths : List String) : IO (List (String × String)) := do
   let batches := paths.foldl (fun (batches : Array (Array String)) path =>
     match batches.back? with
@@ -1270,43 +715,51 @@ def digests (dir : System.FilePath) (paths : List String) : IO (List (String × 
       result := result.push (path, digest)
   return result.toList
 
-/-- Each regular file below `lib` and `ir` of the build directory `build`, by its path relative
-to `build` written with `/`. A directory missing there has none. -/
-def buildFiles (build : System.FilePath) : IO (List String) := do
-  let prefixLength := build.normalize.components.length
-  let mut files := #[]
-  for part in ["lib", "ir"] do
-    unless (← place (build / part)) == .directory do continue
-    for path in ← walkDirectory (build / part) do
-      if (← entryMetadata path).type == .file then
-        files := files.push ("/".intercalate (path.normalize.components.drop prefixLength))
-  return files.toList
+/-! ## The link between the two acceptance steps
 
-/-- Add the `build` field to the copy's pending record: the targets of the step's build, the
-copy's digests `tree`, and the digests of the build output that `Copy.adopt` moved to `root`'s
-`.lake/build`. The new record is written beside the pending one and renamed over it, so a failure
-leaves the pending record as the gate wrote it; it is reported and is no error of the step. -/
-def Copy.recordBuild (copy : Copy) (root : System.FilePath) (tree : List (String × String)) :
-    BaseIO Unit := do
-  let record : IO Unit := do
-    let started ← IO.monoMsNow
-    let build := root / ".lake" / "build"
-    let artifacts ← digests build (← buildFiles build)
-    let value ← IO.ofExcept (Lean.Json.parse (← IO.FS.readFile copy.pending))
-    let value := value.setObjVal! "build" (Lean.Json.mkObj [
-      ("targets", Lean.toJson (gateTargets ++ otherTargets)),
-      ("tree", Lean.toJson tree), ("artifacts", Lean.toJson artifacts)])
-    let written := copy.scratch / "acceptance-link.build.json"
-    IO.FS.writeFile written (value.compress ++ "\n")
-    IO.FS.rename written copy.pending
-    announce s!"recorded the digests of {tree.length} files of the copy and {artifacts.length} \
-      files of its build output in {(← IO.monoMsNow) - started} ms"
-  if let .error error ← record.toBaseIO then
-    announce s!"the record names no build output for the documentation step to reuse: {error}"
+The first step records the content identity of the files it accepted: the SHA-256 of each file of
+its copy, taken before any command ran in it, by its path (`identity`). The copy holds each file
+that the copy construction selects (`Construction.projectRelative`): the root package's sources
+and configuration, the documents, and the sources of the other packages of the repository. The
+documentation step takes the same identity of the checkout, by a copy made the same way, and
+refuses unless it equals the recorded one, before its first command and again after its last
+(`requireLink`). So the documentation step checks the inputs that the first step accepted. That
+`shasum` and the filesystem report the files' contents is trusted, as is that no other process
+writes the record. -/
+
+/-- The content identity of a copy: the SHA-256 of each file `copyTree` wrote, by its path. -/
+def identity (copy : Copy) : IO (List (String × String)) :=
+  digests copy.project copy.files
+
+/-- The accepted record of the identity `tree`: its members `schemaVersion`, `status` and
+`identity` are the signature of an acceptance link (`RegulaCore.Destination.completedSignatures`),
+so it is a document of Regula (`regulaDocument_acceptedValue`) and a later run may replace it
+(`ownershipRefusal`, `ownershipDecision_accepted`). -/
+def acceptedValue (tree : List (String × String)) : Lean.Json :=
+  Lean.Json.mkObj [("schemaVersion", Lean.toJson (1 : Nat)),
+    ("status", Lean.Json.str "accepted"), ("identity", Lean.toJson tree)]
+
+/-- The text of the accepted record of the identity `tree` (`acceptedValue`), which
+`Copy.record` writes. -/
+def acceptedRecord (tree : List (String × String)) : String :=
+  (acceptedValue tree).compress ++ "\n"
+
+/-- Write the accepted record of `tree` (`acceptedRecord`) in the copy's pending record, beside it
+and then renamed over it, so a failure leaves the pending record incomplete. -/
+def Copy.record (copy : Copy) (tree : List (String × String)) : IO Unit := do
+  let written := copy.scratch / "acceptance-link.accepted.json"
+  IO.FS.writeFile written (acceptedRecord tree)
+  IO.FS.rename written copy.pending
+
+/-- Whether the accepted record `value` records the identity `tree`. -/
+def linked (value : Lean.Json) (tree : List (String × String)) : Bool :=
+  (value.getObjValAs? Nat "schemaVersion").toOption == some 1 &&
+    (value.getObjValAs? String "status").toOption == some "accepted" &&
+    (value.getObjValAs? (List (String × String)) "identity").toOption == some tree
 
 /-- Remove the copy: its scratch directory, then its marker, then the lock, in the order of
 `Regula.Scratch.withScratch`. The directory is removed only as `removeOwn` decides. A failure is
-reported and is no error of the step: the checker's reclamation removes the directory later. -/
+reported and is no error of the step: a later reclamation removes the directory (`reclaim`). -/
 def Copy.remove (copy : Copy) : BaseIO Unit := do
   let remove : IO Unit := do
     removeOwn copy.scratch
@@ -1315,13 +768,26 @@ def Copy.remove (copy : Copy) : BaseIO Unit := do
   if let .error error ← remove.toBaseIO then
     announce s!"could not remove the copy {copy.scratch}: {error}"
 
+/-- Refuse unless the record at `linkPath` is an accepted record of the identity of a copy of the
+checkout at `root`, made and removed here. -/
+def requireLink (root : System.FilePath) : IO Unit := do
+  let copy ← makeCopy root
+  let tree ← try identity copy finally copy.remove
+  let text ← try IO.FS.readFile linkPath catch error =>
+    throw <| IO.userError s!"acceptance link missing: run ordinary acceptance first ({error})"
+  let value ← IO.ofExcept (Lean.Json.parse text)
+  unless linked value tree do
+    throw <| IO.userError s!"the acceptance link {linkPath} does not record these inputs: run \
+      ordinary acceptance on them first"
+  announce s!"acceptance link: the {tree.length} files the copy construction selects equal the \
+    accepted ordinary inputs"
+
 /-! ## The destinations the driver writes
 
-The driver writes three kinds of file in the project's `tmp` directory: the acceptance link
-(`linkPath`), the receipt of the whole rule-example corpus (`corpusEvidence`), and the export of
-each of the corpus's shards (`shardEvidence`). It writes each by the rules of the destinations of
-the package's programs (`Regula.Destination`), which this module cannot import, so the rules are
-written a second time here:
+The driver writes one file in the project's `tmp` directory, the acceptance link (`linkPath`):
+its mark (`incompleteLink`, by `writeDocument`) and the accepted record (by `promote`). It writes it
+by the rules of the destinations of the package's programs (`Regula.Destination`), which this
+module cannot import, so the rules are written a second time here:
 
 - It finds the entry that a destination names before it makes anything, as the real path of its
   longest present prefix and the names below it, and stops when one of those names is `..`
@@ -1339,10 +805,12 @@ programs': `regulaDocument_shared` its identification of a document of Regula,
 `ownershipDecision_shared` its decision to replace an entry, `plainNames_shared` its names below a
 present prefix, and `identifiesSiteBuild_shared`, `siteAssemblingMarker_shared`,
 `holdsSiteArtifact_shared` and `siteArtifactDecision_shared` its decision on the site artifact that
-it removes (`siteRefusal`). The reads, the writes and the renames around these decisions are
-written twice and related by no theorem; a control of the checker self-test runs the driver's
-begin-attempt against files that are not Regula's, and `Regula.ProgramCheck.Verification` runs its
-writer and its promotion against one. The module
+it removes (`siteRefusal`). There, `regulaDocument_acceptedValue` proves that the accepted record
+that the driver writes (`acceptedValue`) is a document of Regula, and `ownershipDecision_accepted`
+that the decision replaces a regular file whose UTF-8 text Lean's JSON parser reads as that record.
+The reads, the writes and the renames around these decisions are written twice and related by no
+theorem. That a file holds the text that the driver wrote, and that Lean's JSON parser reads the
+text of an accepted record (`acceptedRecord`) back as its value, are trusted. The module
 `Regula.ProgramCheck.Verification` admits a write, a rename or a removal of a file in the driver
 only at the places that it names, among them `writeDocument` and `promote`. -/
 
@@ -1590,35 +1058,17 @@ def report (ends : List (Command × Option UInt32)) : String :=
     if passed [ended] then none else some s!"  {command.display}: {describe ended}")
 
 private def usage : String :=
-  "usage: scripts/verify.sh [docs | serialized-graph | site | mathlib | diagnostics \
-    [fixtures [1/5..5/5]|structural [1/5..5/5]|execution [1/4..4/4]|cli [1/6..6/6]|\
-    environments [1/6..6/6]|build-policy [1/3..3/3]|lint-driver [1/5..5/5]|producers|history|\
-    self-lint|self-lint-default|self-audit [1/4..4/4]|rule-examples [1/3..3/3]|input-inventory|\
-    environment-census|snapshot-history|acceptance-controls|documentation-controls|\
-    focused-controls|policy-domain|enumeration-failure|readers]]\n\
-  diagnostics readers builds the modules of each package with Lake, as the other modes build, so \
-  Lake can update or fetch a dependency there; run it after provisioning (lean --run \
-  lean/RegulaProvision.lean verso and mathlib) and ./scripts/verify.sh site"
+  "usage: scripts/verify.sh [docs | site | mathlib]"
 
-/-- The receipt of the whole rule-example corpus, which `diagnostics rule-examples` writes and
-which each attempt marks (`beginAttempt`). -/
-def corpusEvidence : String := "tmp/rule-examples.json"
-
-/-- The constant text that records rule-example evidence as incomplete before setup. -/
-def setupMark : String := "{\"outcome\":\"INCOMPLETE\",\"phase\":\"setup\"}\n"
-
-/-- The earlier verdicts an attempt of `mode` invalidates beside the corpus receipt
-(`corpusEvidence`), which each attempt invalidates, each with the constant text recording it as
-incomplete. Ordinary acceptance invalidates the accepted link, so it is not
-accepted from then on unless a run promotes the pending record of its own gate to it. -/
+/-- The earlier verdicts an attempt of `mode` invalidates, each with the constant text recording it
+as incomplete. Ordinary acceptance invalidates the accepted link, so it is not accepted from then on
+unless a run records the identity of its own copy in it. -/
 def invalidated : Mode → List (String × String)
   | .ordinary => [(linkPath, incompleteLink)]
-  | .ruleExamplesShard index => [(shardEvidence (index.val + 1), setupMark)]
   | _ => []
 
 /-- The manifest and package overrides file of the workspace that Lake loads with the package at
-`dir` as its root, joined as Lake joins paths. `Regula.ProgramCheck.Verification.rootFiles_eq`
-proves this `Regula.Checker.Workspace.rootFiles`.
+`dir` as its root, joined as Lake joins paths.
 
 Assumes:
 - Lake v4.35.0 gives the root package of a workspace the manifest `lake-manifest.json` of its
@@ -1634,8 +1084,7 @@ def rootFiles (dir : System.FilePath) : System.FilePath × System.FilePath :=
 /-- The manifest of the workspace whose manifest and package overrides file are `files`
 (`rootFiles`), and the entries of that overrides file, each read by Lake's own reader, or `none`
 when the manifest does not exist; any other failure of a read, and a file that Lake's reader
-refuses, are thrown. `Regula.ProgramCheck.Verification.readRoot_eq` proves this the checker's
-read, `Regula.Checker.Workspace.readRoot`.
+refuses, are thrown.
 
 Assumes:
 - Lake v4.35.0's load reads the manifest with `Lake.Manifest.load?`
@@ -1692,61 +1141,45 @@ def claimedTargets (manifest : Lean.Json) : Option (List String) := do
     pure (library :: executables.toList)
   pure named.flatten
 
-/-- Whether the prebuild of the first acceptance step builds every target the surface manifest
-claims (`prebuildCovers_iff`). The gate builds a claimed target that is not yet built itself,
-and the rest of the step's build runs beside the gate in the same build output, so a claimed
-target the prebuild does not name could be built by two Lake processes at once. The driver
-refuses the step when this is `false`. -/
-def prebuildCovers (manifest : Lean.Json) : Bool :=
+/-- Whether the first acceptance step builds every target the surface manifest claims
+(`buildCovers_iff`). The step's checker reads the build of the claimed targets and refuses a
+module without its `.olean`, so a claimed target the step does not build would make it incomplete
+rather than checked; the driver refuses the step at once when this is `false`. -/
+def buildCovers (manifest : Lean.Json) : Bool :=
   match claimedTargets manifest with
-  | some targets => targets.all gateTargets.contains
+  | some targets => targets.all surfaceTargets.contains
   | none => false
 
-/-- `prebuildCovers` accepts exactly a manifest of the shape `claimedTargets` reads all of whose
-claimed targets are targets of the prebuild. -/
-theorem prebuildCovers_iff (manifest : Lean.Json) :
-    prebuildCovers manifest = true ↔
+/-- `buildCovers` accepts exactly a manifest of the shape `claimedTargets` reads all of whose
+claimed targets are targets of the step's build. -/
+theorem buildCovers_iff (manifest : Lean.Json) :
+    buildCovers manifest = true ↔
       ∃ targets, claimedTargets manifest = some targets ∧
-        ∀ target ∈ targets, target ∈ gateTargets := by
-  unfold prebuildCovers
+        ∀ target ∈ targets, target ∈ surfaceTargets := by
+  unfold buildCovers
   split
   · next targets h => simp [h, List.all_eq_true]
   · next h => simp [h]
 
-/-- Begin an attempt: mark the corpus receipt (`corpusEvidence`) incomplete, whatever the
-arguments, then invalidate the selected mode's earlier PASS or accepted link (`invalidated`), and
+/-- Begin an attempt: invalidate the selected mode's earlier accepted link (`invalidated`), and
 remove an earlier site artifact. Each mark is written as `writeDocument` writes, so it replaces
-only nothing, an empty file or a document of Regula. `scripts/verify.sh` runs this
-toolchain-only step before provisioning and before any checker is built, so a failed setup or
-build cannot leave either in place. The site artifact is removed only when it is one that the
-site's build may replace (`siteRefusal`) and a directory is at its own place (`removeOwn`): with
-a symbolic link or a directory of something else at `_site` the attempt removes nothing. A
-destination that the attempt may not replace keeps what it holds; the attempt marks the others,
-and then stops with each reason. With arguments of no mode it marks the corpus receipt alone and
-stops with that receipt's reason, if any, and the usage.
+only nothing, an empty file or a document of Regula. `scripts/verify.sh` runs this toolchain-only
+step before provisioning and before any checker is built, so a failed setup or build cannot leave
+either in place. The site artifact is removed only when it is one that the site's build may
+replace (`siteRefusal`) and a directory is at its own place (`removeOwn`): with a symbolic link or
+a directory of something else at `_site` the attempt removes nothing. A destination that the
+attempt may not replace keeps what it holds, and the attempt then stops with each reason. With
+arguments of no mode it stops with the usage.
 
 An attempt that stops before this step, such as one with no `lean` to run, has run no code of its
-own and leaves the earlier verdicts of its mode and the corpus receipt.
+own and leaves the earlier verdicts of its mode.
 Assumes: each reader that admits one of those verdicts admits it only for the current inputs, so it
-is the verdict for those inputs. `AcceptanceLink.require` admits the acceptance link (`linkPath`)
-only when its identity is the digest of the current inputs. `Site.Build.admitShard` admits a shard
-export (`shardEvidence`) only when it records the current sources of the checker
-(`Site.Build.currentSources`), and then runs `ruleExampleQualification` on it. Only the attempt
-of `diagnostics rule-examples` that writes the corpus receipt reads it, and that attempt marks it
-here first. `Regula.Site.Deployment.gate` admits the site artifact (`siteOutput`) only for a clean
-build of the commit it deploys. The gate of the diagnostics workflow reads the self-hosted digests
-only from the artifacts of the jobs of its commit (`Regula.DiagnosticsGate.digestPath`). The step
-`digests` of the local gate reads them in the checkout after the structural shards of the same run
-of `local`, each of which removes its digest when it starts
-(`Regula.Checker.CheckerSelftest.clearSelfHostedDigest`); a run of `digests` by hand reads what the
-checkout holds. No reader
-in this repository reads `tmp/environment-census.json` or `tmp/acceptance-fences.json`. -/
+is the verdict for those inputs. `requireLink` admits the acceptance link (`linkPath`) only when it
+records the identity of the current inputs. `Regula.Site.Deployment.gate` admits the site artifact
+(`siteOutput`) only for a clean build of the commit it deploys. -/
 def beginAttempt (args : List String) : IO Unit := do
   let mut refused : Array String := #[]
-  if let .error error ← (writeDocument corpusEvidence setupMark).toBaseIO then
-    refused := refused.push (toString error)
-  let some selection := select args |
-    throw <| IO.userError ("\n".intercalate (refused.push usage).toList)
+  let some selection := select args | throw <| IO.userError usage
   for (path, text) in invalidated selection.val do
     if let .error error ← (writeDocument path text).toBaseIO then
       refused := refused.push (toString error)
@@ -1759,20 +1192,19 @@ def beginAttempt (args : List String) : IO Unit := do
   unless refused.isEmpty do throw <| IO.userError ("\n".intercalate refused.toList)
 
 /-- Cold-start driver; all builds and checks stay within the inherited outer deadline. After the
-preliminary checks and the mode's `prebuild`, it schedules every command of the mode
-(`inOrder_append_beside`), starts one only while every end known so far passed, waits for each
-one it started, and reports success only when `passed` accepts how every one of those commands
-and of the prebuilds ended (`passed_covers`). The first acceptance step promotes the pending
-record of its own gate to the accepted link only then, before the removal of its copy and before
-the success line, and only when the file at `linkPath` is one that the run may replace (`promote`):
-the record is the pending record of the copy's scratch directory, which `promote` does not read.
-It refuses a surface manifest that claims a target its prebuild does not build
-(`prebuildCovers`), makes its copy after the preliminary checks
-(`makeCopy`), runs its prebuild and its commands for that copy (`ordinary_places`), gives the
-copy's build output to a project that has none when the step passed (`Copy.adopt`) and then
-records it (`Copy.recordBuild`), and removes the copy in each case (`Copy.remove`). It obtains the
-Git isolation once, before its first command (`isolationEnvironment`), and starts every command
-under it (`start`). -/
+preliminary checks it runs the commands of the mode one after another, starts one only while every
+end known so far passed, and reports success only when `passed` accepts how every one of them
+ended (`passed_covers`). The first acceptance step refuses a surface manifest that claims a target
+its build does not build (`buildCovers`), makes its copy after the preliminary checks
+(`makeCopy`), takes the copy's identity before any command runs in it (`identity`), runs its
+commands for that copy (`ordinary_places`), and only when every command passed records that
+identity (`Copy.record`) and moves the record to `linkPath` (`promote`), before the removal of its
+copy and before the success line, and only when the file at `linkPath` is one that the run may
+replace. It gives the copy's build output to a project that has none when the step passed
+(`Copy.adopt`), and removes the copy in each case (`Copy.remove`). The documentation step
+requires the link before its first command and again after its last (`requireLink`). The driver
+obtains the Git isolation once, before its first command (`isolationEnvironment`), and starts every
+command under it (`start`). -/
 def run (args : List String) : IO Unit := do
   let some selection := select args | throw <| IO.userError usage
   if selection.val == .ordinary then
@@ -1781,101 +1213,62 @@ def run (args : List String) : IO Unit := do
         .lake/package-overrides.json records one: the regula package must require nothing beyond \
         the Lean toolchain (a Mathlib-dependent module belongs in integration/mathlib/)"
     let surfaces ← IO.ofExcept (Lean.Json.parse (← IO.FS.readFile "foundation_manifest.json"))
-    unless prebuildCovers surfaces do
-      throw <| IO.userError s!"foundation_manifest.json claims a target that the prebuild of \
-        the first acceptance step does not build, or its surfaces cannot be read: the gate would \
-        build that target beside the rest of the step's build; add it to \
-        RegulaVerification.gateTargets (the prebuild builds {gateTargets})"
+    unless buildCovers surfaces do
+      throw <| IO.userError s!"foundation_manifest.json claims a target that the first \
+        acceptance step does not build, or its surfaces cannot be read; add it to \
+        RegulaVerification.surfaceTargets (the step builds {surfaceTargets})"
   let isolation ← isolationEnvironment
-  let early ← executeInOrder isolation .normal []
+  let early ← executeInOrder isolation []
     [({ program := "git", args := #["diff", "--check"] } : Command),
       { program := "git", args := #["diff", "--cached", "--check"] },
       { program := "shellcheck", args := #["scripts/verify.sh", "scripts/provision.sh"] }]
   let root ← IO.FS.realPath "."
+  if selection.val == .docs && passed early.statuses then requireLink root
   let copy ← if selection.val == .ordinary && passed early.statuses then
       some <$> makeCopy root
     else pure none
-  -- The digests of the copy's files, before any command runs in it (`Copy.recordBuild`).
-  let tree ← match copy with
-    | none => pure none
-    | some copy => do
-      match ← (digests copy.project copy.files).toBaseIO with
-      | .ok tree => pure (some tree)
-      | .error error =>
-          announce s!"could not take the digests of the copy's files: {error}"
-          pure none
-  let place := (copy.map (·.project.toString)).getD "."
-  let pending := (copy.map (·.pending.toString)).getD ""
-  let prebuilt ← executeInOrder isolation .normal early.statuses (prebuild place selection.val)
-  let (others, gates) ← executeBeside isolation .normal (early.statuses ++ prebuilt.statuses)
-    (beside place pending selection.val) (inOrder place pending selection.val)
-  let all := ((early.append prebuilt).append others).append gates
-  if let some copy := copy then
-    -- The pending record is in the scratch directory of the copy, so the promotion is before
-    -- the removal of the copy, which follows in each case.
-    try
-      if passed all.statuses then
-        if (← copy.adopt root) then
-          if let some tree := tree then copy.recordBuild root tree
-        promote copy.pending linkPath
-        announce s!"every command exited 0: moved {copy.pending} to {linkPath}"
-    finally copy.remove
-  unless passed all.statuses do
-    throw <| IO.userError (report all.ends)
+  try
+    -- The identity of the copy's files, before any command runs in it.
+    let tree ← copy.mapM identity
+    let place := (copy.map (·.project.toString)).getD "."
+    let ran ← executeInOrder isolation early.statuses (commands place selection.val)
+    let all := early.append ran
+    if let some copy := copy then
+      if let some tree := tree then
+        -- The record is in the scratch directory of the copy, so the promotion is before the
+        -- removal of the copy, which follows in each case.
+        if passed all.statuses then
+          discard <| copy.adopt root
+          copy.record tree
+          promote copy.pending linkPath
+          announce s!"every command exited 0: recorded the identity of {tree.length} files in \
+            {linkPath}"
+    unless passed all.statuses do
+      throw <| IO.userError (report all.ends)
+  finally
+    if let some copy := copy then copy.remove
+  if selection.val == .docs then requireLink root
   IO.println (match selection.val with
-    | .ordinary => "local verification: PASS (ordinary mechanical acceptance commands completed; \
-      semantic review is separate; run `scripts/verify.sh docs` for documentation)"
+    | .ordinary => "local verification: PASS (ordinary mechanical acceptance commands completed, \
+      Regula's checker passed on the copy's build; semantic review is separate; run \
+      `scripts/verify.sh docs` for documentation)"
     | .docs => "documentation verification: PASS (every rule ID in the prose md4c reads in each \
       tracked Markdown document links to its rule page; CONTEXT.md is the print of a vocabulary \
       whose source paths are tracked files, and the controls of that check gave the expected \
-      results; the example package in audit/ accepted \
-      fresh; every docs/ Lean fence and every lean block of the Verso standard, which built in \
-      this run and rendered, against root-package build output compiled from files equal to \
-      those checked: in this run, in a copy with no earlier build output or, where the \
-      docFenceAudit line says so, partly by the first acceptance step in such a copy of its own, \
-      every SHA-256 equal, and the rest in this run against those artifacts; every rule ID in the prose `Regula.Prose` reads in the rendered \
-      standard links to its rule page; inputs equal the accepted ordinary inputs)"
-    | .graph => "serialized-graph diagnostic: PASS (not ordinary verification)"
+      results; the example package in audit/ built and passed Regula's checker; the Verso standard \
+      built, every lean block elaborated where it is written, rendered, and its anchors, checklist \
+      rows and rule-ID links checked; inputs equal the accepted ordinary inputs before and after)"
     | .site => "site build and check: PASS (rule-reference artifact in _site, and the renderers' \
       destinations after a render and a run refused without Lean's task manager; separate from \
       acceptance; publication is verified after deployment)"
-    | .mathlib => "Mathlib integration check: PASS (the Mathlib integration package accepted fresh \
-      and linted on its pinned Mathlib; separate from acceptance, which needs no Mathlib)"
-    | _ => "diagnostic qualification: PASS (selected scope only; not ordinary verification)")
-
-/-- The private `--copy-control` entry, for the controls of the checker self-test, so that they
-qualify the copy, the lock and the marker of this driver and not a second implementation of
-them. It makes the copy of the project in the current directory as the first acceptance step
-makes it (`makeCopy`), prints the copy's root, and then obeys the lines of its standard input:
-`adopt` gives the copy's build output to the project when it has none (`Copy.adopt`) and prints
-`adopted` or `kept`; `remove` removes the copy (`Copy.remove`) and ends. At the end of the input
-it ends and leaves the copy with its marker, as a killed run leaves it. It runs no check and
-reports no verification result. -/
-def copyControl : IO Unit := do
-  let root ← IO.FS.realPath "."
-  let copy ← makeCopy root
-  let stdout ← IO.getStdout
-  stdout.putStrLn copy.project.toString
-  stdout.flush
-  let stdin ← IO.getStdin
-  repeat
-    let line ← stdin.getLine
-    if line.isEmpty then return
-    match line.trimAscii.toString with
-    | "adopt" =>
-        stdout.putStrLn (if ← copy.adopt root then "adopted" else "kept")
-        stdout.flush
-    | "remove" =>
-        copy.remove
-        return
-    | other => throw <| IO.userError s!"--copy-control: unknown line {other}"
+    | .mathlib => "Mathlib integration check: PASS (the Mathlib integration package built and \
+      passed Regula's checker on its pinned Mathlib; separate from acceptance, which needs no \
+      Mathlib)")
 
 end RegulaVerification
 
 /-- Standalone cold-start entrypoint; invoke through the timed `scripts/verify.sh`, which
-first runs it with the private `--begin-attempt` protocol flag before setup. The private
-`--copy-control` entry is for the controls of the checker self-test. -/
+first runs it with the private `--begin-attempt` protocol flag before setup. -/
 def main : List String → IO Unit
   | "--begin-attempt" :: args => RegulaVerification.beginAttempt args
-  | ["--copy-control"] => RegulaVerification.copyControl
   | args => RegulaVerification.run args

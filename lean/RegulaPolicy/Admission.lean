@@ -45,9 +45,8 @@ def distinctDecidable {α : Type} [BEq α] [Hashable α] [LawfulBEq α] [LawfulH
 def Named (n : Lean.Name) : Prop := n ≠ .anonymous
 instance (n : Lean.Name) : Decidable (Named n) := inferInstanceAs (Decidable (n ≠ .anonymous))
 
--- Realized here, once, for every module that unfolds `Named`: two modules that each realized it
--- would each hold a copy, which `qualify unique-constants` refuses where one environment loads
--- both.
+-- Realize the equation lemma here, once, so importers that unfold `Named` use the same
+-- declaration.
 section
 attribute [local simp] Named.eq_1
 end

@@ -1,4 +1,4 @@
-import RegulaCore.Account
+import RegulaCore.Residual
 import RegulaCore.Guide
 import RegulaCore.Summary
 import Regula.Contract
@@ -72,7 +72,7 @@ recorded by the builder and in the website guide.
 
 namespace Regula.Site
 
-open Regula.Checker.Account (Residual)
+open Regula.Review (Residual)
 
 /-- The repository whose sources the site documents. -/
 def repository : String := "https://github.com/rbeauchamp/regula"

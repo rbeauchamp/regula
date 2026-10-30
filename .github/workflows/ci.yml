@@ -2,9 +2,8 @@ name: CI
 
 # CI runs on every push to main and on dispatch, never on a pull request: the gate of a change is the
 # local gate that the no-mistakes validation pipeline runs on each commit it validates
-# (docs/guides/contributing.md#the-local-gate). On main, `verify` and `rule-examples` are the checks
-# the release jobs need and the source of the site's examples, and `site` and `deploy` publish the
-# rule-reference site. `mathlib` runs on dispatch alone.
+# (docs/guides/contributing.md#the-local-gate). On main, `verify` is the check the release jobs
+# need, and `site` and `deploy` publish the rule-reference site. `mathlib` runs on dispatch alone.
 on:
   push:
     branches: [main]
@@ -73,10 +72,9 @@ jobs:
         run: ./scripts/verify.sh docs
 
   # The Mathlib integration check (docs/guides/contributing.md#mathlib-integration-check): the
-  # fresh acceptance and lint of the Mathlib integration package in integration/mathlib/, a
+  # build and lint of the Mathlib integration package in integration/mathlib/, a
   # Mathlib adopter of the checker. It is the only job that downloads, caches or builds Mathlib,
-  # and no other job needs its result: acceptance, the corpus, the site and a release require no
-  # Mathlib. Its result is about the toolchain and Mathlib revision that package pins.
+  # and no other job needs its result: acceptance, the site and a release require no Mathlib. Its result is about the toolchain and Mathlib revision that package pins.
   # A mismatched pin fails the integration preflight instead of skipping the check.
   mathlib:
     name: mathlib integration
@@ -96,42 +94,7 @@ jobs:
       - name: Check the Mathlib integration package (same command and seven-minute limit as local)
         run: ./scripts/verify.sh mathlib
 
-  # The rule-example corpus: detector qualification (standard §7.8) and the only
-  # source of the site's examples. Diagnostics, not a partition of acceptance.
-  rule-examples:
-    if: always()
-    name: diagnostics rule-examples ${{ matrix.shard }}
-    runs-on: ubuntu-24.04
-    timeout-minutes: 30
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - shard: '1/3'
-            index: 1
-          - shard: '2/3'
-            index: 2
-          - shard: '3/3'
-            index: 3
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-
-      - uses: ./.github/actions/provision
-
-      - name: Qualify (same command and seven-minute limit as local)
-        run: ./scripts/verify.sh diagnostics rule-examples ${{ matrix.shard }}
-
-      - name: Keep the shard export for the site build
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: rule-examples-${{ matrix.index }}of3-${{ github.sha }}
-          path: tmp/rule-examples-${{ matrix.index }}of3.json
-          if-no-files-found: error
-          retention-days: 30
-
-  # On main, once acceptance and the corpus shards pass: when main lists a release that is not
+  # On main, once acceptance passes: when main lists a release that is not
   # yet published, and its bump from the release listed before it is at least the bump the
   # commits of main since that release call for (Regula.Release.covers), create the release
   # commit (a signed child of this commit, not on main, whose only change sets Regula.installed
@@ -142,7 +105,7 @@ jobs:
   # docs/guides/contributing.md#release). The derivation reads main's history since the earlier
   # release's tag, hence the full clone.
   candidate:
-    needs: [verify, rule-examples]
+    needs: [verify]
     if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
     runs-on: ubuntu-24.04
     timeout-minutes: 30
@@ -207,9 +170,7 @@ jobs:
           REGULA_PROSE_START: before:HEAD
         run: ./scripts/verify.sh docs
 
-  # The release commit's corpus shards and site build, one after another: its budget of 135
-  # minutes is 30 + 30 + 30 + 45, the budgets of the three `rule-examples` shards and `site` it
-  # repeats.
+  # The release commit's site build: its budget of 45 minutes is that of `site`, which it repeats.
   # It adopts the release commit as `release-verify` does. Before the tag exists, its site build
   # renders the release's edition from source and writes it as the release asset
   # (Regula.releaseSource).
@@ -217,7 +178,7 @@ jobs:
     needs: candidate
     if: needs.candidate.outputs.commit != ''
     runs-on: ubuntu-24.04
-    timeout-minutes: 135
+    timeout-minutes: 45
     outputs:
       commit: ${{ steps.adopt.outputs.commit }}
     steps:
@@ -235,18 +196,9 @@ jobs:
           RELEASE_TREE: ${{ needs.candidate.outputs.tree }}
         run: lean --run lean/Regula/Release.lean adopt
 
-      - name: Qualify shard 1/3 (same command and seven-minute limit as local)
-        run: ./scripts/verify.sh diagnostics rule-examples 1/3
-
-      - name: Qualify shard 2/3 (same command and seven-minute limit as local)
-        run: ./scripts/verify.sh diagnostics rule-examples 2/3
-
-      - name: Qualify shard 3/3 (same command and seven-minute limit as local)
-        run: ./scripts/verify.sh diagnostics rule-examples 3/3
-
       - name: Build site tooling
         timeout-minutes: 20
-        run: lake build axiomGate ruleExampleQualification site AuditApp
+        run: lake build site AuditApp
 
       - name: Build the example library the standard's examples import
         timeout-minutes: 20
@@ -296,9 +248,8 @@ jobs:
           SITE_COMMIT: ${{ needs.release-site.outputs.commit }}
         run: lean --run lean/Regula/Release.lean publish
 
-  # Rule-reference website (docs/guides/website.md): generated from the registry, the rule
-  # explanations and this run's admitted corpus exports, rendered with pinned Verso and
-  # checked. Separate from, and never a partition of, 420-second acceptance. On main it runs after
+  # Rule-reference website (docs/guides/website.md): generated from the registry and the rule
+  # explanations, rendered with pinned Verso and checked. Separate from, and never a partition of, 420-second acceptance. On main it runs after
   # `publish`, so it takes a release's edition from the asset published in this run. `candidate`
   # and `publish` are skipped on a dispatch on another branch; `publish` is also skipped when there
   # is nothing to release, and when `release-verify` or `release-site` fails. While the latest
@@ -307,9 +258,9 @@ jobs:
   # artifact as not publishable (Regula.releaseSource_preview_iff): on that branch the job passes,
   # and on main the deployment gate below refuses, so this job fails and nothing is deployed.
   site:
-    needs: [rule-examples, candidate, publish]
+    needs: [candidate, publish]
     if: >-
-      !cancelled() && needs.rule-examples.result == 'success' &&
+      !cancelled() &&
       (needs.candidate.result == 'success' || needs.candidate.result == 'skipped') &&
       (needs.publish.result == 'success' || needs.publish.result == 'skipped')
     runs-on: ubuntu-24.04
@@ -323,18 +274,11 @@ jobs:
         with:
           verso: 'true'
 
-      - name: Receive this run's corpus exports
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
-        with:
-          pattern: rule-examples-*of3-${{ github.sha }}
-          path: tmp
-          merge-multiple: true
-
       # Also the libraries the standard's examples import, so the timed site build elaborates the
       # standard without building them.
       - name: Build site tooling
         timeout-minutes: 20
-        run: lake build axiomGate ruleExampleQualification site AuditApp
+        run: lake build site AuditApp
 
       - name: Build the example library the standard's examples import
         timeout-minutes: 20

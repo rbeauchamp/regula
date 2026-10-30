@@ -23,8 +23,7 @@ operations reaches the system only through it. Other code of Regula still calls 
 operations directly, and no check finds those calls yet.
 
 This module holds the vocabulary of those declarations; `Regula.Assumption` holds the attributes
-that make them, and `RegulaPolicy.Assumptions` the reading of a claim's assumptions from the
-constants it uses. -/
+that make them. -/
 
 @[expose] public section
 
@@ -102,8 +101,7 @@ inductive Source where
   Lean files below its own `src/lean` directory. -/
   | lean (version : String) (location : String)
   /-- A document about `system` that states the fact and identifies its own version, such as a
-  standard. A fact about Lean or Lake is stated by a `lean` source, which carries its release, so
-  `Source.unpinned` refuses a document about either. -/
+  standard. A fact about Lean or Lake is stated by a `lean` source, which carries its release. -/
   | document (system : System) (reference : String)
   /-- No source states the fact: it is trusted for the given reason. -/
   | trusted (reason : String)

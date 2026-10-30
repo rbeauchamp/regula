@@ -34,7 +34,7 @@ as specified and that the output is served are observations recorded by the buil
 
 namespace Regula.Site
 
-open Regula.Checker.Account (Residual Trusted)
+open Regula.Review (Residual Trusted)
 
 /-- Exact identity of one site build. -/
 structure Identity where
@@ -90,8 +90,7 @@ structure FindingView where
   /-- Where the finding is: a source path with line and column, a module, or the project. -/
   location : String
 
-/-- The recorded status of a rule-example run, in the checker's result vocabulary
-(`Regula.Checker.Account.Status.spelling`). -/
+/-- The recorded status of a rule-example run. -/
 inductive RunStatus where
   /-- The run was accepted. -/
   | completed
@@ -124,10 +123,10 @@ structure Example where
   kind : String
   /-- A description of the invocation that produced the runs. -/
   request : String
-  /-- The recorded status of the violating run. -/
-  violationStatus : RunStatus
-  /-- The recorded status of the corrected run. -/
-  fixedStatus : RunStatus
+  /-- The recorded status of the violating run, or `none` when no run produced the example. -/
+  violationStatus : Option RunStatus
+  /-- The recorded status of the corrected run, or `none` when no run produced the example. -/
+  fixedStatus : Option RunStatus
   /-- The inputs whose content differs between the two runs, by path. -/
   changed : List ChangedFile
   /-- The unchanged displayed source, shown for context. -/
@@ -382,20 +381,21 @@ where
     | some mode => modeLabel mode
     | none => m
 
-private def changedViolation (ident : Identity) (status : RunStatus) (c : ChangedFile) : String :=
+private def changedViolation (ident : Identity) (status : Option RunStatus) (c : ChangedFile) :
+    String :=
   match c.violation with
-  | some f => if f.fixture.isSome then shownHtml ident (some status) f else
+  | some f => if f.fixture.isSome then shownHtml ident status f else
       "<p>" ++ code c.path ++ " (written by the qualification runner) differs; its change is shown \
         under Correction.</p>"
   | none => "<p>" ++ code c.path ++ " is absent in the violating run.</p>"
 
-private def changedFix (ident : Identity) (status : RunStatus) (c : ChangedFile) :
+private def changedFix (ident : Identity) (status : Option RunStatus) (c : ChangedFile) :
     Except String String := do
   let before := (c.violation.map (lines ·.text)).getD []
   let after := (c.fixed.map (lines ·.text)).getD []
   let d ← admitDiff before after
   let full := match c.fixed with
-    | some f => if f.fixture.isSome then shownHtml ident (some status) f else ""
+    | some f => if f.fixture.isSome then shownHtml ident status f else ""
     | none => "<p>" ++ code c.path ++ " is removed by the correction.</p>"
   let terminator := if c.violation.isSome && c.fixed.isSome && before == after &&
       c.violation.map (·.text) != c.fixed.map (·.text) then
@@ -412,6 +412,8 @@ def exampleKindText : String → String
   | "diagnosticDemonstration" => "Diagnostic demonstration: the violating run is INCOMPLETE by \
     design. It shows the exact diagnostic and is not accepted negative evidence. The corrected \
     input passed a completed positive check."
+  | "registry" => "Registry example: the noncompliant and the compliant file of the rule's \
+    example pair, as the registry holds them. No run of the checker produced this example."
   | other => other
 
 /-- The checked example: violating inputs with the verdict of their run, the exact findings, the
@@ -425,15 +427,18 @@ def exampleHtml (ident : Identity) (ex : Example) : Except String String := do
         (ex.changed.map (changedViolation ident ex.violationStatus)) ++
     (if ex.context.isEmpty then "" else
       "<h3>Unchanged input</h3>" ++ String.join (ex.context.map (shownHtml ident none))) ++
-    "<h3>Findings of the violating run</h3>" ++ String.join (ex.findings.map findingHtml) ++
+    (if ex.findings.isEmpty then "" else
+      "<h3>Findings of the violating run</h3>" ++ String.join (ex.findings.map findingHtml)) ++
     "<h3>Correction</h3>" ++ String.join fixes ++ "</div>"
 
 /-- How the example was produced, in one line: the audit that ran it and both recorded run
 statuses. -/
 def exampleRunHtml (ex : Example) : String :=
-  "<p class=\"regula-run\">Checked by " ++ inlineHtml ex.request ++ ": violating run " ++
-    code ex.violationStatus.spelling ++ ", corrected run " ++ code ex.fixedStatus.spelling ++
-    ".</p>"
+  match ex.violationStatus, ex.fixedStatus with
+  | some violation, some fixed =>
+    "<p class=\"regula-run\">Checked by " ++ inlineHtml ex.request ++ ": violating run " ++
+      code violation.spelling ++ ", corrected run " ++ code fixed.spelling ++ ".</p>"
+  | _, _ => "<p class=\"regula-run\">No run of the checker produced this example.</p>"
 
 /-! ## Verso text -/
 

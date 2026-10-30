@@ -10,8 +10,10 @@ The decision kind of each pure decision `RegulaVerification` registers with `@[r
 and the theorems that relate the pure decisions of the driver's copy of the destination rules to
 those of `RegulaCore.Destination`: the identification of a document of Regula, the decision to
 replace an entry from what is read of it, the names below a present prefix, and the decision on a
-site artifact. The reads, the writes and the renames around those decisions are written twice,
-and no theorem relates them.
+site artifact. Two theorems state that the accepted record that the driver writes is a document of
+Regula (`regulaDocument_acceptedValue`) and that the decision replaces a file that holds it
+(`ownershipDecision_accepted`). The reads, the writes and the renames around those decisions are
+written twice, and no theorem relates them.
 The driver imports only the toolchain, because `scripts/verify.sh` runs it with `lean --run` before
 the package is built. This second module of its library imports it together with the two checker
 interfaces, the removal decision of the filesystem observer (`RegulaCore.Removal`) and the
@@ -101,14 +103,14 @@ theorem removal_shared (observed : Observed) (parentOwn : Bool) :
   obtain ⟨place, sameLocation⟩ := observed
   cases place <;> cases sameLocation <;> cases parentOwn <;> decide
 
-/-- `prebuildCovers` accepts exactly a surface manifest of the shape `claimedTargets` reads all of
-whose claimed targets are targets of the prebuild (`prebuildCovers_iff`). It accepts a manifest
-with no surface and refuses one with no `surfaces` field. That `claimedTargets` reads the claimed
-targets as the checker's manifest reader does is not claimed. -/
-theorem checked_prebuildCovers : Regula.ExecutableContract prebuildCovers
+/-- `buildCovers` accepts exactly a surface manifest of the shape `claimedTargets` reads all of
+whose claimed targets are targets of the first acceptance step's build (`buildCovers_iff`). It
+accepts a manifest with no surface and refuses one with no `surfaces` field. That
+`claimedTargets` reads the claimed targets as the checker's manifest reader does is not claimed. -/
+theorem checked_buildCovers : Regula.ExecutableContract buildCovers
     (Regula.Decides (· = true) (fun manifest => ∃ targets,
-      claimedTargets manifest = some targets ∧ ∀ target ∈ targets, target ∈ gateTargets)) :=
-  ⟨.of_iff prebuildCovers_iff
+      claimedTargets manifest = some targets ∧ ∀ target ∈ targets, target ∈ surfaceTargets)) :=
+  ⟨.of_iff buildCovers_iff
     ⟨Lean.Json.mkObj [("surfaces", Lean.Json.arr #[])], by decide +kernel⟩
     ⟨Lean.Json.null, by decide +kernel⟩⟩
 
@@ -119,6 +121,25 @@ built, so it is written twice, and this theorem relates the two. -/
 theorem regulaDocument_shared (value : Lean.Json) :
     regulaDocument value = Regula.Destination.regulaDocument value :=
   rfl
+
+/-- The accepted record that the driver writes (`acceptedValue`, in `Copy.record`) is a document of
+Regula (`regulaDocument`) for every identity `tree`: it has the signature of an acceptance link. So
+a later run's decision replaces a file that holds it (`ownershipDecision_accepted`). -/
+theorem regulaDocument_acceptedValue (tree : List (String × String)) :
+    regulaDocument (acceptedValue tree) = true :=
+  rfl
+
+/-- A later run's decision (`ownershipDecision`) replaces a regular file whose bytes are the UTF-8
+text of the accepted record of an identity `tree` (`regulaDocument_acceptedValue`), for every path.
+The hypotheses are the trusted linkage to the file that `Copy.record` wrote: that the file holds the
+compressed text of `acceptedValue tree` with its newline (`acceptedRecord`), and that Lean's JSON
+parser reads that text back as the same value. -/
+theorem ownershipDecision_accepted (path : System.FilePath) (tree : List (String × String))
+    (bytes : ByteArray) (text : String) (decoded : String.fromUTF8? bytes = some text)
+    (parsed : Lean.Json.parse text = .ok (acceptedValue tree)) :
+    ownershipDecision path (.ok .file) (.ok bytes) = none := by
+  have isFile : (IO.FS.FileType.file != .file) = false := rfl
+  simp [ownershipDecision, isFile, decoded, parsed, regulaDocument_acceptedValue]
 
 /-- The driver decides whether to replace the entry at a destination from what it reads there
 (`ownershipDecision`) exactly as the package's programs do
@@ -167,6 +188,6 @@ theorem siteAssemblingMarker_shared :
     siteAssemblingMarker = Regula.Destination.siteAssemblingMarker :=
   rfl
 
-attribute [regula_decision] parseMode dependencyFree select passed removal prebuildCovers
+attribute [regula_decision] parseMode dependencyFree select passed removal buildCovers
 
 end RegulaVerification

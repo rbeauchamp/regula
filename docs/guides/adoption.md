@@ -1,6 +1,6 @@
 # Adopt Regula
 
-A strict linter for Lean. Regula refuses proof holes, project axioms and proofs that trust the compiler. Each finding gives a fix.
+A strict linter for Lean. Regula refuses proof holes, project axioms and proofs that trust the compiler. Each finding links to its rule page, which gives the fix.
 
 This guide is the full procedure to adopt Regula. For a first try on one module, see [Try it](../../README.md#try-it) in the README.
 
@@ -99,56 +99,6 @@ Regula does not admit the default `ls` of these platforms. On them, install GNU 
 
 Regula refuses a release of GNU coreutils that is later than `9.12`, the latest admitted release. Its reason gives the first line of `ls --version` that it refused. Use an admitted release until a later Regula release admits the new one.
 
-### Load the elaboration observer
-
-Regula's elaboration observer is a Lean plugin. It records in each module's `.olean` the options
-that its source sets and the messages that a build does not show. [RG2003] and [RG2006] decide on
-that record. Each claimed library and executable loads it through Lake's own `plugins` setting,
-and lists the same key in `needs`. In `lakefile.toml` the two keys go in the table of each target:
-
-```toml
-[[lean_lib]]
-name = "MyProject"
-plugins = ["@regula/RegulaObserver:shared"]
-needs = ["@regula/RegulaObserver:shared"]
-```
-
-In `lakefile.lean` they are fields of each `lean_lib` and `lean_exe` declaration:
-
-```text
-lean_lib MyProject where
-  plugins := #[`@regula/RegulaObserver:shared]
-  needs := #[`@regula/RegulaObserver:shared]
-```
-
-A `plugins` entry of the package also loads the plugin into each of its targets. Lake has no
-`needs` setting for a package, so each target lists the key in its own `needs`.
-
-[RG2006] requires the two entries. The `needs` entry makes Lake build the plugin before the modules
-of the target fetch it. Without it, a fresh build with Lake v4.35.0 can start several builds of the
-plugin at the same time. They write the same files, so the build can fail with a corrupted file.
-
-Lake also puts the trace of the `needs` into the trace of each module, whatever the target's
-`platformIndependent` setting. So Lake replays a module only when the build has the plugin that
-elaborated it. With `platformIndependent := true`, the trace of the `plugins` entry alone is not in
-the module's trace.
-
-Lake fetches a module's plugins on a worker thread, and its record of started jobs is a read and
-then a write
-([`Fetch.lean`](https://github.com/leanprover/lean4/blob/v4.35.0/src/lake/Lake/Build/Target/Fetch.lean#L54-L66),
-[`Store.lean`](https://github.com/leanprover/lean4/blob/v4.35.0/src/lake/Lake/Util/Store.lean#L47-L55)).
-It builds the target's `needs` before that fetch
-([`Module.lean`](https://github.com/leanprover/lean4/blob/v4.35.0/src/lake/Lake/Build/Module.lean#L558-L569),
-[Lean issue 13598](https://github.com/leanprover/lean4/issues/13598)), so the fetch finds the plugin
-built.
-
-Lake builds the plugin with your modules, and it rebuilds a module when the plugin changes. A
-claimed target without the plugin fails [RG2006], and `doctor` names the two lines in that
-finding. A claimed target that has the plugin but no `needs` entry for it also fails [RG2006],
-and `doctor` names the `needs` line. For a target without one of the entries, `lake lint` stops
-first at [RG2003]. It reports each module of the target as not observed, on a line that names the two
-entries.
-
 ### When your Lean release has no Regula release
 
 Each Regula release supports one Lean release. A patch release of Lean, for example `v4.34.1`, is a different release. Do one of these:
@@ -224,11 +174,6 @@ nothing is left to write. A second run therefore writes nothing:
 `Regula.Setup.plan_idempotent` proves that the plan of the result is empty over the modelled
 setup, and that runtime check confirms the files as written match it. `init` ends by running
 `doctor`.
-
-`init` does not write the elaboration observer's `plugins` and `needs` entries. Add them as
-[step 1](#load-the-elaboration-observer) shows. `doctor` and the audit report a claimed target
-without them in its [RG2006] finding.
-[Issue 425](https://github.com/rbeauchamp/regula/issues/425) tracks writing them from `init`.
 
 `lake exe regula doctor` changes nothing. It prints each missing or wrong piece in the linter's
 finding form, with the exact fix: setup findings for the lint driver, options, manifest, agent
@@ -372,8 +317,8 @@ not fail it for that.
 
 | Mode | Meaning |
 | --- | --- |
-| `report` (default) | Every execution boundary reached from an owned executable root is reported with its kind and correspondence state; trusted boundaries are recorded, not failed. |
-| `checked` | Additionally fails on any trusted boundary your project or a dependency owns: an unproved `implemented_by` replacement, a `csimp` equality whose proof is not admitted, an `extern`, unsafe or partial code, a constant with an initializer, or a compiler-trusting proof. A constant and the `partial` implementation Lean runs for it (a constant of `partial` definition safety) are one finding and one counted boundary, not two: a recursor that Mathlib's `compile_inductive%` compiled, or a dependency's `partial def`, is reported once per root, in a finding that also names that implementation (`…, with its implementation …`), the recursor's generated one or the `partial def`'s `_unsafe_rec` helper. A `partial def` that an `implemented_by` replacement or a `csimp` equality names as its target is not such an implementation: it keeps its own finding, which names its helper, and its own count, beside the replacement's or equality's. A later record of one trusted boundary in a root (the same constant, kind, replacement and toolchain origin, as two constants of one `csimp` equality's type give) is reported and counted with the first. The Lean toolchain's own replacements, externs, unsafe and partial code, and constants with initializers (in `Init`, `Std`, `Lean`, `Lake` and `LeanExport`, checked by where Lean loaded the module from, not by its name) are its trusted base: they pass, and the default output gives only their count; `--verbose` and `--json-out` list each once for the whole audit, with the environments and roots that reach it. The account covers the code your roots reference; code a program loads or evaluates by name at runtime (for example with `Lean.Environment.evalConst` or a spawned process) is outside it. |
+| `report` (default) | The checker checks that the execution closure of each claimed executable resolves ([RG3001]). It does not report the execution boundaries. |
+| `checked` | The checker also fails on each boundary that the closure reaches and that no admitted theorem binds ([RG3002]). A boundary is a departure that no module of the toolchain makes, such as an `implemented_by` replacement, a `csimp` rewrite or a recursion helper. Its theorem must be safe, and the profile must admit its axioms. Code that no theorem can bind fails with any theorem: an `extern` constant, a `partial` definition that is not a recursion helper, and a value that `initialize` sets. |
 
 In both modes an unresolved path blocks the execution claim. Native arithmetic, the Lean runtime
 and the toolchain's own library code remain trusted in every mode; the checker verifies Lean
@@ -381,404 +326,58 @@ source, not the compiler or the machine.
 
 ## 4. Run `lake lint`
 
-**The first runs.** `lake lint` examines its rules only after a build with no warnings. Thus on a new project, the first run usually reports missing docstrings as [RG2003], with exit 3. When you add them, the next run reports each module without a module docstring as [RG5001], with exit 1. A `sorry` also gives a warning. Thus it shows as [RG2003], and the other findings stay hidden until you remove it.
-
-From the project root:
+`lake lint` runs the checker of Regula on the finished build of your project. The checker does not build. Thus build the claimed targets first, with warnings as errors:
 
 ```sh
-lake lint                                  # incremental elaboration + current policy
-lake lint -- --fresh                       # isolated copy built from empty output
-lake lint -- --json-out tmp/regula.json    # also write the JSON report
-lake lint -- --explain-config              # read-only: manifest, scope, profiles, stages, facet report
-REGULA_ORDINARY_LAKEFILES=1 lake lint      # you assert your lakefiles are ordinary configuration
+lake build --wfail
+lake lint
 ```
 
-With `REGULA_ORDINARY_LAKEFILES=1` you, as the owner of the workspace, assert that its lakefiles
-are ordinary configuration. The driver then omits its audit-build marker for a workspace of the
-plain shape, and it reuses your ordinary build output. Regula's `lakefile.lean` records your
-libraries' `weakLeanArgs` in each module's build trace, so that reuse can settle [RG2003]
-([limits](#limits)). The plain shape is a conservative guard under your assertion. It is not a
-guarantee against a lakefile that someone wrote to defeat it.
+`lake build --wfail` decides [RG2003]: a claimed module elaborates with no error and no warning. `lake check` decides [RG2005]. On macOS, it is `lake check --inadvisably-no-sandbox`. Run `lake lint` from the root of your project. It reads the workspace of its working directory, or of the one argument that you give after `--`.
 
-The plain shape admits one facet declaration by identity. It is the `extraDep` facet of
-Regula's own `lakefile.lean`, in a package with the same `lakefile.lean` text as the running
-Regula. It only runs Lake's own `extraDep` facet and adds the record. The only plugin, and the
-only `needs` entry outside the package's input files and directories, that the plain shape admits
-is Regula's elaboration observer.
-Without the assertion the driver always builds with the marker ([details](proofs-and-boundaries.md#the-acceptance-boundary)).
+The checker reads one closed input. That input is the declarations that Lean loads from your build, the targets and modules of Lake, and your `foundation_manifest.json`. It reads no source text, message, option set in source, build log or list of files. Each rule is a function over this input. The [specification of the smaller Regula](https://github.com/rbeauchamp/regula/blob/main/specification/README.md) states the input and the rules.
 
-Give the assertion in the environment of `lake lint`, which no lakefile sets. The driver refuses
-any value other than `1`. The banner of the run names your assertion, and the JSON report records
-it as `scope.ordinaryLakefiles`. Before the build, the run prints if the build omits the marker,
-or keeps it and why.
+The exit status gives the verdict:
 
-The driver builds every manifested library and executable by its explicit Lake target, with
-warnings as failures, and inspects the completed environments: each library in one, and each
-claimed executable's root in one of its own, since every root defines `main` (a root inside
-its library is inspected there, not in the library's environment). An environment waits for the
-claimed libraries it imports and reuses their kernel check of the modules it loads from them,
-when those load from byte-identical `.olean` files (including `.olean.private` parts) in both,
-instead of repeating it; libraries that do not import one another are inspected side by side.
-So each claimed library module is kernel-checked once per audit, in its own library's
-environment (or, where claimed libraries import one another, in the first environment that
-loads it), and again only where the conditions for reuse cannot be established
-([admission reuse](proofs-and-boundaries.md#producers) lists them and the modules they leave
-replayed in each environment). It re-evaluates current policy even when every module is cached.
-Run it from the project root without `-d`: it refuses a working directory that is not the
-workspace that dispatched it. Its exit status separates the outcome:
-
-| Exit | Outcome |
+| Exit | Verdict |
 | --- | --- |
-| 0 | `ACCEPTED`: the audit constructed its accepted result for the selected mode. |
-| 1 | `VIOLATION`: completed policy rejections, for example [RG1001]–[RG1009], [RG3002], or [RG2004] for a claimed import of a module outside every library. |
-| 2 | `INVALID CONFIGURATION`: only [RG2002] manifest/scope rejections, an invalid driver argument, a working directory that is not the dispatching workspace, or `--help`/`--explain-config`, which run no audit. |
-| 3 | `INCOMPLETE`: an incomplete finding, for example [RG2001], [RG2003], [RG2005] or [RG3001], a failed audit-worker build, a failed audit worker ([RG2001], whose detail carries the worker's error), a working directory outside any Lean project or whose workspace fails to load, or an error that escaped the audit. It takes precedence over violations reported in the same run. A `lint` process without Lean's task manager, for example with `LEAN_NUM_THREADS=0`, prints one reason line and gives exit 3 before an audit starts ([the acceptance boundary](proofs-and-boundaries.md#the-acceptance-boundary)). |
+| 0 | Pass: the input has the closed form, and no rule reports a subject. |
+| 1 | Fail: a rule reports one or more subjects. |
+| 2 | Incomplete ([RG2001]): Lake or Lean cannot load the build, or the input does not have the closed form. |
 
-The success line names its coverage: an incremental run is "incremental project acceptance over
-existing build state, not a fresh-source audit"; only `--fresh` is fresh whole-project
-acceptance. An audit that records a result without accepting it prints its findings, then one
-summary line that counts them by impact, for example
-`FAIL: 1 violation(s), 25 incomplete finding(s)`, and the driver prints the outcome line
-`regula lint: INCOMPLETE (exit 3)`. The report's `status`, the summary counts and the exit code
-are all derived from that one recorded result (`Regula.Checker.Lint.Observation`), which holds the
-rule and `impact` of each reported diagnostic: each count is the number of findings of that
-impact (`tally_eq`), an incomplete finding makes the run `INCOMPLETE` whatever violations it also
-counts (`Observation.exitCode_incomplete`), and `VIOLATION` requires a violation and no incomplete
-finding (`Observation.exitCode_violation`). A run that fails before recording a result, such as a
-failed audit-worker build or an invalid argument, prints its error and the outcome line only.
+These are some causes of an incomplete run:
 
-A path dependency in the Git work tree of your project is your own code. The audit replays each
-of its modules that your claimed modules import, other than Regula's own, as it replays your
-libraries. It checks their declarations under Standard-Logical. With `--fresh`, the isolated copy
-holds it and builds it. A dependency outside that work tree, for example Mathlib, is trusted, and
-the account names it on the line `trusted dependencies`. A correspondence proof for [RG3002]
-counts only from a module that the audit replays, or from Lean's own library.
-
-The audit checks a decision function of an owned path dependency, with `@[regula_decision]`, in
-each environment that inspects it. So its contract must be in a module that your claimed modules
-import. If the contract is only in a different module of the dependency's library, the audit
-reports [RG1008]. [Issue #318](https://github.com/rbeauchamp/regula/issues/318) proposes to count
-the contracts of the whole library.
-
-Your root package and each owned path dependency must keep Lake's default output layout, in each
-audit. The audit refuses a `buildDir`, `leanLibDir`, `nativeLibDir`, `binDir` or `irDir` other
-than Lake's default before it builds your project, as `lake-workspace-load-failed`. The prefixes
-`Regula` and `RegulaPolicy` belong to Regula: each audit refuses a module under them that does not
-have Regula's own source text. In a path dependency, such a module is Regula's own code, and the
-audit does not own it. Thus the account names a path dependency with such modules as trusted, as
-it names Regula from outside your work tree.
-
-Each module name of your package and of each owned path dependency must have one provider. The
-audit counts the library modules of each package, and the executable roots of your package and of
-each owned path dependency. It refuses a name that two of them provide if one of the two is your
-package or an owned path dependency, as `lake-query-malformed`. For example, it refuses an
-executable root `Main` in your package and in an owned path dependency. Two trusted dependencies
-can provide the same name. The executable roots of a trusted dependency are not counted, thus your
-`Main` can be beside the `Main` of Regula.
-
-While the claimed targets build, the driver shows Lake's own progress line for each job that
-does work (`✔ [3/10] Built Widget (1.2s)`), including a cached module whose warnings Lake
-replays; an up-to-date module without warnings prints nothing. `--verbose` adds every classified
-declaration, each execution root with a boundary the toolchain does not own or an unresolved path,
-every entry of the toolchain trusted base, and the checker's timing spans (`verification phase …`,
-`diagnostic span: …`), which default output omits.
-
-Regula keeps its working files in `.lake/regula-scratch/` of the project: the isolated copy of a
-`--fresh` run and the copies of Lean sources it compiles. It removes each directory there when
-the run that made it returns. A run that is killed leaves its directory, with those `.lean`
-copies, until the next Regula run in the project removes it. `.lake/` is Lake's own output
-directory, so a tool that walks your sources and skips it never sees these files.
-
-**A first run usually stops at build warnings.** Rules are inspected only after a build without
-warnings ([RG2003]), so a warning, such as a missing docstring, makes the run `INCOMPLETE` (exit 3)
-with the compiler's message before any foundation rule is checked. The same holds for your first
-`sorry`: Lean warns `declaration uses 'sorry'`, so it is reported as [RG2003], not [RG1002]; silencing
-the warning does not help, because the hole is then reported as [RG1002].
-
-Lake's artifact cache does not change what a run checks. The audit's builds do not read or
-write that cache, whatever `enableArtifactCache` or `LAKE_ARTIFACT_CACHE` says. Lake keeps no
-compiler messages for a module that it restores from the cache. Thus the audit elaborates again
-each claimed module that Lake restored from the cache. The audit also builds each claimed
-module itself, even when the library's default facets build none of its modules.
-
-For CI, provision the toolchain and dependencies, then run the driver as its own step so its
-exit status fails the job; use `--fresh` where the claim is fresh-source conformance, since
-incremental evidence trusts the build traces that Lake recorded in the project:
-
-```yaml
-- name: Regula
-  run: lake lint -- --json-out tmp/regula.json
-```
-
-Lake details that affect what ran:
-
-- Arguments for the driver follow `--`; Lake prepends `lintDriverArgs`. Positional module
-  arguments before `--` affect only Lake's builtin linters.
-- `lake lint` audits the project where you run it. A `--project` that names a different project is
-  refused with exit 2, and `lake exe axiomGate --project DIR` audits a different one. A relative
-  `--json-out` path is in the project where you run `lake lint`.
-- The `lintDriverArgs` of your default lakefile may give only `--fresh`, `--verbose`, `--help`
-  and `--explain-config`. The driver refuses any other option there with exit 2.
-- The success line names the project and manifest that the audit checked. The JSON report
-  records them as `scope.project` and `scope.manifestPath`.
-- `lake lint --builtin-only` skips the driver and is **not** Regula enforcement: it exits 0 with
-  a Regula violation present. `lake lint --builtin-lint` runs the builtin linters and then the
-  driver, and a failing driver determines the exit code; builtin linting needs module arguments
-  (for example `lake lint --builtin-lint Widget`) when the default target is not a library, such
-  as the build-lint `policy` target. `lake check-lint` only reports whether a lint command is
-  configured.
-- Lake has one `lintDriver` per package. A project that keeps another driver (for example
-  `batteries/runLinter`) runs Regula as its own step with `lake exe lint`; see
-  [community linters](#community-conventions-and-linters).
-- A `lakefile.lean` project can also enforce during plain `lake build` with the
-  [build-lint example](../../examples/build-lint/)'s sole-default `policy` target
-  ([standard §7.11](https://rbeauchamp.github.io/regula/dev/standard/7-tooling-and-machine-audit/#711-opt-in-enforcing-build-linter));
-  `lakefile.toml` has no custom targets. Direct `lean`, editor elaboration and an explicit
-  build of another target never run the strict gate.
-- `lake exe axiomGate` runs the same audit body directly: fresh by default, over the incremental
-  build with `--incremental`, and as the build-lint `policy` target runs it with `--build-lint`
-  (`lake exe axiomGate -- --help` lists every option);
-  `lake exe axiomGate --file F.lean --claim standard-logical` audits one file, which is never
-  project coverage. Every `axiomGate` audit uses `lake lint`'s exit codes: 0 accepted (or, for
-  `--file` without a conforming claim, classified), 1 violation, 2 invalid configuration or
-  invocation, 3 incomplete. An audit that recorded a result exits with that result's code, and 3
-  when it recorded none, failed after recording a success (`Regula.Checker.Lint.gateExitCode`) or
-  stopped on an error; `lake lint` reports the code its own audit returned
-  (`Regula.Checker.Lint.classify_gateExitCode`). That audit builds with the driver's audit-build
-  marker, except when you set `REGULA_ORDINARY_LAKEFILES=1` and your workspace has the plain
-  shape. So a standalone `axiomGate` run can differ: there a live Regula finding stops the
-  warning-free build check as incomplete (3).
-  `--file` prints only the declarations with a finding; `--verbose` lists every classified
-  declaration. `lake exe docFenceAudit` checks Lean
-  examples you keep in Markdown under `docs/` with the [fence protocol](https://rbeauchamp.github.io/regula/dev/standard/7-tooling-and-machine-audit/#77-check-lean-documentation-verbatim).
+- A module of a target has no compiled files. Build the claimed targets first.
+- Lean cannot read an `.olean` file. A read error is a refusal, not an absent file.
+- The manifest does not parse, claims no target, or claims a target as `compiler-trusting`.
+- `LEAN_SYSROOT` is not set. `lake lint` and `lake exe` set it to the toolchain that Lake runs.
+- The current directory differs from the workspace that Lake selected with `-d`. Run `lake lint` from that workspace's root.
 
 ## Update Regula
 
-To move to a new release, change the tag, and your `lean-toolchain` when the release supports
-another toolchain (the [compatibility table](#1-require-regula) lists each), then:
+To move to a new release, change the tag. Also change your `lean-toolchain` when the release supports a different toolchain. The [compatibility table](#1-require-regula) lists each. Then run these commands:
 
 ```sh
 lake update regula
 lake exe regula init
+lake build --wfail
 lake lint
 ```
 
-`lake update regula` updates only `regula`. Running `init` again rewrites a skill file that
-differs from the new release's briefing and adds any option the new release requires; it changes
-nothing else. A project that also uses Mathlib moves Mathlib to the same Lean release the usual
-way. Each finding's rule link, and the link the refreshed briefing gives for citing a rule, then
-targets the new release's pages.
-
-Regula v0.3.0 and earlier kept those working files in `tmp/.regula-scratch/` instead. A later
-release neither writes nor removes anything there, so delete `tmp/.regula-scratch/` once after
-upgrading.
+`lake update regula` updates only `regula`. Run `init` again to rewrite a skill file that differs from the briefing of the new release, and to add each option that the new release requires. It changes nothing else. A project that also uses Mathlib moves Mathlib to the same Lean release in the usual way.
 
 ## Read a finding
 
-Every finding carries what it needs to be fixed, in the terminal, the editor and the JSON report:
+The checker prints one line for each finding:
 
 ```text
-RG1001 [violation; freshFile; claim=kernel-only; Widget/Basic.lean:2:6]: reflexive: …
-  fix: Turn the assumption into a hypothesis (…) of the results that need it, or replace the axiom with a proof.
-  rule: https://rbeauchamp.github.io/regula/dev/rules/RG1001/ (offline: lake exe regula explain RG1001)
-  requirement: A claimed module declares no logical `axiom`: …
-  why: An axiom extends Lean's logic for everything that imports it. …
-  common rewrites:
-  - If the statement is provable, prove it: replace `axiom name : P` by `theorem name : P := proof`.
-  …
-  compliant example (examples/rules/RG1001/Fixed.lean):
-    /-! # Reflexivity
-
-    Reflexivity for every natural number. -/
-    theorem reflexive (n : Nat) : n = n := rfl
-RG1001 [violation; freshFile; claim=kernel-only; Widget/Basic.lean:3:6]: symmetric: …
-  fix: Turn the assumption into a hypothesis (…) (full guidance: first RG1001 finding above)
+RG1001 Widget.reflexive (module Widget.Basic): declares an axiom https://rbeauchamp.github.io/regula/dev/rules/RG1001/
+regula: fail, 1 findings
 ```
 
-The first line states what is wrong and where (`FILE:LINE:COLUMN` in Lean's own coordinates). The
-first finding of each rule in a run adds its requirement, rationale, rewrites and checked
-compliant example; later findings of that rule point back to it. The rule link opens the rule's
-page in the [rule reference](https://rbeauchamp.github.io/regula/dev/rules/) of your installed
-release (`…/regula/v/<version>/rules/<ID>/`; an unreleased build links the development pages
-under `/dev/`), where the [rule index](https://rbeauchamp.github.io/regula/dev/rules/) shows each
-rule's scope, reason and a violating and corrected example produced by the real checker.
+The line gives the rule ID, the constant, module or target that the rule reports, the detail, and the page of the rule in the [rule reference](https://rbeauchamp.github.io/regula/dev/rules/). The last line gives the verdict. `lake exe regula explain <ID>` prints the full rule offline: its requirement, rationale, remedy, rewrites and example pair.
 
-Lean also generates declarations from the ones you write. In a project or file audit, a
-declaration-policy finding about one of them, such as [RG1005], is reported
-at the declaration Lean generated it from, following the chain to its end, and, unless Lean
-recorded a range of its own for it, as for a constructor or a field, located at that
-declaration's range, when it belongs to one of the families the [RG1005] guidance names (`lake exe
-regula explain RG1005`), from the same list the checker runs:
-
-> `lake lint` groups a declaration Lean generated under the one it came from if it is a constructor; projection; recursor such as `casesOn`; equation lemma; reserved name such as `f.induct`; matcher; fixpoint helper; structural helper; auxiliary declaration such as `f._proof_1`; constructor lemma; type construction; field default; recursion helper `f._unsafe_rec`. Other declarations keep their own location. Fix the one reported or a definition it uses that adds the axiom.
-
-Each family is named by an example, not by every member; the
-[enumeration of the declarations Lean v4.35.0 generates](proofs-and-boundaries.md#generated-declaration-families)
-lists them all, with the family that covers each or why it keeps its own location. So
-`Channel.mk.injEq`, generated from the constructor `Channel.mk`, is reported at the structure
-`Channel`. The [RG1005] findings under one declaration at one location print as one block, which
-lists each declaration's axioms and says where to fix them; a generated declaration with a range
-of its own, such as a constructor or a field, prints as its own block under the same declaration.
-The closing `FAIL` summary counts the attributed ones in one line; the JSON report keeps one
-diagnostic per declaration:
-
-```text
-RG1005 [violation; freshProject; claim=kernel-only; Widget/Basic.lean:4:4]: countdown: it and 3 declarations Lean generated from it exceed the claim
-  - countdown: countdown (def) type=Nat → Nat axioms=["propext", "Quot.sound"] -> choice-free
-  - countdown._proof_1: countdown._proof_1 (theorem) [Prop] roles=["internal"] type=… axioms=["propext", "Quot.sound"] -> choice-free
-  - countdown.eq_1: countdown.eq_1 (theorem) [Prop] type=… axioms=["propext", "Quot.sound"] -> choice-free
-  - countdown.eq_def: countdown.eq_def (theorem) [Prop] type=… axioms=["propext", "Quot.sound"] -> choice-free
-  attributed: 3 declarations of these are generated by Lean from countdown and reported under it; change countdown or a definition it uses that introduces the axiom
-  fix: Prove the same statement with fewer axioms, or deliberately raise the surface's claim …
-```
-
-Which family a declaration belongs to, and what it was generated from, is read from what Lean's
-environment records about it, never from its name alone; the
-[enumeration](proofs-and-boundaries.md#generated-declaration-families) names the fact read for
-each family. A recursion helper `f._unsafe_rec` is related by Regula's own observation that
-Lean's recursion compiler regenerates it from `f`. A declaration you write keeps its own
-location, because Lean records its source range, and it is not grouped under another declaration
-by its name: a `Word.ofNat` you write for a structure, or a theorem you name `f._proof_8`, is
-reported on its own. A declaration a metaprogram adds without a range is reported on its own
-unless a family's environment fact holds of it, as it can when it is named like a generated
-declaration. An elaborator Lean names `«_aux_…»` inside a namespace is reported on its own, and so
-is a derived instance, or an enumeration's `ofNat` from deriving `DecidableEq`: Lean records no
-relation between it and the type.
-
-## Machine-readable report
-
-`lake lint -- --json-out PATH` writes one JSON document, result schema 21, whatever the outcome;
-the path is first written as an incomplete result, so a stale report is never mistaken for this
-run's. This holds when the path names nothing, an empty file or a JSON document of Regula. At a
-different entry, such as a source file, a directory or a symbolic link, the driver writes nothing
-and runs no audit. A reader that follows such a link can still read an earlier report at its
-target. Its main members:
-
-| Member | Meaning |
-| --- | --- |
-| `schemaVersion` | `21`. Also `producerVersion`, `toolchain` and `sourceRevision` of the Regula build. |
-| `status` | `completed` (accepted), `rejected` (a violation was established and no finding is incomplete), `incomplete` (evidence was missing) or `classified` (a file inspection with no conforming claim). For an audit that recorded its result and then finished, it and the diagnostics determine the exit code. |
-| `stages`, `stagesCompleted`, `stagesNotRun`, `complete` | The run's required stages and which completed, including the stages that finished before the run stopped. `complete` is `false` when the run stopped early, so fixing the reported findings can reveal more. |
-| `diagnostics` | Every finding in printed order, one per declaration even where the text groups them, with `id`, `impact`, `severity`, `mode`, `claim`, `location` (for source, its `uri`, byte and LSP ranges and its `sourceText`, an index into `sourceTexts`; for a module, its `name`), `arguments`, `text`, `remedy` and `helpUrl`. `arguments.declaration` (or `root` for an execution finding) is the name as Lean prints it, such as `"Widget.countdown.eq_1"`. For a declaration-policy finding of a project or file audit or of a rule example ([RG1005] and the other rules decided per audited declaration), `arguments.sourceDeclaration` names the declaration Lean generated the declaration from, at the end of that chain, or is `null` for a declaration Lean did not generate from another; for a generated declaration, `location` is its own range when Lean recorded one, and otherwise that source declaration's range when Lean recorded one, with `related` naming the declaration's own module. Other declaration findings carry no attribution: a documentation example's, a material-documentation one ([RG5002], [RG5003]) and the editor linter's record `null` and the declaration's own location. A declaration whose recorded selection range leaves its recorded range, as Lean records for the definitions of a `macro_rules` command over several syntax kinds, is located at its range, which is then its selection range too. |
-| `rules` | Once per fired rule: `requirement`, `rationale`, `remedy`, `rewrites`, `compliantExample`, `correction`, `helpUrl` and the offline `explain` command. |
-| `sourceTexts` | Every distinct source text of the document, once each. A `sourceText` member, wherever it occurs, is the index of its text in this array. |
-| `request` | What the run was asked to audit: `kind`, `project`, `subject`, `claim` and `execution`. `policy` is the path of the policy manifest it used, the `--manifest` path or else the default manifest. `configuration` lists the configuration files it checked, with each one's text or `null` when the file does not exist. |
-
-The document holds each source file's text once, however many findings are in the file. A source
-location is its `uri`, its ranges and a `sourceText` index, and its byte ranges are offsets into
-`sourceTexts[sourceText]` (other members omitted here):
-
-```json
-{
-  "sourceTexts": ["theorem reflexive : 1 = 1 := by\n  sorry\n"],
-  "diagnostics": [
-    { "id": "RG1002",
-      "location": { "kind": "source", "uri": "/work/widget/Widget/Basic.lean", "sourceText": 0,
-        "range": { "startByte": 0, "endByte": 39 },
-        "selectionRange": { "startByte": 8, "endByte": 17 } } }
-  ]
-}
-```
-
-The same member carries the text wherever else the document records a source: in
-`sourceAccount`, in `scope` (its `sources`, each surface's `frontendTranscripts` and its report's
-`sourceBindings` and `histories`) and in the snapshots of `acceptance`. Earlier schemas repeated
-the text in each of those members and in every source location (as `source`, `content`,
-`sourceContent`, `before` and `after`). Project configuration files stay inline, in `request`,
-`effective` and `scope.configuration`.
-
-`scope` holds the audit's account. Each environment report in it (`scope.surfaces[*].report`,
-each `executables[*].report`, and `scope.report` for a file audit) lists its `declarations`, each
-with `prettyType`, its type as Lean prints it, its `execution`, the account of what each
-executable root reaches, and its `imported`, a record of each native-proof axiom of a module it
-does not inspect that its declarations rest on, with the declaration of that module the axiom's
-name is generated under. A declaration also has `type`, the `repr` of its kernel type
-expression, only when the audit is run with `axiomGate`'s `--kernel-types` option (`lake exe
-axiomGate -- --json-out PATH --kernel-types`), which `lake lint` does not take; earlier schemas
-always wrote it. `execution` stores what the environment's roots reach once, and each root as a
-short entry:
-
-```json
-{ "names": ["Nat.add", "Widget.double", "Widget.twice"],
-  "modules": ["Init.Prelude", "Widget.Basic"], "nameModules": [0, 1, 1],
-  "compilerEdges": [[1, 0], [2, 1]], "logicalEdges": [[1, 0], [2, 1]],
-  "candidateEdges": [], "historyEdges": [], "currentReplacementEdges": [],
-  "activeSimplificationEdges": [], "helperEdges": [],
-  "boundaries": [
-    { "node": 0, "name": "Nat.add", "module": "Init.Prelude", "boundary": "native-runtime",
-      "correspondence": "trusted", "owned": false, "replacement": null, "evidence": null,
-      "exact": null, "toolchainOrigin": { "module": "Init.Prelude", "actual": "…", "expected": "…" } } ],
-  "unavailableCode": [],
-  "roots": [
-    { "name": 1, "module": "Widget.Basic", "unresolved": [], "requiresCode": true },
-    { "name": 2, "module": "Widget.Basic", "unresolved": [], "requiresCode": true } ] }
-```
-
-A number in an edge, in `node`, in `unavailableCode` or as a root's `name` is an index into
-`names`; `nameModules[i]` is the index in `modules` of the module of `names[i]`, or `null`. A
-root's account follows from its entry:
-
-- its reached names are those the walk from the root visits: start with the root; take the name
-  queued last, and if it was not yet visited, visit it and queue the targets of its
-  `compilerEdges`, `candidateEdges`, `historyEdges`, `currentReplacementEdges`, `logicalEdges`
-  and `helperEdges`, in that order and each in listed order;
-- its edges in each channel are the listed edges that leave a reached name;
-- its boundaries are the `boundaries` records of its reached names, in visit order, and a
-  boundary's compiled callers are the reached names with a compiler edge to its name;
-- its required code is the targets of its compiler edges, and the root itself when
-  `requiresCode` is `true`; its unavailable code is the required code listed in
-  `unavailableCode`;
-- `unresolved` lists the paths the analysis could not resolve for this root.
-
-An environment without executable roots has the same object, with every list empty. A root
-entry may instead hold its whole account as `explicit`; Regula writes that only for an account
-the derivation above does not reproduce. A reader that accepts everything Regula's own reader
-does also takes an object with a `verbatim` member as that member's value, the accounts in full,
-and any other `execution` value that is not an object with `roots` as it is; Regula writes those
-only when its reader would not return the accounts from the shared form. Earlier schemas wrote
-`execution` as an array with every root's account in full (`name`, `module`, `boundaries`,
-`unresolved`, `compilerEdges` and a `closure` of `nodes`, `visits` and the edge lists), so a
-name, edge or boundary several roots reach was written once for each.
-
-The other members named `execution` are a surface's or a file audit's execution claim and the
-request's execution mode: strings or `null`, written unchanged. The acceptance account's
-per-environment counts, which earlier schemas also named `execution`, are
-`acceptance.account.executionSummary`. Its `boundaries`, `checked` and `trusted` count the
-boundaries reported on their own, as the text does: a `partial` implementation (a constant of
-`partial` definition safety, such as a `partial def`'s `_unsafe_rec` helper) is counted with the
-trusted boundary that names it as the code run in its place where the two have the same owner,
-the toolchain or not, and a later record of one trusted boundary of a root with the first, while
-a root's account above keeps every boundary record. `scope.toolchainBase` likewise gives a
-toolchain `partial def` and its `_unsafe_rec` helper one entry when each root that reaches the
-helper carries it. The `implementations` member of that entry, new in schema 18, names the
-helper.
-
-Every Lean name in the document, in `diagnostics`, `scope` and `acceptance` alike, is written one
-way: as the text Lean prints for it (`Name.toString`, which escapes a component with `«»` where it
-can). Only where Lean's own parser (`String.toName`) would not read that text back as the same
-name, for example for a component containing `»`, is the name written instead as its structural
-components: an array, innermost first, of `["str", s]` and `["num", n]`. A string is therefore
-always the printed name, and earlier schemas' arrays remain only for such names.
-
-The exit status is the stable pass/fail contract; `status` and `complete` say why. Treat the
-report as observations, never as a Lean proof: its consistency checks catch writer regressions,
-not a report edited by hand.
-
-## Receive diagnostics while editing
-
-Import `Regula.Linter` from a module your project already imports widely (the
-[TOML example](../../examples/lake-lint-toml/) imports it in `Gadget/Double.lean`). The
-supported editor is VS Code with the Lean 4 extension. Completed commands and modules then show
-warnings with codes `Regula.RG1001`–`RG1007`, `RG1009`, `RG2002` and `RG2005` at the declaration, plus
-`RG5001`–`RG5003` once the module elaborates without errors, each with its fix, rule link and
-offline `explain` command; the infoview adds a **View explanation** link. `RG2005` means a
-finding needs evidence only `lake lint` collects.
-
-Execution closure ([RG3001]/[RG3002]), coverage ([RG2004]), build and warning checks ([RG2003]) and fresh
-admission run only in `lake lint`, the build-lint `policy` target or `axiomGate`. A clean editor
-buffer means no current local findings, not a project result, and `set_option linter.regula
-false` changes only local feedback. `lake lint` turns the local linter off for its own build
-and reports the same rules itself, as `VIOLATION`.
+The checker reports each constant that violates a rule, also a constant that Lean generated, for example `Widget.reflexive.eq_1`. Change the declaration that you wrote, or a definition that it uses.
 
 ## Community conventions and linters
 
@@ -819,20 +418,15 @@ core-only code.
   first and that no import repeats, which [RG5001] checks instead (standard §5.3 and §6.4).
   In `lakefile.lean` the same options are
   ``leanOptions := #[⟨`linter.missingDocs, true⟩, ⟨`autoImplicit, false⟩, ⟨`relaxedAutoImplicit, false⟩, ⟨`weak.linter.mathlibStandardSet, true⟩, ⟨`weak.linter.style.header, false⟩, ⟨`weak.linter.hashCommand, false⟩, ⟨`weak.linter.style.longFile, .ofNat 0⟩]``.
-  The linters report through build warnings, so `lake lint` reports each as [RG2003] (`INCOMPLETE`,
-  exit 3). [RG2006] checks every option above in Lake's resolved configuration of each claimed
-  target (`VIOLATION`, exit 1). It also rejects each other target-wide option that is not in the
-  accepted set of [RG2006] at an accepted value. It rejects each `-D` in `moreLeanArgs` or
-  `weakLeanArgs` that overrides these options or sets an option outside that set. In each claimed
-  module it also reads the options that the source sets, as Regula's elaboration observer records
-  them. There it accepts an option that the target could set. It also accepts
-  `set_option linter.NAME false in` for a community linter before a command that expands to one
-  declaration, such as Mathlib's `lemma`. Where the
-  community's guidance accepts an exception, disable that linter for the one declaration
-  (`set_option linter.style.longLine false in`) with a comment giving the reason. Do not disable
-  Lean's default warnings, such as `linter.unusedVariables` or `warn.sorry`. [RG2006] rejects that
-  in source too. It does not read `@[nolint]`, which turns off no linter that reports through a
-  build warning.
+  The linters report through build warnings, so `lake build --wfail` refuses each of them
+  ([RG2003]). [RG2006] reads the options of the configuration of each claimed target by Lake. It
+  refuses an option outside its allowlist, and each `-D` in `moreLeanArgs` or `weakLeanArgs` that
+  sets such an option. It also refuses a plugin, a dynamic library and each other extra Lean
+  argument. It does not read an option that a source file sets, because no record of such an
+  option exists. Where the guidance of the community accepts an exception, disable that linter for
+  the one declaration (`set_option linter.style.longLine false in`) with a comment that gives the
+  reason. Do not disable the default warnings of Lean, such as `linter.unusedVariables` or
+  `warn.sorry`.
 
   To keep Mathlib's header linter on, replace `weak.linter.style.header = false` with `true` and
   give the license line it expects in `weak.linter.style.header.license`, a `String` that defaults
@@ -865,9 +459,9 @@ core-only code.
 
   ```sh
   # lintDriver = "regula/lint"
-  lake lint && lake build && lake exe runLinter
+  lake build --wfail && lake lint && lake exe runLinter
   # lintDriver = "batteries/runLinter"
-  lake build && lake lint && lake exe lint
+  lake build --wfail && lake lint && lake exe lint
   ```
 
   Each command's exit status covers only its own checks, so CI requires both.
@@ -1003,101 +597,16 @@ audit refuses a `decides` entry that names its own surface or no claimed surface
 
 ## Limits
 
-- `lake lint` exits 0 only for an accepted run: `Regula.Checker.Lint.accepted_sound` and
-  `RegulaPolicy.accept_iff` prove the success direction. Which rule a failure receives is proved
-  only where a rule page's *Proved linkage* says so.
-- Some adapters are operational code, not proved: [RG2001]/[RG2002] routing of escaped errors by
-  message prefix, [RG1007] contract extraction, [RG2004] inventory checks, the documentation fence
-  scanner and the [RG5001] header observation. `init`'s lakefile edits are text edits confirmed by
-  reading the project again, not proved to realize the model.
-- The command-line transcript names a finding's file and declaration; exact source ranges are in
-  `--json-out` and the editor.
-- [RG2006] also accepts each `linter.` and `warn.` option that Lean or the pinned Mathlib
-  registers, at the one value that silences nothing. That value is `true` for most of them. It is
-  `false` for `linter.unusedVariables.analyzeTactics`, which at `true` counts a parameter as used
-  when a tactic state mentions it. `RegulaPolicy.Community.warningSettings` lists each option
-  with its value. The rule rejects any other `linter.` or `warn.` option, or a listed one at a
-  different value.
-- [RG2006] also accepts `warningAsError` and `debugAssertions` at `true`. It accepts each `pp.`
-  option only at its default, because a printing option changes the text that some linters
-  compare. Put a different printing in your editor or user settings.
-- [RG2006] accepts each resource limit at any number: `maxHeartbeats`,
-  `synthInstance.maxHeartbeats`, `synthInstance.maxSize`, `maxRecDepth`, `maxSynthPendingDepth`
-  and `exponentiation.threshold`. When you raise a resource limit, Lean does the work that it
-  otherwise stops or skips. For example, Lean then evaluates a power above
-  `exponentiation.threshold` and gives no warning about it. The value `0` means no limit for
-  `maxHeartbeats`, `synthInstance.maxHeartbeats` and `maxRecDepth`. If your project must have
-  fixed resource limits, add your own check of these options.
-- [RG2006] reads an option by its name alone. It rejects a `weak.` entry for an option that no
-  module declares, although Lean ignores that entry. Delete such an entry.
-- Regula's `lakefile.lean` declares a facet in place of Lake's `extraDep` facet. For the
-  libraries of your root package and of Regula, it runs Lake's own facet and records their
-  `weakLeanArgs` in each module's build trace. Lake's own trace omits these arguments. With the
-  record, a build reruns a module after you change them. Thus a build without the audit-build
-  marker can settle [RG2003] from replayed messages. The first build after you upgrade to this
-  Regula rebuilds the modules of your root package and of Regula one time.
-- If your root package declares an `extraDep` library facet, Regula's facet replaces it.
-  Work unique to the overridden configuration may be lost.
-  The [facet report](proofs-and-boundaries.md#replaced-root-library-facets) in `lake lint` and the audit names that declaration.
-  Move that work to `extraDepTargets` or `needs`, which Lake's own facet runs.
-- A dependency that Lake resolves after Regula can declare an `extraDep` facet that replaces
-  Regula's. Lake resolves the `require` lines of a package from the last to the first, and then
-  the dependencies of those packages. So a build without the marker counts no record when a
-  dependency other than Regula declares a library or module facet. It reports a claimed module as
-  not established when it replays that module's messages from before the run.
-- The result is then incomplete. `lake exe axiomGate --incremental` then exits 3, and the
-  `lake build` of the build-lint `policy` target exits 1. `lake lint` keeps the marker for such a
-  workspace.
-- The incremental gate trusts the build traces that Lake recorded in the checkout, and the record
-  is part of them. A facet that forged the record when Lake built a module is outside that
-  evidence. A `--fresh` audit rests on no recorded trace.
-- Each claimed target loads Regula's elaboration observer through its `plugins`, and lists it in
-  its `needs` ([load the elaboration observer](#load-the-elaboration-observer)). The observer
-  records in the
-  module's `.olean` the options that its source sets and each `#guard_msgs` and `#guard_panic`
-  command. It also records each warning or error that Lean keeps out of the build's output, and
-  it prints nothing.
-- The audit's builds run the `presetup` facet that your workspace configures.
-  From the completed `presetup` of each claimed module, they read if Lean loaded the observer.
-  They read the record only for a target that lists the observer in `needs`. Without that entry,
-  Lake can reuse an `.olean` that a different observer wrote, so [RG2003] reports the module as not
-  observed.
-- [RG2003] fails a claimed module that runs `#guard_msgs` or `#guard_panic`, also from a macro.
-  Keep such checks in a test or documentation module outside the claimed surface. [RG2003] also
-  fails a claimed module with a warning or error that Lean keeps out of the output, or that the
-  observer did not observe. A file audit with a claim (`axiomGate --file`) loads the observer into
-  its compilation and fails the file in the same way.
-- A `presetup` facet that a package declares replaces Lake's own. If it drops the observer from
-  the plugins of a claimed module, [RG2003] reports that module as not observed.
-- Code that runs while Lean elaborates a module can write or remove the observer's record, and it
-  can remove messages before the observer reads them. Examples are an `initialize` declaration, a
-  command or term elaborator and a tactic, of the project or of an imported module. No observer
-  check can be sound against such code, so the audit trusts that it does not forge the record or
-  remove a message. A stateful linter of an imported module runs after the
-  observer, so a silent message that it logs is outside the record.
-- [RG2006] reads the options that Lean's `set_option` elaborator sets. An option that elaborator
-  code changes directly, such as a deriving handler, is outside the record.
-- After `set_option linter.NAME false in`, [RG2006] follows only the macros that expand the command.
-  It accepts the setting only if the expansion has exactly one declaration, and apart from it only
-  `namespace`, `end` and Lean's internal `end_local_scope` commands. A `def` with a `requires` or
-  `ensures` contract expands to two declarations, so [RG2006] rejects the setting before it.
-  It rejects the setting before a command with an elaborator of its own, also if that command
-  makes one declaration. Examples are Mathlib's `irreducible_def` and Batteries' `alias`.
-- The only supported editor is VS Code with the Lean 4 extension, and there is no latency claim.
-- Regula has run on small adopters only, including a Mathlib-importing library accepted
-  incrementally and fresh; there is no Mathlib-scale adopter claim. These are bounded
-  observations, not theorems about the tools.
-- Each release supports exactly one Lean toolchain. The nine
-  [residual review obligations](architecture.md#coverage-of-the-standard) stay open; every
-  accepted account lists them.
+- No theorem yet relates a rule function of the checker to the violation predicate of its rule. Leaf #487 proves these contracts. Until then, a pass of the checker is an observation of the functions of `Regula.Rules`.
+- The checker does not decide the documentation rules [RG4001] to [RG5003]. Leaf #488 retires them to written guidance.
+- The checker reads no option that a source file sets, no message and no command of a module. A command that runs code, for example `#eval` or `run_cmd`, leaves no record that the checker can read.
+- [RG2006] accepts the options that the previous checker accepted, until leaf #484 sets the members of its allowlist. `RegulaPolicy.Community.accepts` lists them.
+- [RG2006] reads an option by its name alone. It rejects a `weak.` entry for an option that no module declares, although Lean ignores that entry. Delete such an entry.
+- `init` edits your lakefile as text. Then it reads the project again to confirm the edits. No theorem proves that the edits realize the model.
 
 ## What you are not asked to do
 
-- **Checker qualification is not adopter conformance.** The `MUT-*` rows and the
-  `checkerSelftest` suite qualify a checker implementation. An adopter using the shipped
-  checker unchanged does not rerun them.
-- **`freshChecker`** (fresh `leanchecker` over the serialized module graph) is optional
-  defense in depth for the separate `MUT-05` claim, not part of the ordinary loop.
+- **Checker qualification is not adopter conformance.** The `MUT-*` rows qualify a checker implementation. An adopter that uses the shipped checker unchanged does not do them again.
 
 [RG1001]: https://rbeauchamp.github.io/regula/dev/rules/RG1001/
 [RG1002]: https://rbeauchamp.github.io/regula/dev/rules/RG1002/
@@ -1113,6 +622,7 @@ audit refuses a `decides` entry that names its own surface or no claimed surface
 [RG2006]: https://rbeauchamp.github.io/regula/dev/rules/RG2006/
 [RG3001]: https://rbeauchamp.github.io/regula/dev/rules/RG3001/
 [RG3002]: https://rbeauchamp.github.io/regula/dev/rules/RG3002/
+[RG4001]: https://rbeauchamp.github.io/regula/dev/rules/RG4001/
 [RG5001]: https://rbeauchamp.github.io/regula/dev/rules/RG5001/
 [RG5002]: https://rbeauchamp.github.io/regula/dev/rules/RG5002/
 [RG5003]: https://rbeauchamp.github.io/regula/dev/rules/RG5003/

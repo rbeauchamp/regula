@@ -37,10 +37,8 @@ the two texts are byte-identical for the other values, and that the result write
 hold no number with a positive exponent, are observations from reading the sources, not theorems:
 `Json.compress` is `partial`, and no theorem depends on either. `Json.compress` writes a number
 with a positive exponent as a decimal fraction without trailing zeros, which reads back as a
-different `JsonNumber` when the mantissa ends in zero. `JsonRoundTrip.parse_compress_ws` proves
-that `parse` of the text `compress` writes for a value whose object trees are search trees,
-followed by any run of JSON whitespace, none included, is the value with each object tree as the
-parser builds it (`JsonCanon.canon`).
+different `JsonNumber` when the mantissa ends in zero. No theorem here relates `parse` to the text
+that `compress` writes.
 
 The reading of a document has two parts. `parse` turns a text into a `Json` value. `exactFields`
 is a pure decision about the `Json` value that a caller gives: whether it is an object with
@@ -222,8 +220,7 @@ def chars : List Char → Parser Unit
 
 /-- The text `s`, refused at the start position with the message Std's `skipString` gives.
 `skipString` compares a slice of the input with `startsWith`; `literal` reads the characters one
-by one, so the proof of `JsonRoundTrip` steps through them as it does through the rest of the
-text. -/
+by one, as the parser reads the rest of the text. -/
 def literal (s : String) : Parser Unit := fun it =>
   match chars s.toList it with
   | .success it' () => .success it' ()
@@ -344,8 +341,8 @@ def stringTo (acc s : String) : String :=
 Lean's `JsonNumber.toString` calls the `partial` `countDigits`
 (`Lean/Data/Json/Basic.lean:39`), and for a positive exponent it writes a decimal fraction
 without trailing zeros, which the parser reads as a different number when the mantissa ends in
-zero (`1.5` for `⟨150, 2⟩`). The exponent form is read back as the same mantissa and exponent
-(`JsonRoundTrip.num_text`). -/
+zero (`1.5` for `⟨150, 2⟩`). The parser reads the exponent form back as the same mantissa and
+exponent; no theorem here proves it. -/
 def numberText (n : JsonNumber) : String :=
   if n.exponent = 0 then n.mantissa.repr else n.mantissa.repr ++ "e-" ++ n.exponent.repr
 
@@ -382,7 +379,7 @@ end
 
 /-- The compact JSON text of `j`: no whitespace, object members in the order of their tree. It
 replaces Lean's `Json.compress`, which is `partial` (`Lean/Data/Json/Printer.lean:167`,
-v4.35.0), so that `JsonRoundTrip` can state what `parse` returns for the text. It follows
+v4.35.0), so that it is a total definition that a proof can unfold. It follows
 `Json.compress` except for a number with a positive exponent (`numberText`). That the texts are
 byte-identical for the other values, and that the result writers' documents hold no number with a
 positive exponent, are observations from reading the sources, not theorems. Its stack depth grows
@@ -425,7 +422,7 @@ theorem exactFields_iff (j : Json) (expected : List String) (distinct : expected
             expected.all (fields.toList.map (·.1)).contains then .ok ()
         else .error "unknown or missing JSON object fields" := by
       -- `delta`, not `Json.getObj?` in the simp set, which would realize here a copy of a lemma of
-      -- Lean's `Json.beq'` that `RegulaQualification.Registry` also realizes.
+      -- Lean's `Json.beq'`.
       simp only [exactFields]
       delta Json.getObj?
       simp only [pure, Except.pure, bind, Except.bind]

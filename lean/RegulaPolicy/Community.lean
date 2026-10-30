@@ -1025,7 +1025,6 @@ inductive Failure where
 then each option outside the accepted set in option order, then each contradicting `-D` in
 argument order, then a target that does not load Regula's elaboration observer or that loads it
 without the same key in its `needs`. -/
-@[regula_decision]
 def failures (o : BuildOptions) (mathlib : Bool) : List Failure :=
   (required mathlib).filterMap (fun r =>
       if meets o r then none else some (.option r.1 r.2 (valuesOf o r.1))) ++
@@ -1062,16 +1061,11 @@ def Failure.text : Failure → String
     s!"an extra `lean` argument sets `{name}` to {value.text}, which RG2006 does not accept; \
       remove it" ++ licenseHint name
   | .observer =>
-    "the target does not load Regula's elaboration observer, so the options its modules' source \
-      sets are unknown; add plugins := #[`@regula/RegulaObserver:shared] to the target in \
-      lakefile.lean, or plugins = [\"@regula/RegulaObserver:shared\"] to its lakefile.toml table, \
-      with the same key in its needs"
+    "the target does not load the elaboration observer of the previous checker, which Regula no \
+      longer ships, so the options its modules' source sets are unknown"
   | .observerNeed =>
-    "the target loads Regula's elaboration observer through plugins without the same key in \
-      needs, so Lake can replay a module that another observer elaborated, and a fresh build can \
-      build the observer several times at the same time; add \
-      needs := #[`@regula/RegulaObserver:shared] beside the plugins entry in lakefile.lean, or \
-      needs = [\"@regula/RegulaObserver:shared\"] in lakefile.toml"
+    "the target loads the elaboration observer of the previous checker through plugins without \
+      the same key in needs, so Lake can replay a module that another observer elaborated"
 
 /-- The finding detail of a target's failures. -/
 def detail (failures : List Failure) : String :=
@@ -1550,9 +1544,8 @@ theorem unlicensed_header_fails :
 /-! ## Options set in a claimed module's source
 
 Regula's elaboration observer records each option that a claimed module's source sets through
-Lean's `set_option` elaborator, with the value and form of its `set_option` syntax
-(`RegulaObserver.Setting`). The same accepted set decides them as decides a target's options, with
-the one permission that standard §6.2 gives: a community linter turned off for one declaration by
+Lean's `set_option` elaborator, with the value and form of its `set_option` syntax. The same
+accepted set decides them as decides a target's options, with the one permission that standard §6.2 gives: a community linter turned off for one declaration by
 `set_option linter.NAME false in` before a command that Lean elaborates, once every macro has
 expanded it, as one declaration command (`declarationKind`) with only scope commands around it
 (`oneDeclaration`). Lean's default
@@ -1571,7 +1564,7 @@ assigns the options of the enclosing scope, and RG2006 accepts what it sets
 `local notation`, is elaborator code. -/
 
 
-/-- How a claimed module's source set an option (`RegulaObserver.Form`). -/
+/-- How a claimed module's source set an option. -/
 inductive SourceForm where
   /-- `set_option name value` as a command. -/
   | command
@@ -1601,7 +1594,7 @@ structure SourceSetting where
   form : SourceForm
   /-- For the form before one command, the syntax kinds of the commands that Lean elaborates for
   the command that `set_option … in` wraps, through each further `set_option … in`, once every
-  macro has expanded them (`RegulaObserver.Setting.wrapped`); none otherwise. -/
+  macro has expanded them; none otherwise. -/
   wrapped : Option (List Name) := none
   /-- Where the option's name is in the module, line and column, as Lean reports them; only the
   report reads it. -/
@@ -1706,9 +1699,8 @@ and `deriving Ord` handlers (`Lean/Elab/Deriving/BEq.lean` line 205, `Lean/Elab/
 line 161), `smartUnfolding` set to `false` by `rfl'` (`Init/Tactics.lean` line 487),
 `tactic.hygienic` set to `false` by `unhygienic` (`Init/Tactics.lean` line 1281) and
 `trace.grind.ematch.instance` set to `true` in the suggestion of `grind_lint inspect`
-(`Lean/Elab/Tactic/Grind/Lint.lean` line 149). `Regula.Checker.GeneratedSettingSearch.search`
-computes these pairs from the compiled code of the modules `Lean` and `Lake`, and the registry
-checks refuse unless its result is this list.
+(`Lean/Elab/Tactic/Grind/Lint.lean` line 149). The list is read from those sources and assumed:
+no check computes these pairs from the compiled code of Lean and Lake.
 
 The pairs other than `match.ignoreUnusedAlts` silence nothing that a default reports. That one
 hides the "Redundant alternative" error (`Lean/Elab/Match.lean` line 1056), so accepting it where
@@ -1798,7 +1790,6 @@ theorem sourceAccepted_iff (o : BuildOptions) (mathlib : Bool) (s : SourceSettin
 
 /-- The options that a claimed module's source set and RG2006 does not accept, in source
 order. -/
-@[regula_decision]
 def sourceFailures (o : BuildOptions) (mathlib : Bool) (settings : List SourceSetting) :
     List SourceSetting :=
   settings.filter (!sourceAccepted o mathlib ·)

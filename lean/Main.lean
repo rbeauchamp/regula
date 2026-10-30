@@ -15,17 +15,13 @@ update post-conditions, and boundedness of the composed run — is stated and
 proved in `AuditApp.Limiter` and `AuditApp.Demo` about the same computable
 definitions executed here. `executeChecked` requires the `RequiredContracts` evidence
 provided by `required_contracts`, keeping these explicit obligations load-bearing. The `IO`
-boundary itself is trusted execution substrate: the axiom gate reports it in this surface's
-execution coverage at the default `report` mode, and nothing in this module claims more. Counts are
-rendered as tick strings (`String.ofList` over `List.replicate`) rather than
-through `Nat.repr`, whose `Nat.reprFast` runtime replacement has no checked
-correspondence: a `Nat.repr` call would appear in the report as a trusted
-boundary, which `report` mode accepts and a `checked` claim rejects
-(`execution-trusted-boundary`). This surface's report contains no such
-boundary. The report separately records the runtime externs beneath the
-shell (`IO`, `String`, `Char`, `Nat`/`UInt` primitives) and any reached imported
-runtime replacements or partial computations. None of those implementations
-is established by the pure core's contracts.
+boundary itself is trusted execution substrate, and nothing in this module claims more: the
+surface's execution mode is `report`, under which Regula's checker requires no correspondence for
+an execution boundary. Counts are rendered as tick strings (`String.ofList` over
+`List.replicate`) rather than through `Nat.repr`, whose `Nat.reprFast` runtime replacement has
+no checked correspondence. The runtime implementations beneath the shell (`IO`, `String`,
+`Char`, `Nat`/`UInt` primitives) and any reached runtime replacements or partial computations
+are not established by the pure core's contracts.
 -/
 
 /-- Describe the demo's output actions and exit code using the proved strict

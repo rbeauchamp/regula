@@ -1,5 +1,5 @@
 import RegulaCore.SitePage
-import RegulaCore.Lint
+import RegulaCore.Verdict
 
 /-! # Rule-reference manual structure
 
@@ -16,7 +16,6 @@ rule shares, the checklist coverage page, the versions page and the credits page
   `residualsOfRow`, the inverses of the rule explanations' `checklist` and of `Residual.rows`
   (`mem_rulesOfRow`, `mem_residualsOfRow`). The enforcement page defines each obligation once,
   under the element id its identifier names (`residualRoute`).
-- `EvidenceSummary`: one rule's checked-example evidence, as `build.json` records it.
 
 ## Boundaries
 
@@ -27,8 +26,7 @@ them is outside this module. The versions text describes the publishing workflow
 
 namespace Regula.Site
 
-open Regula.Checker.Account (Residual Trusted)
-open Regula.Checker.Lint (Outcome)
+open Regula.Review (Residual Trusted)
 
 /-- Generated Verso module name of a rule page. -/
 def ruleModule (id : RuleId) : String := "Generated.Rules." ++ id.spelling
@@ -96,10 +94,8 @@ def indexPage (ident : Identity) : Except String String := do
       JavaScript. What every rule shares is on [how rules are enforced](enforcement/).\n\n" ++
     table ++ "\n" ++ String.join (ruleModules.map fun m => "{include " ++ m ++ "}\n\n")
 
-/-- The `lake lint` exit codes, from the driver's own classification. -/
-def exitCodesText : String :=
-  ", ".intercalate ([Outcome.accepted, .violation, .configuration, .incomplete].map fun o =>
-    "`" ++ toString o.exitCode ++ "` " ++ o.label)
+/-- The `lake lint` exit codes of Regula's checker (`Regula.Closed.Verdict.exitCodes`). -/
+def exitCodesText : String := Regula.Closed.Verdict.exitCodes
 
 /-- The enforcement page: what every rule page would otherwise repeat, stated once. -/
 def enforcementPage (ident : Identity) : Except String String := do
@@ -115,57 +111,38 @@ def enforcementPage (ident : Identity) : Except String String := do
       their pages share.\n\n" ++
     subsection "enforcement-impact" "Strict impact" ++
     "Every rule's findings are errors under a strict claim. An established violation makes the \
-      result FAIL; missing or unsupported evidence makes it INCOMPLETE. Neither is accepted. \
-      `lake lint` exits with " ++ exitCodesText ++ "; it exits `2` when every finding of a FAIL \
-      is " ++ Prose.relativeCitation .configuration ++ ". The editor shows a rule's local \
-      findings as warnings (errors under `warningAsError`); they are not project results, and the \
-      rule pages say which rules the editor reports.\n\n" ++
+      result FAIL. A build that Regula's checker cannot load, or an input that does not have the \
+      closed form, makes it INCOMPLETE, never a pass. Neither is accepted. `lake lint` exits with " ++
+      exitCodesText ++ ".\n\n" ++
     subsection "enforcement-options" "No local exception" ++
-    "No source option, attribute or command-line flag makes a rule pass on a claimed surface. \
-      `set_option linter.regula false` and `regula.localFoundation` never waive a rule: \
-      `lake lint`, the build-lint `policy` target and `axiomGate` still apply it. Where Regula's \
-      local linter reports a finding during a project build (`axiomGate` and the `policy` target \
-      keep it on by default; `lake lint` builds with it off, whatever the source sets \
-      `linter.regula` to), that finding is a build warning, so the result is INCOMPLETE under " ++
-      Prose.relativeCitation .sourceBuild ++ " instead of carrying the rule's finding. Switching \
-      the local linter off changes which finding is reported, never whether the result is \
-      accepted. Hiding a diagnostic does not establish the property it checks. " ++
-      Prose.relativeCitation .materialDocumentation ++ " and " ++
-      Prose.relativeCitation .materialIntent ++ " check the declarations registered with \
-      `@[regula_material]`, and " ++ Prose.relativeCitation .decisionContract ++ " the functions \
-      registered with `@[regula_decision]`; removing a registration changes the reviewed claim, \
-      not only their result.\n\n" ++
+    "No source option, attribute or command-line flag makes a rule pass on a claimed surface. The \
+      checker reads no option that a source file sets: it reads the declarations Lean loads from \
+      the finished build, Lake's targets and modules, and the claim. Hiding a diagnostic does not \
+      establish the property it checks. " ++ Prose.relativeCitation .decisionContract ++ " checks \
+      the functions registered with `@[regula_decision]`; removing a registration changes the \
+      reviewed claim, not only its result.\n\n" ++
     subsection "enforcement-commands" "Where rules run" ++
-    "Project enforcement runs through `lake lint` (incremental), `lake lint -- --fresh` and \
-      `lake exe axiomGate` (fresh whole-project audits from empty build output), and the \
-      build-lint `policy` target; `lake exe docFenceAudit` audits documentation examples. Each \
-      rule page lists where the rule is reported. See the " ++
+    "Project enforcement runs through `lake lint`, which runs Regula's checker on the finished \
+      build of the project. Build the claimed targets with `lake build --wfail` first: a module \
+      without its compiled files makes the run INCOMPLETE. Lean's own tools decide two rules: " ++
+      Prose.relativeCitation .sourceBuild ++ " is `lake build --wfail`, and " ++
+      Prose.relativeCitation .admission ++ " is `lake check`. See the " ++
         "[adoption guide](" ++ blobUrl ident "docs/guides/adoption.md" ++ ").\n\n" ++
     subsection "enforcement-message" "How a finding reads" ++
-    "The first line of every finding has the form `" ++ sharedMessageForm ++ "`. The finding \
-      then gives the rule's remedy and ends with the rule's page in the reference of the \
-      installed Regula version, and `lake exe regula explain <ID>` prints the full rule \
-      offline.\n\n" ++
+    "Each finding is one line: the rule ID, the constant, module or target it reports, the \
+      detail, and the rule's page in the reference. `lake exe regula explain <ID>` prints the full \
+      rule offline.\n\n" ++
     subsection "enforcement-obligations" "Open review obligations" ++
-    "Every accepted result lists every review obligation below as open, whatever rules it checked \
-      (`R-GRAPH` only for a serialized-graph claim). A listed identifier is an open obligation, \
-      never a completed review. Each rule page names the obligations its own result leaves \
-      open, and [checklist coverage](coverage/) the checklist rows whose review each \
-      carries.\n\n" ++
+    "A pass leaves every review obligation below open, whatever rules it checked. Each rule page \
+      names the obligations its own result leaves open, and [checklist coverage](coverage/) the \
+      checklist rows whose review each carries.\n\n" ++
     obligations ++ "\n" ++
     subsection "enforcement-trusted" "Trusted mechanisms" ++
-    "Every accepted result also relies on these trusted mechanisms (the checker's `Trusted` \
-      account), which no rule verifies:\n\n" ++ trusted ++ "\n" ++
-    subsection "enforcement-examples" "Checked examples" ++
-    "Each rule page's example was produced for the page's commit by the rule-example corpus \
-      campaign, admitted by the rule-example qualifier (whose admission relations are proved; \
-      capture and process authenticity are trusted), and checked against the commit's checker, \
-      corpus and configuration sources before the site was generated. The site build refuses \
-      stale, incomplete or partial evidence. The campaign is scoped qualification of the \
-      detectors for these inputs, not a proof that the detectors are correct for every \
-      input.\n\n" ++
-    "* " ++ exampleKindText "policyRejection" ++ "\n" ++
-    "* " ++ exampleKindText "diagnosticDemonstration" ++ "\n\n"
+    "A pass also relies on these trusted mechanisms, which no rule verifies:\n\n" ++ trusted ++
+      "\n" ++
+    subsection "enforcement-examples" "Rule examples" ++
+    "Each rule page shows the rule's example pair as the registry holds it. No run of the checker \
+      produced it: the specification of the smaller Regula states the cases each rule decides.\n\n"
 
 private def coverageRow (row : String) : String :=
   let rules := rulesOfRow row
@@ -195,21 +172,6 @@ def coveragePage (ident : Identity) : Except String String := do
       enforced](enforcement/). A row that no rule lists is semantic review only. Every row carries \
       at least one obligation, so no row passes on a checker result alone: the checklist states \
       each row's required result and verification.\n\n" ++ table ++ "\n"
-
-/-- One rule's checked-example evidence, as the artifact's `build.json` records it. -/
-structure EvidenceSummary where
-  /-- The rule whose checked example this row reports. -/
-  rule : RuleId
-  /-- The example kind the corpus recorded for the violating run. -/
-  kind : String
-  /-- The status of the violating run, as `RunStatus.spelling` prints it. -/
-  violationStatus : String
-  /-- The status of the corrected run, as `RunStatus.spelling` prints it. -/
-  fixedStatus : String
-  /-- The distinct rule IDs of the violating run's findings. -/
-  emitted : List RuleId
-  /-- The corpus shard that produced the example, as `index/count`. -/
-  shard : String
 
 /-- The versions page: this build's identity, the published editions and the release list. -/
 def versionsPage (ident : Identity) : Except String String := do

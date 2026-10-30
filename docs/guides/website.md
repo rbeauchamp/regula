@@ -1,11 +1,11 @@
 # Rule-reference website
 
-The rule reference at <https://rbeauchamp.github.io/regula/> explains every diagnostic the
-linter can emit. Each Regula diagnostic ends with its rule's page in the edition of the installed
-Regula version (the registry's `helpUrl`), and the editor's **View explanation** link opens the
-same page. This guide covers where the site's content comes from, what its build establishes, how
-it is published and versioned, and how to change a rule. It is repository practice, not part of
-the normative standard.
+The rule reference at <https://rbeauchamp.github.io/regula/> explains every rule of Regula.
+Each finding of the checker ends with its rule's page in the edition of the installed Regula
+version (the registry's `helpUrl`), and `lake exe regula explain` prints the same link. This guide
+covers where the site's content comes from, what its build establishes, how it is published and
+versioned, and how to change a rule. It is repository practice, not part of the normative
+standard.
 
 ## Sources and ownership
 
@@ -15,12 +15,12 @@ Nothing on a rule page is a hand-maintained copy of the linter. Each part has on
 | --- | --- | --- |
 | Rule identity, title, category, scope, subreason, modes, lifecycle, message form, clauses, route, help URL, and the agent-facing requirement, rationale, remedy (what to do), rewrites (how to fix it) and example correction that every finding and `lake exe regula` also print | [`RegulaCore.Rule`](../../lean/RegulaCore/Rule.lean) (`descriptor`, closed `RuleId`) | Projected by the page constructors; the index iterates `RuleId.all`. |
 | Explanation sections (problem, trigger, further rationale, proof shape, established and not established, configuration, limitations, open obligations, checklist rows, sources, proved linkage) | [`RegulaCore.Guide`](../../lean/RegulaCore/Guide.lean) (`guide`, one exhaustive definition over `RuleId`) | Rendered in a fixed section order. A new rule without an explanation does not compile. |
-| Violating and corrected inputs, findings, statuses | [`examples/rules/<ID>/`](../../examples/rules/) and [`corpus.json`](../../examples/rules/corpus.json), run by the rule-example campaign | The builder reads the campaign's exports for the same commit and renders the recorded bytes and findings. |
-| What every rule shares: strict impact, local options, where rules run, the message form, open obligations, trusted mechanisms and example kinds | [`RegulaCore.SiteDocs`](../../lean/RegulaCore/SiteDocs.lean) `enforcementPage`; each obligation's text is `Residual.description` and each mechanism's `Trusted.detail` in [`RegulaCore.Account`](../../lean/RegulaCore/Account.lean) | Stated once on the *How rules are enforced* page, which every rule page links; each obligation is defined there under the element id of its identifier, which rule pages and the coverage page link (`residualRoute`). |
+| Violating and corrected inputs | [`examples/rules/<ID>/`](../../examples/rules/), embedded by the registry (`RuleDescriptor.examples`) | The builder renders the two files of the pair. No run of the checker produced them. |
+| What every rule shares: strict impact, local options, where rules run, the message form, open obligations, trusted mechanisms and example kinds | [`RegulaCore.SiteDocs`](../../lean/RegulaCore/SiteDocs.lean) `enforcementPage`; each obligation's text is `Residual.description` and each mechanism's `Trusted.detail` in [`RegulaCore.Residual`](../../lean/RegulaCore/Residual.lean) | Stated once on the *How rules are enforced* page, which every rule page links; each obligation is defined there under the element id of its identifier, which rule pages and the coverage page link (`residualRoute`). |
 | Checklist coverage: every module 8 row with the rules that list it and the review obligations it carries | `coveragePage`, from `Regula.checklistRows` ([`RegulaCore.Standard`](../../lean/RegulaCore/Standard.lean)), each rule's `checklist` and each obligation's `Residual.rows` | `rulesOfRow` and `residualsOfRow` invert them (`mem_rulesOfRow`, `mem_residualsOfRow`), so the page cannot disagree with the rule pages or the obligations ([architecture](architecture.md#coverage-of-the-standard)). |
 | Page construction, escaping, filters, diffs, banners, the site root's target, link checking, rule-ID links | [`RegulaCore.Site`](../../lean/RegulaCore/Site.lean), [`Prose`](../../lean/RegulaCore/Prose.lean), [`SitePage`](../../lean/RegulaCore/SitePage.lean), [`SiteDocs`](../../lean/RegulaCore/SiteDocs.lean) (claimed, proved) | Pure functions the builder executes. |
 | Releases, editions, help links and the route policy | [`RegulaCore.Edition`](../../lean/RegulaCore/Edition.lean) (claimed, proved) | `installed`, `releases`, `published`, `helpUrl`, `stableRoots` and `sitePath`. |
-| Evidence admission, generation, rendering, release copies, assembly, artifact check | [`Regula.Site`](../../lean/Regula/Site/) (`lake exe site`, operational) | Writes `website/Generated/`, runs Verso, writes `_site/`. |
+| Generation, rendering, release copies, assembly, artifact check | [`Regula.Site`](../../lean/Regula/Site/) (`lake exe site`, operational) | Writes `website/Generated/`, runs Verso, writes `_site/`. |
 | The standard: normative text, checked Lean examples, section and checklist-row anchors | [`website/RegulaStandard.lean`](../../website/RegulaStandard.lean) and [`website/RegulaStandard/`](../../website/RegulaStandard/) (Verso, the only source), with the code blocks of [`RegulaExample`](../../website/RegulaExample.lean) | Included by the generated home page under `standard/`. Each `lean` block is elaborated where it is written, in a fresh [`regula-example`](../../website/RegulaExampleMain.lean) process with exactly its own imports. |
 | Colours and stylesheet | [`RegulaCore.SiteTheme`](../../lean/RegulaCore/SiteTheme.lean) (claimed; contrast proved) | Written by the builder as `website/Generated/regula.css`, copied to each edition's root and linked from every page. |
 | Rendering and theme script | [`website/`](../../website/): pinned Verso package (search feature only), `RegulaSite` extension (raw-HTML block and theme script) | `website/Generated/` is generated and ignored by Git. |
@@ -39,7 +39,7 @@ development standard (`Regula.Site.documentAnchors`), and the rendered checklist
 exactly `Regula.checklistRows`, in order (`Regula.Site.rowsMismatch`; a row is the `id` of an
 element of class `Regula.checklistRowClass`). Every row a rule lists is one of them
 (`guide_checklist_listed`). It also requires each cited section's source to be a module of the
-library, and every rule ID in the rendered standard's prose to be a link to its rule page
+library file of the repository, and every rule ID in the rendered standard's prose to be a link to its rule page
 ([rule IDs in documentation](contributing.md#rule-ids-in-documentation)). Which rows a rule lists is reviewed with the rule; the artifact's
 link check requires every anchor in the rendered site. The generator refuses a cited repository
 path that does not exist.
@@ -49,21 +49,16 @@ path that does not exist.
 `./scripts/verify.sh site` (below) proceeds only if all of the following hold; otherwise it
 fails and removes `_site/`:
 
-- **Evidence identity.** Both corpus shard exports are `COMPLETED`, are admitted again by the
-  proved `ruleExampleQualification` executable, select every registered rule exactly once
-  between them, record exactly the current bytes of the checker, corpus and configuration
-  sources (`RuleExamples.sourcePaths`), and carry this commit (with the uncommitted-changes suffix
-  only for a labelled local preview), toolchain and linter version.
-  Each rule has one violating and one corrected record; the corrected run is a completed positive.
 - **Totality and uniqueness.** Pages are generated by iterating `RuleId.all`.
   `pageFiles_nodup` and `mem_pageFiles` prove every rule has exactly one page route per edition
   and no two rules share one; `ruleModules_nodup` does the same for the generated Verso modules.
   The artifact check requires exactly the registry's rule directories in `dev/`, no more.
-- **Diagnostic links.** `helpUrl_pagePath` proves the linter's emitted `helpUrl id` is the page
-  of `id` in the installed build's edition; `helpUrl_release` and `helpUrl_unreleased` fix that
-  edition, and `helpUrl_dev_iff` proves the link names `dev/` exactly when the build is
-  unreleased. `installed_published` proves that edition is published, and the artifact check
-  requires its page for every rule, so every emitted help link names a page of the artifact.
+- **Diagnostic links.** `helpUrl_pagePath` proves the `helpUrl id` that each finding of the
+  checker (`Regula.Shell.page`) and `lake exe regula explain` print is the page of `id` in the
+  installed build's edition; `helpUrl_release` and `helpUrl_unreleased` fix that edition, and
+  `helpUrl_dev_iff` proves the link names `dev/` exactly when the build is unreleased.
+  `installed_published` proves that edition is published, and the artifact check requires its
+  page for every rule, so every emitted help link names a page of the artifact.
 - **Page structure.** `ruleSections_sublist` and `required_mem_ruleSections` prove every rule
   page has every required section and only sections of the fixed order, the checked example
   first; the proof-shape and configuration sections appear when the rule has them.
@@ -87,8 +82,8 @@ fails and removes `_site/`:
   block is at most 100 characters, the Lean community's limit, or the build fails; the
   stylesheet wraps a line that does not fit the column instead of scrolling sideways. An
   expected rejection is shown under the rule pages' verdict, *Rejected by Lean, as intended*,
-  with the error message that matched its pattern as the evidence. Classifying the same
-  blocks' declarations and axioms is the documentation step of acceptance, not the site build.
+  with the error message that matched its pattern as the evidence. No step of acceptance
+  classifies the declarations of a block or reads the axioms that they depend on.
 - **Links and base path.** Every `href` and `src` attribute the tokenizer finds in each
   HTML file of the artifact is resolved against its page and `<base href>`, following RFC 3986
   for schemes; `linkErrors_nil_iff` proves an empty result means each of those links reaches an
@@ -102,9 +97,6 @@ fails and removes `_site/`:
   ([rule IDs in documentation](contributing.md#rule-ids-in-documentation)). The pages link by
   the rule's route relative to the edition root, so a release's edition, which is the same
   rendering, links within `v/<version>/`. Editions frozen at an earlier release are not checked.
-- **Registry validation.** The registry's own `axiomGate --validate-site` accepts the page
-  inventory, the pages whose example content the check verified, and every rule ID the
-  examples emitted.
 - **Routes and editions.** Each path is a root file, a file of `dev/` or of `v/<version>/`
   for a release, or a file below `rules/` or `standard/` (`sitePath_iff`). The root `index.html`
   opens `rootEdition`, a published edition (`rootEdition_published`);
@@ -112,7 +104,7 @@ fails and removes `_site/`:
   rendered edition, byte for byte. Each release edition is its copy
   ([versions](#versions-and-routes)) with the latest-release banner on every HTML page when a
   later release exists. The artifact contains no hidden files (the Pages upload drops them);
-  `build.json` records the commit, toolchain, linter version, Verso revision, per-rule evidence,
+  `build.json` records the commit, toolchain, linter version, Verso revision, the rules,
   the published editions, how each release edition was obtained (its asset, rendered from
   source, or a preview) and whether the build's commit is the one the installed release's tag
   names.
@@ -135,8 +127,7 @@ fails and removes `_site/`:
 These are statements about the builder's own output. The HTML tokenizer (`scanTags`) is a
 small scanner of that output: the link theorem covers the links it extracts, not every link a
 browser could follow. Verso, the browser, GitHub Pages and the network are trusted or observed.
-Semantic accuracy of the explanations is review (R-DOC, R-INTENT), and a corpus pass is scoped
-detector qualification, not a proof that the detectors are correct for all inputs.
+Semantic accuracy of the explanations is review (R-DOC, R-INTENT).
 
 ## Build and preview locally
 
@@ -144,9 +135,6 @@ After provisioning the pinned Verso package once:
 
 ```sh
 lean --run lean/RegulaProvision.lean verso          # Verso setup
-./scripts/verify.sh diagnostics rule-examples 1/3    # corpus shard 1
-./scripts/verify.sh diagnostics rule-examples 2/3    # corpus shard 2
-./scripts/verify.sh diagnostics rule-examples 3/3    # corpus shard 3
 ./scripts/verify.sh site                             # build and check _site/
 ```
 
@@ -181,12 +169,7 @@ the tracked Markdown documents with md4c. The `markdown/` package requires MD4Le
 revision as Verso, and the two packages use one checkout of it in `.lake/packages`. The command
 that provisions Verso compares the two revisions, and it stops if they are different.
 
-Any change to a module source, the corpus or the Lake configuration makes earlier shard
-exports stale; the site build refuses them, so rerun the three shards. The checker embeds its commit
-when `lean/Regula/Checker/Producer.lean` is compiled, and Lake reuses that build after a new
-commit; the site build then refuses the evidence as another commit's. Delete
-`.lake/build/lib/lean/Regula/Checker/Producer.*` before rerunning the shards. CI builds fresh, and so does the first Test round of a no-mistakes run. A
-worktree with uncommitted changes produces a labelled local preview. Every build requests the
+A worktree with uncommitted changes produces a labelled local preview. Every build requests the
 release asset of every release and reads the repository's tags with `git ls-remote`
 ([versions](#versions-and-routes)), so a build needs network access. The artifact expects to be
 served at `/regula/`; any static file server works if `_site/` is mounted at that path (for
@@ -194,7 +177,7 @@ example a directory containing only a `regula` link to `_site`).
 
 ## Publication
 
-The [local gate](contributing.md#the-local-gate) runs the checks of `verify` and `rule-examples` and
+The [local gate](contributing.md#the-local-gate) runs the checks of `verify` and
 the builds of `site` below on each change. It leaves out the site check, which reads the private
 repository with no credentials. CI runs these jobs on each push to `main` and on dispatch, and not on
 a pull request:
@@ -202,27 +185,25 @@ a pull request:
 1. `verify`: the two [acceptance](contributing.md#develop-and-verify) steps. Its first step
    refuses a commit whose `Regula.installed` is a release: only the release commit, which is not
    on `main`, carries a release label.
-2. `rule-examples` (three shards): the corpus campaign; each uploads its export. The diagnostics
-   workflow also runs the three shards on dispatch.
-3. `candidate` (`main` only, after `verify` and `rule-examples`): when `main` lists a release that
+2. `candidate` (`main` only, after `verify`): when `main` lists a release that
    is not yet published and this commit is still the head of `main`, creates the release commit (a
    signed child of this commit whose only change sets `Regula.installed` to the release), points
    `release/v<version>-candidate` at it and outputs it; once the release is published it releases
    nothing ([release](contributing.md#release)). No tag exists yet.
-4. `release-verify` (only when `candidate` output a release commit): both acceptance steps on the
+3. `release-verify` (only when `candidate` output a release commit): both acceptance steps on the
    release commit, with its release label. It checks out this commit of `main`, not the release
    commit, and `adopt` derives the release commit there and adopts its name once it has shown it
    is exactly that content (`Regula.Release.adopt`).
-5. `release-site` (only when `candidate` output a release commit): adopts the release commit the
-   same way, then the three rule-example shards and `./scripts/verify.sh site` on it, whose tag does
+4. `release-site` (only when `candidate` output a release commit): adopts the release commit the
+   same way, then `./scripts/verify.sh site` on it, whose tag does
    not exist yet, so its site build renders the release's edition and writes it; it is uploaded
    as `site-release-<release commit>`.
-6. `publish` (only after `release-verify` and `release-site` passed, refusing unless both adopted
+5. `publish` (only after `release-verify` and `release-site` passed, refusing unless both adopted
    the release commit): publishes the GitHub
    release `v<version>` with that edition as its permanent asset, which creates the tag at the
    release commit. The tag then never changes.
-7. `site` (after `rule-examples`, and after `candidate` and `publish` passed or were skipped):
-   builds the site tooling, then `./scripts/verify.sh site` over this run's exports, and uploads
+6. `site` (after `candidate` and `publish` passed or were skipped):
+   builds the site tooling, then `./scripts/verify.sh site`, and uploads
    the checked `_site/` as `site-<commit>` (preview). Running after `publish`, it takes a release's
    edition from the asset published in the same run. On the commit of the release pull request, and
    on any other unreleased commit that lists a release not yet published, it previews that release's
@@ -233,13 +214,13 @@ a pull request:
    then uploaded as the Pages artifact. So when `release-verify` or `release-site` fails on
    `main`, `publish` is skipped, the gate refuses the preview, this job fails and nothing is
    deployed. Pull requests never publish.
-8. `deploy` (`main` only, after `verify` and `site`): a dependency-free step asks the GitHub API
+7. `deploy` (`main` only, after `verify` and `site`): a dependency-free step asks the GitHub API
    (default token, `contents: read`) whether this commit is still the head of `main` and refuses
    otherwise; then `actions/deploy-pages` publishes exactly the validated artifact to the
    `github-pages` environment (which allows `main` only). Only this job has `pages: write` and
    `id-token: write`; it runs no checkout, provisioning or project code, so nothing it could
    fetch and execute can use its OIDC token.
-9. `verify-deployment`: `Deployment verify` fetches the live `build.json` with a per-attempt
+8. `verify-deployment`: `Deployment verify` fetches the live `build.json` with a per-attempt
    query string until it equals the artifact's bytes, then requires the site root page, the home
    page of every edition, every development rule page and every release edition's `build.json` to
    be served with the artifact's exact bytes, and an unpublished route to return the artifact's
@@ -249,8 +230,7 @@ a pull request:
 Each run on `main` cancels older runs of `main`, the deploy job refuses to publish a revision
 that is no longer the head of `main` (for example a manual re-run of an older run, which
 re-checks because the check is part of that job), and deployments are serialized in the
-`github-pages` concurrency group. The local gate runs the three corpus shards
-on each change, but not the site check. The site can
+`github-pages` concurrency group. The local gate does not run the site check. The site can
 lag `main` while checks run or after they fail; each page states its commit. Repository Pages
 settings use **GitHub Actions** as the source. There is no custom domain or paid hosting. Actions are pinned by commit SHA.
 
@@ -341,9 +321,9 @@ A release takes these steps, in order ([release procedure](contributing.md#relea
    Regula in the tracked Markdown documents to it and stamps it into rule
    lifecycle positions still `.unreleased`; `Regula.installed` stays `.unreleased`. Its `site`
    check passes with a preview of the release's edition, which is never deployed.
-2. When it merges, CI on `main`, once acceptance and the rule-example shards pass, creates the
+2. When it merges, CI on `main`, once acceptance passes, creates the
    release commit, a child of the head of `main` that is not on `main` and whose only change sets
-   `Regula.installed` to the release, and runs both acceptance steps, the three rule-example shards
+   `Regula.installed` to the release, and runs both acceptance steps
    and the site build on it. Its site build renders the release's edition and writes
    `tmp/site-release/regula-site-<version>.tar.gz`, kept as the `site-release-<release commit>`
    artifact of that run. Other pull requests still merge meanwhile; until the release is
@@ -382,8 +362,8 @@ A rule change touches its semantics, metadata, examples and explanation together
 2. Explanation: the rule's case of `guide` in `RegulaCore/Guide.lean`. Keep every statement no
    stronger than the detector and the standard; `@repo/PATH` links name repository files. State
    only what is specific to the rule; what every rule shares belongs on the enforcement page.
-3. Examples: `examples/rules/<ID>/` and its `corpus.json` entry ([rule examples](architecture.md#rule-examples)).
-4. Run the three shards and `./scripts/verify.sh site`; open the affected pages in a browser at a
+3. Examples: the two files of `examples/rules/<ID>/`, which the registry embeds.
+4. Run `./scripts/verify.sh site`; open the affected pages in a browser at a
    narrow and a wide width.
 
 Review reads the elaborated rule predicate, the explanation and the example together: the

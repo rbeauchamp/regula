@@ -52,19 +52,16 @@ them. Code that makes one of these changes to make a check pass is not honest co
 - A native build setting: `extern_lib`, `moreLinkArgs` or `moreLeancArgs`.
 
 Regula checks for some changes of this kind, where the standard or a rule page states the check.
-For example, it replays the declarations of the project that are not `unsafe` or `partial` through
-Lean's kernel. It calculates the axioms of each declaration of the project from that kernel, not
-from the axiom table `exportedAxiomsExt` that Lean writes for each module. It also replays and
-checks the modules of a path dependency in the project's Git work tree that the claimed modules
-import, except Regula's own. But a pass makes no claim that the project has none of the changes in
-the list.
+For example, it calculates the axioms of each claimed declaration from the declarations that Lean
+loads from the build. It does not read the axiom table `exportedAxiomsExt` that Lean writes for
+each module. But a pass makes no claim that the project has none of the changes in the list.
 
-Regula runs the `#print axioms` step of
-[Validating a Lean Proof](https://lean-lang.org/doc/reference/latest/ValidatingProofs/) over each
-declaration that a project claims. `lake exe freshChecker` replays the compiled modules in Lean's
-kernel beside it. It runs the toolchain's own `leanchecker` by its path in the toolchain's
-installation directory. `lake env leanchecker` can run a package's own program of that name
-instead, because `lake env` puts the binary directory of each package first on `PATH`.
+Regula does the `#print axioms` step of
+[Validating a Lean Proof](https://lean-lang.org/doc/reference/latest/ValidatingProofs/) for each
+declaration that a project claims. It does not replay the modules through Lean's kernel. For that
+step, run the toolchain's own `leanchecker` by its path in the toolchain's installation directory.
+`lake env leanchecker` can run a package's own program of that name instead, because `lake env`
+puts the binary directory of each package first on `PATH`.
 [Comparator](https://github.com/leanprover/comparator) judges a proof of a fixed statement from a
 source that you do not trust.
 
@@ -79,39 +76,28 @@ write that stores a compiled body that Lean's compiler did not make and a native
 `_unsafe_rec` companion that Regula does not inspect is also such a change. The checks of Regula
 that read compiled code trust that the project makes none of these changes.
 
-Regula owns the path dependencies in the Git work tree of the project only in a supported
-workspace. In it, each owned package, the root package included, keeps Lake's default output
-layout. Also, no different package provides a module name that the root package or an owned
-package provides. For this condition, Regula counts the library modules of each package and the
-executable roots of each owned package. Two trusted packages can provide the same module name.
-Regula refuses any other workspace before it builds the project or a copy of it.
+Regula checks the modules of the root package only, and it reads each one from the root
+package's build. When Lean's search path finds the `.olean` of a module of a target outside that
+build, the run is `incomplete`. A dependency with a module of the same name can cause this. The modules of a dependency are not checked. The modules of Regula in a project's
+dependencies are Regula's code, and Regula's own gate checks them.
 
-Lake builds the program that runs the audit before that check, for example the `lake lint` driver.
-The verification driver of this repository also builds its own copy first. These two builds are of
+Lake builds the program that runs the check, the `lake lint` driver, before the check. The
+verification driver of this repository also builds its own copy first. These two builds are of
 Regula's own package.
-
-Regula reserves the module name prefixes `Regula` and `RegulaPolicy` to itself. In each audit, only
-the running checker's own package can provide a module under them with any source. A different
-package can provide one only with a source that is byte-identical to the checker's source of that
-module. Thus the module that Regula loads in its place is compiled from the same text. This check
-assumes that the package's Lean options for the module do not change what the text elaborates to.
-
-A module under these prefixes in a package other than the root package is Regula's own code, also
-in an owned path dependency. No audit owns it or inspects it as project code. Regula's own audit
-checks it with its whole library. Thus the account names each dependency that provides such a
-module as a trusted package, also an owned path dependency.
 
 ## What counts as a vulnerability
 
 A vulnerability is a way to break one of these guarantees on purpose:
 
-- **A violating project that passes.** Honest code makes `lake lint` exit 0, or an audit report a
-  `completed` account, while a claimed declaration breaks a guarantee that the
+- **A violating project that passes.** Honest code makes `lake lint` exit 0 while a claimed
+  declaration breaks a guarantee that the
   [rule reference](https://rbeauchamp.github.io/regula/dev/rules/) states.
-- **Regula acting outside what it documents.** Regula runs external programs with argument
-  arrays, never through a generated shell program, and keeps scratch work under the checked
-  project's `.lake/regula-scratch/`. An input, such as a path or a module or file name, that
-  makes Regula's own code run a command, or write or delete a file, beyond what its
+- **Regula acting outside what it documents.** The checker that `lake lint` runs writes no file.
+  It starts a second process of itself, in an environment that isolates Git, where Lake's load of
+  the workspace can run Git. Regula's other programs run external programs with argument arrays,
+  never through a generated shell program, and keep scratch work under the project's
+  `.lake/regula-scratch/`. An input, such as a path or a module or file name, that makes Regula's
+  own code run a command, or write or delete a file, beyond what its
   documentation describes is a vulnerability.
 - **A release or site published unchecked.** A flaw in the CI and release workflows
   (`.github/workflows/`, `lean/Regula/Release.lean`) that could publish a release, a tag or the
@@ -124,22 +110,20 @@ A vulnerability is a way to break one of these guarantees on purpose:
 - **Deliberate changes to Lean's environment, compiler or build.** A way to make a check pass with
   code that is not honest code, as the [scope](#scope) tells, is not a vulnerability. To ask that
   Regula find more such changes, open a [public issue](https://github.com/rbeauchamp/regula/issues).
-- **Code the audit builds.** An audit runs the code of the project with your permissions. Lake runs
-  a `lakefile.lean`, elaboration runs the macros, elaborators and tactics of the project, and the
-  report worker of Regula runs the initializers of the modules of the project. Regula is not a
-  sandbox: its trust boundary includes the pinned Lean process and the libraries that it imports.
-  Thus code that attacks the checker process or your computer in this way is outside that
-  boundary. Audit only code that you would build.
+- **Code the build runs.** The build that comes before a check runs the code of the project with
+  your permissions. Lake runs a `lakefile.lean`, and elaboration runs the macros, elaborators and
+  tactics of the project. Regula is not a sandbox: its trust boundary includes the pinned Lean
+  process and the libraries that it imports. Thus code that attacks the checker process or your
+  computer in this way is outside that boundary. Check only code that you would build.
 - **What Regula trusts.** Regula trusts Lean's kernel, elaborator, compiler and runtime, Lake, Git,
   the filesystem, the operating system and GNU timeout. It also trusts each package that the
-  project requires from outside its Git work tree, for example Mathlib, and the account names each
-  of them. Regula does not replay the declarations of these packages through Lean's kernel, and it
-  reads their axioms from the data that their builds wrote. Report a vulnerability
-  of one of these items to its maintainers. Regula also trusts the GitHub services that a release
-  uses: Actions, commit-signature verification, tags and immutable releases.
+  project requires, for example Mathlib. Regula does not replay declarations through Lean's
+  kernel, and it reads the declarations of the project and of these packages from their builds. Report a vulnerability of one of these items to its maintainers. Regula also
+  trusts the GitHub services that a release uses: Actions, commit-signature verification, tags and
+  immutable releases.
 - **Semantic review.** Whether a theorem states what you meant, and the other
-  [review obligations](docs/guides/architecture.md#coverage-of-the-standard) every accepted account
-  lists, are left to review; a pass never claims them.
+  [review obligations](docs/guides/architecture.md#coverage-of-the-standard) that the rule
+  reference lists, are left to review; a pass never claims them.
 - **Ordinary bugs.** A false positive, or a missed finding that nobody could use with honest code
   to make a violating project pass, belongs in a
   [public issue](https://github.com/rbeauchamp/regula/issues). If you are unsure, report

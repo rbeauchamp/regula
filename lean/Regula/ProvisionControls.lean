@@ -1,7 +1,6 @@
 import RegulaProvision
 import Regula.Filesystem
 import Regula.Site.Build
-import Regula.Qualification.Slot
 import Lean.Elab.Command
 
 /-! # Controls of the provisioning link installation and of the selections of Lake's pinned packages
@@ -31,16 +30,10 @@ reads no network and acquires no Mathlib:
 - A manifest without `packagesDir`, or with a null one, is refused, and so is an absent manifest.
 - After each of these, the positive control is restored and gives its answer again.
 
-The same selection serves two other reads of a manifest, each controlled on files that the control
-writes, with a restored positive control after each case:
-
-- The site's record of the website's Verso revision, `Regula.Site.Build.versoRevision`, takes the
-  last `verso` entry, and an override's; a path override of `verso` is refused.
-- The slot's containment check, `Regula.Qualification.Slot.checkContainment`, refuses a duplicate
-  entry whose directory is outside the slot, a Git entry, and a package overrides file that records
-  an entry; `Regula.Qualification.Slot.manifestWithoutOverrides`, the one read of the two files
-  that the check traverses and that slot preparation runs on the original root, refuses that file
-  too, and accepts an empty one.
+The same selection serves one other read of a manifest, controlled on files that the control
+writes, with a restored positive control after each case: the site's record of the website's Verso
+revision, `Regula.Site.Build.versoRevision`, takes the last `verso` entry, and an override's; a path
+override of `verso` is refused.
 
 The link controls run the link installation of provisioning, `RegulaProvision.installLinkWith` at
 the driver's operations `RegulaProvision.linkOps`, on the native filesystem that
@@ -392,43 +385,5 @@ run_cmd do
     requireRefused "site path override of verso" "materializes no Git package verso" revision
     Regula.Filesystem.removeFound overrides
     positive "site positive after the overrides file"
-
--- The slot's containment check, and its refusal of a package overrides file that records an entry.
-run_cmd do
-  Regula.Filesystem.withOwnTempDir fun base => do
-    let slot : Regula.Qualification.Slot.ProducerSlot := ⟨base / "slot"⟩
-    let copy := slot.root / "root"
-    let manifest := copy / "lake-manifest.json"
-    let overrides := copy / ".lake" / "package-overrides.json"
-    let files := Regula.Checker.Workspace.rootFiles copy
-    IO.FS.createDirAll (copy / ".lake")
-    IO.FS.createDirAll (slot.root / "inside")
-    IO.FS.createDirAll (base / "outside")
-    let committed := [pathEntry "batteries" "../inside"]
-    let check := Regula.Qualification.Slot.checkContainment slot copy #[]
-    let positive (label : String) : IO Unit := do
-      let read := discard <| Regula.Qualification.Slot.manifestWithoutOverrides files
-      match ← (do check; read).toBaseIO with
-      | .ok () => pure ()
-      | .error error => throw <| IO.userError s!"selection control {label}: refused: {error}"
-    IO.FS.writeFile manifest (manifestText (some (some ".lake/packages")) committed)
-    positive "slot positive"
-    IO.FS.writeFile manifest (manifestText (some (some ".lake/packages"))
-      (committed ++ [pathEntry "batteries" "../../outside"]))
-    requireRefused "slot duplicate entry" "slot manifest dir escapes slot" check
-    IO.FS.writeFile manifest (manifestText (some (some ".lake/packages"))
-      (committed ++ [gitEntry "Qq" "https://example.invalid/qq"
-        (String.ofList (List.replicate 40 '9'))]))
-    requireRefused "slot Git entry" "is a Git entry" check
-    IO.FS.writeFile manifest (manifestText (some (some ".lake/packages")) committed)
-    positive "slot positive after the manifest's entries"
-    IO.FS.writeFile overrides (overridesText [pathEntry "batteries" "../inside"])
-    requireRefused "slot overrides file" "slot workspace has package overrides" check
-    requireRefused "slot original overrides file" "slot workspace has package overrides"
-      (discard <| Regula.Qualification.Slot.manifestWithoutOverrides files)
-    IO.FS.writeFile overrides (overridesText [])
-    positive "slot empty overrides file"
-    Regula.Filesystem.removeFound overrides
-    positive "slot positive after the overrides file"
 
 end Regula.ProvisionControls

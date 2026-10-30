@@ -17,8 +17,8 @@ lifted by `LinearOrder.lift'`), `MathlibAudit.Economy` (a `ring` proof and a law
 over `ℝ`), `MathlibAudit.Models` (Mathlib's unit interval, ordered-algebra mixins, real
 exponential growth and the real metric), `MathlibAudit.Refinement` (the limiter
 refinement over `Relation.ReflTransGen`) and `MathlibAudit.Research` (statements about
-`Nat.Perfect`). This module owns no declarations. The declaration gate discovers the
-`MathlibAudit` surface from Lake's inventory, not from this import list.
+`Nat.Perfect`). This module owns no declarations. Regula's checker reads the
+`MathlibAudit` surface from Lake's modules, not from this import list.
 
 The standard's own examples and the repository's default verification import only Lean's
 core libraries (`audit/`); `./scripts/verify.sh mathlib` checks this package separately.

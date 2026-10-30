@@ -6,15 +6,14 @@ Lean 4.35.0's `System.FilePath.pathExists` and `System.FilePath.isDir` give `fal
 of their `metadata` read, not only for a missing file (`Init/System/IO.lean:1162-1172`), so a
 permission error, an I/O error or a path that is too long reads as absence. The reads of this
 module give absence only for the error that says that nothing is at the path, and throw every other
-error. `Regula.Filesystem.isPresent_runsTo` and `isDirectory_runsTo` state what each run gives, and
-the self-audit refuses a use of the two predicates of Lean in Regula's code
-(`Regula.Qualification.SelfAudit.absenceReads`).
+error. `Regula.Filesystem.isPresent_runsTo` and `isDirectory_runsTo` state what each run gives. No
+check refuses a use of the two predicates of Lean in Regula's code.
 
 The module imports only the toolchain's prelude and is in the module system, so each module of
 Regula, in it or not, can import it. Code that cannot import it defines its own copy, and a theorem
 proves that copy equal to the read here (`Regula.Filesystem.isPresent_eq_match`,
-`isDirectory_eq_match`): a program that runs before the package is built, the copy program, whose
-source cold drivers run, and the collector, which imports no module outside the probe's closure. -/
+`isDirectory_eq_match`): a program that runs before the package is built, and the copy program,
+whose source cold drivers run. -/
 
 @[expose] public section
 

@@ -686,9 +686,8 @@ theorem realPathIfPresent_present {path : FilePath} {w s : Void IO.RealWorld}
 
 /-- `isPresent` as one match on Lean's read: the form of its copies in the code that cannot import
 it, the programs that run with `lean --run` before the package is built (`RegulaProvision`,
-`Regula.DiagnosticsGate`, `Regula.Release`) and the collector (`Regula.Collect`). A theorem proves
-each copy equal to `isPresent` through this one (`Regula.ProgramCheck.Provision.isPresent_eq` and
-the others, `Regula.Checker.Environment.collectIsPresent_eq`). -/
+`Regula.Release`). A theorem proves each copy equal to `isPresent` through this one
+(`Regula.ProgramCheck.Provision.isPresent_eq`, `Regula.ProgramCheck.Release.isPresent_eq`). -/
 theorem isPresent_eq_match : isPresent = (fun path => do
     match ← path.metadata.toBaseIO with
     | .ok _ => return true

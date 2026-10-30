@@ -1,4 +1,6 @@
-import Regula.Checker.AxiomGate
+import Regula.Shell
+import Regula.Checker.LakeConfig
+import RegulaCore.JsonAgreement
 import Regula.CompilerProbe
 import RegulaCore.Guidance
 import Lake.Toml.Grammar
@@ -10,9 +12,9 @@ import Lean.Elab.Frontend
 `init` writes the setup a project is missing, and `doctor` reports every missing or wrong piece
 with its fix. Both execute the proved decision of `RegulaCore.Setup` over what they observe:
 `init` writes exactly the edits of `Regula.Setup.plan` (so `plan_idempotent` says what a second
-run writes: nothing), and `doctor` prints `Regula.Setup.issues` together with the linter's own
-RG2002 manifest validation and RG2006 option decision, in the linter's finding text, one RG2006
-finding for the targets that share a claim and failures.
+run writes: nothing), and `doctor` prints `Regula.Setup.issues` together with the checker's own
+RG2002 and RG2006 findings (`Regula.Closed.Input.configurationFindings`), one line for each, in
+the checker's form (`Regula.Shell.line`).
 
 ## Main declarations
 
@@ -56,11 +58,12 @@ claimed modules, the claimed roots included, already read under the same name, c
 canonical path (`IO.FS.realPath`). That closure resolves each import with Lake's own lookup
 (`resolveImport`) and reads the headers of the files Lake gives those modules alone; the files the
 walk below each library root finds decide only what `doctor` reports a library leaves out. A
-`.git` entry marks the repository root for the agent guidance; Git itself is not run. RG2006 in
-`doctor` applies Mathlib's options when the workspace contains Mathlib, where the linter applies
-them to a target whose modules import Mathlib; by
-`RegulaPolicy.Community.conforming_of_mathlib`, a target `doctor` accepts also passes the
-linter's decision. Elan's listing and that
+`.git` entry marks the repository root for the agent guidance; Git itself is not run. The
+required options of a setup issue include Mathlib's when the workspace contains Mathlib, and
+`init` writes those under `weak.`; by `RegulaPolicy.Community.conforming_of_mathlib`, a target
+that has Mathlib's required options also has the core-only ones. `doctor`'s RG2002 and RG2006
+findings are the checker's own decision over the targets Lake loads and the claim
+(`projectInput`), with the checker's option allowlist. Elan's listing and that
 compiler's report of its own version and commit are trusted; nothing is installed, and a pin
 that does not resolve is a setup issue. -/
 
@@ -194,20 +197,24 @@ def importClosure (ws : Lake.Workspace) (starts : List Lake.Module) :
     canonical := canonical.insert (m.name, path.toString)
     reached := reached.push (m.name, path)
     let header ← Lean.parseImports' (← IO.FS.readFile file) file.toString
-    -- An entry of module names: the import lines of a project source.
-    Regula.Checker.requireSafeModuleNames s!"the imports of {file}" (header.imports.map (·.module))
     for i in header.imports do
       if let some next := resolveImport ws i.module then pending := (next, some m.name) :: pending
   return reached.toList
 
-/-- The project's manifest with its Lake inventory, refused unless it loads and classifies every
-root target: the audit's own RG2002 functions. -/
-def validManifest (root : FilePath) : IO (Manifest × Lake.SurfaceInventory) := do
-  let inventory ← Lake.surfaceInventory root
-  let manifest ← Manifest.loadFor (Manifest.defaultPath root) inventory
-  discard <| IO.ofExcept <| Acceptance.surfaceAssignments manifest inventory
-  AxiomGate.checkClassification manifest inventory
-  return (manifest, inventory)
+/-- The project's targets, from Lake's load, and its claim, read as the checker reads them
+(`Regula.Load.targets`, `Regula.Load.claim`), as a closed input with no build. -/
+def projectInput (root : FilePath) : IO Regula.Closed.Input := do
+  let ws ← Regula.Load.loadWorkspace root
+  return { (default : Regula.Closed.Input) with
+    targets := ← Regula.Load.targets ws, manifest := ← Regula.Load.claim root }
+
+/-- Refuse unless the project's manifest loads and classifies every root target: the checker's own
+RG2002 findings (`Regula.Closed.Input.configurationFindings`). -/
+def validManifest (root : FilePath) : IO Unit := do
+  let i ← projectInput root
+  let refused := (i.configurationFindings (fun _ => true)).filter (·.rule == .configuration)
+  unless refused.isEmpty do
+    throw <| IO.userError s!"manifest-invalid: {"; ".intercalate (refused.map Regula.Shell.line)}"
 
 /-! ## Text edits -/
 
@@ -437,10 +444,19 @@ def tomlText (input : String) (driver : Bool) (entries : List (Name × OptionVal
     pure (place, "\n" ++ setting)
   IO.ofExcept <| splice input (driverText ++ optionText ++ targetText ++ globText)
 
+/-- Set Lean's search path to the library of the toolchain that `LEAN_SYSROOT` names, which
+`lake exe` sets to the toolchain of the Lake that runs it, or else to the one `Lean.findSysroot`
+finds. -/
+def initializeSearchPath : IO Unit := do
+  let sysroot ← match ← IO.getEnv "LEAN_SYSROOT" with
+    | some dir => pure (FilePath.mk dir)
+    | none => Lean.findSysroot
+  Lean.initSearchPath sysroot
+
 /-- The commands of a `lakefile.lean` as Lean's parser reads them while Lake elaborates the file
 (with the file's own imports and `open` commands in effect), and its first errors. -/
 def lakefileCommands (path : FilePath) (input : String) : IO (Array Syntax × List String) := do
-  initializeLeanSearchPath
+  initializeSearchPath
   -- The file's `import Lake` runs Lake's initializers, as when Lake loads it.
   unsafe Lean.enableInitializersExecution
   let inputCtx := Parser.mkInputContext input path.toString
@@ -624,6 +640,11 @@ def soleDeclared (kind : Lakefile) (path : FilePath) (name root : String) : IO B
         (configInsertions input command "" false [] (some setting)).toBool
     catch _ => return false
 
+/-- Lake's options as the setup decision reads them, each with its value. -/
+def optionsOf (options : Lean.LeanOptions) : List (Name × OptionValue) :=
+  options.values.toList.map fun (name, value) => (name, match value with
+    | .ofString s => .string s | .ofBool b => .bool b | .ofNat n => .nat n)
+
 /-- Observe the project at `root`: Lake's loaded root package (its `lintDriver`, package-level
 `leanOptions`, whether it has a `lean_lib`, and the root targets the manifest does not exclude with
 their own `leanOptions` and resolved extra `lean` arguments), whether the workspace contains
@@ -655,10 +676,7 @@ def observe (root : FilePath) : IO Project := do
   let excludedExecutables := (manifest.map (·.excludedExecutables.map (·.executable))).getD #[]
   let (lakefile, configFile, driver, options, targets, allClaimed, libraries, mathlib,
       uncovered, unimported, candidate, added, read) ←
-      Workspace.withRootWorkspace root fun ws => do
-      -- An entry of module names: the configuration of each package of the workspace, before
-      -- any module is resolved or any path is built from a name (`Lake.checkModuleNames`).
-      Regula.Checker.Lake.checkWorkspaceModuleNames ws
+      (Regula.Load.loadWorkspace root) >>= fun ws => do
       let pkg := ws.root
       -- The names of every module a root library includes and of every executable root, and the
       -- claimed modules among them, each as Lake gives it.
@@ -719,28 +737,27 @@ def observe (root : FilePath) : IO Project := do
           else rest := rest.push name
         unless hit.isEmpty do uncovered := uncovered ++ [(library, roots, sorted hit)]
         unless rest.isEmpty do unimported := unimported ++ [(library, roots, sorted rest)]
-      let own (options : Array Lean.LeanOption) :=
-        (Lake.buildOptions (.ofArray options) #[] #[] .anonymous #[] #[]).options
+      let own (options : Array Lean.LeanOption) := optionsOf (.ofArray options)
       let libs := pkg.leanLibs.filter fun lib =>
         !excludedLibraries.contains (Manifest.targetSpelling lib.name)
       let exes := pkg.leanExes.filter fun exe =>
         !excludedExecutables.contains (Manifest.targetSpelling exe.name)
-      -- A target's extra `lean` arguments are the audit inventory's, read by the same functions.
+      -- A target's extra `lean` arguments are those Lake gives its modules.
       -- With a valid manifest, `targets` lists every root target exactly when `allClaimed` holds.
       let target (exe : Bool) (name : Name) (options : Array Lean.LeanOption)
-          (build : RegulaPolicy.Community.BuildOptions) : Regula.Setup.Target :=
-        ⟨exe, name.toString, own options, build.arguments⟩
+          (arguments : Array String) : Regula.Setup.Target :=
+        ⟨exe, name.toString, own options, arguments.toList⟩
       let targets := if invalid then [] else
         (libs.map (fun lib => target false lib.name lib.config.leanOptions
-            (Lake.libraryOptions lib)) ++
+            (lib.weakLeanArgs ++ lib.leanArgs)) ++
           exes.map (fun exe => target true exe.name exe.config.leanOptions
-            (Lake.executableOptions exe))).toList
+            (exe.root.weakLeanArgs ++ exe.root.leanArgs))).toList
       let kind := match ← IO.ofExcept (LakeConfig.language pkg.relConfigFile) with
         | .toml => Lakefile.toml
         | .lean => Lakefile.lean
       let addedNames := added.foldl (fun s (m, _) => s.insert m) ({} : NameSet)
       return (kind, pkg.configFile, pkg.lintDriver,
-        (Lake.buildOptions pkg.leanOptions #[] #[] .anonymous #[] #[]).options, targets,
+        optionsOf pkg.leanOptions, targets,
         !invalid && libs.size == pkg.leanLibs.size && exes.size == pkg.leanExes.size,
         !pkg.leanLibs.isEmpty,
         ws.packages.any (·.baseName == `mathlib), uncovered, unimported, candidate,
@@ -793,14 +810,17 @@ def starterRationale : String :=
   "the reason for the claim, and strengthen it where the library allows."
 
 /-- Every root `lean_lib` claimed `standard-logical` with `report` execution; every root
-`lean_exe` is claimed with the first library that contains its root module, as RG2002 requires
-(`RegulaPolicy.RootsClassifiedAlike`), and with the first library when none does. -/
-def starterManifest (inventory : Lake.SurfaceInventory) : Manifest :=
-  let home (exe : Lake.ExecutableInventory) : Nat :=
-    (inventory.libraries.findIdx? (·.modules.contains exe.root)).getD 0
-  { surfaces := inventory.libraries.mapIdx fun i library =>
-      { library := library.library
-        executables := (inventory.executables.filter (home · == i)).map (·.executable)
+`lean_exe` is claimed with the first library that contains its root module, and with the first
+library when none does. Every target has the same claim, so the checker's RG2002 finds no
+executable classified differently from a library that contains its root. -/
+def starterManifest (targets : List Regula.Closed.Target) : Manifest :=
+  let libraries := (targets.filter (·.kind == .library)).toArray
+  let home (exe : Regula.Closed.Target) : Nat :=
+    (libraries.findIdx? fun l => exe.modules.any l.modules.contains).getD 0
+  { surfaces := libraries.mapIdx fun i library =>
+      { library := Manifest.targetSpelling library.name
+        executables := ((targets.filter (·.kind == .executable)).toArray.filter (home · == i)).map
+          (Manifest.targetSpelling ·.name)
         claim := .standardLogical, execution := .report, rationale := starterRationale }
     excludedLibraries := #[], excludedExecutables := #[] }
 
@@ -832,51 +852,22 @@ def manifestText (m : Manifest) : String :=
 
 /-! ## The commands -/
 
-/-- The linter's configuration findings for a project with a manifest: RG2002 when the manifest
-does not parse or does not classify every root target, and otherwise RG2006 for each claimed
-target, decided by `RegulaPolicy.Community.failures` exactly as the audit decides it. Targets
-with the same claim and the same failures share one finding naming them all, in manifest order,
-where the linter prints one per target: a `-D` in the package's arguments fails every target
-alike. -/
-def configurationFindings (project : Project) : IO (Array Regula.Finding) := do
-  let root := project.root
-  let mode : EvidenceMode := .incrementalProject
+/-- The checker's configuration findings for a project with a manifest, each as the checker prints
+it: RG2002 and RG2006 as `Regula.Closed.Input.configurationFindings` decides them over the targets
+Lake loads and the claim, with the checker's option allowlist (`Regula.Shell.allowed`). A manifest
+that cannot be read, or a workspace that Lake cannot load, is one line with the reason. -/
+def configurationFindings (project : Project) : IO (Array String) := do
   try
-    let (manifest, inventory) ← validManifest root
-    -- Each distinct claim and finding detail, with the targets that have it.
-    let mut groups : Array (String × String × Array String) := #[]
-    for surface in manifest.surfaces do
-      let some library := inventory.libraries.find? (·.library == surface.library)
-        | continue
-      let mut targets := #[(surface.library, library.options)]
-      for exe in surface.executables do
-        if let some info := inventory.executables.find? (·.executable == exe) then
-          targets := targets.push (exe, info.options)
-      for (target, options) in targets do
-        let failed := RegulaPolicy.Community.failures options project.observation.mathlib
-        unless failed.isEmpty do
-          let claim := surface.claim.toString
-          let detail := RegulaPolicy.Community.detail failed
-          match groups.findIdx? fun g => g.1 == claim && g.2.1 == detail with
-          | some i => groups := groups.modify i fun g => (g.1, g.2.1, g.2.2.push target)
-          | none => groups := groups.push (claim, detail, #[target])
-    groups.mapM fun (claim, detail, targets) => do
-      let d ← IO.ofExcept <| Regula.makeDiagnostic .communityConfiguration
-        ⟨", ".intercalate targets.toList, detail⟩ (.project root.toString) mode (some claim)
-        .violation
-      return ⟨.communityConfiguration, d⟩
+    let i ← projectInput project.root
+    return ((i.configurationFindings Regula.Shell.allowed).map Regula.Shell.line).toArray
   catch error =>
-    let configuration := error.toString.startsWith "manifest-"
-    let finding ← IO.ofExcept <| Regula.Findings.contextFinding
-      (if configuration then .configuration else .environment) root.toString error.toString mode
-      (if configuration then .violation else .incomplete)
-    return #[finding]
+    return #[s!"{RuleId.configuration.spelling} {project.root}: {error} \
+      {Regula.Shell.page .configuration}"]
 
 /-- Print every setup finding of the project at `root`, then the edits `init` would write, and a
 note for each module left out of every library that no claimed module imports. Returns 0 when
 there is nothing to fix and 1 otherwise; notes do not count. -/
 def doctor (root : FilePath) : IO UInt32 := do
-  RunFeedback.reset
   let project ← observe root
   let o := project.observation
   IO.println s!"regula doctor: {root} ({project.lakefile.name})"
@@ -884,7 +875,7 @@ def doctor (root : FilePath) : IO UInt32 := do
   for issue in setup do
     IO.println (issue.message project.lakefile ++ "\n" ++ issue.fix project.lakefile)
   let findings ← if o.manifest then configurationFindings project else pure #[]
-  RunFeedback.emitAll IO.println findings
+  for finding in findings do IO.println finding
   for entry in o.unimported do IO.println (unimportedNote project.lakefile entry)
   let count := setup.length + findings.size
   if count == 0 then
@@ -938,8 +929,7 @@ private def realize (written : IO.Ref (Array Written)) (project : Project) (edit
   for edit in edits do
     match edit with
     | .manifest =>
-      let inventory ← Lake.surfaceInventory root
-      let manifest := starterManifest inventory
+      let manifest := starterManifest (← Regula.Load.targets (← Regula.Load.loadWorkspace root))
       let text := manifestText manifest
       -- The parser the audit runs must read the text back as exactly this manifest before it is
       -- written.

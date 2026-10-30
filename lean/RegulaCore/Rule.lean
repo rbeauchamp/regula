@@ -5,7 +5,6 @@ public import RegulaCore.Edition
 public import RegulaCore.Standard
 public import RegulaPolicy.Foundation
 public import RegulaPolicy.Intent
-public import RegulaPolicy.GeneratedFamily
 
 /-! # Rule registry
 
@@ -238,11 +237,10 @@ inductive ExampleAudience where
   deriving Repr, BEq, DecidableEq
 
 /-- A rule's checked example pair: the exact bytes of `examples/rules/<ID>/Fixed.<ext>`
-(compliant) and `Violation.<ext>` (noncompliant), embedded with `include_str`. These are the
-corpus sources that the rule-example qualification runs (docs/guides/architecture.md): the
-fixed phase passes a completed positive check, and the violating phase produces this rule's
-findings. `correction` states what the correction changes and preserves; for qualification
-inputs it is the adopter-facing form of the fix. -/
+(compliant) and `Violation.<ext>` (noncompliant), embedded with `include_str`. No run of the
+checker reads them: the registry checks compare them with the files (`Regula.RegistryChecks`), and
+the rule's page and `regula explain` show them. `correction` states what the correction changes
+and preserves; for qualification inputs it is the adopter-facing form of the fix. -/
 structure ExamplePair where
   /-- The language of both files, which fixes their extension. -/
   language : ExampleLanguage
@@ -547,9 +545,9 @@ def descriptor : (id : RuleId) → RuleDescriptor id
           claim.",
         "If the stronger foundation is intended, change the surface's `claim` and rationale \
           explicitly; this changes the published claim and needs review.",
-        "`lake lint` groups a declaration Lean generated under the one it came from if it is a " ++
-          "; ".intercalate (GeneratedFamily.all.map (·.text)) ++ ". Other declarations keep their \
-          own location. Fix the one reported or a definition it uses that adds the axiom."]
+        "A finding names the constant and its module, also a constant that Lean generated, such \
+          as an equation lemma or an auxiliary definition. Fix the declaration it came from, or \
+          a definition it uses that adds the axiom."]
       examples := {
         language := .lean
         audience := .adopter
@@ -560,14 +558,14 @@ def descriptor : (id : RuleId) → RuleDescriptor id
           `propext`." } }
   | .escapeHatch => {
       lifecycle := .active (.release ⟨4, 34, 0⟩)
-      title := "Unsafe and partial declarations require exact helper authentication", category :=
+      title := "Unsafe and partial declarations are refused, except a recursion helper", category :=
           .declaration
       normativeClauses := [.declarationInventory]
       applicability := "escape-hatch"
       evidenceModes := .editorSnapshot :: declarationModes
       requirement := "Claimed modules declare nothing `unsafe` or `partial`, authored or \
-        generated, except a generated recursion helper passing its exact §7.4 \
-        authentication."
+        generated, except the recursion helper `f._unsafe_rec` of a safe definition `f` in the \
+        same module, admitted by its form."
       rationale := "A positive proof surface must consist of kernel-checked definitions. Unsafe \
         and partial code can be executed, but it cannot serve as logical evidence, and reasoning \
         about it silently depends on its runtime behavior."
@@ -576,19 +574,15 @@ def descriptor : (id : RuleId) → RuleDescriptor id
       rewrites := [
         "Remove an unnecessary `unsafe` marker.",
         "Replace `partial def` by a definition with structural recursion or a `termination_by` \
-          measure and `decreasing_by` proof; the finding names the `partial def` itself. A \
-          finding naming the `._unsafe_rec` helper of a safe definition means the checker did not \
-          regenerate its base or check its recursion equation (standard §7.4 lists the \
-          unsupported forms, such as a `wf_preprocess` rule registered outside the Lean \
-          toolchain); restate its recursion without that form.",
+          measure and `decreasing_by` proof. Lean makes a `partial def f` an opaque constant `f` \
+          and a partial helper `f._unsafe_rec`, so the finding names the helper.",
         "Deriving `BEq`, `Hashable`, `Repr` or `Ord` on a nested or mutual inductive (`Ord` on \
           any recursive one) generates a `partial def`, reported under its generated name (such \
           as `instBEqT.beq`); write that instance by structural recursion instead.",
         "If the computation must stay unsafe or partial, move it to a separate, unclaimed \
           dependency package; a claimed module cannot import an excluded module of its own package \
-          (RG2004). Where a claimed executable reaches it, it is reported as a trusted \
-          `unsafe-computation` or `partial-computation` boundary, which fails under checked \
-          execution (RG3002)."]
+          (RG2004). Where a claimed executable runs it, RG3002 reports it as code that no \
+          theorem can bind."]
       examples := {
         language := .lean
         audience := .adopter
@@ -819,16 +813,17 @@ def descriptor : (id : RuleId) → RuleDescriptor id
       normativeClauses := [.lakeSurfaces]
       applicability := "coverage"
       evidenceModes := [.incrementalProject, .freshProject, .freshFile]
-      requirement := "Every owned module belongs to exactly one manifested library, and no claimed \
-        module imports an excluded or checker-probe module."
+      requirement := "Every module of the root package that Lake builds belongs to exactly one \
+        library, or to none and is the root of an executable, and no claimed module imports a \
+        module of an excluded target."
       rationale := "A conformance claim covers an exact set of modules. A module imported into a \
         claimed library but outside every surface would contribute declarations nobody classified, \
         and an umbrella import alone does not define that set."
       remedy := "Remove the forbidden import, or add the module to the intended claimed library's \
         globs, so every owned module belongs to exactly one classified target."
       rewrites := [
-        "Delete imports of excluded modules (for example checker or fixture modules) from claimed \
-          code.",
+        "Delete imports of modules of excluded targets (for example test or fixture libraries) \
+          from claimed code.",
         "Use a glob with the intended meaning, such as ``.andSubmodules `Lib`` in `lakefile.lean` \
           or `[\"Lib\", \"Lib.+\"]` in `lakefile.toml`, so every intended module is in the \
           library.",
@@ -838,8 +833,9 @@ def descriptor : (id : RuleId) → RuleDescriptor id
         audience := .adopter
         compliant := include_str "../../examples/rules/RG2004/Fixed.lean"
         noncompliant := include_str "../../examples/rules/RG2004/Violation.lean"
-        correction := "The correction removes an unused forbidden reporter import; the reflexivity \
-          statement and its assumptions are unchanged." } }
+        correction := "The manifest excludes the `Fixtures` library. The correction removes the \
+          claimed module's unused import of its module `Fixtures.Cases`; the reflexivity statement \
+          and its assumptions are unchanged." } }
   | .admission => {
       lifecycle := .active (.release ⟨4, 34, 0⟩)
       title := "Required admission and source evidence must be complete", category := .admission
@@ -856,12 +852,8 @@ def descriptor : (id : RuleId) → RuleDescriptor id
       rewrites := [
         "Remove uses of `debug.skipKernelTC`, `addDecl` with unchecked values, or other \
           metaprograms that add unchecked declarations; state and prove the theorem normally.",
-        "Do not edit sources while an audit runs; rerun it.",
-        "For an editor pending result, run `lake lint` (or `lake lint -- --fresh`).",
-        "Rename an owned declaration that shares its name with another module's constant unless \
-          both are theorems of the same statement, universe parameters and mutual block, such as \
-          an equation lemma Lean realizes in each module that needs it; admission checks each \
-          owned copy that is not identical to the replayed or trusted one."]
+        "The specification hands this rule to `lake check` (issue #482). Regula's checker does \
+          not report it."]
       examples := {
         language := .lean
         audience := .adopter
@@ -887,14 +879,13 @@ def descriptor : (id : RuleId) → RuleDescriptor id
         in `leanOptions` or a `-D` extra `lean` argument."
       remedy := "Set `leanOptions`: `autoImplicit` and `relaxedAutoImplicit` false, \
         `linter.missingDocs` true and, with Mathlib, the standard set and §6.7 exclusions; \
-        delete other options, `-D`s and `set_option`s outside the accepted set, bar a \
-        community linter's `… false in` on a declaration or a macro for one."
+        delete other options and `-D`s outside the accepted set, and each plugin, dynamic \
+        library and other extra Lean argument."
       rewrites := [
         "Add ``⟨`autoImplicit, false⟩, ⟨`relaxedAutoImplicit, false⟩, \
           ⟨`linter.missingDocs, true⟩`` to `leanOptions` (the same keys under `[leanOptions]` in \
-          `lakefile.toml`), and ``plugins := #[`@regula/RegulaObserver:shared]`` and the same key \
-          in `needs` to each claimed target, then declare each universe and implicit the build \
-          reports as unknown and document each declaration it reports.",
+          `lakefile.toml`), then declare each universe and implicit the build reports as unknown \
+          and document each declaration it reports.",
         "With Mathlib, also set `weak.linter.mathlibStandardSet` to true, `weak.linter.hashCommand` \
           false, `weak.linter.style.longFile` 0 and `weak.linter.style.header` false, or true \
           with `weak.linter.style.header.license` set to your license line.",
@@ -926,13 +917,12 @@ def descriptor : (id : RuleId) → RuleDescriptor id
       normativeClauses := [.computationMechanisms]
       applicability := "execution-unresolved"
       evidenceModes := [.incrementalProject, .freshProject, .freshFile]
-      requirement := "Every path in an executable root's execution closure resolves; no \
-        metaprogram hides replacement history."
+      requirement := "Every name in an executable root's execution closure resolves, and no \
+        runtime replacement runs itself again through a cycle of replacements."
       rationale := "An execution account that silently skipped an unresolved path would overstate \
         what the compiled program is known to run."
-      remedy := "Remove the construction that prevents the analysis (for example a metaprogramming \
-        command such as `run_cmd` in the module), or make the missing compiled code available, \
-        then rerun."
+      remedy := "Make the missing compiled code available, or break the cycle of runtime \
+        replacements, then build again and rerun `lake lint`."
       rewrites := [
         "Remove metaprogramming commands from modules whose `implemented_by` history must be \
           authenticated, or move them elsewhere.",

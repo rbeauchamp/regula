@@ -442,12 +442,6 @@ def checkSummary (file source : String) (summary : String := Regula.Site.summary
     List String :=
   summaryErrors file (outline summary) (outline source)
 
-/-- What the root `README.md` with text `source` is refused for, given what Lean and
-`axiomGate --file` give for its module (`Regula.Markdown.demonstrationErrors` of md4c's outline
-of the document). -/
-def checkDemonstration (source : String) (observed : Demonstration) : List String :=
-  demonstrationErrors (outline source) observed
-
 /-- Whether `path` names a Markdown document: its extension is `md` or `markdown`, in any
 case. -/
 def isMarkdown (path : String) : Bool :=
@@ -702,33 +696,6 @@ private def unsummarized : List String := [unsummarizedReason "README.md"]
 -- Compiled-evaluation observation at build time, not a kernel-checked proof.
 #guard checkSummary "README.md" s!"# Regula\n\n{summary}\n" ("Regula accepts holes. " ++ summary) ==
   unsummarized
-
--- The example of `README.md`, as md4c reads it (`checkDemonstration`): the text of a fenced
--- `lean` block is the module byte for byte, with the line feed of its last line, and an output
--- that fits the `text` block is accepted. A changed `lean` block, a message of Lean that the
--- document does not state, a changed finding line and a `lean` block written as an indented
--- code block, which has no info string, are refused.
-private def shortcut : String := "/-! # S -/\n\n/-- An axiom. -/\naxiom a : 1 = 1\n"
-
-private def withExample (lean text : String) : String :=
-  s!"# Regula\n\nThe module:\n\n```lean\n{lean}```\n\nIts findings:\n\n```text\n{text}```\n"
-
-private def observedFor (module output : String) : Demonstration :=
-  ⟨module, demonstrationMessages, output, 1, ""⟩
-
--- Compiled-evaluation observation at build time, not a kernel-checked proof.
-#guard checkDemonstration (withExample shortcut "…\nRG1001 [violation; …/S.lean:4:6]: a\n…\n")
-    (observedFor shortcut "built\nRG1001 [violation; /tmp/x/S.lean:4:6]: a\nfix\nFAIL\n") == [] &&
-  (checkDemonstration (withExample (shortcut ++ "-- changed\n") "…\n")
-    (observedFor shortcut "out\n")).length == 1 &&
-  (checkDemonstration (withExample shortcut "…\n")
-    { observedFor shortcut "out\n" with
-      messages := demonstrationMessages ++ ["4:6: warning: declaration uses `sorry`"] }).length ==
-    1 &&
-  (checkDemonstration (withExample shortcut "…\nRG1001 [violation; …/S.lean:4:6]: a\n…\n")
-    (observedFor shortcut "built\nRG1002 [violation; /tmp/x/S.lean:4:6]: a\nFAIL\n")).length == 1 &&
-  (checkDemonstration "# Regula\n\n    axiom a : 1 = 1\n\n```text\n…\n```\n"
-    (observedFor "axiom a : 1 = 1\n" "out\n")).length == 1
 
 /-! Evaluated controls of the reader boundary of the prose checks
 (`RegulaCore/ControlledProse.lean`): the kind of each block md4c reports. The controls of the

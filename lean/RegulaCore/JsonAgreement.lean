@@ -38,10 +38,9 @@ of each is. `Shaped.of_members` proves it for an object that an encoder builds,
 a value whose object trees are search trees. `get?_of_mem` is the lemma about Lean's lookup
 that these use: in a search tree, each member is found by its name.
 
-The module is in the claimed library `RegulaCore`, so the claimed checks of
-`RegulaQualification` can run `conforms` too. `Fields` and `Cases`, the induction over a value and
-the object trees inside it, are here for the same reason; `Regula.SourceTexts` and
-`Regula.SharedExecution` use them as well. -/
+The module is in the claimed library `RegulaCore`, so claimed code can run `conforms` too.
+`Fields` and `Cases`, the induction over a value and the object trees inside it, are here for the
+same reason. `regula init` runs `conforms` on the starter manifest (`Regula.Cli.Setup`). -/
 namespace Regula.JsonAgreement
 open Lean
 open Std.DTreeMap.Internal (Impl)
@@ -737,8 +736,8 @@ theorem Shaped.member {schema : List Entry} {j : Json} (shaped : Shaped schema j
   obtain ⟨fields, rfl, -, -, lookups, -⟩ := shaped
   obtain ⟨value, found, meaning⟩ := lookups entry present
   refine ⟨value, ?_, meaning⟩
-  -- `delta`, not `Json.getObjVal?` in the simp set, which would realize here copies of the
-  -- equation lemmas that `RegulaQualification.Registry` also realizes.
+  -- `delta`, not `Json.getObjVal?` in the simp set, which would realize here copies of its
+  -- equation lemmas.
   delta Json.getObjVal?
   simp only [found]
   rfl

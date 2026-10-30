@@ -31,11 +31,9 @@ limit, so no example needs horizontal scrolling; a longer line fails the build. 
 rejection is rendered with the rule pages' verdict, *Rejected by Lean, as intended*, and the
 error message that matched its pattern as the checked evidence (`Block.rejected`).
 
-This extension decides elaboration outcomes and renders the helper's highlighting. The
-declaration, kernel-admission and axiom classification of every `lean` block is the
-documentation fence audit's (`lake exe docFenceAudit`), which reads the same blocks from this
-package's sources. The helper process, its search path, the external solver `bv_decide` runs
-and the file system are trusted.
+This extension decides elaboration outcomes and renders the helper's highlighting. It does not
+classify the declarations of a `lean` block or read the axioms that they depend on. The helper
+process, its search path, the external solver `bv_decide` runs and the file system are trusted.
 
 The roles `{repo "PATH"}[text]` (a repository link whose path must exist),
 `{checklistRow}[ID]` (a checklist row identifier that is also its anchor) and `{rule}[ID]` (a

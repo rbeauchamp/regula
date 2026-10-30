@@ -16,13 +16,8 @@ package «regula_audit» where
 @[default_target]
 lean_lib «Audit» where
   -- The claimed surface is every module at or below `Audit`, not only the
-  -- transitive imports of the umbrella module. Lake's elaborated module
-  -- inventory is the semantic inventory consumed by the declaration gate.
+  -- transitive imports of the umbrella module. Lake's module inventory
+  -- is the inventory that Regula's checker reads.
   globs := #[.andSubmodules `Audit]
-  -- Regula's elaboration observer, which each claimed target loads (RG2003, RG2006) and lists in
-  -- `needs` (RG2006), so that a fresh build builds it once and a replayed module was elaborated
-  -- with it.
-  plugins := #[`@regula/RegulaObserver:shared]
-  needs := #[`@regula/RegulaObserver:shared]
 
 require regula from ".."

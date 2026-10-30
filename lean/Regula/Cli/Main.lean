@@ -16,8 +16,8 @@ open Regula.Cli.Setup in
 and exits 1. -/
 def inProject (command : String) (action : System.FilePath → IO UInt32) : IO UInt32 := do
   try
-    Regula.Checker.initializeLeanSearchPath
-    action (← Regula.Checker.repoRoot)
+    initializeSearchPath
+    action (← IO.currentDir)
   catch error =>
     IO.eprintln s!"regula {command}: {error}"
     return 1

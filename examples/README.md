@@ -1,13 +1,7 @@
 # Adopter examples
 
-[build-lint](build-lint/README.md) is the reference `lakefile.lean` integration: `lake lint`
-and the enforcing ordinary `lake build`, with its own configuration and proof-required
-executable contract. [lake-lint-toml](lake-lint-toml/README.md) is the `lakefile.toml`
-integration: `lake lint` plus live editor diagnostics from `import Regula.Linter`. The linter implementation lives in
-[`lean/Regula/Checker/`](../lean/Regula/Checker/).
+[build-lint](build-lint/README.md) is the reference `lakefile.lean` integration: `lake build --wfail` and then `lake lint`, with its own configuration and an executable contract that a proof must satisfy. [lake-lint-toml](lake-lint-toml/README.md) is the `lakefile.toml` integration. The checker is in [`lean/Regula/`](../lean/Regula/).
 
-Start with the [adoption guide](../docs/guides/adoption.md) for package setup and
-conformance obligations. The repository's mathematical and application proof surfaces
-are described in the [Lean module map](../lean/README.md).
+Start with the [adoption guide](../docs/guides/adoption.md) for the setup of a package and the obligations of conformance. The [Lean module map](../lean/README.md) tells about the mathematical and application proof surfaces of this repository.
 
-The checked violating and corrected sources shown on the [rule reference](https://rbeauchamp.github.io/regula/dev/rules/) live in [rules](rules/README.md); they are qualification fixtures, not adopter projects.
+The violating and corrected sources that the [rule reference](https://rbeauchamp.github.io/regula/dev/rules/) shows are in [rules](rules/README.md). They are the example pairs of the registry, not adopter projects.

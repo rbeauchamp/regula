@@ -574,15 +574,18 @@ def copyFile (source target : FilePath) (rights : UInt32 := 420) : IO Unit := do
     | throw <| IO.userError s!"construction file source is a directory: {source}"
   appendFileWith observer parent name bytes rights
 
-/-- The cold project's source domain: no root tmp; documentation includes cache-named
-subdirectories; elsewhere VCS, Lake, cache and scratch components are excluded. -/
+/-- The cold project's default source domain: no root tmp or Finder `.DS_Store` entry;
+documentation includes cache-named subdirectories; elsewhere VCS, Lake, cache and scratch
+components are excluded. Explicitly required files and their ancestors are selected separately. -/
 def ProjectRelative (relative : List String) : Prop :=
+  relative.getLast? ≠ some ".DS_Store" ∧
   relative.head? ≠ some "tmp" ∧ (relative.head? = some "docs" ∨
     ∀ component ∈ relative, component ≠ ".git" ∧ component ≠ ".lake" ∧
       component ≠ ".cache" ∧ component ≠ ".regula-scratch")
 
 instance (relative : List String) : Decidable (ProjectRelative relative) :=
-  inferInstanceAs (Decidable (relative.head? ≠ some "tmp" ∧ (relative.head? = some "docs" ∨
+  inferInstanceAs (Decidable (relative.getLast? ≠ some ".DS_Store" ∧
+    relative.head? ≠ some "tmp" ∧ (relative.head? = some "docs" ∨
     ∀ component ∈ relative, component ≠ ".git" ∧ component ≠ ".lake" ∧
       component ≠ ".cache" ∧ component ≠ ".regula-scratch")))
 
@@ -1224,9 +1227,10 @@ def copyGit (source target : FilePath) : IO (List Item) := do
   let captured ← captureWith enumerator.observer selected 4096 source []
   gitConstructWith enumerator.observer target metadata captured entries
 
-/-- The cold drivers' source entrypoint. `project` prunes VCS/build/scratch directories, except
-explicit relative file selections after TARGET, the original Markdown discovery domain, and
-the ancestors needed to capture them. The instruction guard refuses any missing selected file.
+/-- The cold drivers' source entrypoint. `project` prunes VCS/build/scratch directories and
+Finder `.DS_Store` entries, except explicit relative file selections after TARGET, the original
+Markdown discovery domain, and the ancestors needed to capture them. The instruction guard
+refuses any missing selected file.
 `git` uses `copyGit`'s regular-file representation, build outputs and metadata.
 It prints the regular-file receipt as a JSON array. `list` prints the names of the directory SOURCE
 (`listNames`) and `walk` the paths below it (`walkDirectory`), each as a JSON array; TARGET is

@@ -1,5 +1,6 @@
 import RegulaPolicy.Community
 import RegulaPolicy.Compiler
+import RegulaCore.Verdict
 
 /-! # Project setup that `regula init` writes and `regula doctor` checks
 
@@ -91,9 +92,9 @@ manifest and the guidance files, then observes the project again and refuses unl
 is empty, the new `uncovered` has no entry for a library the plan gave a glob (`uncovered_run`),
 and each claimed target of both observations, matched by kind and name, has the same
 `Observation.arguedBy` (`arguedBy_run`). That the file edits realize `apply` is not a theorem;
-the command checks only those consequences at run time. RG2006 itself is decided per claimed
-target over Lake's resolved options by `RegulaPolicy.Community.failures`, reading the same `-D`
-candidates as `Target.argues`; `init` writes an option into the package's configuration only
+the command checks only those consequences at run time. The checker decides RG2006 itself per
+claimed target over the options Lake gives it (`Regula.Closed.Input.configurationFindings`), with
+its own reading of each `-D` argument (`Regula.Load.splitArgs`); `init` writes an option into the package's configuration only
 when every root target is claimed and no claimed target's `-D` candidate sets it, into claimed
 targets' own configurations otherwise, never into a configuration that reaches a target whose `-D`
 candidate sets it, and never changes a value the package or a target already gives. That
@@ -133,18 +134,19 @@ def skillPaths : List String := [skillPath, ".claude/skills/regula/SKILL.md"]
 /-- The heading of the `AGENTS.md` section; its presence as a line marks the section. -/
 def agentsHeading : String := "## Lean standard: Regula"
 
-/-- The `AGENTS.md` section `init` appends. -/
+/-- The `AGENTS.md` section `init` appends. Its exit codes are the checker's own table
+(`Regula.Closed.Verdict.exitCodes`). -/
 def agentsSection : String :=
   agentsHeading ++ "\n\n" ++
   "This project's Lean code and proofs must meet the Regula strict standard, which may not\n" ++
   "be in your training data. Before writing or changing Lean, run\n" ++
-  "`lake exe regula agent-guide` and follow it. `lake lint` enforces the rules and exits\n" ++
-  "0 accepted, 1 violation, 2 invalid configuration, 3 incomplete. Each finding states what\n" ++
-  "is wrong, where, and the fix; for any rule ID, `lake exe regula explain <ID>` prints the\n" ++
-  "full rule offline. For machine-readable findings run\n" ++
-  "`lake lint -- --json-out tmp/regula.json`. Never disable a Lean warning, weaken a statement\n" ++
-  "or remove a registration to make a check pass; disable a community linter only for one\n" ++
-  "declaration, where its guidance allows, with the reason.\n"
+  "`lake exe regula agent-guide` and follow it. Build the claimed targets with\n" ++
+  "`lake build --wfail`, then check the finished build with `lake lint`, which enforces the\n" ++
+  "rules. Exit codes: " ++ Regula.Closed.Verdict.exitCodes ++ ". Each finding states what\n" ++
+  "is wrong and where, and links its rule's page; for any rule ID,\n" ++
+  "`lake exe regula explain <ID>` prints the full rule, with its fix, offline. Never disable a\n" ++
+  "Lean warning, weaken a statement or remove a registration to make a check pass; disable a\n" ++
+  "community linter only for one declaration, where its guidance allows, with the reason.\n"
 
 /-- The section for an `AGENTS.md` whose directory holds the Lake project at relative path `dir`:
 `agentsSection`, followed, when `dir` is not the file's own directory, by where its `lake`

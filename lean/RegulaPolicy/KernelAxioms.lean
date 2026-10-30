@@ -10,10 +10,9 @@ public import Std.Data.HashSet.Lemmas
 
 The axioms a declaration rests on, computed from the constants of a kernel environment alone: the
 names its type and value reach, through the types and values of the constants they use, that the
-environment holds as axioms (`ReachesAxiom`). Admission computes them in the kernel that replayed
-the owned modules (`Admission.validate`), so the foundation rules decide on what that kernel
-checked, never on the axiom table `exportedAxiomsExt` that Lean's `collectAxioms` reads first for
-an imported name.
+environment holds as axioms (`ReachesAxiom`). `axiomTable` computes them in a kernel environment
+from its constants alone, never from the axiom table `exportedAxiomsExt` that Lean's
+`collectAxioms` reads first for an imported name.
 
 A search of a graph of names (`search`) underlies both computations here: `axiomTable`, one backward
 search from each axiom that a forward search from every requested name (`searchEdges`) found, for
@@ -552,8 +551,7 @@ under that name, where a leaf is a name that `leaf` accepts: one search back fro
 forward search found, along the edges it recorded, so the names after each name are computed once,
 by the forward search, whatever the leaves. The table holds every name the forward search reached.
 `none` when a search back runs out of `fuel`. `axiomTable` is this table with the axioms of a
-kernel environment as the leaves, and `RegulaPolicy.Assumptions.table` is it with the
-declarations that have a role as the leaves, so both read one forward search. -/
+kernel environment as the leaves. -/
 def leafTable (leaf : Name → Bool) (fuel : Nat)
     (forward : Std.HashSet Name × List (Name × Array Name)) :
     Option (Std.HashMap Name (Array Name)) := do

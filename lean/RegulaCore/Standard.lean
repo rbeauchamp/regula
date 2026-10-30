@@ -18,14 +18,15 @@ section a registry entry cites, with its number, heading, chapter and source fil
 
 ## Boundaries
 
-The documentation acceptance step (`lake exe docFenceAudit --verso`) checks each clause against
-the standard: its render executable (`website/StandardMain.lean`) requires a part of the
-elaborated standard with the clause's tag and exactly its heading inside the chapter whose
-`file` is the clause's chapter; the rendered chapter page must define the anchor
-(`Regula.Site.standardAnchors`); and the source must be a module of the standard. The same step
+The documentation acceptance step checks each clause against the standard: its render
+executable (`regula-standard`, `website/StandardMain.lean`) requires a part of the elaborated
+standard with the clause's tag and exactly its heading inside the chapter whose `file` is the
+clause's chapter; and its check of the rendered standard (`lake exe site standard`,
+`Regula.Site.Standard.check`) requires the rendered chapter page to define the anchor
+(`Regula.Site.standardAnchors`) and the source to be a file of the repository. The same check
 requires `checklistRows` to be exactly the rendered checklist rows, the `id`s of the elements of
 class `checklistRowClass`, in order (`Regula.Site.rowsMismatch`). That the
-chapter is written in that module is by inspection. The published site's links are the site
+chapter is written in that file is by inspection. The published site's links are the site
 build's link check. Nothing here reads the standard.
 -/
 

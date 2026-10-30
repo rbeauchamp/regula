@@ -20,7 +20,7 @@ incomplete, instead of running its tasks on one thread, ending with a panic or r
 manager. And it runs only in an environment under Git isolation (`Regula.GitIsolation.enter`), so
 the Git commands that Lake starts for it, in its own process or in a process it starts, inherit
 that isolation. A program whose compiled code reaches none of those functions passes without the
-guard, as `auditApp` does.
+guard.
 
 The code that initializes the modules that a program links runs before `main`, so before the
 guard: the actions of `[init]` declarations and the values of declarations with no parameter
@@ -33,11 +33,11 @@ builtin `bv_decide` tactics, named exactly, also store their closures in a refer
 (`registrations`).
 
 Each compiled program of the package runs this check at the end of its root module, which fails to
-build when the check refuses, and the module records the program (`checked`). `lake exe qualify
-observers` refuses a compiled program of the root package that no module records, and checks
-itself the one root that no library module can import, `auditApp`'s `Main`
-(`Regula.Qualification.Observers`). The executables of the `website` and `markdown` packages run
-the check in their root modules too, outside that inventory.
+build when the check refuses, and the module records the program (`checked`). No program reads
+these records, so that each compiled program of the root package runs the check is not itself
+checked, and no check runs for the one root that no library module can import, `auditApp`'s
+`Main`. The executables of the `website` and `markdown` packages run the check in their root
+modules too.
 
 ## What it does not cover
 
@@ -446,16 +446,16 @@ theorem refusal_eq_none_iff (env : Environment) (root : Name) :
     | some found => cases found <;> simp [hReached]
 
 /-- The prefix of the marker that `checkProgram` adds for each program that it checked: the
-definition `checked ++ root` of type `Unit`, where `root` is the program's root module. `lake exe
-qualify observers` reads the markers from the module data of the package's modules. -/
+definition `checked ++ root` of type `Unit`, where `root` is the program's root module. No program
+reads the markers. -/
 def checked : Name := `Regula.TaskManagerCheck.checked
 
 /-- The prefix of the marker that `checkProgram` adds for each program whose `main` has the closed
 form of the guard (`guarded`): the definition `named ++ root ++ program` of type `Unit`, where
 `root` is the program's root module and `program` the string literal that `main` passes to the
-guard, as one last component. `lake exe qualify observers` requires `program` to be the executable
+guard, as one last component. No program reads the markers, so that `program` is the executable
 name that Lake's loaded workspace declares for `root`, which is the name that
-`Regula.GitIsolation.runsAs` compares with the running executable. -/
+`Regula.GitIsolation.runsAs` compares with the running executable, is not checked. -/
 def named : Name := `Regula.TaskManagerCheck.named
 
 /-- Add the marker definition `marker` of type `Unit`. -/

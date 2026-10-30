@@ -21,7 +21,7 @@
   domain-specific material in examples or named Lean-domain profiles.
 
 - Follow `docs/guides/architecture.md` and `docs/guides/proofs-and-boundaries.md` for the
-  product contract. Keep typed rule metadata, diagnostics and checked website
+  product contract. Keep typed rule metadata, diagnostics and website
   examples synchronized. Follow `docs/guides/design-influences.md` for contribution-specific
   attribution; no single research reference brands every issue or deliverable. Distinguish planned work
   from currently supported enforcement and published pages.
@@ -164,30 +164,26 @@ signal delivery are trusted mechanisms, not a hard real-time theorem.
 Use the Lean provisioning entry points documented in the
 [contributor guide](docs/guides/contributing.md) to acquire the pinned dependency artifacts.
 
-The first builds the acceptance executables and type-checks the diagnostic modules,
-checks every claimed declaration of the root `regula` package with fresh source elaboration and
-kernel admission, and records the content identity of its inputs: the inputs it accepted plus the
-`docs/` Markdown and the standard's Verso package sources (with the `audit/` sources they import)
-it only brackets, not accepts. The second checks every Markdown document Git tracks for a rule ID
-in prose that is not a link to its rule page (it needs a Git checkout), runs the same fresh check
-over the `audit/` package of the standard's example library, then audits every documentation example, builds the
-Verso standard fresh (elaborating each `lean` block where it is written) and renders it, and
-refuses unless its own inputs have that identity. This exact two-step split is the only permitted
-division of acceptance. Diagnostic native binaries are built when those diagnostics are requested.
+The first step makes a copy of the checkout. In the copy, it builds each claimed target of the
+root `regula` package, Regula's checker and the acceptance tools, with warnings as errors. Then it
+runs the registry checks and builds the specification package. Last, it runs Regula's checker
+(`lake lint`) on the build of the copy. If all commands pass, it records the content identity of
+the files of the copy.
+
+These files include the `docs/` Markdown, the Verso sources of the standard and the `audit/`
+sources that they import. The second step refuses to start unless the files that it checks have
+that identity. It checks each Markdown document that Git tracks for a rule ID in prose that is not
+a link to its rule page (it needs a Git checkout). It builds the `audit/` package of the example
+library of the standard and runs the checker on it. It builds the Verso standard, which
+elaborates each `lean` block where it is written, and renders and checks it.
+
+This exact two-step split is the only permitted division of acceptance.
 Complete applicable theorem/type/prose review too; command success alone is not full
 semantic conformance.
 
-Checker changes receive focused qualification for affected capabilities and invocation
-paths under standard §7.8. Long mutation, external-adopter, build-integration,
-and optional serialized-graph campaigns are diagnostics, not automatic merge gates, except
-those that the local gate runs.
-Retain their controls and applicable evidence; never relabel an unrun campaign PASS.
-`./scripts/verify.sh diagnostics [partition]` runs a selected existing campaign under
-the same 420-second deadline; `rule-examples 1/3`, `2/3` and `3/3` run the corpus in three shards.
-The full corpus is 51 productions (48 phases plus 3 refusal controls), 3 individual
-control admissions and one corpus admission of every record; each production runs in its
-own fresh workspace, so no restored rerun repeats it.
-Use `./scripts/verify.sh serialized-graph` for an explicit separate graph-checking claim.
+The qualification campaigns of the previous checker are removed. Each rule is a function over the
+closed input of the [specification](specification/README.md). Leaf #487 proves the contracts of
+these functions.
 Do not partition either acceptance step further to evade its limit. A requested broader
 claim still needs its actual evidence.
 
@@ -196,22 +192,20 @@ no-mistakes validation pipeline runs it as its Test step on each commit that it 
 `.no-mistakes.yaml` configures. It runs the steps of each workflow job that checks a change, in
 sequence, and stops at the first failure:
 
-- The release checks `unreleased` and `agree`, and the two acceptance steps.
+- The release checks `unreleased` and `agree`, and the two acceptance steps. The first runs
+  Regula's checker on Regula's own build, the self-check.
 - `./scripts/verify.sh mathlib`, the Mathlib integration check. It is the only check that uses
   Mathlib, and it is not part of acceptance.
-- The three rule-example shards.
 - The builds of the tools of the rule-reference site. The gate leaves out `./scripts/verify.sh site`,
   which reads the repository with no credentials and thus fails while the repository is private.
-- The campaigns of the diagnostics workflow, with its comparison of the self-hosted digests. It
-  leaves out `enumeration-failure`, which runs only on a GitHub-hosted Linux runner.
-- The self-lint and the four self-audit shards of the dogfood workflow.
+- `lake build` in `controls/`, the controls of the check that each program runs. Its compile
+  needs about 30 GiB, so no CI job builds it.
 
 CI does not run on pull requests. On `main` it runs what the release and the publication of the
 site use, and each workflow can run on dispatch. The
-[contributor guide](docs/guides/contributing.md#the-local-gate) lists the steps of the gate and
-which workflow runs each diagnostic and when. The
+[contributor guide](docs/guides/contributing.md#the-local-gate) lists the steps of the gate. The
 [website guide](docs/guides/website.md#publication) owns publication. Merge requires a pass of the
-local gate on the reviewed head, applicable focused review and diagnostics.
+local gate on the reviewed head and applicable focused review.
 Preserve PR, signature, history, and conversation protections. Finish authorized publication,
 exact-head merge, and owned branch cleanup. Skill/handoff-only edits need proportionate
 checks when Lean inputs and claims are unchanged.

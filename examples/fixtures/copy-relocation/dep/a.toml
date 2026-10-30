@@ -1,3 +1,0 @@
-# The configuration of `dep` that the first manifest entry of the project names, and that the
-# control's package overrides file selects.
-name = "dep"

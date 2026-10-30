@@ -30,8 +30,8 @@ private def reductionAxiomType (typeName reducer : Name) : Expr :=
 /-- Observe the complete legacy family (`true`) or its complete absence (`false`).
 Partial presence, a wrong declaration shape or an origin outside the selected compiler
 is an error. Canonical-path resolution and compiler import are trusted IO observations. Each origin
-is the file that the search path finds after the import, under the hypotheses of
-`Regula.Probe.loadedModuleOrigins`: nothing that the lookup reads changes in between. -/
+is the file that the search path finds after the import, under the assumption that nothing that
+the lookup reads changes in between. -/
 def legacyPresent (library : System.FilePath) : IO Bool := do
   let env ← importModules #[{ module := `Init.Core }] {} (loadExts := false)
   for name in env.header.moduleNames do
@@ -60,10 +60,9 @@ def legacyPresent (library : System.FilePath) : IO Bool := do
   throw <| IO.userError "compiler capability: incomplete legacy axiom family"
 
 /-- The one line that `text` prints, as it is spelled: `text` less its final newline, when that line
-is not empty and has no newline, carriage return or NUL. This is the same function as
-`Regula.Filesystem.Construction.printedLine?` (`printedLine?_eq_printedLine?` in
-`Regula.Checker.Common`): this source runs alone, with Lean's library only, so it holds its own copy
-of the decoder. -/
+is not empty and has no newline, carriage return or NUL. Its body has the same steps as the body
+of `Regula.Filesystem.Construction.printedLine?`, and no theorem relates the two: this source runs
+alone, with Lean's library only, so it holds its own copy of the decoder. -/
 @[expose] def printedLine? (text : String) : Option String :=
   match text.toList.reverse with
   | '\n' :: reversed =>
@@ -73,8 +72,8 @@ of the decoder. -/
   | _ => none
 
 /-- The installation directory that `text`, the output of `lean --print-prefix`, prints: the line
-that `printedLine?` reads, when it is an absolute path. This is the same function as
-`Regula.Filesystem.Construction.printedPath?` (`printedPrefix?_eq_printedPath?`). -/
+that `printedLine?` reads, when it is an absolute path. Its body has the same steps as the body of
+`Regula.Filesystem.Construction.printedPath?`, and no theorem relates the two. -/
 @[expose] def printedPrefix? (text : String) : Option System.FilePath :=
   match printedLine? text with
   | some line => if (System.FilePath.mk line).isAbsolute then some ⟨line⟩ else none

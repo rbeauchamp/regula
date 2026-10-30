@@ -1,1 +1,0 @@
-A file of the source directory `vendor/src` that is not a module, as an `include_str` could read.

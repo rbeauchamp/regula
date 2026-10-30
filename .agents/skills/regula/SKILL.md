@@ -7,12 +7,11 @@ description: Regula, the strict standard that this project's Lean code and proof
 
 This project's Lean code and proofs must meet the Regula standard. Apply these rules while writing Lean, not only after the linter runs. This is the complete mechanical rule set of the installed Regula version, ordered for writing code.
 
-- Check with `lake lint` (`lake lint -- --fresh` for a fresh-source audit). Exit codes: 0 ACCEPTED, 1 VIOLATION, 2 INVALID CONFIGURATION, 3 INCOMPLETE.
-- `lake lint -- --json-out tmp/regula.json` also writes every finding with its location, remedy and rule guidance (result schema 21: names as Lean prints them, and each source text once, in `sourceTexts`, which a `sourceText` member indexes). When a stage did not complete, `complete` is false and `stagesNotRun` names the stages, so fixing these findings can reveal more.
-- A finding names its rule ID, what is wrong and where, and the fix. The first finding of each rule adds why, common rewrites and a compliant example (or, where the checked files are qualification inputs, the correction). `lake exe regula explain <ID>` prints the full rule offline; `lake exe regula rules` lists all rules.
-- When you mention a rule ID in an issue, a comment, a pull request or a document, link it to the rule's page for the installed Regula build, the link a finding's `rule:` line prints: `[RG3002](https://rbeauchamp.github.io/regula/dev/rules/RG3002/)`.
+- Build the claimed targets with `lake build --wfail`, then check the finished build with `lake lint`. Exit codes: `0` pass, `1` fail, `2` incomplete.
+- A finding is one line: its rule ID, the constant and its module, what is wrong, and the link to the rule's page. `lake exe regula explain <ID>` prints the full rule, with why, common rewrites and a compliant example, offline; `lake exe regula rules` lists all rules.
+- When you mention a rule ID in an issue, a comment, a pull request or a document, link it to the rule's page for the installed Regula build, the link that a finding prints: `[RG3002](https://rbeauchamp.github.io/regula/dev/rules/RG3002/)`.
 - No option, attribute or flag waives a rule on a claimed surface. Do not disable a Lean warning, weaken a statement, or drop a registration to pass.
-- Follow the Lean community's style, naming and documentation conventions (standard §6.7). Every claimed target enables `linter.missingDocs` (document every definition) in its `leanOptions`, with the other options [RG2006](https://rbeauchamp.github.io/regula/dev/rules/RG2006/) checks; `lake lint` rejects their warnings. Run Batteries' linters with `lake build && lake exe runLinter`. Disable a community linter only for a single declaration, where its guidance allows, with the reason; that never discharges a rule.
+- Follow the Lean community's style, naming and documentation conventions (standard §6.7). Every claimed target enables `linter.missingDocs` (document every definition) in its `leanOptions`, with the other options [RG2006](https://rbeauchamp.github.io/regula/dev/rules/RG2006/) checks; `lake build --wfail` rejects their warnings. Run Batteries' linters with `lake build && lake exe runLinter`. Disable a community linter only for a single declaration, where its guidance allows, with the reason; that never discharges a rule.
 - Passing is mechanical: a theorem must still state the intended claim, with its hypotheses and limits, which review checks.
 
 ## Every declaration
@@ -53,9 +52,9 @@ theorem gcdValue : Nat.gcd 1071 462 = 21 := by decide
 theorem commute (x y : BitVec 8) : x * y = y * x := BitVec.mul_comm x y
 ```
 
-### [RG1006](https://rbeauchamp.github.io/regula/dev/rules/RG1006/) Unsafe and partial declarations require exact helper authentication
+### [RG1006](https://rbeauchamp.github.io/regula/dev/rules/RG1006/) Unsafe and partial declarations are refused, except a recursion helper
 
-Claimed modules declare nothing `unsafe` or `partial`, authored or generated, except a generated recursion helper passing its exact §7.4 authentication.
+Claimed modules declare nothing `unsafe` or `partial`, authored or generated, except the recursion helper `f._unsafe_rec` of a safe definition `f` in the same module, admitted by its form.
 Fix: Write a safe, terminating definition (structural recursion or `termination_by`), or move the unsafe/partial code out of the claimed surface.
 
 ```lean
@@ -152,7 +151,7 @@ Equality on natural numbers must be reflexive for every value, with no side cond
 
 ## Executable code
 
-Applies to `ExecutableContract` registrations, `@[regula_decision]` functions and code reached from executable roots. The shared-test rule compares names: a copy of a test under a second name passes. A shared function with a result other than `Bool` or `BEq` is not refused, and the account of the contract names it for review.
+Applies to `ExecutableContract` registrations, `@[regula_decision]` functions and code reached from executable roots. The shared-test rule compares names: a copy of a test under a second name passes. A shared function with a result other than `Bool` or `BEq`, and a field of a structure that the two sides read, are not refused.
 
 ### [RG1007](https://rbeauchamp.github.io/regula/dev/rules/RG1007/) Executable contracts require supported closed evidence
 
@@ -229,8 +228,8 @@ def spell (n : Nat) := toString n
 
 ### [RG3001](https://rbeauchamp.github.io/regula/dev/rules/RG3001/) Execution closure must have no unresolved paths
 
-Every path in an executable root's execution closure resolves; no metaprogram hides replacement history.
-Fix: Remove the construction that prevents the analysis (for example a metaprogramming command such as `run_cmd` in the module), or make the missing compiled code available, then rerun.
+Every name in an executable root's execution closure resolves, and no runtime replacement runs itself again through a cycle of replacements.
+Fix: Make the missing compiled code available, or break the cycle of runtime replacements, then build again and rerun `lake lint`.
 
 ```lean
 import Lean
@@ -273,7 +272,7 @@ Fix: Fix the manifest: exactly the four top-level keys, one entry per root `lean
 ### [RG2006](https://rbeauchamp.github.io/regula/dev/rules/RG2006/) Claimed targets must build with the community configuration
 
 Targets' `leanOptions`: auto-implicits off, `linter.missingDocs` on, with Mathlib its standard set, header linter off or licensed; other options, in `-D` or source too, only in the accepted set.
-Fix: Set `leanOptions`: `autoImplicit` and `relaxedAutoImplicit` false, `linter.missingDocs` true and, with Mathlib, the standard set and §6.7 exclusions; delete other options, `-D`s and `set_option`s outside the accepted set, bar a community linter's `… false in` on a declaration or a macro for one.
+Fix: Set `leanOptions`: `autoImplicit` and `relaxedAutoImplicit` false, `linter.missingDocs` true and, with Mathlib, the standard set and §6.7 exclusions; delete other options and `-D`s outside the accepted set, and each plugin, dynamic library and other extra Lean argument.
 
 ```lean
 import Lake
@@ -284,14 +283,12 @@ package rule_examples where
     ⟨`relaxedAutoImplicit, false⟩]
 
 @[default_target]
-lean_lib Example where
-  plugins := #[`@regula/RegulaObserver:shared]
-  needs := #[`@regula/RegulaObserver:shared]
+lean_lib Example
 ```
 
 ### [RG2004](https://rbeauchamp.github.io/regula/dev/rules/RG2004/) Owned coverage must match the exact Lake inventory
 
-Every owned module belongs to exactly one manifested library, and no claimed module imports an excluded or checker-probe module.
+Every module of the root package that Lake builds belongs to exactly one library, or to none and is the root of an executable, and no claimed module imports a module of an excluded target.
 Fix: Remove the forbidden import, or add the module to the intended claimed library's globs, so every owned module belongs to exactly one classified target.
 
 Compliant example: as [RG1002](https://rbeauchamp.github.io/regula/dev/rules/RG1002/).

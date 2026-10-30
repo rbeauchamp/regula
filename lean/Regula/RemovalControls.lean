@@ -59,8 +59,8 @@ Lean 4.35.0 links (`lib/libuv.a`), gives the message `name too long` for `UV_ENA
 no other code (`UV_ERRNO_MAP` in `include/uv.h`,
 https://github.com/libuv/libuv/blob/v1.52.1/include/uv.h).
 
-`Regula.ProgramCheck.Controls` runs the check that each program runs (`checkProgram`) on a planted
-program. -/
+`RegulaControls`, in the package in `controls/`, runs the check that each program runs
+(`checkProgram`) on a planted program. -/
 
 namespace Regula.RemovalControls
 

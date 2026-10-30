@@ -18,8 +18,8 @@ block of the standard and every Lean fence below `docs/` follows the
 ## Use Regula
 
 - [Adopt Regula](guides/adoption.md): `require`, `lake exe regula init` and `doctor`, surfaces,
-  profiles, `lake lint`, updating, editor diagnostics, limits, and the semantic obligations
-  commands cannot establish.
+  profiles, `lake lint`, updating, findings, limits, and the semantic obligations that commands
+  cannot establish.
 - [Rule-reference website](guides/website.md): sources, guarantees, build, publication and
   versions of the generated rule reference, and the rule-change workflow.
 - [Performance notes](guides/performance-notes.md): practical guidance for efficient Lean code.
@@ -32,10 +32,10 @@ block of the standard and every Lean fence below `docs/` follows the
   checks of these rules, and the baseline.
 - [Supported toolchain](guides/toolchains.md): the exact released compiler identity and
   the boundary for unsupported versions.
-- [Architecture](guides/architecture.md): packages, the rule registry, findings, output
-  schemas, enforcement paths, rule examples and how the rules cover the standard.
+- [Architecture](guides/architecture.md): packages, the checker, the rule registry, the
+  rule-reference site and how the rules cover the standard.
 - [Proofs and boundaries](guides/proofs-and-boundaries.md): what the implementation proves,
-  observes and trusts, boundary by boundary, and the qualification ledger.
+  observes and trusts, boundary by boundary.
 - [Design influences and attribution](guides/design-influences.md): adapted code, dependencies
   and design influences.
 - [Specification of the smaller Regula](../specification/README.md): the fate of each rule, the closed
@@ -48,8 +48,8 @@ block of the standard and every Lean fence below `docs/` follows the
 | [docs/](README.md) | The guides, and the place of the source of the standard. |
 | [lean/](../lean/README.md) | The `regula` package that adopters require. It contains the linter, its rule registry, its proofs and checked examples, and it requires only the Lean toolchain. |
 | [audit/](../audit/lakefile.lean) | The package of the example library of the standard (`Audit`). It imports only the core libraries of Lean, and it requires `regula` by a relative path, as an adopter does. |
-| [integration/mathlib/](../integration/mathlib/lakefile.lean) | The Mathlib integration package (`MathlibAudit`), an adopter of `regula` that uses Mathlib. It checks the behaviour of Regula that is specific to Mathlib. Only `./scripts/verify.sh mathlib`, its CI job and `./scripts/verify.sh diagnostics readers` use it. |
-| [markdown/](../markdown/lakefile.toml) | The package of the checks of the tracked Markdown documents. It checks rule IDs in prose, the [writing rules](guides/writing.md), the vocabulary [`CONTEXT.md`](../CONTEXT.md) and the links of the root `README.md` to the rule-reference site. It also checks the example of the root `README.md`, and that the root `README.md` and the adoption guide open with the summary of Regula. Only `./scripts/verify.sh docs` and `./scripts/verify.sh diagnostics readers` use it. |
+| [integration/mathlib/](../integration/mathlib/lakefile.lean) | The Mathlib integration package (`MathlibAudit`), an adopter of `regula` that uses Mathlib. It checks the behaviour of Regula that is specific to Mathlib. Only `./scripts/verify.sh mathlib` and its CI job use it. |
+| [markdown/](../markdown/lakefile.toml) | The package of the checks of the tracked Markdown documents. It checks rule IDs in prose, the [writing rules](guides/writing.md), the vocabulary [`CONTEXT.md`](../CONTEXT.md) and the links of the root `README.md` to the rule-reference site. It also checks that the root `README.md` and the adoption guide open with the summary of Regula. Only `./scripts/verify.sh docs` uses it. |
 | [specification/](../specification/README.md) | The specification of the smaller Regula, the owner's confirmation of its consequences, and the Lean package of its formal statements. The package requires lean-intent and the root package. The first acceptance step builds it with warnings as errors. |
 | [examples/](../examples/README.md) | Adopting projects and the sources of the rule examples. |
 | [website/](guides/website.md) | The Verso source of the standard and the builder of the rule-reference site. |

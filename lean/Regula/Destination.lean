@@ -37,10 +37,9 @@ namespace Regula.Destination
 
 open Lean System
 
-/-- A completed result of an earlier version of Regula: the identity members of a document of
-Regula (`Regula.RegistryCodec.identityFields`) with values that no current build writes, and the
-other members that the readers of a result require (`completedSignatures`). A control seeds a
-destination with it to require that a run replace it. -/
+/-- A completed result of an earlier version of Regula: its identity members `schemaVersion`,
+`producerVersion`, `toolchain` and `sourceRevision`, with values that no current build writes, and
+the other members of the signature of a result (`completedSignatures`). -/
 def earlierResult : String :=
   "{\"schemaVersion\":3,\"producerVersion\":\"0.0.0\",\"toolchain\":\"leanprover/lean4:v4.34.0\",\
     \"sourceRevision\":\"0000000\",\"scope\":\"file\",\"mode\":\"freshFile\",\

@@ -1,7 +1,6 @@
 import RegulaMarkdown
 import Regula.TaskManagerCheck
 import RegulaCore.ProseBaseline
-import Regula.Checker.Lake
 import Regula.Destination
 import Regula.Removal
 
@@ -18,12 +17,10 @@ This program uses these registered decisions of `RegulaCore`: `documentErrors` f
 `siteLinkErrors` for the links of the root `README.md` to the rule reference, each of which is a
 stable address that names no edition;
 `summaryErrors` for the opening of the root `README.md` and of the adoption guide, which is the
-summary of Regula (`Regula.Site.summary`); `demonstrationErrors` for the example of the root
-`README.md`, the module `demonstrationModule` and what Lean and `axiomGate --file` give for it;
-`parse`, `adopt` and `untracked` for the vocabulary; the eight checks of a document through
-`tally` and `report`; `Baseline.parse`, `gate` and `ratchet` for the baseline; `baseOf` for the
-base revision, with the start that `Start.read` reads. `vocabularyOf`
-puts the three decisions of the vocabulary together, and `explain`, `clashes` and
+summary of Regula (`Regula.Site.summary`); `parse`, `adopt` and `untracked` for the vocabulary;
+the eight checks of a document through `tally` and `report`; `Baseline.parse`, `gate` and
+`ratchet` for the baseline; `baseOf` for the base revision, with the start that `Start.read`
+reads. `vocabularyOf` puts the three decisions of the vocabulary together, and `explain`, `clashes` and
 `Baseline.explain` give the lines of a refusal (`explain_nil_iff`, `clashes_nil_iff`,
 `Baseline.explain_nil_iff`). The other refusals of a repository have no registered decision and
 no theorem: `vocabularyOf` refuses a vocabulary that names a shared vocabulary when it is given
@@ -31,18 +28,14 @@ none; `loadVocabulary` refuses when Git does not track `CONTEXT.md`, and when Gi
 the files of the repository of the shared vocabulary; `baseReference` refuses when Git does not
 give the baseline or the documents of the base revision; `openingRefusals` refuses a document of
 `summarizedDocuments` that Git does not track, and a `description` of `lakefile.lean` that is not
-the plain text of the summary or that Lake does not give; `demonstrationRefusals` refuses
-when Git does not track the root `README.md`, when Lean or `axiomGate --file` gives nothing for
-the module, and when the check of the example accepts one of its three changed copies of its
-input; and `examine` refuses when Git does not list the files of the repository, and when it
-lists no Markdown document. The rest is not proved: the list of tracked files, the parents of the
+the plain text of the summary or that Lake does not give; and `examine` refuses when Git does not
+list the files of the repository, and when it lists no Markdown document. The rest is not proved:
+the list of tracked files, the parents of the
 checked commit, the commit that a revision names, the merge base, and the baseline and the
 documents of the base revision are Git's (`historyOf`), the value that a workflow gives for its
 event is GitHub's, the content of a file is the file system's, a digest is `shasum`'s, the
-description of the package is Lake's (`lake reservoir-config`), the messages of the module are
-Lean's (`lean --json`), its findings and exit code are those of the `axiomGate` that Lake builds
-from the working tree, and md4c's reading of a document is `Regula.Markdown.read`'s
-(`RegulaMarkdown.lean`). -/
+description of the package is Lake's (`lake reservoir-config`), and md4c's reading of a document
+is `Regula.Markdown.read`'s (`RegulaMarkdown.lean`). -/
 
 open Regula.Markdown Regula.Controlled
 
@@ -509,90 +502,6 @@ def openingRefusals (root : System.FilePath) (documents : List Document) :
         Lake reads:\n{text}"]
   return missing ++ opening ++ description
 
-/-- The messages of Lean's elaboration of the file `file` in `directory` (`lean --json`), each as
-`line:column: severity: text`, or why Lean gives none. -/
-def leanMessages (directory : System.FilePath) (file : String) :
-    IO (Except String (List String)) := do
-  let out ← runOutside directory "lean" #["--json", file]
-  let read := ((out.stdout.splitOn "\n").filter (!·.isEmpty)).mapM fun line => do
-    let message ← Lean.Json.parse line
-    let position ← message.getObjVal? "pos"
-    return s!"{← position.getObjValAs? Nat "line"}:{← position.getObjValAs? Nat "column"}: \
-      {← message.getObjValAs? String "severity"}: {← message.getObjValAs? String "data"}"
-  match read with
-  | .error reason => return .error s!"`lean --json {file}` printed a line that is not a message: \
-      {reason}"
-  | .ok messages =>
-    if out.exitCode != 0 && messages.isEmpty then
-      return .error s!"`lean --json {file}` failed with no message: {out.stderr.trimAscii}"
-    return .ok messages
-
-/-- What Lean and `axiomGate --file` give for the module `demonstrationModule` of the repository
-at `root`, or why they give nothing. Both run in a new Lake project in a temporary directory, as
-in the first try of the root `README.md`: its `lean-toolchain` is the root's, it has the library
-`Demo`, it requires the root package by its path, and the module is a file of it with the same
-name. -/
-def observeDemonstration (root : System.FilePath) : IO (Except String Demonstration) := do
-  let file := (System.FilePath.mk demonstrationModule).fileName.getD "Shortcut.lean"
-  let captured ← try Regula.Filesystem.Construction.capture (root / demonstrationModule) [file]
-    catch error =>
-    return .error s!"{demonstrationModule}: {error}"
-  let [item] := captured | return .error "demonstration is not one regular file"
-  let .file bytes _ := item.payload | return .error "demonstration is not a regular file"
-  let some module := String.fromUTF8? bytes | return .error "demonstration is not UTF-8"
-  let toolchain ← Regula.Filesystem.Construction.capture (root / "lean-toolchain") ["lean-toolchain"]
-  let regula ← IO.FS.realPath root
-  Regula.Filesystem.withOwnTempDir fun project => do
-    let lakefile := s!"name = \"demo\"\n\n[[lean_lib]]\nname = \"Demo\"\n\n[[require]]\nname = \"regula\"\npath = \
-      {regula.toString.quote}\n"
-    Regula.Filesystem.construct project (toolchain ++ captured ++
-      [⟨["lakefile.toml"], .file lakefile.toUTF8⟩,
-       ⟨["Demo.lean"], .file "def hello := \"world\"\n".toUTF8⟩])
-    -- This closed generated project uses the root path dependency's captured path manifest.
-    -- Its ordinary loads perform no update and place no packages link.
-    Regula.Checker.Lake.pinAdopter root project
-    let messages ← match ← leanMessages project file with
-      | .ok messages => pure messages
-      | .error reason => return .error reason
-    let gate ← runOutside project "lake" #["exe", "axiomGate", "--file", file]
-    return .ok ⟨module, messages, gate.stdout, gate.exitCode.toNat, gate.stderr⟩
-
-/-- The refusals of the example of the root `README.md` among `documents`
-(`demonstrationErrors` of md4c's outline of the `README.md` and of what Lean and
-`axiomGate --file` give for `demonstrationModule`), and the controls of that check: the first
-line of the refusal that the check gives for each of three changed copies of its input. The
-copies are the `README.md` with a line added to its `lean` block, the observation with a warning
-of Lean added, and the output with `[violation;` changed to `[incomplete;` in its first finding
-line. A copy that the check accepts is a refusal too. -/
-def demonstrationRefusals (root : System.FilePath) (documents : List Document) :
-    IO (List String × List String) := do
-  let some readme := documents.find? (·.path == "README.md")
-    | return ([s!"README.md: Git does not track it, but it must show {demonstrationModule}"], [])
-  let observed ← match ← observeDemonstration root with
-    | .ok observed => pure observed
-    | .error reason => return ([s!"README.md: its example cannot be examined: {reason}"], [])
-  let outlined := outline readme.source
-  let refusals := demonstrationErrors outlined observed
-  let fence := match outlined with
-    | .read blocks => .read (blocks.map fun
-        | .code "lean" text => .code "lean" (text ++ "-- changed\n")
-        | block => block)
-    | unread => unread
-  let changed := match (observed.output.splitOn "\n").find? (·.startsWith "RG") with
-    | some line => observed.output.replace line (line.replace "[violation;" "[incomplete;")
-    | none => observed.output
-  let controls := [
-    ("a changed `lean` block", demonstrationErrors fence observed),
-    ("a warning of Lean that README.md does not state", demonstrationErrors outlined
-      { observed with
-        messages := observed.messages ++ ["15:8: warning: declaration uses `sorry`"] }),
-    ("a changed finding line", demonstrationErrors outlined { observed with output := changed })]
-  let accepted := controls.filterMap fun (control, result) =>
-    if result.isEmpty then some s!"README.md: the check of its example accepts {control}" else none
-  let shown := controls.filterMap fun (control, result) =>
-    result.head?.map fun refusal => s!"{control}: {(refusal.splitOn "\n").headD ""}"
-  return (refusals ++ accepted, shown)
-
 /-- What the checks of a repository give. -/
 structure Outcome where
   /-- The refusals of the rule IDs. -/
@@ -643,8 +552,8 @@ def examine (options : Options) : IO (Except String Outcome) := do
       (match baseline with | .error refusals => refusals | .ok _ => [])
   return .ok ⟨ruleIds, siteLinks, prose, summary, documents⟩
 
-/-- Check the repository: `examine`, then the openings (`openingRefusals`) and the example of the
-root `README.md` (`demonstrationRefusals`), which start Lake and Lean, so only this check of the
+/-- Check the repository: `examine`, then the openings (`openingRefusals`), which start Lake, so
+only this check of the
 repository itself runs them and no control repository does. Exit code 0 when there is at least
 one document and nothing is refused, and 1 otherwise, after printing each refusal. -/
 def check (options : Options) : IO UInt32 := do
@@ -654,7 +563,6 @@ def check (options : Options) : IO UInt32 := do
       IO.eprintln s!"FAIL: {reason}"
       return 1
   let openings ← openingRefusals options.root outcome.documents
-  let (demonstration, controls) ← demonstrationRefusals options.root outcome.documents
   unless outcome.ruleIds.isEmpty do
     IO.eprintln ("FAIL: tracked Markdown documents have a rule ID in prose that is not a link to \
       its rule page, or a construct the check does not read:\n" ++
@@ -665,25 +573,18 @@ def check (options : Options) : IO UInt32 := do
   unless openings.isEmpty do
     IO.eprintln ("FAIL: a document does not open with the summary of Regula, or the description \
       of lakefile.lean is not its plain text:\n" ++ "\n".intercalate openings)
-  unless demonstration.isEmpty do
-    IO.eprintln ("FAIL: README.md does not show its module and what Lean and axiomGate --file \
-      give for it:\n" ++ "\n".intercalate demonstration)
   unless outcome.prose.isEmpty do
     IO.eprintln ("FAIL: the vocabulary, the prose of the tracked Markdown documents or the \
       baseline is refused (docs/guides/writing.md gives each check):\n" ++
       "\n".intercalate outcome.prose)
   unless outcome.ruleIds.isEmpty && outcome.siteLinks.isEmpty && openings.isEmpty &&
-      demonstration.isEmpty && outcome.prose.isEmpty do
+      outcome.prose.isEmpty do
     return 1
   IO.println s!"Markdown documents: {outcome.documents.length} tracked documents read by md4c; \
     every rule ID in their prose links to its rule page; every link of {stableDocuments} to the \
     rule reference is a stable address, which names no edition; {summarizedDocuments} open with \
     the summary of Regula (Regula.Site.summary), and the description of lakefile.lean is its \
-    plain text; the lean block of README.md is {demonstrationModule}, Lean gives exactly the \
-    messages of demonstrationMessages for it, and axiomGate --file exits with {demonstrationExit} \
-    for it and prints an output that fits the text block of README.md; {outcome.summary}"
-  IO.println ("The check of the example of README.md refuses each changed copy of its input:\n" ++
-    "\n".intercalate controls)
+    plain text; {outcome.summary}"
   return 0
 
 /-- Print every finding of the checks C1 to C8 in one Markdown document of the repository. -/
@@ -1550,12 +1451,10 @@ def main : List String → IO UInt32 :=
 -- The removals and the writes that the compiled code of the program reaches from its roots
 -- (`Regula.Removal.rawRemovals`) are those of the filesystem observer, those that
 -- `Regula.Removal.sharedPairs` lists and those that are named here: the build of this module fails
--- otherwise (`Regula.Removal.checkProgram`). Its modules link `Regula.Collect` through the guard of
--- Lean's task manager (`Regula.TaskManager`, which imports `Regula.Probe`), and the regeneration of
--- a declaration's recursion there runs its `decreasing_by` tactics, so its check states that it
--- elaborates: the class is conservative reachability from every compiled declaration of its
--- modules (`Regula.Removal.programRoots`).
-run_cmd Regula.Removal.checkProgram (elaborates := true) (named := [
+-- otherwise (`Regula.Removal.checkProgram`). No compiled declaration of its modules reaches Lean's
+-- elaborator, so its check states that it does not elaborate: the class is conservative
+-- reachability from every compiled declaration of its modules (`Regula.Removal.programRoots`).
+run_cmd Regula.Removal.checkProgram (elaborates := false) (named := [
   -- The files of the controls, each below the temporary directory that its control made
   -- (`Regula.Filesystem.withOwnTempDir`): the repositories of the controls and their baselines.
   (``Regula.Controlled.Run.makeRepository, ``IO.FS.createDirAll),
