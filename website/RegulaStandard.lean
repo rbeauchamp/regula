@@ -109,7 +109,7 @@ Every `lean` block of this standard is one complete Lean module with its own imp
 * *`lean +trustedCompiler` block:* an example of a compiler-trusting proof mechanism, such as `native_decide`, `decide +native`, or `bv_decide`. The example must elaborate with no error and no warning; otherwise the build fails. That it contains a compiler-trusting declaration is the written guidance of the retired rule {rule}[RG4004], which the build does not read. Such examples are not included in conforming positive proof surfaces or in the three logical foundation labels.
 * *`leanSketch`, `text` or another non-Lean block:* pseudocode, a multi-file sketch, or tool output. It carries no claim that the displayed text elaborates as Lean; a `leanSketch` block says so where it is shown.
 
-A block name or argument that the standard's extension does not define, and an invalid diagnostic pattern, fail the build. §7.7 specifies the same three kinds as a Markdown fence protocol.
+A block name that no registered code-block expander has, an argument that the expander does not take, and an invalid diagnostic pattern fail the build. A block with no name is shown as code and carries no claim. §7.7 specifies the same three kinds as a Markdown fence protocol.
 
 The build of a positive example establishes its elaboration with no error and no warning. It does not prove that the example satisfies its intended specification or every other rule: a valid Lean program may illustrate a semantic defect, which the explanation must identify. Use a negative example to claim that Lean rejects the printed code.
 

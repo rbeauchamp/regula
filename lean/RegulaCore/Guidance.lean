@@ -34,9 +34,8 @@ build, so it matches that build by construction.
 
 The `#guard`s below evaluate, over the complete `RuleId.all` (`RuleId.mem_all`), that every
 descriptor meets `RuleDescriptor.wellFormed` (nonempty agent fields within their byte budgets,
-one-line requirement and remedy, distinct examples), that `checkedBy` says no check exactly of the
-rules whose lifecycle is retired, and that the agent guide of every published edition fits its
-budget.
+one-line requirement and remedy, distinct examples) and that the agent guide of every published
+edition fits its budget.
 They are compiled evaluation, not kernel proofs: kernel reduction of these long string
 literals costs seconds per field. A failing check fails the build of this module, which the
 acceptance build includes.
@@ -89,19 +88,19 @@ def examples (id : RuleId) : String :=
 def notChecked : String :=
   "no check: the rule is retired to written guidance, which review checks"
 
-/-- What checks the rule now: `lake lint` for each rule that Regula's checker reports, the Lake
-command that a rule handed to Lean goes to, or no check for a retired rule (the specification's
-`fate`). A `#guard` below compares the retired rules with the registry's lifecycles. -/
-def checkedBy : RuleId → String
+/-- What checks a rule that is not retired: the Lake command that the specification hands RG2003
+or RG2005 to, and `lake lint` for each other rule. -/
+def activeCheck : RuleId → String
   | .sourceBuild => "`lake build --wfail`, which decides it in place of Regula (issue #482)"
   | .admission => "`lake check`, to which the specification hands it (issue #482); Regula's checker \
       does not report it"
-  | .fenceStructure | .positiveExample | .negativeExample | .trustedExample
-  | .moduleDocumentation | .materialDocumentation | .materialIntent => notChecked
-  | .projectAxiom | .proofHole | .unknownAxiom | .compilerTrusting | .profileExceeded
-  | .escapeHatch | .executableContract | .decisionContract | .sharedTest | .environment
-  | .configuration | .coverage | .communityConfiguration | .executionUnresolved
-  | .executionBoundary => "`lake lint`, over the finished build"
+  | _ => "`lake lint`, over the finished build"
+
+/-- What checks the rule now: no check for a rule whose lifecycle in the registry is retired
+(`Lifecycle.isRetired`), which the specification's `fate` retires, and `activeCheck` for each
+other rule. The retired case is read from the lifecycle, so no table can disagree with it. -/
+def checkedBy (id : RuleId) : String :=
+  if (descriptor id).lifecycle.isRetired then notChecked else activeCheck id
 
 /-- The full rule as Markdown. For a rule whose subjects a registration attribute selects
 (`registrationFor`: `@[regula_material]` or `@[regula_decision]`), only source options and flags
@@ -288,9 +287,6 @@ def plainFields (id : RuleId) : Bool :=
 
 -- Compiled-evaluation observation at build time, not a kernel-checked proof.
 #guard RuleId.all.all fun id => (descriptor id).wellFormed && plainFields id
--- Compiled-evaluation observation at build time: `checkedBy` says no check exactly of the rules
--- whose lifecycle is retired.
-#guard RuleId.all.all fun id => (checkedBy id == notChecked) == (descriptor id).lifecycle.isRetired
 -- Compiled-evaluation observation at build time, not a kernel-checked proof.
 -- It covers the installed build's briefing, whose edition is published (`installed_published`).
 #guard published.all fun e => (agentGuideIn e).utf8ByteSize ≤ agentGuideBudget
