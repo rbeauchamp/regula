@@ -35,7 +35,7 @@
       "library": "RegulaCore",
       "claim": "standard-logical",
       "execution": "report",
-      "rationale": "The rule registry and the pure decisions that the checker's programs execute: the rule identities and descriptors, the guidance and setup decisions of the regula command, the site's editions, pages and checks, the Markdown and prose checks, and the shared filesystem constructor, whose contract is over the existing observer model, with checked correspondence to its IO program and explicit native primitive hypotheses. The Git isolation of a process tree has the proved decision of whether an environment has it, and the proof that one start under it gives it, over a trusted model of how Lean gives a child its environment. Their contracts concern the supplied data; Lake loading, the compiler and native filesystem effects remain trusted observations."
+      "rationale": "The rule registry and the pure decisions that the checker's programs execute: the rule identities and descriptors, the guidance and setup decisions of the regula command, the site's editions, pages and checks, the Markdown and prose checks, and the shared filesystem constructor, whose contract is over the existing observer model, with checked correspondence to its IO program and explicit native primitive hypotheses. Their contracts concern the supplied data; Lake loading, the compiler and native filesystem effects remain trusted observations."
     },
     {
       "library": "AuditApp",

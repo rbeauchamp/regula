@@ -9,8 +9,8 @@ import RegulaPolicy.Community
 The checker of a finished build, which the `lint` executable runs (`Regula.LintMain`), Lake's lint
 driver for a project that sets `lintDriver := "regula/lint"`. It has three effects: it loads the
 finished build (`Regula.Load.loadBundle`), it prints its report, and it sets its exit code. It
-writes no file and removes no file. Lake's load of the workspace runs Git, which the guard of the
-`lint` executable isolates (`Regula.TaskManager.guard`). It builds nothing: the project's gate
+writes no file and removes no file (`Regula.Effects.check`). Lake's own load of the workspace runs
+Git in the environment of the caller. It builds nothing: the project's gate
 builds the claimed targets with `lake build --wfail` before it runs the checker, and a module
 without its `.olean` makes the run `incomplete`.
 
@@ -92,5 +92,31 @@ unsafe def run (args : List String) : IO UInt32 := do
     let (verdict, findings, why) := Regula.Closed.run allowed bundle
     IO.println (coverage bundle)
     report verdict findings why
+
+/-- Why this process has no Lean task manager, or `none` when it has one. It runs one task of
+priority `Task.Priority.dedicated` and compares the thread the task ran on with the thread of the
+caller: the same thread means that Lean has no task manager, as under `LEAN_NUM_THREADS=0`.
+
+Assumes: Lean 4.35.0 gives `Task.Priority.dedicated` the value 9 (`src/Init/Core.lean:677`), above
+`LEAN_MAX_PRIO`, and the task manager runs a task of such a priority on a new thread
+(`src/runtime/object.cpp:792-795`, `:868-877`). Without a task manager, Lean runs the task on the
+caller's thread before it returns (`lean_task_spawn_core`, `src/runtime/object.cpp:1184-1190`). Two
+threads that run at once have different identifiers (`lean_io_get_tid`,
+`src/runtime/process.cpp:340-352`). -/
+def taskManagerMissing : IO (Option String) := do
+  let caller ← IO.getTID
+  let thread ← IO.ofExcept (← IO.wait (← IO.asTask (prio := .dedicated) IO.getTID))
+  return if thread == caller then
+    some "Lean's task manager is not running in this process (Lean starts none when \
+      LEAN_NUM_THREADS is 0)"
+  else none
+
+/-- `run`, or the verdict `incomplete` in a process without Lean's task manager: there, Lake's load
+of a workspace can end the process with a panic, whose exit code 1 is that of the verdict `fail`,
+which no completed run established (issue 393). -/
+unsafe def start (args : List String) : IO UInt32 := do
+  if let some reason ← taskManagerMissing then
+    report .incomplete [] (some reason)
+  else run args
 
 end Regula.Shell

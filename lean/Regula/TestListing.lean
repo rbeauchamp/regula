@@ -48,13 +48,9 @@ It makes the calls that `lake check-test` makes when no option is given
 - the load of the package alone (`Lake.loadPackage`, `Lake/Load/Package.lean:135-139`).
 
 The program does not call `mkLoadConfig`. The module that declares it, `Lake.CLI.Main`, imports
-the code of every command of Lake. Among them are `lake check` and `lake comparator`, which remove
-the temporary files that they make (`Lake.CLI.Check`). The check of the program starts from each
-compiled declaration without parameters of each module that the program imports
-(`Regula.Removal.initializersOf`). One of `Lake.CLI.Check` reaches those removals, so the check
-would find them, although the program runs neither command. This module imports only Lake's load
-of a package (`Lake.Load.Package`), the path operations that it uses too (`Lake.Util.IO`) and the
-errors of Lake's commands (`Lake.CLI.Error`), none of which links `Lake.CLI.Check`.
+the code of every command of Lake. This module imports only Lake's load of a package
+(`Lake.Load.Package`), the path operations that it uses too (`Lake.Util.IO`) and the errors of
+Lake's commands (`Lake.CLI.Error`).
 
 It runs the load with Lake's default log configuration, which is the command's when no option is
 given (`Lake/CLI/Main.lean:100-107`, `:178-179`, `Lake/Util/Log.lean:125-128`, `:597-612`).

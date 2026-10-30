@@ -1157,7 +1157,7 @@ private def create (repo parent final : FilePath) (key : String) (manifest : Lak
   finally IO.FS.removeFile descriptor
   -- This new shared-store workspace deliberately fetches the manifest's pinned Git packages.
   -- It has a closed generated configuration, not an existing-project relocation or override
-  -- load. Lake and Git's new checkout contents remain trusted (libraryRemovals).
+  -- load. Lake and Git's new checkout contents remain trusted.
   try
     let githash := (← require staging "lean" #["--githash"]).trimAscii.toString
     unless githash == Lean.githash do

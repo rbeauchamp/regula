@@ -64,7 +64,7 @@ def version : String := "4.35.0"
 /-- The full compiler commit declared by this source revision. -/
 def commit : String := "eb6cafb7290e8bd5f2937522d8d804f58f02bafc"
 
-/-- The exact identity relation used by inventory and plan admission. -/
+/-- The exact identity relation that the guard below and `regula doctor` decide. -/
 def Supports (observedVersion observedCommit : String) : Prop :=
   observedVersion = version ∧ observedCommit = commit
 

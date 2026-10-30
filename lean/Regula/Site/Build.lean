@@ -27,14 +27,8 @@ Process, filesystem, Git, network and Verso observations are trusted operational
 decisions (editions, releases and routes, escaping, filters, diffs, links, page structure, colour
 contrast) are proved in `RegulaCore.Edition`, `RegulaCore.Site`, `RegulaCore.SitePage`,
 `RegulaCore.SiteDocs` and `RegulaCore.SiteTheme`.
-Each directory or file that the builder removes is removed by `Regula.Filesystem.removeOwn` or
-`Regula.Filesystem.removeFound`, only when a read that follows no link finds an entry of its kind
-at its own place (`Regula.Removal.removal_remove_iff`); in every other case the build stops with
-nothing removed. `Regula.Site.Main` fails to build when its `main` or an initializer reaches
-another removal than the observer's and those of Lean's and Lake's libraries that
-`Regula.Removal.libraryRemovals` and `Regula.Removal.tacticRemovals` list, a removal being a call
-that removes or replaces an entry (`Regula.Removal.checkProgram`). Those of `tacticRemovals` are
-the removals of `bv_decide`, trusted active effects of the elaboration that the program runs.
+The builder removes nothing: it refuses when an earlier build's output is present
+(`Regula.Site.Build.requireFresh`), so a symbolic link at a path that it would write stays as it is.
 -/
 
 namespace Regula.Site.Build
@@ -116,8 +110,12 @@ def releaseAsset (v : ReleaseVersion) : String := "regula-site-" ++ v.spelling +
 def releaseAssetUrl (v : ReleaseVersion) : String :=
   repository ++ "/releases/download/v" ++ v.spelling ++ "/" ++ releaseAsset v
 
+/-- The scratch directory of a build: what it renders, the release copies that it fetches and the
+artifact before its check. A build refuses when it is present and leaves it behind. -/
+def siteScratch (root : FilePath) : FilePath := root / "tmp/site-build"
+
 /-- Scratch directory of the fetched release copies; `<version>/` holds each extracted edition. -/
-def releaseDirectory (root : FilePath) : FilePath := root / "tmp/site-releases"
+def releaseDirectory (root : FilePath) : FilePath := siteScratch root / "releases"
 
 /-- The commit that tag reference `ref` names in `git ls-remote` output: its peeled `^{}` line
 when the tag is annotated, otherwise its own line. -/
@@ -158,7 +156,6 @@ an unreadable archive, a symbolic link, a copy without a home page, and a copy w
 does not record a clean build of `v` for this site. -/
 def extractRelease (root : FilePath) (v : ReleaseVersion) : IO (List (String × ByteArray)) := do
   let dir := releaseDirectory root / v.spelling
-  Regula.Filesystem.removeOwn .directory dir
   IO.FS.createDirAll dir
   let archive := releaseDirectory root / releaseAsset v
   let extracted ← run root "tar" #["-xzf", archive.toString, "-C", dir.toString]
@@ -210,7 +207,6 @@ stylesheet (`Regula.Site.stylesheet`) as `website/Generated/regula.css`, which t
 package copies to each edition's root. -/
 def generate (root : FilePath) (g : Generated) : IO Unit := do
   let out := root / "website/Generated"
-  Regula.Filesystem.removeOwn .directory out
   let top := root / "website/Generated.lean"
   IO.FS.writeFile top (← IO.ofExcept (homePage g.ident))
   IO.FS.createDirAll out

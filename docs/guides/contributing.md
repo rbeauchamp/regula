@@ -199,9 +199,9 @@ rm -rf .lake/packages/{batteries,aesop,Qq,proofwidgets,importGraph,LeanSearchCli
 - Write probes that need Mathlib as single files under `tmp/` and check them with
   `lake -d integration/mathlib env lean tmp/Probe.lean`; a separate Lake project there would fetch its own
   Mathlib. A probe that needs only the checker uses `lake env lean tmp/Probe.lean`.
-- Scratch directories live in `.lake/regula-scratch/`, each beside an ownership marker
-  `<name>.owner`. Those of killed runs (for example at the seven-minute limit) are reclaimed
-  by the next run that creates one while no other run in the copy holds scratch; only marked
+- The first acceptance step's copy lives in `.lake/regula-scratch/`, beside an ownership marker
+  `<name>.owner`. The copy of a killed run (for example at the seven-minute limit) is reclaimed
+  by the next acceptance run while no other run in the copy holds scratch; only marked
   directories there are removed. Scratch outside `.lake/regula-scratch/` is never reclaimed;
   remove it by hand.
 - GitHub Actions fetches Mathlib's published artifacts into the integration job's writable `integration/mathlib/.lake/packages`, where later builds compile the native objects they link. Only a local read-only shared directory needs those objects built in advance. CI cache keys include the platform, exact released compiler identity and pinned manifests. A shared directory is never modified, only removed whole.
@@ -224,7 +224,6 @@ The merge gate of a change is the local gate, `lean --run lean/Regula/Diagnostic
 3. `./scripts/verify.sh` and `./scripts/verify.sh docs`, the two acceptance steps. The first step runs the checker on the build of Regula itself.
 4. `lean --run lean/RegulaProvision.lean mathlib` and `./scripts/verify.sh mathlib`, the [Mathlib integration check](#mathlib-integration-check).
 5. `lake build site AuditApp` and `lake build Audit` in `audit/`, the builds of the tools of the rule-reference site.
-6. `lake build` in `controls/`, the controls of the check that each program of the package runs. Its compile needs about 30 GiB (issue #497). Thus no CI job builds it, and the first acceptance step leaves it out.
 
 The gate leaves out `./scripts/verify.sh site`. That check reads the tags of the repository with no credentials, thus it fails while the repository is private. The `site` job of [`ci.yml`](../../.github/workflows/ci.yml) runs it on `main`.
 
@@ -537,14 +536,6 @@ of these commits, at the line of the entry.
 One more control is a repository with a baseline that Git does not track. The option
 `--write-baseline` must keep the `frozen` entry and the `generated` entry of a document. It
 must write no entry that has no document.
-
-A last control operates the program with `--write-baseline`. First a later argument that the
-parser refuses makes the run fail. Then the repository's Git index holds bytes that are not an
-index, so the run stops early when Git lists the tracked files. Each time the file
-`prose-baseline.json` must hold the mark of the guard, with the earlier baseline, and check B1
-must refuse it. A later run must write the baseline with the entries that the mark holds. The run
-must refuse a baseline that is not UTF-8 text, as a file that Regula did not write, and keep its
-bytes.
 
 The controls of these checks are in the same directory as the controls of the vocabulary. A
 control of C1 to C8 is a document with the extension `text`. A control of B1 or B2 is a baseline

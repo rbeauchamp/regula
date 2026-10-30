@@ -231,7 +231,7 @@ Do these steps after you correct findings in a document that has an entry, or af
 
 The command reads the file `prose-baseline.json` of the working tree, also if Git does not track that file. It keeps each `frozen` entry and each `generated` entry that has a tracked Markdown document. It writes no entry for a path that is not a tracked Markdown document.
 
-The command first marks the file incomplete, and the mark keeps the earlier baseline. A file that is not UTF-8 text keeps its bytes, and the command stops. Check B1 does not accept a mark. Thus, if the run stops before it writes the baseline, correct the cause and use the command again. That run reads the earlier baseline from the mark.
+The command makes a new file beside the baseline, and then moves that file over the baseline. A failure before the move leaves the baseline as it was, and the command stops. A file with the extension `pending` can stay beside the baseline. No check reads it. Thus correct the cause, remove that file and use the command again.
 
 To see each finding of one document, use the command `lake exe regula-markdown .. --list PATH` in the directory `markdown`.
 

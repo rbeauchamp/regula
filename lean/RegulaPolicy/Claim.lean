@@ -621,7 +621,7 @@ theorem checked_admitCapability : Regula.ExecutableContract Compiler.admitCapabi
     ⟨match Compiler.legacyCompilerTrust with | .present => .absent | .absent => .present,
       fun accepted => absurd ((admitCapability_isOk_iff _).mp accepted) (by decide)⟩⟩
 
-/-- `Compiler.accepts`, the support decision at the compiler and probe boundaries, accepts
+/-- `Compiler.accepts`, the support decision of `regula doctor`, accepts
 exactly the version and commit this revision declares (`Compiler.accepts_iff`): it accepts that
 pair and refuses the empty pair. That the pair is the running compiler's is the caller's
 observation. -/

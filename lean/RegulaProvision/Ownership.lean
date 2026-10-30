@@ -177,7 +177,7 @@ theorem observeRealPath_admitted (filesystemOps : Ops IO)
         PathsOwn (Model.ofIO filesystemOps entry real ident) w repo
           (rootEntries manifest overrides))
       (fun _ _ => False) :=
-  pinsWith_admitted_io (realPath ▸ (corresponds_ofIO filesystemOps entry real ident).2.1)
+  pinsWith_admitted_io (realPath ▸ (corresponds_ofIO filesystemOps entry real ident).2)
     readsReal repo manifest overrides w
 
 end RegulaProvision

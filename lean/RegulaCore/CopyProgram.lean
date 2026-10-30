@@ -824,8 +824,7 @@ def isolationSettings : Array (String × Option String) :=
 /-- The environment of a process tree whose Git commands run isolated, also those that another
 program in the tree starts with no environment of its own, as Lake does: Git's repository-local
 names removed and `isolationSettings` set, each name once. A Git name that a setting also names
-takes the setting (`GIT_CONFIG_COUNT`), so applying the array twice changes nothing
-(`Regula.GitIsolation.processEnvironment_isolated`).
+takes the setting (`GIT_CONFIG_COUNT`), so applying the array twice changes nothing.
 
 Assumes: Lake v4.35.0 `Lake/Util/Git.lean:91-109` starts each Git command through
 `Lake/Util/Proc.lean:29-34,61-80` with no `env` and the default `inheritEnv := true`

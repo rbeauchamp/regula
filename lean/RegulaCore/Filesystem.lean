@@ -4,13 +4,12 @@ import Regula.Assumption
 
 /-! # The filesystem, as Regula's code acts on it
 
-The operations by which Regula's code reads the filesystem, removes from it and moves an entry in
-it (`Ops`), and the assumptions it makes about them, each a predicate over a model of the
-filesystem (`Model`). Code that acts on the filesystem is written once, for the operations in any
-monad. It runs at the real operations, which the observer supplies in `IO`
-(`Regula.Filesystem.observer`). Its theorems are stated at the operations of every model that
-satisfies the assumptions they name, so the hypotheses of a theorem are exactly the assumptions it
-rests on. The operations that decide before they remove or move are in `RegulaCore.Removal`.
+The operations by which the copy construction reads the filesystem (`Ops`), and the assumptions it
+makes about them, each a predicate over a model of the filesystem (`Model`). Code that acts on the
+filesystem is written once, for the operations in any monad. It runs at the real operations, which
+the observer supplies in `IO` (`Regula.Filesystem.observer`). Its theorems are stated at the
+operations of every model that satisfies the assumptions they name, so the hypotheses of a theorem
+are exactly the assumptions it rests on.
 
 ## The model
 
@@ -23,79 +22,35 @@ operations as actions on the state:
   component and no symbolic link;
 * `Model.ident`: the file that a path names (`FileId`), its device and its number on the device,
   as `lstat(2)` reports them. Lean 4.35.0's `IO.FS.Metadata` has neither
-  (`Init/System/IO.lean#L1115-L1129`), so no operation reads it and no decision depends on it: it
-  names the files that the frame of a removal speaks about (`Model.Unchanged`).
+  (`Init/System/IO.lean#L1115-L1129`), so no operation reads it and no decision depends on it.
 
 ## The assumptions
 
-Each assumption is a predicate with the sources that state it (`Regula.Assumption`). The five are
-the contracts of the operations, each a `Std.Do` triple whose postcondition is the property:
+Each assumption is a predicate with the sources that state it (`Regula.Assumption`), a `Std.Do`
+triple whose postcondition is the property:
 
 * `ReadsEntry`: `symlinkMetadata` reports the entry, changes nothing, and fails with
   `noFileOrDirectory` only when nothing is there.
 * `ReadsReal`: `realPath` gives what `realpath(3)` gives, changes nothing, and fails exactly when
   `realpath(3)` fails.
-* `RemovesTree`: `removeDirAll` of a directory at its own place keeps the entry at each path of
-  its frame (`Model.Unchanged`), each path not spelled within the directory, below a parent at its
-  own real path, whose file before is not an entry of the directory's tree (`Model.Below`),
-  whether it succeeds or fails.
-* `RemovesEntry`: `removeFile` of a path at its own place, or of a symbolic link in a directory at
-  its own place, keeps the entry at each path of its frame, each path not spelled within the
-  removed path, below a parent at its own real path, whose file before is not the removed one.
-* `Renames`: `rename` of a source at its own place to a destination whose parent is at its own
-  place keeps the entry at each path of the frame of both (`Model.Kept`).
 
 Each is a statement about every run from every state, so together they describe runs in which no
-other process changes the filesystem, which none states alone. In `IO`, the world that one
-operation ends in is the world that the next starts from, so a change that another process makes
-while the code runs is part of the run of one operation. A read changes nothing, so a change during
-a read makes its assumption false. A removal keeps the entry at each path of its frame, so a change
-during a removal to an entry that the frame keeps makes its assumption false. A change inside the
-removed tree can make `RemovesTree` false too, since `removeDirAll` resolves each path again
-(`RemovesTree`). The theorems that rest on a false assumption say nothing.
-
-That a removal removes the path is not assumed. `removeDirectory` and `removeEntry` read the path
-again after the removal and fail when something is still there, so their contracts
-(`removeDirectory_gone`, `removeEntry_gone`) rest only on `ReadsEntry`: each is a checked
-operation.
+other process changes the filesystem, which none states alone. A read changes nothing, so a change
+during a read makes its assumption false, and the theorems that rest on a false assumption say
+nothing.
 
 ## From the model to `IO`
 
-The theorems about a function's runs in a model (`removeDirectory_spec`, `removeDirectory_gone`,
-`removeEntry_spec`, `removeEntry_gone`, `atOwnPlace_spec`) are carried to the runs of the same
-function in `IO` (`removeDirectory_io`, `removeDirectory_gone_io`, `removeEntry_io`,
-`removeEntry_gone_io`, `atOwnPlace_io`) at operations that correspond to the model
-(`Corresponds`): each operation in `IO` runs as the model's operation when each world of `IO` is
-read as a model state. That is agreement of runs, not an assumption about the filesystem:
+Each operation in `IO` runs as the model's operation when each world of `IO` is read as a model
+state (`Corresponds`). That is agreement of runs, not an assumption about the filesystem:
 `corresponds_ofIO` proves it for every set of operations at the model whose states are the worlds
-(`Model.ofIO`). `Regula.Filesystem` states the theorems for the observer at that model, where they
-rest on the five assumptions alone.
+(`Model.ofIO`).
 
 ## Boundaries
 
-The assumptions are stated for a POSIX system, where `symlinkMetadata` calls `lstat`,
-`removeDirAll` reads each entry without following a symbolic link, and `realPath` calls
-`realpath`. In Lean 4.35.0 on Windows, `symlinkMetadata` follows a link and `realPath` can give a
-path it did not resolve, so the observer refuses those reads and every directory removal there.
-
-The frame of a removal (`Model.Unchanged`) leaves out each path that names, before the removal,
-the file of an entry of the removed tree (`Model.Below`, which includes the entries that
-`removeDirAll` visits):
-the same device and file number, which together identify a file within the system (POSIX.1-2024
-`<sys/stat.h>`). So it leaves out every second name of such a file, whatever gives it: another
-case or Unicode normalization of a name on a volume that ignores those, an APFS firmlink, a bind
-mount, or a second hard link. It also leaves out each path spelled within the removed path
-(`Within`), and each path whose parent is not its own real path, such as one through a symbolic
-link or with a `..` component, since such a path can pass through the removed path. The target of
-a symbolic link in the tree is not an entry of the tree through the link, so its entry is in the
-frame unless the tree holds it under another name. The removal assumptions are
-false where two names of one file report different devices, such as two mounts of one network or
-FUSE file system, and on a file system whose file numbers are not stable. `RemovesTree` is false
-too when another process, during the removal, replaces a directory of the tree with a symbolic link
-or otherwise changes what a path of the tree resolves to: `removeDirAll` resolves each path again
-at each call, so the walk can leave the tree, the race of CVE-2022-21658. The frame compares the
-type of an entry, not which file it is after the removal or what it holds: an entry outside a
-removed path that is replaced by another entry of the same type is not a change the frame sees. -/
+The assumptions are stated for a POSIX system, where `symlinkMetadata` calls `lstat` and `realPath`
+calls `realpath`. In Lean 4.35.0 on Windows, `symlinkMetadata` follows a link and `realPath` can
+give a path it did not resolve, so the observer refuses those reads there. -/
 
 namespace Regula.Filesystem
 
@@ -109,12 +64,6 @@ structure Ops (m : Type → Type) where
   symlinkMetadata : FilePath → m IO.FS.Metadata
   /-- The path that `realpath(3)` resolves a path to: `IO.FS.realPath`. -/
   realPath : FilePath → m FilePath
-  /-- Remove a directory with all its entries: `IO.FS.removeDirAll`. -/
-  removeDirAll : FilePath → m Unit
-  /-- Remove the entry that a path names, which is not a directory: `IO.FS.removeFile`. -/
-  removeFile : FilePath → m Unit
-  /-- Move the entry at the first path to the second, replacing what is there: `IO.FS.rename`. -/
-  rename : FilePath → FilePath → m Unit
 
 /-- The identity of a file: the device that holds it and its number on that device, the fields
 `st_dev` and `st_ino` that `lstat(2)` reports. POSIX.1-2024 `<sys/stat.h>` states that the two
@@ -141,27 +90,15 @@ structure Model where
   symbolic link at the path's last component is the file, not followed. `none` when nothing is
   there. Lean 4.35.0's `IO.FS.Metadata` has no device or inode field
   (`Init/System/IO.lean#L1115-L1129`), so no operation reads it and no decision depends on it: it
-  names the files that the frame of a removal speaks about (`Model.Unchanged`). -/
+  is what a statement about a file names. -/
   ident : World → FilePath → Option FileId
   /-- The operations, as actions on the state. -/
   ops : Ops (EStateM IO.Error World)
 
-/-- `path` is spelled within `directory`: it is `directory`, or its parent
-(`System.FilePath.parent`) is spelled within `directory`. This is a relation of spellings, not of
-files: a path with a `..` component, such as `directory/..`, or one through a symbolic link below
-`directory` is within it and can name a file outside it. The tree of `directory`, which includes
-the entries that `removeDirAll` visits, is `Model.Below`. -/
-inductive Within (directory : FilePath) : FilePath → Prop where
-  /-- A directory is within itself. -/
-  | self : Within directory directory
-  /-- A path whose parent is within the directory is within it. -/
-  | entry {path parent : FilePath} :
-      Within directory parent → path.parent = some parent → Within directory path
-
 /-- The tree of `directory` in the state `w`: `directory` itself, and each path whose last
 component is a name, not `.` or `..`, and whose parent is in the tree and is a directory as
-`lstat(2)` reports it. It includes each entry that Lean 4.35.0's `IO.FS.removeDirAll` visits
-(`Init/System/IO.lean#L1335-L1342`) in a run where no other process changes the filesystem. It also
+`lstat(2)` reports it. It includes each entry that a walk that follows no link visits
+in a run where no other process changes the filesystem. It also
 holds each name with no entry in a directory of the tree, and each other spelling of a visited
 entry, such as another case of its name on a volume that ignores case. As `lstat(2)` reports them,
 neither adds a file to the files of the tree: the first names no file, and the second names the
@@ -174,59 +111,6 @@ inductive Model.Below (M : Model) (w : M.World) (directory : FilePath) : FilePat
   | child {path parent : FilePath} : Model.Below M w directory parent →
       M.entry w parent = some .dir → path.parent = some parent → path.fileName.isSome = true →
       Model.Below M w directory path
-
-/-- From the state `before` to the state `after`, the entry at each path of the frame of the paths
-`changed` kept its type. The frame is each path that is not spelled within any of them (`Within`),
-whose parent is its own real path in `before`, whose last component is a name, not `.` or `..`, and
-that in `before` names nothing or names a file (`Model.ident`) that no entry of the tree of any of
-them (`Model.Below`) is. Each such path names an entry of the same type in both states, or nothing
-in both.
-
-A path that names, in `before`, the file of an entry of a tree is outside the frame: a second name
-of that file, such as another case or Unicode normalization of a name on a volume that ignores
-those, a name through an APFS firmlink or a bind mount, or a second hard link. A path whose parent
-is not its own real path is outside the frame too, since it can pass through a changed path: one
-through a symbolic link, or with a `.` or `..` component. The target of a symbolic link below a
-changed path is not an entry of its tree through the link, so unless a tree holds it under another
-name, its entry is in the frame. A path that names nothing is in the frame, so nothing appears
-outside the changed paths. The frame compares the type of each entry, not which file it is in
-`after` or what it holds. -/
-def Model.Kept (M : Model) (changed : List FilePath) (before after : M.World) : Prop :=
-  ∀ path parent, path.parent = some parent → path.fileName.isSome = true →
-    M.real before parent = some parent →
-    (M.entry before path = none ∨ ∃ file, M.ident before path = some file ∧
-      ∀ directory ∈ changed, ∀ inner, M.Below before directory inner →
-        M.ident before inner ≠ some file) →
-    (∀ directory ∈ changed, ¬ Within directory path) → M.entry after path = M.entry before path
-
-/-- The frame of the removal of `directory` (`Model.Kept`): from `before` to `after`, the entry at
-each path not spelled within `directory`, below a parent at its own real path, whose file before is
-not an entry of the tree of `directory` (`Model.Below`), kept its type. -/
-def Model.Unchanged (M : Model) (directory : FilePath) (before after : M.World) : Prop :=
-  M.Kept [directory] before after
-
-/-- Nothing changes from a state to itself. -/
-theorem Model.kept_refl (M : Model) (changed : List FilePath) (w : M.World) :
-    M.Kept changed w w :=
-  fun _ _ _ _ _ _ _ => rfl
-
-/-- Nothing changes from a state to itself. -/
-theorem Model.unchanged_refl (M : Model) (directory : FilePath) (w : M.World) :
-    M.Unchanged directory w w :=
-  M.kept_refl [directory] w
-
-/-- In the state `w`, the last component of `path` is a name, not `.` or `..`, and the parent of
-`path` is its own real path: the entry that `path` names is the one of that name in a directory at
-its own place, reached through no symbolic link. A symbolic link at `path` is in its own directory
-in this sense whatever it points to, since `lstat(2)` and `unlink(2)` do not follow a link at the
-last component of a path. -/
-def Model.InOwnDirectory (M : Model) (w : M.World) (path : FilePath) : Prop :=
-  path.fileName.isSome = true ∧ ∃ parent, path.parent = some parent ∧ M.real w parent = some parent
-
-/-- In the state `w`, an entry that is not a symbolic link is at `path`, as `lstat(2)` reports it,
-and the real path of `path` is `path` itself: what `atOwnPlace` reads. -/
-def Model.AtOwnPlace (M : Model) (w : M.World) (path : FilePath) : Prop :=
-  M.entry w path ≠ none ∧ M.entry w path ≠ some .symlink ∧ M.real w path = some path
 
 /-- Whether an error is the one that Lean gives for `ENOENT`: nothing is at the path. -/
 def Absent : IO.Error → Prop
@@ -267,95 +151,6 @@ def ReadsReal (M : Model) : Prop :=
     ⦃post⟨fun real w => ⌜w = before ∧ M.real before path = some real⌝,
       fun _ w => ⌜w = before ∧ M.real before path = none⌝⟩⦄
 
-/-- `removeDirAll` of a directory at its own place, whose real path is the path, keeps the entry at
-each path of its frame (`Model.Unchanged`), each path not spelled within the directory, below a
-parent at its own real path, whose file before is not an entry of the directory's tree
-(`Model.Below`), whether it succeeds or fails. That it removes the directory is not assumed
-(`removeDirectory_gone`).
-
-On a POSIX system it reads each entry with `lstat` and goes only into a directory, so the tree has
-a symbolic link below the directory and not the link's target. So the target's entry is in the
-frame, unless the tree holds it under another name, and in a run where no other process changes
-the filesystem, the assumption gives that the removal removes the link, not its target.
-The frame leaves out each second name of an entry of the tree, by the device and file number that
-identify a file within the system (POSIX.1-2024 `<sys/stat.h>`): another spelling on a volume that
-ignores case or Unicode normalization, a name through an APFS firmlink, a bind mount of the
-directory or of a directory around it, and a second hard link to a file of the tree. A mount below
-the directory is a directory of the tree, so the files below it are entries of the tree, and their
-names at another mount of them are second names. The assumption is false where two names of one
-file report different devices, such as two mounts of one network or FUSE file system, and on a file
-system whose file numbers are not stable. It is false too when another process, during the
-removal, replaces a directory of the tree with a symbolic link or otherwise changes what a path of
-the tree resolves to: `removeDirAll` resolves each path again at each call
-(`Init/System/IO.lean#L1335-L1342`), so the walk can leave the tree and remove entries outside it,
-such as the target of the link (the race of CVE-2022-21658). -/
-@[regula_assumption filesystem
-  (lean "v4.35.0" "Init/System/IO.lean#L1330-L1342")
-  (lean "v4.35.0" "runtime/io.cpp#L1160-L1179")
-  (lean "v4.35.0" "runtime/io.cpp#L1197-L1207")
-  (lean "v4.35.0" "runtime/io.cpp#L1351-L1364")
-  (document filesystem "POSIX.1-2024, lstat(), unlink() and rmdir()")
-  (document filesystem "POSIX.1-2024, <sys/stat.h>: st_ino and st_dev taken together uniquely \
-    identify the file within the system")]
-def RemovesTree (M : Model) : Prop :=
-  ∀ path before, M.entry before path = some .dir → M.real before path = some path →
-    ⦃fun w => ⌜w = before⌝⦄ M.ops.removeDirAll path
-      ⦃post⟨fun _ w => ⌜M.Unchanged path before w⌝, fun _ w => ⌜M.Unchanged path before w⌝⟩⦄
-
-/-- `removeFile` of a path at its own place, whose real path is the path, or of a symbolic link in a
-directory at its own place (`Model.InOwnDirectory`), keeps the entry at each path of its frame
-(`Model.Unchanged`), each path not spelled within the removed path, below a parent at its own real
-path, whose file before is not an entry of the path's tree (`Model.Below`), whether it succeeds or
-fails. When the path is not a directory, its tree is the path alone. That it removes the entry is
-not assumed (`removeEntry_gone`).
-
-POSIX `unlink()` removes a symbolic link, not the file that its content names, so the target of a
-removed link is in the frame unless it is a second name of the link itself.
-
-The frame leaves out each second name of the removed file, by the device and file number that
-identify a file within the system (POSIX.1-2024 `<sys/stat.h>`): another spelling on a volume that
-ignores case or Unicode normalization, a name through an APFS firmlink or a bind mount, and a
-second hard link. The assumption is false where two names of one file report different devices,
-such as two mounts of one network or FUSE file system, and on a file system whose file numbers are
-not stable. -/
-@[regula_assumption filesystem
-  (lean "v4.35.0" "Init/System/IO.lean#L881-L886")
-  (lean "v4.35.0" "runtime/io.cpp#L1351-L1364")
-  (document filesystem "POSIX.1-2024, unlink()")
-  (document filesystem "POSIX.1-2024, <sys/stat.h>: st_ino and st_dev taken together uniquely \
-    identify the file within the system")]
-def RemovesEntry (M : Model) : Prop :=
-  ∀ path before, M.real before path = some path ∨
-      M.entry before path = some .symlink ∧ M.InOwnDirectory before path →
-    ⦃fun w => ⌜w = before⌝⦄ M.ops.removeFile path
-      ⦃post⟨fun _ w => ⌜M.Unchanged path before w⌝, fun _ w => ⌜M.Unchanged path before w⌝⟩⦄
-
-/-- `rename` of a source at its own place, whose real path is the path, to a destination whose
-parent is its own real path, keeps the entry at each path of the frame of both (`Model.Kept`): each
-path spelled within neither, below a parent at its own real path, whose file before is not an entry
-of the tree of either (`Model.Below`), whether it succeeds or fails. That it moves the entry is not
-assumed (`Regula.Removal.replaceWith_moved`).
-
-POSIX `rename()` follows no symbolic link at the last component of either path: a link at the
-source is moved, and a link at the destination is replaced, not its target. The frame leaves out
-each second name of the moved entry and of the replaced one, by the device and file number that
-identify a file within the system (POSIX.1-2024 `<sys/stat.h>`), as for `RemovesEntry`. The
-assumption is false where two names of one file report different devices, on a file system whose
-file numbers are not stable, and when another process changes the parent of either path while the
-rename runs. -/
-@[regula_assumption filesystem
-  (lean "v4.35.0" "Init/System/IO.lean#L903-L909")
-  (lean "v4.35.0" "runtime/io.cpp#L1209-L1238")
-  (document filesystem "POSIX.1-2024, rename()")
-  (document filesystem "POSIX.1-2024, <sys/stat.h>: st_ino and st_dev taken together uniquely \
-    identify the file within the system")]
-def Renames (M : Model) : Prop :=
-  ∀ source destination parent before, M.real before source = some source →
-    destination.parent = some parent → M.real before parent = some parent →
-    ⦃fun w => ⌜w = before⌝⦄ M.ops.rename source destination
-      ⦃post⟨fun _ w => ⌜M.Kept [source, destination] before w⌝,
-        fun _ w => ⌜M.Kept [source, destination] before w⌝⟩⦄
-
 /-! ## Operations in `IO` that correspond to a model -/
 
 /-- The operations `ops` in `IO` run as the operations of the model `M`, when `view` reads each
@@ -365,15 +160,11 @@ world it ends in is the state the model's operation ends in.
 
 This is agreement of runs, not a property of the filesystem, so it has no role: `corresponds_ofIO`
 proves it for every set of operations at the model whose states are the worlds. It does not say
-that no other process changes the filesystem. At that model, the five assumptions describe runs in
+that no other process changes the filesystem. At that model, the assumptions describe runs in
 which no other process changes it (see the module's documentation). -/
 def Corresponds (ops : Ops IO) (M : Model) (view : Void IO.RealWorld → M.World) : Prop :=
   (∀ path, Agrees view (ops.symlinkMetadata path) (M.ops.symlinkMetadata path)) ∧
-    (∀ path, Agrees view (ops.realPath path) (M.ops.realPath path)) ∧
-    (∀ path, Agrees view (ops.removeDirAll path) (M.ops.removeDirAll path)) ∧
-    (∀ path, Agrees view (ops.removeFile path) (M.ops.removeFile path)) ∧
-    (∀ source destination,
-      Agrees view (ops.rename source destination) (M.ops.rename source destination))
+    (∀ path, Agrees view (ops.realPath path) (M.ops.realPath path))
 
 /-- The model action over the worlds of `IO` that runs the `EIO` action `x`. -/
 def ofEIO {ε α : Type} (x : EIO ε α) : EStateM ε (Void IO.RealWorld) α := fun w =>
@@ -392,10 +183,7 @@ def Model.ofIO (ops : Ops IO) (entry : Void IO.RealWorld → FilePath → Option
   ident := ident
   ops := {
     symlinkMetadata := fun path => ofEIO (ops.symlinkMetadata path)
-    realPath := fun path => ofEIO (ops.realPath path)
-    removeDirAll := fun path => ofEIO (ops.removeDirAll path)
-    removeFile := fun path => ofEIO (ops.removeFile path)
-    rename := fun source destination => ofEIO (ops.rename source destination) }
+    realPath := fun path => ofEIO (ops.realPath path) }
 
 /-- An `EIO` action runs as itself over the worlds of `IO`, each world read as itself. -/
 theorem ofEIO_agrees {ε α : Type} (x : EIO ε α) : Agrees id x (ofEIO x) := by
@@ -413,8 +201,7 @@ theorem corresponds_ofIO (ops : Ops IO)
     (real : Void IO.RealWorld → FilePath → Option FilePath)
     (ident : Void IO.RealWorld → FilePath → Option FileId) :
     Corresponds ops (Model.ofIO ops entry real ident) id :=
-  ⟨fun _ => ofEIO_agrees _, fun _ => ofEIO_agrees _, fun _ => ofEIO_agrees _,
-    fun _ => ofEIO_agrees _, fun _ _ => ofEIO_agrees _⟩
+  ⟨fun _ => ofEIO_agrees _, fun _ => ofEIO_agrees _⟩
 
 /-! ## Reads -/
 
@@ -425,21 +212,6 @@ def entryType {m : Type → Type} [Monad m] [MonadExceptOf IO.Error m] (ops : Op
   tryCatchThe IO.Error (do return some (← ops.symlinkMetadata path).type) fun
     | .noFileOrDirectory .. => pure none
     | error => throw error
-
-/-- Whether an entry that is not a symbolic link is at `path` and its real path is `path` itself
-(`Model.AtOwnPlace`): `false` when nothing is there (`entryType`), when a symbolic link is there,
-whose real path is never the link, and when the real path is another path. A failure of either
-read is thrown, never read as `false`: Lean 4.35.0's `realPath` gives `noFileOrDirectory` for each
-failure of `realpath(3)`, so only `entryType` decides that nothing is there
-(https://github.com/rbeauchamp/regula/issues/430). On a volume that ignores case or Unicode
-normalization, it is `false` for another spelling of a stored name where `realpath(3)` gives the
-stored name, as Darwin's does, and `true` where `realpath(3)` keeps the name as written
-(`ReadsReal`). -/
-def atOwnPlace {m : Type → Type} [Monad m] [MonadExceptOf IO.Error m] (ops : Ops m)
-    (path : FilePath) : m Bool := do
-  match ← entryType ops path with
-  | none | some .symlink => return false
-  | some _ => return (← ops.realPath path) == path
 
 /-- A run of `entryType` gives the model's entry at the path and changes nothing. When it fails,
 nothing changed. -/
@@ -454,24 +226,6 @@ theorem entryType_run (M : Model) (reads : ReadsEntry M) (path : FilePath) (befo
   | ok metadata w => intro h; exact ⟨h.1, h.2.symm⟩
   | error e w => intro h; cases e <;> simp_all [Satisfies, Absent, EStateM.run_pure, run_throw]
 
-/-- A run of `atOwnPlace` changes nothing, and it gives `true` exactly when an entry that is not a
-symbolic link is at the path and the real path of the path is the path (`Model.AtOwnPlace`). -/
-theorem atOwnPlace_run (M : Model) (readsEntry : ReadsEntry M) (readsReal : ReadsReal M)
-    (path : FilePath) (before : M.World) :
-    Satisfies ((atOwnPlace M.ops path).run before)
-      (fun same w => w = before ∧ (same = true ↔ M.AtOwnPlace before path))
-      (fun _ w => w = before) := by
-  unfold atOwnPlace
-  refine Satisfies.bind (entryType_run M readsEntry path before) ?_
-  rintro found w ⟨rfl, entry⟩
-  have resolves := (triple_iff _ _ _ _).mp (readsReal path w) w rfl
-  rcases found with _ | (_ | _ | _ | _)
-  all_goals first
-    | exact ⟨rfl, by simp [Model.AtOwnPlace, ← entry]⟩
-    | refine Satisfies.bind (resolves.mono (fun _ _ h => h) (fun _ _ h => h.1)) ?_
-      rintro real w' ⟨rfl, resolved⟩
-      exact ⟨rfl, by simp [Model.AtOwnPlace, ← entry, resolved]⟩
-
 /-- `entryType` gives the model's entry at the path and changes nothing. When it fails, nothing
 changed. -/
 theorem entryType_spec (M : Model) (reads : ReadsEntry M) (path : FilePath) (before : M.World) :
@@ -479,158 +233,6 @@ theorem entryType_spec (M : Model) (reads : ReadsEntry M) (path : FilePath) (bef
       ⦃post⟨fun found w => ⌜w = before ∧ found = M.entry before path⌝,
         fun _ w => ⌜w = before⌝⟩⦄ :=
   (triple_iff _ _ _ _).mpr fun _ same => same ▸ entryType_run M reads path before
-
-/-- `atOwnPlace` changes nothing, and it gives `true` exactly when an entry that is not a symbolic
-link is at the path and the real path of the path is the path (`Model.AtOwnPlace`). When it fails,
-nothing changed. -/
-theorem atOwnPlace_spec (M : Model) (readsEntry : ReadsEntry M) (readsReal : ReadsReal M)
-    (path : FilePath) (before : M.World) :
-    ⦃fun w => ⌜w = before⌝⦄ atOwnPlace M.ops path
-      ⦃post⟨fun same w => ⌜w = before ∧ (same = true ↔ M.AtOwnPlace before path)⌝,
-        fun _ w => ⌜w = before⌝⟩⦄ :=
-  (triple_iff _ _ _ _).mpr fun _ same => same ▸ atOwnPlace_run M readsEntry readsReal path before
-
-/-! ## Checked removals -/
-
-/-- Read `path` again after a removal, and fail when something is still there. -/
-def confirmGone {m : Type → Type} [Monad m] [MonadExceptOf IO.Error m] (ops : Ops m)
-    (path : FilePath) : m Unit := do
-  if (← entryType ops path).isSome then
-    throw (IO.userError s!"{path} is still there after its removal")
-
-/-- Remove the directory at `path` with all its entries, then read `path` again, and fail when
-something is still there. It reads neither the kind of the entry nor its place: a symbolic link to a
-directory at `path` makes `IO.FS.removeDirAll` remove the entries of its target. So it runs only in
-`Regula.Removal.removeOwnWith`, after the decision `Regula.Removal.removal` decided to remove a
-directory at its own place, and at the observer no other code runs it (`Regula.Filesystem`). -/
-def removeDirectory {m : Type → Type} [Monad m] [MonadExceptOf IO.Error m] (ops : Ops m)
-    (path : FilePath) : m Unit := do
-  ops.removeDirAll path
-  confirmGone ops path
-
-/-- Remove the entry at `path`, which is not a directory, then read `path` again, and fail when
-something is still there. It reads neither the kind of the entry nor its place, so it runs only in
-`Regula.Removal.removeOwnWith`, after the decision `Regula.Removal.removal` decided to remove a file
-at its own place, and at the observer no other code runs it (`Regula.Filesystem`). -/
-def removeEntry {m : Type → Type} [Monad m] [MonadExceptOf IO.Error m] (ops : Ops m)
-    (path : FilePath) : m Unit := do
-  ops.removeFile path
-  confirmGone ops path
-
-/-- A run of an action `removal` followed by `confirmGone` ends with nothing at the path when it
-succeeds. It ends in a state of `Q` when `removal` succeeds and of `E` when `removal` fails, as the
-runs of `removal` do. -/
-theorem confirmed_run (M : Model) (reads : ReadsEntry M) (path : FilePath)
-    (removal : EStateM IO.Error M.World Unit) (before : M.World) (Q E : M.World → Prop)
-    (removed : Satisfies (removal.run before) (fun _ w => Q w) (fun _ w => E w)) :
-    Satisfies ((do removal; confirmGone M.ops path : EStateM IO.Error M.World Unit).run before)
-      (fun _ w => M.entry w path = none ∧ Q w) (fun _ w => Q w ∨ E w) := by
-  simp only [EStateM.run_bind]
-  revert removed
-  cases removal.run before with
-  | ok _ w =>
-    intro removed
-    have h := confirmGone_run M reads path w
-    revert h
-    simp only [Satisfies] at removed ⊢
-    cases (confirmGone M.ops path).run w with
-    | ok _ w' => intro h; rw [h.1]; exact ⟨h.2, removed⟩
-    | error _ w' => intro h; rw [h]; exact .inl removed
-  | error _ w => intro removed; exact .inr removed
-where
-  /-- A run of `confirmGone` changes nothing, and succeeds only when nothing is at the path. -/
-  confirmGone_run (M : Model) (reads : ReadsEntry M) (path : FilePath) (before : M.World) :
-      Satisfies ((confirmGone M.ops path).run before)
-        (fun _ w => w = before ∧ M.entry before path = none) (fun _ w => w = before) := by
-    have h := entryType_run M reads path before
-    simp only [confirmGone, EStateM.run_bind]
-    revert h
-    cases (entryType M.ops path).run before with
-    | ok found w =>
-      intro h
-      cases found with
-      | none => exact ⟨h.1, h.2.symm⟩
-      | some _ => exact h.1
-    | error e w => intro h; exact h
-
-/-- **Checked:** when `removeDirectory` succeeds, nothing is at the path. This rests only on
-`ReadsEntry`, whatever `removeDirAll` does. -/
-theorem removeDirectory_gone (M : Model) (reads : ReadsEntry M) (path : FilePath) :
-    ⦃fun _ => ⌜True⌝⦄ removeDirectory M.ops path
-      ⦃post⟨fun _ w => ⌜M.entry w path = none⌝, fun _ _ => ⌜True⌝⟩⦄ :=
-  (triple_iff _ _ _ _).mpr fun before _ => by
-    have h := confirmed_run M reads path (M.ops.removeDirAll path) before (fun _ => True)
-      (fun _ => True) (by unfold Satisfies; split <;> trivial)
-    revert h
-    show Satisfies ((removeDirectory M.ops path).run before) _ _ → _
-    unfold Satisfies
-    split
-    · exact fun h => h.1
-    · exact fun _ => trivial
-
-/-- **Checked:** when `removeEntry` succeeds, nothing is at the path. This rests only on
-`ReadsEntry`, whatever `removeFile` does. -/
-theorem removeEntry_gone (M : Model) (reads : ReadsEntry M) (path : FilePath) :
-    ⦃fun _ => ⌜True⌝⦄ removeEntry M.ops path
-      ⦃post⟨fun _ w => ⌜M.entry w path = none⌝, fun _ _ => ⌜True⌝⟩⦄ :=
-  (triple_iff _ _ _ _).mpr fun before _ => by
-    have h := confirmed_run M reads path (M.ops.removeFile path) before (fun _ => True)
-      (fun _ => True) (by unfold Satisfies; split <;> trivial)
-    revert h
-    show Satisfies ((removeEntry M.ops path).run before) _ _ → _
-    unfold Satisfies
-    split
-    · exact fun h => h.1
-    · exact fun _ => trivial
-
-attribute [regula_checked filesystem removeDirectory_gone
-  (lean "v4.35.0" "Init/System/IO.lean#L1330-L1342")] removeDirectory
-
-attribute [regula_checked filesystem removeEntry_gone
-  (lean "v4.35.0" "Init/System/IO.lean#L881-L886")] removeEntry
-
-/-- `removeDirectory` of a directory at its own place removes it and keeps the entry at each path
-of its frame (`Model.Unchanged`), each path not spelled within the directory, below a parent at its
-own real path, whose file before is not an entry of the directory's tree (`Model.Below`); when it
-fails, it kept them. -/
-theorem removeDirectory_spec (M : Model) (reads : ReadsEntry M) (removes : RemovesTree M)
-    (path : FilePath) (before : M.World) (directory : M.entry before path = some .dir)
-    (own : M.real before path = some path) :
-    ⦃fun w => ⌜w = before⌝⦄ removeDirectory M.ops path
-      ⦃post⟨fun _ w => ⌜M.entry w path = none ∧ M.Unchanged path before w⌝,
-        fun _ w => ⌜M.Unchanged path before w⌝⟩⦄ :=
-  (triple_iff _ _ _ _).mpr fun s same => by
-    subst same
-    have h := confirmed_run M reads path (M.ops.removeDirAll path) s (M.Unchanged path s)
-      (M.Unchanged path s) ((triple_iff _ _ _ _).mp (removes path s directory own) s rfl)
-    revert h
-    show Satisfies ((removeDirectory M.ops path).run s) _ _ → _
-    unfold Satisfies
-    split
-    · exact id
-    · exact fun h => h.elim id id
-
-/-- `removeEntry` of a path at its own place, or of a symbolic link in a directory at its own place,
-removes it and keeps the entry at each path of its frame (`Model.Unchanged`), each path not
-spelled within the path, below a parent at its own real path, whose file before is not an entry of
-the path's tree (`Model.Below`); when it fails, it kept them. -/
-theorem removeEntry_spec (M : Model) (reads : ReadsEntry M) (removes : RemovesEntry M)
-    (path : FilePath) (before : M.World)
-    (own : M.real before path = some path ∨
-      M.entry before path = some .symlink ∧ M.InOwnDirectory before path) :
-    ⦃fun w => ⌜w = before⌝⦄ removeEntry M.ops path
-      ⦃post⟨fun _ w => ⌜M.entry w path = none ∧ M.Unchanged path before w⌝,
-        fun _ w => ⌜M.Unchanged path before w⌝⟩⦄ :=
-  (triple_iff _ _ _ _).mpr fun s same => by
-    subst same
-    have h := confirmed_run M reads path (M.ops.removeFile path) s (M.Unchanged path s)
-      (M.Unchanged path s) ((triple_iff _ _ _ _).mp (removes path s own) s rfl)
-    revert h
-    show Satisfies ((removeEntry M.ops path).run s) _ _ → _
-    unfold Satisfies
-    split
-    · exact id
-    · exact fun h => h.elim id id
 
 /-! ## The functions in `IO` -/
 
@@ -645,89 +247,6 @@ theorem entryType_agrees (corresponds : Corresponds ops M view) (path : FilePath
   refine Agrees.tryCatch (Agrees.bind (corresponds.1 path) fun _ => Agrees.pure view _) ?_
   intro error
   cases error <;> first | exact Agrees.pure view none | exact Agrees.throw view _
-
-/-- `atOwnPlace` at operations that correspond to a model runs as `atOwnPlace` in the model. -/
-theorem atOwnPlace_agrees (corresponds : Corresponds ops M view) (path : FilePath) :
-    Agrees view (atOwnPlace ops path) (atOwnPlace M.ops path) := by
-  unfold atOwnPlace
-  refine Agrees.bind (entryType_agrees corresponds path) fun found => ?_
-  rcases found with _ | (_ | _ | _ | _) <;> first
-    | exact Agrees.pure view _
-    | exact Agrees.bind (corresponds.2.1 path) fun _ => Agrees.pure view _
-
-/-- `confirmGone` at operations that correspond to a model runs as `confirmGone` in the model. -/
-theorem confirmGone_agrees (corresponds : Corresponds ops M view) (path : FilePath) :
-    Agrees view (confirmGone ops path) (confirmGone M.ops path) := by
-  refine Agrees.bind (entryType_agrees corresponds path) fun found => ?_
-  cases found <;> first | exact Agrees.pure view _ | exact Agrees.throw view _
-
-/-- `removeDirectory` at operations that correspond to a model runs as `removeDirectory` in the
-model. -/
-theorem removeDirectory_agrees (corresponds : Corresponds ops M view) (path : FilePath) :
-    Agrees view (removeDirectory ops path) (removeDirectory M.ops path) :=
-  Agrees.bind (corresponds.2.2.1 path) fun _ => confirmGone_agrees corresponds path
-
-/-- `removeEntry` at operations that correspond to a model runs as `removeEntry` in the model. -/
-theorem removeEntry_agrees (corresponds : Corresponds ops M view) (path : FilePath) :
-    Agrees view (removeEntry ops path) (removeEntry M.ops path) :=
-  Agrees.bind (corresponds.2.2.2.1 path) fun _ => confirmGone_agrees corresponds path
-
-/-- **Checked, in `IO`:** when `removeDirectory` succeeds at operations that correspond to a model,
-nothing is at the path in the state the world it ends in is read as (`removeDirectory_gone`). -/
-theorem removeDirectory_gone_io (corresponds : Corresponds ops M view) (reads : ReadsEntry M)
-    (path : FilePath) (w : Void IO.RealWorld) :
-    RunsTo view (removeDirectory ops path w) (fun _ s => M.entry s path = none) (fun _ _ => True) :=
-  (removeDirectory_agrees corresponds path).transfer w
-    ((triple_iff _ _ _ _).mp (removeDirectory_gone M reads path) (view w) trivial)
-
-/-- **Checked, in `IO`:** when `removeEntry` succeeds at operations that correspond to a model,
-nothing is at the path in the state the world it ends in is read as (`removeEntry_gone`). -/
-theorem removeEntry_gone_io (corresponds : Corresponds ops M view) (reads : ReadsEntry M)
-    (path : FilePath) (w : Void IO.RealWorld) :
-    RunsTo view (removeEntry ops path w) (fun _ s => M.entry s path = none) (fun _ _ => True) :=
-  (removeEntry_agrees corresponds path).transfer w
-    ((triple_iff _ _ _ _).mp (removeEntry_gone M reads path) (view w) trivial)
-
-/-- `removeDirectory` in `IO`, at operations that correspond to a model, of a directory at its own
-place removes it and keeps the entry at each path of its frame (`Model.Unchanged`), each path not
-spelled within the directory, below a parent at its own real path, whose file before is not an
-entry of the directory's tree (`Model.Below`); when it fails, it kept them
-(`removeDirectory_spec`). -/
-theorem removeDirectory_io (corresponds : Corresponds ops M view) (reads : ReadsEntry M)
-    (removes : RemovesTree M) (path : FilePath) (w : Void IO.RealWorld)
-    (directory : M.entry (view w) path = some .dir) (own : M.real (view w) path = some path) :
-    RunsTo view (removeDirectory ops path w)
-      (fun _ s => M.entry s path = none ∧ M.Unchanged path (view w) s)
-      (fun _ s => M.Unchanged path (view w) s) :=
-  (removeDirectory_agrees corresponds path).transfer w
-    ((triple_iff _ _ _ _).mp
-      (removeDirectory_spec M reads removes path (view w) directory own) (view w) rfl)
-
-/-- `removeEntry` in `IO`, at operations that correspond to a model, of a path at its own place, or
-of a symbolic link in a directory at its own place, removes it and keeps the entry at each path of
-its frame (`Model.Unchanged`), each path not spelled within the path, below a parent at its own
-real path, whose file before is not an entry of the path's tree (`Model.Below`); when it fails, it
-kept them (`removeEntry_spec`). -/
-theorem removeEntry_io (corresponds : Corresponds ops M view) (reads : ReadsEntry M)
-    (removes : RemovesEntry M) (path : FilePath) (w : Void IO.RealWorld)
-    (own : M.real (view w) path = some path ∨
-      M.entry (view w) path = some .symlink ∧ M.InOwnDirectory (view w) path) :
-    RunsTo view (removeEntry ops path w)
-      (fun _ s => M.entry s path = none ∧ M.Unchanged path (view w) s)
-      (fun _ s => M.Unchanged path (view w) s) :=
-  (removeEntry_agrees corresponds path).transfer w
-    ((triple_iff _ _ _ _).mp (removeEntry_spec M reads removes path (view w) own) (view w) rfl)
-
-/-- `atOwnPlace` in `IO`, at operations that correspond to a model, ends in a world read as the
-same state, whether it succeeds or fails, and gives `true` exactly when an entry that is not a
-symbolic link is at the path and the real path of the path is the path (`atOwnPlace_spec`). -/
-theorem atOwnPlace_io (corresponds : Corresponds ops M view) (readsEntry : ReadsEntry M)
-    (readsReal : ReadsReal M) (path : FilePath) (w : Void IO.RealWorld) :
-    RunsTo view (atOwnPlace ops path w)
-      (fun same s => s = view w ∧ (same = true ↔ M.AtOwnPlace (view w) path))
-      (fun _ s => s = view w) :=
-  (atOwnPlace_agrees corresponds path).transfer w
-    ((triple_iff _ _ _ _).mp (atOwnPlace_spec M readsEntry readsReal path (view w)) (view w) rfl)
 
 /-- When the read of `path` that follows no link gives `metadata`, `entryType` gives its type and
 ends where the read ends. -/
@@ -745,29 +264,6 @@ theorem entryType_error {path : FilePath} {w s : Void IO.RealWorld} {error : IO.
   unfold entryType
   rw [eio_tryCatch_error (eio_bind_error read _)]
   cases error <;> first | exact absurd trivial other | exact eio_throw _ _
-
-/-- When the read of `path` that follows no link fails with an error that does not say that
-nothing is there, `atOwnPlace` fails with that same error and ends where the read ends: it never
-reads such a failure as `false`. -/
-theorem atOwnPlace_entry_error {path : FilePath} {w s : Void IO.RealWorld} {error : IO.Error}
-    (read : ops.symlinkMetadata path w = .error error s) (other : ¬Absent error) :
-    atOwnPlace ops path w = .error error s := by
-  unfold atOwnPlace
-  exact eio_bind_error (entryType_error read other) _
-
-/-- When an entry that is not a symbolic link is at `path` and its resolution fails, `atOwnPlace`
-fails with the resolution's error and ends where it ends: it never reads such a failure as
-`false`. -/
-theorem atOwnPlace_real_error {path : FilePath} {w s s' : Void IO.RealWorld}
-    {metadata : IO.FS.Metadata} {error : IO.Error}
-    (read : ops.symlinkMetadata path w = .ok metadata s) (entry : metadata.type ≠ .symlink)
-    (resolve : ops.realPath path s = .error error s') :
-    atOwnPlace ops path w = .error error s' := by
-  unfold atOwnPlace
-  rw [eio_bind_ok (entryType_ok read)]
-  cases type : metadata.type with
-  | symlink => exact absurd type entry
-  | _ => exact eio_bind_error resolve _
 
 end IO
 

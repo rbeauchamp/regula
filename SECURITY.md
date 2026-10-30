@@ -94,12 +94,13 @@ A vulnerability is a way to break one of these guarantees on purpose:
 - **A violating project that passes.** Honest code makes `lake lint` exit 0 while a claimed
   declaration breaks a guarantee that the
   [rule reference](https://rbeauchamp.github.io/regula/dev/rules/) states.
-- **Regula acting outside what it documents.** The checker that `lake lint` runs writes no file.
-  It starts a second process of itself, in an environment that isolates Git, where Lake's load of
-  the workspace can run Git. Regula's other programs run external programs with argument arrays,
-  never through a generated shell program, and keep scratch work under the project's
-  `.lake/regula-scratch/`. An input, such as a path or a module or file name, that makes Regula's
-  own code run a command, or write or delete a file, beyond what its
+- **Regula acting outside what it documents.** The checker that `lake lint` runs starts no process
+  and writes and removes no file. Only Lake's load of the workspace can run Git and Lean. `regula
+  init` writes only the setup files that its user asks for. Regula's other programs run external
+  programs with argument arrays, not through a generated shell program. They keep scratch work
+  under the project's `.lake/regula-scratch/` and `tmp/`.
+- **An input that drives Regula past its documentation.** An input, such as a path or a module or
+  file name, that makes Regula's own code run a command, or write or delete a file, beyond what its
   documentation describes is a vulnerability.
 - **A release or site published unchecked.** A flaw in the CI and release workflows
   (`.github/workflows/`, `lean/Regula/Release.lean`) that could publish a release, a tag or the

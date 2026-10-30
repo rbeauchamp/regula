@@ -46,10 +46,9 @@
 # with no memory limit, so nothing bounds its peak, and the step takes the machine's whole heavy-work
 # budget (16 GiB on the 24 GiB Mac that runs it, which keeps 8 GiB in reserve). A measurement of the
 # gate found a peak above that budget, so no smaller bound is safe: the bound stays the whole budget
-# until https://github.com/rbeauchamp/regula/issues/497 is fixed. The change of issue 483 moves
-# the module of that issue to the package in `controls/`, which the gate builds in its last step, and
-# leaves the gate ten steps, whose memory the measurement below did not measure; the bound stays
-# until the gate is measured again.
+# until the gate is measured again. The change of issue 486 removes the module of
+# https://github.com/rbeauchamp/regula/issues/497 and the package in `controls/` that held it, and the
+# gate has nine steps, whose memory the measurement below did not measure.
 #
 # The measurement ran the gate twice on 2026-10-29 on that Mac, on main at 59f1833 (Lean v4.35.0),
 # each time in a new checkout of the shape that the pipeline runs in (a linked worktree of a mirror)
@@ -94,8 +93,8 @@
 # step at once, and a bound below it would admit other work beside a step that already swaps the
 # machine. Without that compile the highest peak is 12.84 GiB (step 4), and the peak of one step
 # differed by up to 85 percent between the two runs (step 23), so even then a margin of 15 percent
-# over the highest peak leaves only about 1 GiB beside the gate. Measure the gate again after issue
-# 497 is fixed, before the bound is lowered.
+# over the highest peak leaves only about 1 GiB beside the gate. Measure the gate again before the
+# bound is lowered.
 #
 # Tests are not evidence. Regula establishes the claims of a change by types, constructions,
 # contracts, machine-checked proofs and derivation, not by tests. The pipeline's reviewer, test and
