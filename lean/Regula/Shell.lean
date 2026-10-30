@@ -1,5 +1,6 @@
 import Regula.Load
 import Regula.Rules
+import RegulaCore.Edition
 import RegulaPolicy.Community
 
 /-!
@@ -43,9 +44,10 @@ def allowed (o : Name × String) : Bool :=
   let v := valueOf o.2
   (baseline ++ mathlibBaseline).any (fun r => r.1 == name && v.readsAs r.2) || accepts name v
 
-/-- The address of a rule's page on the rule-reference site. -/
-def page (rule : RuleId) : String :=
-  s!"https://rbeauchamp.github.io/regula/dev/rules/{rule.spelling}/"
+/-- The address of a rule's page in the edition of the installed Regula (`Regula.helpUrl`): a
+release's own page (`helpUrl_release`), and the development page exactly for an unreleased build
+(`helpUrl_dev_iff`). -/
+def page (rule : RuleId) : String := Regula.helpUrl rule
 
 /-- The line of one finding, of the form `Regula.Closed.findingForm`. -/
 def line (f : Finding) : String :=

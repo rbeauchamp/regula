@@ -882,7 +882,7 @@ def next (n : Nat) : Nat := successor_contract.run n
 example (n : Nat) : next n = n + 1 := rfl
 ```
 
-The classical proof here deliberately illustrates the distinction; the direct proof `⟨fun _ => rfl⟩` is simpler. The shipped {repo "examples/build-lint/Widget.lean"}[standalone adopter] uses that direct proof and selects Kernel-only. Its ordinary `lake build` also inspects registered executable roots, the selected transitive foundation profile, and execution boundaries ({ref "711-opt-in-enforcing-build-linter"}[§7.11]).
+The classical proof here deliberately illustrates the distinction; the direct proof `⟨fun _ => rfl⟩` is simpler. The shipped {repo "examples/build-lint/Widget.lean"}[standalone adopter] uses that direct proof and selects Kernel-only. Regula's checker, `lake lint`, checks its finished build against the selected transitive foundation profile ({rule}[RG1005]) and checks its executable contract `successor_contract` ({rule}[RG1007]).
 
 Omitting evidence while keeping the requirement fails at the proof-bearing field:
 

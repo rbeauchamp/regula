@@ -1,4 +1,4 @@
-import Regula.Report
+import Fixtures.Cases
 /-! # Reflexivity
 
 Reflexivity for every natural number. -/

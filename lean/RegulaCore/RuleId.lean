@@ -52,8 +52,9 @@ inductive RuleId where
   | configuration
   /-- RG2003: a claimed module does not elaborate from source without errors and warnings. -/
   | sourceBuild
-  /-- RG2004: an owned module is outside exactly one manifested library, or a claimed module
-  imports an excluded or checker-probe module. -/
+  /-- RG2004: a module of the root package that Lake builds is in no library and is not the root
+  of an executable, or is in more than one library, or a claimed module imports a module of an
+  excluded target. -/
   | coverage
   /-- RG2005: owned declarations lack complete kernel-replay admission or source evidence. -/
   | admission

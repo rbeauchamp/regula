@@ -1,8 +1,8 @@
 # Rule-reference website
 
 The rule reference at <https://rbeauchamp.github.io/regula/> explains every rule of Regula.
-Each finding of the checker ends with the page of its rule, and `lake exe regula explain` prints
-the page in the edition of the installed Regula version (the registry's `helpUrl`). This guide
+Each finding of the checker ends with its rule's page in the edition of the installed Regula
+version (the registry's `helpUrl`), and `lake exe regula explain` prints the same link. This guide
 covers where the site's content comes from, what its build establishes, how it is published and
 versioned, and how to change a rule. It is repository practice, not part of the normative
 standard.
@@ -53,12 +53,12 @@ fails and removes `_site/`:
   `pageFiles_nodup` and `mem_pageFiles` prove every rule has exactly one page route per edition
   and no two rules share one; `ruleModules_nodup` does the same for the generated Verso modules.
   The artifact check requires exactly the registry's rule directories in `dev/`, no more.
-- **Diagnostic links.** `helpUrl_pagePath` proves the `helpUrl id` that the `regula` command
-  prints is the page of `id` in the installed build's edition; `helpUrl_release` and
-  `helpUrl_unreleased` fix that edition, and `helpUrl_dev_iff` proves the link names `dev/`
-  exactly when the build is unreleased. `installed_published` proves that edition is published,
-  and the artifact check requires its page for every rule, so every emitted help link names a
-  page of the artifact.
+- **Diagnostic links.** `helpUrl_pagePath` proves the `helpUrl id` that each finding of the
+  checker (`Regula.Shell.page`) and `lake exe regula explain` print is the page of `id` in the
+  installed build's edition; `helpUrl_release` and `helpUrl_unreleased` fix that edition, and
+  `helpUrl_dev_iff` proves the link names `dev/` exactly when the build is unreleased.
+  `installed_published` proves that edition is published, and the artifact check requires its
+  page for every rule, so every emitted help link names a page of the artifact.
 - **Page structure.** `ruleSections_sublist` and `required_mem_ruleSections` prove every rule
   page has every required section and only sections of the fixed order, the checked example
   first; the proof-shape and configuration sections appear when the rule has them.

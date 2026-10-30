@@ -205,9 +205,9 @@ def briefRule (e : Edition) (id : RuleId) : String :=
   | some compliant, none => fenced d.examples.language.fence compliant
   | none, _ => "Compliant form: " ++ cited d.examples.correction ++ "\n"
 
-/-- In the installed build's edition, a citation links to the page a finding's `rule:` line
-names (`helpUrl`): a release's own page (`helpUrl_release`), and a development page exactly for
-an unreleased build (`helpUrl_dev_iff`). -/
+/-- In the installed build's edition, a citation links to the page that a finding links
+(`helpUrl`, `Regula.Shell.page`): a release's own page (`helpUrl_release`), and a development
+page exactly for an unreleased build (`helpUrl_dev_iff`). -/
 theorem citation_installed (id : RuleId) :
     citation installed.edition id = "[" ++ id.spelling ++ "](" ++ helpUrl id ++ ")" := rfl
 

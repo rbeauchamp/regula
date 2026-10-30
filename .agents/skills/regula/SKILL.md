@@ -288,7 +288,7 @@ lean_lib Example
 
 ### [RG2004](https://rbeauchamp.github.io/regula/dev/rules/RG2004/) Owned coverage must match the exact Lake inventory
 
-Every owned module belongs to exactly one manifested library, and no claimed module imports an excluded or checker-probe module.
+Every module of the root package that Lake builds belongs to exactly one library, or to none and is the root of an executable, and no claimed module imports a module of an excluded target.
 Fix: Remove the forbidden import, or add the module to the intended claimed library's globs, so every owned module belongs to exactly one classified target.
 
 Compliant example: as [RG1002](https://rbeauchamp.github.io/regula/dev/rules/RG1002/).

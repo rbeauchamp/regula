@@ -419,8 +419,9 @@ theorem Edition.url_dev_iff (e : Edition) (route : String) :
       simp [Edition.root, String.toList_append] at this
   · intro h; rw [h]
 
-/-- The rule-reference page of `id` in the installed build's edition: a human pointer, never the
-only source of the fix (every diagnostic carries the remedy itself). -/
+/-- The rule-reference page of `id` in the installed build's edition, which each finding of
+`lake lint` links (`Regula.Shell.page`); `lake exe regula explain` prints the same rule, with its
+fix, offline. -/
 def helpUrl (id : RuleId) : String := installed.edition.url id.route
 
 /-- The help link is the rule's page route in the installed build's edition, which every

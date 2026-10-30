@@ -237,11 +237,10 @@ inductive ExampleAudience where
   deriving Repr, BEq, DecidableEq
 
 /-- A rule's checked example pair: the exact bytes of `examples/rules/<ID>/Fixed.<ext>`
-(compliant) and `Violation.<ext>` (noncompliant), embedded with `include_str`. These are the
-corpus sources that the rule-example qualification runs (docs/guides/architecture.md): the
-fixed phase passes a completed positive check, and the violating phase produces this rule's
-findings. `correction` states what the correction changes and preserves; for qualification
-inputs it is the adopter-facing form of the fix. -/
+(compliant) and `Violation.<ext>` (noncompliant), embedded with `include_str`. No run of the
+checker reads them: the registry checks compare them with the files (`Regula.RegistryChecks`), and
+the rule's page and `regula explain` show them. `correction` states what the correction changes
+and preserves; for qualification inputs it is the adopter-facing form of the fix. -/
 structure ExamplePair where
   /-- The language of both files, which fixes their extension. -/
   language : ExampleLanguage
@@ -814,16 +813,17 @@ def descriptor : (id : RuleId) → RuleDescriptor id
       normativeClauses := [.lakeSurfaces]
       applicability := "coverage"
       evidenceModes := [.incrementalProject, .freshProject, .freshFile]
-      requirement := "Every owned module belongs to exactly one manifested library, and no claimed \
-        module imports an excluded or checker-probe module."
+      requirement := "Every module of the root package that Lake builds belongs to exactly one \
+        library, or to none and is the root of an executable, and no claimed module imports a \
+        module of an excluded target."
       rationale := "A conformance claim covers an exact set of modules. A module imported into a \
         claimed library but outside every surface would contribute declarations nobody classified, \
         and an umbrella import alone does not define that set."
       remedy := "Remove the forbidden import, or add the module to the intended claimed library's \
         globs, so every owned module belongs to exactly one classified target."
       rewrites := [
-        "Delete imports of excluded modules (for example checker or fixture modules) from claimed \
-          code.",
+        "Delete imports of modules of excluded targets (for example test or fixture libraries) \
+          from claimed code.",
         "Use a glob with the intended meaning, such as ``.andSubmodules `Lib`` in `lakefile.lean` \
           or `[\"Lib\", \"Lib.+\"]` in `lakefile.toml`, so every intended module is in the \
           library.",
@@ -833,8 +833,9 @@ def descriptor : (id : RuleId) → RuleDescriptor id
         audience := .adopter
         compliant := include_str "../../examples/rules/RG2004/Fixed.lean"
         noncompliant := include_str "../../examples/rules/RG2004/Violation.lean"
-        correction := "The correction removes an unused forbidden reporter import; the reflexivity \
-          statement and its assumptions are unchanged." } }
+        correction := "The manifest excludes the `Fixtures` library. The correction removes the \
+          claimed module's unused import of its module `Fixtures.Cases`; the reflexivity statement \
+          and its assumptions are unchanged." } }
   | .admission => {
       lifecycle := .active (.release ⟨4, 34, 0⟩)
       title := "Required admission and source evidence must be complete", category := .admission
