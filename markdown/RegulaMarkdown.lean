@@ -549,7 +549,7 @@ private def bodyless : String :=
 -- Compiled-evaluation observation at build time, not a kernel-checked proof.
 #guard check "a.md" "<p>R&#71;2003</p>\n\n<p>RG<em>2003</em></p>\n\n<!-- note -->\n\nText.\n" ==
   [html "1", html "3", html "5"]
--- The fence markers of the documentation audit are the raw HTML that is read.
+-- The fence markers of the standard's §7.7 are the raw HTML that is read.
 -- Compiled-evaluation observation at build time, not a kernel-checked proof.
 #guard check "a.md" ("<!-- lean-fail: unknown identifier -->\n```lean\nexample := x\n```\n\n" ++
   "<!-- lean-trusted-compiler -->\n```lean\nexample := 1\n```\n") == []

@@ -15,9 +15,9 @@ letting the runtime reuse storage, and avoiding work the result does not need. S
 simplest implementation that has the right semantics and a reasonable cost model; reserve
 representation-specific tuning, forced inlining and parallel execution for a meaningful cost.
 
-The examples use Core, Std or Lean itself, target the
-[supported toolchain](toolchains.md) and are checked by
-the documentation audit. The [references](#references) retain the Lean 4.34.0 source citations; the
+The examples use Core, Std or Lean itself and target the
+[supported toolchain](toolchains.md). No check elaborates them, and review examines them
+against standard §7.7. The [references](#references) retain the Lean 4.34.0 source citations; the
 unversioned reference-manual pages and the tutorial are explanatory supplements.
 
 ## Where to start
