@@ -348,7 +348,7 @@ number := false
   * Read the explanation with its referenced definitions; check quantifier order and dependence, domains, hypotheses, conclusion, and limits affecting interpretation. Distinguish results proved without additional hypotheses, results proved under explicit hypotheses, and open targets, retaining stated domains and foundations. Locate the supporting declaration (including through an attached docstring), and compare its elaborated meaning and its explanation with the written intent statement, the requirement-side record of the intended mathematics or program specification. Section presence is written guidance of the retired rule {rule}[RG5003], which no check of Regula reads; presence, adequacy of the intent and agreement with it are review.
 *
   * {checklistRow}[DOC-03]
-  * Every Lean fence in the normative documentation tree is classified by an exact marker directly before it, is closed, and opens and closes in the first column outside quotations, list items and other fences.
+  * Every Lean fence in the normative documentation tree is classified by the fence protocol: an unmarked fence is a positive example, and an exact marker, when present, sits directly before the fence it classifies. Every fence is closed and opens and closes in the first column outside quotations, list items and other fences.
   * {ref "lean-example-convention"}[Set convention], {ref "77-check-lean-documentation-verbatim"}[7 §7.7]
   * Review every Markdown document of the tree against §7.7. The retired rule {rule}[RG4001] states this as written guidance, and no check of Regula reads a project's documentation.
 *

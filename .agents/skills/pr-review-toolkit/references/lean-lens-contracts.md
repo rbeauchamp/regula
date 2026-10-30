@@ -98,10 +98,11 @@ Matrix: `DOC-03`–`DOC-05`, applicable checker-qualification rows `MUT-01`–`M
 `DOGFOOD-03`, `DOGFOOD-05`.
 
 No check of Regula reads the documentation of a project, because its documentation rules are
-retired to written guidance. Review each changed fence against standard §7.7. Its marker is
-directly before it. A positive fence elaborates as printed with no warning, and its declarations
-meet the declaration and axiom rules. A negative fence fails with one error that matches its
-pattern. A trusted example is not conforming.
+retired to written guidance. Review each changed fence against standard §7.7. An unmarked fence
+is a positive example, and a marker, when present, sits directly before the fence it classifies.
+A positive fence elaborates as printed with no warning, and its declarations meet the declaration
+and axiom rules. A negative fence fails with one error that matches its pattern. A trusted
+example is not conforming.
 
 Each advertised checker behavior has one positive control plus an independent single-fault
 mutation through the public entrypoint. Require intended-reason detection: a missing-contract mutation masked by an injected axiom
