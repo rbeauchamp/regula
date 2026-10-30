@@ -508,7 +508,7 @@ These statements stay assumed after the leaves. Each is a statement about a syst
 
 - Lean's kernel, elaborator, compiler and runtime, and Lake's load and build. The owner trusts Lean and its kernel.
 - `Lean.importModules` with `loadExts := false` loads exactly the constants of the `.olean` files, and `collectAxioms` then walks their bodies.
-- `lake check` exports and replays the modules that the first command built, and no process changes the build between the commands of the gate. On macOS, `lake check` runs without its sandbox.
+- `lake check` exports and replays the modules that the first command built, and no process changes the build between the commands of the gate. On macOS, and in Regula's own acceptance on each platform, `lake check` runs without its sandbox.
 - The shell finds the toolchain's own library only below the pinned toolchain, and Lean refuses an `.olean` file of a different Lean version.
 - The executable runs the code compiled from the code that the build records.
 - A departure that a module of the toolchain makes computes what the kernel value computes.

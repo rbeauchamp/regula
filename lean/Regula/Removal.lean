@@ -8,7 +8,7 @@ import Lean.Elab.Command
 
 A removal primitive of Lean's library is an operation that removes or replaces an entry
 (`primitives`, `removalSymbols`). `rawRemovalsFrom` follows the compiled code of a program from
-every compiled declaration of the modules it links outside Lean's toolchain, its `main` and the
+every compiled declaration of the modules it links outside Lean's toolchain, its entry and the
 code that initializes the toolchain's modules that it links (`rawRemovals`, `initializersOf`). It
 finds each call of a removal primitive that a declaration makes other than a declaration of
 `Regula.Filesystem` with the filesystem observer's role (`@[regula_observer filesystem]`,
@@ -35,13 +35,14 @@ admitted only when it is admitted for each of them (`attributions`). So a later 
 reuses the specialization of a named caller is not admitted by that caller's pair. A pair that a
 program names and that admits no call fails the check, so the list of each program is exact.
 
-`checkProgram` runs the check for the program whose `main` the environment declares, fails the
-build of the module that runs it when the check finds a call, and records the program in the
-module (`reached`). Each program of the package other than `auditApp` runs it: at the end of the
-root module of each `lean_exe`, or in a module of `Regula.ProgramCheck` that imports a program that
-`lean --run` runs and that cannot import this module. No program reads these records, so that each
-program of the package runs the check is not itself checked, and no check runs for the one root
-that no library module can import, `auditApp`'s `Main`.
+`checkProgram` runs the check for the program whose entry point the environment declares (`main`,
+unless a launcher binds `main` to another declaration), fails the build of the module that runs it
+when the check finds a call, and records the program in the module (`reached`). Each program of
+the package other than `auditApp` runs it: at the end of the root module of each `lean_exe`, or
+in a module of `Regula.ProgramCheck` that imports a program that `lean --run` runs and that cannot
+import this module. No program reads these records, so that each program of the package runs the
+check is not itself checked, and no check runs for the one root that no library module can
+import, `auditApp`'s `Main`.
 
 ## What the check guarantees
 

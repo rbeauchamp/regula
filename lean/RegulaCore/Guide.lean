@@ -300,8 +300,8 @@ def guide : RuleId → Guide
       limitations := [
         "The axiom set comes from the constants as Lean loaded them from the `.olean` files. \
           Lean's kernel did not check them again in this run: `lake check` does that (RG2005).",
-        "A search of the constants that exhausts its step budget makes the run INCOMPLETE \
-          (RG2001), not a pass."]
+        "A constant of a claimed module for which the loader computed no axiom set makes the run \
+          INCOMPLETE (RG2001), not a pass."]
       residuals := [.qualify, .intent]
       checklist := ["FOUND-02", "THEOREM-06", "TYPE-04", "THEOREM-01", "THEOREM-09", "BUILD-01"]
       linkage := keptLinkage "Regula.Closed.Input.declarationFindings" "Violates1002"
@@ -712,8 +712,9 @@ def guide : RuleId → Guide
           declared twice in one environment, a constant that mentions a name that the \
           environment does not hold, a module of a target with no record or loaded in no \
           environment, environments that do not carry one project, or a claim of no target.",
-        "A search over the constants that exhausts its step budget is INCOMPLETE too. The last \
-          line of the run names the reason, and `lake lint` exits 2."]
+        "A search over the constants that exhausts its step budget is INCOMPLETE too, and so is a \
+          rule that reads the axiom set of a constant for which the loader computed none. The \
+          last line of the run names the reason, and `lake lint` exits 2."]
       rationaleDetail := []
       proofShape := []
       established := [
@@ -735,8 +736,9 @@ def guide : RuleId → Guide
       checklist := ["DECL-01", "DECL-04"]
       linkage := text! "None for the read of the build: `Regula.Load.loadBundle` reads it through \
         Lake's and Lean's own interfaces, which are trusted. `Regula.Closed.run` gives INCOMPLETE \
-        when `Regula.Closed.Bundle.refusal?` refuses the bundle or a search exhausts its budget, \
-        by its definition and with no theorem. That `Bundle.refusal?` decides `Bundle.WellFormed` \
+        when `Regula.Closed.Bundle.refusal?` refuses the bundle, a search exhausts its budget or \
+        a rule reads an axiom set that the loader did not compute, by its definition and with no \
+        theorem. That `Bundle.refusal?` decides `Bundle.WellFormed` \
         of the specification's `gateRecord` (`specification/RegulaSpecification/Gate.lean`) is \
         not yet proved: issue #487 proves it."
       sources := ["lean/Regula/Load.lean", "lean/Regula/Input.lean", "lean/Regula/Shell.lean",
