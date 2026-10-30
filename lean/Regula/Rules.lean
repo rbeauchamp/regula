@@ -14,9 +14,11 @@ RG2006). Each function reads only fields of the input. That each function report
 when the specification's violation predicate holds of it is #487's obligation; this module states
 no theorem about it.
 
-A search over the input's graph of constants (`reach`, `axiomsOf`) runs with a step budget of the
-size of the input. A search that exhausts it cannot report its answer, so it gives an error, and
-the run is `incomplete`, never a pass.
+The axiom set of a constant is the one that `Lean.collectAxioms` computed in the loader
+(`Decl.axioms`); a rule that needs the axiom set of a constant that has none gives an error, and
+the run is `incomplete`. A search over the input's graph of constants (`reach`) runs with a step
+budget of the size of the input. A search that exhausts it cannot report its answer, so it gives an
+error, and the run is `incomplete`, never a pass.
 
 `run` gives the verdict of a bundle (`Gate.lean`'s `gateRecord`): a bundle that the admission
 refuses is `incomplete`; a well-formed one passes exactly when no rule reports a subject.
@@ -81,58 +83,6 @@ def reach (next : Name → List Name) (seeds : List Name) (bound : Nat) :
 /-- The constants a constant mentions. -/
 def usesOf (n : Name) : List Name := (idx.find? n).elim [] (·.uses)
 
-/-- The state of the axiom search: the transitive axiom set of each constant whose search
-completed, and the depth of each constant on the search's stack. -/
-structure AxiomSearch where
-  /-- The transitive axiom set of each constant whose search completed. -/
-  done : NameMap (List Name) := {}
-  /-- The depth of each constant on the stack of the search. -/
-  onStack : NameMap Nat := {}
-
-private def addAll (acc axs : List Name) : List Name :=
-  axs.foldl (fun l a => if l.contains a then l else a :: l) acc
-
-/-- The axioms of the input that `n` reaches through the constants each mentions, but those that it
-reaches only through a constant on the stack, and the least depth of such a constant. A constant's
-set is stored once its search reached no constant below it on the stack, so each strongly connected
-set of constants is searched to its end from its first constant. The budget `fuel` bounds the
-depth, which the number of constants bounds; an exhausted budget is an error. -/
-def axiomVisit :
-    Nat → Name → Nat → StateT AxiomSearch (Except String) (List Name × Option Nat)
-  | 0, _, _ => throw "the axiom search exhausted its budget"
-  | fuel + 1, n, depth => do
-    let s ← get
-    if let some axs := s.done.find? n then return (axs, none)
-    if let some d := s.onStack.find? n then return ([], some d)
-    let some decl := idx.find? n | return ([], none)
-    modify fun s => { s with onStack := s.onStack.insert n depth }
-    let mut acc : List Name := if decl.kind == .axiom then [n] else []
-    let mut low : Option Nat := none
-    for u in decl.uses do
-      let (axs, l) ← axiomVisit fuel u (depth + 1)
-      acc := addAll acc axs
-      low := match low, l with
-        | some a, some b => some (min a b)
-        | a, b => a <|> b
-    modify fun s => { s with onStack := s.onStack.erase n }
-    match low with
-    | some l =>
-      if l < depth then return (acc, some l)
-      modify fun s => { s with done := s.done.insert n acc }
-      return (acc, none)
-    | none =>
-      modify fun s => { s with done := s.done.insert n acc }
-      return (acc, none)
-
-/-- The transitive axiom set of `c` (`Input.AxiomOf`), continuing the search state. -/
-def axiomsWith (c : Name) : StateT AxiomSearch (Except String) (List Name) := do
-  return (← axiomVisit idx (idx.size + 1) c 0).1
-
-/-- The transitive axiom set of `c` (`Input.AxiomOf`): each axiom of the input that `c` reaches
-through the constants each mentions. -/
-def axiomsOf (c : Name) : Except String (List Name) :=
-  (axiomsWith idx c).run' {}
-
 /-- `a` is one of the three logical axioms and is the toolchain's own constant of that name. -/
 def known (a : Name) : Bool :=
   logicalAxioms.contains a && (idx.find? a).any (·.inToolchain)
@@ -160,8 +110,15 @@ def recursionHelper (d : Decl) : Bool :=
 private def finding (rule : RuleId) (d : Decl) (detail : String) : Finding :=
   { rule, subject := d.name, module := some d.module, detail }
 
+/-- The axiom set of constant `d` (`Input.AxiomOf`), as the loader computed it with
+`Lean.collectAxioms`; an error when the loader computed none. -/
+def axiomsOf (d : Decl) : Except String (List Name) :=
+  match d.axioms with
+  | some axioms => .ok axioms
+  | none => .error s!"the loader computed no axiom set of {d.name}"
+
 /-- RG1001 to RG1006 for each constant of a claimed module. -/
-def declarationFindingsM : StateT AxiomSearch (Except String) (List Finding) := do
+def declarationFindings : Except String (List Finding) := do
   let mut out := []
   let table := i.claimTable
   for d in i.decls do
@@ -169,7 +126,7 @@ def declarationFindingsM : StateT AxiomSearch (Except String) (List Finding) := 
     if claims.isEmpty then continue
     if d.kind == .axiom then
       out := out ++ [finding .projectAxiom d "declares an axiom"]
-    let axioms ← axiomsWith idx d.name
+    let axioms ← axiomsOf d
     if axioms.contains ``sorryAx then
       out := out ++ [finding .proofHole d "depends on sorryAx"]
     let unknown := axioms.filter fun a => !known idx a && a != ``sorryAx &&
@@ -187,9 +144,6 @@ def declarationFindingsM : StateT AxiomSearch (Except String) (List Finding) := 
       out := out ++ [finding .escapeHatch d
         s!"is {if d.isUnsafe then "unsafe" else "partial"}"]
   return out
-
-/-- RG1001 to RG1006 for each constant of a claimed module, with one axiom search. -/
-def declarationFindings : Except String (List Finding) := (declarationFindingsM i idx).run' {}
 
 /-- `f` is a safe, total, computable constant of the input. -/
 def safeComputable (f : Name) : Bool :=
@@ -274,7 +228,7 @@ def executionFindings : Except String (List Finding) := do
                 if q.reference != x.reference || q.runs != x.runs then return false
                 let some t := idx.find? q.theorem_ | return false
                 if t.isUnsafe || t.isPartial then return false
-                let axioms ← axiomsOf idx q.theorem_
+                let axioms ← axiomsOf t
                 return axioms.all (admits idx p ·)
               unless corresponds do
                 out := out ++ [finding .executionBoundary d
@@ -369,8 +323,8 @@ def dedupe (fs : List Finding) : List Finding :=
     if seen.contains key then (seen, acc) else (seen.insert key, f :: acc)).2.reverse
 
 /-- The verdict of a run and its findings, or the reason the run is incomplete. A refused input,
-or a search that exhausted its budget, is incomplete; a well-formed input passes exactly when no
-rule reports a subject. -/
+a search that exhausted its budget, or a constant without the axiom set a rule reads is incomplete;
+a well-formed input passes exactly when no rule reports a subject. -/
 def run (allowed : Name × String → Bool) (b : Bundle) :
     Verdict × List Finding × Option String :=
   match b.refusal? with

@@ -165,17 +165,17 @@ Use the Lean provisioning entry points documented in the
 [contributor guide](docs/guides/contributing.md) to acquire the pinned dependency artifacts.
 
 The first step makes a copy of the checkout. In the copy, it builds each claimed target of the
-root `regula` package, Regula's checker and the acceptance tools, with warnings as errors. Then it
-runs the registry checks and builds the specification package. Last, it runs Regula's checker
-(`lake lint`) on the build of the copy. If all commands pass, it records the content identity of
-the files of the copy.
+root `regula` package, Regula's checker and the acceptance tools, with warnings as errors. Then
+it replays that build in Lean's kernel with `lake check`, runs the registry checks and builds the
+specification package. Last, it runs Regula's checker (`lake lint`) on the build of the copy. If
+all commands pass, it records the content identity of the files of the copy.
 
 These files include the `docs/` Markdown, the Verso sources of the standard and the `audit/`
 sources that they import. The second step refuses to start unless the files that it checks have
 that identity. It checks each Markdown document that Git tracks for a rule ID in prose that is not
 a link to its rule page (it needs a Git checkout). It builds the `audit/` package of the example
-library of the standard and runs the checker on it. It builds the Verso standard, which
-elaborates each `lean` block where it is written, and renders and checks it.
+library of the standard, replays it with `lake check` and runs the checker on it. It builds the
+Verso standard, which elaborates each `lean` block where it is written, and renders and checks it.
 
 This exact two-step split is the only permitted division of acceptance.
 Complete applicable theorem/type/prose review too; command success alone is not full

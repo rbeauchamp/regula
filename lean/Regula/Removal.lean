@@ -8,7 +8,7 @@ import Lean.Elab.Command
 
 A removal primitive of Lean's library is an operation that removes or replaces an entry
 (`primitives`, `removalSymbols`). `rawRemovalsFrom` follows the compiled code of a program from
-every compiled declaration of the modules it links outside Lean's toolchain, its `main` and the
+every compiled declaration of the modules it links outside Lean's toolchain, its entry and the
 code that initializes the toolchain's modules that it links (`rawRemovals`, `initializersOf`). It
 finds each call of a removal primitive that a declaration makes other than a declaration of
 `Regula.Filesystem` with the filesystem observer's role (`@[regula_observer filesystem]`,
@@ -35,13 +35,14 @@ admitted only when it is admitted for each of them (`attributions`). So a later 
 reuses the specialization of a named caller is not admitted by that caller's pair. A pair that a
 program names and that admits no call fails the check, so the list of each program is exact.
 
-`checkProgram` runs the check for the program whose `main` the environment declares, fails the
-build of the module that runs it when the check finds a call, and records the program in the
-module (`reached`). Each program of the package other than `auditApp` runs it: at the end of the
-root module of each `lean_exe`, or in a module of `Regula.ProgramCheck` that imports a program that
-`lean --run` runs and that cannot import this module. No program reads these records, so that each
-program of the package runs the check is not itself checked, and no check runs for the one root
-that no library module can import, `auditApp`'s `Main`.
+`checkProgram` runs the check for the program whose entry point the environment declares (`main`,
+unless a launcher binds `main` to another declaration), fails the build of the module that runs it
+when the check finds a call, and records the program in the module (`reached`). Each program of
+the package other than `auditApp` runs it: at the end of the root module of each `lean_exe`, or
+in a module of `Regula.ProgramCheck` that imports a program that `lean --run` runs and that cannot
+import this module. No program reads these records, so that each program of the package runs the
+check is not itself checked, and no check runs for the one root that no library module can
+import, `auditApp`'s `Main`.
 
 ## What the check guarantees
 
@@ -793,27 +794,29 @@ def compiledDeclarations (env : Environment) (module : Name) : Array Name :=
         (·.name)
     | none => #[]
 
-/-- The declarations from which the checks of the program whose `main` is in the module `root`
-walk (`rawRemovals`, `elaborationRefusal`): every compiled declaration of every module that the
-program links (`linked`) outside the toolchain (`toolchainModules`), and `main`. They hold every
-compiled code of the program's own modules and of its other dependencies that may run: `main`,
+/-- The declarations from which the checks of the program whose entry point `entry` (`main`, unless
+a launcher binds `main` to another declaration) is in the module `root` walk (`rawRemovals`,
+`elaborationRefusal`): every compiled declaration of every module that the program links
+(`linked`) outside the toolchain (`toolchainModules`), and `entry`. They hold every
+compiled code of the program's own modules and of its other dependencies that may run: `entry`,
 what it calls, the initializers that the program's modules declare (`initializersOf`), and the
 zero-argument declarations whose values the compiled module computes when it starts
 (`Lean/Compiler/LCNF/EmitC.lean:1003-1005` and `:1047-1049`). So the walks need no model of which
 of them runs: they over-approximate it. The compiled code of the toolchain's modules is followed
 from these roots, and only its own roots are left out. -/
-def programRoots (env : Environment) (root : Name) : Array Name :=
+def programRoots (env : Environment) (root : Name) (entry : Name := `main) : Array Name :=
   let modules := linked env root
   let toolchain := toolchainModules modules
-  (modules.toArray.filter (!toolchain.contains ·)).flatMap (compiledDeclarations env) |>.push `main
+  (modules.toArray.filter (!toolchain.contains ·)).flatMap (compiledDeclarations env) |>.push entry
 
-/-- `rawRemovalsFrom` for a program whose `main` is `main` in the module `root`: from every
+/-- `rawRemovalsFrom` for a program whose entry point `entry` is in the module `root`: from every
 compiled declaration of its modules outside the toolchain (`programRoots`), and from the code that
 initializes the modules that it links (`linked`, `initializersOf`), with the filesystem observers
 of `env` and the calls `named`, and with the declarations of other modules that have the
 filesystem observer's role (`foreignObservers`). -/
-def rawRemovals (env : Environment) (root : Name) (named : List (Name × Name) := []) : Reach :=
-  let roots := programRoots env root ++ initializersOf env (linked env root)
+def rawRemovals (env : Environment) (root : Name) (named : List (Name × Name) := [])
+    (entry : Name := `main) : Reach :=
+  let roots := programRoots env root entry ++ initializersOf env (linked env root)
   { rawRemovalsFrom env (filesystemObservers env) roots named with
     foreign := foreignObservers env }
 
@@ -869,8 +872,9 @@ is conservative reachability in the compiled code, not a proof that the program 
 compiled declaration of those modules is a root, run or not, and a reference to the elaborator
 that no run calls counts. A program that may run it states `elaborates := true`, so that the
 tactics of the source that it elaborates, with their writes, are trusted effects of the program. -/
-def elaborationRefusal (env : Environment) (root : Name) (elaborates : Bool) : Option String :=
-  let found := elaborationReached env (programRoots env root)
+def elaborationRefusal (env : Environment) (root : Name) (elaborates : Bool)
+    (entry : Name := `main) : Option String :=
+  let found := elaborationReached env (programRoots env root entry)
   if elaborates && found.isEmpty then
     some s!"the check of the program of {root} states that it elaborates source, but no compiled \
       declaration of its modules outside Lean's toolchain reaches one of {elaborationEntries} or \
@@ -913,22 +917,23 @@ def programRefusal (env : Environment) (root : Name) (reach : Reach) : Option St
       whose declarations remove: {reach.foreign.toList}"
   else none
 
-/-- Check the program whose `main` the environment declares: fail with the refusal of the
-program (`programRefusal`) or of its class (`elaborationRefusal`) when there is one, and otherwise
+/-- Check the program whose entry point `entry` the environment declares, `main` unless a launcher
+runs the program with `main` bound to `entry`: fail with the refusal of the program
+(`programRefusal`) or of its class (`elaborationRefusal`) when there is one, and otherwise
 record the program (`reached`). `named` admits the removals and the writes of the program that no
 list of this module admits, each as the pair of its caller and the primitive that it calls
 (`admitted`), so a call of a primitive at another place fails the build. `elaborates` states
 whether the compiled code of the program's modules outside the toolchain reaches Lean's elaborator
 (`elaborationRefusal`). -/
-def checkProgram (named : List (Name × Name) := []) (elaborates : Bool := false) :
-    Elab.Command.CommandElabM Unit := do
+def checkProgram (named : List (Name × Name) := []) (elaborates : Bool := false)
+    (entry : Name := `main) : Elab.Command.CommandElabM Unit := do
   let env ← getEnv
-  unless env.contains `main do
-    throwError "no `main` is declared here, so there is no program to check"
-  let root := moduleOf env `main
-  if let some refused := programRefusal env root (rawRemovals env root named) then
+  unless env.contains entry do
+    throwError "no `{entry}` is declared here, so there is no program to check"
+  let root := moduleOf env entry
+  if let some refused := programRefusal env root (rawRemovals env root named entry) then
     throwError refused
-  if let some refused := elaborationRefusal env root elaborates then
+  if let some refused := elaborationRefusal env root elaborates entry then
     throwError refused
   Elab.Command.liftCoreM <| addDecl (.defnDecl {
     name := reached ++ root, levelParams := [], type := mkConst ``Unit,

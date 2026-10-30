@@ -1,4 +1,4 @@
-import RegulaProvision
+import RegulaProvision.Driver
 import Regula.Contract
 import Regula.Decision
 

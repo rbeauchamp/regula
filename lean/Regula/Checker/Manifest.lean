@@ -3,8 +3,8 @@ import RegulaCore.Profile
 import RegulaPolicy.Guards
 import RegulaPolicy.Domain
 import Regula.Input
-import RegulaPolicy.KernelAxioms
 import Lean.Elab.Command
+import Lean.Util.CollectAxioms
 import Lake.Util.Name
 import Regula.Decision
 
@@ -2260,7 +2260,10 @@ theorem restrict_roundtrip {path text : String} {actual : Manifest} {kept : Arra
 
 end Regula.Checker.Manifest
 
--- Exact dependency ceiling for the manifest-parser guarantees: Standard-Logical.
+-- Exact dependency ceiling for the manifest-parser guarantees: Standard-Logical. `Lean.collectAxioms`
+-- walks the theorems of this module, and reads the axioms that Lean recorded for each imported
+-- module when it compiled it, as `#print axioms` does. The library `Regula` is excluded, so the
+-- self-check does not check these theorems.
 run_cmd do
   let names := #[``Regula.Checker.Manifest.parse_sound, ``Regula.Checker.Manifest.parse_input,
       ``Regula.Checker.Manifest.parse_emptyExclusions, ``Regula.Checker.Manifest.parse_malformed,
@@ -2296,9 +2299,7 @@ run_cmd do
       ``Regula.Checker.Manifest.restrict_executables,
       ``Regula.Checker.Manifest.restrict_valid,
       ``Regula.Checker.Manifest.restrict_roundtrip]
-  let some table := RegulaPolicy.KernelAxioms.reachedAxiomTable (← Lean.getEnv) names
-    | throwError "the axiom search ran out of fuel"
   for name in names do
-    let some axioms := table[name]? | throwError "the axiom search did not reach {name}"
+    let axioms ← Lean.collectAxioms name
     unless axioms.all RegulaPolicy.standardLogicalAxiom do
       throwError "manifest theorem {name} exceeds Standard-Logical: {axioms}"

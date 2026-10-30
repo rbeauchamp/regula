@@ -91,9 +91,9 @@ def notChecked : String :=
 /-- What checks a rule that is not retired: the Lake command that the specification hands RG2003
 or RG2005 to, and `lake lint` for each other rule. -/
 def activeCheck : RuleId → String
-  | .sourceBuild => "`lake build --wfail`, which decides it in place of Regula (issue #482)"
-  | .admission => "`lake check`, to which the specification hands it (issue #482); Regula's checker \
-      does not report it"
+  | .sourceBuild => "`lake build --wfail`, which decides it in place of Regula"
+  | .admission => "`lake check`, which decides it in place of Regula; Regula's checker does not \
+      report it"
   | _ => "`lake lint`, over the finished build"
 
 /-- What checks the rule now: no check for a rule whose lifecycle in the registry is retired

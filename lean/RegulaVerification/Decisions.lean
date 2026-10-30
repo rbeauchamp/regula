@@ -1,4 +1,4 @@
-import RegulaVerification
+import RegulaVerification.Driver
 import Regula.Contract
 import Regula.Decision
 import RegulaCore.Removal
@@ -94,9 +94,8 @@ def Removal.shared : Removal → Regula.Removal.Removal
 /-- The driver's decision is the decision of the filesystem observer for a directory,
 `Regula.Removal.removal .directory`, on the same observation, whatever is observed of the parent of
 the path, which that decision does not read for a directory. The driver cannot import that
-decision, because `scripts/verify.sh` runs it with `lean --run` before the package is built, and
-a program of the package cannot import the driver, because both declare `main`. So the
-decision is written twice, and this theorem relates the two. -/
+decision, because `scripts/verify.sh` runs it with `lean --run` before the package is built. So
+the decision is written twice, and this theorem relates the two. -/
 theorem removal_shared (observed : Observed) (parentOwn : Bool) :
     (removal observed).shared = Regula.Removal.removal .directory
       ⟨observed.place.shared, observed.sameLocation, parentOwn⟩ := by

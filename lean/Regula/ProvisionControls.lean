@@ -1,4 +1,4 @@
-import RegulaProvision
+import RegulaProvision.Driver
 import Regula.Filesystem
 import Regula.Site.Build
 import Lean.Elab.Command

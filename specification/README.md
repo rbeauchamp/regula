@@ -61,6 +61,13 @@ A pass of the project's gate is the result of three commands of the target toolc
 
 The checker starts none of these processes. The project's local gate or its CI runs the three commands in sequence on one checkout. **Assumed**: no process changes the build between the three commands. `lake check` takes no module list. It checks the modules of the default targets of the root package, so [RG2002] refuses a claimed target that is not a default target.
 
+`lake check` imports those modules into one environment, at `Lake/CLI/Main.lean:1218-1226` of `v4.35.0`. Lean refuses two imported modules that declare one name with different values, at `Lean/Environment.lean:2336-2344` of `v4.35.0`. So a project fails `lake check` when its default targets declare one name two times, such as the `main` of two programs. With [RG2002], a project can thus claim at most one module that declares a top-level `main`. This limit holds until Lake loads each executable root in an environment of its own, as the shell does. It was decided on the owner's behalf in [#482].
+
+**Measured** at `v4.35.0` with `lake check --inadvisably-no-sandbox`:
+
+- A package of two default libraries that each declare `main` stopped with `import B failed, environment already contains 'main' from A`.
+- Regula before [#482] stopped with `import RegulaProvision failed, environment already contains 'main' from RegulaVerification`.
+
 ## The closed input
 
 The closed input is the type `Input` in [`RegulaSpecification/Input.lean`](RegulaSpecification/Input.lean). Each field is one of these five parts, and each part comes from the owner of its data:
@@ -97,6 +104,8 @@ These results settle the questions of feasibility that the new design raises. Th
   - The `addImportedFn` of the extension puts that table in its state, at `Lean/Environment.lean:1988`. Only `finalizePersistentExtensions` runs it, and only with `loadExts`, at `Lean/Environment.lean:2403-2404`.
   - Without `loadExts`, each extension keeps its initial state, at `Lean/Environment.lean:2427-2431`. Then `collectAxioms` walks the bodies of the constants, at `Lean/Util/CollectAxioms.lean:37-74`.
   - **Assumed** from that source. **Measured**: with `loadExts := false`, a theorem that uses `propext` gave `#[propext]`, which agrees with it.
+  - At `v4.35.0` the same holds. Only `finalizePersistentExtensions` builds the state of an extension, and only with `loadExts`, at `Lean/Environment.lean:2404` and `2428-2433` of `v4.35.0`. `collectAxioms` reads the recorded table only through that state, at `Lean/Util/CollectAxioms.lean` of `v4.35.0`.
+  - **Measured** in [#482]. On Regula's build, `collectAxioms` and a walk of the mentioned constants gave the same axiom set to each constant that the rules read. This held for all 61,476 such constants in 9 environments.
 - The recorded table is in the build. **Measured**: each `.olean` file of a module with constants had entries of the extension `_private.Lean.Util.CollectAxioms.0.Lean.exportedAxiomsExt`. The present standard already refuses this table as evidence, in §7.4.
 - An option that a source file sets leaves no record.
   - **Measured**: a module had `set_option linter.unusedVariables false`, `set_option autoImplicit true` and a `set_option … in` command. It had the same extension names and entry counts as the same module without them, in all three parts.
@@ -345,8 +354,9 @@ But the list of `lake check` is fixed, and it gives no axiom set for each consta
 - **Domain**: each module of a default target of the root package, and each constant in its scope. Each claimed target is a default target ([RG2002]).
 - **Input**: none of Regula.
 - **Formal statement**: none of Regula. The property is that of `lake check` (see "What Lean v4.35.0's tools do").
-- **Decision**: `--paranoid` is optional. The owner trusts Lean's kernel, and the gate requires that kernel. A project can add the five other kernels. **Open**: the cost of `--paranoid` is not measured. The export of a module that imports Lean holds all of Lean, as Regula's does. Leaf [#482] measures it, and the owner can then make it required.
-- **Accepted risks**: on macOS the gate runs `lake check --inadvisably-no-sandbox`, because the sandbox requires Linux. Then the build and the export run outside the sandbox, as `lake build` does. The trusted base already holds that code honest, so the soundness argument does not change. On Linux, the sandbox runs. A constant with an internal name that no exported constant mentions is not replayed, and it is part of no proof of an exported constant. **Assumed**: the build of `lake check` gives the modules that the first command built.
+- **Decision**: `--paranoid` is optional. The owner trusts Lean's kernel, and the gate requires that kernel. A project can add the five other kernels. The export of a module that imports Lean holds all of Lean, as Regula's does.
+- **Measured** in [#482] on 2026-10-29, one run on the owner's Mac. `lake check --paranoid --inadvisably-no-sandbox` did not finish in 45 minutes for a package of one module that imports Lean. `leanchecker-paranoid` and `lean4lean` accepted the 164,014 declarations of the export. `nanoda` was still running when the limit stopped it. The process tree held at most 14.0 GB resident. So `--paranoid` cannot be a required part of a 420-second acceptance step.
+- **Accepted risks**: Regula's acceptance runs `lake check --inadvisably-no-sandbox` on each platform, as the decision below records. The build and the export run outside a sandbox, as `lake build` does. The trusted base already holds that code honest, so the soundness argument does not change. A constant with an internal name that no exported constant mentions is not replayed, and it is part of no proof of an exported constant. **Assumed**: the build of `lake check` gives the modules that the first command built.
 - **Supersedes**: [#309]. Its recommendation goes to `lake check` of `v4.35.0`. It closes with [#482].
 
 #### [RG2006]: the configuration of claimed targets
@@ -446,7 +456,9 @@ The self-check runs inside local acceptance, the gate before each merge. It is n
 - Regula registers its own admission decisions with two-way contracts. [RG1008] keeps the one-way kinds for adopters.
 - The first acceptance command, `./scripts/verify.sh`, runs the three commands of the gate on Regula's own package. It refuses the change when a command fails or the checker gives a finding.
 - Each claimed library of Regula is a default target of its root package ([RG2002]). Today plain `lake build` there builds no `Regula` library, so that list changes.
-- This step is in the 420-second limit of the first command. **Open**: Regula's modules import Lean, so the export of `lake check` holds all of Lean. Its cost is not measured. Leaf [#482] measures it against the limit.
+- This step is in the 420-second limit of the first command. Regula's modules import Lean, so the export of `lake check` holds all of Lean.
+- **Measured** on 2026-10-29 on the owner's Mac with 14 cores, one run each, not a bound. `lake check --inadvisably-no-sandbox` took 97.5 s for a package of one module that imports Lean. The export of that package was 742 MB. It took 119 s for Regula's own package. Without it, the commands of the first step took 87 s on `main` at `98a0f9c`.
+- Regula's default targets declare one `main`, that of `auditApp`. The two programs that run before the package is built are the acceptance driver and the provisioning driver. They are the modules `RegulaVerification.Driver` and `RegulaProvision.Driver` of claimed libraries, each with a namespaced entry. The files `lean/RegulaVerification.lean` and `lean/RegulaProvision.lean` are in no target. Each runs the source of its driver with `main` bound to its entry.
 
 This placement removes the cause of [#489]. There, a refusal of the self-audit reached `main`, because no gate ran the self-audit for a pull request after the CI and Diagnostics workflows stopped. **Open**: until [#487] lands, the present self-audit must run inside acceptance in the same way. That is the change that the fix of [#489] makes.
 
@@ -465,7 +477,7 @@ Regula's own package uses no Mathlib. Only the package in `integration/mathlib/`
 - After the leaves, no kept rule has a branch for Mathlib. [RG1001] to [RG1005] read the axiom sets of loaded constants, and the constants of Mathlib are constants like the others. Leaf [#483] removes the observation of elaboration. The Mathlib linter requirement of [RG2006] goes to written guidance.
 - The members of the two allowlists of [#484] stay related to Mathlib. `RG2007` refuses an extension that its list does not name, and [RG2006] refuses an option that its list does not name. So a Mathlib attribute such as `to_additive`, or a Mathlib option such as `weak.linter.mathlibStandardSet`, is usable in claimed code only if the list names it. That is data, not a branch of a rule. **Open**: [#484] fixes those members from an observation of a real Mathlib project, and records it.
 - Acorn is a Mathlib project, and its gate runs Regula. Thus Acorn then checks the same integration on real code. **Accepted risk**: a change of Regula that breaks a Mathlib project fails Acorn's gate when Acorn takes the change, not Regula's merge gate.
-- **Open**: the cost of `lake check` on an export that holds Mathlib is not measured. Leaf [#482] measures it on Acorn.
+- **Measured** in [#482] on 2026-10-29, one run on the owner's Mac, not a bound. The modules of the Mathlib integration package import Mathlib's real analysis and topology, at the Mathlib revision that Acorn pins. `lake check --inadvisably-no-sandbox` of that package passed in 229 s. Its process tree held at most 4.1 GB resident. Acorn itself was not measured. Before it can take this Regula, it must remove the observer plugin, make each claimed target a default target and claim one program at most.
 
 ## Decisions of this specification
 
@@ -484,8 +496,10 @@ These decisions change what the leaves build. Each has its reason.
 - A decision registration becomes a declaration, so that a claimed module uses no tool module and no attribute that Lean does not define.
 - The target toolchain is `v4.35.0`, and Regula moved to it in [#494], before the leaves. Its `lake check` replays each constant in scope from an export, in a process that loads no `.olean` file of the project. It also bounds each axiom by the standard three. The `leanchecker` of `v4.34.1` with a module list did less.
 - Each claimed target is a default target, because `lake check` takes no module list and checks the default targets.
-- `--paranoid` is optional, because the owner trusts Lean's kernel and its cost is not measured.
+- `--paranoid` is optional because the owner trusts Lean's kernel. The measurement in [RG2005] exceeded the acceptance deadline.
 - On macOS, the gate runs `lake check --inadvisably-no-sandbox`. The sandbox requires Linux, and a virtual machine on the owner's Mac is a service of the machine that no task starts.
+- A project can claim at most one module that declares a top-level `main`. The cause is that `lake check` imports the modules of the default targets into one environment, and [RG2002] makes each claimed target a default target. This keeps `lake check` in the gate and each claim, as the owner confirmed. Regula's two programs that run before its package is built keep their logic in claimed library modules, and files in no target launch them. Decided on the owner's behalf in [#482], 2026-10-29.
+- Regula's first acceptance step runs `lake check --inadvisably-no-sandbox` on each platform. Outside Linux, `lake check` does not start without it. The CI provisioning of the step installs no `bwrap`, and the operator-approved bootstrap of CI does not cover it. The build and the export run outside a sandbox there, as the step's `lake build` does. Decided on the owner's behalf in [#482], 2026-10-29.
 - `lake comparator` has no role in the gate, because the gate has no challenge. **Open**: it can serve the check of `RG6001` that a project proves each consequence that the owner confirmed. Leaf [#485] and [lean-intent#5] decide.
 
 ## The trusted base
@@ -494,7 +508,7 @@ These statements stay assumed after the leaves. Each is a statement about a syst
 
 - Lean's kernel, elaborator, compiler and runtime, and Lake's load and build. The owner trusts Lean and its kernel.
 - `Lean.importModules` with `loadExts := false` loads exactly the constants of the `.olean` files, and `collectAxioms` then walks their bodies.
-- `lake check` exports and replays the modules that the first command built, and no process changes the build between the commands of the gate. On macOS, `lake check` runs without its sandbox.
+- `lake check` exports and replays the modules that the first command built, and no process changes the build between the commands of the gate. On macOS, and in Regula's own acceptance on each platform, `lake check` runs without its sandbox.
 - The shell finds the toolchain's own library only below the pinned toolchain, and Lean refuses an `.olean` file of a different Lean version.
 - The executable runs the code compiled from the code that the build records.
 - A departure that a module of the toolchain makes computes what the kernel value computes.
@@ -547,7 +561,7 @@ What it leaves unsaid:
 - The members of the two allowlists, which [#484] fixes.
 - The exact correspondence statement of each kind of execution boundary, which [#487] fixes.
 - How a project declares a deliverable, and how the owner's confirmation record is made: [#485], [lean-intent#3] and [lean-intent#5].
-- The cost of `lake check` and of `--paranoid` on an export that holds all of Lean, which [#482] measures.
+- The cost of `lake check` and of `--paranoid` on a machine other than the owner's Mac: [#482] measured each one time there.
 
 [#281]: https://github.com/rbeauchamp/regula/issues/281
 [#295]: https://github.com/rbeauchamp/regula/issues/295

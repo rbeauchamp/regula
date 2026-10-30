@@ -1,4 +1,4 @@
-import RegulaVerification
+import RegulaVerification.Driver
 import Regula.Removal
 import Regula.Destination
 
@@ -69,7 +69,7 @@ run_cmd Regula.Removal.checkProgram (named := [
   (``RegulaVerification.writeDocument, ``IO.FS.rename),
   (``RegulaVerification.writeDocument, ``IO.FS.removeFile),
   (``RegulaVerification.promote, ``IO.FS.createDirAll),
-  (``RegulaVerification.promote, ``IO.FS.rename)])
+  (``RegulaVerification.promote, ``IO.FS.rename)]) (entry := ``RegulaVerification.entry)
 
 -- A destination whose last component names no file, `new/` or `new/.`, names a directory and not
 -- a file in it: the driver (`RegulaVerification.destinationAt`) and the programs

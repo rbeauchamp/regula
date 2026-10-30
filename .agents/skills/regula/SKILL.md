@@ -93,8 +93,8 @@ Compliant example: as [RG1006](https://rbeauchamp.github.io/regula/dev/rules/RG1
 
 ### [RG2005](https://rbeauchamp.github.io/regula/dev/rules/RG2005/) Required admission and source evidence must be complete
 
-Owned declarations pass kernel replay from the exact frozen sources; no metaprogram adds unchecked declarations.
-Fix: Remove the construction that bypasses kernel checking (or the source change during the run), then run the project command that collects the missing evidence.
+Lean's kernel replays each constant of each claimed module from an export of the build (`lake check`); no metaprogram adds unchecked declarations.
+Fix: Remove the construction that bypasses kernel checking, then run `lake check` again.
 
 Compliant example: as [RG1002](https://rbeauchamp.github.io/regula/dev/rules/RG1002/).
 

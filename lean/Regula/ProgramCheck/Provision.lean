@@ -1,4 +1,4 @@
-import RegulaProvision
+import RegulaProvision.Driver
 import RegulaProvision.Ownership
 import Regula.Removal
 import Regula.Filesystem
@@ -54,7 +54,7 @@ namespace Regula.ProgramCheck.Provision
 open Lean in
 /-- The private declaration `name` of the provisioning driver. -/
 def provisioning (name : Name) : Name :=
-  mkPrivateNameCore `RegulaProvision (`RegulaProvision ++ name)
+  mkPrivateNameCore `RegulaProvision.Driver (`RegulaProvision ++ name)
 
 end Regula.ProgramCheck.Provision
 
@@ -84,7 +84,7 @@ run_cmd Regula.Removal.checkProgram (named := [
   (``RegulaProvision.prune, ``IO.FS.rename),
   (provisioning `packagesPath, ``IO.FS.createDirAll),
   (``RegulaProvision.provision, ``IO.FS.createDirAll),
-  (``RegulaProvision.provision, ``IO.FS.Handle.mk)])
+  (``RegulaProvision.provision, ``IO.FS.Handle.mk)]) (entry := ``RegulaProvision.entry)
 
 /-- The presence read of the driver is the filesystem observer's (`Regula.Filesystem.isPresent`,
 whose match form `Regula.Filesystem.isPresent_eq_match` states). -/
