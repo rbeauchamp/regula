@@ -38,8 +38,8 @@ No theorem here asserts or denies `CounterexampleExists`; the reduction moves th
 content into its explicit bound hypothesis. These definitions are this module's own:
 neither core nor Std states the Collatz map. The corresponding statements about
 Mathlib's `Nat.Perfect` are `MathlibAudit.Research` in the Mathlib integration package
-(`integration/mathlib/`). The declaration gate reports each declaration's exact
-axiom set within the `Audit` surface's Standard-Logical claim.
+(`integration/mathlib/`). Regula's checker reads each declaration's axioms and reports those
+outside the `Audit` surface's Standard-Logical claim.
 -/
 
 namespace Research

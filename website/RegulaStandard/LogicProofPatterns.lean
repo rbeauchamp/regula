@@ -1300,6 +1300,6 @@ import Audit.Research
 theorem claimed : Research.CounterexampleExists := Research.CounterexampleExists
 ```
 
-Using `sorry` as the proof, or replacing the theorem with a project `axiom` declaration, elaborates but is rejected by the declaration gate and fence audit on a positive surface (§3.4, {ref "75-proof-completeness-and-foundation-strength"}[module 7 §7.5]). The declaration gate reports each `Audit.Research` declaration's exact axiom set within the surface's Standard-Logical claim; none includes `sorryAx` or a project axiom.
+Using `sorry` as the proof, or replacing the theorem with a project `axiom` declaration, elaborates but is rejected by Regula's checker on a claimed surface (§3.4, {ref "75-proof-completeness-and-foundation-strength"}[module 7 §7.5]). The checker reads the axioms of each `Audit.Research` declaration and reports none outside the surface's Standard-Logical claim; none includes `sorryAx` or a project axiom.
 
 The same four claim kinds stated about Mathlib's `Nat.Perfect`, where the read-back finds a positivity conjunct that an odd number already supplies, are checked in the {repo "integration/mathlib/MathlibAudit/Research.lean"}[Mathlib integration package].

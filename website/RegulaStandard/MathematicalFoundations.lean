@@ -435,7 +435,7 @@ A project logical axiom, `sorryAx`, or an unrecognized axiom fails the conformin
   * Standard-Logical; the conditional rational-valued antitonicity theorem in §4.1, whose proof uses core's order lemmas for `Rat`
 :::
 
-These assertions import the actual declarations from {repo "audit/Audit/Basic.lean"}[Basic] and {repo "audit/Audit/DocClaims.lean"}[DocClaims]; the §3.2.2 example makes the same assertion for `reverse_append_eq` where it is written. `#guard_msgs` compares each `#print axioms` result with its displayed expected output, so a changed set fails fence elaboration. This checks these selected dependency claims; the gate reports the complete declaration inventory with `lake exe axiomGate --json-out tmp/axiom-report.json`.
+These assertions import the actual declarations from {repo "audit/Audit/Basic.lean"}[Basic] and {repo "audit/Audit/DocClaims.lean"}[DocClaims]; the §3.2.2 example makes the same assertion for `reverse_append_eq` where it is written. `#guard_msgs` compares each `#print axioms` result with its displayed expected output, so a changed set fails fence elaboration. This checks these selected dependency claims. Regula's checker, `lake lint`, reads the axioms of every declaration of a claimed module and reports each that its claimed profile does not admit.
 
 ```lean
 import Audit.Basic

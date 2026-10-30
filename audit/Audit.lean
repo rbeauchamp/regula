@@ -15,7 +15,7 @@ the standard's examples import), `Audit.Economy` (cost-domain and lawful-mixin
 examples and a proof-bearing closed-form sum), `Audit.Research` (an open `Prop` target with
 conditional results and a bounded-search reduction), and `Audit.Server`
 (proof-bearing admission and finite-prefix service state). This module owns no
-declarations; its formal result is the exact transitive import surface checked by
-`lake build` and `leanchecker --fresh Audit`. The declaration gate and fresh checker
-discover the `Audit` surface from Lake's inventory, not from this import list.
+declarations; its formal result is the exact transitive import surface that `lake build`
+checks. Regula's checker reads the `Audit` surface from Lake's modules, not from this import
+list.
 -/

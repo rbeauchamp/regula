@@ -36,8 +36,8 @@ equivalent target (`Research.oddPerfectExists_iff_sum`). `Odd n` is Mathlib's
 `∃ m, n = 2 * m + 1`. Every result states only its displayed binders and
 hypotheses. No theorem here asserts or denies `OddPerfectExists`; the
 reduction moves that content into its explicit bound hypothesis. All proofs
-reuse Mathlib results; the declaration gate reports each declaration's exact
-axiom set within the `MathlibAudit` surface's Standard-Logical claim.
+reuse Mathlib results; Regula's checker reads each declaration's axioms and reports
+those outside the `MathlibAudit` surface's Standard-Logical claim.
 -/
 
 namespace Research

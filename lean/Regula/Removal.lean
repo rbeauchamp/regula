@@ -109,13 +109,8 @@ temporary files that it removes. In a program that does not elaborate, no compil
 its modules outside the toolchain reaches them. The initializers of the toolchain reach them by
 registering the tactic, which only an elaborator runs.
 
-A program elaborates in the working directory in which it was started. Each worker that a program
-of Regula starts runs in the program's working directory or in the project's root, and writes its
-packet in a directory that the program made for the run below it: a scratch directory below
-`.lake/regula-scratch` (`Regula.Scratch.withScratch`), or `tmp/fence-build` of the workspace of a
-documentation audit. So no worker's working directory is the directory of its packet. A
-destination of the program that started it may be in that working directory, where an effect of
-the elaboration reaches it as above.
+A program elaborates in the working directory in which it was started. A destination of the
+program may be in that working directory, where an effect of the elaboration reaches it as above.
 
 ## Boundaries
 

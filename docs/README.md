@@ -32,10 +32,10 @@ block of the standard and every Lean fence below `docs/` follows the
   checks of these rules, and the baseline.
 - [Supported toolchain](guides/toolchains.md): the exact released compiler identity and
   the boundary for unsupported versions.
-- [Architecture](guides/architecture.md): packages, the rule registry, findings, output
-  schemas, enforcement paths, rule examples and how the rules cover the standard.
+- [Architecture](guides/architecture.md): packages, the checker, the rule registry, the
+  rule-reference site and how the rules cover the standard.
 - [Proofs and boundaries](guides/proofs-and-boundaries.md): what the implementation proves,
-  observes and trusts, boundary by boundary, and the qualification ledger.
+  observes and trusts, boundary by boundary.
 - [Design influences and attribution](guides/design-influences.md): adapted code, dependencies
   and design influences.
 - [Specification of the smaller Regula](../specification/README.md): the fate of each rule, the closed

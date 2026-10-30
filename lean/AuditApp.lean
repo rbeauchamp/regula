@@ -9,7 +9,7 @@ Umbrella for the complete-application `AuditApp` Lake surface. It imports
 fold-level composition contracts) and `AuditApp.Demo` (the fixed demonstration
 script and its kernel-checked end state). This module owns no
 declarations. The claimed surface is the library's Lake inventory
-(`lake query AuditApp:modules`), which the declaration gate inspects whether or
+(`lake query AuditApp:modules`), which Regula's checker reads whether or
 not a module is imported here; the imports make that inventory the transitive
 surface of the claimed `auditApp` executable, whose root module `Main` is
 claimed alongside this library in `foundation_manifest.json`. The surface imports

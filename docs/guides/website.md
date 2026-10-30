@@ -1,11 +1,11 @@
 # Rule-reference website
 
-The rule reference at <https://rbeauchamp.github.io/regula/> explains every diagnostic the
-linter can emit. Each Regula diagnostic ends with its rule's page in the edition of the installed
-Regula version (the registry's `helpUrl`), and the editor's **View explanation** link opens the
-same page. This guide covers where the site's content comes from, what its build establishes, how
-it is published and versioned, and how to change a rule. It is repository practice, not part of
-the normative standard.
+The rule reference at <https://rbeauchamp.github.io/regula/> explains every rule of Regula.
+Each finding of the checker ends with the page of its rule, and `lake exe regula explain` prints
+the page in the edition of the installed Regula version (the registry's `helpUrl`). This guide
+covers where the site's content comes from, what its build establishes, how it is published and
+versioned, and how to change a rule. It is repository practice, not part of the normative
+standard.
 
 ## Sources and ownership
 
@@ -53,11 +53,12 @@ fails and removes `_site/`:
   `pageFiles_nodup` and `mem_pageFiles` prove every rule has exactly one page route per edition
   and no two rules share one; `ruleModules_nodup` does the same for the generated Verso modules.
   The artifact check requires exactly the registry's rule directories in `dev/`, no more.
-- **Diagnostic links.** `helpUrl_pagePath` proves the linter's emitted `helpUrl id` is the page
-  of `id` in the installed build's edition; `helpUrl_release` and `helpUrl_unreleased` fix that
-  edition, and `helpUrl_dev_iff` proves the link names `dev/` exactly when the build is
-  unreleased. `installed_published` proves that edition is published, and the artifact check
-  requires its page for every rule, so every emitted help link names a page of the artifact.
+- **Diagnostic links.** `helpUrl_pagePath` proves the `helpUrl id` that the `regula` command
+  prints is the page of `id` in the installed build's edition; `helpUrl_release` and
+  `helpUrl_unreleased` fix that edition, and `helpUrl_dev_iff` proves the link names `dev/`
+  exactly when the build is unreleased. `installed_published` proves that edition is published,
+  and the artifact check requires its page for every rule, so every emitted help link names a
+  page of the artifact.
 - **Page structure.** `ruleSections_sublist` and `required_mem_ruleSections` prove every rule
   page has every required section and only sections of the fixed order, the checked example
   first; the proof-shape and configuration sections appear when the rule has them.
@@ -81,8 +82,8 @@ fails and removes `_site/`:
   block is at most 100 characters, the Lean community's limit, or the build fails; the
   stylesheet wraps a line that does not fit the column instead of scrolling sideways. An
   expected rejection is shown under the rule pages' verdict, *Rejected by Lean, as intended*,
-  with the error message that matched its pattern as the evidence. Classifying the same
-  blocks' declarations and axioms is the documentation step of acceptance, not the site build.
+  with the error message that matched its pattern as the evidence. No step of acceptance
+  classifies the declarations of a block or reads the axioms that they depend on.
 - **Links and base path.** Every `href` and `src` attribute the tokenizer finds in each
   HTML file of the artifact is resolved against its page and `<base href>`, following RFC 3986
   for schemes; `linkErrors_nil_iff` proves an empty result means each of those links reaches an

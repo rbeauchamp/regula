@@ -57,7 +57,7 @@ is applied after compilation: Lean applies an attribute of the earlier applicati
 `_unary` or `_mutual` definition it generates for a function defined by well-founded recursion as
 well, and that definition is not the function the project registered. Applied after compilation,
 the registration is on the declaration that carries the attribute and on no other, so the
-collector and the policy need no exemption for a generated copy. -/
+checker needs no exemption for a generated copy. -/
 initialize
   Lean.registerBuiltinAttribute {
     ref := ``decisionExtension

@@ -24,8 +24,8 @@ def mathlibLinters : Array LeanOption := #[⟨`weak.linter.mathlibStandardSet, t
 @[default_target]
 lean_lib «MathlibAudit» where
   -- The claimed surface is every module at or below `MathlibAudit`, not only the
-  -- transitive imports of the umbrella module. Lake's elaborated module
-  -- inventory is the semantic inventory consumed by the declaration gate.
+  -- transitive imports of the umbrella module. Lake's module inventory
+  -- is the inventory that Regula's checker reads.
   globs := #[.andSubmodules `MathlibAudit]
   leanOptions := mathlibLinters
   -- Mathlib v4.35.0 sets `requiresModuleSystem`, so Lake v4.35.0 warns when a file without a
