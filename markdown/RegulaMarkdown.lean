@@ -38,7 +38,7 @@ around the image links it.
 ## What is refused
 
 No HTML is read. A raw HTML block is refused, a comment too, unless it is exactly one fence
-marker of the documentation audit (`Regula.Markdown.auditMarker`). Inline raw HTML is refused
+marker of the standard's §7.7 (`Regula.Markdown.auditMarker`). Inline raw HTML is refused
 with its document: MD4Lean's wrapper stores its text as a string among the inline elements,
 which is not a value of `MD4Lean.Text` (reading such a parse crashed when tried on the pinned
 revision), so the parse runs with inline raw HTML read as text (`MD4Lean.MD_FLAG_NOHTMLSPANS`),
@@ -329,7 +329,7 @@ def cellKind : Option Bool → Kind
 block starts with its kind, on a later source line than the text before it, as does each row of
 a table. A block in an item of an ordered list stays in it at each depth: an unordered list, a
 block quote and a table there give their blocks the same `list`. A raw HTML block is refused
-unless it is a fence marker of the documentation audit (`auditMarker`). -/
+unless it is a fence marker of the standard's §7.7 (`auditMarker`). -/
 def block (list : Option Bool) (b : Block) : List Piece :=
   match b with
   | .p texts => .start (paragraphKind list) :: .line :: inlines false texts
