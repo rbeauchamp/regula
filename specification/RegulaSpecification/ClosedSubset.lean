@@ -23,6 +23,7 @@ the module records through Lake's and Lean's own interfaces is trusted.
 namespace RegulaSpecification
 
 open Lean (Name)
+open LeanIntent
 
 namespace Link
 
@@ -116,6 +117,15 @@ def ofSpec (i : Input) : Regula.Closed.Input where
   decidableResults := []
   proved := []
 
+theorem mem_targets {i : Regula.Closed.Input} {x : Target} :
+    x ∈ (toSpec i).targets ↔ ∃ t ∈ i.targets, target t = x := by simp [toSpec]
+
+theorem mem_manifest {i : Regula.Closed.Input} {x : Entry} :
+    x ∈ (toSpec i).manifest ↔ ∃ e ∈ i.manifest, entry e = x := by simp [toSpec]
+
+theorem mem_modules {i : Regula.Closed.Input} {x : ModuleRecord} :
+    x ∈ (toSpec i).modules ↔ ∃ r ∈ i.modules, record r = x := by simp [toSpec]
+
 theorem classification_inj {a b : Regula.Closed.Classification}
     (h : classification a = classification b) : a = b := by
   rcases a with ⟨p, e⟩ | _ <;> rcases b with ⟨q, x⟩ | _ <;> simp_all [classification]
@@ -168,30 +178,36 @@ theorem claimedTarget_iff (i : Regula.Closed.Input) (t : Name) :
 theorem claimedModule_iff (i : Regula.Closed.Input) (m : Name) :
     i.claimedModule m = true ↔ (toSpec i).ClaimedModule m := by
   simp only [Regula.Closed.Input.claimedModule, Regula.Closed.Input.claimsOf, Bool.not_eq_true',
-    List.isEmpty_eq_false_iff_exists_mem, List.mem_flatMap, Input.ClaimedModule, Input.Claimed,
-    Input.InTarget, toSpec, List.mem_map]
+    List.isEmpty_eq_false_iff_exists_mem, List.mem_flatMap]
   constructor
   · rintro ⟨x, t, ht, hx⟩
     by_cases hm : t.modules.contains m = true
-    · simp only [hm, if_true, List.mem_filterMap] at hx
+    · rw [ite_eq_left hm, List.mem_filterMap] at hx
       obtain ⟨⟨name, c⟩, he, hc⟩ := hx
       by_cases hn : name = t.name
       · subst hn
         cases c with
         | claimed p e =>
-          exact ⟨profile p, execution e, target t, ⟨t, ht, rfl⟩, by simpa using hm, _, he, rfl⟩
+          exact ⟨profile p, execution e, target t, mem_targets.mpr ⟨t, ht, rfl⟩,
+            (show m ∈ t.modules by simpa using hm), mem_manifest.mpr ⟨_, he, rfl⟩⟩
         | excluded => simp at hc
       · simp [hn] at hc
-    · simp [hm] at hx
-  · rintro ⟨p, e, _, ⟨t, ht, rfl⟩, hm, ⟨name, c⟩, he, hx⟩
-    simp only [entry, target, Entry.mk.injEq] at hx hm
-    obtain ⟨rfl, hc⟩ := hx
+    · rw [ite_eq_right hm] at hx
+      simp at hx
+  · rintro ⟨p, e, x, hx, hm, hme⟩
+    obtain ⟨t, ht, rfl⟩ := mem_targets.mp hx
+    obtain ⟨⟨name, c⟩, he, hc⟩ := mem_manifest.mp hme
+    simp only [entry, Entry.mk.injEq] at hc
+    obtain ⟨hn, hcl⟩ := hc
+    have hn' : name = t.name := hn
+    subst hn'
     cases c with
     | claimed q y =>
+      have hcon : t.modules.contains m = true := by simpa using (show m ∈ t.modules from hm)
       refine ⟨(q, y), t, ht, ?_⟩
-      simp only [List.contains_iff_mem, hm, if_true, List.mem_filterMap]
+      rw [ite_eq_left hcon, List.mem_filterMap]
       exact ⟨_, he, by simp⟩
-    | excluded => simp [classification] at hc
+    | excluded => simp [classification] at hcl
 
 theorem excludedModule_iff (i : Regula.Closed.Input) (m : Name) :
     i.excludedModule m = true ↔ (toSpec i).ExcludedModule m := by
@@ -229,14 +245,30 @@ theorem targetOptionFindings_ne_nil (allowed : Name → Bool) (t : Regula.Closed
       ((`autoImplicit, "false") ∉ t.options ∨ (`relaxedAutoImplicit, "false") ∉ t.options ∨
         (∃ o ∈ t.options, (o.1 = `autoImplicit ∨ o.1 = `relaxedAutoImplicit) ∧ o.2 ≠ "false") ∨
         (∃ o ∈ t.options, ¬ allowed o.1 = true) ∨ t.extras ≠ []) := by
-  simp only [Regula.Closed.Input.targetOptionFindings, ne_eq, List.append_eq_nil_iff,
-    List.map_eq_nil_iff, List.filter_eq_nil_iff, not_and_or, List.mem_cons, List.not_mem_nil,
-    or_false, forall_eq_or_imp, forall_eq, Bool.not_eq_true', Bool.not_eq_false,
-    List.contains_iff_mem, Bool.and_eq_true, bne_iff_ne, Bool.not_eq_true, not_and,
-    not_forall, Classical.not_imp, exists_prop]
-  cases hx : t.extras with
-  | nil => simp [not_and_or, or_assoc]
-  | cons x xs => simp [or_assoc]
+  have hnil : Regula.Closed.Input.targetOptionFindings allowed t = [] ↔
+      ((`autoImplicit, "false") ∈ t.options ∧ (`relaxedAutoImplicit, "false") ∈ t.options ∧
+        (∀ o ∈ t.options, (o.1 = `autoImplicit ∨ o.1 = `relaxedAutoImplicit) → o.2 = "false") ∧
+        (∀ o ∈ t.options, allowed o.1 = true) ∧ t.extras = []) := by
+    cases hx : t.extras with
+    | nil =>
+      simp [Regula.Closed.Input.targetOptionFindings, hx, List.filter_eq_nil_iff, and_assoc]
+    | cons x xs =>
+      simp [Regula.Closed.Input.targetOptionFindings, hx]
+  rw [ne_eq, hnil]
+  constructor
+  · intro h
+    apply Classical.byContradiction
+    intro hn
+    simp only [not_or, Classical.not_not, ne_eq] at hn
+    obtain ⟨a, b, c, d, e⟩ := hn
+    exact h ⟨a, b, fun o ho hk => Classical.byContradiction fun hne => c ⟨o, ho, hk, hne⟩,
+      fun o ho => Classical.byContradiction fun hne => d ⟨o, ho, hne⟩, e⟩
+  · rintro (h | h | ⟨o, ho, hk, hne⟩ | ⟨o, ho, hne⟩ | h) ⟨a, b, c, d, e⟩
+    · exact h a
+    · exact h b
+    · exact hne (c o ho hk)
+    · exact hne (d o ho)
+    · exact h e
 
 /-- The function that the checker runs reports a target exactly when it violates RG2006. -/
 theorem rg2006_exact (allowed : Name → Bool) (i : Regula.Closed.Input) (t : Name) :
@@ -246,16 +278,19 @@ theorem rg2006_exact (allowed : Name → Bool) (i : Regula.Closed.Input) (t : Na
   constructor
   · rintro ⟨f, ⟨tg, htg, hf⟩, rfl⟩
     by_cases hc : i.claimedTarget tg.name = true
-    · simp only [hc, if_true] at hf
+    · rw [ite_eq_left hc] at hf
       rw [subject_of_targetOptionFindings hf]
-      refine ⟨target tg, ⟨tg, htg, rfl⟩, rfl, (claimedTarget_iff i _).mp hc, ?_⟩
-      exact (targetOptionFindings_ne_nil allowed tg).mp (List.ne_nil_of_mem hf)
-    · simp [hc] at hf
-  · rintro ⟨_, ⟨tg, htg, rfl⟩, rfl, hc, hv⟩
-    have hne := (targetOptionFindings_ne_nil allowed tg).mpr hv
-    obtain ⟨f, hf⟩ := List.exists_mem_of_ne_nil _ hne
+      exact ⟨target tg, mem_targets.mpr ⟨tg, htg, rfl⟩, rfl, (claimedTarget_iff i _).mp hc,
+        (targetOptionFindings_ne_nil allowed tg).mp (List.ne_nil_of_mem hf)⟩
+    · rw [ite_eq_right hc] at hf
+      simp at hf
+  · rintro ⟨x, hx, rfl, hc, hv⟩
+    obtain ⟨tg, htg, rfl⟩ := mem_targets.mp hx
+    obtain ⟨f, hf⟩ := List.exists_mem_of_ne_nil _ ((targetOptionFindings_ne_nil allowed tg).mpr hv)
     refine ⟨f, ⟨tg, htg, ?_⟩, subject_of_targetOptionFindings hf⟩
-    simpa [(claimedTarget_iff i _).mpr hc] using hf
+    have hcb : i.claimedTarget tg.name = true := (claimedTarget_iff i _).mpr hc
+    rw [ite_eq_left hcb]
+    exact hf
 
 /-- RG2006's option allowlist, as the proposition that its record takes. -/
 def allowedOption (n : Name) : Prop := Regula.Allowlist.admitsOption n = true
@@ -270,14 +305,19 @@ theorem violates2006_congr {P : Name → Prop} {a b : Input} (ht : a.targets = b
 
 /-- The function that the checker runs, at the members it runs with, meets the record `rg2006`. -/
 theorem rg2006_meets : (rg2006 allowedOption).Meets rg2006Checker := by
+  unfold rg2006
   rw [meets_iff]
   intro s _ t
   exact (rg2006_exact _ _ t).trans
     (violates2006_congr (toSpec_ofSpec_targets s) (toSpec_ofSpec_manifest s) t)
 
-theorem autoImplicit_allowed : allowedOption `autoImplicit := by decide
+theorem autoImplicit_allowed : allowedOption `autoImplicit := by
+  unfold allowedOption
+  decide +kernel
 
-theorem relaxedAutoImplicit_allowed : allowedOption `relaxedAutoImplicit := by decide
+theorem relaxedAutoImplicit_allowed : allowedOption `relaxedAutoImplicit := by
+  unfold allowedOption
+  decide +kernel
 
 /-- The obligations of the record of RG2006, at the members that the checker runs with. -/
 theorem rg2006_allowlist_adequate :
@@ -295,16 +335,21 @@ theorem rg2007_exact (allowed : Name → Bool) (i : Regula.Closed.Input) (m : Na
   constructor
   · rintro ⟨f, ⟨r, hr, hf⟩, rfl⟩
     by_cases hc : i.claimedModule r.name = true
-    · simp only [hc, if_true, List.mem_map, List.mem_filter] at hf
-      obtain ⟨x, ⟨hx, hna⟩, rfl⟩ := hf
-      exact ⟨(claimedModule_iff i _).mp hc, record r, by simp [toSpec]; exact ⟨r, hr, rfl⟩, rfl, x,
-        hx, by simpa using hna⟩
-    · simp [hc] at hf
-  · rintro ⟨hc, _, hr, rfl, x, hx, hna⟩
-    obtain ⟨r, hr, rfl⟩ := List.mem_map.mp hr
-    refine ⟨_, ⟨r, hr, ?_⟩, rfl⟩
-    simp only [(claimedModule_iff i _).mpr hc, if_true, List.mem_map, List.mem_filter]
-    exact ⟨x, ⟨hx, by simpa using hna⟩, rfl⟩
+    · rw [ite_eq_left hc] at hf
+      obtain ⟨x, hx, rfl⟩ := List.mem_map.mp hf
+      obtain ⟨hxe, hna⟩ := List.mem_filter.mp hx
+      exact ⟨(claimedModule_iff i _).mp hc, record r, mem_modules.mpr ⟨r, hr, rfl⟩, rfl, x, hxe,
+        by simpa using hna⟩
+    · rw [ite_eq_right hc] at hf
+      simp at hf
+  · rintro ⟨hc, y, hy, rfl, x, hx, hna⟩
+    obtain ⟨r, hr, rfl⟩ := mem_modules.mp hy
+    have hcb : i.claimedModule r.name = true := (claimedModule_iff i _).mpr hc
+    refine ⟨{ rule := .closedSubset, subject := r.name, module := some r.name
+              detail := s!"has entries of the environment extension {x}, outside the allowlist" },
+      ⟨r, hr, ?_⟩, rfl⟩
+    rw [ite_eq_left hcb]
+    exact List.mem_map.mpr ⟨x, List.mem_filter.mpr ⟨hx, by simpa using hna⟩, rfl⟩
 
 /-- RG2007's extension allowlist, as the proposition that its record takes. -/
 def allowedExtension (n : Name) : Prop := Regula.Allowlist.admitsExtension n = true
@@ -320,6 +365,7 @@ theorem violates2007_congr {P : Name → Prop} {a b : Input} (ht : a.targets = b
 
 /-- The function that the checker runs, at the members it runs with, meets the record `rg2007`. -/
 theorem rg2007_meets : (rg2007 allowedExtension).Meets rg2007Checker := by
+  unfold rg2007
   rw [meets_iff]
   intro s _ m
   exact (rg2007_exact _ _ m).trans (violates2007_congr (toSpec_ofSpec_targets s)
@@ -329,9 +375,12 @@ theorem rg2007_meets : (rg2007 allowedExtension).Meets rg2007Checker := by
 theorem allowlist_closed : ClosedAllowlist allowedExtension := by
   intro x hx
   simp only [metaExtensions, List.mem_cons, List.not_mem_nil, or_false] at hx
-  rcases hx with rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl <;> decide
+  unfold allowedExtension
+  rcases hx with rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl <;> decide +kernel
 
-theorem declRangeExt_allowed : allowedExtension `Lean.declRangeExt := by decide
+theorem declRangeExt_allowed : allowedExtension `Lean.declRangeExt := by
+  unfold allowedExtension
+  decide +kernel
 
 /-- The obligations of the record of RG2007, at the members that the checker runs with. -/
 theorem rg2007_allowlist_adequate :
@@ -346,7 +395,7 @@ theorem rg2007_checker_refuses_meta {i : Regula.Closed.Input} {r : Regula.Closed
     (hmeta : x ∈ metaExtensions) :
     r.name ∈ (i.extensionFindings Regula.Allowlist.admitsExtension).map (·.subject) :=
   (rg2007_exact _ i _).mpr (rg2007_refuses_meta allowlist_closed ((claimedModule_iff i _).mp hc)
-    (r := record r) (List.mem_map.mpr ⟨r, hr, rfl⟩) rfl hx hmeta)
+    (r := record r) (mem_modules.mpr ⟨r, hr, rfl⟩) rfl hx hmeta)
 
 /-! ## A claimed module that imports a tool module -/
 
@@ -358,9 +407,12 @@ theorem coverage_refuses_tool_import {i : Regula.Closed.Input} {r : Regula.Close
   have hcb := (claimedModule_iff i _).mpr hc
   have hxb := (excludedModule_iff i _).mpr hx
   simp only [Regula.Closed.Input.coverageFindings, List.mem_map, List.mem_flatMap]
-  refine ⟨_, ⟨r, hr, ?_⟩, rfl⟩
-  simp only [hcb, if_true, List.mem_append, List.mem_map, List.mem_filter]
-  exact Or.inr ⟨n, ⟨hn, hxb⟩, rfl⟩
+  refine ⟨{ rule := .coverage, subject := r.name, module := some r.name
+            detail := s!"is claimed and imports {n}, a module of an excluded target" },
+    ⟨r, hr, ?_⟩, rfl⟩
+  rw [ite_eq_left hcb]
+  exact List.mem_append_right _ (List.mem_map.mpr ⟨n, List.mem_filter.mpr ⟨hn, hxb⟩, rfl⟩)
+
 
 /-! ## The verdict -/
 
