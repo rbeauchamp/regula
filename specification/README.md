@@ -371,6 +371,7 @@ But the list of `lake check` is fixed, and it gives no axiom set for each consta
   - `rg2006_meets`: it meets the record `rg2006` at the members that the checker runs with.
   - `rg2006_allowlist_adequate`: the obligations of that record.
   - `run_pass_holds`: a pass of `Regula.Closed.run` holds the rule of each environment.
+  - `rg2006_refuses_extras`: it reports a claimed target with an extra argument, a plugin or a dynamic library.
 - **The members**: `Regula.Allowlist.options`, which names each option with its reason. The list holds no option that can stop a default warning or a check of Lean at any value.
 - **Decided on the owner's behalf** in [#484]: the rule reads a name and no value. Thus an option that one value turns off is refused at each value. So `linter.unusedVariables` is refused at `true` as well, which is its default and adds nothing. The same reason leaves out `exponentiation.threshold`, which the rule before this one accepted. Raising it stops a default warning.
 - **Measured** on 2026-10-30, by reading Acorn's `lean/lakefile.lean` at `718d1d0`, a real Mathlib project. Acorn also sets some others, which it must remove to take this Regula. These are `linter.unusedVariables`, `linter.unnecessarySimpa` and `linter.deprecated`, each at its default `true`, and the extra argument `-j2` in `weakLeanArgs`.
@@ -425,7 +426,7 @@ For each of the seven rules: the fate is retired, with leaf [#488]. There is no 
   - An attribute of local scope on an ordinary definition leaves no record: `@[local macro k]`, `@[local term_elab k]` or `@[local tactic k]` (**measured** on 2026-10-30). The first one changed what a term of its module elaborates to, in a file with no `import Lean`. The module had the entries of an ordinary one.
   - If such code changes constants, `lake check` and the axiom sets find it. If it removes messages, `--wfail` does not see them. If it changes entries of an admitted extension, such as compiled code, a claim of execution can be false.
 - **Open**: the owner can ask to close this gap. Then the checker reads the commands of each claimed module with Lean's parser, and refuses a command outside a closed set. That is a second input, which this design leaves out.
-- **Supersedes**: [#468] and [#462] close with [#484], because a claimed module can no longer declare their macros.
+- **Supersedes**: none. Each of [#468] and [#462] stays open. [RG2007] refuses the macros that they report (**measured**), but a local macro attribute on an ordinary definition reaches the same failure (**measured** on 2026-10-30). The module builds with no message about the redundant alternative, and no rule reports it.
 
 #### `RG6001`: the obligations of each deliverable
 
@@ -464,7 +465,7 @@ None of these issues closes before the change that replaces it lands. The rule e
 | --- | --- |
 | [#477], [#475], [#474], [#473], [#464], [#422], [#411], [#359], [#425] | Superseded by [#483], which removes the observation of elaboration, options and messages. A gap that no input can show is an accepted risk of [RG2003] or [RG2006]. |
 | [#472], [#471], [#469] | Superseded by [#482]. [RG2003] goes to `lake build --wfail`, and its entry records the messages that Lean or code drops. |
-| [#468], [#462] | Superseded by [#484]. [RG2007] refuses the macros of a claimed module. |
+| [#468], [#462] | Not superseded. [RG2007] refuses the macros that they report, but a local macro attribute on an ordinary definition reaches the same failure, an accepted risk of [RG2007]. |
 | [#295] | Superseded by [#484]. [RG2006] refuses plugins and dynamic libraries on a claimed target. |
 | [#441] | Superseded by [#483]. The loader refuses a read that fails, as [RG2001] states. |
 | [#281] | Superseded by [#483] for initializers, because the shell loads no extension state. Lake's load still elaborates a `lakefile.lean`, which is project code. That part stays an accepted risk. |

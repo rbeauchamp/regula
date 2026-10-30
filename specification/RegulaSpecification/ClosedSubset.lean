@@ -292,6 +292,14 @@ theorem rg2006_exact (allowed : Name → Bool) (i : Regula.Closed.Input) (t : Na
     rw [ite_eq_left hcb]
     exact hf
 
+/-- The checker refuses a claimed target with any extra argument of Lean, plugin or dynamic library,
+which `Regula.Load.targetOf` puts in `extras`, whatever its allowlist. -/
+theorem rg2006_refuses_extras (allowed : Name → Bool) {i : Regula.Closed.Input}
+    {t : Regula.Closed.Target} (ht : t ∈ i.targets) (hc : i.claimedTarget t.name = true)
+    (hx : t.extras ≠ []) : t.name ∈ (i.optionFindings allowed).map (·.subject) :=
+  (rg2006_exact allowed i _).mpr ⟨target t, mem_targets.mpr ⟨t, ht, rfl⟩, rfl,
+    (claimedTarget_iff i _).mp hc, Or.inr (Or.inr (Or.inr (Or.inr hx)))⟩
+
 /-- RG2006's option allowlist, as the proposition that its record takes. -/
 def allowedOption (n : Name) : Prop := Regula.Allowlist.admitsOption n = true
 

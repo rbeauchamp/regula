@@ -74,7 +74,7 @@ replays was elaborated with the observer the build has.
 - `accepted_families_pass`: one option of each accepted family adds no failure.
 - `autoImplicit_argument_fails`, `linter_argument_fails`, `warn_argument_fails`,
   `undeclared_weak_argument_fails`, `maxHeartbeats_argument_passes`,
-  `excluded_linter_argument_passes`, `plugin_argument_passes`: fixed argument lists.
+  `excluded_linter_argument_passes`: fixed argument lists.
 - `optionOf_eq_replacePrefix`: `optionOf` is the call by which Lean removes a leading `weak.`.
 
 ## Option names and values
@@ -1453,17 +1453,6 @@ theorem excluded_linter_argument_passes (options : List (Name × OptionValue))
   have hr : (OptionValue.string "false").readsAs (.bool false) = true := by decide
   rw [ho] at hc
   simp [required, baseline, mathlibBaseline, admits, hr] at hc
-
-/-- Arguments that are not `-D`, such as `--plugin` and `--tstack`, add no failure. -/
-theorem plugin_argument_passes (options : List (Name × OptionValue)) (mathlib : Bool) (n : Name)
-    (v : OptionValue) :
-    Failure.leanArgument n v ∉
-      failures ⟨options, ["--plugin=libDemo.dylib", "--tstack=100000"], true, true⟩ mathlib := by
-  rw [leanArgument_mem_failures_iff]
-  rintro ⟨name, value, hd, -⟩
-  have ht : argumentTexts ["--plugin=libDemo.dylib", "--tstack=100000"] = [] := by decide
-  rw [← mem_argumentTexts_iff, ht] at hd
-  simp at hd
 
 /-! ## Mathlib's header linter
 
