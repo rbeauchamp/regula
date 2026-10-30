@@ -6,9 +6,7 @@ This Regula revision supports the exact Lean version and full commit declared by
 That policy supplies the identity checked by Lake configuration and `regula doctor`. The observed
 Core capability must also agree with that policy.
 
-The [supported-toolchain pins](../../README.md#supported-toolchain) identify the separate
-Mathlib integration dependency. See the contributor guide for
-[dependency artifact reuse](contributing.md#share-one-mathlib-across-local-copies) and the
+See the [supported-toolchain pins](../../README.md#supported-toolchain), the contributor guide's
 [release policy](contributing.md#release), and the adoption guide's
 [compatibility table](adoption.md#1-require-regula) for published releases' toolchains.
 
