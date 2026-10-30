@@ -34,7 +34,7 @@ The checker reads one closed input and gives one verdict: pass, fail or incomple
 | `Regula.Shell` | The report of a run and its exit code. |
 | `Regula.LintMain` | The root of the `lint` executable. |
 
-Lean's own tools decide [RG2003] and [RG2005]: `lake build --wfail` and `lake check`. The checker does not decide the documentation rules [RG4001] to [RG5003]. Leaf #488 retires them to written guidance.
+Lean's own tools decide [RG2003] and [RG2005]: `lake build --wfail` and `lake check`. No check decides the documentation rules [RG4001] to [RG5003]. They are retired to written guidance, and the lifecycle of each in the registry records the retirement.
 
 ## The rule registry
 
@@ -64,10 +64,10 @@ the rows whose review or mechanical check the clauses feed, not that those rows 
 | 3.9–3.10 | THEOREM-04/08/09, SCOPE-02/03, DOC-02, FOUND-01/02. Conditional and open claims are not rejected for lacking an antecedent witness. |
 | 4.1–4.4 | TYPE-01–05, THEOREM-01/02/07/08, SCOPE-02/03. Numeric and mathematical-interface adequacy are specified-domain obligations. |
 | 4.5 | FOUND-01–05, BUILD-02, COMP-01. The exact least label is reported separately from the selected maximum and from executable witnesses. |
-| 5.1–5.4 | DOC-01/02, THEOREM-01, SCOPE-02. Presence checks are [RG5001]–[RG5003], and [RG5001] also checks module-docstring placement; prose fidelity, intent adequacy and readability remain review. |
-| 6.1–6.7 | DECL-01/04 (acyclic imports and actual elaboration), DOC-01, TYPE-06, SCOPE-04. Naming, import minimality and layout are recommendations. The §6.7 community linters are required configuration: [RG2003] rejects their warnings, [RG2006] checks their Lake enablement and rejects a target-wide disable, and every declaration-scoped disable (§6.2) is DECL-01 review. [RG5001] checks module-docstring placement (§5.3) and repeated imports (§6.4). Batteries' environment linters are recommended; no community linter discharges a row. |
+| 5.1–5.4 | DOC-01/02, THEOREM-01, SCOPE-02. [RG5001] to [RG5003] are retired to written guidance. Thus review checks the presence and placement of docstrings, prose fidelity, intent adequacy and readability. |
+| 6.1–6.7 | DECL-01/04 (acyclic imports and actual elaboration), DOC-01, TYPE-06, SCOPE-04. Naming, import minimality and layout are recommendations. The §6.7 community linters are required configuration: [RG2003] rejects their warnings, [RG2006] checks their Lake enablement and rejects a target-wide disable, and every declaration-scoped disable (§6.2) is DECL-01 review. Module-docstring placement (§5.3) and repeated imports (§6.4) are the written guidance of [RG5001], which review checks. Batteries' environment linters are recommended; no community linter discharges a row. |
 | 7.1–7.5 | DECL-01–04, FOUND-01–05, THEOREM-01/07. Exact environment, ownership, admission, attribution and contract scope. |
-| 7.6–7.7 | COMP-01–04, DOC-03–05. Conservative compiler closure and the exact document-worker protocol. |
+| 7.6–7.7 | COMP-01–04, DOC-03–05. Conservative compiler closure, and the fence protocol of documentation examples, which review checks. |
 | 7.8–7.9 | MUT-01–05; checker qualification and the optional serialized graph are conditional. |
 | 7.10–7.11 | BUILD-01–04, DECL-01–04. The adoption mode and the actual enabled invocation determine supported enforcement. |
 | 8 and Critical Violations | The checklist, the result rule and triage; no relaxed compliance level. |

@@ -415,7 +415,8 @@ core-only code.
   The last four lines apply only with Mathlib. The excluded linters enforce Mathlib's
   contribution header, its ban on `#` commands such as a passing `#guard`, and its file-length
   limit; turning off the header linter also turns off its checks that the module docstring comes
-  first and that no import repeats, which [RG5001] checks instead (standard §5.3 and §6.4).
+  first and that no import repeats, which review checks instead under the written guidance of
+  [RG5001] (standard §5.3 and §6.4).
   In `lakefile.lean` the same options are
   ``leanOptions := #[⟨`linter.missingDocs, true⟩, ⟨`autoImplicit, false⟩, ⟨`relaxedAutoImplicit, false⟩, ⟨`weak.linter.mathlibStandardSet, true⟩, ⟨`weak.linter.style.header, false⟩, ⟨`weak.linter.hashCommand, false⟩, ⟨`weak.linter.style.longFile, .ofNat 0⟩]``.
   The linters report through build warnings, so `lake build --wfail` refuses each of them
@@ -598,7 +599,14 @@ audit refuses a `decides` entry that names its own surface or no claimed surface
 ## Limits
 
 - No theorem yet relates a rule function of the checker to the violation predicate of its rule. Leaf #487 proves these contracts. Until then, a pass of the checker is an observation of the functions of `Regula.Rules`.
-- The checker does not decide the documentation rules [RG4001] to [RG5003]. Leaf #488 retires them to written guidance.
+- The seven documentation rules are written guidance, and no check of Regula reads them. Review checks them, by standard §5.1 to §5.3 and §7.7. The specification retires them because each failure that they found is cheap to see and cheap to correct by hand. Thus each such failure is an accepted risk:
+  - [RG4001]: a misplaced fence marker, a fence that is not closed, or Lean code outside a first-column `lean` fence.
+  - [RG4002]: a `lean` fence that does not elaborate as printed with no warning, or that has a declaration that fails the declaration and axiom rules.
+  - [RG4003]: a `lean-fail` fence that does not fail with one error that matches its pattern.
+  - [RG4004]: a `lean-trusted-compiler` fence that does not elaborate with no warning, or that contains no compiler-trusting declaration.
+  - [RG5001]: a claimed module with no module docstring as its first command after the imports, or with a repeated import.
+  - [RG5002]: a public `@[regula_material]` declaration with no docstring.
+  - [RG5003]: a public `@[regula_material]` docstring with no `# Intent` section that has text.
 - The checker reads no option that a source file sets, no message and no command of a module. A command that runs code, for example `#eval` or `run_cmd`, leaves no record that the checker can read.
 - [RG2006] accepts the options that the previous checker accepted, until leaf #484 sets the members of its allowlist. `RegulaPolicy.Community.accepts` lists them.
 - [RG2006] reads an option by its name alone. It rejects a `weak.` entry for an option that no module declares, although Lean ignores that entry. Delete such an entry.
@@ -623,6 +631,9 @@ audit refuses a `decides` entry that names its own surface or no claimed surface
 [RG3001]: https://rbeauchamp.github.io/regula/dev/rules/RG3001/
 [RG3002]: https://rbeauchamp.github.io/regula/dev/rules/RG3002/
 [RG4001]: https://rbeauchamp.github.io/regula/dev/rules/RG4001/
+[RG4002]: https://rbeauchamp.github.io/regula/dev/rules/RG4002/
+[RG4003]: https://rbeauchamp.github.io/regula/dev/rules/RG4003/
+[RG4004]: https://rbeauchamp.github.io/regula/dev/rules/RG4004/
 [RG5001]: https://rbeauchamp.github.io/regula/dev/rules/RG5001/
 [RG5002]: https://rbeauchamp.github.io/regula/dev/rules/RG5002/
 [RG5003]: https://rbeauchamp.github.io/regula/dev/rules/RG5003/

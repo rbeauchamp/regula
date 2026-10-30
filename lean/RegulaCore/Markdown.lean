@@ -32,7 +32,7 @@ md4c's decision, and which piece each becomes is that module's (see Boundaries).
   Markdown document links a rule to: its development page, or, in a document of `stableDocuments`
   only, its stable address when the rule is in a release. `Target` states them with no test, and
   `target` decides it.
-- `auditMarker`: the one form of raw HTML that is read, a fence marker of the documentation audit.
+- `auditMarker`: the one form of raw HTML that is read, a fence marker of the standard (§7.7).
 - `Anchor`, `Placed`, `leftmost`, `rightmost`, `leftmost_le`, `le_rightmost`: the source lines of
   a finding. The parser reports text, not positions, so the lines are bracketed: every placement
   of the reported text on the source lines, in order, puts each piece between the lines
@@ -1268,8 +1268,8 @@ theorem target_iff (file : String) (id : RuleId) (destination : String) :
   simp only [target, Target, Bool.or_eq_true, Bool.and_eq_true, beq_iff_eq,
     List.contains_iff_mem, startsWith_iff_append, released_iff, or_assoc, and_assoc]
 
-/-- Whether `text`, the text of a raw HTML block, is exactly one fence marker of the
-documentation audit, the two forms the standard defines (§7.7):
+/-- Whether `text`, the text of a raw HTML block, is exactly one fence marker of the written
+guidance on documentation examples, the two forms the standard defines (§7.7):
 `<!-- lean-trusted-compiler -->`, or `<!-- lean-fail: PATTERN -->` on one line with no `>` in
 `PATTERN`. Such a block is one HTML comment and nothing else, since a comment ends only at a
 `>`, so it renders as nothing. It is the only raw HTML the check reads. -/

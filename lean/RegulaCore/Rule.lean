@@ -4,7 +4,6 @@ public import RegulaCore.RuleId
 public import RegulaCore.Edition
 public import RegulaCore.Standard
 public import RegulaPolicy.Foundation
-public import RegulaPolicy.Intent
 
 /-! # Rule registry
 
@@ -54,6 +53,11 @@ def Lifecycle.introduced {id : RuleId} : Lifecycle id → Build
 def Lifecycle.builds {id : RuleId} : Lifecycle id → List Build
   | .active introduced => [introduced]
   | .retired introduced version _ => [introduced, version]
+
+/-- Whether the rule is retired: written guidance that no check reports. -/
+def Lifecycle.isRetired {id : RuleId} : Lifecycle id → Bool
+  | .active _ => false
+  | .retired .. => true
 
 /-- The kind of property a rule checks; the rule index groups and filters rules by it. -/
 inductive RuleCategory where
@@ -390,26 +394,9 @@ theorem ruleForFailure_injective : Function.Injective ruleForFailure := by
   intro a b h
   cases a <;> cases b <;> first | rfl | cases h
 
-/-- Total bridge from the executed material-documentation classification
-(`RegulaPolicy.materialDocumentationFailure`) to the single rule registry. -/
-def ruleForMaterialDocumentation : RegulaPolicy.MaterialDocumentationFailure → RuleId
-  | .missingDocstring => .materialDocumentation
-  | .missingIntent => .materialIntent
-
-/-- The two material-documentation failures reach distinct rules. -/
-theorem ruleForMaterialDocumentation_injective :
-    Function.Injective ruleForMaterialDocumentation := by
-  intro a b h
-  cases a <;> cases b <;> first | rfl | cases h
-
-/-- Finding detail for each material-documentation failure, prefixed by its rule's applicability. -/
-def materialDocumentationDetail : RegulaPolicy.MaterialDocumentationFailure → String
-  | .missingDocstring =>
-      "material-documentation: document the claim, assumptions and evidence at this declaration"
-  | .missingIntent => "material-intent: add a nonempty `# Intent` section stating the requirement \
-    this claim must meet"
-
-/-- Total metadata for the rule vocabulary; every registered rule is enforced by the checker.
+/-- Total metadata for the rule vocabulary. An active rule is enforced by the checker, or, for
+RG2003 and RG2005, by the Lean tool that the specification hands it to; a retired rule is written
+guidance that no check reports (`Lifecycle.retired`, `Regula.Guidance.checkedBy`).
 Example bytes are embedded from `examples/rules/<ID>/`; the `RegulaCore` library `needs` that
 directory as a Lake input, so editing an example rebuilds this module. -/
 def descriptor : (id : RuleId) → RuleDescriptor id
@@ -968,7 +955,7 @@ def descriptor : (id : RuleId) → RuleDescriptor id
           both implementations. In both, `spell` runs `Nat.repr`, whose replacement is the Lean \
           toolchain's own: it passes as the toolchain's trusted base, reported once." } }
   | .fenceStructure => {
-      lifecycle := .active (.release ⟨4, 34, 0⟩)
+      lifecycle := .retired (.release ⟨4, 34, 0⟩) .unreleased none
       title := "Documentation fences must have a valid classification", category := .documentation
       normativeClauses := [.documentationChecks]
       applicability := "fence-structure"
@@ -976,11 +963,11 @@ def descriptor : (id : RuleId) → RuleDescriptor id
       requirement := "Each `lean-fail` or `lean-trusted-compiler` marker sits immediately before \
         its `lean` fence, every fence is closed, and Lean code is shown only as a `lean` fence in \
         the first column."
-      rationale := "A misspelled or misplaced marker must not silently turn a negative example \
-        into a positive one or hide a fence from checking. The scanner reads lines and a Markdown \
-        reader reads blocks, so a Lean block in a quotation, in a list item, behind a different \
-        spelling of the language or in raw HTML is rendered and not checked. Fail-closed \
-        structure keeps every documented Lean claim checked as intended."
+      rationale := "A misspelled or misplaced marker turns a negative example into a positive \
+        one, or hides a fence from the project's own check of its examples. A Lean block in a \
+        quotation, in a list item, behind a different spelling of the language or in raw HTML is \
+        rendered, and a check that reads fences from the first column misses it. Plain structure \
+        keeps every documented Lean claim in a fence that can be checked."
       remedy := "Put each marker immediately before the `lean` fence it classifies, with a valid \
         pattern, and close every fence. Write each Lean example as a `lean` fence that opens and \
         closes in the first column, outside quotations, list items and other fences."
@@ -1001,7 +988,7 @@ def descriptor : (id : RuleId) → RuleDescriptor id
             "The correction removes the orphan marker; the positive reflexivity fence is \
               unchanged." } }
   | .positiveExample => {
-      lifecycle := .active (.release ⟨4, 34, 0⟩)
+      lifecycle := .retired (.release ⟨4, 34, 0⟩) .unreleased none
       title := "Positive examples require warning-free elaboration and admission", category :=
           .documentation
       normativeClauses := [.documentationChecks]
@@ -1014,20 +1001,20 @@ def descriptor : (id : RuleId) → RuleDescriptor id
       remedy := "Make the example correct as printed: fix its errors or warnings, and make its \
         declarations satisfy the same rules as project code."
       rewrites := [
-        "Fix the underlying finding shown with this diagnostic (for example prove the statement \
-          instead of declaring an axiom).",
+        "Fix what makes the example fail, for example prove the statement instead of declaring \
+          an axiom.",
         "If the example is meant to fail, mark it with an exact `lean-fail` marker instead \
           (RG4003).",
-        "Import what the example needs inside the fence; the checker inserts nothing."]
+        "Import what the example needs inside the fence, so that it elaborates as printed."]
       examples := {
         language := .markdown
         audience := .adopter
         compliant := include_str "../../examples/rules/RG4002/Fixed.md"
         noncompliant := include_str "../../examples/rules/RG4002/Violation.md"
         correction := "The correction proves the same reflexivity claim in the positive fence; the \
-          violation reports the RG1001 underlying rejection alongside RG4002." } }
+          violation states it as an `axiom`, which RG1001 refuses in claimed code." } }
   | .negativeExample => {
-      lifecycle := .active (.release ⟨4, 34, 0⟩)
+      lifecycle := .retired (.release ⟨4, 34, 0⟩) .unreleased none
       title := "Negative examples require completed intended rejection", category := .documentation
       normativeClauses := [.documentationChecks]
       applicability := "negative-example"
@@ -1039,8 +1026,8 @@ def descriptor : (id : RuleId) → RuleDescriptor id
       remedy := "Make the example fail for exactly the documented reason, adjust the pattern to \
         match one real error message, or remove the marker if the example is valid."
       rewrites := [
-        "If the example is actually valid, remove the `lean-fail` marker so it is checked as \
-          positive.",
+        "If the example is actually valid, remove the `lean-fail` marker so that it is a \
+          positive example.",
         "If it should fail, edit the example so it fails for the documented reason, and write a \
           pattern that matches that one error message.",
         "Keep patterns to literal fragments joined by `.*` and alternatives separated by `|`."]
@@ -1052,23 +1039,23 @@ def descriptor : (id : RuleId) → RuleDescriptor id
         correction := "The correction labels an already valid reflexivity proof as a positive \
           example instead of inventing a compiler failure." } }
   | .trustedExample => {
-      lifecycle := .active (.release ⟨4, 34, 0⟩)
+      lifecycle := .retired (.release ⟨4, 34, 0⟩) .unreleased none
       title := "Teaching examples require authenticated compiler classification", category :=
           .documentation
       normativeClauses := [.documentationChecks]
       applicability := "trusted-example"
       evidenceModes := [.documentationExample]
-      requirement := "A `lean-trusted-compiler` fence elaborates warning-free and contains an \
-        authenticated compiler-trusting declaration."
+      requirement := "A `lean-trusted-compiler` fence elaborates warning-free and contains a \
+        compiler-trusting declaration."
       rationale := "Conforming claims reject compiler-trusting proofs (RG1004). A teaching fence \
-        is how the documentation shows one: it is classified and never counts as a conforming \
-        positive. A marker on an ordinary example would hide it from positive checking."
+        is how the documentation shows one: it is marked and never counts as a conforming \
+        positive. A marker on an ordinary example would present it as compiler-trusting."
       remedy := "Use the marker only for an example that demonstrates `native_decide`, \
         `decide +native` or `bv_decide` (or another authenticated compiler-trusting mechanism); \
         otherwise remove it."
       rewrites := [
-        "Remove the marker from an example that is an ordinary kernel proof; it is then checked as \
-          a positive example.",
+        "Remove the marker from an example that is an ordinary kernel proof; it is then a \
+          positive example.",
         "For a genuine teaching example, keep the native proof and import only the module that \
           provides its tactic (for example `import Init`, or `import Std.Tactic.BVDecide` for \
           `bv_decide`)."]
@@ -1080,7 +1067,7 @@ def descriptor : (id : RuleId) → RuleDescriptor id
         correction := "The correction labels the same kernel proof as a positive example rather \
           than as native teaching." } }
   | .moduleDocumentation => {
-      lifecycle := .active (.release ⟨4, 34, 0⟩)
+      lifecycle := .retired (.release ⟨4, 34, 0⟩) .unreleased none
       title := "Claimed modules need a leading module docstring and no repeated import"
       category := .documentation
       normativeClauses := [.moduleDocumentation, .importDiscipline]
@@ -1113,7 +1100,7 @@ def descriptor : (id : RuleId) → RuleDescriptor id
         correction :=
             "The correction adds module documentation to the unchanged reflexivity evidence." } }
   | .materialDocumentation => {
-      lifecycle := .active (.release ⟨4, 34, 0⟩)
+      lifecycle := .retired (.release ⟨4, 34, 0⟩) .unreleased none
       title := "Registered public material declarations require docstrings", category :=
           .documentation
       normativeClauses := [.inlineDocumentation]
@@ -1139,7 +1126,7 @@ def descriptor : (id : RuleId) → RuleDescriptor id
         correction := "The correction adds the registered theorem's docstring, including its `# \
           Intent` section; registration, proposition and proof are unchanged." } }
   | .materialIntent => {
-      lifecycle := .active (.release ⟨4, 34, 0⟩)
+      lifecycle := .retired (.release ⟨4, 34, 0⟩) .unreleased none
       title := "Registered public material declarations require an Intent section", category :=
           .documentation
       normativeClauses := [.faithfulExplanation]

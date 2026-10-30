@@ -24,9 +24,9 @@ brings in Lean's attribute framework; no definition or proof here uses it. Its d
 `grant` and `runChecked` are registered with `@[regula_decision]`, so RG1008 requires the decision
 contract each has (`checked_admit`, `checked_grant`, `checked_runChecked`). Its material
 claims `RequiredContracts`, `required_contracts` and `checked_executable` are registered with
-`@[regula_material]`, so RG5002/RG5003 require each to carry a docstring with a nonempty Intent
-section (standard §5.2); whether each Intent states the right requirement remains
-semantic review.
+`@[regula_material]`, so the written guidance of RG5002 and RG5003 asks each to carry a docstring
+with a nonempty Intent section (standard §5.2); whether each Intent states the right requirement
+remains semantic review.
 
 Reuse account (standard §1.4, §3.2.5): the state, interpreter, and
 monad stack reuse `Option`, `List.foldl`, `ExceptT`, and `StateM` from the

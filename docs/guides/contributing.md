@@ -354,9 +354,9 @@ in its GitHub dialect (tables, strikethrough, task lists and autolinks), and
 [`markdown/RegulaMarkdown.lean`](../../markdown/RegulaMarkdown.lean) translates its parse into
 pieces (prose, code, the edges of links, refusals, and the boundaries between runs and lines)
 for `Regula.Markdown`, which decides on the pieces (`documentErrors_nil_iff`). The theorem is
-about the pieces it is given; the translation has no theorem. Hand-written readers of
-Markdown remain elsewhere in the repository and are no part of this check: `Regula.Prose.scanGenerated`, which finds the code spans and links of generated
-prose, and `RegulaPolicy.Intent`, which finds the heading lines of a docstring.
+about the pieces it is given; the translation has no theorem. A hand-written reader of
+Markdown remains elsewhere in the repository and is no part of this check: `Regula.Prose.scanGenerated`, which finds the code spans and links of generated
+prose.
 
 - Prose is every text md4c reports outside code spans and code blocks: paragraphs, headings,
   list items, block quotes, table cells, emphasis, link text and image descriptions. A rule ID
@@ -882,5 +882,3 @@ Git requires such as `rev = "v0.2.0"` name the tag directly and involve no versi
 [RG2005]: https://rbeauchamp.github.io/regula/dev/rules/RG2005/
 [RG2006]: https://rbeauchamp.github.io/regula/dev/rules/RG2006/
 [RG5001]: https://rbeauchamp.github.io/regula/dev/rules/RG5001/
-[RG5002]: https://rbeauchamp.github.io/regula/dev/rules/RG5002/
-[RG5003]: https://rbeauchamp.github.io/regula/dev/rules/RG5003/

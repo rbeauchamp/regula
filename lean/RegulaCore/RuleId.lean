@@ -65,22 +65,26 @@ inductive RuleId where
   /-- RG3002: under checked execution, a reachable replacement or `extern` boundary has no
   admitted kernel-checked correspondence with its reference. -/
   | executionBoundary
-  /-- RG4001: a documentation fence marker is misplaced or invalid, a fence is not closed, or a
-  line can open a Lean block at a place that the audit does not check. -/
+  /-- RG4001, retired to written guidance: a documentation fence marker is misplaced or invalid,
+  a fence is not closed, or a line can open a Lean block outside a first-column `lean` fence. -/
   | fenceStructure
-  /-- RG4002: an unmarked `lean` documentation fence fails to elaborate warning-free or fails
-  the declaration and axiom rules. -/
+  /-- RG4002, retired to written guidance: an unmarked `lean` documentation fence fails to
+  elaborate warning-free or fails the declaration and axiom rules. -/
   | positiveExample
-  /-- RG4003: a `lean-fail` fence does not fail with one error matching its pattern. -/
+  /-- RG4003, retired to written guidance: a `lean-fail` fence does not fail with one error
+  matching its pattern. -/
   | negativeExample
-  /-- RG4004: a `lean-trusted-compiler` fence does not elaborate warning-free with an
-  authenticated compiler-trusting declaration. -/
+  /-- RG4004, retired to written guidance: a `lean-trusted-compiler` fence does not elaborate
+  warning-free with a compiler-trusting declaration. -/
   | trustedExample
-  /-- RG5001: a claimed module lacks a leading module docstring or repeats an import. -/
+  /-- RG5001, retired to written guidance: a claimed module lacks a leading module docstring or
+  repeats an import. -/
   | moduleDocumentation
-  /-- RG5002: a public `@[regula_material]` declaration has no docstring. -/
+  /-- RG5002, retired to written guidance: a public `@[regula_material]` declaration has no
+  docstring. -/
   | materialDocumentation
-  /-- RG5003: a public `@[regula_material]` docstring has no nonempty `# Intent` section. -/
+  /-- RG5003, retired to written guidance: a public `@[regula_material]` docstring has no
+  nonempty `# Intent` section. -/
   | materialIntent
   deriving Repr, BEq, DecidableEq, Inhabited
 

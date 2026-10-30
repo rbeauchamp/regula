@@ -13,7 +13,7 @@ The standard's only source is the Verso library `RegulaStandard` in [`website/`]
 no Markdown copy. The sources are plain text, so an agent without network access can read the
 standard there, including from an adopting project's `.lake/packages/regula/`. Every `lean`
 block of the standard and every Lean fence below `docs/` follows the
-[checked example convention](https://rbeauchamp.github.io/regula/dev/standard/introduction/#lean-example-convention).
+[example convention](https://rbeauchamp.github.io/regula/dev/standard/introduction/#lean-example-convention).
 
 ## Use Regula
 

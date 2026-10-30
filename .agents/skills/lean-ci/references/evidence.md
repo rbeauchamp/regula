@@ -39,9 +39,9 @@ The timings and hosted outcomes below were observed; they are not proofs.
 The corpus's displayed `detectorSeconds` brackets the fresh checker subprocess, including
 nested builds, fence compilation/import/admission and result serialization as applicable.
 Fixture setup, Python export and the subsequent qualifier are outside that timer.
-For example, [RG4001]'s orphan-marker fixture also has a valid Lean fence: the documentation
-driver checks that fence before emitting its structural finding. Seconds for that complete
-invocation do not measure the scanner alone. The separate native-editor observations
+For example, [RG4001]'s orphan-marker fixture also had a valid Lean fence. The documentation
+driver, which Regula no longer ships, checked that fence before it emitted its structural
+finding. Seconds for that complete invocation did not measure the scanner alone. The separate native-editor observations
 use already-live snapshots and provisioned imports, not fresh project admission.
 
 ## Regula: invocation-local Lake environment capture

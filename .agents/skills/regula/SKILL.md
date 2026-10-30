@@ -5,7 +5,7 @@ description: Regula, the strict standard that this project's Lean code and proof
 
 # Regula agent briefing
 
-This project's Lean code and proofs must meet the Regula standard. Apply these rules while writing Lean, not only after the linter runs. This is the complete mechanical rule set of the installed Regula version, ordered for writing code.
+This project's Lean code and proofs must meet the Regula standard. Apply these rules while writing Lean, not only after the linter runs. This is the complete rule set of the installed Regula version, ordered for writing code. A rule marked retired is written guidance: no check reports it, and review checks it.
 
 - Build the claimed targets with `lake build --wfail`, then check the finished build with `lake lint`. Exit codes: `0` pass, `1` fail, `2` incomplete.
 - A finding is one line: its rule ID, the constant and its module, what is wrong, and the link to the rule's page. `lake exe regula explain <ID>` prints the full rule, with why, common rewrites and a compliant example, offline; `lake exe regula rules` lists all rules.
@@ -102,7 +102,7 @@ Compliant example: as [RG1002](https://rbeauchamp.github.io/regula/dev/rules/RG1
 
 Applies to claimed modules and `@[regula_material]` declarations.
 
-### [RG5001](https://rbeauchamp.github.io/regula/dev/rules/RG5001/) Claimed modules need a leading module docstring and no repeated import
+### [RG5001](https://rbeauchamp.github.io/regula/dev/rules/RG5001/) Claimed modules need a leading module docstring and no repeated import (retired: written guidance)
 
 Every claimed module has a module docstring (`/-! … -/`) as its first command after the imports, and its header repeats no import with the same modifiers.
 Fix: Add a module docstring that identifies the module's material declarations and assumptions, directly after the imports and before any `public section`, and delete repeated imports.
@@ -114,7 +114,7 @@ Reflexivity for every natural number; no additional assumptions. -/
 theorem reflexive (n : Nat) : n = n := rfl
 ```
 
-### [RG5002](https://rbeauchamp.github.io/regula/dev/rules/RG5002/) Registered public material declarations require docstrings
+### [RG5002](https://rbeauchamp.github.io/regula/dev/rules/RG5002/) Registered public material declarations require docstrings (retired: written guidance)
 
 Every public `@[regula_material]` declaration has a docstring stating its purpose, hypotheses, result and boundary.
 Fix: Add a docstring stating the declaration's formal purpose, domain and hypotheses, result and boundary, with a labelled `# Intent` section ([RG5003](https://rbeauchamp.github.io/regula/dev/rules/RG5003/)).
@@ -131,7 +131,7 @@ Equality on natural numbers must be reflexive for every value, with no side cond
 @[regula_material] theorem reflexive (n : Nat) : n = n := rfl
 ```
 
-### [RG5003](https://rbeauchamp.github.io/regula/dev/rules/RG5003/) Registered public material declarations require an Intent section
+### [RG5003](https://rbeauchamp.github.io/regula/dev/rules/RG5003/) Registered public material declarations require an Intent section (retired: written guidance)
 
 Every public `@[regula_material]` docstring has a nonempty `# Intent` section stating the requirement the claim must meet.
 Fix: Add a heading whose text is exactly `Intent` to the docstring, followed by the requirement the claim must meet, stated from the source mathematics or specification.
@@ -302,9 +302,9 @@ Compliant form: The correction removes a Lake dependency that cannot be resolved
 
 ## Lean examples in Markdown
 
-Applies to `lean` fences in the checked documentation tree.
+Applies to `lean` fences in the project's Markdown documentation.
 
-### [RG4002](https://rbeauchamp.github.io/regula/dev/rules/RG4002/) Positive examples require warning-free elaboration and admission
+### [RG4002](https://rbeauchamp.github.io/regula/dev/rules/RG4002/) Positive examples require warning-free elaboration and admission (retired: written guidance)
 
 An unmarked `lean` fence in the checked docs elaborates verbatim and warning-free and passes the declaration and axiom rules.
 Fix: Make the example correct as printed: fix its errors or warnings, and make its declarations satisfy the same rules as project code.
@@ -318,21 +318,21 @@ theorem reflexive (n : Nat) : n = n := rfl
 ```
 ````
 
-### [RG4003](https://rbeauchamp.github.io/regula/dev/rules/RG4003/) Negative examples require completed intended rejection
+### [RG4003](https://rbeauchamp.github.io/regula/dev/rules/RG4003/) Negative examples require completed intended rejection (retired: written guidance)
 
 A `lean-fail` fence fails to elaborate with one error message that matches its whole pattern.
 Fix: Make the example fail for exactly the documented reason, adjust the pattern to match one real error message, or remove the marker if the example is valid.
 
 Compliant example: as [RG4002](https://rbeauchamp.github.io/regula/dev/rules/RG4002/).
 
-### [RG4004](https://rbeauchamp.github.io/regula/dev/rules/RG4004/) Teaching examples require authenticated compiler classification
+### [RG4004](https://rbeauchamp.github.io/regula/dev/rules/RG4004/) Teaching examples require authenticated compiler classification (retired: written guidance)
 
-A `lean-trusted-compiler` fence elaborates warning-free and contains an authenticated compiler-trusting declaration.
+A `lean-trusted-compiler` fence elaborates warning-free and contains a compiler-trusting declaration.
 Fix: Use the marker only for an example that demonstrates `native_decide`, `decide +native` or `bv_decide` (or another authenticated compiler-trusting mechanism); otherwise remove it.
 
 Compliant example: as [RG4002](https://rbeauchamp.github.io/regula/dev/rules/RG4002/).
 
-### [RG4001](https://rbeauchamp.github.io/regula/dev/rules/RG4001/) Documentation fences must have a valid classification
+### [RG4001](https://rbeauchamp.github.io/regula/dev/rules/RG4001/) Documentation fences must have a valid classification (retired: written guidance)
 
 Each `lean-fail` or `lean-trusted-compiler` marker sits immediately before its `lean` fence, every fence is closed, and Lean code is shown only as a `lean` fence in the first column.
 Fix: Put each marker immediately before the `lean` fence it classifies, with a valid pattern, and close every fence. Write each Lean example as a `lean` fence that opens and closes in the first column, outside quotations, list items and other fences.
