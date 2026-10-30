@@ -537,7 +537,6 @@ One more control is a repository with a baseline that Git does not track. The op
 `--write-baseline` must keep the `frozen` entry and the `generated` entry of a document. It
 must write no entry that has no document.
 
-
 The controls of these checks are in the same directory as the controls of the vocabulary. A
 control of C1 to C8 is a document with the extension `text`. A control of B1 or B2 is a baseline
 with the extension `json`. Thus the checks of the tracked Markdown documents do not read the

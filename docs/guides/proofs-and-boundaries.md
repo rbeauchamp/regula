@@ -180,12 +180,12 @@ identity and then prints them; the lakefile passes only when the child succeeds 
 printed pair is the `Lean.versionString` and `Lean.githash` of the Lean elaborating the
 lakefile, so a child that is another compiler, fails or cannot be run is refused, with the
 adopter's remedy. That comparison is an elaboration-time check, not a theorem.
-`Compiler.accepts_iff` proves the executed Boolean matches the predicate;
-`transcript_plan_compiler` proves admitted transcripts and a valid plan agree on both fields.
+`Compiler.accepts_iff` proves the executed Boolean matches the predicate.
 Compiler self-reports and locating and launching the compiler are trusted IO, and a
 self-report names the Git commit of a build's source tree, not uncommitted source edits or the
 executable's bytes. Lake may reuse an elaborated configuration; `lake update` elaborates it
-again. The compiled admission guards remain in force when a configuration is cached.
+again. `doctor` compares the identity of the compiler that built it also when a configuration is
+cached.
 
 `doctor` starts no process. It takes the identity of the project's compiler from the compiler that
 built `regula`: `lake exe regula` runs the Lake of the toolchain that `lean-toolchain` selects, and
@@ -329,7 +329,8 @@ that uses it has it as a hypothesis.
 A checked operation runs an operation and then examines the result. It fails when the
 postcondition of the operation is not true for that result. The attribute `@[regula_checked]`
 gives the theorem that proves its postcondition. That theorem uses the contracts of the operations
-that examine the result, not the contract of the operation that the checked operation runs.
+that examine the result, not the contract of the operation that the checked operation runs. No
+operation of this revision has this attribute.
 
 An observer is the code that operates the real system for a Regula program. Code that Regula
 writes over the operations of a model gets the real system only through an observer. The
@@ -354,18 +355,14 @@ operation of the model. This is a relation between two runs, not a property of t
 Thus it is not an assumption. The theorem `corresponds_ofIO` proves it for each `ops`, when the
 states of the model are the worlds (`Model.ofIO`).
 
-The theorems for the observer use that model. Thus they use only the five assumptions of the file
+The theorems for the observer use that model. Thus they use only the two assumptions of the file
 system at that model. Each assumption is a statement about each run from each world.
 
 In `IO`, the world at the end of an operation is the world at the start of the next operation.
 Thus a change by a different process while the code runs is a part of the run of one operation. A
-read changes nothing, thus a change during a read makes an assumption false. A removal keeps the
-entry at each path in its frame. Thus a change during a removal, at an entry that the frame keeps,
-makes an assumption false.
-
-A change in the removed tree can also make `RemovesTree` false, as "The file system" shows. Thus
-the assumptions are about runs in which no different process writes to the file system. The
-theorems that use a false assumption give no result.
+read changes nothing, thus a change during a read makes an assumption false. Thus the assumptions
+are about runs in which no different process writes to the file system. The theorems that use a
+false assumption give no result.
 
 ### The sources of an assumption
 
@@ -433,17 +430,8 @@ contracts of the external systems do not establish these properties:
 
 - That the real system satisfies the assumptions. Regula trusts each one, with its sources.
 - That no different process changes the file system while the code runs. Such a process can make
-  an assumption false, as "From a model to the real system" shows. For example, a process can
-  replace a directory of a removed tree with a symbolic link during the removal. This race of
-  CVE-2022-21658 makes `RemovesTree` false. Regula does not examine the other processes.
-- That two names of one file give the same device. Two mounts of one network or FUSE file system
-  can give two devices for one file. There `RemovesTree` and `RemovesEntry` are false.
-- That the file numbers of a file system are stable. On a file system with file numbers that
-  change, `RemovesTree` and `RemovesEntry` can be false.
-- That a second name of an entry of a removed tree stays, for example a second hard link. The
-  frame does not include such a name.
-- That an entry outside a removed path is the same file, with the same contents, after the
-  removal. The frame compares only the type of each entry.
+  an assumption false, as "From a model to the real system" shows. Regula does not examine the
+  other processes.
 - That each call of an operation of an external system is in an observer. Regula's code also calls
   these operations in other places.
 
