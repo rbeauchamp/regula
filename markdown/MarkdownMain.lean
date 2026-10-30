@@ -1281,8 +1281,7 @@ def runControls (directory : System.FilePath) : IO UInt32 := do
   IO.println s!"Controls of the checks of Markdown prose: {controls.length} controls in \
     {directory}, and {repositoryControls.length} controls of the base revision, \
     {entryControls.length} controls of an entry with no document, one control of \
-    --write-baseline and one of a run of it that stops early, in repositories that the run made \
-    with Git, gave the expected results \
+    --write-baseline, in repositories that the run made with Git, gave the expected results \
     (each refusal starts with its file, its line and its check)"
   return 0
 
