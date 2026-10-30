@@ -192,9 +192,9 @@ private def keptLinkage (function predicate file : String) : NonemptyText :=
 
 /-- Shared statement: the first trigger item of a documentation rule that is retired. -/
 private def retiredTrigger : String :=
-  "Regula's checker does not report this rule. The specification retires it to written \
-    guidance, and issue #488 completes the retirement. Its intent stays a written instruction for \
-    the project and its review."
+  "No check reports this rule. The specification retires it to written guidance (issue #488): \
+    its intent stays a written instruction for the project, and review checks it. The standard \
+    states it in §5.1 to §5.3 and §7.7."
 
 /-- Shared statement: why the documentation rules are retired. -/
 private def retiredRationale : String :=
@@ -208,8 +208,8 @@ private def notReported : String :=
 
 /-- Shared statement: the linkage of a documentation rule that is retired. -/
 private def retiredLinkage : NonemptyText :=
-  text! "None. Regula's checker does not report this rule. The specification gives it the fate \
-    retired (`RegulaSpecification.fate`), and issue #488 completes the retirement."
+  text! "None. No check reports this rule. The specification gives it the fate retired \
+    (`RegulaSpecification.fate`), and the registry records the retirement in its lifecycle."
 
 /-- Shared statement: foundation labels. -/
 private def foundationTable : String :=

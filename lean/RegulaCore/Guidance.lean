@@ -34,8 +34,9 @@ build, so it matches that build by construction.
 
 The `#guard`s below evaluate, over the complete `RuleId.all` (`RuleId.mem_all`), that every
 descriptor meets `RuleDescriptor.wellFormed` (nonempty agent fields within their byte budgets,
-one-line requirement and remedy, distinct examples) and that the agent guide of every published
-edition fits its budget.
+one-line requirement and remedy, distinct examples), that `checkedBy` says no check exactly of the
+rules whose lifecycle is retired, and that the agent guide of every published edition fits its
+budget.
 They are compiled evaluation, not kernel proofs: kernel reduction of these long string
 literals costs seconds per field. A failing check fails the build of this module, which the
 acceptance build includes.
@@ -84,16 +85,19 @@ def examples (id : RuleId) : String :=
       "The checked pair (`" ++ e.noncompliantPath id ++ "`, `" ++ e.compliantPath id ++
       "`) consists of qualification inputs, not project files. " ++ e.caption ++ "\n\n"
 
+/-- What `checkedBy` says of a retired rule. -/
+def notChecked : String :=
+  "no check: the rule is retired to written guidance, which review checks"
+
 /-- What checks the rule now: `lake lint` for each rule that Regula's checker reports, the Lake
 command that a rule handed to Lean goes to, or no check for a retired rule (the specification's
-`fate`). -/
+`fate`). A `#guard` below compares the retired rules with the registry's lifecycles. -/
 def checkedBy : RuleId → String
   | .sourceBuild => "`lake build --wfail`, which decides it in place of Regula (issue #482)"
   | .admission => "`lake check`, to which the specification hands it (issue #482); Regula's checker \
       does not report it"
   | .fenceStructure | .positiveExample | .negativeExample | .trustedExample
-  | .moduleDocumentation | .materialDocumentation | .materialIntent =>
-    "no check: the rule is retired to written guidance (issue #488)"
+  | .moduleDocumentation | .materialDocumentation | .materialIntent => notChecked
   | .projectAxiom | .proofHole | .unknownAxiom | .compilerTrusting | .profileExceeded
   | .escapeHatch | .executableContract | .decisionContract | .sharedTest | .environment
   | .configuration | .coverage | .communityConfiguration | .executionUnresolved
@@ -120,10 +124,13 @@ def explain (id : RuleId) : String :=
       numbered d.rewrites ++ "\n" ++
   "## Examples\n\n" ++ examples id ++
   "## What triggers it\n\n" ++ paragraphs g.trigger ++
-  "## Configuration and exceptions\n\n" ++ "No source option" ++
-    (if (registrationFor id).isSome then "" else ", attribute") ++ " or command-line flag \
-    makes this rule pass on a claimed surface (" ++ installed.edition.url "enforcement/" ++
-    ").\n\n" ++ paragraphs g.configuration ++
+  "## Configuration and exceptions\n\n" ++
+    (if d.lifecycle.isRetired then "No check reports this rule, so no option, attribute or flag \
+      changes a result: the rule is written guidance, which review checks.\n\n"
+    else "No source option" ++
+      (if (registrationFor id).isSome then "" else ", attribute") ++ " or command-line flag \
+      makes this rule pass on a claimed surface (" ++ installed.edition.url "enforcement/" ++
+      ").\n\n") ++ paragraphs g.configuration ++
   "## Limitations\n\n" ++ paragraphs g.limitations ++
   "## Open review obligations\n\n" ++ "A passing result leaves these for review:\n\n" ++
     String.join (g.residuals.map fun r => "- `" ++ r.spelling ++ "`: " ++ r.description ++ ".\n") ++
@@ -131,13 +138,18 @@ def explain (id : RuleId) : String :=
   "Paths are relative to the Regula package root (in an adopting project, " ++
   "`.lake/packages/regula/`). The examples are the rule's registered example pair.\n"
 
+/-- The mark after a retired rule's title in the rule index and the briefing, from its lifecycle;
+empty for an active rule. -/
+def retiredMark (id : RuleId) : String :=
+  if (descriptor id).lifecycle.isRetired then " (retired: written guidance)" else ""
+
 /-- The compact index of every rule. -/
 def rulesIndex : String :=
   "# Regula rules\n\n" ++
   "Run `lake exe regula explain <ID>` for the full rule, `lake exe regula agent-guide` for the \
     briefing.\n\n" ++
   String.join (RuleId.all.map fun id =>
-    "- " ++ id.spelling ++ " " ++ (descriptor id).title ++ " — " ++
+    "- " ++ id.spelling ++ " " ++ (descriptor id).title ++ retiredMark id ++ " — " ++
         (descriptor id).requirement ++ "\n")
 
 /-- The rules grouped by what an agent is writing, each group with a one-line scope. -/
@@ -159,7 +171,7 @@ def writingSections : List (String × String × List RuleId) := [
     "Applies to `foundation_manifest.json`, the Lake options of claimed targets and the build \
       environment.",
     [.configuration, .communityConfiguration, .coverage, .environment]),
-  ("Lean examples in Markdown", "Applies to `lean` fences in the checked documentation tree.",
+  ("Lean examples in Markdown", "Applies to `lean` fences in the project's Markdown documentation.",
     [.positiveExample, .negativeExample, .trustedExample, .fenceStructure])]
 
 /-- The briefing lists every registered rule exactly once. -/
@@ -198,7 +210,8 @@ prose, is a `citation` in `e`. -/
 def briefRule (e : Edition) (id : RuleId) : String :=
   let d := descriptor id
   let cited := Prose.linkIds (citation e)
-  "### " ++ citation e id ++ " " ++ d.title ++ "\n\n" ++ cited d.requirement ++ "\nFix: " ++
+  "### " ++ citation e id ++ " " ++ d.title ++ retiredMark id ++ "\n\n" ++ cited d.requirement ++
+      "\nFix: " ++
       cited d.remedy ++ "\n\n" ++
   match d.examples.adopterExample, sameExampleAs id with
   | some _, some other => "Compliant example: as " ++ citation e other ++ ".\n"
@@ -216,9 +229,9 @@ how to cite a rule, and every rule for writing code. Only the citations' links d
 def agentGuideIn (e : Edition) : String :=
   "# Regula agent briefing\n\n" ++
   "This project's Lean code and proofs must meet the Regula standard. Apply these rules while " ++
-  "writing Lean, not only after the linter runs. This is the complete mechanical rule set of \
-    the " ++
-  "installed Regula version, ordered for writing code.\n\n" ++
+  "writing Lean, not only after the linter runs. This is the complete rule set of the " ++
+  "installed Regula version, ordered for writing code. A rule marked retired is written " ++
+  "guidance: no check reports it, and review checks it.\n\n" ++
   "- Build the claimed targets with `lake build --wfail`, then check the finished build with " ++
   "`lake lint`. Exit codes: " ++ exitCodes ++ ".\n" ++
   "- A finding is one line: its rule ID, the constant and its module, what is wrong, and the " ++
@@ -275,6 +288,9 @@ def plainFields (id : RuleId) : Bool :=
 
 -- Compiled-evaluation observation at build time, not a kernel-checked proof.
 #guard RuleId.all.all fun id => (descriptor id).wellFormed && plainFields id
+-- Compiled-evaluation observation at build time: `checkedBy` says no check exactly of the rules
+-- whose lifecycle is retired.
+#guard RuleId.all.all fun id => (checkedBy id == notChecked) == (descriptor id).lifecycle.isRetired
 -- Compiled-evaluation observation at build time, not a kernel-checked proof.
 -- It covers the installed build's briefing, whose edition is published (`installed_published`).
 #guard published.all fun e => (agentGuideIn e).utf8ByteSize ≤ agentGuideBudget

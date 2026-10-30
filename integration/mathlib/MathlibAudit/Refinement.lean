@@ -13,12 +13,12 @@ of `runChecked`, including refusal. It observes only capacity and occupancy,
 not operation labels, error outputs, timing, or native execution. Natural
 counts have exact unbounded Lean semantics; compiler/runtime execution remains
 trusted. No fairness, progress, or liveness result is claimed. `reachable_safe` and `prefix_safe`
-are material claims registered with `@[regula_material]`, so RG5002/RG5003 require their Intent
-sections. The declarations keep the `AuditApp.Refinement` namespace of the application
-they refine; this module belongs to the `MathlibAudit` library of the Mathlib integration
-package, because the Core-only `AuditApp` surface in the `regula` package does not import
-Mathlib. The standard's own example is the Lean/Std `audit/Audit/Refinement.lean`, which states
-the refinement over core's `Relation.TransGen`: its paths have one or more edges, and an idle
+are material claims registered with `@[regula_material]`, so the written guidance of RG5002 and
+RG5003 asks for their Intent sections. The declarations keep the `AuditApp.Refinement` namespace of
+the application they refine; this module belongs to the `MathlibAudit` library of the Mathlib
+integration package, because the Core-only `AuditApp` surface in the `regula` package does not
+import Mathlib. The standard's own example is the Lean/Std `audit/Audit/Refinement.lean`, which
+states the refinement over core's `Relation.TransGen`: its paths have one or more edges, and an idle
 abstract edge there takes the place of this closure's zero-step case.
 -/
 

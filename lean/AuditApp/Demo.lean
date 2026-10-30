@@ -9,8 +9,8 @@ contracts for both interpretations. `demo_final` describes the retained total
 the strict `runChecked` interpreter called by the shell: at the default capacity 2, it
 stops at the third grant and retains the first two grants' state. Admission facts describe the
 scripted initial capacity. Nothing here claims a property of the IO boundary.
-`demo_checked_error` is a material claim registered with `@[regula_material]`, so RG5002/RG5003
-require its Intent section.
+`demo_checked_error` is a material claim registered with `@[regula_material]`, so the written
+guidance of RG5002 and RG5003 asks for its Intent section.
 -/
 
 namespace AuditApp

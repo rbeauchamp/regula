@@ -340,27 +340,27 @@ number := false
   * {checklistRow}[DOC-01]
   * Public declarations supporting material normative claims have docstrings stating their formal purpose, relevant assumptions, result, and invariant boundary; every other public definition has a docstring; every claimed module documents its material declarations and assumptions.
   * {ref "51-inline-documentation-requirements"}[5 §5.1–§5.3], {ref "67-community-conventions-and-linters"}[6 §6.7]
-  * Compare the documented claims with elaborated types, definitions, and supporting contracts; a function type alone need not specify its input/output relationship. Check actual module docstrings in owned modules; {rule}[RG5001] checks that each is present and is the first command after the imports (§5.3). {rule}[RG2006] checks that every claimed target enables `linter.missingDocs` (`DECL-01`), so that {rule}[RG2003] rejects every public definition it reports without a docstring.
+  * Compare the documented claims with elaborated types, definitions, and supporting contracts; a function type alone need not specify its input/output relationship. Check actual module docstrings in owned modules, and that each is present and is the first command after the imports (§5.3): the retired rule {rule}[RG5001] states this as written guidance, which no check of Regula reads. {rule}[RG2006] checks that every claimed target enables `linter.missingDocs` (`DECL-01`), so that {rule}[RG2003] rejects every public definition it reports without a docstring.
 *
   * {checklistRow}[DOC-02]
   * English explanations of normative Lean statements faithfully convey their quantifiers, hypotheses, conclusions, relevant definitions, and limitations, and identify the authoritative Lean declaration. Each public declaration supporting a material normative claim carries a nonempty labelled Intent section in its docstring.
   * {ref "52-faithful-explanation-of-formal-claims"}[5 §5.2]
-  * Read the explanation with its referenced definitions; check quantifier order and dependence, domains, hypotheses, conclusion, and limits affecting interpretation. Distinguish results proved without additional hypotheses, results proved under explicit hypotheses, and open targets, retaining stated domains and foundations. Locate the supporting declaration (including through an attached docstring), and compare its elaborated meaning and its explanation with the written intent statement, the requirement-side record of the intended mathematics or program specification. Section presence is mechanical; adequacy of the intent and agreement with it are semantic review.
+  * Read the explanation with its referenced definitions; check quantifier order and dependence, domains, hypotheses, conclusion, and limits affecting interpretation. Distinguish results proved without additional hypotheses, results proved under explicit hypotheses, and open targets, retaining stated domains and foundations. Locate the supporting declaration (including through an attached docstring), and compare its elaborated meaning and its explanation with the written intent statement, the requirement-side record of the intended mathematics or program specification. Section presence is written guidance of the retired rule {rule}[RG5003], which no check of Regula reads; presence, adequacy of the intent and agreement with it are review.
 *
   * {checklistRow}[DOC-03]
-  * Every Lean fence in the normative documentation tree (here every `lean` block of the standard's Verso source, `website/RegulaStandard`) is structurally classified; malformed markers/fences fail closed.
+  * Every Lean fence in the normative documentation tree is classified by an exact marker directly before it, is closed, and opens and closes in the first column outside quotations, list items and other fences.
   * {ref "lean-example-convention"}[Set convention], {ref "77-check-lean-documentation-verbatim"}[7 §7.7]
-  * Recursively scan the complete normative tree. Qualification mutates every malformed marker/fence state specified in §7.7.
+  * Review every Markdown document of the tree against §7.7. The retired rule {rule}[RG4001] states this as written guidance, and no check of Regula reads a project's documentation.
 *
   * {checklistRow}[DOC-04]
-  * Every positive Lean fence elaborates exactly as printed, warning-free, then passes owned logical admission and declaration/axiom classification.
+  * Every positive Lean fence elaborates exactly as printed, warning-free, and its declarations meet the declaration and axiom rules under Standard-Logical.
   * {ref "77-check-lean-documentation-verbatim"}[7 §7.7]
-  * Elaborate raw source first; inspect the elaborated temporary module without injecting imports into the claimed source. The shipped fence checker uses Standard-Logical; narrower foundation or execution claims require separate evidence.
+  * Elaborate each positive fence as printed, with no import or wrapper added, then check its declarations and their axioms. The retired rule {rule}[RG4002] states this as written guidance, which no check of Regula reads. Narrower foundation or execution claims require separate evidence.
 *
   * {checklistRow}[DOC-05]
-  * Every negative fence fails for its non-empty expected diagnostic, and trusted-compiler teaching fences are classified but never counted as conforming.
+  * Every negative fence fails for its non-empty expected diagnostic, and every trusted-compiler teaching fence contains a compiler-trusting declaration and never counts as conforming.
   * {ref "77-check-lean-documentation-verbatim"}[7 §7.7]
-  * Require a completed diagnostic-worker result and the whole pattern within one effective-error message, preserving multiline text and rejecting cross-message or informational matches. Inspect trusted declarations and their generated axioms.
+  * Match the whole pattern within one error message of the negative fence, never across messages or against informational output. Inspect each teaching fence's declarations and their axioms. The retired rules {rule}[RG4003] and {rule}[RG4004] state these as written guidance, which no check of Regula reads.
 :::
 
 ## Checker Implementation Qualification

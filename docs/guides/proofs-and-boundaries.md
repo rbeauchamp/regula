@@ -540,10 +540,3 @@ Helpers invoke external programs with arrays of arguments, not with generated sh
 [RG2006]: https://rbeauchamp.github.io/regula/dev/rules/RG2006/
 [RG3001]: https://rbeauchamp.github.io/regula/dev/rules/RG3001/
 [RG3002]: https://rbeauchamp.github.io/regula/dev/rules/RG3002/
-[RG4001]: https://rbeauchamp.github.io/regula/dev/rules/RG4001/
-[RG4002]: https://rbeauchamp.github.io/regula/dev/rules/RG4002/
-[RG4003]: https://rbeauchamp.github.io/regula/dev/rules/RG4003/
-[RG4004]: https://rbeauchamp.github.io/regula/dev/rules/RG4004/
-[RG5001]: https://rbeauchamp.github.io/regula/dev/rules/RG5001/
-[RG5002]: https://rbeauchamp.github.io/regula/dev/rules/RG5002/
-[RG5003]: https://rbeauchamp.github.io/regula/dev/rules/RG5003/
