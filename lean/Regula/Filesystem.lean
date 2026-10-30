@@ -39,17 +39,16 @@ def linkFollowed : String :=
   "System.FilePath.symlinkMetadata follows a symbolic link at the path"
 
 /-- `System.FilePath.symlinkMetadata`, which fails on Windows. -/
-@[noinline, regula_observer filesystem]
+@[noinline]
 def observeMetadata (path : FilePath) : IO IO.FS.Metadata :=
   Construction.observeMetadata path
 
 /-- `IO.FS.realPath`, which fails on Windows. -/
-@[noinline, regula_observer filesystem]
+@[noinline]
 def observeRealPath (path : FilePath) : IO FilePath :=
   Construction.observeRealPath path
 
 /-- The filesystem's operations in `IO`, which Regula's code runs. -/
-@[regula_observer filesystem]
 private def observer : Ops IO where
   symlinkMetadata := observeMetadata
   realPath := observeRealPath

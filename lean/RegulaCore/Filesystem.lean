@@ -120,15 +120,21 @@ def Absent : IO.Error → Prop
 /-- `symlinkMetadata` reports the type of the entry at the path and changes nothing. It fails with
 `noFileOrDirectory` only when nothing is there. It can also fail in other ways when nothing is
 there, for example with `ENOTDIR` when a component of the path is not a directory. -/
-@[regula_assumption filesystem
-  (lean "v4.35.0" "Init/System/IO.lean#L1151-L1156")
-  (lean "v4.35.0" "runtime/io.cpp#L1160-L1179")
-  (lean "v4.35.0" "runtime/io.cpp#L276-L279")
-  (document filesystem "POSIX.1-2024, lstat()")]
 def ReadsEntry (M : Model) : Prop :=
   ∀ path before, ⦃fun w => ⌜w = before⌝⦄ M.ops.symlinkMetadata path
     ⦃post⟨fun metadata w => ⌜w = before ∧ M.entry before path = some metadata.type⌝,
       fun error w => ⌜w = before ∧ (Absent error → M.entry before path = none)⌝⟩⦄
+
+/-- The sources of `ReadsEntry`. -/
+def ReadsEntry_assumed : Regula.Assumption.Assumed ReadsEntry where
+  system := .filesystem
+  sources := [
+    .lean "v4.35.0" "Init/System/IO.lean#L1151-L1156",
+    .lean "v4.35.0" "runtime/io.cpp#L1160-L1179",
+    .lean "v4.35.0" "runtime/io.cpp#L276-L279",
+    .document .filesystem "POSIX.1-2024, lstat()"]
+  stated := rfl
+  pinned := by decide +kernel
 
 /-- `realPath` gives what `realpath(3)` resolves the path to and changes nothing. It fails exactly
 when `realpath(3)` fails. On Windows, Lean 4.35.0's `realPath` gives the path itself when it cannot
@@ -139,17 +145,23 @@ the volume stores for each component, as its source below states, and it was obs
 macOS 27.0.1 (APFS), where `realpath dir/FILE` printed `.../Dir/file`. It keeps a name as written
 on a volume where `getattrlist(2)` is not supported, where it falls back to `lstat(2)`
 (`realpath.c#L238-L243`), and glibc's keeps it in a Linux directory that folds case. -/
-@[regula_assumption filesystem
-  (lean "v4.35.0" "Init/System/IO.lean#L873-L879")
-  (lean "v4.35.0" "runtime/io.cpp#L1054-L1066")
-  (document filesystem "POSIX.1-2024, realpath()")
-  (document filesystem "Apple Libc-1752.120.2, stdlib/FreeBSD/realpath.c#L216-L243 and \
-    #L348-L358: Darwin's realpath(3) replaces each path component with the name that \
-    getattrlist(2) reads from the volume")]
 def ReadsReal (M : Model) : Prop :=
   ∀ path before, ⦃fun w => ⌜w = before⌝⦄ M.ops.realPath path
     ⦃post⟨fun real w => ⌜w = before ∧ M.real before path = some real⌝,
       fun _ w => ⌜w = before ∧ M.real before path = none⌝⟩⦄
+
+/-- The sources of `ReadsReal`. -/
+def ReadsReal_assumed : Regula.Assumption.Assumed ReadsReal where
+  system := .filesystem
+  sources := [
+    .lean "v4.35.0" "Init/System/IO.lean#L873-L879",
+    .lean "v4.35.0" "runtime/io.cpp#L1054-L1066",
+    .document .filesystem "POSIX.1-2024, realpath()",
+    .document .filesystem "Apple Libc-1752.120.2, stdlib/FreeBSD/realpath.c#L216-L243 and \
+    #L348-L358: Darwin's realpath(3) replaces each path component with the name that \
+    getattrlist(2) reads from the volume"]
+  stated := rfl
+  pinned := by decide +kernel
 
 /-! ## Operations in `IO` that correspond to a model -/
 

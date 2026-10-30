@@ -24,7 +24,7 @@ theorem checked_admitGitName : Regula.ExecutableContract admitGitName
   ⟨.of_iff (fun pair => admitGitName_iff pair.1 pair.2)
     ⟨("entry", ["entry"]), rfl⟩ ⟨("entry", []), by simp [admitGitName]⟩⟩
 
-attribute [regula_decision] admitGitName
+theorem admitGitName_registered : Regula.RegisteredDecision @admitGitName := ⟨⟩
 
 /-- The admission of a copy source's Git settings accepts exactly when each name of its common
 configuration that the selector pattern selects is the worktreeConfig extension, and, when that
@@ -64,7 +64,7 @@ theorem checked_admitGitSettings : Regula.ExecutableContract admitGitSettings
     ⟨(["extensions.worktreeconfig"], ["core.hookspath"]), rfl⟩
     ⟨(["extensions.noop"], []), by simp [admitGitSettings_iff]⟩⟩
 
-attribute [regula_decision] admitGitSettings
+theorem admitGitSettings_registered : Regula.RegisteredDecision @admitGitSettings := ⟨⟩
 
 /-- An entry is kept by `omitEntry relative` exactly when it is an entry of `items` whose path does
 not start with `relative`: the entries at and below `relative` are the ones omitted. -/
@@ -183,7 +183,7 @@ theorem checked_printedPath? : Regula.ExecutableContract printedPath?
         decide⟩
     ⟨"", by simp [printedPath?, printedLine?]⟩⟩
 
-attribute [regula_decision] printedPath?
+theorem printedPath?_registered : Regula.RegisteredDecision @printedPath? := ⟨⟩
 
 /-- Text that is one line printed with its newline: the line, not empty, with no newline, carriage
 return or NUL, followed by one newline. -/
@@ -214,7 +214,7 @@ theorem checked_printedLine? : Regula.ExecutableContract printedLine?
         decide⟩
     ⟨"", by simp [printedLine?]⟩⟩
 
-attribute [regula_decision] printedLine?
+theorem printedLine?_registered : Regula.RegisteredDecision @printedLine? := ⟨⟩
 
 /-- The decision the cold source entrypoint actually executes agrees on every input with its
 source-domain proposition. -/
@@ -223,7 +223,7 @@ theorem checked_projectRelative : Regula.ExecutableContract projectRelative
   ⟨.of_iff (fun _ => ⟨of_decide_eq_true, decide_eq_true⟩)
     ⟨["lean"], by decide⟩ ⟨["tmp"], by decide⟩⟩
 
-attribute [regula_decision] projectRelative
+theorem projectRelative_registered : Regula.RegisteredDecision @projectRelative := ⟨⟩
 
 /-- Finder metadata is outside the default source domain, at every depth. Thus its bytes
 cannot affect the acceptance identity through default selection. Explicit requirements remain
@@ -702,18 +702,6 @@ directory to readdir, with an error other than ENOENT. Linux v6.8 ext4 returns a
 (`fs/ext4/dir.c:199-204`) but skips a block that fails its checksum or holds a malformed entry with
 only a kernel log message (`:216-224`, `:258-266`). No concurrent writer changes the source or
 destination during an observation. -/
-@[regula_assumption filesystem (lean "v4.35.0" "Init/System/IO.lean#L1544-L1557")
-  (document filesystem "GNU coreutils v9.0 to v9.12 src/ls.c print_dir (v9.0 lines 3008-3068, \
-    v9.12 lines 3024-3077), file_failure and the ZERO_OPTION case: ls --zero, and a readdir \
-    error other than ENOENT gives a nonzero exit status; v9.5 src/ls.c:3064-3066 clears ENOENT")
-  (document filesystem "GNU coreutils v8.32 src/ls.c:2318-2319,2847-2867,2966-3036 and gnulib \
-    lib/quotearg.c at d279bc6d: escape quoting, and a readdir error gives a nonzero exit status")
-  (document filesystem "POSIX.1-2024, readdir(): errno is set on an error and unchanged at the \
-    end of the directory")
-  (document filesystem "glibc 2.39 sysdeps/unix/sysv/linux/readdir.c:39-48: a removed directory \
-    ends without an error")
-  (trusted "the kernel and the filesystem report each failed read of a directory to readdir, \
-    with an error other than ENOENT")]
 def ReadsNames (C : CopyModel) : Prop :=
   (∀ path before, Satisfies ((C.ops.names path).run before)
     (fun names after => after = before ∧ names = C.names before path) (fun _ after => after = before)) ∧
@@ -723,16 +711,42 @@ def ReadsNames (C : CopyModel) : Prop :=
     C.filesystem.entry before child = some kind →
     ∃ name ∈ C.names before path, SameEntry C.filesystem before child (path / name))
 
+/-- The sources of `ReadsNames`. -/
+def ReadsNames_assumed : Regula.Assumption.Assumed ReadsNames where
+  system := .filesystem
+  sources := [
+    .lean "v4.35.0" "Init/System/IO.lean#L1544-L1557",
+    .document .filesystem "GNU coreutils v9.0 to v9.12 src/ls.c print_dir (v9.0 lines 3008-3068, \
+    v9.12 lines 3024-3077), file_failure and the ZERO_OPTION case: ls --zero, and a readdir \
+    error other than ENOENT gives a nonzero exit status; v9.5 src/ls.c:3064-3066 clears ENOENT",
+    .document .filesystem "GNU coreutils v8.32 src/ls.c:2318-2319,2847-2867,2966-3036 and gnulib \
+    lib/quotearg.c at d279bc6d: escape quoting, and a readdir error gives a nonzero exit status",
+    .document .filesystem "POSIX.1-2024, readdir(): errno is set on an error and unchanged at the \
+    end of the directory",
+    .document .filesystem "glibc 2.39 sysdeps/unix/sysv/linux/readdir.c:39-48: a removed directory \
+    ends without an error",
+    .trusted "the kernel and the filesystem report each failed read of a directory to readdir, \
+    with an error other than ENOENT"]
+  stated := rfl
+  pinned := by decide +kernel
+
 /-- Reading bytes changes no filesystem state. File-content fidelity is a trusted
 IO boundary; the construction theorem describes entry kinds and locations.
 
 Assumes: Lean v4.35.0 `Init/System/IO.lean:1211-1221` readBinFile only observes the source;
 no concurrent writer changes the source. -/
-@[regula_assumption filesystem (lean "v4.35.0" "Init/System/IO.lean#L1211-L1221")
-  (trusted "reading bytes preserves the modeled filesystem state")]
 def ReadsBytes (C : CopyModel) : Prop :=
   ∀ path before, Satisfies ((C.ops.bytes path).run before)
     (fun _ after => after = before) (fun _ after => after = before)
+
+/-- The sources of `ReadsBytes`. -/
+def ReadsBytes_assumed : Regula.Assumption.Assumed ReadsBytes where
+  system := .filesystem
+  sources := [
+    .lean "v4.35.0" "Init/System/IO.lean#L1211-L1221",
+    .trusted "reading bytes preserves the modeled filesystem state"]
+  stated := rfl
+  pinned := by decide +kernel
 
 /-- Exclusive mkdir creates an empty root at an absent destination, or adds one empty child
 directory to an existing exact tree. The frame includes every other tree entry.
@@ -740,9 +754,6 @@ directory to an existing exact tree. The frame includes every other tree entry.
 Assumes: Lean v4.35.0 `Init/System/IO.lean:900`, `runtime/io.cpp:1181-1195`, POSIX mkdir create
 only that directory and fail when the exact destination is occupied. No concurrent writer changes
 an ancestor or adds another entry during construction. -/
-@[regula_assumption filesystem (lean "v4.35.0" "Init/System/IO.lean#L894-L900")
-  (lean "v4.35.0" "runtime/io.cpp#L1181-L1195")
-  (document filesystem "POSIX.1-2024, mkdir(): exclusive directory creation")]
 def CreatesDirectories (C : CopyModel) : Prop :=
   (∀ root before, C.filesystem.entry before root = none →
     Satisfies ((C.ops.directory root).run before)
@@ -753,21 +764,38 @@ def CreatesDirectories (C : CopyModel) : Prop :=
       (fun _ after => Holds C.filesystem root (done ++ [⟨relative, .directory⟩]) after)
       (fun _ _ => True))
 
+/-- The sources of `CreatesDirectories`. -/
+def CreatesDirectories_assumed : Regula.Assumption.Assumed CreatesDirectories where
+  system := .filesystem
+  sources := [
+    .lean "v4.35.0" "Init/System/IO.lean#L894-L900",
+    .lean "v4.35.0" "runtime/io.cpp#L1181-L1195",
+    .document .filesystem "POSIX.1-2024, mkdir(): exclusive directory creation"]
+  stated := rfl
+  pinned := by decide +kernel
+
 /-- Exclusive file creation adds exactly one regular entry to the constructed tree. Opening
 writeNew fails on every existing final entry, including a directory, FIFO and dangling link.
 
 Assumes: Lean v4.35.0 `Init/System/IO.lean:651-660`, `runtime/io.cpp:409` use O_EXCL. Writes,
 flush and chmod act only on the created regular file; the destination has no concurrent writer.
 This theorem does not establish permission or byte preservation. -/
-@[regula_assumption filesystem (lean "v4.35.0" "Init/System/IO.lean#L651-L660")
-  (lean "v4.35.0" "runtime/io.cpp#L409")
-  (document filesystem "POSIX.1-2024, open(): O_CREAT and O_EXCL never follow a final link")]
 def CreatesFiles (C : CopyModel) : Prop :=
   ∀ root done relative bytes rights before, Relative relative → relative ≠ [] →
     Holds C.filesystem root done before →
     Satisfies ((C.ops.file (location root relative) bytes rights).run before)
       (fun _ after => Holds C.filesystem root (done ++ [⟨relative, .file bytes rights⟩]) after)
       (fun _ _ => True)
+
+/-- The sources of `CreatesFiles`. -/
+def CreatesFiles_assumed : Regula.Assumption.Assumed CreatesFiles where
+  system := .filesystem
+  sources := [
+    .lean "v4.35.0" "Init/System/IO.lean#L651-L660",
+    .lean "v4.35.0" "runtime/io.cpp#L409",
+    .document .filesystem "POSIX.1-2024, open(): O_CREAT and O_EXCL never follow a final link"]
+  stated := rfl
+  pinned := by decide +kernel
 
 mutual
 /-- The complete selected source tree, recorded in directory order. The directory constructor

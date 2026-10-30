@@ -5,8 +5,8 @@ import RegulaCore.RuleId
 
 `fate` matches Regula's own closed rule identity (`Regula.RuleId`) exhaustively, so Lean checks
 that each rule the registry defines has exactly one fate, and a rule the registry gains fails this
-build until the table gives it one. The new rules are not in the registry yet; `NewRule` lists
-them with the identifiers the specification proposes.
+build until the table gives it one. `RG2007` is in the registry since #484. `NewRule` lists the rule
+that is not yet, with the identifier the specification proposes.
 -/
 
 namespace RegulaSpecification
@@ -36,33 +36,30 @@ open Regula in
 def fate : RuleId → Fate
   | .projectAxiom | .proofHole | .unknownAxiom | .compilerTrusting | .profileExceeded => .kept
   | .escapeHatch | .executableContract | .decisionContract | .sharedTest => .kept
-  | .environment | .configuration | .coverage | .communityConfiguration => .kept
+  | .environment | .configuration | .coverage | .communityConfiguration | .closedSubset => .kept
   | .sourceBuild => .handedToLean .wfail
   | .admission => .handedToLean .lakeCheck
   | .executionUnresolved | .executionBoundary => .kept
   | .fenceStructure | .positiveExample | .negativeExample | .trustedExample => .retired
   | .moduleDocumentation | .materialDocumentation | .materialIntent => .retired
 
-/-- The rules the specification adds. -/
+/-- The rule the specification adds that is not yet in the registry. -/
 inductive NewRule where
-  /-- `RG2007`: claimed modules have no entries of an extension outside the closed allowlist. -/
-  | closedSubset
   /-- `RG6001`: each declared deliverable meets its lean-intent obligations. -/
   | intentObligations
   deriving DecidableEq, Repr
 
 /-- The identifier the specification proposes for each new rule. -/
 def NewRule.spelling : NewRule → String
-  | .closedSubset => "RG2007"
   | .intentObligations => "RG6001"
 
 /-- No proposed identifier is already a registered rule. -/
 theorem new_not_registered (n : NewRule) : Regula.RuleId.parse? n.spelling = none := by
   cases n <;> rfl
 
-/-- The counts the specification states: 15 kept, 2 handed to Lean, 7 retired. -/
+/-- The counts the specification states: 16 kept, 2 handed to Lean, 7 retired. -/
 theorem fate_counts :
-    (Regula.RuleId.all.filter (fate · == .kept)).length = 15 ∧
+    (Regula.RuleId.all.filter (fate · == .kept)).length = 16 ∧
       (Regula.RuleId.all.filter (fun r => match fate r with
         | .handedToLean _ => true | _ => false)).length = 2 ∧
       (Regula.RuleId.all.filter (fate · == .retired)).length = 7 := by

@@ -235,7 +235,7 @@ constant function has one for the specification that its one outcome gives
 (`DecisionEquivalence.of_constant`), although it has no two-way kind (`Decides.not_of_constant`).
 A registration states it as the `condition` of an `ExecutableContract`, an ordinary requirement,
 so that the linter reports its evidence in the same structured form as the kinds
-(`RegulaPolicy.Carrier`). It does not discharge a `@[regula_decision]` registration (rule RG1008),
+(`RegulaPolicy.Carrier`). It does not discharge a `RegisteredDecision` registration (rule RG1008),
 which needs a kind: `DecisionEquivalence.toSoundly` and `toCompletely` give one from a law and the
 witness that the law does not supply, and `Decides.of_iff` both.
 

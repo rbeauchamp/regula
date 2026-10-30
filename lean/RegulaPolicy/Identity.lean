@@ -2,7 +2,7 @@ module
 
 public import Std
 public import Init.Data.Ord.String
-meta import Regula.Decision
+public import Regula.Decision
 
 /-! # Structural Lean identities
 

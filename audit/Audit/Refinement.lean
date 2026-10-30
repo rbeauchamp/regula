@@ -15,12 +15,10 @@ of `runChecked`, including refusal. It observes only capacity and occupancy,
 not operation labels, error outputs, timing, or native execution. Natural
 counts have exact unbounded Lean semantics; compiler/runtime execution remains
 trusted. No fairness, progress, or liveness result is claimed. `reachable_safe` and `prefix_safe`
-are material claims registered with `@[regula_material]`, so the written guidance of RG5002 and
-RG5003 asks for their Intent sections. The declarations keep the `AuditApp.Refinement` namespace of
+are material claims, so the written guidance of RG5002 and RG5003 asks for their Intent sections. The declarations keep the `AuditApp.Refinement` namespace of
 the application they refine; this module belongs to the `Audit` library of the `audit/` package,
-which requires the root `regula` package by relative path. `MathlibAudit.Refinement` in the Mathlib
-integration package (`integration/mathlib/`) states the refinement over Mathlib's
-`Relation.ReflTransGen`, whose zero-step case replaces the idle abstract edge.
+which requires the root `regula` package by relative path. A refinement over Mathlib's
+`Relation.ReflTransGen` has a zero-step case in place of the idle abstract edge.
 -/
 
 universe u v
@@ -163,7 +161,6 @@ After one or more operations run from the admitted state, the limiter keeps its 
 capacity and never has more slots in use than that capacity. `admitted_safe` covers the
 admitted state before any operation. Only finite runs are covered; progress and liveness
 are not required. -/
-@[regula_material]
 theorem reachable_safe {cap : Nat} {c₀ c : Limiter} (admission : admit cap = some c₀)
     (path : Relation.TransGen StepC c₀ c) :
     ∃ a, Relation.TransGen (StepA cap) cap a ∧ R cap c a ∧ Inv cap a ∧
@@ -213,7 +210,6 @@ the whole script.
 Every state the strict runner can return, after any prefix of any script and whether
 it completes or stops at a refused grant, must keep the admitted capacity unchanged and
 stay within it. -/
-@[regula_material]
 theorem prefix_safe {cap : Nat} {c : Limiter} (admission : admit cap = some c)
     (ops : List Op) (n : Nat) :
     ∃ a, Relation.TransGen (StepA cap) cap a ∧

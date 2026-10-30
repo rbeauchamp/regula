@@ -14,7 +14,7 @@ the `lean (fails := ...)` examples of the standard's module 6
 
 Every definition here uses Lean's core library only. `Rat` is exact rational
 arithmetic, not the real numbers: a claim about real-valued time needs Mathlib's
-`ℝ`, and the Mathlib integration package (`integration/mathlib/`) keeps that model.
+`ℝ`.
 
 Fences import this module explicitly, so their assumptions are their printed
 imports plus these exact APIs. This module is part of the positive surface, and

@@ -33,11 +33,6 @@ inductive Mode where
   | docs
   /-- `site`: build and check the rule-reference site artifact at `_site`. -/
   | site
-  /-- `mathlib`: the separate Mathlib integration check, never part of acceptance: the build with
-  warnings as errors and the `lake lint` of the Mathlib integration package, whose pinned Mathlib
-  `lean --run lean/RegulaProvision.lean mathlib` provisions beforehand. It refuses a copy the check
-  does not apply to (`RegulaProvision.mathlibApplies`) instead of reporting a pass. -/
-  | mathlib
   deriving DecidableEq
 
 /-- Exactly the documented arguments for each mode, with no ignored trailing arguments. -/
@@ -45,10 +40,9 @@ def arguments : Mode → List String
   | .ordinary => []
   | .docs => ["docs"]
   | .site => ["site"]
-  | .mathlib => ["mathlib"]
 
 /-- Every supported mode occurs once; the parser searches only this closed vocabulary. -/
-def modes : List Mode := [.ordinary, .docs, .site, .mathlib]
+def modes : List Mode := [.ordinary, .docs, .site]
 
 /-- Argument parsing never accepts a prefix of a supported invocation. -/
 def parseMode (args : List String) : Option Mode :=
@@ -92,11 +86,6 @@ private def lake (args : Array String) : Command := { program := "lake", args }
 libraries and adopts the root `regula` package by relative path, as an adopting project would.
 Lake commands for it run in its own directory, where its workspace is the one Lake loads. -/
 def auditPackage : String := "audit"
-
-/-- The Mathlib integration package (`MathlibAudit`): a Mathlib adopter of the root `regula`
-package by relative path, holding the Mathlib-specific behaviour Regula supports. Only the
-`mathlib` mode runs Lake in it, so no other mode needs Mathlib. -/
-def mathlibPackage : String := "integration/mathlib"
 
 private def lakeIn (dir : String) (args : Array String) : Command :=
   { program := "lake", args, dir }
@@ -221,15 +210,6 @@ def commands (copy : String) : Mode → List Command
       -- The standard's earlier build output, which the site's build refuses: Lake removes it.
       lakeIn websitePackage #["clean"],
       lake #["exe", "site", "build"]]
-  -- The Mathlib integration check: the integration package's build and lint, as a Mathlib adopter
-  -- of `regula` runs them. Its Mathlib is provisioned beforehand, as setup; the first command
-  -- refuses a copy the check does not apply to (another toolchain than that package selects) and
-  -- one whose Mathlib is not provisioned, so an excluded copy fails here and is never reported as
-  -- passing.
-  | .mathlib => [
-      { program := "lean",
-        args := #["--run", "lean/RegulaProvision.lean", "mathlib-applies", "--require"] },
-      lakeIn mathlibPackage #["build", "--wfail"], lakeIn mathlibPackage #["lint"]]
 
 /-- Every mode schedules actual work rather than accepting an empty campaign. -/
 theorem commands_nonempty (copy : String) (mode : Mode) : commands copy mode ≠ [] := by
@@ -831,7 +811,7 @@ def report (ends : List (Command × Option UInt32)) : String :=
     if passed [ended] then none else some s!"  {command.display}: {describe ended}")
 
 private def usage : String :=
-  "usage: scripts/verify.sh [docs | site | mathlib]"
+  "usage: scripts/verify.sh [docs | site]"
 
 /-- The earlier verdicts an attempt of `mode` invalidates, each with the constant text recording it
 as incomplete. Ordinary acceptance invalidates the accepted link, so it is not accepted from then on
@@ -874,8 +854,7 @@ the entries of its package overrides file (`readRoot`), is there, and neither re
 Lake materializes a workspace's dependencies from those entries, and refuses a configuration that
 requires a package when they are none, so an accepted build of the root package requires nothing.
 Requiring `regula` then adds only `regula` to an adopter's `lake-manifest.json`. An absent manifest
-is refused: Lake would resolve the requirements anew. The Mathlib integration package in
-`integration/mathlib/` records its own pins.
+is refused: Lake would resolve the requirements anew.
 
 Assumes:
 - Lake v4.35.0 materializes the dependencies of a workspace with a manifest from the manifest's
@@ -968,7 +947,7 @@ def run (args : List String) : IO Unit := do
     unless dependencyFree (← readRoot (rootFiles ".")) do
       throw <| IO.userError "lake-manifest.json is absent or records a dependency, or \
         .lake/package-overrides.json records one: the regula package must require nothing beyond \
-        the Lean toolchain (a Mathlib-dependent module belongs in integration/mathlib/)"
+        the Lean toolchain"
     let surfaces ← IO.ofExcept (Lean.Json.parse (← IO.FS.readFile "foundation_manifest.json"))
     unless buildCovers surfaces do
       throw <| IO.userError s!"foundation_manifest.json claims a target that the first \
@@ -1018,10 +997,7 @@ def run (args : List String) : IO Unit := do
       written, rendered, and its anchors, checklist rows and rule-ID links checked; inputs equal \
       the accepted ordinary inputs before and after)"
     | .site => "site build and check: PASS (rule-reference artifact in _site; separate from \
-      acceptance; publication is verified after deployment)"
-    | .mathlib => "Mathlib integration check: PASS (the Mathlib integration package built and \
-      passed Regula's checker on its pinned Mathlib; separate from acceptance, which needs no \
-      Mathlib)")
+      acceptance; publication is verified after deployment)")
 
 /-- The cold-start entry point. `lean/RegulaVerification.lean`, the launcher that the timed
 `scripts/verify.sh` runs with `lean --run`, runs the source of this module with `main` bound to

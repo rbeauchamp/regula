@@ -4,7 +4,7 @@ import Regula.Decision
 
 /-! # Decision contracts of the verification driver
 
-The decision kind of each pure decision `RegulaVerification` registers with `@[regula_decision]`.
+The decision kind of each pure decision `RegulaVerification` registers with `Regula.RegisteredDecision`.
 The driver imports only the toolchain, because `scripts/verify.sh` runs it with `lean --run` before
 the package is built. This second module of its library imports it together with the two checker
 interfaces, and nothing the driver runs imports this module. Each kind restates theorems of the
@@ -74,6 +74,16 @@ theorem checked_buildCovers : Regula.ExecutableContract buildCovers
     ⟨Lean.Json.mkObj [("surfaces", Lean.Json.arr #[])], by decide +kernel⟩
     ⟨Lean.Json.null, by decide +kernel⟩⟩
 
-attribute [regula_decision] parseMode dependencyFree select passed removal buildCovers
+theorem parseMode_registered : Regula.RegisteredDecision @parseMode := ⟨⟩
+
+theorem dependencyFree_registered : Regula.RegisteredDecision @dependencyFree := ⟨⟩
+
+theorem select_registered : Regula.RegisteredDecision @select := ⟨⟩
+
+theorem passed_registered : Regula.RegisteredDecision @passed := ⟨⟩
+
+theorem removal_registered : Regula.RegisteredDecision @removal := ⟨⟩
+
+theorem buildCovers_registered : Regula.RegisteredDecision @buildCovers := ⟨⟩
 
 end RegulaVerification

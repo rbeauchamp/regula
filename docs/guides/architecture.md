@@ -8,7 +8,7 @@ The root `regula` package is the package that adopters require. It requires noth
 
 | Library | Role | Claim |
 | --- | --- | --- |
-| `RegulaInterface` | The checker interfaces that adopters import: executable contracts and decision kinds (`Regula.Contract`), decision registration (`Regula.Decision`), material claims and assumptions. | Claimed, Standard-Logical |
+| `RegulaInterface` | The checker interfaces that adopters import: executable contracts and decision kinds (`Regula.Contract`), decision registration (`Regula.Decision`) and assumptions. | Claimed, Standard-Logical |
 | `RegulaPolicy` | Pure policy types and decisions that the registry, the manifest reader and the option allowlist read. | Claimed, Standard-Logical |
 | `RegulaCore` | The rule registry, the guidance and setup decisions of the `regula` command, the decisions of the site and of the Markdown checks, and the shared filesystem constructor. | Claimed, Standard-Logical |
 | `RegulaQualification` | The assertions that the programs of the site evaluate (`RegulaQualification.Checks`). | Claimed, Standard-Logical |
@@ -16,7 +16,7 @@ The root `regula` package is the package that adopters require. It requires noth
 | `AuditApp`, with the executable root `Main` | A complete application, with contracts that are proved about the definitions that its executable runs. | Claimed, Standard-Logical |
 | `Regula` | The checker of a finished build, the manifest reader, the `regula` command, the site builder, the local gate, the release checks and the registry checks. | Excluded |
 
-The `regula_audit` package in [`audit/`](../../audit/lakefile.lean) holds the `Audit` library of the examples of the standard. It requires the root package by its path, as an adopter does. The Verso package in [`website/`](../../website/) renders the standard and the rule reference. The `regula_markdown` package in [`markdown/`](../../markdown/lakefile.toml) reads the tracked Markdown documents with md4c for the documentation step. The `regula_mathlib` package in [`integration/mathlib/`](../../integration/mathlib/lakefile.lean) is a Mathlib adopter of the root package. The [Mathlib integration check](contributing.md#mathlib-integration-check) builds it and runs the checker on it.
+The `regula_audit` package in [`audit/`](../../audit/lakefile.lean) holds the `Audit` library of the examples of the standard. It requires the root package by its path, as an adopter does. The Verso package in [`website/`](../../website/) renders the standard and the rule reference. The `regula_markdown` package in [`markdown/`](../../markdown/lakefile.toml) reads the tracked Markdown documents with md4c for the documentation step.
 
 The `regula_specification` package in [`specification/`](../../specification/lakefile.toml) holds the formal statements of the [specification of the smaller Regula](../../specification/README.md). It requires lean-intent and the root package. The first acceptance step builds it in its copy, with warnings as errors.
 

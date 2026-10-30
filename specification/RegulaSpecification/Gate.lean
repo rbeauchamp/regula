@@ -21,7 +21,7 @@ namespace RegulaSpecification
 open Lean (Name)
 open LeanIntent
 
-/-- The two allowlists the closed subset uses, fixed by #484. -/
+/-- The two allowlists the closed subset uses, whose members `Regula.Allowlist` holds. -/
 structure Allowlists where
   /-- The option names a claimed target may set (RG2006). -/
   options : Name → Prop

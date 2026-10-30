@@ -136,7 +136,7 @@ def geometricGrowth (base : Nat) (h : 0 < base) : GrowthFunction :=
   ⟨fun t ↦ base ^ t, pow_monotone_and_pos base h⟩
 ```
 
-If this definition claims to return a monotone, positive function, omitting the proof-bearing field or an equivalent theorem leaves the claim unverified. The bundled form encodes monotonicity and positivity in the return type. This example is discrete: its domain is a natural step count and its laws are core's `Nat.pow` lemmas. The real-valued form, `Real.exp (rate * t)` with Mathlib's `Monotone`, needs real analysis and is checked as `MathlibModels.exponentialGrowth` in the {repo "integration/mathlib/MathlibAudit/Models.lean"}[Mathlib integration package].
+If this definition claims to return a monotone, positive function, omitting the proof-bearing field or an equivalent theorem leaves the claim unverified. The bundled form encodes monotonicity and positivity in the return type. This example is discrete: its domain is a natural step count and its laws are core's `Nat.pow` lemmas. The real-valued form, `Real.exp (rate * t)` with Mathlib's `Monotone`, needs real analysis.
 
 # 1.3 The Specification/Model Firewall
 %%%
@@ -249,7 +249,7 @@ example : Std.LawfulOrderMax Nat := inferInstance
 example (a b : Nat) : a ≤ combineResources a b := le_combineResources a b
 ```
 
-The Mathlib form of this example, over `Monoid`, `AddCommMonoid` and the `Prop`-valued `IsOrderedAddMonoid` mixin, is checked in the {repo "integration/mathlib/MathlibAudit/Models.lean"}[Mathlib integration package].
+The Mathlib form of this example is over `Monoid`, `AddCommMonoid` and the `Prop`-valued `IsOrderedAddMonoid` mixin.
 
 *Anti-Pattern - An Inadequate Group Interface*: This structure declares a binary operation and an identity candidate, but no inverse operation or group laws. It does not specify a group. Use Mathlib’s `Group` interface when a group is intended; even a complete custom group definition would require justification for duplicating that interface.
 

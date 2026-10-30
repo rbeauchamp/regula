@@ -7,8 +7,9 @@ These rules read Lake's targets, the claim, and each loaded module's imports and
 RG2006 and RG2007 take an allowlist as a parameter: the closed set of option names, and of
 environment extensions, that a claimed target or module may use. The specification fixes what
 each allowlist may contain (no option that can stop a default warning or a check, and no
-extension that registers code Lean runs while it elaborates); #484 fixes their members from an
-observation of the pinned toolchain.
+extension that registers code Lean runs while it elaborates); `Regula.Allowlist` holds their
+members, from an observation of the pinned toolchain, and `RegulaSpecification.ClosedSubset` proves
+the executed functions against these statements.
 -/
 
 namespace RegulaSpecification

@@ -1,6 +1,6 @@
 module
 
-meta import Regula.Decision
+public import Regula.Decision
 import all Init.Meta.Defs
 public import RegulaPolicy.Compiler
 
@@ -514,8 +514,8 @@ theorem meets_of_sets (o : BuildOptions) (r : Name × OptionValue) (h : sets o r
   simp only [sets, meets, Bool.and_eq_true, List.all_eq_true] at h ⊢
   exact ⟨h.1, fun v hv => by simp [admits, h.2 v hv]⟩
 
-/-- The Mathlib revision whose option registrations `mathlibWarningSettings` was read from: the one
-`integration/mathlib/lakefile.lean` pins, read with the Batteries revision of its manifest. -/
+/-- The Mathlib revision whose option registrations `mathlibWarningSettings` was read from, with the
+Batteries revision of its manifest. -/
 def acceptedMathlib : String := "56a005855ea17e0b0958f73ec801ae140b0a1679"
 
 /-- Each `linter.` and `warn.` option that Lean `acceptedRelease` registers with

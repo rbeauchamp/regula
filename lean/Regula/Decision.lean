@@ -1,88 +1,42 @@
 module
 
-public import Lean.Attributes
-
 /-! # Decision registration
 
 Explicit selection of the functions a project declares to be decisions: a parser, decoder,
 validator or admission function whose result accepts or refuses its input.
 Registration identifies the RG1008 obligation: the function is the implementation of a decision
-contract of its inventory or, in a project audit, of a claimed surface whose `decides` names its
-library (an `ExecutableContract` whose requirement is a `Regula.DecidesSoundly`,
-`Regula.DecidesCompletely` or `Regula.Decides`), or its result type is `Decidable _`.
-A registration adds that requirement and waives nothing. It does not certify that every function
-that acts as a checker is registered, or that a registered contract's specification is the
-intended one.
+contract of a claimed module (an `ExecutableContract` whose requirement is a
+`Regula.DecidesSoundly`, `Regula.DecidesCompletely` or `Regula.Decides`), or its result type is
+`Decidable _`. A registration adds that requirement and waives nothing. It does not certify that
+every function that acts as a checker is registered, or that a registered contract's specification
+is the intended one.
 
-A function is registered where it is declared (`@[regula_decision] def f`) or, for a function
-whose module cannot import this one, in a module of the same inventory that imports it
-(`attribute [regula_decision] f`). The attribute itself accepts any declaration: which
-declarations an audit owns is not known while a file is elaborated. The checker reads the
-registrations that claimed modules write (`Regula.Load`), and decides the RG1008 requirement only
-for a registered function of a claimed module (`Regula.Closed.Input.contractFindings`); it reports
-nothing for a registration of another function.
+A registration is a declaration of the type `RegisteredDecision`, in a module that imports the
+function:
 
-A file that is not a `module` imports this module with `import Regula.Decision`. A `module`
-imports it with `meta import Regula.Decision`: the attribute is needed only while the file is
-elaborated, and under that import Lean refuses a definition of the file that would run this
-module's imports. The extension that holds the registrations is an ordinary definition, not a
-`meta` one, so the checker reads its module entries (`Regula.Load`). -/
+```
+
+theorem positive_registered : Regula.RegisteredDecision @positive := ⟨⟩
+```
+
+It is an ordinary constant, so it adds no code that Lean runs while it elaborates, and RG2007 admits
+it in a claimed module. The checker reads the type of each constant of a claimed module
+(`Regula.Load.registrationOf`), and decides the RG1008 requirement only for a registered function
+of a claimed module (`Regula.Closed.Input.contractFindings`); it reports nothing for a registration
+of another function. A file that is a `module` imports this one with `public import`, because the
+statement of a public registration names `RegisteredDecision`. -/
 
 public section
 
+universe u
+
 namespace Regula
 
-/-- The declarations the current module registers with `@[regula_decision]`. Lean saves them with
-that module and loads them wherever the module is imported, so a registration is kept by the
-module that writes it: the one that declares the function, or one that imports it. As Lean's own
-tag attributes do, a registration of a declaration that is private to its module is saved for
-importers that load the module's private data only. -/
-initialize decisionExtension : Lean.PersistentEnvExtension Lean.Name Lean.Name Lean.NameSet ←
-  Lean.registerPersistentEnvExtension {
-    mkInitial := pure {}
-    addImportedFn := fun _ _ => pure {}
-    addEntryFn := fun registered declaration => registered.insert declaration
-    exportEntriesFnEx := fun env registered =>
-      let all := registered.foldl (fun names name => names.push name) #[]
-        |>.qsort Lean.Name.quickLt
-      let exported := all.filter ((env.setExporting true).contains (skipRealize := false))
-      { exported, server := exported, «private» := all }
-    replay? := some fun _ replayed constants registered =>
-      constants.foldl (init := registered) fun registered constant =>
-        if replayed.contains constant then registered.insert constant else registered
-  }
-
-/-- `@[regula_decision]` registers a declaration of the current module or of an imported one. It
-is applied after compilation: Lean applies an attribute of the earlier application time to the
-`_unary` or `_mutual` definition it generates for a function defined by well-founded recursion as
-well, and that definition is not the function the project registered. Applied after compilation,
-the registration is on the declaration that carries the attribute and on no other, so the
-checker needs no exemption for a generated copy. -/
-initialize
-  Lean.registerBuiltinAttribute {
-    ref := ``decisionExtension
-    name := `regula_decision
-    descr := "Marks a function as a decision that must state which direction it proves."
-    applicationTime := .afterCompilation
-    add := fun declaration source kind => do
-      Lean.Attribute.Builtin.ensureNoArgs source
-      unless kind == .global do Lean.throwAttrMustBeGlobal `regula_decision kind
-      let env ← Lean.getEnv
-      unless decisionExtension.toEnvExtension.asyncMayModify env declaration do
-        Lean.throwAttrNotInAsyncCtx `regula_decision declaration env.asyncPrefix?
-      Lean.modifyEnv fun env =>
-        decisionExtension.addEntry (asyncDecl := declaration) env declaration
-  }
-
-/-- Every declaration `@[regula_decision]` registers in `env`: those the current module
-registers and those every loaded module does, each of which is the module that declares the
-function or one that imports it. A registration only adds the RG1008 requirement, so every loaded
-registration counts, whichever module wrote it. One pass over the loaded modules computes the
-set. -/
-def decisionRegistrations (env : Lean.Environment) : Lean.NameSet :=
-  (Array.range env.header.moduleNames.size).foldl (init := decisionExtension.getState env)
-    fun registered index =>
-      (decisionExtension.getModuleEntries env index).foldl (init := registered)
-        fun registered declaration => registered.insert declaration
+/-- A declaration of this type registers `f` as a decision function (RG1008). The type has one
+inhabitant and states nothing about `f`: the registration is the declaration's existence, which the
+checker reads from its type. -/
+structure RegisteredDecision {α : Sort u} (f : α) : Prop where
+  /-- Registers `f`. -/
+  mk ::
 
 end Regula

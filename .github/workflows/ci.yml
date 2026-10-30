@@ -3,7 +3,7 @@ name: CI
 # CI runs on every push to main and on dispatch, never on a pull request: the gate of a change is the
 # local gate that the no-mistakes validation pipeline runs on each commit it validates
 # (docs/guides/contributing.md#the-local-gate). On main, `verify` is the check the release jobs
-# need, and `site` and `deploy` publish the rule-reference site. `mathlib` runs on dispatch alone.
+# need, and `site` and `deploy` publish the rule-reference site.
 on:
   push:
     branches: [main]
@@ -70,29 +70,6 @@ jobs:
         env:
           REGULA_PROSE_START: ${{ github.event_name == 'push' && format('before:{0}', github.event.before) || github.event_name == 'workflow_dispatch' && format('before:{0}^', github.sha) || '' }}
         run: ./scripts/verify.sh docs
-
-  # The Mathlib integration check (docs/guides/contributing.md#mathlib-integration-check): the
-  # build and lint of the Mathlib integration package in integration/mathlib/, a
-  # Mathlib adopter of the checker. It is the only job that downloads, caches or builds Mathlib,
-  # and no other job needs its result: acceptance, the site and a release require no Mathlib. Its result is about the toolchain and Mathlib revision that package pins.
-  # A mismatched pin fails the integration preflight instead of skipping the check.
-  mathlib:
-    name: mathlib integration
-    if: github.event_name == 'workflow_dispatch'
-    runs-on: ubuntu-24.04
-    # Provisioning has its own allowance; the verify.sh step enforces exactly 420 seconds.
-    timeout-minutes: 45
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-
-      - uses: ./.github/actions/provision
-        with:
-          mathlib: 'true'
-
-      - name: Check the Mathlib integration package (same command and seven-minute limit as local)
-        run: ./scripts/verify.sh mathlib
 
   # On main, once acceptance passes: when main lists a release that is not
   # yet published, and its bump from the release listed before it is at least the bump the

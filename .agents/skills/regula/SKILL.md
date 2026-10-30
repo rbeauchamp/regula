@@ -100,7 +100,7 @@ Compliant example: as [RG1002](https://rbeauchamp.github.io/regula/dev/rules/RG1
 
 ## Documentation in Lean sources
 
-Applies to claimed modules and `@[regula_material]` declarations.
+Applies to claimed modules and public declarations that state a material claim.
 
 ### [RG5001](https://rbeauchamp.github.io/regula/dev/rules/RG5001/) Claimed modules need a leading module docstring and no repeated import (retired: written guidance)
 
@@ -116,11 +116,10 @@ theorem reflexive (n : Nat) : n = n := rfl
 
 ### [RG5002](https://rbeauchamp.github.io/regula/dev/rules/RG5002/) Registered public material declarations require docstrings (retired: written guidance)
 
-Every public `@[regula_material]` declaration has a docstring stating its purpose, hypotheses, result and boundary.
+Every public declaration that states a material claim has a docstring stating its purpose, hypotheses, result and boundary.
 Fix: Add a docstring stating the declaration's formal purpose, domain and hypotheses, result and boundary, with a labelled `# Intent` section ([RG5003](https://rbeauchamp.github.io/regula/dev/rules/RG5003/)).
 
 ```lean
-import Regula.MaterialClaim
 /-! # Reflexivity
 
 Reflexivity for every natural number; `reflexive` supplies its evidence. -/
@@ -128,16 +127,15 @@ Reflexivity for every natural number; `reflexive` supplies its evidence. -/
 
 # Intent
 Equality on natural numbers must be reflexive for every value, with no side condition.-/
-@[regula_material] theorem reflexive (n : Nat) : n = n := rfl
+theorem reflexive (n : Nat) : n = n := rfl
 ```
 
 ### [RG5003](https://rbeauchamp.github.io/regula/dev/rules/RG5003/) Registered public material declarations require an Intent section (retired: written guidance)
 
-Every public `@[regula_material]` docstring has a nonempty `# Intent` section stating the requirement the claim must meet.
+The docstring of every public material declaration has a nonempty `# Intent` section stating the requirement the claim must meet.
 Fix: Add a heading whose text is exactly `Intent` to the docstring, followed by the requirement the claim must meet, stated from the source mathematics or specification.
 
 ```lean
-import Regula.MaterialClaim
 /-! # Reflexivity
 
 Reflexivity for every natural number; `reflexive` supplies its evidence. -/
@@ -146,12 +144,12 @@ Reflexivity for every natural number; `reflexive` supplies its evidence. -/
 # Intent
 ## Requirement
 Equality on natural numbers must be reflexive for every value, with no side condition. -/
-@[regula_material] theorem reflexive (n : Nat) : n = n := rfl
+theorem reflexive (n : Nat) : n = n := rfl
 ```
 
 ## Executable code
 
-Applies to `ExecutableContract` registrations, `@[regula_decision]` functions and code reached from executable roots. The shared-test rule compares names: a copy of a test under a second name passes. A shared function with a result other than `Bool` or `BEq`, and a field of a structure that the two sides read, are not refused.
+Applies to `ExecutableContract` registrations, `RegisteredDecision` functions and code reached from executable roots. The shared-test rule compares names: a copy of a test under a second name passes. A shared function with a result other than `Bool` or `BEq`, and a field of a structure that the two sides read, are not refused.
 
 ### [RG1007](https://rbeauchamp.github.io/regula/dev/rules/RG1007/) Executable contracts require supported closed evidence
 
@@ -171,7 +169,7 @@ theorem contract : Regula.ExecutableContract identity (fun f => ∀ n, f n = n) 
 
 ### [RG1008](https://rbeauchamp.github.io/regula/dev/rules/RG1008/) Registered decision functions require a decision contract
 
-Each `@[regula_decision]` function has a `Decides`, `DecidesSoundly` or `DecidesCompletely` contract in its inventory or a surface whose `decides` names its library, or a `Decidable` result type.
+Each function that a `RegisteredDecision` declaration names has a `Decides`, `DecidesSoundly` or `DecidesCompletely` contract in a claimed module, or a `Decidable` result type.
 Fix: Register `theorem c : ExecutableContract f (Decides accepts Spec)` in the function's library or in a surface whose `decides` names that library, with `DecidesSoundly` or `DecidesCompletely` for a one-way guarantee, or return `Decidable (Spec x)`.
 
 ```lean
@@ -181,9 +179,10 @@ import Regula.Decision
 
 A decision that a natural number is zero, with its two-way contract. -/
 /-- Whether `n` is zero. -/
-@[regula_decision] def isZero : Nat → Bool
+def isZero : Nat → Bool
   | 0 => true
   | _ + 1 => false
+theorem isZero_registered : Regula.RegisteredDecision @isZero := ⟨⟩
 theorem contract : Regula.ExecutableContract isZero (Regula.Decides (· = true) (· = 0)) :=
   ⟨.of_iff (fun | 0 => ⟨fun _ => rfl, fun _ => rfl⟩ | _ + 1 => ⟨nofun, nofun⟩) ⟨0, rfl⟩ ⟨1, nofun⟩⟩
 ```
@@ -196,14 +195,13 @@ Fix: State the condition as a proposition in the specification and let the funct
 ```lean
 import Regula.Contract
 import Regula.Decision
-/-! # Bound test
-
-A bound stated as a proposition. -/
-/-- `n` is below four. -/
+/-! # Bound test -/
+/-- `n` < 4. -/
 def Small (n : Nat) : Prop := n < 4
 instance (n : Nat) : Decidable (Small n) := n.decLt 4
-/-- Whether `n` is below four. -/
-@[regula_decision] def check (n : Nat) : Bool := decide (Small n)
+/-- Whether `n` is below 4. -/
+def check (n : Nat) : Bool := decide (Small n)
+theorem check_registered : Regula.RegisteredDecision @check := ⟨⟩
 theorem contract : Regula.ExecutableContract check (Regula.Decides (· = true) Small) :=
   ⟨.of_iff (fun _ => ⟨of_decide_eq_true, decide_eq_true⟩) ⟨0, rfl⟩ ⟨4, by decide⟩⟩
 ```
@@ -269,10 +267,10 @@ Fix: Fix the manifest: exactly the four top-level keys, one entry per root `lean
 }
 ```
 
-### [RG2006](https://rbeauchamp.github.io/regula/dev/rules/RG2006/) Claimed targets must build with the community configuration
+### [RG2006](https://rbeauchamp.github.io/regula/dev/rules/RG2006/) Claimed targets must set only allowlisted options
 
-Targets' `leanOptions`: auto-implicits off, `linter.missingDocs` on, with Mathlib its standard set, header linter off or licensed; other options, in `-D` or source too, only in the accepted set.
-Fix: Set `leanOptions`: `autoImplicit` and `relaxedAutoImplicit` false, `linter.missingDocs` true and, with Mathlib, the standard set and §6.7 exclusions; delete other options and `-D`s outside the accepted set, and each plugin, dynamic library and other extra Lean argument.
+Each claimed target sets `autoImplicit` and `relaxedAutoImplicit` to `false`, sets only options of the closed allowlist, and has no plugin, dynamic library or other Lean argument.
+Fix: Set `autoImplicit` and `relaxedAutoImplicit` to `false` in `leanOptions`, and delete each option outside `Regula.Allowlist.options`, each plugin, dynamic library and other extra Lean argument.
 
 ```lean
 import Lake
@@ -284,6 +282,19 @@ package rule_examples where
 
 @[default_target]
 lean_lib Example
+```
+
+### [RG2007](https://rbeauchamp.github.io/regula/dev/rules/RG2007/) Claimed modules must register no code that Lean runs
+
+A claimed module has entries only of the environment extensions of the closed allowlist, so its build records no macro, syntax, elaborator, initializer, `meta` declaration or attribute of its own.
+Fix: Remove the macro, syntax, elaborator, initializer, `meta` declaration or attribute from the claimed module, or move it to a tool module, a module of an excluded target, which no claimed module may import ([RG2004](https://rbeauchamp.github.io/regula/dev/rules/RG2004/)).
+
+```lean
+/-! # Zero
+
+A claimed module that states the same fact with Lean's own syntax. -/
+/-- Zero is zero. -/
+theorem zero_eq : (0 : Nat) = 0 := rfl
 ```
 
 ### [RG2004](https://rbeauchamp.github.io/regula/dev/rules/RG2004/) Owned coverage must match the exact Lake inventory

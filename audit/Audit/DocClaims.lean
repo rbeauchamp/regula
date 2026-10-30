@@ -15,9 +15,7 @@ proves only joint satisfiability of its listed hypotheses, and no definition or
 theorem is promoted to a native-runtime or external-system claim. Core predicates
 and structures are reused where they match. The curve is linear in elapsed time and
 its arithmetic is exact rational arithmetic: it is not an exponential and makes no
-claim about real numbers. The real-valued exponential curve, which needs Mathlib's
-`Real.exp`, is `MathlibAudit.DocClaims` in the Mathlib integration package
-(`integration/mathlib/`).
+claim about real numbers. The real-valued exponential curve needs Mathlib's `Real.exp`.
 -/
 
 namespace Glossary

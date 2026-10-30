@@ -6,19 +6,16 @@ projects require, whose source directory is `lean/`; it requires no package beyo
 toolchain. Imports retain their Lean module names, such as `AuditApp.Limiter` and
 `Regula.Contract`. The standard's example library, such as `Audit.Research`, is the separate
 `regula_audit` package in [`../audit/`](../audit/lakefile.lean), which requires this package by
-relative path and nothing else. The Mathlib-specific behaviour the checker supports is checked by
-the separate package in [`../integration/mathlib/`](../integration/mathlib/lakefile.lean).
+relative path and nothing else.
 
 ## Choose a starting point
 
 | Purpose | Start here | Boundary |
 | --- | --- | --- |
 | Use the proof-bearing contract interface | [Regula.Contract](Regula/Contract.lean) | Public interface tying evidence to the named executable definition, with the decision kinds (`Decides`, `DecidesSoundly`, `DecidesCompletely`) that state which directions of a checker are proved, the law `DecisionEquivalence` that states the two directions and no outcome, and the erasures `Regula.Dependent.isSome` and `isOk` for a result type that depends on the input. |
-| Register a material claim | [Regula.MaterialClaim](Regula/MaterialClaim.lean) | Public `@[regula_material]` attribute that selects the declarations to which the written guidance of [RG5002] and [RG5003] applies: a docstring with an Intent section. |
-| Register a decision function | [Regula.Decision](Regula/Decision.lean) | Public `@[regula_decision]` attribute selecting the [RG1008] obligation: a decision contract in the function's inventory, or a `Decidable` result type. It does not find functions that are not registered. |
-| Declare an assumption about an external system | [Regula.Assumption](Regula/Assumption.lean), [RegulaCore.Filesystem](RegulaCore/Filesystem.lean), [guide](../docs/guides/proofs-and-boundaries.md#external-systems) | Public `@[regula_assumption]`, `@[regula_checked]` and `@[regula_observer]` attributes. The model of the file system, its assumptions with their sources and its observer `Regula.Filesystem`. Regula trusts the assumptions and does not prove them. |
+| Register a decision function | [Regula.Decision](Regula/Decision.lean) | Public type `RegisteredDecision`, whose declarations select the [RG1008] obligation: a decision contract in the function's inventory, or a `Decidable` result type. It does not find functions that are not registered. |
+| Declare an assumption about an external system | [Regula.Assumption](Regula/Assumption.lean), [RegulaCore.Filesystem](RegulaCore/Filesystem.lean), [guide](../docs/guides/proofs-and-boundaries.md#external-systems) | Public type `Assumed`, whose declarations give an assumption's system and sources. The model of the file system, its assumptions with their sources and its observer `Regula.Filesystem`. Regula trusts the assumptions and does not prove them. |
 | Inspect mathematical/specification examples | [Audit](../audit/Audit.lean) | Claimed abstract-specification surface of the `audit/` package, which imports only Lean's core libraries; representative checks of the standard's claims. |
-| Inspect the Mathlib integration check | [MathlibAudit](../integration/mathlib/MathlibAudit.lean) | Claimed surface of the Mathlib integration package, a Mathlib adopter of this package. `./scripts/verify.sh mathlib` builds it with warnings as errors and runs the checker on it, as a Mathlib adopter does. |
 | Inspect the verified application | [Main](Main.lean), [AuditApp](AuditApp.lean) | Claimed limiter application; proofs concern its actual definitions and its IO boundary stays trusted. |
 | Use typed policy data | [RegulaPolicy.Domain](RegulaPolicy/Domain.lean), [RegulaPolicy.Community](RegulaPolicy/Community.lean) | Separate claimed pure library: the policy types that the registry and the manifest reader use, and the option allowlist of [RG2006]. |
 | Use the checker | [Regula.Input](Regula/Input.lean), [Regula.Load](Regula/Load.lean), [Regula.Rules](Regula/Rules.lean), [Regula.Shell](Regula/Shell.lean) | The closed input, its loader, the rule functions and the shell of `lake lint`. Their contracts against the [specification](../specification/README.md) are leaf #487's work. |
@@ -28,7 +25,7 @@ the separate package in [`../integration/mathlib/`](../integration/mathlib/lakef
 | Inspect the rule-reference site | [RegulaCore.Edition](RegulaCore/Edition.lean), [RegulaCore.Site](RegulaCore/Site.lean), [Guide](RegulaCore/Guide.lean), [site builder](Regula/Site/Artifact.lean), [guide](../docs/guides/website.md) | Claimed pure editions, version-matched help links, route policy, escaping, filters, diffs, release banners, link checks and page structure, and the typed rule explanations; the Verso and filesystem steps of the builder stay operational. |
 | Examine the checks of Markdown documents | [RegulaCore.Markdown](RegulaCore/Markdown.lean), [RegulaCore.Vocabulary](RegulaCore/Vocabulary.lean), [RegulaCore.ControlledText](RegulaCore/ControlledText.lean), [RegulaCore.ControlledProse](RegulaCore/ControlledProse.lean), [RegulaCore.ProseBaseline](RegulaCore/ProseBaseline.lean), [reader and executable](../markdown/MarkdownMain.lean), [writing rules](../docs/guides/writing.md) | Claimed decisions of the rule-ID check, of the checks C1 to C9 and of the baseline checks B1 and B2. `RegulaCore.Markdown` also has the claimed decisions of the checks of the links and the opening of the root `README.md`. `RegulaCore.ControlledText` has the definitions of a word and of a sentence. The md4c reader is in the `markdown/` package and has no theorem. The controls are in `Fixtures/ControlledProse`. |
 | Inspect cold-start verification | [RegulaVerification](RegulaVerification/Driver.lean), [its launcher](RegulaVerification.lean), [its decision contracts](RegulaVerification/Decisions.lean) | Claimed argument-selection/recipe driver; process IO remains a reported boundary under the shell deadline. |
-| Provision dependencies | [RegulaProvision](RegulaProvision/Driver.lean), [its launcher](RegulaProvision.lean), [its decision contracts](RegulaProvision/Decisions.lean), [its link installation contract](RegulaProvision/Link.lean), [its own-entry read contract](RegulaProvision/Ownership.lean) | Claimed toolchain-only setup run before the shell deadline, which acquires no Mathlib unless asked with `mathlib` for the integration check; its receipt-admission, pin-selection, package-step, retention, link-installation and own-entry proofs do not authenticate Git, Lake, `ln`, `mkdir`, `rename`, `chmod` or locking effects. |
+| Provision dependencies | [RegulaProvision](RegulaProvision/Driver.lean), [its launcher](RegulaProvision.lean) | Claimed toolchain-only setup run before the shell deadline, which acquires the specification package's lean-intent, and the website's Verso when asked. Git, Lake and filesystem effects stay trusted. |
 | Inspect the proved assertions of the site | [RegulaQualification](RegulaQualification/Checks.lean) | Claimed pure assertions that the programs of the site evaluate. |
 
 ## Follow the sources
@@ -37,8 +34,7 @@ Module docstrings describe purpose and assumptions. The
 [Lake configuration](../lakefile.lean) defines module/target discovery, and the
 [surface manifest](../foundation_manifest.json) defines claims and exclusions; the
 `audit/` package has its own [configuration](../audit/lakefile.lean) and
-[surface manifest](../audit/foundation_manifest.json), as does the
-[Mathlib integration package](../integration/mathlib/lakefile.lean).
+[surface manifest](../audit/foundation_manifest.json).
 Those files, not this navigation table or folder names, own the inventory.
 
 The interfaces, such as `ExecutableContract`, are the claimed `RegulaInterface` library. A claimed

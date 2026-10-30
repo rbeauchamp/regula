@@ -49,7 +49,7 @@ A run of the checker gives one of three verdicts: `pass`, `fail` or `incomplete`
 
 - A build that Lean could not load is `incomplete`. This is [RG2001].
 - An input that the admission refuses is `incomplete`. Missing evidence is not read as an empty set.
-- A well-formed input is not `incomplete`. It passes exactly when all kept rules and `RG2007` hold of each of its environments, and `RG6001` holds of the bundle (`Bundle.AllHold`).
+- A well-formed input is not `incomplete`. It passes exactly when all kept rules and [RG2007] hold of each of its environments, and `RG6001` holds of the bundle (`Bundle.AllHold`).
 
 **Proved**: `gate_o5`. Two verdict functions that meet the record are equal, so the record leaves nothing unsaid about the verdict.
 
@@ -148,9 +148,9 @@ These items are read from the source of the tag `v4.35.0`. **Assumed**: each of 
 
 ## The rules
 
-The registry of Regula has 24 rules (`Regula.RuleId`). The function `fate` in [`RegulaSpecification/Fates.lean`](RegulaSpecification/Fates.lean) gives each of them one fate. Lean examines that the match is exhaustive. Thus a rule that the registry adds or removes stops the build of this package until the table changes.
+The registry of Regula has 25 rules (`Regula.RuleId`). The function `fate` in [`RegulaSpecification/Fates.lean`](RegulaSpecification/Fates.lean) gives each of them one fate. Lean examines that the match is exhaustive. Thus a rule that the registry adds or removes stops the build of this package until the table changes.
 
-**Proved**: `fate_counts`. Of the 24 rules, 15 are kept, 2 go to Lean and 7 are retired. The two new rules have the proposed identifiers `RG2007` and `RG6001`, which no rule of the registry has (**proved**: `new_not_registered`).
+**Proved**: `fate_counts`. Of the 25 rules, 16 are kept, 2 go to Lean and 7 are retired. [RG2007] entered the registry with [#484]. The other new rule has the proposed identifier `RG6001`, which no rule of the registry has (**proved**: `new_not_registered`).
 
 | Rule | Fate | Formal statement |
 | --- | --- | --- |
@@ -169,11 +169,11 @@ The registry of Regula has 24 rules (`Regula.RuleId`). The function `fate` in [`
 | [RG2004] | Kept | `rg2004`, `Violates2004` |
 | [RG2005] | Handed to Lean: `lake check` | No statement of Regula |
 | [RG2006] | Kept, with less scope | `rg2006`, `Violates2006` |
+| [RG2007] | New, in the registry since [#484] | `rg2007`, `Violates2007` |
 | [RG3001] | Kept | `rg3001`, `Violates3001` |
 | [RG3002] | Kept | `rg3002`, `Violates3002` |
 | [RG4001] to [RG4004] | Retired | No statement |
 | [RG5001] to [RG5003] | Retired | No statement |
-| `RG2007`, new | New | `rg2007`, `Violates2007` |
 | `RG6001`, new | New | `rg6001`, `Violates6001` |
 
 Each entry below has the same fields. The domain is the set of subjects that the rule examines. The input is the part of the closed input that it reads. "Supersedes" names the open issues that the entry replaces, with the leaf that closes each.
@@ -292,7 +292,7 @@ But the list of `lake check` is fixed, and it gives no axiom set for each consta
 - **Input**: the registrations, the contracts and the result types.
 - **Formal statement**: `Violates1008`.
 - **Accepted risks**: a registration that the author removes removes the requirement with it, as it does now.
-- **Decision**: a registration becomes a declaration of a type of Regula's interface, read as a constant. The present attribute `@[regula_decision]` is code that a tool module defines. `RG2007` and [#484] do not let a claimed module import a tool module or have entries of an extension that Lean does not define. Leaf [#487] gives the declaration its form.
+- **Decision**: a registration is a declaration of a type of Regula's interface, read as a constant. An attribute is code that a tool module defines, and [RG2007] and [RG2004] do not let a claimed module use one. So [#484] gives the declaration its form: `theorem f_registered : Regula.RegisteredDecision @f := ⟨⟩`, read from its type (`Regula.Load.registrationOf`).
 - **Supersedes**: none.
 
 #### [RG1009]: shared Boolean tests
@@ -366,7 +366,10 @@ But the list of `lake check` is fixed, and it gives no axiom set for each consta
 - **Domain**: each claimed target.
 - **Input**: the options and the extra Lean arguments that Lake gives for each target.
 - **Formal statement**: `Violates2006`, for the allowlist `allowed`. **Proved**: `rg2006_adequate`, for each allowlist that contains the two options of automatic implicits. The rule also refuses each entry of `autoImplicit` or `relaxedAutoImplicit` with a value other than `false`, at any position. **Proved**: `rg2006_refuses_override`. The strict options followed by `autoImplicit` set to `true` violate the rule.
-- **Accepted risks**: an option that a source file sets leaves no record (**measured**), so the rule does not read it. The present rule also requires `linter.missingDocs` and Mathlib's standard linters. These requirements go to written guidance with the documentation rules. **Open**: [#484] fixes the members of the allowlist. It contains no option that can stop a default warning or a check of Lean.
+- **The executed rule**: `Regula.Closed.Input.optionFindings`. **Proved** in [`RegulaSpecification/ClosedSubset.lean`](RegulaSpecification/ClosedSubset.lean): `rg2006_exact`, it reports a target exactly when `Violates2006` holds of it, for each allowlist; `rg2006_meets`, it meets the record `rg2006` at the members that the checker runs with; `rg2006_allowlist_adequate`, the obligations of that record; and `run_pass_holds`, a pass of `Regula.Closed.run` holds the rule of each environment.
+- **The members**: `Regula.Allowlist.options`, which names each option with its reason. The list holds no option that can stop a default warning or a check of Lean at any value. **Decided on the owner's behalf** in [#484], because the rule reads a name and no value: an option that one value turns off is refused at each value. So `linter.unusedVariables` is refused at `true` as well, which is its default and adds nothing. The same reason leaves out `exponentiation.threshold`, because raising it stops a default warning, which the rule before this one accepted.
+- **Measured** on 2026-10-30, by reading Acorn's `lean/lakefile.lean` at `718d1d0`, a real Mathlib project. Acorn sets the listed options, and these others, which it must remove to take this Regula: `linter.unusedVariables`, `linter.unnecessarySimpa` and `linter.deprecated`, each at its default `true`, and the argument `-j2` in `weakLeanArgs`, an extra.
+- **Accepted risks**: an option that a source file sets leaves no record (**measured**), so the rule does not read it. A requirement of `linter.missingDocs` and of Mathlib's standard linters goes to written guidance with the documentation rules. That Lake's load gives each option and argument that Lake passes is **assumed** (`Regula.Load.targets`, `lean/Regula/Load.lean`), and Lake `v4.35.0` merges the options of the build type, the package and the library, with the later value winning, at `Lean/Util/LeanOptions.lean:91-92` and `Lake/Config/LeanLib.lean:208-209`. The rule reads that merged map, the value that Lean receives.
 - **Supersedes**: [#295] closes with [#484], because the rule refuses plugins and dynamic libraries. Issues [#474], [#422], [#464] and [#411] close with [#483], because no rule reads options in source.
 
 ### Documentation
@@ -387,15 +390,25 @@ For each of the seven rules: the fate is retired, with leaf [#488]. There is no 
 
 ### New rules
 
-#### `RG2007`: a closed subset of the language
+#### [RG2007]: a closed subset of the language
 
 - **Fate**: new. Leaf: [#484].
 - **Intent**: a claimed module registers no code that Lean runs while it elaborates. Thus it has no macro, elaborator, syntax, initializer, `meta` declaration or attribute that Lean does not define.
 - **Domain**: each claimed module.
 - **Input**: the names of the environment extensions that have entries in the `.olean` files of the module.
 - **Formal statement**: `Violates2007`, for the allowlist `declarative`. `ClosedAllowlist` requires that the allowlist admits none of `metaExtensions`. **Proved**: `rg2007_refuses_meta`, and `rg2007_adequate` for each closed allowlist that admits `Lean.declRangeExt`.
-- **Feasibility**: settled. The registrations leave named entries (**measured**), and a name outside the allowlist is refused, an unknown name included.
-- **Accepted risks**: a command that runs code (`#eval`, `run_cmd`, `run_elab`, `run_meta`) leaves no record (**measured**), so the rule cannot see it. If such code changes constants, `lake check` and the axiom sets find it. If it removes messages, `--wfail` does not see them. If it changes entries of an admitted extension, such as compiled code, a claim of execution can be false.
+- **The executed rule**: `Regula.Closed.Input.extensionFindings`. **Proved** in [`RegulaSpecification/ClosedSubset.lean`](RegulaSpecification/ClosedSubset.lean): `rg2007_exact`, it reports a module exactly when `Violates2007` holds of it, for each allowlist; `rg2007_meets`, it meets the record `rg2007` at the members that the checker runs with; `allowlist_closed`, those members admit none of `metaExtensions`; `rg2007_allowlist_adequate`, the obligations of that record; `rg2007_checker_refuses_meta`, the checker refuses a claimed module with an entry of `metaExtensions`; and `coverage_refuses_tool_import`, it refuses a claimed module that imports a module of an excluded target, a tool module ([RG2004]).
+- **The members**: `Regula.Allowlist.extensions`, which groups them with a reason for each group. A name that it does not name is refused, whatever it registers. So the failure of a Lean or Lake version whose record differs is a refusal when the names differ. A version that wrote its record under the admitted names with another meaning is stopped by the compiler guard of `lakefile.lean`, which refuses each Lean but the one this revision supports (`RegulaPolicy.Compiler`).
+- **An empty record**: the shell refuses a module whose `.olean` files record no extension, and the verdict is `incomplete` (`Regula.Load.readModule`). **Measured**: each of the 9,019 modules below has entries of `Lean.deprecatedModuleExt` and of `Lean.modPkgExt`, so an empty record is a record of another form, not a clean module.
+- **Measured** on 2026-10-30 at `v4.35.0`. A Lean program read all parts of each `.olean` file with `Lean.readModuleDataParts`, and listed the names of the extensions with entries. It read 81 modules of Regula's build before this leaf, 295 of Acorn's at `718d1d0`, a real Mathlib project, and 8,643 of Mathlib at `56a00585`, the commit that Acorn pins.
+  - Regula had 54 names, Acorn 49 and Mathlib 202.
+  - Every name of Acorn's that is not of Lean itself is of a Regula attribute that this leaf removes: `Regula.decisionExtension`, and `RegulaObserver.records` of the observer plugin that [#483] retired.
+  - The five extensions of the observation at `v4.34.1`, and the ones of the command and tactic elaborators, have these names at `v4.35.0`.
+  - In one module for each form, `notation`, `local notation`, `local macro`, `local syntax`, `local macro_rules`, `local elab_rules`, `simproc` and a `meta def` each had an entry of `metaExt`, and `initialize` had one of `Lean.regularInitAttr`. So the rule refuses them.
+  - A default of the form `:= by tactic`, on a binder or a field, also has an entry of `metaExt` (`Lean/Elab/Binders.lean:101` at `v4.35.0`), because Lean runs that tactic at each use. So the rule refuses it, and Regula's own modules lost theirs.
+  - Each member of the list was read at its declaration in that release's source, to check that its entries are data and name no code for Lean to run. The members for Mathlib and Batteries are data attributes that Acorn does not use and Mathlib's ordinary modules do. Each of them was read at its declaration at `56a00585`.
+- **Feasibility**: settled. The registrations leave named entries (**measured**), and a name outside the allowlist is refused, an unknown name included. No claimed module can bring in an extension of its own, because an extension exists only through an `initialize`, which the rule refuses, and [RG2004] refuses the import of a tool module.
+- **Accepted risks**: a command that runs code (`#eval`, `run_cmd`, `run_elab`, `run_meta`) leaves no record (**measured**), so the rule cannot see it. An attribute of local scope on an ordinary definition also leaves no record: `@[local macro k]`, `@[local term_elab k]` or `@[local tactic k]` (**measured** on 2026-10-30). The first one changed what a term of its module elaborates to, in a file with no `import Lean`, and the module had the entries of an ordinary one. If such code changes constants, `lake check` and the axiom sets find it. If it removes messages, `--wfail` does not see them. If it changes entries of an admitted extension, such as compiled code, a claim of execution can be false.
 - **Open**: the owner can ask to close this gap. Then the checker reads the commands of each claimed module with Lean's parser, and refuses a command outside a closed set. That is a second input, which this design leaves out.
 - **Supersedes**: [#468] and [#462] close with [#484], because a claimed module can no longer declare their macros.
 
@@ -424,7 +437,7 @@ For a constant of a claimed module, this table gives the rules that examine it a
 | A registered decision function | [RG1008] | The registrations, the contracts and the result type |
 | A constant in the execution closure of a claimed executable | [RG3001], and [RG3002] under a checked execution claim | The compiled code, its departures, and the theorems that prove each correspondence |
 | The implementation of a declared deliverable | `RG6001` | The deliverables, the statements that theorems prove, and the owner's answers |
-| Each claimed module | [RG2004], `RG2007`, and Lean's [RG2003] and [RG2005] | Lake's modules, the imports, the extension names, and Lean's own tools |
+| Each claimed module | [RG2004], [RG2007], and Lean's [RG2003] and [RG2005] | Lake's modules, the imports, the extension names, and Lean's own tools |
 | Each target | [RG2002], and [RG2006] if it is claimed | Lake's targets and the claim |
 | The run | [RG2001] | The result of the load |
 
@@ -436,7 +449,7 @@ None of these issues closes before the change that replaces it lands. The rule e
 | --- | --- |
 | [#477], [#475], [#474], [#473], [#464], [#422], [#411], [#359], [#425] | Superseded by [#483], which removes the observation of elaboration, options and messages. A gap that no input can show is an accepted risk of [RG2003] or [RG2006]. |
 | [#472], [#471], [#469] | Superseded by [#482]. [RG2003] goes to `lake build --wfail`, and its entry records the messages that Lean or code drops. |
-| [#468], [#462] | Superseded by [#484]. `RG2007` refuses the macros of a claimed module. |
+| [#468], [#462] | Superseded by [#484]. [RG2007] refuses the macros of a claimed module. |
 | [#295] | Superseded by [#484]. [RG2006] refuses plugins and dynamic libraries on a claimed target. |
 | [#441] | Superseded by [#483]. The loader refuses a read that fails, as [RG2001] states. |
 | [#281] | Superseded by [#483] for initializers, because the shell loads no extension state. Lake's load still elaborates a `lakefile.lean`, which is project code. That part stays an accepted risk. |
@@ -471,11 +484,11 @@ The first acceptance command also builds the Lean package of this specification 
 
 ## The Mathlib integration package
 
-Regula's own package uses no Mathlib. Only the package in `integration/mathlib/`, a Mathlib adopter that the gate's Mathlib step builds, requires Mathlib. It ties each move of the toolchain to a Mathlib release. Today it is the only check of three behaviours. These are the Mathlib linter set that [RG2006] requires, foundation labels through Mathlib's constants, and the observation of Mathlib's syntax and tactics.
+Regula's own package uses no Mathlib. Before [#484], the package in `integration/mathlib/`, a Mathlib adopter that the gate's Mathlib step built, required Mathlib. It tied each move of the toolchain to a Mathlib release, and it was the only check of three behaviours: the Mathlib linter set that [RG2006] required, foundation labels through Mathlib's constants, and the observation of Mathlib's syntax and tactics.
 
-- **Fate**: retired with leaf [#484], which removes the last rule with behaviour of its own for Mathlib.
+- **Fate**: retired by [#484], which removed the package, its command, its gate step, its CI job and its provisioning. No rule has behaviour of its own for Mathlib.
 - After the leaves, no kept rule has a branch for Mathlib. [RG1001] to [RG1005] read the axiom sets of loaded constants, and the constants of Mathlib are constants like the others. Leaf [#483] removes the observation of elaboration. The Mathlib linter requirement of [RG2006] goes to written guidance.
-- The members of the two allowlists of [#484] stay related to Mathlib. `RG2007` refuses an extension that its list does not name, and [RG2006] refuses an option that its list does not name. So a Mathlib attribute such as `to_additive`, or a Mathlib option such as `weak.linter.mathlibStandardSet`, is usable in claimed code only if the list names it. That is data, not a branch of a rule. **Open**: [#484] fixes those members from an observation of a real Mathlib project, and records it.
+- The members of the two allowlists stay related to Mathlib. [RG2007] refuses an extension that its list does not name, and [RG2006] refuses an option that its list does not name. So a Mathlib attribute such as `to_additive`, or a Mathlib option such as `weak.linter.mathlibStandardSet`, is usable in claimed code only if the list names it. That is data, not a branch of a rule. The members and the observation of a real Mathlib project are recorded in the entries of [RG2006] and [RG2007].
 - Acorn is a Mathlib project, and its gate runs Regula. Thus Acorn then checks the same integration on real code. **Accepted risk**: a change of Regula that breaks a Mathlib project fails Acorn's gate when Acorn takes the change, not Regula's merge gate.
 - **Measured** in [#482] on 2026-10-29, one run on the owner's Mac, not a bound. The modules of the Mathlib integration package import Mathlib's real analysis and topology, at the Mathlib revision that Acorn pins. `lake check --inadvisably-no-sandbox` of that package passed in 229 s. Its process tree held at most 4.1 GB resident. Acorn itself was not measured. Before it can take this Regula, it must remove the observer plugin, make each claimed target a default target and claim one program at most.
 
@@ -513,7 +526,7 @@ These statements stay assumed after the leaves. Each is a statement about a syst
 - The executable runs the code compiled from the code that the build records.
 - A departure that a module of the toolchain makes computes what the kernel value computes.
 - Lake's load gives each module that it builds, and its elaboration of a `lakefile.lean` is honest code.
-- The code of a claimed module is honest code: it runs no command that changes messages, options or entries of an admitted extension. `RG2007` cannot see such a command.
+- The code of a claimed module is honest code: it runs no command that changes messages, options or entries of an admitted extension, and it gives no local attribute that registers code. [RG2007] cannot see them.
 - The meta-code of a dependency is honest code, as the present standard states.
 
 The axiom sets and the kernel replay read only the constants of the build. Thus the statement about the code of a claimed module can make a hygiene check wrong, or a claim of execution false. It cannot make an unsound proof of a claimed module pass. The cause is that `lake check` replays each constant in scope from its export, and refuses each axiom beyond the standard three. The other statements stay part of the trusted base of soundness.
@@ -527,7 +540,7 @@ What the specification requires:
 - Each claimed theorem depends only on the axioms of its profile. Under choice-free, a theorem proved with `propext` passes, and a theorem proved with `Classical.em` fails [RG1005].
 - A claimed module declares no `axiom`, also one that nothing uses [RG1001]. No claimed proof uses `sorry` [RG1002] or `native_decide` [RG1004].
 - A claimed module declares nothing unsafe or partial. A `partial def loop` fails [RG1006]. A structural recursive definition passes, with the helper that Lean adds.
-- A claimed module has no macro, `notation`, `syntax`, `elab`, `initialize` or attribute of its own (`RG2007`). Such code can be in an excluded library, but a claimed module cannot import that library [RG2004]. Thus a project cannot use its own notation in claimed code. Notation of a dependency, such as Mathlib's, stays usable.
+- A claimed module has no macro, `notation`, `syntax`, `elab`, `initialize` or attribute of its own ([RG2007]). Such code can be in an excluded library, but a claimed module cannot import that library [RG2004]. Thus a project cannot use its own notation in claimed code. Notation of a dependency, such as Mathlib's, stays usable.
 - A claimed target sets `autoImplicit` and `relaxedAutoImplicit` to `false`, sets only options of the allowlist, and loads no plugin [RG2006].
 - A decision function is registered by a declaration, not by `@[regula_decision]`. This changes the interface for adopters.
 - The owner's committed confirmation record names the deliverables of a project. Each has an intent record and the proofs of `RG6001`, among them lean-intent's O2 before a run and its degenerate check. A deliverable that the record names and the project lacks fails, and so does a project with no record.
@@ -558,7 +571,8 @@ What it rules out:
 
 What it leaves unsaid:
 
-- The members of the two allowlists, which [#484] fixes.
+- The members of the two allowlists, which `Regula.Allowlist` holds. [#484] fixed them, with the observation that the entries of [RG2006] and [RG2007] record. The owner's confirmation did not cover them.
+- Two results of [RG2007] that [#484] measured, which the owner's confirmation did not cover. A local attribute that registers code on an ordinary definition passes, as `run_cmd` does. A default of the form `:= by tactic` in a claimed module fails.
 - The exact correspondence statement of each kind of execution boundary, which [#487] fixes.
 - How a project declares a deliverable, and how the owner's confirmation record is made: [#485], [lean-intent#3] and [lean-intent#5].
 - The cost of `lake check` and of `--paranoid` on a machine other than the owner's Mac: [#482] measured each one time there.
@@ -620,6 +634,7 @@ What it leaves unsaid:
 [RG2004]: https://rbeauchamp.github.io/regula/dev/rules/RG2004/
 [RG2005]: https://rbeauchamp.github.io/regula/dev/rules/RG2005/
 [RG2006]: https://rbeauchamp.github.io/regula/dev/rules/RG2006/
+[RG2007]: https://rbeauchamp.github.io/regula/dev/rules/RG2007/
 [RG3001]: https://rbeauchamp.github.io/regula/dev/rules/RG3001/
 [RG3002]: https://rbeauchamp.github.io/regula/dev/rules/RG3002/
 [RG4001]: https://rbeauchamp.github.io/regula/dev/rules/RG4001/

@@ -1,7 +1,7 @@
 module
 
 public import Regula.Contract
-meta import Regula.Decision
+public import Regula.Decision
 
 /-! # Decision evidence of a registration
 
@@ -13,7 +13,7 @@ implementation (`Linkage`). Each expression and proposition is recorded as its e
 (`Term`), beside Lean's display of it, which is of another type (`Shown`). The report is an
 observation in a record part that no part a rule's decision takes includes
 (`RegulaPolicy.Declaration.Reported`).
-Which carriers discharge a `@[regula_decision]` registration is RG1008's decision, which reads the
+Which carriers discharge a `Regula.RegisteredDecision` registration is RG1008's decision, which reads the
 kind of the recorded contract (`RegulaPolicy.DecisionKind`) and not this report;
 `RegulaPolicy.Carrier.kind?_ofStructureName?` states that the law `Regula.DecisionEquivalence`
 has no kind. -/
@@ -48,13 +48,14 @@ def Carrier.spelling : Carrier → String
 
 /-- The carrier a text names; `none` for any text that is not a `spelling`
 (`Carrier.canonical`). -/
-@[regula_decision]
 def Carrier.parse? : String → Option Carrier
   | "sound" => some .«sound»
   | "complete" => some .«complete»
   | "sound-and-complete" => some .«soundAndComplete»
   | "equivalence" => some .«equivalence»
   | _ => none
+
+theorem Carrier.parse?_registered : Regula.RegisteredDecision @Carrier.parse? := ⟨⟩
 
 instance : ToString Carrier := ⟨Carrier.spelling⟩
 
@@ -78,13 +79,14 @@ def Carrier.structureName : Carrier → Lean.Name
 /-- The carrier whose structure `name` is; `none` for every other name
 (`Carrier.ofStructureName?_eq_some_iff`). The collector applies it to the head constant of a
 registration's reduced requirement. -/
-@[regula_decision]
 def Carrier.ofStructureName? : Lean.Name → Option Carrier
   | .str (.str .anonymous "Regula") "DecidesSoundly" => some .«sound»
   | .str (.str .anonymous "Regula") "DecidesCompletely" => some .«complete»
   | .str (.str .anonymous "Regula") "Decides" => some .«soundAndComplete»
   | .str (.str .anonymous "Regula") "DecisionEquivalence" => some .«equivalence»
   | _ => none
+
+theorem Carrier.ofStructureName?_registered : Regula.RegisteredDecision @Carrier.ofStructureName? := ⟨⟩
 
 /-- A name is read as a carrier exactly when it is that carrier's structure. -/
 theorem Carrier.ofStructureName?_eq_some_iff (name : Lean.Name) (carrier : Carrier) :
@@ -289,7 +291,6 @@ def DecidedObservation.Linked (implementation : Lean.Name) (o : DecidedObservati
 
 /-- Why the observation does not link the function to `implementation`, or `none` when it does
 (`DecidedObservation.unlinked?_eq_none_iff`). -/
-@[regula_decision]
 def DecidedObservation.unlinked? (implementation : Lean.Name) (o : DecidedObservation) :
     Option Unlinked :=
   match o.core with
@@ -307,6 +308,8 @@ def DecidedObservation.unlinked? (implementation : Lean.Name) (o : DecidedObserv
     else if o.unsupplied != 0 then
       some (.unsupported s!"the result of the function takes {o.unsupplied} more argument(s)")
     else none
+
+theorem DecidedObservation.unlinked?_registered : Regula.RegisteredDecision @DecidedObservation.unlinked? := ⟨⟩
 
 /-- The observer links exactly the observations that `DecidedObservation.Linked` describes. -/
 theorem DecidedObservation.unlinked?_eq_none_iff (implementation : Lean.Name)
@@ -445,12 +448,13 @@ inductive Linkage (carrier : Carrier) where
 
 /-- Admit the propositions of a linkage conclusion: them when there is one for each fact of the
 carrier, and an error otherwise. -/
-@[regula_decision]
 def admitStatements (carrier : Carrier) (statements : Array Shown) :
     Except String { s : Array Shown // s.size = carrier.facts.length } :=
   if exact : statements.size = carrier.facts.length then .ok ⟨statements, exact⟩
   else .error s!"linkage of a {carrier.spelling} carrier has {statements.size} proposition(s), \
     not {carrier.facts.length}"
+
+theorem admitStatements_registered : Regula.RegisteredDecision @admitStatements := ⟨⟩
 
 /-- The propositions are admitted exactly when there is one for each fact. -/
 theorem admitStatements_isOk_iff (input : Carrier × Array Shown) :

@@ -33,10 +33,11 @@ attribute [local simp] Satisfied.eq_1
 end
 
 /-- Stop at the first false assertion; never turn an unknown observation into success. -/
-@[regula_decision]
 def evaluate : List Check → Except String Unit
   | [] => .ok ()
   | check :: rest => if check.holds then evaluate rest else .error check.label
+
+theorem evaluate_registered : Regula.RegisteredDecision @evaluate := ⟨⟩
 
 /-- One assertion as a pure `Except` step: its label is the refusal. -/
 def Check.step (check : Check) : Except String Unit :=

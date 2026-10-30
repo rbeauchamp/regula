@@ -1585,10 +1585,11 @@ theorem errors_nil_iff (file source : String) (pieces : List Piece) :
 
 /-- What the document `file` with text `source` is refused for, given the parser's reading of
 it: that the reading cannot be used, or the `errors` of its pieces. -/
-@[regula_decision]
 def documentErrors (file source : String) : Reading → List String
   | .unread reason => [s!"{file}: {reason}"]
   | .read pieces => errors file source pieces
+
+theorem documentErrors_registered : Regula.RegisteredDecision @documentErrors := ⟨⟩
 
 /-- The document check reports nothing exactly when the parser's reading can be used and the
 document is accepted (`PiecesAccepted`): it has no construct the check refuses to read, and
@@ -1750,11 +1751,12 @@ def unstableReason (file destination : String) : String :=
 /-- What the document `file` is refused for, given the parser's reading of it: each link of a
 document of `stableDocuments` to the site that has no stable address. A reading that cannot be
 used reports nothing here; `documentErrors` reports it. -/
-@[regula_decision]
 def siteLinkErrors (file : String) : Reading → List String
   | .unread _ => []
   | .read pieces =>
     if file ∈ stableDocuments then (unstableLinks pieces).map (unstableReason file) else []
+
+theorem siteLinkErrors_registered : Regula.RegisteredDecision @siteLinkErrors := ⟨⟩
 
 /-- The check of the site links reports nothing exactly when, if the document is one of
 `stableDocuments` and its reading can be used, every link of it to the site has a stable
@@ -1878,7 +1880,6 @@ of Regula and its outline `doc` of the document: when the document is one of
 `summarizedDocuments`, that it does not open with the summary (`OpensWith`), or that the summary
 cannot be read. A document whose reading cannot be used reports nothing here;
 `documentErrors` reports it. -/
-@[regula_decision]
 def summaryErrors (file : String) (summary doc : Outline) : List String :=
   if file ∈ summarizedDocuments then
     match summary, doc with
@@ -1886,6 +1887,8 @@ def summaryErrors (file : String) (summary doc : Outline) : List String :=
     | .unread reason, .read _ => [s!"{file}: md4c cannot read the summary of Regula: {reason}"]
     | .read s, .read d => if opensWith s d then [] else [unsummarizedReason file]
   else []
+
+theorem summaryErrors_registered : Regula.RegisteredDecision @summaryErrors := ⟨⟩
 
 /-- The check of the opening reports nothing exactly when, if the document is one of
 `summarizedDocuments` and its outline can be used, the summary's outline can be used and the

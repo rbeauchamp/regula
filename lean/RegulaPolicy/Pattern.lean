@@ -120,10 +120,11 @@ theorem orderedLiterals_iff (literals : List String) (text : String) :
     split <;> simp_all
 
 /-- Invalid patterns are refused even when a direct caller omits scanner validation. -/
-@[regula_decision]
 def matchesPattern (pattern text : String) : Bool :=
   decide (PatternValid pattern) && (patternAlternatives pattern).any
       (fun ls => orderedLiterals ls text)
+
+theorem matchesPattern_registered : Regula.RegisteredDecision @matchesPattern := ⟨⟩
 
 /-- All and only the declared valid ordered-split relations are recognized. -/
 theorem matchesPattern_iff (pattern text : String) :

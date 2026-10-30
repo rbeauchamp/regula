@@ -119,7 +119,7 @@ inductive RuleScope where
   | documentationFence
   /-- One claimed module. -/
   | module
-  /-- One declaration registered with `@[regula_material]`. -/
+  /-- One declaration that states a material claim. -/
   | materialDeclaration
   deriving Repr, BEq, DecidableEq
 
@@ -131,7 +131,7 @@ inductive EvidenceKind where
   (`native_decide`, `decide +native` or `bv_decide`) or the helper of an `unsafe` or `partial`
   definition. -/
   | generatedRole
-  /-- `ExecutableContract` registrations and `@[regula_decision]` registrations. -/
+  /-- `ExecutableContract` registrations and `Regula.RegisteredDecision` registrations. -/
   | contractEvidence
   /-- The loaded Lake workspace, toolchain and dependencies. -/
   | environment
@@ -161,21 +161,21 @@ def scopeFor : RuleId → RuleScope
   | .communityConfiguration => .project
   | .executionUnresolved | .executionBoundary => .executionRoot
   | .fenceStructure | .positiveExample | .negativeExample | .trustedExample => .documentationFence
-  | .moduleDocumentation => .module
+  | .moduleDocumentation | .closedSubset => .module
   | .materialDocumentation | .materialIntent => .materialDeclaration
 
-/-- The attribute whose registrations select the declarations a rule checks, for a rule whose
-subjects the project selects; `none` for a rule that checks every member of its scope. Removing
-such a registration removes the rule's requirement from that declaration, so the rule's text does
-not say that no attribute changes its result (`Guidance.explain`). -/
+/-- The type whose declarations select the functions a rule checks, for a rule whose subjects the
+project selects; `none` for a rule that checks every member of its scope. Removing such a
+registration removes the rule's requirement from that function, so the rule's text does not say
+that no declaration changes its result (`Guidance.explain`). -/
 def registrationFor : RuleId → Option String
-  | .materialDocumentation | .materialIntent => some "regula_material"
-  | .decisionContract => some "regula_decision"
+  | .decisionContract => some "Regula.RegisteredDecision"
   | .projectAxiom | .proofHole | .unknownAxiom | .compilerTrusting | .profileExceeded
   | .escapeHatch | .executableContract | .sharedTest | .environment | .configuration
-  | .sourceBuild | .coverage | .admission | .communityConfiguration | .executionUnresolved
-  | .executionBoundary | .fenceStructure | .positiveExample | .negativeExample | .trustedExample
-  | .moduleDocumentation => none
+  | .sourceBuild | .coverage | .admission | .communityConfiguration | .closedSubset
+  | .executionUnresolved | .executionBoundary | .fenceStructure | .positiveExample
+  | .negativeExample | .trustedExample | .moduleDocumentation | .materialDocumentation
+  | .materialIntent => none
 
 /-- The evidence each rule's decision reads; `RuleDescriptor.evidenceKind` defaults to it. -/
 def evidenceFor : RuleId → EvidenceKind
@@ -185,7 +185,7 @@ def evidenceFor : RuleId → EvidenceKind
   | .environment => .environment
   | .configuration | .communityConfiguration => .configuration
   | .sourceBuild => .compilation
-  | .coverage => .inventory
+  | .coverage | .closedSubset => .inventory
   | .admission => .admission
   | .executionUnresolved | .executionBoundary => .executionClosure
   | .fenceStructure => .fenceGrammar
@@ -621,13 +621,13 @@ def descriptor : (id : RuleId) → RuleDescriptor id
       normativeClauses := [.enforcingBuildLinter, .proofCompleteness]
       applicability := "decision-contract"
       evidenceModes := declarationModes
-      requirement := "Each `@[regula_decision]` function has a `Decides`, `DecidesSoundly` or \
-        `DecidesCompletely` contract in its inventory or a surface whose `decides` names its \
-        library, or a `Decidable` result type."
+      requirement := "Each function that a `RegisteredDecision` declaration names has a `Decides`, \
+        `DecidesSoundly` or `DecidesCompletely` contract in a claimed module, or a `Decidable` \
+        result type."
       rationale := "A checker with no stated direction can refuse every input or accept every \
-        input, and an unstated one-way guarantee cannot be told from an omission. The tag makes \
-        the contract a requirement of the function itself, so deleting the contract while the \
-        function stays tagged fails the gate instead of removing the requirement with it."
+        input, and an unstated one-way guarantee cannot be told from an omission. The registration \
+        makes the contract a requirement of the function itself, so deleting the contract while \
+        the registration stays fails the gate instead of removing the requirement with it."
       remedy := "Register `theorem c : ExecutableContract f (Decides accepts Spec)` in the \
         function's library or in a surface whose `decides` names that library, with \
         `DecidesSoundly` or `DecidesCompletely` for a one-way guarantee, or return \
@@ -851,54 +851,74 @@ def descriptor : (id : RuleId) → RuleDescriptor id
           of the same reflexivity statement." } }
   | .communityConfiguration => {
       lifecycle := .active (.release ⟨4, 34, 0⟩)
-      title := "Claimed targets must build with the community configuration"
+      title := "Claimed targets must set only allowlisted options"
       category := .configuration
-      normativeClauses := [.elaborationEnvironment, .communityConventions, .linterDiscipline]
+      normativeClauses := [.elaborationEnvironment]
       applicability := "community-configuration"
       evidenceModes := [.incrementalProject, .freshProject, .freshFile]
-      requirement := "Targets' `leanOptions`: auto-implicits off, `linter.missingDocs` on, with \
-        Mathlib its standard set, header linter off or licensed; other options, in `-D` \
-        or source too, only in the accepted set."
+      requirement := "Each claimed target sets `autoImplicit` and `relaxedAutoImplicit` to `false`, \
+        sets only options of the closed allowlist, and has no plugin, dynamic library or other \
+        Lean argument."
       rationale := "An automatic implicit adds a binder the source does not show, so the \
         elaborated statement can quantify over more than the text a reviewer compares with the \
-        intent. A linter or warning reports only where it is on, and a target-wide option can \
-        turn one off, so the warning-free build (RG2003) never sees it. The rule accepts only \
-        options that cannot stop a default warning, besides a raised `exponentiation.threshold`, \
-        in `leanOptions` or a `-D` extra `lean` argument."
-      remedy := "Set `leanOptions`: `autoImplicit` and `relaxedAutoImplicit` false, \
-        `linter.missingDocs` true and, with Mathlib, the standard set and §6.7 exclusions; \
-        delete other options and `-D`s outside the accepted set, and each plugin, dynamic \
-        library and other extra Lean argument."
+        intent. A target-wide option can turn a default warning off, so the warning-free build \
+        (RG2003) never sees it. The allowlist names no such option. A plugin runs code inside \
+        Lean's process. A name that the allowlist does not name is refused, an unknown one too."
+      remedy := "Set `autoImplicit` and `relaxedAutoImplicit` to `false` in `leanOptions`, and \
+        delete each option outside `Regula.Allowlist.options`, each plugin, dynamic library and \
+        other extra Lean argument."
       rewrites := [
-        "Add ``⟨`autoImplicit, false⟩, ⟨`relaxedAutoImplicit, false⟩, \
-          ⟨`linter.missingDocs, true⟩`` to `leanOptions` (the same keys under `[leanOptions]` in \
-          `lakefile.toml`), then declare each universe and implicit the build reports as unknown \
-          and document each declaration it reports.",
-        "With Mathlib, also set `weak.linter.mathlibStandardSet` to true, `weak.linter.hashCommand` \
-          false, `weak.linter.style.longFile` 0 and `weak.linter.style.header` false, or true \
-          with `weak.linter.style.header.license` set to your license line.",
-        "Replace a target-wide ``⟨`linter.X, false⟩`` with `set_option linter.X false in` \
-          on the one declaration the community's guidance allows, with a comment (§6.2); delete \
-          each other target-wide option outside the accepted set, such as \
-          ``⟨`warn.sorry, false⟩`` or ``⟨`doc.verso.suggestions, false⟩``. A `pp.*` option \
-          changes the text some linters compare: put a non-default one in an editor or user \
-          setting.",
-        "Keep only accepted options: a listed linter or `warn.*` option at its listed value, \
-          `warningAsError` or `debugAssertions` at true, a `pp.*` option at its \
-          default, or a number for `maxHeartbeats`, `synthInstance.maxHeartbeats`, \
-          `synthInstance.maxSize`, `maxRecDepth`, `maxSynthPendingDepth` or \
-          `exponentiation.threshold`, which lets Lean do work it would skip. Delete other \
-          `-D name=value` arguments and `weak.` entries, even undeclared ones; non-option \
-          arguments may stay."]
+        "Add ``⟨`autoImplicit, false⟩, ⟨`relaxedAutoImplicit, false⟩`` to `leanOptions` (the same \
+          keys under `[leanOptions]` in `lakefile.toml`), then declare each universe and implicit \
+          the build reports as unknown.",
+        "Delete a target-wide option outside the allowlist, such as ``⟨`warn.sorry, false⟩`` or \
+          ``⟨`linter.unusedVariables, false⟩``. The rule reads the name alone, so an option whose \
+          value can stop a default warning is refused at every value, the default included.",
+        "Replace a target-wide ``⟨`linter.X, false⟩`` with `set_option linter.X false in` on the \
+          one declaration the community's guidance allows, with a comment (§6.2): the rule does \
+          not read an option that a source file sets.",
+        "Delete each plugin, dynamic library and non-option argument, such as `-j2` in \
+          `weakLeanArgs`, and put a tool that needs one in an excluded target (RG2002)."]
       examples := {
         language := .lean
         audience := .adopter
         compliant := include_str "../../examples/rules/RG2006/Fixed.lean"
         noncompliant := include_str "../../examples/rules/RG2006/Violation.lean"
-        correction := "The examples are the package's `lakefile.lean` (the corpus run adds its \
-          `require regula` line). The correction adds the three options every claimed target \
-          sets, automatic implicits off and `linter.missingDocs` on, without changing the \
-          library or its source." } }
+        correction := "The examples are the package's `lakefile.lean` (a project adds its \
+          `require regula` line). The correction turns automatic implicits off, without changing \
+          the library or its source." } }
+  | .closedSubset => {
+      lifecycle := .active .unreleased
+      title := "Claimed modules must register no code that Lean runs"
+      category := .configuration
+      normativeClauses := [.elaborationEnvironment]
+      applicability := "closed-subset"
+      evidenceModes := [.incrementalProject, .freshProject, .freshFile]
+      requirement := "A claimed module has entries only of the environment extensions of the closed \
+        allowlist, so its build records no macro, syntax, elaborator, initializer, `meta` declaration \
+        or attribute of its own."
+      rationale := "Meta-code in a project can change what Lean elaborates and what it reports, \
+        which made passes false. Refusing what lies outside a closed set stops that where \
+        detecting it never converges. The rule reads the names that Lean records in the build, and \
+        refuses a name it does not know, so a new kind of registration is refused and not missed. A \
+        command that runs code and an attribute of local scope leave no record, so it cannot see \
+        them."
+      remedy := "Remove the macro, syntax, elaborator, initializer, `meta` declaration or attribute \
+        from the claimed module, or move it to a tool module, a module of an excluded target, \
+        which no claimed module may import (RG2004)."
+      rewrites := [
+        "Write the term the macro or notation expands to, or a definition that states it.",
+        "Move a tool that needs metaprogramming to a library that `foundation_manifest.json` \
+          excludes. A claimed module cannot import it, so run it apart from claimed code.",
+        "Replace a project attribute that records a fact with a declaration of a type that states \
+          it, as `Regula.RegisteredDecision` does for a decision."]
+      examples := {
+        language := .lean
+        audience := .adopter
+        compliant := include_str "../../examples/rules/RG2007/Fixed.lean"
+        noncompliant := include_str "../../examples/rules/RG2007/Violation.lean"
+        correction := "The correction writes `0`, the term the macro expands to, so the module \
+          registers no syntax and no macro. The statement is unchanged." } }
   | .executionUnresolved => {
       lifecycle := .active (.release ⟨4, 34, 0⟩)
       title := "Execution closure must have no unresolved paths", category := .execution
@@ -1107,8 +1127,8 @@ def descriptor : (id : RuleId) → RuleDescriptor id
       normativeClauses := [.inlineDocumentation]
       applicability := "material-documentation"
       evidenceModes := projectModes
-      requirement := "Every public `@[regula_material]` declaration has a docstring stating its \
-        purpose, hypotheses, result and boundary."
+      requirement := "Every public declaration that states a material claim has a docstring stating \
+        its purpose, hypotheses, result and boundary."
       rationale := "A material claim must be readable without reconstructing it from the proof: \
         the docstring states what the declaration establishes and under which assumptions, and \
         binds the written intent to that exact declaration."
@@ -1133,7 +1153,7 @@ def descriptor : (id : RuleId) → RuleDescriptor id
       normativeClauses := [.faithfulExplanation]
       applicability := "material-intent"
       evidenceModes := projectModes
-      requirement := "Every public `@[regula_material]` docstring has a nonempty `# Intent` \
+      requirement := "The docstring of every public material declaration has a nonempty `# Intent` \
         section stating the requirement the claim must meet."
       rationale := "The explanation states what the formal statement says; the intent states what \
         it is required to say. Comparing the two, and both with the declaration, exposes \

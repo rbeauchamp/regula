@@ -5,13 +5,6 @@ description: >-
   validation or test orchestration.
 
 inputs:
-  mathlib:
-    description: >-
-      Also restore or provision the pinned Mathlib of the Mathlib integration package in
-      `integration/mathlib/`. Only the Mathlib integration job turns it on; no other job
-      downloads, caches or builds Mathlib.
-    required: false
-    default: 'false'
   verso:
     description: >-
       Also restore or provision the website package's pinned Verso dependencies in the root
@@ -74,34 +67,6 @@ runs:
       with:
         path: ~/.elan/toolchains
         key: ${{ steps.toolchain.outputs.cache-primary-key }}
-
-    - name: Restore pinned Mathlib
-      if: inputs.mathlib == 'true'
-      id: dependencies
-      uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-      with:
-        # Cache dependency checkouts and unpacked artifacts, never root builds
-        # or duplicate Mathlib download archives. No cross-pin restore fallback. The Mathlib
-        # integration package pins every dependency here and keeps its own packages directory.
-        path: |
-          integration/mathlib/.lake/packages
-        key: lean-dependencies-v5-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('lean-toolchain', 'lean/RegulaPolicy/Compiler.lean', 'integration/mathlib/lean-toolchain', 'integration/mathlib/lake-manifest.json', 'integration/mathlib/lakefile.lean') }}
-
-    # The plan runs `cache get` in the integration package, whose own `.lake/packages` is where
-    # Mathlib's cache tool unpacks its dependencies' archives.
-    - name: Provision or admit Mathlib artifacts
-      if: inputs.mathlib == 'true' && steps.dependencies.outputs.cache-hit != 'true'
-      shell: bash
-      run: lean --run lean/RegulaProvision.lean mathlib
-
-    # Save provisioned dependencies before verification, even if it later fails.
-    - name: Save pinned Mathlib
-      if: inputs.mathlib == 'true' && steps.dependencies.outputs.cache-hit != 'true'
-      uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-      with:
-        path: |
-          integration/mathlib/.lake/packages
-        key: ${{ steps.dependencies.outputs.cache-primary-key }}
 
     # The website package's dependencies (Verso and its own: SubVerso, MD4Lean, illuminate, Cli,
     # plausible), pinned by its lock manifest in the root `.lake/packages`. The `markdown/` package

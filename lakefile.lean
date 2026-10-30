@@ -44,8 +44,7 @@ run_cmd do
 
 -- The package adopters require: the checker, lint driver, `regula` CLI, rule registry and
 -- editor linter, with no dependency beyond the Lean toolchain. The standard's example library is
--- the separate `regula_audit` package in `audit/`, which also imports only Lean's core libraries;
--- everything that imports Mathlib is the Mathlib integration package in `integration/mathlib/`.
+-- the separate `regula_audit` package in `audit/`, which also imports only Lean's core libraries.
 package «regula» where
   -- Regula's semantic version: the latest release's, which only the release pull request
   -- changes and CI checks against `Regula.releases` (docs/guides/contributing.md#release). Each
@@ -125,13 +124,12 @@ lean_lib «RegulaCore» where
   needs := #[`@/ruleExampleSources]
 
 -- The published checker interfaces that claimed modules and adopters import: executable
--- contracts (`Regula.Contract`), decision registration (`Regula.Decision`), material claims
--- (`Regula.MaterialClaim`) and assumptions (`Regula.Assumption`). They are claimed, so a claimed
--- module that imports them imports no module of an excluded target (RG2004).
+-- contracts (`Regula.Contract`), decision registration (`Regula.Decision`) and assumptions
+-- (`Regula.Assumption`). They are claimed, so a claimed module that imports them imports no module
+-- of an excluded target (RG2004), and each is an ordinary type, so they register no code (RG2007).
 @[default_target]
 lean_lib «RegulaInterface» where
-  globs := #[.one `Regula.Contract, .one `Regula.Decision, .one `Regula.MaterialClaim,
-    .one `Regula.Assumption]
+  globs := #[.one `Regula.Contract, .one `Regula.Decision, .one `Regula.Assumption]
 
 lean_lib «Regula» where
   -- Regula's checker (the closed input, its loader, the rules and the shell), its manifest reader,

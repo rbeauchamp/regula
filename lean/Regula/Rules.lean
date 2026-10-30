@@ -10,9 +10,10 @@ Each kept rule as an executable function from the closed input (`Regula.Closed.I
 subjects that violate it, in the order of the specification of the smaller Regula
 (`specification/RegulaSpecification/`): `Foundation.lean` (RG1001 to RG1005), `Execution.lean`
 (RG1006, RG3001, RG3002), `Contracts.lean` (RG1007 to RG1009) and `Project.lean` (RG2002, RG2004,
-RG2006). Each function reads only fields of the input. That each function reports a subject exactly
-when the specification's violation predicate holds of it is #487's obligation; this module states
-no theorem about it.
+RG2006, RG2007). Each function reads only fields of the input. `specification/RegulaSpecification/
+ClosedSubset.lean` proves that `optionFindings` and `extensionFindings` report a subject exactly
+when `Violates2006` and `Violates2007` hold of it. That each other function does the same is #487's
+obligation; this module states no theorem about it.
 
 The axiom set of a constant is the one that `Lean.collectAxioms` computed in the loader
 (`Decl.axioms`); a rule that needs the axiom set of a constant that has none gives an error, and
@@ -52,6 +53,14 @@ structure Finding where
   /-- What the rule found. -/
   detail : String
   deriving Inhabited
+
+/-- The two closed allowlists of RG2006 and RG2007, as Boolean decisions on names. The checker runs
+with `Regula.Allowlist`'s members (`Regula.Shell.allowlists`). -/
+structure Allowlists where
+  /-- The option names a claimed target may set (RG2006). -/
+  options : Name → Bool
+  /-- The environment extensions a claimed module may have entries of (RG2007). -/
+  extensions : Name → Bool
 
 namespace Input
 
@@ -239,9 +248,8 @@ def executionFindings : Except String (List Finding) := do
 def librariesOf (m : Name) : List Target :=
   i.targets.filter fun t => t.kind == .library && t.modules.contains m
 
-/-- RG2002 and RG2006, with the option allowlist `allowed`: they read only Lake's targets and the
-claim, so a project with no build has them too (`regula doctor`). -/
-def configurationFindings (allowed : Name × String → Bool) : List Finding := Id.run do
+/-- RG2002: it reads only Lake's targets and the claim. -/
+def manifestFindings : List Finding := Id.run do
   let mut out := []
   let project (rule : RuleId) (subject : Name) (detail : String) : Finding :=
     { rule, subject, module := none, detail }
@@ -265,56 +273,71 @@ def configurationFindings (allowed : Name × String → Bool) : List Finding := 
               s!"classified differently from the library {l.name} that contains its root"]
     if i.claimedTarget x.name && !x.isDefault then
       out := out ++ [project .configuration x.name "is claimed but is not a default target"]
-  -- RG2006
-  for t in i.targets do
-    unless i.claimedTarget t.name do continue
-    let unset := [`autoImplicit, `relaxedAutoImplicit].filter fun o =>
-      !t.options.contains (o, "false")
-    unless unset.isEmpty do
-      out := out ++ [project .communityConfiguration t.name s!"does not set {unset} to false"]
-    for o in t.options do
-      if (o.1 == `autoImplicit || o.1 == `relaxedAutoImplicit) && o.2 != "false" then
-        out := out ++ [project .communityConfiguration t.name s!"sets {o.1} to {o.2}"]
-      else unless allowed o do
-        out := out ++ [project .communityConfiguration t.name
-          s!"sets {o.1} to {o.2}, outside the allowlist"]
-    unless t.extras.isEmpty do
-      out := out ++ [project .communityConfiguration t.name
-        s!"changes Lean's process with {t.extras}"]
   return out
+
+/-- The RG2006 findings of the target `t`, whichever classification it has: an option of automatic
+implicits that it does not set to `false`, one that it sets to another value, an option outside
+the allowlist `allowed`, and any other way it changes Lean's process. -/
+def targetOptionFindings (allowed : Name → Bool) (t : Target) : List Finding :=
+  let project (detail : String) : Finding :=
+    { rule := .communityConfiguration, subject := t.name, module := none, detail }
+  let implicit : List Name := [`autoImplicit, `relaxedAutoImplicit]
+  (implicit.filter fun o => !t.options.contains (o, "false")).map
+      (fun o => project s!"does not set {o} to false") ++
+    (t.options.filter fun o => implicit.contains o.1 && o.2 != "false").map
+      (fun o => project s!"sets {o.1} to {o.2}") ++
+    (t.options.filter fun o => !allowed o.1).map
+      (fun o => project s!"sets {o.1} to {o.2}, outside the allowlist") ++
+    if t.extras.isEmpty then [] else [project s!"changes Lean's process with {t.extras}"]
+
+/-- RG2006: the findings of each claimed target, with the option allowlist `allowed`. -/
+def optionFindings (allowed : Name → Bool) : List Finding :=
+  i.targets.flatMap fun t =>
+    if i.claimedTarget t.name then targetOptionFindings allowed t else []
+
+/-- RG2007: a claimed module with entries of an environment extension outside the allowlist
+`allowed`. A name that the allowlist does not name is refused, whatever it registers, so an
+extension that this revision of Regula has not read is refused too. -/
+def extensionFindings (allowed : Name → Bool) : List Finding :=
+  i.modules.flatMap fun r =>
+    if i.claimedModule r.name then
+      (r.extensions.filter (!allowed ·)).map fun x =>
+        { rule := .closedSubset, subject := r.name, module := some r.name
+          detail := s!"has entries of the environment extension {x}, outside the allowlist" }
+    else []
 
 /-- RG2004: each module of the root package that Lake builds is in exactly one library, or in none
 and the root of an executable, and no claimed module imports a module of an excluded target. -/
-def coverageFindings : List Finding := Id.run do
-  let mut out := []
-  for r in i.modules do
+def coverageFindings : List Finding :=
+  i.modules.flatMap fun r =>
     let libs := librariesOf i r.name
     let covered := libs.length == 1 || (libs.isEmpty &&
       i.targets.any fun t => t.kind == .executable && t.modules.contains r.name)
-    unless covered do
-      out := out ++ [{
-        rule := .coverage, subject := r.name, module := some r.name
-        detail := s!"is in {libs.length} libraries" }]
+    (if covered then [] else [{
+      rule := .coverage, subject := r.name, module := some r.name
+      detail := s!"is in {libs.length} libraries" }]) ++
     if i.claimedModule r.name then
-      for n in r.imports do
-        if i.excludedModule n then
-          out := out ++ [{
-            rule := .coverage, subject := r.name, module := some r.name
-            detail := s!"is claimed and imports {n}, a module of an excluded target" }]
-  return out
+      (r.imports.filter i.excludedModule).map fun n =>
+        { rule := .coverage, subject := r.name, module := some r.name
+          detail := s!"is claimed and imports {n}, a module of an excluded target" }
+    else []
 
-/-- RG2002, RG2004 and RG2006, with the option allowlist `allowed`. -/
-def projectFindings (allowed : Name × String → Bool) : List Finding :=
-  i.configurationFindings allowed ++ i.coverageFindings
+/-- RG2002 and RG2006, with the option allowlist `allowed`: they read only Lake's targets and the
+claim, so a project with no build has them too (`regula doctor`). -/
+def configurationFindings (allowed : Name → Bool) : List Finding :=
+  i.manifestFindings ++ i.optionFindings allowed
+
+/-- RG2002, RG2004, RG2006 and RG2007, with the allowlists `a`. -/
+def projectFindings (a : Allowlists) : List Finding :=
+  i.configurationFindings a.options ++ i.coverageFindings ++ i.extensionFindings a.extensions
 
 end Input
 
-/-- Every finding of one environment, with the option allowlist `allowed`. -/
-def Input.findings (allowed : Name × String → Bool) (i : Input) :
-    Except String (List Finding) := do
+/-- Every finding of one environment, with the allowlists `a`. -/
+def Input.findings (a : Allowlists) (i : Input) : Except String (List Finding) := do
   let idx := i.index
   return (← i.declarationFindings idx) ++ (← i.contractFindings idx) ++
-    (← i.executionFindings idx) ++ i.projectFindings allowed
+    (← i.executionFindings idx) ++ i.projectFindings a
 
 /-- The findings of a bundle, each once, by rule, subject and module, in the order found. -/
 def dedupe (fs : List Finding) : List Finding :=
@@ -325,12 +348,11 @@ def dedupe (fs : List Finding) : List Finding :=
 /-- The verdict of a run and its findings, or the reason the run is incomplete. A refused input,
 a search that exhausted its budget, or a constant without the axiom set a rule reads is incomplete;
 a well-formed input passes exactly when no rule reports a subject. -/
-def run (allowed : Name × String → Bool) (b : Bundle) :
-    Verdict × List Finding × Option String :=
+def run (a : Allowlists) (b : Bundle) : Verdict × List Finding × Option String :=
   match b.refusal? with
   | some why => (.incomplete, [], some why)
   | none =>
-    match b.envs.mapM (Input.findings allowed) with
+    match b.envs.mapM (Input.findings a) with
     | .error why => (.incomplete, [], some why)
     | .ok fs =>
       let fs := dedupe fs.flatten

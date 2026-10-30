@@ -1,7 +1,7 @@
 module
 
 public import Regula.Contract
-meta import Regula.Decision
+public import Regula.Decision
 
 /-! # External systems, their assumptions and their observers
 
@@ -11,19 +11,19 @@ Git. A theorem about a decision holds for the values the decision is given. That
 reports the system truthfully, or that an action changes only what it should, is a fact about the
 system, outside the logic.
 
-Each such fact is a declaration (`Role.assumption`): a predicate over a model of the system, which
-the theorems that rest on the fact take as a hypothesis, never an `axiom`. Such a predicate is
+Each such fact is a predicate over a model of the system, which the theorems that rest on the fact
+take as a hypothesis, never an `axiom`. Such a predicate is
 the contract of one operation of the model, a `Std.Do` triple whose postcondition is the property.
 Each assumption names its sources (`Source`): a file of the Lean 4 repository at a release
 tag, a document, or the reason it is trusted when no source states it. A property that the
 observer tests on each result it gets, refusing the result when the test fails, is not an
-assumption but a checked operation (`Role.checked`), whose contract is a theorem. The IO code that
-supplies the real system is its observer (`Role.observer`): code written over a model's
-operations reaches the system only through it. Other code of Regula still calls the primitive
-operations directly, and no check finds those calls yet.
+assumption but a checked operation, whose contract is a theorem. The IO code that supplies the real
+system is its observer: code written over a model's operations reaches the system only through it.
+Other code of Regula still calls the primitive operations directly, and no check finds those calls
+yet.
 
-This module holds the vocabulary of those declarations; `Regula.Assumption` holds the attributes
-that make them. -/
+This module holds the vocabulary of those declarations; `Regula.Assumption` holds the type that
+makes them. -/
 
 @[expose] public section
 
@@ -66,7 +66,6 @@ def System.spelling : System → String
   | .git => "git"
 
 /-- The system a name spells, if any. -/
-@[regula_decision]
 def System.parse? : String → Option System
   | "filesystem" => some .filesystem
   | "process" => some .process
@@ -76,6 +75,8 @@ def System.parse? : String → Option System
   | "locking" => some .locking
   | "git" => some .git
   | _ => none
+
+theorem System.parse?_registered : Regula.RegisteredDecision @System.parse? := ⟨⟩
 
 /-- `parse?` reads every system's name back as that system. -/
 theorem System.parse_spelling (system : System) : System.parse? system.spelling = some system := by
@@ -107,40 +108,15 @@ inductive Source where
   | trusted (reason : String)
   deriving Repr, DecidableEq, Inhabited
 
-/-- What a declaration is to the check of external systems. -/
-inductive Role where
-  /-- A property of `system` that the theorems resting on it take as a hypothesis: a predicate
-  over a model of the system. -/
-  | assumption (system : System) (sources : List Source)
-  /-- An operation that runs an operation of `system`, tests the postcondition of that operation on
-  its result and fails when the test fails. `contract` is the theorem that states that
-  postcondition. -/
-  | checked (system : System) (contract : Lean.Name) (sources : List Source)
-  /-- IO code that supplies the real `system`: a place where its primitive operations may be
-  called. -/
-  | observer (system : System)
-  deriving Repr, DecidableEq, Inhabited
-
-/-- The system a declaration's role is about. -/
-def Role.system : Role → System
-  | .assumption system _ => system
-  | .checked system _ _ => system
-  | .observer system => system
-
-/-- The sources a role names; an observer names none. -/
-def Role.sources : Role → List Source
-  | .assumption _ sources => sources
-  | .checked _ _ sources => sources
-  | .observer _ => []
-
 /-! ## The version a source is pinned to -/
 
 /-- A source pinned to a toolchain release other than `tag`: a `lean` source whose version is not
 `tag`. A document or a trusted reason names no toolchain release, so it is never stale. -/
-@[regula_decision]
 def Source.stale (tag : String) : Source → Bool
   | .lean version _ => version != tag
   | .document .. | .trusted _ => false
+
+theorem Source.stale_registered : Regula.RegisteredDecision @Source.stale := ⟨⟩
 
 /-- A source is stale exactly when it is a `lean` source of another version. -/
 theorem Source.stale_iff (tag : String) (source : Source) :
@@ -171,12 +147,13 @@ def leanLocators : List String := ["leanprover/lean4", "lean-lang.org", "leanpro
 /-- A source that states a fact about Lean or Lake without its release: a document about Lean or
 Lake, or a document whose reference, in lower case, contains one of `leanLocators`. Such a fact
 belongs in a `lean` source, which `stale` compares with the release that elaborates it. -/
-@[regula_decision]
 def Source.unpinned : Source → Bool
   | .document system reference =>
     system == .lean || system == .lake ||
       leanLocators.any fun locator => decide (locator.toList <:+: reference.toLower.toList)
   | .lean .. | .trusted _ => false
+
+theorem Source.unpinned_registered : Regula.RegisteredDecision @Source.unpinned := ⟨⟩
 
 /-- A source is unpinned exactly when it is a document about Lean or Lake, or a document whose
 reference in lower case is some text, then a Lean locator, then some text. -/

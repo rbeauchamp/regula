@@ -424,7 +424,6 @@ def Baseline.empty : Baseline := ⟨[], (defects_nil_iff _).mp (by decide)⟩
 def Baseline.write (b : Baseline) : String := String.ofList (ledgerOf b.entries).render
 
 /-- The baseline whose text is `text`, if `text` is the text of one. -/
-@[regula_decision]
 def Baseline.parse (text : String) : Option Baseline :=
   match scanLedger text.toList with
   | some l =>
@@ -433,6 +432,8 @@ def Baseline.parse (text : String) : Option Baseline :=
       some ⟨entriesOf l, (defects_nil_iff _).mp h.1⟩
     else none
   | none => none
+
+theorem Baseline.parse_registered : Regula.RegisteredDecision @Baseline.parse := ⟨⟩
 
 /-- The fields of a sound entry are read back as that entry. -/
 theorem Entry.ofFields_fields {e : Entry} (h : e.Sound) : Entry.ofFields e.fields = e := by
@@ -591,7 +592,6 @@ instance (b : Baseline) : DecidablePred (Observed.Admitted b) := fun d => by
 the print of the baseline, or the line where its entry would be, and with the reason. Then the
 entries that have no document among `documents`, each with its line in the print of the
 baseline and with the reason. -/
-@[regula_decision]
 def gate (b : Baseline) (documents : List Observed) : List (Nat × String) :=
   ((documents.filter fun d => !decide (Observed.Admitted b d)).map fun d =>
     if d.path.toList ∈ b.entries.map Entry.path then
@@ -605,6 +605,8 @@ def gate (b : Baseline) (documents : List Observed) : List (Nat × String) :=
     (lineOf b.entries e.path,
       s!"{String.ofList e.path}: the entry has no tracked Markdown document; remove the entry, \
         because a change that removes a document must remove its entry")
+
+theorem gate_registered : Regula.RegisteredDecision @gate := ⟨⟩
 
 theorem gate_nil_iff (b : Baseline) (documents : List Observed) :
     gate b documents = [] ↔ (∀ d ∈ documents, d.Admitted b) ∧ b.Documented documents := by
@@ -724,7 +726,6 @@ For a baseline of the base revision: the entries of `head` that no entry of the 
 covers, the frozen entries of the base revision for tracked documents that `head` does not keep,
 and the removal of the baseline. For a base revision with no baseline: the entries of `head`
 that are not within what the checks observe of a document of the base revision. -/
-@[regula_decision]
 def ratchet (reference : Reference) (head : Option Baseline) (tracked : List String) :
     List (Nat × String) :=
   match reference, head with
@@ -756,6 +757,8 @@ def ratchet (reference : Reference) (head : Option Baseline) (tracked : List Str
       (lineOf head.entries e.path,
         s!"{String.ofList e.path}: the base revision has no baseline, and it has no document \
           with this path, or the entry permits more than that document has in the base revision")
+
+theorem ratchet_registered : Regula.RegisteredDecision @ratchet := ⟨⟩
 
 theorem ratchet_nil_iff (reference : Reference) (head : Option Baseline)
     (tracked : List String) :
@@ -923,13 +926,14 @@ def Start.Base (start : Start) (history : History) (base : String) : Prop :=
   | .unknown _ => False
 
 /-- The base revision of check B2 for `start`, with what Git gives, if there is one. -/
-@[regula_decision]
 def baseOf (start : Start) (history : History) : Option String :=
   match start, history.parents with
   | .target _, _ => history.merged
   | .before _, _ => history.named
   | .pull head, [first, second] => if second = head then some first else none
   | _, _ => none
+
+theorem baseOf_registered : Regula.RegisteredDecision @baseOf := ⟨⟩
 
 /-- `baseOf` gives exactly the base revision that `Start.Base` states. -/
 theorem baseOf_eq_some_iff (start : Start) (history : History) (base : String) :

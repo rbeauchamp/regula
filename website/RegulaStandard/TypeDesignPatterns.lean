@@ -168,7 +168,7 @@ def BoundedList.cons {α : Type} {n : Nat} (x : α) (bl : BoundedList α n)
     exact Nat.succ_le_of_lt h⟩
 ```
 
-The rational `Probability` above is exact rational arithmetic, not a real interval: a real-valued probability reuses Mathlib's `unitInterval`, whose symmetry supplies the complement, and is checked as `MathlibModels.Probability` in the {repo "integration/mathlib/MathlibAudit/Models.lean"}[Mathlib integration package].
+The rational `Probability` above is exact rational arithmetic, not a real interval: a real-valued probability reuses Mathlib's `unitInterval`, whose symmetry supplies the complement.
 
 The shared glossary deliberately makes `Time` nominal while `ResourceAmount` reuses the canonical subtype of non-negative rationals. Although both expose non-negative rational values, direct cross-use is rejected:
 
