@@ -603,8 +603,13 @@ audit refuses a `decides` entry that names its own surface or no claimed surface
   - [RG5002]: a public declaration that states a material claim, with no docstring.
   - [RG5003]: the docstring of a public material declaration, with no `# Intent` section that has text.
 - The checker reads no option that a source file sets, no message and no command of a module. A command that runs code, for example `#eval` or `run_cmd`, leaves no record that the checker can read.
-- [RG2006] reads an option by its name alone, as Lake gives it. `Regula.Allowlist.options` lists the names. So `linter.unusedVariables` is refused at `true` too, and a `weak.` entry is refused even for an option that no module declares, although Lean ignores that entry. Delete such an entry.
-- [RG2007] reads the environment extensions that the `.olean` files of a claimed module record. `Regula.Allowlist.extensions` lists the names. A project's own macro, notation, syntax, elaborator, initializer or attribute is refused, in a claimed module, and so is a default of the form `:= by tactic`, which Lean records as a `meta` declaration. Put it in a library that the manifest excludes, which no claimed module may import ([RG2004]). Notation, tactics and data attributes of a dependency stay usable. An attribute that registers code, such as `norm_num` or `positivity`, is refused in a claimed module, and a data attribute that the list does not name is refused until a change of Regula names it. The rule cannot see what leaves no record: a command that runs code, such as `run_cmd`, or an attribute of local scope on an ordinary definition, such as `@[local macro k]`.
+- [RG2006] reads an option by its name alone, as Lake gives it. `Regula.Allowlist.options` lists the names. So `linter.unusedVariables` is refused at `true` too. A `weak.` entry is refused even for an option that no module declares, although Lean ignores that entry. Delete such an entry.
+- [RG2007] reads the environment extensions that the `.olean` files of a claimed module record. `Regula.Allowlist.extensions` lists the names. A claimed module cannot have a project's own macro, notation, syntax, elaborator, initializer or attribute.
+  - A default of the form `:= by tactic` is refused too, because Lean records it as a `meta` declaration.
+  - Put such code in a library that the manifest excludes, which no claimed module may import ([RG2004]).
+  - Notation, tactics and data attributes of a dependency stay usable. An attribute that registers code, such as `norm_num` or `positivity`, is refused in a claimed module.
+  - A data attribute that the list does not name is refused until a change of Regula names it.
+  - The rule cannot see what leaves no record: a command that runs code, such as `run_cmd`, or a local attribute on an ordinary definition, such as `@[local macro k]`.
 - `init` edits your lakefile as text. Then it reads the project again to confirm the edits. No theorem proves that the edits realize the model.
 
 ## What you are not asked to do

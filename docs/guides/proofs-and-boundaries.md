@@ -74,7 +74,7 @@ Each kept rule is a function from the closed input to the subjects that it repor
 
 Lean's own tools decide two rules. [RG2003] is `lake build --wfail`, and [RG2005] is `lake check`. The first acceptance step of this repository runs the two on the build of its copy, before the checker.
 
-`RegulaSpecification.ClosedSubset` proves that the functions of [RG2006] and [RG2007] report a subject exactly when their violation predicates hold of it, over the closed input. The shell's read of the build is trusted. The members of the two allowlists are in `Regula.Allowlist`, each with its reason.
+`RegulaSpecification.ClosedSubset` proves a statement about the functions of [RG2006] and [RG2007]. Over the closed input, each reports a subject exactly when its violation predicate holds of it. The shell's read of the build is trusted. The members of the two allowlists are in `Regula.Allowlist`, each with its reason.
 
 ## The acceptance boundary
 
@@ -334,8 +334,8 @@ that examine the result, not the contract of the operation that the checked oper
 An observer is the code that operates the real system for a Regula program. Code that Regula
 writes over the operations of a model gets the real system only through an observer.
 
-The type `Assumed` requires at least one source, and it refuses a source pinned to another Lean release
-or a document that names a place of Lean's repository, where the declaration is written. A claimed
+The type `Assumed` requires at least one source, where the declaration is written. It refuses a
+source pinned to a different Lean release, and a document that names a place of Lean's repository. A claimed
 module can write it, because it is an ordinary constant ([RG2007]).
 
 ### From a model to the real system
