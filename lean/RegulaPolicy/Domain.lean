@@ -1487,9 +1487,8 @@ structure Declaration.ToolchainObserved where
   code of the definitions `e` mentions. -/
   nativeReplay : Option Bool
   /-- The axioms the constant transitively depends on, sorted and without duplicates: those it
-  reaches in the kernel that replayed it (`KernelAxioms.axiomTable`), or, for an editor
-  snapshot, which has no replayed kernel, those it reaches in the editor's environment
-  (`RegulaPolicy.KernelAxioms.reachedAxioms`). -/
+  reaches in the kernel that replayed it, or, for an editor snapshot, which has no replayed
+  kernel, those it reaches in the editor's environment. -/
   axioms : Array Lean.Name
   deriving Repr, DecidableEq
 

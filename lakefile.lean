@@ -82,19 +82,22 @@ lean_lib «RegulaPolicy» where
   globs := #[.submodules `RegulaPolicy]
 
 -- The two standalone programs run with `lean --run` before the package is built
--- (`scripts/verify.sh` and `scripts/provision.sh`), so each root module imports only the toolchain. Each library has a second module,
--- `Decisions`, which imports its program with `Regula.Contract` and `Regula.Decision` and
--- registers the program's decisions (RG1008); no program imports it.
+-- (`scripts/verify.sh` and `scripts/provision.sh`). Each library's `Driver` module holds its program,
+-- which imports only the toolchain and declares no `main`: `lean/RegulaVerification.lean` and
+-- `lean/RegulaProvision.lean`, which are in no target, launch it, so that the default targets
+-- declare one `main`, which `lake check` requires. Each library has another module, `Decisions`,
+-- which imports its program with `Regula.Contract` and `Regula.Decision` and registers the
+-- program's decisions (RG1008); no program imports it.
 @[default_target]
 lean_lib «RegulaVerification» where
   needs := #[`@/copyConstructionSource]
-  globs := #[.andSubmodules `RegulaVerification]
+  globs := #[.submodules `RegulaVerification]
 
 -- Dependency setup.
 @[default_target]
 lean_lib «RegulaProvision» where
   needs := #[`@/copyConstructionSource]
-  globs := #[.andSubmodules `RegulaProvision]
+  globs := #[.submodules `RegulaProvision]
 
 @[default_target]
 lean_lib «RegulaQualification» where

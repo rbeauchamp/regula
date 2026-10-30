@@ -54,7 +54,7 @@ lake -d audit build                # the standard's example library
 ./scripts/verify.sh docs           # Markdown, the audit/ package and the Verso standard, linked to that acceptance
 ```
 
-The first step refuses a root package that has no lock manifest, or that has a dependency in its lock manifest or package overrides file. Then its driver makes a copy of the checkout in `.lake/regula-scratch/`. In the copy, it builds each claimed target, the checker and the acceptance tools, with warnings as errors. It runs the registry checks and builds the specification package. Last, it runs the checker (`lake lint`) on the build of the copy.
+The first step refuses a root package that has no lock manifest, or that has a dependency in its lock manifest or package overrides file. Then its driver makes a copy of the checkout in `.lake/regula-scratch/`. In the copy, it builds each claimed target, the checker and the acceptance tools, with warnings as errors. Then it replays that build in Lean's kernel with `lake check`, runs the registry checks and builds the specification package. Last, it runs the checker (`lake lint`) on the build of the copy.
 
 If each command ended with exit status 0, the driver records the SHA-256 of each file of the copy in `tmp/acceptance-link.json`. If the step passed and the checkout has no build output, the driver moves the build output of the copy to `.lake/build` of the checkout. If the checkout has build output, the driver does not change it. The driver removes the copy at the end of the step. A killed step leaves its copy, and the next first step removes it.
 
@@ -64,7 +64,7 @@ If each command ended with exit status 0, the driver records the SHA-256 of each
 - It refuses a link of the root `README.md` to the rule-reference site that is not a stable address ([links of the root README](#links-of-the-root-readme)).
 - It refuses a root `README.md` or adoption guide that does not open with the summary of Regula ([opening of the root README](#opening-of-the-root-readme)).
 - It operates the controls of the [checks of the prose](#the-prose-of-markdown-documents) and of the [check of the vocabulary](#the-vocabulary-of-the-project). Then it does those checks.
-- It builds the `audit/` package with warnings as errors and runs the checker on it.
+- It builds the `audit/` package with warnings as errors, replays it with `lake check` and runs the checker on it.
 - It builds the Verso standard, which elaborates each `lean` block where it is written. Then it renders the standard and checks its anchors, the rows of its checklist and the links of its rule IDs.
 
 `DOC-*` rows need both commands. Each command has its own hard limit of seven minutes. A timeout is an incomplete run, not acceptance. `./scripts/provision.sh` runs before that limit, under its own limit of 30 minutes. It validates the released compiler and acquires one dependency, the lean-intent of the specification package. The [local gate](#the-local-gate) runs the two commands in that order, after it provisions the pinned Verso artifacts.

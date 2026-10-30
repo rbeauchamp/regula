@@ -780,13 +780,14 @@ def descriptor : (id : RuleId) → RuleDescriptor id
         "Remove dead bindings or rename intentionally unused ones only when the name was genuinely \
           unused; do not rename a variable that should have been used.",
         "Do not add `set_option linter.… false` for a Lean default warning such as \
-          `linter.unusedVariables`; RG2006 rejects it. A declaration-scoped \
+          `linter.unusedVariables`: the linter then logs nothing, which `lake build --wfail` \
+          cannot see, and no rule reads an option set in source. A declaration-scoped \
           `set_option linter.NAME false in` is only for a community linter, enabled by a \
           dependency or the project, where its guidance allows, and establishes nothing the \
           linter checks.",
         "Move a `#guard_msgs` or `#guard_panic` check out of the claimed modules, into a test or \
           documentation module outside the claimed surface: in a claimed module it hides the \
-          messages this rule reads."]
+          messages that `lake build --wfail` reads."]
       examples := {
         language := .lean
         audience := .adopter
@@ -829,18 +830,18 @@ def descriptor : (id : RuleId) → RuleDescriptor id
       normativeClauses := [.cleanElaboration]
       applicability := "admission"
       evidenceModes := .editorSnapshot :: declarationModes
-      requirement := "Owned declarations pass kernel replay from the exact frozen sources; no \
-        metaprogram adds unchecked declarations."
+      requirement := "Lean's kernel replays each constant of each claimed module from an export of \
+        the build (`lake check`); no metaprogram adds unchecked declarations."
       rationale := "Successful elaboration alone is not checked admission: metaprograms and debug \
-        options can store declarations the kernel never checked. An accepted result must rest on \
-        kernel-checked evidence for the exact frozen sources."
-      remedy := "Remove the construction that bypasses kernel checking (or the source change \
-        during the run), then run the project command that collects the missing evidence."
+        options can store declarations the kernel never checked. `lake check` replays the export of \
+        the build in a process that loads no `.olean` file of the project."
+      remedy := "Remove the construction that bypasses kernel checking, then run `lake check` \
+        again."
       rewrites := [
         "Remove uses of `debug.skipKernelTC`, `addDecl` with unchecked values, or other \
           metaprograms that add unchecked declarations; state and prove the theorem normally.",
-        "The specification hands this rule to `lake check` (issue #482). Regula's checker does \
-          not report it."]
+        "`lake check` decides this rule, as the specification hands it to Lean. Regula's checker \
+          does not report it."]
       examples := {
         language := .lean
         audience := .adopter

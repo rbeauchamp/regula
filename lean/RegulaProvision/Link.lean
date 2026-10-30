@@ -1,4 +1,4 @@
-import RegulaProvision
+import RegulaProvision.Driver
 import RegulaCore.Filesystem
 
 /-! # The link installation of provisioning, in the filesystem model

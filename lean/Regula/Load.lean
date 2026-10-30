@@ -7,6 +7,7 @@ import Lean.Compiler.ImplementedByAttr
 import Lean.Compiler.ExternAttr
 import Lean.Compiler.InitAttr
 import Lean.Compiler.NoncomputableAttr
+import Lean.Util.CollectAxioms
 import Regula.Input
 import Regula.Decision
 import Regula.Checker.Manifest
@@ -50,6 +51,9 @@ What it reads, and through what:
   compiled code (`IR.findEnvDecl`), the `@[csimp]` entries (`CSimp.ext`'s module entries) and the
   decision registrations (`Regula.decisionExtension`'s module entries). None reads an extension's
   built state, which `loadExts := false` leaves at its initial value.
+- The axiom sets: `Lean.collectAxioms` of each constant of a claimed module and of each theorem
+  that states a correspondence (`axiomsIn`). Lean's recorded table of each module's axioms is an
+  extension's state, which `loadExts := false` leaves empty, so the axioms come from the constants.
 
 Two choices are the implementation's, made on the owner's behalf, and recorded in the shell's
 documentation:
@@ -495,10 +499,45 @@ def Facts.decl (f : Facts) (n : Name) (info : ConstantInfo) : Decl :=
     else some ({ reference := r.reference, runs := g, inToolchain := r.inToolchain } : Departure)
   { name := n, module := (f.moduleOf n).getD .anonymous, kind := kindOf info
     isUnsafe := info.isUnsafe, isPartial := info.isPartial, uses := (usesOf info).toList
+    axioms := none
     implementedBy, compiled := compiled.toList, departures := own ++ atCalls
     isExtern := isExtern env n, isInitialized := (getInitFnNameFor? env n).isSome
     isNoncomputable := isNoncomputable env n, isBoolTest := boolTest info
     inToolchain := f.toolchain n }
+
+/-- The environment as the one state that `Lean.collectAxioms` reads. -/
+local instance : MonadEnv (StateM Environment) where
+  getEnv := get
+  modifyEnv f := modify f
+
+/-- The transitive axiom set of constant `n` in `env`, as `Lean.collectAxioms` computes it, in the
+order it returns. The loader imports each environment with `loadExts := false`, so the table of
+axioms that Lean records for each module (`exportedAxiomsExt`) keeps its initial, empty state
+(`Lean/Environment.lean:2404` and `2428-2433` at v4.35.0), and `collectAxioms` walks the type and
+value of each constant that `n` reaches, as `usesOf` lists them (`Lean/Util/CollectAxioms.lean` at
+v4.35.0). Each call starts from an empty cache, so its answer for `n` holds every axiom that `n`
+reaches: a constant that the walk meets again while it is on the walk's stack adds nothing there,
+but its whole set reaches `n` through the constants below `n` on the stack. -/
+def axiomsIn (env : Environment) (n : Name) : List Name :=
+  ((collectAxioms n : StateM Environment (Array Name)).run' env).toList
+
+/-- The axiom set of each constant of `names` in `env` (`axiomsIn`). The walks are independent, so
+they run in tasks of Lean's task manager, a slice of `names` to each task; every task ends before
+the table is returned, so none reads `env` after its caller frees it. -/
+def axiomTable (env : Environment) (names : Array Name) : NameMap (List Name) :=
+  let slice := max 1 ((names.size + 63) / 64)
+  let tasks := (List.range ((names.size + slice - 1) / slice)).map fun k =>
+    Task.spawn fun _ => (names.extract (k * slice) ((k + 1) * slice)).map fun n =>
+      (n, axiomsIn env n)
+  tasks.foldl (fun table task => task.get.foldl (fun table (n, axs) => table.insert n axs) table)
+    {}
+
+/-- The axiom sets that the loader computed, by the module of the constant and the constant. A
+constant's set depends only on the constants of its module's import closure, which each
+environment of a run loads from the same `.olean` files, so an environment reuses the set that an
+earlier one computed. The key holds the module, because two environments can hold two constants of
+one name, such as the `main` of two programs. -/
+abbrev AxiomSets := Std.HashMap (Name × Name) (List Name)
 
 /-- The constants the rules can reach from `seeds`: the seeds, each constant a constant of the set
 mentions, and, from `runs`, the execution closure: each constant that compiled code of a constant
@@ -522,9 +561,10 @@ def Facts.closure (f : Facts) (seeds runs : List Name) (known : NameMap Decl) : 
   return out
 
 /-- The closed input of the environment that `f` describes, for the project's targets `ts`,
-claim `manifest` and module records `records`. -/
+claim `manifest` and module records `records`. `known` holds the axiom sets that the environments
+loaded before this one computed, by module and constant (`AxiomSets`). -/
 def Facts.input (f : Facts) (ts : List Target) (manifest : List Entry)
-    (records : List ModuleRecord) : Input := Id.run do
+    (records : List ModuleRecord) (known : AxiomSets := {}) : Input := Id.run do
   let env := f.env
   let mut seeds : List Name := []
   let mut lemmas : List Correspondence := []
@@ -545,7 +585,16 @@ def Facts.input (f : Facts) (ts : List Target) (manifest : List Entry)
     d.departures.foldl (fun s x => s.insert (x.reference, x.runs)) s
   let proved := lemmas.filter fun c => needed.contains (c.reference, c.runs)
   let all := f.closure (proved.map (·.theorem_)) [] first
-  let decls := all.toList.map (·.2)
+  -- The axiom sets that the rules read: those of the constants of claimed modules (RG1001 to
+  -- RG1005) and of the theorems that state a correspondence (RG3002).
+  let theorems : NameSet := proved.foldl (fun s c => s.insert c.theorem_) {}
+  let reads (d : Decl) : Bool := f.claimed.contains d.module || theorems.contains d.name
+  let fresh := all.foldl (init := #[]) fun acc n d =>
+    if reads d && !known.contains (d.module, n) then acc.push n else acc
+  let table := axiomTable env fresh
+  let decls := all.toList.map fun (_, d) =>
+    { d with axioms := if reads d then
+        (table.find? d.name).orElse fun _ => known[(d.module, d.name)]? else none }
   let mut decisions : List Name := []
   for idx in [0:env.header.moduleNames.size] do
     unless f.claimed.contains env.header.moduleNames[idx]! do continue
@@ -588,7 +637,7 @@ def copyInput (i : Input) : CopyM Input := do
       return { x with reference := ← copy x.reference, runs := ← copy x.runs }
     return { d with
       name := ← copy d.name, module := ← copy d.module, uses := ← copyAll d.uses
-      implementedBy := ← d.implementedBy.mapM copy, compiled := ← copyAll d.compiled
+      axioms := ← d.axioms.mapM copyAll, implementedBy := ← d.implementedBy.mapM copy, compiled := ← copyAll d.compiled
       departures }
   let contracts ← i.contracts.mapM fun k => do
     return { k with
@@ -671,13 +720,16 @@ unsafe def loadBundle (selection : WorkspaceSelection) : IO Bundle := do
     if claimedTargets.contains t.name then t.modules.foldl (·.insert ·) s else s
   let root : NameSet := files.foldl (fun s m _ => s.insert m) {}
   let mut envs := []
+  let mut known : AxiomSets := {}
   for g in ← groups files ts do
     let env ← try importModules (g.imports.map ({ module := · })) {} (loadExts := false)
       catch e => refuse s!"Lean could not load the modules {g.imports.toList}: {e}"
     let f ← facts env ws.lakeEnv.lean.leanLibDir claimed root
-    let raw := f.input ts manifest records
+    let raw := f.input ts manifest records known
     let input ← (copyInput raw).run' {}
     env.freeRegions
+    for d in input.decls do
+      if let some axs := d.axioms then known := known.insert (d.module, d.name) axs
     envs := envs ++ [input]
   return { envs }
 

@@ -1,4 +1,4 @@
-import RegulaVerification
+import RegulaVerification.Driver
 import Regula.Contract
 import Regula.Decision
 import RegulaCore.Removal

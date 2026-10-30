@@ -223,7 +223,8 @@ private def axiomSet : String :=
     that each constant mentions, as `Lean.collectAxioms` walks them: the type and value of a \
     definition, theorem or opaque constant, the type of an axiom, constructor or recursor, and \
     the type and constructors of an inductive type. Imported constants are included. The loader \
-    reads the constants that Lean loads from the `.olean` files of the build."
+    computes it with `Lean.collectAxioms` over the constants that Lean loads from the `.olean` \
+    files of the build, without the table of axioms that Lean records for each module."
 
 /-- The explanation of each rule. -/
 def guide : RuleId → Guide
@@ -787,7 +788,7 @@ def guide : RuleId → Guide
       trigger := [
         "Regula's checker does not report this rule. The specification hands it to Lake: \
           `lake build --wfail` of the claimed targets fails when a job logs a warning or an \
-          error. Issue #482 completes the hand-over.",
+          error. The project's gate runs it before `lake check` and `lake lint`.",
         "Run `lake build --wfail` before `lake lint`. `lake lint` reads the `.olean` files that \
           the build left, and it does not see the messages of the build."]
       rationaleDetail := []
@@ -817,8 +818,7 @@ def guide : RuleId → Guide
       checklist := ["DECL-01", "BUILD-01", "DOC-01"]
       linkage := text! "None of Regula. The property is Lake's: at v4.35.0 `--wfail` sets the \
         level that fails the build (`Lake/CLI/Main.lean`), and a job that logs a message at that \
-        level fails (`Lake/Build/Run.lean`). Regula's checker no longer observes the elaboration. \
-        Issue #482 completes the hand-over."
+        level fails (`Lake/Build/Run.lean`). Regula's checker does not observe the elaboration."
       sources := ["specification/README.md", "specification/RegulaSpecification/Fates.lean"] }
   | .coverage => {
       problem := text! "A module of the root package that Lake builds is in no library and is not \
@@ -867,7 +867,7 @@ def guide : RuleId → Guide
         "Regula's checker does not report this rule. The specification hands it to `lake check` \
           of the toolchain. It checks each constant of the modules of the default targets again \
           in Lean's kernel, from an export of the build, in a process that loads no `.olean` file \
-          of the project. Issue #482 completes the hand-over.",
+          of the project. The project's gate runs it after `lake build --wfail`.",
         "RG2002 requires each claimed target to be a default target, so `lake check` covers each \
           claimed module."]
       rationaleDetail := []
@@ -886,14 +886,23 @@ def guide : RuleId → Guide
       limitations := [
         "On macOS the gate runs `lake check --inadvisably-no-sandbox`, because the sandbox \
           requires Linux. The build and the export then run outside the sandbox, as `lake build` \
-          does."]
+          does. The first acceptance step of this repository runs it so on every platform.",
+        "`lake check` imports every module of the default targets into one environment, and Lean \
+          refuses two imported modules that declare one name. So a project whose default targets \
+          declare a name twice, such as the `main` of two programs, fails `lake check`. With \
+          RG2002, a project can claim at most one module that declares a top-level `main`, until \
+          Lake loads each executable root in an environment of its own. A program that must not \
+          be the claimed one can declare its entry in a namespace and be started by a root that \
+          no default target holds."]
       residuals := [.qualify]
       checklist :=
           ["DECL-01", "DECL-02", "FOUND-05", "SCOPE-02", "TYPE-01", "THEOREM-01", "THEOREM-03",
               "THEOREM-07", "DECL-03", "DECL-04", "COMP-02", "COMP-04", "BUILD-01", "BUILD-04"]
       linkage := text! "None of Regula. The property is that of `lake check` of Lean v4.35.0, as \
-        the specification describes it. Issue #482 completes the hand-over."
-      sources := ["specification/README.md", "specification/RegulaSpecification/Fates.lean"] }
+        the specification describes it. The first acceptance step of this repository runs it on \
+        the copy's build (`RegulaVerification.kernelReplay`)."
+      sources := ["specification/README.md", "specification/RegulaSpecification/Fates.lean",
+        "lean/RegulaVerification/Driver.lean"] }
   | .communityConfiguration => {
       problem := text! "A claimed library or executable leaves automatic implicits on, sets an \
         option outside RG2006's allowlist, or changes Lean's process with a plugin, a dynamic \

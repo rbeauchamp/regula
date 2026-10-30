@@ -1,5 +1,5 @@
 import Regula.Cli.Setup
-import RegulaProvision
+import RegulaProvision.Driver
 import Lean.Elab.Command
 
 /-! # Controls of the reads of whether a path is present

@@ -1,4 +1,4 @@
-import RegulaProvision
+import RegulaProvision.Driver
 import RegulaCore.Filesystem
 
 /-! # The read of Regula's own integration entry, in the filesystem model

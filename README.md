@@ -91,7 +91,7 @@ A pass does not show that your theorems state the intended claims. Review their 
 
 Regula trusts Lean's kernel, compiler and runtime, Lake and the operating system. It reads the declarations of your project and of its packages from their builds. It replays no declaration in Lean's kernel. Code loaded by name at runtime and spawned processes are outside its execution account. See the [assurance boundaries](docs/guides/proofs-and-boundaries.md) and [security scope](SECURITY.md#scope) for the full limits.
 
-Keep Lean's warnings and the community linters. For independent kernel replay, run the toolchain's own `leanchecker` by its path beside Regula, as described in [Validating a Lean Proof](https://lean-lang.org/doc/reference/latest/ValidatingProofs/).
+Keep Lean's warnings and the community linters. Build with `lake build --wfail`, replay the build in Lean's kernel with `lake check`, and then run `lake lint`. On macOS, run it as `lake check --inadvisably-no-sandbox`. Kernel replay is a step of [Validating a Lean Proof](https://lean-lang.org/doc/reference/latest/ValidatingProofs/).
 
 Regula accepts no `sorry`, so use it when you complete proofs. For Mathlib pull requests, use Mathlib's CI. Use [Comparator](https://github.com/leanprover/comparator) to check an untrusted proof against a fixed statement.
 

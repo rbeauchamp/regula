@@ -26,6 +26,7 @@ The checker reads one closed input (`Regula.Closed.Input` in `Regula.Input`). Th
 | The claim | `foundation_manifest.json`, read by `Regula.Checker.Manifest.parse` |
 | The imports of each module of the root package that Lake builds, and its extensions with entries | `Lean.readModuleDataParts` |
 | The constants of each environment that the checker loads | `Lean.importModules` with `loadExts := false` |
+| The axiom set of each constant of a claimed module, and of each theorem that states a correspondence | `Lean.collectAxioms` over those constants |
 | The compiled code of each constant, and its departures from the kernel value | `Lean.IR.findEnvDecl`, and the module entries of `implemented_by` and `csimp` |
 
 The input has no source text, message, info tree, option set in source, build log or list of files. A rule does not decide what it cannot read in this input.
@@ -60,13 +61,14 @@ The loader reads each part through the interface of its owner. These statements 
 - Lean finds the library of the toolchain only below the `lib/lean` directory of the pinned toolchain ([RG1003]).
 - Lean refuses an `.olean` file that a different version of Lean wrote ([RG2001]).
 - `Lean.importModules` with `loadExts := false` loads exactly the constants of the `.olean` files. It sets the module entries of each extension, and it builds no state of an extension.
+- `Lean.collectAxioms` gives the axioms that a constant reaches through the types and values of the constants that it mentions. Without the state of its extension, it reads no table of axioms that Lean recorded, and it walks the constants themselves.
 - The executable runs the code that the build records ([RG3001], [RG3002]).
 
 ### The rules
 
 Each kept rule is a function from the closed input to the subjects that it reports (`Regula.Rules`). The [specification](../../specification/README.md) states the violation predicate of each rule. Leaf #487 proves that each function reports a subject exactly when the subject violates its rule. Until then, no theorem relates a function to its predicate.
 
-Lean's own tools decide two rules. [RG2003] is `lake build --wfail`, and [RG2005] is `lake check`. The gate of this repository builds with warnings as errors. Leaf #482 adds `lake check` to the gate.
+Lean's own tools decide two rules. [RG2003] is `lake build --wfail`, and [RG2005] is `lake check`. The first acceptance step of this repository runs the two on the build of its copy, before the checker.
 
 The option allowlist of [RG2006] is the set of options that the previous checker accepted, until leaf #484 sets its members.
 
@@ -74,9 +76,9 @@ The option allowlist of [RG2006] is the set of options that the previous checker
 
 The acceptance of this repository has two steps, `./scripts/verify.sh` and `./scripts/verify.sh docs`. Each step has a deadline of 420 seconds.
 
-The first step makes a copy of the checkout. In the copy, it builds each claimed target, the checker and the acceptance tools, with warnings as errors. Then it runs the registry checks and builds the specification package. Last, it runs the checker (`lake lint`) on the build of the copy. If all commands pass, it records the SHA-256 of each file of the copy.
+The first step makes a copy of the checkout. In the copy, it builds each claimed target, the checker and the acceptance tools, with warnings as errors. Then it replays that build in Lean's kernel with `lake check`, runs the registry checks and builds the specification package. Last, it runs the checker (`lake lint`) on the build of the copy. If all commands pass, it records the SHA-256 of each file of the copy.
 
-The second step refuses to start unless the files of a new copy have the recorded digests. It does the same check again after its last command. It checks the Markdown documents, builds the `audit/` package and runs the checker on it, and builds, renders and checks the Verso standard.
+The second step refuses to start unless the files of a new copy have the recorded digests. It does the same check again after its last command. It checks the Markdown documents, checks the `audit/` package with the three commands of the gate, and builds, renders and checks the Verso standard.
 
 These statements are trusted, not proved: `shasum` and the filesystem report the contents of the files, and no other process writes the record.
 

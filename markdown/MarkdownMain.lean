@@ -11,7 +11,7 @@ documents that have findings (checks B1 and B2, `RegulaCore/ProseBaseline.lean`)
 the vocabulary of the repository, its `CONTEXT.md` (check C9, `RegulaCore/Vocabulary.lean`). The
 documents are the files Git tracks below the repository root whose extension is `md` or
 `markdown`, as `git ls-files` lists them; each is read from the working tree. The documentation
-step of acceptance runs it (`lean/RegulaVerification.lean`).
+step of acceptance runs it (`lean/RegulaVerification/Driver.lean`).
 
 This program uses these registered decisions of `RegulaCore`: `documentErrors` for the rule IDs;
 `siteLinkErrors` for the links of the root `README.md` to the rule reference, each of which is a

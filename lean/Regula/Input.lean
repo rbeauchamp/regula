@@ -76,6 +76,10 @@ structure Decl where
   isPartial : Bool
   /-- The constants its type and value mention, the ones `Lean.collectAxioms` walks. -/
   uses : List Name
+  /-- Its transitive axiom set, as `Lean.collectAxioms` computes it from the loaded constants,
+  for each constant whose axiom set a rule reads: a constant of a claimed module, and a theorem
+  that states a correspondence. `none` for every other constant. -/
+  axioms : Option (List Name)
   /-- The constant `@[implemented_by]` names, if any (`Lean.Compiler.getImplementedBy?`). -/
   implementedBy : Option Name
   /-- The constants its compiled code runs. -/

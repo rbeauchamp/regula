@@ -59,7 +59,9 @@ each module. But a pass makes no claim that the project has none of the changes 
 Regula does the `#print axioms` step of
 [Validating a Lean Proof](https://lean-lang.org/doc/reference/latest/ValidatingProofs/) for each
 declaration that a project claims. It does not replay the modules through Lean's kernel. For that
-step, run the toolchain's own `leanchecker` by its path in the toolchain's installation directory.
+step, the gate runs `lake check` of the toolchain after `lake build --wfail`, with
+`--inadvisably-no-sandbox` outside Linux. It replays an export of the build with the `leanchecker`
+of the toolchain's installation directory, not with a program that `PATH` finds.
 `lake env leanchecker` can run a package's own program of that name instead, because `lake env`
 puts the binary directory of each package first on `PATH`.
 [Comparator](https://github.com/leanprover/comparator) judges a proof of a fixed statement from a
