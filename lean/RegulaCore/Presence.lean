@@ -66,4 +66,9 @@ Assumes: Lean v4.35.0 `realPath` (`Init/System/IO.lean:879`) is `lean_io_realpat
 def realPathIfPresent (path : FilePath) : IO (Option FilePath) := do
   if ← isPresent path then return some (← IO.FS.realPath path) else return none
 
+/-- The text of the file at `path`, or `none` when Lean reports that nothing is there (`present`);
+each other failure is thrown. -/
+def readFileIfPresent (path : FilePath) : IO (Option String) := do
+  MonadExcept.ofExcept (present (← (IO.FS.readFile path).toBaseIO))
+
 end Regula.Filesystem

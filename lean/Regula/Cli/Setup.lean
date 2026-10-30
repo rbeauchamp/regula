@@ -1,7 +1,7 @@
 import Regula.Shell
 import Regula.Checker.LakeConfig
 import RegulaCore.JsonAgreement
-import Regula.CompilerProbe
+import RegulaCore.Presence
 import RegulaCore.Guidance
 import Lake.Toml.Grammar
 import Lake.Toml.Load
@@ -22,8 +22,8 @@ the checker's form (`Regula.Shell.line`).
   a project, from Lake's loaded package, the files, the import headers of the root package's
   modules that Lake's own lookup reaches from the claimed modules, and the place of its only
   library's glob, found by the walk that writes it (`tomlPlaces`, `soleLibraryCommand`).
-- `pinned`: the compiler the project's own `lean-toolchain` selects, resolved to a toolchain
-  `elan toolchain list` names and identified by its reported version and commit.
+- `pinned`: the compiler the project's own `lean-toolchain` selects, by the identity of the compiler
+  that built this program.
 - `guidanceDirs`, `guidanceFile`: the repository's `AGENTS.md` that holds or receives the
   agent-guidance section, searched from the Lake root up to the Git repository root, and that
   root, where the skill files are.
@@ -32,7 +32,7 @@ the checker's form (`Regula.Shell.line`).
   `lean_lib` and `lean_exe` declarations.
 - `starterManifest`: every root `lean_lib` claimed `standard-logical`, as a `Manifest` value that
   `Manifest.parse` admits before it is written.
-- `init`: apply the plan, observe again and restore every written file unless the new plan is
+- `init`: apply the plan, observe again and put back what the written files held unless the new plan is
   empty, the new observation leaves out no module of a library the plan gave a glob
   (`Regula.Setup.uncovered_run`), and each claimed target of both observations, matched by kind
   and name, sets the same required options only with a `-D` (`Regula.Setup.arguedBy_run`); then
@@ -46,7 +46,7 @@ the checker's form (`Regula.Shell.line`).
 Lake's loader, the parsers (including Lean's import-header parser), the filesystem and the Lean
 frontend that locates the `package`, `lean_lib` and `lean_exe` declarations are trusted. That a
 text edit realizes `Regula.Setup.apply` is not proved: `init` observes the project again after
-writing and refuses, restoring the files it wrote, unless the plan of the new observation is
+writing and refuses, putting back what the files it wrote held, unless the plan of the new observation is
 empty and its `uncovered` has no entry for a library the plan gave a glob. `init` never changes
 a value the project already gives: it inserts text only, into the package's configuration and
 each claimed target's as the plan decides, and a `globs` setting into
@@ -63,9 +63,9 @@ required options of a setup issue include Mathlib's when the workspace contains 
 `init` writes those under `weak.`; by `RegulaPolicy.Community.conforming_of_mathlib`, a target
 that has Mathlib's required options also has the core-only ones. `doctor`'s RG2002 and RG2006
 findings are the checker's own decision over the targets Lake loads and the claim
-(`projectInput`), with the checker's option allowlist. Elan's listing and that
-compiler's report of its own version and commit are trusted; nothing is installed, and a pin
-that does not resolve is a setup issue. -/
+(`projectInput`), with the checker's option allowlist. `regula` starts no process and removes no
+file (`Regula.Effects.check`): a file that `init` created stays when `init` stops, and its error
+names it. -/
 
 namespace Regula.Cli.Setup
 
@@ -147,16 +147,18 @@ def guidanceFile (root : FilePath) : IO GuidanceFile := do
       found := found ++ [file i true (hasAgentsHeading (← IO.FS.readFile path))]
   return (found.find? (·.hasSection) <|> found.head?).getD (file (dirs.length - 1) false false)
 
-/-- The compiler the `lean-toolchain` of the project at `root` selects: the file's
-selector resolves to a toolchain `elan toolchain list` names (`installedName?`), whose compiler
-reports its version and commit (`Regula.Toolchain.probe`). An override or the compiler running
-`regula` does not enter. A selector naming no toolchain Elan lists as installed, or a failed
-probe, is `Pin.unresolved`. The file exists: `findRepoRoot` finds the project root by it. -/
+/-- The compiler the `lean-toolchain` of the project at `root` selects, by the identity of the
+compiler that built this program: `lake exe regula` runs the Lake of the selected toolchain, which
+builds `regula` with its own Lean, so the version and commit that this program was built with
+(`Lean.versionString`, `Lean.githash`) are the selected compiler's. A file that names no toolchain
+is `Pin.unresolved`. The file exists: `findRepoRoot` finds the project root by it.
+
+Assumes: Elan selects the project's `lean-toolchain`, and no `elan override` selects another
+toolchain for the directory; under an override this reports the override's compiler. -/
 def pinned (root : FilePath) : IO Pin := do
   let selector := (← IO.FS.readFile (root / "lean-toolchain")).trimAscii.toString
-  match ← (Regula.Toolchain.probe root selector).toBaseIO with
-  | .ok identity => return .compiler selector identity.version identity.commit
-  | .error error => return .unresolved selector error.toString
+  if selector.isEmpty then return .unresolved selector "the file names no toolchain"
+  return .compiler selector Lean.versionString Lean.githash
 
 /-- The module of the root package of `ws` that an import of `name` resolves to: Lake's own lookup,
 `Workspace.findModule?`, which a build of the importing module uses (`Module.recFetchInput`);
@@ -445,13 +447,13 @@ def tomlText (input : String) (driver : Bool) (entries : List (Name × OptionVal
   IO.ofExcept <| splice input (driverText ++ optionText ++ targetText ++ globText)
 
 /-- Set Lean's search path to the library of the toolchain that `LEAN_SYSROOT` names, which
-`lake exe` sets to the toolchain of the Lake that runs it, or else to the one `Lean.findSysroot`
-finds. -/
+`lake exe` sets to the toolchain of the Lake that runs it. Without it the program stops: it starts no
+`lean` to ask. -/
 def initializeSearchPath : IO Unit := do
-  let sysroot ← match ← IO.getEnv "LEAN_SYSROOT" with
-    | some dir => pure (FilePath.mk dir)
-    | none => Lean.findSysroot
+  let some sysroot ← IO.getEnv "LEAN_SYSROOT"
+    | throw <| IO.userError "LEAN_SYSROOT is not set: run this with `lake exe regula`, which sets it"
   Lean.initSearchPath sysroot
+
 
 /-- The commands of a `lakefile.lean` as Lean's parser reads them while Lake elaborates the file
 (with the file's own imports and `open` commands in effect), and its first errors. -/
@@ -699,7 +701,7 @@ def observe (root : FilePath) : IO Project := do
         for r in lib.roots do
           let dir := Lean.modToFilePath lib.srcDir r ""
           unless ← Regula.Filesystem.isDirectory dir do continue
-          for path in ← Regula.Filesystem.Construction.walkDirectory dir do
+          for path in ← dir.walkDir do
             if path.extension != some "lean" || (← Regula.Filesystem.isDirectory path) then
               continue
             let parts := (path.withExtension "").components.drop dir.components.length
@@ -889,37 +891,35 @@ def doctor (root : FilePath) : IO UInt32 := do
   return 1
 
 /-- A file `init` writes, with its previous content (`none` when it did not exist). -/
-private structure Written where
+structure Written where
+  /-- The file. -/
   path : FilePath
+  /-- What it held before `init` wrote it. -/
   previous : Option String
 
-private def write (written : IO.Ref (Array Written)) (path : FilePath) (text : String) :
-    IO Unit := do
+/-- Write `text` at `path` for `init`, recording what the file held. -/
+def write (written : IO.Ref (Array Written)) (path : FilePath) (text : String) : IO Unit := do
   let previous ← Regula.Filesystem.readFileIfPresent path
   written.modify (·.push { path, previous })
   if let some parent := path.parent then IO.FS.createDirAll parent
   IO.FS.writeFile path text
 
-/-- Restore each file of `written`, the last written first: write its previous content back, or
-remove it when it did not exist, below the real path of its directory
-(`Regula.Filesystem.ownRoot`). A file that cannot be restored does not stop the others; the result
-names each such file with its error. -/
-private def restore (written : Array Written) : IO (Array String) := do
-  let mut failures := #[]
+/-- Put back each file of `written` that held something, the last written first, and give a line
+for each file it did not put back: one that `init` created stays, since `regula` removes no file,
+and one that cannot be written names its error. A file that cannot be restored does not stop the
+others. -/
+def restore (written : Array Written) : IO (Array String) := do
+  let mut left := #[]
   for w in written.reverse do
-    try
-      match w.previous with
-      | some text => IO.FS.writeFile w.path text
-      | none =>
-        if ← Regula.Filesystem.isPresent w.path then
-          let (some directory, some name) := (w.path.parent, w.path.fileName)
-            | throw <| IO.userError "it has no directory and name"
-          Regula.Filesystem.removeOwn .file ((← Regula.Filesystem.ownRoot directory) / name)
-    catch error => failures := failures.push s!"{w.path} ({error})"
-  return failures
+    match w.previous with
+    | some text =>
+      if let .error error ← (IO.FS.writeFile w.path text).toBaseIO then
+        left := left.push s!"{w.path} ({error})"
+    | none => left := left.push s!"{w.path} (new, so remove it)"
+  return left
 
 /-- Write the plan's edits into the project's files. -/
-private def realize (written : IO.Ref (Array Written)) (project : Project) (edits : List Edit) :
+def realize (written : IO.Ref (Array Written)) (project : Project) (edits : List Edit) :
     IO Unit := do
   let root := project.root
   if edits.any (fun e => e == .driver || !e.entries.isEmpty || e.added?.isSome ||
@@ -948,8 +948,8 @@ private def realize (written : IO.Ref (Array Written)) (project : Project) (edit
 
 /-- Write the missing setup of the project at `root` with guidance preference `g`, confirm that
 the plan of the project as written is empty and that no library the plan gave a glob leaves out a
-module, and run `doctor`. Any failure restores the files written (`restore`), and its error names
-each file that could not be restored. -/
+module, and run `doctor`. Any failure puts back what the written files held (`restore`), and its
+error names each file it did not put back. -/
 def init (g : Guidance) (root : FilePath) : IO UInt32 := do
   let project ← observe root
   let edits := plan g project.observation
@@ -978,11 +978,11 @@ def init (g : Guidance) (root : FilePath) : IO UInt32 := do
           throw <| IO.userError s!"the files as written change which required options claimed \
             {if t.exe then "lean_exe" else "lean_lib"} `{t.name}` sets only with a `-D`"
     catch error =>
-      let failures ← restore (← written.get)
-      if failures.isEmpty then
+      let left ← restore (← written.get)
+      if left.isEmpty then
         throw <| IO.userError s!"{error}; every file init wrote is restored"
-      throw <| IO.userError s!"{error}; init could not restore \
-        {", ".intercalate failures.toList}; every other file init wrote is restored"
+      throw <| IO.userError s!"{error}; init did not restore \
+        {", ".intercalate left.toList}; every other file init wrote is restored"
     for edit in edits do
       match edit with
       | .skill p =>

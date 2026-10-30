@@ -119,8 +119,8 @@ error: …/regula/lakefile.lean:…: this Regula release supports only Lean lean
 
 This source revision guards the exact compiler instead: it declares one exact compiler version and
 commit in [`RegulaPolicy.Compiler`](../../lean/RegulaPolicy/Compiler.lean).
-A fresh configuration invokes that identity guard before building the checker; inventory, plan,
-and probe admission retain it. Elan aliases may differ when they resolve to the same compiler. A
+A fresh configuration invokes that identity guard before building the checker.
+Elan aliases may differ when they resolve to the same compiler. A
 mismatch stops Regula's `lakefile.lean` with `Regula's compiler guard stopped`, naming the Lean
 running Lake and the selected executable. The policy's `refusal` supplies the expected and
 observed version and full commit, the migration remedy, and a link to the
@@ -132,10 +132,8 @@ running Lake. When another toolchain's variables are inherited, a `lean` the pol
 stops with that diagnostic, whichever Lean runs Lake, and a `lean` the policy accepts while
 Lake runs another Lean stops with `… is not the Lean running Lake …` instead. Running Lake
 without those variables is the remedy in both cases.
-`lake exe regula doctor` reports the same mismatch for the compiler your own `lean-toolchain`
-selects, whichever compiler an override runs. For a Lean too old to run its identity probe, it
-instead reports that the pin selects no installed compiler that reports its identity, with the
-probe's error.
+`lake exe regula doctor` reports the same mismatch for the compiler that built it, which `lake exe`
+takes from your `lean-toolchain` unless an override selects another.
 
 When no other dependency pins a
 toolchain, `lake update` itself moves an older `lean-toolchain` to Regula's release and restarts.
@@ -169,7 +167,7 @@ required option that a `-D` extra `lean` argument of a target sets counts as set
 modelled setup and reading every `-D` candidate as [RG2006] does, and checked again after writing,
 target by target, as `Regula.Setup.arguedBy_run` states), and `doctor` reports once that [RG2006]
 requires those options in `leanOptions`, naming the entries to write there. It edits the lakefile
-in place, in its own format, then reads the project again and restores every file it wrote unless
+in place, in its own format, then reads the project again and puts back what the files it wrote held unless
 nothing is left to write. A second run therefore writes nothing:
 `Regula.Setup.plan_idempotent` proves that the plan of the result is empty over the modelled
 setup, and that runtime check confirms the files as written match it. `init` ends by running
@@ -177,10 +175,8 @@ setup, and that runtime check confirms the files as written match it. `init` end
 
 `lake exe regula doctor` changes nothing. It prints each missing or wrong piece in the linter's
 finding form, with the exact fix: setup findings for the lint driver, options, manifest, agent
-guidance, the compiler your `lean-toolchain` selects (resolved only to a toolchain Elan lists as
-installed under exactly that name, so use the fully qualified selector from the supported
-revision's [`lean-toolchain`](../../lean-toolchain), as `elan toolchain list` prints it, rather than
-a shorter spelling or a channel such as `stable`; `doctor` resolves no channel and installs
+guidance, the compiler your `lean-toolchain` selects (the one that built `regula`, which
+`lake exe` builds with that toolchain's Lean; `doctor` starts no process and installs
 nothing) and any module below a library root that no library includes but a claimed module imports
 (which `lake lint` rejects), and,
 once a manifest exists, the linter's own manifest validation ([RG2002]) and option decision ([RG2006])

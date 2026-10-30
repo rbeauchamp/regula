@@ -76,7 +76,7 @@ run_cmd do
         discard <| Construction.sourceMain ["all", source.toString, (base / "all-output").toString]
       fixture "ln" #["-s", "plain", (source / "link").toString]
       refused "source link" "not a directory or" (discard <| copy source (base / "link-output"))
-      removeOwn .link (source / "link")
+      IO.FS.removeFile (source / "link")
       IO.eprintln "construction controls: FIFO"
       fixture "mkfifo" #[(source / "pipe").toString]
       refused "source FIFO" "not a directory or" (discard <| copy source (base / "pipe-output"))

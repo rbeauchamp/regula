@@ -1,27 +1,15 @@
 import RegulaVerification.Driver
 import Regula.Contract
 import Regula.Decision
-import RegulaCore.Removal
-import RegulaCore.Destination
 
 /-! # Decision contracts of the verification driver
 
-The decision kind of each pure decision `RegulaVerification` registers with `@[regula_decision]`,
-and the theorems that relate the pure decisions of the driver's copy of the destination rules to
-those of `RegulaCore.Destination`: the identification of a document of Regula, the decision to
-replace an entry from what is read of it, the names below a present prefix, and the decision on a
-site artifact. Two theorems state that the accepted record that the driver writes is a document of
-Regula (`regulaDocument_acceptedValue`) and that the decision replaces a file that holds it
-(`ownershipDecision_accepted`). The reads, the writes and the renames around those decisions are
-written twice, and no theorem relates them.
+The decision kind of each pure decision `RegulaVerification` registers with `@[regula_decision]`.
 The driver imports only the toolchain, because `scripts/verify.sh` runs it with `lean --run` before
 the package is built. This second module of its library imports it together with the two checker
-interfaces, the removal decision of the filesystem observer (`RegulaCore.Removal`) and the
-identification of a document of Regula (`RegulaCore.Destination`), and nothing the driver runs
-imports this module. Each kind restates theorems of the driver about the same definition and adds
-the witnesses a kind requires. It imports no module of the excluded `Regula` library, so the
-control that runs the driver's reading of a destination beside the programs' is in
-`Regula.ProgramCheck.Verification`. -/
+interfaces, and nothing the driver runs imports this module. Each kind restates theorems of the
+driver about the same definition and adds the witnesses a kind requires. It imports no module of the
+excluded `Regula` library. -/
 
 namespace RegulaVerification
 
@@ -75,33 +63,6 @@ theorem checked_removal : Regula.ExecutableContract removal
       observed.place = .directory ∧ observed.sameLocation = true)) :=
   ⟨.of_iff removal_remove_iff ⟨⟨.directory, true⟩, rfl⟩ ⟨⟨.absent, false⟩, by decide⟩⟩
 
-/-- The place of the filesystem observer's decision (`Regula.Removal.Place`) that a place of the
-driver is. The driver does not tell a file or a symbolic link from another entry that is not a
-directory, so its `other` is that decision's `other`; that decision refuses each of them for a
-directory. -/
-def Place.shared : Place → Regula.Removal.Place
-  | .absent => .absent
-  | .directory => .present .directory
-  | .other => .other
-
-/-- The result of the filesystem observer's decision (`Regula.Removal.Removal`) that a result of the
-driver's decision is. -/
-def Removal.shared : Removal → Regula.Removal.Removal
-  | .nothing => .nothing
-  | .remove => .remove
-  | .refuse => .refuse
-
-/-- The driver's decision is the decision of the filesystem observer for a directory,
-`Regula.Removal.removal .directory`, on the same observation, whatever is observed of the parent of
-the path, which that decision does not read for a directory. The driver cannot import that
-decision, because `scripts/verify.sh` runs it with `lean --run` before the package is built. So
-the decision is written twice, and this theorem relates the two. -/
-theorem removal_shared (observed : Observed) (parentOwn : Bool) :
-    (removal observed).shared = Regula.Removal.removal .directory
-      ⟨observed.place.shared, observed.sameLocation, parentOwn⟩ := by
-  obtain ⟨place, sameLocation⟩ := observed
-  cases place <;> cases sameLocation <;> cases parentOwn <;> decide
-
 /-- `buildCovers` accepts exactly a surface manifest of the shape `claimedTargets` reads all of
 whose claimed targets are targets of the first acceptance step's build (`buildCovers_iff`). It
 accepts a manifest with no surface and refuses one with no `surfaces` field. That
@@ -112,80 +73,6 @@ theorem checked_buildCovers : Regula.ExecutableContract buildCovers
   ⟨.of_iff buildCovers_iff
     ⟨Lean.Json.mkObj [("surfaces", Lean.Json.arr #[])], by decide +kernel⟩
     ⟨Lean.Json.null, by decide +kernel⟩⟩
-
-/-- The driver identifies a document of Regula (`regulaDocument`) exactly as the package's
-programs do (`Regula.Destination.regulaDocument`), for every JSON value. The driver cannot import
-that identification, because `scripts/verify.sh` runs it with `lean --run` before the package is
-built, so it is written twice, and this theorem relates the two. -/
-theorem regulaDocument_shared (value : Lean.Json) :
-    regulaDocument value = Regula.Destination.regulaDocument value :=
-  rfl
-
-/-- The accepted record that the driver writes (`acceptedValue`, in `Copy.record`) is a document of
-Regula (`regulaDocument`) for every identity `tree`: it has the signature of an acceptance link. So
-a later run's decision replaces a file that holds it (`ownershipDecision_accepted`). -/
-theorem regulaDocument_acceptedValue (tree : List (String × String)) :
-    regulaDocument (acceptedValue tree) = true :=
-  rfl
-
-/-- A later run's decision (`ownershipDecision`) replaces a regular file whose bytes are the UTF-8
-text of the accepted record of an identity `tree` (`regulaDocument_acceptedValue`), for every path.
-The hypotheses are the trusted linkage to the file that `Copy.record` wrote: that the file holds the
-compressed text of `acceptedValue tree` with its newline (`acceptedRecord`), and that Lean's JSON
-parser reads that text back as the same value. -/
-theorem ownershipDecision_accepted (path : System.FilePath) (tree : List (String × String))
-    (bytes : ByteArray) (text : String) (decoded : String.fromUTF8? bytes = some text)
-    (parsed : Lean.Json.parse text = .ok (acceptedValue tree)) :
-    ownershipDecision path (.ok .file) (.ok bytes) = none := by
-  have isFile : (IO.FS.FileType.file != .file) = false := rfl
-  simp [ownershipDecision, isFile, decoded, parsed, regulaDocument_acceptedValue]
-
-/-- The driver decides whether to replace the entry at a destination from what it reads there
-(`ownershipDecision`) exactly as the package's programs do
-(`Regula.Destination.ownershipDecision`), for every path and every observation of the entry and of
-its bytes. The reads are trusted effects in each: the driver's `ownershipRefusal` and the programs'
-`Regula.Destination.ownershipRefusal` read the type of the entry without following a link, and
-the bytes of a regular file alone. -/
-theorem ownershipDecision_shared (path : System.FilePath)
-    (entry : Except IO.Error IO.FS.FileType) (contents : Except IO.Error ByteArray) :
-    ownershipDecision path entry contents =
-      Regula.Destination.ownershipDecision path entry contents :=
-  rfl
-
-/-- The driver decides whether a directory holds a site artifact (`holdsSiteArtifact`) exactly as
-the site's build does (`Regula.Destination.holdsSiteArtifact`), for every observation of the marker
-and of `build.json`. -/
-theorem holdsSiteArtifact_shared (marker : Bool) (build : Option String) :
-    holdsSiteArtifact marker build = Regula.Destination.holdsSiteArtifact marker build :=
-  rfl
-
-/-- The driver decides whether to remove what is at the directory of the site artifact
-(`siteArtifactDecision`) exactly as the site's build decides whether to replace it
-(`Regula.Destination.siteArtifactDecision`), for every observation and every consequence that the
-reason states. -/
-theorem siteArtifactDecision_shared (out : System.FilePath) (consequence : String)
-    (entry : Except IO.Error IO.FS.FileType) (holds empty : Bool) :
-    siteArtifactDecision out consequence entry holds empty =
-      Regula.Destination.siteArtifactDecision out consequence entry holds empty :=
-  rfl
-
-/-- The driver reads the names below the longest present prefix of a destination (`plainNames`)
-exactly as the package's programs do (`Regula.Destination.plainNames`), for every list of names. -/
-theorem plainNames_shared (names : List String) :
-    plainNames names = Regula.Destination.plainNames names :=
-  rfl
-
-/-- The driver identifies the `build.json` of a site artifact (`identifiesSiteBuild`) exactly as
-the site's build does (`Regula.Destination.identifiesSiteBuild`), for every JSON value. -/
-theorem identifiesSiteBuild_shared (value : Lean.Json) :
-    identifiesSiteBuild value = Regula.Destination.identifiesSiteBuild value :=
-  rfl
-
-/-- The driver reads the marker of an assembly of the site at the name that the site's build
-writes it at (`Regula.Destination.siteAssemblingMarker`). -/
-theorem siteAssemblingMarker_shared :
-    siteAssemblingMarker = Regula.Destination.siteAssemblingMarker :=
-  rfl
 
 attribute [regula_decision] parseMode dependencyFree select passed removal buildCovers
 

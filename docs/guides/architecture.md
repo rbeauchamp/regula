@@ -32,6 +32,7 @@ The checker reads one closed input and gives one verdict: pass, fail or incomple
 | `Regula.Load` | The loader, which fills the input from the load of the workspace by Lake and from the finished build. |
 | `Regula.Rules` | The kept rules as functions over the input, and the verdict of a run. |
 | `Regula.Shell` | The report of a run and its exit code. |
+| `Regula.Effects` | The build-time check that the compiled code of a program starts no process and writes and removes no file (`Regula.Effects.check`). |
 | `Regula.LintMain` | The root of the `lint` executable. |
 
 Lean's own tools decide [RG2003] and [RG2005]: `lake build --wfail` and `lake check`. No check decides the documentation rules [RG4001] to [RG5003]. They are retired to written guidance, and the lifecycle of each in the registry records the retirement.

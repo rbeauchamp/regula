@@ -1,5 +1,4 @@
-import Regula.Removal
-import Regula.TaskManagerCheck
+import Regula.Effects
 import Regula.Cli.Setup
 
 /-! # The `regula` executable
@@ -37,33 +36,17 @@ def regulaMain (args : List String) : IO UInt32 := do
       IO.eprintln s!"regula: {message}"
       return 2
 
-/-- The refusal of an invocation in a process without Lean's task manager
-(`Regula.TaskManager.guard`): its arguments name no result destination, so it marks none, and it
-returns 1. -/
-def refuseRegula (_reason : String) (_args : List String) : IO UInt32 :=
-  pure 1
-
-/-- The `regula` executable: `regulaMain` on the command-line arguments. A process without Lean's
-task manager is refused before the invocation runs, with exit code 1
-(`Regula.TaskManager.guard`). -/
+/-- The `regula` executable: `regulaMain` on the command-line arguments. -/
 def main : List String → IO UInt32 :=
-  Regula.TaskManager.guard "regula" refuseRegula regulaMain
+  regulaMain
 
--- The removals and the writes that the compiled code of the program reaches from its roots
--- (`Regula.Removal.rawRemovals`) are those of the filesystem observer and those that
--- `Regula.Removal.sharedPairs` lists, and those named here, each by the declaration of a source
--- that makes it: the build of this module fails otherwise, and when a name here admits no call
--- (`Regula.Removal.checkProgram`). The program elaborates Lean source, so its check states it.
-run_cmd Regula.Removal.checkProgram (elaborates := true) (named := [
-  -- The configuration that `regula setup` writes in the project that it sets up, and its
-  -- restoration when the setup stops.
-  (`Regula.Cli.Setup.restore, ``IO.FS.writeFile),
+
+-- The program prints, and `init` writes the setup files of the project that it sets up. The build
+-- of this module fails when the compiled code of a module outside the toolchain that it links starts
+-- a process or removes a file, or writes at another place, or calls a declaration of the toolchain
+-- that reaches one (`Regula.Effects.check`). The two it names are Lake's load of the workspace,
+-- whose own Git, Lean and `.lake/config` effects are Lake's.
+run_cmd Regula.Effects.check (admitted := [
   (`Regula.Cli.Setup.write, ``IO.FS.createDirAll),
   (`Regula.Cli.Setup.write, ``IO.FS.writeFile),
-  -- The source of the compiler probe, in its temporary directory.
-  (``Regula.Toolchain.probe, ``IO.FS.writeFile)])
-
--- A program that needs Lean's task manager starts through its guard (`Regula.TaskManager.guard`),
--- and its refusal needs none: the build of this module fails otherwise
--- (`Regula.TaskManagerCheck.checkProgram`).
-run_cmd Regula.TaskManagerCheck.checkProgram
+  (`Regula.Cli.Setup.restore, ``IO.FS.writeFile)])

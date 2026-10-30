@@ -468,8 +468,7 @@ def guide : RuleId → Guide
       limitations := [
         "A metaprogram can add a constant of the helper's form. The kernel checks the base's \
           definition, and the helper's code is what runs.",
-        "The regeneration of the base from the helper that standard §7.4 describes is not run. \
-          Issue #486 removes it with its code."]
+        "The regeneration of the base from the helper that standard §7.4 describes is not run."]
       residuals := [.qualify, .cost, .intent]
       checklist := ["COMP-02", "THEOREM-05", "THEOREM-01", "DECL-03", "BUILD-01"]
       linkage := keptLinkage "Regula.Closed.Input.declarationFindings" "Violates1006"

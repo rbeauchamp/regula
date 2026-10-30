@@ -14,7 +14,9 @@ The root [foundation manifest](../../foundation_manifest.json) has the foundatio
 
 ## The checker of a finished build
 
-`lake lint` runs the checker of Regula, the `lint` executable (`Regula.LintMain`). The checker has three effects. It loads the finished build, it prints its findings, and it sets its exit code. The checker writes no file and removes no file. It starts itself again once, in an environment that isolates Git (`Regula.GitIsolation`). The load of the workspace by Lake can start processes, as `lake build` can.
+`lake lint` runs the checker of Regula, the `lint` executable (`Regula.LintMain`). The checker has three effects. It loads the finished build, it prints its findings, and it sets its exit code. It starts no process, and it writes and removes no file.
+
+`Regula.Effects.check` enforces this when `Regula.LintMain` builds. The build fails when the compiled code of a linked module outside the toolchain has such an effect. It also fails when that code calls a declaration of the toolchain that reaches one. The exception is the load of the workspace by Lake, which can start processes and write `.lake/config`, as `lake build` can. Lake's Git commands have the environment of the caller.
 
 The checker does not build the project. Build the claimed targets with `lake build --wfail` first. A module without its compiled files makes the run INCOMPLETE.
 
@@ -120,8 +122,8 @@ and one definition, `Lakefile.globsSetting`, gives that glob to the two. The sta
 planned exactly when there is no manifest and the package has a `lean_lib` for it to claim
 (`plan_manifest_mem`); a package with none has a setup issue `init` does not fix.
 
-**Checked when it runs:** `init` observes the project again after writing and restores every
-file it wrote unless the new plan is empty, no library that the plan gave a glob leaves out a
+**Checked when it runs:** `init` observes the project again after writing and puts back what the
+files it wrote held unless the new plan is empty, no library that the plan gave a glob leaves out a
 module that `doctor` reports (`uncovered_run`'s executable counterpart), and each claimed target
 of both observations, matched by kind and name, sets the same required options only with a `-D`
 as before (`arguedBy_run`'s
@@ -175,8 +177,7 @@ source guard compares that child's version and full commit with the revision's d
 identity and then prints them; the lakefile passes only when the child succeeds and the
 printed pair is the `Lean.versionString` and `Lean.githash` of the Lean elaborating the
 lakefile, so a child that is another compiler, fails or cannot be run is refused, with the
-adopter's remedy. That comparison is an elaboration-time check, not a theorem. The compiled
-probe, inventory admission, and plan admission use the same declared pair.
+adopter's remedy. That comparison is an elaboration-time check, not a theorem.
 `Compiler.accepts_iff` proves the executed Boolean matches the predicate;
 `transcript_plan_compiler` proves admitted transcripts and a valid plan agree on both fields.
 Compiler self-reports and locating and launching the compiler are trusted IO, and a
@@ -184,16 +185,12 @@ self-report names the Git commit of a build's source tree, not uncommitted sourc
 executable's bytes. Lake may reuse an elaborated configuration; `lake update` elaborates it
 again. The compiled admission guards remain in force when a configuration is cached.
 
-`doctor` reads the project's own `lean-toolchain`, resolves it to a toolchain
-`elan toolchain list` names, and reads the version and commit that compiler reports,
-independently of the compiler running `regula`. Only a listed name is run, without Elan's
-`--install`, and no channel is resolved: `Regula.Toolchain.installedName?_spec` proves that the
-name is one of those supplied as listed and equals the selector.
-`Regula.Setup.toolchainIssues_eq_nil_iff` proves that the
-decision reports no toolchain issue exactly when that resolved identity
-`RegulaPolicy.Compiler.Supports`, under any selector; an unresolved selector or a failed probe
-is an issue `init` does not fix. Elan's listing, that it runs a listed toolchain without
-installing, and the report are trusted.
+`doctor` starts no process. It takes the identity of the project's compiler from the compiler that
+built `regula`: `lake exe regula` runs the Lake of the toolchain that `lean-toolchain` selects, and
+that Lake builds `regula` with its own Lean. An `elan override` changes that compiler, which is
+trusted. `Regula.Setup.toolchainIssues_eq_nil_iff` proves that the decision reports no toolchain
+issue exactly when that identity `RegulaPolicy.Compiler.Supports`, under any selector; a file that
+names no toolchain is an issue `init` does not fix.
 
 Only the exact [supported toolchain](toolchains.md) is admitted. There is no runtime
 qualification switch or candidate publication mode.
@@ -389,83 +386,14 @@ checked operation. The controls of the previous checker are removed.
 
 ### The file system
 
-`RegulaCore.Filesystem` gives the model of the file system and its assumptions.
-`Regula.Filesystem.observer` is its observer for the programs of the package.
-`RegulaCore.Removal` gives the last three checked operations of the table. Each `lean` source
-below is a file of the Lean 4 repository at `v4.35.0`, below `src`.
+`RegulaCore.Filesystem` gives the model of the file system and its assumptions, which the theorems of the copy construction use. `Regula.Filesystem.observer` is its observer for the drivers' copy. Each `lean` source below is a file of the Lean 4 repository at `v4.35.0`, below `src`.
 
 | Declaration | Status | Contract | Sources |
 | --- | --- | --- | --- |
 | `ReadsEntry` | trusted | `symlinkMetadata` gives the type of the entry at a path and changes nothing. It fails with `noFileOrDirectory` only when no entry is at the path. | [`Init/System/IO.lean#L1151-L1156`](https://github.com/leanprover/lean4/blob/v4.35.0/src/Init/System/IO.lean#L1151-L1156), [`runtime/io.cpp#L1160-L1179`](https://github.com/leanprover/lean4/blob/v4.35.0/src/runtime/io.cpp#L1160-L1179), [`runtime/io.cpp#L276-L279`](https://github.com/leanprover/lean4/blob/v4.35.0/src/runtime/io.cpp#L276-L279), POSIX.1-2024 `lstat()` |
 | `ReadsReal` | trusted | `realPath` gives the real path of a path and changes nothing. It fails only when there is no real path. | [`Init/System/IO.lean#L873-L879`](https://github.com/leanprover/lean4/blob/v4.35.0/src/Init/System/IO.lean#L873-L879), [`runtime/io.cpp#L1054-L1066`](https://github.com/leanprover/lean4/blob/v4.35.0/src/runtime/io.cpp#L1054-L1066), POSIX.1-2024 `realpath()`, Apple Libc-1752.120.2 `stdlib/FreeBSD/realpath.c#L216-L243` and `#L348-L358` |
-| `RemovesTree` | trusted | `removeDirAll` of a directory at its real path keeps the entry at each path in its frame (`Model.Unchanged`), when it succeeds and when it fails. | [`Init/System/IO.lean#L1330-L1342`](https://github.com/leanprover/lean4/blob/v4.35.0/src/Init/System/IO.lean#L1330-L1342), [`runtime/io.cpp#L1160-L1179`](https://github.com/leanprover/lean4/blob/v4.35.0/src/runtime/io.cpp#L1160-L1179), [`runtime/io.cpp#L1197-L1207`](https://github.com/leanprover/lean4/blob/v4.35.0/src/runtime/io.cpp#L1197-L1207), [`runtime/io.cpp#L1351-L1364`](https://github.com/leanprover/lean4/blob/v4.35.0/src/runtime/io.cpp#L1351-L1364), POSIX.1-2024 `lstat()`, `unlink()` and `rmdir()`, POSIX.1-2024 `<sys/stat.h>` |
-| `RemovesEntry` | trusted | `removeFile` of a path keeps the entry at each path in its frame (`Model.Unchanged`), when it succeeds and when it fails. The path is at its real path, or it is a symbolic link in a directory at its real path (`Model.InOwnDirectory`). | [`Init/System/IO.lean#L881-L886`](https://github.com/leanprover/lean4/blob/v4.35.0/src/Init/System/IO.lean#L881-L886), [`runtime/io.cpp#L1351-L1364`](https://github.com/leanprover/lean4/blob/v4.35.0/src/runtime/io.cpp#L1351-L1364), POSIX.1-2024 `unlink()`, POSIX.1-2024 `<sys/stat.h>` |
-| `Renames` | trusted | `rename` keeps the entry at each path in the frame of its two paths (`Model.Kept`), when it succeeds and when it fails. The source is at its real path, and the destination has a parent at its real path. | [`Init/System/IO.lean#L903-L909`](https://github.com/leanprover/lean4/blob/v4.35.0/src/Init/System/IO.lean#L903-L909), [`runtime/io.cpp#L1209-L1238`](https://github.com/leanprover/lean4/blob/v4.35.0/src/runtime/io.cpp#L1209-L1238), POSIX.1-2024 `rename()`, POSIX.1-2024 `<sys/stat.h>` |
-| `removeDirectory` | checked | After a removal that succeeds, no entry is at the path: `removeDirectory_gone`, which uses only `ReadsEntry`. | [`Init/System/IO.lean#L1330-L1342`](https://github.com/leanprover/lean4/blob/v4.35.0/src/Init/System/IO.lean#L1330-L1342) |
-| `removeEntry` | checked | After a removal that succeeds, no entry is at the path: `removeEntry_gone`, which uses only `ReadsEntry`. | [`Init/System/IO.lean#L881-L886`](https://github.com/leanprover/lean4/blob/v4.35.0/src/Init/System/IO.lean#L881-L886) |
-| `removeOwnWith` | checked | After a removal that succeeds, no entry is at the path: `removeOwnWith_gone`, which uses only `ReadsEntry`. | [`Init/System/IO.lean#L1330-L1342`](https://github.com/leanprover/lean4/blob/v4.35.0/src/Init/System/IO.lean#L1330-L1342), [`Init/System/IO.lean#L881-L886`](https://github.com/leanprover/lean4/blob/v4.35.0/src/Init/System/IO.lean#L881-L886) |
-| `removeFoundWith` | checked | After a removal that succeeds, no entry is at the path: `removeFoundWith_gone`, which uses only `ReadsEntry`. | [`Init/System/IO.lean#L1330-L1342`](https://github.com/leanprover/lean4/blob/v4.35.0/src/Init/System/IO.lean#L1330-L1342), [`Init/System/IO.lean#L881-L886`](https://github.com/leanprover/lean4/blob/v4.35.0/src/Init/System/IO.lean#L881-L886) |
-| `replaceWith` | checked | After a move that succeeds, nothing is at the source and a file is at the destination: `replaceWith_moved`, which uses only `ReadsEntry`. | [`Init/System/IO.lean#L903-L909`](https://github.com/leanprover/lean4/blob/v4.35.0/src/Init/System/IO.lean#L903-L909) |
 
-The theorems `removeDirectory_spec` and `removeEntry_spec` are about the removal of a directory, a
-file or a link at its own place, in a model. After a removal that succeeds, no entry is at the
-path. A removal keeps the entry at each path in its frame, when it succeeds and when it fails. Their
-hypotheses are the assumptions that they use. The theorems `removeDirectory_io` and
-`removeEntry_io` give the same result for the code in `IO`, with `Corresponds` as one more
-hypothesis. `Regula.Filesystem` gives them for the observer at the model of the worlds, where
-`corresponds_ofIO` proves `Corresponds`.
-
-`Model.Unchanged` gives the frame of a removal. It is each path with a file name, if its parent is
-its own real path before the removal. The path is not the removed path, and the chain of its
-parents does not reach the removed path (`Within`). Before the removal, also no entry is at the
-path, or the path names a file that is not an entry of the removed tree. For each such path, the
-entry after the removal has the same type as before, or no entry is at the path before and after.
-
-`Model.Below` gives the removed tree. The removed path is in its tree. A name in a directory of
-the tree, other than `.` and `..`, is also in the tree. A symbolic link is not a directory, thus
-the tree does not go into a symbolic link.
-
-The tree includes the entries that `removeDirAll` of Lean 4.35.0 visits when no different process
-writes
-([`Init/System/IO.lean#L1335-L1342`](https://github.com/leanprover/lean4/blob/v4.35.0/src/Init/System/IO.lean#L1335-L1342)).
-It also has a name with no entry in a directory of the tree. It also has a different spelling of
-an entry, for example a different case on a volume that ignores case. These names add no file to
-the files of the tree. The first names no file, and the second names the file of the entry.
-
-`Model.ident` gives the file that a path names. It is the device and the number of the file, the
-values `st_dev` and `st_ino` of `lstat(2)`. POSIX.1-2024 `<sys/stat.h>` states that these two
-values identify a file in the system. A second name of a file has the same identity. Examples are a
-different case of a name on a volume that ignores case, an APFS firmlink, a bind mount and a hard
-link. Thus the frame does not include a second name of an entry of the removed tree.
-
-The `IO.FS.Metadata` of Lean 4.35.0 has no device and no file number
-([`Init/System/IO.lean#L1115-L1129`](https://github.com/leanprover/lean4/blob/v4.35.0/src/Init/System/IO.lean#L1115-L1129)).
-Thus no observer reads `Model.ident`, and no decision uses it. It only identifies the files that
-the frame is about.
-
-The frame also does not include a path if the real path of its parent is not that parent. Such a
-path can go through the removed path, for example through a symbolic link or with `..`. The target
-of a symbolic link in the tree is not an entry of the tree through that link. Thus the entry of
-the target is in the frame, if the tree does not have it with a different name. Thus in a run with
-no different process that writes, the removal keeps the entry of the target. A path with no entry
-is in the frame, thus no entry appears outside the removed path.
-
-`removeDirAll` of Lean 4.35.0 resolves each path of the tree again at each call. During the
-removal, a different process can replace a directory of the tree with a symbolic link. It can also
-change what a path of the tree resolves to in a different way, for example with a rename. Then the
-walk can go out of the tree and remove entries outside it. This is the race of CVE-2022-21658. In
-such a run, `RemovesTree` is false.
-
-Some volumes ignore case or Unicode normalization. On such a volume, the `realpath(3)` of Darwin
-gives the name that the volume keeps for each component. Apple Libc-1752.120.2
-`stdlib/FreeBSD/realpath.c#L216-L243` and `#L348-L358` show this. This was observed one time on
-macOS 27.0.1 with APFS: `realpath dir/FILE` printed `.../Dir/file`. Thus `atOwnPlace` gives
-`false` for a different case of such a name. `ReadsReal` gives this source.
-
-The assumptions are for a POSIX system. On Windows, `symlinkMetadata` of Lean 4.35.0 follows a
-symbolic link. Also, `realPath` gives the path that it got when it cannot find the real path
-([`runtime/io.cpp#L1032-L1033`](https://github.com/leanprover/lean4/blob/v4.35.0/src/runtime/io.cpp#L1032-L1033)).
-Thus the observer refuses these two reads and each removal of a directory on Windows.
+The assumptions are for a POSIX system. On Windows, `symlinkMetadata` of Lean `v4.35.0` follows a symbolic link. Also, `realPath` gives the path that it got when it cannot find the real path ([`runtime/io.cpp#L1032-L1033`](https://github.com/leanprover/lean4/blob/v4.35.0/src/runtime/io.cpp#L1032-L1033)). Thus the observer refuses these two reads on Windows.
 
 ### Assumptions of directory enumeration
 
@@ -521,7 +449,7 @@ contracts of the external systems do not establish these properties:
 
 The supported compiler, the filesystem, the process runtime and GNU timeout are trusted. Each acceptance step runs under one GNU timeout that owns the whole group of processes. OS scheduling and signal delivery are trusted, not a real-time theorem.
 
-Before provisioning and before any build, `scripts/verify.sh` has `RegulaVerification` invalidate the accepted link of the selected step (the private `--begin-attempt` flag). It also removes an earlier site artifact. Thus a failed setup or build cannot leave either in place. The copy of the first step is in `.lake/regula-scratch/` of the project, and the driver removes it on each return. A killed run leaves its copy, and the next driver removes it when no live process holds the lock of that directory.
+Before provisioning and before any build, `scripts/verify.sh` has `RegulaVerification` invalidate the accepted link of the selected step (the private `--begin-attempt` flag). Thus a failed setup or build cannot leave it in place. The site's build removes nothing: it refuses when an earlier artifact is present, and it gives the name `_site` only to an artifact that it checked. The copy of the first step is in `.lake/regula-scratch/` of the project, and the driver removes it on each return. A killed run leaves its copy, and the next driver removes it when no live process holds the lock of that directory.
 
 Helpers invoke external programs with arrays of arguments, not with generated shell programs. [`AGENTS.md`](../../AGENTS.md) records the narrow shell exceptions of the operator.
 

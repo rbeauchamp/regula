@@ -138,22 +138,17 @@ lean --run lean/RegulaProvision.lean verso          # Verso setup
 ./scripts/verify.sh site                             # build and check _site/
 ```
 
-After the build, `./scripts/verify.sh site` operates `lake exe site renderer-refusal`, the control
-of [issue 424](https://github.com/rbeauchamp/regula/issues/424). This command builds `regula-site`
-and `regula-standard`, and a delayed render of the standard and a resumed render must succeed.
-After a refused run with the same options, a resumed render must stop. The refusals of the two
-programs must move the saved state, the word count and the output directory aside, into new
-directories beside them. A refusal must keep the saved state that a resumed render reads when that
-state is outside the output directory. It must move a symbolic link itself, and report an output
-directory `.` or empty and a destination that it cannot move.
+The builder removes nothing, so `lake exe site build` refuses when one of these outputs is present:
 
-The control examines the refusals that `Regula.TaskManager.guard` gives in a process without the
-task manager of Lean. `regula-standard` also refuses a run when the standard does not contain a
-section that the rules cite. The control does not examine that refusal, but that refusal calls the
-same function `RegulaRender.refuse`.
+- The artifact `_site`.
+- Its scratch directory `tmp/site-build`, which it leaves behind.
+- The generated sources `website/Generated` and `website/Generated.lean`.
+- The release asset directory `tmp/site-release`.
+- The build outputs of the standard in the website package.
 
-A refused run leaves its copies beside the destinations, and the renderers do not delete them.
-Delete them by hand when they are not necessary.
+Remove them by hand to build again. A symbolic link at one of these paths is refused, and its target is not touched.
+
+The builder assembles the artifact in its scratch directory. It renames the artifact to `_site` only after the check, so `_site` does not hold an artifact that the check refused. `./scripts/verify.sh site` runs `lake clean` in the website package first, so Lake removes the outputs of the standard.
 
 The website package requires the root `regula` package and the `audit/` package by relative
 path, because the standard's examples import modules of both. Neither requires Mathlib, and no

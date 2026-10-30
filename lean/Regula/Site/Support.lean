@@ -3,8 +3,8 @@ import Regula.Filesystem
 
 /-! # Support of the site's programs
 
-The assertions, the process starts and the root directory that the site's builder, its renderer
-controls and its deployment check share. Assertions go through the proved evaluator
+The assertions, the process starts and the root directory that the site's builder and its
+deployment check share. Assertions go through the proved evaluator
 (`RegulaQualification.checked_evaluation`); process execution and the filesystem are trusted IO.
 -/
 

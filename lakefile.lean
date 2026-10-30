@@ -110,20 +110,12 @@ input_dir ruleExampleSources where
   path := "examples/rules"
   text := true
 
--- The standalone compiler probe embeds this source with include_str.
-input_file compilerObservationSource where
-  path := "lean/Regula/CompilerObservation.lean"
-  text := true
 
 -- Cold drivers interpret this shared source before package artifacts exist.
 input_file copyConstructionSource where
   path := "lean/RegulaCore/CopyProgram.lean"
   text := true
 
--- `Regula.AbsenceControls` embeds this fixture with include_str and runs it.
-input_file absenceReadsFixture where
-  path := "examples/fixtures/absence-reads/AbsenceReads/Refused.lean"
-  text := true
 
 @[default_target]
 lean_lib «RegulaCore» where
@@ -146,18 +138,12 @@ lean_lib «Regula» where
   -- the `regula` command, the site builder and the repository's own programs. The interfaces are
   -- the library `RegulaInterface`, so each module is in exactly one library (RG2004).
   globs := #[.submodules `Regula.Checker, .submodules `Regula.Cli, .submodules `Regula.Site,
-    .one `Regula.AbsenceControls, .one `Regula.CompilerObservation, .one `Regula.CompilerProbe,
-    .one `Regula.CopyControls, .one `Regula.Destination, .one `Regula.DiagnosticsGate,
-    .one `Regula.Filesystem, .one `Regula.GitIsolation, .one `Regula.Input, .one `Regula.LintMain,
-    .one `Regula.Load, .one `Regula.PrintedPathControls, .one `Regula.ProvisionControls,
-    .one `Regula.RegistryChecks, .one `Regula.Release, .one `Regula.Removal,
-    .one `Regula.RemovalControls, .one `Regula.Rules, .one `Regula.Scratch, .one `Regula.Shell,
-    .one `Regula.TaskManager, .one `Regula.TaskManagerCheck, .one `Regula.TestListing,
-    .one `Regula.ProgramCheck.DiagnosticsGate, .one `Regula.ProgramCheck.Provision,
-    .one `Regula.ProgramCheck.RegistryChecks, .one `Regula.ProgramCheck.Release,
-    .one `Regula.ProgramCheck.SiteDeployment, .one `Regula.ProgramCheck.TestListing,
-    .one `Regula.ProgramCheck.Verification]
-  needs := #[`@/compilerObservationSource, `@/absenceReadsFixture]
+    .one `Regula.CopyControls, .one `Regula.DiagnosticsGate, .one `Regula.Effects,
+    .one `Regula.Filesystem, .one `Regula.Input, .one `Regula.LintMain, .one `Regula.Load,
+    .one `Regula.ProvisionControls, .one `Regula.RegistryChecks, .one `Regula.Release,
+    .one `Regula.Rules, .one `Regula.Shell, .one `Regula.TestListing,
+    .one `Regula.ProgramCheck.Provision, .one `Regula.ProgramCheck.Release,
+    .one `Regula.ProgramCheck.TestListing, .one `Regula.ProgramCheck.Verification]
 
 lean_exe «lint» where
   -- Lake lint driver: `lintDriver = "regula/lint"` in an adopting package and in this one.

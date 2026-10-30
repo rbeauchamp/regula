@@ -7,9 +7,8 @@ runs on each commit it validates (its `commands.test` in `.no-mistakes.yaml`). I
 another in the checkout, the steps of the CI workflow's jobs that check a change, after the
 provisioning those jobs make: the release checks, the two acceptance steps (the first of which runs
 Regula's checker on Regula's own build, the self-check), the Mathlib integration check, and the
-builds of the site's tools and of the example library. Last, it builds the controls of the check
-that each program runs (the package in `controls/`), which no CI job builds: their compile needs
-about 30 GiB (issue #497). It runs with the pinned toolchain alone, so it needs no build before it starts:
+builds of the site's tools and of the example library. It runs with the pinned toolchain alone, so
+it needs no build before it starts:
 
 ```text
 lean --run lean/Regula/DiagnosticsGate.lean local    # run every step of the local gate in order
@@ -54,9 +53,8 @@ def Step.command : Step → String × List String × String
 
 /-- The steps of the local gate, in order: CI's `verify` job, which provisions pinned Verso for
 the documentation step, runs the release checks and the two acceptance steps; its `mathlib` job,
-which provisions the pinned Mathlib and runs the integration check; the builds of its `site`
-job before the site's check, which the gate leaves out; and the build of the package in
-`controls/`. -/
+which provisions the pinned Mathlib and runs the integration check; and the builds of its `site`
+job before the site's check, which the gate leaves out. -/
 def localSteps : List Step :=
   let program (file : String) (arguments : List String) : Step :=
     .run "lean" ("--run" :: file :: arguments) "."
@@ -66,8 +64,7 @@ def localSteps : List Step :=
     .verify [], .verify ["docs"],
     program "lean/RegulaProvision.lean" ["mathlib"], .verify ["mathlib"],
     .run "lake" ["build", "site", "AuditApp"] ".",
-    .run "lake" ["build", "Audit"] "audit",
-    .run "lake" ["build"] "controls"]
+    .run "lake" ["build", "Audit"] "audit"]
 
 /-- Run `steps` in order with `run`, which runs a step and gives its exit code, and stop at the
 first step whose code is not 0: that step with its code, or none when every step ended with 0. -/

@@ -303,7 +303,7 @@ run_cmd do
     IO.FS.writeFile overrides (overridesText [pathEntry "batteries" "../batteries"])
     requireRefused "path override of batteries" "batteries: the package overrides file gives a path"
       (RegulaProvision.readPins repo)
-    Regula.Filesystem.removeFound overrides
+    IO.FS.removeFile overrides
     positive "positive after the overrides file"
     for inherited in [true, false] do
       let label := s!"path entry of batteries, inherited {inherited}"
@@ -351,7 +351,7 @@ run_cmd do
       IO.FS.writeFile manifest (manifestText (some (some ".lake/packages")) committed)
       positive s!"positive after {label}"
     -- No manifest: Lake would resolve the requirements anew.
-    Regula.Filesystem.removeFound manifest
+    IO.FS.removeFile manifest
     requireRefused "absent manifest" "is absent" (RegulaProvision.readPins repo)
     IO.FS.writeFile manifest (manifestText (some (some ".lake/packages")) committed)
     positive "positive after the absent manifest"
@@ -383,7 +383,7 @@ run_cmd do
     requireSelection "site overrides file" "not the override's revision" ((← revision) == third)
     IO.FS.writeFile overrides (overridesText [pathEntry "verso" "../verso"])
     requireRefused "site path override of verso" "materializes no Git package verso" revision
-    Regula.Filesystem.removeFound overrides
+    IO.FS.removeFile overrides
     positive "site positive after the overrides file"
 
 end Regula.ProvisionControls
