@@ -243,9 +243,9 @@ def agentGuideIn (e : Edition) : String :=
   "warning, weaken a statement, or drop a registration to pass.\n" ++
   "- Follow the Lean community's style, naming and documentation conventions (standard §6.7). " ++
   "Every claimed target enables `linter.missingDocs` (document every definition) in its " ++
-  "`leanOptions`, with the other options " ++ citation e .communityConfiguration ++
-  " checks; `lake build --wfail` " ++
-  "rejects their warnings. Run Batteries' linters with `lake build && lake exe runLinter`. " ++
+  "`leanOptions`. Review checks this required setting. " ++ citation e .communityConfiguration ++
+  " admits that option by name without checking its value. `lake build --wfail` rejects " ++
+  "warnings that enabled linters emit. Run Batteries' linters with `lake build && lake exe runLinter`. " ++
   "Disable a community linter only for a single declaration, " ++
   "where its guidance allows, with the reason; that never discharges a rule.\n" ++
   "- Passing is mechanical: a theorem must still state the intended claim, with its hypotheses " ++
