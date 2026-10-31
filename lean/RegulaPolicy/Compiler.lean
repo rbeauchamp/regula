@@ -4,59 +4,13 @@ public import Init
 
 /-! # Exact compiler support
 
-Each checker source revision names one compiler identity. Version strings alone do not
+Each source revision of Regula names one compiler identity. Version strings alone do not
 identify development builds. The compiler's reported identity and the integrity of its
 executable remain trusted observations; these contracts compare the supplied strings. -/
 
 @[expose] public section
 
 namespace RegulaPolicy.Compiler
-
-/-- Whether the selected compiler's origin-checked Core declares the legacy compiler axioms.
-Native proof axioms have their separate per-invocation authentication. -/
-inductive LegacyCompilerTrust where
-  /-- Core declares the complete legacy compiler-trust family. -/
-  | present
-  /-- Core declares none of the legacy compiler-trust family. -/
-  | absent
-  deriving BEq, DecidableEq, Repr
-
-/-- Canonical transport spelling of the observed capability. -/
-def LegacyCompilerTrust.spelling : LegacyCompilerTrust → String
-  | .present => "present"
-  | .absent => "absent"
-
-/-- Unknown and missing capability spellings cannot supply a default. -/
-def LegacyCompilerTrust.parse? : String → Option LegacyCompilerTrust
-  | "present" => some .present
-  | "absent" => some .absent
-  | _ => none
-
-@[simp] theorem LegacyCompilerTrust.roundtrip (c : LegacyCompilerTrust) :
-    parse? c.spelling = some c := by cases c <;> rfl
-
-/-- The capability declared by this source revision and re-observed before policy admission. -/
-def legacyCompilerTrust : LegacyCompilerTrust := .absent
-
-/-- An observed capability equal to the one used by this compiled policy.
-Its proof concerns the supplied observation; compiler installation and extraction are trusted. -/
-structure Capability where
-  /-- The actual observation retained at admission. -/
-  legacy : LegacyCompilerTrust
-  /-- Observation and compiled classification policy agree. -/
-  agrees : legacy = legacyCompilerTrust
-  deriving DecidableEq, Repr
-
-/-- Admit precisely the capability this compiled policy expects. -/
-def admitCapability (observed : LegacyCompilerTrust) : Except String Capability :=
-  if h : observed = legacyCompilerTrust then .ok ⟨observed, h⟩
-  else .error "compiler capability differs from this Regula build"
-
-/-- Capability admission succeeds exactly when the observation matches this compiled policy. -/
-theorem admitCapability_iff (observed : LegacyCompilerTrust) :
-    (∃ c, admitCapability observed = .ok c) ↔ observed = legacyCompilerTrust := by
-  simp only [admitCapability]
-  split <;> simp_all
 
 /-- The one compiler release supported by this source revision. -/
 def version : String := "4.35.0"
@@ -71,11 +25,11 @@ def Supports (observedVersion observedCommit : String) : Prop :=
 instance (v h : String) : Decidable (Supports v h) :=
   inferInstanceAs (Decidable (v = version ∧ h = commit))
 
-/-- Executable support decision used at compiler and probe boundaries. -/
+/-- The support decision of the compiler guard (`checkCurrent`) and `regula doctor`. -/
 def accepts (observedVersion observedCommit : String) : Bool :=
   decide (Supports observedVersion observedCommit)
 
-/-- The executable guard accepts exactly the identity required by admission. -/
+/-- The decision accepts exactly the identity this source revision supports. -/
 theorem accepts_iff (v h : String) : accepts v h = true ↔ Supports v h := by
   simp [accepts]
 
@@ -84,7 +38,7 @@ theorem refuses_other_commit (v h : String) (different : h ≠ commit) :
     accepts v h = false := by
   simp [accepts, Supports, different]
 
-/-- Any two identities admitted by this source revision are equal in both fields. -/
+/-- Any two identities this source revision supports are equal in both fields. -/
 theorem unique {v₁ h₁ v₂ h₂ : String} (a : Supports v₁ h₁) (b : Supports v₂ h₂) :
     v₁ = v₂ ∧ h₁ = h₂ :=
   ⟨a.1.trans b.1.symm, a.2.trans b.2.symm⟩

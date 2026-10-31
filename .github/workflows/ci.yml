@@ -51,7 +51,7 @@ jobs:
       - name: Refuse a lakefile version, compatibility table or documented requirement the release data contradicts
         run: lean --run lean/Regula/Release.lean agree
 
-      # Includes RegulaPolicy collection/finalization proofs and all acceptance
+      # Includes the RegulaPolicy proofs and all acceptance
       # adapters through the existing executable and diagnostic-owner build targets.
       # Records the accepted input identity for the documentation step below.
       - name: Verify (same command and seven-minute limit as local)

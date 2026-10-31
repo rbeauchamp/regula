@@ -41,8 +41,8 @@ observe of a project.
 - `Target`, `Observation.targets`, `Observation.allClaimed`: the option check covers exactly the
   claimed targets, as RG2006 does.
 - `Target.argues`, `Observation.without`: a `-D` candidate among a target's extra `lean` arguments
-  sets an option, read as RG2006 reads them (`RegulaPolicy.Community.argumentSettings`, a superset
-  of the `-D` settings `lean` reads under the command-line assumption stated there); a target
+  sets an option, read by `RegulaPolicy.Community.argumentSettings`, a superset of the `-D`
+  settings `lean` reads under the command-line assumption stated there; a target
   builds without a required option when neither `leanOptions` nor such a candidate gives it one.
 - `Observation.lacks`, `missing`, `targetMissing`, `optionEdits`: the options `init` adds. It adds
   a required option to the package when every root target is claimed, some claimed target builds
@@ -55,8 +55,7 @@ observe of a project.
   and `arguedBy_run` states that the plan leaves `Observation.arguedBy`, those of each claimed
   target, unchanged.
 - `run_plan_targets`, `run_sets`, `resolved_run`: after the plan, a claimed target that built
-  without a required option builds with its required value (`RegulaPolicy.Community.sets`, which
-  meets RG2006's requirement on that option by `meets_of_sets`), and every claimed target has a
+  without a required option builds with its required value (`RegulaPolicy.Community.sets`), and every claimed target has a
   value for every required option or a `-D` of its own sets it.
 - `run_options_prefix`, `withAdded_prefix`: the plan never changes or removes an option the
   package or a claimed target already sets, nor a target's extra `lean` arguments.
@@ -174,7 +173,7 @@ structure Target where
   deriving DecidableEq, Repr
 
 /-- A `-D` among target `t`'s extra `lean` arguments sets option `name`, under either spelling: some
-candidate of `RegulaPolicy.Community.argumentSettings`, the `-D` reading of RG2006, names it. -/
+candidate of `RegulaPolicy.Community.argumentSettings` names it. -/
 def Target.argues (t : Target) (name : Name) : Bool :=
   (argumentSettings t.arguments).any fun s => decide (optionOf s.1 = name)
 
@@ -278,7 +277,7 @@ def key (name : Name) : Name :=
 `leanOptions` give it a value under either spelling, and no `-D` among its extra `lean` arguments
 sets it. -/
 def Observation.without (o : Observation) (t : Target) (r : Name × OptionValue) : Bool :=
-  (valuesOf ⟨o.options ++ t.options, [], true, true⟩ r.1).isEmpty && !t.argues r.1
+  (valuesOf ⟨o.options ++ t.options⟩ r.1).isEmpty && !t.argues r.1
 
 /-- A required option `init` adds to the package: every root target is claimed, so the package's
 options reach only claimed targets; some claimed target builds without it; and no claimed target's
@@ -302,7 +301,7 @@ def targetMissing (o : Observation) (t : Target) : List (Name × OptionValue) :=
 `leanOptions` give it no value under either spelling, and a `-D` among its extra `lean` arguments
 sets it. -/
 def Observation.onlyArgued (o : Observation) (t : Target) (r : Name × OptionValue) : Bool :=
-  (valuesOf ⟨o.options ++ t.options, [], true, true⟩ r.1).isEmpty && t.argues r.1
+  (valuesOf ⟨o.options ++ t.options⟩ r.1).isEmpty && t.argues r.1
 
 /-- The required options claimed target `t` sets only with a `-D`. -/
 def Observation.arguedBy (o : Observation) (t : Target) : List (Name × OptionValue) :=
@@ -750,8 +749,8 @@ theorem markAll_ne_nil {skills : List (String × Bool)} (paths : List String)
 /-! ## Options -/
 
 theorem valuesOf_append (a b : List (Name × OptionValue)) (n : Name) :
-    valuesOf ⟨a ++ b, [], true, true⟩ n =
-      valuesOf ⟨a, [], true, true⟩ n ++ valuesOf ⟨b, [], true, true⟩ n := by
+    valuesOf ⟨a ++ b⟩ n =
+      valuesOf ⟨a⟩ n ++ valuesOf ⟨b⟩ n := by
   simp [valuesOf, List.filterMap_append]
 
 /-- `key` spells every required option as an option of the same name. -/
@@ -775,7 +774,7 @@ theorem readsAs_self (v : OptionValue) : v.readsAs v = true := by
 `r.1`: its required value when `r` is among them, nothing otherwise. -/
 theorem valuesOf_keyed (mathlib : Bool) (r : Name × OptionValue) (hr : r ∈ required mathlib)
     (l : List (Name × OptionValue)) (hl : ∀ q ∈ l, q ∈ required mathlib) (hnd : l.Nodup) :
-    valuesOf ⟨l.map (fun q => (key q.1, q.2)), [], true, true⟩ r.1 =
+    valuesOf ⟨l.map (fun q => (key q.1, q.2))⟩ r.1 =
       if r ∈ l then [r.2] else [] := by
   induction l with
   | nil => simp [valuesOf]
@@ -797,7 +796,7 @@ theorem valuesOf_keyed (mathlib : Bool) (r : Name × OptionValue) (hr : r ∈ re
 required option: its required value when it satisfies `p`, and nothing otherwise. -/
 theorem valuesOf_filter (mathlib : Bool) (p : Name × OptionValue → Bool)
     (r : Name × OptionValue) (hr : r ∈ required mathlib) :
-    valuesOf ⟨((required mathlib).filter p).map fun q => (key q.1, q.2), [], true, true⟩ r.1 =
+    valuesOf ⟨((required mathlib).filter p).map fun q => (key q.1, q.2)⟩ r.1 =
       if p r then [r.2] else [] := by
   have hnd : ((required mathlib).filter p).Nodup :=
     (required_nodup mathlib).sublist List.filter_sublist
@@ -808,14 +807,14 @@ theorem valuesOf_filter (mathlib : Bool) (p : Name × OptionValue → Bool)
 observation `lacks` it, and nothing otherwise. -/
 theorem valuesOf_missing (o : Observation) (r : Name × OptionValue)
     (hr : r ∈ required o.mathlib) :
-    valuesOf ⟨missing o, [], true, true⟩ r.1 = if o.lacks r then [r.2] else [] :=
+    valuesOf ⟨missing o⟩ r.1 = if o.lacks r then [r.2] else [] :=
   valuesOf_filter o.mathlib o.lacks r hr
 
 /-- The values the entries of claimed target `t` give a required option: its required value when
 `t` builds without it and the package does not receive it, and nothing otherwise. -/
 theorem valuesOf_targetMissing (o : Observation) (t : Target) (r : Name × OptionValue)
     (hr : r ∈ required o.mathlib) :
-    valuesOf ⟨targetMissing o t, [], true, true⟩ r.1 =
+    valuesOf ⟨targetMissing o t⟩ r.1 =
       if o.without t r && !o.lacks r then [r.2] else [] :=
   valuesOf_filter o.mathlib _ r hr
 
@@ -1101,19 +1100,19 @@ theorem run_plan_resolved (g : Guidance) (o : Observation) (t : Target) :
 /-- The values the options of claimed target `t` give option `n` after the plan: the package's,
 its missing ones, `t`'s own, then those the plan adds to `t`. -/
 theorem valuesOf_run (g : Guidance) (o : Observation) (t : Target) (n : Name) :
-    valuesOf ⟨(run o (plan g o)).options ++ (withAdded o t).options, [], true, true⟩ n =
-      (valuesOf ⟨o.options, [], true, true⟩ n ++ valuesOf ⟨missing o, [], true, true⟩ n) ++
-        (valuesOf ⟨t.options, [], true, true⟩ n ++
-          valuesOf ⟨targetMissing o t, [], true, true⟩ n) := by
+    valuesOf ⟨(run o (plan g o)).options ++ (withAdded o t).options⟩ n =
+      (valuesOf ⟨o.options⟩ n ++ valuesOf ⟨missing o⟩ n) ++
+        (valuesOf ⟨t.options⟩ n ++
+          valuesOf ⟨targetMissing o t⟩ n) := by
   rw [run_plan_resolved, valuesOf_append, valuesOf_append, valuesOf_append]
 
 /-- A claimed target that built without a required option builds with exactly its required value
 after the plan. -/
 theorem valuesOf_withAdded (g : Guidance) (o : Observation) (t : Target)
     (r : Name × OptionValue) (hr : r ∈ required o.mathlib) (h : o.without t r = true) :
-    valuesOf ⟨(run o (plan g o)).options ++ (withAdded o t).options, [], true, true⟩ r.1 =
+    valuesOf ⟨(run o (plan g o)).options ++ (withAdded o t).options⟩ r.1 =
       [r.2] := by
-  have hnil : valuesOf ⟨o.options ++ t.options, [], true, true⟩ r.1 = [] := by
+  have hnil : valuesOf ⟨o.options ++ t.options⟩ r.1 = [] := by
     simp only [Observation.without, Bool.and_eq_true, List.isEmpty_iff] at h
     exact h.1
   rw [valuesOf_append, List.append_eq_nil_iff] at hnil
@@ -1126,7 +1125,7 @@ package's, then the target's own. -/
 theorem run_sets (g : Guidance) (o : Observation) (t : Target) (ht : t ∈ o.targets)
     (r : Name × OptionValue) (hr : r ∈ required o.mathlib) (h : o.without t r = true) :
     withAdded o t ∈ (run o (plan g o)).targets ∧
-      sets ⟨(run o (plan g o)).options ++ (withAdded o t).options, [], true, true⟩ r.1 r.2 =
+      sets ⟨(run o (plan g o)).options ++ (withAdded o t).options⟩ r.1 r.2 =
         true := by
   refine ⟨?_, ?_⟩
   · rw [run_plan_targets]
@@ -1138,12 +1137,12 @@ among its extra `lean` arguments sets the option. -/
 theorem resolved_run (g : Guidance) (o : Observation) (t' : Target)
     (ht' : t' ∈ (run o (plan g o)).targets) (r : Name × OptionValue)
     (hr : r ∈ required o.mathlib) :
-    valuesOf ⟨(run o (plan g o)).options ++ t'.options, [], true, true⟩ r.1 ≠ [] ∨
+    valuesOf ⟨(run o (plan g o)).options ++ t'.options⟩ r.1 ≠ [] ∨
       t'.argues r.1 = true := by
   rw [run_plan_targets, List.mem_map] at ht'
   obtain ⟨t, -, rfl⟩ := ht'
   cases ha : t.argues r.1
-  · by_cases hv : valuesOf ⟨o.options ++ t.options, [], true, true⟩ r.1 = []
+  · by_cases hv : valuesOf ⟨o.options ++ t.options⟩ r.1 = []
     · have hw : o.without t r = true := by simp [Observation.without, hv, ha]
       left
       rw [valuesOf_withAdded g o t r hr hw]
@@ -1163,7 +1162,7 @@ theorem without_run (g : Guidance) (o : Observation) (t' : Target)
     (hr : r ∈ required o.mathlib) : (run o (plan g o)).without t' r = false := by
   rcases resolved_run g o t' ht' r hr with h | h
   · have he :
-        (valuesOf ⟨(run o (plan g o)).options ++ t'.options, [], true, true⟩ r.1).isEmpty =
+        (valuesOf ⟨(run o (plan g o)).options ++ t'.options⟩ r.1).isEmpty =
           false :=
       Bool.eq_false_iff.mpr fun he => h (List.isEmpty_iff.mp he)
     simp [Observation.without, he]
@@ -1203,9 +1202,9 @@ the plan gives such a target no value for the option. -/
 theorem onlyArgued_run (g : Guidance) (o : Observation) (t : Target) (ht : t ∈ o.targets)
     (r : Name × OptionValue) (hr : r ∈ required o.mathlib) :
     (run o (plan g o)).onlyArgued (withAdded o t) r = o.onlyArgued t r := by
-  change ((valuesOf ⟨(run o (plan g o)).options ++ (withAdded o t).options, [], true, true⟩
+  change ((valuesOf ⟨(run o (plan g o)).options ++ (withAdded o t).options⟩
       r.1).isEmpty && t.argues r.1) =
-    ((valuesOf ⟨o.options ++ t.options, [], true, true⟩ r.1).isEmpty && t.argues r.1)
+    ((valuesOf ⟨o.options ++ t.options⟩ r.1).isEmpty && t.argues r.1)
   cases ha : t.argues r.1
   · simp
   · have hl : o.lacks r = false := by

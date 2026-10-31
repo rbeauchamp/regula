@@ -3,7 +3,6 @@ module
 public import RegulaCore.RuleId
 public import RegulaCore.Edition
 public import RegulaCore.Standard
-public import RegulaPolicy.Foundation
 
 /-! # Rule registry
 
@@ -305,20 +304,6 @@ def RuleDescriptor.wellFormed {id : RuleId} (d : RuleDescriptor id) : Bool :=
   linesWithin d.examples.compliant && linesWithin d.examples.noncompliant &&
   d.examples.compliant != d.examples.noncompliant &&
   0 < d.examples.correction.utf8ByteSize
-
-/-- Total bridge from the executed policy decision to the single rule registry. -/
-def ruleForFailure : RegulaPolicy.DeclarationFailure → RuleId
-  | .projectAxiom => .projectAxiom | .proofHole => .proofHole
-  | .unknownAxiom => .unknownAxiom | .escapeHatch => .escapeHatch
-  | .compilerTrusting => .compilerTrusting | .executableContract => .executableContract
-  | .profileExceeded => .profileExceeded | .decisionContract => .decisionContract
-  | .sharedTest => .sharedTest
-  | .invalidInventory => .coverage
-
-/-- Distinct policy failures reach distinct rules, so the rule preserves the failure category. -/
-theorem ruleForFailure_injective : Function.Injective ruleForFailure := by
-  intro a b h
-  cases a <;> cases b <;> first | rfl | cases h
 
 /-- Total metadata for the rule vocabulary. An active rule is enforced by the checker, or, for
 RG2003 and RG2005, by the Lean tool that the specification hands it to; a retired rule is written

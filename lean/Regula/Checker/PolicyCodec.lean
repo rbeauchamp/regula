@@ -1,5 +1,5 @@
 import Lean.Data.Json
-import RegulaPolicy.Codec
+import RegulaPolicy.Guards
 import Regula.Contract
 import Regula.Decision
 
@@ -435,7 +435,7 @@ theorem exactFields_iff (j : Json) (expected : List String) (distinct : expected
       · rename_i test
         simp only [Bool.and_eq_true, beq_iff_eq, List.all_eq_true,
           List.contains_iff_mem] at test
-        exact ⟨fields, rfl, RegulaPolicy.Codec.perm_of_length_of_mem distinct test.1 test.2⟩
+        exact ⟨fields, rfl, RegulaPolicy.Guards.perm_of_length_of_mem distinct test.1 test.2⟩
       · exact absurd accepted (by simp [Except.isOk, Except.toBool])
     · rintro ⟨other, same, names⟩
       obtain rfl : fields = other := Json.obj.inj same

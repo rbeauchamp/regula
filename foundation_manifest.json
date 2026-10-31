@@ -11,7 +11,7 @@
       "library": "RegulaPolicy",
       "claim": "standard-logical",
       "execution": "report",
-      "rationale": "Pure policy categories, structural identities and invariant-preserving collections that the rule registry, the manifest reader and the option allowlist of RG2006 read. Every declaration is checked under its exact transitive axiom set. Their proofs concern the supplied data, not the authenticity of compiler or filesystem observations, compiled machine code, or semantic adequacy."
+      "rationale": "Pure types and decisions that the programs read: the supported compiler, the options that regula init writes, the vocabulary of the manifest, the assumption records and the diagnostic pattern language. Every declaration is checked under its exact transitive axiom set. Their proofs concern the supplied data, not the authenticity of compiler or filesystem observations, compiled machine code, or semantic adequacy."
     },
     {
       "library": "RegulaVerification",

@@ -97,7 +97,7 @@ These statements are trusted, not proved: `shasum` and the filesystem report the
 exactly the claimed targets (the root targets the manifest does not exclude, and none while an
 existing manifest fails [RG2002]): `run_sets`, every required option a claimed
 target built without is then set to its required value as `RegulaPolicy.Community.sets` reads
-it, which meets the setup requirement on that option (`meets_of_sets`); `resolved_run`, every
+it; `resolved_run`, every
 claimed target then has a value for every required option or a `-D` candidate of its own extra
 `lean` arguments names it; `added_unargued`, no option the plan adds to the package or to a
 claimed target's own configuration names an option that a `-D` candidate of that target sets
@@ -147,8 +147,8 @@ the option allowlist of the checker
 (`Regula.Shell.allowlists`). It prints each finding in the form of the checker, one line for each.
 The required options of a setup issue include the options of Mathlib when the workspace contains
 Mathlib. `init` writes them under `weak.`, so a target that imports no Mathlib ignores them. By
-`conforming_of_mathlib`, a target that has the options of Mathlib also has the options without
-Mathlib. A module below a library root that no library includes can be a failing setup issue. It
+`RegulaPolicy.Community.required`, a target that has the options of Mathlib also has the options
+without Mathlib. A module below a library root that no library includes can be a failing setup issue. It
 is one only when a claimed module (of a library or executable the manifest does not exclude)
 reaches it by import through the package's modules. `lake lint` reports such a module under
 [RG2004]. Any other
@@ -372,15 +372,13 @@ it. A `lean` source must be at the release of the Lean that elaborates its modul
 source at the earlier release does not elaborate. The writer must read the source again at the
 new release, and then change the release of the source.
 
-Only a `lean` source has a release that the module checks. Thus the attribute refuses a document
+Only a `lean` source has a release that the module checks. Thus the type `Assumed` refuses a document
 about Lean or Lake, and a document in the Lean 4 repository or in the documentation of Lean
 (`RegulaPolicy.External.Source.unpinned`). It finds such a document by the text
 `leanprover/lean4`, `lean-lang.org` or `leanprover.github.io` in its reference. It does not find a
 reference that names such a place with a different text.
 
-No retained control shows these refusals, or the refusals of a role for an imported constant, of
-an assumption that is not a predicate and of a contract with a statement that does not use its
-checked operation. The controls of the previous checker are removed.
+No retained control shows these refusals. The controls of the previous checker are removed.
 
 ### The file system
 
@@ -397,7 +395,7 @@ The assumptions are for a POSIX system. On Windows, `symlinkMetadata` of Lean `v
 
 Lean `v4.35.0` reads a directory with `readdir` until it gives null, and then it returns the names that it has read ([`runtime/io.cpp#L1076-L1098`](https://github.com/leanprover/lean4/blob/v4.35.0/src/runtime/io.cpp#L1076-L1098)). A failed read also gives null, so `System.FilePath.readDir` can return fewer names and no error. Regula lists each directory through an admitted `ls` program instead, which `Construction.locate` selects. An admitted `ls` examines `errno` after each `readdir`, and it exits with a nonzero code after a failed read. `Construction.Enumerator.names` refuses unless the program exits with code 0 and writes no error text.
 
-A copy, the capture of a directory and a Git copy each locate the program one time and list each directory through it.
+A copy and the capture of a directory each locate the program one time and list each directory through it.
 
 The names of a listing decode exactly. `decodeListing_zero` states that the names that `ls --zero` writes decode to the stored names. `decodeListing_gnu` states the same for the escaped names of GNU `ls` 8.32. These theorems are about encoders written from the source of each program, not about the programs. `Enumerator.names` also refuses a name that is not UTF-8, a name with `/` or NUL, and the names `.` and `..`.
 

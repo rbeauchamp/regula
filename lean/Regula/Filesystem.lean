@@ -30,14 +30,6 @@ namespace Regula.Filesystem
 
 open System Regula.StateTriple
 
-/-- The error of an operation that the observer does not run on Windows, with the reason. -/
-def windowsRefusal (operation : String) (path : FilePath) (reason : String) : IO.Error :=
-  IO.userError s!"{operation} {path}: refused on Windows, where Lean 4.35.0's {reason}"
-
-/-- Why the observer refuses a read of an entry on Windows. -/
-def linkFollowed : String :=
-  "System.FilePath.symlinkMetadata follows a symbolic link at the path"
-
 /-- `System.FilePath.symlinkMetadata`, which fails on Windows. -/
 @[noinline]
 def observeMetadata (path : FilePath) : IO IO.FS.Metadata :=
@@ -64,9 +56,8 @@ admitted listing program that exits nonzero after a failed read of a directory
 (`Construction.ReadsNames` names each program `Construction.locate` admits, with its source),
 exclusive mkdir (`runtime/io.cpp:1181-1195`), and exclusive file creation
 (`Init/System/IO.lean:651-660`, `runtime/io.cpp:409`). The source and private destination have no
-concurrent writer. Windows is refused. Modes are not preserved: copied regular files receive 0644;
-callers explicitly set 0755 for a copied executable they run. Lake creates and sets modes on
-programs it builds. -/
+concurrent writer. Windows is refused. Modes are not preserved: copied regular files receive 0644.
+Lake creates and sets modes on programs it builds. -/
 def copy (source target : FilePath) (selected : FilePath → Bool := fun _ => true) :
     IO (List Construction.Item) := Construction.copy source target selected
 
@@ -75,13 +66,8 @@ The root is absent or privately owned and empty; its parent is at its own real p
 def construct (target : FilePath) (items : List Construction.Item) : IO Unit :=
   Construction.construct target items
 
-/-- Copy a regular file through no-follow source admission and exclusive destination creation.
-The parent is admitted at its real path before the common instruction writer runs. -/
-def copyFile (source target : FilePath) (rights : UInt32 := 420) : IO Unit :=
-  Construction.copyFile source target rights
-
-/-- Read a regular source through the shared no-follow capture program before transforming it
-into a generated fixture. Neither links nor special entries are consumed as source bytes. -/
+/-- Read a regular source through the shared no-follow capture program. Neither links nor special
+entries are consumed as source bytes. -/
 def readBytes (source : FilePath) : IO ByteArray := do
   let [⟨_, .file bytes _⟩] ← Construction.capture source
     | throw <| IO.userError s!"source text is not one regular file: {source}"
@@ -93,26 +79,6 @@ def readFile (source : FilePath) : IO String := do
   let some text := String.fromUTF8? bytes
     | throw <| IO.userError s!"source text is not UTF-8: {source}"
   return text
-
-/-- Create a generated regular file through the exclusive writer. The destination's parent is
-admitted through primitive observations before writing; an existing entry is refused. -/
-def writeFile (target : FilePath) (text : String) : IO Unit := do
-  let some parent := target.parent | throw <| IO.userError "generated file has no parent"
-  let some name := target.fileName | throw <| IO.userError "generated file has no name"
-  Construction.appendFileWith Construction.observer parent name text.toUTF8
-
-/-- Create generated JSON bytes through the same exclusive writer. -/
-def writeJson (target : FilePath) (json : Lean.Json) : IO Unit :=
-  writeFile target (json.pretty ++ "\n")
-
-/-- Grant 0755 to a known copied program before executing it. Refuse any non-regular entry or
-path through an alias. The private destination has no concurrent writer during chmod.
-
-Assumes: Lean v4.35.0 `Init/System/IO.lean:1650` sets the regular file's access rights. -/
-def makeExecutable (path : FilePath) : IO Unit := do
-  unless (← observeMetadata path).type == .file && (← observeRealPath path) == path do
-    throw <| IO.userError s!"copied executable is not a regular file at its own place: {path}"
-  IO.Prim.setAccessRights path 493
 
 /-- The construction observer over precisely the existing filesystem model's IO worlds. -/
 abbrev observedConstruction (entry : Void IO.RealWorld → FilePath → Option IO.FS.FileType)
@@ -183,28 +149,6 @@ theorem observer_construct
   Construction.construct_io
     (Construction.copy_corresponds_ofIO observer Construction.observer rfl rfl entry real ident names)
     readsEntry readsReal readsNames directories files target items w
-
-/-- The actual writer that copyFile and writeFile run retains an established plain parent and
-adds exactly its regular-file instruction. The initial tree is an explicit precondition;
-an arbitrary pre-existing directory is not authenticated by this theorem. -/
-theorem observer_appendFile
-    (entry : Void IO.RealWorld → FilePath → Option IO.FS.FileType)
-    (real : Void IO.RealWorld → FilePath → Option FilePath)
-    (ident : Void IO.RealWorld → FilePath → Option FileId)
-    (names : Void IO.RealWorld → FilePath → List String)
-    (readsEntry : ReadsEntry (observedConstruction entry real ident names).filesystem)
-    (readsReal : ReadsReal (observedConstruction entry real ident names).filesystem)
-    (directories : Construction.CreatesDirectories (observedConstruction entry real ident names))
-    (files : Construction.CreatesFiles (observedConstruction entry real ident names))
-    (parent : FilePath) (name : String) (bytes : ByteArray) (rights : UInt32)
-    (done : List Construction.Item) (w : Void IO.RealWorld)
-    (initial : Construction.Holds (observedConstruction entry real ident names).filesystem parent done w) :
-    RunsTo id (Construction.appendFileWith Construction.observer parent name bytes rights w)
-      (fun _ after => Construction.Holds (observedConstruction entry real ident names).filesystem
-        parent (done ++ [⟨[name], .file bytes rights⟩]) after) (fun _ _ => True) :=
-  Construction.appendFile_io
-    (Construction.copy_corresponds_ofIO observer Construction.observer rfl rfl entry real ident names)
-    readsEntry readsReal directories files parent name bytes rights done w initial
 
 /-- Run `action` in a new temporary directory, by its real path (on macOS the temporary directory is
 below `/var`, a symbolic link to `/private/var`), and remove the directory afterwards, whether
@@ -432,14 +376,5 @@ Assumes: Lean v4.35.0 `symlinkMetadata` (`Init/System/IO.lean:1155-1156`) is
 gives `noFileOrDirectory` for `ENOENT` and for no other error (`runtime/io.cpp:201`, `:276-279`). -/
 def entryIfPresent (path : FilePath) : IO (Option IO.FS.FileType) :=
   entryType observer path
-
-
-/-- The model of the filesystem that the observer's runs are: its states are the worlds of `IO`,
-its operations are the observer's, and `entry`, `real` and `ident` give what `lstat(2)` and
-`realpath(3)` report at each world. -/
-abbrev observed (entry : Void IO.RealWorld → FilePath → Option IO.FS.FileType)
-    (real : Void IO.RealWorld → FilePath → Option FilePath)
-    (ident : Void IO.RealWorld → FilePath → Option FileId) : Model :=
-  Model.ofIO observer entry real ident
 
 end Regula.Filesystem

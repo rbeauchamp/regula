@@ -27,7 +27,7 @@ def isDirectory (path : FilePath) : IO Bool := do
   | .error (.noFileOrDirectory ..) => return false
   | .error error => throw error
 
-/-- The only entries that construction can create. Copied files use 0644; explicitly generated executable files name their required rights. -/
+/-- The only entries that construction can create. Copied files use 0644; an instruction for a generated file can name other rights. -/
 inductive Payload where
   /-- An empty directory, whose children are separate instructions. -/
   | directory
@@ -51,13 +51,6 @@ instance (payload : Payload) : Decidable (payload.kind = .file) := by
   cases payload with
   | directory => exact isFalse (by intro h; cases h)
   | file bytes rights => exact isTrue rfl
-
-/-- Filter regular-file instructions only. Directory traversal and no-follow source admission
-have already occurred, so a file-name exclusion cannot remove a directory's descendants. -/
-def selectFiles (selected : List String → Bool) (items : List Item) : List Item :=
-  items.filter fun item => match item.payload with
-    | .directory => true
-    | .file .. => selected item.relative
 
 /-- Every consumer-selected path has a regular-file instruction in this captured layout. -/
 def Covers (required : List (List String)) (items : List Item) : Prop :=
@@ -485,8 +478,7 @@ def Enumerator.observer (enumerator : Enumerator) : Ops IO :=
 each selected source entry, and constructs no links. The destination parent exists at its own
 place and the destination is absent or privately owned and empty. Source and destination have
 no concurrent writer. Modes are not preserved: regular source files use 0644, directories use
-0755; sites that execute a copied file explicitly set its required
-rights. Lake-built programs receive their modes from Lake. The receipt is the ordered list of entries the routine constructed.
+0755. Lake-built programs receive their modes from Lake. The receipt is the ordered list of entries the routine constructed.
 It locates its listing program once and lists each directory it reads, the destination among
 them, through that program. -/
 def copy (source target : FilePath) (selected : FilePath → Bool := fun _ => true) :
@@ -528,51 +520,6 @@ def capture (source : FilePath) (relative : List String := [])
   if (← kindWith observer source) == some .dir then
     captureWith (← locate).observer selected 4096 source relative
   else captureWith observer selected 4096 source relative
-
-/-- Admit an existing directory as a construction ancestor, or create it exclusively. This is
-a primitive admission before writing, not a walk of a finished copy. Every ancestor is admitted
-at its exact real path; links, aliases of the stored spelling and other entries are refused.
-Source and destination have no concurrent writer. -/
-def ensureDirectoryWith {m : Type → Type} [Monad m] [MonadExceptOf IO.Error m]
-    (ops : Ops m) : Nat → FilePath → m Unit
-  | 0, path => throw <| IO.userError s!"construction ancestor depth exhausted: {path}"
-  | depth + 1, path => do
-    match ← kindWith ops path with
-    | some .dir =>
-      unless (← ops.realPath path) == path do
-        throw <| IO.userError s!"construction ancestor is not at its own place: {path}"
-    | none =>
-      let some parent := path.parent
-        | throw <| IO.userError s!"construction ancestor has no parent: {path}"
-      ensureDirectoryWith ops depth parent
-      ops.directory path
-    | _ => throw <| IO.userError s!"construction ancestor is not a directory: {path}"
-
-/-- Admit or create a destination ancestor through the shared observer. -/
-def ensureDirectory (depth : Nat) (path : FilePath) : IO Unit :=
-  ensureDirectoryWith observer depth path
-
-/-- Append one generated or captured regular file through the common writer. An established
-plain parent retains that tree and gains precisely this instruction (`appendFile_io`). -/
-def appendFileWith {m : Type → Type} [Monad m] [MonadExceptOf IO.Error m] (ops : Ops m)
-    (parent : FilePath) (name : String) (bytes : ByteArray) (rights : UInt32 := 420) : m Unit := do
-  ensureDirectoryWith ops 4096 parent
-  emitWith ops parent [⟨[name], .file bytes rights⟩]
-
-/-- Append a captured file to a private workspace, through the same exclusive writer as tree
-construction. Existing destination entries are refused, including dangling links and FIFOs.
-Fixtures which intentionally mutate a generated file do so explicitly after this admission. -/
-def copyFile (source target : FilePath) (rights : UInt32 := 420) : IO Unit := do
-  let some parent := target.parent
-    | throw <| IO.userError s!"construction file has no parent: {target}"
-  let some name := target.fileName
-    | throw <| IO.userError s!"construction file has no name: {target}"
-  let items ← capture source [name]
-  let [item] := items
-    | throw <| IO.userError s!"construction file source is not one file: {source}"
-  let .file bytes _ := item.payload
-    | throw <| IO.userError s!"construction file source is a directory: {source}"
-  appendFileWith observer parent name bytes rights
 
 /-- The cold project's default source domain: no root tmp or Finder `.DS_Store` entry;
 documentation includes cache-named subdirectories; elsewhere VCS, Lake, cache and scratch
@@ -643,122 +590,6 @@ def markdownPaths (root : FilePath) : IO (Array FilePath) := do
     return true
   return ((← walkDirectory root enter).filter (·.extension == some "md")).qsort
     (fun left right => left.toString < right.toString)
-
-/-- An entry is source unless it is the checkout of a Git dependency or the directory of a path
-dependency in the packages directory, one of `dependencies`. The capture root `source` is always
-source, so an owned package that the packages directory holds keeps its own capture pass. -/
-def PackageSource (source : List String) (dependencies : List (List String))
-    (path : List String) : Prop :=
-  path ∉ dependencies ∨ path = source
-
-instance (source : List String) (dependencies : List (List String)) (path : List String) :
-    Decidable (PackageSource source dependencies path) :=
-  inferInstanceAs (Decidable (path ∉ dependencies ∨ path = source))
-
-/-- Prune exactly the recorded dependency directories other than the capture root. -/
-def packageSource (source : List String) (dependencies : List (List String))
-    (path : List String) : Bool :=
-  decide (PackageSource source dependencies path)
-
-/-- Why a capture pass of a project copy (`CopyFilter`) leaves out an entry, other than package
-pruning. -/
-inductive Exclusion where
-  /-- The entry lies in another capture root below this pass's, which its own pass captures. -/
-  | otherRoot (root : List String)
-  /-- The entry is the loaded manifest, which the copy installs from its own capture. -/
-  | manifest
-  /-- The entry lies in the directory `dir` that holds the copy. -/
-  | copy (dir : List String)
-  /-- The entry lies in the capture root's `tmp` directory. -/
-  | tmp
-  /-- The entry lies, outside the capture root's `docs` directory, in a directory named `name`. -/
-  | named (name : String)
-  deriving DecidableEq, Repr
-
-/-- Why a capture pass of a project copy leaves out an entry. -/
-inductive Omission where
-  /-- An exclusion leaves it out. -/
-  | excluded (exclusion : Exclusion)
-  /-- Package pruning leaves it out (`packageSource`). -/
-  | pruned
-  deriving DecidableEq, Repr
-
-/-- The text that names an omission in a refusal. -/
-def Omission.describe : Omission → String
-  | .excluded (.otherRoot root) => s!"the capture of the owned package at {"/".intercalate root}"
-  | .excluded .manifest => "the loaded manifest, which the copy installs separately"
-  | .excluded (.copy dir) => s!"the directory {"/".intercalate dir}, which holds the copy"
-  | .excluded .tmp => "the project's tmp directory"
-  | .excluded (.named name) => s!"a directory named {name}"
-  | .pruned =>
-    "the checkout of a Git dependency or the directory of a path dependency in the packages directory"
-
-/-- One capture pass of a project copy, all as normalized path components. -/
-structure CopyFilter where
-  /-- The capture root. -/
-  source : List String
-  /-- The other capture roots, which their own passes capture. -/
-  roots : List (List String)
-  /-- The paths of the loaded manifest. -/
-  manifests : List (List String)
-  /-- The consumer-selected files, which survive with their ancestors every exclusion other than
-  another root and the manifest. -/
-  required : List (List String)
-  /-- The directory that holds the copy, at each of its spellings. -/
-  copies : List (List String)
-  /-- The names of the directories that the pass leaves out below its root, outside its `docs`. -/
-  names : List String
-  /-- The entries of the packages directory that are, by their observed real paths, the checkout of
-  a Git dependency or the directory of a path dependency. -/
-  dependencies : List (List String)
-
-/-- The exclusion that leaves out the entry at `path`, if any. Another root and the manifest come
-before the consumer's selection, and the other exclusions after it. -/
-def CopyFilter.exclusion (filter : CopyFilter) (path : List String) : Option Exclusion :=
-  match filter.roots.find? fun root => filter.source.length < root.length && root.isPrefixOf path with
-  | some root => some (.otherRoot root)
-  | none =>
-    if filter.manifests.contains path then some .manifest
-    else if requiredPath filter.required path then none
-    else match filter.copies.find? (·.isPrefixOf path) with
-      | some dir => some (.copy dir)
-      | none =>
-        if (filter.source ++ ["tmp"]).isPrefixOf path then some .tmp
-        else
-          let below := path.drop filter.source.length
-          if below.head? == some "docs" then none
-          else (below.find? filter.names.contains).map .named
-
-/-- Why the pass leaves out the entry at `path`, or `none` when it selects that entry. Package
-pruning applies only to an entry that no exclusion leaves out and the consumer did not select. -/
-def CopyFilter.omission (filter : CopyFilter) (path : List String) : Option Omission :=
-  match filter.exclusion path with
-  | some exclusion => some (.excluded exclusion)
-  | none =>
-    if requiredPath filter.required path || packageSource filter.source filter.dependencies path then
-      none
-    else some .pruned
-
-/-- The first entry on the way from the capture root to `path`, `path` included, that the pass
-leaves out, with its omission. It is `none` exactly when the pass selects each of these entries
-(`CopyFilter.firstOmission_eq_none`), which `captureWith` requires before it reads `path`. -/
-def CopyFilter.firstOmission (filter : CopyFilter) (path : List String) :
-    Option (List String × Omission) :=
-  (List.range' filter.source.length (path.length + 1 - filter.source.length)).findSome?
-    fun length => (filter.omission (path.take length)).map (path.take length, ·)
-
-/-- The entries that a relative path names below the directory it is joined to: its components
-without `.`, when there is one and each names one entry (`Relative`). An absolute path, an empty
-component and `..` give `none`. -/
-def packageEntries (path : List String) : Option (List String) :=
-  let entries := path.filter (· != ".")
-  if !entries.isEmpty && decide (Relative entries) then some entries else none
-
-/-- The first of `reads` for which no regular-file instruction in `items` has exactly that path
-spelling (`firstUnwritten_eq_none`). -/
-def firstUnwritten {α : Type} (items : List Item) (reads : List (α × List String)) :
-    Option (α × List String) :=
-  reads.find? fun read => !covers [read.2] items
 
 /-- Git's repository-local environment names, as the `git` found on this process's `PATH` prints
 them. The query itself removes command-configuration injection and performs no repository setup
@@ -837,7 +668,7 @@ def processEnvironment (names : Array String) : Array (String × Option String) 
 def isolationEnvironment : IO (Array (String × Option String)) :=
   return processEnvironment (← gitLocalNames)
 
-/-- Apply the same Git policy to text and binary process observations. The command name and
+/-- Apply the Git policy to the arguments of a process observation. The command name and
 launcher stay as the current repository uses them; process-start observation is separate work.
 
 Assumes: Git 2.54.0 `config.c:1515-1581` reads command-scope settings after local/worktree settings;
@@ -853,393 +684,15 @@ def gitProcessArgs (options : IO.Process.SpawnArgs) : IO IO.Process.SpawnArgs :=
 def gitOutput (root : FilePath) (args : Array String) : IO IO.Process.Output := do
   IO.Process.output (← gitProcessArgs {cmd := "git", args, cwd := some root, stdin := .null})
 
-/-- Binary Git output through the same isolated process arguments as text observations.
-
-Assumes: Lean v4.35.0 `Init/System/IO.lean:1002-1003,1544-1557` reads binary stdout, drains stderr
-and waits for the process. Process and Git output fidelity are trusted. -/
-def gitBinaryOutput (root : FilePath) (args : Array String) : IO (UInt32 × ByteArray × String) := do
-  let options ← gitProcessArgs {cmd := "git", args, cwd := some root}
-  let child ← IO.Process.spawn {options with stdin := .null, stdout := .piped, stderr := .piped}
-  let stdout ← IO.asTask child.stdout.readBinToEnd Task.Priority.dedicated
-  let stderr ← child.stderr.readToEnd
-  let exitCode ← child.wait
-  let bytes ← IO.ofExcept stdout.get
-  return (exitCode, bytes, stderr)
-
-/-- The one line that `text` prints, as it is spelled: `text` less its final newline, and nothing
-else removed. `none` unless that line is not empty and has no newline, carriage return or NUL
-(`printedLine?_eq_some_iff`). A value that holds a newline or a carriage return is outside this
-line-oriented protocol. The conditions are read on the line's characters in reverse order, which
-has the same characters. -/
-def printedLine? (text : String) : Option String :=
-  match text.toList.reverse with
-  | '\n' :: reversed =>
-    if reversed ≠ [] ∧ ∀ c ∈ reversed, c ≠ '\n' ∧ c ≠ '\r' ∧ c ≠ '\x00' then
-      some (String.ofList reversed.reverse)
-    else none
-  | _ => none
-
-/-- The one absolute path that `text` prints as a line of its own, as it is spelled: the line
-`printedLine?` reads, when it is an absolute path (`printedPath?_eq_some_iff`). -/
-def printedPath? (text : String) : Option FilePath :=
-  match printedLine? text with
-  | some line => if (FilePath.mk line).isAbsolute then some ⟨line⟩ else none
-  | none => none
-
-/-- The single absolute path that Git prints, decoded exactly (`printedPath?`), without trimming
-its stored spelling. A failure of the command, or output that is not one such path, is thrown. -/
-def gitPath (root : FilePath) (args : Array String) : IO FilePath := do
-  let out ← gitOutput root args
-  unless out.exitCode == 0 do
-    throw <| IO.userError s!"Git metadata path unavailable: {out.stderr}"
-  let some path := printedPath? out.stdout
-    | throw <| IO.userError "Git metadata path is not one absolute path"
-  return path
-
-/-- The names of the settings in the configuration file `config` that the `git config` arguments
-`query` select (`--get-regexp PATTERN` or `--list`), each as Git decodes it from that file alone,
-in the file's order. With `--no-includes` an include setting is one more name, and no other file is
-read. Git ends each name with a NUL (`-z`) and no name holds a NUL, so the names are read exactly.
-Exit 1 with no output, which `--get-regexp` gives when nothing matches, gives no name. Git also
-exits 1 when it cannot open the file, so the file must first be a regular file that this process
-reads whole. Any other exit, output on standard error, and output that does not end with a NUL are
-thrown.
-
-Assumes: Git 2.54.0 `builtin/config.c:72,112-113,1350,1358` declare --file, -z, --name-only,
---get-regexp and --list; `builtin/config.c:980-983` reads no include for --no-includes;
-`builtin/config.c:1464-1476` lists every setting and dies when it cannot read the file;
-`builtin/config.c:482-495,583-585,609,1524-1529` select the names that the pattern matches, ignore
-the result of the read and exit 1 when nothing matched; `builtin/config.c:385-399,447-466,995-1016`
-print each name and a NUL for -z with --name-only. `config.c:881-919,925-970` builds each name as a
-C string, so it holds no NUL. `config.c:1607-1610,1382-1398` opens the file with `fopen_or_warn`,
-and `wrapper.c:401-420` returns no file for each failure, warning except for ENOENT and ENOTDIR.
-Configuration and all captured metadata have no concurrent writer. -/
-def settingNames (root config : FilePath) (query : Array String) : IO (List String) := do
-  unless (← observeMetadata config).type == .file do
-    throw <| IO.userError s!"copy Git configuration is not a regular file: {config}"
-  discard <| IO.FS.readBinFile config
-  let out ← gitOutput root
-    (#["config", "--file", config.toString, "--no-includes", "--name-only", "-z"] ++ query)
-  if out.exitCode == 1 && out.stdout.isEmpty && out.stderr.isEmpty then return []
-  unless out.exitCode == 0 && out.stderr.isEmpty &&
-      (out.stdout.isEmpty || out.stdout.endsWith "\x00") do
-    throw <| IO.userError s!"copy Git configuration unavailable: {out.stderr}"
-  return (out.stdout.splitOn "\x00").dropLast
-
-/-- The names of the settings of a common Git configuration that select another configuration file,
-a repository format or another work tree: each extension, include and conditional include, and
-`core.worktree`, as a pattern of `git config --get-regexp`. Git matches it against each name as it
-decodes it, its section and variable in lower case. -/
-def selectorPattern : String := "^(extensions\\.|include\\.|includeif\\.|core\\.worktree$)"
-
-/-- The closed configuration case has no extension, include or worktree-redirection setting
-(`selectorPattern`). Git decodes the file (`settingNames`); Regula does not reproduce Git's
-precedence or include rules. Even a disabled extension setting refuses, so the domain does not
-depend on its value grammar. A copy source has a wider case (`admitCopyGitConfig`). -/
-def admitGitConfig (root config : FilePath) : IO Unit := do
-  let names ← settingNames root config #["--get-regexp", selectorPattern]
-  unless names.isEmpty do
-    throw <| IO.userError s!"copy Git configuration is outside the closed case: {" ".intercalate names}"
-
-/-- The setting of a common Git configuration that makes Git read the per-worktree configuration
-file `config.worktree` in each work tree's own Git directory, as Git decodes its name. -/
-def worktreeExtension : String := "extensions.worktreeconfig"
-
-/-- The settings that a copy source's per-worktree configuration file may hold, as Git decodes
-their names: the directory of hooks and the author's identity, which no-mistakes writes into the
-checkout of each of its runs. A copy carries no per-worktree configuration file
-(`omitStoredEntry`), so none of them reaches a copy. -/
-def worktreeSettings : List String := ["core.hookspath", "user.email", "user.name"]
-
-/-- Admit the settings of a copy source's Git configuration: `settings.1` holds the names of its
-common configuration that `selectorPattern` selects, and `settings.2` those of its per-worktree
-configuration file. Each selected name must be `worktreeExtension`, and when one is, each
-per-worktree name must be in `worktreeSettings` (`admitGitSettings_iff`). The refusal names the
-first name outside that case. -/
-def admitGitSettings (settings : List String × List String) : Except IO.Error Unit :=
-  match settings.1.find? (· != worktreeExtension) with
-  | some name => .error (IO.userError s!"copy Git configuration is outside the closed case: {name}")
-  | none =>
-    match settings.2.find? fun name =>
-        settings.1.contains worktreeExtension && !worktreeSettings.contains name with
-    | some name => .error
-      (IO.userError s!"copy Git per-worktree configuration is outside the closed case: {name}")
-    | none => .ok ()
-
-/-- The closed configuration case of a copy source whose own Git directory is `gitDir` and whose
-common directory is `common`. Its common `config` has no extension but `worktreeExtension`, no
-include and no `core.worktree` (`selectorPattern`). With that extension, Git also reads the
-per-worktree `config.worktree` of `gitDir`, so that file, when something is there, must be a regular
-file that holds only `worktreeSettings` (`admitGitSettings`). The extension's value is not read, so
-the file is held to that case even where the value disables it. Without the extension, Git does not
-read the file, and neither does this routine. Git decodes each file (`settingNames`).
-
-With the extension, Git also takes `core.bare` from the common `config` for a linked work tree,
-which it ignores there without the extension. Neither copy changes the `core.bare` of that file,
-and an admitted `config.worktree` sets none, so Git takes a copy to be bare exactly when it takes
-its source to be.
-
-Assumes: Git 2.54.0 `setup.c:584-599,611-632,717-748,750-791` reads the repository format, the
-worktreeConfig extension included, from the common directory's `config` alone, and with that
-extension reads `core.bare` and `core.worktree` from `gitDir/config.worktree` too;
-`setup.c:792-806` then applies `core.bare` and `core.worktree` from the two files also where a
-`commondir` file is present. `config.c:1515-1581` reads the settings of `gitDir/config.worktree`,
-when the extension is on and the file is readable, after the common `config`. A per-worktree
-setting of any name `selectorPattern` selects is not in `worktreeSettings`. -/
-def admitCopyGitConfig (root gitDir common : FilePath) : IO Unit := do
-  let selected ← settingNames root (common / "config") #["--get-regexp", selectorPattern]
-  let worktree ← if !selected.isEmpty && selected.all (· == worktreeExtension) then
-      match ← kindWith observer (gitDir / "config.worktree") with
-      | none => pure []
-      | some _ => settingNames root (gitDir / "config.worktree") #["--list"]
-    else pure []
-  IO.ofExcept (admitGitSettings (selected, worktree))
-
-/-- `items` less each entry at or below `relative` (`mem_omitEntry`). -/
-def omitEntry (relative : List String) (items : List Item) : List Item :=
-  items.filter fun item => !relative.isPrefixOf item.relative
-
-/-- `items`, whose entries hold the entries of the directory `directory` below `base`, less the
-entry that `directory` stores under `name` and each entry below it, when something is there. The
-entry is named as the directory stores it (`observeRealPath`), so a spelling of `name` that the
-filesystem folds to a stored entry omits that entry, without interpreting case. -/
-def omitStoredEntry (directory : FilePath) (base : List String) (name : String)
-    (items : List Item) : IO (List Item) := do
-  if (← kindWith observer (directory / name)).isNone then return items
-  let some stored := (← observeRealPath (directory / name)).fileName
-    | throw <| IO.userError s!"copy Git entry has no stored name: {directory / name}"
-  return omitEntry (base ++ [stored]) items
-
-/-- Refuse alternate object stores at the path Git itself resolves. The supported qualification
-and pinned dependency inputs have a self-contained effective object store. No alternate path is
-parsed, copied or rewritten.
-
-Assumes: Git 2.54.0 `builtin/rev-parse.c:752-759,776-785` delegates --git-path to the repository's
-path resolver. `path.c:375-376` selects the effective object store; `setup.c:303-324` resolves
-commondir. The routine refuses the alternates file without reading its entries. Git metadata has
-no writer during this observation. -/
-def admitGitObjects (root : FilePath) (gitOptions : Array String := #[]) : IO Unit := do
-  let alternates ← gitPath root (gitOptions ++
-    #["rev-parse", "--path-format=absolute", "--git-path", "objects/info/alternates"])
-  unless (← kindWith observer alternates).isNone do
-    throw <| IO.userError s!"copy Git alternates are outside the closed case: {alternates}"
-
-/-- Admit exactly an index component present among the stored names, without case folding. -/
-def admitGitName (pair : String × List String) : Except IO.Error Unit :=
-  if pair.1 ∈ pair.2 then .ok () else
-    .error (IO.userError s!"copy Git index spelling differs from stored entry: {pair.1}")
-
-/-- Match each index path component to the stored directory-entry names that `enumerator` lists
-before reading that entry or exempting a tracked link from general capture. Intermediate links
-refuse. String equality compares the complete stored UTF-8 spelling; no core.ignoreCase
-interpretation participates. `listings` holds, by path, the names of each directory that an earlier
-index path of the same Git copy listed; this path reuses them and adds the directories it lists, so
-the index admission lists each directory once per Git copy. The copy's captures of the worktree and
-of `.git` list directories again. Source ancestors and entries have no concurrent writer until the
-copy ends, so a reused listing is still the directory's stored names. -/
-def admitGitPath (enumerator : Enumerator) (listings : Std.HashMap String (List String))
-    (source : FilePath) (relative : List String) : IO (Std.HashMap String (List String)) := do
-  let mut listings := listings
-  let mut parent := source
-  for name in relative do
-    unless (← observeMetadata parent).type == .dir do
-      throw <| IO.userError s!"copy Git index ancestor is not a directory: {parent}"
-    let names ← match listings[parent.toString]? with
-      | some names => pure names
-      | none => enumerator.names parent
-    listings := listings.insert parent.toString names
-    IO.ofExcept (admitGitName (name, names))
-    parent := parent / name
-  return listings
-
-/-- The supported Git index modes. A tracked link has a regular-file representation, never
-a link instruction. Its bytes are obtained from the index's Git blob without following it. -/
-inductive GitMode where
-  /-- Index mode 100644. -/
-  | regular
-  /-- Index mode 100755. -/
-  | executable
-  /-- Index mode 120000, represented by its target-text blob. -/
-  | link (text : ByteArray)
-
-/-- One resolved index entry, with a relative path and a supported typed mode. -/
-structure GitEntry where
-  /-- The index's path components. -/
-  relative : List String
-  /-- The index's regular, executable or target-text mode. -/
-  mode : GitMode
-
-/-- Derive one regular-file instruction from an index entry. Ordinary file bytes come from
-the no-follow source receipt. A tracked link uses the index blob, not a filesystem target. -/
-def gitItem (captured : List Item) (entry : GitEntry) : Except IO.Error Item := do
-  match entry.mode with
-  | .link text => return ⟨entry.relative, .file text⟩
-  | mode =>
-    let some item := captured.find? (fun item => item.relative == entry.relative)
-      | throw <| IO.userError s!"Git index file is absent from source: {entry.relative}"
-    let .file bytes _ := item.payload
-      | throw <| IO.userError s!"Git index file is not regular: {entry.relative}"
-    let rights := match mode with | .executable => 493 | _ => 420
-    return ⟨entry.relative, .file bytes rights⟩
-
-/-- Derive every indexed file instruction, preserving the complete index order. -/
-def gitFiles (captured : List Item) : List GitEntry → Except IO.Error (List Item)
-  | [] => return []
-  | entry :: rest => do
-    let item ← gitItem captured entry
-    return item :: (← gitFiles captured rest)
-
-/-- Retain captured regular build outputs of this package only. Indexed paths are supplied by
-`gitFiles`, so they are not emitted twice. All other untracked files remain excluded. -/
-def gitBuildFiles (captured : List Item) (entries : List GitEntry) : List Item :=
-  captured.filter fun item => match item.payload with
-    | .directory => false
-    | .file .. => [".lake", "build"].isPrefixOf item.relative &&
-        !entries.any (fun entry => entry.relative == item.relative)
-
-/-- A final local core section selects Git's target-text representation for every tracked link.
-Two leading newlines also terminate a trailing config continuation before the new section. -/
-def gitConfigBytes (bytes : ByteArray) : ByteArray :=
-  bytes ++ "\n\n[core]\n\tsymlinks = false\n".toUTF8
-
-/-- Generate the clone metadata, changing only its regular .git/config instruction. -/
-def gitMetadata (metadata : List Item) : List Item := metadata.map fun item =>
-  if item.relative == [".git", "config"] then match item.payload with
-    | .file bytes rights => {item with payload := .file (gitConfigBytes bytes) rights}
-    | .directory => item
-  else item
-
-/-- The clone account is the captured Git metadata, indexed worktree and untracked regular
-files beneath this package's own `.lake/build`. General no-follow capture admits those build
-outputs before this selection. Other untracked files are not emitted; untracked links and
-special entries refuse before this function runs. A missing regular Git configuration refuses
-rather than omit the target-text setting. -/
-def prepareGit (metadata captured : List Item) (entries : List GitEntry) :
-    Except IO.Error (List Item) := do
-  let some config := metadata.find? (fun item => item.relative == [".git", "config"])
-    | throw <| IO.userError "Git source has no configuration"
-  let .file .. := config.payload
-    | throw <| IO.userError "Git source configuration is not regular"
-  let files ← gitFiles captured entries
-  return layout (gitMetadata metadata ++ files ++ gitBuildFiles captured entries)
-
-/-- The Git adapter's executed writer, over the same operations as all other copies.
-It derives its complete index/build account before creating any destination entry, then uses only
-the shared constructor. `gitConstruct_io` states its exact plain-tree contract. -/
-def gitConstructWith {m : Type → Type} [Monad m] [MonadExceptOf IO.Error m] (ops : Ops m)
-    (target : FilePath) (metadata captured : List Item) (entries : List GitEntry) : m (List Item) := do
-  match prepareGit metadata captured entries with
-  | .error error => throw error
-  | .ok items =>
-    constructWith ops target items
-    return items
-
-/-- Read an index blob as bytes. The command identifies an object, not a filesystem link path.
-Neither filters nor textconv nor follow-symlinks is requested.
-
-Assumes: installed Git 2.54.0 git-cat-file(1), SYNOPSIS and DESCRIPTION, returns the exact blob
-contents for `cat-file blob OBJECT`. Lean v4.35.0 `Init/System/IO.lean:1002-1003,1544-1557`
-reads binary stdout, drains stderr and waits for the process. Process execution and Git object
-fidelity are trusted. Git 2.54.0 git(1), --no-lazy-fetch, --no-optional-locks and
---no-replace-objects, prevents lazy fetching, optional lock-taking writes and replacement
-object lookup. Source Git metadata has no writer during this observation. -/
-def readGitBlob (source : FilePath) (object : String) : IO ByteArray := do
-  unless !object.isEmpty && object.toList.all Char.isHexDigit do
-    throw <| IO.userError "Git index object is not a hexadecimal identifier"
-  let (exitCode, bytes, stderr) ← gitBinaryOutput source
-    #["--no-lazy-fetch", "--no-optional-locks", "--no-replace-objects", "cat-file", "blob", object]
-  unless exitCode == 0 do throw <| IO.userError s!"Git index blob read failed: {stderr}"
-  return bytes
-
-/-- Observe a complete supported index after no-follow admission of its Git metadata.
-Tracked links are represented by Git's own blobs. Every other source entry is admitted through
-the general capture, so an untracked link or special entry is still refused before construction.
-Indexed files, captured Git metadata and admitted untracked regular `.lake/build` files are emitted.
-After Git confirms that the common directory is the source's own .git, its captured commondir
-instruction is omitted using the observer's stored name, including case-folded spellings, and so is
-its per-worktree configuration file `config.worktree` (`omitStoredEntry`): Git reads the clone's
-configuration from its `config` alone, as from a source without that file.
-
-Assumes: installed Git 2.54.0 git-ls-files(1), --format, -z and FIELD NAMES, reports the complete
-index with unquoted paths, object identifiers and modes. The source has no index or worktree
-writer. git-cat-file(1) supplies index link blobs without following a source link. git-config(1),
-core.symlinks, specifies target-text regular files when false and retained index link types.
-The source .git is a plain, self-contained metadata directory in the closed configuration case of
-a copy source (`admitCopyGitConfig`), with no alternates. Each index path equals the stored names
-byte for byte. Git environment/config observations use `gitProcessArgs`, `admitCopyGitConfig` and
-`admitGitObjects`; their Assumes entries name the trusted sources. Git status remains trusted.
-Lean/Lake v4.35.0
-`Lake/Util/Git.lean:216-220` tests cleanliness with `git diff --exit-code HEAD`;
-`Lake/Load/Materialize.lean:57-58`, `:81-82`, `:104` and `:105-107` warn if a checkout at the
-revision, or one just checked out, has that diff.
-The copy locates its listing program once and lists each directory it reads through that program;
-`admitGitPath` lists each directory once for the whole index. -/
-def copyGit (source target : FilePath) : IO (List Item) := do
-  let enumerator ← locate
-  let metadata ← captureWith enumerator.observer (fun _ => true) 4096 (source / ".git") [".git"]
-  let ⟨_, .directory⟩ :: _ := metadata
-    | throw <| IO.userError "Git source metadata is not a plain directory"
-  admitCopyGitConfig source (source / ".git") (source / ".git")
-  let common ← gitPath source #["rev-parse", "--path-format=absolute", "--git-common-dir"]
-  unless common == (← observeRealPath (source / ".git")) do
-    throw <| IO.userError "copy Git metadata has an external common directory"
-  -- Equality establishes that no common-directory instruction is needed in the clone. Observe
-  -- its stored name so the same omission covers a case-folded spelling without interpreting it.
-  let metadata ← omitStoredEntry (source / ".git") [".git"] "commondir" metadata
-  -- The clone carries no per-worktree configuration, whatever settings the source's holds.
-  let metadata ← omitStoredEntry (source / ".git") [".git"] "config.worktree" metadata
-  admitGitObjects source
-  let (exitCode, indexBytes, stderr) ← gitBinaryOutput source
-    #["--no-lazy-fetch", "--no-optional-locks", "--no-replace-objects", "ls-files", "-z",
-      "--format=%(objectmode)%x09%(stage)%x09%(objectname)%x09%(path)"]
-  unless exitCode == 0 do throw <| IO.userError s!"copy Git index failed: {stderr}"
-  let some index := String.fromUTF8? indexBytes
-    | throw <| IO.userError "copy Git index names are outside the UTF-8 closed case"
-  unless index.isEmpty || index.endsWith "\x00" do
-    throw <| IO.userError "copy Git index output is not NUL-terminated"
-  let mut entries : List GitEntry := []
-  let mut listings : Std.HashMap String (List String) := {}
-  for record in index.splitOn "\x00" do
-    if record.isEmpty then continue
-    let mode :: stage :: object :: pathParts := record.splitOn "\t"
-      | throw <| IO.userError "copy Git index record is malformed"
-    unless stage == "0" do throw <| IO.userError "copy Git index has unresolved entries"
-    let relative := ("\t".intercalate pathParts).splitOn "/"
-    unless Relative relative && relative.head? != some ".git" do
-      throw <| IO.userError "copy Git index path is not a worktree-relative path"
-    listings ← admitGitPath enumerator listings source relative
-    let mode ← match mode with
-      | "100644" => pure GitMode.regular
-      | "100755" => pure GitMode.executable
-      | "120000" =>
-        let kind := (← observeMetadata (location source relative)).type
-        unless kind == .symlink || kind == .file do
-          throw <| IO.userError "tracked Git link source is neither a link nor its regular representation"
-        pure <| GitMode.link (← readGitBlob source object)
-      | _ => throw <| IO.userError s!"copy Git index mode is unsupported: {mode}"
-    entries := entries ++ [⟨relative, mode⟩]
-  let base := source.components.length
-  let selected := fun (path : FilePath) =>
-    let relative := path.components.drop base
-    relative.head? != some ".git" && !entries.any (fun entry =>
-      entry.relative == relative && match entry.mode with | .link _ => true | _ => false)
-  let captured ← captureWith enumerator.observer selected 4096 source []
-  gitConstructWith enumerator.observer target metadata captured entries
-
 /-- The cold drivers' source entrypoint. `project` prunes VCS/build/scratch directories and
 Finder `.DS_Store` entries, except explicit relative file selections after TARGET, the original
 Markdown discovery domain, and the ancestors needed to capture them. The instruction guard
-refuses any missing selected file.
-`git` uses `copyGit`'s regular-file representation, build outputs and metadata.
-It prints the regular-file receipt as a JSON array. `list` prints the names of the directory SOURCE
-(`listNames`) and `walk` the paths below it (`walkDirectory`), each as a JSON array; TARGET is
-unused there. `git-environment` prints the environment of a Regula-authored Git command
+refuses any missing selected file. It prints the regular-file receipt as a JSON array. `list`
+prints the names of the directory SOURCE (`listNames`) and `walk` the paths below it
+(`walkDirectory`), each as a JSON array; TARGET is unused there. `git-environment` prints the environment of a Regula-authored Git command
 (`gitEnvironment`) and `process-environment` the Git isolation of a process tree
 (`isolationEnvironment`), each as a JSON array of changes. Lean interprets this same source before
-package artifacts exist; it does not use another copy implementation.
-
-Assumes: `copyGit` names the installed Git 2.54.0 index/blob/config facts, its source stability
-and the pinned Lake cleanliness observation. Git parsing and object fidelity remain trusted. -/
+package artifacts exist; it does not use another copy implementation. -/
 def sourceMain (args : List String) : IO UInt32 := do
   let domain :: source :: target :: required := args
     | throw <| IO.userError "construction requires DOMAIN SOURCE TARGET"
@@ -1256,32 +709,6 @@ def sourceMain (args : List String) : IO UInt32 := do
     return 0
   if domain == "walk" then
     IO.println (Lean.toJson ((← walkDirectory (FilePath.mk source)).map (·.toString))).compress
-    return 0
-  if domain == "generated" then
-    let captured ← capture source ["instructions"]
-    let [⟨_, .file bytes _⟩] := captured
-      | throw <| IO.userError "generated instructions are not a regular file"
-    let some text := String.fromUTF8? bytes
-      | throw <| IO.userError "generated instructions are not UTF-8"
-    let json ← IO.ofExcept (Lean.Json.parse text)
-    let entries : Array Lean.Json ← IO.ofExcept (Lean.fromJson? json)
-    let items ← entries.toList.foldlM (fun items entry => do
-      let relative : List String ← IO.ofExcept (entry.getObjValAs? (List String) "relative")
-      let extra ← match entry.getObjValAs? String "source" with
-        | .ok source => capture source relative
-        | .error _ => do
-          let text ← IO.ofExcept (entry.getObjValAs? String "text")
-          pure [⟨relative, .file text.toUTF8⟩]
-      pure (items ++ extra)) []
-    construct target (layout items)
-    IO.println "[]"
-    return 0
-  if domain == "git" then
-    let items ← copyGit source target
-    let files := items.filterMap fun item => match item.payload with
-      | .directory => none
-      | .file .. => some ("/".intercalate item.relative)
-    IO.println (Lean.toJson files).compress
     return 0
   unless domain == "project" do
     throw <| IO.userError s!"unknown construction domain: {domain}"
