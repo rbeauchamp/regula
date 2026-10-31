@@ -575,7 +575,7 @@ The first acceptance command also builds the Lean package of this specification 
 
 - Default provisioning keeps a full Git clone of lean-intent in `.lake/regula-provision/lean-intent` (`RegulaProvision.provisionSpecification`). It reads the source and the commit from `lake-manifest.json` with Lake's own reader. The repository of lean-intent is public, so the clone uses no credentials under Regula's Git isolation.
 - The clone is not the checkout in Lake's packages directory. Lake `v4.35.0` makes that one a partial clone with `--filter=tree:0` (`Lake/Util/Git.lean:160-170` at `v4.35.0`), and a partial clone cannot give its commits to a further fetch.
-- The first step builds the package in its copy of the project (`RegulaVerification.specificationBuild`). Lake fetches the pinned commit from the provisioned clone, so the step reads no network. The theorem `ordinary_builds_specification` places the build among the commands that run in order. A failure of one of them fails the step.
+- The first step builds the package in its copy of the project (`RegulaVerification.specificationBuild`). Lake fetches the pinned commit from the provisioned clone, so the step reads no network. The theorem `RegulaVerification.ordinary_checks` places the build among the commands that run in order. A failure of one of them fails the step.
 - **Measured** on `v4.35.0`, with each Git protocol but `file` refused: the fetch from a full clone gave the pinned commit. The fetch from Lake's partial checkout failed with `bad tree object`.
 
 ## The Mathlib integration package
