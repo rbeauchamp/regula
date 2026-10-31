@@ -106,7 +106,7 @@ Regula accepts no `sorry`, so use it when you complete proofs. For Mathlib pull 
 
 Each release is for one Lean toolchain. Use the [compatibility table](docs/guides/adoption.md#1-require-regula) to select a release for your project. This repository's pin is [lean-toolchain](lean-toolchain).
 
-Regula adds no Mathlib dependency. Only the separate [Mathlib integration check](docs/guides/contributing.md#mathlib-integration-check) uses Mathlib. Before version 1.0, a minor release can add a rule or make a rule stricter.
+Regula adds no Mathlib dependency. Before version 1.0, a minor release can add a rule or make a rule stricter.
 
 ## Learn more
 

@@ -41,7 +41,7 @@ number := false
 
 *Example - Exact Rational Quantities with a Lawful Order*:
 
-The shared `Time` type wraps non-negative rational numbers: exact arithmetic with a decidable order, not the real numbers. In {repo "audit/Audit/DocClaims.lean"}[`Audit.DocClaims`], `DecayingValue.valueAt` is the linear curve `initial * (1 + decayRate * (t - startTime))`, using the underlying rational values of the times. The theorem below establishes a nonincreasing curve for a negative rate. It does not establish strict decrease because `initial` may be zero. Its quantifiers include all ordered pairs of times, including times before `startTime`. That field shifts the formula rather than restricting its domain. The curve is linear, not exponential: a claim about `initial * exp (decayRate * (t - startTime))` over `ℝ` needs Mathlib's real analysis, and the {repo "integration/mathlib/MathlibAudit/DocClaims.lean"}[Mathlib integration package] proves the same antitonicity statement for that real-valued curve.
+The shared `Time` type wraps non-negative rational numbers: exact arithmetic with a decidable order, not the real numbers. In {repo "audit/Audit/DocClaims.lean"}[`Audit.DocClaims`], `DecayingValue.valueAt` is the linear curve `initial * (1 + decayRate * (t - startTime))`, using the underlying rational values of the times. The theorem below establishes a nonincreasing curve for a negative rate. It does not establish strict decrease because `initial` may be zero. Its quantifiers include all ordered pairs of times, including times before `startTime`. That field shifts the formula rather than restricting its domain. The curve is linear, not exponential: a claim about `initial * exp (decayRate * (t - startTime))` over `ℝ` needs Mathlib's real analysis.
 
 ```lean
 import Audit.DocClaims
@@ -180,7 +180,7 @@ abbrev Priority := Fin 5
 example : Std.IsLinearOrder Priority := inferInstance
 ```
 
-The rank function chooses the intended ordering. The injectivity proof shows that distinct constructors receive distinct ranks. In a Mathlib project, `LinearOrder.lift'` transports the order and its laws along the same injective rank in one step; {repo "integration/mathlib/MathlibAudit/DocClaims.lean"}[`Glossary.Tick`] in the Mathlib integration package is built that way. Lean provides no `deriving` handler for the lawful structure:
+The rank function chooses the intended ordering. The injectivity proof shows that distinct constructors receive distinct ranks. In a Mathlib project, `LinearOrder.lift'` transports the order and its laws along the same injective rank in one step. Lean provides no `deriving` handler for the lawful structure:
 
 ```lean (fails := "(?s)deriving.*IsLinearOrder")
 /-- Two named levels. -/
@@ -335,7 +335,7 @@ number := false
 
 *Rationale*: A claim about distance or continuity needs the corresponding laws. Mathlib provides those verified interfaces, while other geometric claims may require different structures. Selecting the matching interface preserves the exact claim boundary from §1.4.
 
-*Example - Incidence Constraints on Network Edges* (an incidence claim: which cells lie in which coverage zones. It needs no distance, so it uses no metric; a claim about range measures distance through Mathlib's `MetricSpace ℝ`, checked as `MathlibModels.InRange` in the {repo "integration/mathlib/MathlibAudit/Models.lean"}[Mathlib integration package]):
+*Example - Incidence Constraints on Network Edges* (an incidence claim: which cells lie in which coverage zones. It needs no distance, so it uses no metric; a claim about range measures distance through Mathlib's `MetricSpace ℝ`):
 
 ```lean
 import Audit.DocPrelude

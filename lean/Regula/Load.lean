@@ -40,7 +40,10 @@ What it reads, and through what:
 - The module records: for each module of the root package that Lake builds (each module of a
   target, and each module of the root package that their imports reach), its imports and the names
   of the extensions with entries, from `Lean.readModuleDataParts` of its `.olean` files, found by
-  `Lean.findOLean` on Lake's search path. A module of the root package is one whose `.olean` lies
+  `Lean.findOLean` on Lake's search path. A module whose `.olean` files record no extension is refused:
+  each of the 9,019 modules that the specification measured has entries of `Lean.deprecatedModuleExt`
+  and of `Lean.modPkgExt`, so an empty record is a record of another form, never a clean module. A module of the root
+  package is one whose `.olean` lies
   below the root package's `leanLibDir`; a constant of the toolchain is one whose module's `.olean`
   lies below the toolchain's library directory, which is RG1003's named assumption: Lean finds the
   toolchain's library only below the `lib/lean` directory of the pinned toolchain.
@@ -48,9 +51,10 @@ What it reads, and through what:
   and no initializer of a loaded module runs. Each query reads a constant's `ConstantInfo` or the
   module entries of an extension (`getModuleEntries`, which `importModules` sets whatever
   `loadExts` is): `getImplementedBy?`, `isExtern`, `getInitFnNameFor?`, `isNoncomputable`, the
-  compiled code (`IR.findEnvDecl`), the `@[csimp]` entries (`CSimp.ext`'s module entries) and the
-  decision registrations (`Regula.decisionExtension`'s module entries). None reads an extension's
-  built state, which `loadExts := false` leaves at its initial value.
+  compiled code (`IR.findEnvDecl`) and the `@[csimp]` entries (`CSimp.ext`'s module entries). None
+  reads an extension's built state, which `loadExts := false` leaves at its initial value. The
+  decision registrations are the constants of claimed modules of the type
+  `Regula.RegisteredDecision f` (`registrationOf`).
 - The axiom sets: `Lean.collectAxioms` of each constant of a claimed module and of each theorem
   that states a correspondence (`axiomsIn`). Lean's recorded table of each module's axioms is an
   extension's state, which `loadExts := false` leaves empty, so the axioms come from the constants.
@@ -219,6 +223,9 @@ def readModule (m : Name) (olean : FilePath) : IO ModuleFile := do
     data.entries.foldl (init := acc) fun acc (ext, entries) =>
       if entries.isEmpty || acc.contains ext then acc else acc ++ [ext]
   let declares := (parts.back?.map (·.1.constNames)).getD #[]
+  if extensions.isEmpty then
+    refuse s!"the .olean files of module {m} record no environment extension, so this is not the \
+      record that the checker reads"
   return { record := { name := m, imports := (main.imports.map (·.module)).toList, extensions }
            declares }
 
@@ -373,6 +380,13 @@ def contractOf (thm : Name) (type : Expr) : Option Contract := do
   let (kind, spec, accept) := decisionOf args[2]!
   return { theorem_ := thm, impl := impl.getAppFn.consumeMData.constName?.getD .anonymous
            fixedArgs := impl.getAppNumArgs, kind, spec, accept }
+
+/-- The function that a constant of type `type` registers as a decision, when its type, under its
+binders, is `Regula.RegisteredDecision f` with a constant at the head of `f`. -/
+def registrationOf (type : Expr) : Option Name := do
+  let body := type.getForallBody.consumeMData
+  guard (body.isAppOfArity ``Regula.RegisteredDecision 2)
+  body.getAppArgs[1]!.consumeMData.getAppFn.consumeMData.constName?
 
 /-- The correspondence that the theorem `thm` of type `type` states, when its type is `@f = @g`
 for constants `f` and `g`. -/
@@ -595,11 +609,9 @@ def Facts.input (f : Facts) (ts : List Target) (manifest : List Entry)
   let decls := all.toList.map fun (_, d) =>
     { d with axioms := if reads d then
         (table.find? d.name).orElse fun _ => known[(d.module, d.name)]? else none }
-  let mut decisions : List Name := []
-  for idx in [0:env.header.moduleNames.size] do
-    unless f.claimed.contains env.header.moduleNames[idx]! do continue
-    for n in Regula.decisionExtension.getModuleEntries env idx do
-      unless decisions.contains n do decisions := decisions ++ [n]
+  let decisions := (decls.filterMap fun d =>
+    if f.claimed.contains d.module then (env.find? d.name).bind (registrationOf ·.type)
+    else none).eraseDups
   let decidableResults := decisions.filter fun n =>
     (env.find? n).any (·.type.getForallBody.consumeMData.isAppOf ``Decidable)
   let contracts := decls.filterMap fun d =>

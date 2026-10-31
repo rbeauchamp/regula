@@ -856,12 +856,12 @@ def manifestText (m : Manifest) : String :=
 
 /-- The checker's configuration findings for a project with a manifest, each as the checker prints
 it: RG2002 and RG2006 as `Regula.Closed.Input.configurationFindings` decides them over the targets
-Lake loads and the claim, with the checker's option allowlist (`Regula.Shell.allowed`). A manifest
+Lake loads and the claim, with the checker's option allowlist (`Regula.Shell.allowlists`). A manifest
 that cannot be read, or a workspace that Lake cannot load, is one line with the reason. -/
 def configurationFindings (project : Project) : IO (Array String) := do
   try
     let i ← projectInput project.root
-    return ((i.configurationFindings Regula.Shell.allowed).map Regula.Shell.line).toArray
+    return ((i.configurationFindings Regula.Shell.allowlists.options).map Regula.Shell.line).toArray
   catch error =>
     return #[s!"{RuleId.configuration.spelling} {project.root}: {error} \
       {Regula.Shell.page .configuration}"]

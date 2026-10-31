@@ -48,7 +48,7 @@
 # gate found a peak above that budget, so no smaller bound is safe: the bound stays the whole budget
 # until the gate is measured again. The change of issue 486 removes the module of
 # https://github.com/rbeauchamp/regula/issues/497 and the package in `controls/` that held it, and the
-# gate has nine steps, whose memory the measurement below did not measure.
+# gate has seven steps, whose memory the measurement below did not measure.
 #
 # The measurement ran the gate twice on 2026-10-29 on that Mac, on main at 59f1833 (Lean v4.35.0),
 # each time in a new checkout of the shape that the pipeline runs in (a linked worktree of a mirror)

@@ -139,10 +139,7 @@
   applies to the optional serialized-graph claim. A `FAIL`,
   `INCOMPLETE`, unknown, omission, skip, timeout, or unsupported check blocks the affected claim.
 
-The root, `audit/` and `website/` packages require no Mathlib; use `lake build` for the Lean
-development loop. Only the Mathlib integration package in `integration/mathlib/` requires
-Mathlib: run `lean --run lean/RegulaProvision.lean mathlib` before the first Lake command there;
-otherwise Lake clones and builds a per-copy Mathlib.
+No package of this repository requires Mathlib; use `lake build` for the Lean development loop.
 Complete local acceptance is two commands, run in this order:
 
 ```sh
@@ -194,8 +191,6 @@ sequence, and stops at the first failure:
 
 - The release checks `unreleased` and `agree`, and the two acceptance steps. The first runs
   Regula's checker on Regula's own build, the self-check.
-- `./scripts/verify.sh mathlib`, the Mathlib integration check. It is the only check that uses
-  Mathlib, and it is not part of acceptance.
 - The builds of the tools of the rule-reference site. The gate leaves out `./scripts/verify.sh site`,
   which reads the repository with no credentials and thus fails while the repository is private.
 

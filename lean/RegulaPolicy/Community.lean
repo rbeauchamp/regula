@@ -1,12 +1,17 @@
 module
 
-meta import Regula.Decision
+public import Regula.Decision
 import all Init.Meta.Defs
 public import RegulaPolicy.Compiler
 
 /-! # Community build configuration decision
 
-The decision behind RG2006 for one claimed Lake target (standard §7.1, §6.7 and §6.2): the
+The checker no longer runs this decision: it decides RG2006 with
+`Regula.Closed.Input.optionFindings` and `Regula.Allowlist.options`. `regula init` and
+`regula doctor` read this module's required options and option values (`RegulaCore.Setup`). In this
+module, RG2006 names the decision of the checker before #484.
+
+The decision for one claimed Lake target (standard §7.1, §6.7 and §6.2): the
 options Lake builds its modules with turn automatic implicits off, enable Lean's
 `linter.missingDocs` and, when the target imports Mathlib, enable Mathlib's standard linter set
 with the three Mathlib-repository linters §6.7 excludes turned off. Of these, Mathlib's header
@@ -74,7 +79,7 @@ replays was elaborated with the observer the build has.
 - `accepted_families_pass`: one option of each accepted family adds no failure.
 - `autoImplicit_argument_fails`, `linter_argument_fails`, `warn_argument_fails`,
   `undeclared_weak_argument_fails`, `maxHeartbeats_argument_passes`,
-  `excluded_linter_argument_passes`, `plugin_argument_passes`: fixed argument lists.
+  `excluded_linter_argument_passes`: fixed argument lists.
 - `optionOf_eq_replacePrefix`: `optionOf` is the call by which Lean removes a leading `weak.`.
 
 ## Option names and values
@@ -514,8 +519,8 @@ theorem meets_of_sets (o : BuildOptions) (r : Name × OptionValue) (h : sets o r
   simp only [sets, meets, Bool.and_eq_true, List.all_eq_true] at h ⊢
   exact ⟨h.1, fun v hv => by simp [admits, h.2 v hv]⟩
 
-/-- The Mathlib revision whose option registrations `mathlibWarningSettings` was read from: the one
-`integration/mathlib/lakefile.lean` pins, read with the Batteries revision of its manifest. -/
+/-- The Mathlib revision whose option registrations `mathlibWarningSettings` was read from, with the
+Batteries revision of its manifest. -/
 def acceptedMathlib : String := "56a005855ea17e0b0958f73ec801ae140b0a1679"
 
 /-- Each `linter.` and `warn.` option that Lean `acceptedRelease` registers with
@@ -1453,17 +1458,6 @@ theorem excluded_linter_argument_passes (options : List (Name × OptionValue))
   have hr : (OptionValue.string "false").readsAs (.bool false) = true := by decide
   rw [ho] at hc
   simp [required, baseline, mathlibBaseline, admits, hr] at hc
-
-/-- Arguments that are not `-D`, such as `--plugin` and `--tstack`, add no failure. -/
-theorem plugin_argument_passes (options : List (Name × OptionValue)) (mathlib : Bool) (n : Name)
-    (v : OptionValue) :
-    Failure.leanArgument n v ∉
-      failures ⟨options, ["--plugin=libDemo.dylib", "--tstack=100000"], true, true⟩ mathlib := by
-  rw [leanArgument_mem_failures_iff]
-  rintro ⟨name, value, hd, -⟩
-  have ht : argumentTexts ["--plugin=libDemo.dylib", "--tstack=100000"] = [] := by decide
-  rw [← mem_argumentTexts_iff, ht] at hd
-  simp at hd
 
 /-! ## Mathlib's header linter
 

@@ -119,7 +119,7 @@ def enforcementPage (ident : Identity) : Except String String := do
       checker reads no option that a source file sets: it reads the declarations Lean loads from \
       the finished build, Lake's targets and modules, and the claim. Hiding a diagnostic does not \
       establish the property it checks. " ++ Prose.relativeCitation .decisionContract ++ " checks \
-      the functions registered with `@[regula_decision]`; removing a registration changes the \
+      the functions registered with `Regula.RegisteredDecision`; removing a registration changes the \
       reviewed claim, not only its result.\n\n" ++
     subsection "enforcement-commands" "Where rules run" ++
     "Project enforcement runs through `lake lint`, which runs Regula's checker on the finished \
@@ -261,11 +261,7 @@ def creditsPage (ident : Identity) : Except String String := do
       HLint) informed the design.\n\n" ++
     "**Mathlib.** The `regula` package that projects require imports only Lean's core libraries and \
       requires no other package, and the standard's examples and this site import no Mathlib \
-      module. The checker repository's Mathlib integration package, which checks the \
-      Mathlib-specific behaviour Regula supports, depends on \
-      [Mathlib](https://github.com/leanprover-community/mathlib4) (Apache 2.0) and so on \
-      [Batteries](https://github.com/leanprover-community/batteries) (Apache 2.0), which Mathlib \
-      requires.\n\n" ++
+      module.\n\n" ++
     "Crediting a project does not imply its endorsement of Regula. The complete attribution \
       account is in the " ++ "[design-influences guide](" ++
           blobUrl ident "docs/guides/design-influences.md" ++ ").\n\n" ++

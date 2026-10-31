@@ -394,13 +394,14 @@ def compress (j : Json) : String := printTo "" j
 omitted or supplemented by an unknown field. The expected names are distinct by the type of the
 third argument, which a call with a list of literals proves by `decide`: a list that gives one
 name twice has no call. -/
-@[regula_decision]
 def exactFields (j : Json) (expected : List String) (_distinct : expected.Nodup := by decide) :
     Except String Unit := do
   let fields ← j.getObj?
   let actual := fields.toList.map (·.1)
   unless actual.length == expected.length && expected.all actual.contains do
     throw "unknown or missing JSON object fields"
+
+theorem exactFields_registered : Regula.RegisteredDecision @exactFields := ⟨⟩
 
 /-- The value is an object, and the names of its members, in the order of its tree, are the
 expected names in some order: no member is unknown and no expected member is missing. No name

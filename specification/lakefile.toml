@@ -2,8 +2,8 @@ name = "regula_specification"
 defaultTargets = ["RegulaSpecification"]
 
 # The specification of the smaller Regula (`README.md` in this directory): each rule's formal
-# statement, written as an intent record of lean-intent. It is specification, not implementation:
-# nothing of the root package imports it, and it changes no rule's behaviour. `lake build` here
+# statement, written as an intent record of lean-intent. Nothing of the root package imports it, and
+# it changes no rule's behaviour. `lake build` here
 # checks every statement and every theorem about the statements.
 
 # lean-intent, at commit 30fe70d on its `main`, after its umbrella modules were removed. The
@@ -14,9 +14,9 @@ name = "lean-intent"
 git = "https://github.com/rbeauchamp/lean-intent"
 rev = "30fe70d3bdeec8875eab718f38374a76a1df63c4"
 
-# The root package, for `RegulaCore.RuleId` only: the fate table matches Regula's own closed
-# rule registry exhaustively, so a rule that the registry gains or loses fails this build until
-# the table gives it a fate.
+# The root package. The fate table matches Regula's own closed rule registry exhaustively, so a rule
+# that the registry gains or loses fails this build until the table gives it a fate.
+# `RegulaSpecification.ClosedSubset` proves the functions of `Regula.Rules` against the statements.
 [[require]]
 name = "regula"
 path = ".."

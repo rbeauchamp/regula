@@ -3,7 +3,7 @@ module
 public import RegulaPolicy.Domain
 public import RegulaPolicy.Compiler
 public import Std.Data.ExtHashSet.Lemmas
-meta import Regula.Decision
+public import Regula.Decision
 
 /-! # Observation admission
 
@@ -380,12 +380,13 @@ def Inventory.withImported (i : Inventory) (imported : Array Declaration) : Inve
 
 /-- Validate without dropping, substituting, or deduplicating result observations. The inventory
 counts no contract of another surface and has no imported record. -/
-@[regula_decision]
 def admitInventory (compiler : Compiler.Capability) (decls : Array Declaration)
     (transcripts : Array Frontend.Transcript) :
     Except String Inventory :=
   if h : InventoryValid decls transcripts then .ok ⟨compiler, decls, transcripts, h, #[], #[]⟩
   else .error "invalid policy inventory: anonymous, duplicate, or malformed identity"
+
+theorem admitInventory_registered : Regula.RegisteredDecision @admitInventory := ⟨⟩
 
 /-- Every valid inventory is admitted with exactly its input fields, counting no contract of
 another surface and with no imported record. -/
@@ -537,10 +538,11 @@ structure ExecutionInventory where
 
 /-- Admit the roots unchanged when `ExecutionValid` holds, and refuse them otherwise
 (`admitExecution_exact`, `admitExecution_preserves`). -/
-@[regula_decision]
 def admitExecution (roots : Array ExecutionRoot) : Except String ExecutionInventory :=
   if h : ExecutionValid roots then .ok ⟨roots, h⟩
   else .error "invalid execution inventory: identity, occurrence, or origin binding"
+
+theorem admitExecution_registered : Regula.RegisteredDecision @admitExecution := ⟨⟩
 
 theorem admitExecution_exact (roots : Array ExecutionRoot) (h : ExecutionValid roots) :
     admitExecution roots = .ok ⟨roots, h⟩ := by simp [admitExecution, h]

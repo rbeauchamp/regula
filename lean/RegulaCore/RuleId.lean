@@ -1,7 +1,7 @@
 module
 
 public import Regula.Contract
-meta import Regula.Decision
+public import Regula.Decision
 
 /-!
 # Closed rule identity
@@ -11,8 +11,8 @@ Closed public rule identity. Canonical construction is inspired by con-leche's
 c431b1ca1b7a93486dd3e0440d3ee82abe90ccd0 (Lean FRO, Joachim Breitner and contributors).
 No upstream code or proof is copied. Normative predicates remain in the standard
 (`website/RegulaStandard`). The two imports are the published checker interfaces: the contract
-type that states `parse?`'s decision kind (`checked_parse`), and the `@[regula_decision]`
-registration, imported for elaboration only.
+type that states `parse?`'s decision kind (`checked_parse`), and the decision registration type
+`RegisteredDecision`.
 -/
 
 @[expose] public section
@@ -38,7 +38,7 @@ inductive RuleId where
   /-- RG1007: an `ExecutableContract` registration is not closed over a safe, computable
   implementation and its complete domain. -/
   | executableContract
-  /-- RG1008: a function registered with `@[regula_decision]` has neither a decision contract in
+  /-- RG1008: a function registered with `RegisteredDecision` has neither a decision contract in
   its inventory nor a `Decidable` result type. -/
   | decisionContract
   /-- RG1009: the specification of a decision registration shares a function with a result of
@@ -58,8 +58,13 @@ inductive RuleId where
   | coverage
   /-- RG2005: owned declarations lack complete kernel-replay admission or source evidence. -/
   | admission
-  /-- RG2006: a claimed target's Lake build options do not meet the community configuration. -/
+  /-- RG2006: a claimed target leaves automatic implicits on, sets an option outside the closed
+  allowlist, or changes Lean's process another way. -/
   | communityConfiguration
+  /-- RG2007: a claimed module has entries of an environment extension outside the closed allowlist:
+  it registers code that Lean runs while it elaborates, or a record that the check does not
+  recognize. -/
+  | closedSubset
   /-- RG3001: a path in an executable root's execution closure does not resolve. -/
   | executionUnresolved
   /-- RG3002: under checked execution, a reachable replacement or `extern` boundary has no
@@ -80,10 +85,10 @@ inductive RuleId where
   /-- RG5001, retired to written guidance: a claimed module lacks a leading module docstring or
   repeats an import. -/
   | moduleDocumentation
-  /-- RG5002, retired to written guidance: a public `@[regula_material]` declaration has no
-  docstring. -/
+  /-- RG5002, retired to written guidance: a public declaration that states a material claim has
+  no docstring. -/
   | materialDocumentation
-  /-- RG5003, retired to written guidance: a public `@[regula_material]` docstring has no
+  /-- RG5003, retired to written guidance: the docstring of a public material declaration has no
   nonempty `# Intent` section. -/
   | materialIntent
   deriving Repr, BEq, DecidableEq, Inhabited
@@ -107,6 +112,7 @@ def spelling : RuleId → String
   | .coverage => "RG2004"
   | .admission => "RG2005"
   | .communityConfiguration => "RG2006"
+  | .closedSubset => "RG2007"
   | .executionUnresolved => "RG3001"
   | .executionBoundary => "RG3002"
   | .fenceStructure => "RG4001"
@@ -119,7 +125,7 @@ def spelling : RuleId → String
 
 /-- Reads a stable ID such as `"RG1001"`; `parse_spelling` and `spelling_of_parse` show it
 inverts `spelling` and accepts nothing else. -/
-@[regula_decision] def parse? : String → Option RuleId
+def parse? : String → Option RuleId
   | "RG1001" => some .projectAxiom
   | "RG1002" => some .proofHole
   | "RG1003" => some .unknownAxiom
@@ -135,6 +141,7 @@ inverts `spelling` and accepts nothing else. -/
   | "RG2004" => some .coverage
   | "RG2005" => some .admission
   | "RG2006" => some .communityConfiguration
+  | "RG2007" => some .closedSubset
   | "RG3001" => some .executionUnresolved
   | "RG3002" => some .executionBoundary
   | "RG4001" => some .fenceStructure
@@ -146,11 +153,13 @@ inverts `spelling` and accepts nothing else. -/
   | "RG5003" => some .materialIntent
   | _ => none
 
+theorem parse?_registered : Regula.RegisteredDecision @parse? := ⟨⟩
+
 /-- Every rule ID once, in registry order; `mem_all` and `all_nodup` state both properties. -/
 def all : List RuleId := [.projectAxiom, .proofHole, .unknownAxiom, .compilerTrusting,
   .profileExceeded, .escapeHatch, .executableContract, .decisionContract, .sharedTest,
   .environment, .configuration, .sourceBuild, .coverage, .admission, .communityConfiguration,
-  .executionUnresolved, .executionBoundary, .fenceStructure, .positiveExample, .negativeExample,
+  .closedSubset, .executionUnresolved, .executionBoundary, .fenceStructure, .positiveExample, .negativeExample,
   .trustedExample, .moduleDocumentation, .materialDocumentation, .materialIntent]
 
 theorem parse_spelling (id : RuleId) : parse? id.spelling = some id := by

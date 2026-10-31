@@ -85,9 +85,10 @@ abbrev AdmittedSnapshot := { s : Snapshot // s.Valid }
 
 /-- Admit `s` unchanged when it satisfies `Snapshot.Valid`; otherwise an error.
 `admitSnapshot_exact` shows every valid snapshot is admitted as itself. -/
-@[regula_decision]
 def admitSnapshot (s : Snapshot) : Except String AdmittedSnapshot :=
   if h : s.Valid then .ok ⟨s, h⟩ else .error "invalid snapshot identity or content map"
+
+theorem admitSnapshot_registered : Regula.RegisteredDecision @admitSnapshot := ⟨⟩
 
 theorem admitSnapshot_exact (s : Snapshot) (h : s.Valid) :
     admitSnapshot s = .ok ⟨s, h⟩ := by simp [admitSnapshot, h]
@@ -387,9 +388,10 @@ inspection are separate request constructors in Decision, not inhabitants of thi
 abbrev Claim := { c : ClaimCandidate // c.Valid }
 
 /-- Admit `c` unchanged when it satisfies `ClaimCandidate.Valid`; otherwise an error. -/
-@[regula_decision]
 def admitClaim (c : ClaimCandidate) : Except String Claim :=
   if h : c.Valid then .ok ⟨c, h⟩ else .error "unsupported or malformed policy claim"
+
+theorem admitClaim_registered : Regula.RegisteredDecision @admitClaim := ⟨⟩
 
 /-- All and only valid candidates can be admitted, unchanged. -/
 theorem admitClaim_exact (c : ClaimCandidate) (h : c.Valid) :
@@ -526,7 +528,6 @@ structure JobKey where
   subjectSnapshot : SubjectSnapshotOK claim subject
   deriving Repr, DecidableEq
 /-- Admit a requested stage/subject without inventing a compatible replacement. -/
-@[regula_decision]
 def admitJobKey (claim : Claim) (stage : Stage) (subject : JobSubject) : Except String JobKey :=
   if hr : stage ∈ requiredStages claim then
     if hc : StageSubjectCompatible stage subject then
@@ -535,6 +536,8 @@ def admitJobKey (claim : Claim) (stage : Stage) (subject : JobSubject) : Except 
       else .error "job subject snapshot differs from requested claim"
     else .error "job stage and subject are incompatible"
   else .error "job stage is not required by requested mode"
+
+theorem admitJobKey_registered : Regula.RegisteredDecision @admitJobKey := ⟨⟩
 
 /-- Every valid exact job is reconstructed, with no default stage or subject. -/
 theorem admitJobKey_exact (key : JobKey) :
@@ -609,7 +612,7 @@ theorem admitCapability_isOk_iff (observed : Compiler.LegacyCompilerTrust) :
 registered here because `RegulaPolicy.Compiler` imports only `Init`, so that the compiler guard
 can elaborate it alone, and `admitIdentity` and `admitToolchainOrigin` are registered here with
 it, where their witnesses reduce. For the same reason `Compiler.admitCapability` and
-`Compiler.accepts` are registered with `@[regula_decision]` below, from this module of their
+`Compiler.accepts` are registered with `Regula.RegisteredDecision` below, from this module of their
 library, and not where they are declared. The decisions whose contracts this module states are
 registered there too, beside their contracts: a module that loads the declaration of one without
 this module has no registration of it, and each environment that has the registration has the
@@ -635,8 +638,19 @@ theorem checked_compilerAccepts : Regula.ExecutableContract Compiler.accepts (fu
     ⟨("", ""), fun accepted =>
       absurd ((Compiler.accepts_iff "" "").mp accepted).1 (by decide)⟩⟩
 
-attribute [regula_decision] Compiler.admitCapability Compiler.accepts admitIdentity
-  admitToolchainOrigin admitFoundation Community.failures Community.sourceFailures
+theorem Compiler.admitCapability_registered : Regula.RegisteredDecision @Compiler.admitCapability := ⟨⟩
+
+theorem Compiler.accepts_registered : Regula.RegisteredDecision @Compiler.accepts := ⟨⟩
+
+theorem admitIdentity_registered : Regula.RegisteredDecision @admitIdentity := ⟨⟩
+
+theorem admitToolchainOrigin_registered : Regula.RegisteredDecision @admitToolchainOrigin := ⟨⟩
+
+theorem admitFoundation_registered : Regula.RegisteredDecision @admitFoundation := ⟨⟩
+
+theorem Community.failures_registered : Regula.RegisteredDecision @Community.failures := ⟨⟩
+
+theorem Community.sourceFailures_registered : Regula.RegisteredDecision @Community.sourceFailures := ⟨⟩
 
 /-- Origin admission succeeds exactly for a toolchain module with a nonempty origin equal to the
 expected one. -/

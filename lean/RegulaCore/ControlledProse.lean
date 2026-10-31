@@ -394,9 +394,10 @@ theorem long_nil_iff (limit : Nat) (cut : Cut) :
   simp only [long, List.map_eq_nil_iff, List.filter_eq_nil_iff, decide_eq_true_eq, Nat.not_lt]
 
 /-- Check C1 (rule 6.3): the sentences of description blocks with more than 25 words. -/
-@[regula_decision]
 def longSentences : Reading → List Found :=
   perBlock fun b cut => if Block.Description b then long 25 cut else []
+
+theorem longSentences_registered : Regula.RegisteredDecision @longSentences := ⟨⟩
 
 /-- A document conforms to C1 when it was read and each sentence of each description block has
 25 words or less. -/
@@ -411,9 +412,10 @@ theorem longSentences_nil_iff (reading : Reading) :
     · simp [h]) reading
 
 /-- Check C2 (rule 5.1): the sentences of procedure blocks with more than 20 words. -/
-@[regula_decision]
 def longSteps : Reading → List Found :=
   perBlock fun b cut => if Block.Procedure b then long 20 cut else []
+
+theorem longSteps_registered : Regula.RegisteredDecision @longSteps := ⟨⟩
 
 /-- A document conforms to C2 when it was read and each sentence of each procedure block has
 20 words or less. -/
@@ -436,12 +438,13 @@ def cutAnchor (cut : Cut) : Nat :=
   ((cut.find? fun run => decide (Controlled.Worded run)).map runAnchor).getD 0
 
 /-- Check C3 (rule 6.6): the paragraphs with more than six sentences. -/
-@[regula_decision]
 def longParagraphs : Reading → List Found :=
   perBlock fun b cut =>
     if Block.Paragraph b ∧ 6 < sentenceCount cut then
       [⟨cutAnchor cut, s!"a paragraph of {sentenceCount cut} sentences; the maximum is 6"⟩]
     else []
+
+theorem longParagraphs_registered : Regula.RegisteredDecision @longParagraphs := ⟨⟩
 
 /-- A document conforms to C3 when it was read and each paragraph has six sentences or less. A
 sentence in parentheses is a sentence of its paragraph. -/
@@ -472,10 +475,11 @@ def semicolonsFrom (anchor : Nat) : List Piece → List Found
       semicolonsFrom (if piece.located?.isSome then anchor + 1 else anchor) rest
 
 /-- Check C4 (rule 8.1): the semicolons of the prose of a document. -/
-@[regula_decision]
 def semicolons : Reading → List Found
   | .unread reason => [⟨0, s!"the document was not read: {reason}"⟩]
   | .read pieces => semicolonsFrom 0 pieces
+
+theorem semicolons_registered : Regula.RegisteredDecision @semicolons := ⟨⟩
 
 /-- A document conforms to C4 when it was read and no piece of its prose renders a
 semicolon. -/
@@ -523,7 +527,6 @@ instance : DecidablePred Contracted := fun word => by
 
 
 /-- Check C5 (rule 4.2): the contractions of a document, outside quotations. -/
-@[regula_decision]
 def contractions : Reading → List Found :=
   perBlock fun _ cut => cut.flatMap fun run => run.filterMap fun slot =>
     match Slot.token? slot with
@@ -533,6 +536,8 @@ def contractions : Reading → List Found :=
           s!"the contraction `{String.ofList (normalize (token.filterMap (·.char)))}`"⟩
       else none
     | none => none
+
+theorem contractions_registered : Regula.RegisteredDecision @contractions := ⟨⟩
 
 /-- A document conforms to C5 when it was read and no token of a sentence has a form for a
 comparison (`Normal`) that is a contraction. A quotation has no token: its text is not read. -/
@@ -739,11 +744,12 @@ theorem phraseFindings_nil_iff (v : Vocabulary) {phrase : List (List Char)} (hne
 
 /-- Check C6 (rules 1.8 and 1.11): the replaced names of the vocabulary in a document, outside
 quotations and outside each longer term of the vocabulary. -/
-@[regula_decision]
 def replacedNames (v : Vocabulary) : Reading → List Found :=
   perBlock fun _ cut => (Draft.rows v.draft).flatMap fun t => t.replaces.flatMap fun name =>
     phraseFindings v (split ' ' (Controlled.lower name))
       s!"`{String.ofList name}` is a replaced name; write: {String.ofList t.term}" cut
+
+theorem replacedNames_registered : Regula.RegisteredDecision @replacedNames := ⟨⟩
 
 /-- A document conforms to C6 when it was read and no words of a sentence are a replaced name
 of the vocabulary, unless they are a part of a longer term of the vocabulary. The comparison
@@ -761,11 +767,12 @@ theorem replacedNames_nil_iff (v : Vocabulary) (reading : Reading) :
 
 /-- Check C7 (a rule of the project): the words of the table `Replaced words` of the vocabulary
 in a document, outside quotations and outside each term of the vocabulary. -/
-@[regula_decision]
 def replacedWords (v : Vocabulary) : Reading → List Found :=
   perBlock fun _ cut => v.draft.replaced.flatMap fun r =>
     phraseFindings v [Replaced.key r]
       s!"`{String.ofList r.word}` is a replaced word; write: {String.ofList r.write}" cut
+
+theorem replacedWords_registered : Regula.RegisteredDecision @replacedWords := ⟨⟩
 
 /-- A document conforms to C7 when it was read and no word of a sentence is a replaced word of
 the vocabulary, unless it is a part of a term of the vocabulary. The comparison ignores case. -/
@@ -814,12 +821,13 @@ theorem signed_iff (slot : Option Part) (sign : Option (List Char)) :
 
 /-- Check C8 (a rule of the project): the abbreviations `e.g.`, `i.e.`, `etc.`, `vs.` and `cf.`
 of a document, outside quotations. -/
-@[regula_decision]
 def abbreviations : Reading → List Found :=
   perBlock fun _ cut => cut.flatMap fun run => abbreviationSigns.flatMap fun abbreviation =>
     (positions (run.map signOf) fun index =>
       Controlled.At abbreviation.2 (run.map signOf) index).map fun index =>
       ⟨((run[index]?).map Slot.anchor).getD 0, s!"the abbreviation `{abbreviation.1}`"⟩
+
+theorem abbreviations_registered : Regula.RegisteredDecision @abbreviations := ⟨⟩
 
 /-- A document conforms to C8 when it was read and the tokens of no sentence are one of the five
 abbreviations at a position, by what each slot is for the check (`Slot.Signed`). -/

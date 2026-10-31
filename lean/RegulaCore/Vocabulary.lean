@@ -1308,13 +1308,14 @@ theorem Vocabulary.definitions (v : Vocabulary) : ∀ t ∈ v.draft.rows, OneSen
 def write (v : Vocabulary) : String := String.ofList v.draft.render
 
 /-- The vocabulary whose text is `text`, if `text` is the text of one. -/
-@[regula_decision]
 def parse (text : String) : Option Vocabulary :=
   match scan text.toList with
   | .ok d =>
     if h : d.defects = [] ∧ Draft.render d = text.toList then some ⟨d, d.defects_nil_iff.mp h.1⟩
     else none
   | .error _ => none
+
+theorem parse_registered : Regula.RegisteredDecision @parse := ⟨⟩
 
 theorem parse_write (v : Vocabulary) : parse (write v) = some v := by
   have hscan : scan v.draft.render = .ok v.draft := scan_render v.draft v.wellFormed.clean
@@ -1418,7 +1419,6 @@ theorem explain_nil_iff (text : String) : explain text = [] ↔ (parse text).isS
 the tracked paths for the rows of the `Shared` tables and `project` those for the rows of the
 `Project` tables. Each row is given with whether it is a row of a `Shared` table, with its line
 and with its path. -/
-@[regula_decision]
 def untracked (shared project : List String) (v : Vocabulary) :
     List (Bool × List Char × String) :=
   ((v.draft.sharedNouns ++ v.draft.sharedVerbs).filterMap fun t =>
@@ -1427,6 +1427,8 @@ def untracked (shared project : List String) (v : Vocabulary) :
   ((v.draft.projectNouns ++ v.draft.projectVerbs).filterMap fun t =>
     if String.ofList t.path ∈ project then none
     else some (false, t.line, String.ofList t.path))
+
+theorem untracked_registered : Regula.RegisteredDecision @untracked := ⟨⟩
 
 /-- Registered contract of the check of source paths (a part of check C9), as a two-way
 decision: no row is reported exactly when the source path of each row of a `Shared` table is one
@@ -1456,12 +1458,13 @@ def Draft.adopt (shared project : Draft) : Draft :=
 /-- The vocabulary `project` together with the `Shared` tables of `shared`, the vocabulary of
 the package it names: defined when `project` names a shared vocabulary, `shared` names none, and
 the rows together have no defect. -/
-@[regula_decision]
 def adopt (shared project : Vocabulary) : Option Vocabulary :=
   if h : project.draft.shared.isSome = true ∧ shared.draft.shared.isNone = true ∧
       (shared.draft.adopt project.draft).defects = [] then
     some ⟨shared.draft.adopt project.draft, (Draft.defects_nil_iff _).mp h.2.2⟩
   else none
+
+theorem adopt_registered : Regula.RegisteredDecision @adopt := ⟨⟩
 
 /-- Registered contract of the adoption of shared tables (a part of check C9), as a two-way
 decision: it succeeds exactly when the project vocabulary names a shared vocabulary, the shared

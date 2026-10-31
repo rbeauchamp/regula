@@ -425,9 +425,10 @@ theorem Run.mentions_linked_iff (target : RuleId → String → Bool) (r : Run) 
     exact h before chars after split at'
 
 /-- The mentions of `runs` that are not linked, in document order. -/
-@[regula_decision]
 def bareMentions (target : RuleId → String → Bool) (runs : List Run) : List Mention :=
   (runs.flatMap Run.mentions).filter fun m => !m.linked target
+
+theorem bareMentions_registered : Regula.RegisteredDecision @bareMentions := ⟨⟩
 
 /-- The executed check returns nothing exactly when every rule-ID token of every run is a
 registered rule ID inside a link to that rule's page (`Run.Linked`). -/

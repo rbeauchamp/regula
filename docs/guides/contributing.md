@@ -21,9 +21,7 @@ names and imports remain independent of that physical prefix: for example,
 adopters require, requires nothing beyond the Lean toolchain. The standard's example library is
 the `regula_audit` package in [`audit/`](../../audit/lakefile.lean) (`audit/Audit/Research.lean`
 is `Audit.Research`), which requires the root package by relative path, as an adopter would, and
-nothing else. Everything that imports Mathlib is the `regula_mathlib` package in
-[`integration/mathlib/`](../../integration/mathlib/lakefile.lean), which only the
-[Mathlib integration check](#mathlib-integration-check) builds. The `regula_markdown` package
+nothing else. No package of this repository requires Mathlib. The `regula_markdown` package
 in [`markdown/`](../../markdown/lakefile.toml) has the md4c reader and the executable of the
 [checks of Markdown documents](#markdown-documents). It requires the root package and MD4Lean
 only. Run Lake commands
@@ -44,8 +42,7 @@ and the website package's pinned Verso
 coreutils timeout, ShellCheck and an admitted `ls` program, which the
 [adoption guide](adoption.md#a-program-that-lists-directories) lists. On macOS,
 `brew install coreutils shellcheck` supplies these tools. Verification runs offline against those pinned dependencies. None of the
-commands below downloads, caches, imports or builds Mathlib; the
-[Mathlib integration check](#mathlib-integration-check) is a separate command with its own setup.
+commands below downloads, caches, imports or builds Mathlib.
 
 ```sh
 lake build                         # incremental development check (the regula package)
@@ -83,131 +80,15 @@ evidence. A required check that was skipped leaves its affected row or optional 
 interaction, or full repository semantic conformance is implied by local acceptance or scoped
 integration results.
 
-### Mathlib integration check
+### Mathlib projects
 
-The `regula` package, the standard's examples and the site use no Mathlib, but Regula supports
-projects that do. The `regula_mathlib` package in
-[`integration/mathlib/`](../../integration/mathlib/lakefile.lean) is a Mathlib adopter of the
-checker, required by relative path exactly as a Mathlib project would, and its `MathlibAudit`
-library is the claimed surface on which that support is checked:
+The `regula` package, the standard's examples and the site use no Mathlib, and no package of this repository requires it. Regula supports projects that do, as data: [RG2006] and [RG2007] name the options and the extensions of a Mathlib project in their closed lists (`Regula.Allowlist`), and no kept rule has a branch for Mathlib. A real Mathlib project checks that integration: Acorn's gate runs Regula, so a change of Regula that breaks a Mathlib project fails there, when Acorn takes the change, not in this repository's merge gate. That is an accepted risk of the [specification](../../specification/README.md#the-mathlib-integration-package).
 
-| Mathlib-specific behaviour | Where it is exercised |
-| --- | --- |
-| A surface that imports Mathlib must enable Mathlib's standard linter set with the §6.7 exclusions ([RG2006]) | `mathlibLinters` in the package's `lakefile.lean`, on the `MathlibAudit` target |
-| Warning-free elaboration under that linter set ([RG2003]) | Every `MathlibAudit` module |
-| Exact foundation labels through Mathlib dependencies, including `Classical.choice` reached through `ℝ` | `MathlibAudit.DocPrelude`, `MathlibAudit.DocClaims`, `MathlibAudit.Models` |
-| Mathlib syntax, tactics and canonical structures in claimed declarations (`Type*`, `ring`, `norm_num`, `LinearOrder.lift'`, `unitInterval`, `IsOrderedAddMonoid`, `MetricSpace`) | `MathlibAudit.Refinement`, `MathlibAudit.Economy`, `MathlibAudit.DocClaims`, `MathlibAudit.Models` |
-| Material-claim registration on a Mathlib surface | `MathlibAudit.Refinement` |
-| Statements about Mathlib's own definitions (`Nat.Perfect`, `Relation.ReflTransGen`, `Even`) | `MathlibAudit.Research`, `MathlibAudit.Refinement`, `MathlibAudit.Basic` |
-| `lake lint` through the `regula/lint` driver in a Mathlib project | The package's `lintDriver` |
-
-These modules are the Mathlib forms of lessons whose Lean/Std forms the standard displays. The
-standard links five of them where it teaches the lesson: `MathlibAudit.Models`,
-`MathlibAudit.DocClaims`, `MathlibAudit.Economy`, `MathlibAudit.Refinement` and
-`MathlibAudit.Research`. It has no link to `MathlibAudit.Basic` (small positive controls) or
-`MathlibAudit.DocPrelude` (the real-valued glossary types that `MathlibAudit.DocClaims` imports).
-Run the check with its own setup:
-
-```sh
-lean --run lean/RegulaProvision.lean mathlib   # setup: the shared, read-only Mathlib (network on first use)
-./scripts/verify.sh mathlib                    # the check, under its own seven-minute limit
-```
-
-`./scripts/verify.sh mathlib` first refuses a copy the check does not apply to, or whose Mathlib is
-not provisioned (`lean --run lean/RegulaProvision.lean mathlib-applies --require`). Then it builds
-the package with warnings as errors (`lake build --wfail`) and runs `lake lint` there, against its
-own `foundation_manifest.json`. It is never
-part of acceptance and no acceptance step, diagnostic or site build depends on it. The
-[local gate](#the-local-gate) runs it for each change, and the `mathlib integration` job of
-[`ci.yml`](../../.github/workflows/ci.yml) runs it on dispatch. That job is the only job that
-restores or provisions Mathlib.
-
-Its result is about the Lean toolchain in `integration/mathlib/lean-toolchain` and the Mathlib
-revision pinned in `integration/mathlib/lake-manifest.json`, and about nothing else. The proved decision
-`RegulaProvision.mathlibApplies` (`mathlibApplies_iff`) accepts exactly when the root and
-integration toolchain selectors are equal. A mismatch fails setup and the integration check.
-The local gate runs that check for each change.
-
-### Share one Mathlib across local copies
-
-Every local copy uses one unpacked Mathlib per pinned revision and exact released compiler instead of
-its own. The pin is the last `mathlib` entry of `integration/mathlib/lake-manifest.json` and its package
-overrides file; the root, `audit/` and `website/` packages pin no Mathlib.
-[`lean/RegulaProvision.lean`](../../lean/RegulaProvision.lean), run with the `mathlib` argument, unpacks Mathlib's
-archive cache (`~/.cache/mathlib`) once into
-`~/.cache/mathlib-packages/<mathlib-rev>-lean-<toolchain-commit>/` (under
-`$XDG_CACHE_HOME` instead of `~/.cache` when that is set), compiles every
-module's native object there (executables that import Mathlib link them), makes it
-read-only, and links the copy's `integration/mathlib/.lake/packages/mathlib` to it. The rest of Mathlib's closure
-(Batteries, Aesop, ...) becomes writable independent copies, since executables compile
-native objects into them. The integration package keeps its own packages directory, so its pins
-are independent of the website's; the example adopters under `examples/` require only `regula` and
-need no packages directory. Run `lean --run lean/RegulaProvision.lean mathlib` in a copy before the first Lake command in
-`integration/mathlib/`, which would otherwise clone and build a per-copy Mathlib. `./scripts/provision.sh`,
-which `./scripts/verify.sh` runs before its deadline, acquires no Mathlib. The first run for a new pin needs the network; later copies reuse the
-sealed artifacts. The receipt `regula-provisioned.json` in the shared directory records its
-revisions, compiler and artifact mode. A clean per-copy Mathlib checkout is replaced by the link; one with local
-changes, stashes or commits that no remote-tracking branch holds is refused. Before acquiring a
-shared store or changing registrations and packages, provisioning requires each existing package
-link to identify a stable store with an admissible receipt. Source-origin, unknown and dangling
-links are preserved and refused; their disposition remains manual.
-
-Provisioning makes the link `mathlib` in a new directory `.mathlib.<nonce>` beside the place of
-the link. Then it moves the link to its place. If an entry is at the place of that directory, the
-link installation stops and changes nothing. A run that stops before it removes that directory can
-leave it. Remove such a directory by hand.
-
-The steps of a run before the link installation are not undone when it stops. Thus the packages
-directory, the shared directory and the registration of the copy can remain. On a replacement, the
-old `mathlib` entry is already removed.
-
-Each shared directory's registry `<dir>.copies.json` beside it records the copies provisioned
-to link it; a copy is registered before it links. Every provisioning run removes the shared
-directories of other stable pins and toolchains that no
-registered copy still links, and drops the
-registrations of copies that are gone or link elsewhere. Only a directory whose receipt names
-it with a decodable stable receipt is removed; this retention step leaves staging directories,
-source stores and anything else there as they are. Before creating a missing stable store,
-provisioning separately removes abandoned staging directories with that store's exact stable-key
-prefix. A stable-store removal a killed run began is
-finished by the next run. A copy left with a dangling link requires manual disposition before
-provisioning can continue. One lock,
-`~/.cache/mathlib-packages/regula-provision.lock`, orders creation, registration and removal,
-so copies wait while another copy creates a new pin.
-
-A copy provisioned before the Mathlib integration package existed linked Mathlib at the root
-`.lake/packages/mathlib`, which no package uses any more. Its next
-`lean --run lean/RegulaProvision.lean mathlib` removes that link when it is a symbolic link that
-a shared directory's registry records and that still resolves to that directory's Mathlib
-(`RegulaProvision.retires`, `retires_iff`), and drops its registration, so the link no longer keeps
-a shared directory. Nothing else is removed from the copy: a real directory there, an
-unregistered link and a dangling one stay as they are. A copy that will not provision Mathlib
-again keeps the link, and the shared directory it names, until the link is removed by hand
-(`rm .lake/packages/mathlib` removes only the link). The same earlier provisioning left writable
-clones of the rest of Mathlib's closure in the root `.lake/packages`: `batteries`, `aesop`, `Qq`,
-`proofwidgets`, `importGraph` and `LeanSearchClient`. No manifest names them there now and
-provisioning never deletes them; after checking that they hold no work of yours, remove them once
-by hand:
-
-```sh
-rm -rf .lake/packages/{batteries,aesop,Qq,proofwidgets,importGraph,LeanSearchClient}
-```
-
-- Do not run Mathlib's `cache get` locally (`lake exe cache get` in `integration/mathlib/`): it unpacks a full
-  Mathlib into the copy, and with the link in place it fails on the read-only directory. A Lake write into the shared
-  Mathlib fails the same way, which is how an unintended rebuild shows up.
-- Write probes that need Mathlib as single files under `tmp/` and check them with
-  `lake -d integration/mathlib env lean tmp/Probe.lean`; a separate Lake project there would fetch its own
-  Mathlib. A probe that needs only the checker uses `lake env lean tmp/Probe.lean`.
 - The first acceptance step's copy lives in `.lake/regula-scratch/`, beside an ownership marker
   `<name>.owner`. The copy of a killed run (for example at the seven-minute limit) is reclaimed
   by the next acceptance run while no other run in the copy holds scratch; only marked
   directories there are removed. Scratch outside `.lake/regula-scratch/` is never reclaimed;
   remove it by hand.
-- GitHub Actions fetches Mathlib's published artifacts into the integration job's writable `integration/mathlib/.lake/packages`, where later builds compile the native objects they link. Only a local read-only shared directory needs those objects built in advance. CI cache keys include the platform, exact released compiler identity and pinned manifests. A shared directory is never modified, only removed whole.
-
-Existing stable shared-store receipts and keys remain compatible. A receipt whose origin is `source` fails decoding; its store is neither reused nor pruned. Removed source-mode and snapshot configuration files are refused during setup. Provisioning does not migrate or delete source stores.
-
 Run `lean --run lean/RegulaProvision.lean verso` to provision the pinned Verso. The default provisioning command validates the released compiler. It acquires one dependency: a full Git clone, in `.lake/regula-provision/lean-intent`, of the lean-intent commit that `specification/lake-manifest.json` pins. Verification invokes commands directly with their declared arguments and working directories. The existing setup and acceptance deadlines still apply. Git, package build hooks, compiler binaries, cache storage, process execution and filesystem operations remain trusted boundaries.
 
 [AGENTS.md](../../AGENTS.md#changes-and-verification) owns verification and merge policy.
@@ -222,8 +103,7 @@ The merge gate of a change is the local gate, `lean --run lean/Regula/Diagnostic
 1. `lean --run lean/RegulaProvision.lean verso`, the provisioning of the pinned Verso.
 2. `lean --run lean/Regula/Release.lean unreleased` and `lean --run lean/Regula/Release.lean agree`, the release checks.
 3. `./scripts/verify.sh` and `./scripts/verify.sh docs`, the two acceptance steps. The first step runs the checker on the build of Regula itself.
-4. `lean --run lean/RegulaProvision.lean mathlib` and `./scripts/verify.sh mathlib`, the [Mathlib integration check](#mathlib-integration-check).
-5. `lake build site AuditApp` and `lake build Audit` in `audit/`, the builds of the tools of the rule-reference site.
+4. `lake build site AuditApp` and `lake build Audit` in `audit/`, the builds of the tools of the rule-reference site.
 
 The gate leaves out `./scripts/verify.sh site`. That check reads the tags of the repository with no credentials, thus it fails while the repository is private. The `site` job of [`ci.yml`](../../.github/workflows/ci.yml) runs it on `main`.
 
@@ -243,7 +123,7 @@ not claimed as formally verified Lean implementations.
 
 ## Repository conformance
 
-This repository applies the standard to its own code. The root [`foundation_manifest.json`](../../foundation_manifest.json) and [`audit/foundation_manifest.json`](../../audit/foundation_manifest.json) classify its claimed surfaces. The Mathlib integration package has its own [`foundation_manifest.json`](../../integration/mathlib/foundation_manifest.json), and only the [Mathlib integration check](#mathlib-integration-check) checks it. Acceptance runs the checker on the first two, after a build with warnings as errors.
+This repository applies the standard to its own code. The root [`foundation_manifest.json`](../../foundation_manifest.json) and [`audit/foundation_manifest.json`](../../audit/foundation_manifest.json) classify its claimed surfaces. Acceptance runs the checker on the first two, after a build with warnings as errors.
 
 - `Audit` is the claimed surface of the `audit/` package. It imports only the core libraries of Lean, and it requires the checker by its path, as an adopter can. `audit/Audit/` holds mathematical models, proofs and executable examples, not the checker.
 - `AuditApp` and its claimed `auditApp` executable apply the complete-program contracts of standard [§3.7](https://rbeauchamp.github.io/regula/dev/standard/3-logic-proof-patterns/#37-a-compositional-method-for-complete-program-contracts) to their actual definitions. `RequiredContracts` states the required propositions, and `required_contracts` supplies their proofs. In `report` mode, the `IO` shell and the native mechanisms that it reaches are execution boundaries.
@@ -271,16 +151,14 @@ Regula's own code follows the community conventions that
 [standard §6.7](https://rbeauchamp.github.io/regula/dev/standard/6-code-organization/#67-community-conventions-and-linters)
 requires of claimed code:
 
-- **Style and naming.** Regula's libraries build on Lean core (only the Mathlib integration
-  package's `MathlibAudit` imports Mathlib), so they follow Lean core's
+- **Style and naming.** Regula's libraries build on Lean core, so they follow Lean core's
   [style guide](https://github.com/leanprover/lean4/blob/master/doc/std/style.md), for example
   `fun x =>` rather than Mathlib's preferred `fun x ↦`, and the shared case rules of the
   [naming conventions](https://github.com/leanprover/lean4/blob/master/doc/std/naming.md):
   proofs, including `ExecutableContract` registrations, in `snake_case`; propositions and
   types in `UpperCamelCase`; other terms in `lowerCamelCase`.
 - **Options and linters.** Every library and executable builds with `autoImplicit` and
-  `relaxedAutoImplicit` off and `linter.missingDocs` on (the package `leanOptions`); `MathlibAudit` also enables Mathlib's standard linter set
-  with the §6.7 exclusions (`mathlibLinters` in `integration/mathlib/lakefile.lean`). [RG2006] checks these options on the claimed targets. Declare universes and
+  `relaxedAutoImplicit` off and `linter.missingDocs` on (the package `leanOptions`). [RG2006] checks the first two on the claimed targets, and that each option is on its allowlist. Declare universes and
   implicit binders explicitly, and give every public declaration, constructor and field a
   docstring that states what it is or guarantees, no more than its definition and proofs
   establish (standard §5.1).
@@ -470,7 +348,7 @@ project. This check is check C9 of the [writing rules](writing.md), and the writ
 its definition.
 
 The decisions are in [`RegulaCore/Vocabulary.lean`](../../lean/RegulaCore/Vocabulary.lean). Each
-decision has a decision contract and the attribute `regula_decision`. The definitions of a word
+decision has a decision contract and the registration `Regula.RegisteredDecision`. The definitions of a word
 and of a sentence are in
 [`RegulaCore/ControlledText.lean`](../../lean/RegulaCore/ControlledText.lean). The function
 `vocabularyOf` in [`markdown/MarkdownMain.lean`](../../markdown/MarkdownMain.lean) uses these
@@ -509,7 +387,7 @@ no baseline, B2 compares the baseline with the Markdown documents of the base re
 The decisions are in
 [`RegulaCore/ControlledProse.lean`](../../lean/RegulaCore/ControlledProse.lean) and
 [`RegulaCore/ProseBaseline.lean`](../../lean/RegulaCore/ProseBaseline.lean). Each decision has a
-decision contract and the attribute `regula_decision`.
+decision contract and the registration `Regula.RegisteredDecision`.
 
 The start of the check gives the base revision of check B2. The
 [writing rules](writing.md#the-baseline) give the base revision for each start. The workflow
@@ -872,4 +750,5 @@ Git requires such as `rev = "v0.2.0"` name the tag directly and involve no versi
 [RG2004]: https://rbeauchamp.github.io/regula/dev/rules/RG2004/
 [RG2005]: https://rbeauchamp.github.io/regula/dev/rules/RG2005/
 [RG2006]: https://rbeauchamp.github.io/regula/dev/rules/RG2006/
+[RG2007]: https://rbeauchamp.github.io/regula/dev/rules/RG2007/
 [RG5001]: https://rbeauchamp.github.io/regula/dev/rules/RG5001/

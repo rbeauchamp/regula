@@ -47,8 +47,7 @@ retained rather than replaced by a library structure because no pinned
 Core/Std class states an inflationary binary operation together with a
 natural-number monotone measure; the `Nat` instance reuses core's
 `Nat.le_max_left` and `Nat.min_le_left` instead of re-proving them. The same
-mixin over Mathlib's `Preorder` and a real-valued measure is
-`MathlibAudit.Economy` in the Mathlib integration package (`integration/mathlib/`).
+mixin can be stated over Mathlib's `Preorder` with a real-valued measure.
 -/
 
 namespace Economy

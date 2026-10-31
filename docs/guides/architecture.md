@@ -8,7 +8,7 @@ The root `regula` package is the package that adopters require. It requires noth
 
 | Library | Role | Claim |
 | --- | --- | --- |
-| `RegulaInterface` | The checker interfaces that adopters import: executable contracts and decision kinds (`Regula.Contract`), decision registration (`Regula.Decision`), material claims and assumptions. | Claimed, Standard-Logical |
+| `RegulaInterface` | The checker interfaces that adopters import: executable contracts and decision kinds (`Regula.Contract`), decision registration (`Regula.Decision`) and assumptions. | Claimed, Standard-Logical |
 | `RegulaPolicy` | Pure policy types and decisions that the registry, the manifest reader and the option allowlist read. | Claimed, Standard-Logical |
 | `RegulaCore` | The rule registry, the guidance and setup decisions of the `regula` command, the decisions of the site and of the Markdown checks, and the shared filesystem constructor. | Claimed, Standard-Logical |
 | `RegulaQualification` | The assertions that the programs of the site evaluate (`RegulaQualification.Checks`). | Claimed, Standard-Logical |
@@ -16,7 +16,7 @@ The root `regula` package is the package that adopters require. It requires noth
 | `AuditApp`, with the executable root `Main` | A complete application, with contracts that are proved about the definitions that its executable runs. | Claimed, Standard-Logical |
 | `Regula` | The checker of a finished build, the manifest reader, the `regula` command, the site builder, the local gate, the release checks and the registry checks. | Excluded |
 
-The `regula_audit` package in [`audit/`](../../audit/lakefile.lean) holds the `Audit` library of the examples of the standard. It requires the root package by its path, as an adopter does. The Verso package in [`website/`](../../website/) renders the standard and the rule reference. The `regula_markdown` package in [`markdown/`](../../markdown/lakefile.toml) reads the tracked Markdown documents with md4c for the documentation step. The `regula_mathlib` package in [`integration/mathlib/`](../../integration/mathlib/lakefile.lean) is a Mathlib adopter of the root package. The [Mathlib integration check](contributing.md#mathlib-integration-check) builds it and runs the checker on it.
+The `regula_audit` package in [`audit/`](../../audit/lakefile.lean) holds the `Audit` library of the examples of the standard. It requires the root package by its path, as an adopter does. The Verso package in [`website/`](../../website/) renders the standard and the rule reference. The `regula_markdown` package in [`markdown/`](../../markdown/lakefile.toml) reads the tracked Markdown documents with md4c for the documentation step.
 
 The `regula_specification` package in [`specification/`](../../specification/lakefile.toml) holds the formal statements of the [specification of the smaller Regula](../../specification/README.md). It requires lean-intent and the root package. The first acceptance step builds it in its copy, with warnings as errors.
 
@@ -66,7 +66,7 @@ the rows whose review or mechanical check the clauses feed, not that those rows 
 | 4.1–4.4 | TYPE-01–05, THEOREM-01/02/07/08, SCOPE-02/03. Numeric and mathematical-interface adequacy are specified-domain obligations. |
 | 4.5 | FOUND-01–05, BUILD-02, COMP-01. The exact least label is reported separately from the selected maximum and from executable witnesses. |
 | 5.1–5.4 | DOC-01/02, THEOREM-01, SCOPE-02. [RG5001] to [RG5003] are retired to written guidance. Thus review checks the presence and placement of docstrings, prose fidelity, intent adequacy and readability. |
-| 6.1–6.7 | DECL-01/04 (acyclic imports and actual elaboration), DOC-01, TYPE-06, SCOPE-04. Naming, import minimality and layout are recommendations. The §6.7 community linters are required configuration: [RG2003] rejects their warnings, [RG2006] checks their Lake enablement and rejects a target-wide disable, and every declaration-scoped disable (§6.2) is DECL-01 review. Module-docstring placement (§5.3) and repeated imports (§6.4) are the written guidance of [RG5001], which review checks. Batteries' environment linters are recommended; no community linter discharges a row. |
+| 6.1–6.7 | DECL-01/04 (acyclic imports and actual elaboration), DOC-01, TYPE-06, SCOPE-04. Naming, import minimality and layout are recommendations. The §6.7 community-linter settings are written guidance that review checks. [RG2006] checks the target options under §6.2, without requiring community linters to be enabled. [RG2003] rejects emitted warnings. Review checks every declaration-scoped disable (§6.2). Module-docstring placement (§5.3) and repeated imports (§6.4) are the written guidance of [RG5001], which review checks. Batteries' environment linters are recommended. No community linter discharges a row. |
 | 7.1–7.5 | DECL-01–04, FOUND-01–05, THEOREM-01/07. Exact environment, ownership, admission, attribution and contract scope. |
 | 7.6–7.7 | COMP-01–04, DOC-03–05. Conservative compiler closure, and the fence protocol of documentation examples, which review checks. |
 | 7.8–7.9 | MUT-01–05; checker qualification and the optional serialized graph are conditional. |

@@ -6,7 +6,7 @@ The gate of a change is the local gate (`localSteps`), which the no-mistakes val
 runs on each commit it validates (its `commands.test` in `.no-mistakes.yaml`). It runs, one after
 another in the checkout, the steps of the CI workflow's jobs that check a change, after the
 provisioning those jobs make: the release checks, the two acceptance steps (the first of which runs
-Regula's checker on Regula's own build, the self-check), the Mathlib integration check, and the
+Regula's checker on Regula's own build, the self-check), and the
 builds of the site's tools and of the example library. It runs with the pinned toolchain alone, so
 it needs no build before it starts:
 
@@ -52,9 +52,8 @@ def Step.command : Step → String × List String × String
   | .run program arguments dir => (program, arguments, dir)
 
 /-- The steps of the local gate, in order: CI's `verify` job, which provisions pinned Verso for
-the documentation step, runs the release checks and the two acceptance steps; its `mathlib` job,
-which provisions the pinned Mathlib and runs the integration check; and the builds of its `site`
-job before the site's check, which the gate leaves out. -/
+the documentation step, runs the release checks and the two acceptance steps; and the builds of its
+`site` job before the site's check, which the gate leaves out. -/
 def localSteps : List Step :=
   let program (file : String) (arguments : List String) : Step :=
     .run "lean" ("--run" :: file :: arguments) "."
@@ -62,7 +61,6 @@ def localSteps : List Step :=
     program "lean/Regula/Release.lean" ["unreleased"],
     program "lean/Regula/Release.lean" ["agree"],
     .verify [], .verify ["docs"],
-    program "lean/RegulaProvision.lean" ["mathlib"], .verify ["mathlib"],
     .run "lake" ["build", "site", "AuditApp"] ".",
     .run "lake" ["build", "Audit"] "audit"]
 

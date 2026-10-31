@@ -13,7 +13,7 @@ prints. This module holds only the longer site and `regula explain` prose.
 
 ## Main declarations
 
-- `NonemptyText`, `text!`: text that has no empty value, written as a string literal.
+- `NonemptyText`: text that has no empty value, written as its first character and the rest.
 - `Guide`: the required sections of a rule explanation.
 - `guide`: the explanation of each registered rule.
 - `Guide.WellFormed`, `guide_wellFormed`: every required field of every rule is a nonempty
@@ -46,7 +46,7 @@ whether a string literal is empty reduces the literal in the kernel, at a cost t
 length: on Lean v4.35.0 the kernel turns a literal into `String.ofList` of its characters
 (`string_lit_to_constructor`, `src/kernel/inductive.cpp`), and its bytes are
 `List.toByteArray`, whose loop pushes every byte before it returns any
-(`Init/Prelude.lean`). Write one with `text! "…"`. -/
+(`Init/Prelude.lean`). Write one as `.mk 'A' " rule"`, whose first character is outside the string. -/
 structure NonemptyText where
   /-- The first character. -/
   head : Char
@@ -80,50 +80,7 @@ instance : HAppend NonemptyText String NonemptyText := ⟨fun t s => ⟨t.head, 
 theorem toString_append (t : NonemptyText) (s : String) : (t ++ s).toString = t.toString ++ s :=
   String.append_assoc.symm
 
-/-- The text of a nonempty string, split into its first character and the rest; `none` for the
-empty string (`ofString?_eq_none_iff`). The split renders as the string it came from
-(`toString_ofString?`). -/
-def ofString? (s : String) : Option NonemptyText :=
-  match s.toList with
-  | [] => none
-  | c :: cs => some ⟨c, String.ofList cs⟩
-
-/-- A text `ofString?` gives renders as the string it was given. -/
-theorem toString_ofString? {s : String} {t : NonemptyText} (split : ofString? s = some t) :
-    t.toString = s := by
-  unfold ofString? at split
-  split at split
-  · cases split
-  · next c cs chars =>
-    cases split
-    apply String.toList_inj.mp
-    rw [toString, String.toList_append, String.toList_singleton, String.toList_ofList, chars]
-    rfl
-
-/-- `ofString?` refuses exactly the empty string. -/
-theorem ofString?_eq_none_iff {s : String} : ofString? s = none ↔ s = "" := by
-  rw [← String.toList_eq_nil_iff]
-  unfold ofString?
-  split <;> simp_all
-
 end NonemptyText
-
-/-- `text! "…"` is the `NonemptyText` of a nonempty string literal: its first character and the
-rest, split by `NonemptyText.ofString?` when the literal is elaborated, so the text renders as the
-literal (`toString_ofString?`). An empty literal is an elaboration error.
-
-Assumes:
-- Lean v4.35.0 `Init/Meta/Defs.lean` (`TSyntax.getString`, line 1354): the literal's value is
-  `isStrLit?`, the decoding that `elabStrLit` (`Lean/Elab/BuiltinTerm.lean`, line 198) gives an
-  ordinary string literal.
-- Lean v4.35.0 `Init/Meta/Defs.lean` (`Syntax.mkCharLit` and `Syntax.mkStrLit`, lines 867 and
-  875): the literals they write with `Char.quote` and `String.quote` (`Init/Data/Repr.lean`, lines
-  383 and 400) elaborate back to the character and string given (`elabCharLit` and `elabStrLit`,
-  `Lean/Elab/BuiltinTerm.lean`, lines 248 and 198, through `decodeCharLit` and `decodeStrLit`). -/
-local macro "text! " literal:str : term =>
-  match NonemptyText.ofString? literal.getString with
-  | some t => `(NonemptyText.mk $(Lean.Syntax.mkCharLit t.head) $(Lean.Syntax.mkStrLit t.tail))
-  | none => Lean.Macro.throwErrorAt literal "`text!` needs a nonempty string literal"
 
 /-- The explanation sections of one rule page, in page order. `residuals` are the review
 obligations a result of this rule never discharges; `checklist` names the module 8 checklist rows
@@ -184,7 +141,7 @@ theorem Guide.wellFormed_iff_listsNonempty (g : Guide) : g.WellFormed ↔ g.List
 /-- Shared statement: the linkage of a kept rule, whose subjects the function `function` reports
 against the predicate `predicate` of the specification module `file`. -/
 private def keptLinkage (function predicate file : String) : NonemptyText :=
-  (text! "The function `") ++ (function ++ "` reports the subjects of `RegulaSpecification." ++
+  (NonemptyText.mk 'T' "he function `") ++ (function ++ "` reports the subjects of `RegulaSpecification." ++
     predicate ++ "`, which `specification/RegulaSpecification/" ++ file ++ "` states. No \
     theorem yet states that it reports exactly those subjects: issue #487 proves it. The \
     shell's read of the build through Lake's load and Lean's import of the `.olean` files \
@@ -208,7 +165,7 @@ private def notReported : String :=
 
 /-- Shared statement: the linkage of a documentation rule that is retired. -/
 private def retiredLinkage : NonemptyText :=
-  text! "None. No check reports this rule. The specification gives it the fate retired \
+  .mk 'N' "one. No check reports this rule. The specification gives it the fate retired \
     (`RegulaSpecification.fate`), and the registry records the retirement in its lifecycle."
 
 /-- Shared statement: foundation labels. -/
@@ -229,7 +186,7 @@ private def axiomSet : String :=
 /-- The explanation of each rule. -/
 def guide : RuleId → Guide
   | .projectAxiom => {
-      problem := text! "A declaration owned by a claimed module is a logical `axiom`. Lean accepts \
+      problem := .mk 'A' " declaration owned by a claimed module is a logical `axiom`. Lean accepts \
         an axiom without evidence, so every theorem that uses it is only conditional on an \
         assumption that no proof discharges."
       trigger := [
@@ -271,7 +228,7 @@ def guide : RuleId → Guide
         "specification/RegulaSpecification/Foundation.lean",
         "website/RegulaStandard/LogicProofPatterns.lean"] }
   | .proofHole => {
-      problem := text! "The declaration depends on `sorryAx`: a `sorry`, an `admit`, an unfinished \
+      problem := .mk 'T' "he declaration depends on `sorryAx`: a `sorry`, an `admit`, an unfinished \
         tactic proof, or an imported declaration with such a hole occurs in its transitive axiom \
         set. The proposition is not proved."
       trigger := [
@@ -309,7 +266,7 @@ def guide : RuleId → Guide
       sources := ["lean/Regula/Rules.lean", "lean/Regula/Load.lean",
         "specification/RegulaSpecification/Foundation.lean"] }
   | .unknownAxiom => {
-      problem := text! "A declaration's transitive axiom set contains an axiom outside Lean's \
+      problem := .mk 'A' " declaration's transitive axiom set contains an axiom outside Lean's \
         standard logical foundation (`propext`, `Quot.sound` and `Classical.choice` of the \
         toolchain) that is neither `sorryAx` (RG1002) nor the axiom of a native proof (RG1004)."
       trigger := [
@@ -348,7 +305,7 @@ def guide : RuleId → Guide
       sources := ["lean/Regula/Rules.lean", "lean/Regula/Load.lean",
         "specification/RegulaSpecification/Foundation.lean"] }
   | .compilerTrusting => {
-      problem := text! "A declaration of a claimed module depends on the axiom that a native proof \
+      problem := .mk 'A' " declaration of a claimed module depends on the axiom that a native proof \
         adds. `native_decide`, `decide +native` and `bv_decide` evaluate with compiled code and \
         add an axiom that asserts the result. The proof then trusts compiled code and the Lean \
         compiler, not the kernel."
@@ -390,7 +347,7 @@ def guide : RuleId → Guide
       sources := ["lean/Regula/Rules.lean", "lean/Regula/Load.lean",
         "specification/RegulaSpecification/Foundation.lean"] }
   | .profileExceeded => {
-      problem := text! "A declaration's transitive axiom set has an axiom that the profile of its \
+      problem := .mk 'A' " declaration's transitive axiom set has an axiom that the profile of its \
         surface does not admit: its least foundation label is stronger than the claim of the \
         surface it belongs to."
       trigger := [
@@ -434,7 +391,7 @@ def guide : RuleId → Guide
         "specification/RegulaSpecification/Foundation.lean",
         "website/RegulaStandard/MathematicalFoundations.lean"] }
   | .escapeHatch => {
-      problem := text! "A declaration of a claimed module is `unsafe` or `partial`, and it is not \
+      problem := .mk 'A' " declaration of a claimed module is `unsafe` or `partial`, and it is not \
         the recursion helper that Lean adds for a safe recursive definition."
       trigger := [
         "`Regula.Closed.Input.declarationFindings` reports a constant of a claimed module that \
@@ -476,7 +433,7 @@ def guide : RuleId → Guide
       sources := ["lean/Regula/Rules.lean", "lean/Regula/Load.lean",
         "specification/RegulaSpecification/Execution.lean"] }
   | .executableContract => {
-      problem := text! "An `ExecutableContract f R` of a claimed module does not constrain the \
+      problem := .mk 'A' "n `ExecutableContract f R` of a claimed module does not constrain the \
         code that callers run: it applies its implementation to arguments, the implementation is \
         not safe, total and computable, or a decision contract states its specification through \
         the implementation."
@@ -530,7 +487,7 @@ def guide : RuleId → Guide
         "That `R` expresses the intended behavior (R-INTENT) and that each caller uses the \
           contracted implementation (R-INVARIANT).",
         "That a function acting as a checker is registered: RG1008 requires a decision contract \
-          only of a function that the project registers with `@[regula_decision]`.",
+          only of a function that the project registers with `Regula.RegisteredDecision`.",
         "For a decision contract: that the specification is independent of the implementation in \
           substance. A specification can restate the body of `f` without its name, and a copy of \
           `f` under a different name passes. Shared Boolean tests are RG1009.",
@@ -559,20 +516,21 @@ def guide : RuleId → Guide
       sources := ["lean/Regula/Contract.lean", "lean/Regula/Rules.lean", "lean/Regula/Load.lean",
         "specification/RegulaSpecification/Contracts.lean"] }
   | .decisionContract => {
-      problem := text! "A function registered as a decision with `@[regula_decision]` has no \
+      problem := .mk 'A' " function registered as a decision with `Regula.RegisteredDecision` has no \
         decision contract in a claimed module, and its result type is not `Decidable _`. Nothing \
         then states whether the function accepts only what its specification allows, everything \
         its specification allows, or both."
       trigger := [
-        "The loader reads the registrations from the module entries of `Regula.decisionExtension` \
-          in the `.olean` files that each environment loads. A registration counts in each \
-          environment that loads the module that wrote it.",
+        "The loader reads the registrations from the types of the constants of claimed modules \
+          (`Regula.Load.registrationOf`): a constant of type `Regula.RegisteredDecision f` \
+          registers the function `f`. A registration counts in each environment that loads its \
+          module.",
         "`Regula.Closed.Input.contractFindings` reports a registered function of a claimed module \
           when its result type is not `Decidable _` and no theorem of a claimed module in the \
           same environment is a decision contract (RG1007) about it.",
         "The rule reads each environment apart, and a contract counts only where its module is \
           loaded. So write the registration where the contract's environment loads it, such as \
-          with `attribute [regula_decision] f` beside the contract."]
+          with `theorem f_registered : Regula.RegisteredDecision @f := ⟨⟩` beside the contract."]
       rationaleDetail := [
         "Standard §7.5 requires that removing evidence while its requirement remains fails the \
           gate. For a contract no caller consumes through `ExecutableContract.run`, deleting the \
@@ -587,7 +545,7 @@ def guide : RuleId → Guide
           each environment of the registration loads. RG1007 gives the shape of the contract.",
         "Or a result type `Decidable (spec x)`, as a `DecidablePred spec` instance has."]
       established := [
-        "Each function that a claimed module registers with `@[regula_decision]`, and whose result \
+        "Each function that a claimed module registers with `Regula.RegisteredDecision`, and whose result \
           type is not `Decidable _`, is the implementation of a decision contract of a claimed \
           module in each environment that holds the registration.",
         "Removing that contract while the registration stays is reported."]
@@ -600,10 +558,10 @@ def guide : RuleId → Guide
           outcomes occur, or that the instance is computable.",
         "That callers act on the function's verdict (R-INVARIANT)."]
       configuration := [
-        "`@[regula_decision]` is declared in `Regula.Decision`, a published checker interface a \
-          claimed module may import: `import Regula.Decision`, or `meta import Regula.Decision` \
-          in a file that is a `module`. Write it on the definition (`@[regula_decision] def \
-          f`), or with `attribute [regula_decision] f` in a module that imports `f`."]
+        "`Regula.RegisteredDecision` is declared in `Regula.Decision`, a published checker interface \
+          a claimed module may import: `import Regula.Decision`, or `public import \
+          Regula.Decision` in a file that is a `module`. Write `theorem f_registered : \
+          Regula.RegisteredDecision @f := ⟨⟩` in a module that imports `f`."]
       limitations := [
         "A contract in a module that an environment of the registration does not load does not \
           count there. Put the registration beside the contract, or the contract beside the \
@@ -624,7 +582,7 @@ def guide : RuleId → Guide
       sources := ["lean/Regula/Decision.lean", "lean/Regula/Rules.lean", "lean/Regula/Load.lean",
         "specification/RegulaSpecification/Contracts.lean"] }
   | .sharedTest => {
-      problem := text! "The specification of a decision contract and its implementation, or its \
+      problem := .mk 'T' "he specification of a decision contract and its implementation, or its \
         acceptance predicate, both reach one function with a result of `Bool` or `BEq`. The \
         specification then states the condition with the test that the function runs. The kind \
         is a theorem that compares the test with itself at that point, so it does not state \
@@ -696,7 +654,7 @@ def guide : RuleId → Guide
       sources := ["lean/Regula/Rules.lean", "lean/Regula/Load.lean",
         "specification/RegulaSpecification/Contracts.lean", "lean/Regula/Contract.lean"] }
   | .environment => {
-      problem := text! "The shell could not load the finished build, or the input it loaded does \
+      problem := .mk 'T' "he shell could not load the finished build, or the input it loaded does \
         not have the closed form. The run cannot decide the rules, so the result is INCOMPLETE, \
         not a violation of the source."
       trigger := [
@@ -733,7 +691,7 @@ def guide : RuleId → Guide
           (`Lean.readModuleData`) is an assumption, as the specification states."]
       residuals := [.qualify]
       checklist := ["DECL-01", "DECL-04"]
-      linkage := text! "None for the read of the build: `Regula.Load.loadBundle` reads it through \
+      linkage := .mk 'N' "one for the read of the build: `Regula.Load.loadBundle` reads it through \
         Lake's and Lean's own interfaces, which are trusted. `Regula.Closed.run` gives INCOMPLETE \
         when `Regula.Closed.Bundle.refusal?` refuses the bundle, a search exhausts its budget or \
         a rule reads an axiom set that the loader did not compute, by its definition and with no \
@@ -743,7 +701,7 @@ def guide : RuleId → Guide
       sources := ["lean/Regula/Load.lean", "lean/Regula/Input.lean", "lean/Regula/Shell.lean",
         "specification/RegulaSpecification/Gate.lean"] }
   | .configuration => {
-      problem := text! "The claim in `foundation_manifest.json` does not classify each library \
+      problem := .mk 'T' "he claim in `foundation_manifest.json` does not classify each library \
         and executable of the root package exactly once, names a target that Lake does not have, \
         classifies an executable differently from a library that contains its root module, or \
         claims a target that is not a default target."
@@ -784,7 +742,7 @@ def guide : RuleId → Guide
       sources := ["lean/Regula/Checker/Manifest.lean", "lean/Regula/Rules.lean",
         "lean/Regula/Load.lean", "specification/RegulaSpecification/Project.lean"] }
   | .sourceBuild => {
-      problem := text! "The claimed source did not elaborate warning-free: its build failed or \
+      problem := .mk 'T' "he claimed source did not elaborate warning-free: its build failed or \
         logged a warning."
       trigger := [
         "Regula's checker does not report this rule. The specification hands it to Lake: \
@@ -817,12 +775,12 @@ def guide : RuleId → Guide
           what the kernel checks or the axiom sets, as the specification states."]
       residuals := [.qualify]
       checklist := ["DECL-01", "BUILD-01", "DOC-01"]
-      linkage := text! "None of Regula. The property is Lake's: at v4.35.0 `--wfail` sets the \
+      linkage := .mk 'N' "one of Regula. The property is Lake's: at v4.35.0 `--wfail` sets the \
         level that fails the build (`Lake/CLI/Main.lean`), and a job that logs a message at that \
         level fails (`Lake/Build/Run.lean`). Regula's checker does not observe the elaboration."
       sources := ["specification/README.md", "specification/RegulaSpecification/Fates.lean"] }
   | .coverage => {
-      problem := text! "A module of the root package that Lake builds is in no library and is not \
+      problem := .mk 'A' " module of the root package that Lake builds is in no library and is not \
         the root of an executable, or it is in more than one library, or a claimed module imports \
         a module of an excluded target."
       trigger := [
@@ -861,7 +819,7 @@ def guide : RuleId → Guide
       sources := ["lean/Regula/Rules.lean", "lean/Regula/Load.lean",
         "specification/RegulaSpecification/Project.lean"] }
   | .admission => {
-      problem := text! "A constant of a claimed module was not checked again by Lean's kernel from \
+      problem := .mk 'A' " constant of a claimed module was not checked again by Lean's kernel from \
         an export of the build. Without that check, code that runs while Lean elaborates a module \
         could add a constant that the kernel did not check."
       trigger := [
@@ -899,29 +857,25 @@ def guide : RuleId → Guide
       checklist :=
           ["DECL-01", "DECL-02", "FOUND-05", "SCOPE-02", "TYPE-01", "THEOREM-01", "THEOREM-03",
               "THEOREM-07", "DECL-03", "DECL-04", "COMP-02", "COMP-04", "BUILD-01", "BUILD-04"]
-      linkage := text! "None of Regula. The property is that of `lake check` of Lean v4.35.0, as \
+      linkage := .mk 'N' "one of Regula. The property is that of `lake check` of Lean v4.35.0, as \
         the specification describes it. The first acceptance step of this repository runs it on \
         the copy's build (`RegulaVerification.kernelReplay`)."
       sources := ["specification/README.md", "specification/RegulaSpecification/Fates.lean",
         "lean/RegulaVerification/Driver.lean"] }
   | .communityConfiguration => {
-      problem := text! "A claimed library or executable leaves automatic implicits on, sets an \
+      problem := .mk 'A' " claimed library or executable leaves automatic implicits on, sets an \
         option outside RG2006's allowlist, or changes Lean's process with a plugin, a dynamic \
         library or a different Lean argument."
       trigger := [
-        "`Regula.Closed.Input.configurationFindings` reads the options that Lake gives each \
-          claimed target: its `leanOptions`, and each `-D` argument of its `weakLeanArgs` and \
-          `leanArgs`. Each other Lean argument, plugin and dynamic library is an extra.",
+        "`Regula.Closed.Input.optionFindings` reads the options that Lake gives each claimed \
+          target: its `leanOptions`, and each `-D` argument of its `weakLeanArgs` and `leanArgs`. \
+          Each other Lean argument, plugin and dynamic library is an extra.",
         "It reports a claimed target that does not set `autoImplicit` and `relaxedAutoImplicit` to \
           `false`, that sets either to a different value at any position, that sets an option \
           outside the allowlist, or that has an extra.",
-        "Until issue #484 fixes the allowlist, it is the set that the rule accepted before this \
-          checker (`Regula.Shell.allowed`): the required options at their values \
-          (`RegulaPolicy.Community.baseline`), Mathlib's standard linter set with its exclusions \
-          (`RegulaPolicy.Community.mathlibBaseline`), and each option that \
-          `RegulaPolicy.Community.accepts` admits. An option set under a leading `weak.` \
-          component is read as the option without it, as Lean reads it \
-          (`RegulaPolicy.Community.optionOf`)."]
+        "The allowlist is `Regula.Allowlist.options`, and the rule reads an option by its name \
+          alone, as Lake gives it. So `weak.linter.hashCommand` and `linter.hashCommand` are two \
+          names, and an option that a value of can stop a default warning is on no allowlist."]
       rationaleDetail := [
         "Standard §7.1 requires the options because they decide which binders a declaration's \
           elaborated type has. A closed allowlist refuses each option that it does not name, so \
@@ -940,22 +894,77 @@ def guide : RuleId → Guide
           declaration; their warnings fail `lake build --wfail` (RG2003)."]
       configuration := [
         "The Lake configuration is the input; no manifest field, source option or command-line \
-          flag exempts a claimed target."]
+          flag exempts a claimed target.",
+        "A new member of the allowlist is a change of Regula, with its reason in \
+          `Regula.Allowlist`."]
       limitations := [
         "Options given on `lake`'s own command line are not read; the rule reads what Lake's load \
-          of the workspace gives.",
-        "The members of the allowlist are those of the rule before this checker, until issue #484 \
-          fixes them."]
+          of the workspace gives."]
       residuals := [.qualify, .intent]
       checklist := ["DECL-01", "DOC-01"]
-      linkage := keptLinkage "Regula.Closed.Input.configurationFindings" "Violates2006"
-        "Project.lean" ++ " `RegulaPolicy.Community.accepts_iff` proves that `accepts` decides \
-        `RegulaPolicy.Community.Accepted`."
-      sources := ["lean/Regula/Rules.lean", "lean/Regula/Load.lean", "lean/Regula/Shell.lean",
-        "lean/RegulaPolicy/Community.lean", "specification/RegulaSpecification/Project.lean",
-        "website/RegulaStandard/CodeOrganization.lean"] }
+      linkage := .mk 'T' "he theorem `RegulaSpecification.rg2006_exact` proves that \
+        `Regula.Closed.Input.optionFindings` reports a target exactly when \
+        `RegulaSpecification.Violates2006` holds of it, and `rg2006_meets` that the function meets \
+        the intent record `rg2006`, at the members of `Regula.Allowlist.options`. The shell's read \
+        of Lake's load (`Regula.Load.targets`) is trusted, not proved."
+      sources := ["lean/Regula/Rules.lean", "lean/Regula/Load.lean", "lean/RegulaCore/Allowlist.lean",
+        "specification/RegulaSpecification/Project.lean",
+        "specification/RegulaSpecification/ClosedSubset.lean",
+        "website/RegulaStandard/ToolingAndMachineAudit.lean"] }
+  | .closedSubset => {
+      problem := .mk 'A' " claimed module has entries of an environment extension outside the \
+        closed allowlist: it registers code that Lean runs while it elaborates, or a record that \
+        this revision of Regula does not recognize."
+      trigger := [
+        "The loader reads the names of the environment extensions with entries in each part of \
+          each module's `.olean` files (`Lean.readModuleDataParts`, `Regula.Load.readModule`). \
+          A module that declares constants and records no extension is refused, and the run is \
+          INCOMPLETE (RG2001): an empty record is not a clean module.",
+        "`Regula.Closed.Input.extensionFindings` reports a claimed module for each name outside \
+          `Regula.Allowlist.extensions`, an unknown name included. Names are compared whole, so an \
+          extension of another namespace is not the allowlisted one that it resembles."]
+      rationaleDetail := [
+        "A macro, a `syntax` command, an elaborator, an initializer and a `meta` declaration each \
+          leave a named entry, and so does a use of an attribute that a project defines. A module \
+          that defines such code is a tool module, in a target that the claim excludes; a claimed \
+          module cannot import it (RG2004).",
+        "Notation and tactics of a dependency stay usable, because using them leaves no entry of a \
+          refused extension. The meta-code of a dependency is trusted."]
+      proofShape := []
+      established := [
+        "No claimed module has entries of an environment extension outside the allowlist, so none \
+          registers a macro, syntax, an elaborator, an initializer, a `meta` declaration or an \
+          attribute that the allowlist does not name."]
+      notEstablished := [
+        "That no claimed module runs code: `#eval`, `run_cmd`, `run_elab` and `run_meta` leave no \
+          record, so the rule cannot see them. If such code changes constants, `lake check` and the \
+          axiom sets find it. If it removes messages, `--wfail` does not see them. If it changes \
+          entries of an admitted extension, such as compiled code, a claim of execution can be \
+          false.",
+        "That the meta-code of a dependency is honest: it is trusted."]
+      configuration := [
+        "The record in the build is the input; no manifest field, source option or command-line \
+          flag exempts a claimed module.",
+        "A new member of the allowlist is a change of Regula, with its reason in \
+          `Regula.Allowlist`."]
+      limitations := [
+        "The allowlist holds the names observed on Regula's build, on a Mathlib project and on \
+          Mathlib at the pinned toolchain, each read for what it registers. A declarative \
+          attribute that none of them uses is refused until the list names it."]
+      residuals := [.qualify, .intent]
+      checklist := ["DECL-01", "DECL-04"]
+      linkage := .mk 'T' "he theorem `RegulaSpecification.rg2007_exact` proves that \
+        `Regula.Closed.Input.extensionFindings` reports a module exactly when \
+        `RegulaSpecification.Violates2007` holds of it, `rg2007_meets` that the function meets the \
+        intent record `rg2007`, and `allowlist_closed` that `Regula.Allowlist.extensions` admits \
+        none of `metaExtensions`. The loader's read of the `.olean` files through \
+        `Lean.readModuleDataParts` is trusted, not proved."
+      sources := ["lean/Regula/Rules.lean", "lean/Regula/Load.lean", "lean/RegulaCore/Allowlist.lean",
+        "specification/RegulaSpecification/Project.lean",
+        "specification/RegulaSpecification/ClosedSubset.lean",
+        "website/RegulaStandard/ToolingAndMachineAudit.lean"] }
   | .executionUnresolved => {
-      problem := text! "The execution closure of a claimed executable runs a name that is no \
+      problem := .mk 'T' "he execution closure of a claimed executable runs a name that is no \
         constant of the input, or a constant on a cycle of departures, which runs no definition. \
         An account of execution would then leave out a path."
       trigger := [
@@ -995,7 +1004,7 @@ def guide : RuleId → Guide
       sources := ["lean/Regula/Rules.lean", "lean/Regula/Load.lean",
         "specification/RegulaSpecification/Execution.lean"] }
   | .executionBoundary => {
-      problem := text! "On a surface claiming `\"execution\": \"checked\"`, a boundary that the \
+      problem := .mk 'O' "n a surface claiming `\"execution\": \"checked\"`, a boundary that the \
         execution closure reaches has no correspondence: a departure outside the toolchain that \
         no admitted theorem proves, or code outside the toolchain that no theorem can bind, such \
         as an `extern` constant."
@@ -1043,7 +1052,7 @@ def guide : RuleId → Guide
         "specification/RegulaSpecification/Execution.lean",
         "website/RegulaStandard/ToolingAndMachineAudit.lean"] }
   | .fenceStructure => {
-      problem := text! "A Markdown file in the documentation has a malformed Lean fence \
+      problem := .mk 'A' " Markdown file in the documentation has a malformed Lean fence \
         classification: an orphan, misplaced, duplicated or misspelled marker, an invalid \
         expected-error pattern, or an unclosed fence. Or it has a line that can show Lean code \
         at a place that no check reads."
@@ -1065,7 +1074,7 @@ def guide : RuleId → Guide
       linkage := retiredLinkage
       sources := ["specification/README.md", "specification/RegulaSpecification/Fates.lean"] }
   | .positiveExample => {
-      problem := text! "A positive Lean fence in the documentation does not elaborate verbatim and \
+      problem := .mk 'A' " positive Lean fence in the documentation does not elaborate verbatim and \
         warning-free, or it does and then fails the declaration and axiom rules."
       trigger := [
         retiredTrigger,
@@ -1087,7 +1096,7 @@ def guide : RuleId → Guide
       linkage := retiredLinkage
       sources := ["specification/README.md", "specification/RegulaSpecification/Fates.lean"] }
   | .negativeExample => {
-      problem := text! "A fence marked `lean-fail` does not fail as specified: it elaborates \
+      problem := .mk 'A' " fence marked `lean-fail` does not fail as specified: it elaborates \
         successfully, or it fails for a different reason."
       trigger := [
         retiredTrigger,
@@ -1107,7 +1116,7 @@ def guide : RuleId → Guide
       linkage := retiredLinkage
       sources := ["specification/README.md", "specification/RegulaSpecification/Fates.lean"] }
   | .trustedExample => {
-      problem := text! "A fence marked `lean-trusted-compiler` does not elaborate warning-free \
+      problem := .mk 'A' " fence marked `lean-trusted-compiler` does not elaborate warning-free \
         with a compiler-trusting declaration: it contains no native proof."
       trigger := [
         retiredTrigger,
@@ -1126,7 +1135,7 @@ def guide : RuleId → Guide
       linkage := retiredLinkage
       sources := ["specification/README.md", "specification/RegulaSpecification/Fates.lean"] }
   | .moduleDocumentation => {
-      problem := text! "A module in a claimed surface has no module docstring (`/-! … -/` or \
+      problem := .mk 'A' " module in a claimed surface has no module docstring (`/-! … -/` or \
         Verso module documentation), has one that is not the first command after its imports, or \
         repeats an import with the same modifiers."
       trigger := [
@@ -1148,36 +1157,35 @@ def guide : RuleId → Guide
       sources := ["specification/README.md", "specification/RegulaSpecification/Fates.lean",
         "website/RegulaStandard/DocumentationStandards.lean"] }
   | .materialDocumentation => {
-      problem := text! "A public declaration registered with `@[regula_material]` as evidence for \
-        a material normative claim has no docstring."
+      problem := .mk 'A' " public declaration that states a material normative claim has no \
+        docstring."
       trigger := [
         retiredTrigger,
-        "The intent: each public `@[regula_material]` declaration has a docstring."]
+        "The intent: each public declaration that states a material claim has a docstring."]
       rationaleDetail := [retiredRationale]
       proofShape := [
         "The docstring describes the elaborated statement faithfully."]
       established := [notReported]
       notEstablished := [
-        "That each registered material declaration has a faithful and adequate docstring \
-          (R-DOC)."]
+        "That each material declaration has a faithful and adequate docstring (R-DOC)."]
       configuration := [
-        "Registration is `@[regula_material]` from `Regula.MaterialClaim`. Removing a registration \
-          from a material declaration changes the reviewed claim."]
+        "No registration selects a material declaration: review decides which public declarations \
+          state a material claim."]
       limitations := [
         "Lean's `linter.missingDocs` reports a public declaration without a docstring where a \
           target turns it on, and `lake build --wfail` then fails (RG2003)."]
       residuals := [.doc]
       checklist := ["DOC-01"]
       linkage := retiredLinkage
-      sources := ["lean/Regula/MaterialClaim.lean", "specification/README.md",
+      sources := ["specification/README.md",
         "specification/RegulaSpecification/Fates.lean"] }
   | .materialIntent => {
-      problem := text! "A registered public material declaration has a docstring without a \
+      problem := .mk 'A' " public material declaration has a docstring without a \
         nonempty labelled Intent section."
       trigger := [
         retiredTrigger,
-        "The intent: each public `@[regula_material]` docstring has a section `# Intent` that is \
-          not empty."]
+        "The intent: the docstring of each public material declaration has a section `# Intent` \
+          that is not empty."]
       rationaleDetail := [retiredRationale]
       proofShape := [
         "The Intent section states the requirement the declaration must meet; review compares \
@@ -1187,14 +1195,14 @@ def guide : RuleId → Guide
         "That the intent states what the requirement owner needs, or that the declaration meets it \
           (R-INTENT, R-DOC)."]
       configuration := [
-        "Registration is `@[regula_material]` from `Regula.MaterialClaim`. Removing a registration \
-          from a material declaration changes the reviewed claim."]
+        "No registration selects a material declaration: review decides which public declarations \
+          state a material claim."]
       limitations := [
         "No check reads the Intent section of a docstring."]
       residuals := [.intent, .doc]
       checklist := ["DOC-02"]
       linkage := retiredLinkage
-      sources := ["lean/Regula/MaterialClaim.lean", "specification/README.md",
+      sources := ["specification/README.md",
         "specification/RegulaSpecification/Fates.lean"] }
 
 /-- Every rule's explanation has all required sections. The problem and the linkage are nonempty

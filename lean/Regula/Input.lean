@@ -13,8 +13,8 @@ The types follow the specification of the smaller Regula
 `Entry`, `Contract`, `Input` and `Bundle` have the specification's fields, and `Bundle.refusal?` decides the specification's admission
 (`Bundle.WellFormed`, `Input.WellFormed`). That the shell (`Regula.Load`) fills each field through
 the interface its docstring names is the loader's obligation; that each rule function of
-`Regula.Rules` decides the specification's violation predicate is #487's obligation, not a theorem
-of this module.
+`Regula.Rules` decides the specification's violation predicate is #487's obligation, except RG2006
+and RG2007, which `specification/RegulaSpecification/ClosedSubset.lean` proves.
 
 Two choices are the implementation's, made on the owner's behalf:
 
@@ -252,15 +252,15 @@ def classificationOf (t : Name) : Option Classification :=
 
 /-- The profile and execution mode of each claim of a target that contains module `m`. -/
 def claimsOf (m : Name) : List (Profile × Execution) :=
-  i.targets.foldl (init := []) fun acc t =>
+  i.targets.flatMap fun t =>
     if t.modules.contains m then
-      acc ++ (i.manifest.filterMap fun e =>
+      i.manifest.filterMap fun e =>
         if e.target == t.name then
           match e.classification with
           | .claimed p x => some (p, x)
           | .excluded => none
-        else none)
-    else acc
+        else none
+    else []
 
 /-- The profile and execution mode of each claim of each module, as `claimsOf` gives them, computed
 once for all modules. -/

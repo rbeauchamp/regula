@@ -164,9 +164,11 @@ It never changes a value you set: a lint driver of your own, an option with anot
 reports each with its fix. A
 required option that a `-D` extra `lean` argument of a target sets counts as set for that target:
 `init` adds it to no configuration that reaches the target (`Regula.Setup.added_unargued`, over the
-modelled setup and reading every `-D` candidate as [RG2006] does, and checked again after writing,
-target by target, as `Regula.Setup.arguedBy_run` states), and `doctor` reports once that [RG2006]
-requires those options in `leanOptions`, naming the entries to write there. It edits the lakefile
+modelled setup, and checked again after writing,
+target by target, as `Regula.Setup.arguedBy_run` states).
+
+The setup guidance asks for those options in
+`leanOptions`, and `doctor` names the entries to write there. It edits the lakefile
 in place, in its own format, then reads the project again and puts back what the files it wrote held unless
 nothing is left to write. A second run therefore writes nothing:
 `Regula.Setup.plan_idempotent` proves that the plan of the result is empty over the modelled
@@ -179,10 +181,10 @@ guidance, the compiler your `lean-toolchain` selects (the one that built `regula
 `lake exe` builds with that toolchain's Lean; `doctor` starts no process and installs
 nothing) and any module below a library root that no library includes but a claimed module imports
 (which `lake lint` rejects), and,
-once a manifest exists, the linter's own manifest validation ([RG2002]) and option decision ([RG2006])
-for every claimed target, one [RG2006]
-finding naming every target with the same claim and failures, where `lake lint` prints one per
-target. It exits 0
+once a manifest exists, the checker's manifest findings ([RG2002]) and option findings ([RG2006]).
+It runs the same `configurationFindings` function as the checker, and prints one line for each finding.
+
+It exits 0
 when the setup is complete and 1 otherwise, and lists what `init` would write. A module left out
 of every library that no claimed module imports is only a `note`, which does not affect the exit
 status: include it to audit it, or leave it out deliberately.
@@ -430,8 +432,7 @@ core-only code.
 
   To keep Mathlib's header linter on, replace `weak.linter.style.header = false` with `true` and
   give the license line it expects in `weak.linter.style.header.license`, a `String` that defaults
-  to Mathlib's Apache 2.0 statement at the pinned Mathlib. [RG2006] accepts the header linter only
-  with that option set to a nonempty string in `leanOptions`, and the linter then also checks the
+  to Mathlib's Apache 2.0 statement at the pinned Mathlib. The linter then also checks the
   copyright and authors lines of every module that the library root imports. A TOML key cannot
   both hold a value and have sub-keys, so Lake rejects `weak.linter.style.header.license` beside
   `weak.linter.style.header` in a `[leanOptions]` table; in `lakefile.toml` write `leanOptions` as
@@ -452,7 +453,6 @@ core-only code.
 
   In `lakefile.lean` add both to the same `leanOptions`:
   ``⟨`weak.linter.style.header, true⟩, ⟨`weak.linter.style.header.license, "Released under the MIT license as described in the repository LICENSE."⟩``.
-  A `-D` extra `lean` argument does not configure the license line for [RG2006].
 - **Batteries' environment linters** (`docBlame`, `simpNF`, `unusedArguments` and others) are
   recommended. They report through their own command and lint the built modules, so run
   `lake build` first. Keep one lint driver and run the other as its own command:
@@ -492,7 +492,7 @@ and, for a one-way kind, the direction it leaves open.
 
 An equivalence without a witness is the law `Regula.DecisionEquivalence accepts Spec check`. It
 states the two directions and no outcome, so it does not satisfy [RG1008] for a function registered
-with `@[regula_decision]`. `law.toSoundly` or `law.toCompletely` gives a kind from the law and an
+with `Regula.RegisteredDecision`. `law.toSoundly` or `law.toCompletely` gives a kind from the law and an
 input that `check` accepts or refuses. The accepted account reports each registration of a kind or
 a law with the laws and outcomes it establishes, each as its proposition.
 
@@ -561,26 +561,24 @@ Two forms cover the functions that this form does not reach (standard §3.8):
 
 The account reports the kind of such a registration as it does for every other one.
 
-To make that registration a requirement, mark the function with `@[regula_decision]` (`import
-Regula.Decision`, or `meta import Regula.Decision` in a file that is a `module`). A function whose
-own module cannot import `Regula.Decision` is marked from another module of the same library, with
-`attribute [regula_decision] check`; marking a function of another library or of a dependency
-stops the audit, which decides the requirement only for the functions its inventory declares. The
-audit then rejects a marked function unless a decision registration in the same library, or in a
+To make that registration a requirement, register the function with a declaration of the type
+`Regula.RegisteredDecision` (`import Regula.Decision`, or `public import Regula.Decision` in a file
+that is a `module`), such as `theorem check_registered : Regula.RegisteredDecision @check := ⟨⟩`. A
+function whose own module cannot import `Regula.Decision` is registered from another module of the
+same library. The audit decides the requirement only for a registered function of a claimed module.
+It then rejects a registered function unless a decision registration in the same library, or in a
 surface that names that library in `decides` (below), decides it, or its result type is
 `Decidable _`, which carries a proof either way ([RG1008]). So deleting the
-theorem while the function stays marked fails `lake lint`. The editor does not report this rule,
-because a registration normally follows its function. Which functions you mark, and whether
+theorem while the registration stays fails `lake lint`. Which functions you register, and whether
 `Spec` is the specification you intend, stay your review
 ([standard §3.8](https://rbeauchamp.github.io/regula/dev/standard/3-logic-proof-patterns/#decision-kinds), [RG1007]).
-The [RG1008] page shows a marked function with and without its registration.
+The [RG1008] page shows a registered function with and without its contract.
 
 A project can keep its executing definitions free of a proof dependency. One library holds the
-functions and does not import a proof library such as Mathlib. To carry the mark, it imports only
-the toolchain and `Regula.Decision`, as an elaboration-time `meta import` in a file that is a
-`module`. A second library imports the first library and a proof library, and it holds the
+functions and does not import a proof library such as Mathlib. To carry the registration, it imports only
+the toolchain and `Regula.Decision`, as a `public import` in a file that is a `module`. A second library imports the first library and a proof library, and it holds the
 theorems. If the proof of a kind uses the proof library, you can write the kind only in the second
-library. Keep the mark on the function in the first library, and name that library in the
+library. Keep the registration in the first library, and name that library in the
 `decides` of the second surface:
 
 ```json
@@ -588,7 +586,7 @@ library. Keep the mark on the function in the first library, and name that libra
   "rationale": "..." }
 ```
 
-The decision registrations of `WidgetProofs` then count toward the marked functions of `Widget`.
+The decision registrations of `WidgetProofs` then count toward the registered functions of `Widget`.
 The audit counts a registration only as the record of the `WidgetProofs` environment in the same
 run. Also, that environment must load the module of the function from the same build output. The
 registration must meet all requirements of `WidgetProofs`, and the function keeps the execution
@@ -604,11 +602,16 @@ audit refuses a `decides` entry that names its own surface or no claimed surface
   - [RG4003]: a `lean-fail` fence that does not fail with one error that matches its pattern.
   - [RG4004]: a `lean-trusted-compiler` fence that does not elaborate with no warning, or that contains no compiler-trusting declaration.
   - [RG5001]: a claimed module with no module docstring as its first command after the imports, or with a repeated import.
-  - [RG5002]: a public `@[regula_material]` declaration with no docstring.
-  - [RG5003]: a public `@[regula_material]` docstring with no `# Intent` section that has text.
+  - [RG5002]: a public declaration that states a material claim, with no docstring.
+  - [RG5003]: the docstring of a public material declaration, with no `# Intent` section that has text.
 - The checker reads no option that a source file sets, no message and no command of a module. A command that runs code, for example `#eval` or `run_cmd`, leaves no record that the checker can read.
-- [RG2006] accepts the options that the previous checker accepted, until leaf #484 sets the members of its allowlist. `RegulaPolicy.Community.accepts` lists them.
-- [RG2006] reads an option by its name alone. It rejects a `weak.` entry for an option that no module declares, although Lean ignores that entry. Delete such an entry.
+- The allowlist of [RG2006] checks each option by its name alone, as Lake gives it. `Regula.Allowlist.options` lists the names. So `linter.unusedVariables` is refused at `true` too. A `weak.` entry is refused even for an option that no module declares, although Lean ignores that entry. Delete such an entry.
+- [RG2007] reads the environment extensions that the `.olean` files of a claimed module record. `Regula.Allowlist.extensions` lists the names. A claimed module cannot have a project's own macro, notation, syntax, elaborator, initializer or attribute.
+  - A default of the form `:= by tactic` is refused too, because Lean records it as a `meta` declaration.
+  - Put such code in a library that the manifest excludes, which no claimed module may import ([RG2004]).
+  - Notation, tactics and data attributes of a dependency stay usable. An attribute that registers code, such as `norm_num` or `positivity`, is refused in a claimed module.
+  - A data attribute that the list does not name is refused until a change of Regula names it.
+  - The rule cannot see what leaves no record: a command that runs code, such as `run_cmd`, or a local attribute on an ordinary definition, such as `@[local macro k]`.
 - `init` edits your lakefile as text. Then it reads the project again to confirm the edits. No theorem proves that the edits realize the model.
 
 ## What you are not asked to do
@@ -627,6 +630,7 @@ audit refuses a `decides` entry that names its own surface or no claimed surface
 [RG2004]: https://rbeauchamp.github.io/regula/dev/rules/RG2004/
 [RG2005]: https://rbeauchamp.github.io/regula/dev/rules/RG2005/
 [RG2006]: https://rbeauchamp.github.io/regula/dev/rules/RG2006/
+[RG2007]: https://rbeauchamp.github.io/regula/dev/rules/RG2007/
 [RG3001]: https://rbeauchamp.github.io/regula/dev/rules/RG3001/
 [RG3002]: https://rbeauchamp.github.io/regula/dev/rules/RG3002/
 [RG4001]: https://rbeauchamp.github.io/regula/dev/rules/RG4001/

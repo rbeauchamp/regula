@@ -102,9 +102,9 @@ other rule. The retired case is read from the lifecycle, so no table can disagre
 def checkedBy (id : RuleId) : String :=
   if (descriptor id).lifecycle.isRetired then notChecked else activeCheck id
 
-/-- The full rule as Markdown. For a rule whose subjects a registration attribute selects
-(`registrationFor`: `@[regula_material]` or `@[regula_decision]`), only source options and flags
-are said not to change the result. -/
+/-- The full rule as Markdown. For a rule whose subjects a registration declaration selects
+(`registrationFor`: `Regula.RegisteredDecision`), only source options and flags are said not to
+change the result. -/
 def explain (id : RuleId) : String :=
   let d := descriptor id
   let g := guide id
@@ -157,10 +157,10 @@ def writingSections : List (String × String × List RuleId) := [
     [.proofHole, .projectAxiom, .compilerTrusting, .escapeHatch, .profileExceeded, .unknownAxiom,
      .sourceBuild, .admission]),
   ("Documentation in Lean sources",
-      "Applies to claimed modules and `@[regula_material]` declarations.",
+      "Applies to claimed modules and public declarations that state a material claim.",
     [.moduleDocumentation, .materialDocumentation, .materialIntent]),
   ("Executable code",
-      "Applies to `ExecutableContract` registrations, `@[regula_decision]` functions and code \
+      "Applies to `ExecutableContract` registrations, `RegisteredDecision` functions and code \
         reached from executable roots. The shared-test rule compares names: a copy of a test \
         under a second name passes. A shared function with a result other than `Bool` or `BEq`, \
         and a field of a structure that the two sides read, are not refused.",
@@ -169,7 +169,7 @@ def writingSections : List (String × String × List RuleId) := [
   ("Project configuration",
     "Applies to `foundation_manifest.json`, the Lake options of claimed targets and the build \
       environment.",
-    [.configuration, .communityConfiguration, .coverage, .environment]),
+    [.configuration, .communityConfiguration, .closedSubset, .coverage, .environment]),
   ("Lean examples in Markdown", "Applies to `lean` fences in the project's Markdown documentation.",
     [.positiveExample, .negativeExample, .trustedExample, .fenceStructure])]
 
@@ -243,9 +243,9 @@ def agentGuideIn (e : Edition) : String :=
   "warning, weaken a statement, or drop a registration to pass.\n" ++
   "- Follow the Lean community's style, naming and documentation conventions (standard §6.7). " ++
   "Every claimed target enables `linter.missingDocs` (document every definition) in its " ++
-  "`leanOptions`, with the other options " ++ citation e .communityConfiguration ++
-  " checks; `lake build --wfail` " ++
-  "rejects their warnings. Run Batteries' linters with `lake build && lake exe runLinter`. " ++
+  "`leanOptions`. Review checks this required setting. " ++ citation e .communityConfiguration ++
+  " admits that option by name without checking its value. `lake build --wfail` rejects " ++
+  "warnings that enabled linters emit. Run Batteries' linters with `lake build && lake exe runLinter`. " ++
   "Disable a community linter only for a single declaration, " ++
   "where its guidance allows, with the reason; that never discharges a rule.\n" ++
   "- Passing is mechanical: a theorem must still state the intended claim, with its hypotheses " ++
@@ -259,7 +259,7 @@ def agentGuideIn (e : Edition) : String :=
 def agentGuide : String := agentGuideIn installed.edition
 
 /-- Byte budget of the agent briefing, so pasting it into an agent's context stays cheap. -/
-def agentGuideBudget : Nat := 19456
+def agentGuideBudget : Nat := 20480
 
 /-- The briefing of a build whose pages are edition `e`, as an Agent Skills `SKILL.md`. -/
 def skillIn (e : Edition) : String :=

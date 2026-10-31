@@ -780,13 +780,14 @@ theorem empty_inv : ({} : Acc).Inv := by
   simp [Acc.Inv, libraries, executables, Acc.manifest]
 
 /-- The JSON value stage of `parse`: the top-level object, then the three ordered folds. -/
-@[regula_decision]
 def parseValue (value : Json) : Except String Manifest := do
   let (surfaceValues, excludedValues, excludedExeValues) ← topLevel value
   let acc ← parseAll parseSurface surfaceValues.toList 0 {}
   let acc ← parseAll parseExcludedLibrary excludedValues.toList 0 acc
   let acc ← parseAll parseExcludedExecutable excludedExeValues.toList 0 acc
   return acc.manifest
+
+theorem parseValue_registered : Regula.RegisteredDecision @parseValue := ⟨⟩
 
 /-- `m` with `f` applied to every library and executable name, claimed or excluded, and to every
 library name a surface decides, and nothing else changed. -/

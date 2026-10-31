@@ -386,7 +386,7 @@ def _root_.Regula.RuleCategory.label : RuleCategory → String
 def _root_.Regula.RuleScope.label : RuleScope → String
   | .declaration => "declaration" | .project => "project" | .executionRoot => "execution root"
   | .documentationFence => "documentation fence" | .module => "module"
-  | .materialDeclaration => "registered material declaration"
+  | .materialDeclaration => "public declaration that states a material claim, selected by review"
 
 /-- The evidence mode's display text. -/
 def modeLabel : EvidenceMode → String
@@ -764,11 +764,12 @@ theorem linkOKIn_pageIndex (pages : List Page) (page : Page) (link : String) :
       · exact ⟨t, Or.inr ⟨ht, hp⟩, by simpa [or_assoc] using hf⟩
 
 /-- Every unresolved link, reported with its page. -/
-@[regula_decision]
 def linkErrors (pages : List Page) : List String :=
   let index := pageIndex pages
   pages.flatMap fun page => page.links.filterMap fun link =>
     if linkOKIn index page link then none else some s!"{page.path}: unresolved link {link}"
+
+theorem linkErrors_registered : Regula.RegisteredDecision @linkErrors := ⟨⟩
 
 /-- The executed check returns no error exactly when every scanned link of every scanned
 page resolves. -/
@@ -877,12 +878,13 @@ def siteAnchors (text : String) : List (String × String) :=
   (routesAfter siteBase text).map routeAnchor
 
 /-- The anchors that no page with their path defines. An empty fragment needs only the page. -/
-@[regula_decision]
 def missingAnchors (pages : List Page) (anchors : List (String × String)) : List
     (String × String) :=
   let index := pageIndex pages
   anchors.filter fun anchor =>
     !((index.getD anchor.1 []).any fun page => anchor.2 == "" || page.ids.contains anchor.2)
+
+theorem missingAnchors_registered : Regula.RegisteredDecision @missingAnchors := ⟨⟩
 
 /-- The executed check returns nothing exactly when each anchor's path is a page that has its
 fragment as an `id` or the fragment is empty. -/
@@ -916,12 +918,13 @@ def renderedRows (html : String) : List String :=
 
 /-- How the rendered checklist's rows differ from `checklistRows`, or `none` when they are the
 same list. -/
-@[regula_decision]
 def rowsMismatch (rendered : List String) : Option String :=
   if rendered == checklistRows then none else
     some s!"rendered rows missing from checklistRows: {rendered.filter (· ∉ checklistRows)}; \
       checklistRows not rendered: {checklistRows.filter (· ∉ rendered)}; otherwise a row is \
       repeated or out of the checklist's order"
+
+theorem rowsMismatch_registered : Regula.RegisteredDecision @rowsMismatch := ⟨⟩
 
 /-- The executed row check passes exactly when the rendered rows are `checklistRows`. -/
 theorem rowsMismatch_eq_none_iff (rendered : List String) :

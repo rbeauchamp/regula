@@ -1,7 +1,7 @@
 module
 
 public import RegulaPolicy.Domain
-meta import Regula.Decision
+public import Regula.Decision
 
 /-! # Tagged wire codec
 
@@ -81,9 +81,10 @@ def parseNameParts : List Wire → Except String Name
 def nameWire (n : Name) : Wire := .array (nameParts n)
 
 /-- Decode a name from an array of components; `name_roundtrip` shows it inverts `nameWire`. -/
-@[regula_decision]
 def parseName (w : Wire) : Except String Name := do
   parseNameParts (← w.arrayItems)
+
+theorem parseName_registered : Regula.RegisteredDecision @parseName := ⟨⟩
 
 /-- All structural names round-trip, with no string grammar assumption. -/
 @[simp] theorem nameParts_roundtrip (n : Name) : parseNameParts (nameParts n) = .ok n := by
@@ -103,9 +104,10 @@ def identityWire (i : Identity) : Wire := nameWire i.name
 
 /-- Decode a name with `parseName`, then admit it as an identity (`admitIdentity`), so the
 anonymous name is rejected. -/
-@[regula_decision]
 def parseIdentity (w : Wire) : Except String Identity := do
   admitIdentity (← parseName w)
+
+theorem parseIdentity_registered : Regula.RegisteredDecision @parseIdentity := ⟨⟩
 
 /-- Key admission preserves every valid identity through the actual decoder. -/
 @[simp] theorem identity_roundtrip (i : Identity) :

@@ -1,5 +1,4 @@
 import Regula.Contract
-import Regula.MaterialClaim
 import Regula.Decision
 
 /-!
@@ -19,12 +18,10 @@ the total fold used to specify successful prefixes. No declaration is promoted
 to a native-runtime or external-system claim, and no hypothesis is hidden:
 assumptions appear as binders or proof fields. This module directly imports only the three
 published checker interfaces: the proof-requiring executable-contract type and the
-`@[regula_material]` and `@[regula_decision]` registration attributes, whose import closure
-brings in Lean's attribute framework; no definition or proof here uses it. Its decisions `admit`,
-`grant` and `runChecked` are registered with `@[regula_decision]`, so RG1008 requires the decision
+decision registration type, neither of which imports Lean's metaprogramming framework. Its decisions
+`admit`, `grant` and `runChecked` are registered with `RegisteredDecision`, so RG1008 requires the decision
 contract each has (`checked_admit`, `checked_grant`, `checked_runChecked`). Its material
-claims `RequiredContracts`, `required_contracts` and `checked_executable` are registered with
-`@[regula_material]`, so the written guidance of RG5002 and RG5003 asks each to carry a docstring
+claims are `RequiredContracts`, `required_contracts` and `checked_executable`, so the written guidance of RG5002 and RG5003 asks each to carry a docstring
 with a nonempty Intent section (standard §5.2); whether each Intent states the right requirement
 remains semantic review.
 
@@ -64,12 +61,13 @@ structure Limiter where
 positive. A zero capacity is rejected, so an admitted state satisfies
 `0 < capacity` (proved in `admit_sound`) in addition to the structural
 invariant. -/
-@[regula_decision]
 def admit (capacity : Nat) : Option Limiter :=
   if _h : 0 < capacity then
     some { capacity, inUse := 0, bounded := Nat.zero_le _ }
   else
     none
+
+theorem admit_registered : Regula.RegisteredDecision @admit := ⟨⟩
 
 /-- Admission establishes the invariant and positivity: every state obtained
 from `admit` is fresh (no slots in use) over a positive capacity. -/
@@ -105,12 +103,13 @@ theorem checked_admit : Regula.ExecutableContract admit
 /-- Update boundary: grant one slot while one is free. The new proof field is
 exactly the guard `inUse < capacity`, which is `inUse + 1 ≤ capacity` by
 definition of `Nat.lt`; a full limiter grants nothing. -/
-@[regula_decision]
 def grant (l : Limiter) : Option Limiter :=
   if h : l.inUse < l.capacity then
     some { l with inUse := l.inUse + 1, bounded := h }
   else
     none
+
+theorem grant_registered : Regula.RegisteredDecision @grant := ⟨⟩
 
 /-- Exact post-state of a successful grant: the capacity is untouched and the
 in-use count grows by one. Together with the structure's proof field this
@@ -267,12 +266,13 @@ def checkedStep (op : Op) : CheckedRun := fun l =>
 
 /-- Execute left-to-right and stop at the first refusal. Earlier successful
 updates remain visible; the unprocessed suffix has no effect. -/
-@[regula_decision]
 def runChecked : List Op → CheckedRun
   | [] => pure ()
   | op :: rest => do
     checkedStep op
     runChecked rest
+
+theorem runChecked_registered : Regula.RegisteredDecision @runChecked := ⟨⟩
 
 /-- Exact one-step result: the only refusal is a grant at capacity; every
 successful operation performs the existing `step`, including its frame. -/
@@ -474,7 +474,6 @@ it bounds every script's end state by the created capacity (`within_capacity`).
   before it.
 - The command-line capacity is the first argument read as a natural number, defaulting to 2.
 - Timing, fairness and the IO shell are deliberately out of scope. -/
-@[regula_material]
 structure RequiredContracts : Prop where
   /-- `admit` accepts exactly a positive capacity, as an idle limiter of that capacity. -/
   admission : ∀ capacity, admit capacity = if 0 < capacity then
@@ -562,7 +561,6 @@ proofs are welcome; neither theorem names nor declaration counts are the rule.
 # Intent
 Every required behavior of the limiter must be proved about the exact definitions the
 application executes. -/
-@[regula_material]
 theorem required_contracts : RequiredContracts where
   admission := admit_exact
   grant_success := grant_some
@@ -623,7 +621,6 @@ The build linter also checks executability and compiler/runtime boundaries.
 # Intent
 The function the executable calls must admit exactly the positive capacities, start
 each admitted limiter idle at that capacity, and then run the script strictly. -/
-@[regula_material]
 theorem checked_executable : Regula.ExecutableContract executeChecked
     (fun execute => ∀ (contracts : RequiredContracts) capacity ops,
       execute contracts capacity ops = if 0 < capacity then

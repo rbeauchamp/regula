@@ -352,7 +352,7 @@ theorem le_enhance {α : Type} [LE α] [Std.IsPreorder α] [Economy.Flourishable
   Economy.LawfulFlourishable.enhance_increases a b
 ```
 
-The same operational class and mixin over Mathlib's `Preorder`, with a real-valued measure and an `ℝ` instance discharged from Mathlib's lattice lemmas, are checked in the {repo "integration/mathlib/MathlibAudit/Economy.lean"}[Mathlib integration package].
+The same operational class and mixin over Mathlib's `Preorder`, with a real-valued measure and an `ℝ` instance discharged from Mathlib's lattice lemmas, have the same form.
 
 ## 3.2.4 Decidability: Logical vs Executable
 %%%
@@ -757,7 +757,7 @@ A type invariant describes valid results; a functional contract also relates the
   * State the exact input domain, any precondition, and the input–output relation. A restricted domain MUST appear in the API when promised (§3.2.1).
 *
   * Parser, decoder, admission
-  * Prove accepted-result soundness and input meaning. State and prove rejection behavior and any normalization/default policy. If the API promises success on a class of inputs, prove that completeness; a conditional soundness theorem alone does not deliver it. A registered decision states its direction with a decision kind (§3.8): `Regula.Decides` for both directions, `Regula.DecidesSoundly` or `Regula.DecidesCompletely` for one. A one-way kind is a statement that the other direction is not claimed: it does not supply that direction, which a separate theorem can, and the report of a one-way kind establishes no more than the kind. A law (`Regula.DecisionEquivalence`) states both directions and no outcome: it excludes a replacement that refuses every input only when the specification is satisfiable, and one that accepts every input only when the specification is refutable. Neither a kind nor a law supplies input meaning, rejection behavior beyond refusal, a normalization or default policy, or the value an accepting result carries. A function whose result type depends on its input states its kind about an erasure of that result (§3.8). A function the project registers with `@[regula_decision]` MUST have such a registration or a `Decidable` result type (§3.8).
+  * Prove accepted-result soundness and input meaning. State and prove rejection behavior and any normalization/default policy. If the API promises success on a class of inputs, prove that completeness; a conditional soundness theorem alone does not deliver it. A registered decision states its direction with a decision kind (§3.8): `Regula.Decides` for both directions, `Regula.DecidesSoundly` or `Regula.DecidesCompletely` for one. A one-way kind is a statement that the other direction is not claimed: it does not supply that direction, which a separate theorem can, and the report of a one-way kind establishes no more than the kind. A law (`Regula.DecisionEquivalence`) states both directions and no outcome: it excludes a replacement that refuses every input only when the specification is satisfiable, and one that accepts every input only when the specification is refutable. Neither a kind nor a law supplies input meaning, rejection behavior beyond refusal, a normalization or default policy, or the value an accepting result carries. A function whose result type depends on its input states its kind about an erasure of that result (§3.8). A function the project registers with `Regula.RegisteredDecision` MUST have such a registration or a `Decidable` result type (§3.8).
 *
   * Update
   * Establish the invariant at the write boundary, the intended change, and frame conditions for components promised unchanged.
@@ -1133,14 +1133,16 @@ theorem positive_sound :
   ⟨{ sound := fun _ accepted => of_decide_eq_true accepted }⟩
 ```
 
-A project declares that a function is a decision by registering it with `@[regula_decision]`, which `Regula.Decision` provides. The registration is a requirement: a registered function MUST be the implementation of a decision registration in its inventory, or in a surface that the project's manifest relates to its own, or have a result type of the form `Decidable p`, and the build linter rejects a registered function with neither ({ref "exact-contract-and-coverage-scope"}[§7.11]). Deleting the theorem while the function stays registered therefore fails; for an unregistered function it would delete the requirement together with the evidence.
+A project declares that a function is a decision by registering it with `Regula.RegisteredDecision`, which `Regula.Decision` provides. The registration is a requirement: a registered function MUST be the implementation of a decision registration in its inventory, or in a surface that the project's manifest relates to its own, or have a result type of the form `Decidable p`, and the build linter rejects a registered function with neither ({ref "exact-contract-and-coverage-scope"}[§7.11]). Deleting the theorem while the function stays registered therefore fails; for an unregistered function it would delete the requirement together with the evidence.
 
 ```lean
 import Regula.Contract
 import Regula.Decision
 
 /-- Whether `n` is positive. -/
-@[regula_decision] def positive (n : Nat) : Bool := decide (0 < n)
+def positive (n : Nat) : Bool := decide (0 < n)
+
+theorem positive_registered : Regula.RegisteredDecision @positive := ⟨⟩
 
 /-- `positive` accepts exactly the positive numbers: it accepts `1` and refuses `0`. -/
 theorem positive_decides :
@@ -1151,7 +1153,9 @@ theorem positive_decides :
      refused := ⟨0, by decide⟩ }⟩
 
 /-- A registered decision whose result carries its proof: it needs no contract. -/
-@[regula_decision] def positive? (n : Nat) : Decidable (0 < n) := inferInstance
+def positive? (n : Nat) : Decidable (0 < n) := inferInstance
+
+theorem positive?_registered : Regula.RegisteredDecision @positive? := ⟨⟩
 ```
 
 A kind states which directions hold against the written specification. These remain semantic review: whether `spec` is the intended specification, and whether it is independent of `f` in substance (a copy of the implementation under another name satisfies both directions, and so does a copy of a helper); what each shared function that the report names computes; whether every function that acts as a checker is registered as a decision; whether a one-way kind should have been two-way; and which value an accepting result carries, which needs a dependent result type or a further requirement. Whether `accepts` is the intended reading of a result is semantic review too. A constant function has no two-way kind (`Regula.Decides.not_of_constant`): a sound kind about one proves the specification of every input (`Regula.DecidesSoundly.spec_of_constant`), and a complete kind about one refutes it of every input (`Regula.DecidesCompletely.not_spec_of_constant`). But when the result of `f` determines its input, as the result of the identity function does, an acceptance predicate can restate the specification: `Regula.Decides spec spec id` holds of every specification that some input satisfies and some input does not. A result of type `Decidable p` already carries both directions by construction (§3.2.4) and needs no kind for that claim. A result type whose dependency on the input neither erasure removes, such as an inductive family indexed by the input or a subtype type that depends on the input, has no kind: return `Decidable p`, or register an ordinary requirement. A kind also requires an input with a proof, so a function for which no accepted input can be given has no sound kind, and one for which no refused input can be given has no complete kind. The build linter reads the kind of each registration and reports it with the direction a one-way kind leaves open ({ref "exact-contract-and-coverage-scope"}[§7.11]).
@@ -1166,7 +1170,7 @@ A stateful safety transfer MUST identify the concrete and abstract semantics, th
 
 For this method, prove initialization, abstract invariant preservation, and that the invariant together with `R` implies the concrete property. Its simulation hypothesis covers *every* related pair and *every* concrete successor: `R c a → StepC c c' → ∃ a', StepA* a a' ∧ R c' a'`. The abstract successor is existential, even when the abstract system is nondeterministic; this is neither reverse simulation nor equivalence of behaviors.
 
-Define `StepA*` explicitly. Here `StepA*` is core's transitive closure `Relation.TransGen StepA`: one edge (`single`), or a finite path extended by one edge (`tail`). Every match therefore has at least one abstract edge, and stuttering is a property of the abstract relation, not of the closure: an abstract relation with an idle edge matches a concrete edge that changes nothing. Mathlib's `Relation.ReflTransGen StepA` puts the zero-step case in the closure instead, and the {repo "integration/mathlib/MathlibAudit/Refinement.lean"}[Mathlib integration package] states this refinement with it over an abstract relation that has no idle edge. {repo "audit/Audit/Refinement.lean"}[`AuditApp.Refinement.finite_transfer`] proves the reusable transfer by induction over `Relation.TransGen StepC`: given a related initial pair and the initial abstract invariant, each concrete path of one or more edges ends at a state with a reachable abstract witness, the relation, the abstract invariant, and the concrete safety property. Before any concrete edge the claim is the soundness hypothesis applied to the initial pair, which needs no closure. Its types and relations are parameters; it assumes neither deterministic transitions nor an executable procedure that selects matching abstract paths. The caller supplies initialization; it is not silently assumed to exist.
+Define `StepA*` explicitly. Here `StepA*` is core's transitive closure `Relation.TransGen StepA`: one edge (`single`), or a finite path extended by one edge (`tail`). Every match therefore has at least one abstract edge, and stuttering is a property of the abstract relation, not of the closure: an abstract relation with an idle edge matches a concrete edge that changes nothing. Mathlib's `Relation.ReflTransGen StepA` puts the zero-step case in the closure, so an explicit idle edge is unnecessary for stuttering; it still permits idle edges in the abstract relation. {repo "audit/Audit/Refinement.lean"}[`AuditApp.Refinement.finite_transfer`] proves the reusable transfer by induction over `Relation.TransGen StepC`: given a related initial pair and the initial abstract invariant, each concrete path of one or more edges ends at a state with a reachable abstract witness, the relation, the abstract invariant, and the concrete safety property. Before any concrete edge the claim is the soundness hypothesis applied to the initial pair, which needs no closure. Its types and relations are parameters; it assumes neither deterministic transitions nor an executable procedure that selects matching abstract paths. The caller supplies initialization; it is not silently assumed to exist.
 
 The concrete step MUST be the actual executable definition or have exact checked correspondence to it. If you claim observable agreement, state the observations and prove that agreement at the promised granularity. Matching endpoints after several abstract steps does not establish equality of intermediate observations or labeled traces.
 
@@ -1302,4 +1306,4 @@ theorem claimed : Research.CounterexampleExists := Research.CounterexampleExists
 
 Using `sorry` as the proof, or replacing the theorem with a project `axiom` declaration, elaborates but is rejected by Regula's checker on a claimed surface (§3.4, {ref "75-proof-completeness-and-foundation-strength"}[module 7 §7.5]). The checker reads the axioms of each `Audit.Research` declaration and reports none outside the surface's Standard-Logical claim; none includes `sorryAx` or a project axiom.
 
-The same four claim kinds stated about Mathlib's `Nat.Perfect`, where the read-back finds a positivity conjunct that an odd number already supplies, are checked in the {repo "integration/mathlib/MathlibAudit/Research.lean"}[Mathlib integration package].
+The same four claim kinds apply to statements about Mathlib's `Nat.Perfect`, where the read-back finds a positivity conjunct that an odd number already supplies.

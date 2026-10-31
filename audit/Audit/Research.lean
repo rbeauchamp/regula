@@ -36,9 +36,7 @@ conjunct is part of the target:
 and settles nothing. Every result states only its displayed binders and hypotheses.
 No theorem here asserts or denies `CounterexampleExists`; the reduction moves that
 content into its explicit bound hypothesis. These definitions are this module's own:
-neither core nor Std states the Collatz map. The corresponding statements about
-Mathlib's `Nat.Perfect` are `MathlibAudit.Research` in the Mathlib integration package
-(`integration/mathlib/`). Regula's checker reads each declaration's axioms and reports those
+neither core nor Std states the Collatz map. Regula's checker reads each declaration's axioms and reports those
 outside the `Audit` surface's Standard-Logical claim.
 -/
 

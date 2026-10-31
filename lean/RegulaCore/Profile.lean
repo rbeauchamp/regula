@@ -23,13 +23,14 @@ inductive Profile where
 namespace Profile
 
 /-- The profile a manifest or command-line spelling names; any other text is refused. -/
-@[regula_decision]
 def parse? : String → Option Profile
   | "kernel-only" => some .kernelOnly
   | "choice-free" => some .choiceFree
   | "standard-logical" => some .standardLogical
   | "compiler-trusting" => some .compilerTrusting
   | _ => none
+
+theorem parse?_registered : Regula.RegisteredDecision @parse? := ⟨⟩
 
 /-- The spelling of a profile, which `parse?` reads back (`Profile.parse?_eq_some_iff`). -/
 def toString : Profile → String

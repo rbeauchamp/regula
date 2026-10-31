@@ -5,9 +5,10 @@ import RegulaCore.Verdict
 /-! # Project setup that `regula init` writes and `regula doctor` checks
 
 A project adopts Regula with four pieces of setup beside the `require`: the lint driver, the
-options every claimed target is built with (standard §7.1 and §6.7, checked by RG2006), a
-foundation manifest (RG2002), and guidance for coding agents. This module is the decision both
-commands execute over what they observe of a project.
+options every claimed target is built with (standard §7.1 and §6.7; `doctor` checks them, and
+RG2006 checks the two options of automatic implicits among them), a foundation manifest (RG2002),
+and guidance for coding agents. This module is the decision both commands execute over what they
+observe of a project.
 
 ## Main declarations
 
@@ -307,8 +308,8 @@ def Observation.onlyArgued (o : Observation) (t : Target) (r : Name × OptionVal
 def Observation.arguedBy (o : Observation) (t : Target) : List (Name × OptionValue) :=
   (required o.mathlib).filter (o.onlyArgued t)
 
-/-- The required options some claimed target sets only with a `-D`. RG2006 requires the value in
-`leanOptions`, and `init` adds none beside the `-D`. Each comes with its required value, keyed by
+/-- The required options some claimed target sets only with a `-D`. The standard requires the value
+in `leanOptions`, and `init` adds none beside the `-D`. Each comes with its required value, keyed by
 `key`: the entry to write in `leanOptions` instead. -/
 def argued (o : Observation) : List (Name × OptionValue) :=
   ((required o.mathlib).filter fun r => o.targets.any (o.onlyArgued · r)).map
@@ -328,7 +329,7 @@ inductive Issue where
   them). -/
   | targetOptionsMissing (exe : Bool) (name : String) (entries : List (Name × OptionValue))
   /-- A claimed target sets these required options only with a `-D` among its extra `lean`
-  arguments, where RG2006 requires them in `leanOptions`; `init` adds no second setting. The
+  arguments, where the standard requires them in `leanOptions`; `init` adds no second setting. The
   entries are the ones to write there instead. -/
   | argued (entries : List (Name × OptionValue))
   /-- There is no `foundation_manifest.json`. -/

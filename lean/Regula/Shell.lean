@@ -1,7 +1,7 @@
 import Regula.Load
 import Regula.Rules
+import RegulaCore.Allowlist
 import RegulaCore.Edition
-import RegulaPolicy.Community
 
 /-!
 # The shell of the checker
@@ -19,30 +19,16 @@ when the input has the closed form and no rule reports a subject, `fail` (exit 1
 reports one, and `incomplete` (exit 2) when the build cannot be loaded or the input does not have
 the closed form (RG2001).
 
-The option allowlist of RG2006 is, until #484 fixes its members, the options the present rule
-accepts: the required options and Mathlib's standard linter set at their values
-(`RegulaPolicy.Community.baseline`, `mathlibBaseline`) and every option of
-`RegulaPolicy.Community.accepts`.
+The allowlists of RG2006 and RG2007 are the closed lists of `Regula.Allowlist` (`allowlists`).
 -/
 
 namespace Regula.Shell
 
-open Lean Regula.Closed RegulaPolicy.Community
+open Lean Regula.Closed
 
-/-- The value a Lake option's text gives: `true` or `false`, a numeral, or else the text. -/
-def valueOf (text : String) : OptionValue :=
-  if text == "true" then .bool true
-  else if text == "false" then .bool false
-  else match text.toNat? with
-    | some n => .nat n
-    | none => .string text
-
-/-- RG2006's allowlist until #484: a required option at its value, or an accepted one. An option
-set under a leading `weak.` component is the option without it, as Lean reads it (`optionOf`). -/
-def allowed (o : Name × String) : Bool :=
-  let name := optionOf o.1
-  let v := valueOf o.2
-  (baseline ++ mathlibBaseline).any (fun r => r.1 == name && v.readsAs r.2) || accepts name v
+/-- The allowlists the checker runs with: the closed lists of `Regula.Allowlist`. -/
+def allowlists : Allowlists :=
+  { options := Regula.Allowlist.admitsOption, extensions := Regula.Allowlist.admitsExtension }
 
 /-- The address of a rule's page in the edition of the installed Regula (`Regula.helpUrl`): a
 release's own page (`helpUrl_release`), and the development page exactly for an unreleased build
@@ -89,7 +75,7 @@ unsafe def run (args : List String) : IO UInt32 := do
   match ← (Regula.Load.loadBundle selection).toBaseIO with
   | .error e => report .incomplete [] (some (toString e))
   | .ok bundle =>
-    let (verdict, findings, why) := Regula.Closed.run allowed bundle
+    let (verdict, findings, why) := Regula.Closed.run allowlists bundle
     IO.println (coverage bundle)
     report verdict findings why
 

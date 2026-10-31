@@ -6,13 +6,12 @@ public import RegulaPolicy.Compiler
 public import Regula.Contract
 public import RegulaPolicy.Evidence
 public import Lean.Expr
-meta import Regula.Decision
+public import Regula.Decision
 
 /-! # Policy vocabulary and observation data
 
 Closed policy vocabulary and observation data. No operational Lean imports: `Regula.Decision`
-is imported for elaboration only (`meta import`), for the `@[regula_decision]` registration of the
-decisions below, so no definition here can run what it brings.
+is imported for the type `RegisteredDecision`, which registers the decisions below.
 Canonical representation is informed by con-leche PropWhen; these are original domain
 definitions, not imported con-leche proofs. Source observation authenticity remains
 with the operational collector. -/
@@ -56,7 +55,6 @@ def DeclarationKind.spelling : DeclarationKind → String
 
 /-- The kind a report text names; `none` for any text that is not a `spelling`
 (`DeclarationKind.canonical`). -/
-@[regula_decision]
 def DeclarationKind.parse? : String → Option DeclarationKind
   | "axiom" => some .«axiom»
   | "def" => some .«definition»
@@ -67,6 +65,8 @@ def DeclarationKind.parse? : String → Option DeclarationKind
   | "recursor" => some .«recursor»
   | "quot" => some .«quotient»
   | _ => none
+
+theorem DeclarationKind.parse?_registered : Regula.RegisteredDecision @DeclarationKind.parse? := ⟨⟩
 
 instance : ToString DeclarationKind := ⟨DeclarationKind.spelling⟩
 
@@ -126,7 +126,6 @@ def BoundaryKind.spelling : BoundaryKind → String
 
 /-- The kind a report text names; `none` for any text that is not a `spelling`
 (`BoundaryKind.canonical`). -/
-@[regula_decision]
 def BoundaryKind.parse? : String → Option BoundaryKind
   | "runtime-replacement" => some .«runtimeReplacement»
   | "compiler-simplification" => some .«compilerSimplification»
@@ -138,6 +137,8 @@ def BoundaryKind.parse? : String → Option BoundaryKind
   | "compiler-trusted-proof" => some .«compilerTrustedProof»
   | "initialized-value" => some .«initializedValue»
   | _ => none
+
+theorem BoundaryKind.parse?_registered : Regula.RegisteredDecision @BoundaryKind.parse? := ⟨⟩
 
 instance : ToString BoundaryKind := ⟨BoundaryKind.spelling⟩
 
@@ -194,12 +195,13 @@ def Correspondence.spelling : Correspondence → String
 
 /-- The account a report text names; `none` for any text that is not a `spelling`
 (`Correspondence.canonical`). -/
-@[regula_decision]
 def Correspondence.parse? : String → Option Correspondence
   | "checked" => some .«checked»
   | "trusted" => some .«trusted»
   | "unresolved" => some .«unresolved»
   | _ => none
+
+theorem Correspondence.parse?_registered : Regula.RegisteredDecision @Correspondence.parse? := ⟨⟩
 
 instance : ToString Correspondence := ⟨Correspondence.spelling⟩
 
@@ -232,12 +234,13 @@ def ConformingProfile.spelling : ConformingProfile → String
 
 /-- The profile a text names; `none` for any text that is not a `spelling`
 (`ConformingProfile.canonical`). -/
-@[regula_decision]
 def ConformingProfile.parse? : String → Option ConformingProfile
   | "kernel-only" => some .«kernelOnly»
   | "choice-free" => some .«choiceFree»
   | "standard-logical" => some .«standardLogical»
   | _ => none
+
+theorem ConformingProfile.parse?_registered : Regula.RegisteredDecision @ConformingProfile.parse? := ⟨⟩
 
 instance : ToString ConformingProfile := ⟨ConformingProfile.spelling⟩
 
@@ -432,7 +435,6 @@ def FoundationClass.spelling : FoundationClass → String
 
 /-- The class a report text names; `none` for any text that is not a `spelling`
 (`FoundationClass.canonical`). -/
-@[regula_decision]
 def FoundationClass.parse? : String → Option FoundationClass
   | "kernel-only" => some .«kernelOnly»
   | "choice-free" => some .«choiceFree»
@@ -441,6 +443,8 @@ def FoundationClass.parse? : String → Option FoundationClass
   | "unknown-axiom" => some .«unknownAxiom»
   | "compiler-trusting" => some .«compilerTrusting»
   | _ => none
+
+theorem FoundationClass.parse?_registered : Regula.RegisteredDecision @FoundationClass.parse? := ⟨⟩
 
 instance : ToString FoundationClass := ⟨FoundationClass.spelling⟩
 
@@ -472,11 +476,12 @@ def ExecutionClaim.spelling : ExecutionClaim → String
 
 /-- The claim a text names; `none` for any text that is not a `spelling`
 (`ExecutionClaim.canonical`). -/
-@[regula_decision]
 def ExecutionClaim.parse? : String → Option ExecutionClaim
   | "report" => some .«report»
   | "checked" => some .«checked»
   | _ => none
+
+theorem ExecutionClaim.parse?_registered : Regula.RegisteredDecision @ExecutionClaim.parse? := ⟨⟩
 
 instance : ToString ExecutionClaim := ⟨ExecutionClaim.spelling⟩
 
@@ -518,7 +523,6 @@ def EvidenceMode.spelling : EvidenceMode → String
 
 /-- The mode a text names; `none` for any text that is not a `spelling`
 (`EvidenceMode.canonical`). -/
-@[regula_decision]
 def EvidenceMode.parse? : String → Option EvidenceMode
   | "editorSnapshot" => some .«editorSnapshot»
   | "incrementalProject" => some .«incrementalProject»
@@ -527,6 +531,8 @@ def EvidenceMode.parse? : String → Option EvidenceMode
   | "documentationExample" => some .«documentationExample»
   | "serializedGraph" => some .«serializedGraph»
   | _ => none
+
+theorem EvidenceMode.parse?_registered : Regula.RegisteredDecision @EvidenceMode.parse? := ⟨⟩
 
 instance : ToString EvidenceMode := ⟨EvidenceMode.spelling⟩
 
@@ -555,11 +561,12 @@ def Safety.spelling : Safety → String
 
 /-- The safety a text names; `none` for any text that is not a `spelling`
 (`Safety.canonical`). -/
-@[regula_decision]
 def Safety.parse? : String → Option Safety
   | "unsafe" => some .«unsafe»
   | "partial" => some .«partial»
   | _ => none
+
+theorem Safety.parse?_registered : Regula.RegisteredDecision @Safety.parse? := ⟨⟩
 
 instance : ToString Safety := ⟨Safety.spelling⟩
 
@@ -592,12 +599,13 @@ def Reducibility.spelling : Reducibility → String
 
 /-- The hint a text names; `none` for any text that is not a `spelling`
 (`Reducibility.canonical`). -/
-@[regula_decision]
 def Reducibility.parse? : String → Option Reducibility
   | "opaque" => some .«opaque»
   | "abbrev" => some .«abbrev»
   | "regular" => some .«regular»
   | _ => none
+
+theorem Reducibility.parse?_registered : Regula.RegisteredDecision @Reducibility.parse? := ⟨⟩
 
 instance : ToString Reducibility := ⟨Reducibility.spelling⟩
 
@@ -628,11 +636,12 @@ def RecursionOrigin.spelling : RecursionOrigin → String
 
 /-- The origin a text names; `none` for any text that is not a `spelling`
 (`RecursionOrigin.canonical`). -/
-@[regula_decision]
 def RecursionOrigin.parse? : String → Option RecursionOrigin
   | "structural" => some .«structural»
   | "well-founded" => some .«wellFounded»
   | _ => none
+
+theorem RecursionOrigin.parse?_registered : Regula.RegisteredDecision @RecursionOrigin.parse? := ⟨⟩
 
 instance : ToString RecursionOrigin := ⟨RecursionOrigin.spelling⟩
 
@@ -774,12 +783,13 @@ def DecisionKind.spelling : DecisionKind → String
 
 /-- The kind a text names; `none` for any text that is not a `spelling`
 (`DecisionKind.canonical`). -/
-@[regula_decision]
 def DecisionKind.parse? : String → Option DecisionKind
   | "sound" => some .«sound»
   | "complete" => some .«complete»
   | "sound-and-complete" => some .«soundAndComplete»
   | _ => none
+
+theorem DecisionKind.parse?_registered : Regula.RegisteredDecision @DecisionKind.parse? := ⟨⟩
 
 instance : ToString DecisionKind := ⟨DecisionKind.spelling⟩
 
@@ -802,12 +812,13 @@ def DecisionKind.structureName : DecisionKind → Lean.Name
 /-- The kind whose structure `name` is; `none` for every other name
 (`DecisionKind.ofStructureName?_eq_some_iff`). The collector applies it to the head constant of
 a registration's reduced requirement. -/
-@[regula_decision]
 def DecisionKind.ofStructureName? : Lean.Name → Option DecisionKind
   | .str (.str .anonymous "Regula") "DecidesSoundly" => some .«sound»
   | .str (.str .anonymous "Regula") "DecidesCompletely" => some .«complete»
   | .str (.str .anonymous "Regula") "Decides" => some .«soundAndComplete»
   | _ => none
+
+theorem DecisionKind.ofStructureName?_registered : Regula.RegisteredDecision @DecisionKind.ofStructureName? := ⟨⟩
 
 /-- A name is read as a kind exactly when it is that kind's structure. -/
 theorem DecisionKind.ofStructureName?_eq_some_iff (name : Lean.Name) (kind : DecisionKind) :
@@ -927,10 +938,11 @@ def FieldPacking.Covers (packing : FieldPacking) : Prop :=
 
 /-- Whether the packing covers every argument of the implementation (`FieldPacking.covers_iff`).
 The collector reads a decided function as a field application only when this holds. -/
-@[regula_decision]
 def FieldPacking.covers (packing : FieldPacking) : Bool :=
   packing.constructors == 1 && packing.indices == 0 &&
     packing.arguments == (List.range packing.fields).map some
+
+theorem FieldPacking.covers_registered : Regula.RegisteredDecision @FieldPacking.covers := ⟨⟩
 
 /-- The executed decision accepts exactly the packings that cover every argument. -/
 theorem FieldPacking.covers_iff (packing : FieldPacking) :
@@ -969,9 +981,10 @@ def DecidedFunction.Covers (decided : DecidedFunction) : Prop :=
 /-- Whether the decided function is the implementation on every argument
 (`DecidedFunction.covers_iff`). The collector refuses a decision registration unless this
 holds. -/
-@[regula_decision]
 def DecidedFunction.covers (decided : DecidedFunction) : Bool :=
   decided.packing.all FieldPacking.covers && decided.unsupplied == 0
+
+theorem DecidedFunction.covers_registered : Regula.RegisteredDecision @DecidedFunction.covers := ⟨⟩
 
 /-- The executed decision accepts exactly the decided functions that are the implementation on
 every argument. -/
@@ -1328,7 +1341,7 @@ theorem sharedNames_isEmpty_iff (first reached widened : List SharedDefinition) 
     Array.isEmpty_iff, Array.isEmpty_iff, sharedNames_booleans_eq_empty_iff,
     sharedNames_others_eq_empty_iff, sharedNames_throughTypes_eq_empty_iff]
 
-/-- What the collector observes of a function registered with `@[regula_decision]`: whether its
+/-- What the collector observes of a function registered with `Regula.RegisteredDecision`: whether its
 result type is `Decidable _`, the form whose every result carries a proof of the decided
 proposition or of its negation; parsing cannot manufacture an unknown constructor. -/
 inductive DecisionResult where
@@ -1346,11 +1359,12 @@ def DecisionResult.spelling : DecisionResult → String
 
 /-- The observation a text names; `none` for any text that is not a `spelling`
 (`DecisionResult.canonical`). -/
-@[regula_decision]
 def DecisionResult.parse? : String → Option DecisionResult
   | "decidable" => some .«decidable»
   | "other" => some .«other»
   | _ => none
+
+theorem DecisionResult.parse?_registered : Regula.RegisteredDecision @DecisionResult.parse? := ⟨⟩
 
 instance : ToString DecisionResult := ⟨DecisionResult.spelling⟩
 
@@ -1536,7 +1550,7 @@ structure Declaration.ProjectWritten where
   marks the implementation `noncomputable`. The requirement's text is pretty-printed with the
   notations in force. -/
   executableContract : Option ExecutableContract := none
-  /-- For a constant registered with `@[regula_decision]`: whether its result type is
+  /-- For a constant registered with `Regula.RegisteredDecision`: whether its result type is
   `Decidable _`. `none` for a constant without that registration. The registration is the
   project's own statement that the function is a decision; the result type is read by
   reduction. -/
@@ -1625,11 +1639,11 @@ instance : Coe Declaration.Inspected Declaration.ToolchainObserved :=
 
 /-- What the decision requirement of RG1008 reads of a declaration's record, and nothing else: the
 constant's name, kernel-checked declaration data, and the collector's observation of its
-`@[regula_decision]` registration, which the project writes. -/
+`Regula.RegisteredDecision` registration, which the project writes. -/
 structure Declaration.Registration where
   /-- The constant's name (`Declaration.KernelChecked.name`). -/
   name : Lean.Name
-  /-- For a constant registered with `@[regula_decision]`: whether its result type is
+  /-- For a constant registered with `Regula.RegisteredDecision`: whether its result type is
   `Decidable _`; `none` without the registration (`Declaration.ProjectWritten.decisionResult`). -/
   decisionResult : Option DecisionResult
   deriving Repr, DecidableEq
@@ -2047,7 +2061,6 @@ def boundaryEvidenceCandidate (kind : BoundaryKind) (state : Correspondence)
     | _, _, _ => .error "invalid checked boundary evidence"
 
 /-- Admission retains every supplied evidence field or refuses the observation. -/
-@[regula_decision]
 def admitBoundaryEvidence (kind : BoundaryKind) (state : Correspondence)
     (detail : Option String) (origin : Option ToolchainOrigin)
     (terms : Option CorrespondenceTerms) : Except String (BoundaryEvidence kind) :=
@@ -2057,6 +2070,8 @@ def admitBoundaryEvidence (kind : BoundaryKind) (state : Correspondence)
     if e.correspondence = state ∧ e.detail = detail ∧ e.toolchainOrigin? = origin ∧
         e.terms? = terms then .ok e
     else .error "boundary evidence contains incompatible fields"
+
+theorem admitBoundaryEvidence_registered : Regula.RegisteredDecision @admitBoundaryEvidence := ⟨⟩
 
 private theorem boundaryEvidenceCandidate_roundtrip {kind : BoundaryKind}
     (e : BoundaryEvidence kind) :
@@ -2409,7 +2424,6 @@ def EvaluatorRole.spelling : EvaluatorRole → String
   | .command => "command" | .tactic => "tactic" | .term => "term"
 /-- The role a text names; `none` for any text that is not a `spelling`
 (`EvaluatorRole.canonical`). -/
-@[regula_decision]
 def EvaluatorRole.parse? : String → Option EvaluatorRole
   | "command" => some .command | "tactic" => some .tactic | "term" => some .term | _ => none
 instance : ToString EvaluatorRole := ⟨EvaluatorRole.spelling⟩
@@ -2419,6 +2433,8 @@ theorem EvaluatorRole.canonical (s : String) (x : EvaluatorRole) (h : parse? s =
     x.spelling = s := by
   unfold parse? at h
   split at h <;> cases h <;> rfl
+
+theorem EvaluatorRole.parse?_registered : Regula.RegisteredDecision @EvaluatorRole.parse? := ⟨⟩
 
 namespace Frontend
 /-- One `import` of the source header, as Lean's frontend parsed it. -/

@@ -74,7 +74,7 @@ Each kept rule is a function from the closed input to the subjects that it repor
 
 Lean's own tools decide two rules. [RG2003] is `lake build --wfail`, and [RG2005] is `lake check`. The first acceptance step of this repository runs the two on the build of its copy, before the checker.
 
-The option allowlist of [RG2006] is the set of options that the previous checker accepted, until leaf #484 sets its members.
+`RegulaSpecification.ClosedSubset` proves a statement about the functions of [RG2006] and [RG2007]. Over the closed input, each reports a subject exactly when its violation predicate holds of it. The shell's read of the build is trusted. The members of the two allowlists are in `Regula.Allowlist`, each with its reason.
 
 ## The acceptance boundary
 
@@ -93,13 +93,13 @@ These statements are trusted, not proved: `shasum` and the filesystem report the
 `plan_eq_nil_iff`, the plan is empty exactly when every setup issue is one `init` does not fix;
 `issues_run`, the plan removes exactly the fixable issues and adds none. The option check covers
 exactly the claimed targets (the root targets the manifest does not exclude, and none while an
-existing manifest fails [RG2002]), as [RG2006] does: `run_sets`, every required option a claimed
+existing manifest fails [RG2002]): `run_sets`, every required option a claimed
 target built without is then set to its required value as `RegulaPolicy.Community.sets` reads
-it, which meets [RG2006]'s requirement on that option (`meets_of_sets`); `resolved_run`, every
+it, which meets the setup requirement on that option (`meets_of_sets`); `resolved_run`, every
 claimed target then has a value for every required option or a `-D` candidate of its own extra
 `lean` arguments names it; `added_unargued`, no option the plan adds to the package or to a
 claimed target's own configuration names an option that a `-D` candidate of that target sets
-(the candidates of `RegulaPolicy.Community.argumentSettings`, [RG2006]'s own reading, which
+(the candidates of `RegulaPolicy.Community.argumentSettings`, which
 includes every `-D` that `lean` reads only under the command-line assumption stated in
 `RegulaPolicy.Community`); `argued_run`, the plan leaves unchanged the required options that
 claimed targets set only with such a `-D`, which `doctor` reports once as a setup issue `init`
@@ -141,7 +141,7 @@ checker. `Regula.Cli.Setup.projectInput` gives their input with no build: the ta
 loads and the claim, read as the checker reads them (`Regula.Load.targets`, `Regula.Load.claim`).
 Over this input, `doctor` runs the decision of the checker,
 `Regula.Closed.Input.configurationFindings`, with the option allowlist of the checker
-(`Regula.Shell.allowed`). It prints each finding in the form of the checker, one line for each.
+(`Regula.Shell.allowlists`). It prints each finding in the form of the checker, one line for each.
 The required options of a setup issue include the options of Mathlib when the workspace contains
 Mathlib. `init` writes them under `weak.`, so a target that imports no Mathlib ignores them. By
 `conforming_of_mathlib`, a target that has the options of Mathlib also has the options without
@@ -322,25 +322,21 @@ file system has contracts.
 The module of an external system gives its operations as the structure `Ops` and a model of the
 system as the structure `Model`. A model gives each operation as an action on a state. An
 assumption is a predicate over a model. Each assumption of the file system is the contract of one
-operation, as a `Std.Do` triple. The attribute `@[regula_assumption]` of `Regula.Assumption`
-gives the system and the sources of the assumption. An assumption is not an `axiom`: each theorem
+operation, as a `Std.Do` triple. A declaration of the type `Regula.Assumption.Assumed` gives the
+system and the sources of the assumption. An assumption is not an `axiom`: each theorem
 that uses it has it as a hypothesis.
 
 A checked operation runs an operation and then examines the result. It fails when the
-postcondition of the operation is not true for that result. The attribute `@[regula_checked]`
-gives the theorem that proves its postcondition. That theorem uses the contracts of the operations
-that examine the result, not the contract of the operation that the checked operation runs. No
-operation of this revision has this attribute.
+postcondition of the operation is not true for that result. A theorem proves its postcondition. That
+theorem uses the contracts of the operations
+that examine the result, not the contract of the operation that the checked operation runs.
 
 An observer is the code that operates the real system for a Regula program. Code that Regula
-writes over the operations of a model gets the real system only through an observer. The
-attribute `@[regula_observer]` marks it.
+writes over the operations of a model gets the real system only through an observer.
 
-Each attribute is checked where it is written. An assumption must be a definition or an inductive
-type, and its type must end in `Prop`. The check reduces the type, thus it also accepts a different
-name of `Prop`. The contract of a checked operation must be a theorem, and its statement must use
-the checked operation. A role is given only in the module that declares the constant, and only one
-time. Thus no import can give a second role to a constant.
+The type `Assumed` requires at least one source, where the declaration is written. It refuses a
+source pinned to a different Lean release, and a document that names a place of Lean's repository. A claimed
+module can write it, because it is an ordinary constant ([RG2007]).
 
 ### From a model to the real system
 
@@ -458,5 +454,6 @@ Helpers invoke external programs with arrays of arguments, not with generated sh
 [RG2004]: https://rbeauchamp.github.io/regula/dev/rules/RG2004/
 [RG2005]: https://rbeauchamp.github.io/regula/dev/rules/RG2005/
 [RG2006]: https://rbeauchamp.github.io/regula/dev/rules/RG2006/
+[RG2007]: https://rbeauchamp.github.io/regula/dev/rules/RG2007/
 [RG3001]: https://rbeauchamp.github.io/regula/dev/rules/RG3001/
 [RG3002]: https://rbeauchamp.github.io/regula/dev/rules/RG3002/

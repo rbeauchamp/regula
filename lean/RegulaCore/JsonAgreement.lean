@@ -183,7 +183,6 @@ theorem ascending_iff (names : List String) :
 mutual
 /-- Whether each object tree in the value, at each depth, is a search tree (`Regular`, by
 `regular_iff`): the names of the members of each object go up in the order of its tree. -/
-@[regula_decision]
 def regular (j : Json) : Bool :=
   match j with
   | .arr ⟨elements⟩ => regularAll elements
@@ -203,6 +202,8 @@ def regularFields (fields : Fields) : Bool :=
   | .inner _ _ value left right => regular value && regularFields left && regularFields right
 termination_by structural fields
 end
+
+theorem regular_registered : Regula.RegisteredDecision @regular := ⟨⟩
 
 /-- **`regular` answers `true` exactly for the values whose object trees are search trees.** -/
 theorem regular_iff (j : Json) : regular j = true ↔ Regular j := by
@@ -269,8 +270,7 @@ instance (j : Json) : Decidable (Regular j) := decidable_of_iff _ (regular_iff j
 theorem Regular.obj_of_members (fields : Std.TreeMap.Raw String Json compare)
     (written : List (String × Json)) (sorted : members fields.inner.inner = written)
     (each : ∀ member ∈ written, Regular member.2)
-    (increasing : (written.map (·.1)).Pairwise fun earlier later => compare earlier later = .lt :=
-      by simp only [List.map]; decide) :
+    (increasing : (written.map (·.1)).Pairwise fun earlier later => compare earlier later = .lt) :
     Regular (.obj fields) := by
   obtain ⟨⟨tree⟩⟩ := fields
   refine .obj ?_ fun member present => each member (sorted ▸ present)
@@ -282,7 +282,6 @@ mutual
 numbers and strings, array elements that agree in order, and for two objects the same number of
 members, with each member of the first found by its name in the second with a value that it
 agrees with (`Agree`, by `agrees_iff`). -/
-@[regula_decision]
 def agrees (a b : Json) : Bool :=
   match a, b with
   | .null, .null => true
@@ -311,6 +310,8 @@ def agreesFields (a : Fields) (b : Std.TreeMap.Raw String Json compare) : Bool :
        | none => false) && agreesFields left b && agreesFields right b
 termination_by structural a
 end
+
+theorem agrees_registered : Regula.RegisteredDecision @agrees := ⟨⟩
 
 mutual
 /-- The first JSON value agrees with the second: one constructor for each case of `agrees`. -/
@@ -468,8 +469,9 @@ theorem checked_agrees : Regula.ExecutableContract agrees (fun test =>
 name of the input up in the encoding and never a name of the encoding in the input, so it also
 accepts an input object tree that is not a search tree, which can give one name twice and lack
 another name. -/
-@[regula_decision]
 def conforms (a b : Json) : Bool := regular a && agrees a b
+
+theorem conforms_registered : Regula.RegisteredDecision @conforms := ⟨⟩
 
 /-- `conforms` answers `true` exactly when the first value is a value with search trees that
 agrees with the second. -/
@@ -497,12 +499,13 @@ theorem checked_conforms : Regula.ExecutableContract conforms (fun test =>
 /-- The decoder that accepts what `decode` returns only when the input has search trees as its
 object trees and agrees with the encoding of that value (`conforms`), and that refuses with
 `refusal` otherwise: `canonical_eq_ok_iff`. -/
-@[regula_decision]
 def canonical {α : Type} (decode : Json → Except String α) (encode : α → Json)
     (refusal : String) (j : Json) : Except String α := do
   let value ← decode j
   unless conforms j (encode value) do throw refusal
   return value
+
+theorem canonical_registered : Regula.RegisteredDecision @canonical := ⟨⟩
 
 /-- A canonical decoder returns a value exactly when `decode` returns it, the object trees of the
 input are search trees, and the input agrees with the encoding of that value. -/
@@ -681,8 +684,7 @@ theorem Shaped.of_members {schema : List Entry} (fields : Std.TreeMap.Raw String
     (written : List (String × Json)) (sorted : members fields.inner.inner = written)
     (meanings : Aligned
       (fun member entry => member.1 = entry.name ∧ entry.meaning member.2) written schema)
-    (increasing : Increasing written := by
-      simp only [Regula.JsonAgreement.Increasing, List.map]; decide) :
+    (increasing : Increasing written) :
     Shaped schema (.obj fields) := by
   obtain ⟨⟨tree⟩⟩ := fields
   have found : ∀ member ∈ written,
@@ -717,8 +719,7 @@ theorem Shaped.agree_of_members {schema : List Entry} {j : Json} (shaped : Shape
     (sorted : members canonical.inner.inner = written)
     (meanings : Aligned (fun member entry => member.1 = entry.name ∧
       ∀ value, entry.meaning value → Agree value member.2) written schema)
-    (increasing : Increasing written := by
-      simp only [Regula.JsonAgreement.Increasing, List.map]; decide) :
+    (increasing : Increasing written) :
     Agree j (.obj canonical) := by
   obtain ⟨⟨tree⟩⟩ := canonical
   have found : ∀ member ∈ written,
@@ -756,8 +757,7 @@ names go up, and the value of each member agrees with itself. -/
 theorem Agree.obj_self (fields : Std.TreeMap.Raw String Json compare)
     (written : List (String × Json)) (sorted : members fields.inner.inner = written)
     (each : ∀ member ∈ written, Agree member.2 member.2)
-    (increasing : Increasing written := by
-      simp only [Regula.JsonAgreement.Increasing, List.map]; decide) :
+    (increasing : Increasing written) :
     Agree (.obj fields) (.obj fields) := by
   obtain ⟨⟨tree⟩⟩ := fields
   refine .obj rfl ((agreeFields_iff _ _).mpr fun member present => ?_)
@@ -884,8 +884,7 @@ theorem Shaped.of_agree {schema : List Entry} {j : Json}
     (sorted : members canonical.inner.inner = written)
     (meanings : Aligned (fun member entry => member.1 = entry.name ∧
       ∀ value, Regular value → Agree value member.2 → entry.meaning value) written schema)
-    (increasing : Increasing written := by
-      simp only [Regula.JsonAgreement.Increasing, List.map]; decide) :
+    (increasing : Increasing written) :
     Shaped schema j := by
   obtain ⟨⟨target⟩⟩ := canonical
   cases agree with
