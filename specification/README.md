@@ -298,7 +298,7 @@ But the list of `lake check` is fixed, and it gives no axiom set for each consta
   A claimed executable has exactly one root, or it fails the rule. An environment that loads the root module and holds no `main` violates it. **Proved**: `rg3001_refuses_no_root`, `root_or_missing` and `root_unique`. One environment holds at most one `main`, and Lean refuses an environment in which two imported modules declare one name.
 
   The cycle check reads one environment. So no departure of the environment of a different executable joins a cycle.
-- **Decision**: the first form of `ExecutableRoot` required `main` in the modules of the target. The owner recorded on [#487] that an executable with an imported `main` then had no execution checks. Leaf [#487] changes the statement to the form above, and it adds `MissingRoot`. This is a change of the specification, reported here and in that leaf's pull request.
+- **Decision**: the first form of `ExecutableRoot` required `main` in the modules of the target. The review of [#481] recorded on [#487] that an executable with an imported `main` then had no execution checks. Leaf [#487] changes the statement to the form above, and it adds `MissingRoot`. This is a change to the specification that the owner confirmed. The owner's delegated agent decided it on the owner's behalf, as that record asks.
 - **Accepted risks**: the admission requires each constant that a kernel value mentions to be loaded, but not each constant that compiled code runs. So the rule fails for compiled code that runs an absent constant. **Assumed**: the executable runs the code compiled from the code that the build records. The rule reads no symbol that `@[export main]` gives a declaration of a different name. Such an executable has no `main` constant, so the rule refuses it.
 - **Supersedes**: none.
 
@@ -313,8 +313,8 @@ But the list of `lake check` is fixed, and it gives no axiom set for each consta
 
   Thus each replacement and recursion helper outside the toolchain is now a boundary of `main` when the closure of `main` reaches its reference (`Regula.Load.Facts.boundaries`). That `main` fails the rule until a correspondence exists. It passes when the profile of the claim admits that correspondence.
 
-  This widening is a change of the specification, and the owner confirmed it on 2026-10-30 in that review. `Violates3002` and its function do not change, because `Input.BoundaryAt` covers a departure that the input records on `main`.
-- **Accepted risks**: a reference that only a proof mentions also asks for a correspondence. This is a false refusal, under a checked claim only, and a theorem discharges it. The owner accepted it on 2026-10-30.
+  This widening is a change to the specification that the owner confirmed on 2026-10-29. The owner's delegated agent decided it on the owner's behalf in the review of [#487], because the false pass defeats a checked claim. `Violates3002` and its function do not change, because `Input.BoundaryAt` covers a departure that the input records on `main`.
+- **Accepted risks**: a reference that only a proof mentions also asks for a correspondence. This is a false refusal, under a checked claim only, and a theorem discharges it. For that reason, the owner's delegated agent accepted it on the owner's behalf in [#487].
 
   A correspondence must be in a module that the environment of the executable loads, so the root must import it.
 
@@ -326,8 +326,8 @@ But the list of `lake check` is fixed, and it gives no axiom set for each consta
 
   The lemma is a constant of its module. In a claimed module, [RG1005] and [RG1006] read it, so it is a safe theorem and the claim admits each of its axioms. An executable with a checked claim imports no excluded module ([RG2004]). A local rewrite in a dependency affects the dependency's own code, which the trusted base already holds honest.
 
-  This document first said "local or global" here. The build cannot show a local rewrite without a comparison with kernel values. Decided on the owner's behalf in [#487], as a stated risk in place of that approximation.
-- **The correspondence of each departure**, which [#487] fixes. A theorem counts only when it holds at each instantiation of the constants that it relates. The cause is that the name pair of the input erases their universe arguments. The owner confirmed this on 2026-10-30.
+  This document first said "local or global" here. The build cannot show a local rewrite without a comparison with kernel values. Decided on the owner's behalf by the owner's delegated agent in [#487], as a stated risk in place of that approximation.
+- **The correspondence of each departure**, which [#487] fixes. A theorem counts only when it holds at each instantiation of the constants that it relates. The cause is that the name pair of the input erases their universe arguments. For that reason, the owner's delegated agent decided this on the owner's behalf in [#487].
   - A runtime replacement `f` by `g`, or a global `@[csimp]` rewrite of `f` to `g`: a theorem `@f = @g` (`Regula.Load.correspondenceOf`). A `@[csimp]` lemma is one.
 
     The two sides are constants, their universe arguments are equal, and those arguments are distinct universe parameters. This is Lean's own condition for a constant replacement (`isConstantReplacement?` at `Lean/Compiler/CSimpAttr.lean:40-49` of `v4.35.0`). Thus `@ref.{u} = @fast.{u}` counts and `@ref.{0} = @fast.{0}` does not.
@@ -392,7 +392,7 @@ But the list of `lake check` is fixed, and it gives no axiom set for each consta
 - **Domain**: each target that Lake gives or that the claim names.
 - **Input**: Lake's targets, with the default targets of its load, and the claim.
 - **Formal statement**: `Violates2002`. **Proved**: `rg2002_refuses_nondefault`. A claimed executable that is not a default target violates the rule.
-- **The reader of the claim**: this entry first said that the reader of `foundation_manifest.json` accepts only the text that its writer gives. That is stronger than the format, in which white space and key order are free: Regula's own file is written by hand. Leaf [#487] reports this and proves what the reader decides. **Proved** in `Regula.Checker.Manifest`:
+- **The reader of the claim**: this entry first said that the reader of `foundation_manifest.json` accepts only the text that its writer gives. That is stronger than the format, in which white space and key order are free: Regula's own file is written by hand. Leaf [#487] reports this and proves what the reader decides. The owner's delegated agent decided this narrower statement on the owner's behalf, because the stronger one is false of the format. **Proved** in `Regula.Checker.Manifest`:
   - `parse_ok` and `parseValue_ok`: the reader accepts a text exactly when the value that the text parser gives encodes a valid claim. Its names must be recorded spellings.
   - `parseValue_toJson`: the writer's value of a valid claim reads back as that claim.
 - **Accepted risks**: no theorem relates the text parser `PolicyCodec.parse` to the JSON grammar ([#400]). A wrong parse of a hand-written file gives a claim of other names, which this rule reports against Lake's targets.
@@ -562,12 +562,12 @@ The self-check runs inside local acceptance, the gate before each merge. It is n
 
 This placement removes the cause of [#489]. There, a refusal of the self-audit reached `main`, because no gate ran the self-audit for a pull request after the CI and Diagnostics workflows stopped. The first acceptance command runs the self-check of the checker that [#487] proves.
 
-The core and the shell of the checker are the claimed library `RegulaChecker`. It holds the closed input, the rules, the manifest reader, the loader's reads of Lean and the shell. Two modules stay in the excluded library `Regula`, and the shell receives what they give as an argument. Leaf [#487] found this limit, which the sentence above did not foresee, and decided it on the owner's behalf.
+The core and the shell of the checker are the claimed library `RegulaChecker`. It holds the closed input, the rules, the manifest reader, the loader's reads of Lean and the shell. Two modules stay in the excluded library `Regula`, and the shell receives what they give as an argument. Leaf [#487] found this limit, which the sentence above did not foresee. The owner's delegated agent decided it on the owner's behalf, for the reasons below.
 
 - `Regula.Workspace` holds what calls Lake. Lake declares each entry of its open families of data types as an axiom, such as `Lake.DataType.bool` (`Lake/Util/Family.lean` and `Lake/Config/Kinds.lean` at `v4.35.0`). **Measured** on 2026-10-30: with the shell claimed, [RG1003] and [RG1005] reported `Regula.Load.loadWorkspace` and each constant that calls it. An import of those modules also puts the axioms in the scope of `lake check`, which refuses them.
 - `Regula.LintMain` is the root of the `lint` executable. It holds the `unsafe` call that frees an environment's data. A claimed target is a default target, and `lake check` holds one `main`, that of `auditApp`.
 
-`Regula.Effects.check` refuses, at build time, a process start, a write or a removal in the compiled code of the `lint` and `regula` programs. **Accepted risk**: it has no theorem over its traversal and admission, decided on the owner's behalf in [#487]. A wrong result lets a later change add such an effect to Regula's own programs.
+`Regula.Effects.check` refuses, at build time, a process start, a write or a removal in the compiled code of the `lint` and `regula` programs. **Accepted risk**: it has no theorem over its traversal and admission, decided on the owner's behalf by the owner's delegated agent in [#487]. A wrong result lets a later change add such an effect to Regula's own programs.
 
 Review can read that change, and a commit can undo it, so it meets neither condition of the owner's rule of cost. The proof would require a model of the traversal of Lean's compiled code, with the store of that code as a hypothesis. No rule of a project's verdict depends on this check.
 
@@ -669,7 +669,7 @@ What it leaves unsaid:
 
 - The members of the two allowlists, which `Regula.Allowlist` holds. [#484] fixed them, with the observation that the entries of [RG2006] and [RG2007] record. The owner's confirmation did not cover them.
 - Two results of [RG2007] that [#484] measured, which the owner's confirmation did not cover. A local attribute that registers code on an ordinary definition passes, as `run_cmd` does. A default of the form `:= by tactic` in a claimed module fails.
-- The exact correspondence statement of each kind of execution boundary, which [#487] fixed and which the entry of [RG3002] records. The owner's confirmation of 2026-10-29 did not cover it. The owner confirmed its conditions on universes and binders on 2026-10-30, in the review of [#487]. That review also confirmed the widening of a departure in the same entry.
+- The exact correspondence statement of each kind of execution boundary, which [#487] fixed and which the entry of [RG3002] records. The owner's confirmation of 2026-10-29 did not cover it. The owner's delegated agent decided it on the owner's behalf in [#487], with its conditions on universes and binders and the widening of a departure.
 - How a project declares a deliverable, and how the owner's confirmation record is made: [#485], [lean-intent#3] and [lean-intent#5].
 - The cost of `lake check` and of `--paranoid` on a machine other than the owner's Mac: [#482] measured each one time there.
 
