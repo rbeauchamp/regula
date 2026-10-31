@@ -175,8 +175,7 @@ example a directory containing only a `regula` link to `_site`).
 ## Publication
 
 The [local gate](contributing.md#the-local-gate) runs the checks of `verify` and
-the builds of `site` below on each change. It leaves out the site check, which reads the private
-repository with no credentials. CI runs these jobs on each push to `main` and on dispatch, and not on
+the builds and the check of `site` below on each change. It does not run the site check when GitHub does not answer the gate's reads, and it says so. CI runs these jobs on each push to `main` and on dispatch, and not on
 a pull request:
 
 1. `verify`: the two [acceptance](contributing.md#develop-and-verify) steps. Its first step
@@ -227,7 +226,7 @@ a pull request:
 Each run on `main` cancels older runs of `main`, the deploy job refuses to publish a revision
 that is no longer the head of `main` (for example a manual re-run of an older run, which
 re-checks because the check is part of that job), and deployments are serialized in the
-`github-pages` concurrency group. The local gate does not run the site check. The site can
+`github-pages` concurrency group. The site check of the local gate does not read the deployed site. The site can
 lag `main` while checks run or after they fail; each page states its commit. Repository Pages
 settings use **GitHub Actions** as the source. There is no custom domain or paid hosting. Actions are pinned by commit SHA.
 
@@ -340,7 +339,7 @@ says so).
 `./scripts/verify.sh site` runs under the deadline of every `verify.sh` mode
 ([contributor guide](contributing.md#develop-and-verify)); it is not part of acceptance.
 CI builds the site tooling in the preceding step, with a 20-minute step limit. The local gate
-makes the same builds with no limit, but it leaves out the site check. In CI, Verso is provisioned from cache by the shared provisioning action (in the job's
+makes the same builds with no limit, and then it runs the site check under that deadline. In CI, Verso is provisioned from cache by the shared provisioning action (in the job's
 45-minute limit on a miss). Pinned dependencies are cached by toolchain and lock digest; no accepted verdict is
 cached. Link checking grows with the number of release editions. Observed timings are
 observations, not guarantees.

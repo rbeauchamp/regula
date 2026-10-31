@@ -187,8 +187,11 @@ sequence, and stops at the first failure:
 
 - The release checks `unreleased` and `agree`, and the two acceptance steps. The first runs
   Regula's checker on Regula's own build, the self-check.
-- The builds of the tools of the rule-reference site. The gate leaves out `./scripts/verify.sh site`,
-  which reads the repository with no credentials and thus fails while the repository is private.
+- The builds of the tools of the rule-reference site, and then the site check,
+  `./scripts/verify.sh site`. That check reads tags and release assets from GitHub with no
+  credentials, and neither the deployed site nor an external link. When GitHub does not answer the
+  gate's two reads before it, the gate does not run it. The gate then names each answer and passes
+  on its other steps. When the check runs, its exit code decides.
 
 CI does not run on pull requests. On `main` it runs what the release and the publication of the
 site use, and each workflow can run on dispatch. The
