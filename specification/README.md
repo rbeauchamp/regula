@@ -2,7 +2,7 @@
 
 Regula exists to be trusted, and to be the example of how Lean 4 code should be written: well factored, well designed, following best practice, and formally proven. Its owner decided on 2026-10-31 that being free of bugs outranks every lint rule and feature, so Regula gives up any rule, feature or package it cannot prove rather than patching it, documenting a limit or keeping a stated gap. Only Lean, its kernel and Lake's own behaviour are meant to stay trusted; Regula's own code is meant to be proved, or so thin that it only calls Lean. That is the aim and not a claim about this revision: [the trusted base](#the-trusted-base) lists what is not yet proved.
 
-This document states what Regula's checks are, what each is proved to do, and what stays assumed. It is the first step of the order that the owner chose: first a small proved core, then a check that reads each source file and refuses anything outside a fixed set of allowed constructs. That check does not exist yet. [The confirmation record](confirmation.md) holds the owner's words.
+This document states what Regula's checks are, what each is proved to do, and what stays assumed. It follows the order that the owner chose: first a small proved core, then [a check](#the-language-check) that reads each source file before anything is compiled and refuses anything outside a closed set of allowed constructs. [The confirmation record](confirmation.md) holds the owner's words.
 
 ## How to read this document
 
@@ -21,7 +21,7 @@ Each row is a requirement of the owner's confirmed intent, and the formal claim 
 
 | Requirement | Formal claim |
 | --- | --- |
-| Regula's checks are exactly RG1001 to RG1006 and RG2001. | **Proved**: `rule_spellings`, and `Regula.RuleId.mem_all` for each constructor of the closed type. |
+| Regula's checks are exactly RG1001 to RG1010 and RG2001. | **Proved**: `rule_spellings`, and `Regula.RuleId.mem_all` for each constructor of the closed type. |
 | It refuses a project whose declarations depend on `sorry`. | **Proved**: `rg1002_exact`, `rg1002_cases`. |
 | It refuses a project axiom. | **Proved**: `rg1001_exact`, `rg1001_cases`, and `rg1003_exact` for its use. |
 | It refuses `native_decide`. | **Proved**: `rg1004_exact`, `rg1004_cases`. |
@@ -34,6 +34,9 @@ Each row is a requirement of the owner's confirmed intent, and the formal claim 
 | A checker that refuses nothing does not satisfy this. | **Proved**: `silent_fails`, `noisy_fails` and each `rgN_noisy`; `always_pass_fails`, `always_incomplete_fails`. |
 | A pass is the verdict of the rules. | **Proved**: `run_complete`, `run_pass_iff`, `run_meets`. |
 | A pass is a statement about the environment that Lean loaded, not only about the input. | **Proved**: `pass_iff`, `pass_floor`, `pass_held`, see [from a build to the input](#from-a-build-to-the-input). |
+| Before anything is compiled, the check admits a project exactly when everything it reads is in the closed set, over every `Lean.Syntax`. | **Proved**: `decision_admitted_iff`, `mem_offenders_iff`, `mem_positions_iff`. That it reads every file, and reads what Lean reads, is the reader's: see [H1 and H2](#h1-and-h2). |
+| It refuses, compiling nothing, and a build follows only the check. | **Proved**: `gate_meets`, `build_only_after_check`, for the definition that runs. **Measured** below. |
+| Only a build with no Mathlib in its imports gets the full verdict, and the output says which it gave. | **Proved**: `mathlib_not_admitted`, `full_needs_no_mathlib`, `gate_exit_zero_iff`. |
 
 The rest of this document follows from those requirements, or is marked as decided on the owner's behalf.
 
@@ -64,7 +67,7 @@ The admission refuses an input that does not have the closed form (`Input.WellFo
 
 What the type excludes needs no check. The type `Input` of this package cannot hold a name twice, as an environment keeps its constants in a hash map, and the checker's `Facts` carries that its modules are those of the environment's header, so a claimed module is a loaded one (**proved**: `claimed_loaded`). `Safety` cannot state a constant that is both unsafe and partial, which Lean does not make (**proved**: `not_unsafe_of_partial`). `Regula.Closed.Report` cannot state a pass with a finding, a failure with none, or an incomplete run with no reason.
 
-The shell has three effects: it loads the build, it prints its report, and it sets its exit code. It writes no file. It runs no initializer of the loaded modules, because it loads them without extension states. Lake's own load of the workspace runs Git in the environment of the caller. This is read from the code, and no theorem states these effects.
+The shell has three effects: it loads the build, it prints its report, and it sets its exit code. It writes no file. It runs no initializer of the loaded modules, because it loads them without extension states. Lake's own load of the workspace runs Git in the environment of the caller. The full gate has two more, which [the language check](#the-language-check) gives: it reads source files, and it runs `lake build --wfail` and `lake check`. This is read from the code, and no theorem states these effects.
 
 ## From a build to the input
 
@@ -135,7 +138,7 @@ theorem g_one : g 1 = 1 := rfl
 
 **Measured** on the same day: structural and well-founded recursion, each in a `mutual` block too, nested recursion through `where`, `let rec`, `private`, `protected`, an `abbrev`, a method of an instance, `partial_fixpoint`, `@[specialize]`, universe polymorphism, a `module` file, and the functions that `deriving Repr, BEq, Hashable, DecidableEq` writes for a recursive type all gave a helper that passed `lake lint`, and that project passed `lake build --wfail` and `lake check`. The rule still reports the helper of what `deriving` writes as a `partial def`, as it did before, because the base is an opaque constant (`usePartial`, `Lean/Elab/Deriving/Util.lean:116`). **Measured**: `Repr` and `BEq` on a nested inductive type and `Ord` on a recursive type.
 
-The rule checks the helper's form and nothing about what the helper computes. **Known gap**: a claimed module can forge a helper of the true form through its own code during the build, such as `run_cmd`, until the check that the owner chose as the next step. Lean's declaration forms give a partial definition only through `addAndCompilePartialRec`, which names the helper after the definition it compiles (`Lean/Elab/PreDefinition/Basic.lean:280-292`), so a form with no code of the project's own gives no such pair. That last sentence is read from the source and has no theorem. **Measured** on 2026-10-31 with the checker of pull request 516, on a project of one module:
+The rule checks the helper's form and nothing about what the helper computes. **Known gap of the proof verdict**: a claimed module can forge a helper of the true form through its own code during the build, such as `run_cmd`. The full verdict closes this, because [the language check](#the-language-check) refuses that code before it can run. Lean's declaration forms give a partial definition only through `addAndCompilePartialRec`, which names the helper after the definition it compiles (`Lean/Elab/PreDefinition/Basic.lean:280-292`), so a form with no code of the project's own gives no such pair. That last sentence is read from the source and has no theorem. **Measured** on 2026-10-31 with this revision of the checker, on a project of one module:
 
 ```lean
 import Lean
@@ -150,7 +153,11 @@ theorem g_one : g 1 = 1 := rfl
 #eval g 1
 ```
 
-The `#eval` printed `2` while `g_one` holds, and `lake check` and `lake lint` both passed. The gap is about what a compiled program runs, not about a proof: a helper is not logical evidence, because Lean's kernel refuses a safe constant that mentions a partial one (`src/kernel/type_checker.cpp:114-117` at `v4.35.0`). The check that the owner chose as the next step is what can close it.
+The `#eval` printed `2` while `g_one` holds, and `lake check` and `lake lint` both passed. The gap is about what a compiled program runs, not about a proof: a helper is not logical evidence, because Lean's kernel refuses a safe constant that mentions a partial one (`src/kernel/type_checker.cpp:114-117` at `v4.35.0`). The language check refuses this module (**measured**), so it gets no full verdict.
+
+### RG1010: the language check
+
+[The language check](#the-language-check) states it. It reads no constant, and only the full gate reads it.
 
 ### RG2001: the environment
 
@@ -169,7 +176,9 @@ The exit code of `pass` is 0, and no other verdict has it (**proved**: `Regula.C
 
 ## What a pass means
 
-A pass of the project's gate is the result of three commands of the pinned toolchain on one finished build, in this order:
+Regula gives one of two verdicts, and the last line of a run says which. This section is about the proof verdict. [The language check](#the-language-check) states the full verdict, which needs what a pass here needs and more.
+
+A pass of the proof verdict is the result of three commands of the pinned toolchain on one finished build, in this order:
 
 1. `lake build --wfail`.
 2. `lake check`. On macOS it is `lake check --inadvisably-no-sandbox`, and it prints that the run is not trustworthy.
@@ -182,6 +191,102 @@ Such a pass means that the proofs of the claimed modules are sound and use only 
 The checker alone means less, because it reads what the build holds and replays nothing. **Measured** on 2026-10-31: a module that added a theorem of `False` with `set_option debug.skipKernelTC true` passed `lake build` and `lake lint`, and `lake check` refused it.
 
 `lake check` imports the modules of the default targets into one environment, and the checker does too. So a project of two default executables that each declare `main` fails both commands. Lean refuses two imported modules that declare one name with different values (`Lean/Environment.lean:2336-2344`), with the exception that [the section on the loader](#from-a-build-to-the-input) states.
+
+## The language check
+
+Before anything is compiled, the check reads each Lean file Lake would compile for the claim, and the project's Lake configuration, and refuses anything outside a closed set. If it admits the project, the gate builds and replays it and runs the rules on the result.
+
+The gate is `lake exe lint PROFILE full DIR`, from a checkout of Regula built apart from the project. Lake loads a project's configuration before anything Lake starts can run, and a `lakefile.lean` that runs can delete itself or plant a checker, so no run that the project's Lake started can give a full verdict. `Regula.Reader.startedOutside` refuses one: the checker's program must lie outside the project, and the Lake that started it must have dispatched from the checker's own package (`dispatchedFrom_iff`). This guards the start, and no more: a project's code that ran first can make any program print any line, so a verdict is worth what the start from outside gives it. [The confirmation record](confirmation.md#the-language-check) holds the restatement that the owner confirmed, the status of each consequence, and the second reading. The formal statement is `languageRecord` and `fullGateRecord` in [`RegulaSpecification/Language.lean`](RegulaSpecification/Language.lean).
+
+### What it reads, and how
+
+| Input | Through | On a failure or anything unknown |
+| --- | --- | --- |
+| The project's `.lake`, before anything else | The file system | Anything there is `incomplete`: a planted build, package, checker or `package-overrides.json` (`Lake/Load/Resolve.lean:603`). |
+| `lean-toolchain`, by name | The file system | Anything but the pinned text is refused. The checker builds with the Lake beside its own Lean, so this file chooses nothing, and a project that names another Lean is told so. |
+| `lakefile.lean`, by name, before any Lake load (`Lake/Load/Package.lean:109-117`) | The file system | Refused (RG1010): Lake prefers it and runs it. |
+| `lakefile.toml` | Lake's own TOML parser (`Lake.Toml.loadToml`), as key paths | A key outside `configKeys` and outside `leanOptions` with an option of `options` is refused. A later Lake's new key is refused the same way. |
+| The other packages | Lake's manifest reader, and `PackageEntry.materialize`, which clones a package and runs nothing of it (`Lake/Load/Materialize.lean:267-293`), then its configuration by name | A package from a local path is refused. A manifest that names another packages directory is `incomplete` (`Lake/Load/Resolve.lean:598`). A package whose configuration is a `lakefile.lean`, or anything but TOML, stops the reading before any Lake load and leaves only the proof verdict. A later build runs it, and that verdict promises nothing about what ran. |
+| The modules to read | Lake's default targets (`Regula.Load.defaultModules`), and each import that a read header names, by `findTargetModule?` or else on the toolchain's own search path | A module that neither holds is `incomplete`. Each module is read wherever its package is, so a non-default library that a default target imports is read. |
+| Each file's header | `Lean.Parser.parseHeader`, on the bytes the frontend reads (`Lean/Elab/Frontend.lean:287`, `Lean/Shell.lean:519`) | A file that cannot be read is `incomplete`. |
+| Each file's commands | `Lean.Parser.parseCommand`, with H1's context | A parse error, `.missing` or a file that the parser did not read to its end is refused. |
+| Build outputs of each dependency whose files are read | The file system | Any file is `incomplete`: Lake would reuse it, and its source is not what produced it. |
+
+Mathlib stops the walk: a module whose root is `Mathlib` is recorded and not read, and the build has only the proof verdict.
+
+### The closed set
+
+The tables are data, in [`lean/Regula/LanguageSet.lean`](../lean/Regula/LanguageSet.lean). A construct is in them only if, read at the pinned Lean: Lean's toolchain declares its parser, its elaboration evaluates no code that the file writes or names, it changes no parser state a later command reads, and it installs no replacement for compiled code. That is the criterion each entry was read against, and H2 is what depends on it being read correctly. The set is what real library code uses and meets that criterion, so it is not every construct that meets it: anything else is refused, visibly, until someone reads it.
+
+| Position | The table | Why it is closed |
+| --- | --- | --- |
+| A node's kind | `kinds` | Refuses each kind not read, including all that a later Lean adds. |
+| A token | `atoms` | A token can sit in an optional position of an admitted kind, such as `meta section`. Refuses each not read. |
+| An identifier | No component starting with `_`, other than a first `_root_`, and no `autoParam` | The compiler reads names of those forms by their form (`Lean/Compiler/LCNF/ToDecl.lean:25-27`), and `Lean/Elab/App.lean:832` evaluates what `autoParam` names. |
+| `@[name]` | `simpleAttributes` | `Lean/KeyedDeclsAttribute.lean:166` and `Lean/Meta/Tactic/Simp/Simproc.lean:130` evaluate a named definition, and `implemented_by`, `extern` and `csimp` replace compiled code. |
+| `set_option`, `leanOptions` | `options` | `debug.skipKernelTC`, `match.ignoreUnusedAlts` and `internal.parseQuotWithCurrentStage` change what is checked or parsed. |
+| A tactic's `+item` | `configItems` | `+native` is a native proof. A `(config := ...)` is refused by its kind, because `Lean/Elab/Tactic/Config.lean:151` evaluates its value. |
+| A `deriving` class | `derivingClasses` | A handler is code. |
+| `namespace`, `open` | No start of the target may end a namespace that holds scoped parser entries in this file's environment | Keeps the parser's context constant: see H1. `open X (names)` activates nothing (`Lean/Elab/Open.lean:90`), so it needs no test. |
+| The header | `module` is required, with the same tables for the rest, so `meta import`, `import all` and `prelude` are refused | In a `module` file with no `meta`, Lean itself refuses to evaluate a project's constant (`Lean/Compiler/IR/Meta.lean:56-59`, `Lean/Environment.lean:2537`), so a route that the table misses still meets Lean's check. |
+
+The kinds of `leafKinds` hold open text, such as a string's or a comment's, and the check does not enter them. Thus `"run_cmd"` in a string or a doc comment is not a construct.
+
+### H1 and H2
+
+These are hypotheses about what Lean v4.35.0 does. They are stated in `LeanBehaviour`, never as axioms. No proof in Lean can reach them, because `Lean.Parser.parseCommand` is `partial` (`Lean/Parser/Module.lean:135`) and Lean's elaborator has no model here. The owner confirmed that a hypothesis of this kind, re-read at each upgrade of Lean, counts as Lean staying trusted. So "no bugs" here means no bug outside these stated, version-bound claims.
+
+**H1: the tree the check read is the tree Lean elaborates.** The frontend calls the same `parseCommand`, with state from the elaborator (`Lean/Language/Lean.lean:595-601`). The parser reads that state only as scoped parser entries and tokens (`Lean/Parser/Extension.lean:607-612`, `Lean/Parser/Module.lean:124,146`), the option `internal.parseQuotWithCurrentStage` in quotations, and namespace and open declarations when it resolves a parser's name in a quotation (`Lean/Parser/Extension.lean:765`). Quotations and that option are refused. Scoped entries activate only at `open` and `namespace` (`Lean/Elab/Open.lean:83,89,101`, `Lean/Elab/BuiltinCommand.lean:60`), and no target of an admitted file can activate a namespace that holds any. No admitted command adds a parser, so the project's own modules add none to the environment. So the reader parses each file with one context: the environment of the toolchain's modules that the file sees, no options, no namespace and no open declaration. It computes what a file sees from `importModulesCore`'s rule for a `module` file (`Lean/Environment.lean:2108-2190`): each direct import, and through it each `public` import, in `Regula.Reader.visibleToolchain`, which is a statement of that rule and no theorem. That is the one place where the reader states what Lean does, and H1 covers it.
+
+A simulation of the elaborator's state is what H1 avoids: Lean's parser and elaborator disagree on what `open ... hiding` activates (`Lean/Parser/Extension.lean:624-626`, `Lean/Elab/Open.lean:101`), so a restatement of that state would be a place for a bug to enter.
+
+**H2: what the closed set admits runs no code the project wrote, and installs nothing that replaces what the compiler runs for a definition.** Each entry of the tables was read against the criterion above. **Assumed** from reading each evaluation site that a search of Lean's sources for `evalConst`, `evalConstCheck`, `evalExpr`, `evalTerm` and `evalDecl` finds, as of v4.35.0, and each of these is reached only through what the tables refuse: `Lean/Elab/BuiltinEvalCommand.lean`, `Lean/Elab/BuiltinNotation.lean:588,594`, `Lean/Elab/BuiltinTerm.lean:432`, `Lean/Elab/Tactic/BuiltinTactic.lean:683`, `Lean/Elab/Tactic/Guard.lean:163`, `Lean/Meta/Native.lean`, `Lean/Elab/Tactic/Config.lean:151`, `Lean/Elab/ConfigEval/`, `Lean/Elab/Tactic/Try.lean:1033`, `Lean/Elab/Util.lean:108`, `Lean/KeyedDeclsAttribute.lean:125,166`, `Lean/Meta/Tactic/Simp/Simproc.lean:130`, `Lean/Attributes.lean:450`, `Lean/Elab/DocString.lean`, `Lean/Linter/MissingDocs.lean:43`, `Lean/Linter/UnusedVariables.lean:143`, `Lean/Compiler/LCNF/Simp/ConstantFold.lean:648` and `Lean/Compiler/LCNF/PassManager.lean:217`. `Lean/Elab/Util.lean:108` is reached by Lean's own `autoParam` constants, which are the toolchain's code, and a project's is refused by the table and by Lean's check in a `module` file. A route in an admitted kind that this reading missed is a false pass, and that is what H2 stands for.
+
+H1 and H2 say what a compile of admitted files runs. That nothing of the project runs before the check is no hypothesis about Lean: it is the start from outside and the reads by name above, measured below.
+
+**At each upgrade of Lean:** `supportsLean` refuses any other release, so nothing passes until these are done. Diff the toolchain's kinds, and read what changed in each kind of the table. Run the search for evaluation sites again. Read again the sources that H1 cites, with `importModulesCore`. Run the differential below.
+
+### What is proved
+
+Over every `Lean.Syntax`, in [`RegulaSpecification/Proofs/Language.lean`](RegulaSpecification/Proofs/Language.lean), about the definitions that the checker runs: `mem_positions_iff` (the walk lists exactly the positions the specification reads), `mem_offenders_iff` and `offenders_eq_nil_iff` (a position is reported exactly when it is one that is not admitted), `fileAdmitted_iff`, `decision_meets`, `decision_admitted_iff`, `no_files_not_admitted`, `mathlib_not_admitted`, `offender_not_admitted`, `gate_meets` and `gate_exit_zero_iff`. **Proved** in [`RegulaSpecification/Language.lean`](RegulaSpecification/Language.lean): `language_o2`, `language_o2Run`, `language_o3`, `language_o4` and `language_o5`, `fullGate_o2`, `fullGate_o2Run`, `fullGate_o3`, `fullGate_o4` and `fullGate_o5` (lean-intent's obligations, with O5 at equality, so the records leave nothing unsaid), `constant_fails`, `build_only_after_check`, `full_needs_no_mathlib`, `started_inside_not_admitted`, `planted_not_admitted`, `lean_config_refused`, the tables against the names the owner's words refuse (`refusedKinds_outside`, `refused_attributes`, `refused_options`, `refused_native`, `refused_config_keys`) and admit (`admitted_kinds`), and `admitted_runs_no_project_code`, which only composes `admitted_iff` with H1 and H2 and adds nothing to them.
+
+No theorem states that `Regula.Reader` gives a faithful `Reading`, that it finds every module, that `Regula.Shell` calls the gate in this order with these effects, or that the two Lake commands do what they say. The order of the gate is proved over the monad, and **measured** with these effects.
+
+### What was measured
+
+**Measured** on 2026-10-31 with this revision, each case one disposable project with no `.lake`, with `lake exe lint standard-logical full DIR` from a checkout of this revision. The files of the case are the construct, after `module`, and `public section` or a `public import` as it needed.
+
+- Refused with exit 1, no `.olean` of the module, and no file written by the module's code: `run_cmd` with `import Lean` and with `meta import Lean`, `#eval`, `#guard`, `run_tac`, `by_elab`, `native_decide`, `decide +native`, `macro`, `syntax`, `notation`, `elab`, `initialize`, `@[local macro k]` on a plain `def`, `@[implemented_by]`, `@[extern]`, `@[csimp]`, `@[macro_inline]`, `open ... hiding` of a namespace with scoped syntax, `open` and `namespace` of one, `open Lean`, `open _root_.Lean`, `autoParam` naming a project's constant, a `:= by` default, a file that is not a `module`, `prelude`, `meta import`, `import all`, `meta section`, `meta def`, `unsafe`, `partial`, `#exit`, a parse error, `include_str`, `set_option debug.skipKernelTC`, `set_option match.ignoreUnusedAlts`, `simp (config := ...)`, `simp +arith`, `g._unsafe_rec`, `_unsafe_rec` inside `namespace g`, `g._boxed`, `#guard_msgs`, `try?`, `exact?`, `apply?`, `#check_failure`, a quotation, `deriving instance`, a `deriving` of a class outside the table, `grind`, `axiom`, `instance (priority := ...)`, a non-default library's module with `run_cmd` that a default target imports, a package from a local path in `lakefile.toml` or in the manifest, a `lean-toolchain` that names another Lean or that is absent, and each of `moreLeanArgs`, `plugins`, `buildDir`, `more-lean-args`, `leanOptions.debug.skipKernelTC`, `lean_lib.precompileModules` and `lean_lib.moreLeanArgs` in `lakefile.toml`. Each named its own construct.
+- **A `lakefile.lean` that writes a file and deletes itself:** started from outside, refused with exit 1, the file still there and nothing written, because nothing loaded it. Through `lake lint -- full DIR` in the project, it ran and deleted itself, as Lake does, and the checker that started then refused to give a full verdict.
+- `incomplete` with exit 2 and no build: no default target, a planted checker under `.lake/packages`, a planted `.olean` under `.lake/build`, a planted `package-overrides.json`, a second run after a first, a manifest that names another packages directory, a `require` with no manifest, `lake lint -- full DIR` in a project with the checker by path, and the checker asked to check the package that holds it.
+- Exit 0, `full verdict: pass`: a module with `simp`, `omega`, `decide +kernel`, `variable` and `deriving DecidableEq`, with a non-default library's admitted module that it imports, and with a Git dependency that holds `macro` that it does not import.
+- Exit 3, `proof verdict: pass`: a module that imports a stand-in `Mathlib.Stub`, one that imports a `module` from a Git dependency that holds a `macro`, and a Git dependency with both configurations.
+- A Git dependency whose `lakefile.lean` writes a file: the check stopped before any Lake load, and the build that followed ran it, as a proof verdict allows: `proof verdict: pass`, exit 3, and no full verdict.
+- Plain `lake lint` on a built module: `proof verdict: pass`, exit 0.
+
+**The differential for H1**: for each file, the reader's trees against the commands of Lean's own frontend (`Lean.Elab.IO.processCommands`, with `processHeader`), compared by kind, atom and name, stopping at the first difference, one process per file, with no time budget beyond 600 seconds a file. On the 12 files of Regula's default targets at this revision, 324 commands: no difference. This is a search for a counterexample, not a proof. Only those files are admitted today, so the search reaches no file that the table does not admit.
+
+The check took about a second on those 10 files, and its peak memory is that of importing Lean's own modules. **Not measured**: real Mathlib, whose imports the check does not load, and Linux.
+
+### What remains
+
+**Not closed, by design:** another process that changes files between steps. A dependency's code, beyond the check of its files that a full verdict needs, and the Git command that fetches it, whose URL the manifest states. Lean, Lake and the kernel. A fake toolchain or a `PATH` shim: the check runs inside what it is given, and `supportsLean` reads only what that program says of itself. A checker that the operator did not build apart from the project. **Assumed** from the source: the Git commands that Lake's load runs on a project's own `.git` run no hook. An `instance` that changes what a statement means.
+
+**Known failures that the check reaches:**
+
+- [#462](https://github.com/rbeauchamp/regula/issues/462): `macro_rules` and `@[local macro]` are refused, and `match.ignoreUnusedAlts` is not in `options`. Closed for a full verdict.
+- [#468](https://github.com/rbeauchamp/regula/issues/468): its macro cannot exist. No other form was found, and none was proved absent.
+- [#469](https://github.com/rbeauchamp/regula/issues/469): **remains. Measured**: `variable (s : Substring.Raw) (h : isEmpty s = true)`, then `namespace Substring`, `include h`, `def usesH`, gets a full verdict while Lean discards the deprecation warning of the second elaboration, and a declaration with the same binders directly fails `lake build --wfail`. Regula makes no claim about warnings, since `lake build --wfail` is Lean's own. It closes only by refusing `variable`, `include` and `omit`, which the owner's words admit.
+- [#471](https://github.com/rbeauchamp/regula/issues/471): `try?`, `exact?`, `apply?`, `#check_failure` and `#guard_msgs` are refused. Closed for those. Other places where Lean drops a message are unread, so no statement says that no message is dropped.
+
+### Decisions
+
+Each of these was decided on the owner's behalf, and [the confirmation record](confirmation.md#the-language-check) gives the rest:
+
+- One process runs the check, the build, the replay and the rules, because a record that a first command left could be forged by project code in the build that a later command read. So the order is a program's order, with a theorem.
+- The table is what real code uses, not every construct that meets the criterion, because each entry is a claim that H2 rests on. Regula's core uses about 170 of its kinds, and the rest go with library code of two other projects of the owner's that is outside this repository.
+- The specification package stays outside this check. It imports lean-intent, whose files use `syntax` and `macro`. So it gets the proof verdict, and its proofs are still replayed by `lake check`.
+- The language decision reports each offending position and the shell prints at most 50, because a project far outside the set would otherwise print its whole tree.
 
 ## Module files
 
@@ -230,11 +335,12 @@ These stay assumed. Each is a statement about a system or a step that no proof o
 - **The thin effects of Regula's own code.** `Regula.Load.readModules`, `Facts.load`, `lakeEnvironment`, `loadWorkspace`, `defaultModules`, `loadInput`, `Regula.Shell.report`, `Regula.Shell.run` and the `lint` executable call Lean and Lake, pass the results to the pure functions above, print and set the exit code. No theorem states these effects: that `loadInput` gives what `Facts.input` gives, and that the exit code is that of the verdict are read from the code. That `readModules` gives each module of the header in its order, and what each place decides, is no assumption: the type of its result carries both (`Facts.names`, `Facts.placed`). The compiled program runs these definitions by Lean's compiler, which the first statement trusts.
 - **`Lean.importModules` at the level `.private` gives each constant of a `module` file with its body, exposed or not** (`Lean/Environment.lean:1871`, `Lean/Environment.lean:2183`). An unexposed definition is therefore read as a definition and walked, and not read as an axiom with no value. `Regula.Workspace` names that level. **Measured** on 2026-10-31: a `module` file with `sorry`, a project axiom, `native_decide`, `partial` and `while` in unexposed bodies gave the same 16 findings as before Regula's own files became modules. A file like it with none of those passed.
 - **`import all` of a module of another Lake package.** No file of this repository does that at this revision: the proofs here see the bodies of `Regula.*` because they are not `module` files, and `Regula.ProgramCheck.TestListing` uses `import all` on a module of its own package and on two of the toolchain, which belong to no package of the workspace (`Lake/Config/Workspace.lean:283-284`). When lean-intent has migrated and the proofs become `module` files, they will need it across packages. Lake's check of that is disabled with the remark "We've decided to disable this check for now" (`Lake/Build/Module.lean:430-434`), and the field that allows it is `allowImportAll` (`Lake/Config/PackageConfig.lean:314-324`), so a later toolchain can refuse those imports until the root package sets it.
-- **No process changes the build between the gate's commands.** `lake check` replays what the build holds when it runs, and the checker reads what the build holds when it runs. On macOS `lake check` runs without its sandbox, so the code of the project runs outside a sandbox, as it does in `lake build`.
-- The code of a claimed module runs during its build, and no rule reads it. It can forge a recursion helper of the true form, it can remove messages, so that `lake build --wfail` sees no warning, and it can have other effects. **Measured** on 2026-10-31: a `run_cmd` wrote a file during the build, and the module passed all three commands. The check that the owner chose as the next step is what can narrow this.
-- The meta-code of a dependency runs during the build too, and it is trusted in the same way.
+- **No process changes the build between the gate's commands, or the source between the check and the build.** `lake check` replays what the build holds when it runs, and the checker reads what the build holds when it runs. On macOS `lake check` runs without its sandbox, so the code of the project runs outside a sandbox, as it does in `lake build`.
+- For a proof verdict: the code of a claimed module runs during its build, and no rule reads it. It can forge a recursion helper of the true form, it can remove messages, so that `lake build --wfail` sees no warning, and it can have other effects. **Measured** on 2026-10-31: a `run_cmd` wrote a file during the build, and the module passed all three commands. A full verdict needs no such trust, under H1 and H2.
+- For a proof verdict: the meta-code of a dependency runs during the build too, and it is trusted in the same way. A full verdict reads each dependency it imports with the same check.
+- For a full verdict: [H1 and H2](#h1-and-h2) and the tables they cover, `Regula.Reader`, which fills the reading, `Regula.Reader.visibleToolchain`, which states what Lean's import shows a file, and an operator who builds the checker apart from the project and starts it from there.
 - `lake` and `lean` are the programs that `PATH` selects.
 
-The rules and the kernel replay read only the constants of the build. So the code of a claimed module can make a claim about a compiled program false, and it can hide a warning. Under the statements above, it cannot make an unsound proof of a claimed module pass all three commands, because `lake check` replays each constant in scope from its export and refuses each axiom beyond the three.
+The rules and the kernel replay read only the constants of the build. So under a proof verdict, the code of a claimed module can make a claim about a compiled program false, and it can hide a warning. Under the statements above, it cannot make an unsound proof of a claimed module pass all three commands, because `lake check` replays each constant in scope from its export and refuses each axiom beyond the three.
 
 **Open**: a theorem about the thin effects above. No theorem here reaches `IO`, so only reading stands behind them.

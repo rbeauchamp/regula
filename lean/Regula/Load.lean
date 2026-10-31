@@ -45,7 +45,8 @@ public section
 
 namespace Regula.Load
 
-open Lean System
+open Lean (ConstantInfo Environment Name findOLean isExtern)
+open System (FilePath)
 open Regula.Closed
 
 /-- Refuse the input: the run is `incomplete`. -/
@@ -200,7 +201,7 @@ def Facts.declIn (f : Facts) (n : Name) (m : LoadedModule) (info : ConstantInfo)
   safety := safetyOf info
   uses := (usesIn info stated).toList
   valueUses := (valueUsesOf info).toList
-  implementedBy := Compiler.getImplementedBy? f.env n
+  implementedBy := Lean.Compiler.getImplementedBy? f.env n
   isExtern := isExtern f.env n
   inToolchain := m.inToolchain
 
@@ -302,7 +303,7 @@ admits. Lean regenerates a definition's equation lemmas in each module that need
 constant can be conforming. -/
 def fitsUnshown {i : Input} (t : Tables i) (n : Name) (info : ConstantInfo) : Bool :=
   kindOf info == .theorem && safetyOf info == .safe &&
-    (Compiler.isUnsafeRecName? n).isNone &&
+    (Lean.Compiler.isUnsafeRecName? n).isNone &&
     loopConstructs.all (!(valueUsesOf info).contains ·) &&
     (usesOf info).all fun u => t.index.contains u && (t.axiomSet u).all (t.admits i.profile ·)
 

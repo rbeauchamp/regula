@@ -158,9 +158,10 @@ def rg1006 : List Finding :=
       some (finding .escapeHatch d (escapeDetail d))
     else none
 
-/-- The findings of one rule, matched exhaustively over the closed type of the rules. RG2001 reads
-no constant: it is the admission (`Draft.admit`) and the shell's refusal of a build it cannot
-load. -/
+/-- The findings of one rule, matched exhaustively over the closed type of the rules. RG1010 and
+RG2001 read no constant. RG1010 is the language check, which runs before the build
+(`Regula.Language`), and RG2001 is the admission (`Draft.admit`) and the shell's refusal of a build
+it cannot load. -/
 def check : RuleId → List Finding
   | .projectAxiom => t.rg1001
   | .proofHole => t.rg1002
@@ -168,6 +169,7 @@ def check : RuleId → List Finding
   | .nativeProof => t.rg1004
   | .profileExceeded => t.rg1005
   | .escapeHatch => t.rg1006
+  | .language => []
   | .environment => []
 
 end Tables

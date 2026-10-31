@@ -8,6 +8,7 @@ import RegulaSpecification.RuleRecord
 import RegulaSpecification.Foundation
 import RegulaSpecification.Safety
 import RegulaSpecification.Gate
+import RegulaSpecification.Language
 import RegulaSpecification.Witnesses
 import RegulaSpecification.CasesDeclarations
 import RegulaSpecification.CasesFoundation
@@ -19,6 +20,7 @@ import RegulaSpecification.Proofs.Records
 import RegulaSpecification.Proofs.Verdict
 import RegulaSpecification.Proofs.Load
 import RegulaSpecification.Proofs.Occurrences
+import RegulaSpecification.Proofs.Language
 
 /-!
 # The specification of Regula

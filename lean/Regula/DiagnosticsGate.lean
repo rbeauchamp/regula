@@ -15,8 +15,8 @@ starts:
 lean --run lean/Regula/DiagnosticsGate.lean local
 ```
 
-It runs `localSteps` one after another in the checkout, and stops at the first whose exit code is
-not 0, which fails it (`runSteps`, `runSteps_eq_none_iff`). It sets no time limit, so a slow or
+It copies the checker's sources to a directory of its own, runs `localSteps` one after another in the
+checkout, and stops at the first whose exit code is not 0, which fails it (`runSteps`, `runSteps_eq_none_iff`). It sets no time limit, so a slow or
 sleeping machine does not fail it; a step killed by a signal ends with a code other than 0.
 
 `lake build --wfail` and `lake check` are Lean's own commands, and the gate adds no claim of its own
@@ -48,16 +48,20 @@ structure Step where
 - `lake clean` in the specification's workspace, which holds both packages (`Workspace.clean`,
   `Lake/CLI/Main.lean:1160-1172` at v4.35.0), so that no step reads an output of an earlier build: a
   module of a library that the configuration no longer names would still satisfy an import.
-- The root package's default targets, with warnings as errors, and Lean's replay of them.
+- The checker, built in a separate copy of the program at `checker`, so that this checkout has no output
+  when the check reads it.
+- The full gate on this checkout (`root`), started from that copy: the language check, the build of the
+  default targets with warnings as errors, Lean's replay of them, and the rules. Its exit code is 0 only
+  for a pass of the full verdict.
 - The programs of the root package outside the default targets, and Regula's checker on its own
   build.
 - The specification, with warnings as errors, Lean's replay of it, and Regula's checker on it, the
   path that a project that requires Regula takes. So each theorem of the specification depends on no
   axiom beyond `propext`, `Quot.sound` and `Classical.choice`, on the run of the checker. -/
-def localSteps : List Step :=
+def localSteps (checker root : String) : List Step :=
   [⟨["clean"], "specification"⟩,
-    ⟨["build", "--wfail"], "."⟩,
-    ⟨["check", "--inadvisably-no-sandbox"], "."⟩,
+    ⟨["build", "lint"], checker⟩,
+    ⟨["exe", "lint", "standard-logical", "full", root], checker⟩,
     ⟨["build", "--wfail", "Regula", "lint"], "."⟩,
     ⟨["lint"], "."⟩,
     ⟨["build", "--wfail"], "specification"⟩,
@@ -107,16 +111,36 @@ private def runStep (step : Step) : IO UInt32 := do
         ("LAKE_ARTIFACT_CACHE", some "false")] }
   child.wait
 
-/-- Run the steps of the gate, and give 0 only when each ended with exit code 0. -/
+/-- What the checker's copy needs: its Lake configuration, its pin and its sources. -/
+private def checkerFiles : IO (List System.FilePath) := do
+  let sources ← System.FilePath.walkDir "lean"
+  let files ← sources.toList.filterM fun p => return !(← p.isDir)
+  return ["lakefile.toml", "lake-manifest.json", "lean-toolchain"].map System.FilePath.mk ++ files
+
+/-- Copy the checker's files to `target`. -/
+private def copyChecker (target : System.FilePath) : IO Unit := do
+  for file in ← checkerFiles do
+    let to := target / file
+    if let some dir := to.parent then IO.FS.createDirAll dir
+    IO.FS.writeBinFile to (← IO.FS.readBinFile file)
+
+/-- Run the steps of the gate, and give 0 only when each ended with exit code 0. The checker's copy
+lies in a directory of its own outside the checkout, removed at the end. -/
 def runLocal : IO UInt32 := do
-  match ← runSteps runStep localSteps with
-  | some (step, code) =>
-    IO.eprintln s!"local gate: lake {" ".intercalate step.arguments} (in {step.dir}) ended with \
-      exit code {code}, so the local gate refuses the change"
-    return 1
-  | none =>
-    IO.println s!"local gate: each of its {localSteps.length} steps ended with exit code 0"
-    return 0
+  let target ← IO.FS.createTempDir
+  try
+    copyChecker target
+    let steps := localSteps target.toString (← IO.currentDir).toString
+    match ← runSteps runStep steps with
+    | some (step, code) =>
+      IO.eprintln s!"local gate: lake {" ".intercalate step.arguments} (in {step.dir}) ended with \
+        exit code {code}, so the local gate refuses the change"
+      return 1
+    | none =>
+      IO.println s!"local gate: each of its {steps.length} steps ended with exit code 0"
+      return 0
+  finally
+    IO.FS.removeDirAll target
 
 end Regula.DiagnosticsGate
 

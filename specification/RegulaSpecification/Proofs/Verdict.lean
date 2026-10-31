@@ -112,6 +112,7 @@ theorem findings_nil_iff (i : Regula.Closed.Input) :
     · exact h5 s ((rg1005_exact i.tables s).mp hs)
     · exact h6 s ((rg1006_exact i.tables s).mp hs)
     · simp [Regula.Closed.Tables.check] at hs
+    · simp [Regula.Closed.Tables.check] at hs
 
 /-- The report of an input is not `incomplete`, and it is `pass` exactly when every rule holds of
 it. No hypothesis is needed: the type of the input carries the closed form. -/
@@ -191,9 +192,9 @@ theorem run_meets : gateRecord.Meets runChecker := by
     · rw [← hp]
       cases (run (ofSpec s)).verdict <;> simp [verdict]
 
-/-- Regula's checks are exactly RG1001 to RG1006 and RG2001. -/
+/-- Regula's checks are exactly RG1001 to RG1010 and RG2001. -/
 theorem rule_spellings :
     Regula.RuleId.all.map (·.spelling) =
-      ["RG1001", "RG1002", "RG1003", "RG1004", "RG1005", "RG1006", "RG2001"] := rfl
+      ["RG1001", "RG1002", "RG1003", "RG1004", "RG1005", "RG1006", "RG1010", "RG2001"] := rfl
 
 end RegulaSpecification

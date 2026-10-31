@@ -5,23 +5,29 @@ Authors: Regula contributors
 -/
 module
 
+public import Regula.Language
 public import Regula.Rules
 
 /-!
 # The shell of the checker
 
-The checker of a finished build, which the `lint` executable runs (`Regula.LintMain`), Lake's lint
-driver for a project that sets `lintDriver := "regula/lint"`. It reads the finished build through
-`load`, prints its report and sets its exit code. It writes no file. Lake's own load of the
-workspace runs Git in the environment of the caller. It builds nothing: the project's gate builds
-with `lake build --wfail` before it runs the checker, and a module without its `.olean` makes the
-run `incomplete`.
+The checker, which the `lint` executable runs (`Regula.LintMain`), Lake's lint driver for a project
+that sets `lintDriver := "regula/lint"`. It reads the finished build through `load`, prints its report
+and sets its exit code. It writes no file itself, and Lake's own load of the workspace runs Git in the
+environment of the caller. Only the full gate builds, through `build`. Otherwise the project's gate
+builds with `lake build --wfail` before it runs the checker, and a module without its `.olean` makes
+the run `incomplete`.
 
-The verdict is that of `Regula.Closed.decision`: `pass` (exit 0) when the input has the closed form
-and no rule reports a subject, `fail` (exit 1) when a rule reports one, and `incomplete` (exit 2)
-when the build cannot be loaded or the input does not have the closed form (RG2001). `profileOfRun`
-and `decision` are pure, and `specification/RegulaSpecification/Proofs/Load.lean` states what they
-give.
+A run with one profile gives the proof verdict, that of `Regula.Closed.decision`: `pass` (exit 0) when
+the input has the closed form and no rule reports a subject, `fail` (exit 1) when a rule reports one, and
+`incomplete` (exit 2) when the build cannot be loaded or the input does not have the closed form (RG2001).
+`profileOfRun` and `decision` are pure, and `specification/RegulaSpecification/Proofs/Load.lean` states
+what they give. It promises nothing about what ran during the build.
+
+A run with the profile, `full` and a directory is the full gate (`Regula.Language.gate`) on the project
+there: the language check, then the build and its replay, then the same rules. Only that run can print a
+full verdict, because only there the check came first, and only from a checker that the project's Lake did
+not start (`Regula.Reader.startedOutside`).
 -/
 
 public section
@@ -46,9 +52,12 @@ def report (r : Report) : IO UInt32 := do
   for f in r.findings do
     IO.println (line f)
   match r with
-  | .pass => IO.println s!"regula: {r.verdict.label}"
-  | .fail _ rest => IO.println s!"regula: {r.verdict.label}, {rest.length + 1} findings"
-  | .incomplete why => IO.println s!"regula: {r.verdict.label} (RG2001): {why}"
+  | .pass =>
+    IO.println s!"regula: proof verdict: {r.verdict.label}, which says nothing about what ran during \
+      the build"
+  | .fail _ rest =>
+    IO.println s!"regula: proof verdict: {r.verdict.label}, {rest.length + 1} findings"
+  | .incomplete why => IO.println s!"regula: proof verdict: {r.verdict.label} (RG2001): {why}"
   return r.verdict.exitCode
 
 /-- What a run read. -/
@@ -71,14 +80,53 @@ def profileOfRun (version commit : String) (args : List String) : Except String 
       match Profile.ofSpelling? text with
       | some profile => .ok profile
       | none => .error s!"{text} is no profile: {profileSpellings}"
-    | _ => .error s!"state one profile in `lintDriverArgs`: {profileSpellings}"
+    | _ =>
+      .error s!"state one profile in `lintDriverArgs`: {profileSpellings}, or, from a checkout of \
+        Regula, a profile, `full` and the project's directory"
 
-/-- Run the checker with the arguments of `lake lint` (`profileOfRun`), read the build through
-`load` and report the verdict of `decision`. -/
-def run (load : Profile → IO Input) (args : List String) : IO UInt32 := do
-  match profileOfRun Lean.versionString Lean.githash args with
-  | .error why => report (.incomplete why)
-  | .ok profile =>
+/-- The rules on the finished build: prints what they found, and gives their verdict. -/
+def rules (load : Profile → IO Input) (profile : Profile) : IO Verdict := do
+  let loaded := (← (load profile).toBaseIO).mapError toString
+  if let .ok input := loaded then IO.println (coverage input)
+  let r := decision loaded
+  for f in r.findings do
+    IO.println (line f)
+  if let .incomplete why := r then
+    IO.println s!"RG2001: {why}"
+  return r.verdict
+
+/-- What the language check says of a reading, printed. -/
+def check (read : IO (Language.Reading × List String)) : IO Language.Outcome := do
+  match ← read.toBaseIO with
+  | .error e =>
+    IO.println s!"RG2001: {e}"
+    return .incomplete
+  | .ok (reading, lines) =>
+    for l in lines do
+      IO.println l
+    IO.println s!"regula: the language check read {reading.files.length} files"
+    return Language.decision reading
+
+/-- The full gate. -/
+def runFull (load : Profile → IO Input) (read : IO (Language.Reading × List String))
+    (build : IO Bool) (profile : Profile) : IO UInt32 := do
+  let report ← Language.gate (check read) build (rules load profile)
+  IO.println report.label
+  return report.exitCode
+
+/-- Run the checker with the arguments of `lake lint` (`profileOfRun`) and read the build through
+`load`, giving the verdict of `decision`. Or, with a profile, `full` and a directory, run the full gate on
+the project there. -/
+def run (load : Profile → IO Input) (loadAt : String → Profile → IO Input)
+    (read : String → IO (Language.Reading × List String)) (build : String → IO Bool)
+    (args : List String) : IO UInt32 := do
+  let (profileArgs, project) := match args with
+    | [text, "full", dir] => ([text], some dir)
+    | _ => (args, none)
+  match profileOfRun Lean.versionString Lean.githash profileArgs, project with
+  | .error why, _ => report (.incomplete why)
+  | .ok profile, some dir => runFull (loadAt dir) (read dir) (build dir) profile
+  | .ok profile, none =>
     let loaded := (← (load profile).toBaseIO).mapError toString
     if let .ok input := loaded then IO.println (coverage input)
     report (decision loaded)

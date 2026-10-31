@@ -33,7 +33,7 @@ its Lean and no inherited search path. -/
 def lakeEnvironment : IO Lake.Env := do
   let some sysroot ← IO.getEnv "LEAN_SYSROOT"
     | refuse "LEAN_SYSROOT is not set, so the toolchain of the build is not known: run the \
-        checker with `lake lint`, which sets it"
+        checker with `lake lint` or `lake exe lint`, which set it"
   let lean ← Lake.LeanInstall.get sysroot (collocated := true)
   let lake := Lake.LakeInstall.ofLean lean
   match ← (Lake.Env.compute lake lean (← Lake.findElanInstall?)).toBaseIO with
@@ -63,17 +63,15 @@ def defaultModules (ws : Lake.Workspace) : IO (Array Name) := do
       out := out.push exe.root.name
   return out
 
-/-- The closed input of the finished build of the workspace that Lake dispatched from the current
-directory, or an error that refuses it. -/
-def loadInput (profile : Profile) : IO Input := do
-  let ws ← loadWorkspace "."
+/-- The search path that Lake gave this process, or a refusal when no Lake did. -/
+def receivedLeanPath : IO (List String) := do
   let some leanPath ← IO.getEnv "LEAN_PATH"
     | refuse "LEAN_PATH is not set, so the workspace that Lake dispatched is not known: run the \
-        checker with `lake lint`, which sets it"
-  let received := (SearchPath.parse leanPath).map toString
-  unless dispatchedFrom ws.root.leanLibDir.toString ws.lakeEnv.lake.libDir.toString received do
-    refuse "the current directory is not the workspace Lake dispatched; run `lake lint` from that \
-      workspace's directory"
+        checker with `lake lint` or `lake exe lint`, which set it"
+  return (SearchPath.parse leanPath).map toString
+
+/-- The closed input of the finished build of the workspace `ws`, or an error that refuses it. -/
+def inputOf (ws : Lake.Workspace) (profile : Profile) : IO Input := do
   searchPathRef.set ws.augmentedLeanPath
   let roots ← defaultModules ws
   let env ←
@@ -83,5 +81,20 @@ def loadInput (profile : Profile) : IO Input := do
   match f.input roots.toList profile with
   | .ok input => return input
   | .error why => refuse why
+
+/-- The closed input of the finished build of the workspace that Lake dispatched from the current
+directory, or an error that refuses it. -/
+def loadInput (profile : Profile) : IO Input := do
+  let ws ← loadWorkspace "."
+  unless dispatchedFrom ws.root.leanLibDir.toString ws.lakeEnv.lake.libDir.toString
+      (← receivedLeanPath) do
+    refuse "the current directory is not the workspace Lake dispatched; run `lake lint` from that \
+      workspace's directory"
+  inputOf ws profile
+
+/-- The closed input of the finished build of the workspace at `dir`, for a checker that Lake started
+from another workspace (`Regula.Reader.startedOutside`). -/
+def loadInputAt (dir : FilePath) (profile : Profile) : IO Input := do
+  inputOf (← loadWorkspace dir) profile
 
 end Regula.Load
