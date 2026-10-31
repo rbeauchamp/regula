@@ -1,3 +1,5 @@
+module
+
 /-!
 # The rules
 
@@ -5,6 +7,8 @@ The closed identity of Regula's checks. `RuleId.all` lists each once, and
 `Regula.Closed.Tables.check` matches this type exhaustively, so a rule added here stops the build
 until it has a function.
 -/
+
+public section
 
 namespace Regula
 
@@ -23,8 +27,9 @@ inductive RuleId where
   /-- RG1005: a constant of a claimed module depends on an axiom that the project's profile does not
   admit. -/
   | profileExceeded
-  /-- RG1006: a claimed module holds an `unsafe` or `partial` constant without the form of Lean's
-  recursion helper, or a constant whose value mentions a loop construct of Lean. -/
+  /-- RG1006: a claimed module holds a constant that is `unsafe`, `partial` or named as a recursion
+  helper, without the form of Lean's recursion helper, or a constant whose value mentions a loop
+  construct of Lean. -/
   | escapeHatch
   /-- RG2001: the build cannot be loaded, or the input does not have the closed form. -/
   | environment

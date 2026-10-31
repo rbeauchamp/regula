@@ -1,5 +1,7 @@
-import Std.Data.HashMap
-import Std.Data.HashSet
+module
+
+public import Std.Data.HashMap
+public import Std.Data.HashSet
 
 /-!
 # The closed input
@@ -14,6 +16,8 @@ rule function of `Regula.Rules` against the specification's violation predicate,
 against its statement, and each field against the environment that `Regula.Load` reads it from.
 That Lean's and Lake's interfaces report the build is what the specification's trusted base lists.
 -/
+
+public section
 
 namespace Regula.Closed
 

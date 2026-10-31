@@ -239,15 +239,16 @@ def EnvHelper (f : Regula.Load.Facts) (n : Name) (info : ConstantInfo) (m : Name
       Lean.Compiler.getImplementedBy? f.env b = none ∧ Lean.isExtern f.env b = false
 
 /-- What RG1001 to RG1006 state of each constant of a claimed module, in the terms of the
-environment: no loaded module states an axiom of its name (RG1001). When it is unsafe or partial, it
-has the form of a recursion helper (RG1006), and its value mentions no loop construct of Lean
-(RG1006). Each axiom that it reaches, through what any loaded module's own data states, is one that
-the profile admits (RG1005), which also excludes `sorryAx` (RG1002), a native proof's axiom (RG1004)
+environment: no loaded module states an axiom of its name (RG1001). When it is unsafe or partial, or
+has a recursion helper's name, it has the form of a recursion helper (RG1006), and its value mentions
+no loop construct of Lean (RG1006). Each axiom that it reaches, through what any loaded module's own
+data states, is one that the profile admits (RG1005), which also excludes `sorryAx` (RG1002), a native proof's axiom (RG1004)
 and every other axiom (RG1003): `rg1005_of_hole`, `rg1005_of_compiler`, `rg1005_of_unknown`. -/
 def EnvFloor (f : Regula.Load.Facts) (p : Regula.Closed.Profile) : Prop :=
   ∀ n info m, f.env.constants.map₁[n]? = some info → f.moduleOf n = some m → m ∈ f.claimed →
     ¬ EnvAxiom f n ∧
-    ((info.isUnsafe = true ∨ info.isPartial = true) → EnvHelper f n info m) ∧
+    ((info.isUnsafe = true ∨ info.isPartial = true ∨ ∃ b, n = .str b "_unsafe_rec") →
+      EnvHelper f n info m) ∧
     (∀ l ∈ loopConstructs, ¬ ValueMentions info l) ∧
     ∀ a, EnvReaches f n a → EnvAxiom f a → EnvAdmits f p a
 
@@ -316,7 +317,8 @@ structure Loaded (f : Regula.Load.Facts) (roots : List Name) (p : Regula.Closed.
   /-- No name repeats: the keys of a hash map are distinct. -/
   unique : (i.decls.map (·.name)).Nodup
   /-- Each constant of a claimed module's `.olean` is shown to the rules, or is what they admit. -/
-  kept : ∀ x ∈ f.claimedConstants, f.shown x = true ∨ Regula.Load.fitsUnshown i.tables x.2.2 = true
+  kept : ∀ x ∈ f.claimedConstants,
+    f.shown x = true ∨ Regula.Load.fitsUnshown i.tables x.2.1 x.2.2 = true
 
 theorem decl_ok {n : Name} {info : ConstantInfo} {s : List ConstantInfo} {d : Regula.Closed.Decl}
     (h : f.decl n info s = .ok d) : f.moduleOf n = some d.module ∧ d.name = n ∧
@@ -342,7 +344,7 @@ theorem shown_true {x : Name × Name × ConstantInfo} (h : f.shown x = true) :
 
 theorem unread_none {x : Name × Name × ConstantInfo} (h : f.unread? i = none)
     (hx : x ∈ f.claimedConstants) :
-    f.shown x = true ∨ Regula.Load.fitsUnshown i.tables x.2.2 = true := by
+    f.shown x = true ∨ Regula.Load.fitsUnshown i.tables x.2.1 x.2.2 = true := by
   by_cases hs : f.shown x = true
   · exact .inl hs
   refine .inr ?_
@@ -695,13 +697,13 @@ theorem mem_claimedConstants {m n : Name} {info : ConstantInfo} :
 
 /-- A pass holds of each constant of a claimed module as that module's own `.olean` states it, not
 only of the constant that Lean's import keeps under its name (`Facts.shown`, `Facts.unread?`): it is
-no axiom, it is a partial, safe-flagged constant when it has either flag, its value mentions no loop
-construct, and each axiom that it reaches, through what any loaded module's own data states, is one
-that the profile admits. -/
+no axiom, it is a partial, safe-flagged constant when it has either flag or a recursion helper's
+name, its value mentions no loop construct, and each axiom that it reaches, through what any loaded
+module's own data states, is one that the profile admits. -/
 theorem pass_held (h : (Regula.Shell.decision (f.input roots p)).1 = .pass) {m n : Name}
     {info : ConstantInfo} (hx : (m, n, info) ∈ f.claimedConstants) :
     (∀ v, info ≠ .axiomInfo v) ∧
-    ((info.isUnsafe = true ∨ info.isPartial = true) →
+    ((info.isUnsafe = true ∨ info.isPartial = true ∨ ∃ b, n = .str b "_unsafe_rec") →
       info.isPartial = true ∧ info.isUnsafe = false) ∧
     (∀ l ∈ loopConstructs, ¬ ValueMentions info l) ∧
     ∀ u, Mentions info u → ∀ a, EnvReaches f u a → EnvAxiom f a → EnvAdmits f p a := by
@@ -710,15 +712,16 @@ theorem pass_held (h : (Regula.Shell.decision (f.input roots p)).1 = .pass) {m n
   rcases (hl.kept _ hx).symm with hfits | hshown
   · simp only [Regula.Load.fitsUnshown, Bool.and_eq_true, beq_iff_eq, Bool.not_eq_true',
       List.all_eq_true, Array.all_eq_true_iff_forall_mem] at hfits
-    obtain ⟨⟨⟨⟨hkind, hunsafe⟩, hpartial⟩, hloop⟩, huses⟩ := hfits
+    obtain ⟨⟨⟨⟨⟨hkind, hunsafe⟩, hpartial⟩, hname⟩, hloop⟩, huses⟩ := hfits
     refine ⟨?_, fun hflag => ?_, ?_, ?_⟩
     · rintro v rfl
       simp [Regula.Load.kindOf] at hkind
-    · rcases hflag with hf | hf
+    · rcases hflag with hf | hf | ⟨b, hb⟩
       · rw [hunsafe] at hf
         cases hf
       · rw [hpartial] at hf
         cases hf
+      · simp [(isUnsafeRecName_eq n b).mpr hb] at hname
     · intro l hl' hv
       have hc := hloop l (by simpa [Regula.Closed.loopConstructs, loopConstructs] using hl')
       have hc' : l ∉ Regula.Load.valueUsesOf info := by simpa using hc
@@ -738,7 +741,8 @@ theorem pass_held (h : (Regula.Shell.decision (f.input roots p)).1 = .pass) {m n
     have hax : AxiomInfo k := (kindOf_axiom k).mp (by simpa [Regula.Load.kindOf] using hkind)
     exact h1 ⟨k, hk, .inl hax⟩
   · intro hflag
-    have hflag' : k.isUnsafe = true ∨ k.isPartial = true := by rwa [hunsafe, hpartial]
+    have hflag' : k.isUnsafe = true ∨ k.isPartial = true ∨ ∃ b, n = .str b "_unsafe_rec" := by
+      rwa [hunsafe, hpartial]
     obtain ⟨hpart, hsafe, -⟩ := h2 hflag'
     exact ⟨hpartial ▸ hpart, hunsafe ▸ hsafe⟩
   · intro l hl' hv

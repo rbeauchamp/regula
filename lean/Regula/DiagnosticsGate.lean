@@ -1,3 +1,5 @@
+module
+
 /-! # The local gate
 
 The gate of a change, which the validation pipeline runs on each commit it validates
@@ -22,6 +24,8 @@ time `lean --run` elaborates this file. Starting a step, its exit code and what 
 trusted effects of the operating system and of Lake. `lake` is the program that `PATH` selects. Each
 step sees the checkout as the step before it left it: the gate assumes that no other process changes
 the build between its steps. -/
+
+public section
 
 namespace Regula.DiagnosticsGate
 
@@ -69,7 +73,8 @@ whose code is 0. -/
 theorem runSteps_cons (code : Step → UInt32) (step : Step) (rest : List Step) :
     runSteps (m := Id) (fun s => pure (code s)) (step :: rest) =
       if code step == 0 then runSteps (m := Id) (fun s => pure (code s)) rest
-      else some (step, code step) := rfl
+      else some (step, code step) := by
+  rfl
 
 /-- The decision of `runSteps`, for steps whose codes `code` gives: no step is reported exactly
 when every step's code is 0. -/

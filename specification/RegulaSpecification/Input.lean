@@ -1,3 +1,5 @@
+module
+
 /-!
 # The closed input
 
@@ -10,6 +12,8 @@ specification's trusted base lists what they report.
 The input carries no source text, no message, no compiled code, no option and no build log: what a
 rule cannot read here, it does not decide.
 -/
+
+public section
 
 namespace RegulaSpecification
 

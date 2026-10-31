@@ -2,7 +2,7 @@
 
 Regula exists to be trusted, and to be the example of how Lean 4 code should be written: well factored, well designed, following best practice, and formally proven. Its owner decided that being free of bugs outranks every lint rule and feature, so Regula gives up any rule, feature or package it cannot prove rather than patching it, documenting a limit or keeping a stated gap. Only Lean, its kernel and Lake's own behaviour are meant to stay trusted; Regula's own code is meant to be proved, or so thin that it only calls Lean. That is the aim and not a claim about this revision: the [trusted base](specification/README.md#the-trusted-base) lists what is not yet proved.
 
-Regula is a checker of a finished Lean build. It refuses a project whose declarations depend on `sorry`, a project axiom, `native_decide` or an axiom outside the profile the project states, or that holds an `unsafe` or `partial` declaration without the form of Lean's recursion helper, or a `while` or `repeat` of its own. It also refuses a build it cannot load.
+Regula is a checker of a finished Lean build. It refuses a project whose declarations depend on `sorry`, a project axiom, `native_decide` or an axiom outside the profile the project states, or that holds an `unsafe` or `partial` declaration, or a constant with the name of Lean's recursion helper, without that helper's form, or a `while` or `repeat` of its own. It also refuses a build it cannot load.
 
 ## The checks
 
@@ -13,7 +13,7 @@ Regula is a checker of a finished Lean build. It refuses a project whose declara
 | RG1003 | A constant of a claimed module depends on an axiom other than Lean's `propext`, `Quot.sound` and `Classical.choice`, and RG1002 and RG1004 do not name it. |
 | RG1004 | A constant of a claimed module depends on an axiom with the name form that `native_decide` gives. |
 | RG1005 | A constant of a claimed module depends on an axiom that the project's profile does not admit. |
-| RG1006 | A claimed module holds an `unsafe` or `partial` constant without the form of Lean's recursion helper, or a constant whose value mentions `Lean.Loop.mk` or `repeatM`, which `while` and `repeat` compile to. |
+| RG1006 | A claimed module holds a constant that is `unsafe`, `partial` or named as a recursion helper, without the form of Lean's recursion helper, or a constant whose value mentions `Lean.Loop.mk` or `repeatM`, which `while` and `repeat` compile to. |
 | RG2001 | The checker cannot load the build, its input does not have the closed form, or a claimed module holds a constant that Lean's import replaced and that is no theorem within the profile. The verdict is `incomplete`. |
 
 The claimed modules are the modules of the root package's default targets, with each module of the root package that their imports reach. These are the modules that `lake build` and `lake check` work on. A target that is not a default target, and that no default target imports, is outside the claim.
@@ -68,7 +68,7 @@ The exit code of `lake lint` is 0 for `pass`, 1 for `fail` and 2 for `incomplete
 
 ## What a pass means
 
-A pass of the three commands on one build means that the proofs of the claimed modules are sound and use only axioms that the profile allows. It says nothing about what a compiled program runs: `@[implemented_by]`, `@[extern]` and `@[csimp]` on a safe definition all pass, and so does a forged recursion helper, which the [entry of RG1006](specification/README.md#rg1006-unsafe-and-partial-declarations) describes. A pass of `lake lint` alone means less, because only `lake check` replays the proofs in Lean's kernel.
+A pass of the three commands on one build means that the proofs of the claimed modules are sound and use only axioms that the profile allows. It says nothing about what a compiled program runs: `@[implemented_by]`, `@[extern]` and `@[csimp]` on a safe definition all pass, and so does a recursion helper of the true form that a module's own code adds during the build, such as with `run_cmd`, which the [entry of RG1006](specification/README.md#rg1006-unsafe-and-partial-declarations) describes. A pass of `lake lint` alone means less, because only `lake check` replays the proofs in Lean's kernel.
 
 The commands `lake build --wfail` and `lake check` are Lean's own, and Regula makes no claim of its own about what they decide.
 

@@ -1,4 +1,6 @@
-import Std.Data.HashSet
+module
+
+public import Std.Data.HashSet
 
 /-!
 # Reachability over names
@@ -11,6 +13,8 @@ gives for the unseen names falls by at least one at each step (`unseenWeight_ins
 `mem_reach` states that the result is exactly the names that the seeds reach (`Reach`), for each
 function `next` that gives names only for the names of `us`.
 -/
+
+public section
 
 namespace Regula.Closed
 open Lean (Name)

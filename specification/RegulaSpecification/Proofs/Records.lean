@@ -135,4 +135,12 @@ theorem rg1006_checker_refuses_loop {l : Name} (hl : l ∈ loopConstructs) :
   rw [meets_iff] at hm
   exact (hm _ (Witnesses.wf_withLoop hl) _).mpr (Witnesses.rg1006_refuses_loop hl)
 
+/-- The function that the checker runs reports a plain definition with the name of a helper. -/
+theorem rg1006_checker_refuses_forged_name :
+    `Good.g._unsafe_rec ∈ rg1006Checker Witnesses.withForged := by
+  have hm := rg1006_meets
+  unfold rg1006 at hm
+  rw [meets_iff] at hm
+  exact (hm _ Witnesses.wf_withForged _).mpr Witnesses.rg1006_refuses_forged_name
+
 end RegulaSpecification

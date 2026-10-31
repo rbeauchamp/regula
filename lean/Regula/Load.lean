@@ -1,7 +1,12 @@
+module
+
+public import Lean.Environment
+public import Regula.Input
+public import Regula.Rules
 import Lean.Compiler.ExternAttr
 import Lean.Compiler.ImplementedByAttr
 import Lean.Util.Path
-import Regula.Rules
+import Lean.Compiler.Old
 
 /-!
 # The loader of the closed input
@@ -16,7 +21,9 @@ base.
 What it reads, and through what:
 
 - The constants: each constant of an environment that `Lean.importModules` loads with `loadExts :=
-  false`, so no extension state is built and no initializer of a loaded module runs.
+  false`, so no extension state is built and no initializer of a loaded module runs, and at the
+  level `.private`, so a `module` file gives each constant with its body, exposed or not
+  (`Lean/Environment.lean:1871` and `:2183` at v4.35.0).
   `getImplementedBy?` and `isExtern` read the module entries of an extension (`getModuleEntries`),
   which `importModules` sets whatever `loadExts` is, and no extension's built state.
 - Each loaded module's own constants: `header.moduleData`, which Lean keeps as each `.olean` holds
@@ -27,6 +34,8 @@ What it reads, and through what:
   claimed module lies below the root package's library directory; a constant of the toolchain is one
   whose module lies below the toolchain's library directory.
 -/
+
+public section
 
 namespace Regula.Load
 
@@ -178,12 +187,14 @@ def Facts.shown (f : Facts) (x : Name × Name × ConstantInfo) : Bool :=
   | some kept, some m => decide (readOf kept = readOf x.2.2) && f.claimed.contains m
   | _, _ => false
 
-/-- Whether a constant that the environment does not show is what the rules would admit: a theorem,
-with neither flag, whose value mentions no loop construct, and each constant it mentions is held and
-reaches only axioms that the profile admits. Lean regenerates a definition's equation lemmas in each
-module that needs them, so such a constant can be conforming. -/
-def fitsUnshown (t : Tables) (info : ConstantInfo) : Bool :=
+/-- Whether a constant `n` that the environment does not show is what the rules would admit: a
+theorem, with neither flag and no name that the compiler reads as a recursion helper's, whose value
+mentions no loop construct, and each constant it mentions is held and reaches only axioms that the
+profile admits. Lean regenerates a definition's equation lemmas in each module that needs them, so
+such a constant can be conforming. -/
+def fitsUnshown (t : Tables) (n : Name) (info : ConstantInfo) : Bool :=
   kindOf info == .theorem && !info.isUnsafe && !info.isPartial &&
+    (Compiler.isUnsafeRecName? n).isNone &&
     loopConstructs.all (!(valueUsesOf info).contains ·) &&
     (usesOf info).all fun u => t.index.contains u && (t.axiomSet u).all (t.admits t.profile ·)
 
@@ -194,7 +205,7 @@ def Facts.unread? (f : Facts) (i : Input) : Option (Name × Name) :=
   | [] => none
   | unshown =>
     let t := i.tables
-    (unshown.find? (!fitsUnshown t ·.2.2)).map fun x => (x.1, x.2.1)
+    (unshown.find? fun x => !fitsUnshown t x.2.1 x.2.2).map fun x => (x.1, x.2.1)
 
 /-- The closed input of the environment that `f` describes, under the profile `profile`. It refuses
 a module of `roots`, the default targets, that `f` does not claim, and a constant that
@@ -211,7 +222,8 @@ def Facts.input (f : Facts) (roots : List Name) (profile : Profile) : Except Str
         { profile, modules := f.claimed, decls, loads := f.env.header.moduleNames.toList }
       match f.unread? i with
       | some (m, n) => .error s!"the module {m} holds the constant {n}, which Lean's import \
-          replaced with another of that name, and this one is no theorem within the profile"
+          replaced with another of that name, and this one is no theorem within the profile or \
+          has a recursion helper's name"
       | none => .ok i
 
 /-- Whether `root` is the last workspace library directory before Lake's library in the received

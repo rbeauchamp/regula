@@ -181,18 +181,31 @@ theorem rg1005_exact (hu : (i.decls.map (·.name)).Nodup) (s : Name) :
     | false => rfl
     | true => exact absurd ((admits_iff hu i.profile a).mp hb) hn
 
-theorem helperBase_eq (n b : Name) :
-    Regula.Closed.Tables.helperBase? n = some b ↔ n = Name.str b "_unsafe_rec" := by
+/-- The compiler's own test of a helper's name holds exactly of the form that `HelperNamed`
+states. The checker runs this test, so a toolchain whose test differs fails this proof. -/
+theorem isUnsafeRecName_eq (n b : Name) :
+    Lean.Compiler.isUnsafeRecName? n = some b ↔ n = Name.str b "_unsafe_rec" := by
   constructor
   · intro h
-    unfold Regula.Closed.Tables.helperBase? at h
+    unfold Lean.Compiler.isUnsafeRecName? at h
     split at h
     · simp only [Option.some.injEq] at h
       subst h
       rfl
     · simp at h
   · rintro rfl
-    simp [Regula.Closed.Tables.helperBase?]
+    simp [Lean.Compiler.isUnsafeRecName?]
+
+/-- The name under which the compiler looks up the helper of `b` (`mkUnsafeRecName`, which
+`getDeclInfo?` reads) is one that `HelperNamed` covers. -/
+theorem mkUnsafeRecName_eq (b : Name) :
+    Lean.Compiler.mkUnsafeRecName b = Name.str b "_unsafe_rec" := rfl
+
+theorem namedAsHelper_iff (d : Regula.Closed.Decl) :
+    Regula.Closed.namedAsHelper d = true ↔ HelperNamed (decl d) := by
+  unfold Regula.Closed.namedAsHelper HelperNamed
+  simp only [Option.isSome_iff_exists, decl]
+  exact exists_congr fun b => isUnsafeRecName_eq d.name b
 
 theorem kindDef_iff (b : Regula.Closed.Decl) :
     b.kind = .definition ↔ (decl b).kind = .definition := by
@@ -210,7 +223,7 @@ theorem recursionHelper_iff (hu : (i.decls.map (·.name)).Nodup) (d : Regula.Clo
     split
     · rename_i b hb
       rw [any_index_iff hu]
-      have hn := (helperBase_eq _ _).mp hb
+      have hn := (isUnsafeRecName_eq _ _).mp hb
       constructor
       · rintro ⟨x, hx, rfl, hp⟩
         simp only [Bool.and_eq_true, Bool.not_eq_true', beq_iff_eq, Option.isNone_iff_eq_none] at hp
@@ -227,7 +240,8 @@ theorem recursionHelper_iff (hu : (i.decls.map (·.name)).Nodup) (d : Regula.Clo
     · rename_i hb
       simp only [Bool.false_eq_true, false_iff, not_exists, not_and]
       rintro x - hxn
-      have h2 : Regula.Closed.Tables.helperBase? d.name = some x.name := (helperBase_eq _ _).mpr hxn
+      have h2 : Lean.Compiler.isUnsafeRecName? d.name = some x.name :=
+        (isUnsafeRecName_eq _ _).mpr hxn
       rw [hb] at h2
       simp at h2
   rw [htail]
@@ -255,18 +269,56 @@ theorem rg1006_exact (hu : (i.decls.map (·.name)).Nodup) (s : Name) :
     refine ⟨decl d, mem_decls.mpr ⟨d, hd, rfl⟩, rfl, hm, ?_⟩
     simp only [Bool.or_eq_true, Bool.and_eq_true, Bool.not_eq_true'] at hc
     rcases hc with ⟨hf, hn⟩ | hl
-    · exact .inl ⟨hf, fun hh => by simp [(recursionHelper_iff hu d).mpr hh] at hn⟩
+    · refine .inl ⟨?_, fun hh => by simp [(recursionHelper_iff hu d).mpr hh] at hn⟩
+      rcases hf with (hf | hf) | hf
+      · exact .inl hf
+      · exact .inr (.inl hf)
+      · exact .inr (.inr ((namedAsHelper_iff d).mp hf))
     · exact .inr ((mentionsLoop_iff d).mp hl)
   · rintro ⟨x, hx, rfl, hm, hv⟩
     obtain ⟨d, hd, rfl⟩ := mem_decls.mp hx
     refine ⟨d, (mem_claimed i).mpr ⟨hd, hm⟩, ?_, rfl⟩
     simp only [Bool.or_eq_true, Bool.and_eq_true, Bool.not_eq_true']
     rcases hv with ⟨hf, hh⟩ | hl
-    · refine .inl ⟨hf, ?_⟩
-      cases hb : i.tables.recursionHelper d with
-      | false => rfl
-      | true => exact absurd ((recursionHelper_iff hu d).mp hb) hh
+    · refine .inl ⟨?_, ?_⟩
+      · rcases hf with hf | hf | hf
+        · exact .inl (.inl hf)
+        · exact .inl (.inr hf)
+        · exact .inr ((namedAsHelper_iff d).mpr hf)
+      · cases hb : i.tables.recursionHelper d with
+        | false => rfl
+        | true => exact absurd ((recursionHelper_iff hu d).mp hb) hh
     · exact .inr ((mentionsLoop_iff d).mpr hl)
+
+/-- Every constant of a claimed module with a helper's name that is not partial is reported,
+whatever its kind and however it was declared. -/
+theorem rg1006_reports_named_not_partial (hu : (i.decls.map (·.name)).Nodup)
+    {d : Regula.Closed.Decl} (hd : d ∈ i.decls) (hm : (toSpec i).ClaimedModule d.module)
+    (hn : HelperNamed (decl d)) (hp : d.isPartial = false) :
+    d.name ∈ i.tables.rg1006.map (·.subject) :=
+  (rg1006_exact hu d.name).mpr ⟨decl d, mem_decls.mpr ⟨d, hd, rfl⟩, rfl, hm,
+    .inl ⟨.inr (.inr hn), fun h => by
+      have hpt : d.isPartial = true := h.1
+      simp [hp] at hpt⟩⟩
+
+/-- A constant with the form of a recursion helper, whose value mentions no loop construct, is not
+reported. So a rule that refuses each name of the form `b._unsafe_rec`, or all recursion, does not
+meet this. -/
+theorem rg1006_admits_helper (hu : (i.decls.map (·.name)).Nodup) {d : Regula.Closed.Decl}
+    (hd : d ∈ i.decls) (hh : (toSpec i).RecursionHelper (decl d))
+    (hl : ¬ MentionsLoop (decl d)) : d.name ∉ i.tables.rg1006.map (·.subject) := by
+  intro h
+  obtain ⟨x, hx, hxn, -, hv⟩ := (rg1006_exact hu d.name).mp h
+  obtain ⟨y, hy, rfl⟩ := mem_decls.mp hx
+  have hyd : y = d := by
+    have hn : y.name = d.name := hxn
+    have hg := get_of_mem hu hy
+    rw [hn, get_of_mem hu hd] at hg
+    exact (Option.some.inj hg).symm
+  subst hyd
+  rcases hv with ⟨-, hnot⟩ | hm
+  · exact hnot hh
+  · exact hl hm
 
 end Link
 

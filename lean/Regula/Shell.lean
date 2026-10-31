@@ -1,4 +1,6 @@
-import Regula.Rules
+module
+
+public import Regula.Rules
 
 /-!
 # The shell of the checker
@@ -15,6 +17,8 @@ reports a subject, `fail` (exit 1) when a rule reports one, and `incomplete` (ex
 cannot be loaded or the input does not have the closed form (RG2001). `profileOfRun` and `decision`
 are pure, and `specification/RegulaSpecification/Proofs/Load.lean` states what they give.
 -/
+
+public section
 
 namespace Regula.Shell
 
