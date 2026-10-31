@@ -105,14 +105,13 @@ structure Evidence (t : List (Event L E)) (dir dirTree : FilePath) (r : Reading)
       (⟨.loadRoot sysroot tree, .ok (some root, log)⟩ : Event L E) ∈ t ∧
       DefaultModules t root root.defaultTargets modules ∧
       r.roots = modules.map (·.1) ∧
-      (∀ m path, Compiled t project tree root modules r m path →
-        ∃ f ∈ r.files, f.module = m ∧ ∃ imports mods, ReadAs t project tree f path imports mods) ∧
       ∃ (headers : List (Name × Array Import)) (held : List Name),
+      (∀ m path, Compiled headers root modules m path →
+        ∃ f ∈ r.files, f.module = m ∧ ∃ imports mods, ReadAs t project tree f path imports mods) ∧
       (∀ n ∈ held, HeldByToolchain t root n) ∧
       (∀ f ∈ r.files, ∃ path imports mods, ReadAs t project tree f path imports mods ∧
         headers.lookup f.module = some imports ∧
         (∀ n, n ∈ mods ↔ ∃ m ∈ imports, Sees headers held m.module n) ∧
-        Compiled t project tree root modules r f.module path ∧
         -- Each import is read or is the toolchain's.
         ∀ i ∈ imports, i.module ∈ r.reached ∨
           (root.resolve i.module = none ∧ modules.lookup i.module = none ∧

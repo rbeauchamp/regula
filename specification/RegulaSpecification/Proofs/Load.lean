@@ -908,7 +908,7 @@ theorem profileOfRun_ok {version commit : String} {args : List String}
   · cases h
   · rename_i hs
     have hs' : Regula.Shell.supportsLean version commit = true := by simpa using hs
-    simp only [Regula.Shell.supportsLean, Bool.and_eq_true, beq_iff_eq] at hs'
+    simp only [Regula.Shell.supportsLean, Regula.Closed.pinnedLean, beq_iff_eq, Prod.mk.injEq] at hs'
     refine ⟨hs'.1, hs'.2, ?_⟩
     split at h
     · rename_i text

@@ -188,15 +188,15 @@ def HeldByToolchain (t : List (Event L E)) (root : Root L) (n : Name) : Prop :=
     Regula.Load.below dirReal real = true
 
 /-- What Lake compiles for the claim: the modules of the default targets with their files, and each module
-that the imports of what it compiles reach and that Lake's resolution of an import gives a file for. That this
-is what Lake's build does is the hypothesis `LakeBehaviour`. -/
-inductive Compiled (t : List (Event L E)) (project tree : FilePath) (root : Root L)
-    (modules : List (Name × FilePath)) (r : Reading) : Name → FilePath → Prop where
+that the imports of what it compiles reach and that Lake's resolution of an import gives a file for. `headers`
+gives the imports of each module. That this is what Lake's build does is the hypothesis `LakeBehaviour`. -/
+inductive Compiled (headers : List (Name × Array Import)) (root : Root L)
+    (modules : List (Name × FilePath)) : Name → FilePath → Prop where
   /-- A module of a default target. -/
-  | root {m path} : (m, path) ∈ modules → Compiled t project tree root modules r m path
-  /-- A module an import reaches, in a file the run read. -/
-  | imported {m path f imports n path'} : Compiled t project tree root modules r m path →
-      f ∈ r.files → f.module = m → (∃ mods, ReadAs t project tree f path imports mods) → (∃ i ∈ imports, i.module = n) →
-      root.resolve n = some path' → Compiled t project tree root modules r n path'
+  | root {m path} : (m, path) ∈ modules → Compiled headers root modules m path
+  /-- A module an import reaches. -/
+  | imported {m path imports n path'} : Compiled headers root modules m path →
+      headers.lookup m = some imports → (∃ i ∈ imports, i.module = n) →
+      root.resolve n = some path' → Compiled headers root modules n path'
 
 end RegulaSpecification.Effects

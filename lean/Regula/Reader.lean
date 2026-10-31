@@ -443,23 +443,34 @@ def loaded (what : String) : Except String (Option (Root L) × List String) → 
   | .ok (some root, _) => .ok root
   | .ok (none, log) => .error s!"Lake could not load {what}: {"; ".intercalate log}"
 
+/-- The real path of each path. -/
+def realPaths : List FilePath → Attempt L E (List FilePath)
+  | [] => pure []
+  | p :: rest => do
+    let real ← realPath p
+    let reals ← realPaths rest
+    pure (real :: reals)
+
+/-- What a walk gives the reading, before any command is parsed. -/
+def baseReading (start : Reading) (root : Root L) (modules : List (Name × FilePath)) (w : Walk) : Reading :=
+  { start with
+    roots := modules.map (·.1), reached := w.reached.reverse,
+    unread := w.unread.reverse ++ importedExecutableRoots root modules w.sources.reverse }
+
 /-- The modules that the imports of `modules` reach, each file read, and each file's commands. The search path
 holds the toolchain's directories alone, because a module is the file Lake names or else the toolchain's: no
 output of the project is on it. -/
 def readFiles (project tree : FilePath) (root : Root L) (modules : List (Name × FilePath)) (start : Reading) :
     Attempt L E (Reading × List (Name × Source)) := do
   ExceptT.lift (Prog.call (.setSearchPath root.toolchain))
-  let dirs ← root.toolchain.mapM realPath
+  let dirs ← realPaths root.toolchain
   let w ← ExceptT.lift (walk project tree root modules dirs 1000000 (modules.map (·.1)) {})
-  let sources := w.sources.reverse
-  let base := { start with
-    roots := modules.map (·.1), reached := w.reached.reverse,
-    unread := w.unread.reverse ++ importedExecutableRoots root modules sources }
+  let base := baseReading start root modules w
   if !base.readInFull || base.mathlibReached then
     pure (base, [])
   else
-    let files ← parseFiles sources w.toolchain [] sources
-    pure ({ base with files }, sources)
+    let files ← parseFiles w.sources.reverse w.toolchain [] w.sources.reverse
+    pure ({ base with files }, w.sources.reverse)
 
 /-- The root package through Lake's load of the tree's configuration, the paths it names, and what follows. -/
 def readRoot (sysroot : String) (project tree : FilePath) (start : Reading) :
