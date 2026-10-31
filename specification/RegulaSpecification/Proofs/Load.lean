@@ -242,8 +242,9 @@ def EnvHelper (f : Regula.Load.Facts) (n : Name) (info : ConstantInfo) (m : Name
 environment: no loaded module states an axiom of its name (RG1001). When it is unsafe or partial, or
 has a recursion helper's name, it has the form of a recursion helper (RG1006), and its value mentions
 no loop construct of Lean (RG1006). Each axiom that it reaches, through what any loaded module's own
-data states, is one that the profile admits (RG1005), which also excludes `sorryAx` (RG1002), a native proof's axiom (RG1004)
-and every other axiom (RG1003): `rg1005_of_hole`, `rg1005_of_compiler`, `rg1005_of_unknown`. -/
+data states, is one that the profile admits (RG1005), which also excludes `sorryAx` (RG1002), a
+native proof's axiom (RG1004) and every other axiom (RG1003): `rg1005_of_hole`,
+`rg1005_of_compiler`, `rg1005_of_unknown`. -/
 def EnvFloor (f : Regula.Load.Facts) (p : Regula.Closed.Profile) : Prop :=
   ∀ n info m, f.env.constants.map₁[n]? = some info → f.moduleOf n = some m → m ∈ f.claimed →
     ¬ EnvAxiom f n ∧
