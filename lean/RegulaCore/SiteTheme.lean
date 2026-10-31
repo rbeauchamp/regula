@@ -149,9 +149,9 @@ inductive Paper where
   | surface
   /-- The background of the *What to do* paragraph. -/
   | accentBg
-  /-- The background of a finding card and other rejected-result marks. -/
+  /-- The background of a rejected-result mark. -/
   | badBg
-  /-- The background of a passing file and other passing-result marks. -/
+  /-- The background of a passing-result mark. -/
   | goodBg
   /-- The background of a removed diff line. -/
   | delBg
@@ -182,7 +182,7 @@ inductive Line where
   /-- The border of inputs and the theme control, with at least 3:1 contrast against every
   background token (`control_on_paper`). -/
   | control
-  /-- The decorative border of a rejected-result mark, such as a finding card. -/
+  /-- The decorative border of a rejected-result mark. -/
   | badLine
   /-- The decorative border of a passing-result mark. -/
   | goodLine
@@ -219,7 +219,7 @@ def tokenNames : List String := Paper.all.map Paper.name ++ Ink.all.map Ink.name
 /-- No two tokens share a CSS name, so each custom property is defined exactly once. -/
 theorem tokenNames_nodup : tokenNames.Nodup := by decide
 
-/-- Page and header, sidebar, code and tags, "What to do", finding card, passing file, diff
+/-- Page and header, sidebar, code and tags, "What to do", rejected mark, passing mark, diff
 lines. -/
 def Paper.tone : Paper → Tone
   | .bg => ⟨rgb 0xffffff, rgb 0x0e1014⟩

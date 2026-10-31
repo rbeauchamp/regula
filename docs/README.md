@@ -46,7 +46,7 @@ block of the standard and every Lean fence below `docs/` follows the
 | Area | Purpose |
 | --- | --- |
 | [docs/](README.md) | The guides, and the place of the source of the standard. |
-| [lean/](../lean/README.md) | The `regula` package that adopters require. It contains the linter, its rule registry, its proofs and checked examples, and it requires only the Lean toolchain. |
+| [lean/](../lean/README.md) | The `regula` package that adopters require. It contains the linter, its rule registry and its proofs, and it requires only the Lean toolchain. |
 | [audit/](../audit/lakefile.lean) | The package of the example library of the standard (`Audit`). It imports only the core libraries of Lean, and it requires `regula` by a relative path, as an adopter does. |
 | [markdown/](../markdown/lakefile.toml) | The package of the checks of the tracked Markdown documents. It checks rule IDs in prose, the [writing rules](guides/writing.md), the vocabulary [`CONTEXT.md`](../CONTEXT.md) and the links of the root `README.md` to the rule-reference site. It also checks that the root `README.md` and the adoption guide open with the summary of Regula. Only `./scripts/verify.sh docs` uses it. |
 | [specification/](../specification/README.md) | The specification of the smaller Regula, the owner's confirmation of its consequences, and the Lean package of its formal statements. The package requires lean-intent and the root package. The first acceptance step builds it with warnings as errors. |

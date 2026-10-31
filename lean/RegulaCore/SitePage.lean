@@ -313,8 +313,8 @@ def requiredHeadings : List String :=
     "What a passing result establishes", "Limitations and unsupported cases", "Sources"]
 
 /-- Every section of a rule page, in order, with its heading, stable tag suffix and Verso body,
-before optional sections without content are dropped. `ex` is the example body, `facts` the sources and `obligations` the linked open review obligations, each already admitted as raw
-HTML. -/
+before optional sections without content are dropped. `ex` is the example body, `facts` the sources
+and `obligations` the linked open review obligations, each already admitted as raw HTML. -/
 def allRuleSections (ident : Identity) (id : RuleId) (g : Guide) (ex facts obligations : String) :
     List (String × String × String) := [
   ("Example", "example", ex),

@@ -265,7 +265,7 @@ def identity {id : RuleId} (_ : RuleDescriptor id) : RuleId := id
 def helpRoute {id : RuleId} (_ : RuleDescriptor id) : String := id.route
 end RuleDescriptor
 
-/-- Size budgets, in UTF-8 bytes, that keep inline feedback and the agent guide compact. -/
+/-- Size budgets, in UTF-8 bytes, that keep the agent-facing fields and the agent guide compact. -/
 def requirementBudget : Nat := 200
 /-- The largest `rationale`, in UTF-8 bytes. -/
 def rationaleBudget : Nat := 480
@@ -291,9 +291,9 @@ def withinBudget (text : String) (budget : Nat) : Bool :=
 
 /-- Every agent-facing field has content within its budget, the one-line fields contain no
 line break, every example line fits the community's 100-character limit and the two examples
-differ. The registry checks this for every rule when `RegulaCore.Guidance` is built (`#guard` over the complete
-`RuleId.all`): evaluation, because kernel reduction of these long string literals costs seconds
-per field. -/
+differ. The registry checks this for every rule when `RegulaCore.Guidance` is built (`#guard` over
+the complete `RuleId.all`): evaluation, because kernel reduction of these long string literals
+costs seconds per field. -/
 def RuleDescriptor.wellFormed {id : RuleId} (d : RuleDescriptor id) : Bool :=
   withinBudget d.requirement requirementBudget && !d.requirement.contains '\n' &&
   withinBudget d.rationale rationaleBudget &&

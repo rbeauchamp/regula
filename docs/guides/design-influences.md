@@ -76,7 +76,7 @@ and no affiliation with or endorsement by Microsoft is implied. The site's own t
 (`RegulaCore.SiteTheme` and the theme script in `website/RegulaSite.lean`) follows patterns
 observed on other linters' references: ESLint's explicit Light, System and Dark buttons with
 `aria-pressed`, Ruff's site-scoped theme storage key and its single rule table with select filters,
-and Biome's and ESLint's rejected/accepted example labels. Its theme icons are drawn in the common
+and Biome's and ESLint's label on a rejected example. Its theme icons are drawn in the common
 24-pixel stroke style of open icon sets such as Lucide; no stylesheet, script or icon file of
 those projects is copied. Crediting any project here
 implies no endorsement of Regula by it.
