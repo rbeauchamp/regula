@@ -13,10 +13,10 @@ Nothing on a rule page is a hand-maintained copy of the linter. Each part has on
 
 | Content | Owner | How it reaches the page |
 | --- | --- | --- |
-| Rule identity, title, category, scope, subreason, modes, lifecycle, message form, clauses, route, help URL, and the agent-facing requirement, rationale, remedy (what to do), rewrites (how to fix it) and example correction that every finding and `lake exe regula` also print | [`RegulaCore.Rule`](../../lean/RegulaCore/Rule.lean) (`descriptor`, closed `RuleId`) | Projected by the page constructors; the index iterates `RuleId.all`. |
+| Rule identity, title, category, scope, lifecycle, what checks the rule, clauses, route, help URL, and the agent-facing requirement, rationale, remedy (what to do), rewrites (how to fix it) and example correction that `lake exe regula` also prints | [`RegulaCore.Rule`](../../lean/RegulaCore/Rule.lean) (`descriptor`, `checkOf`, closed `RuleId`) | Projected by the page constructors; the index iterates `RuleId.all`. A rule page takes its check and the form of its line from `Regula.Guidance` (`checkedBy`, `reportForm`), which `lake exe regula explain` prints. |
 | Explanation sections (problem, trigger, further rationale, proof shape, established and not established, configuration, limitations, open obligations, checklist rows, sources, proved linkage) | [`RegulaCore.Guide`](../../lean/RegulaCore/Guide.lean) (`guide`, one exhaustive definition over `RuleId`) | Rendered in a fixed section order. A new rule without an explanation does not compile. |
 | Violating and corrected inputs | [`examples/rules/<ID>/`](../../examples/rules/), embedded by the registry (`RuleDescriptor.examples`) | The builder renders the two files of the pair. No run of the checker produced them. |
-| What every rule shares: strict impact, local options, where rules run, the message form, open obligations, trusted mechanisms and example kinds | [`RegulaCore.SiteDocs`](../../lean/RegulaCore/SiteDocs.lean) `enforcementPage`; each obligation's text is `Residual.description` and each mechanism's `Trusted.detail` in [`RegulaCore.Residual`](../../lean/RegulaCore/Residual.lean) | Stated once on the *How rules are enforced* page, which every rule page links; each obligation is defined there under the element id of its identifier, which rule pages and the coverage page link (`residualRoute`). |
+| What the checked rules share: strict impact, local options, where rules run, the form of a finding, open obligations, trusted mechanisms and where examples come from | [`RegulaCore.SiteDocs`](../../lean/RegulaCore/SiteDocs.lean) `enforcementPage`; each obligation's text is `Residual.description` and each mechanism's `Trusted.detail` in [`RegulaCore.Residual`](../../lean/RegulaCore/Residual.lean) | Stated once on the *How rules are enforced* page, which the page of each checked rule links; each obligation is defined there under the element id of its identifier, which rule pages and the coverage page link (`residualRoute`). |
 | Checklist coverage: every module 8 row with the rules that list it and the review obligations it carries | `coveragePage`, from `Regula.checklistRows` ([`RegulaCore.Standard`](../../lean/RegulaCore/Standard.lean)), each rule's `checklist` and each obligation's `Residual.rows` | `rulesOfRow` and `residualsOfRow` invert them (`mem_rulesOfRow`, `mem_residualsOfRow`), so the page cannot disagree with the rule pages or the obligations ([architecture](architecture.md#coverage-of-the-standard)). |
 | Page construction, escaping, filters, diffs, banners, the site root's target, link checking, rule-ID links | [`RegulaCore.Site`](../../lean/RegulaCore/Site.lean), [`Prose`](../../lean/RegulaCore/Prose.lean), [`SitePage`](../../lean/RegulaCore/SitePage.lean), [`SiteDocs`](../../lean/RegulaCore/SiteDocs.lean) (claimed, proved) | Pure functions the builder executes. |
 | Releases, editions, help links and the route policy | [`RegulaCore.Edition`](../../lean/RegulaCore/Edition.lean) (claimed, proved) | `installed`, `releases`, `published`, `helpUrl`, `stableRoots` and `sitePath`. |
@@ -61,7 +61,7 @@ check:
   `installed_published` proves that edition is published, and the artifact check requires its
   page for every rule, so every emitted help link names a page of the artifact.
 - **Page structure.** `ruleSections_sublist` and `required_mem_ruleSections` prove every rule
-  page has every required section and only sections of the fixed order, the checked example
+  page has every required section and only sections of the fixed order, the example
   first; the proof-shape and configuration sections appear when the rule has them.
   `guide_wellFormed` (kernel-checked over all rules) proves every required field is a nonempty
   text or list, and the length of a text cannot stop the proof. Whether the content is adequate
@@ -371,13 +371,11 @@ review toolkit's [rule and site changes](../../.agents/skills/pr-review-toolkit/
 ## Accessibility and interface
 
 Every explanation, link and the full rule catalogue work without JavaScript. The index's
-category and reported-in (evidence mode) filters are native selects driven by generated CSS;
+category and checked-by filters are native selects driven by generated CSS;
 **Reset** is a form reset. The no-match notice is emitted for exactly the filter combinations
 that list no rule (`mem_emptySelections`); that the generated CSS rules and row classes implement
 `Selection.admits` holds by construction of the generator and was observed for several
-combinations, not proved. The index shows one "Project" label for the incremental and fresh
-project modes; `projectModes_coincide` proves that no registered rule has only one of them, and
-the filter keeps the exact modes. On narrow screens index rows become cards; other wide tables
+combinations, not proved. On narrow screens index rows become cards; other wide tables
 scroll inside a keyboard-focusable region.
 
 Every colour is a token of [`RegulaCore.SiteTheme`](../../lean/RegulaCore/SiteTheme.lean) with
@@ -390,7 +388,7 @@ that breaks a pair fails the build; reading them as real-valued ratios rests on 
 (`p ^ 5 ≤ x ^ 12` exactly when `p ≤ x ^ (12 / 5)` for nonnegative reals). The layer outside the
 token block is checked by evaluation to write no hexadecimal or functional colour literal; that it
 draws text and backgrounds only from the tokens, and overrides every colour of Verso's own
-stylesheets the pages show, is review. Status is always carried by a word or a `+`/`-`/✗/✓
+stylesheets the pages show, is review. Status is always carried by a word or a `+`/`-`/✗
 marker as well as colour. There are no web fonts and no third-party requests besides Verso's CDN
 script.
 

@@ -47,4 +47,9 @@ the constant, its module when it is not the constant itself, what is wrong, and 
 def findingForm : String :=
   "RGxxxx <constant> (module <module>): <what is wrong> <rule page>"
 
+/-- The form of the line that `lake lint` prints for an incomplete run (`Regula.Shell.report`),
+which is how it reports RG2001: the verdict, the rule's page and the reason. -/
+def incompleteForm : String :=
+  "regula: incomplete (<rule page>): <reason>"
+
 end Regula.Closed

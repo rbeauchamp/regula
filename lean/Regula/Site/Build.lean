@@ -14,8 +14,6 @@ release and checks it.
 
 ## Main declarations
 
-- `registryExamples`: the display form of each rule's example pair, which no run of the checker
-  produced.
 - `remoteTags`, `tagState`, `downloadRelease`, `extractRelease`: the observations the release
   decisions (`labelAdmitted`, `releaseSource`, `publishable`) take: which commit, if any, a
   release tag names, whether a release's GitHub asset exists, and the permanent copy it holds.
@@ -67,17 +65,6 @@ def identity (root : FilePath) : IO Identity := do
   let dirty := !(← git root #["status", "--porcelain", "--untracked-files=normal"]).isEmpty
   return { revision, dirty, toolchain := Lean.versionString, producerVersion := installed.spelling,
            versoRevision := ← versoRevision root }
-
-/-- The fixture of rule `id` whose exact text is `text`, if any. -/
-def fixtureOf (root : FilePath) (id : RuleId) (text : String) : IO (Option String) := do
-  let folder := root / "examples/rules" / id.spelling
-  let files ← (← Regula.Filesystem.Construction.listDirectory folder).qsort
-    (fun a b => a.fileName < b.fileName) |>.filterM fun e =>
-      return !(← Regula.Filesystem.isDirectory e.path)
-  for entry in files do
-    if (← IO.FS.readFile entry.path) == text then
-      return some s!"examples/rules/{id.spelling}/{entry.fileName}"
-  return none
 
 private def writeModule (dir : FilePath) (name : String) (content : String) : IO Unit := do
   let path := dir / (System.FilePath.mk ((name.replace "." "/") ++ ".lean"))
@@ -177,47 +164,22 @@ def extractRelease (root : FilePath) (v : ReleaseVersion) : IO (List (String × 
     ⟨s!"release {v.spelling}: the copy has a home page", files.any (·.1 == "index.html")⟩]
   return files
 
-/-- Everything generated for one build, retained for the artifact check. -/
-structure Generated where
-  /-- The identity of the build: commit, dirtiness, toolchain and producer versions. -/
-  ident : Identity
-  /-- Each rule's example, from the registry's example pair, in `RuleId.all` order. -/
-  examples : List (RuleId × Example)
-
-/-- Each rule's example: the noncompliant and the compliant file of the registry's example pair
-(`RuleDescriptor.examples`), shown as the input the correction changes. No run of the checker
-produced it, so it has no run status and no findings. -/
-def registryExamples (root : FilePath) (ident : Identity) : IO Generated := do
-  let examples ← RuleId.all.mapM fun id => do
-    let e := (descriptor id).examples
-    let shown (path text : String) : IO ShownFile := do
-      return { path, fixture := ← fixtureOf root id text, text }
-    let violation ← shown (e.noncompliantPath id) e.noncompliant
-    let fixed ← shown (e.compliantPath id) e.compliant
-    requireChecks [⟨s!"{id.spelling}: the noncompliant and compliant examples differ",
-      e.noncompliant != e.compliant⟩]
-    return (id, ({ kind := "registry", request := "", violationStatus := none
-                   fixedStatus := none, context := [], findings := []
-                   changed := [{ path := e.noncompliantPath id, violation := some violation
-                                 fixed := some fixed }] } : Example))
-  return { ident, examples }
-
 /-- Generate every Verso module of the manual into `website/Generated`, with the site
 stylesheet (`Regula.Site.stylesheet`) as `website/Generated/regula.css`, which the website
 package copies to each edition's root. -/
-def generate (root : FilePath) (g : Generated) : IO Unit := do
+def generate (root : FilePath) (ident : Identity) : IO Unit := do
   let out := root / "website/Generated"
   let top := root / "website/Generated.lean"
-  IO.FS.writeFile top (← IO.ofExcept (homePage g.ident))
+  IO.FS.writeFile top (← IO.ofExcept (homePage ident))
   IO.FS.createDirAll out
   IO.FS.writeFile (out / "regula.css") stylesheet
   let dir := root / "website"
-  writeModule dir "Generated.Rules" (← IO.ofExcept (indexPage g.ident))
-  writeModule dir "Generated.Enforcement" (← IO.ofExcept (enforcementPage g.ident))
-  writeModule dir "Generated.Coverage" (← IO.ofExcept (coveragePage g.ident))
-  writeModule dir "Generated.Versions" (← IO.ofExcept (versionsPage g.ident))
-  writeModule dir "Generated.Credits" (← IO.ofExcept (creditsPage g.ident))
-  for (id, ex) in g.examples do
+  writeModule dir "Generated.Rules" (← IO.ofExcept (indexPage ident))
+  writeModule dir "Generated.Enforcement" (← IO.ofExcept (enforcementPage ident))
+  writeModule dir "Generated.Coverage" (← IO.ofExcept (coveragePage ident))
+  writeModule dir "Generated.Versions" (← IO.ofExcept (versionsPage ident))
+  writeModule dir "Generated.Credits" (← IO.ofExcept (creditsPage ident))
+  for id in RuleId.all do
     for p in (guide id).repositoryPaths do
       requireChecks
           [⟨s!"{id.spelling}: cited repository path exists: {p}",
@@ -227,6 +189,6 @@ def generate (root : FilePath) (g : Generated) : IO Unit := do
     -- requires the anchor to exist.
     let clauses := (descriptor id).normativeClauses.map fun c =>
       ({ label := c.label, url := c.route } : Regula.Site.Clause)
-    writeModule dir (ruleModule id) (← IO.ofExcept (rulePage g.ident id clauses ex))
+    writeModule dir (ruleModule id) (← IO.ofExcept (rulePage ident id clauses))
 
 end Regula.Site.Build

@@ -509,11 +509,10 @@ var(--rg-accent); background: var(--rg-accent-bg);
 0.35rem 1.25rem; margin: 1rem 0; font-size: 0.92rem; }
 .regula-facts dt { color: var(--rg-muted); font-weight: 500; }
 .regula-facts dd { margin: 0; overflow-wrap: anywhere; }
-.regula-tags { display: inline-flex; flex-wrap: wrap; gap: 0.25rem; }
 .regula-tag { font-size: 0.72rem; border-radius: 4px; padding: 0.02rem 0.4rem; background: \
 var(--rg-surface); border: 1px solid var(--rg-border); color: var(--rg-text); white-space: nowrap; }
 
-/* Checked example */
+/* Example */
 .regula-example h3 { font-size: 0.95rem; margin: 1.4rem 0 0.4rem; }
 .regula-file, .regula-diff-panel { margin: 0.75rem 0 1rem; border: 1px solid var(--rg-border); \
 border-radius: var(--rg-radius); overflow: hidden; background: var(--rg-surface); }
@@ -523,15 +522,11 @@ align-items: center; gap: 0.35rem 0.6rem; padding: 0.45rem 0.85rem;
   background: var(--rg-bg); overflow-wrap: anywhere; }
 .regula-file > figcaption code, .regula-diff-panel > figcaption code { background: none; border: \
 0; padding: 0; color: var(--rg-text); }
-.regula-file > figcaption .regula-src { margin-left: auto; }
 .regula-file.is-bad { border-left: 3px solid var(--rg-bad); }
-.regula-file.is-good { border-left: 3px solid var(--rg-good); }
 .regula-verdict { font-weight: 700; font-size: 0.72rem; letter-spacing: 0.06em; text-transform: \
 uppercase; border-radius: 999px; padding: 0.05rem 0.55rem; }
 .regula-verdict.is-bad { color: var(--rg-bad); background: var(--rg-bad-bg); border: 1px solid \
 var(--rg-bad-line); }
-.regula-verdict.is-good { color: var(--rg-good); background: var(--rg-good-bg); border: 1px solid \
-var(--rg-good-line); }
 pre.regula-code, pre.regula-diff { margin: 0; padding: 0.8rem 1rem; background: var(--rg-surface); \
 color: var(--rg-text); border: 0; border-radius: 0;
   font-size: 0.85rem; line-height: 1.6; overflow-x: auto; white-space: pre; tab-size: 2; }
@@ -541,21 +536,6 @@ border-box; min-width: calc(100% + 2rem);
 .regula-diff del { background: var(--rg-del-bg); }
 .regula-diff ins { background: var(--rg-ins-bg); }
 .regula-diff .regula-keep { color: var(--rg-muted); }
-.regula-finding { border: 1px solid var(--rg-bad-line); border-radius: var(--rg-radius); \
-background: var(--rg-bad-bg); padding: 0.7rem 0.9rem; margin: 0.75rem 0 1rem; font-size: 0.9rem; }
-.regula-finding p { margin: 0 0 0.35rem; overflow-wrap: anywhere; }
-.regula-finding .regula-finding-head { display: flex; flex-wrap: wrap; align-items: center; gap: \
-0.35rem 0.5rem; }
-.regula-finding code { background: none; border: 0; padding: 0; }
-.regula-finding pre.regula-code { background: var(--rg-bg); border: 1px solid var(--rg-bad-line); \
-border-radius: 6px; margin-top: 0.5rem;
-  white-space: pre-wrap; overflow-wrap: anywhere; font-size: 0.82rem; }
-.regula-badge { display: inline-block; border: 1px solid var(--rg-control); border-radius: 999px; \
-padding: 0 0.5rem; font-size: 0.75rem; line-height: 1.55; color: var(--rg-text); background: \
-var(--rg-bg); }
-.regula-badge.is-error { border-color: var(--rg-bad-line); color: var(--rg-bad); font-weight: 600; }
-.regula-impact-incomplete { border-style: dashed; }
-.regula-run { font-size: 0.85rem; color: var(--rg-muted); }
 
 /* Tables and the rule index */
 .regula-scroll { overflow-x: auto; max-width: 100%; }

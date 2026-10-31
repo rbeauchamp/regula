@@ -360,13 +360,16 @@ def categories : List RuleCategory :=
 theorem mem_categories (c : RuleCategory) : c ∈ categories := by
   cases c <;> simp [categories]
 
-/-- Every evidence mode, in the index filter's order (`mem_modes`). -/
-def modes : List EvidenceMode :=
-  [.editorSnapshot, .incrementalProject, .freshProject, .freshFile, .documentationExample,
-    .serializedGraph]
+/-- Every check of a rule, in the index filter's order (`mem_checks`). -/
+def checks : List RuleCheck := [.lakeLint, .lakeBuild, .lakeCheck, .retired]
 
-theorem mem_modes (m : EvidenceMode) : m ∈ modes := by
-  cases m <;> simp [modes]
+theorem mem_checks (c : RuleCheck) : c ∈ checks := by
+  cases c <;> simp [checks]
+
+/-- The check's identifier in the index filter's markup and CSS. -/
+def _root_.Regula.RuleCheck.slug : RuleCheck → String
+  | .lakeLint => "lake-lint" | .lakeBuild => "lake-build" | .lakeCheck => "lake-check"
+  | .retired => "no-check"
 
 /-- The category's identifier in the index filter's markup and CSS. -/
 def _root_.Regula.RuleCategory.slug : RuleCategory → String
@@ -388,23 +391,17 @@ def _root_.Regula.RuleScope.label : RuleScope → String
   | .documentationFence => "documentation fence" | .module => "module"
   | .materialDeclaration => "public declaration that states a material claim, selected by review"
 
-/-- The evidence mode's display text. -/
-def modeLabel : EvidenceMode → String
-  | .editorSnapshot => "editor snapshot" | .incrementalProject => "incremental project"
-  | .freshProject => "fresh project" | .freshFile => "fresh file"
-  | .documentationExample => "documentation example" | .serializedGraph => "serialized graph"
-
 /-- One filter state: each dimension is either unrestricted (`none`) or one value. -/
 structure Selection where
   /-- The selected rule category, or `none` for every category. -/
   category : Option RuleCategory
-  /-- The selected evidence mode, or `none` for every mode. -/
-  mode : Option EvidenceMode
+  /-- The selected check, or `none` for every check. -/
+  check : Option RuleCheck
 
 /-- A rule is listed under a selection when it matches every restricted dimension. -/
 def Selection.admits (s : Selection) (id : RuleId) : Bool :=
   s.category.all (fun c => decide (c = (descriptor id).category)) &&
-  s.mode.all (fun m => decide (m ∈ (descriptor id).evidenceModes))
+  s.check.all (fun c => decide (c = checkOf id))
 
 /-- Each finite dimension together with its unrestricted choice. -/
 def options {α : Type} (values : List α) : List (Option α) := none :: values.map some
@@ -417,12 +414,12 @@ theorem mem_options {α : Type} (values : List α) (h : ∀ v, v ∈ values) (o 
 
 /-- Every filter state the index form can express. -/
 def selections : List Selection :=
-  (options categories).flatMap fun c => (options modes).map fun m => ⟨c, m⟩
+  (options categories).flatMap fun c => (options checks).map fun k => ⟨c, k⟩
 
 theorem mem_selections (s : Selection) : s ∈ selections := by
-  rcases s with ⟨c, m⟩
+  rcases s with ⟨c, k⟩
   simp only [selections, List.mem_flatMap, List.mem_map]
-  exact ⟨c, mem_options _ mem_categories c, m, mem_options _ mem_modes m, rfl⟩
+  exact ⟨c, mem_options _ mem_categories c, k, mem_options _ mem_checks k, rfl⟩
 
 /-- Filter states under which no registered rule is listed. -/
 def emptySelections : List Selection :=

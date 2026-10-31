@@ -82,7 +82,14 @@ theorem reflexive (n : Nat) : n = n := rfl
 Every transitive axiom of an owned declaration, including one from an import, is `propext`, `Quot.sound` or `Classical.choice`.
 Fix: Find where the axiom enters (often an imported dependency), and replace that dependency or its axiom with a proof or a hypothesis.
 
-Compliant form: The dependency proves the same reflexivity statement instead of declaring it as an axiom, and the file that imports it is unchanged.
+```lean
+/-! # Dependency
+
+Dependency reflexivity evidence. -/
+namespace Dependency
+theorem reflexive (n : Nat) : n = n := rfl
+end Dependency
+```
 
 ### [RG2003](https://rbeauchamp.github.io/regula/dev/rules/RG2003/) Claimed source must elaborate warning-free
 
@@ -309,7 +316,7 @@ Compliant example: as [RG1002](https://rbeauchamp.github.io/regula/dev/rules/RG1
 The audit runs in the declared environment: Lake loads the workspace with the pinned toolchain and resolves every dependency.
 Fix: Repair the workspace so Lake can load it with its exact toolchain and dependencies, then rerun the same command.
 
-Compliant form: The correction removes a Lake dependency that cannot be resolved (the violating workspace adds `require unavailable from "./missing"`); the Lean source is unchanged.
+Compliant example: as [RG2006](https://rbeauchamp.github.io/regula/dev/rules/RG2006/).
 
 ## Lean examples in Markdown
 
