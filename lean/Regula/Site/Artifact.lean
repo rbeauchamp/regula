@@ -38,7 +38,7 @@ be uploaded.
   route, page content equal to the registry's example text, every scanned link of the whole tree
   resolving under the project base path (`linkErrors_nil_iff`), every rule ID in the prose of the
   development edition linked to its page there (`Regula.Prose.htmlErrors_nil_iff`), and the
-  page with its checked example for each registered rule.
+  page with both files of its example pair for each registered rule.
 
 ## Boundaries
 
@@ -112,7 +112,7 @@ def notFound (ident : Identity) : String :=
     "</code>, the edition that the site root opens, if that edition has the page. An \
       unavailable page is never redirected to other rules, whose meaning may differ from the \
       version you linked.</p>" ++
-    "<p>The explanations and checked examples of any commit are in its source on GitHub: \
+    "<p>The explanations and examples of any commit are in its source on GitHub: \
       <code>" ++ escape repository ++
     "/tree/&lt;commit&gt;/examples/rules/&lt;ID&gt;/</code> and <code>" ++ escape repository ++
         "/blob/&lt;commit&gt;/lean/RegulaCore/Guide.lean</code>.</p>" ++
@@ -122,19 +122,18 @@ def notFound (ident : Identity) : String :=
         "</code></a>.</p>")
 
 /-- The identity of one build. -/
-def identityFields (g : Generated) : List (String × Json) := [
-    ("schemaVersion", toJson (2 : Nat)), ("site", .str siteBase),
-    ("revision", .str g.ident.revision.val),
-    ("dirty", .bool g.ident.dirty), ("toolchain", .str g.ident.toolchain),
-    ("producerVersion", .str g.ident.producerVersion),
-    ("versoRevision", .str g.ident.versoRevision),
-    ("rules", toJson (g.examples.map fun (id, ex) => Json.mkObj [
-      ("id", .str id.spelling), ("route", .str id.route), ("helpUrl", .str (helpUrl id)),
-      ("example", .str ex.kind)]))]
+def identityFields (ident : Identity) : List (String × Json) := [
+    ("schemaVersion", toJson (3 : Nat)), ("site", .str siteBase),
+    ("revision", .str ident.revision.val),
+    ("dirty", .bool ident.dirty), ("toolchain", .str ident.toolchain),
+    ("producerVersion", .str ident.producerVersion),
+    ("versoRevision", .str ident.versoRevision),
+    ("rules", toJson (RuleId.all.map fun id => Json.mkObj [
+      ("id", .str id.spelling), ("route", .str id.route), ("helpUrl", .str (helpUrl id))]))]
 
 /-- The `build.json` of a release edition this build renders, the installed release's or a
 preview of a release not yet published: the identity of the build that made that copy. -/
-def editionJson (g : Generated) : Json := Json.mkObj (identityFields g)
+def editionJson (ident : Identity) : Json := Json.mkObj (identityFields ident)
 
 /-- The machine-readable identity of an artifact: the build's identity, its published editions,
 how each release's edition was obtained (`releaseSource`) and whether the build's commit is the
@@ -142,9 +141,9 @@ one the installed release's tag names, the value of `publishable` for the source
 `stableRoutes`, the files of its stable routes. The
 deployment check compares the live copy with these exact bytes, and `Deployment gate` refuses to
 publish unless the recorded `publishable` is `true`. -/
-def buildJson (g : Generated) (tag : TagState) (sources : List (ReleaseVersion × ReleaseSource))
+def buildJson (ident : Identity) (tag : TagState) (sources : List (ReleaseVersion × ReleaseSource))
     (stable : List String) : Json :=
-  Json.mkObj (identityFields g ++ [("editions", toJson (published.map Edition.root)),
+  Json.mkObj (identityFields ident ++ [("editions", toJson (published.map Edition.root)),
     ("stableRoutes", toJson stable),
     ("releaseSources", toJson (sources.map fun (v, s) => Json.mkObj [
       ("version", .str v.spelling), ("source", .str s.spelling)])),
@@ -171,13 +170,13 @@ def releaseSources (root : FilePath) (tag : ReleaseVersion → TagState) :
 /-- Each release's edition before banners, oldest first, from its source: the frozen copy, or the
 rendered edition with its `build.json`, which is the release's own edition in a build of that
 release and a preview of it in an unreleased build. -/
-def releaseCopies (root : FilePath) (g : Generated) (edition : List (String × ByteArray))
+def releaseCopies (root : FilePath) (ident : Identity) (edition : List (String × ByteArray))
     (sources : List (ReleaseVersion × ReleaseSource)) :
     IO (List (ReleaseVersion × List (String × ByteArray))) :=
   sources.mapM fun (v, source) => match source with
     | .asset => return (v, ← extractRelease root v)
     | .render | .preview =>
-      return (v, byPath (edition ++ [("build.json", ((editionJson g).pretty ++ "\n").toUTF8)]))
+      return (v, byPath (edition ++ [("build.json", ((editionJson ident).pretty ++ "\n").toUTF8)]))
 
 /-- The published files of release `v`'s edition, given `copy`, its files before banners, and
 `latestFiles`, the paths of the latest release's edition: the copy itself for the latest release,
@@ -222,7 +221,7 @@ def stableFiles (copy : List (String × ByteArray)) : List (String × ByteArray)
 /-- Write the artifact tree at `out`, a path that does not exist: the rendered edition as `dev/`,
 each release's published edition as `v/<version>/`, and the stable routes `stable` below the site
 root. -/
-def assemble (out : FilePath) (g : Generated) (tag : TagState)
+def assemble (out : FilePath) (ident : Identity) (tag : TagState)
     (sources : List (ReleaseVersion × ReleaseSource)) (edition : List (String × ByteArray))
     (editions : List (ReleaseVersion × List (String × ByteArray)))
     (stable : List (String × ByteArray)) : IO Unit := do
@@ -232,9 +231,9 @@ def assemble (out : FilePath) (g : Generated) (tag : TagState)
     writeTree (out / (Edition.release v).root) files
   writeTree out stable
   IO.FS.writeFile (out / "index.html") landing
-  IO.FS.writeFile (out / "404.html") (notFound g.ident)
+  IO.FS.writeFile (out / "404.html") (notFound ident)
   IO.FS.writeFile (out / "build.json")
-    ((buildJson g tag sources (stable.map (·.1))).pretty ++ "\n")
+    ((buildJson ident tag sources (stable.map (·.1))).pretty ++ "\n")
 
 private def utf8 (path : String) (bytes : ByteArray) : IO String :=
   match String.fromUTF8? bytes with
@@ -248,7 +247,7 @@ private def editionFiles (files : List (String × ByteArray)) (e : Edition) :
 
 /-- Check an assembled artifact against the build that produced it, its rendered edition and the
 published editions of the releases, from which it calculates the stable routes (`stableFiles`). -/
-def checkArtifact (root out : FilePath) (g : Generated) (tag : TagState)
+def checkArtifact (root out : FilePath) (ident : Identity) (tag : TagState)
     (sources : List (ReleaseVersion × ReleaseSource)) (edition : List (String × ByteArray))
     (editions : List (ReleaseVersion × List (String × ByteArray))) : IO Unit := do
   let files ← snapshotTree out
@@ -289,24 +288,19 @@ def checkArtifact (root out : FilePath) (g : Generated) (tag : TagState)
   for e in [Edition.dev, installed.edition].eraseDups do
     for file in pageFiles e do
       requireChecks [⟨s!"rule page exists: {file}", files.any (·.1 == file)⟩]
-  let mut checkedPages : List RuleId := []
-  for (id, ex) in g.examples do
+  for id in RuleId.all do
     let some (_, bytes) := files.find? (·.1 == Edition.dev.pageFile id)
       | throw <| IO.userError s!"missing page {id.spelling}"
     let html ← utf8 id.spelling bytes
     let title := id.spelling ++ ": " ++ (descriptor id).title
-    let texts := ex.context.map (·.text) ++ ex.changed.flatMap (fun c =>
-        (c.violation.filter (·.fixture.isSome)).toList.map (·.text) ++
-        (c.fixed.filter (·.fixture.isSome)).toList.map (·.text)) ++
-      ex.findings.map (·.detail)
+    let ex := Example.of id
     requireChecks [
       ⟨s!"{id.spelling}: page title", html.contains title⟩,
-      ⟨s!"{id.spelling}: page states its commit", html.contains g.ident.revision.val⟩,
-      ⟨s!"{id.spelling}: page shows every admitted example text exactly", texts.all fun t =>
-          html.contains (escape t)⟩,
+      ⟨s!"{id.spelling}: page states its commit", html.contains ident.revision.val⟩,
+      ⟨s!"{id.spelling}: page shows both example files exactly",
+        [ex.noncompliant.text, ex.compliant.text].all fun t => html.contains (escape t)⟩,
       ⟨s!"{id.spelling}: page states every required section", requiredHeadings.all
           (fun h => html.contains h)⟩]
-    checkedPages := id :: checkedPages
   let pages ← files.mapM fun (p, bytes) => do
     if p.endsWith ".html" then return Page.ofHtml p (← utf8 p bytes) else return Page.ofOther p
   let errors := linkErrors pages
@@ -327,14 +321,9 @@ def checkArtifact (root out : FilePath) (g : Generated) (tag : TagState)
       bare := bare ++ Regula.Prose.htmlErrors Edition.dev.root p (← utf8 p bytes)
   requireChecks [⟨s!"{bare.length} rule ID(s) in the development edition's prose that are not \
     links to their rule pages: {bare.take 10}", bare.isEmpty⟩]
-  -- Every registered rule has its page with its checked example. A rule ID in the generated
-  -- examples is a `RuleId`, so each one that the pages show is a registered rule.
-  let unchecked := RuleId.all.filter (!checkedPages.contains ·)
-  requireChecks [⟨s!"every registered rule has its page with its checked example; without: \
-    {unchecked.map RuleId.spelling}", unchecked.isEmpty⟩]
   let recorded ← IO.FS.readFile (out / "build.json")
   requireChecks [⟨"build identity",
-    recorded == (buildJson g tag sources (stable.map (·.1))).pretty ++ "\n"⟩]
+    recorded == (buildJson ident tag sources (stable.map (·.1))).pretty ++ "\n"⟩]
 
 /-- Where a release build writes its edition as the release asset (`releaseAsset`). -/
 def releasePackage (root : FilePath) (v : ReleaseVersion) : FilePath :=
@@ -399,15 +388,14 @@ def build : IO Unit := do
     carries a release label, and main and pull requests keep Regula.installed .unreleased",
     labelAdmitted installed tag⟩]
   let sources ← releaseSources root fun v => tagState tags v ident.revision
-  let g ← registryExamples root ident
-  generate root g
+  generate root ident
   let edition ← render root (siteScratch root / "render") ident.revision.val
-  let editions ← IO.ofExcept (publishedCopies (← releaseCopies root g edition sources))
+  let editions ← IO.ofExcept (publishedCopies (← releaseCopies root ident edition sources))
   -- `checkArtifact` refuses when the edition the site root opens is not among the editions.
   let stable := stableFiles ((rootCopy edition editions).getD [])
   let assembled := siteScratch root / "artifact"
-  assemble assembled g tag sources edition editions stable
-  checkArtifact root assembled g tag sources edition editions
+  assemble assembled ident tag sources edition editions stable
+  checkArtifact root assembled ident tag sources edition editions
   -- Only a checked artifact gets the name that a deployment reads.
   IO.FS.rename assembled out
   if let .release v := installed then

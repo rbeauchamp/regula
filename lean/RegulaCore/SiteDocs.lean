@@ -67,13 +67,11 @@ def homePage (ident : Identity) : Except String String := do
       for each rule, and the standard that the rules come from. **New here?** " ++
         doc "README.md#try-it" "Try it" ++ " on one module, then " ++
         doc "README.md#add-it-to-your-project" "add it to your project" ++ ".\n\n" ++
-    "1. **Look up a rule.** Each finding names a rule ID. In the terminal, the first finding of each \
-      rule in a run links the page of the rule, and later findings of that rule refer to it. The \
-      editor and the JSON report link the page with each finding. A rule page starts with the \
-      problem, the fix and an example that the checker rejects. Open the [rule index](rules/), or \
-      push `/` to search.\n" ++
+    "1. **Look up a rule.** Each finding of `lake lint` names a rule ID and links the page of the \
+      rule. A rule page starts with the problem, the fix, what checks the rule and the rule's \
+      example pair. Open the [rule index](rules/), or push `/` to search.\n" ++
     "2. **Adopt Regula.** The " ++ doc "docs/guides/adoption.md" "adoption guide" ++
-      " tells how to install and run Regula, in the terminal, in the editor and in CI.\n" ++
+      " tells how to install and run Regula.\n" ++
     "3. **Review a pass.** A pass is mechanical. Each rule page tells what the check shows and \
       which review stays with you. [How rules are enforced](enforcement/) and \
       [checklist coverage](coverage/) give the details.\n" ++
@@ -90,8 +88,8 @@ def indexPage (ident : Identity) : Except String String := do
   let notice ← htmlBlock (pageAnchor "rules" ++ editionHtml ident)
   let table ← htmlBlock indexHtml
   return header ruleModules "Rule index" "rules" (some "rules") (toc := false) ++ notice ++ "\n" ++
-    "Every rule the linter can emit, generated from its typed registry. The filters work without \
-      JavaScript. What every rule shares is on [how rules are enforced](enforcement/).\n\n" ++
+    "Every rule of the typed registry, with what checks it. The filters work without \
+      JavaScript. What the checked rules share is on [how rules are enforced](enforcement/).\n\n" ++
     table ++ "\n" ++ String.join (ruleModules.map fun m => "{include " ++ m ++ "}\n\n")
 
 /-- The `lake lint` exit codes of Regula's checker (`Regula.Closed.Verdict.exitCodes`). -/
@@ -107,10 +105,11 @@ def enforcementPage (ident : Identity) : Except String String := do
         inlineHtml r.description ++ ".</li>") ++ "</ul>")
   return header [] "How rules are enforced" "enforcement" (some "enforcement") (split := false) ++
       notice ++ "\n" ++
-    "Every rule of the [rule index](rules/) is enforced the same way. This page states once what \
-      their pages share.\n\n" ++
+    "Every rule of the [rule index](rules/) that a check decides is enforced the same way. A \
+      retired rule is written guidance that no check reports. This page states once what the pages \
+      of the checked rules share.\n\n" ++
     subsection "enforcement-impact" "Strict impact" ++
-    "Every rule's findings are errors under a strict claim. An established violation makes the \
+    "Every finding of a rule is an error under a strict claim. An established violation makes the \
       result FAIL. A build that Regula's checker cannot load, or an input that does not have the \
       closed form, makes it INCOMPLETE, never a pass. Neither is accepted. `lake lint` exits with " ++
       exitCodesText ++ ".\n\n" ++
@@ -129,9 +128,10 @@ def enforcementPage (ident : Identity) : Except String String := do
       Prose.relativeCitation .admission ++ " is `lake check`. See the " ++
         "[adoption guide](" ++ blobUrl ident "docs/guides/adoption.md" ++ ").\n\n" ++
     subsection "enforcement-message" "How a finding reads" ++
-    "Each finding is one line: the rule ID, the constant, module or target it reports, the \
-      detail, and the rule's page in the reference. `lake exe regula explain <ID>` prints the full \
-      rule offline.\n\n" ++
+    "Each finding is one line of the form `" ++ Regula.Closed.findingForm ++ "`: the rule ID, the \
+      constant, module or target it reports, the detail, and the rule's page in the reference. An \
+      incomplete run ends with a line of the form `" ++ Regula.Closed.incompleteForm ++ "`. `lake \
+      exe regula explain <ID>` prints the full rule offline.\n\n" ++
     subsection "enforcement-obligations" "Open review obligations" ++
     "A pass leaves every review obligation below open, whatever rules it checked. Each rule page \
       names the obligations its own result leaves open, and [checklist coverage](coverage/) the \
@@ -219,11 +219,9 @@ def creditsPage (ident : Identity) : Except String String := do
       notice ++ "\n" ++
     "Regula and this site's generated content are released under the [MIT license](" ++
         blobUrl ident "LICENSE" ++ "). The rule explanations are original.\n\n" ++
-    "**Lean and Lake.** The linter, its editor messages and its Lake integration are built on Lean \
-      4 and Lake by the Lean FRO and contributors (Apache 2.0), used through the pinned toolchain \
-      as dependencies. The editor's *View explanation* link is Lean's own error-description \
-      widget, shown in the infoview of the VS Code Lean 4 extension (leanprover/vscode-lean4). The \
-      linter's strict JSON parser adapts the string, number and container parsers of Lean's \
+    "**Lean and Lake.** The linter and its Lake integration are built on Lean 4 and Lake by the \
+      Lean FRO and contributors (Apache 2.0), used through the pinned toolchain as dependencies. \
+      The linter's strict JSON parser adapts the string, number and container parsers of Lean's \
       `Lean/Data/Json/Parser.lean` (Copyright (c) 2019 Gabriel Ebner; authors Gabriel Ebner and \
       Marc Huisinga; Apache 2.0), made total and rejecting duplicate keys, and restates the \
       whitespace and literal parsing of `Std/Internal/Parsec/String.lean` (Copyright (c) 2021 \

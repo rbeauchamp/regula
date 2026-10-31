@@ -18,7 +18,7 @@
     ["docs/guides/performance-notes.md", "24", "0", "0", "44", "0", "0", "30", "0"],
     ["docs/guides/proofs-and-boundaries.md", "34", "0", "4", "22", "0", "0", "34", "0"],
     ["docs/guides/toolchains.md", "0", "0", "0", "1", "0", "0", "1", "0"],
-    ["docs/guides/website.md", "40", "18", "13", "50", "0", "1", "96", "0"],
+    ["docs/guides/website.md", "39", "18", "12", "49", "0", "1", "92", "0"],
     ["examples/README.md", "1", "0", "0", "0", "0", "0", "0", "0"],
     ["lean/README.md", "6", "0", "0", "15", "0", "0", "4", "0"]
   ]

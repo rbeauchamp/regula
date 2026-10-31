@@ -10,11 +10,10 @@ public import RegulaPolicy.Foundation
 Shared metadata of every rule. See RuleId for con-leche attribution.
 
 The registry is the one source of each rule's agent-facing guidance: its one-line
-`requirement`, short `rationale`, imperative `remedy`, common compliant `rewrites` and checked
+`requirement`, short `rationale`, imperative `remedy`, common compliant `rewrites` and
 `examples` pair are required `RuleDescriptor` fields, so a rule without them does not compile.
-Findings (`RegulaCore.Feedback`), the `regula` command and agent briefing
-(`RegulaCore.Guidance`), the registry and result exports and the website are generated from
-them.
+The `regula` command and agent briefing (`RegulaCore.Guidance`) and the website are generated from
+them. `checkOf` states what checks each rule.
 
 Each position of a rule's `lifecycle` (its introduction and, once retired, its retirement) is a
 `Build`: `.unreleased` until the next release, whose release pull request (the Release workflow's
@@ -28,13 +27,6 @@ introduces a rule. -/
 @[expose] public section
 
 namespace Regula
-
-/-- How an audit collected its evidence (editor snapshot, incremental or fresh project, fresh
-file, documentation example or serialized graph): the policy's `RegulaPolicy.EvidenceMode`. -/
-abbrev EvidenceMode := RegulaPolicy.EvidenceMode
-/-- The stable text of an evidence mode, as `RegulaPolicy.EvidenceMode.spelling` gives it. -/
-abbrev EvidenceMode.spelling (mode : EvidenceMode) : String :=
-    RegulaPolicy.EvidenceMode.spelling mode
 
 /-- Retired IDs remain descriptors; replacement cannot be the retired ID itself. -/
 inductive Lifecycle (id : RuleId) where
@@ -192,31 +184,11 @@ def evidenceFor : RuleId → EvidenceKind
   | .positiveExample | .negativeExample | .trustedExample => .checkedExample
   | .moduleDocumentation | .materialDocumentation | .materialIntent => .metadataPresence
 
-/-- The first line of a diagnostic whose rule ID is written `rule`: what is wrong and where. -/
-def messageShape (rule impact mode claim location subject detail : String) : String :=
-  rule ++ " [" ++ impact ++ "; " ++ mode ++ "; claim=" ++ claim ++ "; " ++ location ++ "]: " ++
-    subject ++ ": " ++ detail
-
-/-- The first line of every rendered diagnostic of `id`: what is wrong and where.
-`RegulaCore.Feedback` adds the rule's remedy and guidance below it. A detail can itself span
-several lines. -/
-def messageLine (id : RuleId) (impact mode claim location subject detail : String) : String :=
-  messageShape id.spelling impact mode claim location subject detail
-
-/-- The published message form: `messageLine` applied to placeholder names, so the registry
-and site show the same definition the checker renders. -/
-def messageForm (id : RuleId) : String :=
-  messageLine id "{impact}" "{mode}" "{claim}" "{location}" "{subject}" "{detail}"
-
-/-- The message form shared by every rule, with its ID as the placeholder `{rule}`. -/
-def sharedMessageForm : String :=
-  messageShape "{rule}" "{impact}" "{mode}" "{claim}" "{location}" "{subject}" "{detail}"
-
 /-- Source language of a rule's example files. -/
 inductive ExampleLanguage where
   /-- Lean source, including a `lakefile.lean`. -/
   | lean
-  /-- JSON, such as a `foundation_manifest.json` or a qualification runner request. -/
+  /-- JSON, such as a `foundation_manifest.json`. -/
   | json
   /-- Markdown documentation. -/
   | markdown
@@ -230,45 +202,20 @@ def ExampleLanguage.extension : ExampleLanguage → String
 def ExampleLanguage.fence : ExampleLanguage → String
   | .lean => "lean" | .json => "json" | .markdown => "markdown"
 
-/-- Who can apply a rule's checked example files as shown. -/
-inductive ExampleAudience where
-  /-- The compliant file is Lean, configuration or Markdown an adopting project writes as shown. -/
-  | adopter
-  /-- The files are qualification inputs, such as a runner request or a stand-in dependency of
-  the audited file; `files` says what they are. Agent guidance states `correction` instead of
-  showing either file. -/
-  | qualification (files : String)
-  deriving Repr, BEq, DecidableEq
-
-/-- A rule's checked example pair: the exact bytes of `examples/rules/<ID>/Fixed.<ext>`
+/-- A rule's example pair: the exact bytes of `examples/rules/<ID>/Fixed.<ext>`
 (compliant) and `Violation.<ext>` (noncompliant), embedded with `include_str`. No run of the
 checker reads them: the registry checks compare them with the files (`Regula.RegistryChecks`), and
 the rule's page and `regula explain` show them. `correction` states what the correction changes
-and preserves; for qualification inputs it is the adopter-facing form of the fix. -/
+and preserves. -/
 structure ExamplePair where
   /-- The language of both files, which fixes their extension. -/
   language : ExampleLanguage
-  /-- Whether an adopter can apply the files as shown, or they are qualification inputs. -/
-  audience : ExampleAudience
   /-- The bytes of `Fixed.<ext>`, the compliant file. -/
   compliant : String
   /-- The bytes of `Violation.<ext>`, the noncompliant file. -/
   noncompliant : String
   /-- What the correction from the noncompliant to the compliant file changes and preserves. -/
   correction : String
-
-/-- The compliant file an agent can apply as shown; none for qualification inputs. -/
-def ExamplePair.adopterExample (p : ExamplePair) : Option String :=
-  match p.audience with
-  | .adopter => some p.compliant
-  | .qualification _ => none
-
-/-- The caption beside both files where they are shown: what qualification files are, then
-the correction. -/
-def ExamplePair.caption (p : ExamplePair) : String :=
-  match p.audience with
-  | .adopter => p.correction
-  | .qualification files => files ++ " " ++ p.correction
 
 /-- Repository path of the compliant example of rule `id`, derived from its identity. -/
 def ExamplePair.compliantPath (id : RuleId) (p : ExamplePair) : String :=
@@ -282,8 +229,7 @@ def ExamplePair.noncompliantPath (id : RuleId) (p : ExamplePair) : String :=
 The agent-facing fields `requirement`, `rationale`, `remedy`, `rewrites` and `examples` have
 no defaults: omitting one from a rule is a compile error, and `RuleDescriptor.wellFormed`
 (checked for every rule when `RegulaCore.Guidance` is built) rejects an empty or oversized
-one. Every diagnostic, the `regula` command, the agent guide, the registry export and the
-website are generated from these fields. -/
+one. The `regula` command, the agent guide and the website are generated from these fields. -/
 structure RuleDescriptor (id : RuleId) where
   /-- The rule's short name, stated as the property it demands. -/
   title : String
@@ -291,10 +237,6 @@ structure RuleDescriptor (id : RuleId) where
   category : RuleCategory
   /-- The sections of the standard the rule enforces. -/
   normativeClauses : List Clause
-  /-- The subreason every finding of the rule carries, such as `project-axiom` for RG1001. -/
-  applicability : String
-  /-- The evidence modes whose runs report the rule's findings. -/
-  evidenceModes : List EvidenceMode
   /-- What the rule demands, in one line. -/
   requirement : String
   /-- Why the rule exists, in one short paragraph. -/
@@ -321,11 +263,9 @@ namespace RuleDescriptor
 def identity {id : RuleId} (_ : RuleDescriptor id) : RuleId := id
 /-- The rule page's route, `rules/<ID>/`, derived from the ID. -/
 def helpRoute {id : RuleId} (_ : RuleDescriptor id) : String := id.route
-/-- The message form is derived from the index, never an independent field. -/
-def messageTemplate {id : RuleId} (_ : RuleDescriptor id) : String := messageForm id
 end RuleDescriptor
 
-/-- Size budgets, in UTF-8 bytes, that keep inline feedback and the agent guide compact. -/
+/-- Size budgets, in UTF-8 bytes, that keep the agent-facing fields and the agent guide compact. -/
 def requirementBudget : Nat := 200
 /-- The largest `rationale`, in UTF-8 bytes. -/
 def rationaleBudget : Nat := 480
@@ -350,11 +290,10 @@ def withinBudget (text : String) (budget : Nat) : Bool :=
   0 < text.utf8ByteSize && text.utf8ByteSize ≤ budget
 
 /-- Every agent-facing field has content within its budget, the one-line fields contain no
-line break, every example line fits the community's 100-character limit, the two examples differ,
-and qualification inputs say what they are. The registry
-checks this for every rule when `RegulaCore.Guidance` is built (`#guard` over the complete
-`RuleId.all`): evaluation, because kernel reduction of these long string literals costs seconds
-per field. -/
+line break, every example line fits the community's 100-character limit and the two examples
+differ. The registry checks this for every rule when `RegulaCore.Guidance` is built (`#guard` over
+the complete `RuleId.all`): evaluation, because kernel reduction of these long string literals
+costs seconds per field. -/
 def RuleDescriptor.wellFormed {id : RuleId} (d : RuleDescriptor id) : Bool :=
   withinBudget d.requirement requirementBudget && !d.requirement.contains '\n' &&
   withinBudget d.rationale rationaleBudget &&
@@ -365,20 +304,7 @@ def RuleDescriptor.wellFormed {id : RuleId} (d : RuleDescriptor id) : Bool :=
   withinBudget d.examples.noncompliant exampleBudget &&
   linesWithin d.examples.compliant && linesWithin d.examples.noncompliant &&
   d.examples.compliant != d.examples.noncompliant &&
-  0 < d.examples.correction.utf8ByteSize &&
-  (match d.examples.audience with
-    | .adopter => true
-    | .qualification files => 0 < files.utf8ByteSize)
-
-/-- The modes that audit declarations outside the editor: incremental and fresh project,
-fresh file and documentation example. A rule that also reports in the editor adds
-`.editorSnapshot` to them. -/
-def declarationModes : List EvidenceMode :=
-  [.incrementalProject, .freshProject, .freshFile, .documentationExample]
-
-/-- The modes of the completed-module documentation rules: the editor and whole-project audits.
-Single-file and documentation-example audits have no documentation-presence stage. -/
-def projectModes : List EvidenceMode := [.editorSnapshot, .incrementalProject, .freshProject]
+  0 < d.examples.correction.utf8ByteSize
 
 /-- Total bridge from the executed policy decision to the single rule registry. -/
 def ruleForFailure : RegulaPolicy.DeclarationFailure → RuleId
@@ -396,7 +322,7 @@ theorem ruleForFailure_injective : Function.Injective ruleForFailure := by
 
 /-- Total metadata for the rule vocabulary. An active rule is enforced by the checker, or, for
 RG2003 and RG2005, by the Lean tool that the specification hands it to; a retired rule is written
-guidance that no check reports (`Lifecycle.retired`, `Regula.Guidance.checkedBy`).
+guidance that no check reports (`Lifecycle.retired`, `checkOf`).
 Example bytes are embedded from `examples/rules/<ID>/`; the `RegulaCore` library `needs` that
 directory as a Lake input, so editing an example rebuilds this module. -/
 def descriptor : (id : RuleId) → RuleDescriptor id
@@ -404,8 +330,6 @@ def descriptor : (id : RuleId) → RuleDescriptor id
       lifecycle := .active (.release ⟨4, 34, 0⟩)
       title := "Project logical axioms are forbidden", category := .foundation
       normativeClauses := [.proofCompleteness]
-      applicability := "project-axiom"
-      evidenceModes := .editorSnapshot :: declarationModes
       requirement := "A claimed module declares no logical `axiom`: every assumption is a \
         hypothesis or a proof-bearing field."
       rationale := "An axiom extends Lean's logic for everything that imports it. An assumption \
@@ -423,7 +347,6 @@ def descriptor : (id : RuleId) → RuleDescriptor id
           and state results conditionally on it; do not assert it."]
       examples := {
         language := .lean
-        audience := .adopter
         compliant := include_str "../../examples/rules/RG1001/Fixed.lean"
         noncompliant := include_str "../../examples/rules/RG1001/Violation.lean"
         correction := "The correction proves the same `∀ n : Nat, n = n` by `rfl` instead of \
@@ -432,8 +355,6 @@ def descriptor : (id : RuleId) → RuleDescriptor id
       lifecycle := .active (.release ⟨4, 34, 0⟩)
       title := "Proof holes are forbidden", category := .foundation
       normativeClauses := [.proofCompleteness]
-      applicability := "hole"
-      evidenceModes := .editorSnapshot :: declarationModes
       requirement := "No owned declaration depends on `sorryAx`: no `sorry`, `admit` or unfinished \
         proof, directly or through an import."
       rationale := "`sorryAx` proves every proposition. A declaration that depends on it has no \
@@ -449,7 +370,6 @@ def descriptor : (id : RuleId) → RuleDescriptor id
           states exactly what is established."]
       examples := {
         language := .lean
-        audience := .adopter
         compliant := include_str "../../examples/rules/RG1002/Fixed.lean"
         noncompliant := include_str "../../examples/rules/RG1002/Violation.lean"
         correction := "The correction fills the same reflexivity proof with `rfl`. The checked \
@@ -459,8 +379,6 @@ def descriptor : (id : RuleId) → RuleDescriptor id
       lifecycle := .active (.release ⟨4, 34, 0⟩)
       title := "Unknown transitive axioms are forbidden", category := .foundation
       normativeClauses := [.proofCompleteness]
-      applicability := "unknown-axiom"
-      evidenceModes := .editorSnapshot :: declarationModes
       requirement := "Every transitive axiom of an owned declaration, including one from an \
         import, is `propext`, `Quot.sound` or `Classical.choice`."
       rationale := "A foundation label summarizes exactly which assumptions a result rests on. An \
@@ -476,17 +394,15 @@ def descriptor : (id : RuleId) → RuleDescriptor id
           surface."]
       examples := {
         language := .lean
-        audience := .qualification "The examples are the imported dependency."
         compliant := include_str "../../examples/rules/RG1003/Fixed.lean"
         noncompliant := include_str "../../examples/rules/RG1003/Violation.lean"
-        correction := "The dependency proves the same reflexivity statement instead of declaring \
-          it as an axiom, and the file that imports it is unchanged." } }
+        correction := "The examples are the imported dependency. It proves the same reflexivity \
+          statement instead of declaring it as an axiom, and the file that imports it is \
+          unchanged." } }
   | .compilerTrusting => {
       lifecycle := .active (.release ⟨4, 34, 0⟩)
       title := "Compiler-trusting proofs require separate classification", category := .foundation
       normativeClauses := [.proofCompleteness]
-      applicability := "compiler-trusting"
-      evidenceModes := .editorSnapshot :: declarationModes
       requirement := "Claimed declarations use no compiler-trusting proof: no native proof or \
         legacy compiler-trust axiom declared by the selected compiler."
       rationale := "Compiled evaluation is outside the kernel's checking. A compiler or runtime \
@@ -505,7 +421,6 @@ def descriptor : (id : RuleId) → RuleDescriptor id
           trusted-compiler teaching fence (RG4004), never on a claimed surface."]
       examples := {
         language := .lean
-        audience := .adopter
         compliant := include_str "../../examples/rules/RG1004/Fixed.lean"
         noncompliant := include_str "../../examples/rules/RG1004/Violation.lean"
         correction := "The correction proves the same three facts by kernel-checked proofs: `rfl`, \
@@ -515,8 +430,6 @@ def descriptor : (id : RuleId) → RuleDescriptor id
       lifecycle := .active (.release ⟨4, 34, 0⟩)
       title := "Transitive axioms must fit the selected profile", category := .foundation
       normativeClauses := [.proofCompleteness]
-      applicability := "label-exceeds-claim"
-      evidenceModes := [.editorSnapshot, .incrementalProject, .freshProject, .freshFile]
       requirement := "Each declaration's exact transitive axiom set fits the `claim` of its \
         surface in `foundation_manifest.json`."
       rationale := "A profile claim tells readers which logical principles every result on the \
@@ -537,7 +450,6 @@ def descriptor : (id : RuleId) → RuleDescriptor id
           a definition it uses that adds the axiom."]
       examples := {
         language := .lean
-        audience := .adopter
         compliant := include_str "../../examples/rules/RG1005/Fixed.lean"
         noncompliant := include_str "../../examples/rules/RG1005/Violation.lean"
         correction := "The correction proves the same universally quantified reflexivity with an \
@@ -548,8 +460,6 @@ def descriptor : (id : RuleId) → RuleDescriptor id
       title := "Unsafe and partial declarations are refused, except a recursion helper", category :=
           .declaration
       normativeClauses := [.declarationInventory]
-      applicability := "escape-hatch"
-      evidenceModes := .editorSnapshot :: declarationModes
       requirement := "Claimed modules declare nothing `unsafe` or `partial`, authored or \
         generated, except the recursion helper `f._unsafe_rec` of a safe definition `f` in the \
         same module, admitted by its form."
@@ -572,7 +482,6 @@ def descriptor : (id : RuleId) → RuleDescriptor id
           theorem can bind."]
       examples := {
         language := .lean
-        audience := .adopter
         compliant := include_str "../../examples/rules/RG1006/Fixed.lean"
         noncompliant := include_str "../../examples/rules/RG1006/Violation.lean"
         correction := "The correction keeps identity's domain and body and removes the unnecessary \
@@ -581,8 +490,6 @@ def descriptor : (id : RuleId) → RuleDescriptor id
       lifecycle := .active (.release ⟨4, 34, 0⟩)
       title := "Executable contracts require supported closed evidence", category := .execution
       normativeClauses := [.executableContracts, .proofCompleteness]
-      applicability := "executable-contract"
-      evidenceModes := .editorSnapshot :: declarationModes
       requirement := "Each `ExecutableContract f R` is closed and names a safe, computable \
         implementation `f`, with its complete domain inside `R`; a decision kind decides `f` \
         against a specification stated without `f`."
@@ -610,7 +517,6 @@ def descriptor : (id : RuleId) → RuleDescriptor id
           `Regula.Dependent.isSome g` or `isOk g`."]
       examples := {
         language := .lean
-        audience := .adopter
         compliant := include_str "../../examples/rules/RG1007/Fixed.lean"
         noncompliant := include_str "../../examples/rules/RG1007/Violation.lean"
         correction := "The correction moves the complete natural-number domain inside the identity \
@@ -619,8 +525,6 @@ def descriptor : (id : RuleId) → RuleDescriptor id
       lifecycle := .active (.release ⟨0, 7, 0⟩)
       title := "Registered decision functions require a decision contract", category := .execution
       normativeClauses := [.executableContracts, .proofCompleteness]
-      applicability := "decision-contract"
-      evidenceModes := declarationModes
       requirement := "Each function that a `RegisteredDecision` declaration names has a `Decides`, \
         `DecidesSoundly` or `DecidesCompletely` contract in a claimed module, or a `Decidable` \
         result type."
@@ -647,7 +551,6 @@ def descriptor : (id : RuleId) → RuleDescriptor id
           then carries a proof of `Spec x` or of its negation, and no contract is needed."]
       examples := {
         language := .lean
-        audience := .adopter
         compliant := include_str "../../examples/rules/RG1008/Fixed.lean"
         noncompliant := include_str "../../examples/rules/RG1008/Violation.lean"
         correction := "The correction registers the two-way contract of the unchanged zero \
@@ -658,8 +561,6 @@ def descriptor : (id : RuleId) → RuleDescriptor id
       title := "Decision specifications share no Boolean test with the implementation"
       category := .execution
       normativeClauses := [.executableContracts, .proofCompleteness]
-      applicability := "shared-test"
-      evidenceModes := .editorSnapshot :: declarationModes
       requirement := "The specification of a decision contract reaches no function with a \
         result of `Bool` or `BEq`, outside Lean's own library, that the implementation or the \
         acceptance predicate also reaches."
@@ -686,7 +587,6 @@ def descriptor : (id : RuleId) → RuleDescriptor id
           the rule does not count a function of that library."]
       examples := {
         language := .lean
-        audience := .adopter
         compliant := include_str "../../examples/rules/RG1009/Fixed.lean"
         noncompliant := include_str "../../examples/rules/RG1009/Violation.lean"
         correction := "The correction states the bound as the proposition `Small`, which the \
@@ -695,8 +595,6 @@ def descriptor : (id : RuleId) → RuleDescriptor id
       lifecycle := .active (.release ⟨4, 34, 0⟩)
       title := "The declared Lean environment must be available", category := .environment
       normativeClauses := [.elaborationEnvironment]
-      applicability := "environment"
-      evidenceModes := [.incrementalProject, .freshProject, .freshFile]
       requirement := "The audit runs in the declared environment: Lake loads the workspace with \
         the pinned toolchain and resolves every dependency."
       rationale := "Every conformance claim is about one exact elaboration environment: toolchain, \
@@ -712,21 +610,16 @@ def descriptor : (id : RuleId) → RuleDescriptor id
           auditing; provisioning is setup, not verification.",
         "Rerun the audit; a new run produces new, complete evidence."]
       examples := {
-        language := .json
-        audience :=
-            .qualification
-                "The examples are the qualification runner's requests for the same `Example.lean`."
-        compliant := include_str "../../examples/rules/RG2001/Fixed.json"
-        noncompliant := include_str "../../examples/rules/RG2001/Violation.json"
-        correction := "The correction removes a Lake dependency that cannot be resolved (the \
-          violating workspace adds `require unavailable from \"./missing\"`); the Lean source is \
-          unchanged." } }
+        language := .lean
+        compliant := include_str "../../examples/rules/RG2001/Fixed.lean"
+        noncompliant := include_str "../../examples/rules/RG2001/Violation.lean"
+        correction := "The examples are the project's `lakefile.lean`. The correction removes a \
+          Lake dependency that cannot be resolved (`require unavailable from \"./missing\"`); the \
+          rest of the file is unchanged." } }
   | .configuration => {
       lifecycle := .active (.release ⟨4, 34, 0⟩)
       title := "Configuration must classify the complete Lake surface", category := .configuration
       normativeClauses := [.lakeSurfaces]
-      applicability := "configuration"
-      evidenceModes := [.editorSnapshot, .incrementalProject, .freshProject, .freshFile]
       requirement := "`foundation_manifest.json` is valid schema 2 and classifies every root \
         `lean_lib` and `lean_exe` exactly once, each executable alike with any library that \
         contains its root module."
@@ -750,7 +643,6 @@ def descriptor : (id : RuleId) → RuleDescriptor id
           driver would use, without auditing."]
       examples := {
         language := .json
-        audience := .adopter
         compliant := include_str "../../examples/rules/RG2002/Fixed.json"
         noncompliant := include_str "../../examples/rules/RG2002/Violation.json"
         correction := "The examples are `foundation_manifest.json` files for one layout: library \
@@ -763,8 +655,6 @@ def descriptor : (id : RuleId) → RuleDescriptor id
       lifecycle := .active (.release ⟨4, 34, 0⟩)
       title := "Claimed source must elaborate warning-free", category := .elaboration
       normativeClauses := [.cleanElaboration]
-      applicability := "source-build"
-      evidenceModes := [.incrementalProject, .freshProject, .freshFile]
       requirement := "Every claimed module elaborates from source without errors or warnings; \
         Lean's default warnings stay enabled, and disabling a linter never discharges what it \
         checks."
@@ -790,7 +680,6 @@ def descriptor : (id : RuleId) → RuleDescriptor id
           messages that `lake build --wfail` reads."]
       examples := {
         language := .lean
-        audience := .adopter
         compliant := include_str "../../examples/rules/RG2003/Fixed.lean"
         noncompliant := include_str "../../examples/rules/RG2003/Violation.lean"
         correction := "The correction removes a dead lambda binding while preserving identity's \
@@ -799,8 +688,6 @@ def descriptor : (id : RuleId) → RuleDescriptor id
       lifecycle := .active (.release ⟨4, 34, 0⟩)
       title := "Owned coverage must match the exact Lake inventory", category := .coverage
       normativeClauses := [.lakeSurfaces]
-      applicability := "coverage"
-      evidenceModes := [.incrementalProject, .freshProject, .freshFile]
       requirement := "Every module of the root package that Lake builds belongs to exactly one \
         library, or to none and is the root of an executable, and no claimed module imports a \
         module of an excluded target."
@@ -818,7 +705,6 @@ def descriptor : (id : RuleId) → RuleDescriptor id
         "Classify any new root library or executable in the manifest (RG2002)."]
       examples := {
         language := .lean
-        audience := .adopter
         compliant := include_str "../../examples/rules/RG2004/Fixed.lean"
         noncompliant := include_str "../../examples/rules/RG2004/Violation.lean"
         correction := "The manifest excludes the `Fixtures` library. The correction removes the \
@@ -828,8 +714,6 @@ def descriptor : (id : RuleId) → RuleDescriptor id
       lifecycle := .active (.release ⟨4, 34, 0⟩)
       title := "Required admission and source evidence must be complete", category := .admission
       normativeClauses := [.cleanElaboration]
-      applicability := "admission"
-      evidenceModes := .editorSnapshot :: declarationModes
       requirement := "Lean's kernel replays each constant of each claimed module from an export of \
         the build (`lake check`); no metaprogram adds unchecked declarations."
       rationale := "Successful elaboration alone is not checked admission: metaprograms and debug \
@@ -844,7 +728,6 @@ def descriptor : (id : RuleId) → RuleDescriptor id
           does not report it."]
       examples := {
         language := .lean
-        audience := .adopter
         compliant := include_str "../../examples/rules/RG2005/Fixed.lean"
         noncompliant := include_str "../../examples/rules/RG2005/Violation.lean"
         correction := "The correction replaces ill-typed unchecked evidence with a checked proof \
@@ -854,8 +737,6 @@ def descriptor : (id : RuleId) → RuleDescriptor id
       title := "Claimed targets must set only allowlisted options"
       category := .configuration
       normativeClauses := [.elaborationEnvironment]
-      applicability := "community-configuration"
-      evidenceModes := [.incrementalProject, .freshProject, .freshFile]
       requirement := "Each claimed target sets `autoImplicit` and `relaxedAutoImplicit` to `false`, \
         sets only options of the closed allowlist, and has no plugin, dynamic library or other \
         Lean argument."
@@ -881,7 +762,6 @@ def descriptor : (id : RuleId) → RuleDescriptor id
           `weakLeanArgs`, and put a tool that needs one in an excluded target (RG2002)."]
       examples := {
         language := .lean
-        audience := .adopter
         compliant := include_str "../../examples/rules/RG2006/Fixed.lean"
         noncompliant := include_str "../../examples/rules/RG2006/Violation.lean"
         correction := "The examples are the package's `lakefile.lean` (a project adds its \
@@ -892,8 +772,6 @@ def descriptor : (id : RuleId) → RuleDescriptor id
       title := "Claimed modules must register no code that Lean runs"
       category := .configuration
       normativeClauses := [.elaborationEnvironment]
-      applicability := "closed-subset"
-      evidenceModes := [.incrementalProject, .freshProject, .freshFile]
       requirement := "A claimed module has entries only of the environment extensions of the closed \
         allowlist, so its build records no macro, syntax, elaborator, initializer, `meta` declaration \
         or attribute of its own."
@@ -914,7 +792,6 @@ def descriptor : (id : RuleId) → RuleDescriptor id
           it, as `Regula.RegisteredDecision` does for a decision."]
       examples := {
         language := .lean
-        audience := .adopter
         compliant := include_str "../../examples/rules/RG2007/Fixed.lean"
         noncompliant := include_str "../../examples/rules/RG2007/Violation.lean"
         correction := "The correction writes `0`, the term the macro expands to, so the module \
@@ -923,8 +800,6 @@ def descriptor : (id : RuleId) → RuleDescriptor id
       lifecycle := .active (.release ⟨4, 34, 0⟩)
       title := "Execution closure must have no unresolved paths", category := .execution
       normativeClauses := [.computationMechanisms]
-      applicability := "execution-unresolved"
-      evidenceModes := [.incrementalProject, .freshProject, .freshFile]
       requirement := "Every name in an executable root's execution closure resolves, and no \
         runtime replacement runs itself again through a cycle of replacements."
       rationale := "An execution account that silently skipped an unresolved path would overstate \
@@ -938,7 +813,6 @@ def descriptor : (id : RuleId) → RuleDescriptor id
         "Break cycles consisting only of replacement edges."]
       examples := {
         language := .lean
-        audience := .adopter
         compliant := include_str "../../examples/rules/RG3001/Fixed.lean"
         noncompliant := include_str "../../examples/rules/RG3001/Violation.lean"
         correction := "The correction removes a no-effect `run_cmd` metaprogramming command that \
@@ -948,8 +822,6 @@ def descriptor : (id : RuleId) → RuleDescriptor id
       lifecycle := .active (.release ⟨4, 34, 0⟩)
       title := "Checked execution requires admitted correspondence", category := .execution
       normativeClauses := [.computationMechanisms]
-      applicability := "execution-trusted-boundary"
-      evidenceModes := [.incrementalProject, .freshProject, .freshFile]
       requirement := "Under `\"execution\": \"checked\"`, every reachable replacement or recursion \
         helper outside the toolchain has an admitted correspondence, and no reachable code outside \
         it is unbindable, such as `extern`."
@@ -970,7 +842,6 @@ def descriptor : (id : RuleId) → RuleDescriptor id
           still fails RG1006 in either mode."]
       examples := {
         language := .lean
-        audience := .adopter
         compliant := include_str "../../examples/rules/RG3002/Fixed.lean"
         noncompliant := include_str "../../examples/rules/RG3002/Violation.lean"
         correction := "The correction adds the missing equality between the reference and its \
@@ -981,8 +852,6 @@ def descriptor : (id : RuleId) → RuleDescriptor id
       lifecycle := .retired (.release ⟨4, 34, 0⟩) .unreleased none
       title := "Documentation fences must have a valid classification", category := .documentation
       normativeClauses := [.documentationChecks]
-      applicability := "fence-structure"
-      evidenceModes := [.documentationExample]
       requirement := "Each `lean-fail` or `lean-trusted-compiler` marker sits immediately before \
         its `lean` fence, every fence is closed, and Lean code is shown only as a `lean` fence in \
         the first column."
@@ -1004,7 +873,6 @@ def descriptor : (id : RuleId) → RuleDescriptor id
         "Show a raw HTML code tag with a character reference (`&lt;pre>`) or name it in prose."]
       examples := {
         language := .markdown
-        audience := .adopter
         compliant := include_str "../../examples/rules/RG4001/Fixed.md"
         noncompliant := include_str "../../examples/rules/RG4001/Violation.md"
         correction :=
@@ -1015,8 +883,6 @@ def descriptor : (id : RuleId) → RuleDescriptor id
       title := "Positive examples require warning-free elaboration and admission", category :=
           .documentation
       normativeClauses := [.documentationChecks]
-      applicability := "positive-example"
-      evidenceModes := [.documentationExample]
       requirement := "An unmarked `lean` fence in the checked docs elaborates verbatim and \
         warning-free and passes the declaration and axiom rules."
       rationale := "Readers copy documented examples and trust them. A positive example that does \
@@ -1031,7 +897,6 @@ def descriptor : (id : RuleId) → RuleDescriptor id
         "Import what the example needs inside the fence, so that it elaborates as printed."]
       examples := {
         language := .markdown
-        audience := .adopter
         compliant := include_str "../../examples/rules/RG4002/Fixed.md"
         noncompliant := include_str "../../examples/rules/RG4002/Violation.md"
         correction := "The correction proves the same reflexivity claim in the positive fence; the \
@@ -1040,8 +905,6 @@ def descriptor : (id : RuleId) → RuleDescriptor id
       lifecycle := .retired (.release ⟨4, 34, 0⟩) .unreleased none
       title := "Negative examples require completed intended rejection", category := .documentation
       normativeClauses := [.documentationChecks]
-      applicability := "negative-example"
-      evidenceModes := [.documentationExample]
       requirement := "A `lean-fail` fence fails to elaborate with one error message that matches \
         its whole pattern."
       rationale := "A negative example documents what Lean rejects. If it stops failing, or fails \
@@ -1056,7 +919,6 @@ def descriptor : (id : RuleId) → RuleDescriptor id
         "Keep patterns to literal fragments joined by `.*` and alternatives separated by `|`."]
       examples := {
         language := .markdown
-        audience := .adopter
         compliant := include_str "../../examples/rules/RG4003/Fixed.md"
         noncompliant := include_str "../../examples/rules/RG4003/Violation.md"
         correction := "The correction labels an already valid reflexivity proof as a positive \
@@ -1066,8 +928,6 @@ def descriptor : (id : RuleId) → RuleDescriptor id
       title := "Teaching examples require authenticated compiler classification", category :=
           .documentation
       normativeClauses := [.documentationChecks]
-      applicability := "trusted-example"
-      evidenceModes := [.documentationExample]
       requirement := "A `lean-trusted-compiler` fence elaborates warning-free and contains a \
         compiler-trusting declaration."
       rationale := "Conforming claims reject compiler-trusting proofs (RG1004). A teaching fence \
@@ -1084,7 +944,6 @@ def descriptor : (id : RuleId) → RuleDescriptor id
           `bv_decide`)."]
       examples := {
         language := .markdown
-        audience := .adopter
         compliant := include_str "../../examples/rules/RG4004/Fixed.md"
         noncompliant := include_str "../../examples/rules/RG4004/Violation.md"
         correction := "The correction labels the same kernel proof as a positive example rather \
@@ -1094,8 +953,6 @@ def descriptor : (id : RuleId) → RuleDescriptor id
       title := "Claimed modules need a leading module docstring and no repeated import"
       category := .documentation
       normativeClauses := [.moduleDocumentation, .importDiscipline]
-      applicability := "module-documentation"
-      evidenceModes := projectModes
       requirement := "Every claimed module has a module docstring (`/-! … -/`) as its first \
         command \
         after the imports, and its header repeats no import with the same modifiers."
@@ -1117,7 +974,6 @@ def descriptor : (id : RuleId) → RuleDescriptor id
           sections that help."]
       examples := {
         language := .lean
-        audience := .adopter
         compliant := include_str "../../examples/rules/RG5001/Fixed.lean"
         noncompliant := include_str "../../examples/rules/RG5001/Violation.lean"
         correction :=
@@ -1127,8 +983,6 @@ def descriptor : (id : RuleId) → RuleDescriptor id
       title := "Public material declarations require docstrings", category :=
           .documentation
       normativeClauses := [.inlineDocumentation]
-      applicability := "material-documentation"
-      evidenceModes := projectModes
       requirement := "Every public declaration that states a material claim has a docstring stating \
         its purpose, hypotheses, result and boundary. Review selects these declarations."
       rationale := "A material claim must be readable without reconstructing it from the proof: \
@@ -1143,7 +997,6 @@ def descriptor : (id : RuleId) → RuleDescriptor id
           missing Intent section is RG5003."]
       examples := {
         language := .lean
-        audience := .adopter
         compliant := include_str "../../examples/rules/RG5002/Fixed.lean"
         noncompliant := include_str "../../examples/rules/RG5002/Violation.lean"
         correction := "The correction adds the theorem's docstring, including its `# Intent` \
@@ -1153,8 +1006,6 @@ def descriptor : (id : RuleId) → RuleDescriptor id
       title := "Public material declarations require an Intent section", category :=
           .documentation
       normativeClauses := [.faithfulExplanation]
-      applicability := "material-intent"
-      evidenceModes := projectModes
       requirement := "The docstring of every public declaration that states a material claim has \
         a nonempty `# Intent` section stating the requirement the claim must meet. Review selects \
         these declarations."
@@ -1169,7 +1020,6 @@ def descriptor : (id : RuleId) → RuleDescriptor id
         "Prefer a level-one heading; a top-level Verso docstring header must be `#`."]
       examples := {
         language := .lean
-        audience := .adopter
         compliant := include_str "../../examples/rules/RG5003/Fixed.lean"
         noncompliant := include_str "../../examples/rules/RG5003/Violation.lean"
         correction := "The correction adds a nonempty `# Intent` section, structured with a `## \
@@ -1206,5 +1056,35 @@ is not published. -/
 theorem introduced_startsLine (id : RuleId) :
     (descriptor id).lifecycle.introduced.startsLine = true := by
   cases id <;> decide
+
+/-- What checks a rule. -/
+inductive RuleCheck where
+  /-- `lake lint`: Regula's checker, over the finished build. -/
+  | lakeLint
+  /-- `lake build --wfail`, the Lean tool that the specification hands RG2003 to. -/
+  | lakeBuild
+  /-- `lake check`, the Lean tool that the specification hands RG2005 to. -/
+  | lakeCheck
+  /-- No check: the rule is retired to written guidance. -/
+  | retired
+  deriving Repr, BEq, DecidableEq
+
+/-- The name of each check: its command, or `no check`. -/
+def RuleCheck.label : RuleCheck → String
+  | .lakeLint => "lake lint"
+  | .lakeBuild => "lake build --wfail"
+  | .lakeCheck => "lake check"
+  | .retired => "no check"
+
+/-- What checks rule `id` now: no check for a rule whose lifecycle in the registry is retired, which
+is read from the lifecycle, so no table can disagree with it, the Lean tool for RG2003 and RG2005,
+and `lake lint` for each other rule. `RegulaSpecification.Link.checkOf_fate` proves that this is
+the specification's `fate` of every rule. -/
+def checkOf (id : RuleId) : RuleCheck :=
+  if (descriptor id).lifecycle.isRetired then .retired else
+    match id with
+    | .sourceBuild => .lakeBuild
+    | .admission => .lakeCheck
+    | _ => .lakeLint
 
 end Regula

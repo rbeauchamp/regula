@@ -193,8 +193,8 @@ status: include it to audit it, or leave it out deliberately.
 
 Regula is designed first for coding agents, which may not know this standard from their training
 data. Every rule is one typed registry definition stating what it requires, why, how to comply
-(with the common compliant rewrites) and a checked example pair; findings, the offline commands
-below, the JSON report and the rule-reference site are all generated from it. The `AGENTS.md`
+(with the common compliant rewrites) and an example pair; the offline commands below and the
+rule-reference site are generated from it. The `AGENTS.md`
 section tells an agent to run the briefing before it writes Lean; it names no version, so it
 stays current. The skill file holds the briefing itself; `init` refreshes it after an update.
 

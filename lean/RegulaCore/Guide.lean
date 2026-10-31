@@ -7,7 +7,7 @@ import RegulaCore.Rule
 `RuleId`: adding a rule without its explanation is a compile error, and the site generator
 renders a page from `guide id` together with the registry descriptor `descriptor id` and
 the example pair of that rule. Nothing here is a second rule vocabulary: rule identity, title,
-category, clauses, modes and routes come from `descriptor`, and so do the agent-facing
+category, clauses and routes come from `descriptor`, and so do the agent-facing
 requirement, short rationale, remedy, rewrites and example pair that the `regula` command also
 prints. This module holds only the longer site and `regula explain` prose.
 

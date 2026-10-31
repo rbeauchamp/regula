@@ -69,38 +69,36 @@ private def numbered (xs : List String) : String :=
 /-- The `lake lint` exit codes, from the checker's own table (`Verdict.exitCodes`). -/
 def exitCodes : String := Verdict.exitCodes
 
-/-- The checked example pair when an adopter can apply it as shown; otherwise where the
-qualification inputs are and the correction they demonstrate. -/
+/-- The rule's example pair and its correction. -/
 def examples (id : RuleId) : String :=
   let e := (descriptor id).examples
-  match e.adopterExample with
-  | some compliant =>
-      "Noncompliant (`" ++ e.noncompliantPath id ++ "`):\n\n" ++
-          fenced e.language.fence e.noncompliant ++ "\n" ++
-      "Compliant (`" ++ e.compliantPath id ++ "`):\n\n" ++
-          fenced e.language.fence compliant ++ "\n" ++
-      e.correction ++ "\n\n"
-  | none =>
-      "The checked pair (`" ++ e.noncompliantPath id ++ "`, `" ++ e.compliantPath id ++
-      "`) consists of qualification inputs, not project files. " ++ e.caption ++ "\n\n"
+  "Noncompliant (`" ++ e.noncompliantPath id ++ "`):\n\n" ++
+      fenced e.language.fence e.noncompliant ++ "\n" ++
+  "Compliant (`" ++ e.compliantPath id ++ "`):\n\n" ++
+      fenced e.language.fence e.compliant ++ "\n" ++
+  e.correction ++ "\n\n"
 
-/-- What `checkedBy` says of a retired rule. -/
-def notChecked : String :=
-  "no check: the rule is retired to written guidance, which review checks"
+/-- The sentence that states a check, with its command as a code span. -/
+def RuleCheck.description (c : RuleCheck) : String :=
+  match c with
+  | .lakeLint => "`" ++ c.label ++ "`, over the finished build"
+  | .lakeBuild | .lakeCheck => "`" ++ c.label ++ "`, which decides it in place of Regula; Regula's \
+      checker does not report it"
+  | .retired => c.label ++ ": the rule is retired to written guidance, which review checks"
 
-/-- What checks a rule that is not retired: the Lake command that the specification hands RG2003
-or RG2005 to, and `lake lint` for each other rule. -/
-def activeCheck : RuleId → String
-  | .sourceBuild => "`lake build --wfail`, which decides it in place of Regula"
-  | .admission => "`lake check`, which decides it in place of Regula; Regula's checker does not \
-      report it"
-  | _ => "`lake lint`, over the finished build"
+/-- What checks the rule now, from the registry's `checkOf`. `regula explain` and the rule's page
+both state this text. -/
+def checkedBy (id : RuleId) : String := RuleCheck.description (checkOf id)
 
-/-- What checks the rule now: no check for a rule whose lifecycle in the registry is retired
-(`Lifecycle.isRetired`), which the specification's `fate` retires, and `activeCheck` for each
-other rule. The retired case is read from the lifecycle, so no table can disagree with it. -/
-def checkedBy (id : RuleId) : String :=
-  if (descriptor id).lifecycle.isRetired then notChecked else activeCheck id
+/-- The form of the line that `lake lint` prints for the rule: the line of an incomplete run for
+RG2001, whose report is that verdict (`Regula.Closed.Input.check`), the line of a finding for each
+other rule it checks, and none for a rule that it does not check, which has no finding
+(`RegulaSpecification.Link.check_nil_of_not_lakeLint`). -/
+def reportForm (id : RuleId) : Option String :=
+  match checkOf id, id with
+  | .lakeLint, .environment => some Regula.Closed.incompleteForm
+  | .lakeLint, _ => some Regula.Closed.findingForm
+  | _, _ => none
 
 /-- The full rule as Markdown. For a rule whose subjects a registration declaration selects
 (`registrationFor`: `Regula.RegisteredDecision`), only source options and flags are said not to
@@ -110,12 +108,13 @@ def explain (id : RuleId) : String :=
   let g := guide id
   "# " ++ id.spelling ++ ": " ++ d.title ++ "\n\n" ++
   "**Requirement.** " ++ d.requirement ++ "\n\n" ++
-  "- Category: " ++ d.category.label ++ "; scope: " ++ d.scope.label ++ "; subreason: `" ++
-    d.applicability ++ "`\n" ++
+  "- Category: " ++ d.category.label ++ "; scope: " ++ d.scope.label ++ "\n" ++
   "- Normative clauses: " ++ "; ".intercalate (d.normativeClauses.map fun c =>
     c.label ++ " (`" ++ c.source ++ "`, " ++ c.url ++ ")") ++ "\n" ++
   "- Checked by: " ++ checkedBy id ++ "\n" ++
-  "- Finding form: `" ++ Regula.Closed.findingForm ++ "`\n" ++
+  (match reportForm id with
+    | some form => "- Finding form: `" ++ form ++ "`\n"
+    | none => "") ++
   "- Rule page: " ++ helpUrl id ++ "\n\n" ++
   "## Problem\n\n" ++ packageProse g.problem.toString ++ "\n\n" ++
   "## Why it matters\n\n" ++ paragraphs (d.rationale :: g.rationaleDetail) ++
@@ -184,38 +183,34 @@ def briefingOrder : List RuleId := writingSections.flatMap (·.2.2)
 any: the briefing prints each distinct compliant example once. -/
 def sameExampleAs (id : RuleId) : Option RuleId :=
   (briefingOrder.takeWhile (· != id)).find? fun other =>
-    (descriptor other).examples.adopterExample.isSome &&
-      (descriptor other).examples.adopterExample == (descriptor id).examples.adopterExample
+    (descriptor other).examples.compliant == (descriptor id).examples.compliant
 
 /-- A rule that refers to another's example refers to an earlier rule with the same compliant
 example. -/
 theorem sameExampleAs_spec {id other : RuleId} (h : sameExampleAs id = some other) :
-    (descriptor other).examples.adopterExample = (descriptor id).examples.adopterExample ∧
+    (descriptor other).examples.compliant = (descriptor id).examples.compliant ∧
       other ∈ briefingOrder.takeWhile (· != id) := by
   unfold sameExampleAs at h
   refine ⟨?_, List.mem_of_find?_eq_some h⟩
   have := List.find?_some h
-  simp only [Bool.and_eq_true, beq_iff_eq] at this
-  exact this.2
+  simpa only [beq_iff_eq] using this
 
 /-- Rule `id`'s ID as a Markdown link to its page in edition `e`. -/
 def citation (e : Edition) (id : RuleId) : String :=
   "[" ++ id.spelling ++ "](" ++ e.url id.route ++ ")"
 
 /-- One rule of the briefing of edition `e`: identity, requirement, remedy and the compliant
-example (named by the earlier rule that shows the same one), or the correction where the checked
-files are qualification inputs. Every rule ID it names, its own and those of the registry's
-prose, is a `citation` in `e`. -/
+example (named by the earlier rule that shows the same one). Every rule ID it names, its own and
+those of the registry's prose, is a `citation` in `e`. -/
 def briefRule (e : Edition) (id : RuleId) : String :=
   let d := descriptor id
   let cited := Prose.linkIds (citation e)
   "### " ++ citation e id ++ " " ++ d.title ++ retiredMark id ++ "\n\n" ++ cited d.requirement ++
       "\nFix: " ++
       cited d.remedy ++ "\n\n" ++
-  match d.examples.adopterExample, sameExampleAs id with
-  | some _, some other => "Compliant example: as " ++ citation e other ++ ".\n"
-  | some compliant, none => fenced d.examples.language.fence compliant
-  | none, _ => "Compliant form: " ++ cited d.examples.correction ++ "\n"
+  match sameExampleAs id with
+  | some other => "Compliant example: as " ++ citation e other ++ ".\n"
+  | none => fenced d.examples.language.fence d.examples.compliant
 
 /-- In the installed build's edition, a citation links to the page that a finding links
 (`helpUrl`, `Regula.Shell.page`): a release's own page (`helpUrl_release`), and a development
@@ -282,7 +277,7 @@ theorem skill_unreleased (h : installed = .unreleased) : skill = skillIn .dev :=
 /-- No agent-facing field carries a site-only `@repo/` link token. -/
 def plainFields (id : RuleId) : Bool :=
   let d := descriptor id
-  ([d.requirement, d.rationale, d.remedy, d.examples.caption] ++ d.rewrites).all fun s =>
+  ([d.requirement, d.rationale, d.remedy, d.examples.correction] ++ d.rewrites).all fun s =>
     (s.splitOn "@repo/").length == 1
 
 -- Compiled-evaluation observation at build time, not a kernel-checked proof.

@@ -187,6 +187,8 @@ The registry of Regula has 25 rules (`Regula.RuleId`). The function `fate` in [`
 
 **Proved**: `fate_counts`. Of the 25 rules, 16 are kept, 2 go to Lean and 7 are retired. [RG2007] entered the registry with [#484]. The other new rule has the proposed identifier `RG6001`, which no rule of the registry has (**proved**: `new_not_registered`).
 
+**Proved**: `checkOf_fate`, in [`RegulaSpecification/Proofs/Checks.lean`](RegulaSpecification/Proofs/Checks.lean). The registry and the rule-reference site state the check of each rule from `Regula.checkOf`, and that check is the one that the rule's fate names.
+
 | Rule | Fate | Formal statement |
 | --- | --- | --- |
 | [RG1001] | Kept | `rg1001`, `Violates1001` |

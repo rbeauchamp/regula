@@ -6,11 +6,10 @@ public import RegulaCore.Rule
 
 These definitions render the text of a finding from the rule registry (`descriptor`), so the text
 needs no website or other tool to say how to comply. A finding's text states what
-is wrong and where (`messageLine`), the rule's one-line remedy, and the rule's page and offline
-`lake exe regula explain` command as pointers. The first time a rule fires in a run its finding
-also carries the requirement, the rationale, the common compliant rewrites and a minimal
-compliant example (or, where the checked files are qualification inputs, the correction
-they demonstrate). Later findings of the same rule carry their own message and remedy and
+is wrong and where (its one-line message), the rule's one-line remedy, and the rule's page and
+offline `lake exe regula explain` command as pointers. The first time a rule fires in a run its
+finding also carries the requirement, the rationale, the common compliant rewrites and a minimal
+compliant example. Later findings of the same rule carry their own message and remedy and
 point back to that first finding by rule ID, so a run with hundreds of findings prints each
 rule's guidance once.
 
@@ -64,13 +63,10 @@ empty line as the end of a finding never split one. -/
 def indented (pre text : String) : String :=
   "\n".intercalate ((textLines text).map (pre ++ ·))
 
-/-- The rule's compliant example when an adopter can apply it as shown, otherwise the
-correction it demonstrates (`ExamplePair.adopterExample`). -/
+/-- The rule's compliant example. -/
 def compliantForm (id : RuleId) : String :=
   let e := (descriptor id).examples
-  match e.adopterExample with
-  | some text => "  compliant example (" ++ e.compliantPath id ++ "):\n" ++ indented "    " text
-  | none => "  compliant form: " ++ e.correction
+  "  compliant example (" ++ e.compliantPath id ++ "):\n" ++ indented "    " e.compliant
 
 /-- The rule's guidance, printed once per run under its first finding. -/
 def guidance (id : RuleId) : String :=
@@ -81,7 +77,7 @@ def guidance (id : RuleId) : String :=
   compliantForm id
 
 /-- A finding's complete text on its own: what and where, the remedy, and the pointers.
-`message` is the finding's `messageLine`. -/
+`message` is the finding's one-line message. -/
 def standalone (id : RuleId) (message : String) : String :=
   message ++ "\n" ++ fixLine id ++ "\n" ++ ruleLine id
 
@@ -126,7 +122,7 @@ theorem Place.ext_key {p q : Place} (hr : p.rank = q.rank) (hn : p.name = q.name
     (hs : p.start = q.start) : p = q := by
   cases p <;> cases q <;> simp_all [Place.rank, Place.name, Place.start]
 
-/-- One finding of a run: its rule, its place, its group and its `messageLine`. -/
+/-- One finding of a run: its rule, its place, its group and its one-line message. -/
 structure Entry where
   /-- The rule the finding reports. -/
   rule : RuleId
@@ -139,7 +135,7 @@ structure Entry where
   /-- Whether the finding is about a declaration attributed to the one it is grouped under, whose
   own finding it follows in the run. -/
   attributed : Bool
-  /-- The finding's one-line message (`messageLine`). -/
+  /-- The finding's one-line message. -/
   message : String
   deriving DecidableEq
 
