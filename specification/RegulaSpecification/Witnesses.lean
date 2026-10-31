@@ -1,3 +1,8 @@
+/-
+Copyright (c) 2026 Regula contributors. All rights reserved.
+Released under MIT license as described in the file LICENSE.
+Authors: Regula contributors
+-/
 import RegulaSpecification.Gate
 
 /-!
@@ -21,8 +26,7 @@ namespace Witnesses
 
 /-- A safe constant with nothing marked, outside the toolchain. -/
 def plain (name module : Name) (kind : Kind) (uses : List Name) : Decl :=
-  { name, module, kind, isUnsafe := false, isPartial := false, uses, valueUses := [],
-    implementedBy := none,
+  { name, module, kind, safety := .safe, uses, valueUses := [], implementedBy := none,
     isExtern := false, inToolchain := false }
 
 /-- A constant of the toolchain's own library. -/
@@ -31,7 +35,7 @@ def toolchain (name : Name) (kind : Kind) : Decl :=
 
 /-- The recursion helper of `Good.f`. -/
 def helperDecl : Decl :=
-  { plain `Good.f._unsafe_rec `Good .definition [`Good.f._unsafe_rec] with isPartial := true }
+  { plain `Good.f._unsafe_rec `Good .definition [`Good.f._unsafe_rec] with safety := .partial }
 
 /-- `Good.f`, the safe base of the helper. -/
 def fDecl : Decl := plain `Good.f `Good .definition []
@@ -45,10 +49,11 @@ def base : Input where
   profile := .choiceFree
   modules := [`Good]
   decls := baseDecls
-  loads := [`Good]
+  unique := by decide
 
-/-- `base` with the constants `extra` added. -/
-def withDecls (extra : List Decl) : Input := { base with decls := base.decls ++ extra }
+/-- `base` with the constants `extra` added, whose names stay distinct. -/
+def withDecls (extra : List Decl) (hn : ((base.decls ++ extra).map (·.name)).Nodup) : Input :=
+  { base with decls := base.decls ++ extra, unique := hn }
 
 /-- What reaches from a name in `S` stays in `S` when each constant named in `S` uses only
 names in `S`. -/
@@ -59,8 +64,9 @@ theorem reaches_closed {i : Input} (S : Name → Prop)
   | refl => exact hc
   | step d hd hn hu _ ih => exact ih (h d hd (hn ▸ hc) _ hu)
 
+/-- `base` is well-formed. -/
 theorem wf_base : base.WellFormed := by
-  refine ⟨by decide, ?_, by simp [base], by simp [base]⟩
+  refine ⟨?_, by simp [base]⟩
   intro d hd
   simp only [base, baseDecls, List.mem_cons, List.not_mem_nil, or_false] at hd
   suffices h : ∀ u ∈ d.uses, u ∈ baseDecls.map (·.name) by
@@ -76,7 +82,7 @@ theorem base_reaches_t {e : Name} (h : base.Reaches `Good.t e) : e = `Good.t ∨
   intro d hd hS u hu
   simp only [base, baseDecls, List.mem_cons, List.not_mem_nil, or_false] at hd
   rcases hd with rfl | rfl | rfl | rfl <;>
-    simp [plain, toolchain, helperDecl, fDecl] at hS hu ⊢ <;> simp_all
+    simp_all [plain, toolchain, helperDecl, fDecl]
 
 /-- In `base`, the only axiom `Good.t` depends on is `propext`. -/
 theorem base_axioms_t {a : Name} (h : base.AxiomOf `Good.t a) : a = ``propext := by
@@ -87,36 +93,38 @@ theorem base_axioms_t {a : Name} (h : base.AxiomOf `Good.t a) : a = ``propext :=
       simp [plain, toolchain, helperDecl, fDecl] at hn hk
   · rfl
 
+/-- `propext` is a known axiom of `base`. -/
 theorem base_known_propext : base.Known ``propext :=
   ⟨by simp [logicalAxioms], toolchain ``propext .axiom, by simp [base, baseDecls], rfl, rfl⟩
 
-theorem resolves_withDecls {extra : List Decl} {u : Name} (h : base.Resolves u) :
-    (withDecls extra).Resolves u := by
+/-- A constant of `base` is one of `base` with constants added. -/
+theorem resolves_withDecls {extra : List Decl} {hn : ((base.decls ++ extra).map (·.name)).Nodup}
+    {u : Name} (h : base.Resolves u) : (withDecls extra hn).Resolves u := by
   obtain ⟨d, hd, hn⟩ := h
   exact ⟨d, List.mem_append_left _ hd, hn⟩
 
-/-- `base` with constants added stays well-formed when the names stay distinct and each added
-constant mentions only constants of the result. -/
-theorem wf_withDecls (extra : List Decl)
-    (hn : ((base.decls ++ extra).map (·.name)).Nodup)
-    (hc : ∀ d ∈ extra, ∀ u ∈ d.uses, (withDecls extra).Resolves u) :
-    (withDecls extra).WellFormed := by
-  refine ⟨hn, ?_, wf_base.claims, wf_base.loaded⟩
+/-- `base` with constants added stays well-formed when each added constant mentions only constants
+of the result. -/
+theorem wf_withDecls (extra : List Decl) (hn : ((base.decls ++ extra).map (·.name)).Nodup)
+    (hc : ∀ d ∈ extra, ∀ u ∈ d.uses, (withDecls extra hn).Resolves u) :
+    (withDecls extra hn).WellFormed := by
+  refine ⟨?_, wf_base.claims⟩
   intro d hd u hu
   rcases List.mem_append.mp hd with hd | hd
   · exact resolves_withDecls (wf_base.closed d hd u hu)
   · exact hc d hd u hu
 
 /-- The added constants mention only constants of the result. -/
-theorem uses_resolve {extra : List Decl}
+theorem uses_resolve {extra : List Decl} {hn : ((base.decls ++ extra).map (·.name)).Nodup}
     (h : ∀ d ∈ extra, ∀ u ∈ d.uses, u ∈ (base.decls ++ extra).map (·.name)) :
-    ∀ d ∈ extra, ∀ u ∈ d.uses, (withDecls extra).Resolves u := by
+    ∀ d ∈ extra, ∀ u ∈ d.uses, (withDecls extra hn).Resolves u := by
   intro d hd u hu
   obtain ⟨d', hd', hn⟩ := List.mem_map.mp (h d hd u hu)
   exact ⟨d', hd', hn⟩
 
 /-- The claimed module of `base`, with constants added. -/
-theorem claimed_withDecls {extra : List Decl} : (withDecls extra).ClaimedModule `Good := by
+theorem claimed_withDecls {extra : List Decl} {hn : ((base.decls ++ extra).map (·.name)).Nodup} :
+    (withDecls extra hn).ClaimedModule `Good := by
   simp [withDecls, base, Input.ClaimedModule]
 
 end Witnesses

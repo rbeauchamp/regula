@@ -1,3 +1,8 @@
+/-
+Copyright (c) 2026 Regula contributors. All rights reserved.
+Released under MIT license as described in the file LICENSE.
+Authors: Regula contributors
+-/
 import RegulaSpecification.Input
 import RegulaSpecification.RuleRecord
 import RegulaSpecification.Foundation
@@ -13,6 +18,7 @@ import RegulaSpecification.Proofs.Foundation
 import RegulaSpecification.Proofs.Records
 import RegulaSpecification.Proofs.Verdict
 import RegulaSpecification.Proofs.Load
+import RegulaSpecification.Proofs.Occurrences
 
 /-!
 # The specification of Regula

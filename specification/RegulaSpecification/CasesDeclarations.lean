@@ -1,3 +1,8 @@
+/-
+Copyright (c) 2026 Regula contributors. All rights reserved.
+Released under MIT license as described in the file LICENSE.
+Authors: Regula contributors
+-/
 import RegulaSpecification.Witnesses
 
 /-!
@@ -15,6 +20,7 @@ open LeanIntent
 
 namespace Witnesses
 
+/-- A list whose images are distinct has one member of each image. -/
 theorem eq_of_mem_of_nodup_map {α β : Type} {f : α → β} :
     ∀ {l : List α}, (l.map f).Nodup → ∀ {x y : α}, x ∈ l → y ∈ l → f x = f y → x = y
   | [], _, _, _, hx, _, _ => absurd hx List.not_mem_nil
@@ -26,11 +32,12 @@ theorem eq_of_mem_of_nodup_map {α β : Type} {f : α → β} :
     · exact absurd (List.mem_map.mpr ⟨x, hx', by rw [hxy, ey]⟩) h.1
     · exact eq_of_mem_of_nodup_map h.2 hx' hy' hxy
 
-/-- In a well-formed input, a name determines its constant. -/
-theorem eq_of_name {i : Input} (hi : i.WellFormed) {d d' : Decl} (hd : d ∈ i.decls)
+/-- A name determines its constant. -/
+theorem eq_of_name {i : Input} {d d' : Decl} (hd : d ∈ i.decls)
     (hd' : d' ∈ i.decls) (h : d.name = d'.name) : d = d' :=
-  eq_of_mem_of_nodup_map hi.unique hd hd' h
+  eq_of_mem_of_nodup_map i.unique hd hd' h
 
+/-- The name of a constant of the input is among the names of its constants. -/
 theorem name_mem {i : Input} {c : Name} {P : Decl → Prop} (h : ∃ d ∈ i.decls, d.name = c ∧ P d) :
     c ∈ i.decls.map (·.name) := by
   obtain ⟨d, hd, rfl, -⟩ := h
@@ -39,11 +46,14 @@ theorem name_mem {i : Input} {c : Name} {P : Decl → Prop} (h : ∃ d ∈ i.dec
 /-- The theorem `Good.t` of `base`. -/
 def tDecl : Decl := plain `Good.t `Good .theorem [``propext]
 
+/-- `Good.t` is a constant of `base`. -/
 theorem t_mem : tDecl ∈ base.decls := by simp [tDecl, base, baseDecls]
 
+/-- The constant of `base` named `Good.t` is `tDecl`. -/
 theorem t_of_name {d : Decl} (hd : d ∈ base.decls) (hn : d.name = `Good.t) : d = tDecl :=
-  eq_of_name wf_base hd t_mem (by simp [hn, tDecl, plain])
+  eq_of_name hd t_mem (by simp [hn, tDecl, plain])
 
+/-- `Good.t` is a candidate of each rule on `base`. -/
 theorem t_mem_support : `Good.t ∈ base.decls.map (·.name) := List.mem_map_of_mem t_mem
 
 /-- The profile of `base` admits each axiom of `Good.t`. -/
@@ -63,9 +73,8 @@ def w1001 : Witnessed Violates1001 where
   support_complete _ _ h := by
     obtain ⟨d, hd, hn, -⟩ := h
     exact name_mem (P := fun _ => True) ⟨d, hd, hn, trivial⟩
-  refused := withDecls [ax]
-  refused_wf := wf_withDecls [ax]
-    (by simp [base, baseDecls, plain, toolchain, helperDecl, fDecl, ax])
+  refused := withDecls [ax] (by simp [base, baseDecls, plain, toolchain, helperDecl, fDecl, ax])
+  refused_wf := wf_withDecls _ _
     (uses_resolve (by simp [ax, plain]))
   bad := `Good.ax
   bad_violates := ⟨ax, by simp [withDecls], rfl, claimed_withDecls, rfl⟩
@@ -77,10 +86,12 @@ def w1001 : Witnessed Violates1001 where
     rw [t_of_name hd hn] at hk
     simp [tDecl, plain] at hk
 
+/-- Every obligation lean-intent states, discharged for RG1001. -/
 theorem rg1001_adequate : O2 rg1001 ∧ O2Run rg1001 ∧ O3 rg1001 ∧ O4 rg1001 ∧
     O5 rg1001 (.rel SameReports) := adequate w1001
 
-theorem rg1001_noisy : ¬ rg1001.Meets w1001.support := noisy_fails w1001 t_mem_support
+/-- The checker that reports every candidate does not meet RG1001. -/
+theorem rg1001_noisy : ¬ rg1001.Meets w1001.candidates := noisy_fails w1001 t_mem_support
 
 /-! ## RG1002 -/
 
@@ -93,9 +104,8 @@ def w1002 : Witnessed Violates1002 where
   support i := i.decls.map (·.name)
   support_complete _ _ h := name_mem (P := fun _ => True) (by
     obtain ⟨⟨d, hd, hn, -⟩, -⟩ := h; exact ⟨d, hd, hn, trivial⟩)
-  refused := withDecls hole
-  refused_wf := wf_withDecls hole
-    (by simp [base, baseDecls, plain, toolchain, helperDecl, fDecl, hole])
+  refused := withDecls hole (by simp [base, baseDecls, plain, toolchain, helperDecl, fDecl, hole])
+  refused_wf := wf_withDecls _ _
     (uses_resolve (by simp [hole, plain, toolchain, base, baseDecls, helperDecl, fDecl]))
   bad := `Good.h
   bad_violates := by
@@ -112,10 +122,12 @@ def w1002 : Witnessed Violates1002 where
     have := base_axioms_t h
     simp at this
 
+/-- Every obligation lean-intent states, discharged for RG1002. -/
 theorem rg1002_adequate : O2 rg1002 ∧ O2Run rg1002 ∧ O3 rg1002 ∧ O4 rg1002 ∧
     O5 rg1002 (.rel SameReports) := adequate w1002
 
-theorem rg1002_noisy : ¬ rg1002.Meets w1002.support := noisy_fails w1002 t_mem_support
+/-- The checker that reports every candidate does not meet RG1002. -/
+theorem rg1002_noisy : ¬ rg1002.Meets w1002.candidates := noisy_fails w1002 t_mem_support
 
 end Witnesses
 

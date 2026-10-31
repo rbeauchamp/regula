@@ -1,3 +1,8 @@
+/-
+Copyright (c) 2026 Regula contributors. All rights reserved.
+Released under MIT license as described in the file LICENSE.
+Authors: Regula contributors
+-/
 import RegulaSpecification.CasesFoundation
 
 /-!
@@ -5,7 +10,8 @@ import RegulaSpecification.CasesFoundation
 
 The record of the verdict meets O2, O2 before a run, O3 and O4, and O5 with equality (`gate_o5`): it
 determines the verdict of each input. The checker that always passes and the checker that is always
-incomplete each fail it. An input with a claim of no module is refused (`no_claim_refused`).
+incomplete each fail it. An input with a claim of no module is refused (`no_claim_refused`), and so
+is one that mentions a constant it does not hold (`open_mention_refused`).
 -/
 
 namespace RegulaSpecification
@@ -15,23 +21,27 @@ open LeanIntent
 
 namespace Witnesses
 
-/-- An input the admission refuses: two constants with one name. -/
-def duplicated : Input := withDecls [plain `Good.t `Good .theorem []]
-
-theorem not_wf_duplicated : ¬ duplicated.WellFormed := by
-  intro h
-  have := h.unique
-  simp [duplicated, withDecls, base, baseDecls, plain, toolchain, helperDecl, fDecl] at this
+/-- An input the admission refuses: it claims no module. -/
+def unclaimed : Input := { base with modules := [] }
 
 /-- A project that claims no module is refused, so an empty claim is no pass. -/
-theorem no_claim_refused : ¬ ({ base with modules := [] } : Input).WellFormed :=
+theorem no_claim_refused : ¬ unclaimed.WellFormed :=
   fun h => h.claims rfl
 
-/-- A project with a claimed module that the environment does not load is refused. -/
-theorem unloaded_refused : ¬ ({ base with loads := [] } : Input).WellFormed := by
+/-- A constant that mentions a constant that the input does not hold. -/
+def openDecl : Decl := plain `Good.o `Good .theorem [`Gone.x]
+
+/-- A project whose constant mentions a constant that it does not hold is refused, so an axiom that
+the input cannot show is no pass. -/
+theorem open_mention_refused :
+    ¬ (withDecls [openDecl]
+      (by simp [base, baseDecls, plain, toolchain, helperDecl, fDecl, openDecl])).WellFormed := by
   intro h
-  have := h.loaded `Good (by simp [base])
-  simp at this
+  obtain ⟨d, hd, hn⟩ := h.closed openDecl (by simp [withDecls]) `Gone.x (by simp [openDecl, plain])
+  simp only [withDecls, base, baseDecls, List.mem_append, List.mem_cons, List.not_mem_nil, or_false]
+    at hd
+  rcases hd with (rfl | rfl | rfl | rfl) | rfl <;>
+    simp [plain, toolchain, helperDecl, fDecl, openDecl] at hn
 
 open Classical in
 /-- A verdict function that meets the record. -/
@@ -39,6 +49,7 @@ noncomputable def verdictOf : Option Input → Verdict
   | none => .incomplete
   | some i => if i.WellFormed then (if AllHold i then .pass else .fail) else .incomplete
 
+/-- `verdictOf` meets the record, so the record has a model. -/
 theorem verdictOf_meets : gateRecord.Meets verdictOf := by
   rw [gate_meets_iff]
   refine ⟨rfl, fun i hi => by simp [verdictOf, hi], fun i hi => ?_⟩
@@ -54,6 +65,7 @@ theorem always_incomplete_fails : ¬ gateRecord.Meets (fun _ => .incomplete) := 
   rw [gate_meets_iff]
   exact fun h => (h.2.2 base wf_base).1 rfl
 
+/-- Every obligation lean-intent states, discharged for the record of the verdict. -/
 theorem gate_adequate :
     O2 gateRecord ∧ O2Run gateRecord ∧ O3 gateRecord ∧ O4 gateRecord ∧ O5 gateRecord .eq := by
   refine ⟨?_, o2Run_of_meets verdictOf_meets, ?_, gate_o4, gate_o5⟩
@@ -68,7 +80,7 @@ theorem gate_adequate :
     simp only [gateRecord, List.mem_cons, List.not_mem_nil, or_false] at hp
     rcases hp with rfl | rfl | rfl
     · exact ⟨fun _ => .pass, by decide⟩
-    · exact ⟨fun _ => .pass, fun h => absurd (h duplicated not_wf_duplicated) (by decide)⟩
+    · exact ⟨fun _ => .pass, fun h => absurd (h unclaimed no_claim_refused) (by decide)⟩
     · exact ⟨fun _ => .incomplete, fun h => (h base wf_base).1 rfl⟩
 
 end Witnesses

@@ -1,3 +1,8 @@
+/-
+Copyright (c) 2026 Regula contributors. All rights reserved.
+Released under MIT license as described in the file LICENSE.
+Authors: Regula contributors
+-/
 import RegulaSpecification.RuleRecord
 
 /-!
@@ -81,12 +86,14 @@ def rg1004 := ruleRecord "RG1004" Violates1004
 /-- The intent record of RG1005. -/
 def rg1005 := ruleRecord "RG1005" Violates1005
 
+/-- What a profile admits is known. -/
 theorem admits_known {i : Input} {p : Profile} {a : Name} (h : i.Admits p a) : i.Known a := by
   cases p with
   | kernelOnly => exact absurd h id
   | choiceFree => exact h.1
   | standardLogical => exact h
 
+/-- `sorryAx` is not known. -/
 theorem sorry_not_known (i : Input) : ¬ i.Known ``sorryAx := by
   intro h
   have := h.1
@@ -119,6 +126,7 @@ theorem components_of_native {a : Name} (h : NativeProofAxiom a) : 3 ≤ compone
   simp only [components]
   omega
 
+/-- A native proof's axiom is none of the three logical axioms. -/
 theorem native_not_logical {a : Name} (h : NativeProofAxiom a) : a ∉ logicalAxioms := by
   have := components_of_native h
   simp only [logicalAxioms, List.mem_cons, List.not_mem_nil, or_false]

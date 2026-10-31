@@ -1,9 +1,14 @@
+/-
+Copyright (c) 2026 Regula contributors. All rights reserved.
+Released under MIT license as described in the file LICENSE.
+Authors: Regula contributors
+-/
 module
 
 /-!
 # The verdict
 
-The three verdicts of a run of the checker, and the exit code of each.
+The three verdicts of a run of the checker, and the exit code and the word of each.
 -/
 
 public section
@@ -18,7 +23,7 @@ inductive Verdict where
   | fail
   /-- The build could not be loaded, or the input does not have the closed form. -/
   | incomplete
-  deriving DecidableEq, Repr, Inhabited
+  deriving DecidableEq, Repr
 
 /-- The exit code of each verdict. -/
 def Verdict.exitCode : Verdict → UInt32
@@ -40,5 +45,10 @@ def Verdict.label : Verdict → String
   | .pass => "pass"
   | .fail => "fail"
   | .incomplete => "incomplete"
+
+/-- Distinct verdicts have distinct words. -/
+theorem Verdict.label_injective : Function.Injective Verdict.label := by
+  intro a b h
+  cases a <;> cases b <;> first | rfl | exact absurd h (by decide)
 
 end Regula.Closed

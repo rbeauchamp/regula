@@ -1,3 +1,8 @@
+/-
+Copyright (c) 2026 Regula contributors. All rights reserved.
+Released under MIT license as described in the file LICENSE.
+Authors: Regula contributors
+-/
 module
 
 public import Std.Data.HashSet
@@ -61,7 +66,11 @@ theorem unseenWeight_insert (next : Name → List Name) (us : List Name) (seen :
           by_cases h1 : seen.contains v = true
           · by_cases h2 : (u == v) = true <;> simp_all
           · by_cases h2 : (u == v) = true
-            · simp_all; omega
+            · simp_all only [Std.HashSet.contains_eq_false_iff_not_mem, Std.HashSet.contains_insert,
+                Bool.not_or, Std.HashSet.contains_iff_mem, beq_iff_eq, BEq.rfl, Bool.true_or,
+                Bool.not_true, Bool.false_eq_true, ↓reduceIte, Bool.not_eq_eq_eq_not,
+                not_false_eq_true, List.map_cons, List.sum_cons]
+              omega
             · simp_all
       rw [List.filter_cons_of_neg (by simp [Std.HashSet.contains_insert]),
         List.filter_cons_of_pos (by simp [hs])]
@@ -74,7 +83,12 @@ theorem unseenWeight_insert (next : Name → List Name) (us : List Name) (seen :
       have := ih hn'
       have hb : (n == u) = false := by simpa using fun h => hun h.symm
       simp only [List.filter_cons, Std.HashSet.contains_insert, hb, Bool.false_or]
-      split <;> simp_all <;> omega
+      split <;>
+        simp_all only [Std.HashSet.contains_eq_false_iff_not_mem, ne_eq, not_false_eq_true,
+          implies_true, Std.HashSet.contains_insert, Bool.not_or, forall_const, List.mem_cons,
+          or_true, beq_eq_false_iff_ne, Bool.not_eq_eq_eq_not, Bool.not_true, List.map_cons,
+          List.sum_cons, ge_iff_le, Decidable.not_not] <;>
+        omega
 
 variable {next : Name → List Name}
 

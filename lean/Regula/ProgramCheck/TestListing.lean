@@ -1,3 +1,8 @@
+/-
+Copyright (c) 2026 Regula contributors. All rights reserved.
+Released under MIT license as described in the file LICENSE.
+Authors: Regula contributors
+-/
 module
 
 public import Lake.CLI.Main
@@ -16,7 +21,8 @@ code of every command of Lake. This module proves the two configurations equal (
 
 The proof reduces both sides, so it reads bodies that those modules do not expose, and each
 `import all` above is what makes one visible: `loadConfig` of `Regula.TestListing`, `mkLoadConfig`
-and what it calls of `Lake.CLI.Main`, and the bind of `EST` (`Init.System.ST`), the monad of `EIO`. -/
+and what it calls of `Lake.CLI.Main`, and the bind of `EST` (`Init.System.ST`), the monad of `EIO`.
+-/
 
 public section
 

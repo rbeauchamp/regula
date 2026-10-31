@@ -1,3 +1,8 @@
+/-
+Copyright (c) 2026 Regula contributors. All rights reserved.
+Released under MIT license as described in the file LICENSE.
+Authors: Regula contributors
+-/
 module
 
 /-!
@@ -39,19 +44,29 @@ inductive Kind where
   | recursor
   deriving DecidableEq, Repr
 
+/-- The safety of a constant. Lean gives a definition one `DefinitionSafety` and each other constant
+at most an unsafe flag, so a constant that is both unsafe and partial does not exist, and this type
+cannot state one. -/
+inductive Safety where
+  /-- Neither `ConstantInfo.isUnsafe` nor `ConstantInfo.isPartial`. -/
+  | safe
+  /-- `ConstantInfo.isUnsafe`. -/
+  | «unsafe»
+  /-- `ConstantInfo.isPartial`. -/
+  | «partial»
+  deriving DecidableEq, Repr
+
 /-- One constant of the loaded environment, as Lean reports it from the build's `.olean` files. -/
 structure Decl where
-  /-- Its name. A loaded environment holds at most one constant of each name. -/
+  /-- Its name. -/
   name : Name
   /-- The module whose `.olean` holds it (`Environment.getModuleIdxFor?`). -/
   module : Name
   /-- `axiom` when any loaded module's own data states an axiom of this name (Lean's import can drop
   it for a theorem), and otherwise the `ConstantInfo` constructor of the constant Lean keeps. -/
   kind : Kind
-  /-- `ConstantInfo.isUnsafe`. -/
-  isUnsafe : Bool
-  /-- `ConstantInfo.isPartial`. -/
-  isPartial : Bool
+  /-- Whether it is safe, unsafe or partial. -/
+  safety : Safety
   /-- The constants that the type and value mention, the fields that `Lean.collectAxioms` walks:
   type and value of a definition, theorem or opaque constant, the type of an axiom, constructor or
   recursor, and the type and constructors of an inductive type. It covers the constant Lean keeps
@@ -89,8 +104,9 @@ structure Input where
   modules : List Name
   /-- The constants of the environment that the shell loads. -/
   decls : List Decl
-  /-- The modules the environment imports (the module names of its header). -/
-  loads : List Name
+  /-- Each name is the name of one constant. An environment keeps its constants in a hash map, so an
+  input that holds a name twice is no reading of one, and this type cannot state it. -/
+  unique : (decls.map (·.name)).Nodup
 
 namespace Input
 
@@ -120,17 +136,14 @@ def IsAxiom (a : Name) : Prop := ∃ d ∈ i.decls, d.name = a ∧ d.kind = .axi
 def AxiomOf (c a : Name) : Prop := i.Reaches c a ∧ i.IsAxiom a
 
 /-- The admission of the closed input: what the shell refuses, as incomplete, before any rule runs.
-Each name is the name of one constant; each mentioned constant is held; at least one module is
-claimed, so that a claim of nothing is not read as a pass; each claimed module is loaded. -/
+Each mentioned constant is held, and at least one module is claimed, so that a claim of nothing is
+not read as a pass. A rule reads only an input that has this form, so no rule has a case for one
+that does not. -/
 structure WellFormed : Prop where
-  /-- Each name is the name of one constant. -/
-  unique : (i.decls.map (·.name)).Nodup
   /-- Each mentioned constant is held. -/
   closed : ∀ d ∈ i.decls, ∀ u ∈ d.uses, i.Resolves u
   /-- At least one module is claimed. -/
   claims : i.modules ≠ []
-  /-- Each claimed module is loaded. -/
-  loaded : ∀ m ∈ i.modules, m ∈ i.loads
 
 end Input
 

@@ -1,3 +1,8 @@
+/-
+Copyright (c) 2026 Regula contributors. All rights reserved.
+Released under MIT license as described in the file LICENSE.
+Authors: Regula contributors
+-/
 import RegulaSpecification.Foundation
 
 /-!
@@ -36,10 +41,10 @@ safe-flagged definition named `f._unsafe_rec` beside a safe, total definition `f
 `@[implemented_by]` or `@[extern]`. The base of a `partial def` is an opaque constant, so its helper
 has not this form. -/
 def RecursionHelper (d : Decl) : Prop :=
-  d.isPartial = true ∧ d.isUnsafe = false ∧ d.implementedBy = none ∧ d.isExtern = false ∧
+  d.safety = .partial ∧ d.implementedBy = none ∧ d.isExtern = false ∧
     ∃ base ∈ i.decls, d.name = Name.str base.name "_unsafe_rec" ∧ base.kind = .definition ∧
-      base.module = d.module ∧ base.isUnsafe = false ∧ base.isPartial = false ∧
-      base.implementedBy = none ∧ base.isExtern = false
+      base.module = d.module ∧ base.safety = .safe ∧ base.implementedBy = none ∧
+      base.isExtern = false
 
 end Input
 
@@ -55,8 +60,7 @@ helper, without the form of a recursion helper, or a constant whose value direct
 construct. -/
 def Violates1006 (i : Input) (c : Name) : Prop :=
   ∃ d ∈ i.decls, d.name = c ∧ i.ClaimedModule d.module ∧
-    (((d.isUnsafe = true ∨ d.isPartial = true ∨ HelperNamed d) ∧ ¬ i.RecursionHelper d) ∨
-      MentionsLoop d)
+    (((d.safety ≠ .safe ∨ HelperNamed d) ∧ ¬ i.RecursionHelper d) ∨ MentionsLoop d)
 
 /-- The intent record of RG1006. -/
 def rg1006 := ruleRecord "RG1006" Violates1006
