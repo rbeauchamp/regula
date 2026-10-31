@@ -124,10 +124,15 @@ def ConfigClosed (r : Reading) : Prop :=
   r.toolchainFile = some leanToolchain ∧ r.leanConfig = false ∧ r.openPaths = [] ∧
     ∀ k ∈ r.configKeys, k.getRoot ≠ `require → ConfigKeyAdmitted k
 
-/-- The checker started outside the project's Lake, everything was read, and nothing the project planted
-under `.lake` can stand in for what the check read. -/
+/-- The checker started outside the project's Lake, and everything was read. What lies under the project's
+`.lake` is nothing the gate uses: each child process works in a tree the checker made, from what it read. -/
 def ReadInFull (r : Reading) : Prop :=
-  r.outside = true ∧ r.unread = [] ∧ r.outputs = []
+  r.outside = true ∧ r.unread = []
+
+/-- `rel` is what `path` holds below `base`, and no component of it starts with `.`, so that joining `rel`
+to either the project or the checker's tree stays below it, whatever a project named. -/
+def TreeRelative (base path rel : List String) : Prop :=
+  path = base ++ rel ∧ ∀ c ∈ rel, c ≠ "" ∧ c.front ≠ '.'
 
 /-- The project's configuration has a dependency: some key has the root `require`, which is the one key
 Lake decodes a dependency from (`Lake/Load/Toml.lean:499` at v4.35.0). The key walk gives every TOML form
@@ -181,7 +186,7 @@ def languageRecord : IntentRecord (Reading → Outcome) where
   props := [
     ⟨"another toolchain, a lakefile.lean, a source directory or a globs entry outside the closed domain, or a Lake key outside the closed set is refused",
       fun d => ∀ r, ¬ ConfigClosed r → d r = .refused⟩,
-    ⟨"a checker the project's Lake started, a failure to read or anything under .lake is incomplete",
+    ⟨"a checker the project's Lake started or a failure to read is incomplete",
       fun d => ∀ r, ConfigClosed r → ¬ ReadInFull r → d r = .incomplete⟩,
     ⟨"a project with a dependency has only the proof verdict",
       fun d => ∀ r, ConfigClosed r → ReadInFull r → RequiresDependency r → d r = .proofOnly⟩,
@@ -292,7 +297,7 @@ def goodFile : FileRead :=
 def goodReading : Reading :=
   { outside := true, toolchainFile := some leanToolchain, leanConfig := false,
     configKeys := [`name], openPaths := [], roots := [`Good], reached := [`Good],
-    files := [goodFile], unread := [], outputs := [] }
+    files := [goodFile], unread := [] }
 
 theorem occurs_moduleHeader {s : Syntax} (h : Occurs s moduleHeader) :
     s = moduleHeader ∨ s = .atom .none "module" := by
@@ -372,7 +377,7 @@ theorem no_dependency_of_goodKeys {r : Reading} (hk : r.configKeys = [`name]) :
   exact absurd hr (by decide)
 
 theorem goodReading_inside : Inside goodReading := by
-  refine ⟨closed_of_goodKeys rfl rfl rfl rfl, ⟨rfl, rfl, rfl⟩, no_dependency_of_goodKeys rfl, ?_, ?_, ?_⟩
+  refine ⟨closed_of_goodKeys rfl rfl rfl rfl, ⟨rfl, rfl⟩, no_dependency_of_goodKeys rfl, ?_, ?_, ?_⟩
   · rintro ⟨m, hm, hr⟩
     have : m = `Good := by simpa [goodReading] using hm
     subst this
@@ -442,7 +447,7 @@ theorem language_o2Run : O2Run languageRecord := o2Run_of_meets modelDecision_me
 
 theorem good_closed : ConfigClosed goodReading := closed_of_goodKeys rfl rfl rfl rfl
 
-theorem good_full : ReadInFull goodReading := ⟨rfl, rfl, rfl⟩
+theorem good_full : ReadInFull goodReading := ⟨rfl, rfl⟩
 
 theorem good_no_dependency : ¬ RequiresDependency goodReading := goodReading_inside.2.2.1
 
@@ -518,14 +523,14 @@ theorem language_o3 : O3 languageRecord := by
   · exact ⟨fun _ => .admitted, fun h => absurd
       (h insideReading (c rfl rfl rfl rfl) fun hf => by simpa [insideReading] using hf.1) (by decide)⟩
   · exact ⟨fun _ => .admitted, fun h => absurd
-      (h requireReading require_closed ⟨rfl, rfl, rfl⟩ require_requires) (by decide)⟩
+      (h requireReading require_closed ⟨rfl, rfl⟩ require_requires) (by decide)⟩
   · exact ⟨fun _ => .admitted, fun h => absurd
-      (h mathlibReading (c rfl rfl rfl rfl) ⟨rfl, rfl, rfl⟩ (n rfl) mathlib_reached) (by decide)⟩
+      (h mathlibReading (c rfl rfl rfl rfl) ⟨rfl, rfl⟩ (n rfl) mathlib_reached) (by decide)⟩
   · exact ⟨fun _ => .admitted, fun h => absurd
-      (h noClaimReading (c rfl rfl rfl rfl) ⟨rfl, rfl, rfl⟩ (n rfl)
+      (h noClaimReading (c rfl rfl rfl rfl) ⟨rfl, rfl⟩ (n rfl)
         (not_mathlib_of_reached (by simp [noClaimReading])) noClaim_not_covered) (by decide)⟩
   · exact ⟨fun _ => .admitted, fun h => absurd
-      (h badFileReading (c rfl rfl rfl rfl) ⟨rfl, rfl, rfl⟩ (n rfl)
+      (h badFileReading (c rfl rfl rfl rfl) ⟨rfl, rfl⟩ (n rfl)
         (not_mathlib_of_reached (by simp [badFileReading, goodReading])) badFile_covered
         badFile_refused) (by decide)⟩
   · exact ⟨fun _ => .refused, fun h => absurd
@@ -603,13 +608,6 @@ theorem started_inside_not_admitted {d : Reading → Outcome} (h : languageRecor
   intro ha
   have := ((admitted_iff h r).mp ha).2.1.1
   simp [hr] at this
-
-/-- Anything under `.lake` at the start stops the reading: a planted checker, build or package cannot
-stand in for what the check read. -/
-theorem planted_not_admitted {d : Reading → Outcome} (h : languageRecord.Meets d) (r : Reading)
-    (hr : r.outputs ≠ []) : d r ≠ .admitted := by
-  intro ha
-  exact hr ((admitted_iff h r).mp ha).2.1.2.2
 
 /-- A source directory or a `globs` entry that `openPaths` names is refused, whatever else the reading
 holds. -/

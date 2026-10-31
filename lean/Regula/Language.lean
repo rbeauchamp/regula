@@ -149,6 +149,15 @@ def closedModuleName : Name → Bool
   | .str (.str q t) s => closedModuleName (.str q t) && closedComponent s
   | .str (.num _ _) _ => false
 
+/-- The components of `path` below `base`, when `path` lies at or below `base` and no component below it
+starts with `.`: so none is `.` or `..`, and none is `.lake`. It is what maps a file that Lake names in the
+checker's tree to the same relative file of the project, and back. -/
+def treeRelative (base path : List String) : Option (List String) :=
+  if base.isPrefixOf path then
+    let rel := path.drop base.length
+    if rel.all (fun c => !c.isEmpty && c.front != '.') then some rel else none
+  else none
+
 namespace Reading
 
 variable (r : Reading)
@@ -159,9 +168,9 @@ def configClosed : Bool :=
   r.toolchainFile == some leanToolchain && !r.leanConfig && r.openPaths.isEmpty &&
     r.configKeys.all fun k => k.getRoot == `require || configKeyAdmitted k
 
-/-- The checker started outside the project's Lake, nothing failed to read, and no output exists. -/
+/-- The checker started outside the project's Lake, and nothing failed to read. -/
 def readInFull : Bool :=
-  r.outside && r.unread.isEmpty && r.outputs.isEmpty
+  r.outside && r.unread.isEmpty
 
 /-- Whether the project's configuration has a dependency: a key with the root `require`. -/
 def requiresDependency : Bool :=

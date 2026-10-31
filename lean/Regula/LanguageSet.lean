@@ -225,8 +225,8 @@ structure Reading where
   /-- The key paths of the project's `lakefile.toml`. -/
   configKeys : List Name
   /-- What the project's configuration names that is outside the closed domain of paths, each with its
-  report: a source directory that is not, by its real path, its own path below the project, and a library
-  with a `globs` entry that is not a single module, which would need a directory listing. -/
+  report: a source directory that does not lie below the checker's tree (`treeRelative`), and a library with
+  a `globs` entry that is not a single module, which would need a directory listing. -/
   openPaths : List String
   /-- The modules of the project's default targets. -/
   roots : List Name
@@ -236,9 +236,6 @@ structure Reading where
   files : List FileRead
   /-- What the reader could not read, each with its reason. -/
   unread : List (Name × String)
-  /-- What already exists at the project's `.lake`: each immediate entry of the directory, or its own name
-  when it is a link or anything else that is no directory. -/
-  outputs : List String
 
 /-- What the decision gives. -/
 inductive Outcome where
@@ -257,7 +254,7 @@ inductive Outcome where
 inductive Step where
   /-- Read the project and decide (`Reading`, `Outcome`). -/
   | read
-  /-- Build the default targets and replay them (`lake build --wfail`, `lake check`). -/
+  /-- Build the checker's tree and replay it (`lake build --wfail`, `lake check`). -/
   | build
   /-- Read the finished build and run the rules (`Regula.Closed.run`). -/
   | rules

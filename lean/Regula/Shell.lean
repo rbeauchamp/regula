@@ -13,7 +13,7 @@ public import Regula.Rules
 
 The checker, which the `lint` executable runs (`Regula.LintMain`), Lake's lint driver for a project
 that sets `lintDriver := "regula/lint"`. It reads the finished build through `load`, prints its report
-and sets its exit code. It writes no file itself, and Lake's own load of the workspace on the plain path
+and sets its exit code. It writes only in the full gate's own tree (`withTree`), and Lake's own load of the workspace on the plain path
 runs Git in the environment of the caller. Only the full gate builds, through `build`, and only an admitted
 project. Otherwise the project's gate builds with `lake build --wfail` before it runs the checker, and a
 module without its `.olean` makes the run `incomplete`.
@@ -25,8 +25,8 @@ the input has the closed form and no rule reports a subject, `fail` (exit 1) whe
 what they give. It promises nothing about what ran during the build.
 
 A run with the profile, `full` and a directory is the full gate (`Regula.Language.gate`) on the project
-there: the language check, then, for an admitted project, the build and its replay and the same rules. Only
-that run can print a full verdict, because only there the check came first, and only from a checker that the
+there: the language check, which copies what it reads to a tree of the checker's own, then, for an admitted
+project, the build and its replay in that tree and the same rules on it. Only that run can print a full verdict, because only there the check came first, and only from a checker that the
 project's Lake did not start (`Regula.Reader.startedOutside`). A project with a dependency or with Mathlib in
 its imports gets no build from it: it says that only a proof verdict is possible and exits with 3.
 -/
@@ -115,18 +115,28 @@ def runFull (load : Profile → IO Input) (read : IO (Language.Reading × List S
   IO.println report.label
   return report.exitCode
 
+/-- Run `f` on a new directory of the checker's own, which it removes afterwards. Each run makes a new one,
+so one left by a crash can affect nothing later. -/
+def withTree {α : Type} (f : String → IO α) : IO α := do
+  let tree ← IO.FS.createTempDir
+  try
+    f tree.toString
+  finally
+    IO.FS.removeDirAll tree
+
 /-- Run the checker with the arguments of `lake lint` (`profileOfRun`) and read the build through
 `load`, giving the verdict of `decision`. Or, with a profile, `full` and a directory, run the full gate on
 the project there. -/
 def run (load : Profile → IO Input) (loadAt : String → Profile → IO Input)
-    (read : String → IO (Language.Reading × List String)) (build : String → IO Bool)
+    (read : String → String → IO (Language.Reading × List String)) (build : String → IO Bool)
     (args : List String) : IO UInt32 := do
   let (profileArgs, project) := match args with
     | [text, "full", dir] => ([text], some dir)
     | _ => (args, none)
   match profileOfRun Lean.versionString Lean.githash profileArgs, project with
   | .error why, _ => report (.incomplete why)
-  | .ok profile, some dir => runFull (loadAt dir) (read dir) (build dir) profile
+  | .ok profile, some dir =>
+    withTree fun tree => runFull (loadAt tree) (read dir tree) (build tree) profile
   | .ok profile, none =>
     let loaded := (← (load profile).toBaseIO).mapError toString
     if let .ok input := loaded then IO.println (coverage input)

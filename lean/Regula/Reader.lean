@@ -24,34 +24,32 @@ that starts it loads Regula's configuration and none of the project's, and the c
 without the project. `startedOutside` refuses any other start, such as `lake lint -- full DIR` in the
 project.
 
-It reads the project at `DIR` in this order, and stops at the first refusal, so that nothing of the project
-runs and no Lake load of the project happens before what it would run has been read:
+**Every Lake call and child process of the gate works in a tree the checker made for this run** (`tree`), and
+none works in the project's directory. The tree holds only what the checker read itself, and it writes the
+same text it parsed, so what is compiled is what was read. A name, a link or a file of the project can then
+select no path outside the tree, whatever Lake derives at this or a later version. The project's own directory
+is read and never written, and its `.lake`, its manifest and every other file of it are not read at all.
+
+It reads, in this order, and stops at the first refusal:
 
 - The start from outside.
-- `lean-toolchain`, by name.
-- `.lake`: its kind without following it, and if it is a directory, one read of its immediate entries, which
-  are never followed. Any entry, a link by that name or anything else by that name is a planted build,
-  package or checker, and it stops the reading. This is the one directory the checker lists.
-- `lakefile.lean`, by name. Lake prefers it and runs it (`Lake/Load/Package.lean:109-117` at v4.35.0).
-- `lakefile.toml`, through Lake's own TOML parser, as a list of key paths. A key with the root `require`
-  stops the reading here, with only the proof verdict left: the checker runs no Lake load of such a project,
-  no build and no fetch. It reads no manifest.
-- The root package, through Lake's load of its configuration alone (`Lake.loadWorkspaceRoot`), which
-  resolves no dependency and lists no directory: its source directories, its libraries' and executables'
-  names, and whether each `globs` entry of each library is a single module.
-- Each source directory, the package's, each library's and each executable's, by `requireExactPath`, and
-  each `globs` entry. Anything outside that closed domain stops the reading with a refusal.
-- Only then the modules of the default targets, with their files, which for single modules lists nothing.
-- Each module those reach, by its header, through Lean's `parseHeader`. A name outside
-  `closedModuleName` is unread before any path is built from it. A root is the file of its own `Module`, and
-  a root whose name Lake's import resolution gives another file for is unread. An import is the file `Lake.Workspace.findModule?` gives, as Lake's build resolves it
-  (`Lake/Build/Module.lean:37`), or else a module of the toolchain's own library, whose `.olean` must lie
-  below that library, and an import of a default executable's root that no library holds is unread. A file
-  that is not, by its real path, its own path below the project's real path is unread, so a link at any depth
-  leaves a file unread. No file is found otherwise, and no name found outside the project is printed.
-- Each file's commands, through Lean's `parseCommand`, with the context that the specification's H1
-  states: an environment of the toolchain modules the file sees, no options, no namespace and no open
-  declaration.
+- `lean-toolchain`, `lakefile.lean` by name, and `lakefile.toml`, which it writes to the tree. `lakefile.toml`
+  goes through Lake's own TOML parser, as a list of key paths. A key with the root `require` stops the reading
+  here, with only the proof verdict left: the checker runs no Lake call on such a project.
+- The root package, through Lake's load of the tree's configuration alone (`Lake.loadWorkspaceRoot`), which
+  resolves no dependency and lists no directory: its source directories, its libraries' and executables' names,
+  and whether each `globs` entry of each library is a single module. Each source directory must lie below the
+  tree (`treeRelative`), and each `globs` entry must be a single module, because the tree holds no source yet.
+- The modules of the default targets, with the files Lake names for them in the tree.
+- Each module those reach, by its header, through Lean's `parseHeader`. A name outside `closedModuleName` is
+  unread before any path is built from it. A root is the file of its own `Module`, and a root whose name Lake's
+  import resolution gives another file for is unread. An import is the file `Lake.Workspace.findModule?` gives,
+  as Lake's build resolves it (`Lake/Build/Module.lean:37`), or else a module of the toolchain's own library,
+  whose `.olean` must lie below that library, and an import of a default executable's root that no library holds
+  is unread. The same relative path of the project is read if it is, by its real path, exactly itself, so a link
+  at any depth leaves a file unread, and no name found outside the project is printed.
+- Each file's commands, through Lean's `parseCommand`, with the context that the specification's H1 states: an
+  environment of the toolchain modules the file sees, no options, no namespace and no open declaration.
 
 `MathlibReached` is a test of the name's root, on the modules `reached` holds, so a module whose root is
 `Mathlib` is recorded and not read. No `.olean` file of the project or of a dependency is loaded. Only the
@@ -70,13 +68,14 @@ open Regula.Language
 
 /-- What the reader needs from Lake's load of the root package's configuration. -/
 structure Root where
-  /-- The source directories that the configuration names: the package's, each library's and each
-  executable's. -/
+  /-- The source directories that the configuration names, in the tree: the package's, each library's and
+  each executable's. -/
   sourceDirs : List FilePath
   /-- Each library, with whether every entry of its `globs` is a single module. -/
   libraries : List (Name × Bool)
-  /-- The modules of the default targets, each with the file Lake compiles for it. Lake lists a directory
-  for this unless every `globs` entry is a single module, so `readProject` calls it only after that test. -/
+  /-- The modules of the default targets, each with the file Lake names for it in the tree. Lake lists a
+  directory for this unless every `globs` entry is a single module, so `readProject` calls it only after that
+  test. -/
   modules : IO (List (Name × FilePath))
   /-- The names of the package's libraries and executables, which Lake joins onto its output directories. -/
   targets : List Name
@@ -102,8 +101,8 @@ structure LakeCalls where
   libDir : IO FilePath
   /-- Lake's TOML parser. -/
   parseToml : InputContext → IO Lake.Toml.Table
-  /-- Lake's load of the root package's configuration, with no manifest and no dependency. It lists no
-  directory. -/
+  /-- Lake's load of the root package's configuration in the tree, with no manifest and no dependency. It
+  lists no directory. -/
   loadRoot : FilePath → IO Root
 
 /-- The key paths of a TOML table: each key whose value is neither a table nor an array that holds one,
@@ -132,7 +131,7 @@ def keysOf (fuel : Nat) (pre : Name) (t : Lake.Toml.Table) : List Name :=
 def stopped (toolchainFile : Option String) (leanConfig : Bool) (keys : List Name)
     (why : Option String) : Reading :=
   { outside := true, toolchainFile, leanConfig, configKeys := keys, openPaths := [], roots := [],
-    reached := [], files := [], unread := why.toList.map (`config, ·), outputs := [] }
+    reached := [], files := [], unread := why.toList.map (`config, ·) }
 
 /-- The modules a file's parser sees, read from its header: the imports `importModulesCore` loads data
 for (`Lean/Environment.lean:2108-2190` at v4.35.0). In a `module` file that is each direct import, and
@@ -197,10 +196,30 @@ def readExact (project path : FilePath) : IO String := do
   requireExactPath project path
   IO.FS.readFile path
 
+/-- `parts` joined below a directory. -/
+def joinParts (dir : FilePath) (parts : List String) : FilePath :=
+  parts.foldl (fun d p => d.join (FilePath.mk p)) dir
+
+/-- Write `text` to a file of the tree, making its directories. -/
+def writeInTree (path : FilePath) (text : String) : IO Unit := do
+  if let some dir := path.parent then
+    IO.FS.createDirAll dir
+  IO.FS.writeFile path text
+
+/-- Read the file of the project that lies at the same relative path as `path` in the tree, and write the
+same text to `path`. Refuses a `path` that `treeRelative` refuses, before any path of the project is built
+from it. -/
+def copyToTree (project tree path : FilePath) : IO String := do
+  let some rel := treeRelative (Regula.Load.exactParts tree) (Regula.Load.exactParts path)
+    | throw (IO.userError s!"{path} does not lie below the checker's tree")
+  let text ← readExact project (joinParts project rel)
+  writeInTree path text
+  return text
+
 /-- Read one module's file through Lean's own header parser, as the frontend does
-(`Lean/Elab/Frontend.lean:287`, `Lean/Shell.lean:519`). -/
-def readSource (project path : FilePath) : IO Source := do
-  let text ← readExact project path
+(`Lean/Elab/Frontend.lean:287`, `Lean/Shell.lean:519`), and copy that text to the tree. -/
+def readSource (project tree path : FilePath) : IO Source := do
+  let text ← copyToTree project tree path
   let input := mkInputContext text path.toString
   let (header, state, messages) ← parseHeader input
   return { input, header := header.raw, state, messages,
@@ -231,31 +250,31 @@ def Walk.leaveUnread (w : Walk) (m : Name) (why : String) : Walk :=
 
 /-- Follow imports from `todo`, outside the toolchain. `fuel` bounds the modules visited, and running out
 is a failure to read. -/
-def walk (project : FilePath) (root : Root) (modules : List (Name × FilePath)) (dirs : List FilePath)
+def walk (project tree : FilePath) (root : Root) (modules : List (Name × FilePath)) (dirs : List FilePath)
     (fuel : Nat) (todo : List Name) (w : Walk) : IO Walk := do
   match fuel, todo with
   | _, [] => return w
   | 0, m :: _ => return w.leaveUnread m "the imports reach too many modules"
   | fuel + 1, m :: rest =>
     if w.reached.contains m || w.toolchain.contains m then
-      return ← walk project root modules dirs fuel rest w
+      return ← walk project tree root modules dirs fuel rest w
     if !closedModuleName m then
-      return ← walk project root modules dirs fuel rest
+      return ← walk project tree root modules dirs fuel rest
         (w.leaveUnread m "its name is outside the closed domain")
     if m.getRoot == `Mathlib then
-      return ← walk project root modules dirs fuel rest { w with reached := m :: w.reached }
+      return ← walk project tree root modules dirs fuel rest { w with reached := m :: w.reached }
     match root.fileOf modules m with
     | some path =>
-      match ← (readSource project path).toBaseIO with
+      match ← (readSource project tree path).toBaseIO with
       | .ok s =>
-        walk project root modules dirs fuel (s.imports.toList.map (·.module) ++ rest)
+        walk project tree root modules dirs fuel (s.imports.toList.map (·.module) ++ rest)
           { w with reached := m :: w.reached, sources := (m, s) :: w.sources }
-      | .error e => walk project root modules dirs fuel rest (w.leaveUnread m (toString e))
+      | .error e => walk project tree root modules dirs fuel rest (w.leaveUnread m (toString e))
     | none =>
       match ← (toolchainOLean dirs m).toBaseIO with
-      | .ok _ => walk project root modules dirs fuel rest { w with toolchain := m :: w.toolchain }
+      | .ok _ => walk project tree root modules dirs fuel rest { w with toolchain := m :: w.toolchain }
       | .error e =>
-        walk project root modules dirs fuel rest
+        walk project tree root modules dirs fuel rest
           (w.leaveUnread m s!"neither Lake nor the toolchain holds it: {e}")
 
 /-- Whether anything has this name in the file system, a link with no target included. -/
@@ -264,18 +283,6 @@ def existsByName (path : FilePath) : IO Bool := do
   | .ok _ => return true
   | .error (.noFileOrDirectory ..) => return false
   | .error e => throw e
-
-/-- What lies at `.lake`, read with no link followed: each immediate entry of the directory, none of which is
-entered, nothing when it does not exist, and its own name when it is a link or anything else that is no
-directory. This is the one directory the reader lists. -/
-def plantedUnder (dir : FilePath) : IO (List String) := do
-  match ← dir.symlinkMetadata.toBaseIO with
-  | .error (.noFileOrDirectory ..) => return []
-  | .error e => throw e
-  | .ok data =>
-    match data.type with
-    | .dir => return (← dir.readDir).toList.map (·.path.toString)
-    | _ => return [dir.toString]
 
 /-- The parser's environment for a set of toolchain modules, at the level the frontend uses for a
 `module` file (`Lean/Elab/Import.lean:141-149`). `enable` is Lean's `enableInitializersExecution`, which
@@ -325,18 +332,17 @@ def toolchainOf (project : FilePath) : IO (Option String) := do
   | .ok text => return some text.trimAscii.toString
   | .error _ => return none
 
-/-- What the configuration names outside the closed domain of paths, each with its report, before any
-directory of the project is listed: a source directory that `requireExactPath` refuses, and a library with a
-`globs` entry that is not a single module. Each report names what the configuration states, never what it
-leads to. -/
-def openPathsOf (project : FilePath) (root : Root) : IO (List String) := do
-  let dirs ← root.sourceDirs.eraseDups.filterMapM fun dir => do
-    match ← (requireExactPath project dir).toBaseIO with
-    | .ok _ => return none
-    | .error e => return some s!"a source directory: {e}"
+/-- What the configuration names outside the closed domain of paths, each with its report: a source directory
+that does not lie below the tree (`treeRelative`), and a library with a `globs` entry that is not a single
+module. Each report names what the configuration states, never what it leads to. -/
+def openPathsOf (tree : FilePath) (root : Root) : List String :=
+  let inTree (dir : FilePath) :=
+    (treeRelative (Regula.Load.exactParts tree) (Regula.Load.exactParts dir)).isSome
+  let dirs := (root.sourceDirs.filter (!inTree ·)).eraseDups.map
+    fun dir => s!"the source directory {dir} does not lie below the project"
   let globs := (root.libraries.filter (!·.2)).map fun (lib, _) =>
     s!"the library {lib}: a `globs` entry other than a single module needs a directory listing"
-  return dirs ++ globs
+  dirs ++ globs
 
 /-- What in the configuration Lake's load gave is unread before any file, given the `modules` of the default
 targets: a library's or an executable's name outside the closed domain, which Lake joins onto an output
@@ -362,17 +368,15 @@ def importedExecutableRoots (root : Root) (modules : List (Name × FilePath))
     (modules.lookup m).isSome && (root.resolve m).isNone
   executable.map fun m => (m, "an import names this executable's root, and no library holds it")
 
-/-- Read the project at `project`. -/
-def readProject (enable : IO Unit) (calls : LakeCalls) (project : FilePath) :
+/-- Read the project at `project`, and fill the checker's own `tree` from what is read. -/
+def readProject (enable : IO Unit) (calls : LakeCalls) (project tree : FilePath) :
     IO (Reading × List (Name × Source)) := do
   let project ← IO.FS.realPath project
+  let tree ← IO.FS.realPath tree
   let outside ← startedOutside (← calls.libDir) project
   let toolchainFile ← toolchainOf project
   unless outside do
     return ({ stopped toolchainFile false [] none with outside := false }, [])
-  let planted ← plantedUnder (project / ".lake")
-  unless planted.isEmpty do
-    return ({ stopped toolchainFile false [] none with outputs := planted }, [])
   if ← existsByName (project / "lakefile.lean") then
     return (stopped toolchainFile true [] none, [])
   let text ← match ← (readExact project (project / "lakefile.toml")).toBaseIO with
@@ -385,8 +389,10 @@ def readProject (enable : IO Unit) (calls : LakeCalls) (project : FilePath) :
   let start := stopped toolchainFile false keys none
   if !start.configClosed || start.requiresDependency then
     return (start, [])
-  let root ← calls.loadRoot project
-  let openPaths ← openPathsOf project root
+  writeInTree (tree / "lakefile.toml") text
+  writeInTree (tree / "lean-toolchain") leanToolchain
+  let root ← calls.loadRoot tree
+  let openPaths := openPathsOf tree root
   unless openPaths.isEmpty do
     return ({ start with openPaths }, [])
   let modules ← root.modules
@@ -397,7 +403,7 @@ def readProject (enable : IO Unit) (calls : LakeCalls) (project : FilePath) :
   -- A module is the file Lake names, or else the toolchain's: no output of the project is on this path.
   Lean.searchPathRef.set root.toolchain
   let dirs ← root.toolchain.mapM IO.FS.realPath
-  let w ← walk project root modules dirs 1000000 roots {}
+  let w ← walk project tree root modules dirs 1000000 roots {}
   let sources := w.sources.reverse
   let base := { start with
     roots, reached := w.reached.reverse,
@@ -438,8 +444,6 @@ def findingLines (r : Reading) (sources : List (Name × Source)) (limit : Nat) :
     (r.configKeys.filter fun k => k.getRoot != `require && !configKeyAdmitted k).map
       (fun k => s!"{rule} lakefile.toml: the key {k} is outside the closed set")
   let unread := r.unread.map fun (m, why) => s!"RG2001 {m}: {why}"
-  let outputs := r.outputs.take 5 |>.map fun p =>
-    s!"RG2001 {p}: this exists, so a build could reuse it without compiling what was read: remove `.lake`"
   let dependency :=
     if r.requiresDependency then
       ["regula: lakefile.toml has a `require`, and a full verdict needs a project with no dependency"]
@@ -455,39 +459,27 @@ def findingLines (r : Reading) (sources : List (Name × Source)) (limit : Nat) :
     head ++ f.offenders.map fun stx =>
       let line := (s?.map (lineOf · stx)).getD 0
       s!"{rule} {f.module}:{line}: {describe stx}"
-  config ++ unread ++ outputs ++ dependency ++ mathlib ++ files.take limit
+  config ++ unread ++ dependency ++ mathlib ++ files.take limit
 
 /-- Read the project and give the decision's input with the lines that report it. -/
-def read (enable : IO Unit) (calls : LakeCalls) (project : String) : IO (Reading × List String) := do
-  let (r, sources) ← readProject enable calls project
+def read (enable : IO Unit) (calls : LakeCalls) (project tree : String) :
+    IO (Reading × List String) := do
+  let (r, sources) ← readProject enable calls project tree
   return (r, findingLines r sources 50)
 
-/-- `lake build --wfail` and `lake check` in the project, with the Lake installed beside this Lean, so
-that the project's `lean-toolchain` chooses nothing. No inherited search path, and no artifact cache, so
-that nothing is restored without being compiled. Each names `lakefile.toml` as its configuration
-(`Lake/CLI/Main.lean:361`). The nested `lake` commands of `lake check` take no such flag
-(`Lake/CLI/Check.lean:282,318,346,368`), so `lakefile.lean` is tested by name before each command and after
-the last, and a file there makes this false. -/
-def buildAndReplay (calls : LakeCalls) (project : String) : IO Bool := do
+/-- `lake build --wfail` and `lake check` in the checker's `tree`, with the Lake installed beside this Lean,
+so that no `lean-toolchain` chooses anything. No inherited search path, and no artifact cache, so that nothing
+is restored without being compiled. -/
+def buildAndReplay (calls : LakeCalls) (tree : String) : IO Bool := do
   let lake ← calls.program
-  let noLeanConfig : IO Bool := do
-    if ← existsByName (FilePath.mk project / "lakefile.lean") then
-      IO.println "regula: a lakefile.lean has appeared, so the build stops"
-      return false
-    return true
   let run (args : Array String) : IO Bool := do
-    unless ← noLeanConfig do
-      return false
     IO.println s!"regula: lake {" ".intercalate args.toList}"
     (← IO.getStdout).flush
     let child ← IO.Process.spawn
-      { cmd := lake.toString, args := #["--file", "lakefile.toml"] ++ args, cwd := some project,
-        stdin := .null,
+      { cmd := lake.toString, args, cwd := some tree, stdin := .null,
         env := #[("LEAN_PATH", none), ("LEAN_SRC_PATH", none), ("LAKE_ARTIFACT_CACHE", some "false")] }
     return (← child.wait) == 0
   if !(← run #["build", "--wfail"]) then return false
-  if !(← run (if System.Platform.isOSX then #["check", "--inadvisably-no-sandbox"] else #["check"])) then
-    return false
-  noLeanConfig
+  run (if System.Platform.isOSX then #["check", "--inadvisably-no-sandbox"] else #["check"])
 
 end Regula.Reader

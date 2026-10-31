@@ -48,12 +48,12 @@ structure Step where
 - `lake clean` in the specification's workspace, which holds both packages (`Workspace.clean`,
   `Lake/CLI/Main.lean:1160-1172` at v4.35.0), so that no step reads an output of an earlier build: a
   module of a library that the configuration no longer names would still satisfy an import.
-- The checker, built in a separate copy of the program at `checker`, so that this checkout has no output
-  when the check reads it.
-- The full gate on this checkout (`root`), started from that copy: the language check, the build of the
-  default targets with warnings as errors, Lean's replay of them, and the rules. Its exit code is 0 only
-  for a pass of the full verdict.
-- The programs of the root package outside the default targets, which only call Lake or are the
+- The checker, built in a separate copy of the program at `checker`.
+- The full gate on this checkout (`root`), started from that copy: the language check, then, in a tree of the
+  checker's own, the build of the default targets with warnings as errors, Lean's replay of them, and the
+  rules. Its exit code is 0 only for a pass of the full verdict. It writes nothing in this checkout.
+- The root package's default targets in this checkout, which the proof verdict below reads, and the programs
+  of the root package outside the default targets, which only call Lake or are the
   repository's own, and Regula's checker on its own build.
 - The specification, with warnings as errors, Lean's replay of it, and Regula's checker on it, the
   path that a project that requires Regula takes. So each theorem of the specification depends on no
@@ -62,6 +62,7 @@ def localSteps (checker root : String) : List Step :=
   [⟨["clean"], "specification"⟩,
     ⟨["build", "lint"], checker⟩,
     ⟨["exe", "lint", "standard-logical", "full", root], checker⟩,
+    ⟨["build", "--wfail"], "."⟩,
     ⟨["build", "--wfail", "Regula", "lint"], "."⟩,
     ⟨["lint"], "."⟩,
     ⟨["build", "--wfail"], "specification"⟩,

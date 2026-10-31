@@ -381,7 +381,7 @@ theorem configClosed_iff (r : Reading) : r.configClosed = true ↔ ConfigClosed 
   simp [Reading.configClosed, ConfigClosed, configKeyAdmitted_iff, and_assoc, h]
 
 theorem readInFull_iff (r : Reading) : r.readInFull = true ↔ ReadInFull r := by
-  simp [Reading.readInFull, ReadInFull, and_assoc]
+  simp [Reading.readInFull, ReadInFull]
 
 theorem requiresDependency_iff (r : Reading) :
     r.requiresDependency = true ↔ RequiresDependency r := by
@@ -474,6 +474,47 @@ theorem offender_not_admitted (r : Reading) (f : FileRead) (hf : f ∈ r.files) 
   rcases ht with rfl | ht
   · exact hbad (hadm.2.2.2.1 s hocc)
   · exact hbad (hadm.2.2.2.2 t ht s hocc)
+
+/-! ## The checker's tree -/
+
+/-- `treeRelative` gives what `path` holds below `base`, and each component of that starts with no `.`. -/
+theorem treeRelative_iff (base path rel : List String) :
+    treeRelative base path = some rel ↔ TreeRelative base path rel := by
+  simp only [treeRelative, TreeRelative]
+  by_cases hp : base <+: path
+  · obtain ⟨tail, rfl⟩ := hp
+    have hpre : base.isPrefixOf (base ++ tail) = true := by simp [List.isPrefixOf_iff_prefix]
+    simp only [hpre, ↓reduceIte, List.drop_left, List.append_cancel_left_eq]
+    constructor
+    · intro h
+      split at h
+      · rename_i hall
+        have := Option.some.inj h
+        subst this
+        simp only [List.all_eq_true, Bool.and_eq_true, Bool.not_eq_true'] at hall
+        refine ⟨rfl, fun c hc => ?_⟩
+        have := hall c hc
+        simp_all
+      · simp at h
+    · rintro ⟨rfl, hc⟩
+      have : (tail.all fun c => !c.isEmpty && c.front != '.') = true := by
+        simp only [List.all_eq_true, Bool.and_eq_true, Bool.not_eq_true', bne_iff_ne, ne_eq]
+        intro c h
+        exact ⟨by simpa using (hc c h).1, (hc c h).2⟩
+      exact ite_eq_left_iff.mpr (fun h => absurd this h)
+  · have hnone : base.isPrefixOf path = false := by
+      rw [← Bool.not_eq_true, List.isPrefixOf_iff_prefix]
+      exact hp
+    simp only [hnone, Bool.false_eq_true, ↓reduceIte, reduceCtorEq, false_iff]
+    rintro ⟨rfl, -⟩
+    exact hp (List.prefix_append _ _)
+
+/-- A `..` is no component of what `treeRelative` gives, so joining that to the project or to the checker's
+tree cannot leave it. -/
+theorem treeRelative_no_parent {base path rel : List String} (h : treeRelative base path = some rel) :
+    ".." ∉ rel ∧ "." ∉ rel ∧ ".lake" ∉ rel := by
+  obtain ⟨-, hc⟩ := (treeRelative_iff base path rel).mp h
+  refine ⟨fun m => (hc _ m).2 ?_, fun m => (hc _ m).2 ?_, fun m => (hc _ m).2 ?_⟩ <;> decide
 
 /-! ## The gate -/
 
