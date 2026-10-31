@@ -26,7 +26,7 @@ linter.missingDocs = true
 # shell: every function of the checker that does not itself call Lake.
 [[lean_lib]]
 name = "RegulaChecker"
-globs = ["Regula.RuleId", "Regula.Verdict", "Regula.Input", "Regula.Reach", "Regula.Tables", "Regula.Rules", "Regula.Load", "Regula.Shell", "Regula.LanguageSet", "Regula.Language", "Regula.Reader"]
+globs = ["Regula.Effect", "Regula.RuleId", "Regula.Verdict", "Regula.Input", "Regula.Reach", "Regula.Tables", "Regula.Rules", "Regula.Load", "Regula.Shell", "Regula.LanguageSet", "Regula.Language", "Regula.Reader"]
 
 # A library that gives no verdict: `ExecutableContract` and `RegisteredDecision`, which another project of
 # the owner's imports until it moves them.
