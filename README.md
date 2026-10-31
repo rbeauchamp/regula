@@ -14,7 +14,7 @@ Regula is a checker of a finished Lean build. It refuses a project whose declara
 | RG1004 | A constant of a claimed module depends on an axiom with the name form that `native_decide` gives. |
 | RG1005 | A constant of a claimed module depends on an axiom that the project's profile does not admit. |
 | RG1006 | A claimed module holds an `unsafe` or `partial` constant without the form of Lean's recursion helper, or a constant whose value mentions `Lean.Loop.mk` or `repeatM`, which `while` and `repeat` compile to. |
-| RG2001 | The checker cannot load the build, or its input does not have the closed form. The verdict is `incomplete`. |
+| RG2001 | The checker cannot load the build, its input does not have the closed form, or a claimed module holds a constant that Lean's import replaced and that is no theorem within the profile. The verdict is `incomplete`. |
 
 The claimed modules are the modules of the root package's default targets, with each module of the root package that their imports reach. These are the modules that `lake build` and `lake check` work on. A target that is not a default target, and that no default target imports, is outside the claim.
 

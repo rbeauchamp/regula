@@ -799,6 +799,7 @@ theorem toolchain_ofPlaces (env : Lean.Environment) (td rd : System.FilePath)
     cases hp : ps[idx.toNat]? with
     | none => simp [hp]
     | some place => simp [hp]
+
 /-- The text of a profile names it: the three spellings and no other. -/
 theorem profileOf_eq_some {text : String} {q : Regula.Closed.Profile}
     (h : Regula.Shell.profileOf? text = some q) :

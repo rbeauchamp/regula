@@ -3,11 +3,11 @@ import Std.Data.HashSet
 /-!
 # Reachability over names
 
-The one search of the rules over the closed input (`Regula.Rules`): the constants that a constant
-mentions, the constants that compiled code runs, and the departures. `reach` is total, and its fuel
-is an argument, not a guess: each step of the search takes one name off its work list, and adds to
-it only what `next` gives for a name that it has not seen, so the sum of the work list and of what
-`next` gives for the unseen names falls by at least one at each step (`unseenWeight_insert`).
+The one search of the rules over the closed input (`Regula.Rules`): from each axiom, backwards
+through the constants that mention it (`Input.axiomReach`). `reach` is total, and its fuel is an
+argument, not a guess: each step of the search takes one name off its work list, and adds to it only
+what `next` gives for a name that it has not seen, so the sum of the work list and of what `next`
+gives for the unseen names falls by at least one at each step (`unseenWeight_insert`).
 `mem_reach` states that the result is exactly the names that the seeds reach (`Reach`), for each
 function `next` that gives names only for the names of `us`.
 -/
