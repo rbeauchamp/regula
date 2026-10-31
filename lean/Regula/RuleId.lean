@@ -39,7 +39,8 @@ inductive RuleId where
   /-- RG1010, a name that no released version used: a Lean file or the Lake configuration of the project holds something outside the closed
   set that the language check admits (`Regula.Language`). -/
   | language
-  /-- RG2001: the build cannot be loaded, or the input does not have the closed form. -/
+  /-- RG2001: the build cannot be loaded, the full gate cannot read the project, or the input does not
+  have the closed form. -/
   | environment
   deriving Repr, DecidableEq
 

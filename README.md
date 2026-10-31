@@ -17,7 +17,7 @@ It gives one of two verdicts, and its output says which. The **proof verdict** m
 | RG1005 | A constant of a claimed module depends on an axiom that the project's profile does not admit. |
 | RG1006 | A claimed module holds a constant that is `unsafe`, `partial` or named as a recursion helper, without the form of Lean's recursion helper, or a constant whose value mentions `Lean.Loop.mk` or `repeatM`, which `while` and `repeat` compile to. |
 | RG1010 | A Lean file of the claim, the Lake configuration or `lean-toolchain` holds something outside the closed set. Only the full gate reads this. |
-| RG2001 | The checker cannot load the build, its input does not have the closed form, or a claimed module holds a constant that Lean's import replaced and that is no theorem within the profile or has a recursion helper's name. The verdict is `incomplete`. |
+| RG2001 | The checker cannot load the build, the full gate cannot read the project, its input does not have the closed form, or a claimed module holds a constant that Lean's import replaced and that is no theorem within the profile or has a recursion helper's name. The verdict is `incomplete`. |
 
 The claimed modules are the modules of the root package's default targets, with each module of the root package that their imports reach. These are the modules that `lake build` and `lake check` work on. A target that is not a default target, and that no default target imports, is outside the claim.
 

@@ -192,7 +192,7 @@ theorem run_meets : gateRecord.Meets runChecker := by
     · rw [← hp]
       cases (run (ofSpec s)).verdict <;> simp [verdict]
 
-/-- Regula's checks are exactly RG1001 to RG1010 and RG2001. -/
+/-- Regula's checks are exactly RG1001 to RG1006, RG1010 and RG2001. -/
 theorem rule_spellings :
     Regula.RuleId.all.map (·.spelling) =
       ["RG1001", "RG1002", "RG1003", "RG1004", "RG1005", "RG1006", "RG1010", "RG2001"] := rfl

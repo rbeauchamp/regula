@@ -2,8 +2,8 @@
 
 ## Mission and scope
 
-- This repository delivers Regula, a checker of a finished Lean build that exists to be trusted and to be the example of how Lean 4 code should be written. `README.md` and `specification/README.md` state the purpose in their first paragraph.
-- Regula's checks are exactly RG1001 to RG1010 and RG2001. `lean/Regula/` implements them, and `specification/` states and proves them. Regula gives up any rule, feature or package it cannot prove rather than patching it, documenting a limit or keeping a stated gap.
+- This repository delivers Regula, a checker of Lean builds that exists to be trusted and to be the example of how Lean 4 code should be written. `README.md` and `specification/README.md` state the purpose in their first paragraph.
+- Regula's checks are exactly RG1001 to RG1006, RG1010 and RG2001. `lean/Regula/` implements them, and `specification/` states and proves them. Regula gives up any rule, feature or package it cannot prove rather than patching it, documenting a limit or keeping a stated gap.
 - RG1010 is the language check, which reads each source file before anything is compiled and refuses anything outside a closed set. Its table `lean/Regula/LanguageSet.lean` and its hypotheses H1 and H2 in `specification/README.md` are read again at each upgrade of Lean.
 - `Regula.Contract` and `Regula.Decision` stay as a library that gives no verdict until the other project that imports them moves them.
 
