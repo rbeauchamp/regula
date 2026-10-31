@@ -131,15 +131,24 @@ lean_lib «RegulaCore» where
 lean_lib «RegulaInterface» where
   globs := #[.one `Regula.Contract, .one `Regula.Decision, .one `Regula.Assumption]
 
+-- The checker: the closed input and the rule functions, each proved against the specification in
+-- `specification/RegulaSpecification/Proofs/`, the manifest reader, the loader and the shell. The
+-- `unsafe` call that frees an environment's data is in the excluded module `Regula.LintMain`, the
+-- root of the `lint` executable, so this library declares nothing unsafe and no `main`.
+@[default_target]
+lean_lib «RegulaChecker» where
+  globs := #[.one `Regula.Input, .one `Regula.Reach, .one `Regula.Rules, .one `Regula.Load,
+    .one `Regula.Shell, .submodules `Regula.Checker]
+
 lean_lib «Regula» where
-  -- Regula's checker (the closed input, its loader, the rules and the shell), its manifest reader,
-  -- the `regula` command, the site builder and the repository's own programs. The interfaces are
-  -- the library `RegulaInterface`, so each module is in exactly one library (RG2004).
-  globs := #[.submodules `Regula.Checker, .submodules `Regula.Cli, .submodules `Regula.Site,
+  -- The root of the `lint` executable, the `regula` command, the site builder and the repository's
+  -- own programs. The interfaces are the library `RegulaInterface`, so each module is
+  -- in exactly one library (RG2004).
+  globs := #[.submodules `Regula.Cli, .submodules `Regula.Site,
     .one `Regula.CopyControls, .one `Regula.DiagnosticsGate, .one `Regula.Effects,
-    .one `Regula.Filesystem, .one `Regula.Input, .one `Regula.LintMain, .one `Regula.Load,
+    .one `Regula.Filesystem, .one `Regula.LintMain, .one `Regula.Workspace,
     .one `Regula.ProvisionControls, .one `Regula.RegistryChecks, .one `Regula.Release,
-    .one `Regula.Rules, .one `Regula.Shell, .one `Regula.TestListing,
+    .one `Regula.TestListing,
     .one `Regula.ProgramCheck.Provision, .one `Regula.ProgramCheck.Release,
     .one `Regula.ProgramCheck.TestListing, .one `Regula.ProgramCheck.Verification]
 

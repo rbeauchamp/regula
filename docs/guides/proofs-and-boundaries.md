@@ -70,7 +70,7 @@ The loader reads each part through the interface of its owner. These statements 
 
 ### The rules
 
-Each kept rule is a function from the closed input to the subjects that it reports (`Regula.Rules`). The [specification](../../specification/README.md) states the violation predicate of each rule. Leaf #487 proves that each function reports a subject exactly when the subject violates its rule. Until then, no theorem relates a function to its predicate.
+Each kept rule is a function from the closed input to the subjects that it reports (`Regula.Rules`). The [specification](../../specification/README.md) states the violation predicate of each rule. `specification/RegulaSpecification/Proofs/` proves that each function reports a subject exactly when the subject violates its rule. The hypotheses are the closed form and `Link.AxiomsRead`. `Regula.Load` fills that input, and no theorem examines it.
 
 Lean's own tools decide two rules. [RG2003] is `lake build --wfail`, and [RG2005] is `lake check`. The first acceptance step of this repository runs the two on the build of its copy, before the checker.
 

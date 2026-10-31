@@ -322,6 +322,8 @@ In both modes an unresolved path blocks the execution claim. Native arithmetic, 
 and the toolchain's own library code remain trusted in every mode; the checker verifies Lean
 source, not the compiler or the machine.
 
+Under `checked`, a theorem binds an `implemented_by` replacement or a `csimp` rewrite of `f` to `g` when it states `@f = @g`. A recursive definition `f` requires its recursion equation, which you can state with `theorem f_rec : type_of% @f.eq_def := @f.eq_def`. A claimed executable's root is the `main` that Lake links, so a module that the root imports can declare it. A claimed executable without a `main` fails [RG3001].
+
 ## 4. Run `lake lint`
 
 `lake lint` runs the checker of Regula on the finished build of your project. The checker does not build. Thus build the claimed targets first, with warnings as errors, and replay the build in Lean's kernel:
@@ -595,7 +597,7 @@ audit refuses a `decides` entry that names its own surface or no claimed surface
 
 ## Limits
 
-- No theorem yet relates a rule function of the checker to the violation predicate of its rule. Leaf #487 proves these contracts. Until then, a pass of the checker is an observation of the functions of `Regula.Rules`.
+- A theorem relates each rule function of the checker to the violation predicate of its rule, and the verdict to the rules (`specification/RegulaSpecification/Proofs/`). Each theorem is about the input that the shell gives. The read of the shell and `Lean.collectAxioms` are trusted.
 - The seven documentation rules are written guidance, and no check of Regula reads them. Review checks them, by standard §5.1 to §5.3 and §7.7. The specification retires them because each failure that they found is cheap to see and cheap to correct by hand. Thus each such failure is an accepted risk:
   - [RG4001]: a misplaced fence marker, a fence that is not closed, or Lean code outside a first-column `lean` fence.
   - [RG4002]: a `lean` fence that does not elaborate as printed with no warning, or that has a declaration that fails the declaration and axiom rules.

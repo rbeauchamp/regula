@@ -50,10 +50,25 @@ inductive DepartsTo : Name → Name → Prop
   | one {c n : Name} : i.Departs c n → DepartsTo c n
   | more {c m n : Name} : i.Departs c m → DepartsTo m n → DepartsTo c n
 
-/-- `r` is the `main` of an executable target claimed with profile `p` and execution mode `e`. -/
+/-- This environment loads the root module of target `t`, with each module that the root imports.
+Lake links an executable from its root and the modules that the root imports, so the `main` of such
+an environment is the `main` that Lake links, in whichever of those modules it is declared: one
+environment holds one constant of each name. -/
+def LoadsRoot (t : Target) : Prop := ∃ m ∈ t.modules, m ∈ i.loads
+
+/-- `r` is the `main` of an executable target claimed with profile `p` and execution mode `e`, read
+in an environment that loads its root module (`LoadsRoot`). -/
 def ExecutableRoot (r : Name) (p : Profile) (e : Execution) : Prop :=
   ∃ t ∈ i.targets, t.kind = .executable ∧ ⟨t.name, .claimed p e⟩ ∈ i.manifest ∧
-    ∃ d ∈ i.decls, d.name = r ∧ r = `main ∧ d.module ∈ t.modules
+    ∃ d ∈ i.decls, d.name = r ∧ r = `main ∧ i.LoadsRoot t
+
+/-- `t` is a claimed executable with no root: this environment loads its root module and holds no
+`main`. Each claimed executable thus has exactly one root or fails: one environment holds at most
+one `main`, and each environment that loads the root module holds the same one, because Lean refuses
+an environment in which two imported modules declare one name. -/
+def MissingRoot (t : Name) : Prop :=
+  ∃ x ∈ i.targets, x.name = t ∧ x.kind = .executable ∧ (∃ p e, ⟨x.name, .claimed p e⟩ ∈ i.manifest) ∧
+    i.LoadsRoot x ∧ ¬ i.Resolves `main
 
 /-- `d` is code whose run no theorem of Lean can bind to a kernel value: foreign code (`@[extern]`),
 a partial definition that is not a recursion helper, whose kernel value is opaque, or a value that
@@ -89,9 +104,11 @@ def Violates1006 (i : Input) (c : Name) : Prop :=
     ¬ i.RecursionHelper d
 
 /-- RG3001: the execution closure of a claimed executable reaches a name the input does not
-resolve, or a constant on a cycle of departures, which runs no definition. -/
+resolve, or a constant on a cycle of departures, which runs no definition, or a claimed executable
+has no root. -/
 def Violates3001 (i : Input) (c : Name) : Prop :=
-  ∃ r p e, i.ExecutableRoot r p e ∧ i.Executes r c ∧ (¬ i.Resolves c ∨ i.DepartsTo c c)
+  (∃ r p e, i.ExecutableRoot r p e ∧ i.Executes r c ∧ (¬ i.Resolves c ∨ i.DepartsTo c c)) ∨
+    i.MissingRoot c
 
 /-- RG3002: under a checked execution claim with profile `p`, the closure reaches code that no
 theorem can bind (`Unbindable`), or a constant whose compiled code has a boundary with no

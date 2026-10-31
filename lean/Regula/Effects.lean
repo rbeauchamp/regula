@@ -41,7 +41,9 @@ makes the value, when that place is compiled code that the walk reads. A write t
 an admitted opening made, or to a standard stream, is not a call that the check finds.
 
 `check` is a check at build time, with no theorem. Its coverage rests on Lean's store of compiled
-code (`declMapExt`, `findEnvDecl`), and nothing proves that a build that passes has no such call. -/
+code (`declMapExt`, `findEnvDecl`), and nothing proves that a build that passes has no such call.
+That stays an accepted risk, which the specification's "Regula's check of its own library" states
+with its reason. -/
 
 namespace Regula.Effects
 

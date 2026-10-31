@@ -6,8 +6,8 @@ from the finished build, with the compiled code that the build records for each,
 of the targets and modules it builds, and the project's claim (`foundation_manifest.json`). This
 module states that input as data, independently of any implementation. Each field says which
 interface of Lean or Lake gives it; that the shell reads the field through that interface is the
-implementation's obligation (#483), not a fact this module establishes. The mechanism that reads
-compiled code is #487's.
+implementation's obligation, not a fact this module establishes. `Regula.Load.codeOf` reads the
+compiled code through Lean's store.
 
 The input carries no source text, no message, no info tree, no option set in source, no build log
 and no file listing: what a rule cannot read here, it does not decide.

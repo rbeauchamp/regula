@@ -58,21 +58,21 @@ claimed modules in each environment. -/
 def coverage (b : Bundle) : String :=
   let modules := (b.envs.head?.map (·.modules.length)).getD 0
   let claimed := b.envs.map fun i =>
-    let table := i.claimTable
-    (i.decls.filter fun d => !((table.find? d.module).getD []).isEmpty).length
+    i.tables.claimed.length
   s!"regula: read {b.envs.length} environments, {modules} modules of the root package, and \
     {claimed} constants of claimed modules in each environment"
 
 /-- Run the checker on the explicitly named workspace, or on the current directory only when
-it is the workspace Lake dispatched. A different implicit workspace is incomplete. -/
-unsafe def run (args : List String) : IO UInt32 := do
+it is the workspace Lake dispatched. A different implicit workspace is incomplete. `load` reads the
+build (`Regula.Load.loadBundle`). -/
+def run (load : Regula.Load.WorkspaceSelection → IO Bundle) (args : List String) : IO UInt32 := do
   let selection ← match args with
     | [] => pure Regula.Load.WorkspaceSelection.dispatched
     | [dir] => pure (Regula.Load.WorkspaceSelection.named dir)
     | _ => do
       IO.eprintln "usage: lint [WORKSPACE]"
       return 2
-  match ← (Regula.Load.loadBundle selection).toBaseIO with
+  match ← (load selection).toBaseIO with
   | .error e => report .incomplete [] (some (toString e))
   | .ok bundle =>
     let (verdict, findings, why) := Regula.Closed.run allowlists bundle
@@ -100,9 +100,9 @@ def taskManagerMissing : IO (Option String) := do
 /-- `run`, or the verdict `incomplete` in a process without Lean's task manager: there, Lake's load
 of a workspace can end the process with a panic, whose exit code 1 is that of the verdict `fail`,
 which no completed run established (issue 393). -/
-unsafe def start (args : List String) : IO UInt32 := do
+def start (load : Regula.Load.WorkspaceSelection → IO Bundle) (args : List String) : IO UInt32 := do
   if let some reason ← taskManagerMissing then
     report .incomplete [] (some reason)
-  else run args
+  else run load args
 
 end Regula.Shell

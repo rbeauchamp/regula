@@ -15,6 +15,7 @@ import RegulaSpecification.CasesProject
 import RegulaSpecification.CasesExecution
 import RegulaSpecification.CasesGate
 import RegulaSpecification.ClosedSubset
+import RegulaSpecification.Proofs.Verdict
 
 /-!
 # The specification of the smaller Regula

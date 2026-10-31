@@ -109,7 +109,7 @@ The gate leaves out `./scripts/verify.sh site`. That check reads the tags of the
 
 CI does not run on pull requests. On `main`, [`ci.yml`](../../.github/workflows/ci.yml) runs the acceptance that the release jobs need, and it publishes the rule-reference site. Each workflow can also run on dispatch.
 
-The qualification campaigns of the previous checker are removed, with their workflows. Each rule is a function over the closed input of the [specification](../../specification/README.md), and leaf #487 proves the contracts of these functions.
+The qualification campaigns of the previous checker are removed, with their workflows. Each rule is a function over the closed input of the [specification](../../specification/README.md), and `specification/RegulaSpecification/Proofs/` proves the contract of each.
 
 ## Implementation and qualification layout
 

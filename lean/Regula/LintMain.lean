@@ -1,14 +1,19 @@
 import Regula.Shell
+import Regula.Workspace
 import Regula.Effects
 
 /-! # The `lint` executable
 
 The root of the `lint` executable, Lake's lint driver for a project that sets
-`lintDriver := "regula/lint"`: `Regula.Shell.start` on the command-line arguments. -/
+`lintDriver := "regula/lint"`: `Regula.Shell.start` on the command-line arguments. It gives the shell
+Lake's load of the workspace (`Regula.Load.loadBundle`) and `Environment.freeRegions`, the one
+`unsafe` call of the checker, so that the claimed loader and shell hold neither. The bundle frees an
+environment after it has copied the input out of its data, and no reference to that data remains
+(`Regula.Load.copyInput`). -/
 
 /-- The `lint` executable. -/
 unsafe def main : List String → IO UInt32 :=
-  Regula.Shell.start
+  Regula.Shell.start (Regula.Load.loadBundle Lean.Environment.freeRegions)
 
 
 -- The program loads the finished build, prints its report and sets its exit code: the build of

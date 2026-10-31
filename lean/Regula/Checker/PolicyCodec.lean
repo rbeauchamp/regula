@@ -394,7 +394,7 @@ def compress (j : Json) : String := printTo "" j
 omitted or supplemented by an unknown field. The expected names are distinct by the type of the
 third argument, which a call with a list of literals proves by `decide`: a list that gives one
 name twice has no call. -/
-def exactFields (j : Json) (expected : List String) (_distinct : expected.Nodup := by decide) :
+def exactFields (j : Json) (expected : List String) (_distinct : expected.Nodup) :
     Except String Unit := do
   let fields ← j.getObj?
   let actual := fields.toList.map (·.1)

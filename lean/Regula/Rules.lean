@@ -1,25 +1,28 @@
-import Std.Data.HashSet
 import Regula.Input
+import Regula.Reach
 import RegulaCore.RuleId
 import RegulaCore.Verdict
 
 /-!
 # The rules over the closed input
 
-Each kept rule as an executable function from the closed input (`Regula.Closed.Input`) to the
-subjects that violate it, in the order of the specification of the smaller Regula
-(`specification/RegulaSpecification/`): `Foundation.lean` (RG1001 to RG1005), `Execution.lean`
+Each kept rule as a pure, total function from the closed input (`Regula.Closed.Input`) to the
+subjects that violate it, named after the rule and in the order of the specification of the smaller
+Regula (`specification/RegulaSpecification/`): `Foundation.lean` (RG1001 to RG1005), `Execution.lean`
 (RG1006, RG3001, RG3002), `Contracts.lean` (RG1007 to RG1009) and `Project.lean` (RG2002, RG2004,
-RG2006, RG2007). Each function reads only fields of the input. `specification/RegulaSpecification/
-ClosedSubset.lean` proves that `optionFindings` and `extensionFindings` report a subject exactly
-when `Violates2006` and `Violates2007` hold of it. That each other function does the same is #487's
-obligation; this module states no theorem about it.
+RG2006, RG2007). Each reads only fields of the input. `specification/RegulaSpecification/Proofs/`
+proves of each that it reports a subject exactly when the violation predicate of the specification
+holds of it.
 
-The axiom set of a constant is the one that `Lean.collectAxioms` computed in the loader
-(`Decl.axioms`); a rule that needs the axiom set of a constant that has none gives an error, and
-the run is `incomplete`. A search over the input's graph of constants (`reach`) runs with a step
-budget of the size of the input. A search that exhausts it cannot report its answer, so it gives an
-error, and the run is `incomplete`, never a pass.
+`Input.check` matches the closed type `RuleId` exhaustively, so a rule that the registry gains stops
+this build until it has a function, and each rule that the specification hands to Lean or retires
+has none.
+
+The rules read the axiom set of a constant from `Decl.axioms`, which the loader computes with
+`Lean.collectAxioms`. An input without the set of a constant that a rule reads is refused before any
+rule runs (`Input.refusal?`), so a missing set is never read as an empty one. A search over the
+input's graph of constants is `Regula.Closed.reach`, which ends with the exact answer on every input
+(`mem_reach`), so a search has no way to fail.
 
 `run` gives the verdict of a bundle (`Gate.lean`'s `gateRecord`): a bundle that the admission
 refuses is `incomplete`; a well-formed one passes exactly when no rule reports a subject.
@@ -27,7 +30,7 @@ refuses is `incomplete`; a well-formed one passes exactly when no rule reports a
 
 namespace Regula.Closed
 
-open Lean (Name NameMap NameSet)
+open Lean (Name)
 
 /-- The three axioms of Lean's logic that a profile can admit. -/
 def logicalAxioms : List Name := [``propext, ``Quot.sound, ``Classical.choice]
@@ -62,218 +65,329 @@ structure Allowlists where
   /-- The environment extensions a claimed module may have entries of (RG2007). -/
   extensions : Name → Bool
 
+/-- What the rules read of one input, computed once: its indexes and its searches. -/
+structure Tables where
+  /-- The constants by name. -/
+  index : Std.HashMap Name Decl
+  /-- The profile and execution mode of each claim of each module (`Input.claimsOf`). -/
+  claims : Std.HashMap Name (List (Profile × Execution))
+  /-- The constants of claimed modules. -/
+  claimed : List Decl
+  /-- What `usesOf` gives over the constants, the weight of a search through it (`reach`). -/
+  usesWeight : Nat
+  /-- What `compiledOf` gives over the constants, the weight of a search through it. -/
+  compiledWeight : Nat
+  /-- The different constants that compiled code runs in place of each constant. -/
+  departs : Std.HashMap Name (List Name)
+  /-- What `departsOf` gives over the references of the departures, the weight of a search through
+  it. -/
+  departsWeight : Nat
+
 namespace Input
 
-variable (i : Input) (idx : NameMap Decl)
+variable (i : Input)
 
-/-- A step budget for a search over the input: the number of constants and of the names each
-constant mentions, runs and departs to. A breadth-first search pops each name it visits once and
-each other name at most once for each time a visited name gives it, so it ends within this many
-steps plus the number of its seeds. -/
-def budget : Nat :=
-  i.decls.foldl (fun n d => n + 1 + d.uses.length + d.compiled.length + d.departures.length) 0
+/-- The constants of the different departures of the input, by the constant that each replaces. -/
+def departsTable : Std.HashMap Name (List Name) :=
+  (i.decls.flatMap (·.departures)).foldl (init := {}) fun m x =>
+    if x.reference == x.runs then m
+    else m.insert x.reference (x.runs :: m.getD x.reference [])
 
-/-- Every name reachable from `seeds` through `next`, the seeds included: a breadth-first search
-whose step budget is the number of names it can visit. An exhausted budget is an error. -/
-def reach (next : Name → List Name) (seeds : List Name) (bound : Nat) :
-    Except String NameSet := Id.run do
-  let mut seen : NameSet := {}
-  let mut work := seeds
-  for _ in [0:bound + seeds.length + 1] do
-    match work with
-    | [] => return .ok seen
-    | n :: rest =>
-      work := rest
-      unless seen.contains n do
-        seen := seen.insert n
-        work := next n ++ work
-  return .error "a search over the constants exhausted its budget"
+/-- The tables of the input. -/
+def tables : Tables :=
+  let claims := i.claimTable
+  let index := i.index
+  let departs := i.departsTable
+  let names := i.decls.map (·.name)
+  { index, claims
+    claimed := i.decls.filter fun d => !(claims.getD d.module []).isEmpty
+    usesWeight := (names.map fun n => (index[n]?.elim [] (·.uses)).length).sum
+    compiledWeight := (names.map fun n => (index[n]?.elim [] (·.compiled)).length).sum
+    departs
+    departsWeight :=
+      ((i.decls.flatMap (·.departures)).map fun x => (departs.getD x.reference []).length).sum }
+
+end Input
+
+namespace Tables
+
+variable (t : Tables)
 
 /-- The constants a constant mentions. -/
-def usesOf (n : Name) : List Name := (idx.find? n).elim [] (·.uses)
+def usesOf (n : Name) : List Name := t.index[n]?.elim [] (·.uses)
+
+/-- The constants the compiled code of a constant runs. -/
+def compiledOf (n : Name) : List Name := t.index[n]?.elim [] (·.compiled)
+
+/-- The constants that compiled code runs in place of a constant. -/
+def departsOf (n : Name) : List Name := t.departs.getD n []
+
+/-- `Reaches`: the constants that `seeds` reach through the constants each mentions. -/
+def mentions (seeds : List Name) : Std.HashSet Name := reach t.usesOf t.usesWeight seeds
 
 /-- `a` is one of the three logical axioms and is the toolchain's own constant of that name. -/
 def known (a : Name) : Bool :=
-  logicalAxioms.contains a && (idx.find? a).any (·.inToolchain)
+  logicalAxioms.contains a && (t.index[a]?).any (·.inToolchain)
 
 /-- Profile `p` admits axiom `a`. -/
 def admits : Profile → Name → Bool
   | .kernelOnly, _ => false
-  | .choiceFree, a => known idx a && (a == ``propext || a == ``Quot.sound)
-  | .standardLogical, a => known idx a
+  | .choiceFree, a => t.known a && (a == ``propext || a == ``Quot.sound)
+  | .standardLogical, a => t.known a
 
-/-- The constants of claimed modules. -/
-def claimedDecls : List Decl := i.decls.filter (i.claimedModule ·.module)
+/-- The profile and execution mode of each claim of module `m`. -/
+def claimsFor (m : Name) : List (Profile × Execution) := t.claims.getD m []
 
-/-- `d` is the recursion helper of a safe recursive definition in the same module. The base is a
-definition: the base of a `partial def` is an opaque constant, so its helper is no exception. -/
+/-- Whether the name is a constant of a claimed module. -/
+def claimedName (c : Name) : Bool :=
+  (t.index[c]?).any fun d => !(t.claimsFor d.module).isEmpty
+
+/-- The base `f` of a name of the form `f._unsafe_rec`. -/
+def helperBase? : Name → Option Name
+  | .str base "_unsafe_rec" => some base
+  | _ => none
+
+/-- `d` has the name of a recursion helper, and its base is a safe, total definition in its module. The
+base is a definition: the base of a `partial def` is an opaque constant, so its helper is no
+exception. -/
+def helperBaseFits (d : Decl) : Bool :=
+  match helperBase? d.name with
+  | some base => t.index[base]?.any fun b =>
+      b.kind == .definition && b.module == d.module && !b.isUnsafe && !b.isPartial &&
+        b.implementedBy.isNone && !b.isExtern
+  | none => false
+
+/-- `d` is the recursion helper of a safe recursive definition in the same module. -/
 def recursionHelper (d : Decl) : Bool :=
-  d.isPartial && !d.isUnsafe && d.implementedBy.isNone && !d.isExtern &&
-    match d.name with
-    | .str base "_unsafe_rec" => match idx.find? base with
-      | some b => b.kind == .definition && b.module == d.module && !b.isUnsafe && !b.isPartial &&
-          b.implementedBy.isNone && !b.isExtern
-      | none => false
-    | _ => false
-
-private def finding (rule : RuleId) (d : Decl) (detail : String) : Finding :=
-  { rule, subject := d.name, module := some d.module, detail }
-
-/-- The axiom set of constant `d` (`Input.AxiomOf`), as the loader computed it with
-`Lean.collectAxioms`; an error when the loader computed none. -/
-def axiomsOf (d : Decl) : Except String (List Name) :=
-  match d.axioms with
-  | some axioms => .ok axioms
-  | none => .error s!"the loader computed no axiom set of {d.name}"
-
-/-- RG1001 to RG1006 for each constant of a claimed module. -/
-def declarationFindings : Except String (List Finding) := do
-  let mut out := []
-  let table := i.claimTable
-  for d in i.decls do
-    let claims := (table.find? d.module).getD []
-    if claims.isEmpty then continue
-    if d.kind == .axiom then
-      out := out ++ [finding .projectAxiom d "declares an axiom"]
-    let axioms ← axiomsOf d
-    if axioms.contains ``sorryAx then
-      out := out ++ [finding .proofHole d "depends on sorryAx"]
-    let unknown := axioms.filter fun a => !known idx a && a != ``sorryAx &&
-      !nativeProofAxiom a && !compilerAxioms.contains a
-    unless unknown.isEmpty do
-      out := out ++ [finding .unknownAxiom d s!"depends on the unknown axioms {unknown}"]
-    let compiler := axioms.filter fun a => nativeProofAxiom a || compilerAxioms.contains a
-    unless compiler.isEmpty do
-      out := out ++ [finding .compilerTrusting d s!"depends on the native-proof axioms {compiler}"]
-    for (p, _) in claims do
-      let excess := axioms.filter (!admits idx p ·)
-      unless excess.isEmpty do
-        out := out ++ [finding .profileExceeded d s!"depends on {excess}, outside its profile"]
-    if (d.isUnsafe || d.isPartial) && !recursionHelper idx d then
-      out := out ++ [finding .escapeHatch d
-        s!"is {if d.isUnsafe then "unsafe" else "partial"}"]
-  return out
+  d.isPartial && !d.isUnsafe && d.implementedBy.isNone && !d.isExtern && t.helperBaseFits d
 
 /-- `f` is a safe, total, computable constant of the input. -/
 def safeComputable (f : Name) : Bool :=
-  (idx.find? f).any fun d => !d.isUnsafe && !d.isPartial && !d.isNoncomputable
+  (t.index[f]?).any fun d => !d.isUnsafe && !d.isPartial && !d.isNoncomputable
 
-/-- Whether the name is a constant of a claimed module. -/
-def claimedName (c : Name) : Bool := (idx.find? c).any (i.claimedModule ·.module)
-
-/-- RG1007 to RG1009. -/
-def contractFindings : Except String (List Finding) := do
-  let mut out := []
-  let bound := i.budget
-  for k in i.contracts do
-    unless claimedName i idx k.theorem_ do continue
-    let some thm := idx.find? k.theorem_ | continue
-    let isDecision := k.kind != .other
-    let specReach ← reach (usesOf idx) k.spec bound
-    if k.fixedArgs != 0 then
-      out := out ++ [finding .executableContract thm s!"fixes {k.fixedArgs} arguments of {k.impl}"]
-    else if !safeComputable idx k.impl then
-      out := out ++ [finding .executableContract thm
-        s!"names {k.impl}, which is not a safe, total, computable constant"]
-    else if isDecision && specReach.contains k.impl then
-      out := out ++ [finding .executableContract thm
-        s!"states its specification through its implementation {k.impl}"]
-    if isDecision then
-      let implReach ← reach (usesOf idx) (k.impl :: k.accept) bound
-      let shared := specReach.toList.filter fun t => implReach.contains t &&
-        (idx.find? t).any fun d => d.isBoolTest && !d.inToolchain
-      unless shared.isEmpty do
-        out := out ++ [finding .sharedTest thm
-          s!"its specification and its implementation or acceptance share the tests {shared}"]
-  for f in i.decisions do
-    unless claimedName i idx f do continue
-    if i.decidableResults.contains f then continue
-    let decided := i.contracts.any fun k =>
-      k.impl == f && k.kind != .other && claimedName i idx k.theorem_
-    unless decided do
-      if let some d := idx.find? f then
-        out := out ++ [finding .decisionContract d
-          "is registered as a decision and has no decision contract in a claimed module"]
-  return out
-
-/-- Whether `t` is the `main` of an executable target, claimed with `p` and `e`. -/
-def executableRoots : List (Decl × Profile × Execution) :=
-  i.targets.foldl (init := []) fun acc t =>
-    if t.kind != .executable then acc else
-    match i.classificationOf t.name, idx.find? `main with
-    | some (.claimed p e), some d => if t.modules.contains d.module then acc ++ [(d, p, e)] else acc
-    | _, _ => acc
+/-- A Boolean test outside the toolchain. -/
+def projectTest (c : Name) : Bool :=
+  (t.index[c]?).any fun d => d.isBoolTest && !d.inToolchain
 
 /-- Code whose run no theorem can bind to a kernel value. -/
 def unbindable (d : Decl) : Bool :=
-  d.isExtern || (d.isPartial && !recursionHelper idx d) || d.isInitialized
+  d.isExtern || (d.isPartial && !t.recursionHelper d) || d.isInitialized
 
-/-- RG3001 and RG3002. -/
-def executionFindings : Except String (List Finding) := do
-  let mut out := []
-  let departs : NameMap (List Name) := i.decls.foldl (init := {}) fun m d =>
-    d.departures.foldl (init := m) fun m x =>
-      if x.reference == x.runs then m
-      else m.insert x.reference (x.runs :: (m.find? x.reference).getD [])
-  let bound := i.budget
-  for (root, p, e) in executableRoots i idx do
-    let closure ← reach (fun n => (idx.find? n).elim [] (·.compiled)) [root.name] bound
-    for c in closure.toList do
-      match idx.find? c with
-      | none =>
-        out := out ++ [{
-          rule := .executionUnresolved, subject := c, module := none
-          detail := s!"is run by the compiled code of {root.module}.main and is no constant" }]
-      | some d =>
-        let onward ← reach (fun n => (departs.find? n).getD []) ((departs.find? c).getD []) bound
-        if onward.contains c then
-          out := out ++ [finding .executionUnresolved d "is on a cycle of departures"]
-        if e == .checked then
-          if !d.inToolchain && unbindable idx d then
-            out := out ++ [finding .executionBoundary d "is code that no theorem can bind"]
-          for x in d.departures do
-            unless x.inToolchain do
-              let corresponds ← i.proved.anyM fun q => do
-                if q.reference != x.reference || q.runs != x.runs then return false
-                let some t := idx.find? q.theorem_ | return false
-                if t.isUnsafe || t.isPartial then return false
-                let axioms ← axiomsOf t
-                return axioms.all (admits idx p ·)
-              unless corresponds do
-                out := out ++ [finding .executionBoundary d
-                  s!"runs {x.runs} in place of {x.reference} with no admitted correspondence"]
-  return out
+end Tables
+
+/-- A finding whose subject is the constant `d`. -/
+def finding (rule : RuleId) (d : Decl) (detail : String) : Finding :=
+  { rule, subject := d.name, module := some d.module, detail }
+
+/-- A finding whose subject is the constant named `c`. -/
+def theoremFinding (t : Tables) (rule : RuleId) (c : Name) (detail : String) : Finding :=
+  { rule, subject := c, module := (t.index[c]?).map (·.module), detail }
+
+/-- The axiom set of constant `d` (`Input.AxiomOf`), as the loader computed it with
+`Lean.collectAxioms`. The admission refuses an input without the set of a constant that a rule
+reads (`Input.axiomsMissing?`). -/
+def Decl.axiomSet (d : Decl) : List Name := d.axioms.getD []
+
+namespace Tables
+
+variable (t : Tables)
+
+/-- RG1001: a constant of a claimed module is an axiom. -/
+def rg1001 : List Finding :=
+  t.claimed.filterMap fun d =>
+    if d.kind == .axiom then some (finding .projectAxiom d "declares an axiom") else none
+
+/-- RG1002: a constant of a claimed module depends on `sorryAx`. -/
+def rg1002 : List Finding :=
+  t.claimed.filterMap fun d =>
+    if d.axiomSet.contains ``sorryAx then some (finding .proofHole d "depends on sorryAx") else none
+
+/-- RG1003: a constant of a claimed module depends on an axiom that is not known, and that RG1002
+and RG1004 do not name. -/
+def rg1003 : List Finding :=
+  t.claimed.filterMap fun d =>
+    let unknown := d.axiomSet.filter fun a => !t.known a && a != ``sorryAx && !nativeProofAxiom a &&
+      !compilerAxioms.contains a
+    if !unknown.isEmpty then
+      some (finding .unknownAxiom d s!"depends on the unknown axioms {unknown}")
+    else none
+
+/-- RG1004: a constant of a claimed module depends on a native proof's axiom or on an axiom by which
+the kernel trusts the compiler. -/
+def rg1004 : List Finding :=
+  t.claimed.filterMap fun d =>
+    let compiler := d.axiomSet.filter fun a => nativeProofAxiom a || compilerAxioms.contains a
+    if !compiler.isEmpty then
+      some (finding .compilerTrusting d s!"depends on the native-proof axioms {compiler}")
+    else none
+
+/-- RG1005: a constant of a claimed module depends on an axiom that a profile of its module does not
+admit. -/
+def rg1005 : List Finding :=
+  t.claimed.flatMap fun d =>
+    (t.claimsFor d.module).filterMap fun (p, _) =>
+      let excess := d.axiomSet.filter (!t.admits p ·)
+      if !excess.isEmpty then
+        some (finding .profileExceeded d s!"depends on {excess}, outside its profile")
+      else none
+
+/-- RG1006: a constant of a claimed module is unsafe or partial, and is no recursion helper. -/
+def rg1006 : List Finding :=
+  t.claimed.filterMap fun d =>
+    if (d.isUnsafe || d.isPartial) && !t.recursionHelper d then
+      some (finding .escapeHatch d s!"is {if d.isUnsafe then "unsafe" else "partial"}")
+    else none
+
+/-- Whether a contract is a decision contract. -/
+def isDecision (k : Contract) : Bool := k.kind != .other
+
+/-- RG1007: an executable contract of a claimed module fixes an argument of its implementation,
+names an implementation that is not safe and computable, or, as a decision contract, states its
+specification through its implementation. -/
+def rg1007 (contracts : List Contract) : List Finding :=
+  contracts.filterMap fun k =>
+    let thm := theoremFinding t .executableContract k.theorem_
+    if !t.claimedName k.theorem_ then none
+    else if k.fixedArgs != 0 then some (thm s!"fixes {k.fixedArgs} arguments of {k.impl}")
+    else if !t.safeComputable k.impl then
+      some (thm s!"names {k.impl}, which is not a safe, total, computable constant")
+    else if isDecision k && (t.mentions k.spec).contains k.impl then
+      some (thm s!"states its specification through its implementation {k.impl}")
+    else none
+
+/-- RG1008: a registered decision function of a claimed module has no decision contract in a claimed
+module and no `Decidable` result type. -/
+def rg1008 (contracts : List Contract) (decisions decidableResults : List Name) : List Finding :=
+  decisions.filterMap fun f =>
+    if t.claimedName f && !decidableResults.contains f &&
+        !contracts.any (fun k => k.impl == f && isDecision k && t.claimedName k.theorem_) then
+      some (theoremFinding t .decisionContract f
+        "is registered as a decision and has no decision contract in a claimed module")
+    else none
+
+/-- RG1009: the specification of a decision contract of a claimed module and its implementation or
+acceptance predicate reach one Boolean test outside the toolchain. -/
+def rg1009 (contracts : List Contract) : List Finding :=
+  contracts.filterMap fun k =>
+    if t.claimedName k.theorem_ && isDecision k then
+      let implementation := t.mentions (k.impl :: k.accept)
+      let shared := (t.mentions k.spec).toList.filter
+        fun c => t.projectTest c && implementation.contains c
+      if !shared.isEmpty then
+        some (theoremFinding t .sharedTest k.theorem_
+          s!"its specification and its implementation or acceptance share the tests {shared}")
+      else none
+    else none
+
+end Tables
+
+namespace Input
+
+variable (i : Input)
+
+/-- Whether this environment loads a module of target `x`: for an executable, its root module, so
+that the `main` of the environment is the `main` that Lake links for it. -/
+def loadsTarget (x : Target) : Bool := x.modules.any i.loads.contains
+
+/-- The profile and execution mode of each claim of each executable whose root this environment
+loads. -/
+def rootClaims : List (Profile × Execution) :=
+  i.targets.flatMap fun x =>
+    if x.kind == .executable && i.loadsTarget x then
+      i.manifest.filterMap fun e =>
+        if e.target == x.name then
+          match e.classification with
+          | .claimed p m => some (p, m)
+          | .excluded => none
+        else none
+    else []
+
+/-- RG3001, a missing root: a claimed executable whose root this environment loads has no `main`. -/
+def missingRoots (t : Tables) : List Finding :=
+  if t.index.contains `main then []
+  else i.targets.filterMap fun x =>
+    if x.kind == .executable && i.claimedTarget x.name && i.loadsTarget x then
+      some { rule := .executionUnresolved, subject := x.name, module := none
+             detail := "is a claimed executable whose environment has no `main`" }
+    else none
+
+/-- The execution closure of the executable of this environment, when it has a claimed root: the
+constants that the compiled code of `main`, and of each constant that it reaches, runs. -/
+def closure (t : Tables) : Std.HashSet Name :=
+  if !i.rootClaims.isEmpty && t.index.contains `main then
+    reach t.compiledOf t.compiledWeight [`main]
+  else {}
+
+/-- RG3001: the execution closure of a claimed executable reaches a name that the input does not
+resolve or a constant on a cycle of departures, or the executable has no root. -/
+def rg3001 (t : Tables) : List Finding :=
+  i.missingRoots t ++ (i.closure t).toList.filterMap fun c =>
+    match t.index[c]? with
+    | none => some {
+        rule := .executionUnresolved, subject := c, module := none
+        detail := "is run by the compiled code of an executable and is no constant" }
+    | some d =>
+      if (reach t.departsOf t.departsWeight (t.departsOf c)).contains c then
+        some (finding .executionUnresolved d "is on a cycle of departures")
+      else none
+
+/-- The departure `x` has a correspondence under profile `p`: a safe theorem, each of whose axioms
+`p` admits, states it. -/
+def corresponds (t : Tables) (p : Profile) (x : Departure) : Bool :=
+  i.proved.any fun q =>
+    q.reference == x.reference && q.runs == x.runs &&
+      (t.index[q.theorem_]?).any fun d =>
+        !d.isUnsafe && !d.isPartial && d.axiomSet.all (t.admits p)
+
+/-- RG3002: under a checked execution claim, the closure reaches code outside the toolchain that no
+theorem can bind, or a boundary with no correspondence that the claim's profile admits. -/
+def rg3002 (t : Tables) : List Finding :=
+  (i.rootClaims.filter (·.2 == .checked)).flatMap fun (p, _) =>
+    (i.closure t).toList.filterMap fun c =>
+      (t.index[c]?).bind fun d =>
+        if !d.inToolchain && t.unbindable d then
+          some (finding .executionBoundary d "is code that no theorem can bind")
+        else
+          match d.departures.filter fun x => !x.inToolchain && !i.corresponds t p x with
+          | [] => none
+          | x :: _ => some (finding .executionBoundary d
+              s!"runs {x.runs} in place of {x.reference} with no admitted correspondence")
 
 /-- The library targets that contain module `m`. -/
 def librariesOf (m : Name) : List Target :=
   i.targets.filter fun t => t.kind == .library && t.modules.contains m
 
-/-- RG2002: it reads only Lake's targets and the claim. -/
-def manifestFindings : List Finding := Id.run do
-  let mut out := []
-  let project (rule : RuleId) (subject : Name) (detail : String) : Finding :=
-    { rule, subject, module := none, detail }
-  -- RG2002
-  let names := i.targets.map (·.name)
-  for t in i.targets do
-    let n := (i.manifest.filter (·.target == t.name)).length
-    if n != 1 then
-      out := out ++ [project .configuration t.name s!"the claim classifies it {n} times"]
-  for e in i.manifest do
-    unless names.contains e.target do
-      out := out ++ [project .configuration e.target "the claim names a target Lake does not have"]
-  for x in i.targets do
-    if x.kind == .executable then
-      let mine := i.manifest.filter (·.target == x.name)
-      for l in i.targets do
-        if l.kind == .library && x.modules.any (l.modules.contains ·) then
-          let theirs := i.manifest.filter (·.target == l.name)
-          if mine.any fun a => theirs.any fun b => a.classification != b.classification then
-            out := out ++ [project .configuration x.name
-              s!"classified differently from the library {l.name} that contains its root"]
+/-- A finding whose subject is a target. -/
+def project (rule : RuleId) (subject : Name) (detail : String) : Finding :=
+  { rule, subject, module := none, detail }
+
+/-- The number of entries of the claim that name target `t`. -/
+def entriesFor (t : Name) : Nat := (i.manifest.filter (·.target == t)).length
+
+/-- RG2002: the claim does not classify a target exactly once, names a target Lake does not have,
+classifies an executable differently from a library that contains its root, or claims a target that
+is not a default target. -/
+def manifestFindings : List Finding :=
+  (i.targets.filterMap fun t =>
+    if i.entriesFor t.name != 1 then
+      some (project .configuration t.name s!"the claim classifies it {i.entriesFor t.name} times")
+    else none) ++
+  (i.manifest.filterMap fun e =>
+    if !(i.targets.map (·.name)).contains e.target then
+      some (project .configuration e.target "the claim names a target Lake does not have")
+    else none) ++
+  (i.targets.filterMap fun x =>
+    if x.kind == .executable && i.targets.any fun l =>
+        l.kind == .library && x.modules.any l.modules.contains &&
+          i.manifest.any fun a => a.target == x.name &&
+            i.manifest.any fun b => b.target == l.name && a.classification != b.classification then
+      some (project .configuration x.name
+        "classified differently from a library that contains its root")
+    else none) ++
+  (i.targets.filterMap fun x =>
     if i.claimedTarget x.name && !x.isDefault then
-      out := out ++ [project .configuration x.name "is claimed but is not a default target"]
-  return out
+      some (project .configuration x.name "is claimed but is not a default target")
+    else none)
 
 /-- The RG2006 findings of the target `t`, whichever classification it has: an option of automatic
 implicits that it does not set to `false`, one that it sets to another value, an option outside
@@ -310,7 +424,7 @@ def extensionFindings (allowed : Name → Bool) : List Finding :=
 and the root of an executable, and no claimed module imports a module of an excluded target. -/
 def coverageFindings : List Finding :=
   i.modules.flatMap fun r =>
-    let libs := librariesOf i r.name
+    let libs := i.librariesOf r.name
     let covered := libs.length == 1 || (libs.isEmpty &&
       i.targets.any fun t => t.kind == .executable && t.modules.contains r.name)
     (if covered then [] else [{
@@ -327,17 +441,38 @@ claim, so a project with no build has them too (`regula doctor`). -/
 def configurationFindings (allowed : Name → Bool) : List Finding :=
   i.manifestFindings ++ i.optionFindings allowed
 
-/-- RG2002, RG2004, RG2006 and RG2007, with the allowlists `a`. -/
-def projectFindings (a : Allowlists) : List Finding :=
-  i.configurationFindings a.options ++ i.coverageFindings ++ i.extensionFindings a.extensions
-
-end Input
+/-- The findings of one rule, matched exhaustively over the closed type of the rules. The rules that
+read no constant and the ones that the specification does not keep have none here: RG2001 is the
+admission (`Bundle.refusal?`), RG2003 and RG2005 are Lean's (`lake build --wfail`, `lake check`), and
+RG4001 to RG4004 and RG5001 to RG5003 are retired to written guidance. -/
+def check (a : Allowlists) (t : Tables) : RuleId → List Finding
+  | .projectAxiom => t.rg1001
+  | .proofHole => t.rg1002
+  | .unknownAxiom => t.rg1003
+  | .compilerTrusting => t.rg1004
+  | .profileExceeded => t.rg1005
+  | .escapeHatch => t.rg1006
+  | .executableContract => t.rg1007 i.contracts
+  | .decisionContract => t.rg1008 i.contracts i.decisions i.decidableResults
+  | .sharedTest => t.rg1009 i.contracts
+  | .environment => []
+  | .configuration => i.manifestFindings
+  | .sourceBuild => []
+  | .coverage => i.coverageFindings
+  | .admission => []
+  | .communityConfiguration => i.optionFindings a.options
+  | .closedSubset => i.extensionFindings a.extensions
+  | .executionUnresolved => i.rg3001 t
+  | .executionBoundary => i.rg3002 t
+  | .fenceStructure | .positiveExample | .negativeExample | .trustedExample
+  | .moduleDocumentation | .materialDocumentation | .materialIntent => []
 
 /-- Every finding of one environment, with the allowlists `a`. -/
-def Input.findings (a : Allowlists) (i : Input) : Except String (List Finding) := do
-  let idx := i.index
-  return (← i.declarationFindings idx) ++ (← i.contractFindings idx) ++
-    (← i.executionFindings idx) ++ i.projectFindings a
+def findings (a : Allowlists) : List Finding :=
+  let t := i.tables
+  RuleId.all.flatMap (i.check a t)
+
+end Input
 
 /-- The findings of a bundle, each once, by rule, subject and module, in the order found. -/
 def dedupe (fs : List Finding) : List Finding :=
@@ -345,17 +480,14 @@ def dedupe (fs : List Finding) : List Finding :=
     let key := s!"{f.rule.spelling}|{f.subject}|{f.module}|{f.detail}"
     if seen.contains key then (seen, acc) else (seen.insert key, f :: acc)).2.reverse
 
-/-- The verdict of a run and its findings, or the reason the run is incomplete. A refused input,
-a search that exhausted its budget, or a constant without the axiom set a rule reads is incomplete;
-a well-formed input passes exactly when no rule reports a subject. -/
+/-- The verdict of a run and its findings, or the reason the run is incomplete. An input that the
+admission refuses is incomplete; a well-formed input passes exactly when no rule reports a
+subject. -/
 def run (a : Allowlists) (b : Bundle) : Verdict × List Finding × Option String :=
   match b.refusal? with
   | some why => (.incomplete, [], some why)
   | none =>
-    match b.envs.mapM (Input.findings a) with
-    | .error why => (.incomplete, [], some why)
-    | .ok fs =>
-      let fs := dedupe fs.flatten
-      (if fs.isEmpty then .pass else .fail, fs, none)
+    let fs := dedupe (b.envs.flatMap (·.findings a))
+    (if fs.isEmpty then .pass else .fail, fs, none)
 
 end Regula.Closed
