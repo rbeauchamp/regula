@@ -57,7 +57,7 @@ the code of every command of Lake. This module imports only Lake's load of a pac
 (`Lake.Load.Package`), the path operations that it uses too (`Lake.Util.IO`) and the errors of
 Lake's commands (`Lake.CLI.Error`). It imports each of them a second time with `meta`, because
 `lean --run` runs the program in the process that elaborates it: in a `module` file, only a module
-imported with `meta` has its initializers run (`runInitAttrForMod`,
+imported with `meta` has its runtime initializers run (`runInitAttrForMod`,
 `Lean/Compiler/InitAttr.lean:160-168`), and Lake's native code from the library that `--load-dynlib`
 loads does not work before that. (Observed with Lean v4.35.0: without `meta` the process ended with
 signal 11.)

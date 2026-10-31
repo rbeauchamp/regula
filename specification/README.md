@@ -54,7 +54,7 @@ The closed input is the type `Input` in [`RegulaSpecification/Input.lean`](Regul
 | --- | --- |
 | `profile`, the profile that the project states | The one argument of the lint driver, `lintDriverArgs` of the project's Lake configuration |
 | `modules`, the claimed modules | Lake's load gives the modules of the default targets of the root package; each loaded module whose `.olean` lies in the root package's library directory is claimed |
-| `decls`, each constant of the environment | `Lean.importModules` with `loadExts := false` |
+| `decls`, each constant of the environment | `Lean.importModules` with `loadExts := false`, at the level `.private` |
 | `loads`, the modules that the environment imports | The header of that environment |
 
 The input has no source text, message, compiled code, option or build log. A rule does not decide what it cannot read in this input.
@@ -158,7 +158,7 @@ Each Lean file of the root package is a `module` file. An importer that is a `mo
 
 The root package has one `@[expose]`, on `Regula.ExecutableContract.run`. The exported theorem `ExecutableContract.run_eq` is proved by `rfl` over that body, and without the attribute it does not build. **Measured** on 2026-10-31. Its other visible bodies are instances: those that `deriving` makes and the loader's local `MonadEnv` instance. It has no `abbrev`.
 
-`Regula.ProgramCheck.TestListing` proves two configurations equal by reduction, so it uses `import all` on the three modules whose unexposed bodies it reads: `Regula.TestListing`, `Lake.CLI.Main` and `Init.System.ST`. `Regula.TestListing` imports Lake a second time with `meta`, because `lean --run` runs it in the process that elaborates it, and only a module imported with `meta` has its initializers run there (`Lean/Compiler/InitAttr.lean:160-168`). **Measured** on 2026-10-31: without `meta`, the process ended with signal 11.
+`Regula.ProgramCheck.TestListing` proves two configurations equal by reduction, so it uses `import all` on the three modules whose unexposed bodies it reads: `Regula.TestListing`, `Lake.CLI.Main` and `Init.System.ST`. `Regula.TestListing` imports Lake a second time with `meta`, because `lean --run` runs it in the process that elaborates it, and only a module imported with `meta` has its runtime initializers run there (`Lean/Compiler/InitAttr.lean:160-168`). **Measured** on 2026-10-31: without `meta`, the process ended with signal 11.
 
 In this package, only `RegulaSpecification.Input` is a `module` file. **The other 14 files cannot be one yet.** A `module` file cannot import a file that is not one (`Lean/Environment.lean:2120`), and no file of lean-intent at the commit that `lakefile.toml` names is one. **Measured** on 2026-10-31 with the same parser, over its tracked files. `RegulaSpecification.RuleRecord` imports three of lean-intent's modules, and each of the other files imports `RuleRecord` directly or through another of them: `Foundation`, `Safety`, `Gate`, `Witnesses`, `CasesDeclarations`, `CasesFoundation`, `CasesGate`, `Proofs.Link`, `Proofs.Tables`, `Proofs.Foundation`, `Proofs.Records`, `Proofs.Verdict` and the root `RegulaSpecification`. They can follow when lean-intent has migrated.
 
@@ -171,7 +171,6 @@ Each of these was decided on the owner's behalf by the owner's delegated agents,
 - The root package does not set Lake's `requiresModuleSystem`. Lake would then warn on each file that is not a `module` file and imports one (`Lake/Build/Module.lean:416-424`), so the proofs here and another project that imports `Regula.Contract` would need `allowNonModules`, and a file that imports nothing of the package would still not be seen. A `module` file that imports a file that is not one is already refused by Lean, and a file that stops being a `module` file is cheap to correct.
 - The root package does not set `allowImportAll`, because no other package's file uses `import all` on one of its modules at this revision.
 - The specification's files are not split so that the parts without a lean-intent record could become `module` files now. No importer of those parts is a `module` file, so a split would move each statement and show nothing more, and the whole package can migrate at once.
-
 - The claim is the default targets of the root package, with each module of the root package that their imports reach. That is the set `lake check` replays, so a project cannot claim a target that `lake check` skips, and it needs no file of its own that classifies its targets. A target that is not a default target and that no default target imports is outside the claim, as it is for `lake build` and `lake check`. **Measured**: such a module with a `sorry` passes, and it fails once a default module imports it.
 - A project states one profile, for all of its claimed modules, and no profile is `incomplete`. A library that needs a stricter profile than another is a project of its own.
 - The input is one environment, because `lake check` already needs one, and it holds each constant of that environment, so the loader walks no graph and has no loop.
