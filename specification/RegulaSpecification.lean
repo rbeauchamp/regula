@@ -12,6 +12,7 @@ import RegulaSpecification.Proofs.Tables
 import RegulaSpecification.Proofs.Foundation
 import RegulaSpecification.Proofs.Records
 import RegulaSpecification.Proofs.Verdict
+import RegulaSpecification.Proofs.Load
 
 /-!
 # The specification of Regula

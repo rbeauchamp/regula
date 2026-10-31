@@ -9,10 +9,10 @@ modules that the build claims, and the profile that the project states. It carri
 message, compiled code, option or build log, so a rule cannot decide anything that is not here.
 
 The types follow `specification/RegulaSpecification/Input.lean`, and `Input.refusal?` decides that
-module's admission (`Input.WellFormed`) and the presence of each axiom set that a rule reads.
-`specification/RegulaSpecification/Proofs/` proves each rule function of `Regula.Rules` against the
-specification's violation predicate, and this admission against its statement. That the shell
-(`Regula.Load`) fills each field through the interface its docstring names is not yet proved.
+module's admission (`Input.WellFormed`). `specification/RegulaSpecification/Proofs/` proves each
+rule function of `Regula.Rules` against the specification's violation predicate, this admission
+against its statement, and each field against the environment that `Regula.Load` reads it from.
+That Lean's and Lake's interfaces report the build is what the specification's trusted base lists.
 -/
 
 namespace Regula.Closed
@@ -51,14 +51,11 @@ structure Decl where
   isUnsafe : Bool
   /-- `ConstantInfo.isPartial`. -/
   isPartial : Bool
-  /-- The constants its type and value mention, the ones `Lean.collectAxioms` walks. -/
+  /-- The constants its type and value mention, the fields that `Lean.collectAxioms` walks. -/
   uses : List Name
   /-- The constants its value mentions, for a definition, theorem or opaque constant, and nothing
   for any other constant. -/
   valueUses : List Name
-  /-- Its transitive axiom set, as `Lean.collectAxioms` computes it from the loaded constants, for
-  each constant of a claimed module; `none` for every other constant. -/
-  axioms : Option (List Name)
   /-- The constant `@[implemented_by]` names, if any (`Lean.Compiler.getImplementedBy?`). -/
   implementedBy : Option Name
   /-- Whether it is `@[extern]` (`Lean.isExtern`). -/
@@ -117,16 +114,9 @@ def unloaded? : Option Name :=
   let loaded := setOf i.loads
   i.modules.find? (!loaded.contains ·)
 
-/-- The first constant of a claimed module without its axiom set. The rules RG1002 to RG1005 read
-these sets, so a set that the loader did not compute is a failure, never an empty set. -/
-def axiomsMissing? : Option Name :=
-  let claimed := setOf i.modules
-  (i.decls.find? fun d => d.axioms.isNone && claimed.contains d.module).map (·.name)
-
 /-- Why the input does not have the closed form (`Input.WellFormed` of the specification), or
 `none`: each name is the name of one constant, each mentioned constant is a constant of the input,
-at least one module is claimed, each claimed module is loaded, and each constant of a claimed module
-has its axiom set. -/
+at least one module is claimed, and each claimed module is loaded. -/
 def refusal? : Option String :=
   match duplicate? {} (i.decls.map (·.name)) with
   | some n => some s!"the constant {n} occurs twice in one environment"
@@ -138,10 +128,7 @@ def refusal? : Option String :=
       else
         match i.unloaded? with
         | some m => some s!"the claimed module {m} is not loaded"
-        | none =>
-          match i.axiomsMissing? with
-          | some n => some s!"the loader computed no axiom set of {n}"
-          | none => none
+        | none => none
 
 end Input
 

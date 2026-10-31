@@ -1,4 +1,5 @@
 import Regula.Input
+import Regula.Reach
 import Regula.RuleId
 import Regula.Verdict
 
@@ -11,9 +12,9 @@ RG1005) and `Safety.lean` (RG1006). Each reads only fields of the input.
 `specification/RegulaSpecification/Proofs/` proves of each that it reports a subject exactly when
 the violation predicate of the specification holds of it.
 
-The rules read the axiom set of a constant from `Decl.axioms`, which the loader computes with
-`Lean.collectAxioms`. An input without the set of a claimed constant is refused before any rule runs
-(`Input.refusal?`), so a missing set is never read as an empty one.
+The rules compute the axiom set of a constant from the input itself: the constants that each
+constant mentions and the kind of each (`Tables.axiomSet`). No field holds a set, so no set can be
+missing, and `Link.axiomSet_iff` states what it holds with no hypothesis about a reader.
 
 `run` gives the verdict: an input that the admission refuses is `incomplete`, and a well-formed one
 passes exactly when no rule reports a subject.
@@ -63,23 +64,51 @@ structure Tables where
   index : Std.HashMap Name Decl
   /-- The constants of claimed modules. -/
   claimed : List Decl
+  /-- Each axiom of the input, with the constants that reach it through the constants each mentions
+  (`axiomSet`). -/
+  axiomReach : List (Name × Std.HashSet Name)
+
+namespace Input
+
+variable (i : Input)
+
+/-- The constants of claimed modules. -/
+def claimedDecls : List Decl :=
+  let claimed := setOf i.modules
+  i.decls.filter (claimed.contains ·.module)
+
+/-- The constants that mention each constant. -/
+def mentionedBy : Std.HashMap Name (List Name) :=
+  i.decls.foldl (init := {}) fun m d =>
+    d.uses.foldl (init := m) fun m u => m.insert u (d.name :: m.getD u [])
+
+/-- Each axiom of the input, with the constants that reach it: the search over the mentions, read
+backwards from the axiom. The search costs what the graph of the input costs, once for each axiom.
+-/
+def axiomReach : List (Name × Std.HashSet Name) :=
+  let callers := i.mentionedBy
+  let weight := (callers.keys.map fun n => (callers.getD n []).length).sum
+  (i.decls.filter (·.kind == .axiom)).map fun a =>
+    (a.name, reach (callers.getD · []) weight [a.name])
 
 /-- The tables of the input. -/
-def Input.tables (i : Input) : Tables :=
-  let claimed := setOf i.modules
-  { profile := i.profile, index := i.index, claimed := i.decls.filter (claimed.contains ·.module) }
+def tables : Tables :=
+  { profile := i.profile, index := i.index, claimed := i.claimedDecls,
+    axiomReach := i.axiomReach }
+
+end Input
 
 /-- A finding whose subject is the constant `d`. -/
 def finding (rule : RuleId) (d : Decl) (detail : String) : Finding :=
   { rule, subject := d.name, module := d.module, detail }
 
-/-- The axiom set of constant `d` (`Input.AxiomOf`), as the loader computed it. The admission
-refuses an input without the set of a claimed constant (`Input.axiomsMissing?`). -/
-def Decl.axiomSet (d : Decl) : List Name := d.axioms.getD []
-
 namespace Tables
 
 variable (t : Tables)
+
+/-- The axiom set of constant `c` (`Input.AxiomOf`): each axiom of the input that `c` reaches. -/
+def axiomSet (c : Name) : List Name :=
+  t.axiomReach.filterMap fun (a, reached) => if reached.contains c then some a else none
 
 /-- `a` is one of the three logical axioms and is the toolchain's own constant of that name. -/
 def known (a : Name) : Bool :=
@@ -118,14 +147,16 @@ def rg1001 : List Finding :=
 /-- RG1002: a constant of a claimed module depends on `sorryAx`. -/
 def rg1002 : List Finding :=
   t.claimed.filterMap fun d =>
-    if d.axiomSet.contains ``sorryAx then some (finding .proofHole d "depends on sorryAx") else none
+    if (t.axiomSet d.name).contains ``sorryAx then
+      some (finding .proofHole d "depends on sorryAx")
+    else none
 
 /-- RG1003: a constant of a claimed module depends on an axiom that is not known, and that RG1002
 and RG1004 do not name. -/
 def rg1003 : List Finding :=
   t.claimed.filterMap fun d =>
-    let unknown := d.axiomSet.filter fun a => !t.known a && a != ``sorryAx && !nativeProofAxiom a &&
-      !compilerAxioms.contains a
+    let unknown := (t.axiomSet d.name).filter fun a =>
+      !t.known a && a != ``sorryAx && !nativeProofAxiom a && !compilerAxioms.contains a
     if !unknown.isEmpty then
       some (finding .unknownAxiom d s!"depends on the unknown axioms {unknown}")
     else none
@@ -134,7 +165,8 @@ def rg1003 : List Finding :=
 the kernel trusts the compiler. -/
 def rg1004 : List Finding :=
   t.claimed.filterMap fun d =>
-    let compiler := d.axiomSet.filter fun a => nativeProofAxiom a || compilerAxioms.contains a
+    let compiler := (t.axiomSet d.name).filter fun a =>
+      nativeProofAxiom a || compilerAxioms.contains a
     if !compiler.isEmpty then
       some (finding .nativeProof d s!"depends on the native-proof axioms {compiler}")
     else none
@@ -143,7 +175,7 @@ def rg1004 : List Finding :=
 admit. -/
 def rg1005 : List Finding :=
   t.claimed.filterMap fun d =>
-    let excess := d.axiomSet.filter (!t.admits t.profile ·)
+    let excess := (t.axiomSet d.name).filter (!t.admits t.profile ·)
     if !excess.isEmpty then
       some (finding .profileExceeded d s!"depends on {excess}, outside the profile")
     else none

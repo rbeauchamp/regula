@@ -67,8 +67,9 @@
 #
 # `test.instructions` keeps the claims that do need the checker run, because the setting alone does
 # not. The gate's own checker runs must pass, so they show only that Regula's own builds are
-# admitted, and never a refusal on a real build. The proofs are about the closed input, and
-# the loader, which fills it from a build, is trusted (specification/README.md, "The trusted base").
+# admitted, and never a refusal on a real build. The proofs reach the closed input and the pure
+# function that fills it from an environment, and what Lean and Lake report and the shell's effects
+# are trusted (specification/README.md, "The trusted base").
 # Pull request 508 changed that loader and reached `no-surface` with its refusal claims only read
 # from the source. The instructions make such a claim a run against a disposable project, reported
 # `pass` or `fail`, and no-mistakes rejects either result under a `no-surface` verdict. Prose steers
@@ -85,7 +86,7 @@ test:
   instructions: |
     Regula's product is its checker, `lake lint` on a project that sets `lintDriver := "regula/lint"`, so this repository does have a product to drive, whatever the note on `no-surface` says. The local gate has already run the checker on Regula's own build and on `specification/`. Those runs must pass, so they show only that those builds are admitted; they never show a report or a refusal on a build that violates a rule.
     Decide each claim by what it is about:
-    1. Drive a claim about what the checker reports, refuses or admits on a real build, when the change alters code that runs between a finished build and the report and no theorem reaches that path. The proofs in specification/RegulaSpecification/Proofs/ are about the rule functions and the verdict over the closed input, under the hypotheses each states; how the input is filled from a build (`Regula.Load`, `Regula.Workspace`) and how the shell prints the result and sets the exit code are not among them. Read a theorem's statement before relying on it. For example, a change to the loader that claims a build with some construct is refused needs a drive.
+    1. Drive a claim about what the checker reports, refuses or admits on a real build, when the change alters code that runs between a finished build and the report and no theorem reaches that path. The proofs in specification/RegulaSpecification/Proofs/ are about the rule functions and the verdict over the closed input, and the pure function that fills the input from an environment (`Regula.Load.Facts.input`), under the hypotheses each states; what Lean and Lake report, the effects of `Regula.Load` and `Regula.Workspace`, and how the shell prints the result and sets the exit code are not among them. Read a theorem's statement before relying on it. For example, a change to the loader that claims a build with some construct is refused needs a drive.
     2. Do not drive a claim that a theorem the gate builds settles, such as a change to a rule's function alone that its `exact` theorem still covers; a claim about what a document says; or a claim that removed code was run by no program, which the gate's build settles. Such a claim is machine-checked or argued, and a change with only such claims is `no-surface`.
     To drive: make the project of the section "Use it" of README.md in a new directory of your own under this worktree's Git-ignored `tmp/`, creating `tmp/` if it is absent, with its `require regula` at this worktree by `path` as an absolute path, then run `lake update`, `lake build` and `lake lint`. Use `lake build --wfail` when the construct gives no warning. `lake lint` exits 0 for pass, 1 for fail and 2 for incomplete. Make one build with the construct the claim is about and one that differs only by leaving it out, and report the exit code and the printed subjects of both as `pass` or `fail`. Remove the project afterwards: it is a run of the product for this claim, not a test to keep.
     If such a claim cannot be driven, report it `open` with what you tried and return `inconclusive`, not `no-surface`.

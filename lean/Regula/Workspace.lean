@@ -66,12 +66,8 @@ def loadInput (profile : Profile) : IO Input := do
   let roots ← defaultModules ws
   let env ← try importModules (roots.map ({ module := · })) {} (loadExts := false)
     catch e => refuse s!"Lean could not load the modules of the default targets: {e}"
-  let f ← facts env ws.lakeEnv.lean.leanLibDir ws.root.leanLibDir
-  for m in roots do
-    unless f.claimed.contains m do
-      refuse s!"the module {m} of a default target has its .olean outside the root package's build \
-        {ws.root.leanLibDir}"
-  match f.input profile with
+  let f := Facts.ofPlaces env ws.lakeEnv.lean.leanLibDir ws.root.leanLibDir (← places env)
+  match f.input roots.toList profile with
   | .ok input => return input
   | .error why => refuse why
 

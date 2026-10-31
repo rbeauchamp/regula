@@ -4,9 +4,8 @@ import RegulaSpecification.RuleRecord
 # The foundation profile: RG1001 to RG1005
 
 Each rule reads the constants of the loaded environment and their transitive axiom sets
-(`Input.AxiomOf`), which `Lean.collectAxioms` computes from the constants themselves when the
-environment is imported without extension states (see the specification's input section). The
-five rules refine one refusal: `rg1005_of_hole`, `rg1005_of_unknown` and `rg1005_of_compiler`
+(`Input.AxiomOf`), which the rules compute from the constants of the input (`Link.axiomSet_iff`).
+The five rules refine one refusal: `rg1005_of_hole`, `rg1005_of_unknown` and `rg1005_of_compiler`
 prove that each axiom RG1002 to RG1004 name also violates RG1005 for every profile, so a wrong
 choice among them changes the reported rule, never the verdict. RG1001 alone reports an axiom
 that nothing uses.

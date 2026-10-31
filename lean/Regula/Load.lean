@@ -1,16 +1,17 @@
 import Lean.Compiler.ExternAttr
 import Lean.Compiler.ImplementedByAttr
-import Lean.Util.CollectAxioms
 import Lean.Util.Path
-import Regula.Input
+import Regula.Rules
 
 /-!
 # The loader of the closed input
 
 What reads a loaded environment into the closed input (`Regula.Closed.Input`), and refuses, as an
 error that makes the run `incomplete` (RG2001), what it cannot read. `Regula.Workspace` holds the
-part that calls Lake and imports the environment. No theorem yet states that this module fills the
-input faithfully: the specification's trusted base lists that step.
+part that calls Lake and imports the environment. `Facts.input` is a pure function of the
+environment, and `specification/RegulaSpecification/Proofs/Load.lean` states what it gives in terms
+of the environment. What that leaves assumed about Lean and Lake is in the specification's trusted
+base.
 
 What it reads, and through what:
 
@@ -18,9 +19,8 @@ What it reads, and through what:
   false`, so no extension state is built and no initializer of a loaded module runs.
   `getImplementedBy?` and `isExtern` read the module entries of an extension (`getModuleEntries`),
   which `importModules` sets whatever `loadExts` is, and no extension's built state.
-- The axiom sets: `Lean.collectAxioms` of each constant of a claimed module (`axiomsIn`). Lean's
-  recorded table of each module's axioms is an extension's state, which `loadExts := false` leaves
-  empty, so the axioms come from the constants.
+- Each claimed module's own constants: `header.moduleData`, which Lean keeps as each `.olean` holds
+  them, so that a constant that Lean's import replaced is read too (`Facts.unread?`).
 - The place of each module: where `Lean.findOLean` finds its `.olean` on Lake's search path. A
   claimed module lies below the root package's library directory; a constant of the toolchain is one
   whose module lies below the toolchain's library directory.
@@ -35,9 +35,12 @@ open Regula.Closed
 def refuse {α : Type} (why : String) : IO α :=
   throw <| IO.userError why
 
+/-- The components of a path, as Lean normalizes it. -/
+def parts (p : FilePath) : List String :=
+  p.normalize.components.filter (!·.isEmpty)
+
 /-- Whether `path` lies below the directory `dir`, by their components. -/
 def below (dir path : FilePath) : Bool :=
-  let parts (p : FilePath) := p.normalize.components.filter (!·.isEmpty)
   (parts dir).isPrefixOf (parts path) && parts dir != parts path
 
 /-- The kind of a constant: its `ConstantInfo` constructor. -/
@@ -51,9 +54,10 @@ def kindOf : ConstantInfo → Kind
   | .ctorInfo _ => .constructor
   | .recInfo _ => .recursor
 
-/-- The constants a constant mentions, as `Lean.collectAxioms` walks them: the type and value of a
-definition, theorem or opaque constant, the type of an axiom, constructor or recursor, the type and
-constructors of an inductive type, and nothing of a quotient (`Lean/Util/CollectAxioms.lean`). -/
+/-- The constants a constant mentions, the fields that `Lean.collectAxioms` walks: the type and
+value of a definition, theorem or opaque constant, the type of an axiom, constructor or recursor,
+the type and constructors of an inductive type, and nothing of a quotient
+(`Lean/Util/CollectAxioms.lean`). -/
 def usesOf (info : ConstantInfo) : Array Name :=
   let all := match info with
     | .axiomInfo v => v.type.getUsedConstants
@@ -83,16 +87,19 @@ structure Facts where
   /-- The claimed modules: those that lie in the root package's library directory. -/
   claimed : List Name
 
-/-- The facts of `env`: where each module's `.olean` lies. -/
-def facts (env : Environment) (toolchainDir rootDir : FilePath) : IO Facts := do
-  let mut inToolchain := #[]
-  let mut claimed := []
-  for m in env.header.moduleNames do
-    let olean ← try findOLean m catch e => refuse s!"the module {m} was loaded and has no \
-      .olean on Lake's search path: {e}"
-    inToolchain := inToolchain.push (below toolchainDir olean)
-    if below rootDir olean then claimed := m :: claimed
-  return { env, inToolchain, claimed := claimed.reverse }
+/-- The facts of `env`, from where the `.olean` of each of its modules lies, in the order of its
+header. -/
+def Facts.ofPlaces (env : Environment) (toolchainDir rootDir : FilePath) (places : Array FilePath) :
+    Facts where
+  env
+  inToolchain := places.map (below toolchainDir)
+  claimed := ((env.header.moduleNames.zip places).toList.filter (below rootDir ·.2)).map (·.1)
+
+/-- Where the `.olean` of each module of `env` lies, in the order of its header. -/
+def places (env : Environment) : IO (Array FilePath) :=
+  env.header.moduleNames.mapM fun m =>
+    try findOLean m catch e => refuse s!"the module {m} was loaded and has no .olean on Lake's \
+      search path: {e}"
 
 /-- The module whose `.olean` holds constant `n`. -/
 def Facts.moduleOf (f : Facts) (n : Name) : Option Name :=
@@ -102,55 +109,80 @@ def Facts.moduleOf (f : Facts) (n : Name) : Option Name :=
 def Facts.toolchain (f : Facts) (n : Name) : Bool :=
   ((f.env.getModuleIdxFor? n).bind fun idx => f.inToolchain[idx.toNat]?).getD false
 
+/-- The constant `n` of the module `module`, as the closed input states it. -/
+def Facts.declIn (f : Facts) (n module : Name) (info : ConstantInfo) : Decl where
+  name := n
+  module
+  kind := kindOf info
+  isUnsafe := info.isUnsafe
+  isPartial := info.isPartial
+  uses := (usesOf info).toList
+  valueUses := (valueUsesOf info).toList
+  implementedBy := Compiler.getImplementedBy? f.env n
+  isExtern := isExtern f.env n
+  inToolchain := f.toolchain n
+
 /-- The constant `n` as the closed input states it, or the refusal of a constant that no loaded
 module holds. -/
-def Facts.decl (f : Facts) (n : Name) (info : ConstantInfo) : Except String Decl := do
-  let some module := f.moduleOf n
-    | throw s!"the constant {n} was loaded, and Lean gives it no module"
-  return {
-    name := n, module, kind := kindOf info
-    isUnsafe := info.isUnsafe, isPartial := info.isPartial, uses := (usesOf info).toList
-    valueUses := (valueUsesOf info).toList
-    axioms := none
-    implementedBy := Compiler.getImplementedBy? f.env n
-    isExtern := isExtern f.env n
-    inToolchain := f.toolchain n }
+def Facts.decl (f : Facts) (n : Name) (info : ConstantInfo) : Except String Decl :=
+  match f.moduleOf n with
+  | some module => .ok (f.declIn n module info)
+  | none => .error s!"the constant {n} was loaded, and Lean gives it no module"
 
-/-- The environment as the one state that `Lean.collectAxioms` reads. -/
-local instance : MonadEnv (StateM Environment) where
-  getEnv := get
-  modifyEnv f := modify f
+/-- What the rules read of a constant: its kind, its two flags and what it mentions. -/
+def readOf (info : ConstantInfo) : Kind × Bool × Bool × List Name × List Name :=
+  (kindOf info, info.isUnsafe, info.isPartial, (usesOf info).toList, (valueUsesOf info).toList)
 
-/-- The transitive axiom set of constant `n` in `env`, as `Lean.collectAxioms` computes it, in the
-order it returns. The loader imports the environment with `loadExts := false`, so the table of
-axioms that Lean records for each module (`exportedAxiomsExt`) keeps its initial, empty state
-(`Lean/Environment.lean:2404` and `2428-2433` at v4.35.0), and `collectAxioms` walks the type and
-value of each constant that `n` reaches, as `usesOf` lists them (`Lean/Util/CollectAxioms.lean` at
-v4.35.0). Each call starts from an empty cache, so its answer for `n` holds every axiom that `n`
-reaches. -/
-def axiomsIn (env : Environment) (n : Name) : List Name :=
-  ((collectAxioms n : StateM Environment (Array Name)).run' env).toList
+/-- Each constant of each claimed module, with its module, as that module's `.olean` states it. -/
+def Facts.claimedConstants (f : Facts) : List (Name × Name × ConstantInfo) :=
+  ((f.env.header.moduleNames.zip f.env.header.moduleData).toList.filter
+    (f.claimed.contains ·.1)).flatMap fun (m, data) =>
+      (data.constNames.zip data.constants).toList.map fun (n, info) => (m, n, info)
 
-/-- The axiom set of each constant of `names` in `env` (`axiomsIn`). The walks are independent, so
-they run in tasks of Lean's task manager, a slice of `names` to each task. -/
-def axiomTable (env : Environment) (names : Array Name) : NameMap (List Name) :=
-  let slice := max 1 ((names.size + 63) / 64)
-  let tasks := (List.range ((names.size + slice - 1) / slice)).map fun k =>
-    Task.spawn fun _ => (names.extract (k * slice) ((k + 1) * slice)).map fun n =>
-      (n, axiomsIn env n)
-  tasks.foldl (fun table task => task.get.foldl (fun table (n, axs) => table.insert n axs) table)
-    {}
+/-- Whether the environment shows a constant of a claimed module to the rules: it holds a constant
+of that name of which the rules read the same, in a claimed module. Lean's import merges two
+theorems of one name and type, and a theorem with an axiom of that name and type: it keeps one, and gives the
+name the first module that holds it (`subsumesInfo` and `finalizeImport`,
+`Lean/Environment.lean:2269` and `2336-2345`). So a module's own constant can be one that no rule
+reads. -/
+def Facts.shown (f : Facts) (x : Name × Name × ConstantInfo) : Bool :=
+  match f.env.constants.map₁[x.2.1]?, f.moduleOf x.2.1 with
+  | some kept, some m => decide (readOf kept = readOf x.2.2) && f.claimed.contains m
+  | _, _ => false
 
-/-- The closed input of the environment that `f` describes, under the profile `profile`: each
-constant of the environment, with the axiom set of each constant of a claimed module. -/
-def Facts.input (f : Facts) (profile : Profile) : Except String Input := do
-  let claimed : NameSet := f.claimed.foldl (·.insert ·) {}
-  let all ← f.env.constants.map₁.toList.mapM fun (n, info) => f.decl n info
-  let names := all.filterMap fun d => if claimed.contains d.module then some d.name else none
-  let table := axiomTable f.env names.toArray
-  let decls := all.map fun d =>
-    { d with axioms := if claimed.contains d.module then table.find? d.name else none }
-  return { profile, modules := f.claimed, decls, loads := f.env.header.moduleNames.toList }
+/-- Whether a constant that the environment does not show is what the rules would admit: a theorem,
+with neither flag, whose value mentions no loop construct, and each constant it mentions is held and
+reaches only axioms that the profile admits. Lean regenerates a definition's equation lemmas in each
+module that needs them, so such a constant can be conforming. -/
+def fitsUnshown (t : Tables) (info : ConstantInfo) : Bool :=
+  kindOf info == .theorem && !info.isUnsafe && !info.isPartial &&
+    loopConstructs.all (!(valueUsesOf info).contains ·) &&
+    (usesOf info).all fun u => t.index.contains u && (t.axiomSet u).all (t.admits t.profile ·)
+
+/-- The first constant of a claimed module that the environment does not show and that
+`fitsUnshown` does not admit, with its module. -/
+def Facts.unread? (f : Facts) (i : Input) : Option (Name × Name) :=
+  match f.claimedConstants.filter (!f.shown ·) with
+  | [] => none
+  | unshown =>
+    let t := i.tables
+    (unshown.find? (!fitsUnshown t ·.2.2)).map fun x => (x.1, x.2.1)
+
+/-- The closed input of the environment that `f` describes, under the profile `profile`. It refuses
+a module of `roots`, the default targets, that `f` does not claim, and a constant that
+`Facts.unread?` gives. -/
+def Facts.input (f : Facts) (roots : List Name) (profile : Profile) : Except String Input :=
+  match roots.find? (!f.claimed.contains ·) with
+  | some m => .error s!"the module {m} of a default target has its .olean outside the root \
+      package's build"
+  | none =>
+    (f.env.constants.map₁.toList.mapM fun (n, info) => f.decl n info).bind fun decls =>
+      let i : Input :=
+        { profile, modules := f.claimed, decls, loads := f.env.header.moduleNames.toList }
+      match f.unread? i with
+      | some (m, n) => .error s!"the module {m} holds the constant {n}, which Lean's import \
+          replaced with another of that name, and this one is no theorem within the profile"
+      | none => .ok i
 
 /-- Whether `root` is the last workspace library directory before Lake's library in the received
 search path. Lake v4.35.0 `Package.lint` runs the driver without changing its directory

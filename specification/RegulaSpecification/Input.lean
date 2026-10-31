@@ -4,8 +4,8 @@
 Every rule of Regula reads one closed input: the constants Lean loads from a finished build, the
 modules that the build claims, and the profile that the project states. This module states that
 input as data, independently of the implementation. Each field says which interface of Lean or Lake
-gives it; that the shell reads the field through that interface is not a fact this module
-establishes, and the specification's trusted base lists it.
+gives it. `Proofs/Load.lean` states what the loader gives in terms of those interfaces, and the
+specification's trusted base lists what they report.
 
 The input carries no source text, no message, no compiled code, no option and no build log: what a
 rule cannot read here, it does not decide.
@@ -47,7 +47,7 @@ structure Decl where
   isUnsafe : Bool
   /-- `ConstantInfo.isPartial`. -/
   isPartial : Bool
-  /-- The constants its type and value mention, the ones `Lean.collectAxioms` walks: type and
+  /-- The constants its type and value mention, the fields that `Lean.collectAxioms` walks: type and
   value of a definition, theorem or opaque constant, the type of an axiom, constructor or
   recursor, and the type and constructors of an inductive type. -/
   uses : List Name

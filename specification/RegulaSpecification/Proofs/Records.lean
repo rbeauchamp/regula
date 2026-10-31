@@ -20,23 +20,10 @@ open LeanIntent
 
 namespace Link
 
-/-- The input of the checker made from a well-formed input of the specification is admitted. -/
-theorem admitted_ofSpec {s : Input} (h : s.WellFormed) : Admitted (ofSpec s) := by
-  refine ⟨by rw [toSpec_ofSpec]; exact h, ?_, ?_⟩
-  · intro d hd _
-    obtain ⟨x, -, rfl⟩ := List.mem_map.mp hd
-    rfl
-  · intro d hd as has a
-    obtain ⟨x, -, rfl⟩ := List.mem_map.mp hd
-    simp only [decl', Option.some.injEq] at has
-    subst has
-    rw [toSpec_ofSpec]
-    simp only [axiomList, List.mem_filter, decide_eq_true_eq]
-    constructor
-    · exact fun h => h.2
-    · intro hax
-      obtain ⟨y, hy, hn, -⟩ := hax.2
-      exact ⟨List.mem_map.mpr ⟨y, hy, hn⟩, hax⟩
+/-- The input of the checker made from a well-formed input of the specification has the closed
+form. -/
+theorem wf_ofSpec {s : Input} (h : s.WellFormed) : (toSpec (ofSpec s)).WellFormed := by
+  rwa [toSpec_ofSpec]
 
 /-- A function that meets a record reports the case that the record refuses, and it does not report
 the case that the record admits. -/
@@ -52,22 +39,22 @@ end Link
 open Link
 
 /-- The function of RG1001 over the specification's input. -/
-noncomputable def rg1001Checker : Checker Input Name := fun s =>
+def rg1001Checker : Checker Input Name := fun s =>
   (ofSpec s).tables.rg1001.map (·.subject)
 /-- The function of RG1002 over the specification's input. -/
-noncomputable def rg1002Checker : Checker Input Name := fun s =>
+def rg1002Checker : Checker Input Name := fun s =>
   (ofSpec s).tables.rg1002.map (·.subject)
 /-- The function of RG1003 over the specification's input. -/
-noncomputable def rg1003Checker : Checker Input Name := fun s =>
+def rg1003Checker : Checker Input Name := fun s =>
   (ofSpec s).tables.rg1003.map (·.subject)
 /-- The function of RG1004 over the specification's input. -/
-noncomputable def rg1004Checker : Checker Input Name := fun s =>
+def rg1004Checker : Checker Input Name := fun s =>
   (ofSpec s).tables.rg1004.map (·.subject)
 /-- The function of RG1005 over the specification's input. -/
-noncomputable def rg1005Checker : Checker Input Name := fun s =>
+def rg1005Checker : Checker Input Name := fun s =>
   (ofSpec s).tables.rg1005.map (·.subject)
 /-- The function of RG1006 over the specification's input. -/
-noncomputable def rg1006Checker : Checker Input Name := fun s =>
+def rg1006Checker : Checker Input Name := fun s =>
   (ofSpec s).tables.rg1006.map (·.subject)
 
 theorem rg1001_meets : rg1001.Meets rg1001Checker := by
@@ -80,36 +67,36 @@ theorem rg1001_meets : rg1001.Meets rg1001Checker := by
 theorem rg1002_meets : rg1002.Meets rg1002Checker := by
   unfold rg1002
   rw [meets_iff]
-  intro s h c
-  have := rg1002_exact (admitted_ofSpec h) c
+  intro s _ c
+  have := rg1002_exact (ofSpec s) c
   rwa [toSpec_ofSpec] at this
 
 theorem rg1003_meets : rg1003.Meets rg1003Checker := by
   unfold rg1003
   rw [meets_iff]
   intro s h c
-  have := rg1003_exact (admitted_ofSpec h) c
+  have := rg1003_exact (unique_of_wf (wf_ofSpec h)) c
   rwa [toSpec_ofSpec] at this
 
 theorem rg1004_meets : rg1004.Meets rg1004Checker := by
   unfold rg1004
   rw [meets_iff]
-  intro s h c
-  have := rg1004_exact (admitted_ofSpec h) c
+  intro s _ c
+  have := rg1004_exact (ofSpec s) c
   rwa [toSpec_ofSpec] at this
 
 theorem rg1005_meets : rg1005.Meets rg1005Checker := by
   unfold rg1005
   rw [meets_iff]
   intro s h c
-  have := rg1005_exact (admitted_ofSpec h) c
+  have := rg1005_exact (unique_of_wf (wf_ofSpec h)) c
   rwa [toSpec_ofSpec] at this
 
 theorem rg1006_meets : rg1006.Meets rg1006Checker := by
   unfold rg1006
   rw [meets_iff]
   intro s h c
-  have := rg1006_exact (unique_of_wf (admitted_ofSpec h).wf) c
+  have := rg1006_exact (unique_of_wf (wf_ofSpec h)) c
   rwa [toSpec_ofSpec] at this
 
 /-! ## The case each function must refuse, and the case it must admit -/
