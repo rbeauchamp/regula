@@ -65,7 +65,7 @@ package «regula» where
   -- Code here exists to machine-check claims, patterns, and examples from the standard.
   -- Build warnings are failures. No automatic implicits: every binder of an elaborated
   -- statement is written in its source (standard §7.1, RG2006). Every public definition has a
-  -- docstring (standard §6.7, RG2006).
+  -- docstring (standard §6.7, a setting that review checks and RG2006 admits by name).
   leanOptions := #[⟨`warningAsError, true⟩, ⟨`autoImplicit, false⟩,
     ⟨`relaxedAutoImplicit, false⟩, ⟨`linter.missingDocs, true⟩]
 

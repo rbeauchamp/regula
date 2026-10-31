@@ -6,7 +6,12 @@ public import RegulaPolicy.Compiler
 
 /-! # Community build configuration decision
 
-The decision behind RG2006 for one claimed Lake target (standard §7.1, §6.7 and §6.2): the
+The checker no longer runs this decision: it decides RG2006 with
+`Regula.Closed.Input.optionFindings` and `Regula.Allowlist.options`. `regula init` and
+`regula doctor` read this module's required options and option values (`RegulaCore.Setup`). In this
+module, RG2006 names the decision of the checker before #484.
+
+The decision for one claimed Lake target (standard §7.1, §6.7 and §6.2): the
 options Lake builds its modules with turn automatic implicits off, enable Lean's
 `linter.missingDocs` and, when the target imports Mathlib, enable Mathlib's standard linter set
 with the three Mathlib-repository linters §6.7 excludes turned off. Of these, Mathlib's header

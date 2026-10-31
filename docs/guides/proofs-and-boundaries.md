@@ -141,7 +141,7 @@ checker. `Regula.Cli.Setup.projectInput` gives their input with no build: the ta
 loads and the claim, read as the checker reads them (`Regula.Load.targets`, `Regula.Load.claim`).
 Over this input, `doctor` runs the decision of the checker,
 `Regula.Closed.Input.configurationFindings`, with the option allowlist of the checker
-(`Regula.Shell.allowed`). It prints each finding in the form of the checker, one line for each.
+(`Regula.Shell.allowlists`). It prints each finding in the form of the checker, one line for each.
 The required options of a setup issue include the options of Mathlib when the workspace contains
 Mathlib. `init` writes them under `weak.`, so a target that imports no Mathlib ignores them. By
 `conforming_of_mathlib`, a target that has the options of Mathlib also has the options without

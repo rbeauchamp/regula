@@ -8,7 +8,8 @@ open Lake DSL
 package «regula_audit» where
   lintDriver := "regula/lint"
   -- Build warnings are failures, no automatic implicits (standard §7.1, RG2006) and every
-  -- public definition has a docstring (standard §6.7, RG2006).
+  -- public definition has a docstring (standard §6.7, a setting that review checks and RG2006
+  -- admits by name).
   leanOptions := #[⟨`warningAsError, true⟩, ⟨`autoImplicit, false⟩,
     ⟨`relaxedAutoImplicit, false⟩, ⟨`linter.missingDocs, true⟩]
 

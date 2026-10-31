@@ -103,7 +103,7 @@ The merge gate of a change is the local gate, `lean --run lean/Regula/Diagnostic
 1. `lean --run lean/RegulaProvision.lean verso`, the provisioning of the pinned Verso.
 2. `lean --run lean/Regula/Release.lean unreleased` and `lean --run lean/Regula/Release.lean agree`, the release checks.
 3. `./scripts/verify.sh` and `./scripts/verify.sh docs`, the two acceptance steps. The first step runs the checker on the build of Regula itself.
-5. `lake build site AuditApp` and `lake build Audit` in `audit/`, the builds of the tools of the rule-reference site.
+4. `lake build site AuditApp` and `lake build Audit` in `audit/`, the builds of the tools of the rule-reference site.
 
 The gate leaves out `./scripts/verify.sh site`. That check reads the tags of the repository with no credentials, thus it fails while the repository is private. The `site` job of [`ci.yml`](../../.github/workflows/ci.yml) runs it on `main`.
 
