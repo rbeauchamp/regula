@@ -154,7 +154,8 @@ def w1006 : Witnessed Violates1006 where
     (uses_resolve (by simp [partialDecl, plain]))
   bad := `Good.p
   bad_violates := by
-    refine ⟨partialDecl, by simp [withDecls], rfl, claimed_withDecls, .inl ⟨Or.inr rfl, ?_⟩⟩
+    refine ⟨partialDecl, by simp [withDecls], rfl, claimed_withDecls,
+      .inl ⟨Or.inr (Or.inl rfl), ?_⟩⟩
     rintro ⟨-, -, -, -, b, -, hn, -⟩
     simp [partialDecl, plain] at hn
   admitted := base
@@ -172,6 +173,25 @@ theorem rg1006_adequate : O2 rg1006 ∧ O2Run rg1006 ∧ O3 rg1006 ∧ O4 rg1006
 
 theorem rg1006_noisy : ¬ rg1006.Meets w1006.support :=
   noisy_fails w1006 (List.mem_map_of_mem helper_mem)
+
+/-- A plain safe definition with the name of a helper of `Good.g`. -/
+def forgedDecl : Decl := plain `Good.g._unsafe_rec `Good .definition []
+
+/-- `base`, with `Good.g` and a plain definition with the name of its helper. -/
+def withForged : Input := withDecls [plain `Good.g `Good .definition [], forgedDecl]
+
+/-- A plain definition with the name of a helper violates RG1006, though it is safe and total by its
+flags and its base is a safe, total definition of its module. -/
+theorem rg1006_refuses_forged_name : Violates1006 withForged `Good.g._unsafe_rec := by
+  refine ⟨forgedDecl, by simp [withForged, withDecls], rfl, claimed_withDecls,
+    .inl ⟨Or.inr (Or.inr ⟨`Good.g, rfl⟩), ?_⟩⟩
+  rintro ⟨h, -⟩
+  simp [forgedDecl, plain] at h
+
+/-- That input is well-formed. -/
+theorem wf_withForged : withForged.WellFormed :=
+  wf_withDecls _ (by simp [base, baseDecls, plain, toolchain, helperDecl, fDecl, forgedDecl])
+    (uses_resolve (by simp [plain, forgedDecl]))
 
 /-- A safe definition of a claimed module whose value mentions the construct `l`. -/
 def loopUser (l : Name) : Decl := { plain `Good.l `Good .definition [l] with valueUses := [l] }
