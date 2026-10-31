@@ -1,5 +1,10 @@
-import Regula.TestListing
-import Lake.CLI.Main
+module
+
+public import Lake.CLI.Main
+public import Regula.TestListing
+import all Init.System.ST
+import all Lake.CLI.Main
+import all Regula.TestListing
 
 /-! # The load configuration of the test listing
 
@@ -7,7 +12,13 @@ The validation pipeline runs the listing of the tests that Lake knows for the pa
 `lean/Regula/TestListing.lean`, with `lean --run` before the package is built, so the listing
 imports only Lake. The listing makes its load configuration itself
 (`Regula.TestListing.loadConfig`), not with `Lake.LakeOptions.mkLoadConfig`, whose module links the
-code of every command of Lake. This module proves the two configurations equal (`loadConfig_eq`). -/
+code of every command of Lake. This module proves the two configurations equal (`loadConfig_eq`).
+
+The proof reduces both sides, so it reads bodies that those modules do not expose, and each
+`import all` above is what makes one visible: `loadConfig` of `Regula.TestListing`, `mkLoadConfig`
+and what it calls of `Lake.CLI.Main`, and the bind of `EST` (`Init.System.ST`), the monad of `EIO`. -/
+
+public section
 
 /-- The load configuration of the listing is the one that Lake's commands make from the options
 that hold only the installations that the listing found, with the same failures in the same order:

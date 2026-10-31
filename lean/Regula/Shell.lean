@@ -1,4 +1,6 @@
-import Regula.Rules
+module
+
+public import Regula.Rules
 
 /-!
 # The shell of the checker
@@ -14,6 +16,8 @@ The verdict is that of `Regula.Closed.run`: `pass` (exit 0) when the input has t
 no rule reports a subject, `fail` (exit 1) when a rule reports one, and `incomplete` (exit 2) when
 the build cannot be loaded or the input does not have the closed form (RG2001).
 -/
+
+public section
 
 namespace Regula.Shell
 

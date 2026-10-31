@@ -112,7 +112,7 @@ specification: `Decides spec spec id` holds of every specification that some inp
 and some input does not.
 -/
 
-@[expose] public section
+public section
 
 namespace Regula
 
@@ -126,8 +126,11 @@ structure ExecutableContract {α : Type u} (implementation : α)
   evidence : condition implementation
 
 /-- Consume the required proof and return exactly the registered implementation.
-The proof is erased by compilation; this does not certify the native runtime. -/
-@[inline] def ExecutableContract.run {α : Type u} {implementation : α}
+The proof is erased by compilation; this does not certify the native runtime.
+
+Its body is exposed because `run_eq`, an exported theorem proved by `rfl`, is the statement that
+importers rely on: reduction gives them the registered implementation itself. -/
+@[expose, inline] def ExecutableContract.run {α : Type u} {implementation : α}
     {condition : α → Prop} (_ : ExecutableContract implementation condition) : α :=
   implementation
 

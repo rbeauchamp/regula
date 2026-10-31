@@ -1,5 +1,7 @@
-import Lake.Load.Workspace
-import Regula.Load
+module
+
+public import Lake.Load.Workspace
+public import Regula.Load
 
 /-!
 # Lake's load of the workspace
@@ -13,6 +15,8 @@ open families of data types as an axiom, such as `Lake.DataType.bool` (`Lake/Uti
 profile admits, and an import of it puts them in the scope of `lake check`, which refuses them.
 Lake's load is trusted.
 -/
+
+public section
 
 namespace Regula.Load
 
@@ -64,7 +68,7 @@ def loadInput (profile : Profile) : IO Input := do
       workspace's directory"
   searchPathRef.set ws.augmentedLeanPath
   let roots ← defaultModules ws
-  let env ← try importModules (roots.map ({ module := · })) {} (loadExts := false)
+  let env ← try importModules (roots.map ({ module := · })) {} (loadExts := false) (level := .private)
     catch e => refuse s!"Lean could not load the modules of the default targets: {e}"
   let f ← facts env ws.lakeEnv.lean.leanLibDir ws.root.leanLibDir
   for m in roots do

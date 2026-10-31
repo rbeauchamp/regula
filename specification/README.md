@@ -54,7 +54,7 @@ The closed input is the type `Input` in [`RegulaSpecification/Input.lean`](Regul
 | --- | --- |
 | `profile`, the profile that the project states | The one argument of the lint driver, `lintDriverArgs` of the project's Lake configuration |
 | `modules`, the claimed modules | Lake's load gives the modules of the default targets of the root package; each loaded module whose `.olean` lies in the root package's library directory is claimed |
-| `decls`, each constant of the environment | `Lean.importModules` with `loadExts := false` |
+| `decls`, each constant of the environment | `Lean.importModules` with `loadExts := false`, at the level `.private` |
 | `loads`, the modules that the environment imports | The header of that environment |
 
 The input has no source text, message, compiled code, option or build log. A rule does not decide what it cannot read in this input.
@@ -152,10 +152,25 @@ The checker alone means less, because it reads what the build holds and replays 
 
 `lake check` imports the modules of the default targets into one environment, and the checker does too. So a project of two default executables that each declare `main` fails both commands. Lean refuses two imported modules that declare one name with different values (`Lean/Environment.lean:2336-2344`).
 
+## Module files
+
+Each Lean file of the root package is a `module` file. An importer that is a `module` file sees the type of a definition and the statement of a theorem, and it sees a body only where the author chose that: an `abbrev`, an instance or `@[expose]`. So what such a caller relies on is stated. **Measured** on 2026-10-31: Lean's header parser (`Lean.Parser.parseHeader`, `HeaderSyntax.isModule`) reports `module` for each of the 13 tracked Lean files below `lean/`.
+
+The root package has one `@[expose]`, on `Regula.ExecutableContract.run`. The exported theorem `ExecutableContract.run_eq` is proved by `rfl` over that body, and without the attribute it does not build. **Measured** on 2026-10-31. Its other visible bodies are instances: those that `deriving` makes and the loader's local `MonadEnv` instance. It has no `abbrev`.
+
+`Regula.ProgramCheck.TestListing` proves two configurations equal by reduction, so it uses `import all` on the three modules whose unexposed bodies it reads: `Regula.TestListing`, `Lake.CLI.Main` and `Init.System.ST`. `Regula.TestListing` imports Lake a second time with `meta`, because `lean --run` runs it in the process that elaborates it, and only a module imported with `meta` has its runtime initializers run there (`Lean/Compiler/InitAttr.lean:160-168`). **Measured** on 2026-10-31: without `meta`, the process ended with signal 11.
+
+In this package, only `RegulaSpecification.Input` is a `module` file. **The other 14 files cannot be one yet.** A `module` file cannot import a file that is not one (`Lean/Environment.lean:2120`), and no file of lean-intent at the commit that `lakefile.toml` names is one. **Measured** on 2026-10-31 with the same parser, over its tracked files. `RegulaSpecification.RuleRecord` imports three of lean-intent's modules, and each of the other files imports `RuleRecord` directly or through another of them: `Foundation`, `Safety`, `Gate`, `Witnesses`, `CasesDeclarations`, `CasesFoundation`, `CasesGate`, `Proofs.Link`, `Proofs.Tables`, `Proofs.Foundation`, `Proofs.Records`, `Proofs.Verdict` and the root `RegulaSpecification`. They can follow when lean-intent has migrated.
+
+A file that is not a `module` file sees each body of what it imports, whatever the author chose (`Lean/Elab/Import.lean:150-156`, `Lean/Environment.lean:2183`). So the proofs read the executed definitions of `Regula.Rules` as they did before, with no `import all`.
+
 ## Decisions of this specification
 
 Each of these was decided on the owner's behalf by the owner's delegated agents, because the owner's intent asks for the smallest core that does the job. None is the owner's confirmation.
 
+- The root package does not set Lake's `requiresModuleSystem`. Lake would then warn on each file that is not a `module` file and imports one (`Lake/Build/Module.lean:416-424`), so the proofs here and another project that imports `Regula.Contract` would need `allowNonModules`, and a file that imports nothing of the package would still not be seen. A `module` file that imports a file that is not one is already refused by Lean, and a file that stops being a `module` file is cheap to correct.
+- The root package does not set `allowImportAll`, because no other package's file uses `import all` on one of its modules at this revision.
+- The specification's files are not split so that the parts without a lean-intent record could become `module` files now. No importer of those parts is a `module` file, so a split would move each statement and show nothing more, and the whole package can migrate at once.
 - The claim is the default targets of the root package, with each module of the root package that their imports reach. That is the set `lake check` replays, so a project cannot claim a target that `lake check` skips, and it needs no file of its own that classifies its targets. A target that is not a default target and that no default target imports is outside the claim, as it is for `lake build` and `lake check`. **Measured**: such a module with a `sorry` passes, and it fails once a default module imports it.
 - A project states one profile, for all of its claimed modules, and no profile is `incomplete`. A library that needs a stricter profile than another is a project of its own.
 - The input is one environment, because `lake check` already needs one, and it holds each constant of that environment, so the loader walks no graph and has no loop.
@@ -172,6 +187,8 @@ These stay assumed. Each is a statement about a system or a step that no proof o
 
 - Lean's kernel, elaborator and runtime, and Lake's load and build. The owner trusts Lean and its kernel.
 - **The step from a real build to Regula's input is not yet proved.** `Regula.Load`, `Regula.Workspace` and the shell fill the input. In particular: `Lean.importModules` with `loadExts := false` loads exactly the constants of the `.olean` files, `collectAxioms` then walks their bodies, Lake's load gives the modules of the default targets, `Lean.findOLean` finds the toolchain's library only below the pinned toolchain, and Lean refuses an `.olean` file of a different Lean version.
+- **`Lean.importModules` at the level `.private` gives each constant of a `module` file with its body, exposed or not** (`Lean/Environment.lean:1871`, `Lean/Environment.lean:2183`). An unexposed definition is therefore read as a definition and walked, and not read as an axiom with no value. `Regula.Workspace` names that level. **Measured** on 2026-10-31: a `module` file with `sorry`, a project axiom, `native_decide`, `partial` and `while` in unexposed bodies gave the same 16 findings as before Regula's own files became modules. A file like it with none of those passed.
+- **`import all` of a module of another Lake package.** No file of this repository does that at this revision: the proofs here see the bodies of `Regula.*` because they are not `module` files, and `Regula.ProgramCheck.TestListing` uses `import all` on a module of its own package and on two of the toolchain, which belong to no package of the workspace (`Lake/Config/Workspace.lean:283-284`). When lean-intent has migrated and the proofs become `module` files, they will need it across packages. Lake's check of that is disabled with the remark "We've decided to disable this check for now" (`Lake/Build/Module.lean:430-434`), and the field that allows it is `allowImportAll` (`Lake/Config/PackageConfig.lean:314-324`), so a later toolchain can refuse those imports until the root package sets it.
 - **No process changes the build between the gate's commands.** `lake check` replays what the build holds when it runs, and the checker reads what the build holds when it runs. On macOS `lake check` runs without its sandbox, so the code of the project runs outside a sandbox, as it does in `lake build`.
 - The code of a claimed module runs during its build, and no rule reads it. It can forge a recursion helper of the true form, it can remove messages, so that `lake build --wfail` sees no warning, and it can have other effects. **Measured** on 2026-10-31: a `run_cmd` wrote a file during the build, and the module passed all three commands. The check that the owner chose as the next step is what can narrow this.
 - The meta-code of a dependency runs during the build too, and it is trusted in the same way.
