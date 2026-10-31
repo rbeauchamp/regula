@@ -117,11 +117,11 @@ def FileAdmitted (f : FileRead) : Prop :=
 def ConfigKeyAdmitted (k : Name) : Prop :=
   k ∈ configKeys ∨ ∃ o ∈ options, k = `leanOptions ++ o
 
-/-- The project's own configuration is closed: the pinned toolchain, no `lakefile.lean`, and each key
-whose root is not `require` in the closed set. A key with the root `require` is not read here:
-`RequiresDependency` states what it gives. -/
+/-- The project's own configuration is closed: the pinned toolchain, no `lakefile.lean`, no source directory
+or `globs` entry that `openPaths` names, and each key whose root is not `require` in the closed set. A key
+with the root `require` is not read here: `RequiresDependency` states what it gives. -/
 def ConfigClosed (r : Reading) : Prop :=
-  r.toolchainFile = some leanToolchain ∧ r.leanConfig = false ∧
+  r.toolchainFile = some leanToolchain ∧ r.leanConfig = false ∧ r.openPaths = [] ∧
     ∀ k ∈ r.configKeys, k.getRoot ≠ `require → ConfigKeyAdmitted k
 
 /-- The checker started outside the project's Lake, everything was read, and nothing the project planted
@@ -179,7 +179,7 @@ def languageRecord : IntentRecord (Reading → Outcome) where
   shape := .function Reading (fun _ => Outcome)
   dom := []
   props := [
-    ⟨"another toolchain, a lakefile.lean or a Lake key outside the closed set is refused",
+    ⟨"another toolchain, a lakefile.lean, a source directory or a globs entry outside the closed domain, or a Lake key outside the closed set is refused",
       fun d => ∀ r, ¬ ConfigClosed r → d r = .refused⟩,
     ⟨"a checker the project's Lake started, a failure to read or anything under .lake is incomplete",
       fun d => ∀ r, ConfigClosed r → ¬ ReadInFull r → d r = .incomplete⟩,
@@ -291,7 +291,7 @@ def goodFile : FileRead :=
 /-- A project of one such file. -/
 def goodReading : Reading :=
   { outside := true, toolchainFile := some leanToolchain, leanConfig := false,
-    configKeys := [`name], roots := [`Good], reached := [`Good],
+    configKeys := [`name], openPaths := [], roots := [`Good], reached := [`Good],
     files := [goodFile], unread := [], outputs := [] }
 
 theorem occurs_moduleHeader {s : Syntax} (h : Occurs s moduleHeader) :
@@ -354,8 +354,9 @@ theorem anonymous_not_closed : ¬ ClosedModuleName .anonymous := fun h => by cas
 theorem num_not_closed (p : Name) (n : Nat) : ¬ ClosedModuleName (.num p n) := fun h => by cases h
 
 theorem closed_of_goodKeys {r : Reading} (ht : r.toolchainFile = some leanToolchain)
-    (hl : r.leanConfig = false) (hk : r.configKeys = [`name]) : ConfigClosed r := by
-  refine ⟨ht, hl, ?_⟩
+    (hl : r.leanConfig = false) (ho : r.openPaths = []) (hk : r.configKeys = [`name]) :
+    ConfigClosed r := by
+  refine ⟨ht, hl, ho, ?_⟩
   intro k h _
   rw [hk] at h
   have : k = `name := by simpa using h
@@ -371,7 +372,7 @@ theorem no_dependency_of_goodKeys {r : Reading} (hk : r.configKeys = [`name]) :
   exact absurd hr (by decide)
 
 theorem goodReading_inside : Inside goodReading := by
-  refine ⟨closed_of_goodKeys rfl rfl rfl, ⟨rfl, rfl, rfl⟩, no_dependency_of_goodKeys rfl, ?_, ?_, ?_⟩
+  refine ⟨closed_of_goodKeys rfl rfl rfl rfl, ⟨rfl, rfl, rfl⟩, no_dependency_of_goodKeys rfl, ?_, ?_, ?_⟩
   · rintro ⟨m, hm, hr⟩
     have : m = `Good := by simpa [goodReading] using hm
     subst this
@@ -439,14 +440,14 @@ theorem modelDecision_meets : languageRecord.Meets modelDecision := by
 
 theorem language_o2Run : O2Run languageRecord := o2Run_of_meets modelDecision_meets
 
-theorem good_closed : ConfigClosed goodReading := closed_of_goodKeys rfl rfl rfl
+theorem good_closed : ConfigClosed goodReading := closed_of_goodKeys rfl rfl rfl rfl
 
 theorem good_full : ReadInFull goodReading := ⟨rfl, rfl, rfl⟩
 
 theorem good_no_dependency : ¬ RequiresDependency goodReading := goodReading_inside.2.2.1
 
 theorem require_closed : ConfigClosed requireReading := by
-  refine ⟨rfl, rfl, ?_⟩
+  refine ⟨rfl, rfl, rfl, ?_⟩
   intro k hk hr
   have : k = `name ∨ k = `require.name := by simpa [requireReading] using hk
   rcases this with rfl | rfl
@@ -510,21 +511,21 @@ theorem language_o3 : O3 languageRecord := by
   intro p hp
   simp only [languageRecord, List.mem_cons, List.not_mem_nil, or_false] at hp
   have c {r : Reading} (ht : r.toolchainFile = some leanToolchain) (hl : r.leanConfig = false)
-      (hk : r.configKeys = [`name]) := closed_of_goodKeys ht hl hk
+      (ho : r.openPaths = []) (hk : r.configKeys = [`name]) := closed_of_goodKeys ht hl ho hk
   have n {r : Reading} (hk : r.configKeys = [`name]) := no_dependency_of_goodKeys (r := r) hk
   rcases hp with rfl | rfl | rfl | rfl | rfl | rfl | rfl
   · exact ⟨fun _ => .admitted, fun h => absurd (h leanConfigReading leanConfig_not_closed) (by decide)⟩
   · exact ⟨fun _ => .admitted, fun h => absurd
-      (h insideReading (c rfl rfl rfl) fun hf => by simpa [insideReading] using hf.1) (by decide)⟩
+      (h insideReading (c rfl rfl rfl rfl) fun hf => by simpa [insideReading] using hf.1) (by decide)⟩
   · exact ⟨fun _ => .admitted, fun h => absurd
       (h requireReading require_closed ⟨rfl, rfl, rfl⟩ require_requires) (by decide)⟩
   · exact ⟨fun _ => .admitted, fun h => absurd
-      (h mathlibReading (c rfl rfl rfl) ⟨rfl, rfl, rfl⟩ (n rfl) mathlib_reached) (by decide)⟩
+      (h mathlibReading (c rfl rfl rfl rfl) ⟨rfl, rfl, rfl⟩ (n rfl) mathlib_reached) (by decide)⟩
   · exact ⟨fun _ => .admitted, fun h => absurd
-      (h noClaimReading (c rfl rfl rfl) ⟨rfl, rfl, rfl⟩ (n rfl)
+      (h noClaimReading (c rfl rfl rfl rfl) ⟨rfl, rfl, rfl⟩ (n rfl)
         (not_mathlib_of_reached (by simp [noClaimReading])) noClaim_not_covered) (by decide)⟩
   · exact ⟨fun _ => .admitted, fun h => absurd
-      (h badFileReading (c rfl rfl rfl) ⟨rfl, rfl, rfl⟩ (n rfl)
+      (h badFileReading (c rfl rfl rfl rfl) ⟨rfl, rfl, rfl⟩ (n rfl)
         (not_mathlib_of_reached (by simp [badFileReading, goodReading])) badFile_covered
         badFile_refused) (by decide)⟩
   · exact ⟨fun _ => .refused, fun h => absurd
@@ -609,6 +610,13 @@ theorem planted_not_admitted {d : Reading → Outcome} (h : languageRecord.Meets
     (hr : r.outputs ≠ []) : d r ≠ .admitted := by
   intro ha
   exact hr ((admitted_iff h r).mp ha).2.1.2.2
+
+/-- A source directory or a `globs` entry that `openPaths` names is refused, whatever else the reading
+holds. -/
+theorem open_path_refused {d : Reading → Outcome} (h : languageRecord.Meets d) (r : Reading)
+    (hr : r.openPaths ≠ []) : d r = .refused := by
+  obtain ⟨h1, -⟩ := (language_meets_iff d).mp h
+  exact h1 r fun hc => hr hc.2.2.1
 
 /-- A key with the root `require` never gives a full verdict, whatever else the reading holds. -/
 theorem require_not_admitted {d : Reading → Outcome} (h : languageRecord.Meets d) (r : Reading)

@@ -13,7 +13,8 @@ public import Regula.Reader
 # The calls of Lake
 
 Direct calls of Lake and nothing else: its environment, its TOML parser, its loads of a workspace, the
-modules of the default targets with their source files, its resolver of an import, and its program's path.
+source directories and `globs` entries of the configuration, the modules of the default targets with their
+source files, its resolver of an import, and its program's path.
 What decides anything from their results is in `Regula.Load` and `Regula.Reader`, which are in a default
 target.
 
@@ -72,7 +73,9 @@ def loadRootWorkspace (dir : FilePath) : IO Lake.Workspace := do
 /-- The modules that the default targets of the root package name, with the file Lake compiles for each:
 each module of a default library, and the root of each default executable. A default target that is
 neither builds no Lean module (`Package.recCollectDefaultModules`, `Lake/Build/Package.lean:45-61` at
-v4.35.0). -/
+v4.35.0). `getModuleArray` lists a directory for a `globs` entry other than a single module
+(`Glob.forEachModuleIn`, `Lake/Config/Glob.lean:53-59`): the reader calls this for the full gate only after
+it has tested each entry through `rootOf`, and the plain `lake lint` keeps Lake's own listing. -/
 def defaultModules (ws : Lake.Workspace) : IO (Array (Name × FilePath)) := do
   let mut out := #[]
   for target in ws.root.defaultTargets do
@@ -82,13 +85,17 @@ def defaultModules (ws : Lake.Workspace) : IO (Array (Name × FilePath)) := do
       out := out.push (exe.root.name, exe.root.leanFile)
   return out
 
-/-- What the reader asks of the root package's configuration, from Lake's load of it. -/
-def rootOf (ws : Lake.Workspace) : IO Regula.Reader.Root := do
-  return {
-    modules := (← defaultModules ws).toList
-    targets := (ws.root.leanLibs.map (·.name)).toList ++ (ws.root.leanExes.map (·.name)).toList
-    resolve := fun m => (ws.findModule? m).map (·.leanFile)
-    toolchain := [ws.lakeEnv.lean.leanLibDir, ws.lakeEnv.lake.libDir] }
+/-- What the reader asks of the root package's configuration, from Lake's load of it. Building this lists no
+directory, and `modules` is the action that can. -/
+def rootOf (ws : Lake.Workspace) : Regula.Reader.Root where
+  sourceDirs :=
+    ws.root.srcDir :: (ws.root.leanLibs.map (·.srcDir)).toList ++ (ws.root.leanExes.map (·.root.lib.srcDir)).toList
+  libraries := (ws.root.leanLibs.map fun lib =>
+    (lib.name, lib.config.globs.all fun | .one _ => true | _ => false)).toList
+  modules := return (← defaultModules ws).toList
+  targets := (ws.root.leanLibs.map (·.name)).toList ++ (ws.root.leanExes.map (·.name)).toList
+  resolve := fun m => (ws.findModule? m).map (·.leanFile)
+  toolchain := [ws.lakeEnv.lean.leanLibDir, ws.lakeEnv.lake.libDir]
 
 /-- Lake's calls, for the reader. -/
 def lakeCalls : Regula.Reader.LakeCalls where
@@ -96,7 +103,7 @@ def lakeCalls : Regula.Reader.LakeCalls where
   libDir := return (← lakeEnvironment).lake.libDir
   parseToml := fun input =>
     EIO.toIO (fun _ => IO.userError "Lake's TOML parser refused it") (Lake.Toml.loadToml input)
-  loadRoot := fun dir => do rootOf (← loadRootWorkspace dir)
+  loadRoot := fun dir => return rootOf (← loadRootWorkspace dir)
 
 /-- The closed input of the finished build of the workspace `ws`, or an error that refuses it. -/
 def inputOf (ws : Lake.Workspace) (profile : Profile) : IO Input := do
@@ -111,7 +118,8 @@ def loadInput (profile : Profile) : IO Input := do
   inputOf ws profile
 
 /-- The closed input of the finished build at `dir`, for a checker that Lake started from another
-workspace (`Regula.Reader.startedOutside`), through the root package's load alone. -/
+workspace (`Regula.Reader.startedOutside`), through the root package's load alone. The full gate calls it only
+after the check admitted the project, so each `globs` entry is a single module and it lists no directory. -/
 def loadInputAt (dir : FilePath) (profile : Profile) : IO Input := do
   inputOf (← loadRootWorkspace dir) profile
 

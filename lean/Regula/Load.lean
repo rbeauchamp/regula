@@ -61,6 +61,15 @@ def parts (p : FilePath) : List String :=
 def below (dir path : FilePath) : Bool :=
   (parts dir).isPrefixOf (parts path) && parts dir != parts path
 
+/-- The components of a path with each `.` removed. A `..` stays. -/
+def exactParts (p : FilePath) : List String :=
+  (parts p).filter (· != ".")
+
+/-- Whether `real`, which is the real path of `path`, is `path` itself at or below the directory `dir`, by
+their components with `.` removed. So `path` crosses no link and holds no `..`. -/
+def exactBelow (dir path real : FilePath) : Bool :=
+  exactParts real == exactParts path && (exactParts dir).isPrefixOf (exactParts path)
+
 /-- The kind of a constant: its `ConstantInfo` constructor. -/
 def kindOf : ConstantInfo → Kind
   | .axiomInfo _ => .axiom

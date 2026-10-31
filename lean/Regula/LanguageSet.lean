@@ -183,7 +183,8 @@ def configItems : List Name := [`kernel]
 def derivingClasses : List Name :=
   [`DecidableEq, `BEq, `Repr, `Inhabited, `Hashable, `Ord, `Nonempty]
 
-/-- The keys of a `lakefile.toml` outside `leanOptions`, each as a path of TOML keys. -/
+/-- The keys of a `lakefile.toml` outside `leanOptions`, each as a path of TOML keys. This table reads a key
+and no value: `Reading.openPaths` holds what the reader found of the values of `srcDir` and `globs`. -/
 def configKeys : List Name :=
   [`name, `version, `description, `keywords, `license, `licenseFiles, `srcDir, `defaultTargets,
     `lintDriver, `lintDriverArgs, `lean_lib.name, `lean_lib.roots, `lean_lib.globs, `lean_lib.srcDir,
@@ -223,6 +224,10 @@ structure Reading where
   leanConfig : Bool
   /-- The key paths of the project's `lakefile.toml`. -/
   configKeys : List Name
+  /-- What the project's configuration names that is outside the closed domain of paths, each with its
+  report: a source directory that is not, by its real path, its own path below the project, and a library
+  with a `globs` entry that is not a single module, which would need a directory listing. -/
+  openPaths : List String
   /-- The modules of the project's default targets. -/
   roots : List Name
   /-- The roots, and each module outside the toolchain that their imports reach. -/
@@ -231,7 +236,8 @@ structure Reading where
   files : List FileRead
   /-- What the reader could not read, each with its reason. -/
   unread : List (Name × String)
-  /-- What already exists under the project's `.lake`. -/
+  /-- What already exists at the project's `.lake`: each immediate entry of the directory, or its own name
+  when it is a link or anything else that is no directory. -/
   outputs : List String
 
 /-- What the decision gives. -/

@@ -453,6 +453,10 @@ theorem mathlib_not_admitted (r : Reading) (h : MathlibReached r) : decision r �
 theorem dependency_not_admitted (r : Reading) (h : RequiresDependency r) : decision r ≠ .admitted :=
   fun ha => ((decision_admitted_iff r).mp ha).2.2.1 h
 
+/-- A source directory or a `globs` entry that `openPaths` names is never admitted. -/
+theorem open_path_not_admitted (r : Reading) (h : r.openPaths ≠ []) : decision r ≠ .admitted :=
+  fun ha => h ((decision_admitted_iff r).mp ha).1.2.2.1
+
 /-- A module name outside the closed domain is never admitted. -/
 theorem unclosed_module_not_admitted (r : Reading) (m : Name) (hm : m ∈ r.reached)
     (hn : closedModuleName m = false) : decision r ≠ .admitted := fun ha => by

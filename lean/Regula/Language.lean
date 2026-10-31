@@ -153,9 +153,10 @@ namespace Reading
 
 variable (r : Reading)
 
-/-- The pinned toolchain, no `lakefile.lean`, and each key whose root is not `require` in the closed set. -/
+/-- The pinned toolchain, no `lakefile.lean`, no path outside the closed domain, and each key whose root is
+not `require` in the closed set. -/
 def configClosed : Bool :=
-  r.toolchainFile == some leanToolchain && !r.leanConfig &&
+  r.toolchainFile == some leanToolchain && !r.leanConfig && r.openPaths.isEmpty &&
     r.configKeys.all fun k => k.getRoot == `require || configKeyAdmitted k
 
 /-- The checker started outside the project's Lake, nothing failed to read, and no output exists. -/

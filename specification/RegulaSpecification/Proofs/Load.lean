@@ -936,6 +936,25 @@ theorem below_iff (dir path : System.FilePath) :
         Regula.Load.parts dir ≠ Regula.Load.parts path := by
   simp [Regula.Load.below, List.isPrefixOf_iff_prefix]
 
+/-- `exactBelow` states what its name says, by the components of the three paths, each with `.` removed:
+the real path's are the path's, and the directory's are a prefix of them. -/
+theorem exactBelow_iff (dir path real : System.FilePath) :
+    Regula.Load.exactBelow dir path real = true ↔
+      Regula.Load.exactParts real = Regula.Load.exactParts path ∧
+        Regula.Load.exactParts dir <+: Regula.Load.exactParts path := by
+  simp [Regula.Load.exactBelow, List.isPrefixOf_iff_prefix]
+
+/-- A path with a `..` passes `exactBelow` against no real path that has none, so a `..` needs no test of
+its own. That `IO.FS.realPath` gives a path with no `..` is the operating system's. -/
+theorem exactBelow_no_parent (dir path real : System.FilePath)
+    (h : Regula.Load.exactBelow dir path real = true) (hr : ".." ∉ Regula.Load.parts real) :
+    ".." ∉ Regula.Load.parts path := by
+  intro hp
+  have he := ((exactBelow_iff dir path real).mp h).1
+  have hm : ".." ∈ Regula.Load.exactParts path := by simp [Regula.Load.exactParts, hp]
+  rw [← he] at hm
+  exact hr (List.mem_filter.mp hm).1
+
 end Loader
 
 end RegulaSpecification
