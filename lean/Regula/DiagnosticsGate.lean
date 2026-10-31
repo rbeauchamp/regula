@@ -42,15 +42,21 @@ lagging `main` cannot fail the check, which does not read it.
 
 The site build refuses what an earlier build left (`Regula.Site.Build.requireFresh`) and removes
 nothing, and the gate can run again in one checkout, so the gate first removes those paths
-(`siteOutputs`). It leaves a symbolic link at one of them, whose target it does not touch, and the
-build then refuses it by name.
+(`siteOutputs`). It removes what is at one of them only when the path's parent, fully resolved, is
+that same parent under the canonical root of the checkout and the entry is not a symbolic link
+(`removal`, `removal_ne_leave_iff`). So it leaves a symbolic link at one of them, and a path reached
+through a symbolic link, with the target untouched, and the build refuses that path by name when
+the check runs.
 
 ## Boundaries
 
-`runSteps` and `runGate` are the decisions the step executes; their theorems are checked by the
-kernel each time `lean --run` elaborates this file. Running a step, its exit code, what it prints
-and what `curl` reports are trusted effects of the operating system, of the step's own program and
-of the network. Two gate runs at one time in one checkout are not a supported use.
+`runSteps`, `runGate` and `removal` are the decisions the step executes; their theorems are checked
+by the kernel each time `lean --run` elaborates this file. Running a step, its exit code, what it
+prints, what `curl` reports and what `realPath`, `symlinkMetadata` and the removals do are trusted
+effects of the operating system, of the step's own program and of the network. Two gate runs at one
+time in one checkout are not a supported use. Accepted risk, because these are generated outputs in
+the owner's own checkout: another process that replaces a path with a link between the gate's check
+and its removal defeats the check.
 -/
 
 namespace Regula.DiagnosticsGate
@@ -296,6 +302,38 @@ theorem runGate_site_failure (code : Step → UInt32) (answers : List Answer) (s
   rw [h1, h2]
   simp [hc]
 
+/-! ## Removing the outputs of an earlier build -/
+
+/-- What the gate does with an entry that is present at one of `siteOutputs`. -/
+inductive Removal where
+  /-- Leave the entry where it is. -/
+  | leave
+  /-- Remove the directory and what is below it. -/
+  | removeDir
+  /-- Remove the entry, which is not a directory. -/
+  | removeFile
+  deriving DecidableEq, Repr
+
+/-- The decision for an entry of type `type`, where `parentResolves` says that the path's parent,
+fully resolved, is that same parent under the canonical root of the checkout. -/
+def removal (parentResolves : Bool) (type : IO.FS.FileType) : Removal :=
+  match parentResolves, type with
+  | false, _ | true, .symlink => .leave
+  | true, .dir => .removeDir
+  | true, .file | true, .other => .removeFile
+
+/-- The gate removes an entry exactly when its parent resolves to itself and the entry is not a
+symbolic link: it removes nothing through a linked ancestor, and each present entry that is not a
+link under a parent that resolves. -/
+theorem removal_ne_leave_iff (parentResolves : Bool) (type : IO.FS.FileType) :
+    removal parentResolves type ≠ .leave ↔ parentResolves = true ∧ type ≠ .symlink := by
+  cases parentResolves <;> cases type <;> simp [removal]
+
+/-- The gate removes recursively exactly a directory under a parent that resolves to itself. -/
+theorem removal_eq_removeDir_iff (parentResolves : Bool) (type : IO.FS.FileType) :
+    removal parentResolves type = .removeDir ↔ parentResolves = true ∧ type = .dir := by
+  cases parentResolves <;> cases type <;> simp [removal]
+
 /-! ## Steps -/
 
 /-- Run `step` in the checkout, with the standard streams of this process, and give its exit
@@ -319,9 +357,12 @@ private def readSite (url : String) : IO Answer := do
   return { url, exitCode := out.exitCode, status := out.stdout.trimAscii.toString,
            message := out.stderr.trimAscii.toString }
 
-/-- Remove what is at `path` from an earlier site build, by a read that follows no link. A symbolic
-link stays, and its target is not read. An absent path is left absent. `IO.FS.removeDirAll` follows
-no link below the directory (`Init/System/IO.lean:1335-1342` at v4.35.0). -/
+/-- Remove what is at `path`, a path under the canonical root of the checkout, from an earlier site
+build, as `removal` decides. The final entry is read by a read that follows no link, so an absent
+path is left absent, and `realPath` only reads a parent that exists. A symbolic link at `path`, and
+a path whose parent does not resolve to itself, stay, and their targets are not touched.
+`IO.FS.removeDirAll` follows no link below the directory (`Init/System/IO.lean:1335-1342` at
+v4.35.0). -/
 private def removeOutput (path : System.FilePath) : IO Unit := do
   let type ← try
       pure (some (← path.symlinkMetadata).type)
@@ -329,17 +370,26 @@ private def removeOutput (path : System.FilePath) : IO Unit := do
       | .noFileOrDirectory .. => pure none
       | _ => throw e
   match type with
-  | none | some .symlink => pure ()
-  | some .dir => IO.FS.removeDirAll path
-  | some _ => IO.FS.removeFile path
+  | none => pure ()
+  | some type =>
+    let parentResolves ← match path.parent with
+      | some parent => pure ((← IO.FS.realPath parent) == parent)
+      | none => pure false
+    match removal parentResolves type with
+    | .leave => pure ()
+    | .removeDir => IO.FS.removeDirAll path
+    | .removeFile => IO.FS.removeFile path
 
-/-- The `local` step: remove the outputs of an earlier site build (`siteOutputs`), run the steps of
-the local gate in order (`runGate`), and refuse at the first whose exit code is not 0, or when it
-has no step. A run in which the site check could not run passes on its other steps, and its last
-lines name each answer that kept the check from running. -/
+/-- The `local` step: remove the outputs of an earlier site build (`siteOutputs`) under the
+canonical root of the checkout, run the steps of the local gate in order (`runGate`), and refuse at
+the first whose exit code is not 0, or when it has no step. An output left because it is a symbolic
+link or is reached through one is refused by the site build, when the check runs. A run in which
+the site check could not run passes on its other steps, and its last lines name each answer that
+kept the check from running. -/
 def runLocal : IO Unit := do
   if localSteps.isEmpty then fail "the local gate has no step, so it checks nothing"
-  for path in siteOutputs do removeOutput (System.FilePath.mk path)
+  let root ← IO.FS.realPath "."
+  for path in siteOutputs do removeOutput (root / path)
   match ← runGate runStep (siteReads.mapM readSite) localSteps with
   | .failed step code =>
     let (program, arguments, dir) := step.command

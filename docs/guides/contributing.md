@@ -106,7 +106,7 @@ The merge gate of a change is the local gate, `lean --run lean/Regula/Diagnostic
 4. `lake build site AuditApp` and `lake build Audit` in `audit/`, the builds of the tools of the rule-reference site.
 5. `./scripts/verify.sh site`, the site check.
 
-The gate first removes the outputs of an earlier site build, because the site build refuses them and removes nothing. It does not remove a symbolic link at one of those paths, and the site build then refuses that link.
+The gate first removes the outputs of an earlier site build, because the site build refuses them and removes nothing. It does not remove a symbolic link at one of those paths, or a path reached through a symbolic link. The site build then refuses that path.
 
 The site check makes the site from the commit and checks the artifact. Before that, it reads the tags and the release assets of the repository from GitHub, with no credentials. It does not read the deployed site or any external link. Thus a deployed site that is older than `main` cannot fail the check.
 
