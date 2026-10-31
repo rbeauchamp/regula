@@ -1,8 +1,12 @@
+module
+
 /-!
 # The verdict
 
 The three verdicts of a run of the checker, and the exit code of each.
 -/
+
+public section
 
 namespace Regula.Closed
 

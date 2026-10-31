@@ -1,7 +1,9 @@
+module
+
+public import Regula.Input
+public import Regula.RuleId
+public import Regula.Verdict
 import Lean.Compiler.Old
-import Regula.Input
-import Regula.RuleId
-import Regula.Verdict
 
 /-!
 # The rules over the closed input
@@ -19,6 +21,8 @@ The rules read the axiom set of a constant from `Decl.axioms`, which the loader 
 `run` gives the verdict: an input that the admission refuses is `incomplete`, and a well-formed one
 passes exactly when no rule reports a subject.
 -/
+
+public section
 
 namespace Regula.Closed
 

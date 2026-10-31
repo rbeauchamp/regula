@@ -1,3 +1,5 @@
+module
+
 import Regula.Shell
 import Regula.Workspace
 
@@ -8,5 +10,5 @@ The root of the `lint` executable, Lake's lint driver for a project that sets
 the workspace (`Regula.Load.loadInput`). -/
 
 /-- The `lint` executable. -/
-def main : List String → IO UInt32 :=
+public def main : List String → IO UInt32 :=
   Regula.Shell.run Regula.Load.loadInput

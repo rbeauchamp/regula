@@ -1,6 +1,11 @@
-import Lake.CLI.Error
-import Lake.Load.Package
+module
+
+public import Lake.CLI.Error
+public import Lake.Load.Package
 import Lake.Util.IO
+meta import Lake.CLI.Error
+meta import Lake.Load.Package
+meta import Lake.Util.IO
 
 /-! # The listing of the tests that Lake knows for Regula's package
 
@@ -50,7 +55,12 @@ It makes the calls that `lake check-test` makes when no option is given
 The program does not call `mkLoadConfig`. The module that declares it, `Lake.CLI.Main`, imports
 the code of every command of Lake. This module imports only Lake's load of a package
 (`Lake.Load.Package`), the path operations that it uses too (`Lake.Util.IO`) and the errors of
-Lake's commands (`Lake.CLI.Error`).
+Lake's commands (`Lake.CLI.Error`). It imports each of them a second time with `meta`, because
+`lean --run` runs the program in the process that elaborates it: in a `module` file, only a module
+imported with `meta` has its initializers run (`runInitAttrForMod`,
+`Lean/Compiler/InitAttr.lean:160-168`), and Lake's native code from the library that `--load-dynlib`
+loads does not work before that. (Observed with Lean v4.35.0: without `meta` the process ended with
+signal 11.)
 
 It runs the load with Lake's default log configuration, which is the command's when no option is
 given (`Lake/CLI/Main.lean:100-107`, `:178-179`, `Lake/Util/Log.lean:125-128`, `:597-612`).
@@ -71,6 +81,8 @@ line of standard output, with the white space at its ends removed, as one test i
 skips a blank line. A printed driver is not empty, and its characters are between U+0021 and
 U+007E. None of those is a line break or white space, so the pipeline reads the line as exactly
 the driver. -/
+
+public section
 
 namespace Regula.TestListing
 

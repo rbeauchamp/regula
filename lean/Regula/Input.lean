@@ -1,5 +1,7 @@
-import Std.Data.HashMap
-import Std.Data.HashSet
+module
+
+public import Std.Data.HashMap
+public import Std.Data.HashSet
 
 /-!
 # The closed input
@@ -14,6 +16,8 @@ module's admission (`Input.WellFormed`) and the presence of each axiom set that 
 specification's violation predicate, and this admission against its statement. That the shell
 (`Regula.Load`) fills each field through the interface its docstring names is not yet proved.
 -/
+
+public section
 
 namespace Regula.Closed
 

@@ -1,8 +1,11 @@
+module
+
+public import Lean.Environment
+public import Regula.Input
 import Lean.Compiler.ExternAttr
 import Lean.Compiler.ImplementedByAttr
 import Lean.Util.CollectAxioms
 import Lean.Util.Path
-import Regula.Input
 
 /-!
 # The loader of the closed input
@@ -15,7 +18,9 @@ input faithfully: the specification's trusted base lists that step.
 What it reads, and through what:
 
 - The constants: each constant of an environment that `Lean.importModules` loads with `loadExts :=
-  false`, so no extension state is built and no initializer of a loaded module runs.
+  false`, so no extension state is built and no initializer of a loaded module runs, and at the
+  level `.private`, so a `module` file gives each constant with its body, exposed or not
+  (`Lean/Environment.lean:1871` and `:2183` at v4.35.0).
   `getImplementedBy?` and `isExtern` read the module entries of an extension (`getModuleEntries`),
   which `importModules` sets whatever `loadExts` is, and no extension's built state.
 - The axiom sets: `Lean.collectAxioms` of each constant of a claimed module (`axiomsIn`). Lean's
@@ -25,6 +30,8 @@ What it reads, and through what:
   claimed module lies below the root package's library directory; a constant of the toolchain is one
   whose module lies below the toolchain's library directory.
 -/
+
+public section
 
 namespace Regula.Load
 
