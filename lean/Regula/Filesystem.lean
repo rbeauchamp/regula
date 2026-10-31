@@ -56,9 +56,8 @@ admitted listing program that exits nonzero after a failed read of a directory
 (`Construction.ReadsNames` names each program `Construction.locate` admits, with its source),
 exclusive mkdir (`runtime/io.cpp:1181-1195`), and exclusive file creation
 (`Init/System/IO.lean:651-660`, `runtime/io.cpp:409`). The source and private destination have no
-concurrent writer. Windows is refused. Modes are not preserved: copied regular files receive 0644;
-callers explicitly set 0755 for a copied executable they run. Lake creates and sets modes on
-programs it builds. -/
+concurrent writer. Windows is refused. Modes are not preserved: copied regular files receive 0644.
+Lake creates and sets modes on programs it builds. -/
 def copy (source target : FilePath) (selected : FilePath → Bool := fun _ => true) :
     IO (List Construction.Item) := Construction.copy source target selected
 
@@ -67,8 +66,8 @@ The root is absent or privately owned and empty; its parent is at its own real p
 def construct (target : FilePath) (items : List Construction.Item) : IO Unit :=
   Construction.construct target items
 
-/-- Read a regular source through the shared no-follow capture program before transforming it
-into a generated fixture. Neither links nor special entries are consumed as source bytes. -/
+/-- Read a regular source through the shared no-follow capture program. Neither links nor special
+entries are consumed as source bytes. -/
 def readBytes (source : FilePath) : IO ByteArray := do
   let [⟨_, .file bytes _⟩] ← Construction.capture source
     | throw <| IO.userError s!"source text is not one regular file: {source}"

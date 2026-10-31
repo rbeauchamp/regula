@@ -372,15 +372,13 @@ it. A `lean` source must be at the release of the Lean that elaborates its modul
 source at the earlier release does not elaborate. The writer must read the source again at the
 new release, and then change the release of the source.
 
-Only a `lean` source has a release that the module checks. Thus the attribute refuses a document
+Only a `lean` source has a release that the module checks. Thus the type `Assumed` refuses a document
 about Lean or Lake, and a document in the Lean 4 repository or in the documentation of Lean
 (`RegulaPolicy.External.Source.unpinned`). It finds such a document by the text
 `leanprover/lean4`, `lean-lang.org` or `leanprover.github.io` in its reference. It does not find a
 reference that names such a place with a different text.
 
-No retained control shows these refusals, or the refusals of a role for an imported constant, of
-an assumption that is not a predicate and of a contract with a statement that does not use its
-checked operation. The controls of the previous checker are removed.
+No retained control shows these refusals. The controls of the previous checker are removed.
 
 ### The file system
 

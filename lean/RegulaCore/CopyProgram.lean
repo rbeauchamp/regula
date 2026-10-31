@@ -27,7 +27,7 @@ def isDirectory (path : FilePath) : IO Bool := do
   | .error (.noFileOrDirectory ..) => return false
   | .error error => throw error
 
-/-- The only entries that construction can create. Copied files use 0644; explicitly generated executable files name their required rights. -/
+/-- The only entries that construction can create. Copied files use 0644; an instruction for a generated file can name other rights. -/
 inductive Payload where
   /-- An empty directory, whose children are separate instructions. -/
   | directory
@@ -478,8 +478,7 @@ def Enumerator.observer (enumerator : Enumerator) : Ops IO :=
 each selected source entry, and constructs no links. The destination parent exists at its own
 place and the destination is absent or privately owned and empty. Source and destination have
 no concurrent writer. Modes are not preserved: regular source files use 0644, directories use
-0755; sites that execute a copied file explicitly set its required
-rights. Lake-built programs receive their modes from Lake. The receipt is the ordered list of entries the routine constructed.
+0755. Lake-built programs receive their modes from Lake. The receipt is the ordered list of entries the routine constructed.
 It locates its listing program once and lists each directory it reads, the destination among
 them, through that program. -/
 def copy (source target : FilePath) (selected : FilePath → Bool := fun _ => true) :
@@ -669,7 +668,7 @@ def processEnvironment (names : Array String) : Array (String × Option String) 
 def isolationEnvironment : IO (Array (String × Option String)) :=
   return processEnvironment (← gitLocalNames)
 
-/-- Apply the same Git policy to text and binary process observations. The command name and
+/-- Apply the Git policy to the arguments of a process observation. The command name and
 launcher stay as the current repository uses them; process-start observation is separate work.
 
 Assumes: Git 2.54.0 `config.c:1515-1581` reads command-scope settings after local/worktree settings;
