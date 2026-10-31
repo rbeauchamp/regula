@@ -1,3 +1,4 @@
+import Lean.Compiler.Old
 import Regula.Input
 import Regula.RuleId
 import Regula.Verdict
@@ -42,6 +43,10 @@ def loopConstructs : List Name := [``Lean.Loop.mk, ``repeatM]
 
 /-- Whether the value of `d` mentions a loop construct. -/
 def mentionsLoop (d : Decl) : Bool := loopConstructs.any d.valueUses.contains
+
+/-- Whether the compiler reads the name of `d` as a recursion helper's. This is its own test,
+whatever the kind or flags of the constant. -/
+def namedAsHelper (d : Decl) : Bool := (Lean.Compiler.isUnsafeRecName? d.name).isSome
 
 /-- One finding: a rule, the constant that violates it, the module of the constant, and a detail. -/
 structure Finding where
@@ -91,16 +96,11 @@ def admits : Profile → Name → Bool
   | .choiceFree, a => t.known a && (a == ``propext || a == ``Quot.sound)
   | .standardLogical, a => t.known a
 
-/-- The base `f` of a name of the form `f._unsafe_rec`. -/
-def helperBase? : Name → Option Name
-  | .str base "_unsafe_rec" => some base
-  | _ => none
-
 /-- `d` has the name of a recursion helper, and its base is a safe, total definition in its module.
-The base is a definition: the base of a `partial def` is an opaque constant, so its helper is no
-exception. -/
+The name is read with the compiler's own test, `Lean.Compiler.isUnsafeRecName?`. The base is a
+definition: the base of a `partial def` is an opaque constant, so its helper is no exception. -/
 def helperBaseFits (d : Decl) : Bool :=
-  match helperBase? d.name with
+  match Lean.Compiler.isUnsafeRecName? d.name with
   | some base => t.index[base]?.any fun b =>
       b.kind == .definition && b.module == d.module && !b.isUnsafe && !b.isPartial &&
         b.implementedBy.isNone && !b.isExtern
@@ -148,13 +148,16 @@ def rg1005 : List Finding :=
       some (finding .profileExceeded d s!"depends on {excess}, outside the profile")
     else none
 
-/-- RG1006: a constant of a claimed module is unsafe or partial, without the form of a recursion
-helper, or its value mentions a loop construct of Lean. -/
+/-- RG1006: a constant of a claimed module is unsafe, partial or named as a recursion helper,
+without the form of a recursion helper, or its value mentions a loop construct of Lean. -/
 def rg1006 : List Finding :=
   t.claimed.filterMap fun d =>
-    if ((d.isUnsafe || d.isPartial) && !t.recursionHelper d) || mentionsLoop d then
+    if ((d.isUnsafe || d.isPartial || namedAsHelper d) && !t.recursionHelper d) || mentionsLoop d
+    then
       some (finding .escapeHatch d (if mentionsLoop d then "mentions a loop construct of Lean"
-        else s!"is {if d.isUnsafe then "unsafe" else "partial"}"))
+        else if d.isUnsafe then "is unsafe"
+        else if d.isPartial then "is partial"
+        else "has the name of a recursion helper, and is not partial"))
     else none
 
 /-- The findings of one rule, matched exhaustively over the closed type of the rules. RG2001 reads
