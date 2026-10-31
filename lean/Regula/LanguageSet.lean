@@ -187,8 +187,7 @@ def derivingClasses : List Name :=
 def configKeys : List Name :=
   [`name, `version, `description, `keywords, `license, `licenseFiles, `srcDir, `defaultTargets,
     `lintDriver, `lintDriverArgs, `lean_lib.name, `lean_lib.roots, `lean_lib.globs, `lean_lib.srcDir,
-    `lean_exe.name, `lean_exe.root, `lean_exe.srcDir, `lean_exe.supportInterpreter, `require.name,
-    `require.git, `require.rev]
+    `lean_exe.name, `lean_exe.root, `lean_exe.srcDir, `lean_exe.supportInterpreter]
 
 /-- What `lean-toolchain` must say: the one Lean this revision reads, which the checker also uses to
 build, whatever a project's own file names. -/
@@ -204,8 +203,6 @@ def components : Name → List Name
 structure FileRead where
   /-- Its module, as Lake names it. -/
   module : Name
-  /-- Whether the root package holds it. -/
-  inRoot : Bool
   /-- `Lean.Parser.parseHeader`'s tree. -/
   header : Syntax
   /-- `Lean.Parser.parseCommand`'s trees, in order. -/
@@ -215,15 +212,6 @@ structure FileRead where
   /-- The namespaces that hold scoped parser entries in the environment this file was parsed in. -/
   scopedParsers : List Name
 
-/-- One package of the workspace other than the root. -/
-structure PackageRead where
-  /-- Its name. -/
-  name : Name
-  /-- Whether the manifest takes it from a Git revision, not from a local path. -/
-  fromGit : Bool
-  /-- Whether its Lake configuration is TOML, read by name before any Lake load of it. -/
-  tomlConfig : Bool
-
 /-- What the reader read of one project, before anything of it is compiled. -/
 structure Reading where
   /-- Whether this checker was started from outside the project's Lake: its program lies outside the
@@ -231,13 +219,11 @@ structure Reading where
   outside : Bool
   /-- What the project's `lean-toolchain` says, trimmed, or none if it has none. -/
   toolchainFile : Option String
-  /-- Whether the root package has a `lakefile.lean`, which Lake prefers and runs. -/
+  /-- Whether the project has a `lakefile.lean`, which Lake prefers and runs. -/
   leanConfig : Bool
-  /-- The key paths of the root package's `lakefile.toml`. -/
+  /-- The key paths of the project's `lakefile.toml`. -/
   configKeys : List Name
-  /-- The other packages of the workspace. -/
-  packages : List PackageRead
-  /-- The modules of the root package's default targets. -/
+  /-- The modules of the project's default targets. -/
   roots : List Name
   /-- The roots, and each module outside the toolchain that their imports reach. -/
   reached : List Name
@@ -245,18 +231,17 @@ structure Reading where
   files : List FileRead
   /-- What the reader could not read, each with its reason. -/
   unread : List (Name × String)
-  /-- What already exists under the project's `.lake`, and the build outputs of each dependency whose
-  files are read. -/
+  /-- What already exists under the project's `.lake`. -/
   outputs : List String
 
 /-- What the decision gives. -/
 inductive Outcome where
   /-- Everything read is in the closed set, so the build can have the full verdict. -/
   | admitted
-  /-- The root package holds something outside the closed set. Nothing is compiled. -/
+  /-- The project holds something outside the closed set. Nothing is compiled. -/
   | refused
-  /-- The build can have only the proof verdict: Mathlib is in its imports, or a dependency's code is
-  outside the closed set. -/
+  /-- The project can have only the proof verdict: its configuration has a dependency, or Mathlib is in
+  its imports. Nothing is compiled. -/
   | proofOnly
   /-- Something could not be read, so nothing is decided. Nothing is compiled. -/
   | incomplete
@@ -277,8 +262,9 @@ can be read as the other. -/
 inductive Report where
   /-- The full verdict: the check admitted everything before anything was compiled. -/
   | full (verdict : Regula.Closed.Verdict)
-  /-- The proof verdict: the rules on the finished build, with no promise about what ran in it. -/
-  | proof (verdict : Regula.Closed.Verdict)
+  /-- Only a proof verdict is possible for this project, and the gate built nothing. The three commands
+  in the project give that verdict, and they run the project's code and its dependencies'. -/
+  | proofOnly
   /-- The check refused the project. Nothing was compiled. -/
   | refused
   /-- The check could not read the project. Nothing was compiled. -/

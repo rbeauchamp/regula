@@ -13,10 +13,10 @@ public import Regula.Rules
 
 The checker, which the `lint` executable runs (`Regula.LintMain`), Lake's lint driver for a project
 that sets `lintDriver := "regula/lint"`. It reads the finished build through `load`, prints its report
-and sets its exit code. It writes no file itself, and Lake's own load of the workspace runs Git in the
-environment of the caller. Only the full gate builds, through `build`. Otherwise the project's gate
-builds with `lake build --wfail` before it runs the checker, and a module without its `.olean` makes
-the run `incomplete`.
+and sets its exit code. It writes no file itself, and Lake's own load of the workspace on the plain path
+runs Git in the environment of the caller. Only the full gate builds, through `build`, and only an admitted
+project. Otherwise the project's gate builds with `lake build --wfail` before it runs the checker, and a
+module without its `.olean` makes the run `incomplete`.
 
 A run with one profile gives the proof verdict, that of `Regula.Closed.decision`: `pass` (exit 0) when
 the input has the closed form and no rule reports a subject, `fail` (exit 1) when a rule reports one, and
@@ -25,9 +25,10 @@ the input has the closed form and no rule reports a subject, `fail` (exit 1) whe
 what they give. It promises nothing about what ran during the build.
 
 A run with the profile, `full` and a directory is the full gate (`Regula.Language.gate`) on the project
-there: the language check, then the build and its replay, then the same rules. Only that run can print a
-full verdict, because only there the check came first, and only from a checker that the project's Lake did
-not start (`Regula.Reader.startedOutside`).
+there: the language check, then, for an admitted project, the build and its replay and the same rules. Only
+that run can print a full verdict, because only there the check came first, and only from a checker that the
+project's Lake did not start (`Regula.Reader.startedOutside`). A project with a dependency or with Mathlib in
+its imports gets no build from it: it says that only a proof verdict is possible and exits with 3.
 -/
 
 public section

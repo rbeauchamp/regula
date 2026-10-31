@@ -117,36 +117,61 @@ def FileAdmitted (f : FileRead) : Prop :=
 def ConfigKeyAdmitted (k : Name) : Prop :=
   k ∈ configKeys ∨ ∃ o ∈ options, k = `leanOptions ++ o
 
-/-- The project's own configuration is closed: the pinned toolchain, no `lakefile.lean`, no other key,
-and no package from a local path, which would be code that the project wrote. -/
+/-- The project's own configuration is closed: the pinned toolchain, no `lakefile.lean`, and each key
+whose root is not `require` in the closed set. A key with the root `require` is not read here:
+`RequiresDependency` states what it gives. -/
 def ConfigClosed (r : Reading) : Prop :=
   r.toolchainFile = some leanToolchain ∧ r.leanConfig = false ∧
-    (∀ k ∈ r.configKeys, ConfigKeyAdmitted k) ∧ ∀ p ∈ r.packages, p.fromGit = true
+    ∀ k ∈ r.configKeys, k.getRoot ≠ `require → ConfigKeyAdmitted k
 
 /-- The checker started outside the project's Lake, everything was read, and nothing the project planted
-under `.lake` or a dependency's build output can stand in for what the check read. -/
+under `.lake` can stand in for what the check read. -/
 def ReadInFull (r : Reading) : Prop :=
   r.outside = true ∧ r.unread = [] ∧ r.outputs = []
 
-/-- Some package's Lake configuration is code, which a Lake load of the workspace would run. -/
-def DependencyConfigIsCode (r : Reading) : Prop :=
-  ∃ p ∈ r.packages, p.tomlConfig = false
+/-- The project's configuration has a dependency: some key has the root `require`, which is the one key
+Lake decodes a dependency from (`Lake/Load/Toml.lean:499` at v4.35.0). The key walk gives every TOML form
+of it such a key. -/
+def RequiresDependency (r : Reading) : Prop :=
+  ∃ k ∈ r.configKeys, k.getRoot = `require
 
 /-- Mathlib is in the build's imports. -/
 def MathlibReached (r : Reading) : Prop :=
   ∃ m ∈ r.reached, m.getRoot = `Mathlib
 
-/-- There is a claim, each root is reached, and each module reached has its file read. -/
+/-- A character of a closed module name: an ASCII letter or digit (Lean's `Char.isAlphanum`), `_` or
+`'`. None of them separates or names a part of a path. -/
+def ClosedChar (c : Char) : Prop :=
+  c.isAlphanum = true ∨ c = '_' ∨ c = '\''
+
+instance : DecidablePred ClosedChar := fun _ => inferInstanceAs (Decidable (_ ∨ _ ∨ _))
+
+/-- A component of a closed module name: not empty, and of closed characters only. -/
+def ClosedComponent (s : String) : Prop :=
+  s ≠ "" ∧ ∀ c ∈ s.toList, ClosedChar c
+
+instance : DecidablePred ClosedComponent := fun _ => inferInstanceAs (Decidable (_ ∧ _))
+
+/-- The closed domain of module names: at least one component, each a string component that
+`ClosedComponent` admits. `modToFilePath` joins each component onto a directory, and `FilePath.join`
+discards its base for an absolute component, so a name in this domain selects a path below that directory
+and a quoted name such as `«/abs/vendor/Evil»` or `«..»` is outside it. -/
+inductive ClosedModuleName : Name → Prop where
+  /-- One closed component. -/
+  | one {s : String} : ClosedComponent s → ClosedModuleName (.str .anonymous s)
+  /-- A closed name, and one more closed component. -/
+  | more {p : Name} {s : String} : ClosedModuleName p → ClosedComponent s →
+      ClosedModuleName (.str p s)
+
+/-- There is a claim, each root is reached, each module reached has a name in the closed domain, and each
+has its file read. -/
 def Covered (r : Reading) : Prop :=
-  r.roots ≠ [] ∧ (∀ m ∈ r.roots, m ∈ r.reached) ∧ ∀ m ∈ r.reached, ∃ f ∈ r.files, f.module = m
+  r.roots ≠ [] ∧ (∀ m ∈ r.roots, m ∈ r.reached) ∧ (∀ m ∈ r.reached, ClosedModuleName m) ∧
+    ∀ m ∈ r.reached, ∃ f ∈ r.files, f.module = m
 
-/-- Each file of the root package is in the closed language. -/
-def RootAdmitted (r : Reading) : Prop :=
-  ∀ f ∈ r.files, f.inRoot = true → FileAdmitted f
-
-/-- Each file read of a dependency is in the closed language. -/
-def DependenciesAdmitted (r : Reading) : Prop :=
-  ∀ f ∈ r.files, f.inRoot = false → FileAdmitted f
+/-- Each file read is in the closed language. -/
+def FilesAdmitted (r : Reading) : Prop :=
+  ∀ f ∈ r.files, FileAdmitted f
 
 /-- The contract of the decision. Each clause names what its outcome rests on, and the clauses together
 fix the outcome of every reading (`language_o5`). -/
@@ -154,104 +179,93 @@ def languageRecord : IntentRecord (Reading → Outcome) where
   shape := .function Reading (fun _ => Outcome)
   dom := []
   props := [
-    ⟨"another toolchain, a lakefile.lean, a Lake key outside the closed set or a package from a local path is refused",
+    ⟨"another toolchain, a lakefile.lean or a Lake key outside the closed set is refused",
       fun d => ∀ r, ¬ ConfigClosed r → d r = .refused⟩,
     ⟨"a checker the project's Lake started, a failure to read or anything under .lake is incomplete",
       fun d => ∀ r, ConfigClosed r → ¬ ReadInFull r → d r = .incomplete⟩,
-    ⟨"a dependency whose Lake configuration is code leaves only the proof verdict",
-      fun d => ∀ r, ConfigClosed r → ReadInFull r → DependencyConfigIsCode r → d r = .proofOnly⟩,
+    ⟨"a project with a dependency has only the proof verdict",
+      fun d => ∀ r, ConfigClosed r → ReadInFull r → RequiresDependency r → d r = .proofOnly⟩,
     ⟨"a build with Mathlib in its imports has only the proof verdict",
-      fun d => ∀ r, ConfigClosed r → ReadInFull r → ¬ DependencyConfigIsCode r → MathlibReached r →
+      fun d => ∀ r, ConfigClosed r → ReadInFull r → ¬ RequiresDependency r → MathlibReached r →
         d r = .proofOnly⟩,
-    ⟨"a project with no claim or a module left unread is incomplete",
-      fun d => ∀ r, ConfigClosed r → ReadInFull r → ¬ DependencyConfigIsCode r →
+    ⟨"a project with no claim, a module name outside the closed domain or a module left unread is incomplete",
+      fun d => ∀ r, ConfigClosed r → ReadInFull r → ¬ RequiresDependency r →
         ¬ MathlibReached r → ¬ Covered r → d r = .incomplete⟩,
-    ⟨"a file of the root package outside the closed language is refused",
-      fun d => ∀ r, ConfigClosed r → ReadInFull r → ¬ DependencyConfigIsCode r →
-        ¬ MathlibReached r → Covered r → ¬ RootAdmitted r → d r = .refused⟩,
-    ⟨"a dependency's file outside the closed language leaves only the proof verdict",
-      fun d => ∀ r, ConfigClosed r → ReadInFull r → ¬ DependencyConfigIsCode r →
-        ¬ MathlibReached r → Covered r → RootAdmitted r → ¬ DependenciesAdmitted r →
-        d r = .proofOnly⟩,
+    ⟨"a file outside the closed language is refused",
+      fun d => ∀ r, ConfigClosed r → ReadInFull r → ¬ RequiresDependency r →
+        ¬ MathlibReached r → Covered r → ¬ FilesAdmitted r → d r = .refused⟩,
     ⟨"a project wholly inside the closed language is admitted",
-      fun d => ∀ r, ConfigClosed r → ReadInFull r → ¬ DependencyConfigIsCode r →
-        ¬ MathlibReached r → Covered r → RootAdmitted r → DependenciesAdmitted r →
-        d r = .admitted⟩]
+      fun d => ∀ r, ConfigClosed r → ReadInFull r → ¬ RequiresDependency r →
+        ¬ MathlibReached r → Covered r → FilesAdmitted r → d r = .admitted⟩]
   vocab := [
     ⟨"a closed configuration", Reading, ConfigClosed⟩,
     ⟨"a reading in full", Reading, ReadInFull⟩,
-    ⟨"a dependency whose configuration is code", Reading, DependencyConfigIsCode⟩,
+    ⟨"a project with a dependency", Reading, RequiresDependency⟩,
     ⟨"Mathlib in the imports", Reading, MathlibReached⟩,
     ⟨"a covered reading", Reading, Covered⟩,
-    ⟨"an admitted root package", Reading, RootAdmitted⟩,
-    ⟨"admitted dependencies", Reading, DependenciesAdmitted⟩,
-    ⟨"an admitted file", FileRead, FileAdmitted⟩]
+    ⟨"admitted files", Reading, FilesAdmitted⟩,
+    ⟨"an admitted file", FileRead, FileAdmitted⟩,
+    ⟨"a closed module name", Name, ClosedModuleName⟩]
 
 theorem language_meets_iff (d : Reading → Outcome) :
     languageRecord.Meets d ↔
       (∀ r, ¬ ConfigClosed r → d r = .refused) ∧
       (∀ r, ConfigClosed r → ¬ ReadInFull r → d r = .incomplete) ∧
-      (∀ r, ConfigClosed r → ReadInFull r → DependencyConfigIsCode r → d r = .proofOnly) ∧
-      (∀ r, ConfigClosed r → ReadInFull r → ¬ DependencyConfigIsCode r → MathlibReached r →
+      (∀ r, ConfigClosed r → ReadInFull r → RequiresDependency r → d r = .proofOnly) ∧
+      (∀ r, ConfigClosed r → ReadInFull r → ¬ RequiresDependency r → MathlibReached r →
         d r = .proofOnly) ∧
-      (∀ r, ConfigClosed r → ReadInFull r → ¬ DependencyConfigIsCode r → ¬ MathlibReached r →
+      (∀ r, ConfigClosed r → ReadInFull r → ¬ RequiresDependency r → ¬ MathlibReached r →
         ¬ Covered r → d r = .incomplete) ∧
-      (∀ r, ConfigClosed r → ReadInFull r → ¬ DependencyConfigIsCode r → ¬ MathlibReached r →
-        Covered r → ¬ RootAdmitted r → d r = .refused) ∧
-      (∀ r, ConfigClosed r → ReadInFull r → ¬ DependencyConfigIsCode r → ¬ MathlibReached r →
-        Covered r → RootAdmitted r → ¬ DependenciesAdmitted r → d r = .proofOnly) ∧
-      (∀ r, ConfigClosed r → ReadInFull r → ¬ DependencyConfigIsCode r → ¬ MathlibReached r →
-        Covered r → RootAdmitted r → DependenciesAdmitted r → d r = .admitted) := by
+      (∀ r, ConfigClosed r → ReadInFull r → ¬ RequiresDependency r → ¬ MathlibReached r →
+        Covered r → ¬ FilesAdmitted r → d r = .refused) ∧
+      (∀ r, ConfigClosed r → ReadInFull r → ¬ RequiresDependency r → ¬ MathlibReached r →
+        Covered r → FilesAdmitted r → d r = .admitted) := by
   simp [IntentRecord.Meets, IntentRecord.Dom, IntentRecord.Props, languageRecord]
 
 /-- The property the check exists for, read off the record: it admits a reading exactly when
 everything read is in the closed set, and nothing is left out. -/
 def Inside (r : Reading) : Prop :=
-  ConfigClosed r ∧ ReadInFull r ∧ ¬ DependencyConfigIsCode r ∧ ¬ MathlibReached r ∧ Covered r ∧
-    RootAdmitted r ∧ DependenciesAdmitted r
+  ConfigClosed r ∧ ReadInFull r ∧ ¬ RequiresDependency r ∧ ¬ MathlibReached r ∧ Covered r ∧
+    FilesAdmitted r
 
 theorem admitted_iff {d : Reading → Outcome} (h : languageRecord.Meets d) (r : Reading) :
     d r = .admitted ↔ Inside r := by
-  obtain ⟨h1, h2, hc, h3, h4, h5, h6, h7⟩ := (language_meets_iff d).mp h
+  obtain ⟨h1, h2, hc, h3, h4, h5, h6⟩ := (language_meets_iff d).mp h
   constructor
   · intro ha
     by_cases c : ConfigClosed r
     · by_cases f : ReadInFull r
-      · by_cases k : DependencyConfigIsCode r
+      · by_cases k : RequiresDependency r
         · simp [hc r c f k] at ha
         · by_cases m : MathlibReached r
           · simp [h3 r c f k m] at ha
           · by_cases v : Covered r
-            · by_cases o : RootAdmitted r
-              · by_cases p : DependenciesAdmitted r
-                · exact ⟨c, f, k, m, v, o, p⟩
-                · simp [h6 r c f k m v o p] at ha
+            · by_cases o : FilesAdmitted r
+              · exact ⟨c, f, k, m, v, o⟩
               · simp [h5 r c f k m v o] at ha
             · simp [h4 r c f k m v] at ha
       · simp [h2 r c f] at ha
     · simp [h1 r c] at ha
-  · rintro ⟨c, f, k, m, v, o, p⟩
-    exact h7 r c f k m v o p
+  · rintro ⟨c, f, k, m, v, o⟩
+    exact h6 r c f k m v o
 
 /-- Any two decisions that meet the record agree on every reading, so the record leaves nothing about
 the outcome unsaid. -/
 theorem language_o5 : O5 languageRecord .eq := by
   rw [o5_correct]
   intro u v hu hv
-  obtain ⟨u1, u2, uc, u3, u4, u5, u6, u7⟩ := (language_meets_iff u).mp ⟨hu.1, hu.2⟩
-  obtain ⟨v1, v2, vc, v3, v4, v5, v6, v7⟩ := (language_meets_iff v).mp ⟨hv.1, hv.2⟩
+  obtain ⟨u1, u2, uc, u3, u4, u5, u6⟩ := (language_meets_iff u).mp ⟨hu.1, hu.2⟩
+  obtain ⟨v1, v2, vc, v3, v4, v5, v6⟩ := (language_meets_iff v).mp ⟨hv.1, hv.2⟩
   funext r
   by_cases c : ConfigClosed r
   · by_cases f : ReadInFull r
-    · by_cases k : DependencyConfigIsCode r
+    · by_cases k : RequiresDependency r
       · rw [uc r c f k, vc r c f k]
       · by_cases m : MathlibReached r
         · rw [u3 r c f k m, v3 r c f k m]
         · by_cases w : Covered r
-          · by_cases o : RootAdmitted r
-            · by_cases p : DependenciesAdmitted r
-              · rw [u7 r c f k m w o p, v7 r c f k m w o p]
-              · rw [u6 r c f k m w o p, v6 r c f k m w o p]
+          · by_cases o : FilesAdmitted r
+            · rw [u6 r c f k m w o, v6 r c f k m w o]
             · rw [u5 r c f k m w o, v5 r c f k m w o]
           · rw [u4 r c f k m w, v4 r c f k m w]
     · rw [u2 r c f, v2 r c f]
@@ -271,13 +285,13 @@ def endOfInput : Syntax :=
 
 /-- A file in the closed language. -/
 def goodFile : FileRead :=
-  { module := `Good, inRoot := true, header := moduleHeader, commands := [endOfInput], parsed := true,
+  { module := `Good, header := moduleHeader, commands := [endOfInput], parsed := true,
     scopedParsers := [] }
 
 /-- A project of one such file. -/
 def goodReading : Reading :=
   { outside := true, toolchainFile := some leanToolchain, leanConfig := false,
-    configKeys := [`name], packages := [], roots := [`Good], reached := [`Good],
+    configKeys := [`name], roots := [`Good], reached := [`Good],
     files := [goodFile], unread := [], outputs := [] }
 
 theorem occurs_moduleHeader {s : Syntax} (h : Occurs s moduleHeader) :
@@ -316,37 +330,65 @@ theorem goodFile_admitted : FileAdmitted goodFile := by
   rw [this]
   exact admitted_endOfInput
 
+/-- `Good` is a closed module name. -/
+theorem good_closed_name : ClosedModuleName `Good := .one (by decide +kernel)
+
+/-- A quoted name that an absolute path would come from is outside the closed domain. -/
+theorem absolute_name_not_closed : ¬ ClosedModuleName (.str .anonymous "/abs/vendor/Evil") := by
+  intro h
+  cases h with
+  | one hc => exact absurd hc (by decide +kernel)
+  | more hp _ => cases hp
+
+/-- A quoted name that a parent directory would come from is outside the closed domain. -/
+theorem parent_name_not_closed : ¬ ClosedModuleName (.str .anonymous "..") := by
+  intro h
+  cases h with
+  | one hc => exact absurd hc (by decide +kernel)
+  | more hp _ => cases hp
+
+/-- A name with no component is outside the closed domain. -/
+theorem anonymous_not_closed : ¬ ClosedModuleName .anonymous := fun h => by cases h
+
+/-- A numeric component is outside the closed domain. -/
+theorem num_not_closed (p : Name) (n : Nat) : ¬ ClosedModuleName (.num p n) := fun h => by cases h
+
 theorem closed_of_goodKeys {r : Reading} (ht : r.toolchainFile = some leanToolchain)
-    (hl : r.leanConfig = false) (hk : r.configKeys = [`name]) (hp : r.packages = []) :
-    ConfigClosed r := by
-  refine ⟨ht, hl, ?_, by simp [hp]⟩
-  intro k h
+    (hl : r.leanConfig = false) (hk : r.configKeys = [`name]) : ConfigClosed r := by
+  refine ⟨ht, hl, ?_⟩
+  intro k h _
   rw [hk] at h
   have : k = `name := by simpa using h
   subst this
   exact .inl (by decide +kernel)
 
+theorem no_dependency_of_goodKeys {r : Reading} (hk : r.configKeys = [`name]) :
+    ¬ RequiresDependency r := by
+  rintro ⟨k, hm, hr⟩
+  rw [hk] at hm
+  have : k = `name := by simpa using hm
+  subst this
+  exact absurd hr (by decide)
+
 theorem goodReading_inside : Inside goodReading := by
-  refine ⟨closed_of_goodKeys rfl rfl rfl rfl, ⟨rfl, rfl, rfl⟩, ?_, ?_, ?_, ?_, ?_⟩
-  · rintro ⟨p, hp, -⟩
-    simp [goodReading] at hp
+  refine ⟨closed_of_goodKeys rfl rfl rfl, ⟨rfl, rfl, rfl⟩, no_dependency_of_goodKeys rfl, ?_, ?_, ?_⟩
   · rintro ⟨m, hm, hr⟩
     have : m = `Good := by simpa [goodReading] using hm
     subst this
     exact absurd hr (by decide)
-  · refine ⟨by simp [goodReading], by simp [goodReading], ?_⟩
-    intro m hm
-    have : m = `Good := by simpa [goodReading] using hm
-    subst this
-    exact ⟨goodFile, by simp [goodReading], rfl⟩
-  · intro f hf _
+  · refine ⟨by simp [goodReading], by simp [goodReading], ?_, ?_⟩
+    · intro m hm
+      have : m = `Good := by simpa [goodReading] using hm
+      subst this
+      exact good_closed_name
+    · intro m hm
+      have : m = `Good := by simpa [goodReading] using hm
+      subst this
+      exact ⟨goodFile, by simp [goodReading], rfl⟩
+  · intro f hf
     have : f = goodFile := by simpa [goodReading] using hf
     subst this
     exact goodFile_admitted
-  · intro f hf hr
-    have : f = goodFile := by simpa [goodReading] using hf
-    subst this
-    simp [goodFile] at hr
 
 /-- `goodReading` with a `lakefile.lean`. -/
 def leanConfigReading : Reading := { goodReading with leanConfig := true }
@@ -354,9 +396,8 @@ def leanConfigReading : Reading := { goodReading with leanConfig := true }
 /-- `goodReading` from a checker that the project's Lake started. -/
 def insideReading : Reading := { goodReading with outside := false }
 
-/-- `goodReading` with a dependency whose configuration is code. -/
-def codeDependencyReading : Reading :=
-  { goodReading with packages := [{ name := `dep, fromGit := true, tomlConfig := false }] }
+/-- `goodReading` with a dependency. -/
+def requireReading : Reading := { goodReading with configKeys := [`name, `require.name] }
 
 /-- `goodReading` with no claim. -/
 def noClaimReading : Reading :=
@@ -371,14 +412,8 @@ def uncoveredReading : Reading :=
   { goodReading with reached := [`Good, `Other] }
 
 /-- `goodReading` whose file holds a position the parser could not fill. -/
-def badRootReading : Reading :=
+def badFileReading : Reading :=
   { goodReading with files := [{ goodFile with commands := [.missing, endOfInput] }] }
-
-/-- `goodReading` with a dependency's file that Lean's parser refused. -/
-def badDependencyReading : Reading :=
-  { goodReading with
-    files := [goodFile, { goodFile with module := `Dep, inRoot := false, parsed := false }]
-    reached := [`Good, `Dep] }
 
 theorem leanConfig_not_closed : ¬ ConfigClosed leanConfigReading := fun h => by
   simpa [leanConfigReading, goodReading] using h.2.1
@@ -392,78 +427,65 @@ noncomputable def modelDecision (r : Reading) : Outcome :=
   open Classical in
   if ¬ ConfigClosed r then .refused
   else if ¬ ReadInFull r then .incomplete
-  else if DependencyConfigIsCode r then .proofOnly
+  else if RequiresDependency r then .proofOnly
   else if MathlibReached r then .proofOnly
   else if ¬ Covered r then .incomplete
-  else if ¬ RootAdmitted r then .refused
-  else if ¬ DependenciesAdmitted r then .proofOnly
+  else if ¬ FilesAdmitted r then .refused
   else .admitted
 
 theorem modelDecision_meets : languageRecord.Meets modelDecision := by
   rw [language_meets_iff]
-  refine ⟨?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_⟩ <;> intros <;> simp_all [modelDecision]
+  refine ⟨?_, ?_, ?_, ?_, ?_, ?_, ?_⟩ <;> intros <;> simp_all [modelDecision]
 
 theorem language_o2Run : O2Run languageRecord := o2Run_of_meets modelDecision_meets
 
-
-theorem good_closed : ConfigClosed goodReading := closed_of_goodKeys rfl rfl rfl rfl
+theorem good_closed : ConfigClosed goodReading := closed_of_goodKeys rfl rfl rfl
 
 theorem good_full : ReadInFull goodReading := ⟨rfl, rfl, rfl⟩
 
-theorem good_no_code : ¬ DependencyConfigIsCode goodReading := goodReading_inside.2.2.1
+theorem good_no_dependency : ¬ RequiresDependency goodReading := goodReading_inside.2.2.1
 
-theorem no_code_of_no_packages {r : Reading} (h : r.packages = []) : ¬ DependencyConfigIsCode r := by
-  rintro ⟨p, hp, -⟩
-  simp [h] at hp
+theorem require_closed : ConfigClosed requireReading := by
+  refine ⟨rfl, rfl, ?_⟩
+  intro k hk hr
+  have : k = `name ∨ k = `require.name := by simpa [requireReading] using hk
+  rcases this with rfl | rfl
+  · exact .inl (by decide +kernel)
+  · exact absurd (by decide) hr
+
+theorem require_requires : RequiresDependency requireReading :=
+  ⟨`require.name, by simp [requireReading], by decide⟩
 
 theorem mathlib_reached : MathlibReached mathlibReading :=
   ⟨`Mathlib.Tactic, by simp [mathlibReading], by decide⟩
 
-theorem not_mathlib_of_reached {r : Reading} (h : ∀ m ∈ r.reached, m = `Good ∨ m = `Other ∨ m = `Dep) :
+theorem not_mathlib_of_reached {r : Reading} (h : ∀ m ∈ r.reached, m = `Good ∨ m = `Other) :
     ¬ MathlibReached r := by
   rintro ⟨m, hm, hr⟩
-  rcases h m hm with rfl | rfl | rfl <;> exact absurd hr (by decide)
+  rcases h m hm with rfl | rfl <;> exact absurd hr (by decide)
 
 theorem uncovered : ¬ Covered uncoveredReading := by
-  rintro ⟨-, -, h⟩
+  rintro ⟨-, -, -, h⟩
   obtain ⟨f, hf, hm⟩ := h `Other (by simp [uncoveredReading])
   have : f = goodFile := by simpa [uncoveredReading, goodReading] using hf
   subst this
   exact absurd hm (by decide)
 
-theorem badRoot_covered : Covered badRootReading := by
-  refine ⟨by simp [badRootReading, goodReading], by simp [badRootReading, goodReading], ?_⟩
-  intro m hm
-  have : m = `Good := by simpa [badRootReading, goodReading] using hm
-  subst this
-  exact ⟨{ goodFile with commands := [.missing, endOfInput] }, by simp [badRootReading], rfl⟩
+theorem badFile_covered : Covered badFileReading := by
+  refine ⟨by simp [badFileReading, goodReading], by simp [badFileReading, goodReading], ?_, ?_⟩
+  · intro m hm
+    have : m = `Good := by simpa [badFileReading, goodReading] using hm
+    subst this
+    exact good_closed_name
+  · intro m hm
+    have : m = `Good := by simpa [badFileReading, goodReading] using hm
+    subst this
+    exact ⟨{ goodFile with commands := [.missing, endOfInput] }, by simp [badFileReading], rfl⟩
 
-theorem badRoot_refused : ¬ RootAdmitted badRootReading := by
+theorem badFile_refused : ¬ FilesAdmitted badFileReading := by
   intro h
-  have ha := h { goodFile with commands := [.missing, endOfInput] } (by simp [badRootReading]) rfl
+  have ha := h { goodFile with commands := [.missing, endOfInput] } (by simp [badFileReading])
   exact ha.2.2.2.2 .missing (by simp) .missing (.self _)
-
-theorem badDependency_covered : Covered badDependencyReading := by
-  refine ⟨by simp [badDependencyReading, goodReading], by simp [badDependencyReading, goodReading], ?_⟩
-  intro m hm
-  have : m = `Good ∨ m = `Dep := by simpa [badDependencyReading] using hm
-  rcases this with rfl | rfl
-  · exact ⟨goodFile, by simp [badDependencyReading], rfl⟩
-  · exact ⟨_, List.mem_cons_of_mem _ (List.mem_singleton.mpr rfl), rfl⟩
-
-theorem badDependency_root : RootAdmitted badDependencyReading := by
-  intro f hf hr
-  have : f = goodFile ∨ f = { goodFile with module := `Dep, inRoot := false, parsed := false } := by
-    simpa [badDependencyReading] using hf
-  rcases this with rfl | rfl
-  · exact goodFile_admitted
-  · simp at hr
-
-theorem badDependency_refused : ¬ DependenciesAdmitted badDependencyReading := by
-  intro h
-  have ha := h { goodFile with module := `Dep, inRoot := false, parsed := false }
-    (List.mem_cons_of_mem _ (List.mem_singleton.mpr rfl)) rfl
-  exact absurd ha.1 (by simp)
 
 /-- O2 at confirmation: the record has no domain hypothesis, and each predicate has an instance. -/
 theorem language_o2 : O2 languageRecord := by
@@ -474,12 +496,12 @@ theorem language_o2 : O2 languageRecord := by
   rcases hp with rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl
   · exact ⟨goodReading, good_closed⟩
   · exact ⟨goodReading, good_full⟩
-  · exact ⟨codeDependencyReading, ⟨{ name := `dep, fromGit := true, tomlConfig := false }, by simp [codeDependencyReading], rfl⟩⟩
+  · exact ⟨requireReading, require_requires⟩
   · exact ⟨mathlibReading, mathlib_reached⟩
   · exact ⟨goodReading, goodReading_inside.2.2.2.2.1⟩
-  · exact ⟨goodReading, goodReading_inside.2.2.2.2.2.1⟩
-  · exact ⟨goodReading, goodReading_inside.2.2.2.2.2.2⟩
+  · exact ⟨goodReading, goodReading_inside.2.2.2.2.2⟩
   · exact ⟨goodFile, goodFile_admitted⟩
+  · exact ⟨`Good, good_closed_name⟩
 
 /-- O3: each clause can fail. The subject that fails it is a constant, on the reading the clause is
 about. -/
@@ -488,36 +510,26 @@ theorem language_o3 : O3 languageRecord := by
   intro p hp
   simp only [languageRecord, List.mem_cons, List.not_mem_nil, or_false] at hp
   have c {r : Reading} (ht : r.toolchainFile = some leanToolchain) (hl : r.leanConfig = false)
-      (hk : r.configKeys = [`name]) (hp : r.packages = []) := closed_of_goodKeys ht hl hk hp
-  rcases hp with rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl
+      (hk : r.configKeys = [`name]) := closed_of_goodKeys ht hl hk
+  have n {r : Reading} (hk : r.configKeys = [`name]) := no_dependency_of_goodKeys (r := r) hk
+  rcases hp with rfl | rfl | rfl | rfl | rfl | rfl | rfl
   · exact ⟨fun _ => .admitted, fun h => absurd (h leanConfigReading leanConfig_not_closed) (by decide)⟩
   · exact ⟨fun _ => .admitted, fun h => absurd
-      (h insideReading (c rfl rfl rfl rfl) fun hf => by simpa [insideReading] using hf.1) (by decide)⟩
-  · refine ⟨fun _ => .admitted, fun h => absurd
-      (h codeDependencyReading ⟨rfl, rfl, ?_, by simp [codeDependencyReading]⟩ ⟨rfl, rfl, rfl⟩
-        ⟨{ name := `dep, fromGit := true, tomlConfig := false }, by simp [codeDependencyReading], rfl⟩) (by decide)⟩
-    intro k hk
-    have : k = `name := by simpa [codeDependencyReading, goodReading] using hk
-    subst this
-    exact .inl (by decide +kernel)
+      (h insideReading (c rfl rfl rfl) fun hf => by simpa [insideReading] using hf.1) (by decide)⟩
   · exact ⟨fun _ => .admitted, fun h => absurd
-      (h mathlibReading (c rfl rfl rfl rfl) ⟨rfl, rfl, rfl⟩ (no_code_of_no_packages rfl)
-        mathlib_reached) (by decide)⟩
+      (h requireReading require_closed ⟨rfl, rfl, rfl⟩ require_requires) (by decide)⟩
   · exact ⟨fun _ => .admitted, fun h => absurd
-      (h noClaimReading (c rfl rfl rfl rfl) ⟨rfl, rfl, rfl⟩ (no_code_of_no_packages rfl)
+      (h mathlibReading (c rfl rfl rfl) ⟨rfl, rfl, rfl⟩ (n rfl) mathlib_reached) (by decide)⟩
+  · exact ⟨fun _ => .admitted, fun h => absurd
+      (h noClaimReading (c rfl rfl rfl) ⟨rfl, rfl, rfl⟩ (n rfl)
         (not_mathlib_of_reached (by simp [noClaimReading])) noClaim_not_covered) (by decide)⟩
   · exact ⟨fun _ => .admitted, fun h => absurd
-      (h badRootReading (c rfl rfl rfl rfl) ⟨rfl, rfl, rfl⟩ (no_code_of_no_packages rfl)
-        (not_mathlib_of_reached (by simp [badRootReading, goodReading])) badRoot_covered
-        badRoot_refused) (by decide)⟩
-  · exact ⟨fun _ => .admitted, fun h => absurd
-      (h badDependencyReading (c rfl rfl rfl rfl) ⟨rfl, rfl, rfl⟩ (no_code_of_no_packages rfl)
-        (not_mathlib_of_reached (by simp [badDependencyReading])) badDependency_covered
-        badDependency_root badDependency_refused) (by decide)⟩
+      (h badFileReading (c rfl rfl rfl) ⟨rfl, rfl, rfl⟩ (n rfl)
+        (not_mathlib_of_reached (by simp [badFileReading, goodReading])) badFile_covered
+        badFile_refused) (by decide)⟩
   · exact ⟨fun _ => .refused, fun h => absurd
-      (h goodReading good_closed good_full good_no_code goodReading_inside.2.2.2.1
-        goodReading_inside.2.2.2.2.1 goodReading_inside.2.2.2.2.2.1
-        goodReading_inside.2.2.2.2.2.2) (by decide)⟩
+      (h goodReading good_closed good_full good_no_dependency goodReading_inside.2.2.2.1
+        goodReading_inside.2.2.2.2.1 goodReading_inside.2.2.2.2.2) (by decide)⟩
 
 /-! ## The degenerate decisions
 
@@ -577,9 +589,11 @@ theorem refused_config_keys :
       `extraDepTargets, `precompileModules, `moreLinkObjs, `moreLinkLibs, `moreLinkArgs, `buildDir,
       `leanLibDir, `lean_lib.plugins, `lean_lib.dynlibs, `lean_lib.moreLeanArgs,
       `lean_lib.needs, `lean_lib.extraDepTargets, `lean_lib.precompileModules, `lean_exe.plugins,
-      `lean_exe.needs, `lean_exe.moreLeanArgs, `require.source, `require.path, `testDriver,
-      `packagesDir],
+      `lean_exe.needs, `lean_exe.moreLeanArgs, `testDriver, `packagesDir],
     k ∉ configKeys ∧ ∀ o ∈ options, k ≠ `leanOptions ++ o := by decide +kernel
+
+/-- No key of the closed set has the root `require`, so a dependency is never read as an admitted key. -/
+theorem configKeys_no_require : ∀ k ∈ configKeys, k.getRoot ≠ `require := by decide +kernel
 
 /-- A reading from a checker that the project's Lake started is never admitted, whatever else it holds.
 A decision that meets the record gives such a reading no full verdict. -/
@@ -595,6 +609,16 @@ theorem planted_not_admitted {d : Reading → Outcome} (h : languageRecord.Meets
     (hr : r.outputs ≠ []) : d r ≠ .admitted := by
   intro ha
   exact hr ((admitted_iff h r).mp ha).2.1.2.2
+
+/-- A key with the root `require` never gives a full verdict, whatever else the reading holds. -/
+theorem require_not_admitted {d : Reading → Outcome} (h : languageRecord.Meets d) (r : Reading)
+    (hr : RequiresDependency r) : d r ≠ .admitted :=
+  fun ha => ((admitted_iff h r).mp ha).2.2.1 hr
+
+/-- A module name outside the closed domain never gives a full verdict. -/
+theorem unclosed_name_not_admitted {d : Reading → Outcome} (h : languageRecord.Meets d) (r : Reading)
+    (m : Name) (hm : m ∈ r.reached) (hn : ¬ ClosedModuleName m) : d r ≠ .admitted :=
+  fun ha => hn (((admitted_iff h r).mp ha).2.2.2.2.1.2.2.1 m hm)
 
 /-- A `lakefile.lean` is refused. -/
 theorem lean_config_refused {d : Reading → Outcome} (h : languageRecord.Meets d) (r : Reading)
@@ -618,8 +642,9 @@ theorem admitted_kinds :
 with 0, and the rules' verdict on the finished build. -/
 abbrev GateRun : Type := Outcome → Bool → Regula.Closed.Verdict → Report × List Step
 
-/-- The contract of the gate. A refusal or a failure to read stops it before anything is compiled, the
-rules run only on a build that ended with 0, and the report says which verdict it is. -/
+/-- The contract of the gate. Only an admitted project is built: a refusal, a failure to read and a
+project with only the proof verdict each stop it before anything is compiled. The rules run only on a
+build that ended with 0, and the report says which verdict it is. -/
 def fullGateRecord : IntentRecord GateRun where
   shape := .function Outcome (fun _ => Bool → Regula.Closed.Verdict → Report × List Step)
   dom := []
@@ -628,31 +653,28 @@ def fullGateRecord : IntentRecord GateRun where
       fun g => ∀ b v, g .refused b v = (.refused, [.read])⟩,
     ⟨"a project that could not be read is compiled by nothing",
       fun g => ∀ b v, g .incomplete b v = (.incomplete, [.read])⟩,
+    ⟨"a project with only the proof verdict is compiled by nothing, and is told so",
+      fun g => ∀ b v, g .proofOnly b v = (.proofOnly, [.read])⟩,
     ⟨"an admitted project gets the full verdict, from the rules on a build that ended with 0",
       fun g => ∀ v, g .admitted true v = (.full v, [.read, .build, .rules])⟩,
     ⟨"an admitted project whose build failed gets a full verdict of failure",
-      fun g => ∀ v, g .admitted false v = (.full .fail, [.read, .build])⟩,
-    ⟨"a project with only the proof verdict gets it, from the rules on a build that ended with 0",
-      fun g => ∀ v, g .proofOnly true v = (.proof v, [.read, .build, .rules])⟩,
-    ⟨"a project with only the proof verdict whose build failed gets a proof verdict of failure",
-      fun g => ∀ v, g .proofOnly false v = (.proof .fail, [.read, .build])⟩]
+      fun g => ∀ v, g .admitted false v = (.full .fail, [.read, .build])⟩]
   vocab := []
 
 theorem fullGate_meets_iff (g : GateRun) :
     fullGateRecord.Meets g ↔
       (∀ b v, g .refused b v = (.refused, [.read])) ∧
       (∀ b v, g .incomplete b v = (.incomplete, [.read])) ∧
+      (∀ b v, g .proofOnly b v = (.proofOnly, [.read])) ∧
       (∀ v, g .admitted true v = (.full v, [.read, .build, .rules])) ∧
-      (∀ v, g .admitted false v = (.full .fail, [.read, .build])) ∧
-      (∀ v, g .proofOnly true v = (.proof v, [.read, .build, .rules])) ∧
-      (∀ v, g .proofOnly false v = (.proof .fail, [.read, .build])) := by
+      (∀ v, g .admitted false v = (.full .fail, [.read, .build])) := by
   simp [IntentRecord.Meets, IntentRecord.Dom, IntentRecord.Props, fullGateRecord]
 
 theorem fullGate_o5 : O5 fullGateRecord .eq := by
   rw [o5_correct]
   intro u v hu hv
-  obtain ⟨u1, u2, u3, u4, u5, u6⟩ := (fullGate_meets_iff u).mp ⟨hu.1, hu.2⟩
-  obtain ⟨v1, v2, v3, v4, v5, v6⟩ := (fullGate_meets_iff v).mp ⟨hv.1, hv.2⟩
+  obtain ⟨u1, u2, u3, u4, u5⟩ := (fullGate_meets_iff u).mp ⟨hu.1, hu.2⟩
+  obtain ⟨v1, v2, v3, v4, v5⟩ := (fullGate_meets_iff v).mp ⟨hv.1, hv.2⟩
   funext o b w
   cases o <;> cases b <;> simp_all
 
@@ -669,20 +691,19 @@ theorem fullGate_o3 : O3 fullGateRecord := by
   rw [o3_correct]
   intro p hp
   simp only [fullGateRecord, List.mem_cons, List.not_mem_nil, or_false] at hp
-  rcases hp with rfl | rfl | rfl | rfl | rfl | rfl <;>
+  rcases hp with rfl | rfl | rfl | rfl | rfl <;>
     refine ⟨fun _ _ _ => (.incomplete, []), fun h => ?_⟩
   · simpa using h true .pass
   · simpa using h true .pass
-  · simpa using h .pass
-  · simpa using h .pass
+  · simpa using h true .pass
   · simpa using h .pass
   · simpa using h .pass
 
-/-- A build is compiled only after the check, and only when the check let it: `build` is in the steps
-only for an admitted or proof-only outcome, and it follows `read`. -/
+/-- A build is compiled only after the check, and only for an admitted outcome: `build` is in the steps
+only then, and it follows `read`. -/
 theorem build_only_after_check {g : GateRun} (h : fullGateRecord.Meets g) (o b v) :
-    Step.build ∈ (g o b v).2 → (o = .admitted ∨ o = .proofOnly) ∧ (g o b v).2.head? = some .read := by
-  obtain ⟨u1, u2, u3, u4, u5, u6⟩ := (fullGate_meets_iff g).mp h
+    Step.build ∈ (g o b v).2 → o = .admitted ∧ (g o b v).2.head? = some .read := by
+  obtain ⟨u1, u2, u3, u4, u5⟩ := (fullGate_meets_iff g).mp h
   cases o <;> cases b <;> simp_all
 
 /-- Mathlib in a build's imports never gets a full verdict: `Regula.Language.Report.full` needs an
@@ -690,7 +711,7 @@ admitted outcome, which `admitted_iff` refuses. -/
 theorem full_needs_no_mathlib {d : Reading → Outcome} {g : GateRun} (hd : languageRecord.Meets d)
     (hg : fullGateRecord.Meets g) (r : Reading) (b v w)
     (hf : (g (d r) b v).1 = .full w) : ¬ MathlibReached r := by
-  obtain ⟨u1, u2, u3, u4, u5, u6⟩ := (fullGate_meets_iff g).mp hg
+  obtain ⟨u1, u2, u3, u4, u5⟩ := (fullGate_meets_iff g).mp hg
   have ha : d r = .admitted := by
     cases ho : d r <;> rw [ho] at hf <;> cases b <;> simp_all
   exact ((admitted_iff hd r).mp ha).2.2.2.1
@@ -723,10 +744,7 @@ theorem admitted_runs_no_project_code (L : LeanBehaviour) {d : Reading → Outco
     ∀ f ∈ r.files, ∃ ts, L.Elaborates f ts ∧ L.NoProjectCode ts := by
   have hi := (admitted_iff hd r).mp ha
   intro f hf
-  have hadm : FileAdmitted f := by
-    cases hr : f.inRoot with
-    | true => exact hi.2.2.2.2.2.1 f hf hr
-    | false => exact hi.2.2.2.2.2.2 f hf hr
+  have hadm : FileAdmitted f := hi.2.2.2.2.2 f hf
   exact ⟨f.commands, L.h1 r hi f hf, L.h2 f.scopedParsers f.commands hadm.2.2.2.2⟩
 
 end RegulaSpecification.Language

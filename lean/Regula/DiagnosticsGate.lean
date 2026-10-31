@@ -53,8 +53,8 @@ structure Step where
 - The full gate on this checkout (`root`), started from that copy: the language check, the build of the
   default targets with warnings as errors, Lean's replay of them, and the rules. Its exit code is 0 only
   for a pass of the full verdict.
-- The programs of the root package outside the default targets, and Regula's checker on its own
-  build.
+- The programs of the root package outside the default targets, which only call Lake or are the
+  repository's own, and Regula's checker on its own build.
 - The specification, with warnings as errors, Lean's replay of it, and Regula's checker on it, the
   path that a project that requires Regula takes. So each theorem of the specification depends on no
   axiom beyond `propext`, `Quot.sound` and `Classical.choice`, on the run of the checker. -/

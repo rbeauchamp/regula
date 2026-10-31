@@ -6,13 +6,16 @@ Authors: Regula contributors
 module
 
 public import Lake.Load.Workspace
-public import Regula.Load
+public import Lake.Toml.Load
+public import Regula.Reader
 
 /-!
-# Lake's load of the workspace
+# The calls of Lake
 
-The part of the loader that calls Lake: Lake's load of the workspace (`Lake.loadWorkspace`), the
-modules of the root package's default targets, and the import of the environment (`loadInput`).
+Direct calls of Lake and nothing else: its environment, its TOML parser, its loads of a workspace, the
+modules of the default targets with their source files, its resolver of an import, and its program's path.
+What decides anything from their results is in `Regula.Load` and `Regula.Reader`, which are in a default
+target.
 
 This module is in the library `Regula`, which is no default target. Lake declares each entry of its
 open families of data types as an axiom, such as `Lake.DataType.bool` (`Lake/Util/Family.lean`,
@@ -25,7 +28,8 @@ public section
 
 namespace Regula.Load
 
-open Lean System
+open Lean (Name)
+open System (FilePath)
 open Regula.Closed
 
 /-- The Lake environment of the toolchain that `LEAN_SYSROOT` names, with the Lake installed beside
@@ -40,7 +44,8 @@ def lakeEnvironment : IO Lake.Env := do
   | .ok env => return { env with initLeanPath := [], initLeanSrcPath := [] }
   | .error why => refuse s!"Lake could not compute its environment: {why}"
 
-/-- Lake's load of the workspace whose root is `dir`. -/
+/-- Lake's load of the workspace whose root is `dir`, with its dependencies: the plain `lake lint`, whose
+workspace Lake has already loaded before this program starts. -/
 def loadWorkspace (dir : FilePath) : IO Lake.Workspace := do
   let lakeEnv ← lakeEnvironment
   let wsDir ← IO.FS.realPath dir
@@ -51,50 +56,63 @@ def loadWorkspace (dir : FilePath) : IO Lake.Workspace := do
     refuse s!"Lake could not load the workspace at {dir}: \
       {"; ".intercalate (log.entries.map (·.message)).toList}"
 
-/-- The modules that the default targets of the root package name: each module of a default library,
-and the root of each default executable. A default target that is neither builds no Lean module
-(`Package.recCollectDefaultModules`, `Lake/Build/Package.lean:45-61` at v4.35.0). -/
-def defaultModules (ws : Lake.Workspace) : IO (Array Name) := do
+/-- Lake's load of the root package at `dir` from its `lakefile.toml`: its configuration only, with no
+manifest and no dependency (`Lake/Load/Workspace.lean:31-47` at v4.35.0), and whatever `lakefile.lean` lies
+there (`Lake/Load/Package.lean:100-105`). -/
+def loadRootWorkspace (dir : FilePath) : IO Lake.Workspace := do
+  let lakeEnv ← lakeEnvironment
+  let wsDir ← IO.FS.realPath dir
+  let (ws?, log) ← Lake.ELogT.run? (m := BaseIO) (Lake.loadWorkspaceRoot { lakeEnv, wsDir, relConfigFile := "lakefile.toml" })
+  match ws? with
+  | some ws => return ws
+  | none =>
+    refuse s!"Lake could not load the configuration at {dir}: \
+      {"; ".intercalate (log.entries.map (·.message)).toList}"
+
+/-- The modules that the default targets of the root package name, with the file Lake compiles for each:
+each module of a default library, and the root of each default executable. A default target that is
+neither builds no Lean module (`Package.recCollectDefaultModules`, `Lake/Build/Package.lean:45-61` at
+v4.35.0). -/
+def defaultModules (ws : Lake.Workspace) : IO (Array (Name × FilePath)) := do
   let mut out := #[]
   for target in ws.root.defaultTargets do
     if let some lib := ws.root.findLeanLib? target then
-      out := out ++ (← lib.getModuleArray).map (·.name)
+      out := out ++ (← lib.getModuleArray).map fun m => (m.name, m.leanFile)
     else if let some exe := ws.root.findLeanExe? target then
-      out := out.push exe.root.name
+      out := out.push (exe.root.name, exe.root.leanFile)
   return out
 
-/-- The search path that Lake gave this process, or a refusal when no Lake did. -/
-def receivedLeanPath : IO (List String) := do
-  let some leanPath ← IO.getEnv "LEAN_PATH"
-    | refuse "LEAN_PATH is not set, so the workspace that Lake dispatched is not known: run the \
-        checker with `lake lint` or `lake exe lint`, which set it"
-  return (SearchPath.parse leanPath).map toString
+/-- What the reader asks of the root package's configuration, from Lake's load of it. -/
+def rootOf (ws : Lake.Workspace) : IO Regula.Reader.Root := do
+  return {
+    modules := (← defaultModules ws).toList
+    targets := (ws.root.leanLibs.map (·.name)).toList ++ (ws.root.leanExes.map (·.name)).toList
+    resolve := fun m => (ws.findModule? m).map (·.leanFile)
+    toolchain := [ws.lakeEnv.lean.leanLibDir, ws.lakeEnv.lake.libDir] }
+
+/-- Lake's calls, for the reader. -/
+def lakeCalls : Regula.Reader.LakeCalls where
+  program := return (← lakeEnvironment).lake.lake
+  libDir := return (← lakeEnvironment).lake.libDir
+  parseToml := fun input =>
+    EIO.toIO (fun _ => IO.userError "Lake's TOML parser refused it") (Lake.Toml.loadToml input)
+  loadRoot := fun dir => do rootOf (← loadRootWorkspace dir)
 
 /-- The closed input of the finished build of the workspace `ws`, or an error that refuses it. -/
 def inputOf (ws : Lake.Workspace) (profile : Profile) : IO Input := do
-  searchPathRef.set ws.augmentedLeanPath
-  let roots ← defaultModules ws
-  let env ←
-    try importModules (roots.map ({ module := · })) {} (loadExts := false) (level := .private)
-    catch e => refuse s!"Lean could not load the modules of the default targets: {e}"
-  let f ← Facts.load env ws.lakeEnv.lean.leanLibDir ws.root.leanLibDir
-  match f.input roots.toList profile with
-  | .ok input => return input
-  | .error why => refuse why
+  inputFrom ws.augmentedLeanPath ((← defaultModules ws).map (·.1)) ws.lakeEnv.lean.leanLibDir
+    ws.root.leanLibDir profile
 
 /-- The closed input of the finished build of the workspace that Lake dispatched from the current
 directory, or an error that refuses it. -/
 def loadInput (profile : Profile) : IO Input := do
   let ws ← loadWorkspace "."
-  unless dispatchedFrom ws.root.leanLibDir.toString ws.lakeEnv.lake.libDir.toString
-      (← receivedLeanPath) do
-    refuse "the current directory is not the workspace Lake dispatched; run `lake lint` from that \
-      workspace's directory"
+  requireDispatched ws.root.leanLibDir ws.lakeEnv.lake.libDir
   inputOf ws profile
 
-/-- The closed input of the finished build of the workspace at `dir`, for a checker that Lake started
-from another workspace (`Regula.Reader.startedOutside`). -/
+/-- The closed input of the finished build at `dir`, for a checker that Lake started from another
+workspace (`Regula.Reader.startedOutside`), through the root package's load alone. -/
 def loadInputAt (dir : FilePath) (profile : Profile) : IO Input := do
-  inputOf (← loadWorkspace dir) profile
+  inputOf (← loadRootWorkspace dir) profile
 
 end Regula.Load

@@ -20,7 +20,8 @@ directions.
 so there is one walk over `Lean.Syntax`. It is structural, with no `partial` and no fuel.
 
 `gate` is the order of the full gate over any monad, so the order is a theorem about the code that runs
-and not an observation alone.
+and not an observation alone. Only an admitted project is built: `.proofOnly` stops it as `.refused` does,
+with a report that says which three commands give the proof verdict.
 
 A pass here means what the specification's `LeanBehaviour` says, under its hypotheses H1 and H2 about
 Lean: that each tree is the one Lean elaborates, and that what the closed set admits runs no code that
@@ -130,39 +131,54 @@ def FileRead.admitted (f : FileRead) : Bool :=
 def configKeyAdmitted (k : Name) : Bool :=
   configKeys.contains k || options.any (k == `leanOptions ++ ·)
 
+/-- Whether a character may be in a component of a module name: an ASCII letter or digit, `_` or `'`. -/
+def closedNameChar (c : Char) : Bool :=
+  c.isAlphanum || c == '_' || c == '\''
+
+/-- Whether a string is a component of a closed module name. -/
+def closedComponent (s : String) : Bool :=
+  !s.isEmpty && s.toList.all closedNameChar
+
+/-- Whether a module name is in the closed domain, so that the path Lean's `modToFilePath` joins from it
+stays below the directory it starts from: `FilePath.join` discards its base for an absolute component, and
+a component can be `..`. -/
+def closedModuleName : Name → Bool
+  | .anonymous => false
+  | .num _ _ => false
+  | .str .anonymous s => closedComponent s
+  | .str (.str q t) s => closedModuleName (.str q t) && closedComponent s
+  | .str (.num _ _) _ => false
+
 namespace Reading
 
 variable (r : Reading)
 
-/-- The pinned toolchain, no `lakefile.lean`, no other key, and no package from a local path. -/
+/-- The pinned toolchain, no `lakefile.lean`, and each key whose root is not `require` in the closed set. -/
 def configClosed : Bool :=
-  r.toolchainFile == some leanToolchain && !r.leanConfig && r.configKeys.all configKeyAdmitted &&
-    r.packages.all (·.fromGit)
+  r.toolchainFile == some leanToolchain && !r.leanConfig &&
+    r.configKeys.all fun k => k.getRoot == `require || configKeyAdmitted k
 
 /-- The checker started outside the project's Lake, nothing failed to read, and no output exists. -/
 def readInFull : Bool :=
   r.outside && r.unread.isEmpty && r.outputs.isEmpty
 
-/-- Whether a dependency's Lake configuration is code, which a Lake load would run. -/
-def dependencyConfigIsCode : Bool :=
-  r.packages.any (!·.tomlConfig)
+/-- Whether the project's configuration has a dependency: a key with the root `require`. -/
+def requiresDependency : Bool :=
+  r.configKeys.any (·.getRoot == `require)
 
 /-- Whether Mathlib is in the build's imports. -/
 def mathlibReached : Bool :=
   r.reached.any (·.getRoot == `Mathlib)
 
-/-- There is a claim, each root is reached, and each module reached has its file read. -/
+/-- There is a claim, each root is reached, each module reached has a name in the closed domain, and each
+has its file read. -/
 def covered : Bool :=
-  !r.roots.isEmpty && r.roots.all r.reached.contains &&
+  !r.roots.isEmpty && r.roots.all r.reached.contains && r.reached.all closedModuleName &&
     r.reached.all fun m => r.files.any (·.module == m)
 
-/-- Each file of the root package is in the closed language. -/
-def rootAdmitted : Bool :=
-  r.files.all fun f => !f.inRoot || f.admitted
-
-/-- Each file of a dependency is in the closed language. -/
-def dependenciesAdmitted : Bool :=
-  r.files.all fun f => f.inRoot || f.admitted
+/-- Each file read is in the closed language. -/
+def filesAdmitted : Bool :=
+  r.files.all (·.admitted)
 
 end Reading
 
@@ -170,27 +186,25 @@ end Reading
 def decision (r : Reading) : Outcome :=
   if !r.configClosed then .refused
   else if !r.readInFull then .incomplete
-  else if r.dependencyConfigIsCode then .proofOnly
+  else if r.requiresDependency then .proofOnly
   else if r.mathlibReached then .proofOnly
   else if !r.covered then .incomplete
-  else if !r.rootAdmitted then .refused
-  else if !r.dependenciesAdmitted then .proofOnly
+  else if !r.filesAdmitted then .refused
   else .admitted
 
-/-- The order of the full gate, over any monad: `read` first, and `build` and `rules` only when it let
-them. -/
+/-- The order of the full gate, over any monad: `read` first, and `build` and `rules` only for an
+admitted project. -/
 def gate {m : Type → Type} [Monad m] (read : m Outcome) (build : m Bool)
     (rules : m Regula.Closed.Verdict) : m Report := do
-  let finish (label : Regula.Closed.Verdict → Report) : m Report := do
-    if ← build then
-      return label (← rules)
-    else
-      return label .fail
   match ← read with
   | .refused => return .refused
   | .incomplete => return .incomplete
-  | .admitted => finish .full
-  | .proofOnly => finish .proof
+  | .proofOnly => return .proofOnly
+  | .admitted =>
+    if ← build then
+      return .full (← rules)
+    else
+      return .full .fail
 
 namespace Report
 
@@ -198,13 +212,13 @@ namespace Report
 script cannot read a proof verdict as a full one. -/
 def exitCode : Report → UInt32
   | .full .pass => 0
-  | .proof .pass => 3
-  | .full .fail | .proof .fail | .refused => 1
-  | .full .incomplete | .proof .incomplete | .incomplete => 2
+  | .proofOnly => 3
+  | .full .fail | .refused => 1
+  | .full .incomplete | .incomplete => 2
 
 /-- Only the full verdict's pass exits with 0. -/
 theorem exitCode_eq_zero_iff (r : Report) : r.exitCode = 0 ↔ r = .full .pass := by
-  rcases r with (_ | _ | _) | (_ | _ | _) | _ | _ <;>
+  rcases r with (_ | _ | _) | _ | _ | _ <;>
     first
       | exact ⟨fun _ => rfl, fun _ => rfl⟩
       | exact ⟨fun h => absurd h (by decide), fun h => by cases h⟩
@@ -214,9 +228,10 @@ names the hypotheses it rests on. -/
 def label : Report → String
   | .full .pass => "regula: full verdict: pass, under the hypotheses H1 and H2 about Lean 4.35.0"
   | .full v => s!"regula: full verdict: {v.label}"
-  | .proof v =>
-    s!"regula: proof verdict: {v.label}, which says nothing about what ran during the build; no full \
-      verdict"
+  | .proofOnly =>
+    "regula: only a proof verdict is possible for this project, and nothing was built, so no full \
+      verdict: `lake build --wfail`, `lake check` and `lake lint` in the project give it, and they run \
+      the project's code and its dependencies'"
   | .refused => "regula: refused before compiling (RG1010), so no build ran and no verdict is given"
   | .incomplete => "regula: incomplete (RG2001): the check could not read the project, so no build ran"
 

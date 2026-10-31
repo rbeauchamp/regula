@@ -330,39 +330,71 @@ theorem fileAdmitted_iff (f : FileRead) : f.admitted = true ↔ FileAdmitted f :
     List.isEmpty_iff, List.flatMap_eq_nil_iff, List.mem_cons, forall_eq_or_imp, offenders_eq_nil_iff,
     FileAdmitted, and_assoc]
 
+/-! ## The module names -/
+
+theorem closedNameChar_iff (c : Char) : closedNameChar c = true ↔ ClosedChar c := by
+  simp [closedNameChar, ClosedChar, or_assoc]
+
+theorem closedComponent_iff (s : String) : closedComponent s = true ↔ ClosedComponent s := by
+  simp [closedComponent, ClosedComponent, closedNameChar_iff]
+
+/-- `closedModuleName` decides the specification's closed domain. -/
+theorem closedModuleName_iff (n : Name) : closedModuleName n = true ↔ ClosedModuleName n := by
+  induction n with
+  | anonymous =>
+    simp only [closedModuleName, Bool.false_eq_true, false_iff]
+    intro h
+    cases h
+  | num p m _ =>
+    simp only [closedModuleName, Bool.false_eq_true, false_iff]
+    intro h
+    cases h
+  | str p s ih =>
+    cases p with
+    | anonymous =>
+      simp only [closedModuleName, closedComponent_iff]
+      exact ⟨.one, fun h => by
+        cases h with
+        | one hc => exact hc
+        | more hp _ => cases hp⟩
+    | str q t =>
+      simp only [closedModuleName, closedComponent_iff, Bool.and_eq_true] at ih ⊢
+      exact ⟨fun ⟨hp, hc⟩ => .more (ih.mp hp) hc, fun h => by
+        cases h with
+        | more hp hc => exact ⟨ih.mpr hp, hc⟩⟩
+    | num q k =>
+      simp only [closedModuleName, Bool.false_eq_true, false_iff]
+      intro h
+      cases h with
+      | more hp _ => cases hp
+
 /-! ## The reading -/
 
 theorem configKeyAdmitted_iff (k : Name) : configKeyAdmitted k = true ↔ ConfigKeyAdmitted k := by
   simp [configKeyAdmitted, ConfigKeyAdmitted, List.any_eq_true]
 
 theorem configClosed_iff (r : Reading) : r.configClosed = true ↔ ConfigClosed r := by
-  simp [Reading.configClosed, ConfigClosed, configKeyAdmitted_iff, and_assoc]
+  have h : (∀ k ∈ r.configKeys, k.getRoot = `require ∨ ConfigKeyAdmitted k) ↔
+      ∀ k ∈ r.configKeys, ¬ k.getRoot = `require → ConfigKeyAdmitted k :=
+    forall_congr' fun k => forall_congr' fun _ => by
+      by_cases hk : k.getRoot = `require <;> simp [hk]
+  simp [Reading.configClosed, ConfigClosed, configKeyAdmitted_iff, and_assoc, h]
 
 theorem readInFull_iff (r : Reading) : r.readInFull = true ↔ ReadInFull r := by
   simp [Reading.readInFull, ReadInFull, and_assoc]
 
-theorem dependencyConfigIsCode_iff (r : Reading) :
-    r.dependencyConfigIsCode = true ↔ DependencyConfigIsCode r := by
-  simp [Reading.dependencyConfigIsCode, DependencyConfigIsCode]
+theorem requiresDependency_iff (r : Reading) :
+    r.requiresDependency = true ↔ RequiresDependency r := by
+  simp [Reading.requiresDependency, RequiresDependency]
 
 theorem mathlibReached_iff (r : Reading) : r.mathlibReached = true ↔ MathlibReached r := by
   simp [Reading.mathlibReached, MathlibReached]
 
 theorem covered_iff (r : Reading) : r.covered = true ↔ Covered r := by
-  simp [Reading.covered, Covered, and_assoc]
+  simp [Reading.covered, Covered, closedModuleName_iff, and_assoc]
 
-theorem rootAdmitted_iff (r : Reading) : r.rootAdmitted = true ↔ RootAdmitted r := by
-  simp only [Reading.rootAdmitted, RootAdmitted, List.all_eq_true, Bool.or_eq_true,
-    Bool.not_eq_true', ← fileAdmitted_iff]
-  refine forall_congr' fun f => forall_congr' fun _ => ?_
-  cases f.inRoot <;> simp
-
-theorem dependenciesAdmitted_iff (r : Reading) :
-    r.dependenciesAdmitted = true ↔ DependenciesAdmitted r := by
-  simp only [Reading.dependenciesAdmitted, DependenciesAdmitted, List.all_eq_true,
-    Bool.or_eq_true, ← fileAdmitted_iff]
-  refine forall_congr' fun f => forall_congr' fun _ => ?_
-  cases f.inRoot <;> simp
+theorem filesAdmitted_iff (r : Reading) : r.filesAdmitted = true ↔ FilesAdmitted r := by
+  simp [Reading.filesAdmitted, FilesAdmitted, fileAdmitted_iff]
 
 /-- The decision the checker runs meets the record. -/
 theorem decision_meets : languageRecord.Meets decision := by
@@ -371,17 +403,17 @@ theorem decision_meets : languageRecord.Meets decision := by
     cases b
     · rfl
     · exact absurd (h.mp rfl) hp
-  have base {r : Reading} (c : ConfigClosed r) (f : ReadInFull r) (k : ¬ DependencyConfigIsCode r) :
-      r.configClosed = true ∧ r.readInFull = true ∧ r.dependencyConfigIsCode = false :=
-    ⟨(configClosed_iff r).mpr c, (readInFull_iff r).mpr f, hn (dependencyConfigIsCode_iff r) k⟩
-  refine ⟨?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_⟩
+  have base {r : Reading} (c : ConfigClosed r) (f : ReadInFull r) (k : ¬ RequiresDependency r) :
+      r.configClosed = true ∧ r.readInFull = true ∧ r.requiresDependency = false :=
+    ⟨(configClosed_iff r).mpr c, (readInFull_iff r).mpr f, hn (requiresDependency_iff r) k⟩
+  refine ⟨?_, ?_, ?_, ?_, ?_, ?_, ?_⟩
   · intro r c
     simp [decision, hn (configClosed_iff r) c]
   · intro r c f
     simp [decision, (configClosed_iff r).mpr c, hn (readInFull_iff r) f]
   · intro r c f k
     simp [decision, (configClosed_iff r).mpr c, (readInFull_iff r).mpr f,
-      (dependencyConfigIsCode_iff r).mpr k]
+      (requiresDependency_iff r).mpr k]
   · intro r c f k m
     obtain ⟨b1, b2, b3⟩ := base c f k
     simp [decision, b1, b2, b3, (mathlibReached_iff r).mpr m]
@@ -391,15 +423,11 @@ theorem decision_meets : languageRecord.Meets decision := by
   · intro r c f k m v o
     obtain ⟨b1, b2, b3⟩ := base c f k
     simp [decision, b1, b2, b3, hn (mathlibReached_iff r) m, (covered_iff r).mpr v,
-      hn (rootAdmitted_iff r) o]
-  · intro r c f k m v o p
+      hn (filesAdmitted_iff r) o]
+  · intro r c f k m v o
     obtain ⟨b1, b2, b3⟩ := base c f k
     simp [decision, b1, b2, b3, hn (mathlibReached_iff r) m, (covered_iff r).mpr v,
-      (rootAdmitted_iff r).mpr o, hn (dependenciesAdmitted_iff r) p]
-  · intro r c f k m v o p
-    obtain ⟨b1, b2, b3⟩ := base c f k
-    simp [decision, b1, b2, b3, hn (mathlibReached_iff r) m, (covered_iff r).mpr v,
-      (rootAdmitted_iff r).mpr o, (dependenciesAdmitted_iff r).mpr p]
+      (filesAdmitted_iff r).mpr o]
 
 /-- The check admits a reading exactly when everything read is in the closed set and nothing is left
 out. This is the theorem the check exists for, over every `Lean.Syntax` that a reading can hold. -/
@@ -409,7 +437,7 @@ theorem decision_admitted_iff (r : Reading) : decision r = .admitted ↔ Inside 
 /-- An empty set of files is never admitted. -/
 theorem no_files_not_admitted (r : Reading) (h : r.files = []) : decision r ≠ .admitted := by
   intro ha
-  obtain ⟨-, -, -, -, ⟨hroots, hr, hc⟩, -, -⟩ := (decision_admitted_iff r).mp ha
+  obtain ⟨-, -, -, -, ⟨hroots, hr, -, hc⟩, -⟩ := (decision_admitted_iff r).mp ha
   cases hl : r.roots with
   | nil => exact hroots hl
   | cons m rest =>
@@ -421,16 +449,23 @@ theorem no_files_not_admitted (r : Reading) (h : r.files = []) : decision r ≠ 
 theorem mathlib_not_admitted (r : Reading) (h : MathlibReached r) : decision r ≠ .admitted :=
   fun ha => ((decision_admitted_iff r).mp ha).2.2.2.1 h
 
-/-- A file with an offender is never admitted, whichever package holds it. -/
+/-- A project with a dependency is never admitted. -/
+theorem dependency_not_admitted (r : Reading) (h : RequiresDependency r) : decision r ≠ .admitted :=
+  fun ha => ((decision_admitted_iff r).mp ha).2.2.1 h
+
+/-- A module name outside the closed domain is never admitted. -/
+theorem unclosed_module_not_admitted (r : Reading) (m : Name) (hm : m ∈ r.reached)
+    (hn : closedModuleName m = false) : decision r ≠ .admitted := fun ha => by
+  have := ((decision_admitted_iff r).mp ha).2.2.2.2.1.2.2.1 m hm
+  simp [(closedModuleName_iff m).mpr this] at hn
+
+/-- A file with an offender is never admitted. -/
 theorem offender_not_admitted (r : Reading) (f : FileRead) (hf : f ∈ r.files) (s t : Syntax)
     (ht : t = f.header ∨ t ∈ f.commands) (ho : s ∈ offenders f.scopedParsers t) :
     decision r ≠ .admitted := by
   intro ha
-  obtain ⟨-, -, -, -, -, hroot, hdep⟩ := (decision_admitted_iff r).mp ha
-  have hadm : FileAdmitted f := by
-    cases hr : f.inRoot with
-    | true => exact hroot f hf hr
-    | false => exact hdep f hf hr
+  obtain ⟨-, -, -, -, -, hfiles⟩ := (decision_admitted_iff r).mp ha
+  have hadm : FileAdmitted f := hfiles f hf
   obtain ⟨hocc, hbad⟩ := (mem_offenders_iff _ _ _).mp ho
   rcases ht with rfl | ht
   · exact hbad (hadm.2.2.2.1 s hocc)
@@ -449,7 +484,7 @@ def traced : GateRun := fun o b v =>
 /-- The gate that the checker runs meets its record. -/
 theorem gate_meets : fullGateRecord.Meets traced := by
   rw [fullGate_meets_iff]
-  refine ⟨?_, ?_, ?_, ?_, ?_, ?_⟩ <;> intros <;> rfl
+  refine ⟨?_, ?_, ?_, ?_, ?_⟩ <;> intros <;> rfl
 
 /-- O2 before running: the gate's implementation meets its record. -/
 theorem fullGate_o2Run : O2Run fullGateRecord := o2Run_of_meets gate_meets
@@ -459,7 +494,7 @@ theorem gate_exit_zero_iff (r : Reading) (b : Bool) (v : Regula.Closed.Verdict) 
     (traced (decision r) b v).1.exitCode = 0 ↔
       Inside r ∧ b = true ∧ v = .pass := by
   rw [Report.exitCode_eq_zero_iff, ← decision_admitted_iff]
-  obtain ⟨u1, u2, u3, u4, u5, u6⟩ := (fullGate_meets_iff traced).mp gate_meets
+  obtain ⟨u1, u2, u3, u4, u5⟩ := (fullGate_meets_iff traced).mp gate_meets
   cases decision r <;> cases b <;> simp_all
 
 end RegulaSpecification.Language

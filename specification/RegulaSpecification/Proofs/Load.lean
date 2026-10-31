@@ -29,7 +29,7 @@ constants that `Lean.importModules` keeps and `header.moduleData` what each `.ol
 each query of the environment returns, that `Expr.getUsedConstants` lists each constant of an
 expression, and that Lake names the modules of the default targets. The specification's trusted base
 lists them, and the thin effects that no theorem here reads: `Regula.Load.readModules`,
-`Regula.Load.loadInput` and `Regula.Shell.run`. `Proofs/Occurrences.lean` states two of what Lean's
+`Regula.Load.inputFrom` and `Regula.Shell.run`. `Proofs/Occurrences.lean` states two of what Lean's
 interfaces report as hypotheses of a theorem.
 -/
 
