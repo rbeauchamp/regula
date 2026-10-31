@@ -3,7 +3,6 @@ module
 public import RegulaCore.RuleId
 public import RegulaCore.Edition
 public import RegulaCore.Standard
-public import RegulaPolicy.Domain
 
 /-! # Rule registry
 

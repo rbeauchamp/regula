@@ -11,7 +11,7 @@
       "library": "RegulaPolicy",
       "claim": "standard-logical",
       "execution": "report",
-      "rationale": "Pure types and decisions that the programs read: the supported compiler, the options that regula init writes, the vocabulary of the manifest and the rule registry, the assumption records and the diagnostic pattern language. Every declaration is checked under its exact transitive axiom set. Their proofs concern the supplied data, not the authenticity of compiler or filesystem observations, compiled machine code, or semantic adequacy."
+      "rationale": "Pure types and decisions that the programs read: the supported compiler, the options that regula init writes, the vocabulary of the manifest, the assumption records and the diagnostic pattern language. Every declaration is checked under its exact transitive axiom set. Their proofs concern the supplied data, not the authenticity of compiler or filesystem observations, compiled machine code, or semantic adequacy."
     },
     {
       "library": "RegulaVerification",

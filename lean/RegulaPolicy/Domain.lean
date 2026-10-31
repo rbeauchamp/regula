@@ -7,9 +7,8 @@ public import Regula.Decision
 
 /-! # Policy vocabulary
 
-The closed vocabulary that the manifest reader, the rule registry and the effect check of a program
-read: a surface's execution mode (`ExecutionClaim`), the evidence modes of the rule registry
-(`EvidenceMode`) and the roots of the toolchain's own modules (`ToolchainRoot`). The module also
+The closed vocabulary that the manifest reader and the effect check of a program read: a surface's
+execution mode (`ExecutionClaim`) and the roots of the toolchain's own modules (`ToolchainRoot`). The module also
 registers the compiler support decision (`Compiler.accepts`), whose own module imports nothing
 beyond `Init`, since the compiler guard of `lakefile.lean` elaborates it before any artifact of the
 package exists. `Regula.Decision` is imported for the type `RegisteredDecision`. -/
@@ -51,31 +50,6 @@ theorem ExecutionClaim.canonical (s : String) (x : ExecutionClaim) (h : parse? s
     x.spelling = s := by
   unfold parse? at h
   split at h <;> cases h <;> rfl
-
-/-- The evidence modes that the entries of the rule registry name. -/
-inductive EvidenceMode where
-  /-- The editor linter's view of the current file: partial, not project acceptance. -/
-  | «editorSnapshot»
-  /-- A project audit over existing build state, not a fresh-source audit. -/
-  | «incrementalProject»
-  /-- A whole-project audit of the claimed Lake surfaces from fresh source. -/
-  | «freshProject»
-  /-- A fresh audit of one source file, not project acceptance. -/
-  | «freshFile»
-  /-- An audit of documentation code examples. -/
-  | «documentationExample»
-  /-- A recheck of the serialized declaration graph. -/
-  | «serializedGraph»
-  deriving Repr, DecidableEq
-
-/-- The mode's camel-case text in the registry, such as `freshProject`. -/
-def EvidenceMode.spelling : EvidenceMode → String
-  | .«editorSnapshot» => "editorSnapshot"
-  | .«incrementalProject» => "incrementalProject"
-  | .«freshProject» => "freshProject"
-  | .«freshFile» => "freshFile"
-  | .«documentationExample» => "documentationExample"
-  | .«serializedGraph» => "serializedGraph"
 
 /-- The roots of the library packages the Lean toolchain ships as its own code: `Init`, `Std`,
 `Lean`, `Lake` and `LeanExport`. The effect check of a program (`Regula.Effects.check`) reads the
