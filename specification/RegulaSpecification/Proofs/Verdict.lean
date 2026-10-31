@@ -4,14 +4,14 @@ import RegulaSpecification.Proofs.Records
 # The verdict, against its statement
 
 `Regula.Closed.Input.refusal?` is the admission that the checker runs, and `Regula.Closed.run` its
-verdict. `refusal_none_iff` proves that the admission refuses exactly an input that the specification's
-`Input.WellFormed` refuses, or one that lacks the axiom set of a claimed constant. `run_refused` and
-`run_complete` then state the verdict: a refused input is `incomplete`, and an admitted one is `pass`
-or `fail`, and `pass` exactly when every rule holds of it. `run_meets` states that as the record
-`gateRecord` over the specification's input.
+verdict. `refusal_none_iff` proves that the admission refuses exactly an input that the
+specification's `Input.WellFormed` refuses, or one that lacks the axiom set of a claimed constant.
+`run_refused` and `run_complete` then state the verdict: a refused input is `incomplete`, and an
+admitted one is `pass` or `fail`, and `pass` exactly when every rule holds of it. `run_meets` states
+that as the record `gateRecord` over the specification's input.
 
-That the shell (`Regula.Load`) fills the input through Lean's and Lake's interfaces is not proved, and
-neither is its refusal of a build that it cannot load (`Regula.Shell.run`, the record's first
+That the shell (`Regula.Load`) fills the input through Lean's and Lake's interfaces is not proved,
+and neither is its refusal of a build that it cannot load (`Regula.Shell.run`, the record's first
 property, which `runChecker` reads as `none`).
 -/
 
@@ -103,8 +103,8 @@ end Link
 
 open Link
 
-/-- What the admission decides: it refuses nothing exactly when the input has the closed form and each
-claimed constant has its axiom set. -/
+/-- What the admission decides: it refuses nothing exactly when the input has the closed form and
+each claimed constant has its axiom set. -/
 theorem refusal_none_iff (i : Regula.Closed.Input) :
     i.refusal? = none ↔ (toSpec i).WellFormed ∧ i.axiomsMissing? = none := by
   have hunique : Regula.Closed.Input.duplicate? {} (i.decls.map (·.name)) = none ↔
@@ -217,8 +217,8 @@ theorem run_pass_admitted {i : Regula.Closed.Input} (hp : (Regula.Closed.run i).
     rw [this] at hp
     cases hp
 
-/-- A pass of the checker holds each rule, when the axiom sets of the input are the ones that `AxiomOf`
-states. -/
+/-- A pass of the checker holds each rule, when the axiom sets of the input are the ones that
+`AxiomOf` states. -/
 theorem run_pass_holds {i : Regula.Closed.Input} (hax : AxiomsRead i)
     (hp : (Regula.Closed.run i).1 = .pass) : AllHold (toSpec i) :=
   (run_complete ⟨((refusal_none_iff i).mp (run_pass_admitted hp)).1, hax⟩).2.mp hp

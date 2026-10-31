@@ -47,7 +47,7 @@ lake check --inadvisably-no-sandbox
 lake lint
 ```
 
-On Linux with `bwrap` installed, `lake check` runs in its sandbox without the flag. For this module as `Demo.lean`, `lake build` warns at `double`, and `lake lint` also refuses `twice`, whose proof depends on `double`:
+On Linux with `bwrap` installed, `lake check` runs in its sandbox without the flag. For this module as `Demo.lean`, `lake build --wfail` fails at `double`, and a plain `lake build` only warns there. After that plain build, `lake check` refuses `sorryAx`, and `lake lint` also refuses `twice`, whose proof depends on `double`:
 
 ```lean
 theorem double (n : Nat) : n + n = 2 * n := by sorry

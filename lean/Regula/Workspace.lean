@@ -4,14 +4,14 @@ import Regula.Load
 /-!
 # Lake's load of the workspace
 
-The part of the loader that calls Lake: Lake's load of the workspace (`Lake.loadWorkspace`), the modules
-of the root package's default targets, and the import of the environment (`loadInput`).
+The part of the loader that calls Lake: Lake's load of the workspace (`Lake.loadWorkspace`), the
+modules of the root package's default targets, and the import of the environment (`loadInput`).
 
-This module is in the library `Regula`, which is no default target. Lake declares each entry of its open
-families of data types as an axiom, such as `Lake.DataType.bool` (`Lake/Util/Family.lean`,
+This module is in the library `Regula`, which is no default target. Lake declares each entry of its
+open families of data types as an axiom, such as `Lake.DataType.bool` (`Lake/Util/Family.lean`,
 `Lake/Config/Kinds.lean` at v4.35.0). So a constant that calls Lake's load depends on axioms that no
-profile admits, and an import of it puts them in the scope of `lake check`, which refuses them. Lake's
-load is trusted.
+profile admits, and an import of it puts them in the scope of `lake check`, which refuses them.
+Lake's load is trusted.
 -/
 
 namespace Regula.Load

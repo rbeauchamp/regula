@@ -1,8 +1,9 @@
 /-!
 # The rules
 
-The closed identity of Regula's checks. `RuleId.all` lists each once, and `Regula.Closed.Tables.check`
-matches this type exhaustively, so a rule added here stops the build until it has a function.
+The closed identity of Regula's checks. `RuleId.all` lists each once, and
+`Regula.Closed.Tables.check` matches this type exhaustively, so a rule added here stops the build
+until it has a function.
 -/
 
 namespace Regula

@@ -5,9 +5,9 @@ import RegulaSpecification.Gate
 
 For each rule, a small well-formed project that the rule must refuse, and a subject of a compliant
 project (`base`) that it must admit. With them `RuleRecord.adequate` discharges lean-intent's
-obligations for the rule's record, and `silent_fails` and `noisy_fails` prove that neither the checker
-that reports nothing nor the one that reports every candidate meets it. A statement that a do-nothing
-checker met, or that refused the compliant case, would fail here.
+obligations for the rule's record, and `silent_fails` and `noisy_fails` prove that neither the
+checker that reports nothing nor the one that reports every candidate meets it. A statement that a
+do-nothing checker met, or that refused the compliant case, would fail here.
 
 `base` is one claimed module `Good` under the choice-free profile. `Good.t` is a theorem that uses
 `propext`, and `Good.f` is a safe recursive definition with the recursion helper Lean adds.
@@ -21,7 +21,8 @@ namespace Witnesses
 
 /-- A safe constant with nothing marked, outside the toolchain. -/
 def plain (name module : Name) (kind : Kind) (uses : List Name) : Decl :=
-  { name, module, kind, isUnsafe := false, isPartial := false, uses, valueUses := [], implementedBy := none,
+  { name, module, kind, isUnsafe := false, isPartial := false, uses, valueUses := [],
+    implementedBy := none,
     isExtern := false, inToolchain := false }
 
 /-- A constant of the toolchain's own library. -/

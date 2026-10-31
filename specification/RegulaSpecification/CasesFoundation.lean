@@ -179,8 +179,8 @@ def loopUser (l : Name) : Decl := { plain `Good.l `Good .definition [l] with val
 /-- `base`, with a definition whose value mentions the construct `l`, and with `l`. -/
 def withLoop (l : Name) : Input := withDecls [toolchain l .definition, loopUser l]
 
-/-- A claimed constant whose value mentions either loop construct violates RG1006, though it is safe and
-total by its flags. -/
+/-- A claimed constant whose value mentions either loop construct violates RG1006, though it is safe
+and total by its flags. -/
 theorem rg1006_refuses_loop {l : Name} (hl : l ∈ loopConstructs) :
     Violates1006 (withLoop l) `Good.l :=
   ⟨loopUser l, by simp [withLoop, withDecls], rfl, claimed_withDecls, .inr ⟨l, hl, by simp [loopUser]⟩⟩

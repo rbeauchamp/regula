@@ -4,8 +4,8 @@ import RegulaSpecification.Proofs.Tables
 # RG1001 to RG1006, against their statements
 
 `Regula.Closed.Tables.rg1001` to `rg1006` are the functions that the checker runs. For each,
-`rg100N_exact` proves that it reports a subject exactly when `Violates100N` holds of it at `toSpec i`.
-RG1001 and RG1006 read no axiom set. The others read `Decl.axioms`, so they assume `AxiomsRead`.
+`rg100N_exact` proves that it reports a subject exactly when `Violates100N` holds of it at `toSpec
+i`. RG1001 and RG1006 read no axiom set. The others read `Decl.axioms`, so they assume `AxiomsRead`.
 -/
 
 namespace RegulaSpecification
@@ -249,10 +249,11 @@ theorem recursionHelper_iff (hu : (i.decls.map (·.name)).Nodup) (d : Regula.Clo
 
 theorem mentionsLoop_iff (d : Regula.Closed.Decl) :
     Regula.Closed.mentionsLoop d = true ↔ MentionsLoop (decl d) := by
-  simp [Regula.Closed.mentionsLoop, Regula.Closed.loopConstructs, MentionsLoop, loopConstructs, decl]
+  simp [Regula.Closed.mentionsLoop, Regula.Closed.loopConstructs, MentionsLoop, loopConstructs,
+    decl]
 
-/-- The function that the checker runs reports a constant exactly when it violates RG1006. RG1006 reads
-no axiom set. -/
+/-- The function that the checker runs reports a constant exactly when it violates RG1006. RG1006
+reads no axiom set. -/
 theorem rg1006_exact (hu : (i.decls.map (·.name)).Nodup) (s : Name) :
     s ∈ i.tables.rg1006.map (·.subject) ↔ Violates1006 (toSpec i) s := by
   unfold Regula.Closed.Tables.rg1006

@@ -79,10 +79,11 @@ remaining argument, with one more `Function.uncurry` (`packing_uncurry_covers`) 
 the structure.
 
 A kind about a function with universe parameters is stated at those parameters, so that it
-holds of every instance. A result type whose dependency on the input neither erasure removes, such as an inductive family indexed
-by the input, has no kind: return `Decidable _`, or state an ordinary requirement. A result
-of a subtype type that depends on the input, `{r : ρ // P x r}`, is such a type: an erasure that
-returns the value of the subtype would keep a free acceptance predicate on a data value.
+holds of every instance. A result type whose dependency on the input neither erasure removes, such
+as an inductive family indexed by the input, has no kind: return `Decidable _`, or state an ordinary
+requirement. A result of a subtype type that depends on the input, `{r : ρ // P x r}`, is such a
+type: an erasure that returns the value of the subtype would keep a free acceptance predicate on a
+data value.
 
 Nested dependent pairs are not a form for three or more arguments. Each projection of a pair
 carries the pair's type, so the elaborated statement grows by a large factor with each argument,

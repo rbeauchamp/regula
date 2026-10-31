@@ -4,22 +4,24 @@ import RegulaSpecification.Foundation
 # RG1006: `unsafe`, `partial` and loop declarations
 
 RG1006 refuses two things in a claimed module: a constant that is unsafe or partial, and a constant
-whose value mentions a loop construct of Lean. A `while` needs no `partial` of the module that uses it:
-it compiles through a private `partial` of Lean's library (`Init/While.lean`), so the flags alone do not
-show it.
+whose value mentions a loop construct of Lean. A `while` needs no `partial` of the module that uses
+it: it compiles through a private `partial` of Lean's library (`Init/While.lean`), so the flags
+alone do not show it.
 
 The one partial constant the rule admits has the form of the recursion helper that Lean's elaborator
-adds for a safe recursive definition (`f._unsafe_rec`, a partial definition beside its safe base). The
-rule checks that form and nothing about what the helper computes, so a claimed module that adds a
-constant of that form through its own code during the build passes (the specification's known gap).
+adds for a safe recursive definition (`f._unsafe_rec`, a partial definition beside its safe base).
+The rule checks that form and nothing about what the helper computes, so a claimed module that adds
+a constant of that form through its own code during the build passes (the specification's known
+gap).
 -/
 
 namespace RegulaSpecification
 
 open Lean (Name)
 
-/-- The constants through which Lean's `while`, `repeat` and `repeat ... until` run: the one value of
-the type `Lean.Loop` that they iterate over, and the loop itself (`Init/While.lean` at v4.35.0). -/
+/-- The constants through which Lean's `while`, `repeat` and `repeat ... until` run: the one value
+of the type `Lean.Loop` that they iterate over, and the loop itself (`Init/While.lean` at v4.35.0).
+-/
 def loopConstructs : List Name := [``Lean.Loop.mk, ``repeatM]
 
 namespace Input

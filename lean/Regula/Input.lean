@@ -53,8 +53,8 @@ structure Decl where
   isPartial : Bool
   /-- The constants its type and value mention, the ones `Lean.collectAxioms` walks. -/
   uses : List Name
-  /-- The constants its value mentions, for a definition, theorem or opaque constant, and nothing for
-  any other constant. -/
+  /-- The constants its value mentions, for a definition, theorem or opaque constant, and nothing
+  for any other constant. -/
   valueUses : List Name
   /-- Its transitive axiom set, as `Lean.collectAxioms` computes it from the loaded constants, for
   each constant of a claimed module; `none` for every other constant. -/
@@ -123,10 +123,10 @@ def axiomsMissing? : Option Name :=
   let claimed := setOf i.modules
   (i.decls.find? fun d => d.axioms.isNone && claimed.contains d.module).map (·.name)
 
-/-- Why the input does not have the closed form (`Input.WellFormed` of the specification), or `none`:
-each name is the name of one constant, each mentioned constant is a constant of the input, at least
-one module is claimed, each claimed module is loaded, and each constant of a claimed module has its
-axiom set. -/
+/-- Why the input does not have the closed form (`Input.WellFormed` of the specification), or
+`none`: each name is the name of one constant, each mentioned constant is a constant of the input,
+at least one module is claimed, each claimed module is loaded, and each constant of a claimed module
+has its axiom set. -/
 def refusal? : Option String :=
   match duplicate? {} (i.decls.map (·.name)) with
   | some n => some s!"the constant {n} occurs twice in one environment"

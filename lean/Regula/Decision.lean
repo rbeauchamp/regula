@@ -3,8 +3,8 @@ module
 /-! # Decision registration
 
 Explicit selection of the functions a project declares to be decisions: a parser, decoder, validator
-or admission function whose result accepts or refuses its input. This module is a library and gives no
-verdict: no check of Regula reads a registration.
+or admission function whose result accepts or refuses its input. This module is a library and gives
+no verdict: no check of Regula reads a registration.
 
 A registration is a declaration of the type `RegisteredDecision`, in a module that imports the
 function:

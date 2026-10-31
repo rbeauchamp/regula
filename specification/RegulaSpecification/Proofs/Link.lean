@@ -12,8 +12,8 @@ predicate of the specification at `toSpec i`.
 
 One field differs. `Decl.axioms` is the checker's: it holds what `Lean.collectAxioms` gives in the
 loader, and the specification states the axiom set as `Input.AxiomOf`. `AxiomsRead` states that they
-agree, as a hypothesis of each theorem that reads the set. No proof examines `Lean.collectAxioms`, so
-this is an assumption about Lean (the specification's trusted base).
+agree, as a hypothesis of each theorem that reads the set. No proof examines `Lean.collectAxioms`,
+so this is an assumption about Lean (the specification's trusted base).
 
 `ofSpec` goes the other way, so that a function of the checker is a checker of the specification's
 input (`Checker`) and can meet a rule's intent record. It is noncomputable, because it fills
@@ -116,7 +116,8 @@ theorem decl_decl' (s : Input) (d : Decl) : decl (decl' s d) = d := by
 /-- `ofSpec` loses nothing that the specification's input holds. -/
 theorem toSpec_ofSpec (s : Input) : toSpec (ofSpec s) = s := by
   rcases s with ⟨p, m, ds, l⟩
-  simp only [toSpec, ofSpec, profile_surj, List.map_map, Function.comp_def, decl_decl', List.map_id']
+  simp only [toSpec, ofSpec, profile_surj, List.map_map, Function.comp_def, decl_decl',
+    List.map_id']
 
 /-- The constant of the specification's input and the checker's constant have one name. -/
 theorem mem_decls {i : Regula.Closed.Input} {x : Decl} :

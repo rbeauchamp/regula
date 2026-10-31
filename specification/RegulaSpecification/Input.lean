@@ -2,10 +2,10 @@
 # The closed input
 
 Every rule of Regula reads one closed input: the constants Lean loads from a finished build, the
-modules that the build claims, and the profile that the project states. This module states that input
-as data, independently of the implementation. Each field says which interface of Lean or Lake gives
-it; that the shell reads the field through that interface is not a fact this module establishes, and
-the specification's trusted base lists it.
+modules that the build claims, and the profile that the project states. This module states that
+input as data, independently of the implementation. Each field says which interface of Lean or Lake
+gives it; that the shell reads the field through that interface is not a fact this module
+establishes, and the specification's trusted base lists it.
 
 The input carries no source text, no message, no compiled code, no option and no build log: what a
 rule cannot read here, it does not decide.
@@ -51,8 +51,8 @@ structure Decl where
   value of a definition, theorem or opaque constant, the type of an axiom, constructor or
   recursor, and the type and constructors of an inductive type. -/
   uses : List Name
-  /-- The constants its value mentions, for a definition, theorem or opaque constant, and nothing for
-  any other constant. RG1006 reads it for Lean's loop constructs. -/
+  /-- The constants its value mentions, for a definition, theorem or opaque constant, and nothing
+  for any other constant. RG1006 reads it for Lean's loop constructs. -/
   valueUses : List Name
   /-- The constant `@[implemented_by]` names, if any (`Lean.Compiler.getImplementedBy?`). Only the
   form of a recursion helper (RG1006) reads it. -/

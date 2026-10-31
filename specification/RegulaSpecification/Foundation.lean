@@ -19,10 +19,10 @@ open Lean (Name)
 /-- The three axioms of Lean's logic that a profile can admit. -/
 def logicalAxioms : List Name := [``propext, ``Quot.sound, ``Classical.choice]
 
-/-- The axioms of the toolchain by which Lean's kernel trusts the compiler. Lean v4.35.0 declares none:
-`Lean.ofReduceBool`, `Lean.ofReduceNat` and `Lean.trustCompiler`, which v4.34.1 declared
-(`Init/Core.lean:2338`, `2396` and `2409` there), are gone. A native proof still adds an axiom of its
-own (`NativeProofAxiom`). -/
+/-- The axioms of the toolchain by which Lean's kernel trusts the compiler. Lean v4.35.0 declares
+none: `Lean.ofReduceBool`, `Lean.ofReduceNat` and `Lean.trustCompiler`, which v4.34.1 declared
+(`Init/Core.lean:2338`, `2396` and `2409` there), are gone. A native proof still adds an axiom of
+its own (`NativeProofAxiom`). -/
 def compilerAxioms : List Name := []
 
 /-- `a` has the name form of the axiom that a native proof (`native_decide`, `decide +native`,

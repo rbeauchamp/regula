@@ -5,9 +5,9 @@ import RegulaSpecification.Safety
 
 Regula's verdict is a closed type with three values. A build that Lean could not load, or an input
 that the admission refuses, is `incomplete` (RG2001), never read as absent; a claim of no module is
-refused too. A well-formed input passes exactly when RG1001 to RG1006 hold of it. `gate_o5` proves the
-record determinate: any two verdict functions that meet it are equal, so the record leaves nothing
-unsaid about the verdict.
+refused too. A well-formed input passes exactly when RG1001 to RG1006 hold of it. `gate_o5` proves
+the record determinate: any two verdict functions that meet it are equal, so the record leaves
+nothing unsaid about the verdict.
 -/
 
 namespace RegulaSpecification

@@ -4,8 +4,8 @@ import RegulaSpecification.Proofs.Link
 # What the rules' tables hold
 
 `Regula.Closed.Input.tables` indexes the input once, so that a rule reads a hash table in place of a
-list. These theorems state what each table holds in terms of the specification's input: the constants
-by name and the constants of claimed modules.
+list. These theorems state what each table holds in terms of the specification's input: the
+constants by name and the constants of claimed modules.
 -/
 
 namespace RegulaSpecification

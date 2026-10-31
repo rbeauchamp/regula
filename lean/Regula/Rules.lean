@@ -8,8 +8,8 @@ import Regula.Verdict
 Each rule as a pure, total function from the closed input (`Regula.Closed.Input`) to the constants
 that violate it, in the order of `specification/RegulaSpecification/Foundation.lean` (RG1001 to
 RG1005) and `Safety.lean` (RG1006). Each reads only fields of the input.
-`specification/RegulaSpecification/Proofs/` proves of each that it reports a subject exactly when the
-violation predicate of the specification holds of it.
+`specification/RegulaSpecification/Proofs/` proves of each that it reports a subject exactly when
+the violation predicate of the specification holds of it.
 
 The rules read the axiom set of a constant from `Decl.axioms`, which the loader computes with
 `Lean.collectAxioms`. An input without the set of a claimed constant is refused before any rule runs
@@ -35,8 +35,9 @@ def nativeProofAxiom : Name → Bool
   | .str (.str (.str _ "_native") _) _ => true
   | _ => false
 
-/-- The constants through which Lean's `while`, `repeat` and `repeat ... until` run: the one value of
-the type `Lean.Loop` that they iterate over, and the loop itself (`Init/While.lean` at v4.35.0). -/
+/-- The constants through which Lean's `while`, `repeat` and `repeat ... until` run: the one value
+of the type `Lean.Loop` that they iterate over, and the loop itself (`Init/While.lean` at v4.35.0).
+-/
 def loopConstructs : List Name := [``Lean.Loop.mk, ``repeatM]
 
 /-- Whether the value of `d` mentions a loop construct. -/
@@ -72,8 +73,8 @@ def Input.tables (i : Input) : Tables :=
 def finding (rule : RuleId) (d : Decl) (detail : String) : Finding :=
   { rule, subject := d.name, module := d.module, detail }
 
-/-- The axiom set of constant `d` (`Input.AxiomOf`), as the loader computed it. The admission refuses
-an input without the set of a claimed constant (`Input.axiomsMissing?`). -/
+/-- The axiom set of constant `d` (`Input.AxiomOf`), as the loader computed it. The admission
+refuses an input without the set of a claimed constant (`Input.axiomsMissing?`). -/
 def Decl.axiomSet (d : Decl) : List Name := d.axioms.getD []
 
 namespace Tables
@@ -156,8 +157,9 @@ def rg1006 : List Finding :=
         else s!"is {if d.isUnsafe then "unsafe" else "partial"}"))
     else none
 
-/-- The findings of one rule, matched exhaustively over the closed type of the rules. RG2001 reads no
-constant: it is the admission (`Input.refusal?`) and the shell's refusal of a build it cannot load. -/
+/-- The findings of one rule, matched exhaustively over the closed type of the rules. RG2001 reads
+no constant: it is the admission (`Input.refusal?`) and the shell's refusal of a build it cannot
+load. -/
 def check : RuleId → List Finding
   | .projectAxiom => t.rg1001
   | .proofHole => t.rg1002

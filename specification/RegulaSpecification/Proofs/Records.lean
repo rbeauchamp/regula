@@ -4,10 +4,10 @@ import RegulaSpecification.Proofs.Foundation
 # Each rule function meets its intent record
 
 For each rule, `rgN_meets` proves that the function the checker runs meets the rule's intent record:
-on each well-formed input of the specification, it reports a subject exactly when the subject violates
-the rule. `rgN_cases` applies the rule's witnesses (`Witnessed`) to the function itself: it reports the
-case that the rule must refuse, and it does not report the case that the rule must admit. So a function
-that reports nothing, or everything, cannot be the one that runs.
+on each well-formed input of the specification, it reports a subject exactly when the subject
+violates the rule. `rgN_cases` applies the rule's witnesses (`Witnessed`) to the function itself: it
+reports the case that the rule must refuse, and it does not report the case that the rule must
+admit. So a function that reports nothing, or everything, cannot be the one that runs.
 
 The function runs over `Regula.Closed.Input`, so its record reads it through `ofSpec`. The theorems
 `rgN_exact` state it for each input of the checker at `toSpec`.
@@ -52,17 +52,23 @@ end Link
 open Link
 
 /-- The function of RG1001 over the specification's input. -/
-noncomputable def rg1001Checker : Checker Input Name := fun s => (ofSpec s).tables.rg1001.map (·.subject)
+noncomputable def rg1001Checker : Checker Input Name := fun s =>
+  (ofSpec s).tables.rg1001.map (·.subject)
 /-- The function of RG1002 over the specification's input. -/
-noncomputable def rg1002Checker : Checker Input Name := fun s => (ofSpec s).tables.rg1002.map (·.subject)
+noncomputable def rg1002Checker : Checker Input Name := fun s =>
+  (ofSpec s).tables.rg1002.map (·.subject)
 /-- The function of RG1003 over the specification's input. -/
-noncomputable def rg1003Checker : Checker Input Name := fun s => (ofSpec s).tables.rg1003.map (·.subject)
+noncomputable def rg1003Checker : Checker Input Name := fun s =>
+  (ofSpec s).tables.rg1003.map (·.subject)
 /-- The function of RG1004 over the specification's input. -/
-noncomputable def rg1004Checker : Checker Input Name := fun s => (ofSpec s).tables.rg1004.map (·.subject)
+noncomputable def rg1004Checker : Checker Input Name := fun s =>
+  (ofSpec s).tables.rg1004.map (·.subject)
 /-- The function of RG1005 over the specification's input. -/
-noncomputable def rg1005Checker : Checker Input Name := fun s => (ofSpec s).tables.rg1005.map (·.subject)
+noncomputable def rg1005Checker : Checker Input Name := fun s =>
+  (ofSpec s).tables.rg1005.map (·.subject)
 /-- The function of RG1006 over the specification's input. -/
-noncomputable def rg1006Checker : Checker Input Name := fun s => (ofSpec s).tables.rg1006.map (·.subject)
+noncomputable def rg1006Checker : Checker Input Name := fun s =>
+  (ofSpec s).tables.rg1006.map (·.subject)
 
 theorem rg1001_meets : rg1001.Meets rg1001Checker := by
   unfold rg1001
