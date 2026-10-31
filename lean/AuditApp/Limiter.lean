@@ -616,7 +616,8 @@ theorem executeChecked_exact (contracts : RequiredContracts) (capacity : Nat)
 
 /-- Register the actual executable and require its complete admission/runner
 relation. This reuses `executeChecked_exact`; no second implementation is used.
-The build linter also checks executability and compiler/runtime boundaries.
+Regula's RG1007 also checks that `executeChecked` is a safe, total, computable constant, and the
+execution rules of standard §7.6 check the compiled code of the claimed executable.
 
 # Intent
 The function the executable calls must admit exactly the positive capacities, start

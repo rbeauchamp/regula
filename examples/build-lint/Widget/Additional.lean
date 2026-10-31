@@ -1,5 +1,5 @@
 /-! A configured module deliberately absent from the umbrella's imports.
-The enabled build linter discovers it through the library's Lake glob. -/
+Lake and the checker find it through the library's glob. -/
 
 namespace Widget.Additional
 

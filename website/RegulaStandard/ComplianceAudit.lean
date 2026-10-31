@@ -22,7 +22,7 @@ This module provides the checklist for auditing a project against this standard.
 
 No reduced or minimum compliance levels exist. A project conforms only when every applicable row passes across its claimed Lean surfaces. A known violation is `FAIL`; missing, unknown, untested, unsupported, or timed-out required evidence is `INCOMPLETE`. Both block conformance.
 
-Applicability follows the stated technical condition. `MUT-01`–`MUT-04` apply to checker qualification claims under §7.8, with new execution required only for affected capabilities whose evidence is invalidated; `MUT-05` applies to a claimed separate serialized-graph check; and `BUILD-*` applies to an enabled enforcing-build claim. A conditional row passes when its condition is absent and that reason is recorded, or when every applicable occurrence conforms. An absent condition is not evidence that the corresponding checks ran.
+Applicability follows the stated technical condition. `BUILD-*` applies to a claim that rests on a pass of the gate of {ref "7-tooling-and-machine-audit"}[module 7]. A conditional row passes when its condition is absent and that reason is recorded, or when every applicable occurrence conforms. An absent condition is not evidence that the corresponding checks ran.
 
 This checklist does not address project management or general software assurance. It audits dependent types, theorem statements, proof terms, axioms, elaboration, modules, Lean computation mechanisms, and Lean documentation claims.
 
@@ -32,7 +32,7 @@ tag := "audit-matrix"
 number := false
 %%%
 
-Assess each row against the actual claimed surface. The verification column includes both direct surface evidence and controls that qualify the supporting checker. Entries marked *Qualification* follow {ref "78-qualify-checker-implementations-with-independent-mutations"}[§7.8]: qualification evidence is scoped to the detection implementation, supported toolchain, and invocation behavior it exercised. Reuse requires establishing that a change does not invalidate that evidence; version identity alone is neither necessary nor sufficient. The matrix defines required results, not 48 separate commands or repeated review assignments. Such evidence does not replace inspection of the current surface or semantic review of its claims. A new or changed advertised detection capability requires its applicable qualification. An adopter does not rerun an unchanged checker’s entire suite for each audit.
+Assess each row against the actual claimed surface. The verification column names what a pass of the gate establishes for the row and what review must establish beside it. Where it names a rule, a pass of `lake lint` establishes exactly that rule's statement on {repo "specification/README.md"}[the rule's page and specification entry], under the trusted base stated there; a rule that the specification hands to Lean is decided by Lean's command, and a retired rule is written guidance. A rule's result does not replace inspection of the current surface or semantic review of its claims. The matrix defines required results, not 43 separate commands or repeated review assignments.
 
 ## Scope and Claim Boundaries
 %%%
@@ -70,7 +70,7 @@ number := false
   * {checklistRow}[SCOPE-05]
   * The object and kind of every material claim are clear: abstract mathematical, executable Lean definition, refinement/correspondence, or external/effectful boundary. Combined claims keep these scopes distinct. An unresolved execution path or a partial surface presented as whole-application coverage blocks the affected claim.
   * {ref "13-the-specificationmodel-firewall"}[1 §1.3], {ref "36-contracts-for-executable-and-effectful-mechanisms"}[3 §3.6], {ref "76-classify-lean-computation-mechanisms-exactly"}[7 §7.6]
-  * Enumerate the claimed surfaces and material claims. Reconcile the executable roots and boundary accounts under `COMP-03`, including additional registered roots under `BUILD-03` where applicable.
+  * Enumerate the claimed surfaces and material claims. Reconcile the executable roots and execution boundaries under `COMP-03`, and each executable contract under `BUILD-03` where applicable.
 :::
 
 ## Dependent Types and Lawful APIs
@@ -157,13 +157,13 @@ number := false
 *
   * {checklistRow}[THEOREM-06]
   * Sampled tests and unchecked evaluation do not replace proofs of universal or existential Lean claims. Counterexample search is an optional aid to refutation.
-  * {ref "the-role-of-testing"}[0: role of testing], {ref "322-property-based-testing-as-refutation-aid"}[3 §3.2.2], {ref "78-qualify-checker-implementations-with-independent-mutations"}[7 §7.8]
-  * Reject proof claims supported only by samples, unchecked enumeration, `#eval`, or native output. Kernel-checked exhaustive finite proofs and checked existential witnesses are proof evidence. Checker qualification under §7.8 is diagnostic evidence about the tool, not proof of the audited mathematics.
+  * {ref "the-role-of-testing"}[0: role of testing], {ref "322-property-based-testing-as-refutation-aid"}[3 §3.2.2]
+  * Reject proof claims supported only by samples, unchecked enumeration, `#eval`, or native output. Kernel-checked exhaustive finite proofs and checked existential witnesses are proof evidence. A control run against a checker is diagnostic evidence about the tool, not proof of the audited mathematics.
 *
   * {checklistRow}[THEOREM-07]
   * Material functional contracts state the component’s exact input/output meaning, rejection and normalization behavior, intended updates and frames, state/error composition, and promised fold relation where applicable. Admission completeness is proved when promised.
   * {ref "37-a-compositional-method-for-complete-program-contracts"}[3 §3.7]
-  * Inspect the actual executable definitions and the relations their contracts require. Check intermediate preconditions and the claimed success, error, and effect semantics. Reuse types, construction, library results, or another checked argument; initialization and preservation are required when the chosen argument needs them. Rule out degenerate implementations that violate the promised relation. Where a decision is registered with a kind (§3.8), read its direction from the report: a one-way kind leaves the other direction unclaimed, and the kind is not evidence that the specification is the intended one. The gate checks two parts mechanically. Every function the project registers with `Regula.RegisteredDecision` has a decision registration in its inventory, or in a surface that the manifest relates to its own, or a `Decidable` result type ({rule}[RG1008]). No decision registration shares a function with a result of `Bool` or `BEq` between what its specification states and its implementation or acceptance predicate, where that function is outside Lean's own library and is no projection function of a structure ({rule}[RG1009], read as §7.11 states). Whether every function that acts as a checker is registered, and whether each specification is adequate, remain review: a copy of a test under a second name passes the second check. Separate finite totality and partial correctness from external liveness.
+  * Inspect the actual executable definitions and the relations their contracts require. Check intermediate preconditions and the claimed success, error, and effect semantics. Reuse types, construction, library results, or another checked argument; initialization and preservation are required when the chosen argument needs them. Rule out degenerate implementations that violate the promised relation. Where a decision is registered with a kind (§3.8), read its direction from the kind that the contract states: a one-way kind leaves the other direction unclaimed, and the kind is not evidence that the specification is the intended one. The checker decides two parts. Every function of a claimed module that a claimed module registers with `Regula.RegisteredDecision` has a decision contract of a claimed module in the same environment, or a `Decidable` result type ({rule}[RG1008]). No decision contract of a claimed module has a specification and an implementation or acceptance predicate that reach one Boolean test outside the toolchain, where a field's projection function is no test ({rule}[RG1009], read as §7.9 states). Whether every function that acts as a checker is registered, whether the kind states the implementation on its whole domain, and whether each specification is adequate remain review: a copy of a test under a second name passes the second check. Separate finite totality and partial correctness from external liveness.
 *
   * {checklistRow}[THEOREM-08]
   * Stateful safety transfer has checked correspondence over the exact state and transition semantics. The forward-simulation method in §3.9 supplies initialization, finite abstract matching, preservation, and relation-to-concrete implication; another method must prove the same claimed transfer. Observations and liveness are separate claims.
@@ -202,22 +202,22 @@ number := false
   * {checklistRow}[FOUND-02]
   * No owned declaration depends transitively on `sorryAx`; no `sorry` or `admit` survives under alternate syntax, attributes, definitions, or instances.
   * {ref "11-the-principle-of-representational-precision"}[1 §1.1], {ref "75-proof-completeness-and-foundation-strength"}[7 §7.5]
-  * Compute transitive axiom sets for every owned declaration, including proof-valued definitions and instances. Qualification: adversarial hole mutations cover all advertised declaration forms.
+  * The checker reads the transitive axiom set of every constant of a claimed module, proof-valued definitions and instances included, and reports each that holds `sorryAx` ({rule}[RG1002]). A proof of `rg1002_exact` in the specification states that it reports exactly those constants.
 *
   * {checklistRow}[FOUND-03]
-  * Every owned declaration has its exact transitive axiom set reported. An admissible set receives the least permissive logical label containing it; the selected surface profile is an upper bound. Forbidden and compiler-trusting sets are rejected from conforming positive surfaces.
+  * Every owned declaration's exact transitive axiom set lies within its surface's selected profile, which is an upper bound. Forbidden and compiler-trusting sets are rejected from conforming positive surfaces.
   * {ref "45-foundation-strength-kernel-only-choice-free-standard-logical"}[4 §4.5], {ref "75-proof-completeness-and-foundation-strength"}[7 §7.5]
-  * Compare the computed set with `{}`, `{propext, Quot.sound}`, and that set plus `Classical.choice`; unknown axioms fail. The actual proof's dependencies do not establish minimal axioms among all possible proofs of its proposition.
+  * The checker compares each computed set with `{}`, `{propext, Quot.sound}`, and that set plus `Classical.choice` of the toolchain and reports what the profile does not admit ({rule}[RG1005]); unknown axioms fail ({rule}[RG1003]). It prints no label: `#print axioms` shows a declaration's set. The actual proof's dependencies do not establish minimal axioms among all possible proofs of its proposition.
 *
   * {checklistRow}[FOUND-04]
   * No Choice-Free surface depends directly or transitively on `Classical.choice`; a selected Standard-Logical surface may.
   * {ref "45-foundation-strength-kernel-only-choice-free-standard-logical"}[4 §4.5]
-  * Inspect the transitive sets for the selected surface profile. Qualification: direct and transitive choice mutations fail the Choice-Free claim; a positive Standard-Logical control passes with its exact label.
+  * The checker reads the transitive sets under the selected surface profile ({rule}[RG1005]). Direct and transitive `Classical.choice` both fail a Choice-Free claim, because the set is transitive.
 *
   * {checklistRow}[FOUND-05]
-  * Native/compiler-generated proof axioms are classified separately and rejected from the conforming positive proof surface; final-environment metadata alone cannot spoof the classification, and retired compiler-trust names have no compiler exception.
+  * Native/compiler-generated proof axioms are named separately and rejected from the conforming positive proof surface; an axiom's name decides which rule reports it, not whether the verdict fails. The pinned toolchain declares no axiom by which the kernel trusts the compiler.
   * {ref "75-proof-completeness-and-foundation-strength"}[7 §7.5–§7.6]
-  * Inspect generated proof axioms and dependent declarations; the compiler-trusting classification requires a name the `nativeEqTrue` scheme generates under a declaration of the axiom's module, the tactic's exact asserted statement with a successful independent native replay, and, for an axiom of an audited module, fresh-transcript provenance: the one command introducing that declaration adds the axiom, and no `axiom` declaration occurs in that command's recorded syntax or macro expansions. An axiom of an imported module the audit does not own needs the first two. Qualification: a real native proof is compiler-trusting, and so is a theorem that uses a dependency's real native proof; a native-named `axiom` declared directly, through a macro, or through a macro whose declaration fails after adding the axiom stays a project axiom; a custom frontend forging the final semantic shape of a natively true proof is classified compiler-trusting, never logical; a dependency's native-named axiom whose statement does not replay true, or whose prefix names a declaration of another module, is an unknown axiom.
+  * The checker names an axiom by the form `<declaration>._native.<tactic>.<suffix>` and reports each constant that depends on it ({rule}[RG1004]), and it reports such an axiom declared in a claimed module ({rule}[RG1001]). An authored axiom of that name is reported under the same rules, and it fails the claim too. Each such axiom also violates {rule}[RG1005] for each profile, as the specification proves (`rg1005_of_compiler`).
 :::
 
 ## Declaration and Module Coverage
@@ -234,24 +234,24 @@ number := false
   * Required Lean-specific verification
 *
   * {checklistRow}[DECL-01]
-  * Every exact module in each claimed Lake library and every claimed standalone executable root is discovered and elaborated from source in fresh root-package build state, warning-free, under the declared exact elaboration environment with the community linters of §6.7 enabled, with completed owned logical declaration and dependency admission under §7.3.
+  * Every exact module in each claimed Lake library and every claimed executable root is discovered and elaborates from source, warning-free, under the declared exact elaboration environment with the community linters of §6.7 enabled, and Lean's kernel checks its constants again from an export of the build under §7.3.
   * {ref "71-declare-the-elaboration-environment"}[7 §7.1–§7.3], {ref "62-module-purpose-and-linter-discipline"}[6 §6.2], {ref "67-community-conventions-and-linters"}[6 §6.7]
-  * Read the elaborated Lake library module arrays and executable roots. Import every claimed module and reconcile exact attribution and additional root-owned imports. Record toolchain and dependency source state, the identity the result is bound to; reject emitted warnings and stale root-package artifacts. Dependency artifacts may be reused under §7.3. The `modules` facet can include local imports beyond the configured array; it is a cross-check, not an interchangeable inventory. Check the Lake configuration of every claimed library and executable against {rule}[RG2006] as specified in {ref "62-module-purpose-and-linter-discipline"}[§6.2]. Separately review the required community-linter settings of §6.7: `linter.missingDocs` on and, when the surface imports Mathlib, `weak.linter.mathlibStandardSet` with exactly those exclusions, or with the header linter on and its license line configured. These settings are written guidance; the rule admits their option names without checking their values. Review every source `set_option` command, which the rule does not read, in particular that no claimed module sets `autoImplicit` or `relaxedAutoImplicit` back on or disables a Lean default warning; and every source-local linter disable, each disabled community linter being declaration-scoped with a stated reason (§6.2).
+  * Run `lake build --wfail` for the claimed targets ({rule}[RG2003]) and `lake check` ({rule}[RG2005]) on one finished build. The checker reads Lake's module arrays and executable roots, and it requires each module of a target to be loaded ({rule}[RG2001]) and each module of the root package to be covered ({rule}[RG2004]). Record toolchain and dependency source state, the identity the result is bound to. Dependency artifacts may be reused. The `modules` facet can include local imports beyond the configured array; it is a cross-check, not an interchangeable inventory. Check the Lake configuration of every claimed library and executable against {rule}[RG2006] as specified in {ref "62-module-purpose-and-linter-discipline"}[§6.2]. Separately review the required community-linter settings of §6.7: `linter.missingDocs` on and, when the surface imports Mathlib, `weak.linter.mathlibStandardSet` with exactly those exclusions, or with the header linter on and its license line configured. These settings are written guidance; the rule admits their option names without checking their values. Review every source `set_option` command, which the rule does not read, in particular that no claimed module sets `autoImplicit` or `relaxedAutoImplicit` back on or disables a Lean default warning; and every source-local linter disable, each disabled community linter being declaration-scoped with a stated reason (§6.2).
 *
   * {checklistRow}[DECL-02]
-  * Every constant in every owned module is inventoried; proof-valued definitions and instances are not omitted.
+  * Every constant of every claimed module is read by the rules; proof-valued definitions and instances are not omitted.
   * {ref "74-inventory-every-owned-declaration"}[7 §7.4]
-  * Compare environment constant counts and exact names; classify `isProp` from the elaborated type and validate the trusted-runner report. Qualification includes an audited module registering a colliding observer-command token.
+  * The loader takes each constant whose module Lake lists for a claimed target from the environment that loads it, and it refuses an input that does not have the closed form. The checker prints its count of these constants; compare it with the environment where that matters. That the rules decide the same on the list they read as on every constant of the environment is argued, with no theorem.
 *
   * {checklistRow}[DECL-03]
-  * Ownership uses Lean/Lake semantics. Generated-role exceptions require independent evidence: regeneration by Lean's own recursion compiler and the kernel's check of the base's recursion equation for recursive helpers (§7.4), and native replay for native-proof axioms, with fresh-frontend command provenance for one of an audited module (§7.5); names or forgeable final metadata alone cannot authorize them.
+  * Ownership uses Lean/Lake semantics. Two exceptions go by form or name, as their rules state: a recursion helper of a safe definition in its own module ({rule}[RG1006], §7.4), and the rule that names a native-proof axiom ({rule}[RG1004], §7.5), which leaves the verdict as it is.
   * {ref "72-define-surfaces-through-lake-semantics"}[7 §7.2], {ref "74-inventory-every-owned-declaration"}[7 §7.4]
-  * Inspect ownership and every claimed exception. Qualification: exact-prefix lookalikes, private and auxiliary-looking names, native-name spoofs, custom-command `addDecl`, and nested-`run_tac` generated-role forgeries receive their intended classification or rejection.
+  * Inspect ownership and every claimed exception. A claimed module is one that Lake lists for a claimed target, whatever its name, so an exact-prefix lookalike is not claimed by its prefix. A forged helper of that form passes the rule: what a helper computes is the question of execution that {rule}[RG3002] decides under a checked claim.
 *
   * {checklistRow}[DECL-04]
-  * Missing/malformed manifests, unknown metadata, omitted declarations, and unexpected project modules fail closed.
+  * Missing/malformed manifests, omitted targets and unexpected project modules fail closed.
   * {ref "72-define-surfaces-through-lake-semantics"}[7 §7.2–§7.4]
-  * Validate the manifest and report schemas and reconcile targets, modules, and declarations. Qualification: mutate each advertised configuration/coverage failure independently and require its intended diagnostic, including observer-command collisions.
+  * A manifest the reader refuses, a read that fails and an input without the closed form make the run `incomplete` ({rule}[RG2001]). An omitted or unknown target is {rule}[RG2002], and a module in no target is {rule}[RG2004]. Review each rationale.
 :::
 
 ## Lean Computation and Evaluation
@@ -273,14 +273,14 @@ number := false
   * Inspect metadata and axiom sets; check representative reduction/evaluation behavior on the pinned toolchain.
 *
   * {checklistRow}[COMP-02]
-  * Partial and unsafe declarations are excluded from positive proof surfaces, except for the range-less partial helper of a safe recursive `def` whose base Lean's own recursion compiler regenerates from it, up to compilation erasure, and satisfies its recursion equation, as Lean's kernel checks (§7.4). It keeps its execution boundary.
+  * Partial and unsafe declarations are excluded from positive proof surfaces, except for the partial helper `f._unsafe_rec` of a safe, total definition `f` in the same module (§7.4). It keeps its execution boundary.
   * {ref "74-inventory-every-owned-declaration"}[7 §7.4–§7.6]
-  * Inspect `ConstantInfo.isUnsafe`/`isPartial` and every helper exception. Qualification: safe recursion, explicit `termination_by`, namespaced, default-tactic, custom-proof, lexicographic and proof-carrying well-founded recursion, attributed, `abbrev`, `where`, specialized and `mutual` recursion, recursion through the module's own notation beside module `IO` code, derived `DecidableEq`, `BEq`, `Hashable` and `Repr` functions on a recursive inductive that is neither nested nor mutual, a definition elaborated under a source-local replacement of the `specialize` attribute pass, well-founded recursion through the toolchain's `attach` and `forIn'` rewrites, a module whose macros override the tactics and the term the regeneration would otherwise dispatch, definitions whose nested proofs Lean shares with an earlier declaration or numbers differently from the regeneration, `public` definitions of a `module` file that are not exposed, a `match` on the measured argument after an argument that also changes, a measure under a `WellFoundedRelation` instance local to its section, structural recursion on a later argument that `termination_by structural` selects, and definitions elaborated under another reducibility than the audit inspects (measured through a function that is irreducible only in the definition's section, only after the definition, or everywhere except at the definition, recursing structurally on an argument whose type is a definition made irreducible afterwards, also where the definition's own type is such a definition, applying a `match` to a recursive call, calling an `abbrev` made irreducible afterwards, and passing the function through a `casesOn`, a `match` with overlapping alternatives, one that names its equation and one on numeric literals), and definitions that call a function whose status differs between the point where the definition was compiled and the end of the audit (made `reducible`, `instance_reducible` or `implicit_reducible` afterwards, or made irreducible after having one of those statuses, an `abbrev` that is irreducible at both points, a status a `local` attribute gives for the definition alone, also on six functions of which each unfolds to the next and on a function that another one unfolds to and that the definition also calls directly, a `reducible` function made semireducible afterwards, a function of an imported module made `reducible` afterwards, an `instance_reducible` function made `reducible` afterwards, a definition whose candidates exceed the enumeration and whose base selects the assignment, and a function made `reducible` afterwards that Lean consults only as the discriminant of a `match`), and definitions whose type is a proposition, for which Lean states no unfolding theorem; authored helper-name spoofs, custom-command, `run_tac`, `by_elab`, custom tactic- and term-elaborator forgeries of the complete helper metadata, forgeries by a module-local elaborator dispatched unrecorded inside derived code, by an earlier self-removing installer and by a module command elaborator installing a forging deriving handler, a forged helper that calls the audited module's own constant under the name root the regeneration uses in place of its base's callee, a forged helper that computes with another function than its base where the nested proof is shared with an earlier declaration, where the base matches on its measured argument, where the base passes the recursive-call function through a `match` the regeneration does not, where only the regeneration with no definition irreducible reproduces the base, and where only an assignment that gives a function another reducibility status does, in each direction (its faithful copy is admitted), forged helpers behind a constant that only matcher metadata the audited module wrote calls a matcher, where the law of the two forms of a `match` cannot be stated for it and where it is false (the kernel checks that law before the comparison takes the two forms as one), forged helpers behind an authored `_sunfold` declaration that Lean's smart unfolding would take for another function's unfolding (the checker's observations run with smart unfolding off), helpers Lean's own compiler generates beside a base they do not compute and the regeneration reproduces, behind a `brecOn` the module writes for an inductive type it adds by metaprogram and behind matcher metadata under which Lean's well-founded compiler replaces the recursive call (the kernel checks no proof of the base's recursion equation), a base whose decreasing proof rests on a project axiom, a project `wf_preprocess` rule that removes the helper's recursive call from its base, partial definitions (reported under their own names, derived `BEq` on a nested inductive included), unsafe definitions, and unsafe opaque declarations receive the intended rejection. The §7.4 limit is pinned beside them: a helper that computes its base is rejected, which is not an intended rejection, when it is a faithful copy of a well-founded definition and its helper that a metaprogram adds with no theorem named `eq_def`: the checker finds no proof of the recursion equation, and the same copy with theorems of that name, which the metaprogram declares, is admitted. A forged helper whose candidates allow more assignments of another reducibility status than the search enumerates, and that no assignment tried reproduces, is pinned as an incomplete audit: it is reported as undecided, neither admitted nor rejected. So is a forged helper that no assignment tried reproduces and that reaches more definitions of its module with a status a global attribute can have replaced than the assignments tried last enumerate.
+  * The checker reads `ConstantInfo.isUnsafe`/`isPartial` of each constant of a claimed module and reports each that is not such a helper ({rule}[RG1006]). A `partial def` is reported through its helper, because its base is an opaque constant. The rule identifies a helper by its form, not by what it computes.
 *
   * {checklistRow}[COMP-03]
-  * Every boundary in the §7.6 conservative execution closure has its exact kind and correspondence state reported; retained compiler edges are distinguished from candidates and historical choices. In `"execution": "checked"` mode, every boundary in that closure outside the toolchain's origin-checked trusted base is checked. Unresolved paths block the affected execution claim in every mode.
+  * The closure of §7.6 resolves for each claimed executable: each name it holds is a constant of the input, and none is on a cycle of departures ({rule}[RG3001]). In `"execution": "checked"` mode, every boundary in that closure outside the toolchain's trusted base has a correspondence that the claim's profile admits, and no constant of it outside the toolchain is code that no theorem can bind ({rule}[RG3002]). A claim without that mode states nothing about boundaries.
   * {ref "76-classify-lean-computation-mechanisms-exactly"}[7 §7.6]
-  * Reconcile all executable roots and their closures, retained IR, supported histories, boundaries, and exact admitted correspondence proofs over the full dependent domain and universes. Qualification covers legitimate and insufficient equalities, imported/chained/both-order replacements, local and overwritten histories, inlined targets, extern/unsafe/partial paths, and cycles or unsupported histories. A definitional comparison the kernel could not complete is unresolved, never trusted; only a completed negative comparison without another admitted proof leaves a replacement trusted. Observing a diagnostic target in emitted code qualifies discovery, not compiler or external-code correctness. Review that the reconciled executable roots are the intended ones.
+  * The checker reads the compiled code of `main` and the departures of each constant of its closure, and in `checked` mode each theorem that states a correspondence over the universes of the constants it relates. It reports nothing under `report` beyond {rule}[RG3001]. Observing a target in emitted code concerns discovery, not compiler or external-code correctness. Review that the executable roots are the intended ones.
 *
   * {checklistRow}[COMP-04]
   * Transfer from a Lean reference definition to a replacement requires sufficient checked correspondence. Keep remaining trust assumptions for native and external execution explicit.
@@ -288,13 +288,13 @@ number := false
   * Compare each theorem’s exact statement and dependencies with the claimed computation and admitted relation. A relation between Lean definitions does not itself verify external machine code or discharge reached extern/native boundaries.
 :::
 
-## Opt-in Enforcing Build Integration
+## The Gate of a Finished Build
 %%%
-tag := "opt-in-enforcing-build-integration"
+tag := "the-gate-of-a-finished-build"
 number := false
 %%%
 
-These rows apply when the §7.11 build-enforcement claim is made. The other applicable rows remain required for full conformance; a build-linter PASS alone does not discharge them.
+These rows apply when a claim rests on a pass of the gate of {ref "7-tooling-and-machine-audit"}[module 7]. The other applicable rows remain required for full conformance; a pass of the gate alone does not discharge them.
 
 :::table +header
 *
@@ -304,24 +304,24 @@ These rows apply when the §7.11 build-enforcement claim is made. The other appl
   * Required Lean-specific verification
 *
   * {checklistRow}[BUILD-01]
-  * The documented enabled ordinary `lake build`, and `lake lint` with the `lint` driver, reject every emitted warning, policy violation, and unresolved claimed execution path. Source-local warning/linter options cannot authorize policy exceptions.
-  * {ref "711-opt-in-enforcing-build-linter"}[7 §7.11]
-  * Run the enabled ordinary build or `lake lint` for the claimed adopter configuration. Qualification drives the actual default policy target, including disabled and re-enabled controls, intended diagnostics, and fresh restoration, and drives `lake lint` in both lakefile formats through every exit class; any other adapter needs corresponding qualification.
+  * `lake build --wfail`, `lake check` and `lake lint` each pass on one finished build. An emitted warning, a kernel refusal, a rule's finding, and an input the checker cannot load each fail the gate. No source-local option authorizes an exception to a rule.
+  * {ref "7-tooling-and-machine-audit"}[7], {ref "78-adopting-the-checker-in-another-project"}[7 §7.8]
+  * Read the project's actual gate: the three commands, in order, on one checkout, and each exit status. `lake lint` runs the checker only when `lintDriver` is `regula/lint`; `lake lint --builtin-only` and a direct `lean` run do not. The checker reads no source option, so a source `set_option` cannot change its verdict. An option in source can stop a warning from reaching the build (§7.3), which review checks. That no process changes the build between the commands is assumed.
 *
   * {checklistRow}[BUILD-02]
   * Declared profiles are transitively enforced, with classical erased proofs permitted under Standard-Logical and executable promises checked separately.
   * {ref "38-delivering-executable-witnesses-with-required-evidence"}[3 §3.8], {ref "45-foundation-strength-kernel-only-choice-free-standard-logical"}[4 §4.5]
-  * Inspect current profile and execution results separately. Qualification: all three positive profiles, direct/imported choice and configuration-change failures, a classical-contract positive, and noncomputable witness rejection.
+  * Read the profile findings ({rule}[RG1005]) and the executable contract findings ({rule}[RG1007]) separately. A classical proof of a contract is admitted under Standard-Logical, and a noncomputable implementation is reported under every profile.
 *
   * {checklistRow}[BUILD-03]
-  * Required executable evidence inhabits the exact predicate of the actual named implementation, and registered private/imported roots retain execution coverage.
-  * {ref "711-opt-in-enforcing-build-linter"}[7 §7.11]
-  * Inspect registered predicates, proof-bearing construction, and actual callers. Reconcile additional private/imported roots and review specification adequacy. The gate checks mechanically that every function registered with `Regula.RegisteredDecision` has a decision registration in its inventory, or in a surface that the manifest relates to its own, or a `Decidable` result type ({rule}[RG1008]), and that no decision registration shares a function with a result of `Bool` or `BEq` between what its specification states and its implementation or acceptance predicate, where that function is outside Lean's own library and is no projection function of a structure ({rule}[RG1009], read as §7.11 states); which functions are registered, and whether each specification is adequate, remain review. Qualification mutates missing, unrelated, or weakened evidence and unsupported registrations, a decision registration with a missing witness or direction, a specification or acceptance predicate that mentions its implementation, a specification that shares a test with the implementation or the acceptance predicate, directly, below another shared function, through a definition of a proposition, through the type of an opaque constant, through a parameter of a projection or through the declaration of a type over which it quantifies, or a kind about another function, about the implementation on part of its domain or with an argument left, or at universe levels other than its own parameters, a registered decision whose contract is absent, states no kind, is refused or decides another function, a registered projection, a registered function a project marks as generated from another declaration, a function registered from another module of its inventory without its contract, a function whose only contract is in another surface, with and without the relation that counts it, and a registration of a function outside the inventory, and exercises private/extern, replacement, imported csimp, and unsafe boundaries.
+  * Required executable evidence inhabits the exact predicate of the actual named implementation, and registered decisions keep their requirement.
+  * {ref "79-executable-contracts-and-decision-registrations"}[7 §7.9]
+  * Inspect each contract's predicate, its proof-bearing construction, and its actual callers. The checker decides {rule}[RG1007], {rule}[RG1008] and {rule}[RG1009] as §7.9 states: a contract fixes no argument and names a safe, computable implementation; a decision contract's specification does not reach its implementation; a registered function of a claimed module has a decision contract of a claimed module in the same environment, or a `Decidable` result type; and a decision contract's two sides reach no shared Boolean test outside the toolchain. Which functions are registered, whether the kind states the implementation on its whole domain and at its own universe parameters, and whether each specification is adequate remain review.
 *
   * {checklistRow}[BUILD-04]
-  * Cached modules and changed configuration cannot reuse a stale policy verdict; exact claimed Lake coverage and supported-context limits are explicit.
-  * {ref "711-opt-in-enforcing-build-linter"}[7 §7.11]
-  * Inspect target/job dependencies and the current manifest and report. Qualification covers unimported glob modules, unclassified targets, imported source and cached profile/execution changes, repeated cached failures, and fresh restoration. Incremental evidence does not establish fresh-source conformance.
+  * Cached modules and a changed claim cannot reuse a stale verdict; exact claimed Lake coverage and supported-context limits are explicit.
+  * {ref "79-executable-contracts-and-decision-registrations"}[7 §7.9]
+  * The checker reads the manifest and the finished build on each run and keeps no verdict, so a changed profile or execution mode is reevaluated without a source edit and cannot reuse an old verdict. The new claim may still pass if it satisfies the rules. `lake build --wfail` replays each saved log, so a cached warning also fails it. Build freshness rests on Lake's traces, which are trusted.
 :::
 
 ## Documentation as a Lean Teaching Surface
@@ -361,45 +361,6 @@ number := false
   * Every negative fence fails for its non-empty expected diagnostic, and every trusted-compiler teaching fence contains a compiler-trusting declaration and never counts as conforming.
   * {ref "77-check-lean-documentation-verbatim"}[7 §7.7]
   * Match the whole pattern within one error message of the negative fence, never across messages or against informational output. Inspect each teaching fence's declarations and their axioms. The retired rules {rule}[RG4003] and {rule}[RG4004] state these as written guidance, which no check of Regula reads.
-:::
-
-## Checker Implementation Qualification
-%%%
-tag := "checker-implementation-qualification"
-number := false
-%%%
-
-:::table +header
-*
-  * ID
-  * Required result
-  * Normative source
-  * Required Lean-specific verification
-*
-  * {checklistRow}[MUT-01]
-  * A checker that classifies foundation profiles has positive controls for all three profiles through its actual detection implementation, with public-path qualification as required by §7.8.
-  * {ref "78-qualify-checker-implementations-with-independent-mutations"}[7 §7.8]
-  * For new or affected foundation-classification behavior, exercise the relevant positive profiles through the actual detection path; retain applicable evidence for other profiles.
-*
-  * {checklistRow}[MUT-02]
-  * A checker implementation has an independent intended-reason mutation for every violation class it advertises.
-  * {ref "78-qualify-checker-implementations-with-independent-mutations"}[7 §7.8]
-  * Select intended-reason controls for affected advertised capabilities under §7.8. A complete-campaign claim additionally requires its complete applicable manifest. Reject masked or wrong-reason failures.
-*
-  * {checklistRow}[MUT-03]
-  * A checker qualification harness cannot overwrite positive sources or leave stale Lean artifacts, and its restored control passes fresh.
-  * {ref "73-clean-elaboration-and-diagnostics"}[7 §7.3], {ref "78-qualify-checker-implementations-with-independent-mutations"}[7 §7.8]
-  * In a qualification run, use unique disposable paths/build state; verify red mutation and fresh restored green.
-*
-  * {checklistRow}[MUT-04]
-  * Checker qualification establishes a fresh warning-free configured-module baseline and keeps mutation artifacts from satisfying restored controls.
-  * {ref "73-clean-elaboration-and-diagnostics"}[7 §7.3], {ref "78-qualify-checker-implementations-with-independent-mutations"}[7 §7.8]
-  * In a qualification run, use empty or isolated root-package output and reject every emitted warning. Share the unchanged baseline where valid; mutations may use isolated incremental rebuilds, with fresh restored controls under §7.8.
-*
-  * {checklistRow}[MUT-05]
-  * When separate serialized-graph checking is claimed, the exact claimed module graph is rechecked in a compatible fresh checker state.
-  * {ref "79-optional-fresh-serialized-graph-checking"}[7 §7.9]
-  * Require successful results for every selected root. Reconcile the union of claimed modules in their import closures with the exact Lake inventory. Qualification covers root selection and additional-module coverage. Distinguish the driver’s incremental artifact build from its fresh checker state; it does not establish fresh-source elaboration.
 :::
 
 # Result Rule

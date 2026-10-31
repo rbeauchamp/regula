@@ -260,7 +260,7 @@ def guide : RuleId → Guide
           Lean's kernel did not check them again in this run: `lake check` does that (RG2005).",
         "A constant of a claimed module for which the loader computed no axiom set makes the run \
           INCOMPLETE (RG2001), not a pass."]
-      residuals := [.qualify, .intent]
+      residuals := [.invocation, .intent]
       checklist := ["FOUND-02", "THEOREM-06", "TYPE-04", "THEOREM-01", "THEOREM-09", "BUILD-01"]
       linkage := keptLinkage "Regula.Closed.Tables.rg1002" "Violates1002"
         "Foundation.lean"
@@ -299,7 +299,7 @@ def guide : RuleId → Guide
         "The axiom of a native proof is recognized by its name form \
           `<declaration>._native.<tactic>.<suffix>`. An axiom with that name form is reported as \
           RG1004 in place of RG1003, with the same verdict."]
-      residuals := [.qualify]
+      residuals := [.invocation]
       checklist := ["FOUND-03", "TYPE-04", "THEOREM-01", "THEOREM-09", "BUILD-01"]
       linkage := keptLinkage "Regula.Closed.Tables.rg1003" "Violates1003"
         "Foundation.lean"
@@ -339,7 +339,7 @@ def guide : RuleId → Guide
           same.",
         "The name form is that of Lean v4.35.0. A different release of Lean can name these \
           axioms in a different form. The rule then reports them as RG1003."]
-      residuals := [.qualify, .cost]
+      residuals := [.invocation, .cost]
       checklist :=
           ["FOUND-05", "FOUND-03", "THEOREM-10", "THEOREM-01", "THEOREM-06", "DECL-03", "COMP-01",
               "BUILD-01"]
@@ -384,7 +384,7 @@ def guide : RuleId → Guide
           axiom: Lean 4.35.0 records none for `Float`, whose constructor's type reaches `propext` \
           and `Quot.sound`. `#print axioms` can then show a smaller set than this rule.",
         "A proof that could avoid an axiom still carries it until it is rewritten."]
-      residuals := [.qualify]
+      residuals := [.invocation]
       checklist := ["FOUND-03", "FOUND-04", "BUILD-02", "THEOREM-01", "THEOREM-10", "BUILD-01"]
       linkage := keptLinkage "Regula.Closed.Tables.rg1005" "Violates1005"
         "Foundation.lean"
@@ -426,8 +426,8 @@ def guide : RuleId → Guide
       limitations := [
         "A metaprogram can add a constant of the helper's form. The kernel checks the base's \
           definition, and the helper's code is what runs.",
-        "The regeneration of the base from the helper that standard §7.4 describes is not run."]
-      residuals := [.qualify, .cost, .intent]
+        "What a helper computes is not read: the rule reads its form (standard §7.4)."]
+      residuals := [.invocation, .cost, .intent]
       checklist := ["COMP-02", "THEOREM-05", "THEOREM-01", "DECL-03", "BUILD-01"]
       linkage := keptLinkage "Regula.Closed.Tables.rg1006" "Violates1006"
         "Execution.lean"
@@ -507,7 +507,7 @@ def guide : RuleId → Guide
           kind. Register the further clauses separately.",
         "`Regula.DecisionEquivalence`, a law of the two directions with no outcome, is no decision \
           kind."]
-      residuals := [.intent, .invariant, .qualify]
+      residuals := [.intent, .invariant, .invocation]
       checklist :=
           ["BUILD-03", "THEOREM-07", "SCOPE-02", "SCOPE-03", "TYPE-01", "THEOREM-01",
               "THEOREM-03", "COMP-01", "BUILD-01", "BUILD-02"]
@@ -517,7 +517,7 @@ def guide : RuleId → Guide
       sources := ["lean/Regula/Contract.lean", "lean/Regula/Rules.lean", "lean/Regula/Load.lean",
         "specification/RegulaSpecification/Contracts.lean"] }
   | .decisionContract => {
-      problem := .mk 'A' " function registered as a decision with `Regula.RegisteredDecision` has no \
+      problem := .mk 'A' " function of a claimed module registered as a decision with `Regula.RegisteredDecision` has no \
         decision contract in a claimed module, and its result type is not `Decidable _`. Nothing \
         then states whether the function accepts only what its specification allows, everything \
         its specification allows, or both."
@@ -544,9 +544,10 @@ def guide : RuleId → Guide
         "`ExecutableContract f (Regula.Decides accepts spec)`, or `Regula.DecidesSoundly` or \
           `Regula.DecidesCompletely` for a declared one-way guarantee, in a claimed module that \
           each environment of the registration loads. RG1007 gives the shape of the contract.",
-        "Or a result type `Decidable (spec x)`, as a `DecidablePred spec` instance has."]
+        "Or a result type written `Decidable (spec x)`: the loader reads it without unfolding, so \
+          a type written `DecidablePred spec` is not read as one."]
       established := [
-        "Each function that a claimed module registers with `Regula.RegisteredDecision`, and whose result \
+        "Each function of a claimed module that a claimed module registers with `Regula.RegisteredDecision`, and whose result \
           type is not `Decidable _`, is the implementation of a decision contract of a claimed \
           module in each environment that holds the registration.",
         "Removing that contract while the registration stays is reported."]
@@ -575,7 +576,7 @@ def guide : RuleId → Guide
         "The registration is environment state that a claimed module writes. It only adds a \
           requirement; no registration or option waives one. The specification makes a \
           registration a declaration of a type of Regula's interface, whose form is `Regula.RegisteredDecision`."]
-      residuals := [.intent, .invariant, .qualify]
+      residuals := [.intent, .invariant, .invocation]
       checklist := ["THEOREM-07", "BUILD-03"]
       linkage := keptLinkage "Regula.Closed.Tables.rg1008" "Violates1008"
         "Contracts.lean"
@@ -647,7 +648,7 @@ def guide : RuleId → Guide
         "A constant of type `Bool` that takes no argument is a Boolean test too: its type's result \
           is `Bool`.",
         "The rule searches each decision contract, also one that RG1007 reports."]
-      residuals := [.intent, .qualify]
+      residuals := [.intent, .invocation]
       checklist := ["THEOREM-07", "BUILD-03"]
       linkage := keptLinkage "Regula.Closed.Tables.rg1009" "Violates1009"
         "Contracts.lean"
@@ -690,7 +691,7 @@ def guide : RuleId → Guide
       limitations := [
         "That Lean refuses an `.olean` file that a different Lean version wrote \
           (`Lean.readModuleData`) is an assumption, as the specification states."]
-      residuals := [.qualify]
+      residuals := [.invocation]
       checklist := ["DECL-01", "DECL-04"]
       linkage := .mk 'N' "one for the read of the build: `Regula.Load.loadBundle` reads it through \
         Lake's and Lean's own interfaces, which are trusted. `Regula.Closed.run` gives INCOMPLETE \
@@ -740,7 +741,7 @@ def guide : RuleId → Guide
           parser `PolicyCodec.parse` to the JSON grammar: that is an accepted risk, because a \
           wrong parse of a hand-written file names no target or the wrong one, which RG2002 \
           reports."]
-      residuals := [.qualify, .intent, .invariant]
+      residuals := [.invocation, .intent, .invariant]
       checklist := ["DECL-04", "SCOPE-05", "BUILD-04", "DECL-01", "BUILD-01"]
       linkage := keptLinkage "Regula.Closed.Input.manifestFindings" "Violates2002"
         "Project.lean"
@@ -778,7 +779,7 @@ def guide : RuleId → Guide
         "Lake sees only a message that Lean logs. Lean drops some messages itself, and code that \
           a claimed module runs can remove one. Such a gap can hide a warning. It does not change \
           what the kernel checks or the axiom sets, as the specification states."]
-      residuals := [.qualify]
+      residuals := [.invocation]
       checklist := ["DECL-01", "BUILD-01", "DOC-01"]
       linkage := .mk 'N' "one of Regula. The property is Lake's: at v4.35.0 `--wfail` sets the \
         level that fails the build (`Lake/CLI/Main.lean`), and a job that logs a message at that \
@@ -815,7 +816,7 @@ def guide : RuleId → Guide
           specification states.",
         "A module that the globs of a library leave out, but that a claimed module imports, is in \
           no library. Add it to the globs of a library, for example with `.andSubmodules`."]
-      residuals := [.qualify]
+      residuals := [.invocation]
       checklist :=
           ["DECL-02", "DECL-03", "SCOPE-05", "DECL-01", "DECL-04", "BUILD-01",
               "BUILD-03", "BUILD-04"]
@@ -858,7 +859,7 @@ def guide : RuleId → Guide
           Lake loads each executable root in an environment of its own. A program that must not \
           be the claimed one can declare its entry in a namespace and be started by a root that \
           no default target holds."]
-      residuals := [.qualify]
+      residuals := [.invocation]
       checklist :=
           ["DECL-01", "DECL-02", "FOUND-05", "SCOPE-02", "TYPE-01", "THEOREM-01", "THEOREM-03",
               "THEOREM-07", "DECL-03", "DECL-04", "COMP-02", "COMP-04", "BUILD-01", "BUILD-04"]
@@ -905,7 +906,7 @@ def guide : RuleId → Guide
       limitations := [
         "Options given on `lake`'s own command line are not read; the rule reads what Lake's load \
           of the workspace gives."]
-      residuals := [.qualify, .intent]
+      residuals := [.invocation, .intent]
       checklist := ["DECL-01", "DOC-01"]
       linkage := .mk 'T' "he theorem `RegulaSpecification.rg2006_exact` proves that \
         `Regula.Closed.Input.optionFindings` reports a target exactly when \
@@ -956,7 +957,7 @@ def guide : RuleId → Guide
         "The allowlist holds the names observed on Regula's build, on a Mathlib project and on \
           Mathlib at the pinned toolchain, each read for what it registers. A declarative \
           attribute that none of them uses is refused until the list names it."]
-      residuals := [.qualify, .intent]
+      residuals := [.invocation, .intent]
       checklist := ["DECL-01", "DECL-04"]
       linkage := .mk 'T' "he theorem `RegulaSpecification.rg2007_exact` proves that \
         `Regula.Closed.Input.extensionFindings` reports a module exactly when \
@@ -1007,7 +1008,7 @@ def guide : RuleId → Guide
           `Lean.IR.findEnvDecl` and `Lean.IR.collectUsedDecls` give at the pinned toolchain.",
         "The closure starts at `main`. An `initialize` action that the code of `main` does not \
           reach is outside it."]
-      residuals := [.qualify, .invariant, .intent]
+      residuals := [.invocation, .invariant, .intent]
       checklist := ["COMP-03", "SCOPE-05", "SCOPE-03", "THEOREM-05", "BUILD-01", "BUILD-03"]
       linkage := keptLinkage "Regula.Closed.Input.rg3001" "Violates3001"
         "Execution.lean" ++ " The reading of compiled code (`Regula.Load.codeOf`) is trusted."
@@ -1076,7 +1077,7 @@ def guide : RuleId → Guide
           root imports it.",
         "That the executable runs the code that the build records is an assumption, as for \
           RG3001."]
-      residuals := [.intent, .invariant, .qualify]
+      residuals := [.intent, .invariant, .invocation]
       checklist :=
           ["COMP-03", "COMP-04", "SCOPE-03", "SCOPE-05", "THEOREM-05", "BUILD-01", "BUILD-03"]
       linkage := keptLinkage "Regula.Closed.Input.rg3002" "Violates3002"
@@ -1102,7 +1103,7 @@ def guide : RuleId → Guide
       limitations := [
         "The `lean` blocks of Regula's own standard are still elaborated when the rule-reference \
           site builds. That build checks no project's documentation."]
-      residuals := [.qualify, .doc]
+      residuals := [.doc]
       checklist := ["DOC-03"]
       linkage := retiredLinkage
       sources := ["specification/README.md", "specification/RegulaSpecification/Fates.lean"] }
@@ -1124,7 +1125,7 @@ def guide : RuleId → Guide
       limitations := [
         "The `lean` blocks of Regula's own standard are still elaborated when the rule-reference \
           site builds. That build checks no project's documentation."]
-      residuals := [.intent, .qualify]
+      residuals := [.intent, .doc]
       checklist := ["DOC-04"]
       linkage := retiredLinkage
       sources := ["specification/README.md", "specification/RegulaSpecification/Fates.lean"] }
@@ -1144,7 +1145,7 @@ def guide : RuleId → Guide
       configuration := []
       limitations := [
         "No check of a project's documentation runs the fences."]
-      residuals := [.qualify, .doc]
+      residuals := [.doc]
       checklist := ["DOC-05"]
       linkage := retiredLinkage
       sources := ["specification/README.md", "specification/RegulaSpecification/Fates.lean"] }
@@ -1163,7 +1164,7 @@ def guide : RuleId → Guide
       configuration := []
       limitations := [
         "No check of a project's documentation runs the fences."]
-      residuals := [.qualify]
+      residuals := [.doc]
       checklist := ["DOC-05"]
       linkage := retiredLinkage
       sources := ["specification/README.md", "specification/RegulaSpecification/Fates.lean"] }

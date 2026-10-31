@@ -25,17 +25,15 @@ inductive Residual where
   | doc
   /-- `R-COST` (`Residual.description`). -/
   | cost
-  /-- `R-QUALIFY` (`Residual.description`). -/
-  | qualify
-  /-- `R-GRAPH` (`Residual.description`). -/
-  | graph
+  /-- `R-INVOCATION` (`Residual.description`). -/
+  | invocation
   deriving Repr, DecidableEq
 
 /-- The identifier of each obligation, such as `R-INTENT`. -/
 def Residual.spelling : Residual → String
   | .intent => "R-INTENT" | .invariant => "R-INVARIANT" | .laws => "R-LAWS"
   | .boundary => "R-BOUNDARY" | .nonvacuity => "R-NONVACUITY" | .doc => "R-DOC"
-  | .cost => "R-COST" | .qualify => "R-QUALIFY" | .graph => "R-GRAPH"
+  | .cost => "R-COST" | .invocation => "R-INVOCATION"
 
 /-- What each obligation requires a reviewer to establish: the one statement of it. -/
 def Residual.description : Residual → String
@@ -53,15 +51,15 @@ def Residual.description : Residual → String
   | .nonvacuity => "the claim is non-vacuous at the strength claimed (inhabitance, joint \
       satisfiability or reachability); a conditional or deliberately empty claim needs no \
       unrelated witness"
-  | .doc => "material-claim registration is complete, and module documentation and docstrings are \
-      faithful to the declarations and requirements; presence or length alone is not enough"
+  | .doc => "material-claim registration is complete, module documentation and docstrings are \
+      faithful to the declarations and requirements, and documentation fences follow the protocol \
+      of standard §7.7; presence or length alone is not enough"
   | .cost => "a cost claim names its domain and rests on a mathematical argument or a bounded \
       observation that preserves semantic and effect order; no timing or sample is universal \
       evidence"
-  | .qualify => "the checker's detection is qualified for this invocation, toolchain and \
-      capability: claim-scoped positive controls, intended-reason mutations and exact invocation \
-      evidence"
-  | .graph => "a claimed serialized graph (standard §7.9) covers every selected root"
+  | .invocation => "the three commands of the gate ran in order on one finished build of the \
+      claimed project, on its declared toolchain, each passed, and no process changed the build \
+      between them: no rule reads how the commands were run"
 
 /-- The compliance-checklist rows (standard module 8) whose review each obligation carries, in the
 checklist's order. Every obligation carries a row, each a checklist row, and every checklist row
@@ -75,16 +73,14 @@ def Residual.rows : Residual → List String
   | .laws => ["TYPE-05", "THEOREM-02"]
   | .boundary => ["TYPE-06"]
   | .nonvacuity => ["THEOREM-04", "THEOREM-09"]
-  | .doc => ["DOC-01", "DOC-02"]
+  | .doc => ["DOC-01", "DOC-02", "DOC-03", "DOC-04", "DOC-05"]
   | .cost => ["THEOREM-05", "THEOREM-10"]
-  | .qualify => ["THEOREM-06", "FOUND-02", "FOUND-03", "FOUND-04", "FOUND-05", "DECL-01", "DECL-02",
-      "DECL-03", "DECL-04", "COMP-02", "COMP-03", "BUILD-01", "BUILD-02", "BUILD-03", "BUILD-04",
-      "DOC-03", "DOC-04", "DOC-05", "MUT-01", "MUT-02", "MUT-03", "MUT-04"]
-  | .graph => ["MUT-05"]
+  | .invocation => ["FOUND-02", "FOUND-03", "FOUND-04", "FOUND-05", "DECL-01", "DECL-02",
+      "DECL-03", "DECL-04", "COMP-02", "COMP-03", "BUILD-01", "BUILD-02", "BUILD-03", "BUILD-04"]
 
 /-- Every obligation once (`Residual.mem_all`). -/
 def Residual.all : List Residual :=
-  [.intent, .invariant, .laws, .boundary, .nonvacuity, .doc, .cost, .qualify, .graph]
+  [.intent, .invariant, .laws, .boundary, .nonvacuity, .doc, .cost, .invocation]
 
 theorem Residual.mem_all (r : Residual) : r ∈ all := by cases r <;> decide
 

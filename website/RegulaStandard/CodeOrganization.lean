@@ -118,7 +118,7 @@ tag := "64-import-discipline"
 number := false
 %%%
 
-*Requirement*: Every claimed module MUST elaborate in the environment supplied by its imports and language settings on the declared toolchain. The audit MUST discover it through the claimed Lake targets, including any claimed standalone executable roots, as specified in {ref "72-define-surfaces-through-lake-semantics"}[module 7 §7.2].
+*Requirement*: Every claimed module MUST elaborate in the environment supplied by its imports and language settings on the declared toolchain. Regula's checker discovers it through the claimed Lake targets, including any claimed standalone executable roots, as specified in {ref "72-define-surfaces-through-lake-semantics"}[module 7 §7.2].
 
 Use imports to make significant dependencies explicit. Import minimality, direct versus transitive spelling, sorting, and grouping are recommendations, not requirements. The one exception is the community convention that a claimed module MUST NOT repeat an import with the same modifiers (§6.7; written guidance of the retired rule {rule}[RG5001], which review checks). Choose a consistent arrangement that fits the project. Mathlib and project imports do not require a particular order.
 
@@ -336,6 +336,6 @@ The conventions are written in these guides:
 
 Where the two differ, for example `fun x ↦` against `fun x =>` or the capitalization of acronyms, follow the convention of the library the code builds on and apply it consistently. Following the guides where no enabled linter checks them, such as naming (§6.3), is RECOMMENDED.
 
-Running *Batteries' environment linters* (`docBlame`, `simpNF`, `synTaut`, and others) is RECOMMENDED. They report through their own command (`#lint` or `lake exe runLinter`), not through build warnings, so {rule}[RG2003] does not see them; run them as a separate check beside `lake lint` ({ref "710-adopting-the-checker-in-another-project"}[§7.10]).
+Running *Batteries' environment linters* (`docBlame`, `simpNF`, `synTaut`, and others) is RECOMMENDED. They report through their own command (`#lint` or `lake exe runLinter`), not through build warnings, so {rule}[RG2003] does not see them; run them as a separate check beside `lake lint` ({ref "78-adopting-the-checker-in-another-project"}[§7.8]).
 
 The community applies its linters with judgment. Where its guidance allows an exception, disable the linter for that one declaration as §6.2 describes; Lean's default warnings are never disabled. A community linter's pass establishes only what that linter checks: no property that another requirement of this standard needs, and a Regula rule never replaces the community's review of style.

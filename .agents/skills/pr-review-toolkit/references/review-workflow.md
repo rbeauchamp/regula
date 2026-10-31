@@ -55,23 +55,24 @@ theorem or recorded observation. A passing site build is not semantic review of 
 
 ## Evidence and repairs
 
-Check findings against the exact Lean claim and supported pin. A checker bypass repair needs
-a positive control, an independent single-fault mutation rejected for the intended reason
-through the public entry point, and a restored positive control. Wrong-reason failures do
-not close the finding. Qualification observations do not prove universal checker correctness.
+Check findings against the exact Lean claim and supported pin. A finding against a rule function
+is closed by a change to the function, its specification entry and its proof, which the
+specification's package checks. A control run through the public entry point is a diagnostic. A
+wrong-reason failure does not close the finding, and an observation does not prove universal
+checker correctness.
 
 Keep prose, definitions, and checker policy aligned where they encode the same claim.
-Preserve module 7's assurance boundary: a recursion helper is admitted only when Lean's own
-recursion compiler regenerates its base from it, up to compilation erasure, whatever evaluator
-produced it, a native-proof axiom
-rests on its natively replayed statement and, for one of an audited module, command provenance
-instead, and arbitrary process
-or trusted-plugin compromise is outside scope. Module 7 §7.5 also puts code that deliberately
-changes Lean's environment, compiler or build to make a check pass outside scope. An example is the
-attribute `@[cpass]` of a user compiler pass, which no rule or section checks. Where the
-standard or a rule page states a check for a mechanism, that statement governs, and the mechanism
-is in scope. Ordinary declarations, attributes such as `implemented_by`, `extern` and `csimp`,
-and `initialize` stay in scope, as §7.6 states.
+
+Preserve module 7's assurance boundary: a recursion helper is identified by its form, and a
+native-proof axiom by its name. Arbitrary process or trusted-plugin compromise is outside scope.
+Module 7 §7.5 also holds the code of a claimed module to be honest. A command that changes messages
+or options and a local attribute that registers code leave no record. They can make a hygiene check
+wrong or an execution claim false, and they cannot make an unsound proof pass.
+
+Compiler passes, such as the attribute `@[cpass]`, stay trusted boundaries of the execution account.
+Where the standard or a rule page states a check for a mechanism, that statement governs, and the
+mechanism is in scope. Ordinary declarations, attributes such as `implemented_by`, `extern` and
+`csimp`, and `initialize` stay in scope, as §7.6 states.
 
 Choose checks from AGENTS.md and the applicable checklist rows:
 
