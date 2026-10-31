@@ -119,7 +119,7 @@ def proseControls : String := "../lean/Fixtures/ControlledProse"
 acceptance step builds with warnings as errors and checks (`buildCovers`). -/
 def surfaceTargets : List String :=
   ["RegulaInterface", "RegulaPolicy", "RegulaVerification", "RegulaProvision",
-    "RegulaQualification", "RegulaCore", "AuditApp", "auditApp"]
+    "RegulaQualification", "RegulaCore", "RegulaChecker", "AuditApp", "auditApp"]
 
 /-- The other targets of the first acceptance step's build: the excluded library `Regula`, whose
 modules the checker loads with the rest, and the executables of the checker, of setup and of the

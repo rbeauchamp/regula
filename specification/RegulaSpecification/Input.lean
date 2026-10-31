@@ -6,8 +6,8 @@ from the finished build, with the compiled code that the build records for each,
 of the targets and modules it builds, and the project's claim (`foundation_manifest.json`). This
 module states that input as data, independently of any implementation. Each field says which
 interface of Lean or Lake gives it; that the shell reads the field through that interface is the
-implementation's obligation (#483), not a fact this module establishes. The mechanism that reads
-compiled code is #487's.
+implementation's obligation, not a fact this module establishes. `Regula.Load.codeOf` reads the
+compiled code through Lean's store.
 
 The input carries no source text, no message, no info tree, no option set in source, no build log
 and no file listing: what a rule cannot read here, it does not decide.
@@ -29,10 +29,10 @@ inductive Kind where
   | recursor
   deriving DecidableEq, Repr
 
-/-- One point at which compiled code departs from a kernel value: where the kernel value has the
-constant `reference`, compiled code runs `runs`. A runtime replacement (`@[implemented_by]`), a
-`@[csimp]` rewrite at a call site, local or global, a recursion helper, and each other departure
-give one. -/
+/-- One point at which compiled code can depart from a kernel value: where the kernel value has the
+constant `reference`, compiled code runs `runs`, whether or not the compiler leaves a call of `runs`
+that a read of the code shows. A runtime replacement (`@[implemented_by]`), a global `@[csimp]`
+rewrite, a recursion helper, and each other departure that the build records give one. -/
 structure Departure where
   /-- The constant that the kernel value has at this point. -/
   reference : Name
@@ -66,7 +66,9 @@ structure Decl where
   /-- The constants its compiled code runs, as the build's compiled code records them. -/
   compiled : List Name
   /-- Each point at which its compiled code departs from its kernel value, as the build's compiled
-  code records it. -/
+  code records it. On the `main` of a checked claim, also each replacement and recursion helper
+  outside the toolchain whose reference the closure of `main` reaches, through the constants each
+  constant mentions, the compiled code runs or a departure runs, whatever survives in compiled code. -/
   departures : List Departure
   /-- Whether it is `@[extern]` (`Lean.isExtern`). -/
   isExtern : Bool
@@ -211,7 +213,8 @@ inductive Goal where
   | fulfils (impl record : QualName)
   /-- The correspondence of the departure at which compiled code runs `runs` in place of
   `reference`. For a runtime replacement or a `@[csimp]` rewrite it is the equality
-  `@reference = @runs`, which a `@[csimp]` lemma states. -/
+  `@reference = @runs`, which a `@[csimp]` lemma states, at every instantiation of the two constants:
+  their universe arguments are equal, and are distinct universe parameters. -/
   | corresponds (reference runs : Name)
   deriving DecidableEq, Repr
 

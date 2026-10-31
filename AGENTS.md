@@ -179,8 +179,8 @@ Complete applicable theorem/type/prose review too; command success alone is not 
 semantic conformance.
 
 The qualification campaigns of the previous checker are removed. Each rule is a function over the
-closed input of the [specification](specification/README.md). Leaf #487 proves the contracts of
-these functions.
+closed input of the [specification](specification/README.md), and `specification/RegulaSpecification/Proofs/`
+proves the contract of each.
 Do not partition either acceptance step further to evade its limit. A requested broader
 claim still needs its actual evidence.
 

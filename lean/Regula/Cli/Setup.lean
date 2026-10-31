@@ -1,4 +1,5 @@
 import Regula.Shell
+import Regula.Workspace
 import Regula.Checker.LakeConfig
 import RegulaCore.JsonAgreement
 import RegulaCore.Presence

@@ -141,11 +141,12 @@ theorem Guide.wellFormed_iff_listsNonempty (g : Guide) : g.WellFormed ↔ g.List
 /-- Shared statement: the linkage of a kept rule, whose subjects the function `function` reports
 against the predicate `predicate` of the specification module `file`. -/
 private def keptLinkage (function predicate file : String) : NonemptyText :=
-  (NonemptyText.mk 'T' "he function `") ++ (function ++ "` reports the subjects of `RegulaSpecification." ++
-    predicate ++ "`, which `specification/RegulaSpecification/" ++ file ++ "` states. No \
-    theorem yet states that it reports exactly those subjects: issue #487 proves it. The \
-    shell's read of the build through Lake's load and Lean's import of the `.olean` files \
-    (`Regula.Load.loadBundle`) is trusted, not proved.")
+  (NonemptyText.mk 'T' "he function `") ++ (function ++ "` reports exactly the subjects of \
+    `RegulaSpecification." ++ predicate ++ "`, which `specification/RegulaSpecification/" ++ file ++
+    "` states. The theorems of `specification/RegulaSpecification/Proofs/` prove it of each input \
+    that has the closed form, with each axiom set that the rule reads the one the statement \
+    gives. The shell's read of the build through Lake's load and Lean's import of the `.olean` \
+    files (`Regula.Load.loadBundle`) is trusted, not proved, and so is `Lean.collectAxioms`.")
 
 /-- Shared statement: the first trigger item of a documentation rule that is retired. -/
 private def retiredTrigger : String :=
@@ -190,7 +191,7 @@ def guide : RuleId → Guide
         an axiom without evidence, so every theorem that uses it is only conditional on an \
         assumption that no proof discharges."
       trigger := [
-        "`Regula.Closed.Input.declarationFindings` reads each constant of a claimed module from \
+        "`Regula.Closed.Tables.rg1001` reads each constant of a claimed module from \
           the environments that the shell loads from the build. It reports the constant when its \
           kind is `axiom` (`ConstantInfo.axiomInfo`).",
         "The rule applies whether or not a declaration uses the axiom. Private, protected and \
@@ -222,7 +223,7 @@ def guide : RuleId → Guide
           Lake does not build for a target is no input (RG2004)."]
       residuals := [.intent, .nonvacuity]
       checklist := ["FOUND-01", "TYPE-04", "THEOREM-09", "THEOREM-01", "DECL-03", "BUILD-01"]
-      linkage := keptLinkage "Regula.Closed.Input.declarationFindings" "Violates1001"
+      linkage := keptLinkage "Regula.Closed.Tables.rg1001" "Violates1001"
         "Foundation.lean"
       sources := ["lean/Regula/Rules.lean", "lean/Regula/Load.lean",
         "specification/RegulaSpecification/Foundation.lean",
@@ -233,7 +234,7 @@ def guide : RuleId → Guide
         set. The proposition is not proved."
       trigger := [
         axiomSet,
-        "`Regula.Closed.Input.declarationFindings` reports a constant of a claimed module when \
+        "`Regula.Closed.Tables.rg1002` reports a constant of a claimed module when \
           `sorryAx` is in its transitive axiom set. A `sorry`, an `admit`, an unfinished tactic \
           proof and a hole of an imported declaration all put `sorryAx` in the kernel term.",
         "Lean itself warns `declaration uses 'sorry'` by default, so `lake build --wfail` fails \
@@ -261,7 +262,7 @@ def guide : RuleId → Guide
           INCOMPLETE (RG2001), not a pass."]
       residuals := [.qualify, .intent]
       checklist := ["FOUND-02", "THEOREM-06", "TYPE-04", "THEOREM-01", "THEOREM-09", "BUILD-01"]
-      linkage := keptLinkage "Regula.Closed.Input.declarationFindings" "Violates1002"
+      linkage := keptLinkage "Regula.Closed.Tables.rg1002" "Violates1002"
         "Foundation.lean"
       sources := ["lean/Regula/Rules.lean", "lean/Regula/Load.lean",
         "specification/RegulaSpecification/Foundation.lean"] }
@@ -271,7 +272,7 @@ def guide : RuleId → Guide
         toolchain) that is neither `sorryAx` (RG1002) nor the axiom of a native proof (RG1004)."
       trigger := [
         axiomSet,
-        "`Regula.Closed.Input.declarationFindings` reports a constant of a claimed module when its \
+        "`Regula.Closed.Tables.rg1003` reports a constant of a claimed module when its \
           transitive axiom set has an axiom that is not known, not `sorryAx` and not the axiom of \
           a native proof. A known axiom is `propext`, `Quot.sound` or `Classical.choice`, declared \
           in a module of the toolchain's own library.",
@@ -300,7 +301,7 @@ def guide : RuleId → Guide
           RG1004 in place of RG1003, with the same verdict."]
       residuals := [.qualify]
       checklist := ["FOUND-03", "TYPE-04", "THEOREM-01", "THEOREM-09", "BUILD-01"]
-      linkage := keptLinkage "Regula.Closed.Input.declarationFindings" "Violates1003"
+      linkage := keptLinkage "Regula.Closed.Tables.rg1003" "Violates1003"
         "Foundation.lean"
       sources := ["lean/Regula/Rules.lean", "lean/Regula/Load.lean",
         "specification/RegulaSpecification/Foundation.lean"] }
@@ -312,7 +313,7 @@ def guide : RuleId → Guide
       trigger := [
         "At Lean v4.35.0, `native_decide`, `decide +native` and `bv_decide` add an ordinary axiom \
           named `<declaration>._native.<tactic>.<suffix>` (`Lean/Meta/Native.lean`). \
-          `Regula.Closed.Input.declarationFindings` reports a constant of a claimed module when \
+          `Regula.Closed.Tables.rg1004` reports a constant of a claimed module when \
           its transitive axiom set has an axiom of that name form \
           (`Regula.Closed.nativeProofAxiom`).",
         "It also reports an axiom of `Regula.Closed.compilerAxioms`, the axioms by which the \
@@ -342,7 +343,7 @@ def guide : RuleId → Guide
       checklist :=
           ["FOUND-05", "FOUND-03", "THEOREM-10", "THEOREM-01", "THEOREM-06", "DECL-03", "COMP-01",
               "BUILD-01"]
-      linkage := keptLinkage "Regula.Closed.Input.declarationFindings" "Violates1004"
+      linkage := keptLinkage "Regula.Closed.Tables.rg1004" "Violates1004"
         "Foundation.lean"
       sources := ["lean/Regula/Rules.lean", "lean/Regula/Load.lean",
         "specification/RegulaSpecification/Foundation.lean"] }
@@ -352,7 +353,7 @@ def guide : RuleId → Guide
         surface it belongs to."
       trigger := [
         "Each claimed target gives its modules the profile of its surface in \
-          `foundation_manifest.json`. `Regula.Closed.Input.declarationFindings` reports a \
+          `foundation_manifest.json`. `Regula.Closed.Tables.rg1005` reports a \
           constant of a claimed module when its transitive axiom set has an axiom that a profile \
           of its module does not admit.",
         "Kernel-only admits no axiom. Choice-free admits `propext` and `Quot.sound`. \
@@ -385,7 +386,7 @@ def guide : RuleId → Guide
         "A proof that could avoid an axiom still carries it until it is rewritten."]
       residuals := [.qualify]
       checklist := ["FOUND-03", "FOUND-04", "BUILD-02", "THEOREM-01", "THEOREM-10", "BUILD-01"]
-      linkage := keptLinkage "Regula.Closed.Input.declarationFindings" "Violates1005"
+      linkage := keptLinkage "Regula.Closed.Tables.rg1005" "Violates1005"
         "Foundation.lean"
       sources := ["lean/Regula/Rules.lean", "lean/Regula/Load.lean",
         "specification/RegulaSpecification/Foundation.lean",
@@ -394,7 +395,7 @@ def guide : RuleId → Guide
       problem := .mk 'A' " declaration of a claimed module is `unsafe` or `partial`, and it is not \
         the recursion helper that Lean adds for a safe recursive definition."
       trigger := [
-        "`Regula.Closed.Input.declarationFindings` reports a constant of a claimed module that \
+        "`Regula.Closed.Tables.rg1006` reports a constant of a claimed module that \
           Lean marks unsafe (`ConstantInfo.isUnsafe`) or partial (`ConstantInfo.isPartial`). An \
           unsafe declaration is checked only in Lean's unsafe mode and is no logical evidence. A \
           partial definition has no termination proof.",
@@ -428,7 +429,7 @@ def guide : RuleId → Guide
         "The regeneration of the base from the helper that standard §7.4 describes is not run."]
       residuals := [.qualify, .cost, .intent]
       checklist := ["COMP-02", "THEOREM-05", "THEOREM-01", "DECL-03", "BUILD-01"]
-      linkage := keptLinkage "Regula.Closed.Input.declarationFindings" "Violates1006"
+      linkage := keptLinkage "Regula.Closed.Tables.rg1006" "Violates1006"
         "Execution.lean"
       sources := ["lean/Regula/Rules.lean", "lean/Regula/Load.lean",
         "specification/RegulaSpecification/Execution.lean"] }
@@ -447,7 +448,7 @@ def guide : RuleId → Guide
           (`Regula.Load.decisionOf`). The constants of its specification argument are the \
           specification. Those of its acceptance predicate and of the decided function are the \
           acceptance predicate's.",
-        "`Regula.Closed.Input.contractFindings` reports the theorem when `f` fixes an argument, \
+        "`Regula.Closed.Tables.rg1007` reports the theorem when `f` fixes an argument, \
           when the implementation is unsafe, partial or noncomputable, or when the contract is a \
           decision contract whose specification reaches the implementation through the constants \
           that each constant mentions.",
@@ -510,7 +511,7 @@ def guide : RuleId → Guide
       checklist :=
           ["BUILD-03", "THEOREM-07", "SCOPE-02", "SCOPE-03", "TYPE-01", "THEOREM-01",
               "THEOREM-03", "COMP-01", "BUILD-01", "BUILD-02"]
-      linkage := keptLinkage "Regula.Closed.Input.contractFindings" "Violates1007"
+      linkage := keptLinkage "Regula.Closed.Tables.rg1007" "Violates1007"
         "Contracts.lean" ++ " The reading of a contract from its theorem's type \
         (`Regula.Load.contractOf`, `Regula.Load.decisionOf`) is operational."
       sources := ["lean/Regula/Contract.lean", "lean/Regula/Rules.lean", "lean/Regula/Load.lean",
@@ -525,7 +526,7 @@ def guide : RuleId → Guide
           (`Regula.Load.registrationOf`): a constant of type `Regula.RegisteredDecision f` \
           registers the function `f`. A registration counts in each environment that loads its \
           module.",
-        "`Regula.Closed.Input.contractFindings` reports a registered function of a claimed module \
+        "`Regula.Closed.Tables.rg1008` reports a registered function of a claimed module \
           when its result type is not `Decidable _` and no theorem of a claimed module in the \
           same environment is a decision contract (RG1007) about it.",
         "The rule reads each environment apart, and a contract counts only where its module is \
@@ -573,11 +574,10 @@ def guide : RuleId → Guide
           decision it runs: register that decision.",
         "The registration is environment state that a claimed module writes. It only adds a \
           requirement; no registration or option waives one. The specification makes a \
-          registration a declaration of a type of Regula's interface, which issue #487 gives its \
-          form."]
+          registration a declaration of a type of Regula's interface, whose form is `Regula.RegisteredDecision`."]
       residuals := [.intent, .invariant, .qualify]
       checklist := ["THEOREM-07", "BUILD-03"]
-      linkage := keptLinkage "Regula.Closed.Input.contractFindings" "Violates1008"
+      linkage := keptLinkage "Regula.Closed.Tables.rg1008" "Violates1008"
         "Contracts.lean"
       sources := ["lean/Regula/Decision.lean", "lean/Regula/Rules.lean", "lean/Regula/Load.lean",
         "specification/RegulaSpecification/Contracts.lean"] }
@@ -588,7 +588,7 @@ def guide : RuleId → Guide
         is a theorem that compares the test with itself at that point, so it does not state \
         the condition a second time."
       trigger := [
-        "For each decision contract of a claimed module, `Regula.Closed.Input.contractFindings` \
+        "For each decision contract of a claimed module, `Regula.Closed.Tables.rg1009` \
           searches the constants that the specification reaches, and those that the \
           implementation and the acceptance predicate reach. Each search follows the constants \
           that each constant mentions: the type and value of a definition, theorem or opaque \
@@ -649,7 +649,7 @@ def guide : RuleId → Guide
         "The rule searches each decision contract, also one that RG1007 reports."]
       residuals := [.intent, .qualify]
       checklist := ["THEOREM-07", "BUILD-03"]
-      linkage := keptLinkage "Regula.Closed.Input.contractFindings" "Violates1009"
+      linkage := keptLinkage "Regula.Closed.Tables.rg1009" "Violates1009"
         "Contracts.lean"
       sources := ["lean/Regula/Rules.lean", "lean/Regula/Load.lean",
         "specification/RegulaSpecification/Contracts.lean", "lean/Regula/Contract.lean"] }
@@ -669,9 +669,10 @@ def guide : RuleId → Guide
           declared twice in one environment, a constant that mentions a name that the \
           environment does not hold, a module of a target with no record or loaded in no \
           environment, environments that do not carry one project, or a claim of no target.",
-        "A search over the constants that exhausts its step budget is INCOMPLETE too, and so is a \
-          rule that reads the axiom set of a constant for which the loader computed none. The \
-          last line of the run names the reason, and `lake lint` exits 2."]
+        "The admission also refuses a constant of a claimed module or a correspondence theorem for \
+          which the loader computed no axiom set, and the loader refuses a constant of the \
+          execution closure whose compiled code it could not read. The last line of the run names \
+          the reason, and `lake lint` exits 2."]
       rationaleDetail := []
       proofShape := []
       established := [
@@ -693,12 +694,12 @@ def guide : RuleId → Guide
       checklist := ["DECL-01", "DECL-04"]
       linkage := .mk 'N' "one for the read of the build: `Regula.Load.loadBundle` reads it through \
         Lake's and Lean's own interfaces, which are trusted. `Regula.Closed.run` gives INCOMPLETE \
-        when `Regula.Closed.Bundle.refusal?` refuses the bundle, a search exhausts its budget or \
-        a rule reads an axiom set that the loader did not compute, by its definition and with no \
-        theorem. That `Bundle.refusal?` decides `Bundle.WellFormed` \
-        of the specification's `gateRecord` (`specification/RegulaSpecification/Gate.lean`) is \
-        not yet proved: issue #487 proves it."
-      sources := ["lean/Regula/Load.lean", "lean/Regula/Input.lean", "lean/Regula/Shell.lean",
+        exactly when `Regula.Closed.Bundle.refusal?` refuses the bundle (`run_refused`, \
+        `run_complete`), and `refusal_none_iff` proves that it refuses exactly a bundle without \
+        the specification's `Bundle.WellFormed` or without an axiom set that a rule reads \
+        (`specification/RegulaSpecification/Proofs/Verdict.lean`)."
+      sources := ["lean/Regula/Load.lean", "lean/Regula/Workspace.lean", "lean/Regula/Input.lean",
+        "lean/Regula/Shell.lean",
         "specification/RegulaSpecification/Gate.lean"] }
   | .configuration => {
       problem := .mk 'T' "he claim in `foundation_manifest.json` does not classify each library \
@@ -706,7 +707,7 @@ def guide : RuleId → Guide
         classifies an executable differently from a library that contains its root module, or \
         claims a target that is not a default target."
       trigger := [
-        "`Regula.Closed.Input.configurationFindings` reads Lake's targets of the root package, \
+        "`Regula.Closed.Input.manifestFindings` reads Lake's targets of the root package, \
           with the default targets of its load, and the claim. It reports a target that the claim \
           classifies zero times or more than once, and an entry of the claim that names no target \
           of Lake.",
@@ -732,12 +733,16 @@ def guide : RuleId → Guide
         "`lake exe regula doctor` reports this rule's findings from Lake's load and the claim, \
           without a build."]
       limitations := [
-        "That the reader of `foundation_manifest.json` accepts only the text that its writer gives \
-          for a claim is an open proof of issue #487. `Regula.Checker.Manifest.parse_sound` and \
-          `parseValue_complete` state what an accepted manifest satisfies."]
+        "`Regula.Checker.Manifest.parse_ok` and `parseValue_ok` state that the reader of \
+          `foundation_manifest.json` accepts a text exactly when the text parser's value encodes a \
+          valid claim, and `parseValue_toJson` that the writer's value of a valid claim reads back \
+          as that claim. White space and the order of keys are free. No theorem relates the text \
+          parser `PolicyCodec.parse` to the JSON grammar: that is an accepted risk, because a \
+          wrong parse of a hand-written file names no target or the wrong one, which RG2002 \
+          reports."]
       residuals := [.qualify, .intent, .invariant]
       checklist := ["DECL-04", "SCOPE-05", "BUILD-04", "DECL-01", "BUILD-01"]
-      linkage := keptLinkage "Regula.Closed.Input.configurationFindings" "Violates2002"
+      linkage := keptLinkage "Regula.Closed.Input.manifestFindings" "Violates2002"
         "Project.lean"
       sources := ["lean/Regula/Checker/Manifest.lean", "lean/Regula/Rules.lean",
         "lean/Regula/Load.lean", "specification/RegulaSpecification/Project.lean"] }
@@ -968,15 +973,21 @@ def guide : RuleId → Guide
         constant of the input, or a constant on a cycle of departures, which runs no definition. \
         An account of execution would then leave out a path."
       trigger := [
-        "For the `main` of each claimed executable, `Regula.Closed.Input.executionFindings` \
+        "For the `main` of each claimed executable, `Regula.Closed.Input.rg3001` \
           follows the constants that the build's compiled code runs, from the code of `main`. \
-          The loader reads that code with `Lean.IR.findEnvDecl` (`Regula.Load.compiledOf`). It \
-          counts the code of each auxiliary definition that the compiler adds as code of the \
-          constant that it serves.",
+          The loader reads that code with `Lean.IR.findEnvDecl` (`Regula.Load.codeOf`). It counts \
+          the code of each auxiliary definition that the compiler adds as code of the constant \
+          that it serves. A constant of the closure whose code it cannot read makes the run \
+          INCOMPLETE.",
         "It reports a name in that closure that is no constant of the input, and a constant on a \
           cycle of departures. A departure is a point where compiled code runs a constant in \
-          place of the constant that the kernel value has: a runtime replacement, a `@[csimp]` \
-          rewrite or a recursion helper.",
+          place of the constant that the kernel value has: a runtime replacement, a global \
+          `@[csimp]` rewrite or a recursion helper. Under a checked claim the input also records \
+          on `main` each such departure outside the toolchain whose reference the closure of `main` \
+          reaches, whatever survives in compiled code (RG3002).",
+        "It reports a claimed executable whose environment loads its root module and holds no \
+          `main`. The `main` is the one that Lake links: it can be declared in a module that the \
+          root imports.",
         "The rule applies in the `report` and `checked` execution modes."]
       rationaleDetail := []
       proofShape := []
@@ -992,15 +1003,14 @@ def guide : RuleId → Guide
       configuration := [
         "No execution mode waives this rule."]
       limitations := [
-        "The reading of compiled code is the loader's mechanism, which issue #487 replaces or \
-          proves (the specification's open obligation).",
+        "The loader's reading of compiled code is trusted, not proved: it is what \
+          `Lean.IR.findEnvDecl` and `Lean.IR.collectUsedDecls` give at the pinned toolchain.",
         "The closure starts at `main`. An `initialize` action that the code of `main` does not \
           reach is outside it."]
       residuals := [.qualify, .invariant, .intent]
       checklist := ["COMP-03", "SCOPE-05", "SCOPE-03", "THEOREM-05", "BUILD-01", "BUILD-03"]
-      linkage := keptLinkage "Regula.Closed.Input.executionFindings" "Violates3001"
-        "Execution.lean" ++ " The reading of compiled code (`Regula.Load.compiledOf`) is \
-        operational."
+      linkage := keptLinkage "Regula.Closed.Input.rg3001" "Violates3001"
+        "Execution.lean" ++ " The reading of compiled code (`Regula.Load.codeOf`) is trusted."
       sources := ["lean/Regula/Rules.lean", "lean/Regula/Load.lean",
         "specification/RegulaSpecification/Execution.lean"] }
   | .executionBoundary => {
@@ -1010,43 +1020,66 @@ def guide : RuleId → Guide
         as an `extern` constant."
       trigger := [
         "For the `main` of each executable claimed with `\"execution\": \"checked\"`, \
-          `Regula.Closed.Input.executionFindings` reads each constant of the execution closure \
+          `Regula.Closed.Input.rg3002` reads each constant of the execution closure \
           (RG3001).",
         "It reports a constant outside the toolchain whose code no theorem can bind: an `extern` \
           constant, a partial constant that is not a recursion helper, or a value that \
           `initialize` sets.",
         "It reports a departure that no module of the toolchain makes and that has no \
           correspondence. A correspondence is a theorem `@f = @g`, with `f` the constant of the \
-          kernel value and `g` the constant that runs. It counts when the theorem is not unsafe \
-          or partial and the claim's profile admits each of its axioms. A `@[csimp]` lemma is \
-          such a theorem for the departure that it makes."]
+          kernel value and `g` the constant that runs, at every instantiation of the two: their \
+          universe arguments are equal, and are distinct universe parameters. It counts when the \
+          theorem is not unsafe or partial and the claim's profile admits each of its axioms. A \
+          `@[csimp]` lemma is such a theorem for the departure that it makes.",
+        "For a recursion helper `f._unsafe_rec`, the correspondence is the recursion equation of \
+          `f`: a theorem whose type is that of `f.eq_def`, such as \
+          `theorem f_rec : type_of% @f.eq_def := @f.eq_def`. The kernel refuses a safe theorem \
+          that mentions the helper, so `@f = @f._unsafe_rec` cannot be stated. A specialized or \
+          narrowed equation does not count.",
+        "The compiler can inline, specialize or erase a call, so the compiled code need not show a \
+          departure. So each `@[implemented_by]` or `@[csimp]` replacement that a module outside \
+          the toolchain registers, and each recursion helper of a constant outside the toolchain, \
+          is a boundary of `main` when the closure of `main` through the constants each constant \
+          mentions, the compiled code runs or a departure runs reaches its reference."]
       rationaleDetail := []
       proofShape := [
-        "`@f = @g` for the constant `f` of the kernel value and the constant `g` that runs, closed \
-          and with axioms that the claim's profile admits."]
+        "`@f = @g` for the constant `f` of the kernel value and the constant `g` that runs, closed, \
+          with the same distinct universe parameters on both sides, and with axioms that the \
+          claim's profile admits.",
+        "`theorem f_rec : type_of% @f.eq_def := @f.eq_def` for a recursion helper of `f`."]
       established := [
         "Under a checked claim, each departure outside the toolchain that the closure reaches has \
-          a correspondence that the profile admits, and the closure reaches no code outside the \
-          toolchain that no theorem can bind."]
+          a correspondence that the profile admits, each replacement and recursion helper outside \
+          the toolchain whose reference `main` reaches has one whether or not its target survives \
+          in compiled code, and the closure reaches no code outside the toolchain that no theorem \
+          can bind."]
       notEstablished := [
         "Correctness of the toolchain's own replacements, `extern` code and native primitives, or \
           of the compiler. A Lean equality does not prove external machine code.",
         "Anything about code that the program selects at run time, such as a constant it \
           evaluates by name, a dynamic library it loads or a process it starts.",
-        "The exact correspondence statement for each kind of departure, such as the recursion \
-          equation of a helper: the specification leaves it open for issue #487."]
+        "That the compiled code of a recursive definition computes what its base computes: the \
+          recursion equation states that the base satisfies the body of the helper, and the step \
+          from there to the compiled code rests on the compiler, which is trusted.",
+        "A rewrite by a lemma that `attribute [local csimp]` registers: the build holds no entry \
+          of it, so it is no departure of the input. Its lemma is a constant of its module, which \
+          RG1005 and RG1006 read when that module is claimed."]
       configuration := [
         "`execution` in the surface of `foundation_manifest.json` (`report` or `checked`) selects \
           the mode. `report` mode does not apply this rule; it is not a fix for a checked claim."]
       limitations := [
         "An unsafe theorem is no evidence, so a correspondence counts only from a theorem that is \
           not unsafe or partial.",
+        "A reference that only a proof mentions also asks for a correspondence: a false refusal \
+          under a checked claim, which a theorem discharges.",
+        "A correspondence must be in a module that the environment of the executable loads, so its \
+          root imports it.",
         "That the executable runs the code that the build records is an assumption, as for \
           RG3001."]
       residuals := [.intent, .invariant, .qualify]
       checklist :=
           ["COMP-03", "COMP-04", "SCOPE-03", "SCOPE-05", "THEOREM-05", "BUILD-01", "BUILD-03"]
-      linkage := keptLinkage "Regula.Closed.Input.executionFindings" "Violates3002"
+      linkage := keptLinkage "Regula.Closed.Input.rg3002" "Violates3002"
         "Execution.lean"
       sources := ["lean/Regula/Rules.lean", "lean/Regula/Load.lean",
         "specification/RegulaSpecification/Execution.lean",

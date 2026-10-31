@@ -1,6 +1,5 @@
-import Regula.Rules
 import RegulaCore.Allowlist
-import RegulaSpecification.CasesProject
+import RegulaSpecification.Proofs.Project
 
 /-!
 # The link from the executable RG2006 and RG2007 to their statements
@@ -12,10 +11,6 @@ and `rg2007` (`rg2006_meets`, `rg2007_meets`), whose obligations `rg2006_adequat
 `rg2007_adequate` discharge. It proves the same of the members that the checker runs with, the closed
 lists of `Regula.Allowlist`, which admit none of `metaExtensions` (`allowlist_closed`).
 
-The implementation's input and the specification's are two types with the same fields, so `toSpec`
-and `ofSpec` carry the fields that these two rules and RG2004 read: the targets, the claim and the
-module records. The other fields stay empty, because no statement proved here reads them.
-
 The statements do not cover the shell's read of the build: that `Regula.Load` fills the targets and
 the module records through Lake's and Lean's own interfaces is trusted.
 -/
@@ -25,205 +20,7 @@ namespace RegulaSpecification
 open Lean (Name)
 open LeanIntent
 
-namespace Link
-
-/-- The implementation's kind of target in the specification. -/
-def kind : Regula.Closed.TargetKind → TargetKind
-  | .library => .library
-  | .executable => .executable
-
-/-- The specification's kind of target in the implementation. -/
-def kind' : TargetKind → Regula.Closed.TargetKind
-  | .library => .library
-  | .executable => .executable
-
-/-- The implementation's profile in the specification. -/
-def profile : Regula.Closed.Profile → Profile
-  | .kernelOnly => .kernelOnly
-  | .choiceFree => .choiceFree
-  | .standardLogical => .standardLogical
-
-/-- The specification's profile in the implementation. -/
-def profile' : Profile → Regula.Closed.Profile
-  | .kernelOnly => .kernelOnly
-  | .choiceFree => .choiceFree
-  | .standardLogical => .standardLogical
-
-/-- The implementation's execution mode in the specification. -/
-def execution : Regula.Closed.Execution → Execution
-  | .report => .report
-  | .checked => .checked
-
-/-- The specification's execution mode in the implementation. -/
-def execution' : Execution → Regula.Closed.Execution
-  | .report => .report
-  | .checked => .checked
-
-/-- The implementation's classification in the specification. -/
-def classification : Regula.Closed.Classification → Classification
-  | .claimed p e => .claimed (profile p) (execution e)
-  | .excluded => .excluded
-
-/-- The specification's classification in the implementation. -/
-def classification' : Classification → Regula.Closed.Classification
-  | .claimed p e => .claimed (profile' p) (execution' e)
-  | .excluded => .excluded
-
-/-- The implementation's entry of the claim in the specification. -/
-def entry (e : Regula.Closed.Entry) : Entry := ⟨e.target, classification e.classification⟩
-
-/-- The specification's entry of the claim in the implementation. -/
-def entry' (e : Entry) : Regula.Closed.Entry := ⟨e.target, classification' e.classification⟩
-
-/-- The implementation's target in the specification. -/
-def target (t : Regula.Closed.Target) : Target :=
-  ⟨t.name, kind t.kind, t.modules, t.options, t.extras, t.isDefault⟩
-
-/-- The specification's target in the implementation. -/
-def target' (t : Target) : Regula.Closed.Target :=
-  ⟨t.name, kind' t.kind, t.modules, t.options, t.extras, t.isDefault⟩
-
-/-- The implementation's module record in the specification. -/
-def record (r : Regula.Closed.ModuleRecord) : ModuleRecord := ⟨r.name, r.imports, r.extensions⟩
-
-/-- The specification's module record in the implementation. -/
-def record' (r : ModuleRecord) : Regula.Closed.ModuleRecord := ⟨r.name, r.imports, r.extensions⟩
-
-/-- The fields of the implementation's input that RG2004, RG2006 and RG2007 read, as the
-specification's input. -/
-def toSpec (i : Regula.Closed.Input) : Input where
-  targets := i.targets.map target
-  manifest := i.manifest.map entry
-  modules := i.modules.map record
-  decls := []
-  loads := []
-  contracts := []
-  decisions := []
-  decidableResults := []
-  inventory := none
-  proved := []
-  confirmed := []
-
-/-- The fields of the specification's input that RG2004, RG2006 and RG2007 read, as the
-implementation's input. -/
-def ofSpec (i : Input) : Regula.Closed.Input where
-  targets := i.targets.map target'
-  manifest := i.manifest.map entry'
-  modules := i.modules.map record'
-  decls := []
-  loads := []
-  contracts := []
-  decisions := []
-  decidableResults := []
-  proved := []
-
-theorem mem_targets {i : Regula.Closed.Input} {x : Target} :
-    x ∈ (toSpec i).targets ↔ ∃ t ∈ i.targets, target t = x := by simp [toSpec]
-
-theorem mem_manifest {i : Regula.Closed.Input} {x : Entry} :
-    x ∈ (toSpec i).manifest ↔ ∃ e ∈ i.manifest, entry e = x := by simp [toSpec]
-
-theorem mem_modules {i : Regula.Closed.Input} {x : ModuleRecord} :
-    x ∈ (toSpec i).modules ↔ ∃ r ∈ i.modules, record r = x := by simp [toSpec]
-
-theorem classification_inj {a b : Regula.Closed.Classification}
-    (h : classification a = classification b) : a = b := by
-  rcases a with ⟨p, e⟩ | _ <;> rcases b with ⟨q, x⟩ | _ <;> simp_all [classification]
-  · rcases p <;> rcases q <;> rcases e <;> rcases x <;> simp_all [profile, execution]
-
-theorem target_target' (t : Target) : target (target' t) = t := by
-  rcases t with ⟨n, k, m, o, x, d⟩
-  cases k <;> rfl
-
-theorem entry_entry' (e : Entry) : entry (entry' e) = e := by
-  rcases e with ⟨t, c⟩
-  rcases c with ⟨p, x⟩ | _
-  · rcases p <;> rcases x <;> rfl
-  · rfl
-
-theorem record_record' (r : ModuleRecord) : record (record' r) = r := by
-  cases r; rfl
-
-theorem toSpec_ofSpec_targets (i : Input) : (toSpec (ofSpec i)).targets = i.targets := by
-  simp [toSpec, ofSpec, List.map_map, Function.comp_def, target_target']
-
-theorem toSpec_ofSpec_manifest (i : Input) : (toSpec (ofSpec i)).manifest = i.manifest := by
-  simp [toSpec, ofSpec, List.map_map, Function.comp_def, entry_entry']
-
-theorem toSpec_ofSpec_modules (i : Input) : (toSpec (ofSpec i)).modules = i.modules := by
-  simp [toSpec, ofSpec, List.map_map, Function.comp_def, record_record']
-
-end Link
-
 open Link
-
-/-! ## Claimed and excluded modules -/
-
-theorem claimedTarget_iff (i : Regula.Closed.Input) (t : Name) :
-    i.claimedTarget t = true ↔ (toSpec i).ClaimedTarget t := by
-  simp only [Regula.Closed.Input.claimedTarget, List.any_eq_true, Bool.and_eq_true, beq_iff_eq,
-    Input.ClaimedTarget, toSpec, List.mem_map]
-  constructor
-  · rintro ⟨⟨target, c⟩, he, rfl, hc⟩
-    cases c with
-    | claimed p e => exact ⟨profile p, execution e, _, he, rfl⟩
-    | excluded => simp at hc
-  · rintro ⟨p, e, ⟨target, c⟩, he, hx⟩
-    simp only [entry, Entry.mk.injEq] at hx
-    obtain ⟨rfl, hc⟩ := hx
-    cases c with
-    | claimed q x => exact ⟨_, he, rfl, rfl⟩
-    | excluded => simp [classification] at hc
-
-theorem claimedModule_iff (i : Regula.Closed.Input) (m : Name) :
-    i.claimedModule m = true ↔ (toSpec i).ClaimedModule m := by
-  simp only [Regula.Closed.Input.claimedModule, Regula.Closed.Input.claimsOf, Bool.not_eq_true',
-    List.isEmpty_eq_false_iff_exists_mem, List.mem_flatMap]
-  constructor
-  · rintro ⟨x, t, ht, hx⟩
-    by_cases hm : t.modules.contains m = true
-    · rw [ite_eq_left hm, List.mem_filterMap] at hx
-      obtain ⟨⟨name, c⟩, he, hc⟩ := hx
-      by_cases hn : name = t.name
-      · subst hn
-        cases c with
-        | claimed p e =>
-          exact ⟨profile p, execution e, target t, mem_targets.mpr ⟨t, ht, rfl⟩,
-            (show m ∈ t.modules by simpa using hm), mem_manifest.mpr ⟨_, he, rfl⟩⟩
-        | excluded => simp at hc
-      · simp [hn] at hc
-    · rw [ite_eq_right hm] at hx
-      simp at hx
-  · rintro ⟨p, e, x, hx, hm, hme⟩
-    obtain ⟨t, ht, rfl⟩ := mem_targets.mp hx
-    obtain ⟨⟨name, c⟩, he, hc⟩ := mem_manifest.mp hme
-    simp only [entry, Entry.mk.injEq] at hc
-    obtain ⟨hn, hcl⟩ := hc
-    have hn' : name = t.name := hn
-    subst hn'
-    cases c with
-    | claimed q y =>
-      have hcon : t.modules.contains m = true := by simpa using (show m ∈ t.modules from hm)
-      refine ⟨(q, y), t, ht, ?_⟩
-      rw [ite_eq_left hcon, List.mem_filterMap]
-      exact ⟨_, he, by simp⟩
-    | excluded => simp [classification] at hcl
-
-theorem excludedModule_iff (i : Regula.Closed.Input) (m : Name) :
-    i.excludedModule m = true ↔ (toSpec i).ExcludedModule m := by
-  simp only [Regula.Closed.Input.excludedModule, List.any_eq_true, Bool.and_eq_true, beq_iff_eq,
-    Input.ExcludedModule, Input.InTarget, toSpec, List.mem_map, List.contains_iff_mem]
-  constructor
-  · rintro ⟨t, ht, hm, ⟨name, c⟩, he, rfl, hc⟩
-    obtain rfl : c = .excluded := hc
-    exact ⟨target t, ⟨t, ht, rfl⟩, hm, _, he, rfl⟩
-  · rintro ⟨_, ⟨t, ht, rfl⟩, hm, ⟨name, c⟩, he, hx⟩
-    simp only [entry, target, Entry.mk.injEq] at hx hm
-    obtain ⟨rfl, hc⟩ := hx
-    refine ⟨t, ht, hm, _, he, rfl, ?_⟩
-    cases c with
-    | claimed q y => simp [classification] at hc
-    | excluded => rfl
 
 /-! ## RG2006 -/
 
@@ -304,7 +101,7 @@ theorem rg2006_refuses_extras (allowed : Name → Bool) {i : Regula.Closed.Input
 def allowedOption (n : Name) : Prop := Regula.Allowlist.admitsOption n = true
 
 /-- The implementation of RG2006 over the specification's input. -/
-def rg2006Checker : Checker Input Name := fun s =>
+noncomputable def rg2006Checker : Checker Input Name := fun s =>
   ((ofSpec s).optionFindings Regula.Allowlist.admitsOption).map (·.subject)
 
 theorem violates2006_congr {P : Name → Prop} {a b : Input} (ht : a.targets = b.targets)
@@ -363,7 +160,7 @@ theorem rg2007_exact (allowed : Name → Bool) (i : Regula.Closed.Input) (m : Na
 def allowedExtension (n : Name) : Prop := Regula.Allowlist.admitsExtension n = true
 
 /-- The implementation of RG2007 over the specification's input. -/
-def rg2007Checker : Checker Input Name := fun s =>
+noncomputable def rg2007Checker : Checker Input Name := fun s =>
   ((ofSpec s).extensionFindings Regula.Allowlist.admitsExtension).map (·.subject)
 
 theorem violates2007_congr {P : Name → Prop} {a b : Input} (ht : a.targets = b.targets)
@@ -421,101 +218,5 @@ theorem coverage_refuses_tool_import {i : Regula.Closed.Input} {r : Regula.Close
   rw [ite_eq_left hcb]
   exact List.mem_append_right _ (List.mem_map.mpr ⟨n, List.mem_filter.mpr ⟨hn, hxb⟩, rfl⟩)
 
-
-/-! ## The verdict -/
-
-/-- A list that `dedupe` leaves empty was empty. -/
-theorem dedupe_eq_nil {fs : List Regula.Closed.Finding} (h : Regula.Closed.dedupe fs = []) :
-    fs = [] := by
-  cases fs with
-  | nil => rfl
-  | cons f fs =>
-    exfalso
-    have step : ∀ (l : List Regula.Closed.Finding) (s : Std.HashSet String)
-        (acc : List Regula.Closed.Finding), acc ≠ [] →
-        (l.foldl (init := (s, acc)) fun (seen, acc) f =>
-          let key := s!"{f.rule.spelling}|{f.subject}|{f.module}|{f.detail}"
-          if seen.contains key then (seen, acc) else (seen.insert key, f :: acc)).2 ≠ [] := by
-      intro l
-      induction l with
-      | nil => intro _ _ h; exact h
-      | cons g gs ih =>
-        intro s acc hne
-        simp only [List.foldl_cons]
-        split
-        · exact ih _ _ hne
-        · exact ih _ _ (List.cons_ne_nil _ _)
-    simp only [Regula.Closed.dedupe, List.foldl_cons, List.reverse_eq_nil_iff] at h
-    revert h
-    split
-    · simp_all
-    · exact step _ _ _ (List.cons_ne_nil _ _)
-
-/-- A successful `mapM` in `Except` gives each element's result. -/
-theorem mem_mapM_ok {α β ε : Type} (f : α → Except ε β) :
-    ∀ (l : List α) (ys : List β), l.mapM f = .ok ys → ∀ x ∈ l, ∃ y ∈ ys, f x = .ok y := by
-  intro l
-  induction l with
-  | nil => intro _ _ _ hx; simp at hx
-  | cons a l ih =>
-    intro ys h x hx
-    rw [List.mapM_cons] at h
-    cases ha : f a with
-    | error e => simp [ha, bind, Except.bind] at h
-    | ok b =>
-      cases hl : l.mapM f with
-      | error e => simp [ha, hl, bind, Except.bind] at h
-      | ok bs =>
-        simp only [ha, hl, bind, Except.bind, pure, Except.pure, Except.ok.injEq] at h
-        subst h
-        simp only [List.mem_cons] at hx
-        rcases hx with rfl | hx
-        · exact ⟨b, by simp, ha⟩
-        · obtain ⟨y, hy, hfy⟩ := ih bs hl x hx
-          exact ⟨y, List.mem_cons_of_mem _ hy, hfy⟩
-
-/-- Successful findings end with the project's findings. -/
-theorem findings_ok {a : Regula.Closed.Allowlists} {i : Regula.Closed.Input}
-    {gs : List Regula.Closed.Finding} (h : i.findings a = .ok gs) :
-    ∃ pre, gs = pre ++ i.projectFindings a := by
-  simp only [Regula.Closed.Input.findings, bind, Except.bind, pure, Except.pure] at h
-  split at h
-  · simp at h
-  · split at h
-    · simp at h
-    · split at h
-      · simp at h
-      · simp only [Except.ok.injEq] at h
-        exact ⟨_, h.symm⟩
-
-/-- A pass of the checker holds RG2006 and RG2007 of each environment, at the allowlists it ran
-with: no target and no module of the environment violates either rule. -/
-theorem run_pass_holds {a : Regula.Closed.Allowlists} {b : Regula.Closed.Bundle}
-    (h : (Regula.Closed.run a b).1 = .pass) :
-    ∀ i ∈ b.envs, (∀ t, ¬ Violates2006 (fun n => a.options n = true) (toSpec i) t) ∧
-      ∀ m, ¬ Violates2007 (fun n => a.extensions n = true) (toSpec i) m := by
-  intro i hi
-  unfold Regula.Closed.run at h
-  split at h
-  · simp at h
-  · split at h
-    · simp at h
-    · next fs hfs =>
-      have hempty : Regula.Closed.dedupe fs.flatten = [] := by
-        cases he : Regula.Closed.dedupe fs.flatten with
-        | nil => rfl
-        | cons _ _ => simp [he] at h
-      have hflat := dedupe_eq_nil hempty
-      obtain ⟨gs, hgs, hfi⟩ := mem_mapM_ok _ _ _ hfs i hi
-      obtain ⟨pre, rfl⟩ := findings_ok hfi
-      have hnil : pre ++ i.projectFindings a = [] := List.flatten_eq_nil_iff.mp hflat _ hgs
-      have hproject := (List.append_eq_nil_iff.mp hnil).2
-      simp only [Regula.Closed.Input.projectFindings, Regula.Closed.Input.configurationFindings,
-        List.append_eq_nil_iff] at hproject
-      refine ⟨fun t hv => ?_, fun m hv => ?_⟩
-      · have := (rg2006_exact a.options i t).mpr hv
-        simp [hproject.1.1.2] at this
-      · have := (rg2007_exact a.extensions i m).mpr hv
-        simp [hproject.2] at this
 
 end RegulaSpecification

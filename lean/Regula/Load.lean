@@ -1,4 +1,3 @@
-import Lake.Load.Workspace
 import Std.Data.HashSet
 import Lean.Compiler.IR.CompilerM
 import Lean.Compiler.IR.EmitUtil
@@ -9,6 +8,7 @@ import Lean.Compiler.InitAttr
 import Lean.Compiler.NoncomputableAttr
 import Lean.Util.CollectAxioms
 import Regula.Input
+import Regula.Rules
 import Regula.Decision
 import Regula.Checker.Manifest
 
@@ -21,7 +21,9 @@ through the interfaces of Lean and Lake that the specification of the smaller Re
 `incomplete` (RG2001), every input that does not have the closed form. A read that fails is a
 refusal, never an absent file (#441).
 
-What it reads, and through what:
+What it reads, and through what. `Regula.Workspace` holds what calls Lake: its load, the targets and
+`loadBundle`, which runs the steps here. That module is in an excluded library, as its documentation
+states, because Lake's own axioms are outside each profile.
 
 - The workspace: Lake's own load (`Lake.loadWorkspace`), with the toolchain that `LEAN_SYSROOT`
   names, which `lake lint` and `lake exe` set to the toolchain of the Lake that runs them. The
@@ -59,6 +61,30 @@ What it reads, and through what:
   that states a correspondence (`axiomsIn`). Lean's recorded table of each module's axioms is an
   extension's state, which `loadExts := false` leaves empty, so the axioms come from the constants.
 
+The compiled code of a constant is read through Lean's own store (`IR.findEnvDecl`). `importModules`
+at its default level `.private` loads the `.ir` part of each module of the module system, and
+`findEnvDecl` looks in that part first (`Lean/Environment.lean:2046-2054`, `2189-2192` and
+`Lean/Compiler/LCNF/Basic.lean:1252-1261` at v4.35.0), so a stub that the `.olean` keeps
+(`Lean/Compiler/IR/CompilerM.lean:89-110`) is what it finds only when the code was not read.
+`codeOf` gives each case its own constructor (`CodeRead`). A constant of the execution closure with
+no code, or with a stub, is a failure of the read: it makes the run `incomplete`, and it is never read
+as a constant that runs nothing. The compiler's auxiliary definitions, which are no constants of the
+environment, count as code of the constant they serve. Each name in `IR.collectUsedDecls`'s answer has
+an entry on the `lint` program's build (measured on 2026-10-30: 15,891 names, of which 2,455 constants
+and 13,145 auxiliary definitions have a body and 291 are `extern`).
+
+A departure of a constant comes from what the build records of it: the `@[implemented_by]` of the
+constant, a helper `f._unsafe_rec` of the constant, and each `@[csimp]` and `@[implemented_by]` entry
+whose target its compiled code runs. A checked claim adds the departures that no read of compiled code
+can show, because the compiler can inline, specialize or erase a call while the kernel values still
+mention its reference. `Facts.boundaries` records them on `main`: each replacement that a module
+outside the toolchain registers, and each recursion helper of a constant outside the toolchain, whose
+reference lies in the closure of `main` through the constants each constant mentions, the compiled code
+runs or a departure runs. A lemma with `attribute [local csimp]` has no entry
+(`Lean/ScopedEnvExtension.lean:96-104`, `191-198` at v4.35.0), so its rewrite is in the closure, which
+reads the code that runs, and it is no departure of the input: an accepted risk that the
+specification's entry of RG3002 states.
+
 Two choices are the implementation's, made on the owner's behalf, and recorded in the shell's
 documentation:
 
@@ -68,14 +94,9 @@ documentation:
   them: each module joins the first environment in which no module of the root package that its
   imports reach declares a name that another module there declares.
 - The environments are loaded one after another. Before the next one is loaded, the input of the
-  last is copied out of its `.olean` data, and that data is freed (`Environment.freeRegions`), so
-  the memory of a run is that of one environment. This is why the loader is `unsafe`.
-
-The compiled code and the departures are read here by a mechanism that #487 replaces or proves
-(the specification's open obligation): the constants that `IR.findEnvDecl`'s code calls, with the
-code of each auxiliary definition that the compiler adds counted as code of the constant it
-serves, and a departure for each runtime replacement, recursion helper and `@[csimp]` replacement
-whose target the code runs.
+  last is copied out of its `.olean` data, and that data is freed, so the memory of a run is that of
+  one environment. `Environment.freeRegions` is `unsafe`, so the caller gives it: the `main` of the
+  `lint` executable (`Regula.LintMain`), and this module stays safe.
 -/
 
 namespace Regula.Load
@@ -86,29 +107,6 @@ open Regula.Closed
 /-- Refuse the input: the run is `incomplete`. -/
 def refuse {α : Type} (why : String) : IO α :=
   throw <| IO.userError why
-
-/-- The Lake environment of the toolchain that `LEAN_SYSROOT` names, with the Lake installed beside
-its Lean and no inherited search path. -/
-def lakeEnvironment : IO Lake.Env := do
-  let some sysroot ← IO.getEnv "LEAN_SYSROOT"
-    | refuse "LEAN_SYSROOT is not set, so the toolchain of the build is not known: run the \
-        checker with `lake lint` or `lake exe`, which set it"
-  let lean ← Lake.LeanInstall.get sysroot (collocated := true)
-  let lake := Lake.LakeInstall.ofLean lean
-  match ← (Lake.Env.compute lake lean (← Lake.findElanInstall?)).toBaseIO with
-  | .ok env => return { env with initLeanPath := [], initLeanSrcPath := [] }
-  | .error why => refuse s!"Lake could not compute its environment: {why}"
-
-/-- Lake's load of the workspace whose root is `dir`. -/
-def loadWorkspace (dir : FilePath) : IO Lake.Workspace := do
-  let lakeEnv ← lakeEnvironment
-  let wsDir ← IO.FS.realPath dir
-  let (ws?, log) ← (Lake.loadWorkspace { lakeEnv, wsDir }).captureLog
-  match ws? with
-  | some ws => return ws
-  | none =>
-    refuse s!"Lake could not load the workspace at {dir}: \
-      {"; ".intercalate (log.entries.map (·.message)).toList}"
 
 /-- The text of a Lake option's value: the string, `true` or `false`, or the numeral. -/
 def optionText : LeanOptionValue → String
@@ -140,26 +138,6 @@ def splitArgs : List String → List (Name × String) × List String
     | some o => (o :: options, extras)
     | none => (options, arg :: extras)
   | [] => ([], [])
-
-/-- The target of a library as Lake configures it, with `modules` the modules Lake builds for it. -/
-def targetOf (ws : Lake.Workspace) (lib : Lake.LeanLib) (kind : TargetKind) (name : Name)
-    (modules : List Name) : Target :=
-  let (dOptions, args) := splitArgs (lib.weakLeanArgs ++ lib.leanArgs).toList
-  { name, kind, modules
-    options := lib.leanOptions.values.toList.map (fun (n, v) => (n, optionText v)) ++ dOptions
-    extras := args ++ lib.plugins.toList.map (fun t => s!"plugin {t.key}") ++
-      lib.dynlibs.toList.map (fun t => s!"dynamic library {t.key}")
-    isDefault := ws.root.defaultTargets.contains name }
-
-/-- The root package's library and executable targets. -/
-def targets (ws : Lake.Workspace) : IO (List Target) := do
-  let mut out := []
-  for lib in ws.root.leanLibs do
-    let modules ← lib.getModuleArray
-    out := out ++ [targetOf ws lib .library lib.name (modules.map (·.name)).toList]
-  for exe in ws.root.leanExes do
-    out := out ++ [targetOf ws exe.toLeanLib .executable exe.name [exe.root.name]]
-  return out
 
 /-- The profile of a claim in the closed input; `compiler-trusting` is not one. -/
 def profileOf : Regula.Checker.Policy.Profile → Option Profile
@@ -230,10 +208,9 @@ def readModule (m : Name) (olean : FilePath) : IO ModuleFile := do
            declares }
 
 /-- The modules of the root package that Lake builds for the targets `ts`: each module of a
-target, whose `.olean` must lie in the root package's build, and each module of the root package
+target, whose `.olean` must lie in the root package's build `rootDir`, and each module of the root package
 that their imports reach. Lean's search path must be Lake's. -/
-def rootModules (ws : Lake.Workspace) (ts : List Target) : IO (NameMap ModuleFile) := do
-  let rootDir := ws.root.leanLibDir
+def rootModules (rootDir : FilePath) (ts : List Target) : IO (NameMap ModuleFile) := do
   let mut files : NameMap ModuleFile := {}
   let mut work : List (Name × Bool) := ts.flatMap fun t => t.modules.map (·, true)
   while true do
@@ -388,14 +365,63 @@ def registrationOf (type : Expr) : Option Name := do
   guard (body.isAppOfArity ``Regula.RegisteredDecision 2)
   body.getAppArgs[1]!.consumeMData.getAppFn.consumeMData.constName?
 
-/-- The correspondence that the theorem `thm` of type `type` states, when its type is `@f = @g`
-for constants `f` and `g`. -/
+/-- The correspondence that the theorem `thm` of type `type` states, when its type is `@f = @g` for
+constants `f` and `g` and it holds at every instantiation of them: their universe arguments are equal,
+and those arguments are distinct universe parameters. This is Lean's own condition for a constant
+replacement (`isConstantReplacement?`, `Lean/Compiler/CSimpAttr.lean:40-49` at v4.35.0). The name
+pair of a `Correspondence` erases the universe arguments, so a theorem at one universe, which proof
+irrelevance can make true there alone, is no correspondence. -/
 def correspondenceOf (thm : Name) (type : Expr) : Option Correspondence := do
   let t := type.consumeMData
   guard (t.isAppOfArity ``Eq 3)
-  let .const f _ := t.appFn!.appArg!.consumeMData | none
-  let .const g _ := t.appArg!.consumeMData | none
+  let .const f us := t.appFn!.appArg!.consumeMData | none
+  let .const g vs := t.appArg!.consumeMData | none
+  guard (us == vs && us.all Level.isParam && (Std.HashSet.ofList us).size == us.length)
   return { reference := f, runs := g, theorem_ := thm }
+
+/-- The correspondence of the departure from `f` to its recursion helper `f._unsafe_rec`, when the
+theorem `thm` of type `type` states the recursion equation at every instantiation: `type` is
+`∀ xs, f xs = B`, the universe arguments of `f` are exactly the helper's level parameters in order,
+the helper's value is `fun xs => B'` with one binder of `type` for each of its binders, and `B` is `B'`
+with each helper replaced by its base. So a specialized or narrowed equation is none, and neither is a
+theorem with level parameters of other names, which `type_of% @f.eq_def` never has. Lean's equation
+`f.eq_def` has this type (measured on 2026-10-30, for a structural and a well-founded definition), so
+a project states it by `theorem f_rec : type_of% @f.eq_def := @f.eq_def`. No theorem can state
+`@f = @f._unsafe_rec`: the kernel refuses a safe constant that mentions a partial one
+(`src/kernel/type_checker.cpp:114-115`). -/
+def recursionEquationOf (env : Environment) (thm : Name) (type : Expr) : Option Correspondence := do
+  let plain (e : Expr) : Expr := e.replace fun
+    | .mdata _ b => some b
+    | _ => none
+  let bases (e : Expr) : Expr := e.replace fun
+    | .mdata _ b => some b
+    | .const (.str base "_unsafe_rec") us => some (.const base us)
+    | _ => none
+  let stated := plain type
+  let body := stated.getForallBody
+  guard (body.isAppOfArity ``Eq 3)
+  let lhs := body.appFn!.appArg!
+  let .const f us := lhs.getAppFn | none
+  let helper := Name.str f "_unsafe_rec"
+  let info ← env.find? helper
+  let value ← info.value?
+  guard (us == info.levelParams.map Level.param)
+  let mut statement := stated
+  let mut expected := bases value
+  let mut depth := 0
+  while true do
+    match statement, expected with
+    | .forallE _ d b _, .lam _ d' b' _ =>
+      guard (d == d')
+      statement := b
+      expected := b'
+      depth := depth + 1
+    | .forallE .., _ => failure
+    | _, .lam .. => failure
+    | _, _ => break
+  guard (lhs == mkAppN (.const f us) ((List.range depth).reverse.map Expr.bvar).toArray)
+  guard (body.appArg! == expected)
+  return { reference := f, runs := helper, theorem_ := thm }
 
 /-- Whether the value `value` of a definition is a field's projection function: under its binders,
 the primitive projection of its last binder. The test reads the kernel-checked value, not Lean's
@@ -418,12 +444,30 @@ def boolTest (info : ConstantInfo) : Bool :=
   let r := info.type.getForallBody.consumeMData
   (r.isConstOf ``Bool || r.isAppOf ``BEq) && !(info.value?.map projectionValue).getD false
 
-/-- The constants that the compiled code of `n` calls, the code of each auxiliary definition that
-the compiler adds and that is no constant of `env` counted as code of `n`
-(`IR.findEnvDecl`, `IR.collectUsedDecls`). A name with no constant and no code is kept: it is code
-that the input cannot resolve. -/
-def compiledOf (env : Environment) (n : Name) : Array Name := Id.run do
-  let some decl := IR.findEnvDecl env n | return #[]
+/-- What Lean's store of compiled code gives for a constant. Absence and failure differ in this type:
+a constant with no code runs nothing, and a read that found no code of a constant that compiled code
+runs is a failure (`executedCode`). -/
+inductive CodeRead where
+  /-- The store holds code that calls these constants. -/
+  | runs (calls : Array Name)
+  /-- The store holds no entry of the constant. -/
+  | noCode
+  /-- The store holds a stub for this name, whose code is in a part that was not read. -/
+  | unread (name : Name)
+  deriving Inhabited
+
+/-- Whether the entry is the stub that a module of the module system keeps in its `.olean` for a
+definition (`Lean/Compiler/IR/CompilerM.lean:89-110` at v4.35.0). -/
+def isStub : IR.Decl → Bool
+  | .extern _ _ _ data => data.entries.any (· matches .opaque)
+  | .fdecl .. => false
+
+/-- What the compiled code of `n` calls, the code of each auxiliary definition that the compiler adds
+and that is no constant of `env` counted as code of `n` (`IR.findEnvDecl`, `IR.collectUsedDecls`). A
+name with no constant and no code is kept: it is code that the input cannot resolve. -/
+def codeOf (env : Environment) (n : Name) : CodeRead := Id.run do
+  let some decl := IR.findEnvDecl env n | return .noCode
+  if isStub decl then return .unread n
   let mut out : Array Name := #[]
   let mut seen : NameSet := NameSet.empty.insert n
   let mut work := (IR.collectUsedDecls env [decl]).toList
@@ -435,9 +479,11 @@ def compiledOf (env : Environment) (n : Name) : Array Name := Id.run do
     if env.contains c then
       out := out.push c
     else match IR.findEnvDecl env c with
-      | some aux => work := (IR.collectUsedDecls env [aux]).toList ++ work
+      | some aux =>
+        if isStub aux then return .unread c
+        work := (IR.collectUsedDecls env [aux]).toList ++ work
       | none => out := out.push c
-  return out
+  return .runs out
 
 /-- A replacement that a module registers: `@[implemented_by]`, or a `@[csimp]` lemma, with the
 module's place in the toolchain. -/
@@ -501,17 +547,24 @@ def Facts.helper? (f : Facts) (n : Name) : Option Name :=
   let h := Name.str n "_unsafe_rec"
   if f.env.contains h then some h else none
 
-/-- The constant `n` as the closed input states it. -/
-def Facts.decl (f : Facts) (n : Name) (info : ConstantInfo) : Decl :=
+/-- The constant `n` as the closed input states it, or the refusal of a constant that no loaded module
+holds. A constant that compiled code does not run can have no code, so only the closure refuses a
+read of its code (`Facts.closure`). -/
+def Facts.decl (f : Facts) (n : Name) (info : ConstantInfo) : Except String Decl := do
   let env := f.env
-  let compiled := compiledOf env n
+  let some module := f.moduleOf n
+    | throw s!"the constant {n} was loaded, and Lean gives it no module"
+  let compiled := match codeOf env n with
+    | .runs calls => calls
+    | .noCode | .unread _ => #[]
   let implementedBy := Compiler.getImplementedBy? env n
   let own := (implementedBy.toList ++ (f.helper? n).toList).map fun runs =>
     ({ reference := n, runs, inToolchain := f.toolchain n } : Departure)
   let atCalls := compiled.toList.flatMap fun g => ((f.byRuns.find? g).getD []).filterMap fun r =>
     if r.reference == g then none
     else some ({ reference := r.reference, runs := g, inToolchain := r.inToolchain } : Departure)
-  { name := n, module := (f.moduleOf n).getD .anonymous, kind := kindOf info
+  return {
+    name := n, module, kind := kindOf info
     isUnsafe := info.isUnsafe, isPartial := info.isPartial, uses := (usesOf info).toList
     axioms := none
     implementedBy, compiled := compiled.toList, departures := own ++ atCalls
@@ -553,52 +606,131 @@ earlier one computed. The key holds the module, because two environments can hol
 one name, such as the `main` of two programs. -/
 abbrev AxiomSets := Std.HashMap (Name × Name) (List Name)
 
+/-- Why a constant is in the input. -/
+inductive Walk where
+  /-- A rule reads its statement. -/
+  | mentioned
+  /-- Compiled code of the execution closure runs it, so its code must have been read. -/
+  | executed
+  /-- A departure of the closure runs it. For a recursion helper, the code is the one that its base
+  compiles to, so the store need hold no entry of it. -/
+  | replaced
+  deriving BEq
+
+/-- The refusal of an executed constant whose code was not read: it has no entry in the store, or its
+entry is a stub. -/
+def executedCode (env : Environment) (n : Name) : Except String Unit :=
+  match codeOf env n with
+  | .runs _ => pure ()
+  | .noCode => throw s!"compiled code runs {n}, and Lean's store of compiled code holds no entry of it"
+  | .unread name => throw s!"compiled code runs {n}, and the code of {name} was not read"
+
 /-- The constants the rules can reach from `seeds`: the seeds, each constant a constant of the set
 mentions, and, from `runs`, the execution closure: each constant that compiled code of a constant
-of it runs, with the code its departures run. -/
-def Facts.closure (f : Facts) (seeds runs : List Name) (known : NameMap Decl) : NameMap Decl :=
-  Id.run do
+of it runs, with the code its departures run. It refuses an executed constant whose code was not read
+(`executedCode`). A name that compiled code runs and that is no constant stays out of the input, so
+RG3001 reports it. -/
+def Facts.closure (f : Facts) (seeds runs : List Name) (known : NameMap Decl) :
+    Except String (NameMap Decl) := do
   let mut out := known
   let mut executed : NameSet := {}
-  let mut work : List (Name × Bool) := seeds.map (·, false) ++ runs.map (·, true)
+  let mut read : NameSet := {}
+  let mut work : List (Name × Walk) := seeds.map (·, .mentioned) ++ runs.map (·, .executed)
   while true do
-    let (n, exec) :: rest := work | break
+    let (n, walk) :: rest := work | break
     work := rest
+    -- Each executed constant, also one that a departure reached first.
+    if walk == .executed && !read.contains n && f.env.contains n then
+      executedCode f.env n
+      read := read.insert n
+    let exec := walk != .mentioned
     if out.contains n && (!exec || executed.contains n) then continue
     let some info := f.env.find? n | continue
-    let d := (out.find? n).getD (f.decl n info)
+    let d ← match out.find? n with
+      | some d => pure d
+      | none => f.decl n info
     out := out.insert n d
-    work := d.uses.map (·, false) ++ work
+    work := d.uses.map (·, .mentioned) ++ work
     if exec then
       executed := executed.insert n
-      work := (d.compiled ++ d.departures.map (·.runs)).map (·, true) ++ work
+      work := d.compiled.map (·, .executed) ++ d.departures.map (·.runs, .replaced) ++ work
   return out
+
+/-- The constants of `known` and each constant of the closure of `root` through the constants each
+constant mentions, the compiled code runs or a departure runs, with the departures of that closure
+that no read of compiled code need show recorded on `root`: each replacement that a module outside
+the toolchain registers, and each recursion helper of a constant outside the toolchain, whose reference
+is in the closure. The target of each of these is in the closure too, so a replacement that only the
+target of another one reaches counts, and a helper brings in its base, which the mutual recursion of
+another helper need not mention. So each constant that such a departure names is a constant of the
+result, whose mentions are too, and `Facts.input` then finds the theorems that state its correspondence.
+It refuses a constant of the closure whose code was not read: a read that fails is no absent code. -/
+def Facts.boundaries (f : Facts) (root : Name) (known : NameMap Decl) :
+    Except String (NameMap Decl) := do
+  let replaced : NameMap (List Name) := f.byRuns.foldl (init := {}) fun m _ rs =>
+    rs.foldl (init := m) fun m r =>
+      if r.inToolchain || r.reference == r.runs then m
+      else m.insert r.reference (r.runs :: (m.find? r.reference).getD [])
+  let mut out := known
+  let mut seen : NameSet := {}
+  let mut found : List Departure := []
+  let mut work := [root]
+  while true do
+    let n :: rest := work | break
+    work := rest
+    if seen.contains n then continue
+    seen := seen.insert n
+    if let .str base "_unsafe_rec" := n then work := base :: work
+    let some info := f.env.find? n | continue
+    if let .unread name := codeOf f.env n then
+      throw s!"the closure of {root} reaches {n}, and the code of {name} was not read"
+    let d ← match out.find? n with
+      | some d => pure d
+      | none => f.decl n info
+    out := out.insert n d
+    let helper := if f.toolchain n then [] else (f.helper? n).toList
+    let targets := helper ++ (replaced.find? n).getD []
+    found := targets.map (fun runs => ({ reference := n, runs, inToolchain := false } : Departure)) ++
+      found
+    work := d.uses ++ d.compiled ++ d.departures.map (·.runs) ++ targets ++ work
+  return match out.find? root with
+    | some d => out.insert root { d with departures := d.departures ++ found }
+    | none => out
 
 /-- The closed input of the environment that `f` describes, for the project's targets `ts`,
 claim `manifest` and module records `records`. `known` holds the axiom sets that the environments
-loaded before this one computed, by module and constant (`AxiomSets`). -/
+loaded before this one computed, by module and constant (`AxiomSets`). It refuses what it cannot read
+(`Facts.closure`, `Facts.boundaries`). It reads an execution closure only for a claimed executable, and
+the departures of `Facts.boundaries` only for a checked claim: a rule reads no other.
+-/
 def Facts.input (f : Facts) (ts : List Target) (manifest : List Entry)
-    (records : List ModuleRecord) (known : AxiomSets := {}) : Input := Id.run do
+    (records : List ModuleRecord) (known : AxiomSets := {}) : Except String Input := do
   let env := f.env
   let mut seeds : List Name := []
   let mut lemmas : List Correspondence := []
   for (n, info) in env.constants.map₁.toList do
-    let some m := f.moduleOf n | continue
+    let some m := f.moduleOf n | throw s!"the constant {n} was loaded, and Lean gives it no module"
     if f.claimed.contains m then seeds := n :: seeds
     if f.root.contains m then
       if let .thmInfo v := info then
         if let some c := correspondenceOf n v.type then lemmas := c :: lemmas
+        if let some c := recursionEquationOf env n v.type then lemmas := c :: lemmas
   for (_, rs) in f.byRuns.toList do
     for r in rs do
       if let some thm := r.lemma? then
         lemmas := { reference := r.reference, runs := r.runs, theorem_ := thm } :: lemmas
-  let mains := if env.contains `main then [`main] else []
-  let first := f.closure seeds mains {}
+  let scope : Input := { (default : Input) with
+    targets := ts, manifest, loads := env.header.moduleNames.toList }
+  let mains := if !scope.rootClaims.isEmpty && env.contains `main then [`main] else []
+  let first ← f.closure seeds mains {}
+  let first ← if scope.rootClaims.any (·.2 == .checked) then
+      mains.foldlM (fun known root => f.boundaries root known) first
+    else pure first
   -- The correspondences that a departure of the input needs, with their theorems' closure.
   let needed : Std.HashSet (Name × Name) := first.foldl (init := {}) fun s _ d =>
     d.departures.foldl (fun s x => s.insert (x.reference, x.runs)) s
   let proved := lemmas.filter fun c => needed.contains (c.reference, c.runs)
-  let all := f.closure (proved.map (·.theorem_)) [] first
+  let all ← f.closure (proved.map (·.theorem_)) [] first
   -- The axiom sets that the rules read: those of the constants of claimed modules (RG1001 to
   -- RG1005) and of the theorems that state a correspondence (RG3002).
   let theorems : NameSet := proved.foldl (fun s c => s.insert c.theorem_) {}
@@ -705,44 +837,5 @@ theorem dispatchedFrom_iff {root lakeLib : String} {dispatching inherited : List
     simp
   simp only [dispatchedFrom, htake, Bool.and_eq_true, decide_eq_true_eq]
   simp
-
-/-- The closed input of the selected finished build, or an error that refuses it. An implicit
-selection must match Lake's dispatch (`dispatchedFrom_iff`). Each environment is imported, read
-into the input, copied out of its data, and freed before the next one is imported. -/
-unsafe def loadBundle (selection : WorkspaceSelection) : IO Bundle := do
-  let dir := selection.directory
-  let ws ← loadWorkspace dir
-  match selection with
-  | .dispatched =>
-    let received := (((← IO.getEnv "LEAN_PATH").map SearchPath.parse).getD []).map toString
-    unless dispatchedFrom ws.root.leanLibDir.toString ws.lakeEnv.lake.libDir.toString
-        received do
-      refuse "the current directory is not the workspace Lake dispatched; run `lake lint` \
-        from that workspace's directory"
-  | .named _ => pure ()
-  searchPathRef.set ws.augmentedLeanPath
-  let ts ← targets ws
-  let manifest ← claim dir
-  let files ← rootModules ws ts
-  let records := files.toList.map (·.2.record)
-  let claimedTargets := manifest.filterMap fun e => match e.classification with
-    | .claimed .. => some e.target
-    | .excluded => none
-  let claimed : NameSet := ts.foldl (init := {}) fun s t =>
-    if claimedTargets.contains t.name then t.modules.foldl (·.insert ·) s else s
-  let root : NameSet := files.foldl (fun s m _ => s.insert m) {}
-  let mut envs := []
-  let mut known : AxiomSets := {}
-  for g in ← groups files ts do
-    let env ← try importModules (g.imports.map ({ module := · })) {} (loadExts := false)
-      catch e => refuse s!"Lean could not load the modules {g.imports.toList}: {e}"
-    let f ← facts env ws.lakeEnv.lean.leanLibDir claimed root
-    let raw := f.input ts manifest records known
-    let input ← (copyInput raw).run' {}
-    env.freeRegions
-    for d in input.decls do
-      if let some axs := d.axioms then known := known.insert (d.module, d.name) axs
-    envs := envs ++ [input]
-  return { envs }
 
 end Regula.Load

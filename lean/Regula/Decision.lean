@@ -22,7 +22,7 @@ theorem positive_registered : Regula.RegisteredDecision @positive := ⟨⟩
 It is an ordinary constant, so it adds no code that Lean runs while it elaborates, and RG2007 admits
 it in a claimed module. The checker reads the type of each constant of a claimed module
 (`Regula.Load.registrationOf`), and decides the RG1008 requirement only for a registered function
-of a claimed module (`Regula.Closed.Input.contractFindings`); it reports nothing for a registration
+of a claimed module (`Regula.Closed.Tables.rg1008`); it reports nothing for a registration
 of another function. A file that is a `module` imports this one with `public import`, because the
 statement of a public registration names `RegisteredDecision`. -/
 

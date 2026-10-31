@@ -38,6 +38,12 @@
       "rationale": "The rule registry and the pure decisions that the checker's programs execute: the rule identities and descriptors, the guidance and setup decisions of the regula command, the site's editions, pages and checks, the Markdown and prose checks, and the shared filesystem constructor, whose contract is over the existing observer model, with checked correspondence to its IO program and explicit native primitive hypotheses. Their contracts concern the supplied data; Lake loading, the compiler and native filesystem effects remain trusted observations."
     },
     {
+      "library": "RegulaChecker",
+      "claim": "standard-logical",
+      "execution": "report",
+      "rationale": "Regula's checker: the closed input and the rule functions that it runs, the manifest reader, the loader and the shell. Each rule function and the verdict are proved against the specification in specification/RegulaSpecification/Proofs/, a package that requires lean-intent, so those proofs are outside this claim and the first acceptance step builds them. The proofs read the loader's axiom sets as a hypothesis. The loader's reads through Lean and Lake are trusted, and the one unsafe call, which frees an environment's data, is in the excluded root of the lint executable."
+    },
+    {
       "library": "AuditApp",
       "executables": [
         "auditApp"
@@ -50,7 +56,7 @@
   "excluded-libraries": [
     {
       "library": "Regula",
-      "rationale": "Regula's checker shell and the repository's own programs, which are not a conforming proof surface yet: the closed input and its loader (Regula.Load, which reads the finished build through Lean's and Lake's interfaces and frees each environment's data with an unsafe call), the rule functions over the input, whose proofs against the specification of the smaller Regula are leaf #487's, the manifest reader, the regula command, the site builder, the local gate, the release checks and the registry checks. Their process, filesystem, Lake and Lean observations are trusted."
+      "rationale": "The root of the lint executable and the repository's own programs: the regula command's operational code, the site builder, the local gate, the release checks, the registry checks and the program checks. Their process, filesystem, Lake and Lean observations are trusted. The checker itself is the claimed RegulaChecker."
     }
   ],
   "excluded-executables": [
@@ -60,7 +66,7 @@
     },
     {
       "executable": "lint",
-      "rationale": "Lake lint driver, Regula's checker; its root module belongs to the excluded Regula library. It loads the finished build, runs the rule functions over the closed input and prints their findings; its loader and rule functions are not yet proved, which is leaf #487's work."
+      "rationale": "Lake lint driver; its root module belongs to the excluded Regula library. A claimed target must be a default target, and lake check loads the default targets into one environment, which holds one main: that of auditApp. Its root gives the claimed shell the one unsafe call, which frees an environment's data after the loader has copied the input out of it."
     },
     {
       "executable": "regula",

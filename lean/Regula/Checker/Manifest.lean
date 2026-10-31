@@ -3,8 +3,7 @@ import RegulaCore.Profile
 import RegulaPolicy.Guards
 import RegulaPolicy.Domain
 import Regula.Input
-import Lean.Elab.Command
-import Lean.Util.CollectAxioms
+import Lean.Data.Json
 import Lake.Util.Name
 import Regula.Decision
 
@@ -2260,47 +2259,3 @@ theorem restrict_roundtrip {path text : String} {actual : Manifest} {kept : Arra
     (restrict_relations (parse_relations h))⟩
 
 end Regula.Checker.Manifest
-
--- Exact dependency ceiling for the manifest-parser guarantees: Standard-Logical. `Lean.collectAxioms`
--- walks the theorems of this module, and reads the axioms that Lean recorded for each imported
--- module when it compiled it, as `#print axioms` does. The library `Regula` is excluded, so the
--- self-check does not check these theorems.
-run_cmd do
-  let names := #[``Regula.Checker.Manifest.parse_sound, ``Regula.Checker.Manifest.parse_input,
-      ``Regula.Checker.Manifest.parse_emptyExclusions, ``Regula.Checker.Manifest.parse_malformed,
-      ``Regula.Checker.Manifest.parse_topLevel_refuses,
-          ``Regula.Checker.Manifest.topLevel_unknownKey,
-      ``Regula.Checker.Manifest.objectWithKeys_unknown,
-      ``Regula.Checker.Manifest.topLevel_schemaVersion,
-      ``Regula.Checker.Manifest.topLevel_emptySurfaces,
-      ``Regula.Checker.Manifest.parse_surface_refuses,
-      ``Regula.Checker.Manifest.parseSurface_unknownKey,
-      ``Regula.Checker.Manifest.parseSurface_execution_refuses,
-      ``Regula.Checker.Manifest.surfaceExecution_unknown,
-      ``Regula.Checker.Manifest.surfaceExecution_nonString,
-      ``Regula.Checker.Manifest.structural_libraries,
-      ``Regula.Checker.Manifest.structural_executables,
-      ``Regula.Checker.Manifest.parse_recorded, ``Regula.Checker.Manifest.recordTargets_ok,
-      ``Regula.Checker.Manifest.parse_relations, ``Regula.Checker.Manifest.surfaceDecides_ok,
-      ``Regula.Checker.Manifest.surfaceDecides_complete,
-      ``Regula.Checker.Manifest.structuralManifest_relations,
-      ``Regula.Checker.Manifest.restrict_relations,
-      ``Regula.Checker.Manifest.recordTargets_valid,
-      ``Regula.Checker.Manifest.recordTargets_of_recorded,
-      ``Regula.Checker.Manifest.recordedName_lakeTargetName,
-      ``Regula.Checker.Manifest.unknownEntry?_some, ``Regula.Checker.Manifest.parseFor_ok,
-      ``Regula.Checker.Manifest.parseFor_unknownLibrary,
-      ``Regula.Checker.Manifest.parseFor_unknownExecutable,
-      ``Regula.Checker.Manifest.parse_ok, ``Regula.Checker.Manifest.parseValue_ok,
-      ``Regula.Checker.Manifest.parseValue_complete, ``Regula.Checker.Manifest.toJson_encodes,
-      ``Regula.Checker.Manifest.parseValue_toJson, ``Regula.Checker.Manifest.parse_of_encodes,
-      ``Regula.Checker.Manifest.structuralManifest_valid,
-      ``Regula.Checker.Manifest.structural_roundtrip,
-      ``Regula.Checker.Manifest.restrict_libraries,
-      ``Regula.Checker.Manifest.restrict_executables,
-      ``Regula.Checker.Manifest.restrict_valid,
-      ``Regula.Checker.Manifest.restrict_roundtrip]
-  for name in names do
-    let axioms ← Lean.collectAxioms name
-    unless axioms.all RegulaPolicy.standardLogicalAxiom do
-      throwError "manifest theorem {name} exceeds Standard-Logical: {axioms}"

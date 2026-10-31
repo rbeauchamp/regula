@@ -182,7 +182,7 @@ guidance, the compiler your `lean-toolchain` selects (the one that built `regula
 nothing) and any module below a library root that no library includes but a claimed module imports
 (which `lake lint` rejects), and,
 once a manifest exists, the checker's manifest findings ([RG2002]) and option findings ([RG2006]).
-It runs the same `configurationFindings` function as the checker, and prints one line for each finding.
+It runs the checker's functions of these two rules through `configurationFindings`, and prints one line for each finding.
 
 It exits 0
 when the setup is complete and 1 otherwise, and lists what `init` would write. A module left out
@@ -316,11 +316,15 @@ axiom table that Lean wrote for its module, and that table can omit axioms. For 
 | Mode | Meaning |
 | --- | --- |
 | `report` (default) | The checker checks that the execution closure of each claimed executable resolves ([RG3001]). It does not report the execution boundaries. |
-| `checked` | The checker also fails on each boundary that the closure reaches and that no admitted theorem binds ([RG3002]). A boundary is a departure that no module of the toolchain makes, such as an `implemented_by` replacement, a `csimp` rewrite or a recursion helper. Its theorem must be safe, and the profile must admit its axioms. Code that no theorem can bind fails with any theorem: an `extern` constant, a `partial` definition that is not a recursion helper, and a value that `initialize` sets. |
+| `checked` | The checker also fails on each boundary that the closure reaches and that no admitted theorem binds ([RG3002]). A boundary is a departure that no module of the toolchain makes, such as an `implemented_by` replacement, a `csimp` rewrite or a recursion helper. A replacement or recursion helper outside the toolchain is a boundary of `main` when `main` reaches its reference through mentions, compiled code or departures. Its target can be absent from compiled code. Its theorem must be safe, and the profile must admit its axioms. Code that no theorem can bind fails with any theorem: an `extern` constant, a `partial` definition that is not a recursion helper, and a value that `initialize` sets. |
 
 In both modes an unresolved path blocks the execution claim. Native arithmetic, the Lean runtime
 and the toolchain's own library code remain trusted in every mode; the checker verifies Lean
 source, not the compiler or the machine.
+
+Under `checked`, a theorem binds an `implemented_by` replacement or a `csimp` rewrite of `f` to `g` when it states `@f = @g`. The two sides must have the same distinct universe parameters: `@f.{u} = @g.{u}` counts, and `@f.{0} = @g.{0}` does not. A recursive definition `f` requires its recursion equation, which you can state with `theorem f_rec : type_of% @f.eq_def := @f.eq_def`. A specialized or narrowed equation does not count.
+
+The executable's root must import the module of the theorem. A reference that only a proof mentions also requires a theorem. A claimed executable's root is the `main` that Lake links, so a module that the root imports can declare it. A claimed executable without a `main` fails [RG3001].
 
 ## 4. Run `lake lint`
 
@@ -595,7 +599,7 @@ audit refuses a `decides` entry that names its own surface or no claimed surface
 
 ## Limits
 
-- No theorem yet relates a rule function of the checker to the violation predicate of its rule. Leaf #487 proves these contracts. Until then, a pass of the checker is an observation of the functions of `Regula.Rules`.
+- A theorem relates each rule function of the checker to the violation predicate of its rule, and the verdict to the rules (`specification/RegulaSpecification/Proofs/`). Each theorem is about the input that the shell gives. The read of the shell and `Lean.collectAxioms` are trusted.
 - The seven documentation rules are written guidance, and no check of Regula reads them. Review checks them, by standard §5.1 to §5.3 and §7.7. The specification retires them because each failure that they found is cheap to see and cheap to correct by hand. Thus each such failure is an accepted risk:
   - [RG4001]: a misplaced fence marker, a fence that is not closed, or Lean code outside a first-column `lean` fence.
   - [RG4002]: a `lean` fence that does not elaborate as printed with no warning, or that has a declaration that fails the declaration and axiom rules.

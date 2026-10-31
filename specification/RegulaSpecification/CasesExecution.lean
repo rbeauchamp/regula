@@ -17,9 +17,13 @@ theorem main_mem : mainDecl ∈ base.decls := by simp [mainDecl, base, baseDecls
 
 theorem f_mem : fDecl ∈ base.decls := by simp [fDecl, base, baseDecls]
 
+/-- An environment whose loads are those of `base` loads the root module of `app`. -/
+theorem appLoaded {i : Input} (h : i.loads = base.loads) : i.LoadsRoot appTarget :=
+  ⟨`App, by simp [appTarget], by simp [h, base]⟩
+
 theorem base_root : base.ExecutableRoot `main .standardLogical .checked :=
   ⟨appTarget, by simp [base, appTarget], rfl, by simp [base, appTarget], mainDecl, main_mem, rfl,
-    rfl, by simp [mainDecl, plain, appTarget]⟩
+    rfl, appLoaded rfl⟩
 
 /-- The only executable root of `base` with a checked execution claim is claimed standard-logical. -/
 theorem base_root_profile {r : Name} {p : Profile} (h : base.ExecutableRoot r p .checked) :
@@ -77,29 +81,32 @@ theorem wf3001 : refused3001.WellFormed := by
   rcases hd with rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl <;>
     simp [decls3001, plain, toolchain, helperDecl, replaced, mainDecl]
 
-/-- The names the RG3001 witness can report: each constant, each name that compiled code runs, and
-the reference of each departure. -/
+/-- The names the RG3001 witness can report: each constant, each name that compiled code runs, the
+reference of each departure, and each target. -/
 def support3001 (i : Input) : List Name :=
-  i.decls.map (·.name) ++ i.decls.flatMap fun d => d.compiled ++ d.departures.map (·.reference)
+  i.decls.map (·.name) ++ (i.decls.flatMap fun d => d.compiled ++ d.departures.map (·.reference)) ++
+    i.targets.map (·.name)
 
 def w3001 : Witnessed Violates3001 where
   support := support3001
   support_complete i c h := by
-    obtain ⟨r, p, e, ⟨-, -, -, -, d, hd, hn, -⟩, hx, hnr | hcyc⟩ := h
+    rcases h with ⟨r, p, e, ⟨-, -, -, -, d, hd, hn, -⟩, hx, hnr | hcyc⟩ | ⟨x, hx, hn, -⟩
     · cases hx with
       | root => exact absurd ⟨d, hd, hn⟩ hnr
       | step d' _ hd' _ hrun =>
-        exact List.mem_append_right _ (List.mem_flatMap.mpr ⟨d', hd', List.mem_append_left _ hrun⟩)
+        exact List.mem_append_left _ (List.mem_append_right _
+          (List.mem_flatMap.mpr ⟨d', hd', List.mem_append_left _ hrun⟩))
     · obtain ⟨m, d', hd', x, hx', hr, -⟩ := DepartsTo.head hcyc
-      exact List.mem_append_right _ (List.mem_flatMap.mpr
-        ⟨d', hd', List.mem_append_right _ (List.mem_map.mpr ⟨x, hx', hr⟩)⟩)
+      exact List.mem_append_left _ (List.mem_append_right _ (List.mem_flatMap.mpr
+        ⟨d', hd', List.mem_append_right _ (List.mem_map.mpr ⟨x, hx', hr⟩)⟩))
+    · exact List.mem_append_right _ (List.mem_map.mpr ⟨x, hx, hn⟩)
   refused := refused3001
   refused_wf := wf3001
   bad := `Gone
   bad_violates := by
-    refine ⟨`main, .standardLogical, .checked, ⟨appTarget, by simp [refused3001, base, appTarget],
+    refine Or.inl ⟨`main, .standardLogical, .checked, ⟨appTarget, by simp [refused3001, base, appTarget],
       rfl, by simp [refused3001, base, appTarget], mainDecl, by simp [refused3001, decls3001], rfl,
-      rfl, by simp [mainDecl, plain, appTarget]⟩, ?_, Or.inl ?_⟩
+      rfl, appLoaded rfl⟩, ?_, Or.inl ?_⟩
     · exact .step replaced (.step mainDecl (.root _) (by simp [refused3001, decls3001]) rfl
         (by simp [mainDecl, plain, replaced])) (by simp [refused3001, decls3001]) rfl (by simp [replaced])
     · rintro ⟨d, hd, hn⟩
@@ -110,9 +117,10 @@ def w3001 : Witnessed Violates3001 where
   admitted_wf := wf_base
   fine := `Good.f
   fine_admitted := by
-    rintro ⟨-, -, -, -, -, h | h⟩
+    rintro (⟨-, -, -, -, -, h | h⟩ | ⟨-, -, -, -, -, -, h⟩)
     · exact h ⟨fDecl, f_mem, rfl⟩
     · exact no_cycle_base _ h
+    · exact h ⟨mainDecl, main_mem, rfl⟩
 
 theorem rg3001_adequate : O2 rg3001 ∧ O2Run rg3001 ∧ O3 rg3001 ∧ O4 rg3001 ∧
     O5 rg3001 (.rel SameReports) := adequate w3001
@@ -134,12 +142,51 @@ def cycleG : Decl :=
 the cycle resolves. -/
 theorem rg3001_refuses_cycle :
     Violates3001 { base with decls := [cycleF, cycleG, mainDecl] } `Good.f :=
-  ⟨`main, .standardLogical, .checked, ⟨appTarget, by simp [base, appTarget], rfl,
-    by simp [base, appTarget], mainDecl, by simp, rfl, rfl, by simp [mainDecl, plain, appTarget]⟩,
+  Or.inl ⟨`main, .standardLogical, .checked, ⟨appTarget, by simp [base, appTarget], rfl,
+    by simp [base, appTarget], mainDecl, by simp, rfl, rfl, appLoaded rfl⟩,
     .step mainDecl (.root _) (by simp) rfl (by simp [mainDecl, plain]),
     Or.inr (.more
       ⟨cycleF, by simp, ⟨`Good.f, `Good.g, false⟩, by simp [cycleF], rfl, rfl, by decide⟩
       (.one ⟨cycleG, by simp, ⟨`Good.g, `Good.f, false⟩, by simp [cycleG], rfl, rfl, by decide⟩))⟩
+
+/-- Each claimed executable that this environment loads has its root, or it violates RG3001. -/
+theorem root_or_missing {i : Input} {x : Target} {p : Profile} {e : Execution} (hx : x ∈ i.targets)
+    (hk : x.kind = .executable) (hc : (⟨x.name, .claimed p e⟩ : Entry) ∈ i.manifest)
+    (hl : i.LoadsRoot x) : i.ExecutableRoot `main p e ∨ Violates3001 i x.name := by
+  by_cases hm : i.Resolves `main
+  · obtain ⟨d, hd, hn⟩ := hm
+    exact .inl ⟨x, hx, hk, hc, d, hd, hn, rfl, hl⟩
+  · exact .inr (.inr ⟨x, hx, rfl, hk, ⟨p, e, hc⟩, hl, hm⟩)
+
+/-- An environment has at most one root: it is the constant `main`, which `Input.WellFormed` makes
+one constant. -/
+theorem root_unique {i : Input} {r : Name} {p : Profile} {e : Execution}
+    (h : i.ExecutableRoot r p e) : r = `main := by
+  obtain ⟨-, -, -, -, -, -, -, hr, -⟩ := h
+  exact hr
+
+/-- The `main` of a claimed executable declared in a module that its root imports, not in its root:
+the root that Lake links. A cycle that it reaches violates RG3001, so such an executable has its
+execution checks. -/
+theorem rg3001_reads_imported_main :
+    Violates3001 { base with decls := [cycleF, cycleG, { mainDecl with module := `Good }] } `Good.f :=
+  Or.inl ⟨`main, .standardLogical, .checked, ⟨appTarget, by simp [base, appTarget], rfl,
+    by simp [base, appTarget], { mainDecl with module := `Good }, by simp, rfl, rfl, appLoaded rfl⟩,
+    .step { mainDecl with module := `Good } (.root _) (by simp) rfl (by simp [mainDecl, plain]),
+    Or.inr (.more
+      ⟨cycleF, by simp, ⟨`Good.f, `Good.g, false⟩, by simp [cycleF], rfl, rfl, by decide⟩
+      (.one ⟨cycleG, by simp, ⟨`Good.g, `Good.f, false⟩, by simp [cycleG], rfl, rfl, by decide⟩))⟩
+
+/-- A claimed executable whose environment loads its root module and holds no `main` violates
+RG3001. -/
+theorem rg3001_refuses_no_root :
+    Violates3001 { base with decls := [plain `Good.f `Good .definition []] } `app :=
+  Or.inr ⟨appTarget, by simp [base, appTarget], rfl, rfl,
+    ⟨.standardLogical, .checked, by simp [base, appTarget]⟩, appLoaded rfl, by
+      rintro ⟨d, hd, hn⟩
+      simp only [List.mem_singleton] at hd
+      subst hd
+      simp [plain] at hn⟩
 
 /-! ## RG3002 -/
 
@@ -202,7 +249,7 @@ def declsExtern : List Decl :=
 the project proves: no theorem of Lean speaks of the foreign code. -/
 theorem rg3002_refuses_extern : Violates3002 { base with decls := declsExtern } `Good.f :=
   ⟨`main, .standardLogical, ⟨appTarget, by simp [base, appTarget], rfl, by simp [base, appTarget],
-    mainDecl, by simp [declsExtern], rfl, rfl, by simp [mainDecl, plain, appTarget]⟩,
+    mainDecl, by simp [declsExtern], rfl, rfl, appLoaded rfl⟩,
     .step mainDecl (.root _) (by simp [declsExtern]) rfl (by simp [mainDecl, plain]),
     Or.inl ⟨externF, by simp [declsExtern], rfl, rfl, Or.inl rfl⟩⟩
 
@@ -232,7 +279,7 @@ theorem rg3002_refuses_csimp_extern :
     ⟨csimpLemma, by simp [csimpInput], rfl, rfl, rfl⟩, fun a ha => ?_⟩,
     `main, .standardLogical, ⟨appTarget, by simp [csimpInput, base, appTarget], rfl,
       by simp [csimpInput, base, appTarget], csimpMain, by simp [csimpInput], rfl, rfl,
-      by simp [csimpMain, plain, appTarget]⟩,
+      appLoaded rfl⟩,
     .step csimpMain (.root _) (by simp [csimpInput]) rfl (by simp [csimpMain]),
     Or.inl ⟨externFast, by simp [csimpInput], rfl, rfl, Or.inl rfl⟩⟩
   obtain ⟨hr, d, hd, hn, hk⟩ := ha
@@ -263,7 +310,7 @@ theorem rg3002_refuses_unsafe_proof : unsafeInput.WellFormed ∧ Violates3002 un
       (uses_resolve (by simp [unsafeLemma, plain]))) rfl rfl rfl,
     `main, .standardLogical, ⟨appTarget, by simp [unsafeInput, withDecls, base, appTarget], rfl,
       by simp [unsafeInput, withDecls, base, appTarget], mainDecl,
-      List.mem_append_left _ main_mem, rfl, rfl, by simp [mainDecl, plain, appTarget]⟩,
+      List.mem_append_left _ main_mem, rfl, rfl, appLoaded rfl⟩,
     .step mainDecl (.root _) (List.mem_append_left _ main_mem) rfl (by simp [mainDecl, plain]),
     Or.inr ⟨helperDeparture, ⟨fDecl, List.mem_append_left _ f_mem, rfl, by simp [fDecl], rfl⟩, ?_⟩⟩
   rintro ⟨q, hq, hs, ⟨d, hd, hn, hu, -⟩, -⟩
@@ -293,7 +340,7 @@ theorem rg3002_refuses_unadmitted_proof :
       (uses_resolve (by simp [ax, axiomLemma, plain]))) rfl rfl rfl,
     `main, .standardLogical, ⟨appTarget, by simp [unadmittedInput, withDecls, base, appTarget], rfl,
       by simp [unadmittedInput, withDecls, base, appTarget], mainDecl,
-      List.mem_append_left _ main_mem, rfl, rfl, by simp [mainDecl, plain, appTarget]⟩,
+      List.mem_append_left _ main_mem, rfl, rfl, appLoaded rfl⟩,
     .step mainDecl (.root _) (List.mem_append_left _ main_mem) rfl (by simp [mainDecl, plain]),
     Or.inr ⟨helperDeparture, ⟨fDecl, List.mem_append_left _ f_mem, rfl, by simp [fDecl], rfl⟩, ?_⟩⟩
   rintro ⟨q, hq, hs, -, hadm⟩

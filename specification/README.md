@@ -43,6 +43,16 @@ The freedom `SameReports` is what each record leaves unsaid. It is the order and
 
 lean-intent now provides the cone check (`LeanIntent.Cone`) and the consequence answers (`LeanIntent.Answers`). **Open**: the records of this document do not yet use them. **Open**: the link to the owner's confirmation record ([lean-intent#5]) stays open for [#485].
 
+Each rule function that the checker runs is proved against its record, in [`RegulaSpecification/Proofs/`](RegulaSpecification/Proofs/) and [`RegulaSpecification/ClosedSubset.lean`](RegulaSpecification/ClosedSubset.lean). These are the theorems. **Proved**:
+
+- `rg1001_exact` and the theorems that follow it: the function reports a subject exactly when the violation predicate holds of it. The predicate reads the specification's form of the input (`Link.toSpec`).
+- `rg1001_meets` and the theorems that follow it: the function meets the record of its rule.
+- `rg1001_cases` and the theorems that follow it: the function reports the case that the rule must refuse. It does not report the case that the rule must admit.
+
+The functions run over `Regula.Closed.Input`, which has the fields of `Input`, so the proofs are about the executed definitions, not about a copy of them.
+
+These theorems assume two things of an input. It has the closed form (`Input.WellFormed`). Each axiom set that a rule reads is the one that `Input.AxiomOf` states (`Link.AxiomsRead`). The loader computes these sets with `Lean.collectAxioms`, and no proof examines it, so that is a hypothesis of each theorem that reads a set.
+
 ## The verdict
 
 A run of the checker gives one of three verdicts: `pass`, `fail` or `incomplete` (`Verdict` in [`RegulaSpecification/Gate.lean`](RegulaSpecification/Gate.lean)). The record `gateRecord` states the verdict:
@@ -52,6 +62,14 @@ A run of the checker gives one of three verdicts: `pass`, `fail` or `incomplete`
 - A well-formed input is not `incomplete`. It passes exactly when all kept rules and [RG2007] hold of each of its environments, and `RG6001` holds of the bundle (`Bundle.AllHold`).
 
 **Proved**: `gate_o5`. Two verdict functions that meet the record are equal, so the record leaves nothing unsaid about the verdict.
+
+The verdict function that the checker runs is `Regula.Closed.run`. **Proved** in [`RegulaSpecification/Proofs/Verdict.lean`](RegulaSpecification/Proofs/Verdict.lean):
+
+- `refusal_none_iff`: its admission refuses exactly a bundle without `Bundle.WellFormed`, or without an axiom set that a rule reads.
+- `run_refused`: a refused bundle is `incomplete`.
+- `run_complete`: an admitted bundle is not `incomplete`, and it is `pass` exactly when each rule that reads one environment holds of each environment.
+
+This is `gateRecord` without `RG6001`, which [#485] implements. The record's third property requires `RG6001` too, so the function does not meet the record until that leaf lands. A run that the shell cannot load is `incomplete` by `Regula.Shell.run`, the record's first property, with no theorem about the shell.
 
 A pass of the project's gate is the result of three commands of the target toolchain on one finished build:
 
@@ -78,7 +96,7 @@ The closed input is the type `Input` in [`RegulaSpecification/Input.lean`](Regul
 | The claim: the classification of each target | `foundation_manifest.json`, a closed format that Regula defines |
 | Each module of the root package that Lake builds: its imports and the names of the environment extensions with entries in its `.olean` files | `Lean.readModuleDataParts` |
 | Each constant of each environment that the shell loads, with the modules it imports | `Lean.importModules` with `loadExts := false` |
-| The compiled code of each constant: the constants that it runs, and the points where it departs from the kernel value | The build's compiled code. **Open**: leaf [#487] gives the mechanism that reads it, and leaf [#483] the input that carries it. |
+| The compiled code of each constant: the constants that it runs, and the points where it departs from the kernel value | Lean's store of compiled code, `Lean.IR.findEnvDecl` and `Lean.IR.collectUsedDecls` (see "How the input reads compiled code") |
 
 The input has no source text, message, info tree, option set in source, build log or list of files. A rule does not decide what it cannot read in this input. This is the boundary of the input.
 
@@ -128,6 +146,23 @@ These results settle the questions of feasibility that the new design raises. Th
   - Lake sees only a message that Lean logs.
   - **Assumed**: each item about `--wfail` is from the source of Lake, and no proof here examines it.
 - `Lean.findSysroot` can find a toolchain that is not the pinned one. **Measured**: a program started with the pinned `lean --run` found the search path of an unpinned toolchain through `findSysroot`. Thus the shell takes the toolchain from Lake's load, not from `findSysroot`.
+
+### How the input reads compiled code
+
+Leaf [#487] settles this mechanism in `Regula.Load`. **Assumed** from the source of `v4.35.0`, cited there.
+
+- `Lean.importModules` at its default level `.private` loads the `.ir` part of each module of the module system. `Lean.IR.findEnvDecl` looks in that part first. A module's `.olean` file keeps a stub for each public definition, which an entry `.opaque` marks. So a stub is what the store gives only when the code was not read.
+- The type `Regula.Load.CodeRead` gives each answer of the store a constructor of its own: code that calls these constants, no entry, or a stub.
+- A constant that compiled code of the closure runs has code, or the run is `incomplete` (`Regula.Load.executedCode`). The read does not take it for a constant that runs nothing.
+- The compiler's auxiliary definitions are not constants of the environment. Their code counts as code of the constant that they serve.
+- The build records a departure of a constant as its `@[implemented_by]`, its helper `f._unsafe_rec`, or an entry for the code that it runs. Those entries are the `@[csimp]` and `@[implemented_by]` entries with a target in that code. A target that the code calls directly also gives a departure. Under a checked claim, this can only ask for a correspondence that is not necessary, and a `@[csimp]` lemma is that correspondence.
+- The compiler can inline, specialize or erase a call. Then no read of the compiled code shows that departure, while the kernel values still mention the reference. Thus, under a checked claim, `Regula.Load.Facts.boundaries` records more departures on `main`:
+  - These are the replacements that modules outside the toolchain register, and the recursion helpers of constants outside the toolchain. Each counts when its reference is in the closure of `main`. A `scoped` `@[csimp]` lemma has an entry in the build, so it counts as a global one does.
+  - That closure goes through the constants that each constant mentions, the constants that compiled code runs and the constants that a departure runs. Thus a replacement counts when only the target of a different replacement reaches it.
+  - A run with no checked claim does not read them. An executable with no replacement and no recursive definition outside the toolchain gets no such departure.
+- **Measured** on 2026-10-30, on the `lint` program's build: 15,891 names in the closure of `main`. Of them, 2,455 constants and 13,145 auxiliary definitions had a body, and 291 were `extern`. None had no entry, and none had a stub.
+
+The mechanism reads each input through Lean's store, so its trust is that of the compiled code that the build records, as [RG3001] states.
 
 ### What Lean v4.35.0's tools do
 
@@ -254,10 +289,17 @@ But the list of `lake check` is fixed, and it gives no axiom set for each consta
 - **Intent**: the execution closure of each claimed executable contains only constants of the input, and no cycle of departures. Thus no account of execution leaves out a path, and each path ends in a definition.
 - **Domain**: each name in the execution closure of the `main` of a claimed executable.
 - **Input**: the constants, and the compiled code of each: the constants that it runs and its departures.
-- **Formal statement**: `Violates3001`, with `Input.Executes` and `Input.DepartsTo`. The closure follows the constants that the build's compiled code runs (`Decl.compiled`), not the kernel values. A departure (`Departure`) is a point where compiled code runs a constant in place of the constant that the kernel value has.
+- **Formal statement**: `Violates3001`, with `Input.Executes`, `Input.DepartsTo` and `Input.MissingRoot`. The closure follows the constants that the build's compiled code runs (`Decl.compiled`), not the kernel values. A departure (`Departure`) is a point where compiled code runs a constant in place of the constant that the kernel value has. A read of the code can show no call of that constant.
 
-  A runtime replacement, a `@[csimp]` rewrite at a call site, local or global, and a recursion helper each give one. A constant on a cycle of departures to different constants violates the rule, because the cycle runs no definition. **Proved**: `rg3001_refuses_cycle`.
-- **Accepted risks**: the admission requires each constant that a kernel value mentions to be loaded, but not each constant that compiled code runs. So the rule fails for compiled code that runs an absent constant. **Assumed**: the executable runs the code compiled from the code that the build records. **Open**: leaf [#487] gives the mechanism that reads compiled code, and leaf [#483] the input that carries it. **Open**: the compiler adds auxiliary definitions, such as specializations, that are not constants of the environment. Leaf [#487] counts their code as code of the constant that they serve.
+  A runtime replacement, a global `@[csimp]` rewrite and a recursion helper each give one. A checked claim records more of them on `main` (see the section on how the input reads compiled code and the entry of [RG3002]). A constant on a cycle of departures to different constants violates the rule, because the cycle runs no definition. **Proved**: `rg3001_refuses_cycle`.
+
+  The root of an executable is the `main` that Lake links, read in an environment that loads the executable's root module (`Input.LoadsRoot`). A module that the root imports can declare it. **Proved**: `rg3001_reads_imported_main`.
+
+  A claimed executable has exactly one root, or it fails the rule. An environment that loads the root module and holds no `main` violates it. **Proved**: `rg3001_refuses_no_root`, `root_or_missing` and `root_unique`. One environment holds at most one `main`, and Lean refuses an environment in which two imported modules declare one name.
+
+  The cycle check reads one environment. So no departure of the environment of a different executable joins a cycle.
+- **Decision**: the first form of `ExecutableRoot` required `main` in the modules of the target. The review of [#481] recorded on [#487] that an executable with an imported `main` then had no execution checks. Leaf [#487] changes the statement to the form above, and it adds `MissingRoot`. This is a change to the specification that the owner confirmed. The owner's delegated agent decided it on the owner's behalf, as that record asks.
+- **Accepted risks**: the admission requires each constant that a kernel value mentions to be loaded, but not each constant that compiled code runs. So the rule fails for compiled code that runs an absent constant. **Assumed**: the executable runs the code compiled from the code that the build records. The rule reads no symbol that `@[export main]` gives a declaration of a different name. Such an executable has no `main` constant, so the rule refuses it.
 - **Supersedes**: none.
 
 #### [RG3002]: execution boundaries
@@ -267,9 +309,35 @@ But the list of `lake check` is fixed, and it gives no axiom set for each consta
 - **Domain**: each constant in the execution closure of a claimed executable with the execution mode `checked`.
 - **Input**: the closure, the departures and flags of each constant, and each statement that a theorem proves, with the theorem and its axioms.
 - **Formal statement**: `Violates3002`, with `Input.BoundaryAt`, `Input.Corresponds`, `Input.AdmittedProof` and `Input.Unbindable`. A `@[csimp]` lemma states `@f = @g`, which is the correspondence of the departure that it makes. Code that no theorem can bind fails the rule with any theorem. It is an `extern` constant, a partial definition that is not a recursion helper, or a value that `initialize` sets. **Proved**: `rg3002_refuses_extern`, `rg3002_refuses_csimp_extern`, `rg3002_refuses_unsafe_proof` and `rg3002_refuses_unadmitted_proof`.
-- **Accepted risks**: an unsafe theorem is not evidence, because the exporter of `lake check` skips unsafe constants (`LeanExport/Basic.lean:59` and `255` at `v4.35.0`). Lean registers an unsafe `@[csimp]` lemma too (`Lean/Compiler/CSimpAttr.lean:68` at `v4.35.0`), so the rule requires a safe theorem. **Assumed** from those sources.
+- **Decision**: a departure first was only what a read of the compiled code shows. The review of [#487] found that a replacement can hide from that read. Take `@[inline] def fast (n : Nat) := n + 1`, `@[implemented_by fast] def ref (n : Nat) := n` and a `main` that returns `ref 0`. The compiled code calls neither constant.
 
-  **Assumed**: the executable runs the code compiled from the code that the build records, as for [RG3001]. **Open**: the exact correspondence statement for each kind of departure, for example the recursion equation of a helper. Leaf [#487] gives these statements.
+  Thus each replacement and recursion helper outside the toolchain is now a boundary of `main` when the closure of `main` reaches its reference (`Regula.Load.Facts.boundaries`). That `main` fails the rule until a correspondence exists. It passes when the profile of the claim admits that correspondence.
+
+  This widening is a change to the specification that the owner confirmed on 2026-10-29. The owner's delegated agent decided it on the owner's behalf in the review of [#487], because the false pass defeats a checked claim. `Violates3002` and its function do not change, because `Input.BoundaryAt` covers a departure that the input records on `main`.
+- **Accepted risks**: a reference that only a proof mentions also asks for a correspondence. This is a false refusal, under a checked claim only, and a theorem discharges it. For that reason, the owner's delegated agent accepted it on the owner's behalf in [#487].
+
+  A correspondence must be in a module that the environment of the executable loads, so the root must import it.
+
+  An unsafe theorem is not evidence, because the exporter of `lake check` skips unsafe constants (`LeanExport/Basic.lean:59` and `255` at `v4.35.0`). Lean registers an unsafe `@[csimp]` lemma too (`Lean/Compiler/CSimpAttr.lean:68` at `v4.35.0`), so the rule requires a safe theorem. **Assumed** from those sources.
+
+  **Assumed**: the executable runs the code compiled from the code that the build records, as for [RG3001].
+
+  A lemma with `attribute [local csimp]` has no entry in the build (`Lean/ScopedEnvExtension.lean:96-104` and `191-198` at `v4.35.0`). Its rewrite is in the closure, which reads the code that runs. It is no departure of the input, so this rule does not ask for its correspondence.
+
+  The lemma is a constant of its module. In a claimed module, [RG1005] and [RG1006] read it, so it is a safe theorem and the claim admits each of its axioms. An executable with a checked claim imports no excluded module ([RG2004]). A local rewrite in a dependency affects the dependency's own code, which the trusted base already holds honest.
+
+  This document first said "local or global" here. The build cannot show a local rewrite without a comparison with kernel values. Decided on the owner's behalf by the owner's delegated agent in [#487], as a stated risk in place of that approximation.
+- **The correspondence of each departure**, which [#487] fixes. A theorem counts only when it holds at each instantiation of the constants that it relates. The cause is that the name pair of the input erases their universe arguments. For that reason, the owner's delegated agent decided this on the owner's behalf in [#487].
+  - A runtime replacement `f` by `g`, or a global `@[csimp]` rewrite of `f` to `g`: a theorem `@f = @g` (`Regula.Load.correspondenceOf`). A `@[csimp]` lemma is one.
+
+    The two sides are constants, their universe arguments are equal, and those arguments are distinct universe parameters. This is Lean's own condition for a constant replacement (`isConstantReplacement?` at `Lean/Compiler/CSimpAttr.lean:40-49` of `v4.35.0`). Thus `@ref.{u} = @fast.{u}` counts and `@ref.{0} = @fast.{0}` does not.
+  - A recursion helper `f._unsafe_rec`: the recursion equation of `f` (`Regula.Load.recursionEquationOf`). It is a theorem `∀ xs, f xs = B`, where the value of the helper is `fun xs => B'`, and `B` is `B'` with each helper replaced by its base.
+
+    The universe arguments of `f` are exactly the level parameters of the helper, in order. Each binder of the value of the helper has a binder of the statement. Thus a specialized or narrowed equation does not count. A theorem with level parameters of different names does not count either. This is an accepted risk, because `type_of% @f.eq_def` has the names of the helper.
+
+    The type of Lean's `f.eq_def` has this form, so a project states it by `theorem f_rec : type_of% @f.eq_def := @f.eq_def`. **Measured** on 2026-10-30, for a structural and a well-founded definition.
+
+    No theorem can state `@f = @f._unsafe_rec`, because the kernel refuses a safe constant that mentions a partial one. That the compiled code of `f` computes what `f` computes rests on the compiler, which the trusted base holds.
 - **Supersedes**: none.
 
 ### Contracts
@@ -324,7 +392,10 @@ But the list of `lake check` is fixed, and it gives no axiom set for each consta
 - **Domain**: each target that Lake gives or that the claim names.
 - **Input**: Lake's targets, with the default targets of its load, and the claim.
 - **Formal statement**: `Violates2002`. **Proved**: `rg2002_refuses_nondefault`. A claimed executable that is not a default target violates the rule.
-- **Accepted risks**: **Open**: the reader of `foundation_manifest.json` accepts only the text that its writer gives for a claim. Leaf [#487] proves this of the reader, as for the present format.
+- **The reader of the claim**: this entry first said that the reader of `foundation_manifest.json` accepts only the text that its writer gives. That is stronger than the format, in which white space and key order are free: Regula's own file is written by hand. Leaf [#487] reports this and proves what the reader decides. The owner's delegated agent decided this narrower statement on the owner's behalf, because the stronger one is false of the format. **Proved** in `Regula.Checker.Manifest`:
+  - `parse_ok` and `parseValue_ok`: the reader accepts a text exactly when the value that the text parser gives encodes a valid claim. Its names must be recorded spellings.
+  - `parseValue_toJson`: the writer's value of a valid claim reads back as that claim.
+- **Accepted risks**: no theorem relates the text parser `PolicyCodec.parse` to the JSON grammar ([#400]). A wrong parse of a hand-written file gives a claim of other names, which this rule reports against Lake's targets.
 - **Supersedes**: none.
 
 #### [RG2003]: a warning-free build
@@ -370,7 +441,7 @@ But the list of `lake check` is fixed, and it gives no axiom set for each consta
   - `rg2006_exact`: it reports a target exactly when `Violates2006` holds of it, for each allowlist.
   - `rg2006_meets`: it meets the record `rg2006` at the members that the checker runs with.
   - `rg2006_allowlist_adequate`: the obligations of that record.
-  - `run_pass_holds`: a pass of `Regula.Closed.run` holds the rule of each environment.
+  - `run_pass_holds_closed_subset`, in [`RegulaSpecification/Proofs/Verdict.lean`](RegulaSpecification/Proofs/Verdict.lean): a pass of `Regula.Closed.run` holds the rule of each environment.
   - `rg2006_refuses_extras`: it reports a claimed target with an extra argument, a plugin or a dynamic library.
 - **The members**: `Regula.Allowlist.options`, which names each option with its reason. The list holds no option that can stop a default warning or a check of Lean at any value.
 - **Decided on the owner's behalf** in [#484]: the allowlist checks a name and no value. Thus an option that one value turns off is refused at each value. So `linter.unusedVariables` is refused at `true` as well, which is its default and adds nothing. The same reason leaves out `exponentiation.threshold`, which the rule before this one accepted. Raising it stops a default warning.
@@ -484,18 +555,27 @@ The self-check runs inside local acceptance, the gate before each merge. It is n
 - Regula's manifest claims each library of its root package, except a library that it excludes with a reason. The core and the shell of the checker are claimed.
 - Regula registers its own admission decisions with two-way contracts. [RG1008] keeps the one-way kinds for adopters.
 - The first acceptance command, `./scripts/verify.sh`, runs the three commands of the gate on Regula's own package. It refuses the change when a command fails or the checker gives a finding.
-- Each claimed library of Regula is a default target of its root package ([RG2002]). Today plain `lake build` there builds no `Regula` library, so that list changes.
+- Each claimed library of Regula is a default target of its root package ([RG2002]). Thus plain `lake build` there builds `RegulaChecker`, and it does not build the excluded library `Regula`.
 - This step is in the 420-second limit of the first command. Regula's modules import Lean, so the export of `lake check` holds all of Lean.
 - **Measured** on 2026-10-29 on the owner's Mac with 14 cores, one run each, not a bound. `lake check --inadvisably-no-sandbox` took 97.5 s for a package of one module that imports Lean. The export of that package was 742 MB. It took 119 s for Regula's own package. Without it, the commands of the first step took 87 s on `main` at `98a0f9c`.
 - Regula's default targets declare one `main`, that of `auditApp`. The two programs that run before the package is built are the acceptance driver and the provisioning driver. They are the modules `RegulaVerification.Driver` and `RegulaProvision.Driver` of claimed libraries, each with a namespaced entry. The files `lean/RegulaVerification.lean` and `lean/RegulaProvision.lean` are in no target. Each runs the source of its driver with `main` bound to its entry.
 
-This placement removes the cause of [#489]. There, a refusal of the self-audit reached `main`, because no gate ran the self-audit for a pull request after the CI and Diagnostics workflows stopped. **Open**: until [#487] lands, the present self-audit must run inside acceptance in the same way. That is the change that the fix of [#489] makes.
+This placement removes the cause of [#489]. There, a refusal of the self-audit reached `main`, because no gate ran the self-audit for a pull request after the CI and Diagnostics workflows stopped. The first acceptance command runs the self-check of the checker that [#487] proves.
+
+The core and the shell of the checker are the claimed library `RegulaChecker`. It holds the closed input, the rules, the manifest reader, the loader's reads of Lean and the shell. Two modules stay in the excluded library `Regula`, and the shell receives what they give as an argument. Leaf [#487] found this limit, which the sentence above did not foresee. The owner's delegated agent decided it on the owner's behalf, for the reasons below.
+
+- `Regula.Workspace` holds what calls Lake. Lake declares each entry of its open families of data types as an axiom, such as `Lake.DataType.bool` (`Lake/Util/Family.lean` and `Lake/Config/Kinds.lean` at `v4.35.0`). **Measured** on 2026-10-30: with the shell claimed, [RG1003] and [RG1005] reported `Regula.Load.loadWorkspace` and each constant that calls it. An import of those modules also puts the axioms in the scope of `lake check`, which refuses them.
+- `Regula.LintMain` is the root of the `lint` executable. It holds the `unsafe` call that frees an environment's data. A claimed target is a default target, and `lake check` holds one `main`, that of `auditApp`.
+
+`Regula.Effects.check` refuses, at build time, a process start, a write or a removal in the compiled code of the `lint` and `regula` programs. **Accepted risk**: it has no theorem over its traversal and admission, decided on the owner's behalf by the owner's delegated agent in [#487]. A wrong result lets a later change add such an effect to Regula's own programs.
+
+Review can read that change, and a commit can undo it, so it meets neither condition of the owner's rule of cost. The proof would require a model of the traversal of Lean's compiled code, with the store of that code as a hypothesis. No rule of a project's verdict depends on this check.
 
 The first acceptance command also builds the Lean package of this specification with warnings as errors. Thus the merge gate checks its statements before each merge.
 
 - Default provisioning keeps a full Git clone of lean-intent in `.lake/regula-provision/lean-intent` (`RegulaProvision.provisionSpecification`). It reads the source and the commit from `lake-manifest.json` with Lake's own reader. The repository of lean-intent is public, so the clone uses no credentials under Regula's Git isolation.
 - The clone is not the checkout in Lake's packages directory. Lake `v4.35.0` makes that one a partial clone with `--filter=tree:0` (`Lake/Util/Git.lean:160-170` at `v4.35.0`), and a partial clone cannot give its commits to a further fetch.
-- The first step builds the package in its copy of the project (`RegulaVerification.specificationBuild`). Lake fetches the pinned commit from the provisioned clone, so the step reads no network. The theorem `ordinary_builds_specification` places the build among the commands that run in order. A failure of one of them fails the step.
+- The first step builds the package in its copy of the project (`RegulaVerification.specificationBuild`). Lake fetches the pinned commit from the provisioned clone, so the step reads no network. The theorem `RegulaVerification.ordinary_checks` places the build among the commands that run in order. A failure of one of them fails the step.
 - **Measured** on `v4.35.0`, with each Git protocol but `file` refused: the fetch from a full clone gave the pinned commit. The fetch from Lake's partial checkout failed with `bad tree object`.
 
 ## The Mathlib integration package
@@ -519,8 +599,8 @@ These decisions change what the leaves build. Each has its reason.
 - The input is a list of environments, one for the libraries and one for each executable root. A single environment would refuse each project with two executables.
 - An input with no claimed target is `incomplete`. Only a nonempty claim can pass.
 - Under a checked execution claim, code that no theorem can bind fails [RG3002]. A theorem cannot discharge it, as the present standard says of `extern` in §7.6.
-- The execution closure comes from the build's compiled code, not from kernel values and attributes. A local `@[csimp]` lemma changes the compiled code that follows it, but the build exports no entry of it (`Lean/ScopedEnvExtension.lean:96-104` and `191-198` at `v4.35.0`). **Assumed** from that source.
-- A correspondence counts only when its theorem is safe and the profile of the claim admits its axioms. Lean registers an unsafe `@[csimp]` lemma too, as [RG3002] records.
+- The execution closure comes from the build's compiled code, not from kernel values and attributes. A local `@[csimp]` lemma changes the compiled code that follows it, but the build exports no entry of it (`Lean/ScopedEnvExtension.lean:96-104` and `191-198` at `v4.35.0`). **Assumed** from that source. Under a checked claim, the boundaries of `main` also read the kernel values, as [RG3002] records, and the closure stays that of the compiled code.
+- A correspondence counts only when its theorem is safe and the profile of the claim admits its axioms. It must also hold at each instantiation of the constants that it relates. Lean registers an unsafe `@[csimp]` lemma too, as [RG3002] records.
 - The requirements of `linter.missingDocs` and of Mathlib's standard linters go to written guidance with the documentation rules. They guard failures that are cheap to see and correct.
 - A decision registration becomes a declaration, so that a claimed module uses no tool module and no attribute that Lean does not define.
 - The target toolchain is `v4.35.0`, and Regula moved to it in [#494], before the leaves. Its `lake check` replays each constant in scope from an export, in a process that loads no `.olean` file of the project. It also bounds each axiom by the standard three. The `leanchecker` of `v4.34.1` with a module list did less.
@@ -589,7 +669,7 @@ What it leaves unsaid:
 
 - The members of the two allowlists, which `Regula.Allowlist` holds. [#484] fixed them, with the observation that the entries of [RG2006] and [RG2007] record. The owner's confirmation did not cover them.
 - Two results of [RG2007] that [#484] measured, which the owner's confirmation did not cover. A local attribute that registers code on an ordinary definition passes, as `run_cmd` does. A default of the form `:= by tactic` in a claimed module fails.
-- The exact correspondence statement of each kind of execution boundary, which [#487] fixes.
+- The exact correspondence statement of each kind of execution boundary, which [#487] fixed and which the entry of [RG3002] records. The owner's confirmation of 2026-10-29 did not cover it. The owner's delegated agent decided it on the owner's behalf in [#487], with its conditions on universes and binders and the widening of a departure.
 - How a project declares a deliverable, and how the owner's confirmation record is made: [#485], [lean-intent#3] and [lean-intent#5].
 - The cost of `lake check` and of `--paranoid` on a machine other than the owner's Mac: [#482] measured each one time there.
 
@@ -602,6 +682,7 @@ What it leaves unsaid:
 [#388]: https://github.com/rbeauchamp/regula/issues/388
 [#391]: https://github.com/rbeauchamp/regula/issues/391
 [#394]: https://github.com/rbeauchamp/regula/issues/394
+[#400]: https://github.com/rbeauchamp/regula/issues/400
 [#411]: https://github.com/rbeauchamp/regula/issues/411
 [#422]: https://github.com/rbeauchamp/regula/issues/422
 [#425]: https://github.com/rbeauchamp/regula/issues/425

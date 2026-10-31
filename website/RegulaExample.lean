@@ -120,11 +120,11 @@ def runHelper (text : String) : IO (Array Reported × Json) := do
     -- Exactly the members the helper writes, each name once (`PolicyCodec.parse`), and a severity
     -- of the three it writes (`Severity`): the verdict depends on no other form.
     let json ← IO.ofExcept (Regula.Checker.PolicyCodec.parse out.stdout)
-    IO.ofExcept (Regula.Checker.PolicyCodec.exactFields json ["messages", "code"])
+    IO.ofExcept (Regula.Checker.PolicyCodec.exactFields json ["messages", "code"] (by decide))
     let listed ← IO.ofExcept (json.getObjValAs? (Array Json) "messages")
     let messages ← listed.mapM fun message => do
       IO.ofExcept (Regula.Checker.PolicyCodec.exactFields message
-        ["severity", "line", "column", "text"])
+        ["severity", "line", "column", "text"] (by decide))
       IO.ofExcept (fromJson? (α := Reported) message)
     return (messages, ← IO.ofExcept (json.getObjVal? "code"))
 

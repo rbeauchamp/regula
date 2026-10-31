@@ -109,7 +109,7 @@ The gate leaves out `./scripts/verify.sh site`. That check reads the tags of the
 
 CI does not run on pull requests. On `main`, [`ci.yml`](../../.github/workflows/ci.yml) runs the acceptance that the release jobs need, and it publishes the rule-reference site. Each workflow can also run on dispatch.
 
-The qualification campaigns of the previous checker are removed, with their workflows. Each rule is a function over the closed input of the [specification](../../specification/README.md), and leaf #487 proves the contracts of these functions.
+The qualification campaigns of the previous checker are removed, with their workflows. Each rule is a function over the closed input of the [specification](../../specification/README.md), and `specification/RegulaSpecification/Proofs/` proves the contract of each.
 
 ## Implementation and qualification layout
 
@@ -430,7 +430,7 @@ Use the [acceptance boundary](proofs-and-boundaries.md#the-acceptance-boundary) 
 
 ## Linter and website development
 
-Follow the [architecture](architecture.md). A rule change updates its descriptor, its function in `Regula.Rules`, its entry in the [specification](../../specification/README.md) and its explanatory page together. Regula is agent-first: the requirement, rationale, remedy, rewrites and example pair of a descriptor are required fields, because `lake exe regula` and the agent briefing print them. Regenerate the [skill](../../.agents/skills/regula/SKILL.md) with `lake exe regula skill > .agents/skills/regula/SKILL.md`, which acceptance checks. Follow the [attribution scope](design-influences.md): keep the actual code and license notices, and cite the relevant design influences of a component. Do not replace semantic review with docstring presence or counts of generated pages.
+Follow the [architecture](architecture.md). A rule change updates its descriptor, its function in `Regula.Rules`, its entry in the [specification](../../specification/README.md), its contract proof in `specification/RegulaSpecification/Proofs/` and its explanatory page together. Regula is agent-first: the requirement, rationale, remedy, rewrites and example pair of a descriptor are required fields, because `lake exe regula` and the agent briefing print them. Regenerate the [skill](../../.agents/skills/regula/SKILL.md) with `lake exe regula skill > .agents/skills/regula/SKILL.md`, which acceptance checks. Follow the [attribution scope](design-influences.md): keep the actual code and license notices, and cite the relevant design influences of a component. Do not replace semantic review with docstring presence or counts of generated pages.
 
 The [website guide](website.md) specifies the pinned Verso setup, `./scripts/verify.sh site`, publication and the workflow of a rule change. The site build is not a part of [acceptance](#develop-and-verify).
 

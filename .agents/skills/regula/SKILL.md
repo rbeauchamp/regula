@@ -208,18 +208,18 @@ theorem contract : Regula.ExecutableContract check (Regula.Decides (· = true) S
 
 ### [RG3002](https://rbeauchamp.github.io/regula/dev/rules/RG3002/) Checked execution requires admitted correspondence
 
-Under `"execution": "checked"`, every reachable replacement or `extern` boundary outside the Lean toolchain's own trusted base has a kernel-checked equality with its reference.
+Under `"execution": "checked"`, every reachable replacement or recursion helper outside the toolchain has an admitted correspondence, and no reachable code outside it is unbindable, such as `extern`.
 Fix: Prove the replacement equal to its reference on the complete domain, or remove the trusted boundary, or claim `report` execution instead and keep the boundary reported.
 
 ```lean
 /-! # Identity
 
-The identity specification and replacement agree on every input. -/
+The identity and its replacement agree on every input. -/
 /-- The replacement code for `identity`: it computes `0 + n`. -/
 def alternative (n : Nat) : Nat := 0 + n
 /-- The identity on natural numbers; compiled code runs `alternative` instead. -/
 @[implemented_by alternative] def identity (n : Nat) : Nat := n
-theorem correspondence (n : Nat) : identity n = alternative n := (Nat.zero_add n).symm
+theorem correspondence : @identity = @alternative := funext fun n => (Nat.zero_add n).symm
 /-- Spells `n` through the toolchain's `Nat.repr`. -/
 def spell (n : Nat) := toString n
 ```
@@ -238,7 +238,7 @@ Identity and its extensionally equal replacement. -/
 def alternative (n : Nat) : Nat := 0 + n
 /-- The identity on natural numbers; compiled code runs `alternative` instead. -/
 @[implemented_by alternative] def identity (n : Nat) : Nat := n
-theorem correspondence (n : Nat) : identity n = alternative n := (Nat.zero_add n).symm
+theorem correspondence : @identity = @alternative := funext fun n => (Nat.zero_add n).symm
 ```
 
 ## Project configuration
