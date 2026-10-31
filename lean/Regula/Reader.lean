@@ -108,13 +108,19 @@ def fileOf (root : Root L) (modules : List (Name × FilePath)) (m : Name) : Opti
   | some file => some file
   | none => root.resolve m
 
+/-- The tables that an array of TOML values holds. -/
+def tablesIn (xs : Array Lake.Toml.Value) : List Lake.Toml.Table :=
+  xs.toList.filterMap fun
+    | .table _ sub => some sub
+    | _ => none
+
 /-- The key paths of a TOML table: each key whose value is neither a table nor an array that holds one,
 and each key of each table and array of tables under it. A table with no key gives its own key, so an
 empty table, in any form, is not lost. `fuel` bounds the depth; a table deeper than that gives the key
-`«too deep»`, which no table holds. -/
+`too deep`, which no table holds. -/
 def keysOf (fuel : Nat) (pre : Name) (t : Lake.Toml.Table) : List Name :=
   match fuel with
-  | 0 => [pre ++ `«too deep»]
+  | 0 => [.str pre "too deep"]
   | fuel + 1 =>
     t.items.toList.flatMap fun (k, v) =>
       let key := pre ++ k
@@ -123,10 +129,7 @@ def keysOf (fuel : Nat) (pre : Name) (t : Lake.Toml.Table) : List Name :=
       match v with
       | .table _ sub => under sub
       | .array _ xs =>
-        let tables := xs.toList.filterMap fun
-          | .table _ sub => some sub
-          | _ => none
-        if tables.isEmpty then [key] else tables.flatMap under
+        if (tablesIn xs).isEmpty then [key] else (tablesIn xs).flatMap under
       | _ => [key]
 
 /-- The refusal of everything that follows: what was read of the configuration, and why reading stopped.
@@ -204,6 +207,11 @@ def joinParts (dir : FilePath) (parts : List String) : FilePath :=
 no write of a run leaves the tree, whatever a path holds. -/
 def inTree (tree path : FilePath) : Bool :=
   (treeRelative (Regula.Load.exactParts tree) (Regula.Load.exactParts path)).isSome
+
+/-- Whether neither of two directories lies at or below the other, by components. -/
+def apart (a b : FilePath) : Bool :=
+  !(Regula.Load.exactParts a).isPrefixOf (Regula.Load.exactParts b) &&
+    !(Regula.Load.exactParts b).isPrefixOf (Regula.Load.exactParts a)
 
 /-- Write `text` to a file of the tree, making its directories. -/
 def writeInTree (tree path : FilePath) (text : String) : Attempt L E Unit := do
@@ -371,7 +379,8 @@ def openPathsOf (tree : FilePath) (root : Root L) : List String :=
 /-- What in the configuration Lake's load gave is unread before any file, given the `modules` of the default
 targets: a library's or an executable's name outside the closed domain, which Lake joins onto an output
 directory (`LeanExe.file`, `Lake/Config/LeanExe.lean:72`), and a root whose name Lake's import resolution
-gives another file for, so that the file an importer compiles is not the file read. -/
+gives another file for or that two default targets hold with two files, so that the file an importer compiles
+is not the file read. -/
 def configUnread (root : Root L) (modules : List (Name × FilePath)) : List (Name × String) :=
   let names := (root.targets.filter (!closedModuleName ·)).map
     fun n => (n, "this target's name is outside the closed domain")
@@ -379,7 +388,9 @@ def configUnread (root : Root L) (modules : List (Name × FilePath)) : List (Nam
     match root.resolve m with
     | some other => other != file
     | none => false
-  names ++ others.map fun (m, file) => (m, s!"a library holds this name with a file other than {file}")
+  let twice := modules.filter fun (m, file) => modules.any fun (m2, other) => m2 == m && other != file
+  names ++ others.map (fun (m, file) => (m, s!"a library holds this name with a file other than {file}")) ++
+    twice.map fun (m, file) => (m, s!"two default targets hold this name, one with the file {file}")
 
 /-- The imports in `sources` of a default executable's root, among the `modules` of the default targets, that
 no library holds. The file read for that root is not what such an import names: Lake's import resolution
@@ -392,6 +403,17 @@ def importedExecutableRoots (root : Root L) (modules : List (Name × FilePath))
     (modules.lookup m).isSome && (root.resolve m).isNone
   executable.map fun m => (m, "an import names this executable's root, and no library holds it")
 
+/-- The modules of one target: those of a library, or the root of an executable, or none. -/
+def modulesOfTarget (root : Root L) (target : Name) : Attempt L E (List (Name × FilePath)) :=
+  match root.findLib target with
+  | some lib => do
+    let listed ← attempt (Prog.call (.libModules lib))
+    pure (Array.toList listed)
+  | none =>
+    match root.findExe target with
+    | some m => pure [m]
+    | none => pure []
+
 /-- The modules of the targets `targets` of the root package, with the file Lake compiles for each: each module
 of a default library, and the root of each default executable. A default target that is neither builds no
 Lean module (`Package.recCollectDefaultModules`, `Lake/Build/Package.lean:45-61` at v4.35.0). Lake lists a
@@ -401,14 +423,7 @@ directory for a `globs` entry other than a single module (`Glob.forEachModuleIn`
 def defaultModules (root : Root L) : List Name → Attempt L E (List (Name × FilePath))
   | [] => pure []
   | target :: targets => do
-    let here ← match root.findLib target with
-      | some lib => do
-        let listed ← attempt (Prog.call (.libModules lib))
-        pure (Array.toList listed)
-      | none =>
-        match root.findExe target with
-        | some m => pure [m]
-        | none => pure []
+    let here ← modulesOfTarget root target
     let rest ← defaultModules root targets
     pure (here ++ rest)
 
@@ -489,7 +504,7 @@ def readProject (sysroot : String) (dir treeDir : FilePath) :
   let toolchainFile ← ExceptT.lift (toolchainOf project)
   if !outside then
     pure ({ stopped toolchainFile false [] none with outside := false }, [])
-  else if inTree project tree || inTree tree project then
+  else if !apart project tree then
     pure (stopped toolchainFile false [] (some "the checker's tree and the project do not lie apart"), [])
   else
     readConfig sysroot project tree toolchainFile

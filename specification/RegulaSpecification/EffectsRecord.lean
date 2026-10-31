@@ -48,6 +48,11 @@ def Named (t : List (Event L E)) (modules : List (Name × FilePath)) (m : Name) 
       (⟨.parseHeader input, .ok (header, state, messages, imports)⟩ : Event L E) ∈ t ∧
       ∃ i ∈ imports, i.module = m
 
+/-- A path, or the directory above it, does not lie below the tree by `TreeRelative`. -/
+def OutsideTree (tree path : FilePath) : Prop :=
+  (∀ rel, ¬ TreeRelative (parts tree) (parts path) rel) ∨
+    ∃ d, path.parent = some d ∧ ∀ rel, ¬ TreeRelative (parts tree) (parts d) rel
+
 /-- What may keep the project at `dir` from being admitted. Each case is what a response of the run said, and
 it gives the one outcome that it may. -/
 inductive Reason (t : List (Event L E)) (dir : FilePath) : Outcome → Prop where
@@ -56,27 +61,46 @@ inductive Reason (t : List (Event L E)) (dir : FilePath) : Outcome → Prop wher
   /-- LEAN_PATH is not set, so the start cannot be told. -/
   | noSearchPath : (⟨.getEnv "LEAN_PATH", none⟩ : Event L E) ∈ t → Reason t dir .incomplete
   /-- The toolchain's file names another Lean. -/
-  | toolchain {path text} : (⟨.readFile path, .ok text⟩ : Event L E) ∈ t →
-      path.fileName = some "lean-toolchain" → text.trimAscii.toString ≠ leanToolchain →
-      Reason t dir .refused
+  | toolchain {project text} : (⟨.realPath dir, .ok project⟩ : Event L E) ∈ t →
+      (⟨.readFile (project / "lean-toolchain"), .ok text⟩ : Event L E) ∈ t →
+      text.trimAscii.toString ≠ leanToolchain → Reason t dir .refused
   /-- The toolchain's file failed its read. -/
-  | toolchainFailed {path e} : (⟨.readFile path, .error e⟩ : Event L E) ∈ t →
-      path.fileName = some "lean-toolchain" → Reason t dir .refused
+  | toolchainFailed {project e} : (⟨.realPath dir, .ok project⟩ : Event L E) ∈ t →
+      (⟨.readFile (project / "lean-toolchain"), .error e⟩ : Event L E) ∈ t → Reason t dir .refused
   /-- The toolchain's file failed the exact-path test. -/
-  | toolchainNotExact {path real project} : (⟨.realPath dir, .ok project⟩ : Event L E) ∈ t →
-      (⟨.realPath path, .ok real⟩ : Event L E) ∈ t → path.fileName = some "lean-toolchain" →
-      ¬ (parts real = parts path ∧ parts project <+: parts path) → Reason t dir .refused
+  | toolchainNotExact {project real} : (⟨.realPath dir, .ok project⟩ : Event L E) ∈ t →
+      (⟨.realPath (project / "lean-toolchain"), .ok real⟩ : Event L E) ∈ t →
+      Regula.Load.exactBelow project (project / "lean-toolchain") real = false → Reason t dir .refused
   /-- The toolchain's real path failed. -/
-  | toolchainNoReal {path e} : (⟨.realPath path, .error e⟩ : Event L E) ∈ t →
-      path.fileName = some "lean-toolchain" → Reason t dir .refused
-  /-- This program was not started from outside the project. -/
-  | started {project lakeLib sysroot program} : (⟨.realPath dir, .ok project⟩ : Event L E) ∈ t →
+  | toolchainNoReal {project e} : (⟨.realPath dir, .ok project⟩ : Event L E) ∈ t →
+      (⟨.realPath (project / "lean-toolchain"), .error e⟩ : Event L E) ∈ t → Reason t dir .refused
+  /-- This program was not started from outside the project, by the responses that say where it lies and which
+  Lake started it. -/
+  | started {project sysroot program lakeLib app real leanPath} :
+      (⟨.realPath dir, .ok project⟩ : Event L E) ∈ t →
       (⟨.lakeInstall sysroot, (program, lakeLib)⟩ : Event L E) ∈ t →
-      ¬ StartedOutside t project lakeLib → Reason t dir .incomplete
+      (⟨.appPath, .ok app⟩ : Event L E) ∈ t → (⟨.realPath app, .ok real⟩ : Event L E) ∈ t →
+      (⟨.getEnv "LEAN_PATH", some leanPath⟩ : Event L E) ∈ t →
+      (Regula.Load.below project real = true ∨
+        ∀ own, (real.parent.bind (·.parent)).map (· / "lib" / "lean") = some own →
+          Regula.Load.dispatchedFrom own.toString lakeLib.toString
+            ((System.SearchPath.parse leanPath).map toString) = false) →
+      Reason t dir .incomplete
   /-- A project's file crossed a link, or lies outside the project. -/
   | notExact {path real project} : (⟨.realPath dir, .ok project⟩ : Event L E) ∈ t →
       (⟨.realPath path, .ok real⟩ : Event L E) ∈ t →
-      ¬ (parts real = parts path ∧ parts project <+: parts path) → Reason t dir .incomplete
+      Regula.Load.exactBelow project path real = false → Reason t dir .incomplete
+  /-- A file that Lake names, or a directory above it, does not lie below the tree: nothing is written there. -/
+  | configNotInTree {tree treePath path} : (⟨.realPath treePath, .ok tree⟩ : Event L E) ∈ t →
+      (path = tree / "lakefile.toml" ∨ path = tree / "lean-toolchain") → OutsideTree tree path →
+      Reason t dir .incomplete
+  /-- A file that Lake names, or a directory above it, does not lie below the tree: nothing is written there. -/
+  | moduleNotInTree {tree treePath sysroot root log modules m path} :
+      (⟨.realPath treePath, .ok tree⟩ : Event L E) ∈ t →
+      (⟨.loadRoot sysroot tree, .ok (some root, log)⟩ : Event L E) ∈ t →
+      DefaultModules t root root.defaultTargets modules →
+      ((m, path) ∈ modules ∨ root.resolve m = some path) → OutsideTree tree path →
+      Reason t dir .incomplete
   /-- The project and the checker's tree do not lie apart. -/
   | notApart {project tree treePath} : (⟨.realPath dir, .ok project⟩ : Event L E) ∈ t →
       (⟨.realPath treePath, .ok tree⟩ : Event L E) ∈ t → ¬ Apart project tree →
@@ -91,6 +115,9 @@ inductive Reason (t : List (Event L E)) (dir : FilePath) : Outcome → Prop wher
   /-- A configuration deeper than the reader follows. -/
   | deep {table input} : (⟨.parseToml input, .ok table⟩ : Event L E) ∈ t → Deeper 8 table →
       Reason t dir .refused
+  /-- A dependency in a configuration deeper than the reader follows. -/
+  | deepDependency {table input} : (⟨.parseToml input, .ok table⟩ : Event L E) ∈ t → Deeper 8 table →
+      Reason t dir .proofOnly
   /-- A dependency. -/
   | dependency {table input k} : (⟨.parseToml input, .ok table⟩ : Event L E) ∈ t →
       KeyPath .anonymous table k → k.getRoot = `require → Reason t dir .proofOnly
@@ -127,11 +154,11 @@ inductive Reason (t : List (Event L E)) (dir : FilePath) : Outcome → Prop wher
       (⟨.parseHeader input, .ok (header, state, messages, imports)⟩ : Event L E) ∈ t → i ∈ imports →
       (modules.lookup i.module).isSome → root.resolve i.module = none → Reason t dir .incomplete
   /-- A module's `.olean` that does not lie below the toolchain's library. -/
-  | notToolchain {m olean real} : (⟨.findOLean m, .ok olean⟩ : Event L E) ∈ t →
-      (⟨.realPath olean, .ok real⟩ : Event L E) ∈ t →
-      (∀ d dReal, (⟨.realPath d, .ok dReal⟩ : Event L E) ∈ t →
-        ¬ (parts dReal <+: parts real ∧ parts dReal ≠ parts real) ∨ Regula.Load.below d real = false) →
-      Reason t dir .incomplete
+  | notToolchain {m olean real sysroot tree root log} :
+      (⟨.loadRoot sysroot tree, .ok (some root, log)⟩ : Event L E) ∈ t →
+      (⟨.findOLean m, .ok olean⟩ : Event L E) ∈ t → (⟨.realPath olean, .ok real⟩ : Event L E) ∈ t →
+      (∀ d ∈ root.toolchain, ∀ dReal, (⟨.realPath d, .ok dReal⟩ : Event L E) ∈ t →
+        Regula.Load.below dReal real = false) → Reason t dir .incomplete
   /-- The imports reach more modules than the reader follows. -/
   | tooMany {roots : List Name} : 1000000 ≤ roots.length + importCount t → Reason t dir .incomplete
   /-- Mathlib is in the imports. -/

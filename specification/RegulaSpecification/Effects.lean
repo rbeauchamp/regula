@@ -121,7 +121,7 @@ def Event.failedRead : Event L E → Prop
       ∃ log, r = (Except.ok (none, log) : Except String (Option (Root L) × List String))
   | ⟨.symlinkMetadata _, r⟩ =>
     ∃ e, r = (Except.error e : Except IO.Error IO.FS.Metadata) ∧
-      ∀ code details, e ≠ .noFileOrDirectory code details ""
+      ∀ name code details, e ≠ .noFileOrDirectory name code details
   | _ => False
 
 /-- Lean's parser read the commands `commands` of the input `input` in order from the state `state` and the
@@ -185,7 +185,7 @@ def HeldByToolchain (t : List (Event L E)) (root : Root L) (n : Name) : Prop :=
   ∃ olean real dir dirReal,
     ([⟨.findOLean n, .ok olean⟩, ⟨.realPath olean, .ok real⟩] : List (Event L E)).Sublist t ∧
     dir ∈ root.toolchain ∧ (⟨.realPath dir, .ok dirReal⟩ : Event L E) ∈ t ∧
-    parts dirReal <+: parts real ∧ parts dirReal ≠ parts real
+    Regula.Load.below dirReal real = true
 
 /-- What Lake compiles for the claim: the modules of the default targets with their files, and each module
 that the imports of what it compiles reach and that Lake's resolution of an import gives a file for. That this

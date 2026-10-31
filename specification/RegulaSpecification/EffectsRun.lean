@@ -89,7 +89,7 @@ structure Evidence (t : List (Event L E)) (dir dirTree : FilePath) (r : Reading)
       text.trimAscii.toString = leanToolchain) ∧
     -- `lakefile.lean` is absent, by the name.
     (∃ e, (⟨.symlinkMetadata (project / "lakefile.lean"), .error e⟩ : Event L E) ∈ t ∧
-      ∃ code details, e = .noFileOrDirectory code details "") ∧
+      ∃ name code details, e = .noFileOrDirectory name code details) ∧
     -- `lakefile.toml`: the text read is the text Lake's parser read and the text in the tree, and each of
     -- its key paths is in the reading.
     (∃ text real table,
