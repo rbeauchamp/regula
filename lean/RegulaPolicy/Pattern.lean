@@ -1,4 +1,3 @@
-import RegulaPolicy.Collections
 import Regula.Contract
 import Regula.Decision
 
@@ -131,11 +130,6 @@ theorem matchesPattern_iff (pattern text : String) :
     matchesPattern pattern text = true ↔ PatternMatch pattern text := by
   simp [matchesPattern, PatternMatch, orderedLiterals_iff, patternBody_iff, patternValid_iff,
     patternAlternatives]
-end RegulaPolicy
-
-namespace RegulaPolicy
-instance (pattern text : String) : Decidable (PatternMatch pattern text) :=
-  decidable_of_iff (matchesPattern pattern text = true) (matchesPattern_iff pattern text)
 end RegulaPolicy
 
 namespace RegulaPolicy

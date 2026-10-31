@@ -61,8 +61,8 @@ canonical path (`IO.FS.realPath`). That closure resolves each import with Lake's
 walk below each library root finds decide only what `doctor` reports a library leaves out. A
 `.git` entry marks the repository root for the agent guidance; Git itself is not run. The
 required options of a setup issue include Mathlib's when the workspace contains Mathlib, and
-`init` writes those under `weak.`; by `RegulaPolicy.Community.conforming_of_mathlib`, a target
-that has Mathlib's required options also has the core-only ones. `doctor`'s RG2002 and RG2006
+`init` writes those under `weak.`; since `RegulaPolicy.Community.required` adds them to the
+core-only ones, a target that has Mathlib's required options also has the core-only ones. `doctor`'s RG2002 and RG2006
 findings are the checker's own decision over the targets Lake loads and the claim
 (`projectInput`), with the checker's option allowlist. `regula` starts no process and removes no
 file (`Regula.Effects.check`): a file that `init` created stays when `init` stops, and its error

@@ -1,6 +1,6 @@
 import Lean.Data.Json
 import Std.Data.TreeMap.Raw.AdditionalOperations
-import RegulaPolicy.Codec
+import RegulaPolicy.Guards
 import Regula.Contract
 import Regula.Decision
 
@@ -910,7 +910,7 @@ theorem Shaped.of_agree {schema : List Entry} {j : Json}
         rw [← aligned_names meanings]
         exact nodup_of_increasing increasing
       have same : (schema.map (·.name)).Perm ((members tree).map (·.1)) :=
-        RegulaPolicy.Codec.perm_of_length_of_mem treeNames
+        RegulaPolicy.Guards.perm_of_length_of_mem treeNames
           (by rw [List.length_map, List.length_map, ← length, count_eq_length])
           fun name inTree => by
             obtain ⟨member, memberPresent, rfl⟩ := List.mem_map.mp inTree

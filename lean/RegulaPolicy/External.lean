@@ -47,53 +47,6 @@ inductive System where
   | git
   deriving Repr, DecidableEq, Inhabited, Hashable
 
-/-- Every system, each once. -/
-def System.all : List System :=
-  [.filesystem, .process, .environment, .lake, .lean, .locking, .git]
-
-/-- `System.all` holds every system. -/
-theorem System.mem_all (system : System) : system ∈ System.all := by
-  cases system <;> simp [System.all]
-
-/-- The name of a system in an attribute and in a report. -/
-def System.spelling : System → String
-  | .filesystem => "filesystem"
-  | .process => "process"
-  | .environment => "environment"
-  | .lake => "lake"
-  | .lean => "lean"
-  | .locking => "locking"
-  | .git => "git"
-
-/-- The system a name spells, if any. -/
-def System.parse? : String → Option System
-  | "filesystem" => some .filesystem
-  | "process" => some .process
-  | "environment" => some .environment
-  | "lake" => some .lake
-  | "lean" => some .lean
-  | "locking" => some .locking
-  | "git" => some .git
-  | _ => none
-
-theorem System.parse?_registered : Regula.RegisteredDecision @System.parse? := ⟨⟩
-
-/-- `parse?` reads every system's name back as that system. -/
-theorem System.parse_spelling (system : System) : System.parse? system.spelling = some system := by
-  cases system <;> rfl
-
-/-- `parse?` accepts only the name of a system. -/
-theorem System.spelling_of_parse {text : String} {system : System}
-    (read : System.parse? text = some system) : system.spelling = text := by
-  unfold System.parse? at read
-  split at read <;> first | (cases read; rfl) | cases read
-
-/-- `parse?` accepts exactly the names of the systems (`parse_spelling`, `spelling_of_parse`). -/
-theorem System.checked_parse : Regula.ExecutableContract System.parse?
-    (Regula.Decides (·.isSome = true) fun text => ∃ system : System, text = system.spelling) :=
-  ⟨.of_roundtrip System.parse_spelling (fun _ _ read => System.spelling_of_parse read)
-    .filesystem (unwritten := "") rfl⟩
-
 /-- Where a fact about an external system is stated. -/
 inductive Source where
   /-- A file of the Lean 4 repository at the release tag `version`, such as `v4.34.1`, with its

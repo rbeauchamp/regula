@@ -9,11 +9,11 @@ than copying a historical budget from this file.
 
 The timings and hosted outcomes below were observed; they are not proofs.
 
-1. **Equivalent canonical-set decisions.** `RegulaPolicy/Collections.lean` proves
+1. **Equivalent canonical-set decisions.** `RegulaPolicy/Collections.lean` proved
    adjacent strict ordering equivalent to the existing normalization equality under its
-   comparator hypotheses. `Domain.lean` installs those decisions for actual name/edge
-   admission conditions. This removes sorting/deduplication from that decision without
-   changing its proposition. The structural bound is at most `max(n-1,0)` comparisons;
+   comparator hypotheses. `Domain.lean` installed those decisions for actual name/edge
+   admission conditions. That removed sorting/deduplication from that
+   decision without changing its proposition. The structural bound is at most `max(n-1,0)` comparisons;
    comparing structured names still has input-dependent cost. Compiled caller inspection
    and focused duplicate/order controls qualified execution; the proofs do not verify
    machine code. This change alone did not bring hosted acceptance within its deadline.
@@ -370,8 +370,8 @@ One local run of this change on 14 processors took 114 s for the window. The loc
 `e0232383` took 130 s without its clone of Verso. In that run the gate took 75 s, and it ended
 36 s after the commands at low priority. During the gate, the build wrote only the outputs of
 other modules, the C objects for `qualify` and `docFenceAudit`, and those two executables. It
-wrote no `.olean`, trace or hash file of a claimed module, and no C object that `axiomGate` or
-`auditApp` links. That is an observation of one run, not a proof.
+wrote no `.olean`, trace or hash file of a claimed module, and no C object that the removed
+`axiomGate` or `auditApp` links. That is an observation of one run, not a proof.
 
 ## Regula: Veil scout for the corpus harness (2026-09-23)
 

@@ -97,7 +97,7 @@ These statements are trusted, not proved: `shasum` and the filesystem report the
 exactly the claimed targets (the root targets the manifest does not exclude, and none while an
 existing manifest fails [RG2002]): `run_sets`, every required option a claimed
 target built without is then set to its required value as `RegulaPolicy.Community.sets` reads
-it, which meets the setup requirement on that option (`meets_of_sets`); `resolved_run`, every
+it; `resolved_run`, every
 claimed target then has a value for every required option or a `-D` candidate of its own extra
 `lean` arguments names it; `added_unargued`, no option the plan adds to the package or to a
 claimed target's own configuration names an option that a `-D` candidate of that target sets
@@ -147,8 +147,8 @@ the option allowlist of the checker
 (`Regula.Shell.allowlists`). It prints each finding in the form of the checker, one line for each.
 The required options of a setup issue include the options of Mathlib when the workspace contains
 Mathlib. `init` writes them under `weak.`, so a target that imports no Mathlib ignores them. By
-`conforming_of_mathlib`, a target that has the options of Mathlib also has the options without
-Mathlib. A module below a library root that no library includes can be a failing setup issue. It
+`RegulaPolicy.Community.required`, a target that has the options of Mathlib also has the options
+without Mathlib. A module below a library root that no library includes can be a failing setup issue. It
 is one only when a claimed module (of a library or executable the manifest does not exclude)
 reaches it by import through the package's modules. `lake lint` reports such a module under
 [RG2004]. Any other

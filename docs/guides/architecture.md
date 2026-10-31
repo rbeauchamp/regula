@@ -9,7 +9,7 @@ The root `regula` package is the package that adopters require. It requires noth
 | Library | Role | Claim |
 | --- | --- | --- |
 | `RegulaInterface` | The checker interfaces that adopters import: executable contracts and decision kinds (`Regula.Contract`), decision registration (`Regula.Decision`) and assumptions. | Claimed, Standard-Logical |
-| `RegulaPolicy` | Pure policy types and decisions that the registry, the manifest reader and the option allowlist read. | Claimed, Standard-Logical |
+| `RegulaPolicy` | Pure types and decisions that the programs read, such as the supported compiler and the options of `regula init`. | Claimed, Standard-Logical |
 | `RegulaCore` | The rule registry, the guidance and setup decisions of the `regula` command, the decisions of the site and of the Markdown checks, and the shared filesystem constructor. | Claimed, Standard-Logical |
 | `RegulaQualification` | The assertions that the programs of the site evaluate (`RegulaQualification.Checks`). | Claimed, Standard-Logical |
 | `RegulaVerification`, `RegulaProvision` | The acceptance driver and the dependency provisioning, the modules `RegulaVerification.Driver` and `RegulaProvision.Driver`, which import only the toolchain and declare no `main`. The files `lean/RegulaVerification.lean` and `lean/RegulaProvision.lean`, in no target, launch them. A `Decisions` module of each library registers the kinds of its decisions. | Claimed, Standard-Logical |

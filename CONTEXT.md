@@ -33,16 +33,16 @@ Standard: ASD-STE100 Issue 9
 
 | Term | Category | Definition | Replaces | Source |
 | --- | --- | --- | --- | --- |
-| assumption | 7 | A statement that Regula uses without a proof, with the source that states it. | - | `lean/RegulaPolicy/External.lean` (`RegulaPolicy.External.Role.assumption`) |
+| assumption | 7 | A statement that Regula uses without a proof, with the source that states it. | - | `lean/RegulaPolicy/External.lean` |
 | baseline | 19 | The file that gives the permitted findings of each document that has findings. | - | `prose-baseline.json` |
-| checked operation | 7 | An operation that runs an operation of an external system, examines the result and fails when the postcondition is not true for it. | - | `lean/RegulaPolicy/External.lean` (`RegulaPolicy.External.Role.checked`) |
+| checked operation | 7 | An operation that runs an operation of an external system, examines the result and fails when the postcondition is not true for it. | - | `lean/RegulaPolicy/External.lean` |
 | checker | 19 | The Regula program that reads a Lake project and gives findings. | - | `docs/guides/architecture.md` |
 | control | 7 | An input for a check, with the result that the check must give for it. | - | `docs/guides/contributing.md` |
 | decision contract | 7 | A theorem that tells which inputs a decision function accepts, in relation to a specification. | - | `lean/Regula/Contract.lean` |
 | external system | 19 | A system that a Regula program reads or changes, but that no Lean proof can examine, for example the file system or Lake. | - | `lean/RegulaPolicy/External.lean` (`RegulaPolicy.External.System`) |
 | finding | 19 | One report of a check that a rule is not obeyed or that the check did not complete. | - | `lean/RegulaCore/Rule.lean` (`Regula.Impact`) |
 | honest code | 19 | Code that does not deliberately change Lean's environment, compiler or build to make a check pass, except where the rule-reference site states a check. | - | `SECURITY.md` |
-| observer | 19 | The code that supplies the operations of one external system to a Regula program. | - | `lean/RegulaPolicy/External.lean` (`RegulaPolicy.External.Role.observer`) |
+| observer | 19 | The code that supplies the operations of one external system to a Regula program. | - | `lean/RegulaPolicy/External.lean` |
 | requirement | 15 | A part of the standard that a project must obey. | - | `website/RegulaStandard.lean` |
 | rule-reference site | 15 | The site that has the standard and one page for each rule. | rule-reference website | `docs/guides/website.md` |
 | standard | 15 | The Regula document that gives the requirements for proofs and programs in Lean. | - | `website/RegulaStandard.lean` |

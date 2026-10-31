@@ -1,6 +1,5 @@
 import Regula.Contract
 import RegulaPolicy.Guards
-import RegulaPolicy.Traversal
 import Lean.Data.Json
 import Regula.Decision
 
@@ -69,7 +68,7 @@ theorem evaluate_error (checks : List Check) (label : String) :
     evaluate checks = .error label ↔
       ∃ before check after, checks = before ++ check :: after ∧
         Satisfied before ∧ check.holds = false ∧ check.label = label := by
-  rw [evaluate_eq_forM, RegulaPolicy.forM_eq_error]
+  rw [evaluate_eq_forM, RegulaPolicy.Guards.forM_eq_error]
   refine exists_congr fun before => exists_congr fun check => exists_congr fun after =>
     and_congr_right fun _ => and_congr ?_ ?_
   · refine forall₂_congr fun b _ => ?_
