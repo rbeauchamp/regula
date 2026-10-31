@@ -73,9 +73,14 @@ environment, count as code of the constant they serve. Each name in `IR.collectU
 an entry on the `lint` program's build (measured on 2026-10-30: 15,891 names, of which 2,455 constants
 and 13,145 auxiliary definitions have a body and 291 are `extern`).
 
-A departure is what the build records of one: the `@[implemented_by]` of the constant, a helper
-`f._unsafe_rec` of the constant, and each `@[csimp]` and `@[implemented_by]` entry whose target the
-compiled code runs. A lemma with `attribute [local csimp]` has no entry
+A departure of a constant comes from what the build records of it: the `@[implemented_by]` of the
+constant, a helper `f._unsafe_rec` of the constant, and each `@[csimp]` and `@[implemented_by]` entry
+whose target its compiled code runs. A checked claim adds the departures that no read of compiled code
+can show, because the compiler can inline, specialize or erase a call while the kernel values still
+mention its reference. `Facts.boundaries` records them on `main`: each replacement that a module
+outside the toolchain registers, and each recursion helper of a constant outside the toolchain, whose
+reference lies in the closure of `main` through the constants each constant mentions, the compiled code
+runs or a departure runs. A lemma with `attribute [local csimp]` has no entry
 (`Lean/ScopedEnvExtension.lean:96-104`, `191-198` at v4.35.0), so its rewrite is in the closure, which
 reads the code that runs, and it is no departure of the input: an accepted risk that the
 specification's entry of RG3002 states.
@@ -360,18 +365,26 @@ def registrationOf (type : Expr) : Option Name := do
   guard (body.isAppOfArity ``Regula.RegisteredDecision 2)
   body.getAppArgs[1]!.consumeMData.getAppFn.consumeMData.constName?
 
-/-- The correspondence that the theorem `thm` of type `type` states, when its type is `@f = @g`
-for constants `f` and `g`. -/
+/-- The correspondence that the theorem `thm` of type `type` states, when its type is `@f = @g` for
+constants `f` and `g` and it holds at every instantiation of them: their universe arguments are equal,
+and those arguments are distinct universe parameters. This is Lean's own condition for a constant
+replacement (`isConstantReplacement?`, `Lean/Compiler/CSimpAttr.lean:40-49` at v4.35.0). The name
+pair of a `Correspondence` erases the universe arguments, so a theorem at one universe, which proof
+irrelevance can make true there alone, is no correspondence. -/
 def correspondenceOf (thm : Name) (type : Expr) : Option Correspondence := do
   let t := type.consumeMData
   guard (t.isAppOfArity ``Eq 3)
-  let .const f _ := t.appFn!.appArg!.consumeMData | none
-  let .const g _ := t.appArg!.consumeMData | none
+  let .const f us := t.appFn!.appArg!.consumeMData | none
+  let .const g vs := t.appArg!.consumeMData | none
+  guard (us == vs && us.all Level.isParam && (Std.HashSet.ofList us).size == us.length)
   return { reference := f, runs := g, theorem_ := thm }
 
 /-- The correspondence of the departure from `f` to its recursion helper `f._unsafe_rec`, when the
-theorem `thm` of type `type` states the recursion equation: `type` is `∀ xs, f xs = B`, the helper's
-value is `fun xs => B'`, and `B` is `B'` with each helper replaced by its base. Lean's equation
+theorem `thm` of type `type` states the recursion equation at every instantiation: `type` is
+`∀ xs, f xs = B`, the universe arguments of `f` are exactly the helper's level parameters in order,
+the helper's value is `fun xs => B'` with one binder of `type` for each of its binders, and `B` is `B'`
+with each helper replaced by its base. So a specialized or narrowed equation is none, and neither is a
+theorem with level parameters of other names, which `type_of% @f.eq_def` never has. Lean's equation
 `f.eq_def` has this type (measured on 2026-10-30, for a structural and a well-founded definition), so
 a project states it by `theorem f_rec : type_of% @f.eq_def := @f.eq_def`. No theorem can state
 `@f = @f._unsafe_rec`: the kernel refuses a safe constant that mentions a partial one
@@ -390,7 +403,9 @@ def recursionEquationOf (env : Environment) (thm : Name) (type : Expr) : Option 
   let lhs := body.appFn!.appArg!
   let .const f us := lhs.getAppFn | none
   let helper := Name.str f "_unsafe_rec"
-  let value ← (← env.find? helper).value?
+  let info ← env.find? helper
+  let value ← info.value?
+  guard (us == info.levelParams.map Level.param)
   let mut statement := stated
   let mut expected := bases value
   let mut depth := 0
@@ -402,6 +417,7 @@ def recursionEquationOf (env : Environment) (thm : Name) (type : Expr) : Option 
       expected := b'
       depth := depth + 1
     | .forallE .., _ => failure
+    | _, .lam .. => failure
     | _, _ => break
   guard (lhs == mkAppN (.const f us) ((List.range depth).reverse.map Expr.bvar).toArray)
   guard (body.appArg! == expected)
@@ -640,10 +656,52 @@ def Facts.closure (f : Facts) (seeds runs : List Name) (known : NameMap Decl) :
       work := d.compiled.map (·, .executed) ++ d.departures.map (·.runs, .replaced) ++ work
   return out
 
+/-- The constants of `known` and each constant of the closure of `root` through the constants each
+constant mentions, the compiled code runs or a departure runs, with the departures of that closure
+that no read of compiled code need show recorded on `root`: each replacement that a module outside
+the toolchain registers, and each recursion helper of a constant outside the toolchain, whose reference
+is in the closure. The target of each of these is in the closure too, so a replacement that only the
+target of another one reaches counts, and a helper brings in its base, which the mutual recursion of
+another helper need not mention. So each constant that such a departure names is a constant of the
+result, whose mentions are too, and `Facts.input` then finds the theorems that state its correspondence.
+It refuses a constant of the closure whose code was not read: a read that fails is no absent code. -/
+def Facts.boundaries (f : Facts) (root : Name) (known : NameMap Decl) :
+    Except String (NameMap Decl) := do
+  let replaced : NameMap (List Name) := f.byRuns.foldl (init := {}) fun m _ rs =>
+    rs.foldl (init := m) fun m r =>
+      if r.inToolchain || r.reference == r.runs then m
+      else m.insert r.reference (r.runs :: (m.find? r.reference).getD [])
+  let mut out := known
+  let mut seen : NameSet := {}
+  let mut found : List Departure := []
+  let mut work := [root]
+  while true do
+    let n :: rest := work | break
+    work := rest
+    if seen.contains n then continue
+    seen := seen.insert n
+    if let .str base "_unsafe_rec" := n then work := base :: work
+    let some info := f.env.find? n | continue
+    if let .unread name := codeOf f.env n then
+      throw s!"the closure of {root} reaches {n}, and the code of {name} was not read"
+    let d ← match out.find? n with
+      | some d => pure d
+      | none => f.decl n info
+    out := out.insert n d
+    let helper := if f.toolchain n then [] else (f.helper? n).toList
+    let targets := helper ++ (replaced.find? n).getD []
+    found := targets.map (fun runs => ({ reference := n, runs, inToolchain := false } : Departure)) ++
+      found
+    work := d.uses ++ d.compiled ++ d.departures.map (·.runs) ++ targets ++ work
+  return match out.find? root with
+    | some d => out.insert root { d with departures := d.departures ++ found }
+    | none => out
+
 /-- The closed input of the environment that `f` describes, for the project's targets `ts`,
 claim `manifest` and module records `records`. `known` holds the axiom sets that the environments
 loaded before this one computed, by module and constant (`AxiomSets`). It refuses what it cannot read
-(`Facts.closure`). It reads an execution closure only for a claimed executable: a rule reads no other.
+(`Facts.closure`, `Facts.boundaries`). It reads an execution closure only for a claimed executable, and
+the departures of `Facts.boundaries` only for a checked claim: a rule reads no other.
 -/
 def Facts.input (f : Facts) (ts : List Target) (manifest : List Entry)
     (records : List ModuleRecord) (known : AxiomSets := {}) : Except String Input := do
@@ -665,6 +723,9 @@ def Facts.input (f : Facts) (ts : List Target) (manifest : List Entry)
     targets := ts, manifest, loads := env.header.moduleNames.toList }
   let mains := if !scope.rootClaims.isEmpty && env.contains `main then [`main] else []
   let first ← f.closure seeds mains {}
+  let first ← if scope.rootClaims.any (·.2 == .checked) then
+      mains.foldlM (fun known root => f.boundaries root known) first
+    else pure first
   -- The correspondences that a departure of the input needs, with their theorems' closure.
   let needed : Std.HashSet (Name × Name) := first.foldl (init := {}) fun s _ d =>
     d.departures.foldl (fun s x => s.insert (x.reference, x.runs)) s

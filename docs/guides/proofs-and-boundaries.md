@@ -31,7 +31,7 @@ The checker reads one closed input (`Regula.Closed.Input` in `Regula.Input`). Th
 | The imports of each module of the root package that Lake builds, and its extensions with entries | `Lean.readModuleDataParts` |
 | The constants of each environment that the checker loads | `Lean.importModules` with `loadExts := false` |
 | The axiom set of each constant of a claimed module, and of each theorem that states a correspondence | `Lean.collectAxioms` over those constants |
-| The compiled code of each constant, and its departures from the kernel value | `Lean.IR.findEnvDecl`, and the module entries of `implemented_by` and `csimp` |
+| The compiled code of each constant, and its departures from the kernel value, with those that the closure of `main` reaches under a checked claim | `Lean.IR.findEnvDecl`, the module entries of `implemented_by` and `csimp`, and the constants that each constant mentions |
 
 The input has no source text, message, info tree, option set in source, build log or list of files. A rule does not decide what it cannot read in this input.
 

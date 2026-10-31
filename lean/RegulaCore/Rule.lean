@@ -950,17 +950,19 @@ def descriptor : (id : RuleId) → RuleDescriptor id
       normativeClauses := [.computationMechanisms]
       applicability := "execution-trusted-boundary"
       evidenceModes := [.incrementalProject, .freshProject, .freshFile]
-      requirement := "Under `\"execution\": \"checked\"`, every reachable replacement or `extern` \
-        boundary outside the Lean toolchain's own trusted base has a kernel-checked equality with \
-        its reference."
+      requirement := "Under `\"execution\": \"checked\"`, every reachable replacement or recursion \
+        helper outside the toolchain has an admitted correspondence, and no reachable code outside \
+        it is unbindable, such as `extern`."
       rationale := "`@[implemented_by g] def f` makes the kernel reason about `f` while compiled \
         code runs `g`. Without a proof relating them, theorems about `f` say nothing about the \
         program's behavior."
       remedy := "Prove the replacement equal to its reference on the complete domain, or remove \
         the trusted boundary, or claim `report` execution instead and keep the boundary reported."
       rewrites := [
-        "State and prove `theorem f_eq (x) : f x = g x` (either direction, any prefix of the \
-          domain with congruence) for the full domain, including implicit and instance arguments.",
+        "State and prove the closed theorem `@f = @g`, with the same distinct universe parameters \
+          on both sides, by `funext` for the full domain.",
+        "For a recursive definition `f`, state its recursion equation: \
+          `theorem f_rec : type_of% @f.eq_def := @f.eq_def`.",
         "Replace `implemented_by` with a proof-backed `@[csimp]` equality where it fits.",
         "If an external boundary is intended (an `extern` implementation, or unsafe or partial \
           code in an unclaimed dependency), claim `report` execution, where it is reported as \

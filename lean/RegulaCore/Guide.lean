@@ -981,8 +981,10 @@ def guide : RuleId → Guide
           INCOMPLETE.",
         "It reports a name in that closure that is no constant of the input, and a constant on a \
           cycle of departures. A departure is a point where compiled code runs a constant in \
-          place of the constant that the kernel value has: a runtime replacement, a `@[csimp]` \
-          rewrite or a recursion helper.",
+          place of the constant that the kernel value has: a runtime replacement, a global \
+          `@[csimp]` rewrite or a recursion helper. Under a checked claim the input also records \
+          on `main` each such departure outside the toolchain whose reference the closure of `main` \
+          reaches, whatever survives in compiled code (RG3002).",
         "It reports a claimed executable whose environment loads its root module and holds no \
           `main`. The `main` is the one that Lake links: it can be declared in a module that the \
           root imports.",
@@ -1025,22 +1027,32 @@ def guide : RuleId → Guide
           `initialize` sets.",
         "It reports a departure that no module of the toolchain makes and that has no \
           correspondence. A correspondence is a theorem `@f = @g`, with `f` the constant of the \
-          kernel value and `g` the constant that runs. It counts when the theorem is not unsafe \
-          or partial and the claim's profile admits each of its axioms. A `@[csimp]` lemma is \
-          such a theorem for the departure that it makes.",
+          kernel value and `g` the constant that runs, at every instantiation of the two: their \
+          universe arguments are equal, and are distinct universe parameters. It counts when the \
+          theorem is not unsafe or partial and the claim's profile admits each of its axioms. A \
+          `@[csimp]` lemma is such a theorem for the departure that it makes.",
         "For a recursion helper `f._unsafe_rec`, the correspondence is the recursion equation of \
           `f`: a theorem whose type is that of `f.eq_def`, such as \
           `theorem f_rec : type_of% @f.eq_def := @f.eq_def`. The kernel refuses a safe theorem \
-          that mentions the helper, so `@f = @f._unsafe_rec` cannot be stated."]
+          that mentions the helper, so `@f = @f._unsafe_rec` cannot be stated. A specialized or \
+          narrowed equation does not count.",
+        "The compiler can inline, specialize or erase a call, so the compiled code need not show a \
+          departure. So each `@[implemented_by]` or `@[csimp]` replacement that a module outside \
+          the toolchain registers, and each recursion helper of a constant outside the toolchain, \
+          is a boundary of `main` when the closure of `main` through the constants each constant \
+          mentions, the compiled code runs or a departure runs reaches its reference."]
       rationaleDetail := []
       proofShape := [
-        "`@f = @g` for the constant `f` of the kernel value and the constant `g` that runs, closed \
-          and with axioms that the claim's profile admits.",
+        "`@f = @g` for the constant `f` of the kernel value and the constant `g` that runs, closed, \
+          with the same distinct universe parameters on both sides, and with axioms that the \
+          claim's profile admits.",
         "`theorem f_rec : type_of% @f.eq_def := @f.eq_def` for a recursion helper of `f`."]
       established := [
         "Under a checked claim, each departure outside the toolchain that the closure reaches has \
-          a correspondence that the profile admits, and the closure reaches no code outside the \
-          toolchain that no theorem can bind."]
+          a correspondence that the profile admits, each replacement and recursion helper outside \
+          the toolchain whose reference `main` reaches has one whether or not its target survives \
+          in compiled code, and the closure reaches no code outside the toolchain that no theorem \
+          can bind."]
       notEstablished := [
         "Correctness of the toolchain's own replacements, `extern` code and native primitives, or \
           of the compiler. A Lean equality does not prove external machine code.",
@@ -1058,6 +1070,10 @@ def guide : RuleId → Guide
       limitations := [
         "An unsafe theorem is no evidence, so a correspondence counts only from a theorem that is \
           not unsafe or partial.",
+        "A reference that only a proof mentions also asks for a correspondence: a false refusal \
+          under a checked claim, which a theorem discharges.",
+        "A correspondence must be in a module that the environment of the executable loads, so its \
+          root imports it.",
         "That the executable runs the code that the build records is an assumption, as for \
           RG3001."]
       residuals := [.intent, .invariant, .qualify]

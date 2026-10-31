@@ -23,7 +23,8 @@ Two choices are the implementation's, made on the owner's behalf:
 
 - `decls` holds the constants of the environment that the rules can reach: every constant of a
   claimed module, the `main` of each executable root, the theorems that state a correspondence, and
-  everything these mention or run. Each rule of the specification quantifies over such constants,
+  everything these mention or run, with each constant that a checked claim's boundaries of `main`
+  reach (`Regula.Load.Facts.boundaries`). Each rule of the specification quantifies over such constants,
   and a departure that only a constant off the list records is left out: no executed code makes
   it. That the rules decide the same on this list as on every constant of the environment is
   argued, with no theorem. The list stays small for an environment that imports `Lean`.
@@ -55,8 +56,9 @@ inductive Kind where
   | recursor
   deriving DecidableEq, Repr, Inhabited
 
-/-- One point at which compiled code departs from a kernel value: where the kernel value has the
-constant `reference`, compiled code runs `runs`. -/
+/-- One point at which compiled code can depart from a kernel value: where the kernel value has the
+constant `reference`, compiled code runs `runs`, whether or not the compiler leaves a call of `runs`
+that a read of the code shows. -/
 structure Departure where
   /-- The constant that the kernel value has at this point. -/
   reference : Name
@@ -88,7 +90,9 @@ structure Decl where
   implementedBy : Option Name
   /-- The constants its compiled code runs. -/
   compiled : List Name
-  /-- Each point at which its compiled code departs from its kernel value. -/
+  /-- Each point at which its compiled code departs from its kernel value. On the `main` of a checked
+  claim, also each replacement and recursion helper outside the toolchain whose reference the closure
+  of `main` reaches, whatever survives in compiled code (`Regula.Load.Facts.boundaries`). -/
   departures : List Departure
   /-- Whether it is `@[extern]` (`Lean.isExtern`). -/
   isExtern : Bool

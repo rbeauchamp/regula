@@ -316,13 +316,15 @@ axiom table that Lean wrote for its module, and that table can omit axioms. For 
 | Mode | Meaning |
 | --- | --- |
 | `report` (default) | The checker checks that the execution closure of each claimed executable resolves ([RG3001]). It does not report the execution boundaries. |
-| `checked` | The checker also fails on each boundary that the closure reaches and that no admitted theorem binds ([RG3002]). A boundary is a departure that no module of the toolchain makes, such as an `implemented_by` replacement, a `csimp` rewrite or a recursion helper. Its theorem must be safe, and the profile must admit its axioms. Code that no theorem can bind fails with any theorem: an `extern` constant, a `partial` definition that is not a recursion helper, and a value that `initialize` sets. |
+| `checked` | The checker also fails on each boundary that the closure reaches and that no admitted theorem binds ([RG3002]). A boundary is a departure that no module of the toolchain makes, such as an `implemented_by` replacement, a `csimp` rewrite or a recursion helper. A replacement or recursion helper outside the toolchain is a boundary of `main` when `main` reaches its reference through mentions, compiled code or departures. Its target can be absent from compiled code. Its theorem must be safe, and the profile must admit its axioms. Code that no theorem can bind fails with any theorem: an `extern` constant, a `partial` definition that is not a recursion helper, and a value that `initialize` sets. |
 
 In both modes an unresolved path blocks the execution claim. Native arithmetic, the Lean runtime
 and the toolchain's own library code remain trusted in every mode; the checker verifies Lean
 source, not the compiler or the machine.
 
-Under `checked`, a theorem binds an `implemented_by` replacement or a `csimp` rewrite of `f` to `g` when it states `@f = @g`. A recursive definition `f` requires its recursion equation, which you can state with `theorem f_rec : type_of% @f.eq_def := @f.eq_def`. A claimed executable's root is the `main` that Lake links, so a module that the root imports can declare it. A claimed executable without a `main` fails [RG3001].
+Under `checked`, a theorem binds an `implemented_by` replacement or a `csimp` rewrite of `f` to `g` when it states `@f = @g`. The two sides must have the same distinct universe parameters: `@f.{u} = @g.{u}` counts, and `@f.{0} = @g.{0}` does not. A recursive definition `f` requires its recursion equation, which you can state with `theorem f_rec : type_of% @f.eq_def := @f.eq_def`. A specialized or narrowed equation does not count.
+
+The executable's root must import the module of the theorem. A reference that only a proof mentions also requires a theorem. A claimed executable's root is the `main` that Lake links, so a module that the root imports can declare it. A claimed executable without a `main` fails [RG3001].
 
 ## 4. Run `lake lint`
 

@@ -155,7 +155,11 @@ Leaf [#487] settles this mechanism in `Regula.Load`. **Assumed** from the source
 - The type `Regula.Load.CodeRead` gives each answer of the store a constructor of its own: code that calls these constants, no entry, or a stub.
 - A constant that compiled code of the closure runs has code, or the run is `incomplete` (`Regula.Load.executedCode`). The read does not take it for a constant that runs nothing.
 - The compiler's auxiliary definitions are not constants of the environment. Their code counts as code of the constant that they serve.
-- The build records a departure as the `@[implemented_by]` of the constant, its helper `f._unsafe_rec`, or an entry for the code that it runs. Those entries are the `@[csimp]` and `@[implemented_by]` entries with a target in that code. A target that the code calls directly also gives a departure. Under a checked claim, this can only ask for a correspondence that is not necessary, and a `@[csimp]` lemma is that correspondence.
+- The build records a departure of a constant as its `@[implemented_by]`, its helper `f._unsafe_rec`, or an entry for the code that it runs. Those entries are the `@[csimp]` and `@[implemented_by]` entries with a target in that code. A target that the code calls directly also gives a departure. Under a checked claim, this can only ask for a correspondence that is not necessary, and a `@[csimp]` lemma is that correspondence.
+- The compiler can inline, specialize or erase a call. Then no read of the compiled code shows that departure, while the kernel values still mention the reference. Thus, under a checked claim, `Regula.Load.Facts.boundaries` records more departures on `main`:
+  - These are the replacements that modules outside the toolchain register, and the recursion helpers of constants outside the toolchain. Each counts when its reference is in the closure of `main`. A `scoped` `@[csimp]` lemma has an entry in the build, so it counts as a global one does.
+  - That closure goes through the constants that each constant mentions, the constants that compiled code runs and the constants that a departure runs. Thus a replacement counts when only the target of a different replacement reaches it.
+  - A run with no checked claim does not read them. An executable with no replacement and no recursive definition outside the toolchain gets no such departure.
 - **Measured** on 2026-10-30, on the `lint` program's build: 15,891 names in the closure of `main`. Of them, 2,455 constants and 13,145 auxiliary definitions had a body, and 291 were `extern`. None had no entry, and none had a stub.
 
 The mechanism reads each input through Lean's store, so its trust is that of the compiled code that the build records, as [RG3001] states.
@@ -285,9 +289,9 @@ But the list of `lake check` is fixed, and it gives no axiom set for each consta
 - **Intent**: the execution closure of each claimed executable contains only constants of the input, and no cycle of departures. Thus no account of execution leaves out a path, and each path ends in a definition.
 - **Domain**: each name in the execution closure of the `main` of a claimed executable.
 - **Input**: the constants, and the compiled code of each: the constants that it runs and its departures.
-- **Formal statement**: `Violates3001`, with `Input.Executes`, `Input.DepartsTo` and `Input.MissingRoot`. The closure follows the constants that the build's compiled code runs (`Decl.compiled`), not the kernel values. A departure (`Departure`) is a point where compiled code runs a constant in place of the constant that the kernel value has.
+- **Formal statement**: `Violates3001`, with `Input.Executes`, `Input.DepartsTo` and `Input.MissingRoot`. The closure follows the constants that the build's compiled code runs (`Decl.compiled`), not the kernel values. A departure (`Departure`) is a point where compiled code runs a constant in place of the constant that the kernel value has. A read of the code can show no call of that constant.
 
-  A runtime replacement, a global `@[csimp]` rewrite at a call site and a recursion helper each give one. A constant on a cycle of departures to different constants violates the rule, because the cycle runs no definition. **Proved**: `rg3001_refuses_cycle`.
+  A runtime replacement, a global `@[csimp]` rewrite and a recursion helper each give one. A checked claim records more of them on `main` (see the section on how the input reads compiled code and the entry of [RG3002]). A constant on a cycle of departures to different constants violates the rule, because the cycle runs no definition. **Proved**: `rg3001_refuses_cycle`.
 
   The root of an executable is the `main` that Lake links, read in an environment that loads the executable's root module (`Input.LoadsRoot`). A module that the root imports can declare it. **Proved**: `rg3001_reads_imported_main`.
 
@@ -305,7 +309,16 @@ But the list of `lake check` is fixed, and it gives no axiom set for each consta
 - **Domain**: each constant in the execution closure of a claimed executable with the execution mode `checked`.
 - **Input**: the closure, the departures and flags of each constant, and each statement that a theorem proves, with the theorem and its axioms.
 - **Formal statement**: `Violates3002`, with `Input.BoundaryAt`, `Input.Corresponds`, `Input.AdmittedProof` and `Input.Unbindable`. A `@[csimp]` lemma states `@f = @g`, which is the correspondence of the departure that it makes. Code that no theorem can bind fails the rule with any theorem. It is an `extern` constant, a partial definition that is not a recursion helper, or a value that `initialize` sets. **Proved**: `rg3002_refuses_extern`, `rg3002_refuses_csimp_extern`, `rg3002_refuses_unsafe_proof` and `rg3002_refuses_unadmitted_proof`.
-- **Accepted risks**: an unsafe theorem is not evidence, because the exporter of `lake check` skips unsafe constants (`LeanExport/Basic.lean:59` and `255` at `v4.35.0`). Lean registers an unsafe `@[csimp]` lemma too (`Lean/Compiler/CSimpAttr.lean:68` at `v4.35.0`), so the rule requires a safe theorem. **Assumed** from those sources.
+- **Decision**: a departure first was only what a read of the compiled code shows. The review of [#487] found that a replacement can hide from that read. Take `@[inline] def fast (n : Nat) := n + 1`, `@[implemented_by fast] def ref (n : Nat) := n` and a `main` that returns `ref 0`. The compiled code calls neither constant.
+
+  Thus each replacement and recursion helper outside the toolchain is now a boundary of `main` when the closure of `main` reaches its reference (`Regula.Load.Facts.boundaries`). That `main` fails the rule until a correspondence exists. It passes when the profile of the claim admits that correspondence.
+
+  This widening is a change of the specification, and the owner confirmed it on 2026-10-30 in that review. `Violates3002` and its function do not change, because `Input.BoundaryAt` covers a departure that the input records on `main`.
+- **Accepted risks**: a reference that only a proof mentions also asks for a correspondence. This is a false refusal, under a checked claim only, and a theorem discharges it. The owner accepted it on 2026-10-30.
+
+  A correspondence must be in a module that the environment of the executable loads, so the root must import it.
+
+  An unsafe theorem is not evidence, because the exporter of `lake check` skips unsafe constants (`LeanExport/Basic.lean:59` and `255` at `v4.35.0`). Lean registers an unsafe `@[csimp]` lemma too (`Lean/Compiler/CSimpAttr.lean:68` at `v4.35.0`), so the rule requires a safe theorem. **Assumed** from those sources.
 
   **Assumed**: the executable runs the code compiled from the code that the build records, as for [RG3001].
 
@@ -314,9 +327,13 @@ But the list of `lake check` is fixed, and it gives no axiom set for each consta
   The lemma is a constant of its module. In a claimed module, [RG1005] and [RG1006] read it, so it is a safe theorem and the claim admits each of its axioms. An executable with a checked claim imports no excluded module ([RG2004]). A local rewrite in a dependency affects the dependency's own code, which the trusted base already holds honest.
 
   This document first said "local or global" here. The build cannot show a local rewrite without a comparison with kernel values. Decided on the owner's behalf in [#487], as a stated risk in place of that approximation.
-- **The correspondence of each departure**, which [#487] fixes:
-  - A runtime replacement `f` by `g`, or a global `@[csimp]` rewrite of `f` to `g`: a theorem `@f = @g`. A `@[csimp]` lemma is one.
+- **The correspondence of each departure**, which [#487] fixes. A theorem counts only when it holds at each instantiation of the constants that it relates. The cause is that the name pair of the input erases their universe arguments. The owner confirmed this on 2026-10-30.
+  - A runtime replacement `f` by `g`, or a global `@[csimp]` rewrite of `f` to `g`: a theorem `@f = @g` (`Regula.Load.correspondenceOf`). A `@[csimp]` lemma is one.
+
+    The two sides are constants, their universe arguments are equal, and those arguments are distinct universe parameters. This is Lean's own condition for a constant replacement (`isConstantReplacement?` at `Lean/Compiler/CSimpAttr.lean:40-49` of `v4.35.0`). Thus `@ref.{u} = @fast.{u}` counts and `@ref.{0} = @fast.{0}` does not.
   - A recursion helper `f._unsafe_rec`: the recursion equation of `f` (`Regula.Load.recursionEquationOf`). It is a theorem `∀ xs, f xs = B`, where the value of the helper is `fun xs => B'`, and `B` is `B'` with each helper replaced by its base.
+
+    The universe arguments of `f` are exactly the level parameters of the helper, in order. Each binder of the value of the helper has a binder of the statement. Thus a specialized or narrowed equation does not count. A theorem with level parameters of different names does not count either. This is an accepted risk, because `type_of% @f.eq_def` has the names of the helper.
 
     The type of Lean's `f.eq_def` has this form, so a project states it by `theorem f_rec : type_of% @f.eq_def := @f.eq_def`. **Measured** on 2026-10-30, for a structural and a well-founded definition.
 
@@ -582,8 +599,8 @@ These decisions change what the leaves build. Each has its reason.
 - The input is a list of environments, one for the libraries and one for each executable root. A single environment would refuse each project with two executables.
 - An input with no claimed target is `incomplete`. Only a nonempty claim can pass.
 - Under a checked execution claim, code that no theorem can bind fails [RG3002]. A theorem cannot discharge it, as the present standard says of `extern` in §7.6.
-- The execution closure comes from the build's compiled code, not from kernel values and attributes. A local `@[csimp]` lemma changes the compiled code that follows it, but the build exports no entry of it (`Lean/ScopedEnvExtension.lean:96-104` and `191-198` at `v4.35.0`). **Assumed** from that source.
-- A correspondence counts only when its theorem is safe and the profile of the claim admits its axioms. Lean registers an unsafe `@[csimp]` lemma too, as [RG3002] records.
+- The execution closure comes from the build's compiled code, not from kernel values and attributes. A local `@[csimp]` lemma changes the compiled code that follows it, but the build exports no entry of it (`Lean/ScopedEnvExtension.lean:96-104` and `191-198` at `v4.35.0`). **Assumed** from that source. Under a checked claim, the boundaries of `main` also read the kernel values, as [RG3002] records, and the closure stays that of the compiled code.
+- A correspondence counts only when its theorem is safe and the profile of the claim admits its axioms. It must also hold at each instantiation of the constants that it relates. Lean registers an unsafe `@[csimp]` lemma too, as [RG3002] records.
 - The requirements of `linter.missingDocs` and of Mathlib's standard linters go to written guidance with the documentation rules. They guard failures that are cheap to see and correct.
 - A decision registration becomes a declaration, so that a claimed module uses no tool module and no attribute that Lean does not define.
 - The target toolchain is `v4.35.0`, and Regula moved to it in [#494], before the leaves. Its `lake check` replays each constant in scope from an export, in a process that loads no `.olean` file of the project. It also bounds each axiom by the standard three. The `leanchecker` of `v4.34.1` with a module list did less.
@@ -652,7 +669,7 @@ What it leaves unsaid:
 
 - The members of the two allowlists, which `Regula.Allowlist` holds. [#484] fixed them, with the observation that the entries of [RG2006] and [RG2007] record. The owner's confirmation did not cover them.
 - Two results of [RG2007] that [#484] measured, which the owner's confirmation did not cover. A local attribute that registers code on an ordinary definition passes, as `run_cmd` does. A default of the form `:= by tactic` in a claimed module fails.
-- The exact correspondence statement of each kind of execution boundary, which [#487] fixed and which the entry of [RG3002] records. The owner's confirmation did not cover it.
+- The exact correspondence statement of each kind of execution boundary, which [#487] fixed and which the entry of [RG3002] records. The owner's confirmation of 2026-10-29 did not cover it. The owner confirmed its conditions on universes and binders on 2026-10-30, in the review of [#487]. That review also confirmed the widening of a departure in the same entry.
 - How a project declares a deliverable, and how the owner's confirmation record is made: [#485], [lean-intent#3] and [lean-intent#5].
 - The cost of `lake check` and of `--paranoid` on a machine other than the owner's Mac: [#482] measured each one time there.
 

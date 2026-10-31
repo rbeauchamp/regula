@@ -11,10 +11,12 @@ execution question, which RG3002 decides under a checked execution claim.
 RG3001 and RG3002 read the execution closure of an executable target: from its `main`, the
 constants that the build's compiled code runs (`Decl.compiled`). Compiled code departs from a
 kernel value where it runs a constant other than the one the kernel value has there
-(`Departure`): a runtime replacement, a `@[csimp]` rewrite at a call site, local or global, a
-recursion helper, or any other. Each departure that the toolchain's own library does not make is
-a boundary. Under a checked execution claim it needs a correspondence, which counts only when the
-theorem that proves it is safe and uses only axioms that the claim's profile admits.
+(`Departure`): a runtime replacement, a global `@[csimp]` rewrite, a recursion helper, or any other
+that the build records. Each departure that the toolchain's own library does not make is a boundary.
+Under a checked execution claim it needs a correspondence, which counts only when the theorem that
+proves it is safe and uses only axioms that the claim's profile admits. The compiler can inline a
+call, so under such a claim the input records on `main` each replacement and recursion helper
+outside the toolchain whose reference the closure of `main` reaches (`Decl.departures`).
 -/
 
 namespace RegulaSpecification

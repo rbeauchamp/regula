@@ -29,10 +29,10 @@ inductive Kind where
   | recursor
   deriving DecidableEq, Repr
 
-/-- One point at which compiled code departs from a kernel value: where the kernel value has the
-constant `reference`, compiled code runs `runs`. A runtime replacement (`@[implemented_by]`), a
-`@[csimp]` rewrite at a call site, local or global, a recursion helper, and each other departure
-give one. -/
+/-- One point at which compiled code can depart from a kernel value: where the kernel value has the
+constant `reference`, compiled code runs `runs`, whether or not the compiler leaves a call of `runs`
+that a read of the code shows. A runtime replacement (`@[implemented_by]`), a global `@[csimp]`
+rewrite, a recursion helper, and each other departure that the build records give one. -/
 structure Departure where
   /-- The constant that the kernel value has at this point. -/
   reference : Name
@@ -66,7 +66,9 @@ structure Decl where
   /-- The constants its compiled code runs, as the build's compiled code records them. -/
   compiled : List Name
   /-- Each point at which its compiled code departs from its kernel value, as the build's compiled
-  code records it. -/
+  code records it. On the `main` of a checked claim, also each replacement and recursion helper
+  outside the toolchain whose reference the closure of `main` reaches, through the constants each
+  constant mentions, the compiled code runs or a departure runs, whatever survives in compiled code. -/
   departures : List Departure
   /-- Whether it is `@[extern]` (`Lean.isExtern`). -/
   isExtern : Bool
@@ -211,7 +213,8 @@ inductive Goal where
   | fulfils (impl record : QualName)
   /-- The correspondence of the departure at which compiled code runs `runs` in place of
   `reference`. For a runtime replacement or a `@[csimp]` rewrite it is the equality
-  `@reference = @runs`, which a `@[csimp]` lemma states. -/
+  `@reference = @runs`, which a `@[csimp]` lemma states, at every instantiation of the two constants:
+  their universe arguments are equal, and are distinct universe parameters. -/
   | corresponds (reference runs : Name)
   deriving DecidableEq, Repr
 
