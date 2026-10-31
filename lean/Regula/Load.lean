@@ -1,3 +1,8 @@
+/-
+Copyright (c) 2026 Regula contributors. All rights reserved.
+Released under MIT license as described in the file LICENSE.
+Authors: Regula contributors
+-/
 module
 
 public import Lean.Environment
@@ -32,7 +37,8 @@ What it reads, and through what:
   module. A claimed module's own constant must also fit the rules itself (`Facts.unread?`).
 - The place of each module: where `Lean.findOLean` finds its `.olean` on Lake's search path. A
   claimed module lies below the root package's library directory; a constant of the toolchain is one
-  whose module lies below the toolchain's library directory.
+  whose module lies below the toolchain's library directory. `Facts` carries that its modules are
+  those of the environment's header and what each place decides, and `readModules` constructs both.
 -/
 
 public section
@@ -101,38 +107,81 @@ def valueUsesOf : ConstantInfo → Array Name
   | .defnInfo v => v.value.getUsedConstants
   | .thmInfo v => v.value.getUsedConstants
   | .opaqueInfo v => v.value.getUsedConstants
-  | _ => #[]
+  | .axiomInfo _ | .quotInfo _ | .inductInfo _ | .ctorInfo _ | .recInfo _ => #[]
+
+/-- The safety of a constant, from Lean's two flags. Lean sets at most one of them on a constant
+(`ConstantInfo.isUnsafe` and `ConstantInfo.isPartial`). -/
+def safetyOf (info : ConstantInfo) : Safety :=
+  if info.isUnsafe then .unsafe else if info.isPartial then .partial else .safe
+
+/-- One module that an environment loaded, with where its `.olean` lies and what that place
+decides. -/
+structure LoadedModule where
+  /-- The module. -/
+  name : Name
+  /-- Where its `.olean` lies. -/
+  olean : FilePath
+  /-- Whether it lies in the toolchain's library. -/
+  inToolchain : Bool
+  /-- Whether it lies in the root package's library: the module is claimed. -/
+  claimed : Bool
+
+/-- A module at the place `olean`, with what that place decides under the two library directories.
+-/
+def LoadedModule.ofPlace (toolchainDir rootDir : FilePath) (name : Name) (olean : FilePath) :
+    LoadedModule :=
+  { name, olean, inToolchain := below toolchainDir olean, claimed := below rootDir olean }
 
 /-- What the loader knows of one loaded environment. -/
 structure Facts where
   /-- The loaded environment. -/
   env : Environment
-  /-- Whether each module, by its index, lies in the toolchain's library. -/
-  inToolchain : Array Bool
-  /-- The claimed modules: those that lie in the root package's library directory. -/
-  claimed : List Name
+  /-- The toolchain's library directory. -/
+  toolchainDir : FilePath
+  /-- The root package's library directory. -/
+  rootDir : FilePath
+  /-- Each module of the environment, by its index. -/
+  modules : Array LoadedModule
+  /-- These are the modules of the environment's header, in its order. -/
+  names : modules.toList.map (·.name) = env.header.moduleNames.toList
+  /-- What each module's place decides is what its fields say. -/
+  placed : ∀ m ∈ modules, m = LoadedModule.ofPlace toolchainDir rootDir m.name m.olean
 
-/-- The facts of `env`, from where the `.olean` of each of its modules lies, in the order of its
-header. -/
-def Facts.ofPlaces (env : Environment) (toolchainDir rootDir : FilePath) (places : Array FilePath) :
-    Facts where
-  env
-  inToolchain := places.map (below toolchainDir)
-  claimed := ((env.header.moduleNames.zip places).toList.filter (below rootDir ·.2)).map (·.1)
+/-- Each of the modules `names`, in that order, with where Lean finds its `.olean` on Lake's search
+path. The result carries that it is these modules and what each place decides. -/
+def readModules (toolchainDir rootDir : FilePath) : (names : List Name) →
+    IO { ms : List LoadedModule // ms.map (·.name) = names ∧
+      ∀ m ∈ ms, m = LoadedModule.ofPlace toolchainDir rootDir m.name m.olean }
+  | [] => pure ⟨[], rfl, by simp⟩
+  | n :: rest => do
+    let olean ← try findOLean n catch e =>
+      refuse s!"the module {n} was loaded and has no .olean on Lake's search path: {e}"
+    let ⟨ms, hn, hp⟩ ← readModules toolchainDir rootDir rest
+    pure ⟨LoadedModule.ofPlace toolchainDir rootDir n olean :: ms,
+      by simp [LoadedModule.ofPlace, hn],
+      by
+        intro m hm
+        rcases List.mem_cons.mp hm with rfl | hm
+        · rfl
+        · exact hp m hm⟩
 
-/-- Where the `.olean` of each module of `env` lies, in the order of its header. -/
-def places (env : Environment) : IO (Array FilePath) :=
-  env.header.moduleNames.mapM fun m =>
-    try findOLean m catch e => refuse s!"the module {m} was loaded and has no .olean on Lake's \
-      search path: {e}"
+/-- The facts of `env`, from where the `.olean` of each of its modules lies. -/
+def Facts.load (env : Environment) (toolchainDir rootDir : FilePath) : IO Facts := do
+  let ⟨ms, hn, hp⟩ ← readModules toolchainDir rootDir env.header.moduleNames.toList
+  return { env, toolchainDir, rootDir, modules := ms.toArray, names := by simpa using hn,
+           placed := by simpa using hp }
 
-/-- The module whose `.olean` holds constant `n`. -/
-def Facts.moduleOf (f : Facts) (n : Name) : Option Name :=
-  (f.env.getModuleIdxFor? n).bind fun idx => f.env.header.moduleNames[idx.toNat]?
+/-- The modules that are claimed. -/
+def Facts.claimed (f : Facts) : List Name :=
+  (f.modules.toList.filter (·.claimed)).map (·.name)
 
-/-- Whether constant `n` is a constant of the toolchain's library. -/
-def Facts.toolchain (f : Facts) (n : Name) : Bool :=
-  ((f.env.getModuleIdxFor? n).bind fun idx => f.inToolchain[idx.toNat]?).getD false
+/-- The loaded module whose `.olean` holds constant `n`. -/
+def Facts.info? (f : Facts) (n : Name) : Option LoadedModule :=
+  (f.env.getModuleIdxFor? n).bind fun idx => f.modules[idx.toNat]?
+
+/-- The name of the module whose `.olean` holds constant `n`. -/
+def Facts.moduleOf? (f : Facts) (n : Name) : Option Name :=
+  (f.info? n).map (·.name)
 
 /-- Each constant of each name, as the own data of each loaded module states it, claimed or not.
 Lean's import keeps one constant of a name (`Facts.shown`), so this is what the others say. -/
@@ -141,38 +190,97 @@ def Facts.stated (f : Facts) : Std.HashMap Name (List ConstantInfo) :=
     (data.constNames.zip data.constants).foldl (init := acc) fun acc x =>
       acc.insert x.1 (x.2 :: acc.getD x.1 [])
 
-/-- The constant `n` of the module `module`, as the closed input states it: `info` is the constant
-that the environment keeps, and `stated` those of its name that the loaded modules state. -/
-def Facts.declIn (f : Facts) (n module : Name) (info : ConstantInfo)
+/-- The constant `n` of the module `m`, as the closed input states it: `info` is the constant that
+the environment keeps, and `stated` those of its name that the loaded modules state. -/
+def Facts.declIn (f : Facts) (n : Name) (m : LoadedModule) (info : ConstantInfo)
     (stated : List ConstantInfo) : Decl where
   name := n
-  module
+  module := m.name
   kind := kindIn info stated
-  isUnsafe := info.isUnsafe
-  isPartial := info.isPartial
+  safety := safetyOf info
   uses := (usesIn info stated).toList
   valueUses := (valueUsesOf info).toList
   implementedBy := Compiler.getImplementedBy? f.env n
   isExtern := isExtern f.env n
-  inToolchain := f.toolchain n
+  inToolchain := m.inToolchain
 
 /-- The constant `n` as the closed input states it, or the refusal of a constant that no loaded
 module holds. -/
 def Facts.decl (f : Facts) (n : Name) (info : ConstantInfo) (stated : List ConstantInfo) :
     Except String Decl :=
-  match f.moduleOf n with
-  | some module => .ok (f.declIn n module info stated)
+  match f.info? n with
+  | some m => .ok (f.declIn n m info stated)
   | none => .error s!"the constant {n} was loaded, and Lean gives it no module"
 
-/-- What the rules read of a constant: its kind, its two flags and what it mentions. -/
-def readOf (info : ConstantInfo) : Kind × Bool × Bool × List Name × List Name :=
-  (kindOf info, info.isUnsafe, info.isPartial, (usesOf info).toList, (valueUsesOf info).toList)
+/-- What running a function of `Except` over a list gives, member by member. -/
+theorem mapM_ok {α β ε : Type} (g : α → Except ε β) (name : β → Name) (key : α → Name)
+    (hname : ∀ a b, g a = .ok b → name b = key a) (l : List α) (r : List β)
+    (h : l.mapM g = .ok r) :
+    (∀ b ∈ r, ∃ a ∈ l, g a = .ok b) ∧ (∀ a ∈ l, ∃ b ∈ r, g a = .ok b) ∧
+      r.map name = l.map key := by
+  induction l generalizing r with
+  | nil =>
+    simp only [List.mapM_nil, pure, Except.pure, Except.ok.injEq] at h
+    subst h
+    simp
+  | cons a l ih =>
+    simp only [List.mapM_cons, bind, Except.bind] at h
+    cases hg : g a with
+    | error e =>
+      rw [hg] at h
+      cases h
+    | ok b =>
+      rw [hg] at h
+      simp only at h
+      cases hl : l.mapM g with
+      | error e =>
+        rw [hl] at h
+        cases h
+      | ok r' =>
+        rw [hl] at h
+        simp only [pure, Except.pure, Except.ok.injEq] at h
+        subst h
+        obtain ⟨h1, h2, h3⟩ := ih r' hl
+        refine ⟨?_, ?_, ?_⟩
+        · intro y hy
+          rcases List.mem_cons.mp hy with rfl | hy
+          · exact ⟨a, List.mem_cons_self .., hg⟩
+          · obtain ⟨x, hx, hxy⟩ := h1 y hy
+            exact ⟨x, List.mem_cons_of_mem _ hx, hxy⟩
+        · intro x hx
+          rcases List.mem_cons.mp hx with rfl | hx
+          · exact ⟨b, List.mem_cons_self .., hg⟩
+          · obtain ⟨y, hy, hxy⟩ := h2 x hx
+            exact ⟨y, List.mem_cons_of_mem _ hy, hxy⟩
+        · simp [hname a b hg, h3]
+
+/-- What `Facts.decl` gives has the name it was asked for. -/
+theorem Facts.decl_name (f : Facts) {n : Name} {info : ConstantInfo} {stated : List ConstantInfo}
+    {d : Decl} (h : f.decl n info stated = .ok d) : d.name = n := by
+  simp only [Facts.decl] at h
+  split at h
+  · cases h
+    rfl
+  · cases h
+
+/-- The constants that the environment keeps have distinct names, so a reading of them has too: the
+keys of a hash map are distinct (`Std.HashMap.distinct_keys_toList`). -/
+theorem Facts.decls_nodup (f : Facts) {stated : Name → List ConstantInfo} {decls : List Decl}
+    (h : f.env.constants.map₁.toList.mapM (fun x => f.decl x.1 x.2 (stated x.1)) = .ok decls) :
+    (decls.map (·.name)).Nodup := by
+  rw [(mapM_ok _ (·.name) (·.1) (fun _ _ hb => f.decl_name hb) _ _ h).2.2]
+  refine List.pairwise_map.mpr (Std.HashMap.distinct_keys_toList.imp ?_)
+  intro a b hab heq
+  simp [heq] at hab
+
+/-- What the rules read of a constant: its kind, its safety and what it mentions. -/
+def readOf (info : ConstantInfo) : Kind × Safety × List Name × List Name :=
+  (kindOf info, safetyOf info, (usesOf info).toList, (valueUsesOf info).toList)
 
 /-- Each constant of each claimed module, with its module, as that module's `.olean` states it. -/
 def Facts.claimedConstants (f : Facts) : List (Name × Name × ConstantInfo) :=
-  ((f.env.header.moduleNames.zip f.env.header.moduleData).toList.filter
-    (f.claimed.contains ·.1)).flatMap fun (m, data) =>
-      (data.constNames.zip data.constants).toList.map fun (n, info) => (m, n, info)
+  ((f.modules.zip f.env.header.moduleData).toList.filter (·.1.claimed)).flatMap fun (m, data) =>
+    (data.constNames.zip data.constants).toList.map fun (n, info) => (m.name, n, info)
 
 /-- Whether the environment shows a constant of a claimed module to the rules: it holds a constant
 of that name of which the rules read the same, in a claimed module. Lean's import merges two
@@ -183,20 +291,20 @@ reads as a subject. What a dropped constant mentions, and whether it is an axiom
 states of its name (`Facts.stated`), in every loaded module; this check decides whether the rules
 read a claimed module's own constant as a subject. -/
 def Facts.shown (f : Facts) (x : Name × Name × ConstantInfo) : Bool :=
-  match f.env.constants.map₁[x.2.1]?, f.moduleOf x.2.1 with
-  | some kept, some m => decide (readOf kept = readOf x.2.2) && f.claimed.contains m
-  | _, _ => false
+  match f.env.constants.map₁[x.2.1]?, f.info? x.2.1 with
+  | some kept, some m => decide (readOf kept = readOf x.2.2) && m.claimed
+  | none, _ | some _, none => false
 
 /-- Whether a constant `n` that the environment does not show is what the rules would admit: a
-theorem, with neither flag and no name that the compiler reads as a recursion helper's, whose value
-mentions no loop construct, and each constant it mentions is held and reaches only axioms that the
-profile admits. Lean regenerates a definition's equation lemmas in each module that needs them, so
-such a constant can be conforming. -/
-def fitsUnshown (t : Tables) (n : Name) (info : ConstantInfo) : Bool :=
-  kindOf info == .theorem && !info.isUnsafe && !info.isPartial &&
+theorem, safe, with no name that the compiler reads as a recursion helper's, whose value mentions no
+loop construct, and each constant it mentions is held and reaches only axioms that the profile
+admits. Lean regenerates a definition's equation lemmas in each module that needs them, so such a
+constant can be conforming. -/
+def fitsUnshown {i : Input} (t : Tables i) (n : Name) (info : ConstantInfo) : Bool :=
+  kindOf info == .theorem && safetyOf info == .safe &&
     (Compiler.isUnsafeRecName? n).isNone &&
     loopConstructs.all (!(valueUsesOf info).contains ·) &&
-    (usesOf info).all fun u => t.index.contains u && (t.axiomSet u).all (t.admits t.profile ·)
+    (usesOf info).all fun u => t.index.contains u && (t.axiomSet u).all (t.admits i.profile ·)
 
 /-- The first constant of a claimed module that the environment does not show and that
 `fitsUnshown` does not admit, with its module. -/
@@ -208,23 +316,29 @@ def Facts.unread? (f : Facts) (i : Input) : Option (Name × Name) :=
     (unshown.find? fun x => !fitsUnshown t x.2.1 x.2.2).map fun x => (x.1, x.2.1)
 
 /-- The closed input of the environment that `f` describes, under the profile `profile`. It refuses
-a module of `roots`, the default targets, that `f` does not claim, and a constant that
-`Facts.unread?` gives. -/
+a module of `roots`, the default targets, that `f` does not claim, a constant with no module, a
+reading that the admission refuses (`Draft.admit`), and a constant that `Facts.unread?` gives. -/
 def Facts.input (f : Facts) (roots : List Name) (profile : Profile) : Except String Input :=
-  match roots.find? (!f.claimed.contains ·) with
+  let claimed := f.claimed
+  match roots.find? (!claimed.contains ·) with
   | some m => .error s!"the module {m} of a default target has its .olean outside the root \
       package's build"
   | none =>
     let stated := f.stated
-    (f.env.constants.map₁.toList.mapM fun (n, info) =>
-      f.decl n info (stated.getD n [])).bind fun decls =>
-      let i : Input :=
-        { profile, modules := f.claimed, decls, loads := f.env.header.moduleNames.toList }
-      match f.unread? i with
-      | some (m, n) => .error s!"the module {m} holds the constant {n}, which Lean's import \
-          replaced with another of that name, and this one is no theorem within the profile or \
-          has a recursion helper's name"
-      | none => .ok i
+    match h : f.env.constants.map₁.toList.mapM (fun x => f.decl x.1 x.2 (stated.getD x.1 [])) with
+    | .error why => .error why
+    | .ok decls =>
+      let draft : Draft :=
+        { profile, modules := claimed, decls,
+          unique := f.decls_nodup (stated := (stated.getD · [])) h }
+      match draft.admit with
+      | .error why => .error why
+      | .ok i =>
+        match f.unread? i with
+        | some (m, n) => .error s!"the module {m} holds the constant {n}, which Lean's import \
+            replaced with another of that name, and this one is no theorem within the profile or \
+            has a recursion helper's name"
+        | none => .ok i
 
 /-- Whether `root` is the last workspace library directory before Lake's library in the received
 search path. Lake v4.35.0 `Package.lint` runs the driver without changing its directory

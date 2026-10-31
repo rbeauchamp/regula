@@ -1,3 +1,8 @@
+/-
+Copyright (c) 2026 Regula contributors. All rights reserved.
+Released under MIT license as described in the file LICENSE.
+Authors: Regula contributors
+-/
 module
 
 public import Lake.Load.Workspace
@@ -62,15 +67,19 @@ def defaultModules (ws : Lake.Workspace) : IO (Array Name) := do
 directory, or an error that refuses it. -/
 def loadInput (profile : Profile) : IO Input := do
   let ws ← loadWorkspace "."
-  let received := (((← IO.getEnv "LEAN_PATH").map SearchPath.parse).getD []).map toString
+  let some leanPath ← IO.getEnv "LEAN_PATH"
+    | refuse "LEAN_PATH is not set, so the workspace that Lake dispatched is not known: run the \
+        checker with `lake lint`, which sets it"
+  let received := (SearchPath.parse leanPath).map toString
   unless dispatchedFrom ws.root.leanLibDir.toString ws.lakeEnv.lake.libDir.toString received do
     refuse "the current directory is not the workspace Lake dispatched; run `lake lint` from that \
       workspace's directory"
   searchPathRef.set ws.augmentedLeanPath
   let roots ← defaultModules ws
-  let env ← try importModules (roots.map ({ module := · })) {} (loadExts := false) (level := .private)
+  let env ←
+    try importModules (roots.map ({ module := · })) {} (loadExts := false) (level := .private)
     catch e => refuse s!"Lean could not load the modules of the default targets: {e}"
-  let f := Facts.ofPlaces env ws.lakeEnv.lean.leanLibDir ws.root.leanLibDir (← places env)
+  let f ← Facts.load env ws.lakeEnv.lean.leanLibDir ws.root.leanLibDir
   match f.input roots.toList profile with
   | .ok input => return input
   | .error why => refuse why

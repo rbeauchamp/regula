@@ -24,7 +24,7 @@ linter.missingDocs = true
 # `specification/RegulaSpecification/`, the loader's reads of Lean and the shell.
 [[lean_lib]]
 name = "RegulaChecker"
-globs = ["Regula.RuleId", "Regula.Verdict", "Regula.Input", "Regula.Reach", "Regula.Rules", "Regula.Load", "Regula.Shell"]
+globs = ["Regula.RuleId", "Regula.Verdict", "Regula.Input", "Regula.Reach", "Regula.Tables", "Regula.Rules", "Regula.Load", "Regula.Shell"]
 
 # A library that gives no verdict: `ExecutableContract` and `RegisteredDecision`, which another project of
 # the owner's imports until it moves them.

@@ -1,17 +1,23 @@
+/-
+Copyright (c) 2026 Regula contributors. All rights reserved.
+Released under MIT license as described in the file LICENSE.
+Authors: Regula contributors
+-/
 import RegulaSpecification.Proofs.Records
 
 /-!
 # The verdict, against its statement
 
-`Regula.Closed.Input.refusal?` is the admission that the checker runs, and `Regula.Closed.run` its
-verdict. `refusal_none_iff` proves that the admission refuses exactly an input that the
-specification's `Input.WellFormed` refuses.
-`run_refused` and `run_complete` then state the verdict: a refused input is `incomplete`, and an
-admitted one is `pass` or `fail`, and `pass` exactly when every rule holds of it. `run_meets` states
-that as the record `gateRecord` over the specification's input.
+`Regula.Closed.Draft.admit` is the admission that the checker runs, and `Regula.Closed.decision` its
+verdict on what the admission gives (`run`). `admit_ok_iff` proves that the admission gives an input
+exactly for a reading that has the specification's `Input.WellFormed`. `run_refused` and
+`run_complete` then state the verdict: a refused reading is `incomplete`, and an admitted one is
+`pass` or `fail`, and `pass` exactly when every rule holds of it. `run_meets` states that as the
+record `gateRecord` over the
+specification's input.
 
 `Proofs/Load.lean` states what the loader gives in terms of the environment, and the shell's refusal
-of a build that it cannot load (`Regula.Shell.decision`, the record's first property, which
+of a build that it cannot load (`Regula.Closed.decision`, the record's first property, which
 `runChecker` reads as `none`).
 -/
 
@@ -20,108 +26,54 @@ namespace RegulaSpecification
 open Lean (Name)
 open LeanIntent
 
-namespace Link
-
-theorem duplicate_none (seen : Std.HashSet Name) (l : List Name) :
-    Regula.Closed.Input.duplicate? seen l = none ↔
-      l.Nodup ∧ ∀ x ∈ l, seen.contains x = false := by
-  induction l generalizing seen with
-  | nil => simp [Regula.Closed.Input.duplicate?]
-  | cons a l ih =>
-    rw [Regula.Closed.Input.duplicate?]
-    by_cases ha : seen.contains a = true
-    · rw [ite_eq_left ha]
-      constructor
-      · intro h
-        cases h
-      · rintro ⟨-, h⟩
-        have := h a (List.mem_cons_self ..)
-        rw [ha] at this
-        cases this
-    · rw [ite_eq_right ha, ih, List.nodup_cons]
-      have ha' : seen.contains a = false := by simpa using ha
-      constructor
-      · rintro ⟨hnd, hl⟩
-        refine ⟨⟨fun hm => ?_, hnd⟩, fun x hx => ?_⟩
-        · have := hl a hm
-          simp [Std.HashSet.contains_insert] at this
-        · rcases List.mem_cons.mp hx with rfl | hx
-          · exact ha'
-          · have := hl x hx
-            simp only [Std.HashSet.contains_insert, Bool.or_eq_false_iff] at this
-            exact this.2
-      · rintro ⟨⟨hm, hnd⟩, hl⟩
-        refine ⟨hnd, fun x hx => ?_⟩
-        have hb : (a == x) = false := by simpa using fun (h : a = x) => hm (h ▸ hx)
-        simp [Std.HashSet.contains_insert, hb, hl x (List.mem_cons_of_mem _ hx)]
-
-theorem openMention_none (i : Regula.Closed.Input) :
-    i.openMention? = none ↔ ∀ d ∈ (toSpec i).decls, ∀ u ∈ d.uses, (toSpec i).Resolves u := by
-  have hnames : ∀ u, (Regula.Closed.setOf (i.decls.map (·.name))).contains u = true ↔
-      (toSpec i).Resolves u := by
-    intro u
-    rw [mem_setOf, resolves_iff]
-    simp
-  unfold Regula.Closed.Input.openMention?
-  simp only [List.findSome?_eq_none_iff, Option.map_eq_none_iff, List.find?_eq_none]
-  constructor
-  · intro h x hx u hu
-    obtain ⟨d, hd, rfl⟩ := mem_decls.mp hx
-    exact (hnames u).mp (by simpa using h d hd u hu)
-  · intro h d hd u hu
-    have := (hnames u).mpr (h (decl d) (mem_decls.mpr ⟨d, hd, rfl⟩) u hu)
-    simp [this]
-
-theorem unloaded_none (i : Regula.Closed.Input) :
-    i.unloaded? = none ↔ ∀ m ∈ (toSpec i).modules, m ∈ (toSpec i).loads := by
-  unfold Regula.Closed.Input.unloaded?
-  simp only [List.find?_eq_none, Bool.not_eq_true', Bool.not_eq_false]
-  constructor
-  · intro h m hm
-    exact (mem_setOf i.loads m).mp (by simpa using h m hm)
-  · intro h m hm
-    have := (mem_setOf i.loads m).mpr (h m hm)
-    simp [this]
-
-end Link
-
 open Link
 
-/-- What the admission decides: it refuses nothing exactly when the input has the closed form. -/
-theorem refusal_none_iff (i : Regula.Closed.Input) :
-    i.refusal? = none ↔ (toSpec i).WellFormed := by
-  have hunique : Regula.Closed.Input.duplicate? {} (i.decls.map (·.name)) = none ↔
-      ((toSpec i).decls.map (·.name)).Nodup := by
-    rw [duplicate_none, names_toSpec]
-    simp
-  have hclaims : i.modules.isEmpty = false ↔ (toSpec i).modules ≠ [] := by
-    simp [toSpec]
-  have hwf : (toSpec i).WellFormed ↔
-      Regula.Closed.Input.duplicate? {} (i.decls.map (·.name)) = none ∧ i.openMention? = none ∧
-        i.modules.isEmpty = false ∧ i.unloaded? = none := by
-    rw [hunique, openMention_none, hclaims, unloaded_none]
-    exact ⟨fun h => ⟨h.unique, h.closed, h.claims, h.loaded⟩,
-      fun h => ⟨h.1, h.2.1, h.2.2.1, h.2.2.2⟩⟩
-  rw [hwf]
-  unfold Regula.Closed.Input.refusal?
-  split
-  · rename_i h
-    simp [h]
-  · rename_i h1
-    split
-    · rename_i h2
-      simp [h2]
-    · rename_i h2
-      split
-      · rename_i h3
-        simp [h3]
-      · rename_i h3
-        split
-        · rename_i h4
-          simp [h4]
-        · rename_i h4
-          simp [h1, h2, h3, h4]
+/-- The verdict of a reading, by the two functions that the checker runs on it: the admission, and
+the decision on what the admission gives. The loader runs the first (`Facts.input`) and the shell
+the second. -/
+def run (d : Regula.Closed.Draft) : Regula.Closed.Report :=
+  Regula.Closed.decision d.admit
 
+/-- What the admission gives is the closed form of the reading it read. -/
+theorem admit_toDraft {d : Regula.Closed.Draft} {i : Regula.Closed.Input}
+    (h : d.admit = .ok i) : i.toDraft = d := by
+  simp only [Regula.Closed.Draft.admit] at h
+  split at h
+  · cases h
+  · split at h
+    · cases h
+    · simp only [Except.ok.injEq] at h
+      exact h ▸ rfl
+
+/-- What the admission decides: it gives an input exactly when the reading has the closed form. -/
+theorem admit_ok_iff (d : Regula.Closed.Draft) :
+    (∃ i, d.admit = .ok i) ↔ (toSpecDraft d).WellFormed := by
+  rw [wf_toSpecDraft_iff]
+  constructor
+  · rintro ⟨i, hi⟩
+    have ht := admit_toDraft hi
+    subst ht
+    exact ⟨i.closed, i.claims⟩
+  · rintro ⟨hc, hm⟩
+    have hn := d.openMention?_eq_none.mpr hc
+    simp only [Regula.Closed.Draft.admit]
+    split
+    · rename_i h
+      rw [hn] at h
+      cases h
+    · split
+      · exact absurd ‹_› hm
+      · exact ⟨_, rfl⟩
+
+/-- What the admission refuses is what the closed form excludes. -/
+theorem admit_error_iff (d : Regula.Closed.Draft) :
+    (∃ why, d.admit = .error why) ↔ ¬ (toSpecDraft d).WellFormed := by
+  rw [← admit_ok_iff]
+  cases d.admit with
+  | error why => simp
+  | ok i => simp
+
+/-- A list of findings is empty exactly when it reports no subject. -/
 theorem nil_iff_no_subject (fs : List Regula.Closed.Finding) :
     fs = [] ↔ ∀ s, s ∉ fs.map (·.subject) := by
   cases fs with
@@ -133,10 +85,9 @@ theorem nil_iff_no_subject (fs : List Regula.Closed.Finding) :
     · intro h
       exact absurd (List.mem_cons_self ..) (h f.subject)
 
-/-- An admitted input has no finding exactly when every rule holds of it. -/
-theorem findings_nil_iff {i : Regula.Closed.Input} (h : (toSpec i).WellFormed) :
+/-- An input has no finding exactly when every rule holds of it. -/
+theorem findings_nil_iff (i : Regula.Closed.Input) :
     i.findings = [] ↔ AllHold (toSpec i) := by
-  have hu := unique_of_wf h
   have hall : i.findings = [] ↔ ∀ r, i.tables.check r = [] := by
     simp only [Regula.Closed.Input.findings, List.flatMap_eq_nil_iff]
     exact ⟨fun h r => h r (Regula.RuleId.mem_all r), fun h r _ => h r⟩
@@ -145,62 +96,70 @@ theorem findings_nil_iff {i : Regula.Closed.Input} (h : (toSpec i).WellFormed) :
   · intro hn
     have at' : ∀ r s, s ∉ (i.tables.check r).map (·.subject) :=
       fun r => (nil_iff_no_subject _).mp (hn r)
-    exact ⟨fun c hv => at' .projectAxiom c ((rg1001_exact i c).mpr hv),
-      fun c hv => at' .proofHole c ((rg1002_exact i c).mpr hv),
-      fun c hv => at' .unknownAxiom c ((rg1003_exact hu c).mpr hv),
-      fun c hv => at' .nativeProof c ((rg1004_exact i c).mpr hv),
-      fun c hv => at' .profileExceeded c ((rg1005_exact hu c).mpr hv),
-      fun c hv => at' .escapeHatch c ((rg1006_exact hu c).mpr hv)⟩
+    exact ⟨fun c hv => at' .projectAxiom c ((rg1001_exact i.tables c).mpr hv),
+      fun c hv => at' .proofHole c ((rg1002_exact i.tables c).mpr hv),
+      fun c hv => at' .unknownAxiom c ((rg1003_exact i.tables c).mpr hv),
+      fun c hv => at' .nativeProof c ((rg1004_exact i.tables c).mpr hv),
+      fun c hv => at' .profileExceeded c ((rg1005_exact i.tables c).mpr hv),
+      fun c hv => at' .escapeHatch c ((rg1006_exact i.tables c).mpr hv)⟩
   · rintro ⟨h1, h2, h3, h4, h5, h6⟩ r
     refine (nil_iff_no_subject _).mpr fun s hs => ?_
     cases r
-    · exact h1 s ((rg1001_exact i s).mp hs)
-    · exact h2 s ((rg1002_exact i s).mp hs)
-    · exact h3 s ((rg1003_exact hu s).mp hs)
-    · exact h4 s ((rg1004_exact i s).mp hs)
-    · exact h5 s ((rg1005_exact hu s).mp hs)
-    · exact h6 s ((rg1006_exact hu s).mp hs)
+    · exact h1 s ((rg1001_exact i.tables s).mp hs)
+    · exact h2 s ((rg1002_exact i.tables s).mp hs)
+    · exact h3 s ((rg1003_exact i.tables s).mp hs)
+    · exact h4 s ((rg1004_exact i.tables s).mp hs)
+    · exact h5 s ((rg1005_exact i.tables s).mp hs)
+    · exact h6 s ((rg1006_exact i.tables s).mp hs)
     · simp [Regula.Closed.Tables.check] at hs
 
-/-- An input that the admission refuses is `incomplete`: a part of the input that cannot be read is
+/-- The report of an input is not `incomplete`, and it is `pass` exactly when every rule holds of
+it. No hypothesis is needed: the type of the input carries the closed form. -/
+theorem report_complete (i : Regula.Closed.Input) :
+    i.report.verdict ≠ .incomplete ∧
+      (i.report.verdict = .pass ↔ AllHold (toSpec i)) := by
+  rw [← findings_nil_iff]
+  simp only [Regula.Closed.Input.report]
+  cases i.findings <;> simp [Regula.Closed.Report.verdict]
+
+/-- The report of an input holds exactly the findings of the rules. -/
+theorem report_findings (i : Regula.Closed.Input) : i.report.findings = i.findings := by
+  simp only [Regula.Closed.Input.report]
+  cases i.findings <;> rfl
+
+/-- A reading that the admission refuses is `incomplete`: a part of the input that cannot be read is
 never a pass and never an empty report. -/
-theorem run_refused {i : Regula.Closed.Input} (h : i.refusal? ≠ none) :
-    (Regula.Closed.run i).1 = .incomplete := by
-  unfold Regula.Closed.run
-  split
-  · rfl
-  · contradiction
+theorem run_refused {d : Regula.Closed.Draft} (h : ¬ (toSpecDraft d).WellFormed) :
+    (run d).verdict = .incomplete := by
+  obtain ⟨why, hw⟩ := (admit_error_iff d).mpr h
+  simp only [run, hw, Regula.Closed.decision, Regula.Closed.Report.verdict]
 
-/-- An admitted input is not `incomplete`, and it is `pass` exactly when every rule holds of it. -/
-theorem run_complete {i : Regula.Closed.Input} (h : (toSpec i).WellFormed) :
-    (Regula.Closed.run i).1 ≠ .incomplete ∧
-      ((Regula.Closed.run i).1 = .pass ↔ AllHold (toSpec i)) := by
-  have hnone : i.refusal? = none := (refusal_none_iff i).mpr h
-  unfold Regula.Closed.run
-  rw [hnone]
-  simp only
-  constructor
-  · split <;> simp
-  · rw [← findings_nil_iff h]
-    cases i.findings <;> simp
+/-- An admitted reading is not `incomplete`, and it is `pass` exactly when every rule holds of it.
+-/
+theorem run_complete {d : Regula.Closed.Draft} (h : (toSpecDraft d).WellFormed) :
+    (run d).verdict ≠ .incomplete ∧
+      ((run d).verdict = .pass ↔ AllHold (toSpecDraft d)) := by
+  obtain ⟨i, hi⟩ := (admit_ok_iff d).mpr h
+  have ht := admit_toDraft hi
+  subst ht
+  simp only [run, hi, Regula.Closed.decision]
+  exact report_complete i
 
-/-- A pass of the checker is an admitted input: an input that the admission refuses is never a
+/-- A pass of the checker is an admitted reading: a reading that the admission refuses is never a
 pass. -/
-theorem run_pass_admitted {i : Regula.Closed.Input} (hp : (Regula.Closed.run i).1 = .pass) :
-    i.refusal? = none := by
-  cases hr : i.refusal? with
-  | none => rfl
-  | some why =>
-    have := run_refused (i := i) (by simp [hr])
-    rw [this] at hp
+theorem run_pass_admitted {d : Regula.Closed.Draft}
+    (hp : (run d).verdict = .pass) : (toSpecDraft d).WellFormed :=
+  Classical.byContradiction fun hn => by
+    rw [run_refused hn] at hp
     cases hp
 
-/-- A pass of the checker is exactly an input of the closed form of which each rule holds. -/
-theorem run_pass_iff {i : Regula.Closed.Input} :
-    (Regula.Closed.run i).1 = .pass ↔ (toSpec i).WellFormed ∧ AllHold (toSpec i) := by
+/-- A pass of the checker is exactly a reading of the closed form of which each rule holds. -/
+theorem run_pass_iff {d : Regula.Closed.Draft} :
+    (run d).verdict = .pass ↔
+      (toSpecDraft d).WellFormed ∧ AllHold (toSpecDraft d) := by
   constructor
   · intro hp
-    have hw := (refusal_none_iff i).mp (run_pass_admitted hp)
+    have hw := run_pass_admitted hp
     exact ⟨hw, (run_complete hw).2.mp hp⟩
   · rintro ⟨hw, ha⟩
     exact (run_complete hw).2.mpr ha
@@ -215,23 +174,22 @@ def verdict : Regula.Closed.Verdict → Verdict
 cannot load. -/
 def runChecker : Option Input → Verdict
   | none => .incomplete
-  | some s => verdict (Regula.Closed.run (ofSpec s)).1
+  | some s => verdict (run (ofSpec s)).verdict
 
 /-- The checker's verdict meets the record of the verdict. -/
 theorem run_meets : gateRecord.Meets runChecker := by
   rw [gate_meets_iff]
   refine ⟨rfl, fun s hs => ?_, fun s hs => ?_⟩
-  · have hr : (ofSpec s).refusal? ≠ none := fun hn => hs (by
-      have := (refusal_none_iff _).mp hn
-      rwa [toSpec_ofSpec] at this)
+  · have hr : ¬ (toSpecDraft (ofSpec s)).WellFormed := by rwa [toSpecDraft_ofSpec]
     simp [runChecker, run_refused hr, verdict]
-  · obtain ⟨hn, hp⟩ := run_complete (wf_ofSpec hs)
-    rw [toSpec_ofSpec] at hp
+  · have hs' : (toSpecDraft (ofSpec s)).WellFormed := by rwa [toSpecDraft_ofSpec]
+    obtain ⟨hn, hp⟩ := run_complete hs'
+    rw [toSpecDraft_ofSpec] at hp
     simp only [runChecker]
     constructor
-    · cases hv : (Regula.Closed.run (ofSpec s)).1 <;> simp_all [verdict]
+    · cases hv : (run (ofSpec s)).verdict <;> simp_all [verdict]
     · rw [← hp]
-      cases (Regula.Closed.run (ofSpec s)).1 <;> simp [verdict]
+      cases (run (ofSpec s)).verdict <;> simp [verdict]
 
 /-- Regula's checks are exactly RG1001 to RG1006 and RG2001. -/
 theorem rule_spellings :

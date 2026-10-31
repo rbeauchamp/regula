@@ -1,8 +1,12 @@
+/-
+Copyright (c) 2026 Regula contributors. All rights reserved.
+Released under MIT license as described in the file LICENSE.
+Authors: Regula contributors
+-/
 module
 
-public import Regula.Input
-public import Regula.Reach
 public import Regula.RuleId
+public import Regula.Tables
 public import Regula.Verdict
 import Lean.Compiler.Old
 
@@ -11,16 +15,16 @@ import Lean.Compiler.Old
 
 Each rule as a pure, total function from the closed input (`Regula.Closed.Input`) to the constants
 that violate it, in the order of `specification/RegulaSpecification/Foundation.lean` (RG1001 to
-RG1005) and `Safety.lean` (RG1006). Each reads only fields of the input.
+RG1005) and `Safety.lean` (RG1006). Each reads only fields of the input, through its tables.
 `specification/RegulaSpecification/Proofs/` proves of each that it reports a subject exactly when
 the violation predicate of the specification holds of it.
 
-The rules compute the axiom set of a constant from the input itself: the constants that each
-constant mentions and the kind of each (`Tables.axiomSet`). No field holds a set, so no set can be
-missing, and `Link.axiomSet_iff` states what it holds with no hypothesis about a reader.
+A rule reads the input through a value of `Tables i` (`Regula.Tables`), which carries what each of
+its tables holds of the input `i`.
 
-`run` gives the verdict: an input that the admission refuses is `incomplete`, and a well-formed one
-passes exactly when no rule reports a subject.
+`Input.report` gives the outcome of an input, which passes exactly when no rule reports a subject.
+`decision` gives the outcome of what the load gave, so a reading that the admission refuses
+(`Draft.admit`) is `incomplete`.
 -/
 
 public section
@@ -63,49 +67,6 @@ structure Finding where
   module : Name
   /-- What the rule found. -/
   detail : String
-  deriving Inhabited
-
-/-- What the rules read of one input, computed once. -/
-structure Tables where
-  /-- The profile that the project states. -/
-  profile : Profile
-  /-- The constants by name. -/
-  index : Std.HashMap Name Decl
-  /-- The constants of claimed modules. -/
-  claimed : List Decl
-  /-- Each axiom of the input, with the constants that reach it through the constants each mentions
-  (`axiomSet`). -/
-  axiomReach : List (Name × Std.HashSet Name)
-
-namespace Input
-
-variable (i : Input)
-
-/-- The constants of claimed modules. -/
-def claimedDecls : List Decl :=
-  let claimed := setOf i.modules
-  i.decls.filter (claimed.contains ·.module)
-
-/-- The constants that mention each constant. -/
-def mentionedBy : Std.HashMap Name (List Name) :=
-  i.decls.foldl (init := {}) fun m d =>
-    d.uses.foldl (init := m) fun m u => m.insert u (d.name :: m.getD u [])
-
-/-- Each axiom of the input, with the constants that reach it: the search over the mentions, read
-backwards from the axiom. The search costs what the graph of the input costs, once for each axiom.
--/
-def axiomReach : List (Name × Std.HashSet Name) :=
-  let callers := i.mentionedBy
-  let weight := (callers.keys.map fun n => (callers.getD n []).length).sum
-  (i.decls.filter (·.kind == .axiom)).map fun a =>
-    (a.name, reach (callers.getD · []) weight [a.name])
-
-/-- The tables of the input. -/
-def tables : Tables :=
-  { profile := i.profile, index := i.index, claimed := i.claimedDecls,
-    axiomReach := i.axiomReach }
-
-end Input
 
 /-- A finding whose subject is the constant `d`. -/
 def finding (rule : RuleId) (d : Decl) (detail : String) : Finding :=
@@ -113,11 +74,7 @@ def finding (rule : RuleId) (d : Decl) (detail : String) : Finding :=
 
 namespace Tables
 
-variable (t : Tables)
-
-/-- The axiom set of constant `c` (`Input.AxiomOf`): each axiom of the input that `c` reaches. -/
-def axiomSet (c : Name) : List Name :=
-  t.axiomReach.filterMap fun (a, reached) => if reached.contains c then some a else none
+variable {i : Input} (t : Tables i)
 
 /-- `a` is one of the three logical axioms and is the toolchain's own constant of that name. -/
 def known (a : Name) : Bool :=
@@ -135,13 +92,13 @@ definition: the base of a `partial def` is an opaque constant, so its helper is 
 def helperBaseFits (d : Decl) : Bool :=
   match Lean.Compiler.isUnsafeRecName? d.name with
   | some base => t.index[base]?.any fun b =>
-      b.kind == .definition && b.module == d.module && !b.isUnsafe && !b.isPartial &&
+      b.kind == .definition && b.module == d.module && b.safety == .safe &&
         b.implementedBy.isNone && !b.isExtern
   | none => false
 
 /-- `d` has the form of the recursion helper of a safe recursive definition in the same module. -/
 def recursionHelper (d : Decl) : Bool :=
-  d.isPartial && !d.isUnsafe && d.implementedBy.isNone && !d.isExtern && t.helperBaseFits d
+  d.safety == .partial && d.implementedBy.isNone && !d.isExtern && t.helperBaseFits d
 
 /-- RG1001: a constant of a claimed module is an axiom. -/
 def rg1001 : List Finding :=
@@ -179,25 +136,30 @@ def rg1004 : List Finding :=
 admit. -/
 def rg1005 : List Finding :=
   t.claimed.filterMap fun d =>
-    let excess := (t.axiomSet d.name).filter (!t.admits t.profile ·)
+    let excess := (t.axiomSet d.name).filter (!t.admits i.profile ·)
     if !excess.isEmpty then
       some (finding .profileExceeded d s!"depends on {excess}, outside the profile")
     else none
+
+/-- What RG1006 prints of a constant that it reports. -/
+def escapeDetail (d : Decl) : String :=
+  if mentionsLoop d then "mentions a loop construct of Lean"
+  else
+    match d.safety with
+    | .unsafe => "is unsafe"
+    | .partial => "is partial"
+    | .safe => "has the name of a recursion helper, and is not partial"
 
 /-- RG1006: a constant of a claimed module is unsafe, partial or named as a recursion helper,
 without the form of a recursion helper, or its value mentions a loop construct of Lean. -/
 def rg1006 : List Finding :=
   t.claimed.filterMap fun d =>
-    if ((d.isUnsafe || d.isPartial || namedAsHelper d) && !t.recursionHelper d) || mentionsLoop d
-    then
-      some (finding .escapeHatch d (if mentionsLoop d then "mentions a loop construct of Lean"
-        else if d.isUnsafe then "is unsafe"
-        else if d.isPartial then "is partial"
-        else "has the name of a recursion helper, and is not partial"))
+    if ((d.safety != .safe || namedAsHelper d) && !t.recursionHelper d) || mentionsLoop d then
+      some (finding .escapeHatch d (escapeDetail d))
     else none
 
 /-- The findings of one rule, matched exhaustively over the closed type of the rules. RG2001 reads
-no constant: it is the admission (`Input.refusal?`) and the shell's refusal of a build it cannot
+no constant: it is the admission (`Draft.admit`) and the shell's refusal of a build it cannot
 load. -/
 def check : RuleId → List Finding
   | .projectAxiom => t.rg1001
@@ -214,14 +176,43 @@ end Tables
 def Input.findings (i : Input) : List Finding :=
   RuleId.all.flatMap i.tables.check
 
-/-- The verdict of a run and its findings, or the reason the run is incomplete. An input that the
-admission refuses is incomplete; a well-formed input passes exactly when no rule reports a
-subject. -/
-def run (i : Input) : Verdict × List Finding × Option String :=
-  match i.refusal? with
-  | some why => (.incomplete, [], some why)
-  | none =>
-    let fs := i.findings
-    (if fs.isEmpty then .pass else .fail, fs, none)
+/-- The outcome of a run: each verdict with what it carries. A pass has no finding, a failure has at
+least one, and an incomplete run has its reason. -/
+inductive Report where
+  /-- The input has the closed form, and no rule reports a subject. -/
+  | pass
+  /-- A rule reports a subject: the first finding and the rest. -/
+  | fail (first : Finding) (rest : List Finding)
+  /-- The build could not be loaded or the input does not have the closed form, and why. -/
+  | incomplete (why : String)
+
+namespace Report
+
+/-- The verdict of a report. -/
+def verdict : Report → Verdict
+  | .pass => .pass
+  | .fail _ _ => .fail
+  | .incomplete _ => .incomplete
+
+/-- The findings of a report. -/
+def findings : Report → List Finding
+  | .pass => []
+  | .fail first rest => first :: rest
+  | .incomplete _ => []
+
+end Report
+
+/-- The report of the closed input: it passes exactly when no rule reports a subject. -/
+def Input.report (i : Input) : Report :=
+  match i.findings with
+  | [] => .pass
+  | first :: rest => .fail first rest
+
+/-- The report of a run, from what the load gave: a build it cannot read is `incomplete`, and
+otherwise the report is `Input.report`. -/
+def decision : Except String Input → Report
+  | .error why => .incomplete why
+  | .ok input => input.report
+
 
 end Regula.Closed

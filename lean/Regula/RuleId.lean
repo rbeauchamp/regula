@@ -1,3 +1,8 @@
+/-
+Copyright (c) 2026 Regula contributors. All rights reserved.
+Released under MIT license as described in the file LICENSE.
+Authors: Regula contributors
+-/
 module
 
 /-!
@@ -33,7 +38,7 @@ inductive RuleId where
   | escapeHatch
   /-- RG2001: the build cannot be loaded, or the input does not have the closed form. -/
   | environment
-  deriving Repr, DecidableEq, Inhabited
+  deriving Repr, DecidableEq
 
 namespace RuleId
 
@@ -52,10 +57,17 @@ def all : List RuleId :=
   [.projectAxiom, .proofHole, .unknownAxiom, .nativeProof, .profileExceeded, .escapeHatch,
     .environment]
 
+/-- `all` lists each rule. -/
 theorem mem_all (id : RuleId) : id ∈ all := by
   cases id <;> simp [all]
 
+/-- `all` lists no rule twice. -/
 theorem all_nodup : all.Nodup := by decide
+
+/-- Distinct rules have distinct names. -/
+theorem spelling_injective : Function.Injective spelling := by
+  intro a b h
+  cases a <;> cases b <;> first | rfl | exact absurd h (by decide)
 
 end RuleId
 

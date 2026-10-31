@@ -1,3 +1,8 @@
+/-
+Copyright (c) 2026 Regula contributors. All rights reserved.
+Released under MIT license as described in the file LICENSE.
+Authors: Regula contributors
+-/
 import RegulaSpecification.Safety
 
 /-!
@@ -42,6 +47,7 @@ def gateRecord : IntentRecord (Option Input → Verdict) where
         g (some i) ≠ .incomplete ∧ (g (some i) = .pass ↔ AllHold i)⟩]
   vocab := [⟨"well-formed input", Input, Input.WellFormed⟩]
 
+/-- What it means to meet the record of the verdict, with the record's fields unfolded. -/
 theorem gate_meets_iff (g : Option Input → Verdict) :
     gateRecord.Meets g ↔ g none = .incomplete ∧
       (∀ i : Input, ¬ i.WellFormed → g (some i) = .incomplete) ∧

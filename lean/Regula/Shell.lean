@@ -1,3 +1,8 @@
+/-
+Copyright (c) 2026 Regula contributors. All rights reserved.
+Released under MIT license as described in the file LICENSE.
+Authors: Regula contributors
+-/
 module
 
 public import Regula.Rules
@@ -12,10 +17,11 @@ workspace runs Git in the environment of the caller. It builds nothing: the proj
 with `lake build --wfail` before it runs the checker, and a module without its `.olean` makes the
 run `incomplete`.
 
-The verdict is that of `decision`: `pass` (exit 0) when the input has the closed form and no rule
-reports a subject, `fail` (exit 1) when a rule reports one, and `incomplete` (exit 2) when the build
-cannot be loaded or the input does not have the closed form (RG2001). `profileOfRun` and `decision`
-are pure, and `specification/RegulaSpecification/Proofs/Load.lean` states what they give.
+The verdict is that of `Regula.Closed.decision`: `pass` (exit 0) when the input has the closed form
+and no rule reports a subject, `fail` (exit 1) when a rule reports one, and `incomplete` (exit 2)
+when the build cannot be loaded or the input does not have the closed form (RG2001). `profileOfRun`
+and `decision` are pure, and `specification/RegulaSpecification/Proofs/Load.lean` states what they
+give.
 -/
 
 public section
@@ -30,33 +36,29 @@ other. -/
 def supportsLean (version commit : String) : Bool :=
   version == "4.35.0" && commit == "eb6cafb7290e8bd5f2937522d8d804f58f02bafc"
 
-/-- The profile that a project states in `lintDriverArgs`; any other text is none. -/
-def profileOf? : String → Option Profile
-  | "kernel-only" => some .kernelOnly
-  | "choice-free" => some .choiceFree
-  | "standard-logical" => some .standardLogical
-  | _ => none
-
 /-- The line of one finding. -/
 def line (f : Finding) : String :=
   let place := if f.module == f.subject then "" else s!" (module {f.module})"
   s!"{f.rule.spelling} {f.subject}{place}: {f.detail}"
 
 /-- Print the findings and the verdict, and give the verdict's exit code. -/
-def report (verdict : Verdict) (findings : List Finding) (why : Option String) : IO UInt32 := do
-  for f in findings do
+def report (r : Report) : IO UInt32 := do
+  for f in r.findings do
     IO.println (line f)
-  match verdict, why with
-  | .pass, _ => IO.println s!"regula: {verdict.label}"
-  | .fail, _ => IO.println s!"regula: {verdict.label}, {findings.length} findings"
-  | .incomplete, why =>
-    IO.println s!"regula: {verdict.label} (RG2001): {why.getD "no reason"}"
-  return verdict.exitCode
+  match r with
+  | .pass => IO.println s!"regula: {r.verdict.label}"
+  | .fail _ rest => IO.println s!"regula: {r.verdict.label}, {rest.length + 1} findings"
+  | .incomplete why => IO.println s!"regula: {r.verdict.label} (RG2001): {why}"
+  return r.verdict.exitCode
 
 /-- What a run read. -/
 def coverage (i : Input) : String :=
   s!"regula: read {i.modules.length} claimed modules and {i.claimedDecls.length} of their \
     constants"
+
+/-- The spellings of the profiles, for a refusal. -/
+def profileSpellings : String :=
+  ", ".intercalate (Profile.all.map (·.spelling))
 
 /-- The profile of a run of the Lean release `version` at `commit` with the arguments `args`, or why
 the run is `incomplete`: any other release, and any argument list other than one profile. -/
@@ -66,27 +68,19 @@ def profileOfRun (version commit : String) (args : List String) : Except String 
   else
     match args with
     | [text] =>
-      match profileOf? text with
+      match Profile.ofSpelling? text with
       | some profile => .ok profile
-      | none => .error s!"{text} is no profile: kernel-only, choice-free or standard-logical"
-    | _ =>
-      .error "state one profile in `lintDriverArgs`: kernel-only, choice-free or standard-logical"
-
-/-- The verdict of a run, its findings and the reason it is `incomplete`, from what the load gave: a
-build it cannot read is `incomplete`, and otherwise the verdict is `Regula.Closed.run`'s. -/
-def decision : Except String Input → Verdict × List Finding × Option String
-  | .error why => (.incomplete, [], some why)
-  | .ok input => Regula.Closed.run input
+      | none => .error s!"{text} is no profile: {profileSpellings}"
+    | _ => .error s!"state one profile in `lintDriverArgs`: {profileSpellings}"
 
 /-- Run the checker with the arguments of `lake lint` (`profileOfRun`), read the build through
 `load` and report the verdict of `decision`. -/
 def run (load : Profile → IO Input) (args : List String) : IO UInt32 := do
   match profileOfRun Lean.versionString Lean.githash args with
-  | .error why => report .incomplete [] (some why)
+  | .error why => report (.incomplete why)
   | .ok profile =>
     let loaded := (← (load profile).toBaseIO).mapError toString
     if let .ok input := loaded then IO.println (coverage input)
-    let (verdict, findings, why) := decision loaded
-    report verdict findings why
+    report (decision loaded)
 
 end Regula.Shell
