@@ -2,100 +2,35 @@
 # no-mistakes reads every setting here only from the copy of this file on the default branch, so a
 # change to it governs the runs that start after its merge.
 #
-# The gate of a change. GitHub Actions does not check a change: the workflows that checked pull
-# requests and pushes run on dispatch, and on main only what the release and the site publication
-# need. The pipeline's Test step is the gate instead. It runs `commands.test` in the run's disposable
-# checkout at the commit it validates, and an exit code other than 0 parks it. The command is the
-# local gate, which runs the steps of every workflow job that checks a change one after another,
-# and stops at the first that fails. When GitHub does not answer its reads, it names the answers and
-# leaves out the site check alone (docs/guides/contributing.md#the-local-gate). It runs the steps on
-# every commit, never a selection by the paths a change touches. What a step rebuilds is Lake's
-# decision, from its own traces in the
-# checkout, and the first acceptance step builds in a new copy, as it does by hand. No
-# `build_outputs` is declared: for Lake, the only store it may seed is Lake's artifact cache, and
-# every command that `scripts/verify.sh` starts runs with `LAKE_ARTIFACT_CACHE=false`
-# (`RegulaVerification.start`), so a seeded cache would go unread. no-mistakes documents
-# `commands.test` as a targeted command that leaves broad regression to CI; here no CI is left to
-# run it.
+# The gate of a change. The repository has no CI workflow. The pipeline's Test step is the gate: it
+# runs `commands.test` in the run's disposable checkout at the commit it validates, and an exit code
+# other than 0 parks it. The command is the local gate (`lean/Regula/DiagnosticsGate.lean`), which
+# runs its steps one after another and stops at the first that fails. It starts by removing each
+# earlier build output. No `build_outputs` is declared: for Lake, the only store it may seed is Lake's
+# artifact cache, and the gate runs each command with `LAKE_ARTIFACT_CACHE=false`, so a seeded cache
+# would go unread.
 #
-# `no_ci` declares that none of the workflow files in `.github/workflows/` reports a check on a pull
-# request, so a pull request with no checks can count as ready. A check that GitHub still reports is
-# processed as before.
+# `no_ci` declares that no workflow file reports a check on a pull request, so a pull request with no
+# checks can count as ready. A check that GitHub still reports is processed as before.
 #
-# The title of a pull request is not a check of a commit, and no-mistakes runs no command after it
-# writes the title. `pr.title_format` stays unset, so no-mistakes drafts each title as a Conventional
-# Commits header; the `Title` workflow checks a title on dispatch.
+# `pr.title_format` stays unset, so no-mistakes drafts each title as a Conventional Commits header.
 #
 # The description of a pull request becomes the body of its one commit on main, and it records the
 # reasons for the change. `pr.template` names the template of that description,
 # .github/pull_request_template.md: its top-level headings are the sections that each description
-# carries, and its text tells the author what each section holds. no-mistakes drafts a new
-# description from the template and refuses a draft that changes, drops or reorders one of those
-# headings. On each later run it keeps the text that an author wrote before and after its generated
-# appendix and refreshes only that appendix. Without the setting, a re-push after a rebase or the
-# repair of a conflict drafted the whole description again and dropped the sections that authors
-# had written. It reads the template from the same default-branch commit as this file, so a change
-# to the template governs the runs that start after its merge. Such a description is not fitted to
-# the publication budget as an ordinary one is: when the author's text, closing references and
-# recorded evidence do not fit, the PR step fails instead of dropping any of them. Of the last 40
-# descriptions before this setting, five were 57 to 63 KB in ordinary mode, and three of those had
-# dropped earlier update rounds to fit. So `pr.appendix: minimal` keeps the generated appendix to
-# the Intent section, a one-line risk summary and the pipeline's signature and attestation: it
-# leaves out the Testing logs and the pipeline's round history, which stay in the run's log.
+# carries. no-mistakes drafts a new description from the template and refuses a draft that changes,
+# drops or reorders one of those headings. On each later run it keeps the text that an author wrote
+# before and after its generated appendix and refreshes only that appendix. It reads the template from
+# the same default-branch commit as this file. Such a description is not fitted to the publication
+# budget as an ordinary one is: when the author's text, closing references and recorded evidence do
+# not fit, the PR step fails instead of dropping any of them. So `pr.appendix: minimal` keeps the
+# generated appendix to the Intent section, a one-line risk summary and the pipeline's signature and
+# attestation.
 #
 # Memory. The gate's Lake builds run as many jobs as the machine has cores and its Lean processes run
-# with no memory limit, so nothing bounds its peak, and the step takes the machine's whole heavy-work
-# budget (16 GiB on the 24 GiB Mac that runs it, which keeps 8 GiB in reserve). A measurement of the
-# gate found a peak above that budget, so no smaller bound is safe: the bound stays the whole budget
-# until the gate is measured again. The change of issue 486 removes the module of
-# https://github.com/rbeauchamp/regula/issues/497 and the package in `controls/` that held it, and the
-# gate has eight steps, whose memory the measurement below did not measure.
-#
-# The measurement ran the gate twice on 2026-10-29 on that Mac, on main at 59f1833 (Lean v4.35.0),
-# each time in a new checkout of the shape that the pipeline runs in (a linked worktree of a mirror)
-# and under `no-mistakes admit --memory 16GiB`, so that no other admitted work ran beside it. Run 1
-# (11:04 to 11:34 UTC) stopped at step 26, which failed once with "resource temporarily unavailable"
-# and passed when it ran again alone. Run 2 (11:37 to 12:27 UTC) passed all 38 steps. Every 2
-# seconds a sampler summed the physical footprint of each process of the gate's process tree, the
-# gate's own process included (`top`'s MEM: dirty memory, compressed and swapped pages included). The
-# peak of a step below is the largest such sum while the step ran. Resident sets are no bound: they
-# count a shared .olean file once in each process that maps it and leave out compressed and swapped
-# pages (their sum reached 29.3 GiB in step 4 of run 2, whose footprint was 12.84 GiB). Shared clean
-# pages, which macOS's `footprint` tool counts once, added 1.1 to 2.4 GiB in each step it measured.
-# Peaks in GiB, run 1 then run 2 ("-": the step ran about one second, between two samples, and the
-# resident sets of its processes summed to at most 2.6 GiB; "x": the run did not reach the step):
-#
-#    1 RegulaProvision verso       1.71  1.78    20 structural 1/5            4.12  4.18
-#    2 Release unreleased          -     0.53    21 structural 2/5            3.86  3.42
-#    3 Release agree               0.55  0.78    22 structural 3/5            4.91  5.80
-#    4 verify.sh                  12.16 12.84    23 structural 4/5            4.69  8.68
-#    5 verify.sh docs              6.96  6.89    24 structural 5/5            5.43  5.75
-#    6 RegulaProvision mathlib     0.67  0.66    25 execution 1/4             7.24  6.54
-#    7 verify.sh mathlib           3.42  3.92    26 execution 2/4             5.88  8.68
-#    8 rule-examples 1/3           9.01 12.34    27 execution 3/4             x     6.62
-#    9 rule-examples 2/3           8.67 12.56    28 execution 4/4             x     6.60
-#   10 rule-examples 3/3           8.97  5.43    29 input-inventory           x     2.20
-#   11 lake build axiomGate ...    0.85  0.85    30 acceptance-controls       x     2.79
-#   12 lake build Audit            -     -       31 documentation-controls    x     2.81
-#   13 producers                   6.59  6.71    32 focused-controls          x     3.65
-#   14 history                     8.03  9.05    33 DiagnosticsGate digests   x     -
-#   15 lint-driver 1/5             5.65  6.20    34 self-lint                 x     7.67
-#   16 lint-driver 2/5             2.59  2.47    35 self-audit 1/4            x    30.68
-#   17 lint-driver 3/5             4.25  4.16    36 self-audit 2/4            x     7.08
-#   18 lint-driver 4/5             4.90  4.65    37 self-audit 3/4            x     7.18
-#   19 lint-driver 5/5             6.72  7.56    38 self-audit 4/4            x     5.69
-#
-# Step 35 holds the peak. Its `lake build Regula qualify` compiles Regula.ProgramCheck.Controls, the
-# only compile of that module in the gate, and that one `lean` process grew to about 30 GiB in 110
-# seconds and kept it until it ended after 188 seconds (the `footprint` tool counted 30.9 GiB of
-# dirty memory for the tree). Its resident set was at most 8.5 GiB: the rest was compressed or
-# swapped, while the machine had 0.1 GiB free, its compressor held 12 GiB and its swap grew from 1.6
-# to 8.9 GiB. Run 1 stopped before that step. A bound above the budget makes no-mistakes fail the
-# step at once, and a bound below it would admit other work beside a step that already swaps the
-# machine. Without that compile the highest peak is 12.84 GiB (step 4), and the peak of one step
-# differed by up to 85 percent between the two runs (step 23), so even then a margin of 15 percent
-# over the highest peak leaves only about 1 GiB beside the gate. Measure the gate again before the
-# bound is lowered.
+# with no memory limit, so nothing bounds its peak, and no measurement of the present gate is recorded
+# here. So the step takes the machine's whole heavy-work budget (16 GiB on the 24 GiB Mac that runs it,
+# which keeps 8 GiB in reserve). Measure the gate before the bound is lowered.
 #
 # Tests are not evidence. Regula establishes the claims of a change by types, constructions,
 # contracts, machine-checked proofs and derivation, not by tests. The pipeline's reviewer, test and
@@ -111,9 +46,7 @@
 # The listing prints the driver that Lake reports for the root package, and prints nothing when Lake
 # reports none. It fails, and so blocks rather than passes, when Lake cannot load the package or the
 # driver cannot be printed as one identifier. It reads the package with Lake's own loader and builds
-# no target. Regula's controls, mutations and rule examples are not tests that Lake knows, so the
-# listing does not print them. The library name in the command is macOS's: on another system the
-# command fails.
+# no target. The library name in the command is macOS's: on another system the command fails.
 #
 # Memory of the listing. Measured on 2026-10-27 on a checkout with no .lake directory: `lake env`
 # peaked at 0.75 GB resident and the program at 1.9 GB resident, most of it Lean's and Lake's .olean

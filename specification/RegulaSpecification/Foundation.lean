@@ -66,10 +66,10 @@ which the kernel trusts the compiler. -/
 def Violates1004 (i : Input) (c : Name) : Prop :=
   i.ClaimedName c ∧ ∃ a, i.AxiomOf c a ∧ (NativeProofAxiom a ∨ a ∈ compilerAxioms)
 
-/-- RG1005: a constant of a module claimed with profile `p` depends on an axiom `p` does not
+/-- RG1005: a constant of a claimed module depends on an axiom that the project's profile does not
 admit. -/
 def Violates1005 (i : Input) (c : Name) : Prop :=
-  ∃ d ∈ i.decls, d.name = c ∧ ∃ p e, i.Claimed d.module p e ∧ ∃ a, i.AxiomOf c a ∧ ¬ i.Admits p a
+  i.ClaimedName c ∧ ∃ a, i.AxiomOf c a ∧ ¬ i.Admits i.profile a
 
 /-- The intent record of RG1001. -/
 def rg1001 := ruleRecord "RG1001" Violates1001
@@ -97,8 +97,7 @@ theorem sorry_not_known (i : Input) : ¬ i.Known ``sorryAx := by
 profile of its module. -/
 theorem rg1005_of_known {i : Input} {c a : Name} (hc : i.ClaimedName c) (ha : i.AxiomOf c a)
     (hk : ¬ i.Known a) : Violates1005 i c := by
-  obtain ⟨d, hd, rfl, p, e, hp⟩ := hc
-  exact ⟨d, hd, rfl, p, e, hp, a, ha, fun h => hk (admits_known h)⟩
+  exact ⟨hc, a, ha, fun h => hk (admits_known h)⟩
 
 /-- RG1002 implies RG1005. -/
 theorem rg1005_of_hole {i : Input} {c : Name} (h : Violates1002 i c) : Violates1005 i c :=

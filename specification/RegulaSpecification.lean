@@ -1,26 +1,22 @@
 import RegulaSpecification.Input
 import RegulaSpecification.RuleRecord
 import RegulaSpecification.Foundation
-import RegulaSpecification.Execution
-import RegulaSpecification.Contracts
-import RegulaSpecification.Project
-import RegulaSpecification.Intent
+import RegulaSpecification.Safety
 import RegulaSpecification.Gate
-import RegulaSpecification.Fates
 import RegulaSpecification.Witnesses
 import RegulaSpecification.CasesDeclarations
 import RegulaSpecification.CasesFoundation
-import RegulaSpecification.CasesContracts
-import RegulaSpecification.CasesProject
-import RegulaSpecification.CasesExecution
 import RegulaSpecification.CasesGate
-import RegulaSpecification.ClosedSubset
+import RegulaSpecification.Proofs.Link
+import RegulaSpecification.Proofs.Tables
+import RegulaSpecification.Proofs.Foundation
+import RegulaSpecification.Proofs.Records
 import RegulaSpecification.Proofs.Verdict
-import RegulaSpecification.Proofs.Checks
 
 /-!
-# The specification of the smaller Regula
+# The specification of Regula
 
-Each rule's formal statement, and the theorems that check each statement against a case it must
-admit and one it must refuse. The document is `README.md` in this directory.
+Each rule's formal statement, the cases that check each statement in both directions, and the proofs
+of the functions that the checker runs against the statements. The document is `README.md` in this
+directory.
 -/

@@ -6,13 +6,11 @@ import RegulaSpecification.Input
 /-!
 # The intent record of a rule
 
-Each kept or new rule is a pure function from the closed input to the list of subjects it reports
-(declarations, modules, targets or deliverables). Its intent record (`LeanIntent.IntentRecord`)
-has that function as its subject and one property: on every well-formed input, the function
-reports a subject exactly when the subject violates the rule (`ruleRecord`). The rule's meaning
-is therefore all in its violation predicate, which each rule module defines and documents. A rule
-reads one environment (`Input`), or the bundle of every environment of a run (`Bundle`); the
-class `Admission` gives the well-formedness of each.
+Each rule is a pure function from the closed input to the list of constants it reports. Its intent
+record (`LeanIntent.IntentRecord`) has that function as its subject and one property: on every
+well-formed input, the function reports a subject exactly when the subject violates the rule
+(`ruleRecord`). The rule's meaning is therefore all in its violation predicate, which each rule
+module defines and documents. The class `Admission` gives the well-formedness of the input.
 
 The theorems below discharge lean-intent's obligations for such a record from two witnesses that
 each rule supplies (`Witnessed`): a well-formed input on which a subject violates the rule, and a

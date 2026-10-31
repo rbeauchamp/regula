@@ -1,0 +1,44 @@
+# Regula: a checker for Lean projects that refuses proof holes, project axioms, native proofs, axioms
+# outside a stated profile, and `unsafe` or `partial` declarations other than Lean's recursion helper.
+# It needs nothing beyond the Lean toolchain.
+name = "regula"
+version = "0.11.1"
+description = "A proved checker of a Lean build: proof holes, project axioms, native proofs, axioms outside a profile, unsafe and partial declarations."
+keywords = ["linter", "devtool", "formal-verification", "software-verification"]
+license = "MIT"
+licenseFiles = ["LICENSE"]
+srcDir = "lean"
+defaultTargets = ["RegulaChecker", "RegulaContract"]
+
+# Regula checks its own default targets (`lake lint`).
+lintDriver = "regula/lint"
+lintDriverArgs = ["standard-logical"]
+
+[leanOptions]
+warningAsError = true
+autoImplicit = false
+relaxedAutoImplicit = false
+linter.missingDocs = true
+
+# The checker: the closed input, the rules and the verdict, each proved against
+# `specification/RegulaSpecification/`, the loader's reads of Lean and the shell.
+[[lean_lib]]
+name = "RegulaChecker"
+globs = ["Regula.RuleId", "Regula.Verdict", "Regula.Input", "Regula.Rules", "Regula.Load", "Regula.Shell"]
+
+# A library that gives no verdict: `ExecutableContract` and `RegisteredDecision`, which another project of
+# the owner's imports until it moves them.
+[[lean_lib]]
+name = "RegulaContract"
+globs = ["Regula.Contract", "Regula.Decision"]
+
+# What calls Lake, which `lake check` cannot admit (`Regula.Workspace`), and the repository's two programs
+# for its gate and its validation pipeline. No default target imports this library.
+[[lean_lib]]
+name = "Regula"
+globs = ["Regula.Workspace", "Regula.LintMain", "Regula.DiagnosticsGate", "Regula.TestListing", "Regula.ProgramCheck.TestListing"]
+
+[[lean_exe]]
+name = "lint"
+root = "Regula.LintMain"
+supportInterpreter = true

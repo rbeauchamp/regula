@@ -1,48 +1,41 @@
-import Regula.Load
 import Regula.Rules
-import RegulaCore.Allowlist
-import RegulaCore.Edition
 
 /-!
 # The shell of the checker
 
-The checker of a finished build, which the `lint` executable runs (`Regula.LintMain`), Lake's lint
-driver for a project that sets `lintDriver := "regula/lint"`. It has three effects: it loads the
-finished build (`Regula.Load.loadBundle`), it prints its report, and it sets its exit code. It
-writes no file and removes no file (`Regula.Effects.check`). Lake's own load of the workspace runs
-Git in the environment of the caller. It builds nothing: the project's gate
-builds the claimed targets with `lake build --wfail` before it runs the checker, and a module
-without its `.olean` makes the run `incomplete`.
+The checker of a finished build, which the `lint` executable runs (`Regula.LintMain`), Lake's lint driver
+for a project that sets `lintDriver := "regula/lint"`. It reads the finished build through `load`, prints
+its report and sets its exit code. It writes no file. Lake's own load of the workspace runs Git in the
+environment of the caller. It builds nothing: the project's gate builds with `lake build --wfail` before
+it runs the checker, and a module without its `.olean` makes the run `incomplete`.
 
-The verdict is that of `Regula.Closed.run` (the specification's `gateRecord`): `pass` (exit 0)
-when the input has the closed form and no rule reports a subject, `fail` (exit 1) when a rule
-reports one, and `incomplete` (exit 2) when the build cannot be loaded or the input does not have
-the closed form (RG2001).
-
-The allowlists of RG2006 and RG2007 are the closed lists of `Regula.Allowlist` (`allowlists`).
+The verdict is that of `Regula.Closed.run`: `pass` (exit 0) when the input has the closed form and no rule
+reports a subject, `fail` (exit 1) when a rule reports one, and `incomplete` (exit 2) when the build cannot
+be loaded or the input does not have the closed form (RG2001).
 -/
 
 namespace Regula.Shell
 
-open Lean Regula.Closed
+open Regula.Closed
 
-/-- The allowlists the checker runs with: the closed lists of `Regula.Allowlist`. -/
-def allowlists : Allowlists :=
-  { options := Regula.Allowlist.admitsOption, extensions := Regula.Allowlist.admitsExtension }
+/-- The one Lean release that this revision of Regula reads, by its version and commit. The rules read a
+name form and a recursion helper's form that this release gives, so the shell refuses any other. -/
+def supportsLean (version commit : String) : Bool :=
+  version == "4.35.0" && commit == "eb6cafb7290e8bd5f2937522d8d804f58f02bafc"
 
-/-- The address of a rule's page in the edition of the installed Regula (`Regula.helpUrl`): a
-release's own page (`helpUrl_release`), and the development page exactly for an unreleased build
-(`helpUrl_dev_iff`). -/
-def page (rule : RuleId) : String := Regula.helpUrl rule
+/-- The profile that a project states in `lintDriverArgs`; any other text is none. -/
+def profileOf? : String → Option Profile
+  | "kernel-only" => some .kernelOnly
+  | "choice-free" => some .choiceFree
+  | "standard-logical" => some .standardLogical
+  | _ => none
 
-/-- The line of one finding, of the form `Regula.Closed.findingForm`. -/
+/-- The line of one finding. -/
 def line (f : Finding) : String :=
-  let place := match f.module with
-    | some m => if m == f.subject then "" else s!" (module {m})"
-    | none => ""
-  s!"{f.rule.spelling} {f.subject}{place}: {f.detail} {page f.rule}"
+  let place := if f.module == f.subject then "" else s!" (module {f.module})"
+  s!"{f.rule.spelling} {f.subject}{place}: {f.detail}"
 
-/-- Print the findings and the verdict, and give the verdict's exit code (`Verdict.exitCode`). -/
+/-- Print the findings and the verdict, and give the verdict's exit code. -/
 def report (verdict : Verdict) (findings : List Finding) (why : Option String) : IO UInt32 := do
   for f in findings do
     IO.println (line f)
@@ -50,59 +43,30 @@ def report (verdict : Verdict) (findings : List Finding) (why : Option String) :
   | .pass, _ => IO.println s!"regula: {verdict.label}"
   | .fail, _ => IO.println s!"regula: {verdict.label}, {findings.length} findings"
   | .incomplete, why =>
-    IO.println s!"regula: {verdict.label} ({(page .environment)}): {why.getD "no reason"}"
+    IO.println s!"regula: {verdict.label} (RG2001): {why.getD "no reason"}"
   return verdict.exitCode
 
-/-- What a run read: its environments, the modules of the root package, and the constants of
-claimed modules in each environment. -/
-def coverage (b : Bundle) : String :=
-  let modules := (b.envs.head?.map (·.modules.length)).getD 0
-  let claimed := b.envs.map fun i =>
-    i.tables.claimed.length
-  s!"regula: read {b.envs.length} environments, {modules} modules of the root package, and \
-    {claimed} constants of claimed modules in each environment"
+/-- What a run read. -/
+def coverage (i : Input) : String :=
+  s!"regula: read {i.modules.length} claimed modules and {i.tables.claimed.length} of their constants"
 
-/-- Run the checker on the explicitly named workspace, or on the current directory only when
-it is the workspace Lake dispatched. A different implicit workspace is incomplete. `load` reads the
-build (`Regula.Load.loadBundle`). -/
-def run (load : Regula.Load.WorkspaceSelection → IO Bundle) (args : List String) : IO UInt32 := do
-  let selection ← match args with
-    | [] => pure Regula.Load.WorkspaceSelection.dispatched
-    | [dir] => pure (Regula.Load.WorkspaceSelection.named dir)
-    | _ => do
-      IO.eprintln "usage: lint [WORKSPACE]"
-      return 2
-  match ← (load selection).toBaseIO with
+/-- Run the checker with the arguments of `lake lint`: exactly one profile. Any other argument list, any
+other Lean release and a build that `load` cannot read are `incomplete`. -/
+def run (load : Profile → IO Input) (args : List String) : IO UInt32 := do
+  unless supportsLean Lean.versionString Lean.githash do
+    return ← report .incomplete [] (some s!"this revision of Regula reads only Lean 4.35.0, and this \
+      is Lean {Lean.versionString} ({Lean.githash})")
+  let [text] := args
+    | report .incomplete [] (some "state one profile in `lintDriverArgs`: kernel-only, choice-free \
+        or standard-logical")
+  let some profile := profileOf? text
+    | report .incomplete [] (some s!"{text} is no profile: kernel-only, choice-free or \
+        standard-logical")
+  match ← (load profile).toBaseIO with
   | .error e => report .incomplete [] (some (toString e))
-  | .ok bundle =>
-    let (verdict, findings, why) := Regula.Closed.run allowlists bundle
-    IO.println (coverage bundle)
+  | .ok input =>
+    let (verdict, findings, why) := Regula.Closed.run input
+    IO.println (coverage input)
     report verdict findings why
-
-/-- Why this process has no Lean task manager, or `none` when it has one. It runs one task of
-priority `Task.Priority.dedicated` and compares the thread the task ran on with the thread of the
-caller: the same thread means that Lean has no task manager, as under `LEAN_NUM_THREADS=0`.
-
-Assumes: Lean 4.35.0 gives `Task.Priority.dedicated` the value 9 (`src/Init/Core.lean:677`), above
-`LEAN_MAX_PRIO`, and the task manager runs a task of such a priority on a new thread
-(`src/runtime/object.cpp:792-795`, `:868-877`). Without a task manager, Lean runs the task on the
-caller's thread before it returns (`lean_task_spawn_core`, `src/runtime/object.cpp:1184-1190`). Two
-threads that run at once have different identifiers (`lean_io_get_tid`,
-`src/runtime/process.cpp:340-352`). -/
-def taskManagerMissing : IO (Option String) := do
-  let caller ← IO.getTID
-  let thread ← IO.ofExcept (← IO.wait (← IO.asTask (prio := .dedicated) IO.getTID))
-  return if thread == caller then
-    some "Lean's task manager is not running in this process (Lean starts none when \
-      LEAN_NUM_THREADS is 0)"
-  else none
-
-/-- `run`, or the verdict `incomplete` in a process without Lean's task manager: there, Lake's load
-of a workspace can end the process with a panic, whose exit code 1 is that of the verdict `fail`,
-which no completed run established (issue 393). -/
-def start (load : Regula.Load.WorkspaceSelection → IO Bundle) (args : List String) : IO UInt32 := do
-  if let some reason ← taskManagerMissing then
-    report .incomplete [] (some reason)
-  else run load args
 
 end Regula.Shell

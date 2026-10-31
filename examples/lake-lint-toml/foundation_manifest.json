@@ -1,9 +1,0 @@
-{
-  "schema-version": 2,
-  "surfaces": [
-    { "library": "Gadget", "claim": "choice-free", "execution": "report",
-      "rationale": "Core-only lake lint adopter control." }
-  ],
-  "excluded-libraries": [],
-  "excluded-executables": []
-}

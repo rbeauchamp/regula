@@ -2,10 +2,6 @@
 /build/
 /.lake/
 
-# Toolchain / Mathlib release caches
-/.cache/
-*.ltar
-
 # Lean build artifacts (in case of direct `lean` invocation)
 *.olean
 *.ilean
@@ -20,6 +16,3 @@
 
 # Local probe scratch space
 /tmp/
-
-# Rule-reference site artifact (`./scripts/verify.sh site`)
-/_site/

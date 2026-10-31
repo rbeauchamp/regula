@@ -8,7 +8,7 @@
    "inherited": false,
    "dir": "..",
    "copy": false,
-   "configFile": "lakefile.lean"},
+   "configFile": "lakefile.toml"},
   {"url": "https://github.com/rbeauchamp/lean-intent",
    "type": "git",
    "subDir": null,

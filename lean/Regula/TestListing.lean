@@ -22,9 +22,9 @@ runs. `lake env` puts the toolchain's library directory first on the search path
 libraries (`Lake.Workspace.augmentedEnvVars`, `Lake/Config/Workspace.lean:409-431`,
 `Lake/CLI/Main.lean:1260-1269`). Without that library, `lean --run` stopped in the load of every
 `lakefile.lean` tried, at code that Lean's interpreter could not run, and exited with status 1
-(observed with Lean v4.34.1, and with Lean v4.35.0 on this repository's `lakefile.lean`). A
-`lakefile.toml` loaded without it. The file name of the library is
-macOS's. On another system the command fails, so its listing blocks rather than passes.
+(observed with Lean v4.34.1 and v4.35.0). A `lakefile.toml`, which this repository has, loaded
+without it. The file name of the library is macOS's. On another system the command fails, so its
+listing blocks rather than passes.
 
 ## What Lake knows as a test
 
@@ -57,9 +57,8 @@ given (`Lake/CLI/Main.lean:100-107`, `:178-179`, `Lake/Util/Log.lean:125-128`, `
 Lake's messages go to standard error, and an error, or an entry of the error level in the log,
 fails the load (`Lake.LogIO.toBaseIO`, `Lake/Util/Log.lean:630-638`). The command passes its
 arguments to the load configuration (`lakeArgs?`), which only the load of a workspace reads
-(`Lake/Load/Workspace.lean:44`), not `Lake.loadPackage`. The load elaborates `lakefile.lean`, which
-runs its compiler guard, and writes the compiled configuration below `.lake/config`, as
-`lake check-test` does. It builds no target. When the configuration file is there, `lake env`
+(`Lake/Load/Workspace.lean:44`), not `Lake.loadPackage`. It builds no target. When the configuration
+file is there, `lake env`
 first loads the workspace itself and fails when Lake cannot load it
 (`Lake/CLI/Main.lean:1260-1269`).
 
