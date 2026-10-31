@@ -7,8 +7,9 @@
 # need. The pipeline's Test step is the gate instead. It runs `commands.test` in the run's disposable
 # checkout at the commit it validates, and an exit code other than 0 parks it. The command is the
 # local gate, which runs the steps of every workflow job that checks a change one after another,
-# except two whose checks cannot pass on this machine, and stops at the first that fails
-# (docs/guides/contributing.md#the-local-gate). It runs them on every commit, never a selection by
+# and stops at the first that fails. When GitHub does not answer its reads, it names the answers and
+# leaves out the site check alone (docs/guides/contributing.md#the-local-gate). It runs them on every
+# commit, never a selection by
 # the paths a change touches. What a step rebuilds is Lake's decision, from its own traces in the
 # checkout, and the first acceptance step builds in a new copy, as it does by hand. No
 # `build_outputs` is declared: for Lake, the only store it may seed is Lake's artifact cache, and
@@ -48,7 +49,7 @@
 # gate found a peak above that budget, so no smaller bound is safe: the bound stays the whole budget
 # until the gate is measured again. The change of issue 486 removes the module of
 # https://github.com/rbeauchamp/regula/issues/497 and the package in `controls/` that held it, and the
-# gate has seven steps, whose memory the measurement below did not measure.
+# gate has eight steps, whose memory the measurement below did not measure.
 #
 # The measurement ran the gate twice on 2026-10-29 on that Mac, on main at 59f1833 (Lean v4.35.0),
 # each time in a new checkout of the shape that the pipeline runs in (a linked worktree of a mirror)

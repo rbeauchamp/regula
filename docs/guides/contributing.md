@@ -104,8 +104,15 @@ The merge gate of a change is the local gate, `lean --run lean/Regula/Diagnostic
 2. `lean --run lean/Regula/Release.lean unreleased` and `lean --run lean/Regula/Release.lean agree`, the release checks.
 3. `./scripts/verify.sh` and `./scripts/verify.sh docs`, the two acceptance steps. The first step runs the checker on the build of Regula itself.
 4. `lake build site AuditApp` and `lake build Audit` in `audit/`, the builds of the tools of the rule-reference site.
+5. `./scripts/verify.sh site`, the site check.
 
-The gate leaves out `./scripts/verify.sh site`. That check reads the tags of the repository with no credentials, thus it fails while the repository is private. The `site` job of [`ci.yml`](../../.github/workflows/ci.yml) runs it on `main`.
+The gate first removes the outputs of an earlier site build, because the site build refuses them and removes nothing. It does not remove a symbolic link at one of those paths, and the site build then refuses that link.
+
+The site check makes the site from the commit and checks the artifact. Before that, it reads the tags and the release assets of the repository from GitHub, with no credentials. It does not read the deployed site or any external link. Thus a deployed site that is older than `main` cannot fail the check.
+
+GitHub gives the answers to these reads, not the change. So before the site check, the gate reads two addresses of GitHub with `curl`. If an address does not answer with HTTP status 200, the gate does not run the site check. The gate then passes on its other steps. Its last lines say `the site check DID NOT RUN` and give each answer. This occurs when the network is down, or when GitHub limits or refuses the reads.
+
+If the two addresses answer, the exit code of the site check decides. Thus a read of the check that fails after these two reads fails the gate, and the gate must run again. A wrong address in the code of the site also fails the gate, because the gate has its own addresses.
 
 CI does not run on pull requests. On `main`, [`ci.yml`](../../.github/workflows/ci.yml) runs the acceptance that the release jobs need, and it publishes the rule-reference site. Each workflow can also run on dispatch.
 
@@ -563,8 +570,8 @@ until the release commit has passed the same checks as `main`:
    observes a release pull request for that version open, it
    [refuses and creates no branch](#rebuilding-the-release-pull-request)
    (`Regula.Release.branchAction`); a run that creates a branch creates one of its own and moves
-   none. The local gate must pass on the head of this pull request before it merges. The gate
-   leaves out the site check. Until the release is published, the site build of each unreleased
+   none. The local gate must pass on the head of this pull request before it merges.
+   Until the release is published, the site build of each unreleased
    commit that lists the release builds and checks the artifact with a preview of the release's edition, rendered from that commit
    without a release label ([versions](website.md#versions-and-routes)): the release's own
    edition exists only once CI builds it from the release commit, and an artifact with a preview
