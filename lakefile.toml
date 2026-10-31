@@ -1,9 +1,10 @@
 # Regula: a checker for Lean projects that refuses proof holes, project axioms, native proofs, axioms
 # outside a stated profile, `unsafe` or `partial` declarations and helper names other than Lean's recursion
-# helper, and values that mention Lean's loop constructs. It needs nothing beyond the Lean toolchain.
+# helper, and values that mention Lean's loop constructs, and that can refuse, before anything is compiled,
+# a project outside a closed set of allowed constructs. It needs nothing beyond the Lean toolchain.
 name = "regula"
 version = "0.11.1"
-description = "A checker of a finished Lean build: proof holes, project axioms, native proofs, axioms outside a profile, unsafe and partial declarations, Lean's loop constructs."
+description = "A checker of Lean builds: proof holes, project axioms, native proofs, axioms outside a profile, unsafe and partial declarations, Lean's loop constructs, and a closed language checked before anything is compiled."
 keywords = ["linter", "devtool", "formal-verification", "software-verification"]
 license = "MIT"
 licenseFiles = ["LICENSE"]
@@ -20,11 +21,12 @@ autoImplicit = false
 relaxedAutoImplicit = false
 linter.missingDocs = true
 
-# The checker: the closed input, the rules and the verdict, each proved against
-# `specification/RegulaSpecification/`, the loader's reads of Lean and the shell.
+# The checker: the closed input, the rules, the verdict and the language decision, each proved against
+# `specification/RegulaSpecification/`, the loader's reads of Lean, the language check's reader and the
+# shell: every function of the checker that does not itself call Lake.
 [[lean_lib]]
 name = "RegulaChecker"
-globs = ["Regula.RuleId", "Regula.Verdict", "Regula.Input", "Regula.Reach", "Regula.Tables", "Regula.Rules", "Regula.Load", "Regula.Shell"]
+globs = ["Regula.RuleId", "Regula.Verdict", "Regula.Input", "Regula.Reach", "Regula.Tables", "Regula.Rules", "Regula.Load", "Regula.Shell", "Regula.LanguageSet", "Regula.Language", "Regula.Reader"]
 
 # A library that gives no verdict: `ExecutableContract` and `RegisteredDecision`, which another project of
 # the owner's imports until it moves them.
@@ -32,8 +34,9 @@ globs = ["Regula.RuleId", "Regula.Verdict", "Regula.Input", "Regula.Reach", "Reg
 name = "RegulaContract"
 globs = ["Regula.Contract", "Regula.Decision"]
 
-# What calls Lake, which `lake check` cannot admit (`Regula.Workspace`), and the repository's two programs
-# for its gate and its validation pipeline. No default target imports this library.
+# What calls Lake, which `lake check` cannot admit (`Regula.Workspace`), the executable's thin `unsafe` root,
+# and the repository's two programs for its gate and its validation pipeline. No default target imports this
+# library.
 [[lean_lib]]
 name = "Regula"
 globs = ["Regula.Workspace", "Regula.LintMain", "Regula.DiagnosticsGate", "Regula.TestListing", "Regula.ProgramCheck.TestListing"]

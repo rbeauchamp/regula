@@ -36,7 +36,11 @@ inductive RuleId where
   helper, without the form of Lean's recursion helper, or a constant whose value mentions a loop
   construct of Lean. -/
   | escapeHatch
-  /-- RG2001: the build cannot be loaded, or the input does not have the closed form. -/
+  /-- RG1010, a name that no released version used: a Lean file or the Lake configuration of the project holds something outside the closed
+  set that the language check admits (`Regula.Language`). -/
+  | language
+  /-- RG2001: the build cannot be loaded, the full gate cannot read the project, or the input does not
+  have the closed form. -/
   | environment
   deriving Repr, DecidableEq
 
@@ -50,12 +54,13 @@ def spelling : RuleId → String
   | .nativeProof => "RG1004"
   | .profileExceeded => "RG1005"
   | .escapeHatch => "RG1006"
+  | .language => "RG1010"
   | .environment => "RG2001"
 
 /-- Each rule once. -/
 def all : List RuleId :=
   [.projectAxiom, .proofHole, .unknownAxiom, .nativeProof, .profileExceeded, .escapeHatch,
-    .environment]
+    .language, .environment]
 
 /-- `all` lists each rule. -/
 theorem mem_all (id : RuleId) : id ∈ all := by

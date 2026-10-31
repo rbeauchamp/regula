@@ -18,7 +18,7 @@ import Lean.Compiler.Old
 
 What reads a loaded environment into the closed input (`Regula.Closed.Input`), and refuses, as an
 error that makes the run `incomplete` (RG2001), what it cannot read. `Regula.Workspace` holds the
-part that calls Lake and imports the environment. `Facts.input` is a pure function of the
+part that calls Lake. `Facts.input` is a pure function of the
 environment, and `specification/RegulaSpecification/Proofs/Load.lean` states what it gives in terms
 of the environment. What that leaves assumed about Lean and Lake is in the specification's trusted
 base.
@@ -45,7 +45,8 @@ public section
 
 namespace Regula.Load
 
-open Lean System
+open Lean (ConstantInfo Environment Name findOLean isExtern)
+open System (FilePath)
 open Regula.Closed
 
 /-- Refuse the input: the run is `incomplete`. -/
@@ -59,6 +60,15 @@ def parts (p : FilePath) : List String :=
 /-- Whether `path` lies below the directory `dir`, by their components. -/
 def below (dir path : FilePath) : Bool :=
   (parts dir).isPrefixOf (parts path) && parts dir != parts path
+
+/-- The components of a path with each `.` removed. A `..` stays. -/
+def exactParts (p : FilePath) : List String :=
+  (parts p).filter (· != ".")
+
+/-- Whether `real`, which is the real path of `path`, is `path` itself at or below the directory `dir`, by
+their components with `.` removed. So `path` crosses no link and holds no `..`. -/
+def exactBelow (dir path real : FilePath) : Bool :=
+  exactParts real == exactParts path && (exactParts dir).isPrefixOf (exactParts path)
 
 /-- The kind of a constant: its `ConstantInfo` constructor. -/
 def kindOf : ConstantInfo → Kind
@@ -200,7 +210,7 @@ def Facts.declIn (f : Facts) (n : Name) (m : LoadedModule) (info : ConstantInfo)
   safety := safetyOf info
   uses := (usesIn info stated).toList
   valueUses := (valueUsesOf info).toList
-  implementedBy := Compiler.getImplementedBy? f.env n
+  implementedBy := Lean.Compiler.getImplementedBy? f.env n
   isExtern := isExtern f.env n
   inToolchain := m.inToolchain
 
@@ -302,7 +312,7 @@ admits. Lean regenerates a definition's equation lemmas in each module that need
 constant can be conforming. -/
 def fitsUnshown {i : Input} (t : Tables i) (n : Name) (info : ConstantInfo) : Bool :=
   kindOf info == .theorem && safetyOf info == .safe &&
-    (Compiler.isUnsafeRecName? n).isNone &&
+    (Lean.Compiler.isUnsafeRecName? n).isNone &&
     loopConstructs.all (!(valueUsesOf info).contains ·) &&
     (usesOf info).all fun u => t.index.contains u && (t.axiomSet u).all (t.admits i.profile ·)
 
@@ -352,6 +362,32 @@ identifies the dispatching root, whatever search path the caller inherited. -/
 def dispatchedFrom (root lakeLib : String) (leanPath : List String) : Bool :=
   decide ((leanPath.takeWhile (· ≠ lakeLib)).getLast? = some root) &&
     decide (lakeLib ∈ leanPath)
+
+/-- The search path that Lake gave this process, or a refusal when no Lake did. -/
+def receivedLeanPath : IO (List String) := do
+  let some leanPath ← IO.getEnv "LEAN_PATH"
+    | refuse "LEAN_PATH is not set, so the workspace that Lake dispatched is not known: run the \
+        checker with `lake lint` or `lake exe lint`, which set it"
+  return (System.SearchPath.parse leanPath).map toString
+
+/-- Refuse unless the workspace with the library directory `root` is the one Lake dispatched. -/
+def requireDispatched (root lakeLib : FilePath) : IO Unit := do
+  unless dispatchedFrom root.toString lakeLib.toString (← receivedLeanPath) do
+    refuse "the current directory is not the workspace Lake dispatched; run `lake lint` from that \
+      workspace's directory"
+
+/-- The closed input of the finished build whose default targets' modules are `roots`, on the search
+path `leanPath`, or an error that refuses it. -/
+def inputFrom (leanPath : List FilePath) (roots : Array Name) (toolchainDir rootDir : FilePath)
+    (profile : Profile) : IO Input := do
+  Lean.searchPathRef.set leanPath
+  let env ←
+    try Lean.importModules (roots.map ({ module := · })) {} (loadExts := false) (level := .private)
+    catch e => refuse s!"Lean could not load the modules of the default targets: {e}"
+  let f ← Facts.load env toolchainDir rootDir
+  match f.input roots.toList profile with
+  | .ok input => return input
+  | .error why => refuse why
 
 /-- For every search path of Lake's composition, the dispatch check accepts exactly the last
 workspace library directory. Inherited entries cannot make a different root pass. -/

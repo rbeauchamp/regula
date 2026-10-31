@@ -2,7 +2,9 @@
 
 Regula exists to be trusted, and to be the example of how Lean 4 code should be written: well factored, well designed, following best practice, and formally proven. Its owner decided that being free of bugs outranks every lint rule and feature, so Regula gives up any rule, feature or package it cannot prove rather than patching it, documenting a limit or keeping a stated gap. Only Lean, its kernel and Lake's own behaviour are meant to stay trusted; Regula's own code is meant to be proved, or so thin that it only calls Lean. That is the aim and not a claim about this revision: the [trusted base](specification/README.md#the-trusted-base) lists what is not yet proved.
 
-Regula is a checker of a finished Lean build. It refuses a project whose declarations depend on `sorry`, a project axiom, `native_decide` or an axiom outside the profile the project states, or that holds an `unsafe` or `partial` declaration, or a constant with the name of Lean's recursion helper, without that helper's form, or a `while` or `repeat` of its own. It also refuses a build it cannot load.
+Regula is a checker of Lean builds. It refuses a project whose declarations depend on `sorry`, a project axiom, `native_decide` or an axiom outside the profile the project states, or that holds an `unsafe` or `partial` declaration, or a constant with the name of Lean's recursion helper, without that helper's form, or a `while` or `repeat` of its own. It also refuses a build it cannot load. Started from outside a project, before anything is compiled, it can also read each Lean file of the claim and the Lake configuration, and refuse anything outside a closed set of allowed constructs, so that no code the project wrote runs during the build.
+
+It gives one of two verdicts, and its output says which. The **proof verdict** means that the proofs of the claimed modules are sound and use only axioms the profile allows. The **full verdict** also means that no code written in the project ran while Lake built it. Only a project with no dependency in its Lake configuration and no Mathlib in its imports can have the full verdict.
 
 ## The checks
 
@@ -14,7 +16,8 @@ Regula is a checker of a finished Lean build. It refuses a project whose declara
 | RG1004 | A constant of a claimed module depends on an axiom with the name form that `native_decide` gives. |
 | RG1005 | A constant of a claimed module depends on an axiom that the project's profile does not admit. |
 | RG1006 | A claimed module holds a constant that is `unsafe`, `partial` or named as a recursion helper, without the form of Lean's recursion helper, or a constant whose value mentions `Lean.Loop.mk` or `repeatM`, which `while` and `repeat` compile to. |
-| RG2001 | The checker cannot load the build, its input does not have the closed form, or a claimed module holds a constant that Lean's import replaced and that is no theorem within the profile or has a recursion helper's name. The verdict is `incomplete`. |
+| RG1010 | A Lean file of the claim, the Lake configuration or `lean-toolchain` holds something outside the closed set. Only the full gate reads this. |
+| RG2001 | The checker cannot load the build, the full gate cannot read the project, its input does not have the closed form, or a claimed module holds a constant that Lean's import replaced and that is no theorem within the profile or has a recursion helper's name. The verdict is `incomplete`. |
 
 The claimed modules are the modules of the root package's default targets, with each module of the root package that their imports reach. These are the modules that `lake build` and `lake check` work on. A target that is not a default target, and that no default target imports, is outside the claim.
 
@@ -61,14 +64,44 @@ RG1002 twice (module Demo): depends on sorryAx
 RG1002 double (module Demo): depends on sorryAx
 RG1005 twice (module Demo): depends on [sorryAx], outside the profile
 RG1005 double (module Demo): depends on [sorryAx], outside the profile
-regula: fail, 4 findings
+regula: proof verdict: fail, 4 findings
 ```
 
 The exit code of `lake lint` is 0 for `pass`, 1 for `fail` and 2 for `incomplete`.
 
+## The full gate
+
+A full verdict comes only from a checker that the project's Lake did not build or start, because Lake runs a project's `lakefile.lean` when it loads it, and code that runs first can change what any later step sees. So build Regula in a checkout of its own, and from that checkout's directory give it the project's path:
+
+```sh
+git clone https://github.com/rbeauchamp/regula
+cd regula
+lake build lint
+lake exe lint standard-logical full /path/to/project
+```
+
+The checker reads `lean-toolchain`, `lakefile.lean` by name and `lakefile.toml` before any Lake call on the project. Then it runs the check and, for an admitted project, the build, its replay and the rules, in that order, in one process. Every Lake call and child process works in a directory the checker made for this run, which holds only what the checker read and is removed afterwards, so nothing in the project's directory is written, and its `.lake`, its manifest and its other files are not used. The project needs a `module` header on each file, a `lean-toolchain` that says `leanprover/lean4:v4.35.0`, and `lakefile.toml` with no `require` in it. The checker fetches and runs nothing of a dependency. Its libraries name their modules with `roots` or with `globs` of single modules, since `Data.+` and `Data.*` need a directory listing, which the checker refuses. Each file it reads must be by its real path exactly its own path below the project's real path, so no source is reached through a symbolic link. A file that the build needs and that the check does not read, such as a data file, is absent, so the build fails and the verdict is `fail`. A project with no dependency needs no `require` of Regula for this. For this module as `Demo.lean`, it prints `regula: full verdict: pass, under the hypotheses H1 and H2 about Lean 4.35.0`:
+
+```lean
+module
+
+public section
+
+/-- Addition commutes. -/
+theorem swap (a b : Nat) : a + b = b + a := by omega
+```
+
+The exit code is 0 only for a pass of the full verdict. It is 1 when the check refuses the project, which compiles nothing, or when the verdict is `fail`. It is 2 when the check cannot read the project, which also compiles nothing, or when the verdict is `incomplete`. It is 3 when only a proof verdict is possible, for a project with a `require` in `lakefile.toml` or with Mathlib in its imports. Then nothing is built, and the last line says so and names the three commands that give that verdict, which you run in the project: they run the project's code and its dependencies'.
+
+The check refuses `run_cmd`, `#eval`, `#guard`, `run_tac`, `by_elab`, `native_decide`, `decide +native`, `macro`, `syntax`, `notation`, `elab`, `initialize`, `@[local macro k]`, `lakefile.lean` and a plugin in `lakefile.toml`. It admits Regula's own core, and library code that uses `simp`, `omega`, `decide +kernel`, `variable` and `deriving DecidableEq`. Those are examples. The rule is a closed table, so anything it does not hold is refused, including whatever a later Lean adds, and a harmless construct that the table does not hold is refused too until someone reads it and adds it. The [specification](specification/README.md#the-language-check) gives the table's criterion.
+
+`lake lint` in a project gives only the proof verdict. Asked for a full one, it says that it is the project's own checker and gives none. A program that the project planted can print any line, so a full verdict is worth what the start from outside gives it: read it only from a checker you built apart from the project.
+
 ## What a pass means
 
-A pass of the three commands on one build means that the proofs of the claimed modules are sound and use only axioms that the profile allows. It says nothing about what a compiled program runs: `@[implemented_by]`, `@[extern]` and `@[csimp]` on a safe definition all pass, and so does a recursion helper of the true form that a module's own code adds during the build, such as with `run_cmd`, which the [entry of RG1006](specification/README.md#rg1006-unsafe-and-partial-declarations) describes. A pass of `lake lint` alone means less, because only `lake check` replays the proofs in Lean's kernel.
+A pass of the proof verdict, from the three commands on one build, means that the proofs of the claimed modules are sound and use only axioms that the profile allows. It says nothing about what a compiled program runs: `@[implemented_by]`, `@[extern]` and `@[csimp]` on a safe definition all pass, and so does a recursion helper of the true form that a module's own code adds during the build, such as with `run_cmd`, which the [entry of RG1006](specification/README.md#rg1006-unsafe-and-partial-declarations) describes. A pass of `lake lint` alone means less, because only `lake check` replays the proofs in Lean's kernel.
+
+A pass of the full verdict means that as well, and that while Lake built the files the check read, no code written in the project ran, and no file installed anything that replaces what the compiler runs for a definition. That rests on two hypotheses about Lean 4.35.0, H1 and H2, which the [specification](specification/README.md#h1-and-h2) states and which are read again at each upgrade of Lean: that the tree the check read is the tree Lean elaborates, and that what the closed set admits runs no such code. Lean's own program is what no proof here can examine, so a route that H2 misses would be a false pass. The full verdict says nothing about what a theorem's statement means to a reader or what another process does, and a project with a dependency does not get it.
 
 The commands `lake build --wfail` and `lake check` are Lean's own, and Regula makes no claim of its own about what they decide.
 
