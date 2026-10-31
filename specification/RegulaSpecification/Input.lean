@@ -6,8 +6,8 @@ module
 Every rule of Regula reads one closed input: the constants Lean loads from a finished build, the
 modules that the build claims, and the profile that the project states. This module states that
 input as data, independently of the implementation. Each field says which interface of Lean or Lake
-gives it; that the shell reads the field through that interface is not a fact this module
-establishes, and the specification's trusted base lists it.
+gives it. `Proofs/Load.lean` states what the loader gives in terms of those interfaces, and the
+specification's trusted base lists what they report.
 
 The input carries no source text, no message, no compiled code, no option and no build log: what a
 rule cannot read here, it does not decide.
@@ -45,15 +45,18 @@ structure Decl where
   name : Name
   /-- The module whose `.olean` holds it (`Environment.getModuleIdxFor?`). -/
   module : Name
-  /-- Its `ConstantInfo` constructor. -/
+  /-- `axiom` when any loaded module's own data states an axiom of this name (Lean's import can drop
+  it for a theorem), and otherwise the `ConstantInfo` constructor of the constant Lean keeps. -/
   kind : Kind
   /-- `ConstantInfo.isUnsafe`. -/
   isUnsafe : Bool
   /-- `ConstantInfo.isPartial`. -/
   isPartial : Bool
-  /-- The constants its type and value mention, the ones `Lean.collectAxioms` walks: type and
-  value of a definition, theorem or opaque constant, the type of an axiom, constructor or
-  recursor, and the type and constructors of an inductive type. -/
+  /-- The constants that the type and value mention, the fields that `Lean.collectAxioms` walks:
+  type and value of a definition, theorem or opaque constant, the type of an axiom, constructor or
+  recursor, and the type and constructors of an inductive type. It covers the constant Lean keeps
+  and each constant of this name that a loaded module's own data states, which Lean's import can
+  drop. -/
   uses : List Name
   /-- The constants its value mentions, for a definition, theorem or opaque constant, and nothing
   for any other constant. RG1006 reads it for Lean's loop constructs. -/

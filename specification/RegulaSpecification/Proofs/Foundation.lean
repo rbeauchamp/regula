@@ -5,7 +5,8 @@ import RegulaSpecification.Proofs.Tables
 
 `Regula.Closed.Tables.rg1001` to `rg1006` are the functions that the checker runs. For each,
 `rg100N_exact` proves that it reports a subject exactly when `Violates100N` holds of it at `toSpec
-i`. RG1001 and RG1006 read no axiom set. The others read `Decl.axioms`, so they assume `AxiomsRead`.
+i`. The rules that read an axiom set read `Tables.axiomSet`, a function of the
+input (`axiomSet_iff`).
 -/
 
 namespace RegulaSpecification
@@ -36,14 +37,6 @@ theorem mem_report {α : Type} {l : List α} {c : α → Bool} {g : α → Regul
 theorem filter_nonempty {α : Type} {l : List α} {p : α → Bool} :
     (!(l.filter p).isEmpty) = true ↔ ∃ a ∈ l, p a = true := by
   simp only [Bool.not_eq_true', List.isEmpty_eq_false_iff_exists_mem, List.mem_filter]
-
-theorem axiomSet_iff (h : AxiomsRead i) {d : Regula.Closed.Decl} (hd : d ∈ i.decls)
-    (hr : (toSpec i).ClaimedModule d.module) (a : Name) :
-    a ∈ d.axiomSet ↔ (toSpec i).AxiomOf d.name a := by
-  have hp := h.present d hd hr
-  cases hx : d.axioms with
-  | none => simp [hx] at hp
-  | some as => simpa [Regula.Closed.Decl.axiomSet, hx] using h.faithful d hd as hx a
 
 theorem known_iff (hu : (i.decls.map (·.name)).Nodup) (a : Name) :
     i.tables.known a = true ↔ (toSpec i).Known a := by
@@ -102,7 +95,7 @@ theorem rg1001_exact (i : Regula.Closed.Input) (s : Name) :
     exact ⟨d, (mem_claimed i).mpr ⟨hd, hm⟩, (hk d).mpr hc, rfl⟩
 
 /-- The function that the checker runs reports a constant exactly when it violates RG1002. -/
-theorem rg1002_exact (h : Admitted i) (s : Name) :
+theorem rg1002_exact (i : Regula.Closed.Input) (s : Name) :
     s ∈ i.tables.rg1002.map (·.subject) ↔ Violates1002 (toSpec i) s := by
   unfold Regula.Closed.Tables.rg1002
   rw [mem_report (sub := (·.name)) (fun _ => rfl)]
@@ -110,16 +103,15 @@ theorem rg1002_exact (h : Admitted i) (s : Name) :
   · rintro ⟨d, hd, hc, rfl⟩
     obtain ⟨hd, hm⟩ := (mem_claimed i).mp hd
     exact ⟨⟨decl d, mem_decls.mpr ⟨d, hd, rfl⟩, rfl, hm⟩,
-      (axiomSet_iff h.axioms hd hm _).mp (by simpa using hc)⟩
+      (axiomSet_iff _ _).mp (by simpa using hc)⟩
   · rintro ⟨hc, ha⟩
     obtain ⟨d, hd, rfl, hm⟩ := claimedName_of_mem hc
     exact ⟨d, (mem_claimed i).mpr ⟨hd, hm⟩,
-      by simpa using (axiomSet_iff h.axioms hd hm _).mpr ha, rfl⟩
+      by simpa using (axiomSet_iff _ _).mpr ha, rfl⟩
 
 /-- The function that the checker runs reports a constant exactly when it violates RG1003. -/
-theorem rg1003_exact (h : Admitted i) (s : Name) :
+theorem rg1003_exact (hu : (i.decls.map (·.name)).Nodup) (s : Name) :
     s ∈ i.tables.rg1003.map (·.subject) ↔ Violates1003 (toSpec i) s := by
-  have hu := unique_of_wf h.wf
   unfold Regula.Closed.Tables.rg1003
   dsimp only
   rw [mem_report (sub := (·.name)) (fun _ => rfl)]
@@ -130,13 +122,13 @@ theorem rg1003_exact (h : Admitted i) (s : Name) :
     simp only [Bool.and_eq_true, Bool.not_eq_true', bne_iff_ne, ne_eq] at hf
     obtain ⟨⟨⟨h1, h2⟩, h3⟩, -⟩ := hf
     exact ⟨⟨decl d, mem_decls.mpr ⟨d, hd, rfl⟩, rfl, hm⟩, a,
-      (axiomSet_iff h.axioms hd hm _).mp hax,
+      (axiomSet_iff _ _).mp hax,
       fun hk => by simp [(known_iff hu a).mpr hk] at h1, h2,
       fun hn => by simp [(native_iff a).mpr hn] at h3, not_mem_compiler a⟩
   · rintro ⟨hc, a, ha, hk, hs, hn, -⟩
     obtain ⟨d, hd, rfl, hm⟩ := claimedName_of_mem hc
     refine ⟨d, (mem_claimed i).mpr ⟨hd, hm⟩, ?_, rfl⟩
-    refine filter_nonempty.mpr ⟨a, (axiomSet_iff h.axioms hd hm _).mpr ha, ?_⟩
+    refine filter_nonempty.mpr ⟨a, (axiomSet_iff _ _).mpr ha, ?_⟩
     have h1 : i.tables.known a = false := by
       cases hb : i.tables.known a with
       | false => rfl
@@ -148,7 +140,7 @@ theorem rg1003_exact (h : Admitted i) (s : Name) :
     simp [h1, h3, hs, Regula.Closed.compilerAxioms]
 
 /-- The function that the checker runs reports a constant exactly when it violates RG1004. -/
-theorem rg1004_exact (h : Admitted i) (s : Name) :
+theorem rg1004_exact (i : Regula.Closed.Input) (s : Name) :
     s ∈ i.tables.rg1004.map (·.subject) ↔ Violates1004 (toSpec i) s := by
   unfold Regula.Closed.Tables.rg1004
   dsimp only
@@ -159,18 +151,17 @@ theorem rg1004_exact (h : Admitted i) (s : Name) :
     obtain ⟨a, hax, hf⟩ := filter_nonempty.mp hc
     simp only [compiler_contains, Bool.or_false] at hf
     exact ⟨⟨decl d, mem_decls.mpr ⟨d, hd, rfl⟩, rfl, hm⟩, a,
-      (axiomSet_iff h.axioms hd hm _).mp hax, .inl ((native_iff a).mp hf)⟩
+      (axiomSet_iff _ _).mp hax, .inl ((native_iff a).mp hf)⟩
   · rintro ⟨hc, a, ha, hn | hn⟩
     · obtain ⟨d, hd, rfl, hm⟩ := claimedName_of_mem hc
       refine ⟨d, (mem_claimed i).mpr ⟨hd, hm⟩, ?_, rfl⟩
-      exact filter_nonempty.mpr ⟨a, (axiomSet_iff h.axioms hd hm _).mpr ha,
+      exact filter_nonempty.mpr ⟨a, (axiomSet_iff _ _).mpr ha,
         by simp [(native_iff a).mpr hn]⟩
     · exact absurd hn (not_mem_compiler a)
 
 /-- The function that the checker runs reports a constant exactly when it violates RG1005. -/
-theorem rg1005_exact (h : Admitted i) (s : Name) :
+theorem rg1005_exact (hu : (i.decls.map (·.name)).Nodup) (s : Name) :
     s ∈ i.tables.rg1005.map (·.subject) ↔ Violates1005 (toSpec i) s := by
-  have hu := unique_of_wf h.wf
   unfold Regula.Closed.Tables.rg1005
   dsimp only
   rw [mem_report (sub := (·.name)) (fun _ => rfl)]
@@ -179,13 +170,13 @@ theorem rg1005_exact (h : Admitted i) (s : Name) :
     obtain ⟨hd, hm⟩ := (mem_claimed i).mp hd
     obtain ⟨a, hax, hf⟩ := filter_nonempty.mp hc
     refine ⟨⟨decl d, mem_decls.mpr ⟨d, hd, rfl⟩, rfl, hm⟩, a,
-      (axiomSet_iff h.axioms hd hm _).mp hax, fun hk => ?_⟩
+      (axiomSet_iff _ _).mp hax, fun hk => ?_⟩
     have ha : i.tables.admits i.tables.profile a = true := (admits_iff hu i.profile a).mpr hk
     simp [ha] at hf
   · rintro ⟨hc, a, ha, hn⟩
     obtain ⟨d, hd, rfl, hm⟩ := claimedName_of_mem hc
     refine ⟨d, (mem_claimed i).mpr ⟨hd, hm⟩, ?_, rfl⟩
-    refine filter_nonempty.mpr ⟨a, (axiomSet_iff h.axioms hd hm _).mpr ha, ?_⟩
+    refine filter_nonempty.mpr ⟨a, (axiomSet_iff _ _).mpr ha, ?_⟩
     cases hb : i.tables.admits i.tables.profile a with
     | false => rfl
     | true => exact absurd ((admits_iff hu i.profile a).mp hb) hn

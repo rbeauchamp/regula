@@ -12,9 +12,10 @@ workspace runs Git in the environment of the caller. It builds nothing: the proj
 with `lake build --wfail` before it runs the checker, and a module without its `.olean` makes the
 run `incomplete`.
 
-The verdict is that of `Regula.Closed.run`: `pass` (exit 0) when the input has the closed form and
-no rule reports a subject, `fail` (exit 1) when a rule reports one, and `incomplete` (exit 2) when
-the build cannot be loaded or the input does not have the closed form (RG2001).
+The verdict is that of `decision`: `pass` (exit 0) when the input has the closed form and no rule
+reports a subject, `fail` (exit 1) when a rule reports one, and `incomplete` (exit 2) when the build
+cannot be loaded or the input does not have the closed form (RG2001). `profileOfRun` and `decision`
+are pure, and `specification/RegulaSpecification/Proofs/Load.lean` states what they give.
 -/
 
 public section
@@ -54,26 +55,38 @@ def report (verdict : Verdict) (findings : List Finding) (why : Option String) :
 
 /-- What a run read. -/
 def coverage (i : Input) : String :=
-  s!"regula: read {i.modules.length} claimed modules and {i.tables.claimed.length} of their \
+  s!"regula: read {i.modules.length} claimed modules and {i.claimedDecls.length} of their \
     constants"
 
-/-- Run the checker with the arguments of `lake lint`: exactly one profile. Any other argument list,
-any other Lean release and a build that `load` cannot read are `incomplete`. -/
+/-- The profile of a run of the Lean release `version` at `commit` with the arguments `args`, or why
+the run is `incomplete`: any other release, and any argument list other than one profile. -/
+def profileOfRun (version commit : String) (args : List String) : Except String Profile :=
+  if !supportsLean version commit then
+    .error s!"this revision of Regula reads only Lean 4.35.0, and this is Lean {version} ({commit})"
+  else
+    match args with
+    | [text] =>
+      match profileOf? text with
+      | some profile => .ok profile
+      | none => .error s!"{text} is no profile: kernel-only, choice-free or standard-logical"
+    | _ =>
+      .error "state one profile in `lintDriverArgs`: kernel-only, choice-free or standard-logical"
+
+/-- The verdict of a run, its findings and the reason it is `incomplete`, from what the load gave: a
+build it cannot read is `incomplete`, and otherwise the verdict is `Regula.Closed.run`'s. -/
+def decision : Except String Input → Verdict × List Finding × Option String
+  | .error why => (.incomplete, [], some why)
+  | .ok input => Regula.Closed.run input
+
+/-- Run the checker with the arguments of `lake lint` (`profileOfRun`), read the build through
+`load` and report the verdict of `decision`. -/
 def run (load : Profile → IO Input) (args : List String) : IO UInt32 := do
-  unless supportsLean Lean.versionString Lean.githash do
-    return ← report .incomplete [] (some s!"this revision of Regula reads only Lean 4.35.0, and \
-      this is Lean {Lean.versionString} ({Lean.githash})")
-  let [text] := args
-    | report .incomplete [] (some "state one profile in `lintDriverArgs`: kernel-only, choice-free \
-        or standard-logical")
-  let some profile := profileOf? text
-    | report .incomplete [] (some s!"{text} is no profile: kernel-only, choice-free or \
-        standard-logical")
-  match ← (load profile).toBaseIO with
-  | .error e => report .incomplete [] (some (toString e))
-  | .ok input =>
-    let (verdict, findings, why) := Regula.Closed.run input
-    IO.println (coverage input)
+  match profileOfRun Lean.versionString Lean.githash args with
+  | .error why => report .incomplete [] (some why)
+  | .ok profile =>
+    let loaded := (← (load profile).toBaseIO).mapError toString
+    if let .ok input := loaded then IO.println (coverage input)
+    let (verdict, findings, why) := decision loaded
     report verdict findings why
 
 end Regula.Shell

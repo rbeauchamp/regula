@@ -5,7 +5,7 @@ import RegulaSpecification.Proofs.Link
 
 `Regula.Closed.Input.tables` indexes the input once, so that a rule reads a hash table in place of a
 list. These theorems state what each table holds in terms of the specification's input: the
-constants by name and the constants of claimed modules.
+constants by name, the constants of claimed modules and the axiom set of each constant.
 -/
 
 namespace RegulaSpecification
@@ -138,6 +138,109 @@ theorem claimedName_of_mem {c : Name} (h : (toSpec i).ClaimedName c) :
   obtain ⟨x, hx, hn, hc⟩ := h
   obtain ⟨d, hd, rfl⟩ := mem_decls.mp hx
   exact ⟨d, hd, hn, hc⟩
+
+/-! ## The axiom sets -/
+
+/-- What folding the mentions of one constant into the table holds. -/
+theorem mem_mentionFold (name : Name) (uses : List Name) (init : Std.HashMap Name (List Name))
+    (u c : Name) :
+    c ∈ (uses.foldl (fun m v => m.insert v (name :: m.getD v [])) init).getD u [] ↔
+      (u ∈ uses ∧ c = name) ∨ c ∈ init.getD u [] := by
+  induction uses generalizing init with
+  | nil => simp
+  | cons v vs ih =>
+    simp only [List.foldl_cons, ih, Std.HashMap.getD_insert, List.mem_cons]
+    by_cases hv : v = u
+    · subst hv
+      simp only [beq_self_eq_true, ↓reduceIte, List.mem_cons, true_or, true_and]
+      by_cases hc : c = name <;> simp [hc]
+    · have hb : (v == u) = false := by simpa using hv
+      have hne : u ≠ v := fun h => hv h.symm
+      simp only [hb, Bool.false_eq_true, ↓reduceIte]
+      simp [hne]
+
+/-- What folding the mentions of the constants of `l` into the table holds. -/
+theorem mem_mentionedFold (l : List Regula.Closed.Decl) (init : Std.HashMap Name (List Name))
+    (u c : Name) :
+    c ∈ (l.foldl (fun m d => d.uses.foldl (fun m v => m.insert v (d.name :: m.getD v [])) m)
+        init).getD u [] ↔ (∃ d ∈ l, d.name = c ∧ u ∈ d.uses) ∨ c ∈ init.getD u [] := by
+  induction l generalizing init with
+  | nil => simp
+  | cons d ds ih =>
+    simp only [List.foldl_cons, ih, mem_mentionFold, List.mem_cons, exists_eq_or_imp]
+    constructor
+    · rintro (h | ⟨hu, rfl⟩ | h)
+      · exact .inl (.inr h)
+      · exact .inl (.inl ⟨rfl, hu⟩)
+      · exact .inr h
+    · rintro ((⟨rfl, hu⟩ | h) | h)
+      · exact .inr (.inl ⟨hu, rfl⟩)
+      · exact .inl h
+      · exact .inr (.inr h)
+
+/-- The constants that mention `u`, as the table holds them. -/
+theorem mem_mentionedBy (i : Regula.Closed.Input) (u c : Name) :
+    c ∈ i.mentionedBy.getD u [] ↔ ∃ d ∈ i.decls, d.name = c ∧ u ∈ d.uses := by
+  unfold Regula.Closed.Input.mentionedBy
+  rw [mem_mentionedFold]
+  simp
+
+/-- The search backwards from `a` reaches `c` exactly when `c` reaches `a`. -/
+theorem reach_mentionedBy_iff {a c : Name} :
+    Regula.Closed.Reach (fun n => i.mentionedBy.getD n []) a c ↔ (toSpec i).Reaches c a := by
+  constructor
+  · intro h
+    induction h with
+    | refl => exact .refl _
+    | step _ hc ih =>
+      obtain ⟨d, hd, rfl, hu⟩ := (mem_mentionedBy i _ _).mp hc
+      exact .step (decl d) (mem_decls.mpr ⟨d, hd, rfl⟩) rfl hu ih
+  · intro h
+    induction h with
+    | refl => exact .refl
+    | step x hx hn hu _ ih =>
+      obtain ⟨d, hd, rfl⟩ := mem_decls.mp hx
+      exact .step ih ((mem_mentionedBy i _ _).mpr ⟨d, hd, hn, hu⟩)
+
+/-- The search that `Input.axiomReach` makes from `a` finds exactly the constants that reach `a`. -/
+theorem contains_axiomReach (a c : Name) :
+    (Regula.Closed.reach (fun n => i.mentionedBy.getD n [])
+        ((i.mentionedBy.keys.map fun n => (i.mentionedBy.getD n []).length).sum) [a]).contains c =
+          true ↔
+      (toSpec i).Reaches c a := by
+  rw [Regula.Closed.mem_reach i.mentionedBy.keys [a] ?_ (Nat.le_refl _)]
+  · simp [reach_mentionedBy_iff]
+  · intro n hn
+    rw [Std.HashMap.mem_keys]
+    refine Classical.byContradiction fun hm => hn ?_
+    rw [Std.HashMap.getD_eq_fallback hm]
+
+/-- The set that the rules read is exactly the axiom set that the specification states. No field of
+the input holds it, so no hypothesis about a reader stands behind this. -/
+theorem axiomSet_iff (c a : Name) :
+    a ∈ i.tables.axiomSet c ↔ (toSpec i).AxiomOf c a := by
+  have hax : ∀ d : Regula.Closed.Decl, (d.kind == .axiom) = true ↔ (decl d).kind = .axiom := by
+    intro d
+    cases hd : d.kind <;> simp [decl, constKind, hd]
+  simp only [Regula.Closed.Tables.axiomSet, Regula.Closed.Input.tables,
+    Regula.Closed.Input.axiomReach,
+    List.mem_filterMap, List.mem_map, List.mem_filter]
+  constructor
+  · rintro ⟨⟨b, s⟩, ⟨d, ⟨hd, hk⟩, hpair⟩, hif⟩
+    simp only [Prod.mk.injEq] at hpair
+    obtain ⟨rfl, rfl⟩ := hpair
+    split at hif
+    · rename_i hc
+      simp only [Option.some.injEq] at hif
+      subst hif
+      exact ⟨(contains_axiomReach _ _).mp hc,
+        ⟨decl d, mem_decls.mpr ⟨d, hd, rfl⟩, rfl, (hax d).mp hk⟩⟩
+    · simp at hif
+  · rintro ⟨hr, x, hx, rfl, hk⟩
+    obtain ⟨d, hd, rfl⟩ := mem_decls.mp hx
+    exact ⟨(d.name, _), ⟨d, ⟨hd, (hax d).mpr hk⟩, rfl⟩, by
+      have hc := (contains_axiomReach (i := i) d.name c).mpr hr
+      simp only [decl, hc, ↓reduceIte]⟩
 
 end Link
 
