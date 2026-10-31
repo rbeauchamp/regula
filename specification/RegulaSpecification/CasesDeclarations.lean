@@ -36,6 +36,7 @@ theorem name_mem {i : Input} {c : Name} {P : Decl → Prop} (h : ∃ d ∈ i.dec
   obtain ⟨d, hd, rfl, -⟩ := h
   exact List.mem_map_of_mem hd
 
+/-- The theorem `Good.t` of `base`. -/
 def tDecl : Decl := plain `Good.t `Good .theorem [``propext]
 
 theorem t_mem : tDecl ∈ base.decls := by simp [tDecl, base, baseDecls]
@@ -53,8 +54,10 @@ theorem base_t_admitted {a : Name} (ha : base.AxiomOf `Good.t a) : base.Admits b
 
 /-! ## RG1001 -/
 
+/-- An axiom of a claimed module. -/
 def ax : Decl := plain `Good.ax `Good .axiom []
 
+/-- The cases of RG1001. -/
 def w1001 : Witnessed Violates1001 where
   support i := i.decls.map (·.name)
   support_complete _ _ h := by
@@ -81,9 +84,11 @@ theorem rg1001_noisy : ¬ rg1001.Meets w1001.support := noisy_fails w1001 t_mem_
 
 /-! ## RG1002 -/
 
+/-- A theorem that uses `sorryAx`. -/
 def hole : List Decl :=
   [toolchain ``sorryAx .axiom, plain `Good.h `Good .theorem [``sorryAx]]
 
+/-- The cases of RG1002. -/
 def w1002 : Witnessed Violates1002 where
   support i := i.decls.map (·.name)
   support_complete _ _ h := name_mem (P := fun _ => True) (by

@@ -247,6 +247,10 @@ theorem recursionHelper_iff (hu : (i.decls.map (·.name)).Nodup) (d : Regula.Clo
   · rintro ⟨h1, h2, h3, h4, h5⟩
     exact ⟨⟨⟨⟨h1, h2⟩, h3⟩, h4⟩, h5⟩
 
+theorem mentionsLoop_iff (d : Regula.Closed.Decl) :
+    Regula.Closed.mentionsLoop d = true ↔ MentionsLoop (decl d) := by
+  simp [Regula.Closed.mentionsLoop, Regula.Closed.loopConstructs, MentionsLoop, loopConstructs, decl]
+
 /-- The function that the checker runs reports a constant exactly when it violates RG1006. RG1006 reads
 no axiom set. -/
 theorem rg1006_exact (hu : (i.decls.map (·.name)).Nodup) (s : Name) :
@@ -256,17 +260,21 @@ theorem rg1006_exact (hu : (i.decls.map (·.name)).Nodup) (s : Name) :
   constructor
   · rintro ⟨d, hd, hc, rfl⟩
     obtain ⟨hd, hm⟩ := (mem_claimed i).mp hd
-    simp only [Bool.and_eq_true, Bool.or_eq_true, Bool.not_eq_true'] at hc
-    refine ⟨decl d, mem_decls.mpr ⟨d, hd, rfl⟩, rfl, hm, hc.1, fun hh => ?_⟩
-    simp [(recursionHelper_iff hu d).mpr hh] at hc
-  · rintro ⟨x, hx, rfl, hm, hf, hh⟩
+    refine ⟨decl d, mem_decls.mpr ⟨d, hd, rfl⟩, rfl, hm, ?_⟩
+    simp only [Bool.or_eq_true, Bool.and_eq_true, Bool.not_eq_true'] at hc
+    rcases hc with ⟨hf, hn⟩ | hl
+    · exact .inl ⟨hf, fun hh => by simp [(recursionHelper_iff hu d).mpr hh] at hn⟩
+    · exact .inr ((mentionsLoop_iff d).mp hl)
+  · rintro ⟨x, hx, rfl, hm, hv⟩
     obtain ⟨d, hd, rfl⟩ := mem_decls.mp hx
     refine ⟨d, (mem_claimed i).mpr ⟨hd, hm⟩, ?_, rfl⟩
-    simp only [Bool.and_eq_true, Bool.or_eq_true, Bool.not_eq_true']
-    refine ⟨hf, ?_⟩
-    cases hb : i.tables.recursionHelper d with
-    | false => rfl
-    | true => exact absurd ((recursionHelper_iff hu d).mp hb) hh
+    simp only [Bool.or_eq_true, Bool.and_eq_true, Bool.not_eq_true']
+    rcases hv with ⟨hf, hh⟩ | hl
+    · refine .inl ⟨hf, ?_⟩
+      cases hb : i.tables.recursionHelper d with
+      | false => rfl
+      | true => exact absurd ((recursionHelper_iff hu d).mp hb) hh
+    · exact .inr ((mentionsLoop_iff d).mpr hl)
 
 end Link
 

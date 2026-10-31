@@ -21,8 +21,11 @@ def AllHold (i : Input) : Prop :=
 
 /-- The verdict of a run. -/
 inductive Verdict where
+  /-- The input has the closed form, and every rule holds. -/
   | pass
+  /-- The input has the closed form, and a rule does not hold. -/
   | fail
+  /-- The build could not be loaded, or the input does not have the closed form. -/
   | incomplete
   deriving DecidableEq, Repr
 

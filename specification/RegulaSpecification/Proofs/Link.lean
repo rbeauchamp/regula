@@ -69,6 +69,7 @@ def decl (d : Regula.Closed.Decl) : Decl where
   isUnsafe := d.isUnsafe
   isPartial := d.isPartial
   uses := d.uses
+  valueUses := d.valueUses
   implementedBy := d.implementedBy
   isExtern := d.isExtern
   inToolchain := d.inToolchain
@@ -93,6 +94,7 @@ noncomputable def decl' (s : Input) (d : Decl) : Regula.Closed.Decl where
   isUnsafe := d.isUnsafe
   isPartial := d.isPartial
   uses := d.uses
+  valueUses := d.valueUses
   axioms := some (axiomList s d.name)
   implementedBy := d.implementedBy
   isExtern := d.isExtern
@@ -108,7 +110,7 @@ noncomputable def ofSpec (s : Input) : Regula.Closed.Input where
 theorem profile_surj (p : Profile) : profile (profile' p) = p := by cases p <;> rfl
 
 theorem decl_decl' (s : Input) (d : Decl) : decl (decl' s d) = d := by
-  rcases d with ⟨_, _, k, _, _, _, _, _, _⟩
+  rcases d with ⟨_, _, k, _, _, _, _, _, _, _⟩
   cases k <;> rfl
 
 /-- `ofSpec` loses nothing that the specification's input holds. -/

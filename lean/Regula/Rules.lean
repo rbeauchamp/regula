@@ -35,6 +35,13 @@ def nativeProofAxiom : Name → Bool
   | .str (.str (.str _ "_native") _) _ => true
   | _ => false
 
+/-- The constants through which Lean's `while`, `repeat` and `repeat ... until` run: the one value of
+the type `Lean.Loop` that they iterate over, and the loop itself (`Init/While.lean` at v4.35.0). -/
+def loopConstructs : List Name := [``Lean.Loop.mk, ``repeatM]
+
+/-- Whether the value of `d` mentions a loop construct. -/
+def mentionsLoop (d : Decl) : Bool := loopConstructs.any d.valueUses.contains
+
 /-- One finding: a rule, the constant that violates it, the module of the constant, and a detail. -/
 structure Finding where
   /-- The rule that the constant violates. -/
@@ -141,11 +148,12 @@ def rg1005 : List Finding :=
     else none
 
 /-- RG1006: a constant of a claimed module is unsafe or partial, without the form of a recursion
-helper. -/
+helper, or its value mentions a loop construct of Lean. -/
 def rg1006 : List Finding :=
   t.claimed.filterMap fun d =>
-    if (d.isUnsafe || d.isPartial) && !t.recursionHelper d then
-      some (finding .escapeHatch d s!"is {if d.isUnsafe then "unsafe" else "partial"}")
+    if ((d.isUnsafe || d.isPartial) && !t.recursionHelper d) || mentionsLoop d then
+      some (finding .escapeHatch d (if mentionsLoop d then "mentions a loop construct of Lean"
+        else s!"is {if d.isUnsafe then "unsafe" else "partial"}"))
     else none
 
 /-- The findings of one rule, matched exhaustively over the closed type of the rules. RG2001 reads no

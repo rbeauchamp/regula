@@ -17,13 +17,21 @@ open Lean (Name)
 
 /-- The kind of a constant, one for each constructor of Lean's `ConstantInfo`. -/
 inductive Kind where
+  /-- `ConstantInfo.axiomInfo`. -/
   | «axiom»
+  /-- `ConstantInfo.defnInfo`. -/
   | «definition»
+  /-- `ConstantInfo.thmInfo`. -/
   | «theorem»
+  /-- `ConstantInfo.opaqueInfo`. -/
   | «opaque»
+  /-- `ConstantInfo.quotInfo`. -/
   | quotient
+  /-- `ConstantInfo.inductInfo`. -/
   | «inductive»
+  /-- `ConstantInfo.ctorInfo`. -/
   | constructor
+  /-- `ConstantInfo.recInfo`. -/
   | recursor
   deriving DecidableEq, Repr
 
@@ -43,6 +51,9 @@ structure Decl where
   value of a definition, theorem or opaque constant, the type of an axiom, constructor or
   recursor, and the type and constructors of an inductive type. -/
   uses : List Name
+  /-- The constants its value mentions, for a definition, theorem or opaque constant, and nothing for
+  any other constant. RG1006 reads it for Lean's loop constructs. -/
+  valueUses : List Name
   /-- The constant `@[implemented_by]` names, if any (`Lean.Compiler.getImplementedBy?`). Only the
   form of a recursion helper (RG1006) reads it. -/
   implementedBy : Option Name
@@ -69,8 +80,7 @@ structure Input where
   /-- The claimed modules: each module of a default target of the root package, and each module of
   the root package that their imports reach. -/
   modules : List Name
-  /-- The constants of the claimed modules, with each constant that they reach through what each
-  mentions. -/
+  /-- The constants of the environment that the shell loads. -/
   decls : List Decl
   /-- The modules the environment imports (the module names of its header). -/
   loads : List Name
@@ -90,7 +100,9 @@ def Resolves (c : Name) : Prop := ∃ d ∈ i.decls, d.name = c
 
 /-- `e` is `c` or a constant that `c` reaches through the constants each mentions. -/
 inductive Reaches : Name → Name → Prop
+  /-- A constant reaches itself. -/
   | refl (c : Name) : Reaches c c
+  /-- A constant reaches what a constant that it mentions reaches. -/
   | step {c u e : Name} (d : Decl) : d ∈ i.decls → d.name = c → u ∈ d.uses → Reaches u e →
       Reaches c e
 
@@ -104,9 +116,13 @@ def AxiomOf (c a : Name) : Prop := i.Reaches c a ∧ i.IsAxiom a
 Each name is the name of one constant; each mentioned constant is held; at least one module is
 claimed, so that a claim of nothing is not read as a pass; each claimed module is loaded. -/
 structure WellFormed : Prop where
+  /-- Each name is the name of one constant. -/
   unique : (i.decls.map (·.name)).Nodup
+  /-- Each mentioned constant is held. -/
   closed : ∀ d ∈ i.decls, ∀ u ∈ d.uses, i.Resolves u
+  /-- At least one module is claimed. -/
   claims : i.modules ≠ []
+  /-- Each claimed module is loaded. -/
   loaded : ∀ m ∈ i.modules, m ∈ i.loads
 
 end Input

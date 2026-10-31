@@ -29,6 +29,7 @@ Each row is a requirement of the owner's confirmed intent, and the formal claim 
 | It refuses an `unsafe` or `partial` declaration other than Lean's recursion helper. | **Proved**: `rg1006_exact`, `rg1006_cases`, against the helper's form (see [RG1006](#rg1006-unsafe-and-partial-declarations)). |
 | It refuses an input it cannot load. | **Proved**: `refusal_none_iff`, `run_refused`, for the input. The shell's refusal of a failed load has no theorem (`Regula.Shell.run`). |
 | Each rule refuses every violation and only violations, over Regula's input. | **Proved**: each `rgN_exact` is an equivalence, and `rgN_meets` states it as the rule's intent record. |
+| It refuses a claimed constant whose value directly mentions `Lean.Loop.mk` or `repeatM`, so `while` and `repeat` in claimed code. | **Proved**: `rg1006_exact`, `rg1006_checker_refuses_loop`. |
 | A checker that refuses nothing does not satisfy this. | **Proved**: `silent_fails`, `noisy_fails` and each `rgN_noisy`; `always_pass_fails`, `always_incomplete_fails`. |
 | A pass is the verdict of the rules. | **Proved**: `run_complete`, `run_pass_holds`, `run_meets`. |
 
@@ -52,7 +53,7 @@ The closed input is the type `Input` in [`RegulaSpecification/Input.lean`](Regul
 | --- | --- |
 | `profile`, the profile that the project states | The one argument of the lint driver, `lintDriverArgs` of the project's Lake configuration |
 | `modules`, the claimed modules | Lake's load gives the modules of the default targets of the root package; each loaded module whose `.olean` lies in the root package's library directory is claimed |
-| `decls`, the constants of the claimed modules and each constant that they reach | `Lean.importModules` with `loadExts := false` |
+| `decls`, each constant of the environment | `Lean.importModules` with `loadExts := false` |
 | `loads`, the modules that the environment imports | The header of that environment |
 
 The input has no source text, message, compiled code, option or build log. A rule does not decide what it cannot read in this input.
@@ -75,7 +76,20 @@ Each reads a constant of a claimed module. RG1002 to RG1005 read its transitive 
 
 ### RG1006: `unsafe` and `partial` declarations
 
-A constant of a claimed module is `unsafe` or `partial`, and it does not have the form of the recursion helper that Lean adds for a safe recursive definition. The form is a partial constant `f._unsafe_rec`, not unsafe, with no `implemented_by` and no `extern`, in the module of a safe, total definition `f` with neither. Lean makes the base of a `partial def` an opaque constant, so the rule reports the helper of a `partial def`. `Violates1006`, with `Input.RecursionHelper`, in [`RegulaSpecification/Safety.lean`](RegulaSpecification/Safety.lean).
+The rule refuses two things in a claimed module: an `unsafe` or `partial` constant without the form of Lean's recursion helper, and a constant whose value directly mentions a loop construct of Lean. `Violates1006`, with `Input.RecursionHelper` and `MentionsLoop`, in [`RegulaSpecification/Safety.lean`](RegulaSpecification/Safety.lean). **Proved**: `rg1006_exact` in both directions, and `rg1006_checker_refuses_loop` for each construct.
+
+**The loop constructs.** The class comes from Lean's `Init/While.lean`. A `while`, `repeat` or `repeat ... until` needs no `partial` of the module that uses it, because it compiles through `Lean.Loop.forIn` to `repeatM`, whose body is a private `partial` of that file. So the flags alone do not show a loop that does not end. The rule reads the value of each claimed constant for the one value of the type `Lean.Loop`, `Lean.Loop.mk`, and for `repeatM` (`loopConstructs`). `termination_by` and `partial_fixpoint` stay allowed, and so does `for` over a list. The owner's delegated agent added this on 2026-10-31, after `while true` passed all three commands while a `partial def` of the same loop failed.
+
+**Measured** on 2026-10-31 on a disposable project: `while`, `repeat`, `repeat ... until`, a direct `repeatM`, a direct `Lean.Loop.forIn ⟨⟩`, `forIn Lean.Loop.mk` and an `Inhabited Lean.Loop` instance were each refused; `termination_by`, `partial_fixpoint` and `for` over a list passed.
+
+What this leaves out, as accepted risk under the owner's trust in dependencies:
+
+- A loop inside a dependency or the toolchain, such as `IO.iterate` (`Init/System/IO.lean:780`), which is a `partial def` that a claimed constant can call. **Measured**: it passes.
+- A claimed function that takes a value of `Lean.Loop` as an argument mentions neither construct, and it passes (**measured**). Running it needs that value, which claimed code can make only through `Lean.Loop.mk`, so only a dependency's value runs it.
+- A mention only in a constant's type, which runs nothing. **Proved**: `rg1006_admits_type_mention`.
+- A loop that a claimed module's own code adds during the build, with the forged helper below.
+
+**The recursion helper.** The form is a partial constant `f._unsafe_rec`, not unsafe, with no `implemented_by` and no `extern`, in the module of a safe, total definition `f` with neither. Lean makes the base of a `partial def` an opaque constant, so the rule reports the helper of a `partial def`.
 
 The rule checks that form and nothing about what the helper computes. **Known gap**: a claimed module can forge a helper through its own code during the build. The compiler reads `f._unsafe_rec` in place of `f` by name (`getDeclInfo?`, `Lean/Compiler/LCNF/ToDecl.lean:24-26`). **Measured** on 2026-10-31 with this revision of the checker, on a project of one module:
 
@@ -107,7 +121,7 @@ A run that cannot load the build gives `incomplete`. So does an input that the a
 
 The exit code of `pass` is 0, and no other verdict has it (**proved**: `Regula.Closed.Verdict.exitCode_eq_zero_iff`). `fail` is 1 and `incomplete` is 2. A process that dies ends with a code of its own, which no theorem relates to a verdict, so only exit 0 reads as a pass.
 
-**Measured** on 2026-10-31 on a disposable project that requires this revision. Each case ran `lake build` and then `lake lint`: a `sorry` and a theorem that uses it (RG1002 and RG1005 on each, exit 1); an unused axiom (RG1001, RG1003, RG1005, exit 1); `native_decide` (RG1001, RG1004, RG1005, exit 1); a `partial def` (RG1006, exit 1); an `unsafe def` (RG1003, RG1005, RG1006, exit 1); `Classical.em` under `choice-free` (RG1005, exit 1); `propext` under `kernel-only` (RG1005, exit 1); no profile or a wrong profile (exit 2); no default target (exit 2); no build (exit 2); a run from another directory than the workspace (exit 2); a non-default module with a `sorry` that a default module imports (RG1002, RG1005, exit 1); and a compliant module with a structural recursive definition (exit 0).
+**Measured** on 2026-10-31 on a disposable project that requires this revision. Each case ran `lake build` and then `lake lint`: a `sorry` and a theorem that uses it (RG1002 and RG1005 on each, exit 1); an unused axiom (RG1001, RG1003, RG1005, exit 1); `native_decide` (RG1001, RG1004, RG1005, exit 1); a `partial def` and a `while` (RG1006, exit 1); an `unsafe def` (RG1003, RG1005, RG1006, exit 1); `Classical.em` under `choice-free` (RG1005, exit 1); `propext` under `kernel-only` (RG1005, exit 1); no profile or a wrong profile (exit 2); no default target (exit 2); no build (exit 2); a run from another directory than the workspace (exit 2); a non-default module with a `sorry` that a default module imports (RG1002, RG1005, exit 1); and a compliant module with a structural recursive definition (exit 0).
 
 ## What a pass means
 
@@ -131,7 +145,7 @@ Each of these was decided on the owner's behalf by the owner's delegated agents,
 
 - The claim is the default targets of the root package, with each module of the root package that their imports reach. That is the set `lake check` replays, so a project cannot claim a target that `lake check` skips, and it needs no file of its own that classifies its targets. A target that is not a default target and that no default target imports is outside the claim, as it is for `lake build` and `lake check`. **Measured**: such a module with a `sorry` passes, and it fails once a default module imports it.
 - A project states one profile, for all of its claimed modules, and no profile is `incomplete`. A library that needs a stricter profile than another is a project of its own.
-- The input is one environment, because `lake check` already needs one.
+- The input is one environment, because `lake check` already needs one, and it holds each constant of that environment, so the loader walks no graph and has no loop.
 - The shell reads one Lean release, by its version and commit, and refuses any other, because RG1004 and RG1006 read forms that a release gives.
 - `Regula.Contract` and `Regula.Decision` stay as a library that gives no verdict, because another project of the owner's still imports them. They go when it moves them.
 - The gate has no time limit, because a wall-clock limit has no proof, and on a slow or sleeping machine it refuses a change for no fault of the change. A gate that does not end is a matter for whatever runs it.

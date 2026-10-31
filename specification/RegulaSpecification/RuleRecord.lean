@@ -60,16 +60,23 @@ well-formed input on which `fine` does not, and a finite list of the candidates 
 structure Witnessed (V : α → S → Prop) where
   /-- The candidates of an input: every subject that can violate the rule there. -/
   support : α → List S
+  /-- Each subject that violates the rule is a candidate. -/
   support_complete : ∀ i s, V i s → s ∈ support i
   /-- The case the rule must rule out. -/
   refused : α
+  /-- The refused case is well-formed. -/
   refused_wf : Admission.WellFormed refused
+  /-- The subject of the refused case that violates the rule. -/
   bad : S
+  /-- It violates the rule. -/
   bad_violates : V refused bad
   /-- The case the rule must admit. -/
   admitted : α
+  /-- The admitted case is well-formed. -/
   admitted_wf : Admission.WellFormed admitted
+  /-- The subject of the admitted case that does not violate the rule. -/
   fine : S
+  /-- It does not violate the rule. -/
   fine_admitted : ¬ V admitted fine
 
 variable {rule : String} {V : α → S → Prop}

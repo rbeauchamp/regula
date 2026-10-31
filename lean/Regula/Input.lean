@@ -53,6 +53,9 @@ structure Decl where
   isPartial : Bool
   /-- The constants its type and value mention, the ones `Lean.collectAxioms` walks. -/
   uses : List Name
+  /-- The constants its value mentions, for a definition, theorem or opaque constant, and nothing for
+  any other constant. -/
+  valueUses : List Name
   /-- Its transitive axiom set, as `Lean.collectAxioms` computes it from the loaded constants, for
   each constant of a claimed module; `none` for every other constant. -/
   axioms : Option (List Name)
@@ -81,8 +84,7 @@ structure Input where
   /-- The claimed modules: each module of a default target of the root package, and each module of
   the root package that their imports reach. -/
   modules : List Name
-  /-- The constants of the claimed modules, with each constant that they reach through what each
-  mentions. -/
+  /-- The constants of the environment. -/
   decls : List Decl
   /-- The modules the environment imports. -/
   loads : List Name

@@ -2,7 +2,7 @@
 
 Regula exists to be trusted, and to be the example of how Lean 4 code should be written: well factored, well designed, following best practice, and formally proven. Its owner decided that being free of bugs outranks every lint rule and feature, so Regula gives up any rule, feature or package it cannot prove rather than patching it, documenting a limit or keeping a stated gap. Only Lean, its kernel and Lake's own behaviour are meant to stay trusted; Regula's own code is meant to be proved, or so thin that it only calls Lean. That is the aim and not a claim about this revision: the [trusted base](specification/README.md#the-trusted-base) lists what is not yet proved.
 
-Regula is a checker of a finished Lean build. It refuses a project whose declarations depend on `sorry`, a project axiom, `native_decide` or an axiom outside the profile the project states, or that holds an `unsafe` or `partial` declaration without the form of Lean's recursion helper. It also refuses a build it cannot load.
+Regula is a checker of a finished Lean build. It refuses a project whose declarations depend on `sorry`, a project axiom, `native_decide` or an axiom outside the profile the project states, or that holds an `unsafe` or `partial` declaration without the form of Lean's recursion helper, or a `while` or `repeat` of its own. It also refuses a build it cannot load.
 
 ## The checks
 
@@ -13,7 +13,7 @@ Regula is a checker of a finished Lean build. It refuses a project whose declara
 | RG1003 | A constant of a claimed module depends on an axiom other than Lean's `propext`, `Quot.sound` and `Classical.choice`, and RG1002 and RG1004 do not name it. |
 | RG1004 | A constant of a claimed module depends on an axiom with the name form that `native_decide` gives. |
 | RG1005 | A constant of a claimed module depends on an axiom that the project's profile does not admit. |
-| RG1006 | A claimed module holds an `unsafe` or `partial` constant without the form of Lean's recursion helper. |
+| RG1006 | A claimed module holds an `unsafe` or `partial` constant without the form of Lean's recursion helper, or a constant whose value mentions `Lean.Loop.mk` or `repeatM`, which `while` and `repeat` compile to. |
 | RG2001 | The checker cannot load the build, or its input does not have the closed form. The verdict is `incomplete`. |
 
 The claimed modules are the modules of the root package's default targets, with each module of the root package that their imports reach. These are the modules that `lake build` and `lake check` work on. A target that is not a default target, and that no default target imports, is outside the claim.

@@ -22,6 +22,11 @@ def Verdict.exitCode : Verdict → UInt32
   | .fail => 1
   | .incomplete => 2
 
+/-- Distinct verdicts have distinct exit codes. -/
+theorem Verdict.exitCode_injective : Function.Injective Verdict.exitCode := by
+  intro a b h
+  cases a <;> cases b <;> first | rfl | exact absurd h (by decide)
+
 /-- Only a pass exits with 0. -/
 theorem Verdict.exitCode_eq_zero_iff (v : Verdict) : v.exitCode = 0 ↔ v = .pass := by
   cases v <;> decide

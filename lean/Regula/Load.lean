@@ -14,7 +14,7 @@ faithfully: the specification's trusted base lists that step.
 
 What it reads, and through what:
 
-- The constants: an environment that `Lean.importModules` loads with `loadExts := false`, so no
+- The constants: each constant of an environment that `Lean.importModules` loads with `loadExts := false`, so no
   extension state is built and no initializer of a loaded module runs. `getImplementedBy?` and
   `isExtern` read the module entries of an extension (`getModuleEntries`), which `importModules` sets
   whatever `loadExts` is, and no extension's built state.
@@ -66,6 +66,14 @@ def usesOf (info : ConstantInfo) : Array Name :=
     | .inductInfo v => v.type.getUsedConstants ++ v.ctors.toArray
   all.foldl (fun acc n => if acc.contains n then acc else acc.push n) #[]
 
+/-- The constants that the value of a definition, theorem or opaque constant mentions, and nothing of any
+other constant. -/
+def valueUsesOf : ConstantInfo → Array Name
+  | .defnInfo v => v.value.getUsedConstants
+  | .thmInfo v => v.value.getUsedConstants
+  | .opaqueInfo v => v.value.getUsedConstants
+  | _ => #[]
+
 /-- What the loader knows of one loaded environment. -/
 structure Facts where
   /-- The loaded environment. -/
@@ -102,6 +110,7 @@ def Facts.decl (f : Facts) (n : Name) (info : ConstantInfo) : Except String Decl
   return {
     name := n, module, kind := kindOf info
     isUnsafe := info.isUnsafe, isPartial := info.isPartial, uses := (usesOf info).toList
+    valueUses := (valueUsesOf info).toList
     axioms := none
     implementedBy := Compiler.getImplementedBy? f.env n
     isExtern := isExtern f.env n
@@ -131,32 +140,14 @@ def axiomTable (env : Environment) (names : Array Name) : NameMap (List Name) :=
   tasks.foldl (fun table task => task.get.foldl (fun table (n, axs) => table.insert n axs) table)
     {}
 
-/-- The constants that `seeds` reach through what each mentions, `seeds` included. A mentioned name
-that the environment does not hold stays out, so the admission refuses the input
-(`Input.openMention?`). -/
-def Facts.closure (f : Facts) (seeds : List Name) : Except String (NameMap Decl) := do
-  let mut out : NameMap Decl := {}
-  let mut work := seeds
-  while true do
-    let n :: rest := work | break
-    work := rest
-    if out.contains n then continue
-    let some info := f.env.find? n | continue
-    let d ← f.decl n info
-    out := out.insert n d
-    work := d.uses ++ work
-  return out
-
-/-- The closed input of the environment that `f` describes, under the profile `profile`. -/
+/-- The closed input of the environment that `f` describes, under the profile `profile`: each constant of
+the environment, with the axiom set of each constant of a claimed module. -/
 def Facts.input (f : Facts) (profile : Profile) : Except String Input := do
   let claimed : NameSet := f.claimed.foldl (·.insert ·) {}
-  let mut seeds : List Name := []
-  for (n, _) in f.env.constants.map₁.toList do
-    let some m := f.moduleOf n | throw s!"the constant {n} was loaded, and Lean gives it no module"
-    if claimed.contains m then seeds := n :: seeds
-  let all ← f.closure seeds
-  let table := axiomTable f.env seeds.toArray
-  let decls := all.toList.map fun (_, d) =>
+  let all ← f.env.constants.map₁.toList.mapM fun (n, info) => f.decl n info
+  let names := all.filterMap fun d => if claimed.contains d.module then some d.name else none
+  let table := axiomTable f.env names.toArray
+  let decls := all.map fun d =>
     { d with axioms := if claimed.contains d.module then table.find? d.name else none }
   return { profile, modules := f.claimed, decls, loads := f.env.header.moduleNames.toList }
 

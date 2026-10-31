@@ -133,4 +133,13 @@ theorem rg1006_cases :
       Witnesses.w1006.fine ∉ rg1006Checker Witnesses.w1006.admitted :=
   cases_of_meets Witnesses.w1006 rg1006_meets
 
+/-- The function that the checker runs reports a claimed constant whose value mentions a loop
+construct. -/
+theorem rg1006_checker_refuses_loop {l : Name} (hl : l ∈ loopConstructs) :
+    `Good.l ∈ rg1006Checker (Witnesses.withLoop l) := by
+  have hm := rg1006_meets
+  unfold rg1006 at hm
+  rw [meets_iff] at hm
+  exact (hm _ (Witnesses.wf_withLoop hl) _).mpr (Witnesses.rg1006_refuses_loop hl)
+
 end RegulaSpecification

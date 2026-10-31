@@ -23,7 +23,7 @@ inductive RuleId where
   admit. -/
   | profileExceeded
   /-- RG1006: a claimed module holds an `unsafe` or `partial` constant without the form of Lean's
-  recursion helper. -/
+  recursion helper, or a constant whose value mentions a loop construct of Lean. -/
   | escapeHatch
   /-- RG2001: the build cannot be loaded, or the input does not have the closed form. -/
   | environment

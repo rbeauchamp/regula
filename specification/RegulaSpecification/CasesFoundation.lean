@@ -19,8 +19,10 @@ theorem not_known_of_not_logical {i : Input} {a : Name} (h : a ∉ logicalAxioms
 
 /-! ## RG1003 -/
 
+/-- A theorem that uses an axiom of a dependency. -/
 def depAxiom : List Decl := [plain `Dep.ax `Dep .axiom [], plain `Good.u `Good .theorem [`Dep.ax]]
 
+/-- The cases of RG1003. -/
 def w1003 : Witnessed Violates1003 where
   support i := i.decls.map (·.name)
   support_complete _ _ h := by
@@ -54,10 +56,12 @@ theorem rg1003_noisy : ¬ rg1003.Meets w1003.support := noisy_fails w1003 t_mem_
 
 /-! ## RG1004 -/
 
+/-- A theorem that uses the axiom of a native proof. -/
 def native : List Decl :=
   [plain `Good.n._native.native_decide.ax_1 `Good .axiom [],
     plain `Good.n `Good .theorem [`Good.n._native.native_decide.ax_1]]
 
+/-- The cases of RG1004. -/
 def w1004 : Witnessed Violates1004 where
   support i := i.decls.map (·.name)
   support_complete _ _ h := by
@@ -93,9 +97,11 @@ theorem rg1004_noisy : ¬ rg1004.Meets w1004.support := noisy_fails w1004 t_mem_
 
 /-! ## RG1005 -/
 
+/-- A theorem that uses `Classical.choice`, which the profile of `base` does not admit. -/
 def choice : List Decl :=
   [toolchain ``Classical.choice .axiom, plain `Good.c `Good .theorem [``Classical.choice]]
 
+/-- The cases of RG1005. -/
 def w1005 : Witnessed Violates1005 where
   support i := i.decls.map (·.name)
   support_complete _ _ h := by
@@ -127,6 +133,7 @@ theorem rg1005_noisy : ¬ rg1005.Meets w1005.support := noisy_fails w1005 t_mem_
 
 /-! ## RG1006 -/
 
+/-- A partial definition that is no helper. -/
 def partialDecl : Decl := { plain `Good.p `Good .definition [] with isPartial := true }
 
 theorem helper_mem : helperDecl ∈ base.decls := by simp [base, baseDecls]
@@ -135,6 +142,7 @@ theorem base_helper : base.RecursionHelper helperDecl :=
   ⟨rfl, rfl, rfl, rfl, fDecl, by simp [base, baseDecls], rfl, rfl, rfl,
     rfl, rfl, rfl, rfl⟩
 
+/-- The cases of RG1006. -/
 def w1006 : Witnessed Violates1006 where
   support i := i.decls.map (·.name)
   support_complete _ _ h := by
@@ -146,22 +154,51 @@ def w1006 : Witnessed Violates1006 where
     (uses_resolve (by simp [partialDecl, plain]))
   bad := `Good.p
   bad_violates := by
-    refine ⟨partialDecl, by simp [withDecls], rfl, claimed_withDecls, Or.inr rfl, ?_⟩
+    refine ⟨partialDecl, by simp [withDecls], rfl, claimed_withDecls, .inl ⟨Or.inr rfl, ?_⟩⟩
     rintro ⟨-, -, -, -, b, -, hn, -⟩
     simp [partialDecl, plain] at hn
   admitted := base
   admitted_wf := wf_base
   fine := `Good.f._unsafe_rec
   fine_admitted := by
-    rintro ⟨d, hd, hn, -, -, hnot⟩
-    rw [eq_of_name wf_base hd helper_mem (by simp [hn, helperDecl, plain])] at hnot
-    exact hnot base_helper
+    rintro ⟨d, hd, hn, -, ⟨-, hnot⟩ | ⟨l, -, hl⟩⟩
+    · rw [eq_of_name wf_base hd helper_mem (by simp [hn, helperDecl, plain])] at hnot
+      exact hnot base_helper
+    · rw [eq_of_name wf_base hd helper_mem (by simp [hn, helperDecl, plain])] at hl
+      simp [helperDecl, plain] at hl
 
 theorem rg1006_adequate : O2 rg1006 ∧ O2Run rg1006 ∧ O3 rg1006 ∧ O4 rg1006 ∧
     O5 rg1006 (.rel SameReports) := adequate w1006
 
 theorem rg1006_noisy : ¬ rg1006.Meets w1006.support :=
   noisy_fails w1006 (List.mem_map_of_mem helper_mem)
+
+/-- A safe definition of a claimed module whose value mentions the construct `l`. -/
+def loopUser (l : Name) : Decl := { plain `Good.l `Good .definition [l] with valueUses := [l] }
+
+/-- `base`, with a definition whose value mentions the construct `l`, and with `l`. -/
+def withLoop (l : Name) : Input := withDecls [toolchain l .definition, loopUser l]
+
+/-- A claimed constant whose value mentions either loop construct violates RG1006, though it is safe and
+total by its flags. -/
+theorem rg1006_refuses_loop {l : Name} (hl : l ∈ loopConstructs) :
+    Violates1006 (withLoop l) `Good.l :=
+  ⟨loopUser l, by simp [withLoop, withDecls], rfl, claimed_withDecls, .inr ⟨l, hl, by simp [loopUser]⟩⟩
+
+/-- Those inputs are well-formed. -/
+theorem wf_withLoop {l : Name} (hl : l ∈ loopConstructs) : (withLoop l).WellFormed := by
+  simp only [loopConstructs, List.mem_cons, List.not_mem_nil, or_false] at hl
+  rcases hl with rfl | rfl <;>
+    exact wf_withDecls _
+      (by simp [base, baseDecls, plain, toolchain, helperDecl, fDecl, loopUser])
+      (uses_resolve (by simp [plain, toolchain, loopUser, base, baseDecls, helperDecl, fDecl]))
+
+/-- The rule reads the value: a constant that only its type relates to a loop construct does not
+violate it for that reason. -/
+theorem rg1006_admits_type_mention :
+    ¬ MentionsLoop (plain `Good.l `Good .definition [``Lean.Loop.mk]) := by
+  rintro ⟨l, -, h⟩
+  simp [plain] at h
 
 end Witnesses
 
