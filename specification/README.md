@@ -156,7 +156,7 @@ The checker alone means less, because it reads what the build holds and replays 
 
 Each Lean file of the root package is a `module` file. An importer that is a `module` file sees the type of a definition and the statement of a theorem, and it sees a body only where the author chose that: an `abbrev`, an instance or `@[expose]`. So what such a caller relies on is stated. **Measured** on 2026-10-31: Lean's header parser (`Lean.Parser.parseHeader`, `HeaderSyntax.isModule`) reports `module` for each of the 13 tracked Lean files below `lean/`.
 
-The root package has one `@[expose]`, on `Regula.ExecutableContract.run`. The exported theorem `ExecutableContract.run_eq` is proved by `rfl` over that body, and without the attribute it does not build. **Measured** on 2026-10-31. Its other visible bodies are the instances that `deriving` makes. It has no `abbrev`.
+The root package has one `@[expose]`, on `Regula.ExecutableContract.run`. The exported theorem `ExecutableContract.run_eq` is proved by `rfl` over that body, and without the attribute it does not build. **Measured** on 2026-10-31. Its other visible bodies are instances: those that `deriving` makes and the loader's local `MonadEnv` instance. It has no `abbrev`.
 
 `Regula.ProgramCheck.TestListing` proves two configurations equal by reduction, so it uses `import all` on the three modules whose unexposed bodies it reads: `Regula.TestListing`, `Lake.CLI.Main` and `Init.System.ST`. `Regula.TestListing` imports Lake a second time with `meta`, because `lean --run` runs it in the process that elaborates it, and only a module imported with `meta` has its initializers run there (`Lean/Compiler/InitAttr.lean:160-168`). **Measured** on 2026-10-31: without `meta`, the process ended with signal 11.
 
