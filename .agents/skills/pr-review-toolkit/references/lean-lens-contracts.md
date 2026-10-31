@@ -80,13 +80,12 @@ evaluator/semantic-attribution boundary; do not expand into arbitrary process co
 
 ### 4. Lake Surface, Elaboration, and Fresh Kernel Coverage
 
-Matrix: `DECL-01`, `DECL-03`, `DECL-04`, applicable `MUT-03`–`MUT-05`, `DOGFOOD-01`,
+Matrix: `DECL-01`, `DECL-03`, `DECL-04`, `DOGFOOD-01`,
 `DOGFOOD-02`, `DOGFOOD-05`, `BUILD-01`, `BUILD-04`.
 
 Derive modules from Lake configuration, not filesystem/name guesses. Attack unimported modules,
 lookalike prefixes, contamination, stale `.olean` reuse, incomplete roots, warnings disabled by
-source, and, only when separately claimed, differences between `lake build` and
-`leanchecker --fresh` serialized-graph coverage.
+source.
 
 For complete applications, inspect required executable roots and explicit proof-requiring
 contracts. Discovering every declaration that remains is not detection of a deleted required
@@ -94,7 +93,7 @@ contract; a name/count match alone is not verification of its exact expected pro
 
 ### 5. Documentation Examples and Mutation Sensitivity
 
-Matrix: `DOC-03`–`DOC-05`, applicable checker-qualification rows `MUT-01`–`MUT-04`,
+Matrix: `DOC-03`–`DOC-05`,
 `DOGFOOD-03`, `DOGFOOD-05`.
 
 No check of Regula reads the documentation of a project, because its documentation rules are
@@ -104,11 +103,11 @@ A positive fence elaborates as printed with no warning, and its declarations mee
 and axiom rules. A negative fence fails with one error that matches its pattern. A trusted
 example is not conforming.
 
-Each advertised checker behavior has one positive control plus an independent single-fault
-mutation through the public entrypoint. Require intended-reason detection: a missing-contract mutation masked by an injected axiom
-does not qualify contract completeness. Exercise the semantic claim surrounding a fence,
+Each rule function has its proved contract and cases in the specification. A control through the
+public entrypoint is a diagnostic. Require intended-reason detection: a missing-contract mutation masked by an injected axiom
+does not establish contract completeness. Exercise the semantic claim surrounding a fence,
 including instance synthesis and actual foundation output, rather than equating compilation
-with truth of its prose. Qualification controls are diagnostics, not universal soundness proofs.
+with truth of its prose.
 
 ### 6. Dogfooding, Modules, Namespaces, and Reuse
 
@@ -139,8 +138,8 @@ whose structure obscures the exact claim. Return concrete repairs or `CLEAN`.
 ### C. Audit Efficiency Without Coverage Loss
 
 Find repeated elaborations, avoidable full-environment allocations, serial independent checks,
-or qualification work incorrectly placed in every adopter's conformance loop. Reduce redundant
-work without weakening fresh-state, declaration, axiom, diagnostic, or applicable mutation
+or diagnostic work incorrectly placed in every adopter's conformance loop. Reduce redundant
+work without weakening declaration, axiom or diagnostic
 coverage. Do not trade semantic coverage for speed. Return concrete repairs or `CLEAN`.
 
 Distinguish elaboration/search, proof construction, kernel replay/reduction, and native runtime

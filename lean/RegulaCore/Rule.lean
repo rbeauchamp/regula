@@ -580,7 +580,7 @@ def descriptor : (id : RuleId) → RuleDescriptor id
   | .executableContract => {
       lifecycle := .active (.release ⟨4, 34, 0⟩)
       title := "Executable contracts require supported closed evidence", category := .execution
-      normativeClauses := [.enforcingBuildLinter, .proofCompleteness]
+      normativeClauses := [.executableContracts, .proofCompleteness]
       applicability := "executable-contract"
       evidenceModes := .editorSnapshot :: declarationModes
       requirement := "Each `ExecutableContract f R` is closed and names a safe, computable \
@@ -618,7 +618,7 @@ def descriptor : (id : RuleId) → RuleDescriptor id
   | .decisionContract => {
       lifecycle := .active (.release ⟨0, 7, 0⟩)
       title := "Registered decision functions require a decision contract", category := .execution
-      normativeClauses := [.enforcingBuildLinter, .proofCompleteness]
+      normativeClauses := [.executableContracts, .proofCompleteness]
       applicability := "decision-contract"
       evidenceModes := declarationModes
       requirement := "Each function that a `RegisteredDecision` declaration names has a `Decides`, \
@@ -657,7 +657,7 @@ def descriptor : (id : RuleId) → RuleDescriptor id
       lifecycle := .active (.release ⟨0, 10, 0⟩)
       title := "Decision specifications share no Boolean test with the implementation"
       category := .execution
-      normativeClauses := [.enforcingBuildLinter, .proofCompleteness]
+      normativeClauses := [.executableContracts, .proofCompleteness]
       applicability := "shared-test"
       evidenceModes := .editorSnapshot :: declarationModes
       requirement := "The specification of a decision contract reaches no function with a \

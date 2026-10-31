@@ -123,20 +123,16 @@
   cites a theorem or check against its actual statement, hypotheses, and caller; name what it
   leaves uncovered.
 - For a new or changed Markdown document, obey the [writing rules](docs/guides/writing.md).
-- Respect the assurance boundary stated in standard module 7: a recursion helper is admitted only
-  when Lean's own recursion compiler regenerates its base from it, up to compilation erasure,
-  whatever evaluator produced it, a
-  native-proof axiom rests on its natively replayed statement and, for one of an audited module,
-  command provenance instead, and a
+- Respect the assurance boundary stated in standard module 7: a recursion helper is identified by
+  its form, a native-proof axiom by its name, and a
   modified Lean executable, compromised process, and arbitrary trusted plugins are outside this
   Lean-source standard. Do not recursively expand reviews into
   stronger threat models after the documented boundary has direct positive and negative evidence.
 - For a PR, establish the standard's module 8 rows affected by its changes and dependencies.
   A full repository-compliance claim requires every applicable row across all claimed surfaces
   to be `PASS`; a scoped PR review does not establish that broader claim.
-  `MUT-*` applies when checker behavior is implemented or changed; `DOGFOOD-*` (this
-  repository's own rows, in `docs/guides/contributing.md`) applies to this repository; `MUT-05`
-  applies to the optional serialized-graph claim. A `FAIL`,
+  `DOGFOOD-*` (this
+  repository's own rows, in `docs/guides/contributing.md`) applies to this repository. A `FAIL`,
   `INCOMPLETE`, unknown, omission, skip, timeout, or unsupported check blocks the affected claim.
 
 No package of this repository requires Mathlib; use `lake build` for the Lean development loop.

@@ -88,7 +88,7 @@ number := false
   * Dependencies, namespaces, imports, visibility, and abstraction boundaries.
 *
   * {ref "7-tooling-and-machine-audit"}[7. Tooling and Machine Audit]
-  * Elaboration, declaration and execution coverage, foundation checks, and checker qualification.
+  * Elaboration, declaration and execution coverage, foundation checks, the checker's adoption and contracts.
 *
   * {ref "8-compliance-and-quality-audit"}[8. Compliance and Quality Audit]
   * The single checklist of applicable requirements and their verification.

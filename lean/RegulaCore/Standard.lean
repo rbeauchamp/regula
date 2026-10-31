@@ -62,8 +62,8 @@ inductive Clause where
   | computationMechanisms
   /-- §7.7 Check Lean Documentation Verbatim. -/
   | documentationChecks
-  /-- §7.11 Opt-in Enforcing Build Linter. -/
-  | enforcingBuildLinter
+  /-- §7.9 Executable Contracts and Decision Registrations. -/
+  | executableContracts
   deriving DecidableEq, Repr
 
 namespace Clause
@@ -72,7 +72,7 @@ namespace Clause
 def all : List Clause := [.inlineDocumentation, .faithfulExplanation, .moduleDocumentation,
   .linterDiscipline, .importDiscipline, .communityConventions,
   .elaborationEnvironment, .lakeSurfaces, .cleanElaboration, .declarationInventory,
-  .proofCompleteness, .computationMechanisms, .documentationChecks, .enforcingBuildLinter]
+  .proofCompleteness, .computationMechanisms, .documentationChecks, .executableContracts]
 
 /-- `all` is exhaustive. -/
 theorem mem_all (c : Clause) : c ∈ all := by cases c <;> simp [all]
@@ -84,7 +84,7 @@ def number : Clause → String
   | .elaborationEnvironment => "7.1" | .lakeSurfaces => "7.2" | .cleanElaboration => "7.3"
   | .declarationInventory => "7.4" | .proofCompleteness => "7.5"
   | .computationMechanisms => "7.6" | .documentationChecks => "7.7"
-  | .enforcingBuildLinter => "7.11"
+  | .executableContracts => "7.9"
 
 /-- The heading after the section number. -/
 def title : Clause → String
@@ -101,7 +101,7 @@ def title : Clause → String
   | .proofCompleteness => "Proof Completeness and Foundation Strength"
   | .computationMechanisms => "Classify Lean Computation Mechanisms Exactly"
   | .documentationChecks => "Check Lean Documentation Verbatim"
-  | .enforcingBuildLinter => "Opt-in Enforcing Build Linter"
+  | .executableContracts => "Executable Contracts and Decision Registrations"
 
 /-- The chapter's route below `standard/`, which is also its Verso part's `file`. Exhaustive, so
 a new clause cannot fall into another chapter by default. -/
@@ -111,7 +111,7 @@ def chapter : Clause → String
   | .linterDiscipline | .importDiscipline | .communityConventions => "6-code-organization"
   | .elaborationEnvironment | .lakeSurfaces | .cleanElaboration | .declarationInventory
   | .proofCompleteness | .computationMechanisms | .documentationChecks
-  | .enforcingBuildLinter => "7-tooling-and-machine-audit"
+  | .executableContracts => "7-tooling-and-machine-audit"
 
 /-- The chapter's Verso source, relative to the Regula package root. -/
 def source : Clause → String
@@ -121,7 +121,7 @@ def source : Clause → String
     "website/RegulaStandard/CodeOrganization.lean"
   | .elaborationEnvironment | .lakeSurfaces | .cleanElaboration | .declarationInventory
   | .proofCompleteness | .computationMechanisms | .documentationChecks
-  | .enforcingBuildLinter => "website/RegulaStandard/ToolingAndMachineAudit.lean"
+  | .executableContracts => "website/RegulaStandard/ToolingAndMachineAudit.lean"
 
 /-- The full heading. -/
 def heading (c : Clause) : String := c.number ++ " " ++ c.title
@@ -167,7 +167,7 @@ def checklistRowClass : String := "checklist-row"
 number of rows. -/
 def checklistGroups : List (String × Nat) :=
   [("SCOPE", 5), ("TYPE", 6), ("THEOREM", 10), ("FOUND", 5), ("DECL", 4), ("COMP", 4),
-    ("BUILD", 4), ("DOC", 5), ("MUT", 5)]
+    ("BUILD", 4), ("DOC", 5)]
 
 /-- A row number as the checklist writes it, with at least two digits. -/
 def rowNumber (n : Nat) : String := if n < 10 then "0" ++ toString n else toString n

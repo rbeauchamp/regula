@@ -381,7 +381,7 @@ tag := "45-foundation-strength-kernel-only-choice-free-standard-logical"
 number := false
 %%%
 
-Every Lean declaration has an exact transitive axiom set: the axioms reached through the types and values of the constants it uses, including those from Mathlib. `#print axioms` follows these dependencies, but for an imported declaration it reads the axiom table that the declaration's module recorded when it was compiled, and on the pinned toolchain such a table can omit axioms reached through the constructors of an inductive type. A gate therefore computes the set from the kernel-checked declarations (§7.4). This standard fixes exactly three logical foundation labels plus one non-logical classification:
+Every Lean declaration has an exact transitive axiom set: the axioms reached through the types and values of the constants it uses, including those from Mathlib. `#print axioms` follows these dependencies, but for an imported declaration it reads the axiom table that the declaration's module recorded when it was compiled, and on the pinned toolchain such a table can omit axioms reached through the constructors of an inductive type. Regula's checker therefore computes the set from the constants that it loads, with no such table (§7.4). This standard fixes exactly three logical foundation labels plus one non-logical classification:
 
 :::table +header
 *
@@ -398,17 +398,17 @@ Every Lean declaration has an exact transitive axiom set: the axioms reached thr
   * ⊆ `{propext, Quot.sound, Classical.choice}` — Lean's full standard base
 *
   * _compiler-trusting_
-  * _not a logical label_: the axiom set additionally contains compiler-trust axioms (the `Lean.trustCompiler`, `Lean.ofReduceBool` and `Lean.ofReduceNat` family when the selected compiler declares it, or the authenticated per-invocation `._native.` axioms that `native_decide`, `decide +native`, and `bv_decide` elaborate to) — reported separately, never folded into a logical label; retired names have no compiler exception
+  * _not a logical label_: the axiom set additionally contains compiler-trust axioms (the per-invocation `._native.` axioms that `native_decide`, `decide +native`, and `bv_decide` elaborate to; the pinned toolchain declares no other axiom by which the kernel trusts the compiler) — named separately, never folded into a logical label
 :::
 
 *Rules*:
 
-* A choice-dependent declaration is *never* labeled Choice-Free. The shipped gate mechanically checks a surface's claimed profile against these exact sets ({ref "75-proof-completeness-and-foundation-strength"}[module 7 §7.5]).
+* A choice-dependent declaration is *never* labeled Choice-Free. Regula's checker mechanically checks a surface's claimed profile against these exact sets ({ref "75-proof-completeness-and-foundation-strength"}[module 7 §7.5]).
 * Standard-Logical is a permitted foundation profile. Erased mathematical proofs may use `Classical.choice` within that profile without making the associated program noncomputable. Select the foundation appropriate to the claim and report dependencies honestly. A smaller axiom set is useful when the interface requires it or when a simpler proof achieves it. It is not a general software-assurance ranking.
 * Selecting Choice-Free limits the permitted dependencies. It is not a synonym for correctness or executable construction. Replacing a choice-dependent construction may require explicit witnesses, different operations, or weaker interfaces. Inspect the actual dependencies before deciding whether the change supports the claim.
 * Importing Mathlib is not disqualifying. The transitive axiom set decides. A pure arithmetic theorem proved inside a Mathlib-importing module can still be kernel-only.
 
-A project logical axiom, `sorryAx`, or an unrecognized axiom fails the conforming proof claim. Compiler-trusting mechanisms are classified separately and excluded from conforming positive proof surfaces. A generated-looking name alone does not establish a compiler origin. {ref "75-proof-completeness-and-foundation-strength"}[§7.5] defines the required classification.
+A project logical axiom, `sorryAx`, or an unrecognized axiom fails the conforming proof claim. Compiler-trusting mechanisms are named separately and excluded from conforming positive proof surfaces. {ref "75-proof-completeness-and-foundation-strength"}[§7.5] states how the checker names such an axiom, by its name form: a name changes the rule of a finding and not the verdict.
 
 *Selected actual labels from this repository*. An allowed maximum profile admits every subset of its permitted axioms including the empty set. An actual label is the smallest of these three profiles containing the declaration's computed set: empty is Kernel-only; a nonempty subset of `{propext, Quot.sound}` is Choice-Free; a permitted set containing `Classical.choice` is Standard-Logical. Never infer that set from a tactic name. For a theorem, its actual label does not establish that the same proposition has no proof with fewer axioms.
 

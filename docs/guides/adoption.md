@@ -7,7 +7,7 @@ This guide is the full procedure to adopt Regula. For a first try on one module,
 The four steps below take a project from `require` to its first `lake lint`. They use the layout, the module names and the lakefile format of your project. A pass of `lake lint` does not replace the semantic review of the [compliance checklist](https://rbeauchamp.github.io/regula/dev/standard/8-compliance-audit/) (see [semantic review](#complete-semantic-review)).
 
 The normative definitions behind the steps are in
-[standard §7.10](https://rbeauchamp.github.io/regula/dev/standard/7-tooling-and-machine-audit/#710-adopting-the-checker-in-another-project).
+[standard §7.8](https://rbeauchamp.github.io/regula/dev/standard/7-tooling-and-machine-audit/#78-adopting-the-checker-in-another-project).
 
 ## 1. Require Regula
 
@@ -617,10 +617,6 @@ audit refuses a `decides` entry that names its own surface or no claimed surface
   - A data attribute that the list does not name is refused until a change of Regula names it.
   - The rule cannot see what leaves no record: a command that runs code, such as `run_cmd`, or a local attribute on an ordinary definition, such as `@[local macro k]`.
 - `init` edits your lakefile as text. Then it reads the project again to confirm the edits. No theorem proves that the edits realize the model.
-
-## What you are not asked to do
-
-- **Checker qualification is not adopter conformance.** The `MUT-*` rows qualify a checker implementation. An adopter that uses the shipped checker unchanged does not do them again.
 
 [RG1001]: https://rbeauchamp.github.io/regula/dev/rules/RG1001/
 [RG1002]: https://rbeauchamp.github.io/regula/dev/rules/RG1002/

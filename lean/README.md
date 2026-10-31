@@ -39,7 +39,7 @@ Those files, not this navigation table or folder names, own the inventory.
 
 The interfaces, such as `ExecutableContract`, are the claimed `RegulaInterface` library. A claimed
 surface may import them as described in the
-[standard](https://rbeauchamp.github.io/regula/dev/standard/7-tooling-and-machine-audit/#710-adopting-the-checker-in-another-project);
+[standard](https://rbeauchamp.github.io/regula/dev/standard/7-tooling-and-machine-audit/#78-adopting-the-checker-in-another-project);
 this does not make the operational checker a claimed proof surface.
 
 For runnable consumers with their own configurations, use the
