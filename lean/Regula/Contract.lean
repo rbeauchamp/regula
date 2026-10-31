@@ -5,8 +5,7 @@ module
 
 Proof requirements for a named executable definition. `ExecutableContract f R`
 requires a proof of `R f`; it does not infer whether `R` expresses the intended
-behavior. Regula's checker separately checks that `f` is a safe, total and computable
-constant (rule RG1007); the execution rules account for compiled code (RG3001, RG3002).
+behavior. This module is a library and gives no verdict: no check of Regula reads it.
 
 ## Decision kinds
 
@@ -22,14 +21,12 @@ proved against a specification `spec`:
 Each direction is a field, so Lean's kernel checks it and a one-way guarantee can be registered
 only under the structure that names it. Each kind also carries a witness about `f` itself, so
 the function that refuses every input has no sound kind and the function that accepts every
-input has no complete kind. The checker reads the kind from the head constant of the
-condition's body, without unfolding. The direction a one-way kind leaves open is in its
-statement.
+input has no complete kind. The direction a one-way kind leaves open is in its statement.
 
 A fourth requirement, `DecisionEquivalence accepts spec f`, states the two directions as one law
 and no witness. It is not a kind: an equivalence holds on an empty domain, where `f` neither
-accepts nor refuses an input, so it gives no outcome, and a registered decision is not discharged
-by it (rule RG1008). A contract states it as an ordinary requirement.
+accepts nor refuses an input, so it gives no outcome. A contract states it as an ordinary
+requirement.
 `DecisionEquivalence.toSoundly`
 and `toCompletely` give a kind from a law and the witness that the law does not supply.
 
@@ -56,8 +53,7 @@ type that depends on its arguments. They can be used separately:
   (`Decides.of_packing` and its one-way forms). A type with one constructor and no index has
   that property: the constructor takes every tuple of fields to a value of the type, and Lean's
   kernel reduces each projection of that value to the field. No other way of supplying the
-  arguments has this form, which review checks. A function that fixes an argument or gives a field
-  twice
+  arguments has this form. A function that fixes an argument or gives a field twice
   decides `f` on part of its domain; a structure with a field that `f` does not take, such as a
   proof about the other fields, can restrict the domain; and a type with an index holds only
   the tuples whose fields compute that index.
@@ -67,8 +63,7 @@ type that depends on its arguments. They can be used separately:
   `Dependent.isOk f` for `f : ∀ x, Except (ε x) (payload x)`, both to `Bool`. The kind is one
   of the three above about the erased function, as in
   `Decides (· = true) spec (Dependent.isOk f)`, so the type of its acceptance predicate has no
-  payload in it, and the predicate reads the erased result and nothing else. The standard takes
-  these two erasures and no other, so a contract does not supply an erasure of its own. An
+  payload in it, and the predicate reads the erased result and nothing else. An
   acceptance predicate or an erasure that is stated for every payload type can read the payload
   type: "the payload type has a value" is the specification of a proof-carrying payload,
   whatever the function returns.
@@ -79,19 +74,16 @@ conservative. With an argument left, the result is a function, and how much of i
 constrains depends on the acceptance predicate. One that reads the result at one fixed value `b`
 of that argument gives exactly the kind of the slice of the function at `b`
 (`Decides.iff_slice`), which says nothing of the function at another value. One that quantifies
-over that argument can constrain every value. The standard requires the argument to be supplied
-in both forms, and review checks it, because the checker reads no decided function: that holds
-in each form of it (the function itself, `Function.uncurry` of it, and a
-field application). The remedy is the same for both: supply the remaining argument, with one
-more `Function.uncurry` (`packing_uncurry_covers`) or as a field of the structure.
+over that argument can constrain every value. The remedy is the same for both: supply the
+remaining argument, with one more `Function.uncurry` (`packing_uncurry_covers`) or as a field of
+the structure.
 
 A kind about a function with universe parameters is stated at those parameters, so that it
-holds of every instance; review checks this. A result
-type whose dependency on the input neither erasure removes, such as an inductive family indexed
-by the input, has no kind: return `Decidable _`, or register an ordinary requirement. A result
-of a subtype type that depends on the input, `{r : ρ // P x r}`, is such a type until
-https://github.com/rbeauchamp/regula/issues/243 is decided: an erasure that returns the value of
-the subtype would keep a free acceptance predicate on a data value.
+holds of every instance. A result type whose dependency on the input neither erasure removes, such
+as an inductive family indexed by the input, has no kind: return `Decidable _`, or state an ordinary
+requirement. A result of a subtype type that depends on the input, `{r : ρ // P x r}`, is such a
+type: an erasure that returns the value of the subtype would keep a free acceptance predicate on a
+data value.
 
 Nested dependent pairs are not a form for three or more arguments. Each projection of a pair
 carries the pair's type, so the elaborated statement grows by a large factor with each argument,
@@ -105,22 +97,13 @@ When `spec` and `f` both call a function, a change of that function changes the 
 together. Each direction then holds or fails as its proof does, and a proof that goes through
 the shared function on the two sides can stay valid although the meaning changed. So the kind
 does not establish that the shared function is the intended one. The same holds of a function
-that `spec` and `accepts` both call. The checker refuses a decision contract whose two sides reach
-one Boolean test outside Lean's own library (rule RG1009): a function with a result of `Bool` or
-`BEq _` that is no field's projection function. A proposition takes its place in `spec`, with a
-theorem that connects the proposition to the function, or with a function that decides the
-proposition with `decide`. Each search follows the constants that each constant mentions: the type
-and value of a definition, theorem or opaque constant, and the type and constructors of an
-inductive type, the input type's included. So a test that an invariant of the input type names is
-shared when `f` reaches it too. A shared function with another result type, such as an encoding, a
-measure or a state transition, is not refused, and what it computes remains review.
-
-This is a search by name. A copy of a definition under a second name is a different constant, and
-the search does not find it.
+that `spec` and `accepts` both call. A proposition can take the place of a shared test in `spec`,
+with a theorem that connects the proposition to the function, or with a function that decides the
+proposition with `decide`.
 
 None of the kinds says that `spec` is the intended specification, that `accepts` is the intended
 reading of a result, that every caller acts on the verdict, or which value an accepting result
-carries. Those remain review. A constant function has no two-way kind
+carries. A constant function has no two-way kind
 (`Decides.not_of_constant`); a sound kind about one proves the specification of every input
 (`DecidesSoundly.spec_of_constant`), and a complete kind about one refutes it of every input
 (`DecidesCompletely.not_spec_of_constant`). But when the result of `f` determines its input, as
@@ -136,9 +119,7 @@ namespace Regula
 universe u v w
 
 /-- Required evidence about the exact implementation, not a similarly named model.
-The checker reads each theorem of this type as an executable contract (rule RG1007).
-Use a named constant as `implementation`; put its complete domain inside `condition`.
-Classical evidence is permitted under the selected Standard-Logical profile. -/
+Use a named constant as `implementation`; put its complete domain inside `condition`. -/
 structure ExecutableContract {α : Type u} (implementation : α)
     (condition : α → Prop) : Prop where
   /-- A proof of `condition` about exactly `implementation`. -/
@@ -199,11 +180,9 @@ directions of `Decides` and neither witness, so it is not a decision kind. On an
 holds while `f` neither accepts nor refuses an input (`DecisionEquivalence.of_empty`), and a
 constant function has one for the specification that its one outcome gives
 (`DecisionEquivalence.of_constant`), although it has no two-way kind (`Decides.not_of_constant`).
-A registration states it as the `condition` of an `ExecutableContract`, an ordinary requirement,
-and no check of Regula reads it as a kind.
-It does not discharge a `RegisteredDecision` registration (rule RG1008),
-which needs a kind: `DecisionEquivalence.toSoundly` and `toCompletely` give one from a law and the
-witness that the law does not supply, and `Decides.of_iff` both.
+A contract states it as the `condition` of an `ExecutableContract`, an ordinary requirement.
+`DecisionEquivalence.toSoundly` and `toCompletely` give a kind from a law and the witness that the
+law does not supply, and `Decides.of_iff` both.
 
 **Not claimed:** that `f` accepts some input, that it refuses some input, or that `spec` holds or
 fails of some input. Neither is it claimed that `spec` is the intended specification, nor which
@@ -372,9 +351,9 @@ constructor makes every tuple of fields the fields of a value.
 
 The domain `α` is the type of the complete argument tuples of the function that is decided, and
 `f` is that function applied to all of them. No hypothesis can say so: that a result type is not
-a function type is not a proposition of Lean's logic. The standard rules out a kind about a function
-with an argument left; when its acceptance predicate reads the result at one fixed value of that
-argument, such a kind is the kind of one slice of the function (`Decides.iff_slice`). -/
+a function type is not a proposition of Lean's logic. A kind about a function with an argument
+left, when its acceptance predicate reads the result at one fixed value of that argument, is the
+kind of one slice of the function (`Decides.iff_slice`). -/
 theorem Decides.of_packing (covers : ∀ x, ∃ s, fields s = x)
     (decides : Decides accepts (fun s => spec (fields s)) (fun s => f (fields s))) :
     Decides accepts spec f :=
@@ -424,9 +403,8 @@ function-valued result at one value `b` of that argument, is the two-way kind of
 the function at `b`. It holds of every function with that slice, so it says nothing of `g` at
 another value of the argument. The hypothesis is on the acceptance predicate: one that
 quantifies over the argument, such as `fun h => ∀ b, accepts (h b)`, is not of this form and can
-constrain `g` at every value. The standard's requirement covers
-every kind whose result type is a function type, which is a conservative restriction; the
-remedy is to state the kind about the function applied to every argument. -/
+constrain `g` at every value. The remedy for a kind whose result type is a function type is to state
+the kind about the function applied to every argument. -/
 theorem Decides.iff_slice (b : β) :
     Decides (fun h : β → ρ => accepts (h b)) spec g ↔ Decides accepts spec (fun x => g x b) :=
   ⟨fun decides =>

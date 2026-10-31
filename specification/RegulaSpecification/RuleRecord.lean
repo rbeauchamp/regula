@@ -6,13 +6,11 @@ import RegulaSpecification.Input
 /-!
 # The intent record of a rule
 
-Each kept or new rule is a pure function from the closed input to the list of subjects it reports
-(declarations, modules, targets or deliverables). Its intent record (`LeanIntent.IntentRecord`)
-has that function as its subject and one property: on every well-formed input, the function
-reports a subject exactly when the subject violates the rule (`ruleRecord`). The rule's meaning
-is therefore all in its violation predicate, which each rule module defines and documents. A rule
-reads one environment (`Input`), or the bundle of every environment of a run (`Bundle`); the
-class `Admission` gives the well-formedness of each.
+Each rule is a pure function from the closed input to the list of constants it reports. Its intent
+record (`LeanIntent.IntentRecord`) has that function as its subject and one property: on every
+well-formed input, the function reports a subject exactly when the subject violates the rule
+(`ruleRecord`). The rule's meaning is therefore all in its violation predicate, which each rule
+module defines and documents. The class `Admission` gives the well-formedness of the input.
 
 The theorems below discharge lean-intent's obligations for such a record from two witnesses that
 each rule supplies (`Witnessed`): a well-formed input on which a subject violates the rule, and a
@@ -62,16 +60,23 @@ well-formed input on which `fine` does not, and a finite list of the candidates 
 structure Witnessed (V : α → S → Prop) where
   /-- The candidates of an input: every subject that can violate the rule there. -/
   support : α → List S
+  /-- Each subject that violates the rule is a candidate. -/
   support_complete : ∀ i s, V i s → s ∈ support i
   /-- The case the rule must rule out. -/
   refused : α
+  /-- The refused case is well-formed. -/
   refused_wf : Admission.WellFormed refused
+  /-- The subject of the refused case that violates the rule. -/
   bad : S
+  /-- It violates the rule. -/
   bad_violates : V refused bad
   /-- The case the rule must admit. -/
   admitted : α
+  /-- The admitted case is well-formed. -/
   admitted_wf : Admission.WellFormed admitted
+  /-- The subject of the admitted case that does not violate the rule. -/
   fine : S
+  /-- It does not violate the rule. -/
   fine_admitted : ¬ V admitted fine
 
 variable {rule : String} {V : α → S → Prop}

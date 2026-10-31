@@ -36,6 +36,7 @@ theorem name_mem {i : Input} {c : Name} {P : Decl → Prop} (h : ∃ d ∈ i.dec
   obtain ⟨d, hd, rfl, -⟩ := h
   exact List.mem_map_of_mem hd
 
+/-- The theorem `Good.t` of `base`. -/
 def tDecl : Decl := plain `Good.t `Good .theorem [``propext]
 
 theorem t_mem : tDecl ∈ base.decls := by simp [tDecl, base, baseDecls]
@@ -45,29 +46,29 @@ theorem t_of_name {d : Decl} (hd : d ∈ base.decls) (hn : d.name = `Good.t) : d
 
 theorem t_mem_support : `Good.t ∈ base.decls.map (·.name) := List.mem_map_of_mem t_mem
 
-theorem base_t_admitted {p : Profile} {e : Execution} (hp : base.Claimed `Good p e)
-    (hp' : p ≠ .kernelOnly) {a : Name} (ha : base.AxiomOf `Good.t a) : base.Admits p a := by
+/-- The profile of `base` admits each axiom of `Good.t`. -/
+theorem base_t_admitted {a : Name} (ha : base.AxiomOf `Good.t a) : base.Admits base.profile a := by
   have := base_axioms_t ha
   subst this
-  cases p with
-  | kernelOnly => exact absurd rfl hp'
-  | choiceFree => exact ⟨base_known_propext, Or.inl rfl⟩
-  | standardLogical => exact base_known_propext
+  exact ⟨base_known_propext, Or.inl rfl⟩
 
 /-! ## RG1001 -/
 
+/-- An axiom of a claimed module. -/
 def ax : Decl := plain `Good.ax `Good .axiom []
 
+/-- The cases of RG1001. -/
 def w1001 : Witnessed Violates1001 where
   support i := i.decls.map (·.name)
   support_complete _ _ h := by
     obtain ⟨d, hd, hn, -⟩ := h
     exact name_mem (P := fun _ => True) ⟨d, hd, hn, trivial⟩
   refused := withDecls [ax]
-  refused_wf := wf_withDecls [ax] (by simp [base, baseDecls, plain, toolchain, helperDecl, ax])
+  refused_wf := wf_withDecls [ax]
+    (by simp [base, baseDecls, plain, toolchain, helperDecl, fDecl, ax])
     (uses_resolve (by simp [ax, plain]))
   bad := `Good.ax
-  bad_violates := ⟨ax, by simp [withDecls], rfl, ⟨_, _, claimed_withDecls⟩, rfl⟩
+  bad_violates := ⟨ax, by simp [withDecls], rfl, claimed_withDecls, rfl⟩
   admitted := base
   admitted_wf := wf_base
   fine := `Good.t
@@ -83,20 +84,23 @@ theorem rg1001_noisy : ¬ rg1001.Meets w1001.support := noisy_fails w1001 t_mem_
 
 /-! ## RG1002 -/
 
+/-- A theorem that uses `sorryAx`. -/
 def hole : List Decl :=
   [toolchain ``sorryAx .axiom, plain `Good.h `Good .theorem [``sorryAx]]
 
+/-- The cases of RG1002. -/
 def w1002 : Witnessed Violates1002 where
   support i := i.decls.map (·.name)
   support_complete _ _ h := name_mem (P := fun _ => True) (by
     obtain ⟨⟨d, hd, hn, -⟩, -⟩ := h; exact ⟨d, hd, hn, trivial⟩)
   refused := withDecls hole
-  refused_wf := wf_withDecls hole (by simp [base, baseDecls, plain, toolchain, helperDecl, hole])
-    (uses_resolve (by simp [hole, plain, toolchain, base, baseDecls, helperDecl]))
+  refused_wf := wf_withDecls hole
+    (by simp [base, baseDecls, plain, toolchain, helperDecl, fDecl, hole])
+    (uses_resolve (by simp [hole, plain, toolchain, base, baseDecls, helperDecl, fDecl]))
   bad := `Good.h
   bad_violates := by
     refine ⟨⟨plain `Good.h `Good .theorem [``sorryAx], by simp [withDecls, hole], rfl,
-      ⟨_, _, claimed_withDecls⟩⟩, ?_, ?_⟩
+      claimed_withDecls⟩, ?_, ?_⟩
     · exact .step (plain `Good.h `Good .theorem [``sorryAx]) (by simp [withDecls, hole]) rfl
         (by simp [plain]) (.refl _)
     · exact ⟨toolchain ``sorryAx .axiom, by simp [withDecls, hole], rfl, rfl⟩

@@ -4,8 +4,8 @@ import RegulaSpecification.Proofs.Tables
 # RG1001 to RG1006, against their statements
 
 `Regula.Closed.Tables.rg1001` to `rg1006` are the functions that the checker runs. For each,
-`rg100N_exact` proves that it reports a subject exactly when `Violates100N` holds of it at `toSpec i`.
-RG1001 and RG1006 read no axiom set. The others read `Decl.axioms`, so they assume `AxiomsRead`.
+`rg100N_exact` proves that it reports a subject exactly when `Violates100N` holds of it at `toSpec
+i`. RG1001 and RG1006 read no axiom set. The others read `Decl.axioms`, so they assume `AxiomsRead`.
 -/
 
 namespace RegulaSpecification
@@ -38,7 +38,7 @@ theorem filter_nonempty {α : Type} {l : List α} {p : α → Bool} :
   simp only [Bool.not_eq_true', List.isEmpty_eq_false_iff_exists_mem, List.mem_filter]
 
 theorem axiomSet_iff (h : AxiomsRead i) {d : Regula.Closed.Decl} (hd : d ∈ i.decls)
-    (hr : (toSpec i).ClaimedModule d.module ∨ ∃ q ∈ i.proved, q.theorem_ = d.name) (a : Name) :
+    (hr : (toSpec i).ClaimedModule d.module) (a : Name) :
     a ∈ d.axiomSet ↔ (toSpec i).AxiomOf d.name a := by
   have hp := h.present d hd hr
   cases hx : d.axioms with
@@ -65,8 +65,8 @@ theorem admits_iff (hu : (i.decls.map (·.name)).Nodup) (p : Regula.Closed.Profi
   cases p with
   | kernelOnly => simp [Regula.Closed.Tables.admits, profile, Input.Admits]
   | choiceFree =>
-    simp only [Regula.Closed.Tables.admits, profile, Input.Admits, Bool.and_eq_true, Bool.or_eq_true,
-      beq_iff_eq, known_iff hu]
+    simp only [Regula.Closed.Tables.admits, profile, Input.Admits, Bool.and_eq_true,
+      Bool.or_eq_true, beq_iff_eq, known_iff hu]
   | standardLogical =>
     simp only [Regula.Closed.Tables.admits, profile, Input.Admits, known_iff hu]
 
@@ -110,11 +110,11 @@ theorem rg1002_exact (h : Admitted i) (s : Name) :
   · rintro ⟨d, hd, hc, rfl⟩
     obtain ⟨hd, hm⟩ := (mem_claimed i).mp hd
     exact ⟨⟨decl d, mem_decls.mpr ⟨d, hd, rfl⟩, rfl, hm⟩,
-      (axiomSet_iff h.axioms hd (.inl hm) _).mp (by simpa using hc)⟩
+      (axiomSet_iff h.axioms hd hm _).mp (by simpa using hc)⟩
   · rintro ⟨hc, ha⟩
     obtain ⟨d, hd, rfl, hm⟩ := claimedName_of_mem hc
     exact ⟨d, (mem_claimed i).mpr ⟨hd, hm⟩,
-      by simpa using (axiomSet_iff h.axioms hd (.inl hm) _).mpr ha, rfl⟩
+      by simpa using (axiomSet_iff h.axioms hd hm _).mpr ha, rfl⟩
 
 /-- The function that the checker runs reports a constant exactly when it violates RG1003. -/
 theorem rg1003_exact (h : Admitted i) (s : Name) :
@@ -130,13 +130,13 @@ theorem rg1003_exact (h : Admitted i) (s : Name) :
     simp only [Bool.and_eq_true, Bool.not_eq_true', bne_iff_ne, ne_eq] at hf
     obtain ⟨⟨⟨h1, h2⟩, h3⟩, -⟩ := hf
     exact ⟨⟨decl d, mem_decls.mpr ⟨d, hd, rfl⟩, rfl, hm⟩, a,
-      (axiomSet_iff h.axioms hd (.inl hm) _).mp hax,
+      (axiomSet_iff h.axioms hd hm _).mp hax,
       fun hk => by simp [(known_iff hu a).mpr hk] at h1, h2,
       fun hn => by simp [(native_iff a).mpr hn] at h3, not_mem_compiler a⟩
   · rintro ⟨hc, a, ha, hk, hs, hn, -⟩
     obtain ⟨d, hd, rfl, hm⟩ := claimedName_of_mem hc
     refine ⟨d, (mem_claimed i).mpr ⟨hd, hm⟩, ?_, rfl⟩
-    refine filter_nonempty.mpr ⟨a, (axiomSet_iff h.axioms hd (.inl hm) _).mpr ha, ?_⟩
+    refine filter_nonempty.mpr ⟨a, (axiomSet_iff h.axioms hd hm _).mpr ha, ?_⟩
     have h1 : i.tables.known a = false := by
       cases hb : i.tables.known a with
       | false => rfl
@@ -159,11 +159,11 @@ theorem rg1004_exact (h : Admitted i) (s : Name) :
     obtain ⟨a, hax, hf⟩ := filter_nonempty.mp hc
     simp only [compiler_contains, Bool.or_false] at hf
     exact ⟨⟨decl d, mem_decls.mpr ⟨d, hd, rfl⟩, rfl, hm⟩, a,
-      (axiomSet_iff h.axioms hd (.inl hm) _).mp hax, .inl ((native_iff a).mp hf)⟩
+      (axiomSet_iff h.axioms hd hm _).mp hax, .inl ((native_iff a).mp hf)⟩
   · rintro ⟨hc, a, ha, hn | hn⟩
     · obtain ⟨d, hd, rfl, hm⟩ := claimedName_of_mem hc
       refine ⟨d, (mem_claimed i).mpr ⟨hd, hm⟩, ?_, rfl⟩
-      exact filter_nonempty.mpr ⟨a, (axiomSet_iff h.axioms hd (.inl hm) _).mpr ha,
+      exact filter_nonempty.mpr ⟨a, (axiomSet_iff h.axioms hd hm _).mpr ha,
         by simp [(native_iff a).mpr hn]⟩
     · exact absurd hn (not_mem_compiler a)
 
@@ -172,42 +172,23 @@ theorem rg1005_exact (h : Admitted i) (s : Name) :
     s ∈ i.tables.rg1005.map (·.subject) ↔ Violates1005 (toSpec i) s := by
   have hu := unique_of_wf h.wf
   unfold Regula.Closed.Tables.rg1005
-  simp only [List.mem_map, List.mem_flatMap, List.mem_filterMap]
+  dsimp only
+  rw [mem_report (sub := (·.name)) (fun _ => rfl)]
   constructor
-  · rintro ⟨f, ⟨d, hd, ⟨p, e⟩, hc, hg⟩, rfl⟩
+  · rintro ⟨d, hd, hc, rfl⟩
     obtain ⟨hd, hm⟩ := (mem_claimed i).mp hd
-    rw [claimsFor_eq] at hc
-    split at hg
-    · rename_i hne
-      simp only [Option.some.injEq] at hg
-      subst hg
-      obtain ⟨a, hax, hf⟩ := filter_nonempty.mp hne
-      refine ⟨decl d, mem_decls.mpr ⟨d, hd, rfl⟩, rfl, profile p, execution e,
-        (mem_claimsOf _ _ _).mp hc, a, (axiomSet_iff h.axioms hd (.inl hm) _).mp hax, fun hk => ?_⟩
-      simp [(admits_iff hu p a).mpr hk] at hf
-    · simp at hg
-  · rintro ⟨x, hx, rfl, p, e, hc, a, ha, hn⟩
-    obtain ⟨d, hd, rfl⟩ := mem_decls.mp hx
-    have hc' : (profile' p, execution' e) ∈ i.claimsOf d.module := by
-      rw [mem_claimsOf, profile_surj, execution_surj]
-      exact hc
-    have hm : (toSpec i).ClaimedModule d.module := ⟨_, _, hc⟩
-    have hna : i.tables.admits (profile' p) a = false := by
-      cases hb : i.tables.admits (profile' p) a with
-      | false => rfl
-      | true =>
-        have := (admits_iff hu _ a).mp hb
-        rw [profile_surj] at this
-        exact absurd this hn
-    have hne := (filter_nonempty (p := fun a => !i.tables.admits (profile' p) a)).mpr
-      ⟨a, (axiomSet_iff h.axioms hd (.inl hm) _).mpr ha, by simp [hna]⟩
-    refine ⟨Regula.Closed.finding .profileExceeded d
-        s!"depends on {d.axiomSet.filter (!i.tables.admits (profile' p) ·)}, outside its profile",
-      ⟨d, (mem_claimed i).mpr ⟨hd, hm⟩, (profile' p, execution' e), ?_, ?_⟩, rfl⟩
-    · rw [claimsFor_eq]
-      exact hc'
-    · dsimp only
-      rw [ite_eq_left hne]
+    obtain ⟨a, hax, hf⟩ := filter_nonempty.mp hc
+    refine ⟨⟨decl d, mem_decls.mpr ⟨d, hd, rfl⟩, rfl, hm⟩, a,
+      (axiomSet_iff h.axioms hd hm _).mp hax, fun hk => ?_⟩
+    have ha : i.tables.admits i.tables.profile a = true := (admits_iff hu i.profile a).mpr hk
+    simp [ha] at hf
+  · rintro ⟨hc, a, ha, hn⟩
+    obtain ⟨d, hd, rfl, hm⟩ := claimedName_of_mem hc
+    refine ⟨d, (mem_claimed i).mpr ⟨hd, hm⟩, ?_, rfl⟩
+    refine filter_nonempty.mpr ⟨a, (axiomSet_iff h.axioms hd hm _).mpr ha, ?_⟩
+    cases hb : i.tables.admits i.tables.profile a with
+    | false => rfl
+    | true => exact absurd ((admits_iff hu i.profile a).mp hb) hn
 
 theorem helperBase_eq (n b : Name) :
     Regula.Closed.Tables.helperBase? n = some b ↔ n = Name.str b "_unsafe_rec" := by
@@ -266,7 +247,13 @@ theorem recursionHelper_iff (hu : (i.decls.map (·.name)).Nodup) (d : Regula.Clo
   · rintro ⟨h1, h2, h3, h4, h5⟩
     exact ⟨⟨⟨⟨h1, h2⟩, h3⟩, h4⟩, h5⟩
 
-/-- The function that the checker runs reports a constant exactly when it violates RG1006. -/
+theorem mentionsLoop_iff (d : Regula.Closed.Decl) :
+    Regula.Closed.mentionsLoop d = true ↔ MentionsLoop (decl d) := by
+  simp [Regula.Closed.mentionsLoop, Regula.Closed.loopConstructs, MentionsLoop, loopConstructs,
+    decl]
+
+/-- The function that the checker runs reports a constant exactly when it violates RG1006. RG1006
+reads no axiom set. -/
 theorem rg1006_exact (hu : (i.decls.map (·.name)).Nodup) (s : Name) :
     s ∈ i.tables.rg1006.map (·.subject) ↔ Violates1006 (toSpec i) s := by
   unfold Regula.Closed.Tables.rg1006
@@ -274,17 +261,21 @@ theorem rg1006_exact (hu : (i.decls.map (·.name)).Nodup) (s : Name) :
   constructor
   · rintro ⟨d, hd, hc, rfl⟩
     obtain ⟨hd, hm⟩ := (mem_claimed i).mp hd
-    simp only [Bool.and_eq_true, Bool.or_eq_true, Bool.not_eq_true'] at hc
-    refine ⟨decl d, mem_decls.mpr ⟨d, hd, rfl⟩, rfl, hm, hc.1, fun hh => ?_⟩
-    simp [(recursionHelper_iff hu d).mpr hh] at hc
-  · rintro ⟨x, hx, rfl, hm, hf, hh⟩
+    refine ⟨decl d, mem_decls.mpr ⟨d, hd, rfl⟩, rfl, hm, ?_⟩
+    simp only [Bool.or_eq_true, Bool.and_eq_true, Bool.not_eq_true'] at hc
+    rcases hc with ⟨hf, hn⟩ | hl
+    · exact .inl ⟨hf, fun hh => by simp [(recursionHelper_iff hu d).mpr hh] at hn⟩
+    · exact .inr ((mentionsLoop_iff d).mp hl)
+  · rintro ⟨x, hx, rfl, hm, hv⟩
     obtain ⟨d, hd, rfl⟩ := mem_decls.mp hx
     refine ⟨d, (mem_claimed i).mpr ⟨hd, hm⟩, ?_, rfl⟩
-    simp only [Bool.and_eq_true, Bool.or_eq_true, Bool.not_eq_true']
-    refine ⟨hf, ?_⟩
-    cases hb : i.tables.recursionHelper d with
-    | false => rfl
-    | true => exact absurd ((recursionHelper_iff hu d).mp hb) hh
+    simp only [Bool.or_eq_true, Bool.and_eq_true, Bool.not_eq_true']
+    rcases hv with ⟨hf, hh⟩ | hl
+    · refine .inl ⟨hf, ?_⟩
+      cases hb : i.tables.recursionHelper d with
+      | false => rfl
+      | true => exact absurd ((recursionHelper_iff hu d).mp hb) hh
+    · exact .inr ((mentionsLoop_iff d).mpr hl)
 
 end Link
 

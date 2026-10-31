@@ -1,10 +1,15 @@
 name = "regula_specification"
 defaultTargets = ["RegulaSpecification"]
 
-# The specification of the smaller Regula (`README.md` in this directory): each rule's formal
-# statement, written as an intent record of lean-intent. Nothing of the root package imports it, and
-# it changes no rule's behaviour. `lake build` here
-# checks every statement and every theorem about the statements.
+# Regula's checker runs on this package too (`lake lint`), so that each theorem here depends on no axiom
+# beyond the three of the profile.
+lintDriver = "regula/lint"
+lintDriverArgs = ["standard-logical"]
+
+# The specification of Regula (`README.md` in this directory): each rule's formal statement, written as
+# an intent record of lean-intent, and the proofs of the functions that the checker runs against those
+# statements. Nothing of the root package imports it. `lake build` here checks every statement and every
+# theorem.
 
 # lean-intent, at commit 30fe70d on its `main`, after its umbrella modules were removed. The
 # specification imports three of its modules: `LeanIntent.Record`, `LeanIntent.Obligations` and
@@ -14,9 +19,8 @@ name = "lean-intent"
 git = "https://github.com/rbeauchamp/lean-intent"
 rev = "30fe70d3bdeec8875eab718f38374a76a1df63c4"
 
-# The root package. The fate table matches Regula's own closed rule registry exhaustively, so a rule
-# that the registry gains or loses fails this build until the table gives it a fate.
-# `RegulaSpecification.ClosedSubset` proves the functions of `Regula.Rules` against the statements.
+# The root package, whose functions in `Regula.Rules` the proofs of `RegulaSpecification.Proofs` are
+# about, and whose `lint` executable checks this package.
 [[require]]
 name = "regula"
 path = ".."
@@ -24,6 +28,7 @@ path = ".."
 [leanOptions]
 autoImplicit = false
 relaxedAutoImplicit = false
+linter.missingDocs = true
 
 [[lean_lib]]
 name = "RegulaSpecification"
