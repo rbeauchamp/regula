@@ -517,7 +517,7 @@ def guide : RuleId → Guide
       sources := ["lean/Regula/Contract.lean", "lean/Regula/Rules.lean", "lean/Regula/Load.lean",
         "specification/RegulaSpecification/Contracts.lean"] }
   | .decisionContract => {
-      problem := .mk 'A' " function registered as a decision with `Regula.RegisteredDecision` has no \
+      problem := .mk 'A' " function of a claimed module registered as a decision with `Regula.RegisteredDecision` has no \
         decision contract in a claimed module, and its result type is not `Decidable _`. Nothing \
         then states whether the function accepts only what its specification allows, everything \
         its specification allows, or both."
@@ -547,7 +547,7 @@ def guide : RuleId → Guide
         "Or a result type written `Decidable (spec x)`: the loader reads it without unfolding, so \
           a type written `DecidablePred spec` is not read as one."]
       established := [
-        "Each function that a claimed module registers with `Regula.RegisteredDecision`, and whose result \
+        "Each function of a claimed module that a claimed module registers with `Regula.RegisteredDecision`, and whose result \
           type is not `Decidable _`, is the implementation of a decision contract of a claimed \
           module in each environment that holds the registration.",
         "Removing that contract while the registration stays is reported."]
