@@ -9,16 +9,21 @@ import RegulaSpecification.Proofs.Verdict
 environment, and `Regula.Closed.run` the verdict that the checker gives on that input. `pass_iff`
 relates the two to the environment alone: for every environment, a pass is exactly `EnvForm` and
 `EnvFloor`, two statements that mention no field of the input. Each constant is read from
-`Environment.constants.map₁` by name, and what it mentions from the fields of its `ConstantInfo`
-(`mem_usesOf`). `pass_held` states a pass of each constant of a claimed module as that module's own
+`Environment.constants.map₁` by name. What a name mentions, and whether it names an axiom, is read
+from the fields of that `ConstantInfo` and of each constant of the name that any loaded module's own
+data states (`EnvMentions`, `EnvAxiom`, `mem_usesIn`), and `mem_stated` anchors those in
+`header.moduleData`. So an axiom or a chain of mentions that Lean's import drops still counts. On a
+pass, each axiom reached that way from a constant of a claimed module is one that the profile admits
+(`EnvFloor`). `pass_held` states a pass of each constant of a claimed module as that module's own
 `.olean` states it, also when Lean's import replaced it.
 
 So a loader that dropped a constant, a field or a mention would fail these proofs in the gate's
 build of this package. What they leave assumed is Lean's and Lake's behaviour: that `map₁` holds the
-constants that `Lean.importModules` keeps, what each query of the environment returns, that
-`Expr.getUsedConstants` lists each constant of an expression, and that Lake names the modules of the
-default targets. The specification's trusted base lists them, and the thin effects that no theorem
-here reads: `Regula.Load.places`, `Regula.Load.loadInput` and `Regula.Shell.run`.
+constants that `Lean.importModules` keeps and `header.moduleData` what each `.olean` states, what
+each query of the environment returns, that `Expr.getUsedConstants` lists each constant of an
+expression, and that Lake names the modules of the default targets. The specification's trusted base
+lists them, and the thin effects that no theorem here reads: `Regula.Load.places`,
+`Regula.Load.loadInput` and `Regula.Shell.run`.
 -/
 
 namespace RegulaSpecification
@@ -83,40 +88,131 @@ theorem mem_dedupFold (l : List Name) (acc : Array Name) (u : Name) :
         · exact .inl h
         · exact .inr (.inl h)
 
+/-- `dedup` keeps exactly the names it is given. -/
+theorem mem_dedup (all : Array Name) (u : Name) : u ∈ Regula.Load.dedup all ↔ u ∈ all := by
+  unfold Regula.Load.dedup
+  rw [← Array.foldl_toList, mem_dedupFold]
+  simp
+
 /-- `usesOf` lists exactly what a constant mentions. -/
 theorem mem_usesOf (info : ConstantInfo) (u : Name) :
     u ∈ (Regula.Load.usesOf info).toList ↔ Mentions info u := by
-  have key : ∀ all : Array Name, u ∈ (all.foldl
-      (fun acc n => if acc.contains n then acc else acc.push n) #[]).toList ↔ u ∈ all := by
-    intro all
-    rw [Array.mem_toList_iff, ← Array.foldl_toList, mem_dedupFold]
-    simp
   unfold Regula.Load.usesOf
-  rw [key]
+  rw [Array.mem_toList_iff, mem_dedup]
   cases info <;> simp [Mentions]
+
+/-- The fold of `usesIn` collects what each constant of the list mentions. -/
+theorem mem_usesFold (l : List ConstantInfo) (acc : Array Name) (u : Name) :
+    u ∈ l.foldl (fun acc v => acc ++ Regula.Load.usesOf v) acc ↔
+      u ∈ acc ∨ ∃ v ∈ l, Mentions v u := by
+  induction l generalizing acc with
+  | nil => simp
+  | cons a l ih =>
+    have ha : u ∈ Regula.Load.usesOf a ↔ Mentions a u := by
+      simpa using mem_usesOf a u
+    simp only [List.foldl_cons, ih, Array.mem_append, ha, List.mem_cons, exists_eq_or_imp, or_assoc]
+
+/-- `usesIn` lists exactly what a constant that the environment keeps mentions, with what each
+constant of `stated` mentions. -/
+theorem mem_usesIn (info : ConstantInfo) (stated : List ConstantInfo) (u : Name) :
+    u ∈ (Regula.Load.usesIn info stated).toList ↔ Mentions info u ∨ ∃ v ∈ stated, Mentions v u := by
+  have ha : u ∈ Regula.Load.usesOf info ↔ Mentions info u := by
+    simpa using mem_usesOf info u
+  unfold Regula.Load.usesIn
+  rw [Array.mem_toList_iff, mem_dedup, mem_usesFold, ha]
 
 /-- `valueUsesOf` lists exactly what the value of a constant mentions. -/
 theorem mem_valueUsesOf (info : ConstantInfo) (u : Name) :
     u ∈ (Regula.Load.valueUsesOf info).toList ↔ ValueMentions info u := by
   cases info <;> simp [Regula.Load.valueUsesOf, ValueMentions]
 
+/-! ## What the loaded modules state -/
+
+/-- The inner fold of `Facts.stated` adds each constant of the list to the list of its name. -/
+theorem mem_statedPairs (l : List (Name × ConstantInfo))
+    (acc : Std.HashMap Name (List ConstantInfo)) (n : Name) (v : ConstantInfo) :
+    v ∈ (l.foldl (fun acc x => acc.insert x.1 (x.2 :: acc.getD x.1 [])) acc).getD n [] ↔
+      (n, v) ∈ l ∨ v ∈ acc.getD n [] := by
+  induction l generalizing acc with
+  | nil => simp
+  | cons a l ih =>
+    rcases a with ⟨c, w⟩
+    simp only [List.foldl_cons, ih, List.mem_cons, Prod.mk.injEq, Std.HashMap.getD_insert]
+    by_cases hc : c = n
+    · subst hc
+      simp only [beq_self_eq_true, ite_true, List.mem_cons, true_and]
+      constructor
+      · rintro (h | rfl | h)
+        · exact .inl (.inr h)
+        · exact .inl (.inl rfl)
+        · exact .inr h
+      · rintro ((rfl | h) | h)
+        · exact .inr (.inl rfl)
+        · exact .inl h
+        · exact .inr (.inr h)
+    · have hb : (c == n) = false := by simpa using hc
+      have hn : ¬ n = c := fun h => hc h.symm
+      simp [hb, hn]
+
+/-- The outer fold of `Facts.stated` adds the constants of each module's data. -/
+theorem mem_statedData (l : List Lean.ModuleData)
+    (acc : Std.HashMap Name (List ConstantInfo)) (n : Name) (v : ConstantInfo) :
+    v ∈ (l.foldl (fun acc data => (data.constNames.zip data.constants).foldl
+        (fun acc x => acc.insert x.1 (x.2 :: acc.getD x.1 [])) acc) acc).getD n [] ↔
+      (∃ data ∈ l, (n, v) ∈ data.constNames.zip data.constants) ∨ v ∈ acc.getD n [] := by
+  induction l generalizing acc with
+  | nil => simp
+  | cons a l ih =>
+    have hp := mem_statedPairs (a.constNames.zip a.constants).toList acc n v
+    simp only [Array.foldl_toList, Array.mem_toList_iff] at hp
+    simp only [List.foldl_cons, ih, hp, List.mem_cons, exists_eq_or_imp]
+    constructor
+    · rintro (h | h | h)
+      · exact .inl (.inr h)
+      · exact .inl (.inl h)
+      · exact .inr h
+    · rintro ((h | h) | h)
+      · exact .inr (.inl h)
+      · exact .inl h
+      · exact .inr (.inr h)
+
+/-- `Facts.stated` lists of a name exactly what the own data of a loaded module states of it. -/
+theorem mem_stated {n : Name} {v : ConstantInfo} :
+    v ∈ f.stated.getD n [] ↔ ∃ data ∈ f.env.header.moduleData,
+      (n, v) ∈ data.constNames.zip data.constants := by
+  have h := mem_statedData f.env.header.moduleData.toList {} n v
+  simp only [Array.foldl_toList, Array.mem_toList_iff] at h
+  simpa [Regula.Load.Facts.stated] using h
+
 /-! ## The statements over the environment -/
 
-/-- `c` reaches `e` through the constants that the environment's constants mention. -/
+/-- A constant is an axiom, by the constructor of its `ConstantInfo`. -/
+def AxiomInfo (k : ConstantInfo) : Prop := ∃ w, k = .axiomInfo w
+
+/-- What the name `c` mentions in the environment: what the constant that the environment keeps
+mentions, and what each constant of that name that a loaded module's own data states mentions. -/
+def EnvMentions (f : Regula.Load.Facts) (c u : Name) : Prop :=
+  ∃ k, f.env.constants.map₁[c]? = some k ∧
+    (Mentions k u ∨ ∃ v ∈ f.stated.getD c [], Mentions v u)
+
+/-- The name `a` names an axiom in the environment: the constant that the environment keeps is one,
+or a constant of that name that a loaded module's own data states is one. -/
+def EnvAxiom (f : Regula.Load.Facts) (a : Name) : Prop :=
+  ∃ k, f.env.constants.map₁[a]? = some k ∧
+    (AxiomInfo k ∨ ∃ v ∈ f.stated.getD a [], AxiomInfo v)
+
+/-- `c` reaches `e` through what the names of the environment mention. -/
 inductive EnvReaches (f : Regula.Load.Facts) : Name → Name → Prop
   /-- A constant reaches itself. -/
   | refl (c : Name) : EnvReaches f c c
   /-- A constant reaches what a constant that it mentions reaches. -/
-  | step {c u e : Name} (info : ConstantInfo) : f.env.constants.map₁[c]? = some info →
-      Mentions info u → EnvReaches f u e → EnvReaches f c e
+  | step {c u e : Name} : EnvMentions f c u → EnvReaches f u e → EnvReaches f c e
 
-/-- The closed form of the input, in the terms of the environment: each constant that a constant
+/-- The closed form of the input, in the terms of the environment: each constant that a name
 mentions is held, at least one module is claimed, and each claimed module is loaded. -/
 structure EnvForm (f : Regula.Load.Facts) : Prop where
   /-- Each mentioned constant is held. -/
-  closed : ∀ (n : Name) (info : ConstantInfo) (u : Name),
-    f.env.constants.map₁[n]? = some info → Mentions info u →
-    ∃ info', f.env.constants.map₁[u]? = some info'
+  closed : ∀ n u, EnvMentions f n u → ∃ info', f.env.constants.map₁[u]? = some info'
   /-- At least one module is claimed. -/
   claims : f.claimed ≠ []
   /-- Each claimed module is loaded. -/
@@ -132,27 +228,28 @@ def EnvAdmits (f : Regula.Load.Facts) : Regula.Closed.Profile → Name → Prop
 
 /-- The form of a recursion helper: a partial, safe-flagged constant `b._unsafe_rec` with no
 `@[implemented_by]` and not `@[extern]`, beside a safe, total definition `b` of its module of which
-the same two hold. -/
+the same two hold, and of whose name no loaded module states an axiom. -/
 def EnvHelper (f : Regula.Load.Facts) (n : Name) (info : ConstantInfo) (m : Name) : Prop :=
   info.isPartial = true ∧ info.isUnsafe = false ∧
     Lean.Compiler.getImplementedBy? f.env n = none ∧ Lean.isExtern f.env n = false ∧
     ∃ b v, n = .str b "_unsafe_rec" ∧ f.env.constants.map₁[b]? = some (.defnInfo v) ∧
+      (∀ w ∈ f.stated.getD b [], ¬ AxiomInfo w) ∧
       f.moduleOf b = some m ∧ (ConstantInfo.defnInfo v).isUnsafe = false ∧
       (ConstantInfo.defnInfo v).isPartial = false ∧
       Lean.Compiler.getImplementedBy? f.env b = none ∧ Lean.isExtern f.env b = false
 
 /-- What RG1001 to RG1006 state of each constant of a claimed module, in the terms of the
-environment: it is no axiom (RG1001). When it is unsafe or partial, it has the form of a recursion
-helper (RG1006), and its value mentions no loop construct of Lean (RG1006). Each axiom that it
-reaches is one that the profile admits (RG1005), which also excludes `sorryAx` (RG1002), a native
-proof's axiom (RG1004) and every other axiom (RG1003): `rg1005_of_hole`, `rg1005_of_compiler`,
-`rg1005_of_unknown`. -/
+environment: no loaded module states an axiom of its name (RG1001). When it is unsafe or partial, it
+has the form of a recursion helper (RG1006), and its value mentions no loop construct of Lean
+(RG1006). Each axiom that it reaches, through what any loaded module's own data states, is one that
+the profile admits (RG1005), which also excludes `sorryAx` (RG1002), a native proof's axiom (RG1004)
+and every other axiom (RG1003): `rg1005_of_hole`, `rg1005_of_compiler`, `rg1005_of_unknown`. -/
 def EnvFloor (f : Regula.Load.Facts) (p : Regula.Closed.Profile) : Prop :=
   ∀ n info m, f.env.constants.map₁[n]? = some info → f.moduleOf n = some m → m ∈ f.claimed →
-    (∀ v, info ≠ .axiomInfo v) ∧
+    ¬ EnvAxiom f n ∧
     ((info.isUnsafe = true ∨ info.isPartial = true) → EnvHelper f n info m) ∧
     (∀ l ∈ loopConstructs, ¬ ValueMentions info l) ∧
-    ∀ a v, EnvReaches f n a → f.env.constants.map₁[a]? = some (.axiomInfo v) → EnvAdmits f p a
+    ∀ a, EnvReaches f n a → EnvAxiom f a → EnvAdmits f p a
 
 /-! ## What the input holds -/
 
@@ -211,18 +308,19 @@ structure Loaded (f : Regula.Load.Facts) (roots : List Name) (p : Regula.Closed.
   roots : ∀ r ∈ roots, r ∈ f.claimed
   /-- Each constant of the input is a constant of the environment, with the fields it gives. -/
   sound : ∀ d ∈ i.decls, ∃ info, f.env.constants.map₁[d.name]? = some info ∧
-    f.moduleOf d.name = some d.module ∧ d = f.declIn d.name d.module info
+    f.moduleOf d.name = some d.module ∧
+      d = f.declIn d.name d.module info (f.stated.getD d.name [])
   /-- Each constant of the environment is in the input. -/
   whole : ∀ n info, f.env.constants.map₁[n]? = some info →
-    ∃ m, f.moduleOf n = some m ∧ f.declIn n m info ∈ i.decls
+    ∃ m, f.moduleOf n = some m ∧ f.declIn n m info (f.stated.getD n []) ∈ i.decls
   /-- No name repeats: the keys of a hash map are distinct. -/
   unique : (i.decls.map (·.name)).Nodup
   /-- Each constant of a claimed module's `.olean` is shown to the rules, or is what they admit. -/
   kept : ∀ x ∈ f.claimedConstants, f.shown x = true ∨ Regula.Load.fitsUnshown i.tables x.2.2 = true
 
-theorem decl_ok {n : Name} {info : ConstantInfo} {d : Regula.Closed.Decl}
-    (h : f.decl n info = .ok d) : f.moduleOf n = some d.module ∧ d.name = n ∧
-      d = f.declIn n d.module info := by
+theorem decl_ok {n : Name} {info : ConstantInfo} {s : List ConstantInfo} {d : Regula.Closed.Decl}
+    (h : f.decl n info s = .ok d) : f.moduleOf n = some d.module ∧ d.name = n ∧
+      d = f.declIn n d.module info s := by
   unfold Regula.Load.Facts.decl at h
   split at h
   · rename_i m hm
@@ -265,7 +363,8 @@ theorem input_loaded (h : f.input roots p = .ok i) : Loaded f roots p i := by
   split at h
   · cases h
   rename_i hfind
-  cases hm : f.env.constants.map₁.toList.mapM (fun x => f.decl x.1 x.2) with
+  cases hm : f.env.constants.map₁.toList.mapM
+      (fun x => f.decl x.1 x.2 (f.stated.getD x.1 [])) with
   | error e =>
     simp only [hm, Except.bind] at h
     cases h
@@ -276,7 +375,8 @@ theorem input_loaded (h : f.input roots p = .ok i) : Loaded f roots p i := by
     · rename_i hkeeps
       simp only [Except.ok.injEq] at h
       subst h
-      obtain ⟨h1, h2, h3⟩ := mapM_ok (fun x : Name × ConstantInfo => f.decl x.1 x.2)
+      obtain ⟨h1, h2, h3⟩ := mapM_ok
+        (fun x : Name × ConstantInfo => f.decl x.1 x.2 (f.stated.getD x.1 []))
         (·.name) (·.1) (fun a _ hb => (decl_ok hb).2.1) _ _ hm
       refine ⟨rfl, rfl, rfl, ?_, ?_, ?_, ?_, ?_⟩
       · intro r hr
@@ -309,7 +409,7 @@ theorem claimed_iff (hl : Loaded f roots p i) (m : Name) :
 /-- A constant of the specification's input is a constant of the environment. -/
 theorem of_mem {x : Decl} (hl : Loaded f roots p i) (hx : x ∈ (toSpec i).decls) :
     ∃ info, f.env.constants.map₁[x.name]? = some info ∧ f.moduleOf x.name = some x.module ∧
-      x = decl (f.declIn x.name x.module info) := by
+      x = decl (f.declIn x.name x.module info (f.stated.getD x.name [])) := by
   obtain ⟨d, hd, rfl⟩ := mem_decls.mp hx
   obtain ⟨info, hn, hm, hv⟩ := hl.sound d hd
   exact ⟨info, hn, hm, congrArg decl hv⟩
@@ -317,7 +417,7 @@ theorem of_mem {x : Decl} (hl : Loaded f roots p i) (hx : x ∈ (toSpec i).decls
 /-- A constant of the environment is a constant of the specification's input. -/
 theorem to_mem (hl : Loaded f roots p i) {n : Name} {info : ConstantInfo}
     (hn : f.env.constants.map₁[n]? = some info) {m : Name} (hm : f.moduleOf n = some m) :
-    decl (f.declIn n m info) ∈ (toSpec i).decls := by
+    decl (f.declIn n m info (f.stated.getD n [])) ∈ (toSpec i).decls := by
   obtain ⟨m', hm', hmem⟩ := hl.whole n info hn
   rw [hm] at hm'
   cases hm'
@@ -350,35 +450,85 @@ theorem reaches_env (hl : Loaded f roots p i) (c e : Name) :
       subst hc
       obtain ⟨info, hn, -, hv⟩ := of_mem hl hx
       rw [hv] at hu
-      exact .step info hn ((mem_usesOf info _).mp hu) ih
+      exact .step ⟨info, hn, (mem_usesIn info _ _).mp hu⟩ ih
   · intro h
     induction h with
     | refl => exact .refl _
-    | step info hn hm _ ih =>
+    | step hm _ ih =>
+      obtain ⟨info, hn, hu⟩ := hm
       obtain ⟨m, hmod⟩ := module_of hl hn
-      exact .step _ (to_mem hl hn hmod) rfl ((mem_usesOf info _).mpr hm) ih
+      exact .step _ (to_mem hl hn hmod) rfl ((mem_usesIn info _ _).mpr hu) ih
 
-theorem kind_axiom {n m : Name} {info : ConstantInfo} :
-    (decl (f.declIn n m info)).kind = .axiom ↔ ∃ v, info = .axiomInfo v := by
-  cases info <;>
-    simp [decl, Regula.Load.Facts.declIn, Regula.Load.kindOf, constKind]
+/-- The kind that `kindOf` gives is `axiom` exactly of an axiom. -/
+theorem kindOf_axiom (k : ConstantInfo) : Regula.Load.kindOf k = .axiom ↔ AxiomInfo k := by
+  cases k <;> simp [Regula.Load.kindOf, AxiomInfo]
 
-theorem kind_definition {n m : Name} {info : ConstantInfo} :
-    (decl (f.declIn n m info)).kind = .definition ↔ ∃ v, info = .defnInfo v := by
-  cases info <;>
-    simp [decl, Regula.Load.Facts.declIn, Regula.Load.kindOf, constKind]
+/-- `kindIn` gives `axiom` exactly when the kept constant or a constant of the list is an axiom. -/
+theorem kindIn_axiom (k : ConstantInfo) (s : List ConstantInfo) :
+    Regula.Load.kindIn k s = .axiom ↔ AxiomInfo k ∨ ∃ v ∈ s, AxiomInfo v := by
+  unfold Regula.Load.kindIn
+  split
+  · rename_i hs
+    simp only [List.any_eq_true, beq_iff_eq, kindOf_axiom] at hs
+    simpa using .inr hs
+  · rename_i hs
+    simp only [List.any_eq_true, beq_iff_eq, kindOf_axiom] at hs
+    simp [kindOf_axiom, hs]
+
+theorem kind_axiom {n m : Name} {info : ConstantInfo} {s : List ConstantInfo} :
+    (decl (f.declIn n m info s)).kind = .axiom ↔ AxiomInfo info ∨ ∃ v ∈ s, AxiomInfo v := by
+  rw [← kindIn_axiom]
+  simp only [decl, Regula.Load.Facts.declIn]
+  cases Regula.Load.kindIn info s <;> simp [constKind]
+
+theorem kind_definition {n m : Name} {info : ConstantInfo} {s : List ConstantInfo} :
+    (decl (f.declIn n m info s)).kind = .definition ↔
+      (∃ v, info = .defnInfo v) ∧ ∀ w ∈ s, ¬ AxiomInfo w := by
+  have hconst : (decl (f.declIn n m info s)).kind = .definition ↔
+      Regula.Load.kindIn info s = .definition := by
+    simp only [decl, Regula.Load.Facts.declIn]
+    cases Regula.Load.kindIn info s <;> simp [constKind]
+  rw [hconst]
+  unfold Regula.Load.kindIn
+  split
+  · rename_i hs
+    simp only [List.any_eq_true, beq_iff_eq, kindOf_axiom] at hs
+    obtain ⟨w, hw, hax⟩ := hs
+    simp only [reduceCtorEq, false_iff, not_and]
+    exact fun _ hall => hall w hw hax
+  · rename_i hs
+    have hall : ∀ w ∈ s, ¬ AxiomInfo w := by
+      simpa only [List.any_eq_true, beq_iff_eq, kindOf_axiom, not_exists, not_and] using hs
+    constructor
+    · intro hk
+      refine ⟨?_, hall⟩
+      cases info <;> simp [Regula.Load.kindOf] at hk ⊢
+    · rintro ⟨⟨v, rfl⟩, -⟩
+      rfl
+
+/-- Whether the input states an axiom of a held name is `EnvAxiom`. -/
+theorem kind_envAxiom {n m : Name} {info : ConstantInfo}
+    (hn : f.env.constants.map₁[n]? = some info) :
+    (decl (f.declIn n m info (f.stated.getD n []))).kind = .axiom ↔ EnvAxiom f n := by
+  rw [kind_axiom]
+  constructor
+  · exact fun h => ⟨info, hn, h⟩
+  · rintro ⟨k, hk, h⟩
+    rw [hn] at hk
+    cases hk
+    exact h
 
 theorem isAxiom_env (hl : Loaded f roots p i) (a : Name) :
-    (toSpec i).IsAxiom a ↔ ∃ v, f.env.constants.map₁[a]? = some (.axiomInfo v) := by
+    (toSpec i).IsAxiom a ↔ EnvAxiom f a := by
   constructor
   · rintro ⟨x, hx, rfl, hk⟩
     obtain ⟨info, hn, -, hv⟩ := of_mem hl hx
     rw [hv] at hk
-    obtain ⟨v, rfl⟩ := kind_axiom.mp hk
-    exact ⟨v, hn⟩
-  · rintro ⟨v, hn⟩
+    exact (kind_envAxiom hn).mp hk
+  · intro h
+    obtain ⟨info, hn, -⟩ := id h
     obtain ⟨m, hm⟩ := module_of hl hn
-    exact ⟨_, to_mem hl hn hm, rfl, kind_axiom.mpr ⟨v, rfl⟩⟩
+    exact ⟨_, to_mem hl hn hm, rfl, (kind_envAxiom hn).mpr h⟩
 
 theorem known_env (hl : Loaded f roots p i) (a : Name) :
     (toSpec i).Known a ↔ a ∈ logicalAxioms ∧ (∃ info, f.env.constants.map₁[a]? = some info) ∧
@@ -424,27 +574,28 @@ theorem admits_env (hl : Loaded f roots p i) {a : Name} {info : ConstantInfo}
 
 /-- The form of a recursion helper in the input is its form in the environment. -/
 theorem helper_env (hl : Loaded f roots p i) (n m : Name) (info : ConstantInfo) :
-    (toSpec i).RecursionHelper (decl (f.declIn n m info)) ↔ EnvHelper f n info m := by
+    (toSpec i).RecursionHelper (decl (f.declIn n m info (f.stated.getD n []))) ↔
+      EnvHelper f n info m := by
   refine and_congr_right fun _ => and_congr_right fun _ => and_congr_right fun _ =>
     and_congr_right fun _ => ?_
   constructor
   · rintro ⟨base, hb, hname, hk, hm, hu, hp', hi', he⟩
     obtain ⟨info', hn', hm', hv⟩ := of_mem hl hb
     rw [hv] at hk hu hp' hi' he
-    obtain ⟨v, rfl⟩ := kind_definition.mp hk
+    obtain ⟨⟨v, rfl⟩, hs⟩ := kind_definition.mp hk
     have hm'' : base.module = m := hm
-    exact ⟨base.name, v, hname, hn', hm'' ▸ hm', hu, hp', hi', he⟩
-  · rintro ⟨b, v, hname, hn', hm', hu, hp', hi', he⟩
-    exact ⟨_, to_mem hl hn' hm', hname, kind_definition.mpr ⟨v, rfl⟩, rfl, hu, hp', hi', he⟩
+    exact ⟨base.name, v, hname, hn', hs, hm'' ▸ hm', hu, hp', hi', he⟩
+  · rintro ⟨b, v, hname, hn', hs, hm', hu, hp', hi', he⟩
+    exact ⟨_, to_mem hl hn' hm', hname, kind_definition.mpr ⟨⟨v, rfl⟩, hs⟩, rfl, hu, hp', hi', he⟩
 
 /-- The closed form of the input is `EnvForm` of the environment. -/
 theorem wf_env (hl : Loaded f roots p i) : (toSpec i).WellFormed ↔ EnvForm f := by
   constructor
   · intro h
     refine ⟨?_, ?_, ?_⟩
-    · intro n info u hn hm
+    · rintro n u ⟨info, hn, hm⟩
       obtain ⟨m, hmod⟩ := module_of hl hn
-      exact (resolves_env hl u).mp (h.closed _ (to_mem hl hn hmod) u ((mem_usesOf info u).mpr hm))
+      exact (resolves_env hl u).mp (h.closed _ (to_mem hl hn hmod) u ((mem_usesIn info _ u).mpr hm))
     · simpa [toSpec, hl.modules] using h.claims
     · simpa [toSpec, hl.modules, hl.loads] using h.loaded
   · intro h
@@ -454,7 +605,7 @@ theorem wf_env (hl : Loaded f roots p i) : (toSpec i).WellFormed ↔ EnvForm f :
     · intro x hx u hu
       obtain ⟨info, hn, -, hv⟩ := of_mem hl hx
       rw [hv] at hu
-      exact (resolves_env hl u).mpr (h.closed _ info u hn ((mem_usesOf info u).mp hu))
+      exact (resolves_env hl u).mpr (h.closed _ u ⟨info, hn, (mem_usesIn info _ u).mp hu⟩)
     · simpa [toSpec, hl.modules] using h.claims
     · simpa [toSpec, hl.modules, hl.loads] using h.loaded
 
@@ -464,28 +615,29 @@ theorem allHold_env (hl : Loaded f roots p i) : AllHold (toSpec i) ↔ EnvFloor 
   · rintro ⟨h1, -, -, -, h5, h6⟩ n info m hn hm hc
     have hx := to_mem hl hn hm
     have hcm := (claimed_iff hl m).mpr hc
-    refine ⟨fun v hv => ?_, fun hflag => ?_, fun l hl' hv => ?_, fun a v hr ha => ?_⟩
-    · exact h1 n ⟨_, hx, rfl, hcm, kind_axiom.mpr ⟨v, hv⟩⟩
+    refine ⟨fun hax => ?_, fun hflag => ?_, fun l hl' hv => ?_, fun a hr hax => ?_⟩
+    · exact h1 n ⟨_, hx, rfl, hcm, (kind_envAxiom hn).mpr hax⟩
     · refine Classical.byContradiction fun hno => h6 n ⟨_, hx, rfl, hcm, .inl ⟨hflag, fun hh => ?_⟩⟩
       exact hno ((helper_env hl n m info).mp hh)
     · exact h6 n ⟨_, hx, rfl, hcm, .inr ⟨l, hl', (mem_valueUsesOf info l).mpr hv⟩⟩
-    · refine Classical.byContradiction fun hno => h5 n ⟨⟨_, hx, rfl, hcm⟩, a,
-        ⟨(reaches_env hl n a).mpr hr, (isAxiom_env hl a).mpr ⟨v, ha⟩⟩, fun hadm => ?_⟩
+    · obtain ⟨k, ha, -⟩ := id hax
+      refine Classical.byContradiction fun hno => h5 n ⟨⟨_, hx, rfl, hcm⟩, a,
+        ⟨(reaches_env hl n a).mpr hr, (isAxiom_env hl a).mpr hax⟩, fun hadm => ?_⟩
       exact hno ((admits_env hl ha).mp hadm)
   · intro hf
     have no5 : ∀ c, ¬ Violates1005 (toSpec i) c := by
       rintro c ⟨⟨x, hx, rfl, hcm⟩, a, ⟨hr, hax⟩, hna⟩
       obtain ⟨info, hn, hm, -⟩ := of_mem hl hx
-      obtain ⟨v, ha⟩ := (isAxiom_env hl a).mp hax
+      have hax' := (isAxiom_env hl a).mp hax
+      obtain ⟨k, ha, -⟩ := id hax'
       exact hna ((admits_env hl ha).mpr
-        ((hf _ _ _ hn hm ((claimed_iff hl _).mp hcm)).2.2.2 a v ((reaches_env hl _ a).mp hr) ha))
+        ((hf _ _ _ hn hm ((claimed_iff hl _).mp hcm)).2.2.2 a ((reaches_env hl _ a).mp hr) hax'))
     refine ⟨?_, fun c h => no5 c (rg1005_of_hole h), fun c h => no5 c (rg1005_of_unknown h),
       fun c h => no5 c (rg1005_of_compiler h), no5, ?_⟩
     · rintro c ⟨x, hx, rfl, hcm, hk⟩
       obtain ⟨info, hn, hm, hv⟩ := of_mem hl hx
       rw [hv] at hk
-      obtain ⟨v, hv'⟩ := kind_axiom.mp hk
-      exact (hf _ _ _ hn hm ((claimed_iff hl _).mp hcm)).1 v hv'
+      exact (hf _ _ _ hn hm ((claimed_iff hl _).mp hcm)).1 ((kind_envAxiom hn).mp hk)
     · rintro c ⟨x, hx, rfl, hcm, hv⟩
       obtain ⟨info, hn, hm, hd⟩ := of_mem hl hx
       obtain ⟨-, h6, h7, -⟩ := hf _ _ _ hn hm ((claimed_iff hl _).mp hcm)
@@ -544,15 +696,15 @@ theorem mem_claimedConstants {m n : Name} {info : ConstantInfo} :
 /-- A pass holds of each constant of a claimed module as that module's own `.olean` states it, not
 only of the constant that Lean's import keeps under its name (`Facts.shown`, `Facts.unread?`): it is
 no axiom, it is a partial, safe-flagged constant when it has either flag, its value mentions no loop
-construct, and each axiom that it reaches is one that the profile admits. -/
+construct, and each axiom that it reaches, through what any loaded module's own data states, is one
+that the profile admits. -/
 theorem pass_held (h : (Regula.Shell.decision (f.input roots p)).1 = .pass) {m n : Name}
     {info : ConstantInfo} (hx : (m, n, info) ∈ f.claimedConstants) :
     (∀ v, info ≠ .axiomInfo v) ∧
     ((info.isUnsafe = true ∨ info.isPartial = true) →
       info.isPartial = true ∧ info.isUnsafe = false) ∧
     (∀ l ∈ loopConstructs, ¬ ValueMentions info l) ∧
-    ∀ u, Mentions info u → ∀ a v, EnvReaches f u a →
-      f.env.constants.map₁[a]? = some (.axiomInfo v) → EnvAdmits f p a := by
+    ∀ u, Mentions info u → ∀ a, EnvReaches f u a → EnvAxiom f a → EnvAdmits f p a := by
   obtain ⟨i, hi, hp⟩ := decision_pass h
   have hl := input_loaded hi
   rcases (hl.kept _ hx).symm with hfits | hshown
@@ -571,10 +723,11 @@ theorem pass_held (h : (Regula.Shell.decision (f.input roots p)).1 = .pass) {m n
       have hc := hloop l (by simpa [Regula.Closed.loopConstructs, loopConstructs] using hl')
       have hc' : l ∉ Regula.Load.valueUsesOf info := by simpa using hc
       exact hc' (by simpa using (mem_valueUsesOf info l).mpr hv)
-    · intro u hu a v hr ha
+    · intro u hu a hr hea
       have hall := (huses u (by simpa using (mem_usesOf info u).mpr hu)).2
       have hax : a ∈ i.tables.axiomSet u :=
-        (axiomSet_iff u a).mpr ⟨(reaches_env hl u a).mpr hr, (isAxiom_env hl a).mpr ⟨v, ha⟩⟩
+        (axiomSet_iff u a).mpr ⟨(reaches_env hl u a).mpr hr, (isAxiom_env hl a).mpr hea⟩
+      obtain ⟨k, ha, -⟩ := id hea
       exact (admits_env hl ha).mp ((admits_iff hl.unique i.profile a).mp (hall a hax))
   obtain ⟨k, m', hk, hread, hmod, hclaimed⟩ := shown_true hshown
   obtain ⟨h1, h2, h3, h4⟩ := ((pass_iff hi).mp hp).2 n k m' hk hmod hclaimed
@@ -582,17 +735,17 @@ theorem pass_held (h : (Regula.Shell.decision (f.input roots p)).1 = .pass) {m n
   obtain ⟨hkind, hunsafe, hpartial, huses, hvalue⟩ := hread
   refine ⟨?_, ?_, ?_, ?_⟩
   · rintro v rfl
-    cases k with
-    | axiomInfo w => exact h1 w rfl
-    | _ => simp [Regula.Load.kindOf] at hkind
+    have hax : AxiomInfo k := (kindOf_axiom k).mp (by simpa [Regula.Load.kindOf] using hkind)
+    exact h1 ⟨k, hk, .inl hax⟩
   · intro hflag
     have hflag' : k.isUnsafe = true ∨ k.isPartial = true := by rwa [hunsafe, hpartial]
     obtain ⟨hpart, hsafe, -⟩ := h2 hflag'
     exact ⟨hpartial ▸ hpart, hunsafe ▸ hsafe⟩
   · intro l hl' hv
     exact h3 l hl' ((mem_valueUsesOf k l).mp (hvalue ▸ (mem_valueUsesOf info l).mpr hv))
-  · intro u hu a v hr ha
-    exact h4 a v (.step k hk ((mem_usesOf k u).mp (huses ▸ (mem_usesOf info u).mpr hu)) hr) ha
+  · intro u hu a hr hax
+    have hm : Mentions k u := (mem_usesOf k u).mp (huses ▸ (mem_usesOf info u).mpr hu)
+    exact h4 a (.step ⟨k, hk, .inl hm⟩ hr) hax
 
 /-- A run has a profile only on the release that this revision reads, with exactly one argument, and
 that argument names the profile. -/

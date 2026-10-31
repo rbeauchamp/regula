@@ -45,13 +45,16 @@ structure Decl where
   name : Name
   /-- The module whose `.olean` holds it (`Environment.getModuleIdxFor?`). -/
   module : Name
-  /-- Its `ConstantInfo` constructor. -/
+  /-- `axiom` when any loaded module's own data states an axiom of this name (Lean's import can drop
+  it for a theorem), and otherwise the `ConstantInfo` constructor of the constant Lean keeps. -/
   kind : Kind
   /-- `ConstantInfo.isUnsafe`. -/
   isUnsafe : Bool
   /-- `ConstantInfo.isPartial`. -/
   isPartial : Bool
-  /-- The constants its type and value mention, the fields that `Lean.collectAxioms` walks. -/
+  /-- The constants that the type and value mention, the fields that `Lean.collectAxioms` walks, of
+  the constant Lean keeps and of each constant of this name that a loaded module's own data states
+  (Lean's import can drop those). -/
   uses : List Name
   /-- The constants its value mentions, for a definition, theorem or opaque constant, and nothing
   for any other constant. -/

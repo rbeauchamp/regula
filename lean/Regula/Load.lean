@@ -19,8 +19,10 @@ What it reads, and through what:
   false`, so no extension state is built and no initializer of a loaded module runs.
   `getImplementedBy?` and `isExtern` read the module entries of an extension (`getModuleEntries`),
   which `importModules` sets whatever `loadExts` is, and no extension's built state.
-- Each claimed module's own constants: `header.moduleData`, which Lean keeps as each `.olean` holds
-  them, so that a constant that Lean's import replaced is read too (`Facts.unread?`).
+- Each loaded module's own constants: `header.moduleData`, which Lean keeps as each `.olean` holds
+  them, so that a constant that Lean's import replaced is read too. What any of them mentions, and
+  whether it is an axiom, counts for its name (`Facts.stated`), in a dependency as in a claimed
+  module. A claimed module's own constant must also fit the rules itself (`Facts.unread?`).
 - The place of each module: where `Lean.findOLean` finds its `.olean` on Lake's search path. A
   claimed module lies below the root package's library directory; a constant of the toolchain is one
   whose module lies below the toolchain's library directory.
@@ -54,12 +56,16 @@ def kindOf : ConstantInfo → Kind
   | .ctorInfo _ => .constructor
   | .recInfo _ => .recursor
 
+/-- The names of `all`, each once. -/
+def dedup (all : Array Name) : Array Name :=
+  all.foldl (fun acc n => if acc.contains n then acc else acc.push n) #[]
+
 /-- The constants a constant mentions, the fields that `Lean.collectAxioms` walks: the type and
 value of a definition, theorem or opaque constant, the type of an axiom, constructor or recursor,
 the type and constructors of an inductive type, and nothing of a quotient
 (`Lean/Util/CollectAxioms.lean`). -/
 def usesOf (info : ConstantInfo) : Array Name :=
-  let all := match info with
+  dedup <| match info with
     | .axiomInfo v => v.type.getUsedConstants
     | .defnInfo v => v.type.getUsedConstants ++ v.value.getUsedConstants
     | .thmInfo v => v.type.getUsedConstants ++ v.value.getUsedConstants
@@ -68,7 +74,17 @@ def usesOf (info : ConstantInfo) : Array Name :=
     | .ctorInfo v => v.type.getUsedConstants
     | .recInfo v => v.type.getUsedConstants
     | .inductInfo v => v.type.getUsedConstants ++ v.ctors.toArray
-  all.foldl (fun acc n => if acc.contains n then acc else acc.push n) #[]
+
+/-- What the input states a constant mentions: what the constant that the environment keeps mentions
+and what each constant in `stated`, those of its name that the loaded modules state, mentions. -/
+def usesIn (info : ConstantInfo) (stated : List ConstantInfo) : Array Name :=
+  dedup (stated.foldl (fun acc v => acc ++ usesOf v) (usesOf info))
+
+/-- The kind the input states of a constant: an axiom when a constant in `stated`, those of its name
+that the loaded modules state, is one, and otherwise the kind of the constant the environment keeps.
+-/
+def kindIn (info : ConstantInfo) (stated : List ConstantInfo) : Kind :=
+  if stated.any (kindOf · == .axiom) then .axiom else kindOf info
 
 /-- The constants that the value of a definition, theorem or opaque constant mentions, and nothing
 of any other constant. -/
@@ -109,14 +125,23 @@ def Facts.moduleOf (f : Facts) (n : Name) : Option Name :=
 def Facts.toolchain (f : Facts) (n : Name) : Bool :=
   ((f.env.getModuleIdxFor? n).bind fun idx => f.inToolchain[idx.toNat]?).getD false
 
-/-- The constant `n` of the module `module`, as the closed input states it. -/
-def Facts.declIn (f : Facts) (n module : Name) (info : ConstantInfo) : Decl where
+/-- Each constant of each name, as the own data of each loaded module states it, claimed or not.
+Lean's import keeps one constant of a name (`Facts.shown`), so this is what the others say. -/
+def Facts.stated (f : Facts) : Std.HashMap Name (List ConstantInfo) :=
+  f.env.header.moduleData.foldl (init := {}) fun acc data =>
+    (data.constNames.zip data.constants).foldl (init := acc) fun acc x =>
+      acc.insert x.1 (x.2 :: acc.getD x.1 [])
+
+/-- The constant `n` of the module `module`, as the closed input states it: `info` is the constant
+that the environment keeps, and `stated` those of its name that the loaded modules state. -/
+def Facts.declIn (f : Facts) (n module : Name) (info : ConstantInfo)
+    (stated : List ConstantInfo) : Decl where
   name := n
   module
-  kind := kindOf info
+  kind := kindIn info stated
   isUnsafe := info.isUnsafe
   isPartial := info.isPartial
-  uses := (usesOf info).toList
+  uses := (usesIn info stated).toList
   valueUses := (valueUsesOf info).toList
   implementedBy := Compiler.getImplementedBy? f.env n
   isExtern := isExtern f.env n
@@ -124,9 +149,10 @@ def Facts.declIn (f : Facts) (n module : Name) (info : ConstantInfo) : Decl wher
 
 /-- The constant `n` as the closed input states it, or the refusal of a constant that no loaded
 module holds. -/
-def Facts.decl (f : Facts) (n : Name) (info : ConstantInfo) : Except String Decl :=
+def Facts.decl (f : Facts) (n : Name) (info : ConstantInfo) (stated : List ConstantInfo) :
+    Except String Decl :=
   match f.moduleOf n with
-  | some module => .ok (f.declIn n module info)
+  | some module => .ok (f.declIn n module info stated)
   | none => .error s!"the constant {n} was loaded, and Lean gives it no module"
 
 /-- What the rules read of a constant: its kind, its two flags and what it mentions. -/
@@ -141,10 +167,12 @@ def Facts.claimedConstants (f : Facts) : List (Name × Name × ConstantInfo) :=
 
 /-- Whether the environment shows a constant of a claimed module to the rules: it holds a constant
 of that name of which the rules read the same, in a claimed module. Lean's import merges two
-theorems of one name and type, and a theorem with an axiom of that name and type: it keeps one, and gives the
-name the first module that holds it (`subsumesInfo` and `finalizeImport`,
+theorems of one name and type, and a theorem with an axiom of that name and type: it keeps one, and
+gives the name the first module that holds it (`subsumesInfo` and `finalizeImport`,
 `Lean/Environment.lean:2269` and `2336-2345`). So a module's own constant can be one that no rule
-reads. -/
+reads as a subject. What a dropped constant mentions, and whether it is an axiom, the input still
+states of its name (`Facts.stated`), in every loaded module; this check decides whether the rules
+read a claimed module's own constant as a subject. -/
 def Facts.shown (f : Facts) (x : Name × Name × ConstantInfo) : Bool :=
   match f.env.constants.map₁[x.2.1]?, f.moduleOf x.2.1 with
   | some kept, some m => decide (readOf kept = readOf x.2.2) && f.claimed.contains m
@@ -176,7 +204,9 @@ def Facts.input (f : Facts) (roots : List Name) (profile : Profile) : Except Str
   | some m => .error s!"the module {m} of a default target has its .olean outside the root \
       package's build"
   | none =>
-    (f.env.constants.map₁.toList.mapM fun (n, info) => f.decl n info).bind fun decls =>
+    let stated := f.stated
+    (f.env.constants.map₁.toList.mapM fun (n, info) =>
+      f.decl n info (stated.getD n [])).bind fun decls =>
       let i : Input :=
         { profile, modules := f.claimed, decls, loads := f.env.header.moduleNames.toList }
       match f.unread? i with
