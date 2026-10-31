@@ -182,7 +182,7 @@ guidance, the compiler your `lean-toolchain` selects (the one that built `regula
 nothing) and any module below a library root that no library includes but a claimed module imports
 (which `lake lint` rejects), and,
 once a manifest exists, the checker's manifest findings ([RG2002]) and option findings ([RG2006]).
-It runs the same `configurationFindings` function as the checker, and prints one line for each finding.
+It runs the checker's functions of these two rules through `configurationFindings`, and prints one line for each finding.
 
 It exits 0
 when the setup is complete and 1 otherwise, and lists what `init` would write. A module left out

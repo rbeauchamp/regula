@@ -30,7 +30,9 @@ The checker reads one closed input and gives one verdict: pass, fail or incomple
 | Module | Role |
 | --- | --- |
 | `Regula.Input` | The types of the closed input, and the admission that refuses an input without the closed form. |
-| `Regula.Load` | The loader, which fills the input from the load of the workspace by Lake and from the finished build. |
+| `Regula.Reach` | The one search of the rules over the input, with the theorem `mem_reach` about its result. |
+| `Regula.Load` | The loader's reads of the finished build through Lean, which fill the input. |
+| `Regula.Workspace` | The part of the loader that calls Lake: the load of the workspace and `Regula.Load.loadBundle`. It is in the excluded library `Regula`. |
 | `Regula.Rules` | The kept rules as functions over the input, and the verdict of a run. |
 | `Regula.Shell` | The report of a run and its exit code. |
 | `Regula.Effects` | The build-time check that the compiled code of a program starts no process and writes and removes no file (`Regula.Effects.check`). |
@@ -40,7 +42,7 @@ Lean's own tools decide [RG2003] and [RG2005]: `lake build --wfail` and `lake ch
 
 ## The rule registry
 
-`RuleId` ([`RegulaCore.RuleId`](../../lean/RegulaCore/RuleId.lean)) is a closed inductive type with 24 constructors. Its executed definitions are `spelling`, `parse?`, `all` and `route`. The function `descriptor` of [`RegulaCore.Rule`](../../lean/RegulaCore/Rule.lean) gives each rule its descriptor, and its match is exhaustive. Thus no rule can be missing from the registry. A descriptor has the title, the category, the scope, the normative clauses, the guidance for agents and the example pair of the rule. The `regula` command and the site print the registry.
+`RuleId` ([`RegulaCore.RuleId`](../../lean/RegulaCore/RuleId.lean)) is a closed inductive type with 25 constructors. Its executed definitions are `spelling`, `parse?`, `all` and `route`. The function `descriptor` of [`RegulaCore.Rule`](../../lean/RegulaCore/Rule.lean) gives each rule its descriptor, and its match is exhaustive. Thus no rule can be missing from the registry. A descriptor has the title, the category, the scope, the normative clauses, the guidance for agents and the example pair of the rule. The `regula` command and the site print the registry.
 
 ## Rule reference site
 

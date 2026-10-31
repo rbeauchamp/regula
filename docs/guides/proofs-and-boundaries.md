@@ -43,11 +43,13 @@ The checker refuses an input that does not have the closed form. The verdict is 
 - Each module of a target has its `.olean` files in the build of the root package, and Lean reads them. A read error is a refusal, not an absent file.
 - Lean loads each environment.
 - For an implicit workspace, the current directory is the workspace that Lake dispatched (`Regula.Load.dispatchedFrom_iff`).
+- Lean's store gives the code of each constant that compiled code of an execution closure runs (`Regula.Load.executedCode`).
 - In each environment, each name is the name of one constant. Each constant that a constant mentions is loaded.
+- Each constant of a claimed module, and each theorem that states a correspondence, has its axiom set.
 - Each module of each target is loaded in one of the environments.
 - The claim claims at least one target.
 
-The functions `Regula.Closed.Input.refusal?` and `Regula.Closed.Bundle.refusal?` decide the last three conditions.
+The functions `Regula.Closed.Input.refusal?` and `Regula.Closed.Bundle.refusal?` decide the last four conditions.
 
 ### Environments
 
@@ -139,8 +141,9 @@ extra `lean` arguments that it reads are those that Lake gives each target (`wea
 `leanArgs`). When the project has a manifest, `doctor` also prints the [RG2002] and [RG2006] findings of the
 checker. `Regula.Cli.Setup.projectInput` gives their input with no build: the targets that Lake
 loads and the claim, read as the checker reads them (`Regula.Load.targets`, `Regula.Load.claim`).
-Over this input, `doctor` runs the decision of the checker,
-`Regula.Closed.Input.configurationFindings`, with the option allowlist of the checker
+Over this input, `doctor` runs the decisions of the checker, `Regula.Closed.Input.manifestFindings`
+and `Regula.Closed.Input.optionFindings`, through `Regula.Closed.Input.configurationFindings`, with
+the option allowlist of the checker
 (`Regula.Shell.allowlists`). It prints each finding in the form of the checker, one line for each.
 The required options of a setup issue include the options of Mathlib when the workspace contains
 Mathlib. `init` writes them under `weak.`, so a target that imports no Mathlib ignores them. By
