@@ -8,9 +8,9 @@
 # checkout at the commit it validates, and an exit code other than 0 parks it. The command is the
 # local gate, which runs the steps of every workflow job that checks a change one after another,
 # and stops at the first that fails. When GitHub does not answer its reads, it names the answers and
-# leaves out the site check alone (docs/guides/contributing.md#the-local-gate). It runs them on every
-# commit, never a selection by
-# the paths a change touches. What a step rebuilds is Lake's decision, from its own traces in the
+# leaves out the site check alone (docs/guides/contributing.md#the-local-gate). It runs the steps on
+# every commit, never a selection by the paths a change touches. What a step rebuilds is Lake's
+# decision, from its own traces in the
 # checkout, and the first acceptance step builds in a new copy, as it does by hand. No
 # `build_outputs` is declared: for Lake, the only store it may seed is Lake's artifact cache, and
 # every command that `scripts/verify.sh` starts runs with `LAKE_ARTIFACT_CACHE=false`
