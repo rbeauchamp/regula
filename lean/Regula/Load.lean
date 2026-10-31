@@ -49,10 +49,6 @@ open Lean (ConstantInfo Environment Name findOLean isExtern)
 open System (FilePath)
 open Regula.Closed
 
-/-- Refuse the input: the run is `incomplete`. -/
-def refuse {α : Type} (why : String) : IO α :=
-  throw <| IO.userError why
-
 /-- The components of a path, as Lean normalizes it. -/
 def parts (p : FilePath) : List String :=
   p.normalize.components.filter (!·.isEmpty)
@@ -142,6 +138,19 @@ def LoadedModule.ofPlace (toolchainDir rootDir : FilePath) (name : Name) (olean 
     LoadedModule :=
   { name, olean, inToolchain := below toolchainDir olean, claimed := below rootDir olean }
 
+/-- A module at a place has the name it was given. -/
+theorem LoadedModule.ofPlace_name (toolchainDir rootDir : FilePath) (name : Name) (olean : FilePath) :
+    (LoadedModule.ofPlace toolchainDir rootDir name olean).name = name := by
+  simp [LoadedModule.ofPlace]
+
+/-- What a place decides is what a module at that place says. -/
+theorem LoadedModule.ofPlace_self (toolchainDir rootDir : FilePath) (name : Name) (olean : FilePath) :
+    LoadedModule.ofPlace toolchainDir rootDir name olean =
+      LoadedModule.ofPlace toolchainDir rootDir
+        (LoadedModule.ofPlace toolchainDir rootDir name olean).name
+        (LoadedModule.ofPlace toolchainDir rootDir name olean).olean := by
+  simp [LoadedModule.ofPlace]
+
 /-- What the loader knows of one loaded environment. -/
 structure Facts where
   /-- The loaded environment. -/
@@ -156,30 +165,6 @@ structure Facts where
   names : modules.toList.map (·.name) = env.header.moduleNames.toList
   /-- What each module's place decides is what its fields say. -/
   placed : ∀ m ∈ modules, m = LoadedModule.ofPlace toolchainDir rootDir m.name m.olean
-
-/-- Each of the modules `names`, in that order, with where Lean finds its `.olean` on Lake's search
-path. The result carries that it is these modules and what each place decides. -/
-def readModules (toolchainDir rootDir : FilePath) : (names : List Name) →
-    IO { ms : List LoadedModule // ms.map (·.name) = names ∧
-      ∀ m ∈ ms, m = LoadedModule.ofPlace toolchainDir rootDir m.name m.olean }
-  | [] => pure ⟨[], rfl, by simp⟩
-  | n :: rest => do
-    let olean ← try findOLean n catch e =>
-      refuse s!"the module {n} was loaded and has no .olean on Lake's search path: {e}"
-    let ⟨ms, hn, hp⟩ ← readModules toolchainDir rootDir rest
-    pure ⟨LoadedModule.ofPlace toolchainDir rootDir n olean :: ms,
-      by simp [LoadedModule.ofPlace, hn],
-      by
-        intro m hm
-        rcases List.mem_cons.mp hm with rfl | hm
-        · rfl
-        · exact hp m hm⟩
-
-/-- The facts of `env`, from where the `.olean` of each of its modules lies. -/
-def Facts.load (env : Environment) (toolchainDir rootDir : FilePath) : IO Facts := do
-  let ⟨ms, hn, hp⟩ ← readModules toolchainDir rootDir env.header.moduleNames.toList
-  return { env, toolchainDir, rootDir, modules := ms.toArray, names := by simpa using hn,
-           placed := by simpa using hp }
 
 /-- The modules that are claimed. -/
 def Facts.claimed (f : Facts) : List Name :=
@@ -362,32 +347,6 @@ identifies the dispatching root, whatever search path the caller inherited. -/
 def dispatchedFrom (root lakeLib : String) (leanPath : List String) : Bool :=
   decide ((leanPath.takeWhile (· ≠ lakeLib)).getLast? = some root) &&
     decide (lakeLib ∈ leanPath)
-
-/-- The search path that Lake gave this process, or a refusal when no Lake did. -/
-def receivedLeanPath : IO (List String) := do
-  let some leanPath ← IO.getEnv "LEAN_PATH"
-    | refuse "LEAN_PATH is not set, so the workspace that Lake dispatched is not known: run the \
-        checker with `lake lint` or `lake exe lint`, which set it"
-  return (System.SearchPath.parse leanPath).map toString
-
-/-- Refuse unless the workspace with the library directory `root` is the one Lake dispatched. -/
-def requireDispatched (root lakeLib : FilePath) : IO Unit := do
-  unless dispatchedFrom root.toString lakeLib.toString (← receivedLeanPath) do
-    refuse "the current directory is not the workspace Lake dispatched; run `lake lint` from that \
-      workspace's directory"
-
-/-- The closed input of the finished build whose default targets' modules are `roots`, on the search
-path `leanPath`, or an error that refuses it. -/
-def inputFrom (leanPath : List FilePath) (roots : Array Name) (toolchainDir rootDir : FilePath)
-    (profile : Profile) : IO Input := do
-  Lean.searchPathRef.set leanPath
-  let env ←
-    try Lean.importModules (roots.map ({ module := · })) {} (loadExts := false) (level := .private)
-    catch e => refuse s!"Lean could not load the modules of the default targets: {e}"
-  let f ← Facts.load env toolchainDir rootDir
-  match f.input roots.toList profile with
-  | .ok input => return input
-  | .error why => refuse why
 
 /-- For every search path of Lake's composition, the dispatch check accepts exactly the last
 workspace library directory. Inherited entries cannot make a different root pass. -/
