@@ -183,7 +183,8 @@ def withLoop (l : Name) : Input := withDecls [toolchain l .definition, loopUser 
 and total by its flags. -/
 theorem rg1006_refuses_loop {l : Name} (hl : l ∈ loopConstructs) :
     Violates1006 (withLoop l) `Good.l :=
-  ⟨loopUser l, by simp [withLoop, withDecls], rfl, claimed_withDecls, .inr ⟨l, hl, by simp [loopUser]⟩⟩
+  ⟨loopUser l, by simp [withLoop, withDecls], rfl, claimed_withDecls,
+    .inr ⟨l, hl, by simp [loopUser]⟩⟩
 
 /-- Those inputs are well-formed. -/
 theorem wf_withLoop {l : Name} (hl : l ∈ loopConstructs) : (withLoop l).WellFormed := by

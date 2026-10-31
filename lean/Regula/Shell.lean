@@ -57,7 +57,7 @@ def coverage (i : Input) : String :=
 any other Lean release and a build that `load` cannot read are `incomplete`. -/
 def run (load : Profile → IO Input) (args : List String) : IO UInt32 := do
   unless supportsLean Lean.versionString Lean.githash do
-    return ← report .incomplete [] (some s!"this revision of Regula reads only Lean 4.35.0, and this \
+    return ← report .incomplete [] (some s!"this revision of Regula reads only Lean 4.35.0, and \
       this is Lean {Lean.versionString} ({Lean.githash})")
   let [text] := args
     | report .incomplete [] (some "state one profile in `lintDriverArgs`: kernel-only, choice-free \

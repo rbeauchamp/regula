@@ -94,7 +94,8 @@ theorem get_of_mem (hu : (i.decls.map (·.name)).Nodup) {d : Regula.Closed.Decl}
   (index_eq_some hu).mpr ⟨hd, rfl⟩
 
 /-- What a function of the constant that a name has decides, in terms of the input's constants. -/
-theorem any_index_iff (hu : (i.decls.map (·.name)).Nodup) (P : Regula.Closed.Decl → Bool) (n : Name) :
+theorem any_index_iff (hu : (i.decls.map (·.name)).Nodup) (P : Regula.Closed.Decl → Bool)
+    (n : Name) :
     i.tables.index[n]?.any P = true ↔ ∃ d ∈ i.decls, d.name = n ∧ P d = true := by
   cases h : i.tables.index[n]? with
   | none =>

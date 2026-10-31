@@ -91,7 +91,7 @@ What this leaves out, as accepted risk under the owner's trust in dependencies:
 
 **The recursion helper.** The form is a partial constant `f._unsafe_rec`, not unsafe, with no `implemented_by` and no `extern`, in the module of a safe, total definition `f` with neither. Lean makes the base of a `partial def` an opaque constant, so the rule reports the helper of a `partial def`.
 
-The rule checks that form and nothing about what the helper computes. **Known gap**: a claimed module can forge a helper through its own code during the build. The compiler reads `f._unsafe_rec` in place of `f` by name (`getDeclInfo?`, `Lean/Compiler/LCNF/ToDecl.lean:24-26`). **Measured** on 2026-10-31 with this revision of the checker, on a project of one module:
+The rule checks that form and nothing about what the helper computes. **Known gap**: a claimed module can forge a helper through its own code during the build. The compiler reads `f._unsafe_rec` in place of `f` by name (`getDeclInfo?`, `Lean/Compiler/LCNF/ToDecl.lean:25-27`). **Measured** on 2026-10-31 with this revision of the checker, on a project of one module:
 
 ```lean
 import Lean
@@ -165,4 +165,4 @@ These stay assumed. Each is a statement about a system or a step that no proof o
 
 The axiom sets and the kernel replay read only the constants of the build. So the code of a claimed module can make a claim about a compiled program false, and it can hide a warning. Under the statements above, it cannot make an unsound proof of a claimed module pass all three commands, because `lake check` replays each constant in scope from its export and refuses each axiom beyond the three.
 
-**Open**: a theorem that the loader states each constant's kind and axiom set as the environment holds them. That would shrink the second statement above, and work on it is under way apart from this document.
+**Open**: a theorem that the loader states each constant's kind and axiom set as the environment holds them. That would shrink the second statement above.

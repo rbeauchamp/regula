@@ -65,8 +65,8 @@ theorem admits_iff (hu : (i.decls.map (·.name)).Nodup) (p : Regula.Closed.Profi
   cases p with
   | kernelOnly => simp [Regula.Closed.Tables.admits, profile, Input.Admits]
   | choiceFree =>
-    simp only [Regula.Closed.Tables.admits, profile, Input.Admits, Bool.and_eq_true, Bool.or_eq_true,
-      beq_iff_eq, known_iff hu]
+    simp only [Regula.Closed.Tables.admits, profile, Input.Admits, Bool.and_eq_true,
+      Bool.or_eq_true, beq_iff_eq, known_iff hu]
   | standardLogical =>
     simp only [Regula.Closed.Tables.admits, profile, Input.Admits, known_iff hu]
 
