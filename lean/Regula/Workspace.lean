@@ -57,8 +57,8 @@ def loadWorkspace (dir : FilePath) : IO Lake.Workspace := do
       {"; ".intercalate (log.entries.map (·.message)).toList}"
 
 /-- Lake's load of the root package at `dir` from its `lakefile.toml`: its configuration only, with no
-manifest and no dependency (`Lake/Load/Workspace.lean:31-47` at v4.35.0), and whatever `lakefile.lean` lies
-there (`Lake/Load/Package.lean:100-105`). -/
+manifest and no dependency (`Lake/Load/Workspace.lean:31-47` at v4.35.0), which does not prefer a
+`lakefile.lean` that lies there (`Lake/Load/Package.lean:100-105`). -/
 def loadRootWorkspace (dir : FilePath) : IO Lake.Workspace := do
   let lakeEnv ← lakeEnvironment
   let wsDir ← IO.FS.realPath dir
