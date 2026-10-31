@@ -66,13 +66,13 @@ check:
   `guide_wellFormed` (kernel-checked over all rules) proves every required field is a nonempty
   text or list, and the length of a text cannot stop the proof. Whether the content is adequate
   is review. The check also finds every required heading in the rendered page.
-- **Exact examples.** Displayed example text is the recorded bytes, escaped by `escape`
-  (`escape_safe`: no markup character or backtick survives) and inserted only through
+- **Exact examples.** Displayed example text is the bytes that the registry holds, escaped by
+  `escape` (`escape_safe`: no markup character or backtick survives) and inserted only through
   `htmlBlock` (`htmlBlock_ok`). Each diff is admitted only when it reproduces both line lists
   (`admitDiff`); a change of only the final line terminator is stated in words. The check
-  requires the escaped text of every displayed fixture and finding detail in the rendered page. A
-  file is attributed to a fixture only when its bytes are identical. Optional SubVerso
-  highlighting may replace this presentation only with exact source/output correspondence.
+  requires the escaped text of both files of each rule's example pair in the rendered page.
+  Optional SubVerso highlighting may replace this presentation only with exact source/output
+  correspondence.
 - **The standard.** `lake exe site build` refuses the standard's earlier build outputs, because
   Lake does not trace the root-package modules its examples import. `./scripts/verify.sh site`
   runs `lake clean` in the website package first, so the standard elaborates again. Each `lean`
@@ -83,7 +83,7 @@ check:
   rendering resolves every cross-reference and checklist-row anchor. Every line of every code
   block is at most 100 characters, the Lean community's limit, or the build fails; the
   stylesheet wraps a line that does not fit the column instead of scrolling sideways. An
-  expected rejection is shown under the rule pages' verdict, *Rejected by Lean, as intended*,
+  expected rejection is shown under the verdict *Rejected by Lean, as intended*,
   with the error message that matched its pattern as the evidence. No step of acceptance
   classifies the declarations of a block or reads the axioms that they depend on.
 - **Links and base path.** Every `href` and `src` attribute the tokenizer finds in each
@@ -358,7 +358,7 @@ A rule change touches its semantics, metadata, examples and explanation together
    `lake exe regula skill > .agents/skills/regula/SKILL.md`; acceptance refuses a stale one.
 2. Explanation: the rule's case of `guide` in `RegulaCore/Guide.lean`. Keep every statement no
    stronger than the detector and the standard; `@repo/PATH` links name repository files. State
-   only what is specific to the rule; what every rule shares belongs on the enforcement page.
+   only what is specific to the rule; what the checked rules share belongs on the enforcement page.
 3. Examples: the two files of `examples/rules/<ID>/`, which the registry embeds.
 4. Run `./scripts/verify.sh site`; open the affected pages in a browser at a
    narrow and a wide width.

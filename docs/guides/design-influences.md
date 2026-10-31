@@ -7,9 +7,9 @@ the code it adapts, the interfaces it depends on and the designs that influenced
 
 | Relationship | Actual scope | Treatment |
 | --- | --- | --- |
-| Design inspiration | `PropWhen` illustrates an invariant-bearing canonical representation with laws at its API boundary. `InstalledEnv`/`FullyChecked` illustrates acceptance bound to a specific installed input and all required record checks. The scanner equivalence proof (`Frontend/Scan/Equiv.lean`) illustrates proving a fast executed form equal to its reference definition, the pattern of `ruleForMember_eq` and the editor-policy theorems (`editor_request_sound`, `editor_decision_rule`). | Keep precise citations in registry/policy design documentation and relevant source attribution. |
+| Design inspiration | `PropWhen` illustrates an invariant-bearing canonical representation with laws at its API boundary. `InstalledEnv`/`FullyChecked` illustrates acceptance bound to a specific installed input and all required record checks. The scanner equivalence proof (`Frontend/Scan/Equiv.lean`) illustrates proving a fast executed form equal to its reference definition. | Keep precise citations in registry/policy design documentation and relevant source attribution. |
 | Current code or proof dependency | Root and website package manifests contain no con-leche dependency; the linter does not import its modules or invoke its checker. No con-leche code is copied. | Do not describe Regula as built on con-leche or claim its correctness theorem applies here. |
-| Rule detection and developer experience | The actual semantic host is Lean; native hooks, Lake, infoview, Std/library facilities and the cross-language UX references have their own roles. | Credit those facilities and examples where used. Con-leche does not supply the linter rules, editor adapter or website UX. |
+| Rule detection and developer experience | The actual semantic host is Lean; native hooks, Lake, Std/library facilities and the cross-language UX references have their own roles. | Credit those facilities and examples where used. Con-leche does not supply the linter rules or website UX. |
 | Optional external checking | [#8](https://github.com/rbeauchamp/regula/issues/8) researched export/toolchain fidelity and ended in a no-go; [#9](https://github.com/rbeauchamp/regula/issues/9) is closed as not planned, and its body records the decision and what would justify revisiting it. No adapter exists, and con-leche was never run on a Regula artifact. | Do not describe any con-leche run as Regula evidence. |
 
 The concrete precedents are [PropWhen][propwhen], [Installed][installed] and [scanner
@@ -34,10 +34,7 @@ contributors), used through each checker revision's pinned toolchain as dependen
 stable reference is `v4.34.0`. Except for the adapted parser below,
 no code is copied.
 Lake's `lintDriver` package field and `lake lint` dispatch (`Lake.CLI.Main`, `Package.lint` in
-`Lake.CLI.Actions`) run `lint`. Lean's `errorDescriptionWidget` in `Lean.Log`, the
-builtin widget behind named errors, renders the editor's **View explanation** link with Regula's
-registry URL. The VS Code Lean 4 extension and infoview (leanprover/vscode-lean4) host
-these messages. These are dependencies, not design influences on Regula's policy.
+`Lake.CLI.Actions`) run `lint`. These are dependencies, not design influences on Regula's policy.
 The `regula` package that projects require imports only Lean's core libraries and requires no
 other package, and the standard's examples and the website import no Mathlib module. No package of this
 repository depends on Mathlib.

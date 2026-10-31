@@ -380,7 +380,7 @@ size nearly all fit the column, and a longer line wraps instead of scrolling sid
 main code.hl.lean.block, main pre:not([class]) { font-size: 0.8rem; line-height: 1.55; padding: \
 0.7rem 0.85rem;
   white-space: pre-wrap; overflow-wrap: anywhere; overflow-x: visible; }
-/* An expected rejection: the rule pages' verdict, the example, then the error that is its \
+/* An expected rejection: the verdict, the example, then the error that is its \
 evidence. */
 .regula-rejected > code.hl.lean.block { margin: 0; border: 0; border-radius: 0; background: \
 var(--rg-surface); }

@@ -247,8 +247,7 @@ def keepRunHtml (context : Nat) (first last : Bool) (ls : List String) : String 
         ((ls.drop (n - tail)).map keepHtml)
 
 /-- An admitted diff with `+`/`-` markers, so status never depends on colour. Unchanged runs
-far from a change are summarized; the full texts are shown separately or recorded in the
-evidence. -/
+far from a change are summarized; the full texts are shown separately. -/
 def diffHtml (d : List DiffLine) : String :=
   let runs := diffRuns d
   "<pre class=\"regula-diff\"><code>" ++ String.join

@@ -28,7 +28,7 @@ Lean does, reporting its diagnostics, and elaborates every block with automatic 
 
 Every line of every block is at most `maxLineLength` characters, the Lean community's line
 limit, so no example needs horizontal scrolling; a longer line fails the build. An expected
-rejection is rendered with the rule pages' verdict, *Rejected by Lean, as intended*, and the
+rejection is rendered with the verdict *Rejected by Lean, as intended*, and the
 error message that matched its pattern as the checked evidence (`Block.rejected`).
 
 This extension decides elaboration outcomes and renders the helper's highlighting. It does not
@@ -142,7 +142,7 @@ def checkLineLength (str : StrLit) : DocElabM Unit := do
 
 /- An expected rejection: the verdict, the example as Lean highlights it, and the error message
 that matched the block's pattern, with its line in the example, as the checked evidence. The
-classes are the rule pages' verdict and file styles (`RegulaCore.SiteTheme`). -/
+classes are the verdict and file styles of `RegulaCore.SiteTheme`. -/
 block_extension Block.rejected (line : Nat) (message : String) where
   data := Json.arr #[toJson line, .str message]
   traverse _ _ _ := pure none

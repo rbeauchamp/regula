@@ -8,8 +8,8 @@ import Regula.Decision
 /-! # Rule-reference site: routes, editions and pure output checks
 
 This module is the pure model of the published rule reference. The operational builder in
-`Regula.Site` reads evidence, runs Verso and walks the output tree; every decision it takes
-about that data is a function here. The editions and the route policy are
+`Regula.Site` reads the release tags and assets, runs Verso and walks the output tree; every
+decision it takes about that data is a function here. The editions and the route policy are
 `RegulaCore.Edition`.
 
 ## Main declarations

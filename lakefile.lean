@@ -42,8 +42,8 @@ run_cmd do
       that LEAN_SYSROOT or PATH selects to check the Lean running Lake, {Lean.versionString} \
       ({Lean.githash}): {error}"
 
--- The package adopters require: the checker, lint driver, `regula` CLI, rule registry and
--- editor linter, with no dependency beyond the Lean toolchain. The standard's example library is
+-- The package adopters require: the checker, lint driver, `regula` CLI and rule registry,
+-- with no dependency beyond the Lean toolchain. The standard's example library is
 -- the separate `regula_audit` package in `audit/`, which also imports only Lean's core libraries.
 package «regula» where
   -- Regula's semantic version: the latest release's, which only the release pull request
