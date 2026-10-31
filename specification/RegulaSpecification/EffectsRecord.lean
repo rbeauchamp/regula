@@ -35,11 +35,14 @@ inductive Deeper : Nat → Lake.Toml.Table → Prop where
   | array {n k r xs r' sub t} : (k, Lake.Toml.Value.array r xs) ∈ t.items →
       Lake.Toml.Value.table r' sub ∈ xs → sub.items.isEmpty = false → Deeper n sub → Deeper (n + 1) t
 
+/-- How many imports the header of an event states. -/
+def Event.importsStated : Event L E → Nat
+  | ⟨.parseHeader _, .ok (_, _, _, imports)⟩ => imports.size
+  | _ => 0
+
 /-- How many imports the headers of a run state. -/
-def importCount : List (Event L E) → Nat
-  | [] => 0
-  | ⟨.parseHeader _, .ok (_, _, _, imports)⟩ :: t => imports.size + importCount t
-  | _ :: t => importCount t
+def importCount (t : List (Event L E)) : Nat :=
+  (t.map Event.importsStated).sum
 
 /-- A name the reader reaches: a module of a default target, or what a header it read imports. -/
 def Named (t : List (Event L E)) (modules : List (Name × FilePath)) (m : Name) : Prop :=
@@ -154,11 +157,12 @@ inductive Reason (t : List (Event L E)) (dir : FilePath) : Outcome → Prop wher
       (⟨.parseHeader input, .ok (header, state, messages, imports)⟩ : Event L E) ∈ t → i ∈ imports →
       (modules.lookup i.module).isSome → root.resolve i.module = none → Reason t dir .incomplete
   /-- A module's `.olean` that does not lie below the toolchain's library. -/
-  | notToolchain {m olean real sysroot tree root log} :
+  | notToolchain {m olean real sysroot tree root log} {reals : List (FilePath × FilePath)} :
       (⟨.loadRoot sysroot tree, .ok (some root, log)⟩ : Event L E) ∈ t →
       (⟨.findOLean m, .ok olean⟩ : Event L E) ∈ t → (⟨.realPath olean, .ok real⟩ : Event L E) ∈ t →
-      (∀ d ∈ root.toolchain, ∀ dReal, (⟨.realPath d, .ok dReal⟩ : Event L E) ∈ t →
-        Regula.Load.below dReal real = false) → Reason t dir .incomplete
+      reals.map Prod.fst = root.toolchain →
+      (∀ x ∈ reals, (⟨.realPath x.1, .ok x.2⟩ : Event L E) ∈ t ∧ Regula.Load.below x.2 real = false) →
+      Reason t dir .incomplete
   /-- The imports reach more modules than the reader follows. -/
   | tooMany {roots : List Name} : 1000000 ≤ roots.length + importCount t → Reason t dir .incomplete
   /-- Mathlib is in the imports. -/

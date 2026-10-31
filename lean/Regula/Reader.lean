@@ -213,15 +213,23 @@ def apart (a b : FilePath) : Bool :=
   !(Regula.Load.exactParts a).isPrefixOf (Regula.Load.exactParts b) &&
     !(Regula.Load.exactParts b).isPrefixOf (Regula.Load.exactParts a)
 
-/-- Write `text` to a file of the tree, making its directories. -/
-def writeInTree (tree path : FilePath) (text : String) : Attempt L E Unit := do
-  unless inTree tree path do
-    throw s!"{path} does not lie below the checker's tree"
-  if let some dir := path.parent then
-    unless inTree tree dir do
+/-- Make the directory above a file of the tree. -/
+def makeParent (tree path : FilePath) : Attempt L E Unit :=
+  match path.parent with
+  | none => pure ()
+  | some dir =>
+    if inTree tree dir then
+      attempt (Prog.call (.createDirAll dir))
+    else
       throw s!"{dir} does not lie below the checker's tree"
-    attempt (Prog.call (.createDirAll dir))
-  attempt (Prog.call (.writeFile path text))
+
+/-- Write `text` to a file of the tree, making its directories. -/
+def writeInTree (tree path : FilePath) (text : String) : Attempt L E Unit :=
+  if inTree tree path then do
+    makeParent tree path
+    attempt (Prog.call (.writeFile path text))
+  else
+    throw s!"{path} does not lie below the checker's tree"
 
 /-- Read the file of the project that lies at the same relative path as `path` in the tree, and write the
 same text to `path`. Refuses a `path` that `treeRelative` refuses, before any path of the project is built
@@ -248,7 +256,9 @@ holds no such module. -/
 def toolchainOLean (dirs : List FilePath) (m : Name) : Attempt L E Unit := do
   let olean ← attempt (Prog.call (.findOLean m))
   let real ← realPath olean
-  unless dirs.any (Regula.Load.below · real) do
+  if dirs.any (Regula.Load.below · real) then
+    pure ()
+  else
     throw "its .olean is not below the toolchain's library"
 
 /-- What the walk over the imports has found so far. -/
