@@ -145,6 +145,11 @@ inductive Reason (t : List (Event L E)) (dir : FilePath) : Outcome → Prop wher
       (⟨.loadRoot sysroot tree, .ok (some root, log)⟩ : Event L E) ∈ t →
       DefaultModules t root root.defaultTargets modules → (m, file) ∈ modules →
       root.resolve m = some other → other ≠ file → Reason t dir .incomplete
+  /-- Two default targets that hold one module name with two files. -/
+  | twoRoots {sysroot tree root log modules m file other} :
+      (⟨.loadRoot sysroot tree, .ok (some root, log)⟩ : Event L E) ∈ t →
+      DefaultModules t root root.defaultTargets modules → (m, file) ∈ modules → (m, other) ∈ modules →
+      other ≠ file → Reason t dir .incomplete
   /-- A module's name outside the closed domain. -/
   | moduleName {sysroot tree root log modules m} :
       (⟨.loadRoot sysroot tree, .ok (some root, log)⟩ : Event L E) ∈ t →

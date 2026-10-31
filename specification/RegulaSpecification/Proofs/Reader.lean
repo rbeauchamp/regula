@@ -557,8 +557,10 @@ theorem readFiles_spec {T t : List (Event L E)} {dir treeDir project tree : File
           obtain ⟨m, ⟨⟨y, hy, hmy⟩, hl, hr⟩, -⟩ := hx
           obtain ⟨i, hi, rfl⟩ := hmy
           obtain ⟨p, -, ⟨rel, real, text, -, -, -, hsub⟩⟩ := hsrcEv y (List.mem_reverse.mp hy)
-          exact .importedRoot hload hmods (hsub.subset (by simp)) (Array.mem_toList_iff.mp hi) hl
-            (by simpa using hr)
+          have hev : (⟨.parseHeader y.2.input,
+              .ok (y.2.header, y.2.state, y.2.messages, y.2.imports)⟩ : Event L E) ∈ T :=
+            hsub.subset (by simp)
+          exact .importedRoot hload hmods hev (Array.mem_toList_iff.mp hi) hl (by simpa using hr)
         · exact I.unread hu
     · rename_i hcond
       have hf : (baseReading start root modules w).readInFull = true := by
@@ -593,5 +595,749 @@ theorem readFiles_spec {T t : List (Event L E)} {dir treeDir project tree : File
         cases he
         obtain ⟨g1, g2⟩ := p1 files rfl
         exact lastStage_goal hp hc hd hload hmods hfacts I hu hf hm g1 g2
+
+/-! ## Lake's load, and the paths it names -/
+
+theorem openPaths_reason {T : List (Event L E)} {dir tree : FilePath} {root : Root L} {sysroot : String}
+    {log : List String} (hload : (⟨.loadRoot sysroot tree, .ok (some root, log)⟩ : Event L E) ∈ T)
+    (h : openPathsOf tree root ≠ []) : Reason T dir .refused := by
+  obtain ⟨x, hx⟩ := List.exists_mem_of_ne_nil _ h
+  simp only [openPathsOf, List.mem_append, List.mem_map, List.mem_eraseDups, List.mem_filter] at hx
+  rcases hx with ⟨d, ⟨hd, hn⟩, -⟩ | ⟨lib, ⟨hl, hn⟩, -⟩
+  · refine .openDir hload hd fun rel hr => ?_
+    have := (inTree_iff tree d).mpr ⟨rel, hr⟩
+    simp [this] at hn
+  · have hne : ∃ g ∈ lib.2, ∀ n, g ≠ .one n := by
+      simp only [Bool.not_eq_true', List.all_eq_false] at hn
+      obtain ⟨g, hg, hs⟩ := hn
+      refine ⟨g, hg, fun n he => ?_⟩
+      subst he
+      simp at hs
+    obtain ⟨g, hg, hs⟩ := hne
+    exact .openGlob hload hl hg hs
+
+theorem configUnread_reason {T : List (Event L E)} {dir tree : FilePath} {root : Root L} {sysroot : String}
+    {log : List String} {modules : List (Name × FilePath)}
+    (hload : (⟨.loadRoot sysroot tree, .ok (some root, log)⟩ : Event L E) ∈ T)
+    (hmods : DefaultModules T root root.defaultTargets modules)
+    (h : configUnread root modules ≠ []) : Reason T dir .incomplete := by
+  obtain ⟨x, hx⟩ := List.exists_mem_of_ne_nil _ h
+  simp only [configUnread, List.mem_append, List.mem_map, List.mem_filter] at hx
+  rcases hx with (⟨n, ⟨hn, hc⟩, -⟩ | ⟨y, ⟨hy, hr⟩, -⟩) | ⟨y, ⟨hy, hr⟩, -⟩
+  · refine .targetName hload hn fun hclosed => ?_
+    simp [(closedModuleName_iff n).mpr hclosed] at hc
+  · cases hres : root.resolve y.1 with
+    | none => simp [hres] at hr
+    | some other =>
+      simp only [hres, bne_iff_ne] at hr
+      exact .twoFiles hload hmods hy hres hr
+  · obtain ⟨o, ho, hb⟩ := List.any_eq_true.mp hr
+    simp only [Bool.and_eq_true, beq_iff_eq, bne_iff_ne] at hb
+    obtain ⟨h1, h2⟩ := hb
+    exact .twoRoots (m := y.1) (file := y.2) (other := o.2) hload hmods hy (by rw [← h1]; exact ho) h2
+
+/-- What a stage that has the root package gives. -/
+theorem readRoot_spec {T t : List (Event L E)} {dir treeDir project tree : FilePath} {start : Reading}
+    {sysroot : String} {b : Except String (Reading × List (Name × Source))} (hT : t.Sublist T)
+    (hp : Prior T dir treeDir project tree start.configKeys) (hc : start.configClosed = true)
+    (hd : start.requiresDependency = false) (hout : start.outside = true) (hun : start.unread = [])
+    (h : Runs (readRoot sysroot project tree start : Attempt L E _).run t b) :
+    (∀ r srcs, b = .ok (r, srcs) → ReadGoal T dir treeDir r) ∧
+      ((∃ e, b = .error e) → Reason T dir .incomplete) ∧ ActsIn tree t := by
+  rw [readRoot] at h
+  obtain ⟨t₁, t₂, r₁, rfl, h₁, h₂⟩ := runs_attempt_bind_iff.mp h
+  obtain ⟨t₃, t₄, r₃, rfl, h₃, h₄⟩ := runs_bind_iff.mp h₁
+  obtain rfl := runs_call_iff.mp h₃
+  obtain ⟨rfl, rfl⟩ := runs_done_iff.mp h₄
+  have hT' : (([⟨.loadRoot sysroot tree, r₃⟩] : List (Event L E)) ++ t₂).Sublist T := by simpa using hT
+  have hT₁ : ([⟨.loadRoot sysroot tree, r₃⟩] : List (Event L E)).Sublist T :=
+    (List.sublist_append_left _ _).trans hT'
+  have hT₂ : t₂.Sublist T := (List.sublist_append_right _ _).trans hT
+  have hmem₁ : (⟨.loadRoot sysroot tree, r₃⟩ : Event L E) ∈ T := hT₁.subset (by simp)
+  have hact₁ : ActsIn tree ([⟨.loadRoot sysroot tree, r₃⟩] ++ ([] : List (Event L E))) := by
+    intro e he p hp'
+    have : e = ⟨.loadRoot sysroot tree, r₃⟩ := by simpa using he
+    subst this
+    cases hp'
+  have hfail : ∀ why, loaded "the configuration" r₃ = .error why → Reason T dir .incomplete := by
+    intro why he
+    cases r₃ with
+    | error e => exact .failed hmem₁ (.inl ⟨e, rfl⟩)
+    | ok v =>
+      obtain ⟨o, log⟩ := v
+      cases o with
+      | none => exact .failed hmem₁ (.inr ⟨log, rfl⟩)
+      | some root => cases he
+  cases hl : loaded "the configuration" r₃ with
+  | error why =>
+    rw [hl] at h₂
+    obtain ⟨rfl, rfl⟩ := h₂
+    exact ⟨fun _ _ he => (by cases he), fun _ => hfail why hl, by simpa using hact₁⟩
+  | ok root =>
+    rw [hl] at h₂
+    have hev : ∃ log, r₃ = .ok (some root, log) := by
+      cases r₃ with
+      | error e => cases hl
+      | ok v =>
+        obtain ⟨o, log⟩ := v
+        cases o with
+        | none => cases hl
+        | some root' =>
+          cases hl
+          exact ⟨log, rfl⟩
+    obtain ⟨log, rfl⟩ := hev
+    dsimp only at h₂
+    split at h₂
+    · rename_i hopen
+      obtain ⟨rfl, rfl⟩ := runs_attempt_pure_iff.mp h₂
+      refine ⟨fun r srcs he => ?_, fun ⟨e, he⟩ => (by cases he), by simpa using hact₁⟩
+      cases he
+      have hne : openPathsOf tree root ≠ [] := by
+        intro hnil
+        simp [hnil] at hopen
+      have hclosed : ({ start with openPaths := openPathsOf tree root } : Reading).configClosed = false := by
+        simp [Reading.configClosed, hne]
+      have hdec := decision_not_closed hclosed
+      refine ⟨fun ha => (by rw [hdec] at ha; cases ha), fun o ho hne' => ?_⟩
+      rw [hdec] at ho
+      subst ho
+      exact openPaths_reason hmem₁ hne
+    · rename_i hopen
+      obtain ⟨t₅, t₆, r₅, rfl, h₅, h₆⟩ := runs_attempt_bind_iff.mp h₂
+      have hT₅ : t₅.Sublist T := (List.sublist_append_left _ _).trans hT₂
+      have hT₆ : t₆.Sublist T := (List.sublist_append_right _ _).trans hT₂
+      obtain ⟨m1, m2⟩ := defaultModules_spec (T := T) root root.defaultTargets hT₅.subset h₅
+      have hact₅ : ActsIn tree t₅ := by
+        have : ∀ e ∈ t₅, e.acted? = none := defaultModules_no_act h₅
+        intro e he p hp'
+        rw [this e he] at hp'
+        cases hp'
+      cases r₅ with
+      | error why =>
+        obtain ⟨rfl, rfl⟩ := h₆
+        obtain ⟨e, he, hf⟩ := m2 ⟨why, rfl⟩
+        exact ⟨fun _ _ he => (by cases he), fun _ => .failed (hT₅.subset he) hf,
+          by simpa using actsIn_append hact₁ hact₅⟩
+      | ok modules =>
+        have hmods := m1 modules rfl
+        dsimp only at h₆
+        split at h₆
+        · rename_i hfails
+          obtain ⟨rfl, rfl⟩ := runs_attempt_pure_iff.mp h₆
+          refine ⟨fun r srcs he => ?_, fun ⟨e, he⟩ => (by cases he),
+            by simpa using actsIn_append hact₁ hact₅⟩
+          cases he
+          have hne : configUnread root modules ≠ [] := by
+            intro hnil
+            simp [hnil] at hfails
+          have hfull : ({ start with roots := modules.map (·.1), unread := configUnread root modules } : Reading).readInFull = false := by
+            simp [Reading.readInFull, hne]
+          have hdec := decision_not_full (r := { start with roots := modules.map (·.1), unread := configUnread root modules }) hc hfull
+          refine ⟨fun ha => (by rw [hdec] at ha; cases ha), fun o ho hne' => ?_⟩
+          rw [hdec] at ho
+          subst ho
+          exact configUnread_reason hmem₁ hmods hne
+        · rename_i hfails
+          have hnil : configUnread root modules = [] := by
+            simpa using hfails
+          obtain ⟨f1, f2, f3⟩ := readFiles_spec hT₆ hp hc hd hout hmem₁ hmods hnil h₆
+          exact ⟨f1, f2, by simpa using actsIn_append (actsIn_append hact₁ hact₅) f3⟩
+
+/-! ## The configuration -/
+
+/-- What the stages before the configuration established, by the events `T`. -/
+structure Early (T : List (Event L E)) (dir treeDir project tree : FilePath) (tf : Option String) : Prop where
+  /-- The project's real path. -/
+  project_real : (⟨.realPath dir, .ok project⟩ : Event L E) ∈ T
+  /-- The tree's real path. -/
+  tree_real : (⟨.realPath treeDir, .ok tree⟩ : Event L E) ∈ T
+  /-- They lie apart. -/
+  apart : Apart project tree
+  /-- The start from outside. -/
+  started : ∃ sysroot program lakeLib, (⟨.lakeInstall sysroot, (program, lakeLib)⟩ : Event L E) ∈ T ∧
+    StartedOutside T project lakeLib
+  /-- What `lean-toolchain` said, when it is the pinned Lean. -/
+  toolchain : tf = some leanToolchain → ∃ text real,
+    (⟨.readFile (project / "lean-toolchain"), .ok text⟩ : Event L E) ∈ T ∧
+    (⟨.realPath (project / "lean-toolchain"), .ok real⟩ : Event L E) ∈ T ∧
+    parts real = parts (project / "lean-toolchain") ∧
+    parts project <+: parts (project / "lean-toolchain") ∧
+    text.trimAscii.toString = leanToolchain
+  /-- Why anything else is refused. -/
+  toolchain_reason : tf ≠ some leanToolchain → Reason T dir .refused
+
+/-- A reading that stopped at a stage that has its own reason. -/
+theorem stopped_goal {T : List (Event L E)} {dir treeDir : FilePath} {tf : Option String} {why : String}
+    (hr : tf ≠ some leanToolchain → Reason T dir .refused) (hi : Reason T dir .incomplete) :
+    ReadGoal T dir treeDir (stopped tf false [] (some why)) := by
+  by_cases ht : tf = some leanToolchain
+  · have hc : (stopped tf false [] (some why)).configClosed = true := by
+      subst ht
+      simp [stopped, Reading.configClosed]
+    have hf : (stopped tf false [] (some why)).readInFull = false := by
+      simp [stopped, Reading.readInFull]
+    have hdec := decision_not_full hc hf
+    refine ⟨fun ha => (by rw [hdec] at ha; cases ha), fun o ho _ => ?_⟩
+    rw [hdec] at ho
+    subst ho
+    exact hi
+  · have hc : (stopped tf false [] (some why)).configClosed = false := by
+      cases htf : tf with
+      | none => simp [stopped, Reading.configClosed, htf]
+      | some s =>
+        have hs : s ≠ leanToolchain := fun h => ht (by rw [htf, h])
+        simp [stopped, Reading.configClosed, htf, hs]
+    have hdec := decision_not_closed hc
+    refine ⟨fun ha => (by rw [hdec] at ha; cases ha), fun o ho _ => ?_⟩
+    rw [hdec] at ho
+    subst ho
+    exact hr ht
+
+/-- Copying `lakefile.toml` and `lean-toolchain` to the tree, then what follows. -/
+theorem readKeys_spec {T t : List (Event L E)} {dir treeDir project tree : FilePath} {tf : Option String}
+    {sysroot text : String} {real : FilePath} {b : Except String (Reading × List (Name × Source))}
+    (hT : t.Sublist T) (hE : Early T dir treeDir project tree tf)
+    (habs : ∃ e, (⟨.symlinkMetadata (project / "lakefile.lean"), .error e⟩ : Event L E) ∈ T ∧
+      ∃ name code details, e = .noFileOrDirectory name code details)
+    (hreal : (⟨.realPath (project / "lakefile.toml"), .ok real⟩ : Event L E) ∈ T)
+    (hexact : parts real = parts (project / "lakefile.toml") ∧
+      parts project <+: parts (project / "lakefile.toml"))
+    (hread : (⟨.readFile (project / "lakefile.toml"), .ok text⟩ : Event L E) ∈ T)
+    (h : Runs (readKeys sysroot project tree tf text : Attempt L E _).run t b) :
+    (∀ r srcs, b = .ok (r, srcs) → ReadGoal T dir treeDir r) ∧
+      ((∃ e, b = .error e) → Reason T dir .incomplete) ∧ ActsIn tree t := by
+  rw [readKeys] at h
+  obtain ⟨t₁, t₂, r₁, rfl, h₁, h₂⟩ := runs_attempt_bind_iff.mp h
+  obtain ⟨r₂, h₃, rfl⟩ := runs_lift_iff.mp h₁
+  obtain rfl := runs_call_iff.mp h₃
+  have hT' : (([⟨.parseToml (mkInputContext text "lakefile.toml"), r₂⟩] : List (Event L E)) ++ t₂).Sublist T :=
+    by simpa using hT
+  have hT₂ : t₂.Sublist T := (List.sublist_append_right _ _).trans hT'
+  have hmem : (⟨.parseToml (mkInputContext text "lakefile.toml"), r₂⟩ : Event L E) ∈ T :=
+    hT'.subset (by simp)
+  have hact₁ : ActsIn tree ([⟨.parseToml (mkInputContext text "lakefile.toml"), r₂⟩] : List (Event L E)) := by
+    intro e he p hp'
+    have : e = ⟨.parseToml (mkInputContext text "lakefile.toml"), r₂⟩ := by simpa using he
+    subst this
+    cases hp'
+  cases r₂ with
+  | error log =>
+    obtain ⟨rfl, rfl⟩ := runs_attempt_pure_iff.mp h₂
+    refine ⟨fun r srcs he => ?_, fun ⟨e, he⟩ => (by cases he), by simpa using hact₁⟩
+    cases he
+    exact stopped_goal hE.toolchain_reason (.failed hmem ⟨log, rfl⟩)
+  | ok table =>
+    dsimp only at h₂
+    split at h₂
+    · rename_i hcond
+      obtain ⟨rfl, rfl⟩ := runs_attempt_pure_iff.mp h₂
+      refine ⟨fun r srcs he => ?_, fun ⟨e, he⟩ => (by cases he), by simpa using hact₁⟩
+      cases he
+      by_cases hc : (stopped tf false (keysOf 8 .anonymous table) none).configClosed = true
+      · have hd : (stopped tf false (keysOf 8 .anonymous table) none).requiresDependency = true := by
+          simpa [hc] using hcond
+        have hf : (stopped tf false (keysOf 8 .anonymous table) none).readInFull = true := by
+          simp [stopped, Reading.readInFull]
+        have hdec := decision_dependency hc hf hd
+        refine ⟨fun ha => (by rw [hdec] at ha; cases ha), fun o ho _ => ?_⟩
+        rw [hdec] at ho
+        subst ho
+        obtain ⟨k, hk, hroot⟩ := List.any_eq_true.mp hd
+        rcases keysOf_sound 8 .anonymous table k hk with h' | h'
+        · exact .dependency hmem h' (by simpa using hroot)
+        · exact .deepDependency hmem h'
+      · have hc' : (stopped tf false (keysOf 8 .anonymous table) none).configClosed = false := by
+          simpa using hc
+        have hdec := decision_not_closed hc'
+        refine ⟨fun ha => (by rw [hdec] at ha; cases ha), fun o ho _ => ?_⟩
+        rw [hdec] at ho
+        subst ho
+        by_cases ht : tf = some leanToolchain
+        · have hnot : ¬ ConfigClosed (stopped tf false (keysOf 8 .anonymous table) none) :=
+            fun hx => hc ((configClosed_iff _).mpr hx)
+          have : ∃ k ∈ keysOf 8 .anonymous table, k.getRoot ≠ `require ∧ ¬ ConfigKeyAdmitted k := by
+            refine Classical.byContradiction fun hx => hnot ⟨by simpa [stopped] using ht, rfl, rfl, ?_⟩
+            intro k hk hroot
+            refine Classical.byContradiction fun hy => hx ⟨k, hk, hroot, hy⟩
+          obtain ⟨k, hk, hroot, hna⟩ := this
+          rcases keysOf_sound 8 .anonymous table k hk with h' | h'
+          · exact .key hmem h' hroot hna
+          · exact .deep hmem h'
+        · exact hE.toolchain_reason ht
+    · rename_i hcond
+      have hc : (stopped tf false (keysOf 8 .anonymous table) none).configClosed = true := by
+        cases hx : (stopped tf false (keysOf 8 .anonymous table) none).configClosed with
+        | true => rfl
+        | false => exact absurd (by simp [hx]) hcond
+      have hd : (stopped tf false (keysOf 8 .anonymous table) none).requiresDependency = false := by
+        cases hx : (stopped tf false (keysOf 8 .anonymous table) none).requiresDependency with
+        | false => rfl
+        | true => exact absurd (by simp [hx]) hcond
+      obtain ⟨t₃, t₄, r₃, rfl, h₄, h₅⟩ := runs_attempt_bind_iff.mp h₂
+      have hT₃ : t₃.Sublist T := (List.sublist_append_left _ _).trans hT₂
+      have hT₄ : t₄.Sublist T := (List.sublist_append_right _ _).trans hT₂
+      obtain ⟨w1, w2, w3⟩ := writeInTree_spec h₄
+      have hwriteFail : ∀ {path} {t' : List (Event L E)}, t'.Sublist T →
+          (path = tree / "lakefile.toml" ∨ path = tree / "lean-toolchain") →
+          (OutsideTree tree path ∨ ∃ e ∈ t', Event.failedRead e) → Reason T dir .incomplete := by
+        intro path t' hs hp h'
+        rcases h' with h' | ⟨e, he, hf⟩
+        · exact .configNotInTree hE.tree_real hp h'
+        · exact .failed (hs.subset he) hf
+      cases r₃ with
+      | error why =>
+        obtain ⟨rfl, rfl⟩ := h₅
+        exact ⟨fun _ _ he => (by cases he), fun _ => hwriteFail hT₃ (.inl rfl) (w2 ⟨why, rfl⟩),
+          by simpa using actsIn_append hact₁ w3⟩
+      | ok u =>
+        obtain ⟨t₅, t₆, r₅, rfl, h₆, h₇⟩ := runs_attempt_bind_iff.mp h₅
+        have hT₅ : t₅.Sublist T := (List.sublist_append_left _ _).trans hT₄
+        have hT₆ : t₆.Sublist T := (List.sublist_append_right _ _).trans hT₄
+        obtain ⟨v1, v2, v3⟩ := writeInTree_spec h₆
+        cases r₅ with
+        | error why =>
+          obtain ⟨rfl, rfl⟩ := h₇
+          exact ⟨fun _ _ he => (by cases he), fun _ => hwriteFail hT₅ (.inr rfl) (v2 ⟨why, rfl⟩),
+            by simpa using actsIn_append (actsIn_append hact₁ w3) v3⟩
+        | ok v =>
+          have hto : tf = some leanToolchain := by
+            have := ((configClosed_iff _).mp hc).1
+            simpa [stopped] using this
+          have hwritten : (⟨.writeFile (tree / "lakefile.toml") text, .ok ()⟩ : Event L E) ∈ T :=
+            (w1 rfl).subset (by simp) |> hT₃.subset
+          have hp : Prior T dir treeDir project tree
+              (stopped tf false (keysOf 8 .anonymous table) none).configKeys :=
+            { project_real := hE.project_real, tree_real := hE.tree_real, apart := hE.apart,
+              started := hE.started, toolchain := hE.toolchain hto, absent := habs,
+              toml := ⟨text, real, table, hreal, hexact.1, hexact.2, hread, hmem, hwritten, rfl⟩ }
+          obtain ⟨f1, f2, f3⟩ := readRoot_spec hT₆ hp hc hd (by simp [stopped]) (by simp [stopped]) h₇
+          exact ⟨f1, f2, by
+            simpa using actsIn_append (actsIn_append (actsIn_append hact₁ w3) v3) f3⟩
+
+/-- `existsByName` asks one thing, and only an answer of no such name says that it is absent. -/
+theorem existsByName_spec {path : FilePath} {t : List (Event L E)} {b : Except String Bool}
+    (h : Runs (existsByName path : Attempt L E Bool).run t b) :
+    ∃ r, t = [⟨.symlinkMetadata path, r⟩] ∧
+      (b = .ok true → ∃ metadata, r = .ok metadata) ∧
+      (b = .ok false → ∃ e, r = .error e ∧ ∃ name code details, e = .noFileOrDirectory name code details) ∧
+      ((∃ e, b = .error e) → Event.failedRead (⟨.symlinkMetadata path, r⟩ : Event L E)) := by
+  rw [existsByName] at h
+  obtain ⟨t₃, t₄, r₃, rfl, h₃, h₄⟩ := runs_bind_iff.mp h
+  obtain rfl := runs_call_iff.mp h₃
+  refine ⟨r₃, ?_⟩
+  cases r₃ with
+  | ok metadata =>
+    obtain ⟨rfl, rfl⟩ := runs_pure_iff.mp h₄
+    exact ⟨rfl, fun _ => ⟨metadata, rfl⟩, fun he => (by cases he), fun ⟨e, he⟩ => (by cases he)⟩
+  | error e =>
+    cases e with
+    | noFileOrDirectory name code details =>
+      obtain ⟨rfl, rfl⟩ := runs_pure_iff.mp h₄
+      exact ⟨rfl, fun he => (by cases he), fun _ => ⟨_, rfl, name, code, details, rfl⟩,
+        fun ⟨e, he⟩ => (by cases he)⟩
+    | _ =>
+      obtain ⟨rfl, rfl⟩ := runs_pure_iff.mp h₄
+      exact ⟨rfl, fun he => (by cases he), fun he => (by cases he),
+        fun _ => ⟨_, rfl, fun _ _ _ he => (by cases he)⟩⟩
+
+/-- `lakefile.lean` by its name, `lakefile.toml`, and what follows. -/
+theorem readConfig_spec {T t : List (Event L E)} {dir treeDir project tree : FilePath} {tf : Option String}
+    {sysroot : String} {b : Except String (Reading × List (Name × Source))} (hT : t.Sublist T)
+    (hE : Early T dir treeDir project tree tf)
+    (h : Runs (readConfig sysroot project tree tf : Attempt L E _).run t b) :
+    (∀ r srcs, b = .ok (r, srcs) → ReadGoal T dir treeDir r) ∧
+      ((∃ e, b = .error e) → Reason T dir .incomplete) ∧ ActsIn tree t := by
+  rw [readConfig] at h
+  obtain ⟨t₁, t₂, r₁, rfl, h₁, h₂⟩ := runs_attempt_bind_iff.mp h
+  obtain ⟨r₃, rfl, e1, e2, e3⟩ := existsByName_spec h₁
+  have hT' : (([⟨.symlinkMetadata (project / "lakefile.lean"), r₃⟩] : List (Event L E)) ++ t₂).Sublist T := hT
+  have hmem : (⟨.symlinkMetadata (project / "lakefile.lean"), r₃⟩ : Event L E) ∈ T :=
+    hT'.subset (by simp)
+  have hT₂ : t₂.Sublist T := (List.sublist_append_right _ _).trans hT'
+  have hact : ActsIn tree ([⟨.symlinkMetadata (project / "lakefile.lean"), r₃⟩] : List (Event L E)) := by
+    intro e he p hp'
+    have : e = ⟨.symlinkMetadata (project / "lakefile.lean"), r₃⟩ := by simpa using he
+    subst this
+    cases hp'
+  cases r₁ with
+  | error why =>
+    obtain ⟨rfl, rfl⟩ := h₂
+    exact ⟨fun _ _ he => (by cases he), fun _ => .failed hmem (e3 ⟨why, rfl⟩), by simpa using hact⟩
+  | ok present =>
+    cases present with
+    | true =>
+      obtain ⟨metadata, rfl⟩ := e1 rfl
+      obtain ⟨rfl, rfl⟩ := runs_attempt_pure_iff.mp h₂
+      refine ⟨fun r srcs he => ?_, fun ⟨e, he⟩ => (by cases he), by simpa using hact⟩
+      cases he
+      have hc : (stopped tf true [] none).configClosed = false := by
+        simp [stopped, Reading.configClosed]
+      have hdec := decision_not_closed hc
+      refine ⟨fun ha => (by rw [hdec] at ha; cases ha), fun o ho _ => ?_⟩
+      rw [hdec] at ho
+      subst ho
+      exact .leanConfig hE.project_real hmem
+    | false =>
+      obtain ⟨e, rfl, habs⟩ := e2 rfl
+      obtain ⟨t₃, t₄, r₃', rfl, h₃, h₄⟩ := runs_attempt_bind_iff.mp h₂
+      obtain ⟨r₅, h₅, rfl⟩ := runs_lift_iff.mp h₃
+      obtain ⟨x1, x2, x3⟩ := readExact_spec h₅
+      have hT₃ : t₃.Sublist T := (List.sublist_append_left _ _).trans hT₂
+      have hT₄ : t₄.Sublist T := (List.sublist_append_right _ _).trans hT₂
+      have hact₃ : ActsIn tree t₃ := fun x hx p hp' => by
+        rw [x3 x hx] at hp'
+        cases hp'
+      cases r₅ with
+      | error why =>
+        obtain ⟨rfl, rfl⟩ := runs_attempt_pure_iff.mp h₄
+        refine ⟨fun r srcs he => ?_, fun ⟨e, he⟩ => (by cases he),
+          by simpa using actsIn_append hact hact₃⟩
+        cases he
+        refine stopped_goal hE.toolchain_reason ?_
+        rcases x2 ⟨why, rfl⟩ with ⟨y, hy, hf⟩ | ⟨real, rfl, hb⟩
+        · exact .failed (hT₃.subset hy) hf
+        · exact .notExact hE.project_real (hT₃.subset (by simp)) hb
+      | ok text =>
+        obtain ⟨real, rfl, hb⟩ := x1 text rfl
+        have hex := (RegulaSpecification.Loader.exactBelow_iff _ _ _).mp hb
+        obtain ⟨f1, f2, f3⟩ := readKeys_spec hT₄ hE ⟨e, hmem, habs⟩ (hT₃.subset (by simp)) hex
+          (hT₃.subset (by simp)) h₄
+        exact ⟨f1, f2, by simpa using actsIn_append (actsIn_append hact hact₃) f3⟩
+
+/-! ## The start, and the whole reader -/
+
+/-- `startedOutside` passes only on what `StartedOutside` states. -/
+theorem startedOutside_spec {T t : List (Event L E)} {dir : FilePath} {project lakeLib : FilePath}
+    {sysroot : String} {program : FilePath} {b : Except String Bool} (hT : t.Sublist T)
+    (hproject : (⟨.realPath dir, .ok project⟩ : Event L E) ∈ T)
+    (hlake : (⟨.lakeInstall sysroot, (program, lakeLib)⟩ : Event L E) ∈ T)
+    (h : Runs (startedOutside lakeLib project : Attempt L E Bool).run t b) :
+    (b = .ok true → StartedOutside T project lakeLib) ∧
+      (b = .ok false → Reason T dir .incomplete) ∧
+      ((∃ e, b = .error e) → Reason T dir .incomplete) ∧
+      ∀ e ∈ t, e.acted? = none := by
+  rw [startedOutside] at h
+  obtain ⟨t₁, t₂, r₁, rfl, h₁, h₂⟩ := runs_attempt_bind_iff.mp h
+  obtain ⟨r₃, h₃, rfl⟩ := runs_attempt_iff.mp h₁
+  obtain rfl := runs_call_iff.mp h₃
+  cases r₃ with
+  | error e =>
+    obtain ⟨rfl, rfl⟩ := h₂
+    refine ⟨fun he => (by cases he), fun he => (by cases he),
+      fun _ => .failed (hT.subset (by simp) : (⟨.appPath, .error e⟩ : Event L E) ∈ T) ⟨e, rfl⟩, ?_⟩
+    intro x hx
+    simp only [List.append_nil, List.mem_singleton] at hx
+    subst hx
+    rfl
+  | ok app =>
+    obtain ⟨t₃, t₄, r₄, rfl, h₄, h₅⟩ := runs_attempt_bind_iff.mp h₂
+    obtain ⟨r₅, h₆, rfl⟩ := runs_attempt_iff.mp h₄
+    obtain rfl := runs_call_iff.mp h₆
+    cases r₅ with
+    | error e =>
+      obtain ⟨rfl, rfl⟩ := h₅
+      refine ⟨fun he => (by cases he), fun he => (by cases he),
+        fun _ => .failed (hT.subset (by simp) : (⟨.realPath app, .error e⟩ : Event L E) ∈ T) ⟨e, rfl⟩, ?_⟩
+      intro x hx
+      simp only [List.append_nil, List.cons_append, List.nil_append, List.mem_cons, List.not_mem_nil,
+        or_false] at hx
+      rcases hx with rfl | rfl <;> rfl
+    | ok real =>
+      obtain ⟨t₅, t₆, r₆, rfl, h₇, h₈⟩ := runs_attempt_bind_iff.mp h₅
+      obtain ⟨t₇, t₈, r₈, rfl, h₉, h₁₀⟩ := runs_bind_iff.mp h₇
+      obtain rfl := runs_call_iff.mp h₉
+      cases r₈ with
+      | none =>
+        obtain ⟨rfl, rfl⟩ := runs_pure_iff.mp h₁₀
+        obtain ⟨rfl, rfl⟩ := h₈
+        refine ⟨fun he => (by cases he), fun he => (by cases he),
+          fun _ => .noSearchPath (hT.subset (by simp)), ?_⟩
+        intro x hx
+        simp only [List.append_nil, List.cons_append, List.nil_append, List.mem_cons, List.not_mem_nil,
+          or_false] at hx
+        rcases hx with rfl | rfl | rfl <;> rfl
+      | some received =>
+        obtain ⟨rfl, rfl⟩ := runs_pure_iff.mp h₁₀
+        obtain ⟨rfl, rfl⟩ := runs_attempt_pure_iff.mp h₈
+        have happ : (⟨.appPath, .ok app⟩ : Event L E) ∈ T := hT.subset (by simp)
+        have hreal : (⟨.realPath app, .ok real⟩ : Event L E) ∈ T := hT.subset (by simp)
+        have henv : (⟨.getEnv "LEAN_PATH", some received⟩ : Event L E) ∈ T := hT.subset (by simp)
+        have hacts : ∀ e ∈ ([⟨.appPath, .ok app⟩] ++ [] ++ ([⟨.realPath app, .ok real⟩] ++ [] ++
+            ([⟨.getEnv "LEAN_PATH", some received⟩] ++ [] ++ [])) : List (Event L E)), e.acted? = none := by
+          intro x hx
+          simp only [List.append_nil, List.cons_append, List.nil_append, List.mem_cons, List.not_mem_nil,
+            or_false] at hx
+          rcases hx with rfl | rfl | rfl <;> rfl
+        refine ⟨fun he => ?_, fun he => ?_, fun ⟨e, he⟩ => (by cases he), hacts⟩
+        · have he' := Except.ok.inj he
+          simp only [Bool.and_eq_true, Bool.not_eq_true'] at he'
+          obtain ⟨hb, hd⟩ := he'
+          cases hown : (real.parent.bind (·.parent)).map (· / "lib" / "lean") with
+          | none => simp [hown] at hd
+          | some own =>
+            simp only [hown, Option.any_some] at hd
+            exact ⟨app, real, own, received, happ, hreal, henv, hown, hb, hd⟩
+        · have he' := Except.ok.inj he
+          simp only [Bool.and_eq_false_iff, Bool.not_eq_false'] at he'
+          refine .started hproject hlake happ hreal henv ?_
+          rcases he' with hb | hd
+          · exact .inl hb
+          · refine .inr fun own hown => ?_
+            rw [hown] at hd
+            simpa using hd
+
+/-- How `readExact` fails, by its events. -/
+theorem readExact_error {project path : FilePath} {t : List (Event L E)} {why : String}
+    (h : Runs (readExact project path : Attempt L E String).run t (.error why)) :
+    (∃ e, t = [⟨.realPath path, .error e⟩]) ∨
+      (∃ real, t = [⟨.realPath path, .ok real⟩] ∧ Regula.Load.exactBelow project path real = false) ∨
+      ∃ real e, t = [⟨.realPath path, .ok real⟩, ⟨.readFile path, .error e⟩] := by
+  rw [readExact] at h
+  obtain ⟨t₁, t₂, r, rfl, h₁, h₂⟩ := runs_attempt_bind_iff.mp h
+  obtain ⟨r', h₃, rfl⟩ := runs_attempt_iff.mp h₁
+  obtain rfl := runs_call_iff.mp h₃
+  cases r' with
+  | error e =>
+    obtain ⟨rfl, -⟩ := h₂
+    exact .inl ⟨e, rfl⟩
+  | ok real =>
+    dsimp only [Except.mapError] at h₂
+    split at h₂
+    · obtain ⟨r'', h₄, he⟩ := runs_attempt_iff.mp h₂
+      obtain rfl := runs_call_iff.mp h₄
+      cases r'' with
+      | ok text => cases he
+      | error e => exact .inr (.inr ⟨real, e, rfl⟩)
+    · rename_i hb
+      obtain ⟨rfl, -⟩ := runs_attempt_throw_iff.mp h₂
+      exact .inr (.inl ⟨real, rfl, by simpa using hb⟩)
+
+/-- What `toolchainOf` gives: what the file says, through the exact-path test, or none with why. -/
+theorem toolchainOf_spec {T t : List (Event L E)} {dir project : FilePath} {tf : Option String}
+    (hT : t.Sublist T) (hproject : (⟨.realPath dir, .ok project⟩ : Event L E) ∈ T)
+    (h : Runs (toolchainOf project : Prog L E (Option String)) t tf) :
+    (tf = some leanToolchain → ∃ text real,
+      (⟨.readFile (project / "lean-toolchain"), .ok text⟩ : Event L E) ∈ T ∧
+      (⟨.realPath (project / "lean-toolchain"), .ok real⟩ : Event L E) ∈ T ∧
+      parts real = parts (project / "lean-toolchain") ∧
+      parts project <+: parts (project / "lean-toolchain") ∧
+      text.trimAscii.toString = leanToolchain) ∧
+    (tf ≠ some leanToolchain → Reason T dir .refused) ∧
+    ∀ e ∈ t, e.acted? = none := by
+  rw [toolchainOf] at h
+  obtain ⟨t₁, t₂, r, rfl, h₁, h₂⟩ := runs_seq_iff.mp h
+  obtain ⟨x1, x2, x3⟩ := readExact_spec h₁
+  have hT₁ : t₁.Sublist T := (List.sublist_append_left _ _).trans hT
+  cases r with
+  | ok text =>
+    obtain ⟨rfl, rfl⟩ := runs_pure_iff.mp h₂
+    obtain ⟨real, rfl, hb⟩ := x1 text rfl
+    have hex := (RegulaSpecification.Loader.exactBelow_iff _ _ _).mp hb
+    refine ⟨fun he => ⟨text, real, hT₁.subset (by simp), hT₁.subset (by simp), hex.1, hex.2, ?_⟩,
+      fun hne => ?_, by simpa using x3⟩
+    · simpa using he
+    · exact .toolchain (text := text) hproject (hT₁.subset (by simp)) (fun heq => hne (by rw [heq]))
+  | error why =>
+    obtain ⟨rfl, rfl⟩ := runs_pure_iff.mp h₂
+    refine ⟨fun he => (by cases he), fun _ => ?_, by simpa using x3⟩
+    rcases readExact_error h₁ with ⟨e, rfl⟩ | ⟨real, rfl, hb⟩ | ⟨real, e, rfl⟩
+    · exact .toolchainNoReal (e := e) hproject (hT₁.subset (by simp))
+    · exact .toolchainNotExact hproject (hT₁.subset (by simp)) hb
+    · exact .toolchainFailed (e := e) hproject (hT₁.subset (by simp))
+
+/-- `apart` is `Apart`. -/
+theorem apart_iff (a b : FilePath) : apart a b = true ↔ Apart a b := by
+  have hp (x y : List String) : x.isPrefixOf y = false ↔ ¬ x <+: y := by
+    constructor
+    · intro h hprefix
+      have := List.isPrefixOf_iff_prefix.mpr hprefix
+      simp [h] at this
+    · intro h
+      cases hx : x.isPrefixOf y with
+      | false => rfl
+      | true => exact absurd (List.isPrefixOf_iff_prefix.mp hx) h
+  simp [apart, Apart, hp]
+
+/-- What the acts of a read are: none, or all in a tree that lies apart from the project. -/
+def ReadActs (t : List (Event L E)) (dir treeDir : FilePath) : Prop :=
+  (∀ e ∈ t, e.acted? = none) ∨
+    ∃ project tree, (⟨.realPath dir, .ok project⟩ : Event L E) ∈ t ∧
+      (⟨.realPath treeDir, .ok tree⟩ : Event L E) ∈ t ∧ Apart project tree ∧ ActsIn tree t
+
+/-- The theorem of the reader, for every response. -/
+theorem readProject_spec {t : List (Event L E)} {dir treeDir : FilePath} {sysroot : String}
+    {b : Except String (Reading × List (Name × Source))}
+    (h : Runs (readProject sysroot dir treeDir : Attempt L E _).run t b) :
+    (∀ r srcs, b = .ok (r, srcs) → ReadGoal t dir treeDir r) ∧
+      ((∃ e, b = .error e) → Reason t dir .incomplete) ∧ ReadActs t dir treeDir := by
+  rw [readProject] at h
+  obtain ⟨t₁, t₂, r₁, rfl, h₁, h₂⟩ := runs_attempt_bind_iff.mp h
+  obtain ⟨r₃, h₃, rfl⟩ := runs_attempt_iff.mp h₁
+  obtain rfl := runs_call_iff.mp h₃
+  cases r₃ with
+  | error e =>
+    obtain ⟨rfl, rfl⟩ := h₂
+    refine ⟨fun _ _ he => (by cases he), fun _ => .failed (e := ⟨.realPath dir, .error e⟩) (by simp) ⟨e, rfl⟩,
+      .inl fun x hx => ?_⟩
+    simp only [List.append_nil, List.mem_singleton] at hx
+    subst hx
+    rfl
+  | ok project =>
+    obtain ⟨t₃, t₄, r₄, rfl, h₄, h₅⟩ := runs_attempt_bind_iff.mp h₂
+    obtain ⟨r₅, h₆, rfl⟩ := runs_attempt_iff.mp h₄
+    obtain rfl := runs_call_iff.mp h₆
+    cases r₅ with
+    | error e =>
+      obtain ⟨rfl, rfl⟩ := h₅
+      refine ⟨fun _ _ he => (by cases he), fun _ =>
+        .failed (e := ⟨.realPath treeDir, .error e⟩) (by simp) ⟨e, rfl⟩, .inl fun x hx => ?_⟩
+      simp only [List.append_nil, List.cons_append, List.nil_append, List.mem_cons, List.not_mem_nil,
+        or_false] at hx
+      rcases hx with rfl | rfl <;> rfl
+    | ok tree =>
+      obtain ⟨t₅, t₆, r₆, rfl, h₇, h₈⟩ := runs_attempt_bind_iff.mp h₅
+      obtain ⟨r₇, h₉, rfl⟩ := runs_lift_iff.mp h₇
+      obtain rfl := runs_call_iff.mp h₉
+      obtain ⟨program, lakeLib⟩ := r₇
+      dsimp only at h₈
+      obtain ⟨t₇, t₈, r₈, rfl, h₁₀, h₁₁⟩ := runs_attempt_bind_iff.mp h₈
+      -- The events so far, and those to come, are all of `T`.
+      generalize hT : ([⟨.realPath dir, .ok project⟩] ++ ([⟨.realPath treeDir, .ok tree⟩] ++
+        ([⟨.lakeInstall sysroot, (program, lakeLib)⟩] ++ (t₇ ++ t₈))) : List (Event L E)) = T
+      have hsub₇ : t₇.Sublist T := by
+        rw [← hT]
+        simp only [List.append_nil, List.cons_append, List.nil_append]
+        exact ((List.sublist_append_left _ _).trans (List.sublist_cons_self _ _)).trans
+          ((List.sublist_cons_self _ _).trans (List.sublist_cons_self _ _))
+      have hsub₈ : t₈.Sublist T := by
+        rw [← hT]
+        simp only [List.append_nil, List.cons_append, List.nil_append]
+        exact ((List.sublist_append_right _ _).trans (List.sublist_cons_self _ _)).trans
+          ((List.sublist_cons_self _ _).trans (List.sublist_cons_self _ _))
+      have hproject : (⟨.realPath dir, .ok project⟩ : Event L E) ∈ T := by simp [← hT]
+      have htree : (⟨.realPath treeDir, .ok tree⟩ : Event L E) ∈ T := by simp [← hT]
+      have hlake : (⟨.lakeInstall sysroot, (program, lakeLib)⟩ : Event L E) ∈ T := by simp [← hT]
+      have hpre : ∀ e ∈ ([⟨.realPath dir, .ok project⟩, ⟨.realPath treeDir, .ok tree⟩,
+          ⟨.lakeInstall sysroot, (program, lakeLib)⟩] : List (Event L E)), e.acted? = none := by
+        intro x hx
+        simp only [List.mem_cons, List.not_mem_nil, or_false] at hx
+        rcases hx with rfl | rfl | rfl <;> rfl
+      obtain ⟨o1, o2, o3, o4⟩ := startedOutside_spec hsub₇ hproject hlake h₁₀
+      have hnoActs : ∀ t' : List (Event L E), (∀ e ∈ t', e.acted? = none) → (∀ e ∈ T, e.acted? = none ∨ e ∈ t') →
+          (∀ e ∈ T, e.acted? = none) := by
+        intro t' h' hall e he
+        rcases hall e he with h'' | h''
+        · exact h''
+        · exact h' e h''
+      cases r₈ with
+      | error why =>
+        obtain ⟨rfl, rfl⟩ := h₁₁
+        refine ⟨fun _ _ he => (by cases he), fun _ => o3 ⟨why, rfl⟩, .inl fun x hx => ?_⟩
+        rw [← hT] at hx
+        simp only [List.append_nil, List.cons_append, List.nil_append, List.mem_cons] at hx
+        rcases hx with rfl | rfl | rfl | hx
+        · rfl
+        · rfl
+        · rfl
+        · exact o4 x hx
+      | ok outside =>
+        obtain ⟨t₉, t₁₀, r₁₀, rfl, h₁₂, h₁₃⟩ := runs_attempt_bind_iff.mp h₁₁
+        obtain ⟨tf, h₁₄, rfl⟩ := runs_lift_iff.mp h₁₂
+        dsimp only at h₁₃
+        have hsub₉ : t₉.Sublist T := ((List.sublist_append_left _ _).trans hsub₈)
+        have hsub₁₀ : t₁₀.Sublist T := ((List.sublist_append_right _ _).trans hsub₈)
+        obtain ⟨u1, u2, u3⟩ := toolchainOf_spec hsub₉ hproject h₁₄
+        have hquiet : ∀ x ∈ T, x ∈ t₁₀ ∨ x.acted? = none := by
+          intro x hx
+          rw [← hT] at hx
+          simp only [List.append_nil, List.cons_append, List.nil_append, List.mem_cons,
+            List.mem_append] at hx
+          rcases hx with rfl | rfl | rfl | hx | hx | hx
+          · exact .inr rfl
+          · exact .inr rfl
+          · exact .inr rfl
+          · exact .inr (o4 x hx)
+          · exact .inr (u3 x hx)
+          · exact .inl hx
+        split at h₁₃
+        · rename_i hout
+          obtain ⟨rfl, rfl⟩ := runs_attempt_pure_iff.mp h₁₃
+          have houtside : outside = false := by simpa using hout
+          subst houtside
+          refine ⟨fun r srcs he => ?_, fun ⟨e, he⟩ => (by cases he), .inl fun x hx => ?_⟩
+          · cases he
+            by_cases ht : tf = some leanToolchain
+            · have hc : ({ stopped tf false [] none with outside := false } : Reading).configClosed = true := by
+                subst ht
+                simp [stopped, Reading.configClosed]
+              have hf : ({ stopped tf false [] none with outside := false } : Reading).readInFull = false := by
+                simp [Reading.readInFull]
+              have hdec := decision_not_full hc hf
+              refine ⟨fun ha => (by rw [hdec] at ha; cases ha), fun o ho _ => ?_⟩
+              rw [hdec] at ho
+              subst ho
+              exact o2 rfl
+            · have hc : ({ stopped tf false [] none with outside := false } : Reading).configClosed = false := by
+                cases htf : tf with
+                | none => simp [stopped, Reading.configClosed, htf]
+                | some s =>
+                  have hs : s ≠ leanToolchain := fun h' => ht (by rw [htf, h'])
+                  simp [stopped, Reading.configClosed, htf, hs]
+              have hdec := decision_not_closed hc
+              refine ⟨fun ha => (by rw [hdec] at ha; cases ha), fun o ho _ => ?_⟩
+              rw [hdec] at ho
+              subst ho
+              exact u2 ht
+          · rcases hquiet x hx with h' | h'
+            · cases h'
+            · exact h'
+        · rename_i hout
+          have houtside : outside = true := by simpa using hout
+          subst houtside
+          have hstart := o1 rfl
+          split at h₁₃
+          · rename_i hnotApart
+            obtain ⟨rfl, rfl⟩ := runs_attempt_pure_iff.mp h₁₃
+            refine ⟨fun r srcs he => ?_, fun ⟨e, he⟩ => (by cases he), .inl fun x hx => ?_⟩
+            · cases he
+              refine stopped_goal u2 (.notApart hproject htree fun ha => ?_)
+              simp [(apart_iff _ _).mpr ha] at hnotApart
+            · rcases hquiet x hx with h' | h'
+              · cases h'
+              · exact h'
+          · rename_i hisApart
+            have hap : Apart project tree := (apart_iff _ _).mp (by simpa using hisApart)
+            have hE : Early T dir treeDir project tree tf :=
+              { project_real := hproject, tree_real := htree, apart := hap,
+                started := ⟨sysroot, program, lakeLib, hlake, hstart⟩, toolchain := u1,
+                toolchain_reason := u2 }
+            obtain ⟨f1, f2, f3⟩ := readConfig_spec hsub₁₀ hE h₁₃
+            refine ⟨f1, f2, .inr ⟨project, tree, hproject, htree, hap, fun x hx p hp' => ?_⟩⟩
+            rcases hquiet x hx with h' | h'
+            · exact f3 x h' p hp'
+            · rw [h'] at hp'
+              cases hp'
+
+/-- The reader, with the lines that report what it read. -/
+theorem read_spec {t : List (Event L E)} {dir treeDir : FilePath} {sysroot : String}
+    {b : Except String (Reading × List String)}
+    (h : Runs (read sysroot dir treeDir : Attempt L E _).run t b) :
+    (∀ r lines, b = .ok (r, lines) → ReadGoal t dir treeDir r) ∧
+      ((∃ e, b = .error e) → Reason t dir .incomplete) ∧ ReadActs t dir treeDir := by
+  unfold Regula.Reader.read at h
+  obtain ⟨t₁, t₂, r₁, rfl, h₁, h₂⟩ := runs_attempt_bind_iff.mp h
+  obtain ⟨p1, p2, p3⟩ := readProject_spec h₁
+  cases r₁ with
+  | error why =>
+    obtain ⟨rfl, rfl⟩ := h₂
+    simp only [List.append_nil]
+    exact ⟨fun _ _ he => (by cases he), fun _ => p2 ⟨why, rfl⟩, p3⟩
+  | ok x =>
+    obtain ⟨r, srcs⟩ := x
+    obtain ⟨rfl, rfl⟩ := runs_attempt_pure_iff.mp h₂
+    simp only [List.append_nil]
+    refine ⟨fun r' lines he => ?_, fun ⟨e, he⟩ => (by cases he), p3⟩
+    cases he
+    exact p1 r srcs rfl
 
 end RegulaSpecification.Effects

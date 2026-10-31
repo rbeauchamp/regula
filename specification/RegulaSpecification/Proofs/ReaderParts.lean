@@ -499,4 +499,63 @@ theorem defaultModules_spec (root : Root L) (targets : List Name) {t T : List (E
         cases he
         exact here.1 a rfl rest (i1 rest rfl)
 
+/-- `defaultModules` acts on nothing. -/
+theorem defaultModules_no_act {root : Root L} {targets : List Name} {t : List (Event L E)}
+    {b : Except String (List (Name × FilePath))}
+    (h : Runs (defaultModules root targets : Attempt L E _).run t b) : ∀ e ∈ t, e.acted? = none := by
+  induction targets generalizing t b with
+  | nil =>
+    rw [defaultModules] at h
+    obtain ⟨rfl, rfl⟩ := runs_attempt_pure_iff.mp h
+    intro e he
+    cases he
+  | cons target targets ih =>
+    rw [defaultModules] at h
+    obtain ⟨t₁, t₂, r, rfl, h₁, h₂⟩ := runs_attempt_bind_iff.mp h
+    have hhere : ∀ e ∈ t₁, e.acted? = none := by
+      rw [modulesOfTarget] at h₁
+      split at h₁
+      · obtain ⟨t₃, t₄, r', rfl, h₃, h₄⟩ := runs_attempt_bind_iff.mp h₁
+        obtain ⟨r'', h₅, rfl⟩ := runs_attempt_iff.mp h₃
+        obtain rfl := runs_call_iff.mp h₅
+        cases r'' with
+        | ok a =>
+          obtain ⟨rfl, rfl⟩ := runs_attempt_pure_iff.mp h₄
+          intro e he
+          simp only [List.append_nil, List.mem_singleton] at he
+          subst he
+          rfl
+        | error x =>
+          obtain ⟨rfl, rfl⟩ := h₄
+          intro e he
+          simp only [List.append_nil, List.mem_singleton] at he
+          subst he
+          rfl
+      · split at h₁ <;>
+          · obtain ⟨rfl, rfl⟩ := runs_attempt_pure_iff.mp h₁
+            intro e he
+            cases he
+    cases r with
+    | error x =>
+      obtain ⟨rfl, rfl⟩ := h₂
+      simpa using hhere
+    | ok a =>
+      obtain ⟨t₃, t₄, r', rfl, h₃, h₄⟩ := runs_attempt_bind_iff.mp h₂
+      have hrest := ih h₃
+      cases r' with
+      | error x =>
+        obtain ⟨rfl, rfl⟩ := h₄
+        intro e he
+        simp only [List.append_nil, List.mem_append] at he
+        rcases he with he | he
+        · exact hhere e he
+        · exact hrest e he
+      | ok rest =>
+        obtain ⟨rfl, rfl⟩ := runs_attempt_pure_iff.mp h₄
+        intro e he
+        simp only [List.append_nil, List.mem_append] at he
+        rcases he with he | he
+        · exact hhere e he
+        · exact hrest e he
+
 end RegulaSpecification.Effects
