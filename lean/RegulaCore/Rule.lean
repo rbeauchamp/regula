@@ -1122,13 +1122,13 @@ def descriptor : (id : RuleId) → RuleDescriptor id
             "The correction adds module documentation to the unchanged reflexivity evidence." } }
   | .materialDocumentation => {
       lifecycle := .retired (.release ⟨4, 34, 0⟩) .unreleased none
-      title := "Registered public material declarations require docstrings", category :=
+      title := "Public material declarations require docstrings", category :=
           .documentation
       normativeClauses := [.inlineDocumentation]
       applicability := "material-documentation"
       evidenceModes := projectModes
       requirement := "Every public declaration that states a material claim has a docstring stating \
-        its purpose, hypotheses, result and boundary."
+        its purpose, hypotheses, result and boundary. Review selects these declarations."
       rationale := "A material claim must be readable without reconstructing it from the proof: \
         the docstring states what the declaration establishes and under which assumptions, and \
         binds the written intent to that exact declaration."
@@ -1144,17 +1144,18 @@ def descriptor : (id : RuleId) → RuleDescriptor id
         audience := .adopter
         compliant := include_str "../../examples/rules/RG5002/Fixed.lean"
         noncompliant := include_str "../../examples/rules/RG5002/Violation.lean"
-        correction := "The correction adds the registered theorem's docstring, including its `# \
-          Intent` section; registration, proposition and proof are unchanged." } }
+        correction := "The correction adds the theorem's docstring, including its `# Intent` \
+          section; proposition and proof are unchanged." } }
   | .materialIntent => {
       lifecycle := .retired (.release ⟨4, 34, 0⟩) .unreleased none
-      title := "Registered public material declarations require an Intent section", category :=
+      title := "Public material declarations require an Intent section", category :=
           .documentation
       normativeClauses := [.faithfulExplanation]
       applicability := "material-intent"
       evidenceModes := projectModes
-      requirement := "The docstring of every public material declaration has a nonempty `# Intent` \
-        section stating the requirement the claim must meet."
+      requirement := "The docstring of every public declaration that states a material claim has \
+        a nonempty `# Intent` section stating the requirement the claim must meet. Review selects \
+        these declarations."
       rationale := "The explanation states what the formal statement says; the intent states what \
         it is required to say. Comparing the two, and both with the declaration, exposes \
         statements that are faithfully explained but wrong (standard §5.2)."
@@ -1170,8 +1171,8 @@ def descriptor : (id : RuleId) → RuleDescriptor id
         compliant := include_str "../../examples/rules/RG5003/Fixed.lean"
         noncompliant := include_str "../../examples/rules/RG5003/Violation.lean"
         correction := "The correction adds a nonempty `# Intent` section, structured with a `## \
-          Requirement` subsection, to the registered theorem's existing docstring; the \
-          explanation, registration, proposition and proof are unchanged." } }
+          Requirement` subsection, to the theorem's existing docstring; the explanation, \
+          proposition and proof are unchanged." } }
 
 /-- Every rule names at least one compliant rewrite, checked exhaustively over the closed
 registry by kernel evaluation (list shape only, so no string literal is reduced). Field

@@ -93,13 +93,13 @@ These statements are trusted, not proved: `shasum` and the filesystem report the
 `plan_eq_nil_iff`, the plan is empty exactly when every setup issue is one `init` does not fix;
 `issues_run`, the plan removes exactly the fixable issues and adds none. The option check covers
 exactly the claimed targets (the root targets the manifest does not exclude, and none while an
-existing manifest fails [RG2002]), as [RG2006] does: `run_sets`, every required option a claimed
+existing manifest fails [RG2002]): `run_sets`, every required option a claimed
 target built without is then set to its required value as `RegulaPolicy.Community.sets` reads
-it, which meets [RG2006]'s requirement on that option (`meets_of_sets`); `resolved_run`, every
+it, which meets the setup requirement on that option (`meets_of_sets`); `resolved_run`, every
 claimed target then has a value for every required option or a `-D` candidate of its own extra
 `lean` arguments names it; `added_unargued`, no option the plan adds to the package or to a
 claimed target's own configuration names an option that a `-D` candidate of that target sets
-(the candidates of `RegulaPolicy.Community.argumentSettings`, [RG2006]'s own reading, which
+(the candidates of `RegulaPolicy.Community.argumentSettings`, which
 includes every `-D` that `lean` reads only under the command-line assumption stated in
 `RegulaPolicy.Community`); `argued_run`, the plan leaves unchanged the required options that
 claimed targets set only with such a `-D`, which `doctor` reports once as a setup issue `init`

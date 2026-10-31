@@ -114,9 +114,9 @@ Reflexivity for every natural number; no additional assumptions. -/
 theorem reflexive (n : Nat) : n = n := rfl
 ```
 
-### [RG5002](https://rbeauchamp.github.io/regula/dev/rules/RG5002/) Registered public material declarations require docstrings (retired: written guidance)
+### [RG5002](https://rbeauchamp.github.io/regula/dev/rules/RG5002/) Public material declarations require docstrings (retired: written guidance)
 
-Every public declaration that states a material claim has a docstring stating its purpose, hypotheses, result and boundary.
+Every public declaration that states a material claim has a docstring stating its purpose, hypotheses, result and boundary. Review selects these declarations.
 Fix: Add a docstring stating the declaration's formal purpose, domain and hypotheses, result and boundary, with a labelled `# Intent` section ([RG5003](https://rbeauchamp.github.io/regula/dev/rules/RG5003/)).
 
 ```lean
@@ -130,9 +130,9 @@ Equality on natural numbers must be reflexive for every value, with no side cond
 theorem reflexive (n : Nat) : n = n := rfl
 ```
 
-### [RG5003](https://rbeauchamp.github.io/regula/dev/rules/RG5003/) Registered public material declarations require an Intent section (retired: written guidance)
+### [RG5003](https://rbeauchamp.github.io/regula/dev/rules/RG5003/) Public material declarations require an Intent section (retired: written guidance)
 
-The docstring of every public material declaration has a nonempty `# Intent` section stating the requirement the claim must meet.
+The docstring of every public declaration that states a material claim has a nonempty `# Intent` section stating the requirement the claim must meet. Review selects these declarations.
 Fix: Add a heading whose text is exactly `Intent` to the docstring, followed by the requirement the claim must meet, stated from the source mathematics or specification.
 
 ```lean

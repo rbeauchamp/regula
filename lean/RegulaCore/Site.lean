@@ -386,7 +386,7 @@ def _root_.Regula.RuleCategory.label : RuleCategory → String
 def _root_.Regula.RuleScope.label : RuleScope → String
   | .declaration => "declaration" | .project => "project" | .executionRoot => "execution root"
   | .documentationFence => "documentation fence" | .module => "module"
-  | .materialDeclaration => "registered material declaration"
+  | .materialDeclaration => "public declaration that states a material claim, selected by review"
 
 /-- The evidence mode's display text. -/
 def modeLabel : EvidenceMode → String

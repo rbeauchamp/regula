@@ -164,9 +164,11 @@ It never changes a value you set: a lint driver of your own, an option with anot
 reports each with its fix. A
 required option that a `-D` extra `lean` argument of a target sets counts as set for that target:
 `init` adds it to no configuration that reaches the target (`Regula.Setup.added_unargued`, over the
-modelled setup and reading every `-D` candidate as [RG2006] does, and checked again after writing,
-target by target, as `Regula.Setup.arguedBy_run` states), and `doctor` reports once that [RG2006]
-requires those options in `leanOptions`, naming the entries to write there. It edits the lakefile
+modelled setup, and checked again after writing,
+target by target, as `Regula.Setup.arguedBy_run` states).
+
+The setup guidance asks for those options in
+`leanOptions`, and `doctor` names the entries to write there. It edits the lakefile
 in place, in its own format, then reads the project again and puts back what the files it wrote held unless
 nothing is left to write. A second run therefore writes nothing:
 `Regula.Setup.plan_idempotent` proves that the plan of the result is empty over the modelled
@@ -179,10 +181,10 @@ guidance, the compiler your `lean-toolchain` selects (the one that built `regula
 `lake exe` builds with that toolchain's Lean; `doctor` starts no process and installs
 nothing) and any module below a library root that no library includes but a claimed module imports
 (which `lake lint` rejects), and,
-once a manifest exists, the linter's own manifest validation ([RG2002]) and option decision ([RG2006])
-for every claimed target, one [RG2006]
-finding naming every target with the same claim and failures, where `lake lint` prints one per
-target. It exits 0
+once a manifest exists, the checker's manifest findings ([RG2002]) and option findings ([RG2006]).
+It runs the same `configurationFindings` function as the checker, and prints one line for each finding.
+
+It exits 0
 when the setup is complete and 1 otherwise, and lists what `init` would write. A module left out
 of every library that no claimed module imports is only a `note`, which does not affect the exit
 status: include it to audit it, or leave it out deliberately.
@@ -603,7 +605,7 @@ audit refuses a `decides` entry that names its own surface or no claimed surface
   - [RG5002]: a public declaration that states a material claim, with no docstring.
   - [RG5003]: the docstring of a public material declaration, with no `# Intent` section that has text.
 - The checker reads no option that a source file sets, no message and no command of a module. A command that runs code, for example `#eval` or `run_cmd`, leaves no record that the checker can read.
-- [RG2006] reads an option by its name alone, as Lake gives it. `Regula.Allowlist.options` lists the names. So `linter.unusedVariables` is refused at `true` too. A `weak.` entry is refused even for an option that no module declares, although Lean ignores that entry. Delete such an entry.
+- The allowlist of [RG2006] checks each option by its name alone, as Lake gives it. `Regula.Allowlist.options` lists the names. So `linter.unusedVariables` is refused at `true` too. A `weak.` entry is refused even for an option that no module declares, although Lean ignores that entry. Delete such an entry.
 - [RG2007] reads the environment extensions that the `.olean` files of a claimed module record. `Regula.Allowlist.extensions` lists the names. A claimed module cannot have a project's own macro, notation, syntax, elaborator, initializer or attribute.
   - A default of the form `:= by tactic` is refused too, because Lean records it as a `meta` declaration.
   - Put such code in a library that the manifest excludes, which no claimed module may import ([RG2004]).

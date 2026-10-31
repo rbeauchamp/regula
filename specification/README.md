@@ -373,7 +373,7 @@ But the list of `lake check` is fixed, and it gives no axiom set for each consta
   - `run_pass_holds`: a pass of `Regula.Closed.run` holds the rule of each environment.
   - `rg2006_refuses_extras`: it reports a claimed target with an extra argument, a plugin or a dynamic library.
 - **The members**: `Regula.Allowlist.options`, which names each option with its reason. The list holds no option that can stop a default warning or a check of Lean at any value.
-- **Decided on the owner's behalf** in [#484]: the rule reads a name and no value. Thus an option that one value turns off is refused at each value. So `linter.unusedVariables` is refused at `true` as well, which is its default and adds nothing. The same reason leaves out `exponentiation.threshold`, which the rule before this one accepted. Raising it stops a default warning.
+- **Decided on the owner's behalf** in [#484]: the allowlist checks a name and no value. Thus an option that one value turns off is refused at each value. So `linter.unusedVariables` is refused at `true` as well, which is its default and adds nothing. The same reason leaves out `exponentiation.threshold`, which the rule before this one accepted. Raising it stops a default warning.
 - **Measured** on 2026-10-30, by reading Acorn's `lean/lakefile.lean` at `718d1d0`, a real Mathlib project. Acorn also sets some others, which it must remove to take this Regula. These are `linter.unusedVariables`, `linter.unnecessarySimpa` and `linter.deprecated`, each at its default `true`, and the extra argument `-j2` in `weakLeanArgs`.
 - **Accepted risks**: an option that a source file sets leaves no record (**measured**), so the rule does not read it. A requirement of `linter.missingDocs` and of Mathlib's standard linters goes to written guidance with the documentation rules.
 - **The read of the options**: that Lake's load gives each option and argument that Lake passes is **assumed** (`Regula.Load.targets`, `lean/Regula/Load.lean`). Lake `v4.35.0` merges the options of the build type, the package and the library, and the later value wins. The places are `Lean/Util/LeanOptions.lean:91-92` and `Lake/Config/LeanLib.lean:208-209`. The rule reads that merged map, the value that Lean receives.
@@ -390,8 +390,8 @@ The seven documentation rules are retired to written guidance. A broken document
 | [RG4003] | A `lean-fail` fence fails with one error that matches its pattern. |
 | [RG4004] | A `lean-trusted-compiler` fence elaborates with no warning and contains a compiler-trusting declaration. |
 | [RG5001] | A claimed module has a module docstring as its first command after the imports, and it imports no module two times. |
-| [RG5002] | Each public `@[regula_material]` declaration has a docstring. |
-| [RG5003] | Each public `@[regula_material]` docstring has a section `# Intent` that is not empty. |
+| [RG5002] | Each public declaration that states a material claim has a docstring. Review selects these declarations. |
+| [RG5003] | The docstring of each such declaration has a section `# Intent` that is not empty. Review checks this section. |
 
 For each of the seven rules: the fate is retired, with leaf [#488]. There is no domain, no input and no formal statement after the leaf. The accepted risk is the failure that the rule found. The rules supersede the campaigns of documentation fences in [#391], which closes when [#486] and [#488] have landed.
 
