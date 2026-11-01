@@ -383,9 +383,6 @@ structure Loaded (f : Regula.Load.Facts) (roots : List Name) (p : Regula.Closed.
   /-- Each constant of the environment is in the input. -/
   whole : ∀ n info, f.env.constants.map₁[n]? = some info →
     ∃ m, f.info? n = some m ∧ f.declIn n m info (f.stated.getD n []) ∈ i.decls
-  /-- Each constant of a claimed module's `.olean` is shown to the rules, or is what they admit. -/
-  kept : ∀ x ∈ f.claimedConstants,
-    f.shown x = true ∨ Regula.Load.fitsUnshown i.tables x.2.1 x.2.2 = true
 
 /-- What `Facts.decl` gives: the constant with its module. -/
 theorem decl_ok {n : Name} {info : ConstantInfo} {s : List ConstantInfo} {d : Regula.Closed.Decl}
@@ -428,23 +425,13 @@ theorem unread_none {x : Name × Name × ConstantInfo} (h : f.unread? i = none)
     simp only [Option.map_eq_none_iff, List.find?_eq_none] at h
     simpa using h x hmem
 
-/-- The function that fills the input gives what `Loaded` states. -/
-theorem input_loaded (h : f.input roots p = .ok i) : Loaded f roots p i := by
-  simp only [Regula.Load.Facts.input] at h
-  split at h
-  · cases h
-  rename_i hfind
-  split at h
-  · cases h
-  rename_i decls hm
-  split at h
-  · cases h
-  rename_i i' hadmit
-  split at h
-  · cases h
-  rename_i hkeeps
-  simp only [Except.ok.injEq] at h
-  subst h
+/-- What the parts of the loader that give an input establish: `Loaded` of what the admission gave. -/
+theorem loaded_of_parts {decls : List Regula.Closed.Decl} {i' : Regula.Closed.Input}
+    (hfind : roots.find? (fun x => !f.claimed.contains x) = none)
+    (hm : f.env.constants.map₁.toList.mapM (fun x => f.decl x.1 x.2 (f.stated.getD x.1 [])) = .ok decls)
+    {unique : (decls.map (·.name)).Nodup}
+    (hadmit : ({ profile := p, modules := f.claimed, decls, unique } : Regula.Closed.Draft).admit = .ok i') :
+    Loaded f roots p i' := by
   have hd := admit_toDraft hadmit
   obtain ⟨h1, h2, -⟩ := Regula.Load.mapM_ok
     (fun x : Name × ConstantInfo => f.decl x.1 x.2 (f.stated.getD x.1 []))
@@ -452,7 +439,7 @@ theorem input_loaded (h : f.input roots p = .ok i) : Loaded f roots p i := by
   have hdecls : i'.decls = decls := by rw [hd]
   have hp : i'.profile = p := by rw [hd]
   have hmods : i'.modules = f.claimed := by rw [hd]
-  refine ⟨hp, hmods, ?_, ?_, ?_, fun x hx => unread_none hkeeps hx⟩
+  refine ⟨hp, hmods, ?_, ?_, ?_⟩
   · intro r hr
     have := List.find?_eq_none.mp hfind r hr
     simpa using this
@@ -470,6 +457,42 @@ theorem input_loaded (h : f.input roots p = .ok i) : Loaded f roots p i := by
     refine ⟨m, hmod, ?_⟩
     rw [hdecls]
     exact hdv ▸ hd'
+
+/-- The function that fills the input gives what `Loaded` states. -/
+theorem input_loaded (h : f.input roots p = .ok i) : Loaded f roots p i := by
+  simp only [Regula.Load.Facts.input] at h
+  split at h
+  · cases h
+  rename_i hfind
+  split at h
+  · cases h
+  rename_i decls hm
+  split at h
+  · cases h
+  rename_i i' hadmit
+  split at h
+  · cases h
+  simp only [Except.ok.injEq] at h
+  subst h
+  exact loaded_of_parts hfind hm hadmit
+
+/-- Each constant of a claimed module's `.olean` is shown to the rules, or is what they admit. -/
+theorem input_kept (h : f.input roots p = .ok i) {x : Name × Name × ConstantInfo}
+    (hx : x ∈ f.claimedConstants) :
+    f.shown x = true ∨ Regula.Load.fitsUnshown i.tables x.2.1 x.2.2 = true := by
+  simp only [Regula.Load.Facts.input] at h
+  split at h
+  · cases h
+  split at h
+  · cases h
+  split at h
+  · cases h
+  split at h
+  · cases h
+  rename_i hkeeps
+  simp only [Except.ok.injEq] at h
+  subst h
+  exact unread_none hkeeps hx
 
 /-! ## From the input's statements to the environment's -/
 
@@ -841,7 +864,7 @@ theorem pass_held (h : (Regula.Closed.decision (f.input roots p)).verdict = .pas
     ∀ u, Mentions info u → ∀ a, EnvReaches f u a → EnvAxiom f a → EnvAdmits f p a := by
   obtain ⟨i, hi, hp⟩ := decision_pass h
   have hl := input_loaded hi
-  rcases (hl.kept _ hx).symm with hfits | hshown
+  rcases (input_kept hi hx).symm with hfits | hshown
   · simp only [Regula.Load.fitsUnshown, Bool.and_eq_true, beq_iff_eq, Bool.not_eq_true',
       List.all_eq_true, Array.all_eq_true_iff_forall_mem] at hfits
     obtain ⟨⟨⟨⟨hkind, hsafety⟩, hname⟩, hloop⟩, huses⟩ := hfits
@@ -953,6 +976,203 @@ theorem exactBelow_no_parent (dir path real : System.FilePath)
   have hm : ".." ∈ Regula.Load.exactParts path := by simp [Regula.Load.exactParts, hp]
   rw [← he] at hm
   exact hr (List.mem_filter.mp hm).1
+
+/-! ## A pass is owed -/
+
+/-- What the loader asks of each constant of a claimed module's own `.olean` that the environment does not show to the rules
+(`Facts.shown`), in the terms of the environment: a safe theorem with no recursion helper's name, whose value mentions no
+loop construct, and each constant it mentions is held and reaches only axioms that the profile admits. Lean's import
+replaces such a constant (`Facts.stated`), so no rule reads it as a subject. -/
+def EnvUnshown (f : Regula.Load.Facts) (p : Regula.Closed.Profile) : Prop :=
+  ∀ x ∈ f.claimedConstants, f.shown x = false →
+    Regula.Load.kindOf x.2.2 = .theorem ∧ Regula.Load.safetyOf x.2.2 = .safe ∧
+    (∀ b, x.2.1 ≠ .str b "_unsafe_rec") ∧ (∀ l ∈ loopConstructs, ¬ ValueMentions x.2.2 l) ∧
+    ∀ u, Mentions x.2.2 u → (∃ k, f.env.constants.map₁[u]? = some k) ∧
+      ∀ a, EnvReaches f u a → EnvAxiom f a → EnvAdmits f p a
+
+/-- What a build must be for the loader and the rules to pass it, in the terms of the environment and the roots alone:
+each module of a default target is claimed, each constant has a module, and the environment has `EnvForm`, `EnvFloor` and
+`EnvUnshown`. -/
+structure LoadFloor (f : Regula.Load.Facts) (roots : List Name) (p : Regula.Closed.Profile) : Prop where
+  /-- Each module of a default target is claimed. -/
+  roots : ∀ r ∈ roots, r ∈ f.claimed
+  /-- Each constant has a module. -/
+  placed : ∀ n info, f.env.constants.map₁[n]? = some info → ∃ m, f.info? n = some m
+  /-- The closed form. -/
+  form : EnvForm f
+  /-- The floor of the rules. -/
+  floor : EnvFloor f p
+  /-- What the environment does not show. -/
+  unshown : EnvUnshown f p
+
+/-- `fitsUnshown` is what `EnvUnshown` states of one constant. -/
+theorem fitsUnshown_iff (hl : Loaded f roots p i) (x : Name × Name × ConstantInfo) :
+    Regula.Load.fitsUnshown i.tables x.2.1 x.2.2 = true ↔
+      Regula.Load.kindOf x.2.2 = .theorem ∧ Regula.Load.safetyOf x.2.2 = .safe ∧
+      (∀ b, x.2.1 ≠ .str b "_unsafe_rec") ∧ (∀ l ∈ loopConstructs, ¬ ValueMentions x.2.2 l) ∧
+      ∀ u, Mentions x.2.2 u → (∃ k, f.env.constants.map₁[u]? = some k) ∧
+        ∀ a, EnvReaches f u a → EnvAxiom f a → EnvAdmits f p a := by
+  obtain ⟨m, n, info⟩ := x
+  have hheld : ∀ u, i.tables.index.contains u = true ↔ ∃ k, f.env.constants.map₁[u]? = some k := by
+    intro u
+    rw [← resolves_env hl u]
+    constructor
+    · intro hc
+      obtain ⟨d, hd⟩ : ∃ d, i.tables.index[u]? = some d := by
+        rw [Std.HashMap.contains_eq_isSome_getElem?] at hc
+        exact Option.isSome_iff_exists.mp hc
+      obtain ⟨hmem, rfl⟩ := (i.tables.mem_index _ _).mp hd
+      exact ⟨_, mem_decls.mpr ⟨d, hmem, rfl⟩, rfl⟩
+    · rintro ⟨x, hx, rfl⟩
+      obtain ⟨d, hd, rfl⟩ := mem_decls.mp hx
+      rw [Std.HashMap.contains_eq_isSome_getElem?]
+      change i.tables.index[d.name]?.isSome = true
+      rw [(i.tables.mem_index _ _).mpr ⟨hd, rfl⟩]
+      rfl
+  simp only [Regula.Load.fitsUnshown, Bool.and_eq_true, beq_iff_eq, Bool.not_eq_true',
+    List.all_eq_true, Array.all_eq_true_iff_forall_mem, and_assoc]
+  refine and_congr_right fun _ => and_congr_right fun _ => and_congr ?_ (and_congr ?_ ?_)
+  · constructor
+    · intro hname b hb
+      simp [(isUnsafeRecName_eq n b).mpr hb] at hname
+    · intro hname
+      cases hu : Lean.Compiler.isUnsafeRecName? n with
+      | none => rfl
+      | some b => exact absurd ((isUnsafeRecName_eq n b).mp hu) (hname b)
+  · constructor
+    · intro hloop l hl' hv
+      have hc := hloop l (by simpa [Regula.Closed.loopConstructs, loopConstructs] using hl')
+      have hc' : l ∉ Regula.Load.valueUsesOf info := by simpa using hc
+      exact hc' (by simpa using (mem_valueUsesOf info l).mpr hv)
+    · intro hloop l hl'
+      have hn : l ∉ Regula.Load.valueUsesOf info := fun hin =>
+        hloop l (by simpa [Regula.Closed.loopConstructs, loopConstructs] using hl')
+          ((mem_valueUsesOf info l).mp (by simpa using hin))
+      simpa using hn
+  · have hadm : ∀ u, (∀ a ∈ i.tables.axiomSet u, i.tables.admits i.profile a = true) ↔
+        ∀ a, EnvReaches f u a → EnvAxiom f a → EnvAdmits f p a := by
+      intro u
+      constructor
+      · intro hall a hr hea
+        have hax : a ∈ i.tables.axiomSet u :=
+          (axiomSet_iff _ u a).mpr ⟨(reaches_env hl u a).mpr hr, (isAxiom_env hl a).mpr hea⟩
+        obtain ⟨k, ha, -⟩ := id hea
+        exact (admits_env hl ha).mp ((admits_iff _ i.profile a).mp (hall a hax))
+      · intro hall a hax
+        obtain ⟨hr, hia⟩ := (axiomSet_iff _ u a).mp hax
+        have hea := (isAxiom_env hl a).mp hia
+        obtain ⟨k, ha, -⟩ := id hea
+        exact (admits_iff _ i.profile a).mpr
+          ((admits_env hl ha).mpr (hall a ((reaches_env hl u a).mp hr) hea))
+    constructor
+    · intro huses u hu
+      obtain ⟨h1, h2⟩ := huses u (by simpa using (mem_usesOf info u).mpr hu)
+      exact ⟨(hheld u).mp h1, (hadm u).mp h2⟩
+    · intro huses u hu
+      obtain ⟨h1, h2⟩ := huses u ((mem_usesOf info u).mp (by simpa using hu))
+      exact ⟨(hheld u).mpr h1, (hadm u).mpr h2⟩
+
+/-- `Facts.unread?` gives nothing when each constant is shown or fits. -/
+theorem unread_none_of {i : Regula.Closed.Input}
+    (h : ∀ x ∈ f.claimedConstants, f.shown x = true ∨ Regula.Load.fitsUnshown i.tables x.2.1 x.2.2 = true) :
+    f.unread? i = none := by
+  simp only [Regula.Load.Facts.unread?]
+  cases hu : f.claimedConstants.filter (!f.shown ·) with
+  | nil => rfl
+  | cons a l =>
+    simp only [Option.map_eq_none_iff, List.find?_eq_none, Bool.not_eq_true']
+    intro x hx
+    have hmem : x ∈ f.claimedConstants.filter (!f.shown ·) := hu ▸ hx
+    simp only [List.mem_filter, Bool.not_eq_true'] at hmem
+    rcases h x hmem.1 with hs | hf
+    · simp [hmem.2] at hs
+    · simpa using hf
+
+/-- Running a function of `Except` over a list fails only on a member. -/
+theorem mapM_error {α β ε : Type} (g : α → Except ε β) (l : List α) (e : ε) (h : l.mapM g = .error e) :
+    ∃ a ∈ l, ∃ e', g a = .error e' := by
+  induction l generalizing e with
+  | nil => simp [List.mapM_nil, pure, Except.pure] at h
+  | cons a l ih =>
+    simp only [List.mapM_cons, bind, Except.bind] at h
+    cases hg : g a with
+    | error e' => exact ⟨a, List.mem_cons_self .., e', hg⟩
+    | ok b =>
+      rw [hg] at h
+      simp only at h
+      cases hl : l.mapM g with
+      | error e' =>
+        obtain ⟨x, hx, hy⟩ := ih e' hl
+        exact ⟨x, List.mem_cons_of_mem _ hx, hy⟩
+      | ok r =>
+        rw [hl] at h
+        cases h
+
+/-- The floor gives the input: the loader refuses nothing that `LoadFloor` holds of. -/
+theorem input_of_floor (h : LoadFloor f roots p) : ∃ i, f.input roots p = .ok i := by
+  simp only [Regula.Load.Facts.input]
+  split
+  · rename_i m hfind
+    have hmem := List.mem_of_find?_eq_some hfind
+    have hnot := List.find?_some hfind
+    have := h.roots m hmem
+    simp [this] at hnot
+  rename_i hfind
+  split
+  · rename_i why hm
+    obtain ⟨⟨n, info⟩, hx, e', he⟩ := mapM_error _ _ _ hm
+    have hget := Std.HashMap.mem_toList_iff_getElem?_eq_some.mp hx
+    obtain ⟨m, hmod⟩ := h.placed n info hget
+    simp [Regula.Load.Facts.decl, hmod] at he
+  rename_i decls hm
+  obtain ⟨h1, h2, -⟩ := Regula.Load.mapM_ok
+    (fun x : Name × ConstantInfo => f.decl x.1 x.2 (f.stated.getD x.1 []))
+    (·.name) (·.1) (fun _ _ hb => f.decl_name hb) _ _ hm
+  split
+  · rename_i why hadmit
+    have hwf : (toSpecDraft
+        { profile := p, modules := f.claimed, decls := decls,
+          unique := f.decls_nodup (stated := fun n => f.stated.getD n []) hm }).WellFormed := by
+      rw [wf_toSpecDraft_iff]
+      refine ⟨fun x hx u hu => ?_, h.form.claims⟩
+      obtain ⟨⟨n, info⟩, hin, hok⟩ := h1 x hx
+      obtain ⟨m, -, rfl⟩ := decl_ok hok
+      have hget := Std.HashMap.mem_toList_iff_getElem?_eq_some.mp hin
+      obtain ⟨k, hk⟩ := h.form.closed n u ⟨info, hget, (mem_usesIn info _ u).mp hu⟩
+      obtain ⟨y, hy, hoky⟩ := h2 (u, k) (Std.HashMap.mem_toList_iff_getElem?_eq_some.mpr hk)
+      exact ⟨y, hy, f.decl_name hoky⟩
+    obtain ⟨i, hi⟩ := (admit_ok_iff _).mpr hwf
+    rw [hi] at hadmit
+    cases hadmit
+  rename_i i' hadmit
+  have hl := loaded_of_parts hfind hm hadmit
+  have hnone : f.unread? i' = none := unread_none_of fun x hx => by
+    by_cases hs : f.shown x = true
+    · exact .inl hs
+    · exact .inr ((fitsUnshown_iff hl x).mpr (h.unshown x hx (by simpa using hs)))
+  rw [hnone]
+  exact ⟨_, rfl⟩
+
+/-- The verdict of the loader's result is a pass exactly on `LoadFloor`, which names no field of the input: so for every
+environment the loader and the rules refuse only what that statement excludes. -/
+theorem pass_iff_floor :
+    (Regula.Closed.decision (f.input roots p)).verdict = .pass ↔ LoadFloor f roots p := by
+  constructor
+  · intro h
+    obtain ⟨h1, -, h3, h4, h5⟩ := pass_floor h
+    obtain ⟨i, hi, -⟩ := decision_pass h
+    have hl := input_loaded hi
+    refine ⟨h1, fun n info hn => ?_, h4, h5, fun x hx hs => ?_⟩
+    · obtain ⟨m, hm⟩ := module_of hl hn
+      exact ⟨m, hm⟩
+    · rcases input_kept hi hx with h' | h'
+      · simp [hs] at h'
+      · exact (fitsUnshown_iff hl x).mp h'
+  · intro h
+    obtain ⟨i, hi⟩ := input_of_floor h
+    have hl := input_loaded hi
+    rw [hi]
+    exact (pass_iff hi).mpr ⟨h.form, h.floor⟩
 
 end Loader
 

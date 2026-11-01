@@ -95,6 +95,29 @@ theorem keysOf_sound (fuel : Nat) (pre : Name) (t : Lake.Toml.Table) (k : Name)
 def IsDeepKey (k : Name) : Prop :=
   ∃ pre, k = .str pre "too deep"
 
+/-- A table deeper than the reader follows gives the key that says so. -/
+theorem keysOf_deep {fuel : Nat} {pre : Name} {t : Lake.Toml.Table} (h : Deeper fuel t) :
+    ∃ k ∈ keysOf fuel pre t, IsDeepKey k := by
+  induction h generalizing pre with
+  | zero => exact ⟨.str pre "too deep", by simp [keysOf], pre, rfl⟩
+  | @table n k r sub t hm he _ ih =>
+    obtain ⟨d, hd, hdeep⟩ := ih (pre := pre ++ k)
+    refine ⟨d, ?_, hdeep⟩
+    simp only [keysOf, List.mem_flatMap, Array.mem_toList_iff]
+    exact ⟨(k, .table r sub), hm, by simpa [he] using hd⟩
+  | @array n k r xs r' sub t hm hx he _ ih =>
+    obtain ⟨d, hd, hdeep⟩ := ih (pre := pre ++ k)
+    refine ⟨d, ?_, hdeep⟩
+    simp only [keysOf, List.mem_flatMap, Array.mem_toList_iff]
+    refine ⟨(k, .array r xs), hm, ?_⟩
+    have hsub : sub ∈ tablesIn xs := mem_tablesIn.mpr ⟨_, hx⟩
+    have hne : (tablesIn xs).isEmpty = false := by
+      cases hl : tablesIn xs with
+      | nil => rw [hl] at hsub; cases hsub
+      | cons _ _ => rfl
+    simp only [hne, Bool.false_eq_true, ite_false, List.mem_flatMap]
+    exact ⟨sub, hsub, by simpa [he] using hd⟩
+
 /-- Each key path is listed, or the reader's list holds the key that says the table is too deep. -/
 theorem keysOf_complete {pre : Name} {t : Lake.Toml.Table} {n : Name} (h : KeyPath pre t n) :
     ∀ fuel, n ∈ keysOf fuel pre t ∨ ∃ k ∈ keysOf fuel pre t, IsDeepKey k := by
@@ -433,7 +456,8 @@ theorem defaultModules_spec (root : Root L) (targets : List Name) {t T : List (E
     {b : Except String (List (Name × FilePath))} (hT : ∀ e ∈ t, e ∈ T)
     (h : Runs (defaultModules root targets : Attempt L E _).run t b) :
     (∀ ms, b = .ok ms → DefaultModules T root targets ms) ∧
-      ((∃ e, b = .error e) → ∃ lib x, (⟨.libModules lib, .error x⟩ : Event L E) ∈ t) := by
+      ((∃ e, b = .error e) → ∃ target lib x, target ∈ targets ∧ root.findLib target = some lib ∧
+        (⟨.libModules lib, .error x⟩ : Event L E) ∈ t) := by
   induction targets generalizing t b with
   | nil =>
     rw [defaultModules] at h
@@ -446,7 +470,8 @@ theorem defaultModules_spec (root : Root L) (targets : List Name) {t T : List (E
     have hT₂ : ∀ e ∈ t₂, e ∈ T := fun e he => hT e (List.mem_append_right _ he)
     have here : (∀ a, r = .ok a → ∀ ms, DefaultModules T root targets ms →
         DefaultModules T root (target :: targets) (a ++ ms)) ∧
-        ((∃ e, r = .error e) → ∃ lib x, (⟨.libModules lib, .error x⟩ : Event L E) ∈ t₁) := by
+        ((∃ e, r = .error e) → ∃ lib x, root.findLib target = some lib ∧
+          (⟨.libModules lib, .error x⟩ : Event L E) ∈ t₁) := by
       rw [modulesOfTarget] at h₁
       cases hl : root.findLib target with
       | some lib =>
@@ -462,7 +487,7 @@ theorem defaultModules_spec (root : Root L) (targets : List Name) {t T : List (E
           exact .lib hl (hT₁ _ (by simp)) hms
         | error e =>
           obtain ⟨rfl, rfl⟩ := h₄
-          exact ⟨fun a he => (by cases he), fun _ => ⟨lib, e, by simp⟩⟩
+          exact ⟨fun a he => (by cases he), fun _ => ⟨lib, e, rfl, by simp⟩⟩
       | none =>
         simp only [hl] at h₁
         cases he : root.findExe target with
@@ -482,8 +507,8 @@ theorem defaultModules_spec (root : Root L) (targets : List Name) {t T : List (E
     | error e =>
       obtain ⟨rfl, rfl⟩ := h₂
       refine ⟨fun ms he => (by cases he), fun _ => ?_⟩
-      obtain ⟨lib, x, hx⟩ := here.2 ⟨e, rfl⟩
-      exact ⟨lib, x, by simpa using hx⟩
+      obtain ⟨lib, x, hl, hx⟩ := here.2 ⟨e, rfl⟩
+      exact ⟨target, lib, x, List.mem_cons_self .., hl, by simpa using hx⟩
     | ok a =>
       obtain ⟨t₃, t₄, r', rfl, h₃, h₄⟩ := runs_attempt_bind_iff.mp h₂
       obtain ⟨i1, i2⟩ := ih (fun e he => hT₂ e (List.mem_append_left _ he)) h₃
@@ -491,8 +516,8 @@ theorem defaultModules_spec (root : Root L) (targets : List Name) {t T : List (E
       | error e =>
         obtain ⟨rfl, rfl⟩ := h₄
         refine ⟨fun ms he => (by cases he), fun _ => ?_⟩
-        obtain ⟨lib, x, hx⟩ := i2 ⟨e, rfl⟩
-        exact ⟨lib, x, by simp [hx]⟩
+        obtain ⟨tg, lib, x, hg, hl, hx⟩ := i2 ⟨e, rfl⟩
+        exact ⟨tg, lib, x, List.mem_cons_of_mem _ hg, hl, by simp [hx]⟩
       | ok rest =>
         obtain ⟨rfl, rfl⟩ := runs_attempt_pure_iff.mp h₄
         refine ⟨fun ms he => ?_, fun ⟨e, he⟩ => by cases he⟩

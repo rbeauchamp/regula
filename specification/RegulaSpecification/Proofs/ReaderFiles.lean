@@ -90,6 +90,25 @@ def FileFrom (T : List (Event L E)) (sources : List (Name × Source)) (toolchain
         commands.Sublist T ∧
       f.parsed = !final.hasErrors
 
+/-- What the search gives holds only the toolchain's modules. -/
+theorem mem_visible_held {headers : Name → Option (Array Import)} {isToolchain : Name → Bool} {todo seen : List Name}
+    {fuel : Nat} {n : Name} (h : n ∈ visibleToolchain headers isToolchain todo seen fuel) : isToolchain n = true := by
+  induction fuel generalizing todo seen with
+  | zero => simp [visibleToolchain] at h
+  | succ fuel ih =>
+    cases todo with
+    | nil => simp [visibleToolchain] at h
+    | cons m rest =>
+      simp only [visibleToolchain] at h
+      split at h
+      · rename_i ht
+        rcases List.mem_cons.mp h with rfl | h
+        · exact ht
+        · exact ih h
+      · split at h
+        · exact ih h
+        · exact ih h
+
 /-- `environmentFor` gives what an import gave for exactly those modules, each set once. -/
 theorem environmentFor_spec {T t : List (Event L E)} {cache : ParserCache E} {mods : List Name}
     {b : Except String ((E × List Name) × ParserCache E)} (hT : t.Sublist T)
@@ -97,7 +116,7 @@ theorem environmentFor_spec {T t : List (Event L E)} {cache : ParserCache E} {mo
     (h : Runs (environmentFor cache mods : Attempt L E _).run t b) :
     (∀ pair c', b = .ok (pair, c') → (⟨.importForParser mods.eraseDups, .ok pair⟩ : Event L E) ∈ T ∧
       ∀ x ∈ c', (⟨.importForParser x.1, .ok x.2⟩ : Event L E) ∈ T) ∧
-    ((∃ e, b = .error e) → ∃ e ∈ t, Event.failedRead e) ∧
+    ((∃ e, b = .error e) → ∃ x, (⟨.importForParser mods.eraseDups, .error x⟩ : Event L E) ∈ t) ∧
     ∀ e ∈ t, e.acted? = none := by
   rw [environmentFor] at h
   split at h
@@ -113,7 +132,7 @@ theorem environmentFor_spec {T t : List (Event L E)} {cache : ParserCache E} {mo
     | error e' =>
       obtain ⟨rfl, rfl⟩ := h₆
       refine ⟨fun _ _ he => (by cases he), fun _ =>
-        ⟨⟨.importForParser mods.eraseDups, .error e'⟩, by simp, ⟨e', rfl⟩⟩, fun e he => ?_⟩
+        ⟨e', by simp⟩, fun e he => ?_⟩
       simp only [List.append_nil, List.mem_singleton] at he
       subst he
       rfl
@@ -137,7 +156,7 @@ theorem parseFile_spec {T t : List (Event L E)} {sources : List (Name × Source)
     (h : Runs (parseFile cache sources toolchain m s : Attempt L E _).run t b) :
     (∀ f c', b = .ok (f, c') → FileFrom T sources toolchain m s f ∧
       ∀ x ∈ c', (⟨.importForParser x.1, .ok x.2⟩ : Event L E) ∈ T) ∧
-    ((∃ e, b = .error e) → ∃ e ∈ t, Event.failedRead e) ∧
+    ((∃ e, b = .error e) → ∃ mods x, (⟨.importForParser mods, .error x⟩ : Event L E) ∈ t ∧ ∀ n ∈ mods, n ∈ toolchain) ∧
     ∀ e ∈ t, e.acted? = none := by
   rw [parseFile] at h
   obtain ⟨t₁, t₂, r, rfl, h₁, h₂⟩ := runs_attempt_bind_iff.mp h
@@ -147,8 +166,10 @@ theorem parseFile_spec {T t : List (Event L E)} {sources : List (Name × Source)
   cases r with
   | error why =>
     obtain ⟨rfl, rfl⟩ := h₂
-    obtain ⟨e', he', hf⟩ := e2 ⟨why, rfl⟩
-    exact ⟨fun _ _ he => (by cases he), fun _ => ⟨e', by simp [he'], hf⟩, by simpa using e3⟩
+    obtain ⟨x, hx⟩ := e2 ⟨why, rfl⟩
+    refine ⟨fun _ _ he => (by cases he), fun _ => ⟨_, x, by simpa using hx, fun n hn => ?_⟩, by simpa using e3⟩
+    have := mem_visible_held (List.mem_eraseDups.mp hn)
+    simpa using this
   | ok envResult =>
     obtain ⟨⟨env, scopedParsers⟩, cache'⟩ := envResult
     obtain ⟨hev, hc'⟩ := e1 _ _ rfl
@@ -173,7 +194,7 @@ theorem parseFiles_spec (sources : List (Name × Source)) (toolchain : List Name
     (h : Runs (parseFiles sources toolchain cache todo : Attempt L E _).run t b) :
     (∀ files, b = .ok files → (∀ f ∈ files, ∃ x ∈ todo, FileFrom T sources toolchain x.1 x.2 f) ∧
       ∀ x ∈ todo, ∃ f ∈ files, FileFrom T sources toolchain x.1 x.2 f) ∧
-    ((∃ e, b = .error e) → ∃ e ∈ t, Event.failedRead e) ∧
+    ((∃ e, b = .error e) → ∃ mods x, (⟨.importForParser mods, .error x⟩ : Event L E) ∈ t ∧ ∀ n ∈ mods, n ∈ toolchain) ∧
     ∀ e ∈ t, e.acted? = none := by
   induction todo generalizing cache t b with
   | nil =>
@@ -192,8 +213,8 @@ theorem parseFiles_spec (sources : List (Name × Source)) (toolchain : List Name
     cases r with
     | error why =>
       obtain ⟨rfl, rfl⟩ := h₂
-      obtain ⟨e', he', hf⟩ := p2 ⟨why, rfl⟩
-      exact ⟨fun _ he => (by cases he), fun _ => ⟨e', by simp [he'], hf⟩, by simpa using p3⟩
+      obtain ⟨mods, x, hx, hn⟩ := p2 ⟨why, rfl⟩
+      exact ⟨fun _ he => (by cases he), fun _ => ⟨mods, x, by simp [hx], hn⟩, by simpa using p3⟩
     | ok fileResult =>
       obtain ⟨file, cache'⟩ := fileResult
       obtain ⟨hfile, hc'⟩ := p1 _ _ rfl
@@ -217,8 +238,8 @@ theorem parseFiles_spec (sources : List (Name × Source)) (toolchain : List Name
       cases r₃ with
       | error w =>
         obtain ⟨rfl, rfl⟩ := h₄
-        obtain ⟨e', he', hf⟩ := i2 ⟨w, rfl⟩
-        exact ⟨fun _ he => (by cases he), fun _ => ⟨e', by simp [he'], hf⟩, fun e he => (hact e he).1⟩
+        obtain ⟨mods, x, hx, hn⟩ := i2 ⟨w, rfl⟩
+        exact ⟨fun _ he => (by cases he), fun _ => ⟨mods, x, by simp [hx], hn⟩, fun e he => (hact e he).1⟩
       | ok fs =>
         obtain ⟨rfl, rfl⟩ := runs_attempt_pure_iff.mp h₄
         refine ⟨fun files he => ?_, fun ⟨e, he⟩ => (by cases he), fun e he => (hact e he).1⟩

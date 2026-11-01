@@ -25,14 +25,13 @@ open RegulaSpecification.Loader
 variable {L E : Type}
 
 /-- What a load of a build with a pass says of the environment: `pass_floor` on the path of the run. -/
-theorem loaded_pass {gave : List (Event L E) → Root L → Prop} {T : List (Event L E)} {p : Regula.Closed.Profile}
-    {result : Except String Regula.Closed.Input} (hl : Loaded gave T p result) (hv : (Regula.Closed.decision result).verdict = .pass) :
+theorem loaded_pass {gave : List (Event L E) → Root L → Prop} {why : List (Event L E) → Prop} {T : List (Event L E)}
+    {p : Regula.Closed.Profile} {result : Except String Regula.Closed.Input} (hl : Loaded gave why T p result) (hv : (Regula.Closed.decision result).verdict = .pass) :
     ∃ (root : Root L) (f : Regula.Load.Facts) (roots : List Name), gave T root ∧ BuildRead T root f roots ∧
       EnvForm f ∧ EnvFloor f p ∧ (∀ r ∈ roots, r ∈ f.claimed) := by
-  rcases hl with ⟨root, f, roots, hg, hb, rfl⟩ | ⟨-, why, rfl⟩ | ⟨-, -, -, -, -, -, -, -, -, -, -, why, rfl⟩
+  rcases hl with ⟨root, f, roots, hg, hb, rfl⟩ | ⟨-, m, rfl⟩
   · obtain ⟨h1, -, -, h4, h5⟩ := pass_floor hv
     exact ⟨root, f, roots, hg, hb, h4, h5, h1⟩
-  · cases hv
   · cases hv
 
 /-- Exit 0 from a run of the proof verdict: the environment that Lean and Lake returned for the build has the closed form
@@ -46,13 +45,14 @@ theorem plain_exit_zero {t : List (Event L E)} {p : Regula.Closed.Profile} (h : 
 /-- Exit 0 from the full gate: a reading inside the closed language, on `Evidence`, with no read that failed; both Lake
 commands ended with 0 on the tree; and the rules passed on what the load of that build gave. -/
 theorem full_exit_zero {t : List (Event L E)} {dir : FilePath} {p : Regula.Closed.Profile} (h : FullRun t dir p 0) :
-    ∃ (tree : FilePath) (tRead tBuild tRules : List (Event L E)) (r : Reading), Inside r ∧ Evidence tRead dir tree r ∧ (∀ e ∈ tRead, ¬ e.failedRead) ∧
-      (∃ sysroot program lakeLib args,
+    ∃ (tree : FilePath) (sysroot : String) (tRead tBuild tRules : List (Event L E)) (r : Reading), Inside r ∧
+      Evidence tRead dir tree r ∧ (∀ e ∈ tRead, ¬ e.failed) ∧
+      (∃ program lakeLib,
         ([⟨.lakeInstall sysroot, (program, lakeLib)⟩, ⟨.runLake program tree ["build", "--wfail"], .ok 0⟩,
-          ⟨.runLake program tree ("check" :: args), .ok 0⟩] : List (Event L E)).Sublist tBuild) ∧
+          ⟨.runLake program tree replayArguments, .ok 0⟩] : List (Event L E)).Sublist tBuild) ∧
       ∃ (root : Root L) (f : Regula.Load.Facts) (roots : List Name),
-        TreeRoot tree tRules root ∧ BuildRead tRules root f roots ∧ EnvForm f ∧ EnvFloor f p := by
-  rcases h with ⟨e, -, hc, -⟩ | ⟨tree, tRead, tGate, r, last, -, -, o, report, hdec, hnf, hn, ha, hc, -, -⟩
+        TreeRoot sysroot tree tRules root ∧ BuildRead tRules root f roots ∧ EnvForm f ∧ EnvFloor f p := by
+  rcases h with ⟨e, rest, -, hc, -⟩ | ⟨tree, tRead, tGate, r, last, -, -, -, o, report, hdec, hnf, hn, ha, hc, -⟩
   · exact absurd hc (by decide)
   · have hrep : report = .full .pass := (Report.exitCode_eq_zero_iff report).mp hc.symm
     subst hrep
@@ -62,11 +62,11 @@ theorem full_exit_zero {t : List (Event L E)} {dir : FilePath} {p : Regula.Close
     | incomplete => cases (hn (by simp)).2
     | admitted =>
       obtain ⟨r', hi, hev⟩ := hdec.1 rfl
-      obtain ⟨tBuild, tRules, -, hb⟩ := ha rfl
-      rcases hb with ⟨sysroot, program, lakeLib, args, result, hsub, hl, hrep⟩ | ⟨hrep, -⟩
+      obtain ⟨sysroot, tBuild, tRules, -, -, hb⟩ := ha rfl
+      rcases hb.2.2.1 with ⟨program, lakeLib, result, -, hsub, hl, hrep⟩ | ⟨hrep, -⟩
       · have hv : (Regula.Closed.decision result).verdict = .pass := (Report.full.inj hrep).symm
         obtain ⟨root, f, roots, hg, hbr, h1, h2, -⟩ := loaded_pass hl hv
-        exact ⟨tree, tRead, tBuild, tRules, r', hi, hev, hnf rfl, ⟨sysroot, program, lakeLib, args, hsub⟩, root, f,
+        exact ⟨tree, sysroot, tRead, tBuild, tRules, r', hi, hev, hnf rfl, ⟨program, lakeLib, hsub⟩, root, f,
           roots, hg, hbr, h1, h2⟩
       · cases hrep
 
@@ -94,9 +94,11 @@ theorem read_what_lake_compiles {t : List (Event L E)} {dir tree : FilePath} {r 
       DefaultModules t root root.defaultTargets modules ∧
       ∀ (B : LakeBehaviour headers root modules) m path, B.Compiles m path →
         ∃ f ∈ r.files, f.module = m ∧ ∃ imports mods, ReadAs t project real f path imports mods := by
-  obtain ⟨project, real, hp, -, -, -, -, -, -, sysroot, root, log, modules, hl, hd, -, headers, -, hc, -⟩ := h
-  exact ⟨project, real, sysroot, root, log, modules, headers, hp, hl, hd,
-    fun B m path hb => hc m path (B.h3 m path hb)⟩
+  obtain ⟨project, real, hp, -, -, -, -, -, -, -, -, sysroot, root, log, modules, -, hl, hd, -, -, -, -, -, -, headers, -, -, -,
+    hc, -⟩ := h
+  refine ⟨project, real, sysroot, root, log, modules, headers, hp, hl, hd, fun B m path hb => ?_⟩
+  obtain ⟨-, f, hf, hm, i, md, -, hra⟩ := hc m path (B.h3 m path hb)
+  exact ⟨f, hf, hm, i, md, hra⟩
 
 /-- H4: what successful `IO.FS.realPath` responses in this trace mean. Lean documents that the result contains no
 symbolic links and coincides with POSIX `realpath` (`Init/System/IO.lean:874-881` at v4.35.0). The hypothesis relates

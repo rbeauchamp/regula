@@ -25,8 +25,11 @@ about what they decide.
 ## Boundaries
 
 `runSteps` is the decision the program executes, and its theorems are checked by the kernel each
-time `lean --run` elaborates this file. `specification/RegulaSpecification/Proofs/Gate.lean` proves, at `IO`, that `runIn`
-gives 0 only when each step gave 0. Starting a step, its exit code and what the step does are
+time `lean --run` elaborates this file. `specification/RegulaSpecification/Proofs/Gate.lean` proves, at `IO`, that `runLocal`
+gives 0 only when, for each file that `checkerFiles` lists, the bytes that a read of it gave are what a write below
+its directory took, and then each step gave 0, with that directory as the checker and the working directory as the
+project. That a step then builds what was written and checks this checkout rests on what `localSteps` names, the
+file system and Lake, which that theorem does not state. Which files exist is what `System.FilePath.walkDir` lists, which is Lean's. Starting a step, its exit code and what the step does are
 trusted effects of the operating system and of Lake. `lake` is the program that `PATH` selects. Each
 step sees the checkout as the step before it left it: the gate assumes that no other process changes
 the build between its steps. -/
@@ -122,18 +125,36 @@ def runStep (step : Step) : IO UInt32 := do
         ("LAKE_ARTIFACT_CACHE", some "false")] }
   child.wait
 
+/-- Each path of `paths` that is no directory, in their order. -/
+def regularFiles : List System.FilePath → IO (List System.FilePath)
+  | [] => pure []
+  | p :: rest => do
+    let dir ← p.isDir
+    let others ← regularFiles rest
+    pure (if dir then others else p :: others)
+
 /-- What the checker's copy needs: its Lake configuration, its pin and its sources. -/
-private def checkerFiles : IO (List System.FilePath) := do
+def checkerFiles : IO (List System.FilePath) := do
   let sources ← System.FilePath.walkDir "lean"
-  let files ← sources.toList.filterM fun p => return !(← p.isDir)
-  return ["lakefile.toml", "lake-manifest.json", "lean-toolchain"].map System.FilePath.mk ++ files
+  let files ← regularFiles sources.toList
+  pure (["lakefile.toml", "lake-manifest.json", "lean-toolchain"].map System.FilePath.mk ++ files)
+
+/-- Copy one file to the same relative path below `target`, with the directories above it. -/
+def copyFile (target file : System.FilePath) : IO Unit := do
+  let to := target / file
+  if let some dir := to.parent then IO.FS.createDirAll dir
+  IO.FS.writeBinFile to (← IO.FS.readBinFile file)
+
+/-- Copy each of `files` to `target`. -/
+def copyAll (target : System.FilePath) : List System.FilePath → IO Unit
+  | [] => pure ()
+  | file :: rest => do
+    copyFile target file
+    copyAll target rest
 
 /-- Copy the checker's files to `target`. -/
-private def copyChecker (target : System.FilePath) : IO Unit := do
-  for file in ← checkerFiles do
-    let to := target / file
-    if let some dir := to.parent then IO.FS.createDirAll dir
-    IO.FS.writeBinFile to (← IO.FS.readBinFile file)
+def copyChecker (target : System.FilePath) : IO Unit := do
+  copyAll target (← checkerFiles)
 
 /-- What `runSteps` gave, said on the standard streams. -/
 def sayResult (steps : List Step) : Option (Step × UInt32) → IO Unit

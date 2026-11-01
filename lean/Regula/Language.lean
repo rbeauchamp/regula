@@ -23,9 +23,10 @@ so there is one walk over `Lean.Syntax`. It is structural, with no `partial` and
 and not an observation alone. Only an admitted project is built: `.proofOnly` stops it as `.refused` does,
 with a report that says which three commands give the proof verdict.
 
-A pass here means what the specification's `LeanBehaviour` says, under its hypotheses H1 and H2 about
-Lean: that each tree is the one Lean elaborates, and that what the closed set admits runs no code that
-the project wrote. No proof reaches either.
+What an admitted reading means is what the specification's `LeanBehaviour` says, under its hypotheses H1 and H2
+about Lean: that each tree is the one Lean elaborates, and that what the closed set admits runs no code that
+the project wrote. No proof reaches either. A pass of the full verdict rests on them, on H3 and H4 and on the rest
+of the specification's trusted base.
 -/
 
 public section
@@ -236,7 +237,7 @@ theorem exitCode_eq_zero_iff (r : Report) : r.exitCode = 0 ↔ r = .full .pass :
 /-- The last line of a run of the full gate. Each verdict names itself, and a pass of the full verdict
 names the hypotheses it rests on. -/
 def label : Report → String
-  | .full .pass => "regula: full verdict: pass, under the hypotheses H1 and H2 about Lean 4.35.0"
+  | .full .pass => "regula: full verdict: pass, under the hypotheses H1 to H4 and the trusted base of its specification, at Lean 4.35.0"
   | .full v => s!"regula: full verdict: {v.label}"
   | .proofOnly =>
     "regula: only a proof verdict is possible for this project, and nothing was built, so no full \

@@ -22,6 +22,8 @@ import RegulaSpecification.Proofs.Foundation
 import RegulaSpecification.Proofs.Records
 import RegulaSpecification.Proofs.Verdict
 import RegulaSpecification.Proofs.Load
+import RegulaSpecification.Proofs.Owed
+import RegulaSpecification.Proofs.OwedExact
 import RegulaSpecification.Proofs.Occurrences
 import RegulaSpecification.Proofs.Language
 import RegulaSpecification.Proofs.Effects
@@ -37,6 +39,8 @@ import RegulaSpecification.Proofs.Shell
 import RegulaSpecification.Proofs.Witness
 import RegulaSpecification.Proofs.Program
 import RegulaSpecification.Proofs.Behaviour
+import RegulaSpecification.Proofs.OwedModel
+import RegulaSpecification.Proofs.EffectScan
 import RegulaSpecification.Proofs.Gate
 
 /-!

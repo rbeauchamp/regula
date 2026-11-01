@@ -45,6 +45,26 @@ inductive KeyPath : Name → Lake.Toml.Table → Name → Prop where
   | underIn {pre k r xs r' sub t n} : (k, Lake.Toml.Value.array r xs) ∈ t.items →
       Lake.Toml.Value.table r' sub ∈ xs → KeyPath (pre ++ k) sub n → KeyPath pre t n
 
+/-- A table with a chain of more than `n` nested tables, which the reader does not follow. -/
+inductive Deeper : Nat → Lake.Toml.Table → Prop where
+  /-- Any table is deeper than nothing. -/
+  | zero {t} : Deeper 0 t
+  /-- Through a table that holds a key. -/
+  | table {n k r sub t} : (k, Lake.Toml.Value.table r sub) ∈ t.items → sub.items.isEmpty = false →
+      Deeper n sub → Deeper (n + 1) t
+  /-- Through a table in an array that holds a key. -/
+  | array {n k r xs r' sub t} : (k, Lake.Toml.Value.array r xs) ∈ t.items →
+      Lake.Toml.Value.table r' sub ∈ xs → sub.items.isEmpty = false → Deeper n sub → Deeper (n + 1) t
+
+/-- A path, or the directory above it, does not lie below the tree by `TreeRelative`. -/
+def OutsideTree (tree path : FilePath) : Prop :=
+  (∀ rel, ¬ TreeRelative (parts tree) (parts path) rel) ∨
+    ∃ d, path.parent = some d ∧ ∀ rel, ¬ TreeRelative (parts tree) (parts d) rel
+
+/-- The file of a module, as Lake's load names it: a root's own, or what Lake's resolution of an import gives. -/
+def FileOfModule (root : Root L) (modules : List (Name × FilePath)) (m : Name) (path : FilePath) : Prop :=
+  (m, path) ∈ modules ∨ root.resolve m = some path
+
 /-- The checker's program lies outside the project and the Lake that started it dispatched from the checker's
 own package, by this run's responses. `lakeLib` is the library directory of the Lake beside this Lean. -/
 def StartedOutside (t : List (Event L E)) (project lakeLib : FilePath) : Prop :=
@@ -73,13 +93,16 @@ inductive Sees (headers : List (Name × Array Import)) (held : List Name) : Name
 
 /-- What a reading of the project at `dir`, in the checker's tree `dirTree`, rests on: for each thing that the
 reading states, the events of the run that gave it. So every file Lake would compile for the claim is read,
-and so is the configuration. -/
+and so is the configuration. It also states what makes a project one that nothing keeps from being admitted (`Reason`):
+that each path Lake's load names lies in the closed domain, each name too, and that the imports stay within the reader's
+bound. -/
 structure Evidence (t : List (Event L E)) (dir dirTree : FilePath) (r : Reading) : Prop where
   /-- The project and the tree have real paths, and neither lies in the other. -/
   places : ∃ project tree, (⟨.realPath dir, .ok project⟩ : Event L E) ∈ t ∧
     (⟨.realPath dirTree, .ok tree⟩ : Event L E) ∈ t ∧ Apart project tree ∧
     -- The start from outside.
-    (∃ sysroot program lakeLib, (⟨.lakeInstall sysroot, (program, lakeLib)⟩ : Event L E) ∈ t ∧
+    (∃ sysroot program lakeLib, (⟨.getEnv "LEAN_SYSROOT", some sysroot⟩ : Event L E) ∈ t ∧
+      (⟨.lakeInstall sysroot, (program, lakeLib)⟩ : Event L E) ∈ t ∧
       StartedOutside t project lakeLib) ∧
     -- `lean-toolchain`.
     (∃ text real, (⟨.readFile (project / "lean-toolchain"), .ok text⟩ : Event L E) ∈ t ∧
@@ -99,21 +122,37 @@ structure Evidence (t : List (Event L E)) (dir dirTree : FilePath) (r : Reading)
       (⟨.readFile (project / "lakefile.toml"), .ok text⟩ : Event L E) ∈ t ∧
       (⟨.parseToml (mkInputContext text "lakefile.toml"), .ok table⟩ : Event L E) ∈ t ∧
       (⟨.writeFile (tree / "lakefile.toml") text, .ok ()⟩ : Event L E) ∈ t ∧
+      ¬ Deeper 8 table ∧
       ∀ n, KeyPath .anonymous table n → n ∈ r.configKeys) ∧
+    -- The tree's copies lie below it.
+    ¬ OutsideTree tree (tree / "lakefile.toml") ∧ ¬ OutsideTree tree (tree / "lean-toolchain") ∧
     -- Each file Lake compiles for the claim is read, as `ReadAs` states, and each file read is one of them.
     ∃ sysroot root log modules,
+      (⟨.getEnv "LEAN_SYSROOT", some sysroot⟩ : Event L E) ∈ t ∧
       (⟨.loadRoot sysroot tree, .ok (some root, log)⟩ : Event L E) ∈ t ∧
       DefaultModules t root root.defaultTargets modules ∧
       r.roots = modules.map (·.1) ∧
+      -- What Lake's load names lies in the closed domain.
+      (∀ d ∈ root.sourceDirs, ∃ rel, TreeRelative (parts tree) (parts d) rel) ∧
+      (∀ lib ∈ root.libraries, ∀ g ∈ lib.2, ∃ n, g = .one n) ∧
+      (∀ n ∈ root.targets, ClosedModuleName n) ∧
+      (∀ m file other, (m, file) ∈ modules → root.resolve m = some other → other = file) ∧
+      (∀ m file other, (m, file) ∈ modules → (m, other) ∈ modules → other = file) ∧
       ∃ (headers : List (Name × Array Import)) (held : List Name),
-      (∀ m path, Compiled headers root modules m path →
-        ∃ f ∈ r.files, f.module = m ∧ ∃ imports mods, ReadAs t project tree f path imports mods) ∧
+      -- The imports stay within the reader's bound.
+      modules.length + (headers.map (·.2.size)).sum ≤ 1000000 ∧
+      (headers.map (·.1)).Nodup ∧
+      (∀ m path, Compiled headers root modules m path → ¬ OutsideTree tree path ∧
+        ∃ f ∈ r.files, f.module = m ∧ ∃ imports mods, headers.lookup m = some imports ∧
+          ReadAs t project tree f path imports mods) ∧
       (∀ n ∈ held, HeldByToolchain t root n) ∧
-      (∀ f ∈ r.files, ∃ path imports mods, ReadAs t project tree f path imports mods ∧
+      (∀ f ∈ r.files, ∃ path imports mods, FileOfModule root modules f.module path ∧
+        ReadAs t project tree f path imports mods ∧
         headers.lookup f.module = some imports ∧
         (∀ n, n ∈ mods ↔ ∃ m ∈ imports, Sees headers held m.module n) ∧
-        -- Each import is read or is the toolchain's.
-        ∀ i ∈ imports, i.module ∈ r.reached ∨
+        -- Each import is read or is the toolchain's, and its name is in the closed domain.
+        ∀ i ∈ imports, (i.module ∈ r.reached ∨
           (root.resolve i.module = none ∧ modules.lookup i.module = none ∧
-            HeldByToolchain t root i.module))
+            HeldByToolchain t root i.module)) ∧ ClosedModuleName i.module ∧ i.module.getRoot ≠ `Mathlib ∧
+          ((modules.lookup i.module).isSome = true → (root.resolve i.module).isSome = true))
 
