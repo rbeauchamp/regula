@@ -295,6 +295,22 @@ theorem runLocal_zero (w w' : Void IO.RealWorld) (h : runLocal w = .ok 0 w') :
         rw [io_bind_ok hd] at hbody
         exact ⟨target, root, w₁, w₃, w₄, w₂, rfl, hc, hd, hbody, runIn_zero _ _ _ _ hbody⟩
 
+/-- The command line of the gate: it gives 0 only for the one argument `local`, on a run of `runLocal` that gave 0. -/
+theorem main_zero (args : List String) (w w' : Void IO.RealWorld) (h : _root_.main args w = .ok 0 w') :
+    args = ["local"] ∧ runLocal w = .ok 0 w' := by
+  unfold _root_.main at h
+  split at h
+  · exact ⟨rfl, h⟩
+  · exfalso
+    cases he : IO.eprintln "usage: lean --run lean/Regula/DiagnosticsGate.lean local" w with
+    | error e w₁ =>
+      rw [io_bind_error he] at h
+      cases h
+    | ok u w₁ =>
+      rw [io_bind_ok he] at h
+      have := (EST.Out.ok.inj h).1
+      exact absurd this (by decide)
+
 /-- The gate's `localSteps` hold the steps it must run, in this order: the full gate, the build, the checker on its own
 build, and the specification's build, replay and checker. -/
 theorem localSteps_eq (checker root : String) :

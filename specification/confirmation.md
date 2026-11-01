@@ -129,7 +129,7 @@ The second reading was made by Codex `gpt-6-astra` at `xhigh`, through `codex ex
 | It said that a successful read of a violation can justify a refusal, so that a failure is not the only reason. | The same reading: the content cases of `Reason`. |
 | It said that the programs kept for validation are other subjects than `run`. | Settled by the design: their theorems are apart from `programRecord`. |
 
-**The stand-ins for lean-intent's checks** are as above. Issue 5 is open, so this file stands in for the confirmation record, and nothing checks it against the record.
+**The stand-ins for lean-intent's checks** are as above. Issue 2: lean-intent's `Cone.requireIndependent` accepted this revision of `programRecord` against `Regula.Shell.run`, `runFull`, `runPlain`, `Regula.Reader.readProject`, `walk` and `readExact`, in a scratch run on 2026-10-31. Issue 5 is open, so this file stands in for the confirmation record, and nothing checks it against the record.
 
 ## 2026-10-29
 
