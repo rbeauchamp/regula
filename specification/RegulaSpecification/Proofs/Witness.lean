@@ -59,8 +59,6 @@ structure WitnessPaths where
   project : FilePath
   /-- The checker's tree. -/
   tree : FilePath
-  /-- This program. -/
-  app : FilePath
   /-- The search path Lake gave. -/
   leanPath : String
   /-- The library directory of Lake. -/
@@ -75,31 +73,22 @@ structure WitnessPaths where
   rootLib : FilePath
   /-- An `.olean`. -/
   olean : FilePath
-  /-- This program lies outside the project. -/
-  outside : Regula.Load.below project app = false
-  /-- The current directory is the workspace Lake dispatched, for the proof verdict. -/
-  plainDispatched : Regula.Load.dispatchedFrom rootLib.toString lakeLib.toString
-    ((System.SearchPath.parse leanPath).map toString) = true
-  /-- The Lake that started it dispatched from its own package. -/
-  dispatched : (app.parent.bind (·.parent)).map (· / "lib" / "lean") |>.any fun lib =>
-    Regula.Load.dispatchedFrom lib.toString lakeLib.toString
-      ((System.SearchPath.parse leanPath).map toString)
   /-- The project and the tree lie apart. -/
   apart : apart project tree = true
   /-- `lean-toolchain` lies at itself below the project. -/
-  toolchainExact : Regula.Load.exactBelow project (project / "lean-toolchain") (project / "lean-toolchain") = true
+  toolchainExact : ExactlyBelow project (project / "lean-toolchain") (project / "lean-toolchain")
   /-- `lakefile.toml` lies at itself below the project. -/
-  tomlExact : Regula.Load.exactBelow project (project / "lakefile.toml") (project / "lakefile.toml") = true
+  tomlExact : ExactlyBelow project (project / "lakefile.toml") (project / "lakefile.toml")
   /-- The tree's copies lie below it. -/
   tomlInTree : ¬ OutsideTree tree (tree / "lakefile.toml")
   /-- The tree's copies lie below it. -/
   toolchainInTree : ¬ OutsideTree tree (tree / "lean-toolchain")
   /-- The module's file lies below the tree, at `rel`. -/
-  fileRel : TreeRelative (Regula.Load.exactParts tree) (Regula.Load.exactParts file) rel
+  fileRel : TreeRelative (parts tree) (parts file) rel
   /-- Its directory too. -/
   fileInTree : ¬ OutsideTree tree file
   /-- The same relative path lies at itself below the project. -/
-  fileExact : Regula.Load.exactBelow project (under project rel) (under project rel) = true
+  fileExact : ExactlyBelow project (under project rel) (under project rel)
   /-- The pinned text is the text of the file, trimmed. -/
   pinned : leanToolchain.trimAscii.toString = leanToolchain
   /-- An empty log holds no error. -/
@@ -124,7 +113,6 @@ import, Lean's import gives `env`, and nothing fails. -/
 def answers (w : WitnessPaths) (env : Lean.Environment) : (o : Op Unit Unit) → Resp o
   | .leanVersion => Regula.Closed.pinnedLean
   | .getEnv _ => some w.leanPath
-  | .appPath => .ok w.app
   | .realPath p => .ok p
   | .readFile _ => .ok leanToolchain
   | .symlinkMetadata _ => .error (.noFileOrDirectory "" 0 "")
@@ -169,7 +157,7 @@ theorem good_file {w : WitnessPaths} {env : Lean.Environment} {p : Prog Unit Uni
     {imports : Array Lean.Import} {mods : List Name}
     (h : ReadAs (traceWith (answers w env) p) project tree f path imports mods) : FileAdmitted f := by
   obtain ⟨text, rel, real, state, messages, final, penv, commands, -, -, -, hsub, hev, hparsed, hcsub, hp⟩ := h
-  have hmem : (⟨.parseHeader (Lean.Parser.mkInputContext text (Regula.Load.inputName path)),
+  have hmem : (⟨.parseHeader (Lean.Parser.mkInputContext text (inputNameOf path)),
       .ok (f.header, state, messages, imports)⟩ : Event Unit Unit) ∈ traceWith (answers w env) p :=
     hsub.subset (by simp)
   have hheader : (Except.ok (f.header, state, messages, imports) :
@@ -183,7 +171,7 @@ theorem good_file {w : WitnessPaths} {env : Lean.Environment} {p : Prog Unit Uni
   obtain ⟨h1, rfl, rfl, rfl⟩ := hheader'
   obtain ⟨-, h2⟩ := hscoped'
   have hterm : Lean.Parser.isTerminalCommand endOfInput = true := by decide
-  generalize hfuel : (Lean.Parser.mkInputContext text (Regula.Load.inputName path)).inputString.utf8ByteSize + 1 = fuel at hparsed
+  generalize hfuel : (Lean.Parser.mkInputContext text (inputNameOf path)).inputString.utf8ByteSize + 1 = fuel at hparsed
   generalize hcmds : f.commands = cmds at hparsed
   generalize hst : (default : ModuleParserState) = st at hparsed
   generalize hmsg : ({} : MessageLog) = ms at hparsed
@@ -315,32 +303,13 @@ theorem no_reason (w : WitnessPaths) (env : Lean.Environment) (p : Prog Unit Uni
   | toolchainFailed hp ht => cases resp_eq ht
   | toolchainNotExact hp hr he =>
     rw [hreal hp] at he hr
-    rw [hreal hr, w.toolchainExact] at he
-    cases he
+    rw [hreal hr] at he
+    exact he w.toolchainExact
   | toolchainNoReal hp ht => cases resp_eq ht
-  | @started project sysroot program lakeLib app real leanPath hp _ hl ha hr henv hcase =>
-    obtain rfl := hreal hp
-    have hla : (program, lakeLib) = (w.tree, w.lakeLib) := resp_eq hl
-    cases hla
-    have happ := Except.ok.inj (resp_eq ha : (Except.ok _ : Except IO.Error FilePath) = .ok _)
-    subst happ
-    obtain rfl := hreal hr
-    have hen : some leanPath = some w.leanPath := resp_eq henv
-    cases hen
-    rcases hcase with h' | h'
-    · rw [w.outside] at h'
-      cases h'
-    · have hd := w.dispatched
-      cases hown : (w.app.parent.bind (·.parent)).map (· / "lib" / "lean") with
-      | none => simp [hown] at hd
-      | some own =>
-        simp only [hown, Option.any_some] at hd
-        rw [h' own hown] at hd
-        cases hd
   | tomlNotExact hp hr he =>
     obtain rfl := hreal hp
-    rw [hreal hr, w.tomlExact] at he
-    cases he
+    rw [hreal hr] at he
+    exact he w.tomlExact
   | notApart hp ht hna =>
     obtain rfl := hreal hp
     obtain rfl := hreal ht
@@ -367,8 +336,8 @@ theorem no_reason (w : WitnessPaths) (env : Lean.Environment) (p : Prog Unit Uni
       have hrel2 := w.fileRel
       have hsame : _ = w.rel := List.append_cancel_left (hrel.1.symm.trans hrel2.1)
       subst hsame
-      rw [hreal hr, w.fileExact] at he
-      cases he
+      rw [hreal hr] at he
+      exact he w.fileExact
     · cases hf
   | leanConfig hp hm => cases resp_eq hm
   | configShadowed hp hm => cases resp_eq hm
@@ -440,10 +409,6 @@ theorem no_reason (w : WitnessPaths) (env : Lean.Environment) (p : Prog Unit Uni
   | importedRoot hs hn hh hi hsome hres =>
     rw [hheader hh] at hi
     simp at hi
-  | notToolchain hs hn hl hr hf hreal' hmap hall =>
-    obtain ⟨-, -, -, rfl⟩ := scene_witness hs
-    obtain rfl := hnamed hn
-    simp at hl
   | @tooMany _ _ _ _ ms hs hnd hall hb =>
     obtain ⟨-, -, -, rfl⟩ := scene_witness hs
     have hzero : ∀ l : List (Name × Array Lean.Import), (∀ x ∈ l, x.2 = #[]) → (l.map (·.2.size)).sum = 0 := by

@@ -65,17 +65,6 @@ def OutsideTree (tree path : FilePath) : Prop :=
 def FileOfModule (root : Root L) (modules : List (Name × FilePath)) (m : Name) (path : FilePath) : Prop :=
   (m, path) ∈ modules ∨ root.resolve m = some path
 
-/-- The checker's program lies outside the project and the Lake that started it dispatched from the checker's
-own package, by this run's responses. `lakeLib` is the library directory of the Lake beside this Lean. -/
-def StartedOutside (t : List (Event L E)) (project lakeLib : FilePath) : Prop :=
-  ∃ app real own leanPath,
-    (⟨.appPath, .ok app⟩ : Event L E) ∈ t ∧ (⟨.realPath app, .ok real⟩ : Event L E) ∈ t ∧
-    (⟨.getEnv "LEAN_PATH", some leanPath⟩ : Event L E) ∈ t ∧
-    (real.parent.bind (·.parent)).map (· / "lib" / "lean") = some own ∧
-    Regula.Load.below project real = false ∧
-    Regula.Load.dispatchedFrom own.toString lakeLib.toString
-      ((System.SearchPath.parse leanPath).map toString) = true
-
 /-- Neither of two directories lies at or below the other. -/
 def Apart (a b : FilePath) : Prop :=
   ¬ (parts a <+: parts b) ∧ ¬ (parts b <+: parts a)
@@ -108,10 +97,6 @@ structure Evidence (t : List (Event L E)) (dir dirTree : FilePath) (held : List 
   /-- The project and the tree have real paths, and neither lies in the other. -/
   places : ∃ project tree, (⟨.realPath dir, .ok project⟩ : Event L E) ∈ t ∧
     (⟨.realPath dirTree, .ok tree⟩ : Event L E) ∈ t ∧ Apart project tree ∧
-    -- The start from outside.
-    (∃ sysroot program lakeLib, (⟨.getEnv "LEAN_SYSROOT", some sysroot⟩ : Event L E) ∈ t ∧
-      (⟨.lakeInstall sysroot, (program, lakeLib)⟩ : Event L E) ∈ t ∧
-      StartedOutside t project lakeLib) ∧
     -- `lean-toolchain`.
     (∃ text real, (⟨.readFile (project / "lean-toolchain"), .ok text⟩ : Event L E) ∈ t ∧
       (⟨.realPath (project / "lean-toolchain"), .ok real⟩ : Event L E) ∈ t ∧
@@ -156,7 +141,7 @@ structure Evidence (t : List (Event L E)) (dir dirTree : FilePath) (held : List 
       (∀ m path, Compiled headers root modules m path → ¬ OutsideTree tree path ∧
         ∃ f ∈ r.files, f.module = m ∧ ∃ imports mods text, headers.lookup m = some imports ∧
           ReadText t project tree f path imports mods text ∧ held (parts path) = some text) ∧
-      (∀ n ∈ toolchain, HeldByToolchain t root n) ∧
+      (∀ n ∈ toolchain, HeldByToolchain t n) ∧
       (∀ f ∈ r.files, ∃ path imports mods text, FileOfModule root modules f.module path ∧
         ReadText t project tree f path imports mods text ∧ held (parts path) = some text ∧
         headers.lookup f.module = some imports ∧
@@ -164,7 +149,7 @@ structure Evidence (t : List (Event L E)) (dir dirTree : FilePath) (held : List 
         -- Each import is read or is the toolchain's, and its name is in the closed domain.
         ∀ i ∈ imports, (i.module ∈ r.reached ∨
           (root.resolve i.module = none ∧ modules.lookup i.module = none ∧
-            HeldByToolchain t root i.module)) ∧ ClosedModuleName i.module ∧ i.module.getRoot ≠ `Mathlib ∧
+            HeldByToolchain t i.module)) ∧ ClosedModuleName i.module ∧ i.module.getRoot ≠ `Mathlib ∧
           ((modules.lookup i.module).isSome = true → (root.resolve i.module).isSome = true)) ∧
       -- `held` gives no other path a text, unless a file of the reading lies there and was judged from that text.
       ∀ p text, held p = some text → p = parts (tree / "lakefile.toml") ∨ p = parts (tree / "lean-toolchain") ∨

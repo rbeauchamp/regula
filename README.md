@@ -13,7 +13,7 @@ Regula is meant to be to Lean linters what [seL4](https://sel4.systems/Verificat
 
 So this rules out adding 1,000 lines to keep an unusual folder layout working, adding a mode to avoid a refusal, or keeping a tool in the repository for one analysis. It still allows a long proof of something truly hard, such as the two-way axiom rules.
 
-Regula is a checker of Lean builds. It refuses a project whose declarations depend on `sorry`, a project axiom, `native_decide` or an axiom outside the profile the project states, or that holds an `unsafe` or `partial` declaration, or a constant with the name of Lean's recursion helper, without that helper's form, or a `while` or `repeat` of its own. It also refuses a build it cannot load. Started from outside a project, before anything is compiled, it can also read each Lean file of the claim and the Lake configuration, and refuse anything outside a closed set of allowed constructs, so that no code the project wrote runs during the build.
+Regula is a checker of Lean builds. It refuses a project whose declarations depend on `sorry`, a project axiom, `native_decide` or an axiom outside the profile the project states, or that holds an `unsafe` or `partial` declaration, or a constant with the name of Lean's recursion helper, without that helper's form, or a `while` or `repeat` of its own. It also refuses a build it cannot load. Started from its own package, before anything is compiled, it can also read each Lean file of the claim and the Lake configuration, and refuse anything outside a closed set of allowed constructs, so that no code the project wrote runs during the build.
 
 It gives one of two verdicts, and its output says which. The **proof verdict** means that the proofs of the claimed modules are sound and use only axioms the profile allows. The **full verdict** also means that no code written in the project ran while Lake built it. Only a project with no dependency in its Lake configuration and no Mathlib in its imports can have the full verdict.
 
@@ -83,7 +83,7 @@ The exit code of `lake lint` is 0 for `pass`, 1 for `fail` and 2 for `incomplete
 
 ## The full gate
 
-A full verdict comes only from a checker that the project's Lake did not build or start, because Lake runs a project's `lakefile.lean` when it loads it, and code that runs first can change what any later step sees. So build Regula in a checkout of its own, and from that checkout's directory give it the project's path:
+Start the checker from its own package: that is a precondition of the full verdict, beside the `PATH` you run it with. The checker does not test who started it, and a start from a project's Lake is outside the contract, because Lake runs a project's `lakefile.lean` when it loads it, and code that runs first can change what any later step sees. So build Regula in a checkout of its own, and from that checkout's directory give it the project's path:
 
 ```sh
 git clone https://github.com/rbeauchamp/regula
@@ -109,7 +109,7 @@ The exit code is 0 only for a pass of the full verdict. It is 1 when the check r
 
 The check refuses `run_cmd`, `#eval`, `#guard`, `run_tac`, `by_elab`, `native_decide`, `decide +native`, `macro`, `syntax`, `notation`, `elab`, `initialize`, `@[local macro k]`, `lakefile.lean` and a plugin in `lakefile.toml`. It admits Regula's own core, and library code that uses `simp`, `omega`, `decide +kernel`, `variable` and `deriving DecidableEq`. Those are examples. The rule is a closed table, so anything it does not hold is refused, including whatever a later Lean adds, and a harmless construct that the table does not hold is refused too. The [specification](specification/README.md#the-language-check) gives the table's criterion.
 
-`lake lint` in a project gives only the proof verdict. Asked for a full one, it says that it is the project's own checker and gives none. A program that the project planted can print any line, so a full verdict is worth what the start from outside gives it: read it only from a checker you built apart from the project.
+`lake lint` in a project gives only the proof verdict. Asked for a full one, it says that only a proof verdict is possible, because the project has a `require`. A program that the project planted can print any line, so a full verdict is worth what the start from its own package gives it: read it only from a checker you built apart from the project.
 
 ## What a pass means
 

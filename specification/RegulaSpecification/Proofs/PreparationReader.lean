@@ -86,47 +86,41 @@ theorem readFiles_preparation {config : List (FilePath × String)} {prior t : Li
   obtain rfl := runs_call_iff.mp hu
   cases u
   refine .inr ⟨[], rest, modules, rfl, quiet_nil, by simpa using hm, ?_⟩
-  obtain ⟨first, last, response, rfl, hfirst, hlast⟩ := runs_attempt_bind_iff.mp hr
-  have hq : Quiet first := quiet_realPaths _ _ _ hfirst
-  apply ModuleCopies.append (.observations _ fun e he => .inl (hq e he))
-  cases response with
-  | error error => obtain ⟨rfl, -⟩ := hlast; exact .nil
-  | ok dirs =>
-    obtain ⟨walkTrace, parseTrace, response, rfl, hw, hp⟩ := runs_attempt_bind_iff.mp hlast
-    obtain ⟨w, hw', rfl⟩ := runs_lift_iff.mp hw
-    obtain ⟨hobs, hsrc⟩ := walk_preparation (prior := prior ++ [] ++ [⟨.setSearchPath root.toolchain, ()⟩] ++ first)
-      project tree root modules dirs _ _ _ (fun m h => .root h) hw' (by simp)
-    apply ModuleCopies.append (.observations _ hobs)
-    dsimp only at hp
-    split at hp
-    · obtain ⟨rfl, -⟩ := runs_attempt_pure_iff.mp hp; exact .nil
-    · obtain ⟨first', last', response', rfl, hfirst', hlast'⟩ := runs_attempt_bind_iff.mp hp
-      apply ModuleCopies.append (.observations _ (observing_parseFiles _ _ _ _ _ _ hfirst'))
-      cases response' with
-      | error error => obtain ⟨rfl, -⟩ := hlast'; exact .nil
-      | ok files =>
-        dsimp only at hlast'
-        split at hlast'
-        · obtain ⟨c1, c2, cr, rfl, hc, htail⟩ := runs_attempt_bind_iff.mp hlast'
-          have hcopies := writeSources_preparation (project := project) (root := root) (modules := modules)
-            (prior := prior ++ [] ++ [⟨.setSearchPath root.toolchain, ()⟩] ++ (first ++ (walkTrace ++ first'))) (fun x hx => by
-              have := hsrc x (List.mem_reverse.mp hx)
-              exact ⟨Named.mono (by simp [List.append_assoc]) this.1, this.2.1,
-                SourceText.mono (by simp [List.append_assoc]) this.2.2⟩) hc
-          have hquiet : Quiet c2 := by
-            cases cr with
-            | error error => obtain ⟨rfl, -⟩ := htail; exact quiet_nil
-            | ok u =>
-              obtain ⟨d1, d2, dr, rfl, hd, hrest⟩ := runs_attempt_bind_iff.mp htail
-              have hdq : Quiet d1 := quiet_readBack _ _ _ hd
-              have hd2 : Quiet d2 := by
-                cases dr with
-                | error error => obtain ⟨rfl, -⟩ := hrest; exact quiet_nil
-                | ok v => exact (onlyA_seq (quiet_noOtherConfig tree) fun _ => onlyA_pure _) _ _ hrest
-              exact hdq.append hd2
-          refine ModuleCopies.append (by simpa [List.append_assoc] using hcopies) (.observations _ fun e he => .inl (hquiet e he))
-        · obtain ⟨rfl, -⟩ := runs_attempt_pure_iff.mp hlast'
-          exact .nil
+  obtain ⟨walkTrace, parseTrace, response, rfl, hw, hp⟩ := runs_attempt_bind_iff.mp hr
+  obtain ⟨w, hw', rfl⟩ := runs_lift_iff.mp hw
+  obtain ⟨hobs, hsrc⟩ := walk_preparation (prior := prior ++ [] ++ [⟨.setSearchPath root.toolchain, ()⟩])
+    project tree root modules _ _ _ (fun m h => .root h) hw' (by simp)
+  apply ModuleCopies.append (.observations _ hobs)
+  dsimp only at hp
+  split at hp
+  · obtain ⟨rfl, -⟩ := runs_attempt_pure_iff.mp hp; exact .nil
+  · obtain ⟨first', last', response', rfl, hfirst', hlast'⟩ := runs_attempt_bind_iff.mp hp
+    apply ModuleCopies.append (.observations _ (observing_parseFiles _ _ _ _ _ _ hfirst'))
+    cases response' with
+    | error error => obtain ⟨rfl, -⟩ := hlast'; exact .nil
+    | ok files =>
+      dsimp only at hlast'
+      split at hlast'
+      · obtain ⟨c1, c2, cr, rfl, hc, htail⟩ := runs_attempt_bind_iff.mp hlast'
+        have hcopies := writeSources_preparation (project := project) (root := root) (modules := modules)
+          (prior := prior ++ [] ++ [⟨.setSearchPath root.toolchain, ()⟩] ++ (walkTrace ++ first')) (fun x hx => by
+            have := hsrc x (List.mem_reverse.mp hx)
+            exact ⟨Named.mono (by simp [List.append_assoc]) this.1, this.2.1,
+              SourceText.mono (by simp [List.append_assoc]) this.2.2⟩) hc
+        have hquiet : Quiet c2 := by
+          cases cr with
+          | error error => obtain ⟨rfl, -⟩ := htail; exact quiet_nil
+          | ok u =>
+            obtain ⟨d1, d2, dr, rfl, hd, hrest⟩ := runs_attempt_bind_iff.mp htail
+            have hdq : Quiet d1 := quiet_readBack _ _ _ hd
+            have hd2 : Quiet d2 := by
+              cases dr with
+              | error error => obtain ⟨rfl, -⟩ := hrest; exact quiet_nil
+              | ok v => exact (onlyA_seq (quiet_noOtherConfig tree) fun _ => onlyA_pure _) _ _ hrest
+            exact hdq.append hd2
+        refine ModuleCopies.append (by simpa [List.append_assoc] using hcopies) (.observations _ fun e he => .inl (hquiet e he))
+      · obtain ⟨rfl, -⟩ := runs_attempt_pure_iff.mp hlast'
+        exact .nil
 
 /-- `readRoot` asks at most one load of the root, with only observations before it. -/
 theorem readRoot_preparation {config : List (FilePath × String)} {prior t : List (Event L E)} {sysroot : String}
@@ -206,13 +200,6 @@ theorem quiet_requireEnv (name why : String) : OnlyAIn QuietOp (requireEnv name 
   refine only_seq (only_call trivial) fun r => ?_
   cases r <;> exact only_pure _
 
-theorem quiet_startedOutside (lakeLib project : FilePath) :
-    OnlyAIn QuietOp (startedOutside lakeLib project : Attempt L E _) := by
-  rw [startedOutside]
-  refine onlyA_seq (onlyA_attempt (only_call trivial)) fun app => ?_
-  refine onlyA_seq (quiet_realPath _) fun real => ?_
-  exact onlyA_seq (quiet_requireEnv _ _) fun _ => onlyA_pure _
-
 theorem quiet_toolchainOf (project : FilePath) : OnlyIn QuietOp (toolchainOf project : Prog L E _) := by
   rw [toolchainOf]
   refine only_seq (quiet_readExact _ _) fun r => ?_
@@ -285,40 +272,24 @@ theorem readProject_preparation {prior t : List (Event L E)} {dir treeDir : File
       exact .inl (by simpa [List.append_assoc] using
         (hq.append (hfirst (.ok project))).append (hsecond (.error error)))
     | ok tree =>
-      obtain ⟨third, last₃, response₃, rfl, hf₃, hl₃⟩ := runs_attempt_bind_iff.mp hl₂
-      obtain ⟨⟨program, lakeLib⟩, hc₃, rfl⟩ := runs_lift_iff.mp hf₃
-      obtain rfl := runs_call_iff.mp hc₃
-      have hthird : Quiet ([⟨.lakeInstall sysroot, (program, lakeLib)⟩] : List (Event L E)) := by
-        intro e he; obtain rfl := List.mem_singleton.mp he; trivial
-      obtain ⟨fourth, last₄, response₄, rfl, hf₄, hl₄⟩ := runs_attempt_bind_iff.mp hl₃
-      have hfourth : Quiet fourth := quiet_startedOutside _ _ _ _ hf₄
-      let before := prior ++ [⟨.realPath dir, .ok project⟩, ⟨.realPath treeDir, .ok tree⟩,
-        ⟨.lakeInstall sysroot, (program, lakeLib)⟩] ++ fourth
+      let before := prior ++ [⟨.realPath dir, .ok project⟩, ⟨.realPath treeDir, .ok tree⟩]
       have hbefore : Quiet before := by
         simpa [before, List.append_assoc] using
-          (((hq.append (hfirst (.ok project))).append (hsecond (.ok tree))).append hthird).append hfourth
-      cases response₄ with
-      | error error =>
-        obtain ⟨rfl, -⟩ := hl₄
-        exact .inl (by simpa [before, List.append_assoc] using hbefore)
-      | ok outside =>
-        obtain ⟨fifth, last₅, response₅, rfl, hf₅, hl₅⟩ := runs_attempt_bind_iff.mp hl₄
-        obtain ⟨tf, htf, rfl⟩ := runs_lift_iff.mp hf₅
-        have hfifth : Quiet fifth := quiet_toolchainOf _ _ _ htf
-        have hprefix := hbefore.append hfifth
-        dsimp only at hl₅
-        split at hl₅
-        · obtain ⟨rfl, -⟩ := runs_attempt_pure_iff.mp hl₅
-          exact .inl (by simpa [before, List.append_assoc] using hprefix)
-        · split at hl₅
-          · obtain ⟨rfl, -⟩ := runs_attempt_pure_iff.mp hl₅
-            exact .inl (by simpa [before, List.append_assoc] using hprefix)
-          · have hp : (⟨.realPath dir, .ok project⟩ : Event L E) ∈ before ++ fifth := by simp [before]
-            have ht : (⟨.realPath treeDir, .ok tree⟩ : Event L E) ∈ before ++ fifth := by simp [before]
-            have hs' : SysrootIs (before ++ fifth) sysroot := by
-              simp only [SysrootIs] at hs ⊢
-              simp [before, hs]
-            simpa [before, List.append_assoc] using readConfig_preparation hprefix hp ht hs' hl₅
+          (hq.append (hfirst (.ok project))).append (hsecond (.ok tree))
+      obtain ⟨fifth, last₅, response₅, rfl, hf₅, hl₅⟩ := runs_attempt_bind_iff.mp hl₂
+      obtain ⟨tf, htf, rfl⟩ := runs_lift_iff.mp hf₅
+      have hfifth : Quiet fifth := quiet_toolchainOf _ _ _ htf
+      have hprefix := hbefore.append hfifth
+      dsimp only at hl₅
+      split at hl₅
+      · obtain ⟨rfl, -⟩ := runs_attempt_pure_iff.mp hl₅
+        exact .inl (by simpa [before, List.append_assoc] using hprefix)
+      · have hp : (⟨.realPath dir, .ok project⟩ : Event L E) ∈ before ++ fifth := by simp [before]
+        have ht : (⟨.realPath treeDir, .ok tree⟩ : Event L E) ∈ before ++ fifth := by simp [before]
+        have hs' : SysrootIs (before ++ fifth) sysroot := by
+          simp only [SysrootIs] at hs ⊢
+          simp [before, hs]
+        simpa [before, List.append_assoc] using readConfig_preparation hprefix hp ht hs' hl₅
 
 theorem read_preparation {prior t : List (Event L E)} {dir treeDir : FilePath} {sysroot : String}
     {b : Except String (Reading × List String)} (hq : Quiet prior) (hs : SysrootIs prior sysroot)

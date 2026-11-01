@@ -159,13 +159,7 @@ theorem loadPlain_preparation {prior t : List (Event L E)} {p : Regula.Closed.Pr
           cases root with
           | none => obtain ⟨rfl, -⟩ := hr; exact quiet_nil
           | some root =>
-            obtain ⟨installation, tail, response₄, rfl, hi, ht⟩ := runs_attempt_bind_iff.mp hr
-            obtain ⟨⟨program, lakeLib⟩, hc, rfl⟩ := runs_lift_iff.mp hi
-            obtain rfl := runs_call_iff.mp hc
-            apply InputPreparation.prepend
-              (show Quiet ([⟨.lakeInstall sysroot, (program, lakeLib)⟩] : List (Event L E)) from by
-                intro e he; obtain rfl := List.mem_singleton.mp he; trivial)
-            obtain ⟨environment, final, response₅, rfl, he, hfinal⟩ := runs_attempt_bind_iff.mp ht
+            obtain ⟨environment, final, response₅, rfl, he, hfinal⟩ := runs_attempt_bind_iff.mp hr
             have hqe : Quiet environment := quiet_requireEnv _ _ _ _ he
             apply InputPreparation.prepend hqe
             cases response₅ with

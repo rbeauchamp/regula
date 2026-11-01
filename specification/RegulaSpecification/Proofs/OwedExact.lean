@@ -125,6 +125,43 @@ theorem buildRead_unique {T : List (Event L E)} (h : OneAnswer T) {root : Root L
   subst henv hdirs hroot hmods'
   rfl
 
+/-- Two lists of pairs with one list of first members and one second member for each are one list. -/
+theorem pairs_eq {a b : List (Name × FilePath)} (hn : a.map (·.1) = b.map (·.1))
+    (h : ∀ x ∈ a, ∀ y ∈ b, x.1 = y.1 → x = y) : a = b := by
+  induction a generalizing b with
+  | nil => simpa using hn.symm
+  | cons x xs ih =>
+    cases b with
+    | nil => cases hn
+    | cons y ys =>
+      simp only [List.map_cons, List.cons.injEq] at hn
+      rw [h x (by simp) y (by simp) hn.1,
+        ih hn.2 fun m hm m' hm' => h m (List.mem_cons_of_mem _ hm) m' (List.mem_cons_of_mem _ hm')]
+
+/-- What a run answered of a finished build is what a reading of it holds, on one answer for each operation. -/
+theorem answered_unique {T : List (Event L E)} (h : OneAnswer T) {root : Root L} {a : BuildAnswer} {f : Regula.Load.Facts} {roots roots'}
+    (h1 : BuildAnswered T root a roots') (h2 : BuildRead T root f roots) : a = BuildAnswer.ofFacts f ∧ roots' = roots := by
+  obtain ⟨q, hq, rfl, hs, ht, hr, hn, hm⟩ := h1
+  obtain ⟨q', hq', rfl, hs', ht', hr', hm'⟩ := h2
+  obtain rfl := defaultModules_unique h hq hq'
+  have henv : a.env = f.env := Except.ok.inj (h.resp (hs.subset (by simp) : (⟨.importForRules (q.map (·.1)).toArray, .ok a.env⟩ : Event L E) ∈ T)
+    (hs'.subset (by simp) : (⟨.importForRules (q.map (·.1)).toArray, .ok f.env⟩ : Event L E) ∈ T) rfl)
+  refine ⟨?_, rfl⟩
+  have hplaces : a.places = (BuildAnswer.ofFacts f).places := by
+    refine pairs_eq ?_ fun x hx y hy hxy => ?_
+    · rw [hn, henv]
+      simpa [BuildAnswer.ofFacts, Function.comp_def] using f.names.symm
+    · simp only [BuildAnswer.ofFacts, List.mem_map, Array.mem_toList_iff] at hy
+      obtain ⟨m, hm₁, rfl⟩ := hy
+      have hxy' : x.1 = m.name := hxy
+      have hm2 : (⟨.findOLean x.1, .ok m.olean⟩ : Event L E) ∈ T := hxy' ▸ hm' m hm₁
+      have ho : x.2 = m.olean := Except.ok.inj (h.resp (hm x hx) hm2 rfl)
+      exact Prod.ext hxy ho
+  obtain ⟨env, td, rd, ps⟩ := a
+  simp only [BuildAnswer.ofFacts] at henv ht hr hplaces ⊢
+  simp only [BuildAnswer.mk.injEq]
+  exact ⟨henv, ht.trans ht'.symm, hr.trans hr'.symm, hplaces⟩
+
 /-- A run of the proof verdict that exits with 0 received what `PlainOwed` states, on one answer for each operation. -/
 theorem plain_exit_zero_owed {t : List (Event L E)} {p : Regula.Closed.Profile} (h : PlainRun t p 0)
     (hone : OneAnswer t) : PlainOwed t p := by
@@ -133,14 +170,14 @@ theorem plain_exit_zero_owed {t : List (Event L E)} {p : Regula.Closed.Profile} 
   have hv : (Regula.Closed.decision result).verdict = .pass :=
     (Regula.Closed.Verdict.exitCode_eq_zero_iff _).mp hc.symm
   rcases hl with ⟨root, f, roots, hg, hb, rfl⟩ | ⟨-, m, rfl⟩
-  · obtain ⟨sysroot, dir, log, leanPath, lakeLib, program, hs, hload, hdir, hinst, henv, hdis⟩ := id hg
+  · obtain ⟨sysroot, dir, log, received, hs, hload, hdir, henv, hdis⟩ := id hg
     refine ⟨fun hw => ?_, fun root' f' roots' hg' hb' => ?_⟩
     · cases hw with
       | noSysroot h => exact healthy _ h rfl
       | noDirectory h => exact healthy _ h ⟨_, rfl⟩
       | load _ _ h hf => exact healthy _ h hf
       | noSearchPath h => exact healthy _ h rfl
-      | @elsewhere sysroot' dir' root' log' leanPath' program' lakeLib' hs' hd' hl' hi' he' hn =>
+      | @elsewhere sysroot' dir' root' log' received' hs' hd' hl' he' hn =>
         have h1 := Option.some.inj (hone.resp hs' hs rfl)
         subst h1
         have h2 := Except.ok.inj (hone.resp hd' hdir rfl)
@@ -148,19 +185,15 @@ theorem plain_exit_zero_owed {t : List (Event L E)} {p : Regula.Closed.Profile} 
         have h3 : (some root', log') = (some root, log) := Except.ok.inj (hone.resp hl' hload rfl)
         simp only [Prod.mk.injEq, Option.some.injEq] at h3
         obtain ⟨rfl, -⟩ := h3
-        have h4 : (program', lakeLib') = (program, lakeLib) := hone.resp hi' hinst rfl
-        simp only [Prod.mk.injEq] at h4
-        obtain ⟨-, rfl⟩ := h4
         have h5 := Option.some.inj (hone.resp he' henv rfl)
         subst h5
-        rw [hdis] at hn
-        cases hn
+        exact hn hdis
       | build _ hf =>
         cases hf with
         | library _ _ h => exact healthy _ h ⟨_, rfl⟩
         | «import» _ h => exact healthy _ h ⟨_, rfl⟩
         | search _ _ _ h => exact healthy _ h ⟨_, rfl⟩
-    · obtain ⟨s', d', l', _, _, _, hs', hload', hdir', -⟩ := hg'
+    · obtain ⟨s', d', l', _, hs', hload', hdir', -⟩ := hg'
       have h1 := Option.some.inj (hone.resp hs' hs rfl)
       subst h1
       have h2 := Except.ok.inj (hone.resp hdir' hdir rfl)
@@ -168,8 +201,8 @@ theorem plain_exit_zero_owed {t : List (Event L E)} {p : Regula.Closed.Profile} 
       have h3 : (some root', l') = (some root, log) := Except.ok.inj (hone.resp hload' hload rfl)
       simp only [Prod.mk.injEq, Option.some.injEq] at h3
       obtain ⟨rfl, -⟩ := h3
-      obtain ⟨rfl, rfl⟩ := buildRead_unique hone hb' hb
-      exact pass_iff_floor.mp hv
+      obtain ⟨rfl, rfl⟩ := answered_unique hone hb' hb
+      exact (pass_iff_answer f _ p).mp hv
   · cases hv
 
 /-- What a parse of one input gave is one list of commands, on one answer for each call of the parser. -/
@@ -233,9 +266,9 @@ theorem readAs_same {T : List (Event L E)} (h : OneAnswer T) (hc : OneContext T)
     (h4'.subset (by simp) : (⟨.readFile (under project rel), .ok text'⟩ : Event L E) ∈ T) rfl)
   subst htext
   have hhead : (f.header, state, messages, i) = (f₀.header, state', messages', i₀) := Except.ok.inj (h.resp
-    (h4.subset (by simp) : (⟨.parseHeader (mkInputContext text (Regula.Load.inputName path)), .ok (f.header, state, messages, i)⟩ :
+    (h4.subset (by simp) : (⟨.parseHeader (mkInputContext text (inputNameOf path)), .ok (f.header, state, messages, i)⟩ :
       Event L E) ∈ T)
-    (h4'.subset (by simp) : (⟨.parseHeader (mkInputContext text (Regula.Load.inputName path)),
+    (h4'.subset (by simp) : (⟨.parseHeader (mkInputContext text (inputNameOf path)),
       .ok (f₀.header, state', messages', i₀)⟩ : Event L E) ∈ T) rfl)
   simp only [Prod.mk.injEq] at hhead
   obtain ⟨hh, rfl, rfl, rfl⟩ := hhead
@@ -308,7 +341,7 @@ theorem no_reason_of_evidence {T : List (Event L E)} {dir treeDir : FilePath} {s
     (hctx : OneContext T)
     (hshadow : ∀ tree', (⟨.realPath treeDir, .ok tree'⟩ : Event L E) ∈ T →
       ∃ err, (⟨.symlinkMetadata (tree' / "lakefile.lean"), .error err⟩ : Event L E) ∈ T) : ¬ Reason T dir treeDir o := by
-  obtain ⟨project, tree, hp, ht, hap, ⟨s1, prog1, lib1, hs1, hl1, hst⟩, ⟨ttext, treal, htt, htr, hte1, hte2, hpin⟩,
+  obtain ⟨project, tree, hp, ht, hap, ⟨ttext, treal, htt, htr, hte1, hte2, hpin⟩,
     ⟨eabs, habs, nm, cd, dt, rfl⟩, ⟨text, real, table, hr1, hr2, hr3, hr4, hr5, hr6, hdeep, hkeys⟩, hpin0, hc1, hc2, sysroot, root,
     log, modules, hsys, hload, hdef, hroots, hdirs, hglobs, htargets, hres, htwo, headers, held, hcount, hnodup, hcomp,
     hheld, hfiles, honly⟩ := hev.places
@@ -332,7 +365,7 @@ theorem no_reason_of_evidence {T : List (Event L E)} {dir treeDir : FilePath} {s
     exact ⟨hP h.project_real, rfl, rfl, defaultModules_unique hone hdef h.default⟩
   have hHead {m path text' header state messages} {imports : Array Import}
       (hc : Compiled headers root modules m path) (hst' : SourceText T project tree path text')
-      (he : (⟨.parseHeader (mkInputContext text' (Regula.Load.inputName path)), .ok (header, state, messages, imports)⟩ : Event L E) ∈ T) :
+      (he : (⟨.parseHeader (mkInputContext text' (inputNameOf path)), .ok (header, state, messages, imports)⟩ : Event L E) ∈ T) :
       headers.lookup m = some imports := by
     obtain ⟨-, f, -, -, i0, m0, text0, hl0, hra, -⟩ := hcomp m path hc
     obtain ⟨rel, hrel, hread⟩ := hst'
@@ -343,7 +376,7 @@ theorem no_reason_of_evidence {T : List (Event L E)} {dir treeDir : FilePath} {s
       (h4.subset (by simp) : (⟨.readFile (under project rel), .ok text0⟩ : Event L E) ∈ T) rfl)
     subst htx
     have hh : (header, state, messages, imports) = (f.header, st0, ms0, i0) := Except.ok.inj (hone.resp he
-      (h4.subset (by simp) : (⟨.parseHeader (mkInputContext text' (Regula.Load.inputName path)), .ok (f.header, st0, ms0, i0)⟩ :
+      (h4.subset (by simp) : (⟨.parseHeader (mkInputContext text' (inputNameOf path)), .ok (f.header, st0, ms0, i0)⟩ :
         Event L E) ∈ T) rfl)
     simp only [Prod.mk.injEq] at hh
     rw [hl0, hh.2.2.2]
@@ -369,7 +402,7 @@ theorem no_reason_of_evidence {T : List (Event L E)} {dir treeDir : FilePath} {s
   have hNI {m} {imports : Array Import} {i : Import} (hn : Named T project tree root modules m)
       (hh : HeaderOf T project tree root modules m imports) (hi : i ∈ imports) :
       (i.module ∈ r.reached ∨ (root.resolve i.module = none ∧ modules.lookup i.module = none ∧
-        HeldByToolchain T root i.module)) ∧ ClosedModuleName i.module ∧ i.module.getRoot ≠ `Mathlib ∧
+        HeldByToolchain T i.module)) ∧ ClosedModuleName i.module ∧ i.module.getRoot ≠ `Mathlib ∧
         ((modules.lookup i.module).isSome = true → (root.resolve i.module).isSome = true) := by
     obtain ⟨p₀, text₀, a, b, c, hf₀, hst₀, he₀⟩ := hh
     have hc₀ := hNC hn p₀ hf₀
@@ -407,30 +440,15 @@ theorem no_reason_of_evidence {T : List (Event L E)} {dir treeDir : FilePath} {s
     cases hone.resp h2 htt rfl
   | toolchainNotExact h1 h2 h3 =>
     obtain rfl := hP h1
-    rw [Except.ok.inj (hone.resp h2 htr rfl), (exactBelow_iff _ _ _).mpr ⟨hte1, hte2⟩] at h3
-    cases h3
+    rw [Except.ok.inj (hone.resp h2 htr rfl)] at h3
+    exact h3 ⟨hte1, hte2⟩
   | toolchainNoReal h1 h2 =>
     obtain rfl := hP h1
     cases hone.resp h2 htr rfl
-  | @started p' s' pr' ll' app' real' lp' h1 h2 h3 h4 h5 h6 h7 =>
-    obtain rfl := hP h1
-    obtain rfl := Option.some.inj (hone.resp h2 hs1 rfl)
-    have hi1 : (pr', ll') = (prog1, lib1) := hone.resp h3 hl1 rfl
-    simp only [Prod.mk.injEq] at hi1
-    obtain ⟨-, rfl⟩ := hi1
-    obtain ⟨a0, r0, own, lp0, g1, g2, g3, g4, g5, g6⟩ := hst
-    obtain rfl := Except.ok.inj (hone.resp h4 g1 rfl)
-    obtain rfl := Except.ok.inj (hone.resp h5 g2 rfl)
-    obtain rfl := Option.some.inj (hone.resp h6 g3 rfl)
-    rcases h7 with h7 | h7
-    · rw [g5] at h7
-      cases h7
-    · rw [h7 own g4] at g6
-      cases g6
   | tomlNotExact h1 h2 h3 =>
     obtain rfl := hP h1
-    rw [Except.ok.inj (hone.resp h2 hr1 rfl), (exactBelow_iff _ _ _).mpr ⟨hr2, hr3⟩] at h3
-    cases h3
+    rw [Except.ok.inj (hone.resp h2 hr1 rfl)] at h3
+    exact h3 ⟨hr2, hr3⟩
   | notApart h1 h2 h3 =>
     obtain rfl := hP h1
     obtain rfl := hT h2
@@ -449,8 +467,8 @@ theorem no_reason_of_evidence {T : List (Event L E)} {dir treeDir : FilePath} {s
     obtain ⟨rel', real', st0, ms0, fin0, env0, cmds0, h1, h2, h3, h4, -⟩ := hra
     have hrel' := List.append_cancel_left (hrel.1.symm.trans h1.1)
     subst hrel'
-    rw [Except.ok.inj (hone.resp hreal (h4.subset (List.mem_cons_self ..)) rfl), (exactBelow_iff _ _ _).mpr ⟨h2, h3⟩] at hb
-    cases hb
+    rw [Except.ok.inj (hone.resp hreal (h4.subset (List.mem_cons_self ..)) rfl)] at hb
+    exact hb ⟨h2, h3⟩
   | leanConfig h1 h2 =>
     obtain rfl := hP h1
     cases hone.resp h2 habs rfl
@@ -521,34 +539,6 @@ theorem no_reason_of_evidence {T : List (Event L E)} {dir treeDir : FilePath} {s
     have := (hNI hn hh hi).2.2.2 h1
     rw [h2] at this
     cases this
-  | @notToolchain p' t' r' q m olean' real' reals hsc hn hl hr h1 h2 h3 h4 =>
-    obtain ⟨rfl, rfl, rfl, rfl⟩ := hSc hsc
-    have hnoFile : ∀ path, ¬ FileOfModule root modules m path := by
-      rintro path (hf | hf)
-      · have := lookup_of_mem_isSome hf
-        rw [hl] at this
-        cases this
-      · rw [hr] at hf
-        cases hf
-    cases hn with
-    | root hm =>
-      obtain ⟨⟨k, p0⟩, hx, rfl⟩ := List.mem_map.mp hm
-      exact hnoFile p0 (.inl hx)
-    | imported hn₀ hh hi =>
-      rcases (hNI hn₀ hh hi).1 with hreach | ⟨-, -, hheldBy⟩
-      · obtain ⟨f, hf, hmod⟩ := hcovf _ hreach
-        obtain ⟨p1, -, -, -, hfm, -⟩ := hfiles f hf
-        rw [hmod] at hfm
-        exact hnoFile p1 hfm
-      · obtain ⟨olean, real', d, dr, hsub, hd, hdr, hb⟩ := hheldBy
-        obtain rfl := Except.ok.inj (hone.resp h1 (hsub.subset (List.mem_cons_self ..)) rfl)
-        obtain rfl := Except.ok.inj (hone.resp h2 (hsub.subset (List.mem_cons_of_mem _ (List.mem_singleton.mpr rfl))) rfl)
-        rw [← h3] at hd
-        obtain ⟨x, hx, rfl⟩ := List.mem_map.mp hd
-        obtain ⟨h5, h6⟩ := h4 x hx
-        obtain rfl := Except.ok.inj (hone.resp h5 hdr rfl)
-        rw [hb] at h6
-        cases h6
   | @tooMany p' t' root' q ms hsc hnd hall hgt =>
     obtain ⟨rfl, rfl, rfl, rfl⟩ := hSc hsc
     have hsub : ∀ x ∈ ms, x ∈ headers := by
@@ -672,8 +662,8 @@ theorem full_exit_zero_owed {t : List (Event L E)} {dir : FilePath} {p : Regula.
           have h5 : (some root', log₂) = (some root, log₁) := Except.ok.inj (h3.resp g4 g2 rfl)
           simp only [Prod.mk.injEq, Option.some.injEq] at h5
           obtain ⟨rfl, -⟩ := h5
-          obtain ⟨rfl, rfl⟩ := buildRead_unique h3 hb' (BuildRead.mono hrules hbr)
-          exact pass_iff_floor.mp hv
+          obtain ⟨rfl, rfl⟩ := answered_unique h3 hb' (BuildRead.mono hrules hbr)
+          exact (pass_iff_answer f _ p).mp hv
         · cases hv
       · cases hrep
 

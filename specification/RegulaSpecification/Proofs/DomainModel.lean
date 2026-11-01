@@ -41,14 +41,10 @@ theorem Answers.of_infix {L E : Type} {p : Project} {T T' : List (Event L E)} {d
   refine ⟨fun e he => h.answered e (m he), fun pr hp rel text hr => h.read pr (m hp) rel text (m hr),
     fun pr hp rel real hrel hr => h.real pr (m hp) rel real hrel (m hr), fun pr hp md hr => h.leanConfig pr (m hp) md (m hr),
     fun text table hr => h.toml text table (m hr),
-    fun pr s pg ll app real lp h1 h2 h3 h4 h5 h6 => h.start pr s pg ll app real lp (m h1) (m h2) (m h3) (m h4) (m h5) (m h6),
     fun pr tr h1 h2 => h.apart pr tr (m h1) (m h2), fun tr h1 => h.copies tr (m h1), fun tr s root log h1 h2 => ?_,
     fun pr tr root mods md path d hs hf hd => h.parents pr tr root mods md path d (Scene.mono hi hs) hf hd,
     fun text name hh st ms imports he => h.header text name hh st ms imports (m he),
     fun pr tr f path i md h1 h2 => h.parse pr tr f path i md (m h1) (ReadAs.mono hi.sublist h2),
-    fun tr s root log md ol real h1 h2 h3 h4 h5 =>
-      let ⟨d, hd, hb⟩ := h.toolchain tr s root log md ol real (m h1) (m h2) h3 (m h4) (m h5)
-      ⟨d, hd, fun dr hx => hb dr (m hx)⟩,
     fun pr tr root mods path text r hs hp hsub =>
       h.writes pr tr root mods path text r (Scene.mono hi hs) (Planned.mono hi.sublist hp) (hsub.trans hi.sublist),
     fun tr md h1 h2 => h.shadow tr md (m h1) (m h2)⟩
@@ -150,7 +146,7 @@ theorem answers_witness {w : WitnessPaths} {env : Lean.Environment} (hw : Witnes
     | source _ _ hst =>
       obtain ⟨_, _, h⟩ := hst
       exact hread h
-  refine ⟨?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_⟩
+  refine ⟨?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_⟩
   · intro e he hf
     obtain ⟨op, r⟩ := e
     have hrr := resp_eq he
@@ -198,24 +194,6 @@ theorem answers_witness {w : WitnessPaths} {env : Lean.Environment} (hw : Witnes
       exfalso
       generalize ht : Lake.Toml.Table.empty = t at hn
       cases hn <;> (subst ht; simp [Lake.Toml.Table.empty, Lake.Toml.RBDict.empty] at *)
-  · intro pr s pg ll app real lp hp _ hl ha hr hen
-    obtain rfl := hreal hp
-    have hla : (pg, ll) = (w.tree, w.lakeLib) := resp_eq hl
-    cases hla
-    have happ := Except.ok.inj (resp_eq ha : (Except.ok _ : Except IO.Error FilePath) = .ok _)
-    subst happ
-    obtain rfl := hreal hr
-    have hlp : some lp = some w.leanPath := resp_eq hen
-    cases hlp
-    refine ⟨w.outside, ?_⟩
-    have hd := w.dispatched
-    cases hown : (w.app.parent.bind (·.parent)).map (· / "lib" / "lean") with
-    | none =>
-      rw [hown] at hd
-      cases hd
-    | some own =>
-      rw [hown] at hd
-      exact ⟨own, rfl, hd⟩
   · intro pr tr hp ht
     obtain rfl := hreal hp
     obtain rfl := hreal ht
@@ -275,8 +253,6 @@ theorem answers_witness {w : WitnessPaths} {env : Lean.Environment} (hw : Witnes
     exact this.2.2.2
   · intro pr tr f path i md _ hra s hs _ _ _
     exact good_file hra
-  · intro tr s root log m ol real _ _ hm
-    cases hm
   · intro pr tr root mods path text r hs hpl hsub
     have hrr := resp_eq (hsub.subset (List.mem_cons_of_mem _ (List.mem_cons_self ..)))
     rw [hrr, hplanned hpl]
@@ -299,7 +275,7 @@ theorem domain_model (w : WitnessPaths) (env : Lean.Environment) (hm : EnvModel 
           (argsOf ["standard-logical", "full", w.project.toString]).1
           (argsOf ["standard-logical", "full", w.project.toString]).2) := rfl
   rw [hshape] at hr
-  have hsp : Regula.Closed.Profile.ofSpelling? "standard-logical" = some .standardLogical := rfl
+  have hsp : "standard-logical" = Regula.Closed.Profile.spelling .standardLogical := rfl
   generalize hq : (dispatch Regula.Closed.pinnedLean.1 Regula.Closed.pinnedLean.2
       (argsOf ["standard-logical", "full", w.project.toString]).1
       (argsOf ["standard-logical", "full", w.project.toString]).2 : Prog Unit Unit UInt32) = q at hr
@@ -314,7 +290,7 @@ theorem domain_model (w : WitnessPaths) (env : Lean.Environment) (hm : EnvModel 
     intro tree rest he
     have hmem : (⟨.createTempDir, .ok tree⟩ : Event Unit Unit) ∈ traceWith (answers w env) q := by simp [he]
     exact Except.ok.inj (resp_eq hmem : (Except.ok _ : Except IO.Error FilePath) = .ok _)
-  refine ⟨_, hr, hdomain, hanswered, fun tree rest he => ?_, fun tree rest s root f roots he hs hg hb => howed.floor tree rest s root f roots he hs hg hb⟩
+  refine ⟨_, hr, hdomain, hanswered, fun tree rest he => ?_, fun tree rest s root a roots he hs hg hb => howed.floor tree rest s root a roots he hs hg hb⟩
   obtain rfl := htree he
   exact Answers.of_infix hreadT (answers_witness hw q)
 
@@ -324,7 +300,7 @@ theorem answers_admit_outside {w : WitnessPaths} {env : Lean.Environment} (hw : 
     Answers ({ witnessProject with leanConfig := true } : Project) (traceWith (answers w env) q) w.project w.tree ∧
       ¬ ({ witnessProject with leanConfig := true } : Project).InDomain := by
   have h := answers_witness (env := env) hw q
-  exact ⟨⟨h.answered, h.read, h.real, fun _ _ _ _ => rfl, h.toml, h.start, h.apart, h.copies, h.lake, h.parents, h.header, h.parse, h.toolchain,
+  exact ⟨⟨h.answered, h.read, h.real, fun _ _ _ _ => rfl, h.toml, h.apart, h.copies, h.lake, h.parents, h.header, h.parse,
     h.writes, h.shadow⟩, fun hd => by cases hd.noLeanConfig⟩
 
 /-- The answers of the witness, but for a Lake command, which ends with 1. -/
@@ -397,7 +373,7 @@ theorem build_fails_model (w : WitnessPaths) (env : Lean.Environment) (hw : Witn
       exact Answers.of_infix (List.IsInfix.trans (List.takeWhile_prefix _).isInfix (List.drop_suffix _ _).isInfix) (answers_witness hw _)
   · rintro rfl
     have hm := run_meets _ _ _ hr
-    have hsp : Regula.Closed.Profile.ofSpelling? "standard-logical" = some .standardLogical := rfl
+    have hsp : "standard-logical" = Regula.Closed.Profile.spelling .standardLogical := rfl
     simp only [hsp] at hm
     obtain ⟨v, rest', he, hrun, -⟩ := hm
     cases he

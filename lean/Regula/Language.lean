@@ -5,6 +5,7 @@ Authors: Regula contributors
 -/
 module
 
+public import Lean.Data.Name
 public import Regula.LanguageSet
 
 /-!
@@ -69,8 +70,8 @@ def targets (as : Array Syntax) : List Name :=
 
 /-- Whether, from some namespace, a target `n` can activate the namespace `N`. -/
 def canActivate (N n : Name) : Bool :=
-  let target := (components n).dropWhile (· == `_root_)
-  (List.range target.length).any fun i => (target.take (i + 1)).isSuffixOf (components N)
+  let target := n.components.dropWhile (· == `_root_)
+  (List.range target.length).any fun i => (target.take (i + 1)).isSuffixOf N.components
 
 /-- The identifier that is the argument of `as` at `i`, in the table `allowed`. -/
 def identIn (allowed : List Name) (as : Array Syntax) (i : Nat) : Bool :=
@@ -169,9 +170,9 @@ def configClosed : Bool :=
   r.toolchainFile == some leanToolchain && !r.leanConfig && r.openPaths.isEmpty &&
     r.configKeys.all fun k => k.getRoot == `require || configKeyAdmitted k
 
-/-- The checker started outside the project's Lake, and nothing failed to read. -/
+/-- Nothing failed to read. -/
 def readInFull : Bool :=
-  r.outside && r.unread.isEmpty
+  r.unread.isEmpty
 
 /-- Whether the project's configuration has a dependency: a key with the root `require`. -/
 def requiresDependency : Bool :=

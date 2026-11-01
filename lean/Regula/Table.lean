@@ -44,12 +44,14 @@ structure LakeCalls (L : Type) where
 def scopedParsersOf (env : Environment) : List Name :=
   (Lean.Parser.parserExtension.ext.getState env).scopedEntries.map.toList.map (·.1)
 
-/-- A Lake command in a directory, with the standard streams of this process, no inherited search path and no
-artifact cache, so that nothing is restored without being compiled. -/
+/-- A Lake command in a directory, with the standard streams of this process and a closed environment: `env -i` starts it with these two variables and no other, so no
+variable that a Lake before this checker composed, or that this process inherited, reaches its lookups of a program or a library. `IO.Process.SpawnArgs.inheritEnv := false` would say this
+directly, and it ends with a segmentation fault on macOS at v4.35.0. Lake takes `lean` and its own tools from the toolchain's directory, so the search path is only for what it asks of the system, such
+as `which` and `git`. Lake's artifact cache is off: nothing is restored without being compiled. -/
 def spawnLake (program cwd : FilePath) (args : List String) : IO UInt32 := do
   let child ← IO.Process.spawn
-    { cmd := program.toString, args := args.toArray, cwd := some cwd, stdin := .null,
-      env := #[("LEAN_PATH", none), ("LEAN_SRC_PATH", none), ("LAKE_ARTIFACT_CACHE", some "false")] }
+    { cmd := "/usr/bin/env", args := #["-i", "PATH=/usr/bin:/bin", "LAKE_ARTIFACT_CACHE=false", program.toString] ++ args.toArray,
+      cwd := some cwd, stdin := .null }
   child.wait
 
 /-- `enable` is Lean's `enableInitializersExecution`, which is `unsafe` and which must run before each import of
@@ -65,7 +67,6 @@ def importParsers (enable : BaseIO Unit) (modules : List Name) : IO (Environment
 def table {L : Type} (enable : BaseIO Unit) (lake : LakeCalls L) : (o : Op L Environment) → BaseIO (Resp o)
   | .leanVersion => pure (Lean.versionString, Lean.githash)
   | .getEnv name => IO.getEnv name
-  | .appPath => IO.appPath.toBaseIO
   | .realPath path => (IO.FS.realPath path).toBaseIO
   | .readFile path => (IO.FS.readFile path).toBaseIO
   | .symlinkMetadata path => path.symlinkMetadata.toBaseIO

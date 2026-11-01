@@ -26,8 +26,7 @@ A run with the profile, `full` and a directory is the full gate (`Regula.Languag
 there: the language check, which writes the configuration to a tree of the checker's own and, once it has admitted the
 project, what it judged of each file, then, for
 an admitted project, the build and its replay in that tree and the same rules on it. Only that run can print a full
-verdict, because only there the check came first, and only from a checker that the project's Lake did not start
-(`Regula.Reader.startedOutside`). A project with a dependency or with Mathlib in its imports gets no build from
+verdict, because only there the check came first. Starting the checker from its own package is a precondition of that verdict, which it does not test. A project with a dependency or with Mathlib in its imports gets no build from
 it: it says that only a proof verdict is possible and exits with 3.
 
 Each line but the last starts with two spaces (`Regula.Reader.say`). The last is a function of the verdict
@@ -126,17 +125,14 @@ def loadPlain (profile : Profile) : Attempt L E Input := do
   let dir ← realPath "."
   let root ← ExceptT.mk (Prog.bind (Prog.call (.loadWorkspace sysroot dir)) fun r =>
     pure (loaded "the workspace" r))
-  let (_, lakeLib) ← (ExceptT.lift (Prog.call (.lakeInstall sysroot)) :
-    Attempt L E (FilePath × FilePath))
   let received ← requireEnv "LEAN_PATH"
     "LEAN_PATH is not set, so the workspace that Lake dispatched is not known: run the checker with \
       `lake lint` or `lake exe lint`, which set it"
-  if Regula.Load.dispatchedFrom root.rootLib.toString lakeLib.toString
-      ((System.SearchPath.parse received).map toString) then
+  if Regula.Load.dispatchedFrom (root.leanPath.map toString) ((System.SearchPath.parse received).map toString) then
     inputOf root profile
   else
-    throw "the current directory is not the workspace Lake dispatched; run `lake lint` from that \
-      workspace's directory"
+    throw "Lake's search path does not start with that of the workspace in the current directory, so this may be another workspace: run \
+      `lake lint` from the directory of the workspace to check"
 
 /-- The closed input of the finished build in the checker's tree, through the root package's load alone. The
 full gate asks this only after the check admitted the project, so each `globs` entry is a single module and it

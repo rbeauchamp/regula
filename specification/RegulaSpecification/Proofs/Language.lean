@@ -431,7 +431,7 @@ theorem decision_meets : languageRecord.Meets decision := by
       (filesAdmitted_iff r).mpr o]
 
 /-- The check admits a reading exactly when `Inside` holds: its configuration and files are in the closed set, nothing is left
-out, the checker started outside the project's Lake, and there is no dependency and no Mathlib. This is the theorem the check exists for, over every `Lean.Syntax` that a reading can hold. -/
+out, and there is no dependency and no Mathlib. This is the theorem the check exists for, over every `Lean.Syntax` that a reading can hold. -/
 theorem decision_admitted_iff (r : Reading) : decision r = .admitted ↔ Inside r :=
   admitted_iff decision_meets r
 
