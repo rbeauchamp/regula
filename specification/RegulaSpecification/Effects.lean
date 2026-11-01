@@ -110,24 +110,30 @@ def under (dir : FilePath) (rel : List String) : FilePath :=
 
 /-! ## What a read is -/
 
-/-- A failed answer to what the reader asks. A name that is absent, for the one name the reader tests that
-way, is no failure, because absence is what it asks about. -/
-def Event.failedRead : Event L E → Prop
-  | ⟨.appPath, r⟩ | ⟨.realPath _, r⟩ | ⟨.findOLean _, r⟩ =>
+/-- A failed answer. An environment variable that is not set, an error of an operation that can fail, a load of Lake that
+gives no workspace and a Lake command that does not end with 0 are failures. A name that is absent, for the one name the
+reader tests that way, is no failure, because absence is what it asks about. A failed print, flush or removal is none
+either, because no verdict rests on it. Whether a failure justifies a result is what `Reason` and the reasons of a load
+state, which bind it to the requested build. -/
+def Event.failed : Event L E → Prop
+  | ⟨.getEnv _, r⟩ => r = (none : Option String)
+  | ⟨.appPath, r⟩ | ⟨.realPath _, r⟩ | ⟨.findOLean _, r⟩ | ⟨.createTempDir, r⟩ =>
     ∃ e, r = (Except.error e : Except IO.Error FilePath)
   | ⟨.readFile _, r⟩ => ∃ e, r = (Except.error e : Except IO.Error String)
   | ⟨.writeFile .., r⟩ | ⟨.createDirAll _, r⟩ => ∃ e, r = (Except.error e : Except IO.Error Unit)
   | ⟨.parseHeader _, r⟩ =>
     ∃ e, r = (Except.error e : Except IO.Error (Syntax × ModuleParserState × MessageLog × Array Import))
   | ⟨.importForParser _, r⟩ => ∃ e, r = (Except.error e : Except IO.Error (E × List Name))
+  | ⟨.importForRules _, r⟩ => ∃ e, r = (Except.error e : Except IO.Error Environment)
   | ⟨.parseToml _, r⟩ => ∃ e, r = (Except.error e : Except MessageLog Lake.Toml.Table)
   | ⟨.libModules _, r⟩ => ∃ e, r = (Except.error e : Except IO.Error (Array (Name × FilePath)))
-  | ⟨.loadRoot .., r⟩ =>
+  | ⟨.loadWorkspace .., r⟩ | ⟨.loadRoot .., r⟩ =>
     (∃ e, r = (Except.error e : Except String (Option (Root L) × List String))) ∨
       ∃ log, r = (Except.ok (none, log) : Except String (Option (Root L) × List String))
   | ⟨.symlinkMetadata _, r⟩ =>
     ∃ e, r = (Except.error e : Except IO.Error IO.FS.Metadata) ∧
       ∀ name code details, e ≠ .noFileOrDirectory name code details
+  | ⟨.runLake .., r⟩ => r ≠ (Except.ok 0 : Except IO.Error UInt32)
   | _ => False
 
 /-- Lean's parser read the commands `commands` of the input `input` in order from the state `state` and the
