@@ -405,7 +405,7 @@ theorem mem_visible_iff (hs : List (Name × Array Import)) (held direct : List N
 theorem parseAll_parsed (input : InputContext) (env : E) (state : ModuleParserState) (messages : MessageLog)
     (fuel : Nat) {t : List (Event L E)} {commands : List Syntax} {final : MessageLog}
     (h : Runs (parseAll input env state messages fuel) t (commands, final)) :
-    Parsed input env state messages commands final t := by
+    Parsed input env fuel state messages commands final t := by
   induction fuel generalizing state messages t commands final with
   | zero =>
     obtain ⟨rfl, he⟩ := runs_pure_iff.mp h

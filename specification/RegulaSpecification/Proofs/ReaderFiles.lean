@@ -60,9 +60,9 @@ theorem lookup_of_mem {α β : Type} [BEq α] [LawfulBEq α] {l : List (α × β
       exact ih hn.2 hm
 
 /-- The events of a parse act on nothing. -/
-theorem parsed_no_act {input : InputContext} {env : E} {state : ModuleParserState} {messages : MessageLog}
+theorem parsed_no_act {input : InputContext} {env : E} {fuel : Nat} {state : ModuleParserState} {messages : MessageLog}
     {commands : List Syntax} {final : MessageLog} {t : List (Event L E)}
-    (h : Parsed input env state messages commands final t) : ∀ e ∈ t, e.acted? = none := by
+    (h : Parsed input env fuel state messages commands final t) : ∀ e ∈ t, e.acted? = none := by
   induction h with
   | stop => intro e he; cases he
   | last _ =>
@@ -86,7 +86,8 @@ def FileFrom (T : List (Event L E)) (sources : List (Name × Source)) (toolchain
             (s.imports.toList.map (·.module)) []
             ((s.imports.toList.map (·.module)).length + (sources.map (·.2.imports.size)).sum + 1)).eraseDups,
         .ok (env, f.scopedParsers)⟩ : Event L E) ∈ T ∧
-      Parsed s.input env s.state s.messages f.commands final commands ∧ commands.Sublist T ∧
+      Parsed s.input env (s.input.inputString.utf8ByteSize + 1) s.state s.messages f.commands final commands ∧
+        commands.Sublist T ∧
       f.parsed = !final.hasErrors
 
 /-- `environmentFor` gives what an import gave for exactly those modules, each set once. -/

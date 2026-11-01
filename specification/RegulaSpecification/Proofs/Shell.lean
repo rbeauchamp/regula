@@ -79,7 +79,7 @@ theorem check_spec {T t : List (Event L E)} {sysroot : String} {dir tree : FileP
     have hd := say_spec h₃
     have hr := g2 ⟨why, rfl⟩
     have : Details (t₃ ++ ([] : List (Event L E))) := by simpa using hd
-    exact ⟨⟨fun he => (by cases he), fun _ => hr⟩, hacts this, hrest this⟩
+    exact ⟨⟨fun he => (by cases he), fun _ => hr, .inr rfl⟩, hacts this, hrest this⟩
   | ok x =>
     obtain ⟨reading, lines⟩ := x
     obtain ⟨t₃, t₄, u, rfl, h₃, h₄⟩ := runs_seq_iff.mp h₂
@@ -89,7 +89,7 @@ theorem check_spec {T t : List (Event L E)} {sysroot : String} {dir tree : FileP
       simpa using details_append (sayAll_spec h₃) (say_spec h₅)
     obtain ⟨g4, g5⟩ := g1 reading lines rfl
     refine ⟨⟨fun ha => ⟨reading, (decision_admitted_iff reading).mp ha, g4 ha⟩,
-      fun hne => g5 _ rfl hne⟩, hacts hd, hrest hd⟩
+      fun hne => g5 _ rfl hne, .inl ⟨reading, rfl⟩⟩, hacts hd, hrest hd⟩
 
 /-! ## The build -/
 
@@ -373,7 +373,7 @@ theorem gateIn_spec {p : Regula.Closed.Profile} {dir tree : FilePath} {t : List 
     obtain ⟨rfl, rfl⟩ := runs_pure_iff.mp h₄
     have hd := say_spec h₃
     refine ⟨[⟨.getEnv "LEAN_SYSROOT", none⟩] ++ t₃, [], by simp, ?_⟩
-    refine { quiet := ?_, decided := ⟨.incomplete, ⟨fun he => (by cases he), fun _ => .noSysroot (by simp)⟩,
+    refine { quiet := ?_, decided := ⟨.incomplete, ⟨fun he => (by cases he), fun _ => .noSysroot (by simp), .inr rfl⟩,
                fun _ => ⟨rfl, rfl⟩, fun he => (by cases he)⟩,
              lines := ⟨?_, by simp [printed]⟩, readActs := .inl ?_, gateActs := by simp }
     · intro e he

@@ -125,20 +125,21 @@ def Event.failedRead : Event L E → Prop
   | _ => False
 
 /-- Lean's parser read the commands `commands` of the input `input` in order from the state `state` and the
-log `messages`, up to the log `final`: one event for each, each started from where the last ended. `stop` is a
-parse that stopped short of the parser's end of input, which `ReadToEnd` then refuses. -/
+log `messages`, up to the log `final`: one event for each, each started from where the last ended. `fuel` bounds the
+calls, which one more than the bytes of a file does not run out of: `stop` is a parse that took them all and stopped
+short of the parser's end of input, which `ReadToEnd` then refuses. -/
 inductive Parsed (input : InputContext) (env : E) :
-    ModuleParserState → MessageLog → List Syntax → MessageLog → List (Event L E) → Prop where
-  /-- The reader stopped here. -/
-  | stop {state messages} : Parsed input env state messages [] messages []
+    Nat → ModuleParserState → MessageLog → List Syntax → MessageLog → List (Event L E) → Prop where
+  /-- The reader took as many commands as `fuel` allows, and stopped here. -/
+  | stop {state messages} : Parsed input env 0 state messages [] messages []
   /-- The parser's end of input. -/
-  | last {state messages stx state' final} : isTerminalCommand stx = true →
-      Parsed input env state messages [stx] final
+  | last {fuel state messages stx state' final} : isTerminalCommand stx = true →
+      Parsed input env (fuel + 1) state messages [stx] final
         [⟨.parseCommand input env state messages, (stx, state', final)⟩]
   /-- One command and then the rest. -/
-  | next {state messages stx state' messages' rest final events} : isTerminalCommand stx = false →
-      Parsed input env state' messages' rest final events →
-      Parsed input env state messages (stx :: rest) final
+  | next {fuel state messages stx state' messages' rest final events} : isTerminalCommand stx = false →
+      Parsed input env fuel state' messages' rest final events →
+      Parsed input env (fuel + 1) state messages (stx :: rest) final
         (⟨.parseCommand input env state messages, (stx, state', messages')⟩ :: events)
 
 /-- `f` is what the run read of one file: the project's file `under project rel` passed the exact-path test
@@ -158,7 +159,8 @@ def ReadAs (t : List (Event L E)) (project tree : FilePath) (f : FileRead) (path
       ⟨.parseHeader (mkInputContext text path.toString), .ok (f.header, state, messages, imports)⟩] :
         List (Event L E)).Sublist t ∧
     (⟨.importForParser mods, .ok (env, f.scopedParsers)⟩ : Event L E) ∈ t ∧
-    Parsed (mkInputContext text path.toString) env state messages f.commands final commands ∧
+    Parsed (mkInputContext text path.toString) env ((mkInputContext text path.toString).inputString.utf8ByteSize + 1)
+      state messages f.commands final commands ∧
     commands.Sublist t ∧
     f.parsed = !final.hasErrors
 
