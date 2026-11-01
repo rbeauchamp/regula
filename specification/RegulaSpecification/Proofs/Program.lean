@@ -67,7 +67,7 @@ theorem program_o3 : O3 (programRecord L E) := by
 /-- O4: a run is a function of its arguments. -/
 theorem program_o4 : O4 (programRecord L E) := o4_function _ rfl
 
-/-- O5: the record leaves the order of what is read, and the wording of each line before the last, to the program, and
+/-- O5: the record leaves the order of independent reads, and the wording of each line before the last, to the program, and
 any two programs that meet it agree on what a run's exit code and last line rest on. It is proved at `.widest`, because
 two programs ask different events, so no relation between their traces is fixed. -/
 theorem program_o5 : O5 (programRecord L E) .widest := o5_widest _
@@ -78,11 +78,16 @@ theorem reason_nil {dir tree : FilePath} {o : Outcome} : ¬ Reason ([] : List (E
   intro h
   have hs {a b c d : FilePath} {r : Root L} {q : List (Name × FilePath)} :
       ¬ Scene ([] : List (Event L E)) a b c d r q := fun x => by simpa using x.project_real
-  have ht {a b : FilePath} {r : Root L} : ¬ TreeLoaded ([] : List (Event L E)) a b r := fun x => by simpa using x.1
+  have ht {a b c : FilePath} {r : Root L} : ¬ TreeLoaded ([] : List (Event L E)) a b c r := fun x => by simpa using x.1
+  have hl {a b c s response} : ¬ PreparedLoad ([] : List (Event L E)) a b s c response := by
+    intro hp
+    have := hp.event
+    cases this
   have hm {a : FilePath} {x : Lake.Toml.Table} : ¬ TomlRead ([] : List (Event L E)) a x := by
     rintro ⟨_, _, h, -⟩
     simp at h
-  cases h <;> first | exact hs (by assumption) | exact ht (by assumption) | exact hm (by assumption) | simp_all
+  cases h <;> first | exact hs (by assumption) | exact ht (by assumption) | exact hm (by assumption) |
+    exact hl (by assumption) | simp_all
 
 /-- A program that says it refused, and read nothing. -/
 def refuser (_ : List String) : Prog L E UInt32 :=

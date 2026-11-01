@@ -341,8 +341,8 @@ theorem no_reason_of_evidence {T : List (Event L E)} {dir treeDir : FilePath} {r
     Except.ok.inj (hone.resp hp h rfl)
   have hT {t' : FilePath} (h : (⟨.realPath treeDir, .ok t'⟩ : Event L E) ∈ T) : tree = t' :=
     Except.ok.inj (hone.resp ht h rfl)
-  have hTL {t' : FilePath} {root' : Root L} (h : TreeLoaded T treeDir t' root') : tree = t' ∧ root = root' := by
-    obtain ⟨h1, s', l', h2, h3⟩ := h
+  have hTL {t' : FilePath} {root' : Root L} (h : TreeLoaded T dir treeDir t' root') : tree = t' ∧ root = root' := by
+    obtain ⟨h1, s', l', h2, h3, -⟩ := h
     obtain rfl := hT h1
     have h4 := Option.some.inj (hone.resp h2 hsys rfl)
     subst h4
@@ -407,6 +407,7 @@ theorem no_reason_of_evidence {T : List (Event L E)} {dir treeDir : FilePath} {r
   intro hreason
   cases hreason with
   | failed he _ hf => exact hfail _ he hf
+  | load hp hf => exact hfail _ hp.event hf
   | toolchain h1 h2 h3 =>
     obtain rfl := hP h1
     exact h3 (by rw [← Except.ok.inj (hone.resp h2 htt rfl)] at hpin; exact hpin)

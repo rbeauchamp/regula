@@ -235,7 +235,7 @@ theorem scene_witness {w : WitnessPaths} {env : Lean.Environment} {p : Prog Unit
     project = dir ∧ tree = treeDir ∧ root = witnessRoot w ∧ modules = [(`Good, w.file)] := by
   have hreal : ∀ {q real : FilePath}, (⟨.realPath q, .ok real⟩ : Event Unit Unit) ∈ traceWith (answers w env) p →
       real = q := fun h => Except.ok.inj (resp_eq h : (Except.ok _ : Except IO.Error FilePath) = .ok _)
-  obtain ⟨h1, ⟨h2, s, l, -, h3⟩, h4⟩ := h
+  obtain ⟨h1, ⟨h2, s, l, -, h3, -⟩, h4⟩ := h
   have he : (Except.ok (some root, l) : Except String (Option (Root Unit) × List String)) =
       .ok (some (witnessRoot w), []) := resp_eq h3
   have hr : root = witnessRoot w := by
@@ -255,9 +255,9 @@ theorem no_reason (w : WitnessPaths) (env : Lean.Environment) (p : Prog Unit Uni
       (⟨.parseToml input, .ok table⟩ : Event Unit Unit) ∈ traceWith (answers w env) p →
       table = Lake.Toml.Table.empty := fun h =>
     Except.ok.inj (resp_eq h : (Except.ok _ : Except Lean.MessageLog Lake.Toml.Table) = .ok _)
-  have hTL : ∀ {tree root}, TreeLoaded (traceWith (answers w env) p) w.tree tree root →
+  have hTL : ∀ {tree root}, TreeLoaded (traceWith (answers w env) p) w.project w.tree tree root →
       tree = w.tree ∧ root = witnessRoot w := by
-    rintro tree root ⟨h1, s, l, -, h2⟩
+    rintro tree root ⟨h1, s, l, -, h2, -⟩
     have he : (Except.ok (some root, l) : Except String (Option (Root Unit) × List String)) =
         .ok (some (witnessRoot w), []) := resp_eq h2
     have := Except.ok.inj he
@@ -305,6 +305,10 @@ theorem no_reason (w : WitnessPaths) (env : Lean.Environment) (p : Prog Unit Uni
          done)
       | (simp [Event.failed, answers] at hf
          done)
+  | load hp hf =>
+    have he := resp_eq hp.event
+    rw [he] at hf
+    rcases hf with ⟨x, hx⟩ | ⟨log, hx⟩ <;> cases hx
   | toolchain hp ht hne =>
     have := Except.ok.inj (resp_eq ht : (Except.ok _ : Except IO.Error String) = .ok _)
     subst this
@@ -441,8 +445,8 @@ theorem admits_a_project (w : WitnessPaths) (env : Lean.Environment) :
   let q : Prog Unit Unit Outcome := .ask (.getEnv "LEAN_SYSROOT") fun _ => check w.leanPath w.project w.tree
   refine ⟨traceWith (answers w env) (check w.leanPath w.project w.tree), ?_⟩
   have hr := runs_with (answers w env) (check w.leanPath w.project w.tree : Prog Unit Unit Outcome)
-  have hT : (traceWith (answers w env) (check w.leanPath w.project w.tree)).Sublist (traceWith (answers w env) q) :=
-    List.sublist_cons_self _ _
+  have hT : (traceWith (answers w env) (check w.leanPath w.project w.tree)) <:+: (traceWith (answers w env) q) :=
+    List.infix_cons List.infix_rfl
   obtain ⟨hd, -⟩ := check_spec hT (List.mem_cons_self ..) hr
   cases ho : valueWith (answers w env) (check w.leanPath w.project w.tree : Prog Unit Unit Outcome) with
   | admitted => rw [ho] at hr; exact hr

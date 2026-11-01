@@ -31,6 +31,19 @@ open RegulaSpecification.Loader
 
 variable {L E : Type}
 
+/-- The prepared response is an event of the trace, after the successful configuration copies. -/
+theorem PreparedLoad.event {t : List (Event L E)} {dir treeDir sysroot tree response}
+    (h : PreparedLoad t dir treeDir sysroot tree response) :
+    (⟨.loadRoot sysroot tree, response⟩ : Event L E) ∈ t := by
+  obtain ⟨_, _, _, _, _, _, _, _, _, _, hi, _⟩ := h
+  exact hi.subset (by simp)
+
+/-- The general failure constructor cannot cite a load; a load requires `PreparedLoad`. -/
+theorem needed_not_loadRoot {t : List (Event L E)} {dir treeDir sysroot tree} :
+    ¬ Needed t dir treeDir (.loadRoot sysroot tree) := by
+  intro h
+  cases h
+
 /-! ## The events of a phase of a run -/
 
 /-- What a run of the full gate did after it made its tree and before it built or loaded anything. -/
@@ -52,6 +65,18 @@ theorem readPhase_sublist {tRead rest : List (Event L E)} {x : Event L E}
   refine sublist_takeWhile_of_all (p := fun e : Event L E => !e.isBuild && !e.isImportForRules) fun e he => ?_
   obtain ⟨h1, h2⟩ := h e he
   simp [h1, h2]
+
+/-- The reading is a contiguous prefix of its phase; extending the phase inserts no effects inside it. -/
+theorem readPhase_infix {tRead rest : List (Event L E)} {x : Event L E}
+    (h : ∀ e ∈ tRead, e.isBuild = false ∧ e.isImportForRules = false) :
+    tRead <:+: readPhase (x :: tRead ++ rest) := by
+  have hall : ∀ e ∈ tRead, (!e.isBuild && !e.isImportForRules) = true := by
+    intro e he
+    obtain ⟨h1, h2⟩ := h e he
+    simp [h1, h2]
+  simpa [readPhase, List.takeWhile_append_of_pos hall] using
+    (List.infix_append_left (l₁ := tRead)
+      (l₂ := rest.takeWhile fun e => !e.isBuild && !e.isImportForRules))
 
 theorem rulesPhase_sublist {pre tRules post : List (Event L E)} (h1 : ∀ e ∈ tRules, e.isBuild = false)
     (h2 : ∀ e ∈ post, e.isBuild = false) : tRules.Sublist (rulesPhase (pre ++ tRules ++ post)) := by
@@ -89,14 +114,23 @@ theorem HeldByToolchain.mono {root : Root L} {n} (h : HeldByToolchain T root n) 
   obtain ⟨o, r, d, dr, h1, h2, h3, h4⟩ := h
   exact ⟨o, r, d, dr, h1.trans hs, h2, hs.subset h3, h4⟩
 
-theorem TreeLoaded.mono {treeDir tree : FilePath} {root : Root L} (h : TreeLoaded T treeDir tree root) :
-    TreeLoaded T' treeDir tree root := by
-  obtain ⟨h1, s, l, h2, h3⟩ := h
-  exact ⟨hs.subset h1, s, l, hs.subset h2, hs.subset h3⟩
+omit hs in
+theorem PreparedLoad.mono (hi : T <:+: T') {dir treeDir sysroot tree response}
+    (h : PreparedLoad T dir treeDir sysroot tree response) : PreparedLoad T' dir treeDir sysroot tree response := by
+  obtain ⟨project, text, toolchain, between, h1, h2, h3, h4, h5, h6, h7, h8⟩ := h
+  exact ⟨project, text, toolchain, between, hi.subset h1, hi.subset h2, hi.subset h3,
+    hi.subset h4, hi.subset h5, h6, h7.trans hi, h8⟩
 
-theorem Scene.mono {dir treeDir project tree : FilePath} {root : Root L} {modules}
+omit hs in
+theorem TreeLoaded.mono (hi : T <:+: T') {dir treeDir tree : FilePath} {root : Root L}
+    (h : TreeLoaded T dir treeDir tree root) : TreeLoaded T' dir treeDir tree root := by
+  obtain ⟨h1, s, l, h2, h3, h4⟩ := h
+  exact ⟨hi.subset h1, s, l, hi.subset h2, hi.subset h3, PreparedLoad.mono hi h4⟩
+
+omit hs in
+theorem Scene.mono (hi : T <:+: T') {dir treeDir project tree : FilePath} {root : Root L} {modules}
     (h : Scene T dir treeDir project tree root modules) : Scene T' dir treeDir project tree root modules :=
-  ⟨hs.subset h.project_real, TreeLoaded.mono hs h.loaded, DefaultModules.mono hs h.default⟩
+  ⟨hi.subset h.project_real, TreeLoaded.mono hi h.loaded, DefaultModules.mono hi.sublist h.default⟩
 
 theorem SourceText.mono {project tree path : FilePath} {text} (h : SourceText T project tree path text) :
     SourceText T' project tree path text := by
@@ -120,8 +154,10 @@ theorem ReadAs.mono {project tree : FilePath} {f path imports mods}
   exact ⟨rel, real, text, state, messages, final, env, commands, h1, h2, h3, h4.trans hs, hs.subset h5, h6,
     h7.trans hs, h8⟩
 
-theorem Needed.mono {dir treeDir : FilePath} {o : Op L E} (h : Needed T dir treeDir o) : Needed T' dir treeDir o := by
-  have m {e : Event L E} (he : e ∈ T) : e ∈ T' := hs.subset he
+omit hs in
+theorem Needed.mono (hi : T <:+: T') {dir treeDir : FilePath} {o : Op L E}
+    (h : Needed T dir treeDir o) : Needed T' dir treeDir o := by
+  have m {e : Event L E} (he : e ∈ T) : e ∈ T' := hi.subset he
   cases h with
   | sysroot => exact .sysroot
   | searchPath => exact .searchPath
@@ -136,33 +172,37 @@ theorem Needed.mono {dir treeDir : FilePath} {o : Op L E} (h : Needed T dir tree
   | copyParent h1 h2 h3 => exact .copyParent (m h1) h2 h3
   | copyToml h1 h2 h3 => exact .copyToml (m h1) (m h2) (m h3)
   | copyToolchain h => exact .copyToolchain (m h)
-  | load h1 h2 => exact .load (m h1) (m h2)
-  | library h1 h2 h3 => exact .library (TreeLoaded.mono hs h1) h2 h3
-  | toolchainDir h1 h2 => exact .toolchainDir (TreeLoaded.mono hs h1) h2
-  | search h1 h2 h3 h4 => exact .search (Scene.mono hs h1) (Named.mono hs h2) h3 h4
-  | oleanReal h1 h2 h3 h4 h5 => exact .oleanReal (Scene.mono hs h1) (Named.mono hs h2) h3 h4 (m h5)
-  | sourceReal h1 h2 h3 h4 => exact .sourceReal (Scene.mono hs h1) (Named.mono hs h2) h3 h4
-  | sourceRead h1 h2 h3 h4 => exact .sourceRead (Scene.mono hs h1) (Named.mono hs h2) h3 h4
-  | sourceParent h1 h2 h3 h4 => exact .sourceParent (Scene.mono hs h1) (Named.mono hs h2) h3 h4
-  | sourceWrite h1 h2 h3 h4 => exact .sourceWrite (Scene.mono hs h1) (Named.mono hs h2) h3 (SourceText.mono hs h4)
-  | sourceHeader h1 h2 h3 h4 => exact .sourceHeader (Scene.mono hs h1) (Named.mono hs h2) h3 (SourceText.mono hs h4)
+  | library h1 h2 h3 => exact .library (TreeLoaded.mono hi h1) h2 h3
+  | toolchainDir h1 h2 => exact .toolchainDir (TreeLoaded.mono hi h1) h2
+  | search h1 h2 h3 h4 => exact .search (Scene.mono hi h1) (Named.mono hi.sublist h2) h3 h4
+  | oleanReal h1 h2 h3 h4 h5 => exact .oleanReal (Scene.mono hi h1) (Named.mono hi.sublist h2) h3 h4 (m h5)
+  | sourceReal h1 h2 h3 h4 => exact .sourceReal (Scene.mono hi h1) (Named.mono hi.sublist h2) h3 h4
+  | sourceRead h1 h2 h3 h4 => exact .sourceRead (Scene.mono hi h1) (Named.mono hi.sublist h2) h3 h4
+  | sourceParent h1 h2 h3 h4 => exact .sourceParent (Scene.mono hi h1) (Named.mono hi.sublist h2) h3 h4
+  | sourceWrite h1 h2 h3 h4 => exact .sourceWrite (Scene.mono hi h1) (Named.mono hi.sublist h2) h3 (SourceText.mono hi.sublist h4)
+  | sourceHeader h1 h2 h3 h4 => exact .sourceHeader (Scene.mono hi h1) (Named.mono hi.sublist h2) h3 (SourceText.mono hi.sublist h4)
   | parser h1 h2 =>
-    exact .parser (Scene.mono hs h1) fun n hn => ⟨Named.mono hs (h2 n hn).1, HeldByToolchain.mono hs (h2 n hn).2⟩
+    exact .parser (Scene.mono hi h1) fun n hn =>
+      ⟨Named.mono hi.sublist (h2 n hn).1, HeldByToolchain.mono hi.sublist (h2 n hn).2⟩
 
 theorem TomlRead.mono {dir : FilePath} {table} (h : TomlRead T dir table) : TomlRead T' dir table := by
   obtain ⟨p, x, h1, h2, h3⟩ := h
   exact ⟨p, x, hs.subset h1, hs.subset h2, hs.subset h3⟩
 
-theorem Reason.mono {dir treeDir : FilePath} {o} (h : Reason T dir treeDir o) : Reason T' dir treeDir o := by
-  have m {e : Event L E} (he : e ∈ T) : e ∈ T' := hs.subset he
+omit hs in
+theorem Reason.mono (hi : T <:+: T') {dir treeDir : FilePath} {o}
+    (h : Reason T dir treeDir o) : Reason T' dir treeDir o := by
+  have hs := hi.sublist
+  have m {e : Event L E} (he : e ∈ T) : e ∈ T' := hi.subset he
   have sc {a b c d r q} := Scene.mono (L := L) (E := E) (dir := a) (treeDir := b) (project := c) (tree := d) (root := r)
-    (modules := q) hs
+    (modules := q) hi
   have nm {c d r q x} := Named.mono (L := L) (E := E) (project := c) (tree := d) (root := r) (modules := q) (m := x) hs
   have hd {c d r q x y} := HeaderOf.mono (L := L) (E := E) (project := c) (tree := d) (root := r) (modules := q)
     (m := x) (imports := y) hs
-  have tl {a b r} := TreeLoaded.mono (L := L) (E := E) (treeDir := a) (tree := b) (root := r) hs
+  have tl {d a b r} := TreeLoaded.mono (L := L) (E := E) (dir := d) (treeDir := a) (tree := b) (root := r) hi
   cases h with
-  | failed h1 h2 h3 => exact .failed (m h1) (Needed.mono hs h2) h3
+  | failed h1 h2 h3 => exact .failed (m h1) (Needed.mono hi h2) h3
+  | load h1 h2 => exact .load (PreparedLoad.mono hi h1) h2
   | toolchain h1 h2 h3 => exact .toolchain (m h1) (m h2) h3
   | toolchainFailed h1 h2 => exact .toolchainFailed (m h1) (m h2)
   | toolchainNotExact h1 h2 h3 => exact .toolchainNotExact (m h1) (m h2) h3
@@ -278,7 +318,11 @@ theorem full_owed {t : List (Event L E)} {dir : FilePath} {p : Regula.Closed.Pro
       simpa [ht] using this
     have hadm : o = .admitted := by
       refine Classical.byContradiction fun hne => ?_
-      exact owed.admitted tree _ o htree (Reason.mono hread (hdec.2.1 hne))
+      have hri : tRead <:+: readPhase t := by
+        simpa [ht, List.append_assoc] using (readPhase_infix
+          (x := (⟨.createTempDir, .ok tree⟩ : Event L E))
+          (rest := tGate ++ ⟨.removeDirAll tree, r⟩ :: last) hq)
+      exact owed.admitted tree _ o htree (Reason.mono hri (hdec.2.1 hne))
     subst hadm
     obtain ⟨sysroot, tBuild, tRules, hs, rfl, hb⟩ := ha rfl
     have hsys : SysrootIs (readPhase t) sysroot := hread.subset hs

@@ -58,8 +58,8 @@ theorem fullOwed_answers {w : WitnessPaths} {env : Lean.Environment} {p : Regula
   have hrulesT : (rulesPhase (traceWith (answers w env) q)).Sublist (traceWith (answers w env) q) := by
     have h := ((traceWith (answers w env) q).reverse.takeWhile_sublist (p := fun e => !e.isBuild)).reverse
     rwa [List.reverse_reverse] at h
-  have hreadT : (readPhase (traceWith (answers w env) q)).Sublist (traceWith (answers w env) q) :=
-    (List.takeWhile_sublist _).trans (List.drop_sublist _ _)
+  have hreadT : (readPhase (traceWith (answers w env) q)) <:+: (traceWith (answers w env) q) :=
+    List.IsInfix.trans (List.takeWhile_prefix _).isInfix (List.drop_suffix _ _).isInfix
   have htree : ∀ {tree rest}, traceWith (answers w env) q = ⟨.createTempDir, .ok tree⟩ :: rest → tree = w.tree := by
     intro tree rest he
     have hmem : (⟨.createTempDir, .ok tree⟩ : Event Unit Unit) ∈ traceWith (answers w env) q := by simp [he]
@@ -361,7 +361,7 @@ theorem unrelated_read_no_reason {L E : Type} {u dir treeDir : FilePath} {e : IO
     first | cases h5 | cases eq_of_heq h5
   have hsc {a b c d : FilePath} {r : Root L} {q : List (Name × FilePath)} :
       ¬ Scene ([⟨.realPath u, .error e⟩] : List (Event L E)) a b c d r q := fun x => hok x.project_real
-  have htl {a b : FilePath} {r : Root L} : ¬ TreeLoaded ([⟨.realPath u, .error e⟩] : List (Event L E)) a b r :=
+  have htl {a b c : FilePath} {r : Root L} : ¬ TreeLoaded ([⟨.realPath u, .error e⟩] : List (Event L E)) a b c r :=
     fun x => hok x.1
   have htm {a : FilePath} {x : Lake.Toml.Table} : ¬ TomlRead ([⟨.realPath u, .error e⟩] : List (Event L E)) a x := by
     rintro ⟨_, _, h, -⟩
@@ -378,6 +378,7 @@ theorem unrelated_read_no_reason {L E : Type} {u dir treeDir : FilePath} {e : IO
     | toolchainDir h => exact htl h
     | oleanReal h => exact hsc h
     | sourceReal h => exact hsc h
+  | load hp _ => cases hne hp.event
   | toolchain h => exact hok h
   | toolchainFailed h => exact hok h
   | toolchainNotExact h => exact hok h

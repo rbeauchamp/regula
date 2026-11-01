@@ -30,13 +30,12 @@ variable {L E : Type}
 
 /-- What `check` decides rests on what the reader read, and it prints only details. -/
 theorem check_spec {T t : List (Event L E)} {sysroot : String} {dir tree : FilePath} {o : Outcome}
-    (hT : t.Sublist T) (hsys : SysrootIs T sysroot) (h : Runs (check sysroot dir tree : Prog L E Outcome) t o) :
+    (hI : t <:+: T) (hsys : SysrootIs T sysroot) (h : Runs (check sysroot dir tree : Prog L E Outcome) t o) :
     Decided T dir tree o ∧ ReadActs t dir tree ∧
       (∀ e ∈ t, e.isBuild = false ∧ e.isImportForRules = false) ∧ (∀ l ∈ printed t, IsDetail l) := by
   unfold check at h
   obtain ⟨t₁, t₂, r, rfl, h₁, h₂⟩ := runs_seq_iff.mp h
-  have hT₁ : t₁.Sublist T := (List.sublist_append_left _ _).trans hT
-  obtain ⟨g1, g2, g3⟩ := read_spec hT₁ hsys h₁
+  obtain ⟨g1, g2, g3⟩ := read_spec (List.infix_append_left.trans hI) hsys h₁
   have honly := only_readProject (L := L) (E := E) sysroot dir tree _ _ h₁
   have hquiet : ∀ e ∈ t₁, e.isBuild = false ∧ e.isImportForRules = false := by
     intro e he
@@ -554,7 +553,7 @@ theorem gateIn_spec {p : Regula.Closed.Profile} {dir tree : FilePath} {t : List 
   | some sysroot =>
     unfold Regula.Language.gate at h₂
     obtain ⟨t₃, t₄, o, rfl, h₃, h₄⟩ := runs_seq_iff.mp h₂
-    have hT : t₃.Sublist ([⟨.getEnv "LEAN_SYSROOT", some sysroot⟩] ++ t₃) := List.sublist_append_right _ _
+    have hT : t₃ <:+: ([⟨.getEnv "LEAN_SYSROOT", some sysroot⟩] ++ t₃) := List.infix_append_right
     have hsys : SysrootIs ([⟨.getEnv "LEAN_SYSROOT", some sysroot⟩] ++ t₃ : List (Event L E)) sysroot := by simp [SysrootIs]
     obtain ⟨c1, c2, c3, c4⟩ := check_spec hT hsys h₃
     have hquiet : ∀ e ∈ ([⟨.getEnv "LEAN_SYSROOT", some sysroot⟩] : List (Event L E)) ++ t₃,

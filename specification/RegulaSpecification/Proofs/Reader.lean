@@ -385,6 +385,7 @@ theorem lastStage_goal {T : List (Event L E)} {dir treeDir project tree : FilePa
     (hd : start.requiresDependency = false)
     (hsys : SysrootIs T sysroot)
     (hload : (⟨.loadRoot sysroot tree, .ok (some root, log)⟩ : Event L E) ∈ T)
+    (hprepared : PreparedLoad T dir treeDir sysroot tree (.ok (some root, log)))
     (hmods : DefaultModules T root root.defaultTargets modules)
     (hopen : openPathsOf tree root = [])
     (hfacts : (∀ n ∈ root.targets, ClosedModuleName n) ∧
@@ -405,7 +406,7 @@ theorem lastStage_goal {T : List (Event L E)} {dir treeDir project tree : FilePa
   have hrf : r.readInFull = true := by rw [hr]; exact hf
   have hrfiles : r.files = files := by rw [hr]
   have hscene : Scene T dir treeDir project tree root modules :=
-    ⟨hp.project_real, ⟨hp.tree_real, sysroot, log, hsys, hload⟩, hmods⟩
+    ⟨hp.project_real, ⟨hp.tree_real, sysroot, log, hsys, hload, hprepared⟩, hmods⟩
   have hrroots : r.roots = modules.map (·.1) := by rw [hr]; rfl
   have hrkeys : r.configKeys = start.configKeys := by rw [hr]; rfl
   have hreached : ∀ m, m ∈ r.reached ↔ m ∈ w.reached := by
@@ -564,6 +565,7 @@ theorem readFiles_spec {T t : List (Event L E)} {dir treeDir project tree : File
     (hd : start.requiresDependency = false) (hout : start.outside = true)
     (hsys : SysrootIs T sysroot)
     (hload : (⟨.loadRoot sysroot tree, .ok (some root, log)⟩ : Event L E) ∈ T)
+    (hprepared : PreparedLoad T dir treeDir sysroot tree (.ok (some root, log)))
     (hmods : DefaultModules T root root.defaultTargets modules)
     (hopen : openPathsOf tree root = [])
     (hunread : configUnread root modules = [])
@@ -575,7 +577,7 @@ theorem readFiles_spec {T t : List (Event L E)} {dir treeDir project tree : File
   obtain ⟨u, h₃, rfl⟩ := runs_lift_iff.mp h₁
   obtain rfl := runs_call_iff.mp h₃
   have hT₂ : t₂.Sublist T := (List.sublist_append_right _ _).trans hT
-  have hTL : TreeLoaded T treeDir tree root := ⟨hp.tree_real, sysroot, log, hsys, hload⟩
+  have hTL : TreeLoaded T dir treeDir tree root := ⟨hp.tree_real, sysroot, log, hsys, hload, hprepared⟩
   have hscene : Scene T dir treeDir project tree root modules := ⟨hp.project_real, hTL, hmods⟩
   have hact₁ : ActsIn (L := L) (E := E) tree [⟨.setSearchPath root.toolchain, u⟩] := by
     intro e he p hp'
@@ -691,12 +693,12 @@ theorem readFiles_spec {T t : List (Event L E)} {dir treeDir project tree : File
           by simpa using actsIn_append (actsIn_append hprefix hw) hact₇⟩
         cases he
         obtain ⟨g1, g2⟩ := p1 files rfl
-        exact lastStage_goal hp hc hd hsys hload hmods hopen hfacts I hu (hcount hu) hf hm g1 g2
+        exact lastStage_goal hp hc hd hsys hload hprepared hmods hopen hfacts I hu (hcount hu) hf hm g1 g2
 
 /-! ## Lake's load, and the paths it names -/
 
 theorem openPaths_reason {T : List (Event L E)} {dir treeDir tree : FilePath} {root : Root L}
-    (hload : TreeLoaded T treeDir tree root) (h : openPathsOf tree root ≠ []) : Reason T dir treeDir .refused := by
+    (hload : TreeLoaded T dir treeDir tree root) (h : openPathsOf tree root ≠ []) : Reason T dir treeDir .refused := by
   obtain ⟨x, hx⟩ := List.exists_mem_of_ne_nil _ h
   simp only [openPathsOf, List.mem_append, List.mem_map, List.mem_eraseDups, List.mem_filter] at hx
   rcases hx with ⟨d, ⟨hd, hn⟩, -⟩ | ⟨lib, ⟨hl, hn⟩, -⟩
@@ -736,6 +738,8 @@ theorem readRoot_spec {T t : List (Event L E)} {dir treeDir project tree : FileP
     (hsys : SysrootIs T sysroot)
     (hp : Prior T dir treeDir project tree start.configKeys) (hc : start.configClosed = true)
     (hd : start.requiresDependency = false) (hout : start.outside = true)
+    (hprepared : ∀ response rest, t = ⟨.loadRoot sysroot tree, response⟩ :: rest →
+      PreparedLoad T dir treeDir sysroot tree response)
     (h : Runs (readRoot sysroot project tree start : Attempt L E _).run t b) :
     (∀ r srcs, b = .ok (r, srcs) → ReadGoal T dir treeDir r) ∧
       ((∃ e, b = .error e) → Reason T dir treeDir .incomplete) ∧ ActsIn tree t := by
@@ -749,6 +753,7 @@ theorem readRoot_spec {T t : List (Event L E)} {dir treeDir project tree : FileP
     (List.sublist_append_left _ _).trans hT'
   have hT₂ : t₂.Sublist T := (List.sublist_append_right _ _).trans hT
   have hmem₁ : (⟨.loadRoot sysroot tree, r₃⟩ : Event L E) ∈ T := hT₁.subset (by simp)
+  have hready := hprepared r₃ t₂ (by simp)
   have hact₁ : ActsIn tree ([⟨.loadRoot sysroot tree, r₃⟩] ++ ([] : List (Event L E))) := by
     intro e he p hp'
     have : e = ⟨.loadRoot sysroot tree, r₃⟩ := by simpa using he
@@ -757,11 +762,11 @@ theorem readRoot_spec {T t : List (Event L E)} {dir treeDir project tree : FileP
   have hfail : ∀ why, loaded "the configuration" r₃ = .error why → Reason T dir treeDir .incomplete := by
     intro why he
     cases r₃ with
-    | error e => exact .failed hmem₁ (.load hsys hp.tree_real) (.inl ⟨e, rfl⟩)
+    | error e => exact .load hready (.inl ⟨e, rfl⟩)
     | ok v =>
       obtain ⟨o, log⟩ := v
       cases o with
-      | none => exact .failed hmem₁ (.load hsys hp.tree_real) (.inr ⟨log, rfl⟩)
+      | none => exact .load hready (.inr ⟨log, rfl⟩)
       | some root => cases he
   cases hl : loaded "the configuration" r₃ with
   | error why =>
@@ -781,7 +786,7 @@ theorem readRoot_spec {T t : List (Event L E)} {dir treeDir project tree : FileP
           cases hl
           exact ⟨log, rfl⟩
     obtain ⟨log, rfl⟩ := hev
-    have hTL : TreeLoaded T treeDir tree root := ⟨hp.tree_real, sysroot, log, hsys, hmem₁⟩
+    have hTL : TreeLoaded T dir treeDir tree root := ⟨hp.tree_real, sysroot, log, hsys, hmem₁, hready⟩
     dsimp only at h₂
     split at h₂
     · rename_i hopen
@@ -837,7 +842,7 @@ theorem readRoot_spec {T t : List (Event L E)} {dir treeDir project tree : FileP
         · rename_i hfails
           have hnil : configUnread root modules = [] := by
             simpa using hfails
-          obtain ⟨f1, f2, f3⟩ := readFiles_spec hT₆ hp hc hd hout hsys hmem₁ hmods hopenNil hnil h₆
+          obtain ⟨f1, f2, f3⟩ := readFiles_spec hT₆ hp hc hd hout hsys hmem₁ hready hmods hopenNil hnil h₆
           exact ⟨f1, f2, by simpa using actsIn_append (actsIn_append hact₁ hact₅) f3⟩
 
 /-! ## The configuration -/
@@ -890,10 +895,48 @@ theorem stopped_goal {T : List (Event L E)} {dir treeDir : FilePath} {tf : Optio
     subst ho
     exact hr ht
 
+/-- A successful write has only successful directory creations before its final write. This exact
+trace, rather than a subsequence, preserves preparation across the next operation. -/
+theorem writeInTree_trace {tree path : FilePath} {text : String} {t : List (Event L E)} {u : Unit}
+    (h : Runs (writeInTree tree path text : Attempt L E Unit).run t (.ok u)) :
+    ∃ before, t = before ++ [⟨.writeFile path text, .ok ()⟩] ∧
+      ∀ e ∈ before, ∃ d, e = (⟨.createDirAll d, .ok ()⟩ : Event L E) := by
+  rw [writeInTree] at h
+  split at h
+  · obtain ⟨t₁, t₂, r, rfl, h₁, h₂⟩ := runs_attempt_bind_iff.mp h
+    cases r with
+    | error why => cases h₂.2
+    | ok v =>
+      obtain ⟨r, hcall, hr⟩ := runs_attempt_iff.mp h₂
+      obtain rfl := runs_call_iff.mp hcall
+      cases r with
+      | error why => cases hr
+      | ok v' =>
+        cases v'
+        refine ⟨t₁, rfl, ?_⟩
+        rw [makeParent] at h₁
+        split at h₁
+        · obtain ⟨rfl, -⟩ := runs_attempt_pure_iff.mp h₁
+          simp
+        · rename_i d hd
+          split at h₁
+          · obtain ⟨r, hc, hr⟩ := runs_attempt_iff.mp h₁
+            obtain rfl := runs_call_iff.mp hc
+            cases r with
+            | error why => cases hr
+            | ok v' =>
+              cases v'
+              intro e he
+              exact ⟨d, List.mem_singleton.mp he⟩
+          · obtain ⟨-, he⟩ := runs_attempt_throw_iff.mp h₁
+            cases he
+  · obtain ⟨-, he⟩ := runs_attempt_throw_iff.mp h
+    cases he
+
 /-- Copying `lakefile.toml` and `lean-toolchain` to the tree, then what follows. -/
 theorem readKeys_spec {T t : List (Event L E)} {dir treeDir project tree : FilePath} {tf : Option String}
     {sysroot text : String} {real : FilePath} {b : Except String (Reading × List (Name × Source))}
-    (hT : t.Sublist T) (hsys : SysrootIs T sysroot) (hE : Early T dir treeDir project tree tf)
+    (hI : t <:+: T) (hsys : SysrootIs T sysroot) (hE : Early T dir treeDir project tree tf)
     (habs : ∃ e, (⟨.symlinkMetadata (project / "lakefile.lean"), .error e⟩ : Event L E) ∈ T ∧
       ∃ name code details, e = .noFileOrDirectory name code details)
     (hreal : (⟨.realPath (project / "lakefile.toml"), .ok real⟩ : Event L E) ∈ T)
@@ -903,6 +946,7 @@ theorem readKeys_spec {T t : List (Event L E)} {dir treeDir project tree : FileP
     (h : Runs (readKeys sysroot project tree tf text : Attempt L E _).run t b) :
     (∀ r srcs, b = .ok (r, srcs) → ReadGoal T dir treeDir r) ∧
       ((∃ e, b = .error e) → Reason T dir treeDir .incomplete) ∧ ActsIn tree t := by
+  have hT := hI.sublist
   rw [readKeys] at h
   obtain ⟨t₁, t₂, r₁, rfl, h₁, h₂⟩ := runs_attempt_bind_iff.mp h
   obtain ⟨r₂, h₃, rfl⟩ := runs_lift_iff.mp h₁
@@ -1014,7 +1058,18 @@ theorem readKeys_spec {T t : List (Event L E)} {dir treeDir project tree : FileP
               started := hE.started, toolchain := hE.toolchain hto, absent := habs,
               toml := ⟨text, real, table, hreal, hexact.1, hexact.2, hread, hmem, hwritten, rfl⟩,
               copyToml := (w1 rfl).2, copyToolchain := (v1 rfl).2 }
-          obtain ⟨f1, f2, f3⟩ := readRoot_spec hT₆ hsys hp hc hd (by simp [stopped]) h₇
+          have hprepared : ∀ response rest, t₆ = ⟨.loadRoot sysroot tree, response⟩ :: rest →
+              PreparedLoad T dir treeDir sysroot tree response := by
+            intro response rest ht₆
+            obtain ⟨before, hb, -⟩ := writeInTree_trace h₄
+            obtain ⟨between, hm, hbetween⟩ := writeInTree_trace h₆
+            obtain ⟨toolchain, _, htc, _, _, _, htcText⟩ := hE.toolchain hto
+            refine ⟨project, text, toolchain, between, hE.project_real, hE.tree_real, hsys,
+              hread, htc, htcText, ?_, hbetween⟩
+            apply List.IsInfix.trans _ hI
+            refine ⟨[⟨.parseToml (mkInputContext text "lakefile.toml"), .ok table⟩] ++ before, rest, ?_⟩
+            simp [hb, hm, ht₆, List.append_assoc]
+          obtain ⟨f1, f2, f3⟩ := readRoot_spec hT₆ hsys hp hc hd (by simp [stopped]) hprepared h₇
           exact ⟨f1, f2, by
             simpa using actsIn_append (actsIn_append (actsIn_append hact₁ w3) v3) f3⟩
 
@@ -1046,11 +1101,12 @@ theorem existsByName_spec {path : FilePath} {t : List (Event L E)} {b : Except S
 
 /-- `lakefile.lean` by its name, `lakefile.toml`, and what follows. -/
 theorem readConfig_spec {T t : List (Event L E)} {dir treeDir project tree : FilePath} {tf : Option String}
-    {sysroot : String} {b : Except String (Reading × List (Name × Source))} (hT : t.Sublist T)
+    {sysroot : String} {b : Except String (Reading × List (Name × Source))} (hI : t <:+: T)
     (hsys : SysrootIs T sysroot) (hE : Early T dir treeDir project tree tf)
     (h : Runs (readConfig sysroot project tree tf : Attempt L E _).run t b) :
     (∀ r srcs, b = .ok (r, srcs) → ReadGoal T dir treeDir r) ∧
       ((∃ e, b = .error e) → Reason T dir treeDir .incomplete) ∧ ActsIn tree t := by
+  have hT := hI.sublist
   rw [readConfig] at h
   obtain ⟨t₁, t₂, r₁, rfl, h₁, h₂⟩ := runs_attempt_bind_iff.mp h
   obtain ⟨r₃, rfl, e1, e2, e3⟩ := existsByName_spec h₁
@@ -1105,7 +1161,9 @@ theorem readConfig_spec {T t : List (Event L E)} {dir treeDir project tree : Fil
       | ok text =>
         obtain ⟨real, rfl, hb⟩ := x1 text rfl
         have hex := (RegulaSpecification.Loader.exactBelow_iff _ _ _).mp hb
-        obtain ⟨f1, f2, f3⟩ := readKeys_spec hT₄ hsys hE ⟨e, hmem, habs⟩ (hT₃.subset (by simp)) hex
+        have hI₄ : t₄ <:+: T :=
+          (List.infix_append_right.trans List.infix_append_right).trans hI
+        obtain ⟨f1, f2, f3⟩ := readKeys_spec hI₄ hsys hE ⟨e, hmem, habs⟩ (hT₃.subset (by simp)) hex
           (hT₃.subset (by simp)) h₄
         exact ⟨f1, f2, by simpa using actsIn_append (actsIn_append hact hact₃) f3⟩
 
@@ -1272,10 +1330,11 @@ def ReadActs (t : List (Event L E)) (dir treeDir : FilePath) : Prop :=
 
 /-- The theorem of the reader, for every response. -/
 theorem readProject_spec {T t : List (Event L E)} {dir treeDir : FilePath} {sysroot : String}
-    {b : Except String (Reading × List (Name × Source))} (hT : t.Sublist T) (hsys : SysrootIs T sysroot)
+    {b : Except String (Reading × List (Name × Source))} (hI : t <:+: T) (hsys : SysrootIs T sysroot)
     (h : Runs (readProject sysroot dir treeDir : Attempt L E _).run t b) :
     (∀ r srcs, b = .ok (r, srcs) → ReadGoal T dir treeDir r) ∧
       ((∃ e, b = .error e) → Reason T dir treeDir .incomplete) ∧ ReadActs t dir treeDir := by
+  have hT := hI.sublist
   rw [readProject] at h
   obtain ⟨t₁, t₂, r₁, rfl, h₁, h₂⟩ := runs_attempt_bind_iff.mp h
   obtain ⟨r₃, h₃, rfl⟩ := runs_attempt_iff.mp h₁
@@ -1412,7 +1471,11 @@ theorem readProject_spec {T t : List (Event L E)} {dir treeDir : FilePath} {sysr
               { project_real := hproject, tree_real := htree, apart := hap,
                 started := ⟨sysroot, program, lakeLib, hsys, hlake, hstart⟩, toolchain := u1,
                 toolchain_reason := u2 }
-            obtain ⟨f1, f2, f3⟩ := readConfig_spec hsub₁₀ hsys hE h₁₃
+            have hI₁₀ : t₁₀ <:+: T := by
+              apply List.IsInfix.trans _ hI
+              exact List.infix_append_right.trans (List.infix_append_right.trans
+                (List.infix_append_right.trans (List.infix_append_right.trans List.infix_append_right)))
+            obtain ⟨f1, f2, f3⟩ := readConfig_spec hI₁₀ hsys hE h₁₃
             refine ⟨f1, f2, .inr ⟨project, tree, hprojectZ, htreeZ, hap, fun x hx p hp' => ?_⟩⟩
             rcases hquiet x hx with h' | h'
             · exact f3 x h' p hp'
@@ -1421,13 +1484,14 @@ theorem readProject_spec {T t : List (Event L E)} {dir treeDir : FilePath} {sysr
 
 /-- The reader, with the lines that report what it read. -/
 theorem read_spec {T t : List (Event L E)} {dir treeDir : FilePath} {sysroot : String}
-    {b : Except String (Reading × List String)} (hT : t.Sublist T) (hsys : SysrootIs T sysroot)
+    {b : Except String (Reading × List String)} (hI : t <:+: T) (hsys : SysrootIs T sysroot)
     (h : Runs (read sysroot dir treeDir : Attempt L E _).run t b) :
     (∀ r lines, b = .ok (r, lines) → ReadGoal T dir treeDir r) ∧
       ((∃ e, b = .error e) → Reason T dir treeDir .incomplete) ∧ ReadActs t dir treeDir := by
+  have hT := hI.sublist
   unfold Regula.Reader.read at h
   obtain ⟨t₁, t₂, r₁, rfl, h₁, h₂⟩ := runs_attempt_bind_iff.mp h
-  obtain ⟨p1, p2, p3'⟩ := readProject_spec (T := T) ((List.sublist_append_left _ _).trans hT) hsys h₁
+  obtain ⟨p1, p2, p3'⟩ := readProject_spec (T := T) (List.infix_append_left.trans hI) hsys h₁
   have p3 := p3'
   cases r₁ with
   | error why =>

@@ -34,10 +34,27 @@ variable {L E : Type}
 def SysrootIs (t : List (Event L E)) (sysroot : String) : Prop :=
   (⟨.getEnv "LEAN_SYSROOT", some sysroot⟩ : Event L E) ∈ t
 
-/-- What Lake's load of the checker's tree gave, on that toolchain. -/
-def TreeLoaded (t : List (Event L E)) (treeDir tree : FilePath) (root : Root L) : Prop :=
+/-- Lake receives the requested project's configuration, after both successful copies. The intervening
+events can only create directories: an overwrite, removal or load cannot be hidden between the copies
+and this load. The response belongs to this occurrence of the prepared operation. -/
+def PreparedLoad (t : List (Event L E)) (dir treeDir : FilePath) (sysroot : String) (tree : FilePath)
+    (response : Resp (Op.loadRoot (L := L) (E := E) sysroot tree)) : Prop :=
+  ∃ project text toolchain between,
+    (⟨.realPath dir, .ok project⟩ : Event L E) ∈ t ∧
+    (⟨.realPath treeDir, .ok tree⟩ : Event L E) ∈ t ∧ SysrootIs t sysroot ∧
+    (⟨.readFile (project / "lakefile.toml"), .ok text⟩ : Event L E) ∈ t ∧
+    (⟨.readFile (project / "lean-toolchain"), .ok toolchain⟩ : Event L E) ∈ t ∧
+    toolchain.trimAscii.toString = leanToolchain ∧
+    ([⟨.writeFile (tree / "lakefile.toml") text, .ok ()⟩] ++ between ++
+      [⟨.writeFile (tree / "lean-toolchain") leanToolchain, .ok ()⟩,
+       ⟨.loadRoot sysroot tree, response⟩] : List (Event L E)) <:+: t ∧
+    ∀ e ∈ between, ∃ d, e = (⟨.createDirAll d, .ok ()⟩ : Event L E)
+
+/-- What a prepared load of the requested project's configuration gave, on the run's toolchain. -/
+def TreeLoaded (t : List (Event L E)) (dir treeDir tree : FilePath) (root : Root L) : Prop :=
   (⟨.realPath treeDir, .ok tree⟩ : Event L E) ∈ t ∧
-    ∃ sysroot log, SysrootIs t sysroot ∧ (⟨.loadRoot sysroot tree, .ok (some root, log)⟩ : Event L E) ∈ t
+    ∃ sysroot log, SysrootIs t sysroot ∧ (⟨.loadRoot sysroot tree, .ok (some root, log)⟩ : Event L E) ∈ t ∧
+      PreparedLoad t dir treeDir sysroot tree (.ok (some root, log))
 
 /-- The requested build: the project that `dir` names, the checker's tree, what Lake's load of the tree gave, and the
 modules of its default targets. -/
@@ -46,7 +63,7 @@ structure Scene (t : List (Event L E)) (dir treeDir project tree : FilePath) (ro
   /-- The project's real path. -/
   project_real : (⟨.realPath dir, .ok project⟩ : Event L E) ∈ t
   /-- Lake's load of the tree. -/
-  loaded : TreeLoaded t treeDir tree root
+  loaded : TreeLoaded t dir treeDir tree root
   /-- The modules of the default targets. -/
   default : DefaultModules t root root.defaultTargets modules
 
@@ -112,14 +129,11 @@ inductive Needed (t : List (Event L E)) (dir treeDir : FilePath) : Op L E → Pr
   /-- The tree's `lean-toolchain`. -/
   | copyToolchain {tree} : (⟨.realPath treeDir, .ok tree⟩ : Event L E) ∈ t →
       Needed t dir treeDir (.writeFile (tree / "lean-toolchain") leanToolchain)
-  /-- Lake's load of the tree, on the run's toolchain. -/
-  | load {sysroot tree} : SysrootIs t sysroot → (⟨.realPath treeDir, .ok tree⟩ : Event L E) ∈ t →
-      Needed t dir treeDir (.loadRoot sysroot tree)
   /-- The modules of a default library. -/
-  | library {tree root target lib} : TreeLoaded t treeDir tree root → target ∈ root.defaultTargets →
+  | library {tree root target lib} : TreeLoaded t dir treeDir tree root → target ∈ root.defaultTargets →
       root.findLib target = some lib → Needed t dir treeDir (.libModules lib)
   /-- A directory of the toolchain's library. -/
-  | toolchainDir {tree root d} : TreeLoaded t treeDir tree root → d ∈ root.toolchain →
+  | toolchainDir {tree root d} : TreeLoaded t dir treeDir tree root → d ∈ root.toolchain →
       Needed t dir treeDir (.realPath d)
   /-- Where Lean finds a name the build needs that no file of the project holds. -/
   | search {project tree root modules m} : Scene t dir treeDir project tree root modules →
@@ -167,6 +181,9 @@ one outcome that it may. A failure of anything else, or a test of anything else,
 inductive Reason (t : List (Event L E)) (dir treeDir : FilePath) : Outcome → Prop where
   /-- An operation that the build needs failed. -/
   | failed {e : Event L E} : e ∈ t → Needed t dir treeDir e.op → e.failed → Reason t dir treeDir .incomplete
+  /-- Lake failed on the requested project's copied configuration, with both copies already complete. -/
+  | load {sysroot tree response} : PreparedLoad t dir treeDir sysroot tree response →
+      Event.failed (⟨.loadRoot sysroot tree, response⟩ : Event L E) → Reason t dir treeDir .incomplete
   /-- The toolchain's file names another Lean. -/
   | toolchain {project text} : (⟨.realPath dir, .ok project⟩ : Event L E) ∈ t →
       (⟨.readFile (project / "lean-toolchain"), .ok text⟩ : Event L E) ∈ t →
@@ -234,15 +251,15 @@ inductive Reason (t : List (Event L E)) (dir treeDir : FilePath) : Outcome → P
   | dependency {table k} : TomlRead t dir table → KeyPath .anonymous table k → k.getRoot = `require →
       Reason t dir treeDir .proofOnly
   /-- A source directory outside the tree. -/
-  | openDir {tree root d} : TreeLoaded t treeDir tree root → d ∈ root.sourceDirs →
+  | openDir {tree root d} : TreeLoaded t dir treeDir tree root → d ∈ root.sourceDirs →
       (∀ rel, ¬ TreeRelative (parts tree) (parts d) rel) → Reason t dir treeDir .refused
   /-- A `globs` entry that is no single module. -/
-  | openGlob {tree root lib g} : TreeLoaded t treeDir tree root → lib ∈ root.libraries →
+  | openGlob {tree root lib g} : TreeLoaded t dir treeDir tree root → lib ∈ root.libraries →
       g ∈ lib.2 → (∀ n, g ≠ .one n) → Reason t dir treeDir .refused
   /-- No module is claimed. -/
   | noClaim {project tree root} : Scene t dir treeDir project tree root [] → Reason t dir treeDir .incomplete
   /-- A target's name outside the closed domain. -/
-  | targetName {tree root n} : TreeLoaded t treeDir tree root → n ∈ root.targets →
+  | targetName {tree root n} : TreeLoaded t dir treeDir tree root → n ∈ root.targets →
       ¬ ClosedModuleName n → Reason t dir treeDir .incomplete
   /-- A default root whose name Lake's import resolution gives another file for. -/
   | twoFiles {project tree root modules m file other} : Scene t dir treeDir project tree root modules →
