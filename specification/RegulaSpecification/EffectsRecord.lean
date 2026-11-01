@@ -293,6 +293,8 @@ def FullRun (t : List (Event L E)) (dir : FilePath) (p : Regula.Closed.Profile) 
     t = ⟨.createTempDir, .ok tree⟩ :: tRead ++ tGate ++ ⟨.removeDirAll tree, r⟩ :: last ∧
     (∀ e ∈ tRead, e.isBuild = false ∧ e.isImportForRules = false) ∧
     ∃ (o : Outcome) (report : Report), Decided tRead dir tree o ∧
+      -- On an admission, no answer to what the reader asked failed.
+      (o = .admitted → ∀ e ∈ tRead, ¬ e.failedRead) ∧
       (o ≠ .admitted → tGate = [] ∧ report = (match o with
         | .refused => Report.refused
         | .proofOnly => Report.proofOnly
@@ -320,5 +322,17 @@ def RunMeets (w : List String → Prog L E UInt32) : Prop :=
           FullRun rest (FilePath.mk dir) p c) c
       | none => Refusal t c
     | _ => Refusal t c
+
+/-- The record of the checker's run, for the types `L` and `E` that it passes on and never reads. The subject is a
+program, so the properties hold of every response that a program can receive. It is a design of the agents, derived
+from the owner's account (`confirmation.md`), and no statement of the owner's. -/
+def programRecord (L E : Type) : LeanIntent.IntentRecord (List String → Prog L E UInt32) where
+  shape := .function (List String) (fun _ => Prog L E UInt32)
+  dom := []
+  props := [
+    ⟨"a run does what its arguments ask, on every response, and it refuses what it cannot read", RunMeets⟩]
+  vocab := [
+    ⟨"a line that is no verdict", String, IsDetail⟩,
+    ⟨"a project wholly inside the closed language", Reading, Inside⟩]
 
 end RegulaSpecification.Effects

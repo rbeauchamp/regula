@@ -3,6 +3,7 @@ Copyright (c) 2026 Regula contributors. All rights reserved.
 Released under MIT license as described in the file LICENSE.
 Authors: Regula contributors
 -/
+import RegulaSpecification.Proofs.ReaderFailed
 import RegulaSpecification.Proofs.ShellParts
 
 /-!
@@ -90,6 +91,37 @@ theorem check_spec {T t : List (Event L E)} {sysroot : String} {dir tree : FileP
     obtain ⟨g4, g5⟩ := g1 reading lines rfl
     refine ⟨⟨fun ha => ⟨reading, (decision_admitted_iff reading).mp ha, g4 ha⟩,
       fun hne => g5 _ rfl hne, .inl ⟨reading, rfl⟩⟩, hacts hd, hrest hd⟩
+
+/-- On an admission, nothing that `check` asked failed. -/
+theorem check_no_failed {sysroot : String} {dir tree : FilePath} {t : List (Event L E)}
+    (h : Runs (check sysroot dir tree : Prog L E Outcome) t .admitted) : ∀ e ∈ t, ¬ e.failedRead := by
+  unfold check at h
+  obtain ⟨t₁, t₂, r, rfl, h₁, h₂⟩ := runs_seq_iff.mp h
+  cases r with
+  | error why =>
+    obtain ⟨t₃, t₄, u, rfl, h₃, h₄⟩ := runs_seq_iff.mp h₂
+    cases (runs_pure_iff.mp h₄).2
+  | ok x =>
+    obtain ⟨reading, lines⟩ := x
+    obtain ⟨t₃, t₄, u, rfl, h₃, h₄⟩ := runs_seq_iff.mp h₂
+    obtain ⟨t₅, t₆, u', rfl, h₅, h₆⟩ := runs_seq_iff.mp h₄
+    obtain ⟨rfl, hadm⟩ := runs_pure_iff.mp h₆
+    unfold Regula.Reader.read at h₁
+    obtain ⟨t₇, t₈, r₇, rfl, h₇, h₈⟩ := runs_attempt_bind_iff.mp h₁
+    cases r₇ with
+    | error w => cases h₈.2
+    | ok y =>
+      obtain ⟨r, srcs⟩ := y
+      obtain ⟨rfl, he⟩ := runs_attempt_pure_iff.mp h₈
+      cases he
+      have hd := details_append (sayAll_spec h₃) (say_spec h₅)
+      intro e he
+      simp only [List.append_nil, List.mem_append] at he
+      rcases he with he | he
+      · exact readProject_no_failed h₇ hadm.symm e he
+      · have hs : e.isOnlySaying = true := hd.1 e (by simpa using he)
+        obtain ⟨o', r'⟩ := e
+        cases o' <;> first | exact id | cases hs
 
 /-! ## The build -/
 
@@ -348,7 +380,7 @@ structure GateEvents (tRead tGate : List (Event L E)) (dir tree : FilePath) (p :
   /-- The reading stage builds nothing and loads no build. -/
   quiet : ∀ e ∈ tRead, e.isBuild = false ∧ e.isImportForRules = false
   /-- What decided. -/
-  decided : ∃ o, Decided tRead dir tree o ∧
+  decided : ∃ o, Decided tRead dir tree o ∧ (o = .admitted → ∀ e ∈ tRead, ¬ e.failedRead) ∧
     (o ≠ .admitted → tGate = [] ∧ report = (match o with
       | .refused => Report.refused
       | .proofOnly => Report.proofOnly
@@ -374,7 +406,7 @@ theorem gateIn_spec {p : Regula.Closed.Profile} {dir tree : FilePath} {t : List 
     have hd := say_spec h₃
     refine ⟨[⟨.getEnv "LEAN_SYSROOT", none⟩] ++ t₃, [], by simp, ?_⟩
     refine { quiet := ?_, decided := ⟨.incomplete, ⟨fun he => (by cases he), fun _ => .noSysroot (by simp), .inr rfl⟩,
-               fun _ => ⟨rfl, rfl⟩, fun he => (by cases he)⟩,
+               fun he => (by cases he), fun _ => ⟨rfl, rfl⟩, fun he => (by cases he)⟩,
              lines := ⟨?_, by simp [printed]⟩, readActs := .inl ?_, gateActs := by simp }
     · intro e he
       rcases List.mem_append.mp he with he | he
@@ -429,24 +461,32 @@ theorem gateIn_spec {p : Regula.Closed.Profile} {dir tree : FilePath} {t : List 
     cases o with
     | refused =>
       obtain ⟨rfl, rfl⟩ := runs_pure_iff.mp h₄
-      exact { quiet := hquiet, decided := ⟨.refused, c1, fun _ => ⟨rfl, rfl⟩, fun he => (by cases he)⟩,
+      exact { quiet := hquiet, decided := ⟨.refused, c1, fun he => (by cases he), fun _ => ⟨rfl, rfl⟩, fun he => (by cases he)⟩,
               lines := ⟨hlines, by simp [printed]⟩, readActs := hacts, gateActs := by simp }
     | incomplete =>
       obtain ⟨rfl, rfl⟩ := runs_pure_iff.mp h₄
-      exact { quiet := hquiet, decided := ⟨.incomplete, c1, fun _ => ⟨rfl, rfl⟩, fun he => (by cases he)⟩,
+      exact { quiet := hquiet, decided := ⟨.incomplete, c1, fun he => (by cases he), fun _ => ⟨rfl, rfl⟩, fun he => (by cases he)⟩,
               lines := ⟨hlines, by simp [printed]⟩, readActs := hacts, gateActs := by simp }
     | proofOnly =>
       obtain ⟨rfl, rfl⟩ := runs_pure_iff.mp h₄
-      exact { quiet := hquiet, decided := ⟨.proofOnly, c1, fun _ => ⟨rfl, rfl⟩, fun he => (by cases he)⟩,
+      exact { quiet := hquiet, decided := ⟨.proofOnly, c1, fun he => (by cases he), fun _ => ⟨rfl, rfl⟩, fun he => (by cases he)⟩,
               lines := ⟨hlines, by simp [printed]⟩, readActs := hacts, gateActs := by simp }
     | admitted =>
+      have hnoFail : Outcome.admitted = Outcome.admitted →
+          ∀ e ∈ ([⟨.getEnv "LEAN_SYSROOT", some sysroot⟩] : List (Event L E)) ++ t₃, ¬ e.failedRead := by
+        intro _ e he
+        rcases List.mem_append.mp he with he | he
+        · have : e = _ := List.mem_singleton.mp he
+          subst this
+          exact id
+        · exact check_no_failed h₃ e he
       obtain ⟨t₅, t₆, c, rfl, h₅, h₆⟩ := runs_seq_iff.mp h₄
       obtain ⟨b1, b2, b3⟩ := buildAndReplay_spec h₅
       cases c with
       | false =>
         obtain ⟨rfl, rfl⟩ := runs_pure_iff.mp h₆
         exact { quiet := hquiet,
-                decided := ⟨.admitted, c1, fun he => absurd rfl he, fun _ =>
+                decided := ⟨.admitted, c1, hnoFail, fun he => absurd rfl he, fun _ =>
                   ⟨t₅, [], by simp, .inr ⟨rfl, by simp, by
                     obtain ⟨a1, a2, a3, a4, a5, a6⟩ := b3 rfl
                     exact ⟨a1, a2, a3, a4, a5, a6⟩⟩⟩⟩,
@@ -460,7 +500,7 @@ theorem gateIn_spec {p : Regula.Closed.Profile} {dir tree : FilePath} {t : List 
         obtain ⟨⟨result, r1, rfl⟩, r2, r3⟩ := rules_spec (List.Sublist.refl _) h₇
         obtain ⟨program, args, hsub⟩ := b2 rfl
         refine { quiet := hquiet,
-                 decided := ⟨.admitted, c1, fun he => absurd rfl he, fun _ =>
+                 decided := ⟨.admitted, c1, hnoFail, fun he => absurd rfl he, fun _ =>
                    ⟨t₅, t₇, rfl, .inl ⟨program, args, result, hsub, r1, rfl⟩⟩⟩,
                  lines := ⟨hlines, ?_⟩, readActs := hacts, gateActs := ?_ }
         · intro l hl
@@ -542,7 +582,7 @@ theorem runFull_spec {p : Regula.Closed.Profile} {dir : FilePath} {t : List (Eve
         obtain ⟨hc, r', rfl⟩ := finish_spec h₈
         exact ⟨t₇, r', rfl, say_spec h₇, hc⟩
     obtain ⟨last, r', rfl, hd, hc⟩ := hlast
-    obtain ⟨o, hdec, hn, ha⟩ := G.decided
+    obtain ⟨o, hdec, hnf, hn, ha⟩ := G.decided
     have hsaying : Confined (⟨.createTempDir, .ok tree⟩ :: tRead ++ tGate ++
         ⟨.removeDirAll tree, r₅⟩ :: (last ++ [⟨.println report.label, r'⟩])) dir tree := by
       refine confined_of G.readActs G.gateActs fun e he => ?_
@@ -551,7 +591,7 @@ theorem runFull_spec {p : Regula.Closed.Profile} {dir : FilePath} {t : List (Eve
       · have : e = _ := List.mem_singleton.mp he
         subst this
         rfl
-    refine .inr ⟨tree, tRead, tGate, r₅, last ++ [⟨.println report.label, r'⟩], by simp, G.quiet, o, report, hdec,
+    refine .inr ⟨tree, tRead, tGate, r₅, last ++ [⟨.println report.label, r'⟩], by simp, G.quiet, o, report, hdec, hnf,
       hn, ha, hc, ?_, hsaying⟩
     refine ⟨⟨.createTempDir, .ok tree⟩ :: tRead ++ tGate ++ ⟨.removeDirAll tree, r₅⟩ :: last, r', by simp, ?_⟩
     intro l hl
