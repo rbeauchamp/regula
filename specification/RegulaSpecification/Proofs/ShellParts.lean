@@ -20,6 +20,7 @@ open Regula.Effect
 open Regula.Reader
 open Regula.Shell
 open Regula.Language
+open Regula.Closed (detailText)
 
 variable {L E : Type}
 
@@ -129,6 +130,26 @@ theorem reportLabel_no_break (r : Report) : '\n' ∉ r.label.toList := by
   | full v => cases v <;> decide
   | refused | incomplete | proofOnly => decide
 
+/-- A pass names its subject at the end of the line, and a subject with no LF leaves it one physical line. -/
+theorem proofLineOn_no_break (s : String) (v : Regula.Closed.Verdict) :
+    '\n' ∉ (v.proofLineOn s).toList := by
+  cases v with
+  | pass =>
+    have hs := (detailText_no_break s).1
+    have hp := proofLine_no_break .pass
+    simp only [Regula.Closed.Verdict.proofLineOn, String.toList_append, List.mem_append, not_or]
+    exact ⟨⟨hp, by decide⟩, hs⟩
+  | fail | incomplete => exact proofLine_no_break _
+
+/-- The same of the full gate's last line. -/
+theorem reportLabelOn_no_break (s : String) (r : Report) : '\n' ∉ (r.labelOn s).toList := by
+  rcases r with (_ | _ | _) | _ | _ | _
+  · have hs := (detailText_no_break s).1
+    have hp := reportLabel_no_break (.full .pass)
+    simp only [Report.labelOn, String.toList_append, List.mem_append, not_or]
+    exact ⟨⟨hp, by decide⟩, hs⟩
+  all_goals exact reportLabel_no_break _
+
 /-- The serialized output ends in the one verdict line; every preceding physical line is a detail.
 The final empty chunk is the position after `println`'s terminating LF, not another output line. -/
 theorem endsWith_serialized {t : List (Event L E)} {line : String} (h : EndsWith t line) :
@@ -147,6 +168,22 @@ theorem finishProof_spec {report : Regula.Closed.Report} {c : UInt32} {t : List 
   have hd := sayAll_spec h₁
   obtain ⟨hc, r, rfl⟩ := finish_spec h₂
   refine ⟨hc, endsWith_of (proofLine_no_break _) hd.2, fun e he => ?_⟩
+  rcases List.mem_append.mp he with he | he
+  · exact hd.1 e he
+  · have : e = _ := List.mem_singleton.mp he
+    subst this
+    rfl
+
+/-- The end of a run of the proof verdict on a subject. -/
+theorem finishPlain_spec {subject : FilePath} {report : Regula.Closed.Report} {c : UInt32} {t : List (Event L E)}
+    (h : Runs (finishPlain subject report : Prog L E UInt32) t c) :
+    c = report.verdict.exitCode ∧ EndsWith t (report.verdict.proofLineOn subject.toString) ∧
+      ∀ e ∈ t, e.isOnlySaying = true := by
+  unfold finishPlain at h
+  obtain ⟨t₁, t₂, u, rfl, h₁, h₂⟩ := runs_seq_iff.mp h
+  have hd := sayAll_spec h₁
+  obtain ⟨hc, r, rfl⟩ := finish_spec h₂
+  refine ⟨hc, endsWith_of (proofLineOn_no_break _ _) hd.2, fun e he => ?_⟩
   rcases List.mem_append.mp he with he | he
   · exact hd.1 e he
   · have : e = _ := List.mem_singleton.mp he
@@ -188,8 +225,11 @@ theorem loaded_spec {what : String} {r : Except String (Option (Root L) × List 
 
 /-- `loadPlain`: the load of the workspace that Lake dispatched. -/
 theorem loadPlain_spec {T t : List (Event L E)} {p : Regula.Closed.Profile}
-    {b : Except String Regula.Closed.Input} (hT : t.Sublist T)
-    (h : Runs (loadPlain p : Attempt L E _).run t b) : Loaded PlainRoot PlainReason T p b ∧ ∀ e ∈ t, e.acted? = none := by
+    {b : Except String (FilePath × Regula.Closed.Input)} (hT : t.Sublist T)
+    (h : Runs (loadPlain p : Attempt L E _).run t b) :
+    Loaded PlainRoot PlainReason T p (b.map (·.2)) ∧
+      (∀ d i, b = .ok (d, i) → (⟨.realPath ".", .ok d⟩ : Event L E) ∈ T ∧
+        ∃ sysroot root log, (⟨.loadWorkspace sysroot d, .ok (some root, log)⟩ : Event L E) ∈ T ∧ PlainRoot T root) ∧ ∀ e ∈ t, e.acted? = none := by
   unfold loadPlain at h
   obtain ⟨t₁, t₂, r₁, rfl, h₁, h₂⟩ := runs_attempt_bind_iff.mp h
   obtain ⟨e₁, rfl, v1, v2⟩ := requireEnv_spec h₁
@@ -206,7 +246,7 @@ theorem loadPlain_spec {T t : List (Event L E)} {p : Regula.Closed.Profile}
     obtain ⟨rfl, rfl⟩ := h₂
     have he : e₁ = none := v2 ⟨why, rfl⟩
     subst he
-    exact ⟨.inr ⟨.noSysroot hmem₁, why, rfl⟩, by simpa using hq₁⟩
+    exact ⟨.inr ⟨.noSysroot hmem₁, why, rfl⟩, (fun _ _ he => by cases he), by simpa using hq₁⟩
   | ok sysroot =>
     have he : e₁ = some sysroot := v1 sysroot rfl
     subst he
@@ -217,7 +257,7 @@ theorem loadPlain_spec {T t : List (Event L E)} {p : Regula.Closed.Profile}
     cases r₅ with
     | error e =>
       obtain ⟨rfl, rfl⟩ := h₄
-      refine ⟨.inr ⟨.noDirectory (e := e) (hT₂.subset (by simp)), _, rfl⟩, fun x hx => ?_⟩
+      refine ⟨.inr ⟨.noDirectory (e := e) (hT₂.subset (by simp)), _, rfl⟩, (fun _ _ he => by cases he), fun x hx => ?_⟩
       simp only [List.cons_append, List.nil_append, List.append_nil, List.mem_cons, List.not_mem_nil,
         or_false] at hx
       rcases hx with rfl | rfl <;> rfl
@@ -233,7 +273,7 @@ theorem loadPlain_spec {T t : List (Event L E)} {p : Regula.Closed.Profile}
       | error why =>
         rw [hl] at h₇
         obtain ⟨rfl, rfl⟩ := h₇
-        refine ⟨.inr ⟨.load hmem₁ (hT₂.subset (by simp)) hmemLoad (l2 why hl), why, rfl⟩, fun x hx => ?_⟩
+        refine ⟨.inr ⟨.load hmem₁ (hT₂.subset (by simp)) hmemLoad (l2 why hl), why, rfl⟩, (fun _ _ he => by cases he), fun x hx => ?_⟩
         simp only [List.cons_append, List.nil_append, List.append_nil, List.mem_cons, List.not_mem_nil,
           or_false] at hx
         rcases hx with rfl | rfl | rfl <;> rfl
@@ -255,22 +295,34 @@ theorem loadPlain_spec {T t : List (Event L E)} {p : Regula.Closed.Profile}
           obtain ⟨rfl, rfl⟩ := h₁₄
           have he : e₂ = none := w2 ⟨why, rfl⟩
           subst he
-          exact ⟨.inr ⟨.noSearchPath hmemEnv, why, rfl⟩, by simpa using hq⟩
+          exact ⟨.inr ⟨.noSearchPath hmemEnv, why, rfl⟩, (fun _ _ he => by cases he), by simpa using hq⟩
         | ok received =>
           have he : e₂ = some received := w1 received rfl
           subst he
           dsimp only at h₁₄
           split at h₁₄
           · rename_i hdis
-            obtain ⟨o1, o2⟩ := inputOf_spec hT₁₂ h₁₄
-            refine ⟨?_, ?_⟩
-            · have hroot : PlainRoot T root := ⟨sysroot, dir, log, received, hmem₁, hmemLoad,
-                hT₂.subset (by simp), hmemEnv, (dispatchedFrom_eq_true_iff _ _).mp (by simpa using hdis)⟩
+            obtain ⟨tI, tP, rI, rfl, hI, hP⟩ := runs_attempt_bind_iff.mp h₁₄
+            obtain ⟨o1, o2⟩ := inputOf_spec ((List.sublist_append_left _ _).trans hT₁₂) hI
+            have hroot : PlainRoot T root := ⟨sysroot, dir, log, received, hmem₁, hmemLoad,
+              hT₂.subset (by simp), hmemEnv, (dispatchedFrom_eq_true_iff _ _).mp (by simpa using hdis)⟩
+            have hend : tP = [] ∧ b.map (·.2) = rI ∧ ∀ d i, b = .ok (d, i) → d = dir := by
+              cases rI with
+              | error why => obtain ⟨rfl, rfl⟩ := hP; exact ⟨rfl, rfl, fun _ _ he => by cases he⟩
+              | ok input =>
+                obtain ⟨rfl, rfl⟩ := runs_attempt_pure_iff.mp hP
+                exact ⟨rfl, rfl, fun d i he => by cases he; rfl⟩
+            obtain ⟨rfl, hmap, hsub⟩ := hend
+            refine ⟨?_, fun d i he => ?_, ?_⟩
+            · rw [hmap]
               rcases o1 with ⟨f, roots, hb, he⟩ | ⟨hf, hw⟩
               · exact .inl ⟨root, f, roots, hroot, hb, he⟩
               · exact .inr ⟨.build hroot hf, hw⟩
+            · rw [hsub d i he]
+              exact ⟨hT₂.subset (by simp), sysroot, root, log, hmemLoad, hroot⟩
             · intro x hx
-              simp only [List.cons_append, List.nil_append, List.append_nil, List.mem_cons] at hx
+              simp only [List.append_nil] at hx
+              simp only [List.cons_append, List.nil_append, List.mem_cons] at hx
               rcases hx with rfl | rfl | rfl | rfl | hx
               · rfl
               · rfl
@@ -280,7 +332,7 @@ theorem loadPlain_spec {T t : List (Event L E)} {p : Regula.Closed.Profile}
           · rename_i hd
             obtain ⟨rfl, rfl⟩ := runs_attempt_throw_iff.mp h₁₄
             exact ⟨.inr ⟨.elsewhere hmem₁ (hT₂.subset (by simp)) hmemLoad hmemEnv ((dispatchedFrom_eq_false_iff _ _).mp (by simpa using hd)), _, rfl⟩,
-              by simpa using hq⟩
+              (fun _ _ he => by cases he), by simpa using hq⟩
 
 /-- `loadTree`: the load of the build in the checker's tree. -/
 theorem loadTree_spec {T t : List (Event L E)} {sysroot : String} {tree : FilePath}

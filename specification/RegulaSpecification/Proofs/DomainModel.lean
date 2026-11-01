@@ -263,22 +263,13 @@ theorem answers_witness {w : WitnessPaths} {env : Lean.Environment} (hw : Witnes
 /-- **The premises of `domain_owed` are met.** For paths that meet `WitnessPaths` and `WitnessDomain` and an environment with the floor, the
 program that runs receives what `DomainRun` states of the project of the witness, and exits with 0. -/
 theorem domain_model (w : WitnessPaths) (env : Lean.Environment) (hm : EnvModel w env .standardLogical) (hw : WitnessDomain w) :
-    ∃ rest, Runs (Regula.Shell.run ["standard-logical", "full", w.project.toString] : Prog Unit Unit UInt32)
-      (⟨.leanVersion, Regula.Closed.pinnedLean⟩ :: rest) 0 ∧
+    ∃ rest, Runs (Regula.Shell.run ["standard-logical"] : Prog Unit Unit UInt32)
+      (⟨.leanVersion, Regula.Closed.pinnedLean⟩ :: ⟨.getEnv fullVariable, some w.project.toString⟩ :: rest) 0 ∧
       DomainRun witnessProject rest (FilePath.mk w.project.toString) .standardLogical := by
-  have hr := runs_with (answers w env) (Regula.Shell.run ["standard-logical", "full", w.project.toString] :
-    Prog Unit Unit UInt32)
+  have hr := runs_full (answers w env) w.project.toString
   generalize hc : valueWith (answers w env) _ = c at hr
-  have hshape : traceWith (answers w env) (Regula.Shell.run ["standard-logical", "full", w.project.toString] :
-      Prog Unit Unit UInt32) = ⟨.leanVersion, Regula.Closed.pinnedLean⟩ ::
-        traceWith (answers w env) (dispatch Regula.Closed.pinnedLean.1 Regula.Closed.pinnedLean.2
-          (argsOf ["standard-logical", "full", w.project.toString]).1
-          (argsOf ["standard-logical", "full", w.project.toString]).2) := rfl
-  rw [hshape] at hr
   have hsp : "standard-logical" = Regula.Closed.Profile.spelling .standardLogical := rfl
-  generalize hq : (dispatch Regula.Closed.pinnedLean.1 Regula.Closed.pinnedLean.2
-      (argsOf ["standard-logical", "full", w.project.toString]).1
-      (argsOf ["standard-logical", "full", w.project.toString]).2 : Prog Unit Unit UInt32) = q at hr
+  generalize hq : (runFull .standardLogical (FilePath.mk w.project.toString) : Prog Unit Unit UInt32) = q at hr
   have howed : FullOwed (traceWith (answers w env) q) (FilePath.mk w.project.toString) .standardLogical := fullOwed_answers hm _
   have := (run_full_owed run_meets hsp hr howed).1
   subst this
@@ -329,22 +320,13 @@ theorem takeWhile_traceWith {f g : (o : Op Unit Unit) → Resp o} (P : Event Uni
 /-- **`Answers` and the domain do not settle the verdict.** On the reading of the witness, in the domain and with its reads answering as its files
 state, a build that ends with 1 gives no exit 0. So the premise that the Lake commands succeed does work in `domain_owed`. -/
 theorem build_fails_model (w : WitnessPaths) (env : Lean.Environment) (hw : WitnessDomain w) :
-    ∃ rest c, Runs (Regula.Shell.run ["standard-logical", "full", w.project.toString] : Prog Unit Unit UInt32)
-      (⟨.leanVersion, Regula.Closed.pinnedLean⟩ :: rest) c ∧ witnessProject.InDomain ∧
+    ∃ rest c, Runs (Regula.Shell.run ["standard-logical"] : Prog Unit Unit UInt32)
+      (⟨.leanVersion, Regula.Closed.pinnedLean⟩ :: ⟨.getEnv fullVariable, some w.project.toString⟩ :: rest) c ∧ witnessProject.InDomain ∧
       (∀ tree tail, rest = ⟨.createTempDir, .ok tree⟩ :: tail → Answers witnessProject (readPhase rest) (FilePath.mk w.project.toString) tree) ∧
       c ≠ 0 := by
-  have hr := runs_with (answersBuildFails w env) (Regula.Shell.run ["standard-logical", "full", w.project.toString] :
-    Prog Unit Unit UInt32)
+  have hr := runs_full (answersBuildFails w env) w.project.toString
   generalize hc : valueWith (answersBuildFails w env) _ = c at hr
-  have hshape : traceWith (answersBuildFails w env) (Regula.Shell.run ["standard-logical", "full", w.project.toString] :
-      Prog Unit Unit UInt32) = ⟨.leanVersion, Regula.Closed.pinnedLean⟩ ::
-        traceWith (answersBuildFails w env) (dispatch Regula.Closed.pinnedLean.1 Regula.Closed.pinnedLean.2
-          (argsOf ["standard-logical", "full", w.project.toString]).1
-          (argsOf ["standard-logical", "full", w.project.toString]).2) := rfl
-  rw [hshape] at hr
-  generalize hq : (dispatch Regula.Closed.pinnedLean.1 Regula.Closed.pinnedLean.2
-      (argsOf ["standard-logical", "full", w.project.toString]).1
-      (argsOf ["standard-logical", "full", w.project.toString]).2 : Prog Unit Unit UInt32) = q at hr
+  generalize hq : (runFull .standardLogical (FilePath.mk w.project.toString) : Prog Unit Unit UInt32) = q at hr
   have hf : ∀ o, (∀ a b c, o ≠ .runLake a b c) → answersBuildFails w env o = answers w env o := by
     intro o ho
     cases o with
@@ -377,8 +359,9 @@ theorem build_fails_model (w : WitnessPaths) (env : Lean.Environment) (hw : Witn
     simp only [hsp] at hm
     obtain ⟨v, rest', he, hrun, -⟩ := hm
     cases he
-    obtain ⟨rest'', v', he', hfull⟩ := hrun rfl
+    obtain ⟨v', r', rest'', he', hfull⟩ := hrun rfl
     cases he'
+    simp only at hfull
     rcases hfull with ⟨e, tl, -, hcode, -⟩ | ⟨tree, tRead, tGate, r, last, ht, -, -, o, report, -, -, hn, ha, hcode, -⟩
     · cases hcode
     · have hrep : report = .full .pass := (Report.exitCode_eq_zero_iff report).mp hcode.symm

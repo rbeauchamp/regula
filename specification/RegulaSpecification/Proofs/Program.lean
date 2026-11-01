@@ -92,28 +92,30 @@ theorem reason_nil {dir tree : FilePath} {o : Outcome} : ¬ Reason ([] : List (E
 /-- A program that says it refused, and read nothing. -/
 def refuser (_ : List String) : Prog L E UInt32 :=
   .ask .leanVersion fun _ =>
-    .ask .createTempDir fun r =>
-      match r with
-      | .error _ => .done 1
-      | .ok tree =>
-        .ask (.removeDirAll tree) fun _ =>
-          .ask (.println Report.refused.label) fun _ => .done 1
+    .ask (.getEnv Regula.Shell.fullVariable) fun _ =>
+      .ask .createTempDir fun r =>
+        match r with
+        | .error _ => .done 1
+        | .ok tree =>
+          .ask (.removeDirAll tree) fun _ =>
+            .ask (.println Report.refused.label) fun _ => .done 1
 
 /-- A reader that reads nothing and refuses everything does not meet the record: no `Reason` holds of what it read. -/
 theorem refuser_fails (tree : FilePath) :
     ¬ RunMeets (refuser : List String → Prog L E UInt32) := by
   intro h
-  have hr : Runs (refuser ["standard-logical", "full", "d"] : Prog L E UInt32)
-      [⟨.leanVersion, Regula.Closed.pinnedLean⟩, ⟨.createTempDir, .ok tree⟩, ⟨.removeDirAll tree, .ok ()⟩,
-        ⟨.println Report.refused.label, .ok ()⟩] 1 :=
-    .ask _ _ _ (.ask _ _ _ (.ask _ _ _ (.ask _ _ _ (.done _))))
+  have hr : Runs (refuser ["standard-logical"] : Prog L E UInt32)
+      [⟨.leanVersion, Regula.Closed.pinnedLean⟩, ⟨.getEnv Regula.Shell.fullVariable, some "d"⟩, ⟨.createTempDir, .ok tree⟩,
+        ⟨.removeDirAll tree, .ok ()⟩, ⟨.println Report.refused.label, .ok ()⟩] 1 :=
+    .ask _ _ _ (.ask _ _ _ (.ask _ _ _ (.ask _ _ _ (.ask _ _ _ (.done _)))))
   have hm := h _ _ _ hr
   have hsp : Regula.Closed.Profile.ofSpelling? "standard-logical" = some .standardLogical := rfl
   simp only [hsp] at hm
   obtain ⟨v, rest, he, hp, -⟩ := hm
   cases he
-  obtain ⟨rest', v', he', hfull⟩ := hp rfl
+  obtain ⟨v', r, rest', he', hfull⟩ := hp rfl
   cases he'
+  simp only at hfull
   rcases hfull with ⟨e, rest, hlist, -⟩ | ⟨tree', tRead, tGate, r, last, hlist, -, -, o, report, hdec, -⟩
   · cases hlist
   · have hnil : tRead = [] := by

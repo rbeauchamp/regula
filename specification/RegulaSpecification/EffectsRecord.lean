@@ -578,11 +578,14 @@ def Refusal (t : List (Event L E)) (c : UInt32) : Prop :=
   c = 2 ∧ EndsWith t (Regula.Closed.Verdict.proofLine .incomplete) ∧ ∀ e ∈ t, e.isOnlySaying = true
 
 /-- A run of the proof verdict: its exit code and last line are the verdict's on what the load gave, and it
-acts on nothing. A run that exits with 0 received no failed answer. -/
+acts on nothing. A pass names, at the end of its last line, the current directory's real path, which is where the workspace
+it read was loaded from (`PlainRoot`). A run that exits with 0 received no failed answer. -/
 def PlainRun (t : List (Event L E)) (p : Regula.Closed.Profile) (c : UInt32) : Prop :=
-  ∃ result, Loaded PlainRoot PlainReason t p result ∧
+  ∃ result, ∃ subject : FilePath, Loaded PlainRoot PlainReason t p result ∧
     c = (Regula.Closed.decision result).verdict.exitCode ∧
-    EndsWith t (Regula.Closed.decision result).verdict.proofLine ∧
+    EndsWith t ((Regula.Closed.decision result).verdict.proofLineOn subject.toString) ∧
+    ((Regula.Closed.decision result).verdict = .pass → (⟨.realPath ".", .ok subject⟩ : Event L E) ∈ t ∧
+      ∃ sysroot root log, (⟨.loadWorkspace sysroot subject, .ok (some root, log)⟩ : Event L E) ∈ t ∧ PlainRoot t root) ∧
     (∀ e ∈ t, e.acted? = none) ∧ (c = 0 → ∀ e ∈ t, ¬ e.failed) ∧ PlainPreparation t
 
 /-- Every act of a run lies in the tree: either the run acted only on the
@@ -666,7 +669,7 @@ source reads. Each copy makes only its own parent before writing, and each searc
 load's setter. Failed attempts obey the same order. An admission rests on `Evidence` of the state the reading
 leaves. Build, replay and rules follow only an admission, with no later explicit copy or early removal, so no
 request of theirs changes that state (`FullRun.at_consumer`). Cleanup is terminal and every act is confined to the tree.
-Exit code and last line are the report's alone; exit 0 received no failed answer. All responses remain
+The exit code is the report's alone, and so is the last line but for the directory that a pass names at its end; exit 0 received no failed answer. All responses remain
 arbitrary, including inconsistent filesystem answers and opaque effects inside trusted calls. -/
 def FullRun (t : List (Event L E)) (dir : FilePath) (p : Regula.Closed.Profile) (c : UInt32) : Prop :=
   -- No temporary directory.
@@ -684,7 +687,7 @@ def FullRun (t : List (Event L E)) (dir : FilePath) (p : Regula.Closed.Profile) 
         | _ => Report.incomplete)) ∧
       (o = .admitted → ∃ sysroot tBuild tRules, SysrootIs tRead sysroot ∧ tGate = tBuild ++ tRules ∧
         BuildAndRules sysroot tBuild tRules tree p report) ∧
-      c = report.exitCode ∧ EndsWith t report.label ∧ Confined t dir tree ∧
+      c = report.exitCode ∧ EndsWith t (report.labelOn dir.toString) ∧ Confined t dir tree ∧
       (c = 0 → ∀ e ∈ t, ¬ e.failed) ∧ (∀ e ∈ tRead, NotRemoving e.op) ∧ ReadingPreparation tRead dir tree
 
 /-- On the one Lean that this revision reads, what the run states; on any other, a refusal. The run asks first which
@@ -693,18 +696,18 @@ def OnPinnedLean (t : List (Event L E)) (run : List (Event L E) → Prop) (c : U
   ∃ v rest, t = ⟨.leanVersion, v⟩ :: rest ∧ (v = Regula.Closed.pinnedLean → run t) ∧
     (v ≠ Regula.Closed.pinnedLean → Refusal t c)
 
-/-- What a whole run does, for each argument list: a subject is a program of the checker. -/
+/-- What a whole run does, for each argument list: a subject is a program of the checker. One profile, and the answer for
+the variable `REGULA_FULL` says which run: the proof verdict when it is unset, the full gate on the directory it names when
+it is set. Every other argument list is a refusal, so no argument selects what is audited. -/
 def RunMeets (w : List String → Prog L E UInt32) : Prop :=
   ∀ args t c, Runs (w args) t c →
     match args with
     | [text] =>
       match Regula.Closed.Profile.ofSpelling? text with
-      | some p => OnPinnedLean t (fun t => PlainRun t p c) c
-      | none => Refusal t c
-    | [text, "full", dir] =>
-      match Regula.Closed.Profile.ofSpelling? text with
-      | some p => OnPinnedLean t (fun t => ∃ rest v, t = ⟨.leanVersion, v⟩ :: rest ∧
-          FullRun rest (FilePath.mk dir) p c) c
+      | some p => OnPinnedLean t (fun t => ∃ v r rest, t = ⟨.leanVersion, v⟩ :: ⟨.getEnv "REGULA_FULL", r⟩ :: rest ∧
+          match r with
+          | none => PlainRun (⟨.leanVersion, v⟩ :: rest) p c
+          | some dir => FullRun rest (FilePath.mk dir) p c) c
       | none => Refusal t c
     | _ => Refusal t c
 

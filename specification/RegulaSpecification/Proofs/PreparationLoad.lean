@@ -124,7 +124,7 @@ theorem loadTree_preparation {sysroot : String} {tree : FilePath} {p : Regula.Cl
 
 /-- The plain loader's prefix provides its requested workspace and toolchain. -/
 theorem loadPlain_preparation {prior t : List (Event L E)} {p : Regula.Closed.Profile}
-    {b : Except String Regula.Closed.Input} (hq : Quiet prior)
+    {b : Except String (FilePath × Regula.Closed.Input)} (hq : Quiet prior)
     (h : Runs (loadPlain p : Attempt L E _).run t b) : PlainPreparation (prior ++ t) := by
   rw [loadPlain] at h
   obtain ⟨first, last, response, rfl, hf, hl⟩ := runs_attempt_bind_iff.mp h
@@ -167,7 +167,13 @@ theorem loadPlain_preparation {prior t : List (Event L E)} {p : Regula.Closed.Pr
             | ok received =>
               dsimp only at hfinal
               split at hfinal
-              · exact inputOf_preparation hfinal
+              · obtain ⟨ti, tp, ri, rfl, hi, hp⟩ := runs_attempt_bind_iff.mp hfinal
+                have htp : tp = [] := by
+                  cases ri with
+                  | error why => exact hp.1
+                  | ok input => exact (runs_attempt_pure_iff.mp hp).1
+                subst htp
+                simpa using inputOf_preparation hi
               · obtain ⟨rfl, -⟩ := runs_attempt_throw_iff.mp hfinal; exact .inl quiet_nil
 
 end RegulaSpecification.Effects

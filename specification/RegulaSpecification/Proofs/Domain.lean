@@ -671,8 +671,8 @@ statement names no case of `Reason`. What it leaves out is what `Answers` and `a
 between two reads, which are no fault of the project, and a Lake command that fails, which a proof that does not check also gives, are not owed a pass. -/
 theorem domain_owed {w : List String → Prog L E UInt32} (hw : RunMeets w) {text dir : String} {prof : Regula.Closed.Profile}
     (hp : text = prof.spelling) {rest : List (Event L E)} {c : UInt32}
-    (h : Runs (w [text, "full", dir]) (⟨.leanVersion, Regula.Closed.pinnedLean⟩ :: rest) c) {project : Project}
-    (hd : DomainRun project rest (FilePath.mk dir) prof) : c = 0 ∧ EndsWith rest fullPass :=
+    (h : Runs (w [text]) (⟨.leanVersion, Regula.Closed.pinnedLean⟩ :: ⟨.getEnv Regula.Shell.fullVariable, some dir⟩ :: rest) c) {project : Project}
+    (hd : DomainRun project rest (FilePath.mk dir) prof) : c = 0 ∧ EndsWith rest (fullPass (FilePath.mk dir)) :=
   run_full_owed hw hp h hd.fullOwed
 
 end
