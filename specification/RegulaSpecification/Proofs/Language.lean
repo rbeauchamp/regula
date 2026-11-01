@@ -11,8 +11,8 @@ import RegulaSpecification.Language
 
 `Regula.Language.decision` meets `languageRecord`, and `Regula.Language.gate` meets `fullGateRecord`,
 each over every reading and in both directions. Each theorem is about the definition that the checker
-runs. What fills a `Reading` from a real project (`Regula.Reader`) is outside these theorems, and the
-specification's trusted base lists it.
+runs. What fills a `Reading` from a real project (`Regula.Reader`) is in `Proofs/Reader.lean`, and the
+specification's trusted base lists what stays assumed.
 -/
 
 namespace RegulaSpecification.Language

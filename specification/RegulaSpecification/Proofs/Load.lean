@@ -28,8 +28,7 @@ build of this package. What they leave assumed is Lean's and Lake's behaviour: t
 constants that `Lean.importModules` keeps and `header.moduleData` what each `.olean` states, what
 each query of the environment returns, that `Expr.getUsedConstants` lists each constant of an
 expression, and that Lake names the modules of the default targets. The specification's trusted base
-lists them, and the thin effects that no theorem here reads: `Regula.Load.readModules`,
-`Regula.Load.inputFrom` and `Regula.Shell.run`. `Proofs/Occurrences.lean` states two of what Lean's
+lists them. `Proofs/Shell.lean` states the run that gives this function what Lean and Lake returned. `Proofs/Occurrences.lean` states two of what Lean's
 interfaces report as hypotheses of a theorem.
 -/
 
@@ -908,7 +907,7 @@ theorem profileOfRun_ok {version commit : String} {args : List String}
   · cases h
   · rename_i hs
     have hs' : Regula.Shell.supportsLean version commit = true := by simpa using hs
-    simp only [Regula.Shell.supportsLean, Bool.and_eq_true, beq_iff_eq] at hs'
+    simp only [Regula.Shell.supportsLean, Regula.Closed.pinnedLean, beq_iff_eq, Prod.mk.injEq] at hs'
     refine ⟨hs'.1, hs'.2, ?_⟩
     split at h
     · rename_i text

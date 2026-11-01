@@ -19,7 +19,7 @@ name = "lean-intent"
 git = "https://github.com/rbeauchamp/lean-intent"
 rev = "30fe70d3bdeec8875eab718f38374a76a1df63c4"
 
-# The root package, whose functions in `Regula.Rules` the proofs of `RegulaSpecification.Proofs` are
+# The root package, whose functions the proofs of `RegulaSpecification.Proofs` are
 # about, and whose `lint` executable checks this package.
 [[require]]
 name = "regula"

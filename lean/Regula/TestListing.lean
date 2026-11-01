@@ -81,7 +81,8 @@ first loads the workspace itself and fails when Lake cannot load it
 
 Lake's choice of the configuration file, its elaboration of that file and the value of
 `testDriver` that it gives are trusted at the pinned Lean, as `lake test` trusts them. What this
-module proves is about the text that the program prints (`listing_ok_iff`). The pipeline reads each
+module proves is about the text that the program prints (`listing_ok_iff`) and its exit code
+(`printListing_eq_zero_iff`). The pipeline reads each
 line of standard output, with the white space at its ends removed, as one test identifier, and
 skips a blank line. A printed driver is not empty, and its characters are between U+0021 and
 U+007E. None of those is a line break or white space, so the pipeline reads the line as exactly
@@ -168,6 +169,43 @@ def loadConfig (elanInstall? : Option Lake.ElanInstall) (leanInstall? : Option L
     updateToolchain := true
   }
 
+/-- Print what `listing` gives for the test driver `driver`, and give the exit code: 0 only when it holds lines to print,
+which `printListing_eq_zero_iff` states for any monad. -/
+def printListing {m : Type → Type} [Monad m] (print fail : String → m Unit) (driver : String) : m UInt32 :=
+  match listing driver with
+  | .ok lines => do
+    lines.forM print
+    return 0
+  | .error reason => do
+    fail s!"error: {reason}"
+    return 1
+
+/-- Print the lines of a listing into a list, which states what `printListing` does for a monad of that kind. -/
+theorem printListing_eq_zero_iff (driver : String) :
+    (printListing (m := StateM (List String)) (fun l s => ((), s ++ [l])) (fun _ s => ((), s)) driver
+      []).1 = 0 ↔ ∃ lines', listing driver = .ok lines' := by
+  unfold printListing
+  cases hl : listing driver with
+  | ok ls =>
+    simp only
+    have : ∀ (xs : List String) (s : List String),
+        (xs.forM (m := StateM (List String)) (fun l s => ((), s ++ [l]))
+          >>= fun _ => (pure 0 : StateM (List String) UInt32)) s =
+        (0, ((xs.forM (m := StateM (List String)) (fun l s => ((), s ++ [l]))) s).2) := by
+      intro xs s
+      rfl
+    constructor
+    · intro _
+      exact ⟨ls, rfl⟩
+    · intro _
+      exact congrArg Prod.fst (this ls [])
+  | error reason =>
+    constructor
+    · intro h
+      exact absurd (show (1 : UInt32) = 0 from h) (by decide)
+    · rintro ⟨_, h⟩
+      cases h
+
 end Regula.TestListing
 
 open Regula.TestListing in
@@ -182,10 +220,4 @@ def main : IO UInt32 := do
       return 1
   | .ok config =>
       let some package ← (Lake.loadPackage config).toBaseIO | return 1
-      match listing package.testDriver with
-      | .ok lines =>
-          lines.forM IO.println
-          return 0
-      | .error reason =>
-          IO.eprintln s!"error: {reason}"
-          return 1
+      printListing IO.println IO.eprintln package.testDriver

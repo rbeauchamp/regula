@@ -1,6 +1,6 @@
 # Regula
 
-Regula exists to be trusted, and to be the example of how Lean 4 code should be written: well factored, well designed, following best practice, and formally proven. Its owner decided that being free of bugs outranks every lint rule and feature, so Regula gives up any rule, feature or package it cannot prove rather than patching it, documenting a limit or keeping a stated gap. Only Lean, its kernel and Lake's own behaviour are meant to stay trusted; Regula's own code is meant to be proved, or so thin that it only calls Lean. That is the aim and not a claim about this revision: the [trusted base](specification/README.md#the-trusted-base) lists what is not yet proved.
+Regula exists to be trusted, and to be the example of how Lean 4 code should be written: well factored, well designed, following best practice, and formally proven. Its owner decided that being free of bugs outranks every lint rule and feature, so Regula gives up any rule, feature or package it cannot prove rather than patching it, documenting a limit or keeping a stated gap. Only Lean, its kernel and Lake's own behaviour are meant to stay trusted; Regula's own code is meant to be proved, or so thin that it only calls Lean. The [run of the checker](specification/README.md#the-run-of-the-checker) states what is proved of its effects, and the [trusted base](specification/README.md#the-trusted-base) what stays assumed.
 
 Regula is a checker of Lean builds. It refuses a project whose declarations depend on `sorry`, a project axiom, `native_decide` or an axiom outside the profile the project states, or that holds an `unsafe` or `partial` declaration, or a constant with the name of Lean's recursion helper, without that helper's form, or a `while` or `repeat` of its own. It also refuses a build it cannot load. Started from outside a project, before anything is compiled, it can also read each Lean file of the claim and the Lake configuration, and refuse anything outside a closed set of allowed constructs, so that no code the project wrote runs during the build.
 
@@ -59,15 +59,16 @@ theorem twice (n : Nat) : 2 * n = n + n := (double n).symm
 ```
 
 ```text
-regula: read 1 claimed modules and 2 of their constants
-RG1002 twice (module Demo): depends on sorryAx
-RG1002 double (module Demo): depends on sorryAx
-RG1005 twice (module Demo): depends on [sorryAx], outside the profile
-RG1005 double (module Demo): depends on [sorryAx], outside the profile
-regula: proof verdict: fail, 4 findings
+  regula: read 1 claimed modules and 2 of their constants
+  RG1002 twice (module Demo): depends on sorryAx
+  RG1002 double (module Demo): depends on sorryAx
+  RG1005 twice (module Demo): depends on [sorryAx], outside the profile
+  RG1005 double (module Demo): depends on [sorryAx], outside the profile
+  4 findings
+regula: proof verdict: fail
 ```
 
-The exit code of `lake lint` is 0 for `pass`, 1 for `fail` and 2 for `incomplete`.
+The exit code of `lake lint` is 0 for `pass`, 1 for `fail` and 2 for `incomplete`. The last line is the verdict. Regula starts each diagnostic line with two spaces and displays embedded newline and carriage-return characters as `\n` and `\r`, so diagnostic text cannot insert a verdict line. The full gate also displays Lake's own build output.
 
 ## The full gate
 

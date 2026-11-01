@@ -40,6 +40,11 @@ theorem Verdict.exitCode_injective : Function.Injective Verdict.exitCode := by
 theorem Verdict.exitCode_eq_zero_iff (v : Verdict) : v.exitCode = 0 ↔ v = .pass := by
   cases v <;> decide
 
+/-- The one Lean release that this revision of Regula reads, by its version and commit. The rules read a name
+form and a recursion helper's form that this release gives. -/
+def pinnedLean : String × String :=
+  ("4.35.0", "eb6cafb7290e8bd5f2937522d8d804f58f02bafc")
+
 /-- The word of each verdict, which the last line of a run prints. -/
 def Verdict.label : Verdict → String
   | .pass => "pass"
@@ -50,5 +55,11 @@ def Verdict.label : Verdict → String
 theorem Verdict.label_injective : Function.Injective Verdict.label := by
   intro a b h
   cases a <;> cases b <;> first | rfl | exact absurd h (by decide)
+
+/-- The last line of a run with the proof verdict `v`: a function of the verdict alone. -/
+def Verdict.proofLine : Verdict → String
+  | .pass => "regula: proof verdict: pass, which says nothing about what ran during the build"
+  | .fail => "regula: proof verdict: fail"
+  | .incomplete => "regula: proof verdict: incomplete (RG2001)"
 
 end Regula.Closed

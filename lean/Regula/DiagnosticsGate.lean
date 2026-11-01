@@ -25,7 +25,8 @@ about what they decide.
 ## Boundaries
 
 `runSteps` is the decision the program executes, and its theorems are checked by the kernel each
-time `lean --run` elaborates this file. Starting a step, its exit code and what the step does are
+time `lean --run` elaborates this file. `specification/RegulaSpecification/Proofs/Gate.lean` proves, at `IO`, that `runIn`
+gives 0 only when each step gave 0. Starting a step, its exit code and what the step does are
 trusted effects of the operating system and of Lake. `lake` is the program that `PATH` selects. Each
 step sees the checkout as the step before it left it: the gate assumes that no other process changes
 the build between its steps. -/
@@ -98,11 +99,20 @@ theorem runSteps_eq_none_iff (code : Step → UInt32) (steps : List Step) :
     · simp [h, ih]
     · simp [h]
 
+/-- What the gate exits with, by what `runSteps` gave: 0 only when no step is reported. -/
+def exitOf : Option (Step × UInt32) → UInt32
+  | some _ => 1
+  | none => 0
+
+/-- Only a run in which no step is reported exits with 0. -/
+theorem exitOf_eq_zero_iff (r : Option (Step × UInt32)) : exitOf r = 0 ↔ r = none := by
+  cases r <;> simp [exitOf]
+
 /-- Run `step`, with the standard streams of this process, and give its exit code. The inherited
 Lean search paths are removed, so a Lake command resolves modules only through the workspace it runs
 in. Lake's artifact cache is off: a module that Lake restores from that cache replays no warning, so
 `lake build --wfail` would not see it. -/
-private def runStep (step : Step) : IO UInt32 := do
+def runStep (step : Step) : IO UInt32 := do
   IO.println s!"local gate: lake {" ".intercalate step.arguments} (in {step.dir})"
   (← IO.getStdout).flush
   let child ← IO.Process.spawn
@@ -125,21 +135,28 @@ private def copyChecker (target : System.FilePath) : IO Unit := do
     if let some dir := to.parent then IO.FS.createDirAll dir
     IO.FS.writeBinFile to (← IO.FS.readBinFile file)
 
+/-- What `runSteps` gave, said on the standard streams. -/
+def sayResult (steps : List Step) : Option (Step × UInt32) → IO Unit
+  | some (step, code) =>
+    IO.eprintln s!"local gate: lake {" ".intercalate step.arguments} (in {step.dir}) ended with \
+      exit code {code}, so the local gate refuses the change"
+  | none => IO.println s!"local gate: each of its {steps.length} steps ended with exit code 0"
+
+/-- The steps, then what they gave. `specification/RegulaSpecification/Proofs/Gate.lean` proves of this definition, at `IO`,
+that it gives 0 only when each step gave 0. -/
+def runIn (target root : String) : IO UInt32 := do
+  let steps := localSteps target root
+  let result ← runSteps runStep steps
+  sayResult steps result
+  return exitOf result
+
 /-- Run the steps of the gate, and give 0 only when each ended with exit code 0. The checker's copy
 lies in a directory of its own outside the checkout, removed at the end. -/
 def runLocal : IO UInt32 := do
   let target ← IO.FS.createTempDir
   try
     copyChecker target
-    let steps := localSteps target.toString (← IO.currentDir).toString
-    match ← runSteps runStep steps with
-    | some (step, code) =>
-      IO.eprintln s!"local gate: lake {" ".intercalate step.arguments} (in {step.dir}) ended with \
-        exit code {code}, so the local gate refuses the change"
-      return 1
-    | none =>
-      IO.println s!"local gate: each of its {steps.length} steps ended with exit code 0"
-      return 0
+    runIn target.toString (← IO.currentDir).toString
   finally
     IO.FS.removeDirAll target
 
