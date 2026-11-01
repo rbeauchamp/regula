@@ -105,6 +105,16 @@ def QuietOp : Op L E → Prop
 /-- Every event of a segment is an observation or report independent of the prepared contexts. -/
 def Quiet (t : List (Event L E)) : Prop := ∀ e ∈ t, QuietOp e.op
 
+/-- What the file system answered after the run's last act on the tree: `t` ends with a segment that holds no act, and for each
+write of `t` whose text stands by `written`, that segment holds a read through the path it was written at that gave that text. A
+statement of `written` alone is a model of the file system, in which different components name different files and a write that
+answered success stored its text. This clause needs neither. A read through another path string with the same components does not
+count, so nothing here says that such strings name one file. -/
+def ReadBack (t : List (Event L E)) : Prop :=
+  ∃ pre suffix, t = pre ++ suffix ∧ Quiet suffix ∧
+    ∀ path text r, (⟨.writeFile path text, r⟩ : Event L E) ∈ t → written t (parts path) = some text →
+      (⟨.readFile path, .ok text⟩ : Event L E) ∈ suffix
+
 /-- Whether an attempted copy completed, as its write response states. -/
 def copyComplete : Except IO.Error Unit → Bool
   | .ok _ => true
@@ -426,6 +436,13 @@ inductive Reason (t : List (Event L E)) (dir treeDir : FilePath) : Outcome → P
   /-- Two default targets that hold one module name with two files. -/
   | twoRoots {project tree root modules m file other} : Scene t dir treeDir project tree root modules →
       (m, file) ∈ modules → (m, other) ∈ modules → other ≠ file → Reason t dir treeDir .incomplete
+  /-- A planned file written with its text answers otherwise, by the same path, after that write: another read gave another text,
+  or the read failed. A file that another spelling of a path replaced shows up here. The order keeps a run from citing a read it
+  asked before it wrote, and `Planned` from citing a text it read from nowhere. -/
+  | treeDiffers {project tree root modules path text r} : Scene t dir treeDir project tree root modules →
+      Planned t project tree root modules path text →
+      ([⟨.writeFile path text, .ok ()⟩, ⟨.readFile path, r⟩] : List (Event L E)).Sublist t → r ≠ .ok text →
+      Reason t dir treeDir .incomplete
   /-- What an admission would have the tree hold is two texts at one path: another read gave a needed file another text, or
   a needed file lies at the path of the configuration or of `lean-toolchain` with another text. The tree can hold one, so no
   admission could be about what the build consumes under each name. -/
@@ -469,9 +486,10 @@ inductive Reason (t : List (Event L E)) (dir treeDir : FilePath) : Outcome → P
 
 /-- The outcome `o` of the language check is what its reading gives. An admitted project rests on `Evidence` of the state
 `written t` that the whole reading leaves, so an admission is about the text that stands and not about one that a later
-write replaced, and any other outcome rests on a `Reason`. -/
+write replaced, and on `ReadBack`, so each text credited is what the file system answered after the reading's last act. Any
+other outcome rests on a `Reason`. -/
 def Decided (t : List (Event L E)) (dir tree : FilePath) (o : Outcome) : Prop :=
-  (o = .admitted → ∃ r, Inside r ∧ Evidence t dir tree (written t) r) ∧ (o ≠ .admitted → Reason t dir tree o) ∧
+  (o = .admitted → ∃ r, Inside r ∧ Evidence t dir tree (written t) r ∧ ReadBack t) ∧ (o ≠ .admitted → Reason t dir tree o) ∧
     ((∃ r, o = decision r) ∨ o = .incomplete)
 
 /-- What a finished build gave the rules, by this run's responses. `root` is the workspace that Lake's load
