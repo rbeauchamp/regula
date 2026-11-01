@@ -4,6 +4,14 @@
 
 - This repository delivers Regula, a checker of Lean builds that exists to be trusted and to be the example of how Lean 4 code should be written. `README.md` and `specification/README.md` state the purpose in their first paragraph.
 - Regula's checks are exactly RG1001 to RG1006, RG1010 and RG2001. `lean/Regula/` implements them, and `specification/` states and proves them. Regula gives up any rule, feature or package it cannot prove rather than patching it, documenting a limit or keeping a stated gap.
+- Simplicity governs every change, by the owner's constraint of 2026-11-01. The aim, never to be stated as fact, is to be to Lean linters what seL4 is to kernels: the most trusted one, because its claim is exact and proved. Simplicity is how that becomes achievable.
+  - Before adding or repairing anything, ask whether it can be deleted, or its input narrowed, so the need goes away.
+  - A proof far harder than the code it covers means the code should get simpler, not only better proved.
+  - Simplicity never replaces proof: RG1001 to RG1006, the two verdicts and the demand for no bugs all stand.
+  - One use case: one toolchain, one way to run it, a closed input, and a truthful refusal for anything else. Refusing something outside a narrow published contract is not a false refusal.
+  - Claim exactly what is proved, for which inputs, under which listed assumptions, with no superlatives in public until the proofs back them.
+  - The work follows it too: the simplest analysis that answers the question, with no frameworks.
+  - This rules out adding 1,000 lines to keep an unusual folder layout working, adding a mode to avoid a refusal, or keeping a tool in the repository for one analysis. It still allows a long proof of something truly hard, such as the two-way axiom rules.
 - RG1010 is the language check, which reads each source file before anything is compiled and refuses anything outside a closed set. Its table `lean/Regula/LanguageSet.lean` and its hypotheses H1 and H2 in `specification/README.md` are read again at each upgrade of Lean.
 - `Regula.Contract` and `Regula.Decision` stay as a library that gives no verdict until the other project that imports them moves them.
 
