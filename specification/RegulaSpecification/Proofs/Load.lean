@@ -702,7 +702,7 @@ theorem safety_safe {n : Name} {m : Regula.Load.LoadedModule} {info : ConstantIn
 /-- The form of a recursion helper in the input is its form in the environment. -/
 theorem helper_env (hl : Loaded f roots p i) (n : Name) (m : Regula.Load.LoadedModule)
     (info : ConstantInfo) :
-    (toSpec i).RecursionHelper (decl (f.declIn n m info (f.stated.getD n []))) ↔
+    (toSpec i).HelperForm (decl (f.declIn n m info (f.stated.getD n []))) ↔
       EnvHelper f n info m.name := by
   constructor
   · rintro ⟨h1, h2, h3, base, hb, hname, hk, hm, hu, hi', he⟩

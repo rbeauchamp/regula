@@ -12,7 +12,7 @@ import RegulaSpecification.Proofs.Foundation
 `Regula.ProgramCheck.Effects` runs `scan` and `judge` of `Regula.ProgramCheck.EffectScan` on the import closure of the executable and the two library roots,
 and fails the gate's build on what `judge` refuses. `mem_scan_iff` and `judge_ok_iff` state what they decide, for
 every graph, of the definitions that the check runs. `mem_own_iff` states what `graphOf` selects from the environment.
-`check_ok_iff` puts them together. What `Environment.find?` and the header hold, and what `Expr.getUsedConstants` lists, stays
+`allowed_iff` states the closed set of what may mention an effect, by the modules' names, apart from the table that `allowed` reads. `check_ok_iff` puts them together. What `Environment.find?` and the header hold, and what `Expr.getUsedConstants` lists, stays
 Lean's.
 -/
 
@@ -151,13 +151,23 @@ theorem mem_own_iff (env : Environment) (n m : Name) :
   · rintro ⟨data, hz, hroot, hn⟩
     exact ⟨(m, data), ⟨hz, hroot⟩, n, hn, rfl, rfl⟩
 
+/-- What may mention an effect, by name, apart from `effectModules`: a constant of the one table, of the calls of Lake or of the executable's root, or the interpreter's in `Regula.Effect`. So a check that allowed more than this fails this theorem. -/
+theorem allowed_iff (x : Name × Name) :
+    allowed x = true ↔
+      x.2 ∈ [`Regula.Table, `Regula.Workspace, `Regula.LintMain] ∨
+        (x.2 = `Regula.Effect ∧ (`Regula.Effect.Prog.interpret).isPrefixOf x.1 = true) := by
+  simp [allowed, effectModules]
+
 /-- The decision of the check on an environment: it passes exactly when the interpreter mentions an effect and each constant of
-`own` that mentions one is `allowed`. -/
+`own` that mentions one lies where `allowed_iff` says. -/
 theorem check_ok_iff (env : Environment) :
     judge (scan (graphOf env)) = .ok () ↔
       (∃ m, (`Regula.Effect.Prog.interpret, m) ∈ (graphOf env).own ∧
         Effectful (graphOf env) `Regula.Effect.Prog.interpret) ∧
-      ∀ x ∈ (graphOf env).own, Effectful (graphOf env) x.1 → allowed x = true := by
+      ∀ x ∈ (graphOf env).own, Effectful (graphOf env) x.1 →
+        x.2 ∈ [`Regula.Table, `Regula.Workspace, `Regula.LintMain] ∨
+          (x.2 = `Regula.Effect ∧ (`Regula.Effect.Prog.interpret).isPrefixOf x.1 = true) := by
+  simp only [← allowed_iff]
   rw [judge_ok_iff]
   constructor
   · rintro ⟨⟨x, hx, hn⟩, hall⟩

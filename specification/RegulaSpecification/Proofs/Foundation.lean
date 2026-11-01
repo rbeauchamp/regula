@@ -229,9 +229,9 @@ theorem safety_iff (b : Regula.Closed.Decl) (v : Regula.Closed.Safety) :
     b.safety = v ↔ (decl b).safety = safety v := by
   cases hd : b.safety <;> cases v <;> simp [decl, safety, hd]
 
-/-- The test of a recursion helper's form is `Input.RecursionHelper`. -/
+/-- The test of a recursion helper's form is `Input.HelperForm`. -/
 theorem recursionHelper_iff (d : Regula.Closed.Decl) :
-    t.recursionHelper d = true ↔ (toSpec i).RecursionHelper (decl d) := by
+    t.helperForm d = true ↔ (toSpec i).HelperForm (decl d) := by
   have htail : t.helperBaseFits d = true ↔
       ∃ base ∈ (toSpec i).decls, (decl d).name = Name.str base.name "_unsafe_rec" ∧
         base.kind = .definition ∧ base.module = (decl d).module ∧ base.safety = .safe ∧
@@ -262,8 +262,8 @@ theorem recursionHelper_iff (d : Regula.Closed.Decl) :
         (isUnsafeRecName_eq _ _).mpr hxn
       rw [hb] at h2
       cases h2
-  simp only [Regula.Closed.Tables.recursionHelper, Bool.and_eq_true, Bool.not_eq_true', beq_iff_eq,
-    Option.isNone_iff_eq_none, htail, Input.RecursionHelper, safety_iff d .partial]
+  simp only [Regula.Closed.Tables.helperForm, Bool.and_eq_true, Bool.not_eq_true', beq_iff_eq,
+    Option.isNone_iff_eq_none, htail, Input.HelperForm, safety_iff d .partial]
   constructor
   · rintro ⟨⟨⟨h1, h2⟩, h3⟩, h4⟩
     exact ⟨h1, h2, h3, h4⟩
@@ -306,7 +306,7 @@ theorem rg1006_exact (s : Name) :
       · rcases hf with hf | hf
         · exact .inl ((not_safe_iff d).mpr hf)
         · exact .inr ((namedAsHelper_iff d).mpr hf)
-      · cases hb : t.recursionHelper d with
+      · cases hb : t.helperForm d with
         | false => rfl
         | true => exact absurd ((recursionHelper_iff t d).mp hb) hh
     · exact .inr ((mentionsLoop_iff d).mpr hl)
@@ -323,7 +323,7 @@ theorem rg1006_reports_named_not_partial {d : Regula.Closed.Decl} (hd : d ∈ i.
 reported. So a rule that refuses each name of the form `b._unsafe_rec`, or all recursion, does not
 meet this. -/
 theorem rg1006_admits_helper {d : Regula.Closed.Decl} (hd : d ∈ i.decls)
-    (hh : (toSpec i).RecursionHelper (decl d)) (hl : ¬ MentionsLoop (decl d)) :
+    (hh : (toSpec i).HelperForm (decl d)) (hl : ¬ MentionsLoop (decl d)) :
     d.name ∉ t.rg1006.map (·.subject) := by
   intro h
   obtain ⟨x, hx, hxn, -, hv⟩ := (rg1006_exact t d.name).mp h

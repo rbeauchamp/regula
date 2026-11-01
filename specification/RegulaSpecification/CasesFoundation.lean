@@ -152,9 +152,20 @@ def partialDecl : Decl := { plain `Good.p `Good .definition [] with safety := .p
 /-- The helper is a constant of `base`. -/
 theorem helper_mem : helperDecl ∈ base.decls := by simp [base, baseDecls]
 
-/-- The helper has the form of a recursion helper. -/
-theorem base_helper : base.RecursionHelper helperDecl :=
+/-- The helper has the exempted form. -/
+theorem base_helper : base.HelperForm helperDecl :=
   ⟨rfl, rfl, rfl, fDecl, by simp [base, baseDecls], rfl, rfl, rfl, rfl, rfl, rfl⟩
+
+/-- H6 holds of the witness that holds a constant of the exempted form, and no safe constant there reaches it. -/
+theorem base_safeMentionsSafe : SafeMentionsSafe base := by
+  unfold SafeMentionsSafe
+  decide +kernel
+
+/-- H6 can fail: it does not hold of an input whose safe constant mentions a partial one. -/
+theorem safeMentionsSafe_refutable : ¬ SafeMentionsSafe (withDecls [partialDecl, plain `Good.m `Good .definition [`Good.p]]
+    (by simp [base, baseDecls, plain, toolchain, helperDecl, fDecl, partialDecl])) := by
+  unfold SafeMentionsSafe
+  decide +kernel
 
 /-- The cases of RG1006. -/
 def w1006 : Witnessed Violates1006 where

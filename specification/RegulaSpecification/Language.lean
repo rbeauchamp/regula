@@ -353,12 +353,6 @@ theorem parent_name_not_closed : ¬ ClosedModuleName (.str .anonymous "..") := b
   | one hc => exact absurd hc (by decide +kernel)
   | more hp _ => cases hp
 
-/-- A name with no component is outside the closed domain. -/
-theorem anonymous_not_closed : ¬ ClosedModuleName .anonymous := fun h => by cases h
-
-/-- A numeric component is outside the closed domain. -/
-theorem num_not_closed (p : Name) (n : Nat) : ¬ ClosedModuleName (.num p n) := fun h => by cases h
-
 theorem closed_of_goodKeys {r : Reading} (ht : r.toolchainFile = some leanToolchain)
     (hl : r.leanConfig = false) (ho : r.openPaths = []) (hk : r.configKeys = [`name]) :
     ConfigClosed r := by
@@ -414,10 +408,6 @@ def noClaimReading : Reading :=
 def mathlibReading : Reading :=
   { goodReading with reached := [`Good, `Mathlib.Tactic] }
 
-/-- `goodReading` with a module of `reached` that has no file. -/
-def uncoveredReading : Reading :=
-  { goodReading with reached := [`Good, `Other] }
-
 /-- `goodReading` whose file holds a position the parser could not fill. -/
 def badFileReading : Reading :=
   { goodReading with files := [{ goodFile with commands := [.missing, endOfInput] }] }
@@ -470,13 +460,6 @@ theorem not_mathlib_of_reached {r : Reading} (h : ∀ m ∈ r.reached, m = `Good
     ¬ MathlibReached r := by
   rintro ⟨m, hm, hr⟩
   rcases h m hm with rfl | rfl <;> exact absurd hr (by decide)
-
-theorem uncovered : ¬ Covered uncoveredReading := by
-  rintro ⟨-, -, -, h⟩
-  obtain ⟨f, hf, hm⟩ := h `Other (by simp [uncoveredReading])
-  have : f = goodFile := by simpa [uncoveredReading, goodReading] using hf
-  subst this
-  exact absurd hm (by decide)
 
 theorem badFile_covered : Covered badFileReading := by
   refine ⟨by simp [badFileReading, goodReading], by simp [badFileReading, goodReading], ?_, ?_⟩
@@ -551,7 +534,10 @@ theorem constant_fails (o : Outcome) : ¬ languageRecord.Meets (fun _ => o) := b
   rw [ha] at hb
   exact absurd hb (by decide)
 
-/-! ## The closed set against what the owner's words refuse -/
+/-! ## The closed set against the families of what the owner's words refuse
+
+`Proofs/Owner.lean` states what the owner's words name, over the decision and with literal expected values. These read a table, and they
+hold the other names of those families out of it. -/
 
 /-- The kinds of the constructs the owner's words name, and the others of their families, read from
 `Init/Tactics.lean`, `Lean/Parser/Command.lean`, `Lean/Parser/Syntax.lean` and `Lean/Elab/` at Lean
@@ -586,9 +572,6 @@ theorem refused_options :
     ∀ o ∈ [`debug.skipKernelTC, `match.ignoreUnusedAlts, `internal.parseQuotWithCurrentStage,
       `compiler.extract_closed, `doc.verso],
     o ∉ options := by decide +kernel
-
-/-- `decide +native` is refused, and `decide +kernel` is admitted. -/
-theorem refused_native : `native ∉ configItems ∧ `kernel ∈ configItems := by decide +kernel
 
 /-- What a project's `lakefile.toml` must not set: each loads or runs something at build time. -/
 theorem refused_config_keys :
@@ -626,14 +609,6 @@ theorem lean_config_refused {d : Reading → Outcome} (h : languageRecord.Meets 
   exact h1 r fun hc => by
     have := hc.2.1
     simp [hr] at this
-
-/-- What the owner's words require the closed set to hold. -/
-theorem admitted_kinds :
-    ∀ k ∈ [`Lean.Parser.Tactic.simp, `Lean.Parser.Tactic.omega, `Lean.Parser.Tactic.decide,
-      `Lean.Parser.Command.variable, `Lean.Parser.Command.declaration,
-      `Lean.Parser.Command.derivingClass, `Lean.Parser.Tactic.optConfig,
-      `Lean.Parser.Tactic.posConfigItem],
-    k ∈ kinds := by decide +kernel
 
 /-! ## The gate that runs the check -/
 

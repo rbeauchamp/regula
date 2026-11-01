@@ -61,10 +61,6 @@ theorem runs_bind_iff {p : Prog L E α} {f : α → Prog L E β} {t : List (Even
     · rintro ⟨t₁, t₂, a, rfl, ⟨r, t', rfl, h₁⟩, h₂⟩
       exact ⟨r, t' ++ t₂, rfl, (ih r).mpr ⟨t', t₂, a, rfl, h₁, h₂⟩⟩
 
-@[simp] theorem pure_eq (a : α) : (pure a : Prog L E α) = .done a := rfl
-
-@[simp] theorem bind_eq (p : Prog L E α) (f : α → Prog L E β) : p >>= f = Prog.bind p f := rfl
-
 theorem runs_pure_iff {a b : α} {t : List (Event L E)} :
     Runs (pure a : Prog L E α) t b ↔ t = [] ∧ b = a :=
   runs_done_iff
@@ -142,11 +138,6 @@ theorem runs_attempt_iff {step : Prog L E (Except IO.Error α)} {t : List (Event
 
 /-! ## Each operation of a program is asked in order: the interpreter -/
 
-/-- The state that `table` leaves after answering `o` in the world `w`. -/
-def afterOp (table : (o : Op L E) → BaseIO (Resp o)) (o : Op L E) (w : Void IO.RealWorld) :
-    Void IO.RealWorld :=
-  (table o w).state
-
 /-- The events that the interpreter records, from the world `w`, for the program `p`. -/
 def traceFrom (table : (o : Op L E) → BaseIO (Resp o)) :
     Prog L E α → Void IO.RealWorld → List (Event L E)
@@ -164,11 +155,5 @@ theorem interpret_runs (table : (o : Op L E) → BaseIO (Resp o)) (p : Prog L E 
   | ask o next ih =>
     have := ih ((table o w).val) (table o w).state
     exact .ask o next _ this
-
-/-- `interpret` passes each answer on: one step of it, read off `BaseIO`'s definition. -/
-theorem interpret_ask (table : (o : Op L E) → BaseIO (Resp o)) (o : Op L E) (next : Resp o → Prog L E α)
-    (w : Void IO.RealWorld) :
-    Prog.interpret table (.ask o next) w =
-      Prog.interpret table (next (table o w).val) (table o w).state := rfl
 
 end RegulaSpecification.Effects

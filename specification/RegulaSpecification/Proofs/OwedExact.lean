@@ -86,45 +86,6 @@ theorem defaultModules_unique {T : List (Event L E)} (h : OneAnswer T) {root : R
     | exe _ hx' => rw [hx] at hx'; cases hx'
     | other _ _ hrest' => exact ih hrest'
 
-/-- Two lists of loaded modules with one list of names and one module for each name are one list. -/
-theorem modules_eq {a b : List Regula.Load.LoadedModule} (hn : a.map (·.name) = b.map (·.name))
-    (h : ∀ m ∈ a, ∀ m' ∈ b, m.name = m'.name → m = m') : a = b := by
-  induction a generalizing b with
-  | nil => simpa using hn.symm
-  | cons x xs ih =>
-    cases b with
-    | nil => cases hn
-    | cons y ys =>
-      simp only [List.map_cons, List.cons.injEq] at hn
-      rw [h x (by simp) y (by simp) hn.1,
-        ih hn.2 fun m hm m' hm' => h m (List.mem_cons_of_mem _ hm) m' (List.mem_cons_of_mem _ hm')]
-
-/-- What a load read of a finished build is one reading, on one answer for each operation. -/
-theorem buildRead_unique {T : List (Event L E)} (h : OneAnswer T) {root : Root L} {f f' roots roots'}
-    (h1 : BuildRead T root f roots) (h2 : BuildRead T root f' roots') : f = f' ∧ roots = roots' := by
-  obtain ⟨q, hq, rfl, hs, ht, hr, hm⟩ := h1
-  obtain ⟨q', hq', rfl, hs', ht', hr', hm'⟩ := h2
-  obtain rfl := defaultModules_unique h hq hq'
-  have henv := Except.ok.inj (h.resp (hs.subset (by simp) : (⟨.importForRules (q.map (·.1)).toArray, .ok f.env⟩ : Event L E) ∈ T)
-    (hs'.subset (by simp) : (⟨.importForRules (q.map (·.1)).toArray, .ok f'.env⟩ : Event L E) ∈ T) rfl)
-  refine ⟨?_, rfl⟩
-  have hdirs := ht.trans ht'.symm
-  have hroot := hr.trans hr'.symm
-  have hnames : f.modules.toList.map (·.name) = f'.modules.toList.map (·.name) := by
-    rw [f.names, f'.names, henv]
-  have hmods : f.modules.toList = f'.modules.toList := by
-    refine modules_eq hnames fun m hm₁ m' hm₂ hn => ?_
-    have hm₁' : m ∈ f.modules := Array.mem_toList_iff.mp hm₁
-    have hm₂' : m' ∈ f'.modules := Array.mem_toList_iff.mp hm₂
-    have ho : m.olean = m'.olean := Except.ok.inj (h.resp (hm m hm₁') (hn ▸ hm' m' hm₂') rfl)
-    rw [f.placed m hm₁', f'.placed m' hm₂', hn, ho, hdirs, hroot]
-  have hmods' : f.modules = f'.modules := Array.toList_inj.mp hmods
-  obtain ⟨env, td, rd, ms, n, pl⟩ := f
-  obtain ⟨env', td', rd', ms', n', pl'⟩ := f'
-  simp only at henv hdirs hroot hmods'
-  subst henv hdirs hroot hmods'
-  rfl
-
 /-- Two lists of pairs with one list of first members and one second member for each are one list. -/
 theorem pairs_eq {a b : List (Name × FilePath)} (hn : a.map (·.1) = b.map (·.1))
     (h : ∀ x ∈ a, ∀ y ∈ b, x.1 = y.1 → x = y) : a = b := by
@@ -313,23 +274,6 @@ theorem mem_lookup {α β : Type} [BEq α] [LawfulBEq α] {l : List (α × β)} 
     · have hne : (a == k) = false := by simpa using hk
       simp only [List.lookup_cons, hne] at h
       exact List.mem_cons_of_mem _ (ih h)
-
-/-- A key of a member has a value. -/
-theorem lookup_of_mem_isSome {α β : Type} [BEq α] [LawfulBEq α] {l : List (α × β)} {a : α} {b : β} (h : (a, b) ∈ l) :
-    (l.lookup a).isSome = true := by
-  induction l with
-  | nil => cases h
-  | cons x xs ih =>
-    obtain ⟨k, v⟩ := x
-    by_cases hk : a = k
-    · subst hk
-      simp
-    · have hne : (a == k) = false := by simpa using hk
-      simp only [List.lookup_cons, hne]
-      rcases List.mem_cons.mp h with he | he
-      · cases he
-        exact absurd rfl hk
-      · exact ih he
 
 /-- No reason in the closed set holds of a run whose reading rests on `Evidence`, is inside the closed language and received
 no failed answer, on one answer for each operation and one context for each input. -/

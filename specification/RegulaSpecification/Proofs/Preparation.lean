@@ -13,8 +13,8 @@ These consequences read the contract alone. The exact copy segments determine th
 `manufacturedCopy_fails` excludes the reported trace with no toolchain answer, and `manufacturedCopyAnswered_fails` the
 trace with that answer present, through the copy grammar and `parent_ne_self`, for every path, text, error, profile and
 exit code.
-`BuildProtocol.commands`, `BuildAndRules.no_mutation` and `FullRun.after_removal_saying` constrain the
-later phases. The proofs in `PreparationReader`, `PreparationLoad` and `Shell` establish the ordered
+`BuildAndRules.no_mutation` and `FullRun.after_removal_saying` constrain the later phases, and `ModuleCopies.not_barred` and
+`InputPreparation.not_barred` state that no setter, load, command, removal or allocation follows the one setter of a search path. The proofs in `PreparationReader`, `PreparationLoad` and `Shell` establish the ordered
 relations for the actual reader and loaders, composed in `run_meets`, for every response. No result
 here assumes consistent filesystem responses or describes effects inside trusted Lean/Lake calls.
 -/
@@ -58,42 +58,44 @@ theorem BuildProtocol.operations {sysroot : String} {tree : FilePath} {t : List 
         · exact .inl hs
         · exact .inr (.inr (.inr hl))
 
-/-- The commands requested by a trace, in their actual order. -/
-def lakeCommands (t : List (Event L E)) : List (FilePath × FilePath × List String) :=
-  t.filterMap fun e => match e.op with
-    | .runLake program tree args => some (program, tree, args)
-    | _ => none
+/-- What may not follow the setter of a search path in a phase: another setter, a load, a Lake command, a removal or an allocation.
+Stated apart from `QuietOp`, `ParserSearchOp` and `RulesSearchOp`, so that a phase's list of allowed operations that came to hold one of these
+fails `ModuleCopies.not_barred` or `InputPreparation.not_barred`. -/
+def Barred : Op L E → Prop
+  | .setSearchPath _ | .loadRoot .. | .loadWorkspace .. | .runLake .. | .removeDirAll _ | .createTempDir => True
+  | _ => False
 
-/-- A command segment requests exactly one command; reporting cannot conceal another. -/
-theorem LakeInvocation.commands {program tree : FilePath} {args : List String} {response}
-    {t : List (Event L E)} (h : LakeInvocation program tree args response t) :
-    lakeCommands t = [(program, tree, args)] := by
-  obtain ⟨pre, post, rfl, hp, hq⟩ := h
-  have quiet {u : List (Event L E)} (hu : ∀ e ∈ u, e.isOnlySaying = true) : lakeCommands u = [] := by
-    apply List.filterMap_eq_nil_iff.mpr
-    intro e he
-    have hs := hu e he
-    obtain ⟨o, r⟩ := e
-    cases o <;> first | rfl | cases hs
-  simp only [lakeCommands, List.filterMap_append, List.filterMap_cons]
-  change lakeCommands pre ++ (program, tree, args) :: lakeCommands post = _
-  rw [quiet hp, quiet hq]
-  rfl
+/-- The module copies of a reading follow the one setter of its search path, and hold nothing that `Barred` names. -/
+theorem ModuleCopies.not_barred {project tree : FilePath} {root : Root L} {modules : List (Lean.Name × FilePath)}
+    {prior t : List (Event L E)} (h : ModuleCopies project tree root modules prior t) : ∀ e ∈ t, ¬ Barred e.op := by
+  induction h with
+  | nil => simp
+  | observe hq _ ih =>
+    rename_i e rest
+    intro x hx
+    rcases List.mem_cons.mp hx with rfl | hx
+    · obtain ⟨o, r⟩ := x
+      cases o <;> simp_all [Barred, QuietOp, ParserSearchOp]
+    · exact ih x hx
+  | copy _ _ _ hstep _ ih =>
+    intro x hx
+    rcases List.mem_append.mp hx with hx | hx
+    · cases hstep <;> simp only [List.mem_cons, List.not_mem_nil, or_false] at hx <;>
+        first
+          | (subst hx; simp [Barred])
+          | (rcases hx with rfl | rfl <;> simp [Barred])
+          | cases hx
+    · exact ih x hx
 
-/-- A build phase has exactly a build, or that build followed by one replay. -/
-theorem BuildProtocol.commands {sysroot : String} {tree : FilePath} {t : List (Event L E)}
-    (h : BuildProtocol sysroot tree t) :
-    ∃ program, lakeCommands t = [(program, tree, ["build", "--wfail"])] ∨
-      lakeCommands t = [(program, tree, ["build", "--wfail"]), (program, tree, replayArguments)] := by
-  obtain ⟨program, lakeLib, first, rest, response, rfl, hf, hr⟩ := h
-  refine ⟨program, ?_⟩
-  have he : lakeCommands (⟨.lakeInstall sysroot, (program, lakeLib)⟩ :: (first ++ rest)) =
-      lakeCommands first ++ lakeCommands rest := by simp [lakeCommands]
-  rw [he, hf.commands]
-  rcases hr with ⟨-, rfl⟩ | ⟨-, replay, hr⟩
-  · exact .inl rfl
-  · rw [hr.commands]
-    exact .inr rfl
+/-- What the rules read follows the one setter of the build's search path, and nothing after it is what `Barred` names. -/
+theorem InputPreparation.not_barred {root : Root L} {t : List (Event L E)} (h : InputPreparation root t) :
+    Quiet t ∨ ∃ before rest, t = before ++ ⟨.setSearchPath root.leanPath, ()⟩ :: rest ∧ Quiet before ∧ ∀ e ∈ rest, ¬ Barred e.op := by
+  refine h.imp id ?_
+  rintro ⟨before, rest, he, hq, hr⟩
+  refine ⟨before, rest, he, hq, fun x hx => ?_⟩
+  obtain ⟨o, r⟩ := x
+  have := hr _ hx
+  cases o <;> simp_all [Barred, QuietOp, RulesSearchOp]
 
 /-- No explicit write, directory creation, allocation or removal belongs to either phase. Effects
 inside trusted Lean/Lake calls are not events of this trace. -/

@@ -30,6 +30,7 @@ import RegulaSpecification.Proofs.Owed
 import RegulaSpecification.Proofs.OwedExact
 import RegulaSpecification.Proofs.Occurrences
 import RegulaSpecification.Proofs.Language
+import RegulaSpecification.Proofs.Owner
 import RegulaSpecification.Proofs.Effects
 import RegulaSpecification.Proofs.ReaderParts
 import RegulaSpecification.Proofs.ReaderWalk
@@ -45,7 +46,6 @@ import RegulaSpecification.Proofs.Witness
 import RegulaSpecification.Proofs.Program
 import RegulaSpecification.Proofs.Behaviour
 import RegulaSpecification.Proofs.Domain
-import RegulaSpecification.Proofs.Premises
 import RegulaSpecification.Proofs.DomainCases
 import RegulaSpecification.Proofs.DomainModel
 import RegulaSpecification.Proofs.OwedModel
