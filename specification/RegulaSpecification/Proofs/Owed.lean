@@ -267,7 +267,7 @@ theorem BuildRead.mono {root : Root L} {f roots} (h : BuildRead T root f roots) 
 
 end Mono
 
-/-! ## What a healthy build owes -/
+/-! ## What a run with no refusal is owed -/
 
 /-- What a run of the proof verdict receives on a build that it owes a pass: no reason in the closed set holds, and each
 environment that the run read of the workspace Lake dispatched has `BuildAnswer.Floor`. -/
@@ -360,7 +360,7 @@ theorem full_owed {t : List (Event L E)} {dir : FilePath} {p : Regula.Closed.Pro
 /-! ## Every subject of the record -/
 
 /-- For every program that meets the record, every run of the proof verdict on the pinned Lean, on responses that owe a pass,
-passes. So a program that refuses a healthy build does not meet the record. -/
+passes. So a program that refuses a run in which no reason holds and each loaded reading has its floor does not meet the record. -/
 theorem run_plain_owed {w : List String → Prog L E UInt32} (hw : RunMeets w) {text : String} {p : Regula.Closed.Profile}
     (hp : text = p.spelling) {rest : List (Event L E)} {c : UInt32}
     (h : Runs (w [text]) (⟨.leanVersion, Regula.Closed.pinnedLean⟩ :: rest) c)

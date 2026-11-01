@@ -185,7 +185,7 @@ def derivingClasses : List Name :=
   [`DecidableEq, `BEq, `Repr, `Inhabited, `Hashable, `Ord, `Nonempty]
 
 /-- The keys of a `lakefile.toml` outside `leanOptions`, each as a path of TOML keys. This table reads a key
-and no value: `Reading.openPaths` holds what the reader found of the values of `srcDir` and `globs`. -/
+and no value: `Reading.openPaths` holds what the reader found of the values of `srcDir`, `globs` and `defaultTargets`. -/
 def configKeys : List Name :=
   [`name, `version, `description, `keywords, `license, `licenseFiles, `srcDir, `defaultTargets,
     `lintDriver, `lintDriverArgs, `lean_lib.name, `lean_lib.roots, `lean_lib.globs,
