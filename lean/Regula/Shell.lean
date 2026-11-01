@@ -146,13 +146,17 @@ def loadTree (sysroot : String) (tree : FilePath) (profile : Profile) : Attempt 
     pure (loaded "the configuration" r))
   inputOf root profile
 
+/-- What a load read, printed. -/
+def sayCoverage : Except String Input → Prog L E Unit
+  | .ok input => say (coverage input)
+  | .error _ => pure ()
+
 /-- The rules on the finished build: prints what they found, and gives their verdict. -/
 def rules (load : Attempt L E Input) : Prog L E Verdict := do
   let result ← load.run
-  if let .ok input := result then say (coverage input)
-  let r := decision result
-  sayAll (details r)
-  pure r.verdict
+  sayCoverage result
+  sayAll (details (decision result))
+  pure (decision result).verdict
 
 /-- What the language check says of a reading, printed. -/
 def check (sysroot : String) (dir tree : FilePath) : Prog L E Language.Outcome := do
@@ -229,19 +233,26 @@ def runFull (profile : Profile) (dir : FilePath) : Prog L E UInt32 := do
 /-- A run of the proof verdict on the workspace that Lake dispatched. -/
 def runPlain (profile : Profile) : Prog L E UInt32 := do
   let result ← (loadPlain profile).run
-  if let .ok input := result then say (coverage input)
+  sayCoverage result
   finishProof (decision result)
 
-/-- The checker with the arguments of `lake lint` (`profileOfRun`), giving the verdict of `decision`; or, with a
-profile, `full` and a directory, the full gate on the project there. -/
-def run (args : List String) : Prog L E UInt32 := do
-  let (version, commit) ← (Prog.call .leanVersion : Prog L E (String × String))
-  let (profileArgs, project) := match args with
-    | [text, "full", dir] => ([text], some dir)
-    | _ => (args, none)
+/-- The profile's arguments and the project's directory, from the command line. -/
+def argsOf : List String → List String × Option String
+  | [text, "full", dir] => ([text], some dir)
+  | args => (args, none)
+
+/-- What a run does on this Lean, with these arguments for the profile and this project. -/
+def dispatch (version commit : String) (profileArgs : List String) (project : Option String) :
+    Prog L E UInt32 :=
   match profileOfRun version commit profileArgs, project with
   | .error why, _ => finishProof (.incomplete why)
   | .ok profile, some dir => runFull profile (FilePath.mk dir)
   | .ok profile, none => runPlain profile
+
+/-- The checker with the arguments of `lake lint` (`profileOfRun`), giving the verdict of `decision`; or, with a
+profile, `full` and a directory, the full gate on the project there. -/
+def run (args : List String) : Prog L E UInt32 :=
+  Prog.bind (Prog.call .leanVersion : Prog L E (String × String)) fun v =>
+    dispatch v.1 v.2 (argsOf args).1 (argsOf args).2
 
 end Regula.Shell

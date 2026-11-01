@@ -433,7 +433,7 @@ theorem defaultModules_spec (root : Root L) (targets : List Name) {t T : List (E
     {b : Except String (List (Name × FilePath))} (hT : ∀ e ∈ t, e ∈ T)
     (h : Runs (defaultModules root targets : Attempt L E _).run t b) :
     (∀ ms, b = .ok ms → DefaultModules T root targets ms) ∧
-      ((∃ e, b = .error e) → ∃ e ∈ t, Event.failedRead e) := by
+      ((∃ e, b = .error e) → ∃ lib x, (⟨.libModules lib, .error x⟩ : Event L E) ∈ t) := by
   induction targets generalizing t b with
   | nil =>
     rw [defaultModules] at h
@@ -446,7 +446,7 @@ theorem defaultModules_spec (root : Root L) (targets : List Name) {t T : List (E
     have hT₂ : ∀ e ∈ t₂, e ∈ T := fun e he => hT e (List.mem_append_right _ he)
     have here : (∀ a, r = .ok a → ∀ ms, DefaultModules T root targets ms →
         DefaultModules T root (target :: targets) (a ++ ms)) ∧
-        ((∃ e, r = .error e) → ∃ e ∈ t₁, Event.failedRead e) := by
+        ((∃ e, r = .error e) → ∃ lib x, (⟨.libModules lib, .error x⟩ : Event L E) ∈ t₁) := by
       rw [modulesOfTarget] at h₁
       cases hl : root.findLib target with
       | some lib =>
@@ -462,7 +462,7 @@ theorem defaultModules_spec (root : Root L) (targets : List Name) {t T : List (E
           exact .lib hl (hT₁ _ (by simp)) hms
         | error e =>
           obtain ⟨rfl, rfl⟩ := h₄
-          exact ⟨fun a he => (by cases he), fun _ => ⟨⟨.libModules lib, .error e⟩, by simp, ⟨e, rfl⟩⟩⟩
+          exact ⟨fun a he => (by cases he), fun _ => ⟨lib, e, by simp⟩⟩
       | none =>
         simp only [hl] at h₁
         cases he : root.findExe target with
@@ -482,8 +482,8 @@ theorem defaultModules_spec (root : Root L) (targets : List Name) {t T : List (E
     | error e =>
       obtain ⟨rfl, rfl⟩ := h₂
       refine ⟨fun ms he => (by cases he), fun _ => ?_⟩
-      obtain ⟨e', he', hf⟩ := here.2 ⟨e, rfl⟩
-      exact ⟨e', by simpa using he', hf⟩
+      obtain ⟨lib, x, hx⟩ := here.2 ⟨e, rfl⟩
+      exact ⟨lib, x, by simpa using hx⟩
     | ok a =>
       obtain ⟨t₃, t₄, r', rfl, h₃, h₄⟩ := runs_attempt_bind_iff.mp h₂
       obtain ⟨i1, i2⟩ := ih (fun e he => hT₂ e (List.mem_append_left _ he)) h₃
@@ -491,8 +491,8 @@ theorem defaultModules_spec (root : Root L) (targets : List Name) {t T : List (E
       | error e =>
         obtain ⟨rfl, rfl⟩ := h₄
         refine ⟨fun ms he => (by cases he), fun _ => ?_⟩
-        obtain ⟨e', he', hf⟩ := i2 ⟨e, rfl⟩
-        exact ⟨e', by simp [he'], hf⟩
+        obtain ⟨lib, x, hx⟩ := i2 ⟨e, rfl⟩
+        exact ⟨lib, x, by simp [hx]⟩
       | ok rest =>
         obtain ⟨rfl, rfl⟩ := runs_attempt_pure_iff.mp h₄
         refine ⟨fun ms he => ?_, fun ⟨e, he⟩ => by cases he⟩

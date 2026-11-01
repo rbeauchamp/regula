@@ -61,6 +61,8 @@ it gives the one outcome that it may. -/
 inductive Reason (t : List (Event L E)) (dir : FilePath) : Outcome → Prop where
   /-- An answer to what the reader asks failed. -/
   | failed {e : Event L E} : e ∈ t → e.failedRead → Reason t dir .incomplete
+  /-- LEAN_SYSROOT is not set, so the toolchain is not known. -/
+  | noSysroot : (⟨.getEnv "LEAN_SYSROOT", none⟩ : Event L E) ∈ t → Reason t dir .incomplete
   /-- LEAN_PATH is not set, so the start cannot be told. -/
   | noSearchPath : (⟨.getEnv "LEAN_PATH", none⟩ : Event L E) ∈ t → Reason t dir .incomplete
   /-- The toolchain's file names another Lean. -/
@@ -196,14 +198,13 @@ def BuildRead (t : List (Event L E)) (root : Root L) (f : Regula.Load.Facts) (ro
 
 /-- A failed answer to what the load of a finished build asks. -/
 def Event.failedLoad : Event L E → Prop
-  | ⟨.getEnv "LEAN_SYSROOT", r⟩ => r = (none : Option String)
+  | ⟨.getEnv _, r⟩ => r = (none : Option String)
   | ⟨.realPath _, r⟩ | ⟨.findOLean _, r⟩ => ∃ e, r = (Except.error e : Except IO.Error FilePath)
   | ⟨.libModules _, r⟩ => ∃ e, r = (Except.error e : Except IO.Error (Array (Name × FilePath)))
   | ⟨.importForRules _, r⟩ => ∃ e, r = (Except.error e : Except IO.Error Environment)
   | ⟨.loadWorkspace .., r⟩ | ⟨.loadRoot .., r⟩ =>
     (∃ e, r = (Except.error e : Except String (Option (Root L) × List String))) ∨
       ∃ log, r = (Except.ok (none, log) : Except String (Option (Root L) × List String))
-  | ⟨.getEnv "LEAN_PATH", r⟩ => r = (none : Option String)
   | _ => False
 
 /-- The load's result is what the proved pure function gives on what Lean and Lake returned, or an error when
@@ -213,7 +214,8 @@ def Loaded (t : List (Event L E)) (p : Regula.Closed.Profile)
   (∃ root f roots, BuildRead t root f roots ∧ result = f.input roots p) ∨
     ((∃ e ∈ t, e.failedLoad) ∧ ∃ why, result = .error why) ∨
     -- The current directory is not the workspace Lake dispatched.
-    (∃ root leanPath lakeLib program sysroot log dir,
+    (∃ (root : Root L) (leanPath : String) (lakeLib program : FilePath) (sysroot : String) (log : List String)
+        (dir : FilePath),
       (⟨.loadWorkspace sysroot dir, .ok (some root, log)⟩ : Event L E) ∈ t ∧
       (⟨.lakeInstall sysroot, (program, lakeLib)⟩ : Event L E) ∈ t ∧
       (⟨.getEnv "LEAN_PATH", some leanPath⟩ : Event L E) ∈ t ∧
@@ -221,10 +223,14 @@ def Loaded (t : List (Event L E)) (p : Regula.Closed.Profile)
         ((System.SearchPath.parse leanPath).map toString) = false ∧
       ∃ why, result = .error why)
 
+/-- A line that is no verdict: two spaces start it. -/
+def IsDetail (l : String) : Prop :=
+  ∃ s, l = "  " ++ s
+
 /-- The last event of a run printed this line, and each line before it starts with two spaces, so no line
 before the last can be read as a verdict and a run that stops anywhere before the end has printed none. -/
 def EndsWith (t : List (Event L E)) (line : String) : Prop :=
-  ∃ pre r, t = pre ++ [⟨.println line, r⟩] ∧ ∀ l ∈ printed pre, "  ".isPrefixOf l = true
+  ∃ pre r, t = pre ++ [⟨.println line, r⟩] ∧ ∀ l ∈ printed pre, IsDetail l
 
 /-- A run with a Lean or arguments that the checker does not read: only says so. -/
 def Refusal (t : List (Event L E)) (c : UInt32) : Prop :=
@@ -238,44 +244,49 @@ def PlainRun (t : List (Event L E)) (p : Regula.Closed.Profile) (c : UInt32) : P
     EndsWith t (Regula.Closed.decision result).verdict.proofLine ∧
     ∀ e ∈ t, e.acted? = none
 
-/-- A run of the full gate on the project at `dir`, once it has its tree `tree`. The check comes first, and
-nothing is built or loaded unless it admitted the project. The tree is removed on every way out, and every
-act lies in the tree. Exit code and last line are the report's alone. -/
+/-- Every act of a run lies in the tree, and the project and the tree lie apart: either the run acted only on the
+tree it was given, or it read their real paths and each act lies at or below the tree's. -/
+def Confined (t : List (Event L E)) (dir tree : FilePath) : Prop :=
+  (∀ e ∈ t, ∀ path, e.acted? = some path → path = tree) ∨
+    ∃ project real, (⟨.realPath dir, .ok project⟩ : Event L E) ∈ t ∧
+      (⟨.realPath tree, .ok real⟩ : Event L E) ∈ t ∧ Apart project real ∧
+      ∀ e ∈ t, ∀ path, e.acted? = some path → path = tree ∨ AtOrBelow real path
+
+/-- The build and its replay, by `tBuild`, and the rules on the result, by `tRules`, or a failure of the build,
+and no rules. `report` is what they gave. -/
+def BuildAndRules (tBuild tRules : List (Event L E)) (tree : FilePath) (p : Regula.Closed.Profile)
+    (report : Report) : Prop :=
+  (∃ (program : FilePath) (args : List String) (result : Except String Regula.Closed.Input),
+    ([⟨.runLake program tree ["build", "--wfail"], .ok 0⟩, ⟨.runLake program tree ("check" :: args), .ok 0⟩] :
+      List (Event L E)).Sublist tBuild ∧
+    Loaded tRules p result ∧ report = .full (Regula.Closed.decision result).verdict) ∨
+  (report = .full .fail ∧ (∀ e ∈ tRules, e.isImportForRules = false) ∧
+    ∃ (program cwd : FilePath) (args : List String) (r : Except IO.Error UInt32),
+      (⟨.runLake program cwd args, r⟩ : Event L E) ∈ tBuild ∧ r ≠ .ok 0)
+
+/-- A run of the full gate on the project at `dir`. The check comes first, and nothing is built or loaded unless it
+admitted the project. The tree is removed on every way out, and every act lies in the tree. Exit code and last line
+are the report's alone. -/
 def FullRun (t : List (Event L E)) (dir : FilePath) (p : Regula.Closed.Profile) (c : UInt32) : Prop :=
   -- No temporary directory.
   (∃ e, (⟨.createTempDir, .error e⟩ : Event L E) ∈ t ∧ c = Report.incomplete.exitCode ∧
     EndsWith t Report.incomplete.label ∧ ∀ e ∈ t, e.acted? = none) ∨
-  ∃ tree pre tRead tGate last r, t = pre ++ tRead ++ tGate ++ [⟨.removeDirAll tree, r⟩] ++ last ∧
-    (⟨.createTempDir, .ok tree⟩ : Event L E) ∈ pre ∧
-    (∀ e ∈ pre ++ tRead, e.isBuild = false ∧ e.isImportForRules = false) ∧
+  ∃ (tree : FilePath) (tRead tGate : List (Event L E)) (r : Except IO.Error Unit) (last : List (Event L E)),
+    t = ⟨.createTempDir, .ok tree⟩ :: tRead ++ tGate ++ ⟨.removeDirAll tree, r⟩ :: last ∧
+    (∀ e ∈ tRead, e.isBuild = false ∧ e.isImportForRules = false) ∧
     ∃ (o : Outcome) (report : Report), Decided tRead dir tree o ∧
-      -- Nothing is built or loaded unless the project is admitted.
-      (o ≠ .admitted → report = (match o with
-        | .refused => .refused | .proofOnly => .proofOnly | _ => .incomplete) ∧
-        ∀ e ∈ tGate, e.isBuild = false ∧ e.isImportForRules = false) ∧
-      -- The build and its replay, then the rules, and the report is what they gave.
-      (o = .admitted →
-        (∃ program tBuild tRules, tGate = tBuild ++ tRules ∧
-          ((([⟨.runLake program tree ["build", "--wfail"], .ok 0⟩] : List (Event L E)).Sublist tBuild ∧
-            (∃ args, ([⟨.runLake program tree ("check" :: args), .ok 0⟩] : List (Event L E)).Sublist tBuild) ∧
-            ∃ result, Loaded tRules p result ∧
-              report = .full (Regula.Closed.decision result).verdict) ∨
-            (report = .full .fail ∧ (∀ e ∈ tRules, e.isImportForRules = false) ∧
-              ∃ e ∈ tBuild, e.isBuild = true ∧ ∀ program cwd args r',
-                e = ⟨.runLake program cwd args, r'⟩ → r' ≠ .ok 0)))) ∧
-      c = report.exitCode ∧
-      EndsWith (tRead ++ tGate ++ [⟨.removeDirAll tree, r⟩] ++ last) report.label ∧
-      -- Every act lies in the tree, and the project and the tree lie apart.
-      (∀ e ∈ t, ∀ path, e.acted? = some path → path = tree ∨
-        ∃ real, (⟨.realPath tree, .ok real⟩ : Event L E) ∈ t ∧ AtOrBelow real path ∧
-          ∀ project, (⟨.realPath dir, .ok project⟩ : Event L E) ∈ t → Apart project real)
+      (o ≠ .admitted → tGate = [] ∧ report = (match o with
+        | .refused => Report.refused
+        | .proofOnly => Report.proofOnly
+        | _ => Report.incomplete)) ∧
+      (o = .admitted → ∃ tBuild tRules, tGate = tBuild ++ tRules ∧ BuildAndRules tBuild tRules tree p report) ∧
+      c = report.exitCode ∧ EndsWith t report.label ∧ Confined t dir tree
 
-/-- On the one Lean that this revision reads, what the run states; on any other, a refusal. The run asked which
+/-- On the one Lean that this revision reads, what the run states; on any other, a refusal. The run asks first which
 Lean it is. -/
-def OnPinnedLean (t : List (Event L E)) (run : Prop) (c : UInt32) : Prop :=
-  (∃ v, (⟨.leanVersion, v⟩ : Event L E) ∈ t) ∧
-    ((⟨.leanVersion, Regula.Closed.pinnedLean⟩ : Event L E) ∈ t → run) ∧
-    (∀ v, (⟨.leanVersion, v⟩ : Event L E) ∈ t → v ≠ Regula.Closed.pinnedLean → Refusal t c)
+def OnPinnedLean (t : List (Event L E)) (run : List (Event L E) → Prop) (c : UInt32) : Prop :=
+  ∃ v rest, t = ⟨.leanVersion, v⟩ :: rest ∧ (v = Regula.Closed.pinnedLean → run t) ∧
+    (v ≠ Regula.Closed.pinnedLean → Refusal t c)
 
 /-- What a whole run does, for each argument list: a subject is a program of the checker. -/
 def RunMeets (w : List String → Prog L E UInt32) : Prop :=
@@ -283,11 +294,12 @@ def RunMeets (w : List String → Prog L E UInt32) : Prop :=
     match args with
     | [text] =>
       match Regula.Closed.Profile.ofSpelling? text with
-      | some p => OnPinnedLean t (PlainRun t p c) c
+      | some p => OnPinnedLean t (fun t => PlainRun t p c) c
       | none => Refusal t c
     | [text, "full", dir] =>
       match Regula.Closed.Profile.ofSpelling? text with
-      | some p => OnPinnedLean t (FullRun t (FilePath.mk dir) p c) c
+      | some p => OnPinnedLean t (fun t => ∃ rest v, t = ⟨.leanVersion, v⟩ :: rest ∧
+          FullRun rest (FilePath.mk dir) p c) c
       | none => Refusal t c
     | _ => Refusal t c
 
