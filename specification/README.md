@@ -286,6 +286,8 @@ Over every `Lean.Syntax`, in [`RegulaSpecification/Proofs/Language.lean`](Regula
 
 **The differential for H1**: for each file, the reader's trees against the commands of Lean's own frontend (`Lean.Elab.IO.processCommands`, with `processHeader`), compared by kind, atom and name, one process per file, with no time budget beyond 600 seconds a file. On the 13 files of Regula's default targets at commit `c034e9d3`, 374 commands: no difference. This is a search for a counterexample, not a proof. Only those files are admitted today, so the search reaches no file that the table does not admit.
 
+**Measured** on 2026-11-01 at the change that makes the reader judge before it writes, as a diagnostic with `lake exe lint standard-logical full DIR`, each on one disposable project: a compliant module gave `full verdict: pass`, exit 0; a `meta import Lean` with `run_cmd` gave exit 1 with RG1010 lines and no build; and one file that two libraries name, `Foo` with `srcDir = "x"` and `x.Foo`, gave `full verdict: pass`, exit 0, with each name read and judged. Nothing of a project was written, and no tree was left in the temporary directory. Regula's own checkout gave `full verdict: pass` on the 15 modules of its default targets, as a step of the gate.
+
 **Not measured**: real Mathlib, whose imports the check does not load, Linux, and the check's own time and peak memory.
 
 ### What remains
