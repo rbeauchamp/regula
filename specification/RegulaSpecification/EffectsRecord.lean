@@ -315,6 +315,19 @@ def TomlRead (t : List (Event L E)) (dir : FilePath) (table : Lake.Toml.Table) :
     (⟨.readFile (project / "lakefile.toml"), .ok text⟩ : Event L E) ∈ t ∧
     (⟨.parseToml (mkInputContext text "lakefile.toml"), .ok table⟩ : Event L E) ∈ t
 
+/-- A text that an admission would have the tree hold at `path`, by what the run read: the configuration's, the pinned
+`lean-toolchain`, or a needed name's file. -/
+inductive Planned (t : List (Event L E)) (project tree : FilePath) (root : Root L)
+    (modules : List (Name × FilePath)) : FilePath → String → Prop where
+  /-- The text read of `lakefile.toml`. -/
+  | toml {text} : (⟨.readFile (project / "lakefile.toml"), .ok text⟩ : Event L E) ∈ t →
+      Planned t project tree root modules (tree / "lakefile.toml") text
+  /-- The pinned text. -/
+  | toolchain : Planned t project tree root modules (tree / "lean-toolchain") leanToolchain
+  /-- The text read of a needed name's file. -/
+  | source {m path text} : Named t project tree root modules m → FileOfModule root modules m path →
+      SourceText t project tree path text → Planned t project tree root modules path text
+
 /-- What may keep the requested project from admission, with the outcome each response justifies.
 `Needed` supplies relevance; `FullRun` separately requires preparation at every occurrence in this same
 reading phase. Thus a `Reason` by itself is not a complete refusal contract. Successful and failed copy,
@@ -408,6 +421,12 @@ inductive Reason (t : List (Event L E)) (dir treeDir : FilePath) : Outcome → P
   /-- Two default targets that hold one module name with two files. -/
   | twoRoots {project tree root modules m file other} : Scene t dir treeDir project tree root modules →
       (m, file) ∈ modules → (m, other) ∈ modules → other ≠ file → Reason t dir treeDir .incomplete
+  /-- What an admission would have the tree hold is two texts at one path: another read gave a needed file another text, or
+  a needed file lies at the path of the configuration or of `lean-toolchain` with another text. The tree can hold one, so no
+  admission could be about what the build consumes under each name. -/
+  | twoTexts {project tree root modules path text path' text'} : Scene t dir treeDir project tree root modules →
+      Planned t project tree root modules path text → Planned t project tree root modules path' text' →
+      parts path = parts path' → text ≠ text' → Reason t dir treeDir .incomplete
   /-- A name the build needs outside the closed domain. -/
   | moduleName {project tree root modules m} : Scene t dir treeDir project tree root modules →
       Named t project tree root modules m → ¬ ClosedModuleName m → Reason t dir treeDir .incomplete
@@ -443,10 +462,11 @@ inductive Reason (t : List (Event L E)) (dir treeDir : FilePath) : Outcome → P
       (∀ n, n ∈ mods ↔ ∃ m ∈ imports, Sees headers held m.module n) →
       ¬ FileAdmitted f → Reason t dir treeDir .refused
 
-/-- The outcome `o` of the language check is what its reading gives. An admitted project rests on `Evidence`, and any
-other outcome on a `Reason`. -/
+/-- The outcome `o` of the language check is what its reading gives. An admitted project rests on `Evidence` of the state
+`written t` that the whole reading leaves, so an admission is about the text that stands and not about one that a later
+write replaced, and any other outcome rests on a `Reason`. -/
 def Decided (t : List (Event L E)) (dir tree : FilePath) (o : Outcome) : Prop :=
-  (o = .admitted → ∃ r, Inside r ∧ Evidence t dir tree r) ∧ (o ≠ .admitted → Reason t dir tree o) ∧
+  (o = .admitted → ∃ r, Inside r ∧ Evidence t dir tree (written t) r) ∧ (o ≠ .admitted → Reason t dir tree o) ∧
     ((∃ r, o = decision r) ∨ o = .incomplete)
 
 /-- What a finished build gave the rules, by this run's responses. `root` is the workspace that Lake's load
