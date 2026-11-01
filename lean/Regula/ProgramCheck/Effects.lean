@@ -24,9 +24,9 @@ that no profile admits, and `lake check` of that package would refuse them:
 - Each row of `Regula.Load.lakeCalls` is a straight line of calls of Lake, with no test (the theorems below, each by `rfl`,
   so the statement is the body).
 - `Regula.ProgramCheck.Effects` reads each constant of the repository's Lean libraries through Lean's own environment,
-  at the level where bodies are held, those that the executable and the library that gives no verdict reach: a constant whose type or value mentions an effect, directly or through another
-  constant of the repository, lies in a closed set of modules, and the build fails on any other. So a decision that gains
-  an effect in `Regula.Reader`, `Regula.Shell` or `Regula.Load` fails the gate. The check fails too when it finds no
+  at the level where bodies are held, those that the executable and the library that gives no verdict reach: a constant whose type, or whose value as a definition, mentions an effect, directly or through another
+  constant of the repository, is `allowed`, and the build fails on any other. So a decision that comes to mention
+  one in `Regula.Reader`, `Regula.Shell` or `Regula.Load` fails the gate. The check fails too when it finds no
   interpreter, so an empty scan is no pass. What it decides is the pure `scan` and `judge` of
   `Regula.ProgramCheck.EffectScan`, proved in `specification/RegulaSpecification/Proofs/EffectScan.lean` (`check_ok_iff`); the
   command below only imports the environment and reports what they give.

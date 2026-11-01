@@ -12,7 +12,7 @@ import RegulaSpecification.Proofs.ReaderParts
 
 For every response: the walk writes nothing; each source it holds was read by the exact-path test and parsed from that
 same text; each toolchain module was found below the toolchain's library;
-what it could not read has a `Reason`; and when nothing was left unread, each import of each source was reached.
+what it could not read has a `Reason`; and when nothing was left unread, each import of each source was reached or is the toolchain's.
 -/
 
 namespace RegulaSpecification.Effects
@@ -151,7 +151,7 @@ theorem makeParent_spec {tree path : FilePath} {t : List (Event L E)} {b : Excep
       obtain ⟨rfl, rfl⟩ := runs_attempt_throw_iff.mp h
       exact ⟨fun _ => .inl ⟨d, rfl, by simpa using hd⟩, fun he => (by cases he), actsIn_nil⟩
 
-/-- `writeInTree` writes only after its tests of the path and of the directory above it. -/
+/-- A successful `writeInTree` passed its tests of the path and of the directory above it, and every act lies in the tree. -/
 theorem writeInTree_spec {tree path : FilePath} {text : String} {t : List (Event L E)}
     {b : Except String Unit} (h : Runs (writeInTree tree path text : Attempt L E Unit).run t b) :
     (b = .ok () → ([⟨.writeFile path text, .ok ()⟩] : List (Event L E)).Sublist t ∧ ¬ OutsideTree tree path) ∧
@@ -204,7 +204,7 @@ theorem writeInTree_spec {tree path : FilePath} {text : String} {t : List (Event
     exact (inTree_iff tree path).mpr ⟨rel, hr⟩
 
 /-- What one source holds, by these events: the exact-path test passed, and Lean's header parser read the text that the
-read gave. Nothing of it has been written. -/
+read gave. It states nothing of a write. -/
 def SourceRead (T : List (Event L E)) (project tree path : FilePath) (s : Source) : Prop :=
   ∃ rel real text,
     TreeRelative (parts tree) (parts path) rel ∧ ¬ OutsideTree tree path ∧
@@ -393,7 +393,7 @@ structure WalkInv (T : List (Event L E)) (dir treeDir project tree : FilePath) (
   nodup : (w.sources.map (·.1)).Nodup
   /-- What each module reached is. -/
   reached : ∀ m ∈ w.reached, (∃ s, (m, s) ∈ w.sources) ∨ m.getRoot = `Mathlib ∨ w.unread ≠ []
-  /-- Each name reached is in the closed domain. -/
+  /-- Each name reached is in the closed domain, unless something was left unread. -/
   closed : ∀ m ∈ w.reached, closedModuleName m = true ∨ w.unread ≠ []
   /-- Each name reached was named. -/
   named : ∀ m ∈ w.reached, Named T project tree root modules m
@@ -401,10 +401,10 @@ structure WalkInv (T : List (Event L E)) (dir treeDir project tree : FilePath) (
   todoNamed : ∀ m ∈ todo, Named T project tree root modules m
   /-- What was left unread has a reason. -/
   unread : w.unread ≠ [] → Reason T dir treeDir .incomplete
-  /-- Each import is visited, or left to visit. -/
+  /-- When nothing was left unread, each import is visited, or left to visit. -/
   pending : w.unread = [] → ∀ x ∈ w.sources, ∀ i ∈ x.2.imports,
     i.module ∈ todo ∨ i.module ∈ w.reached ∨ i.module ∈ w.toolchain
-  /-- Each root is visited, or left to visit. -/
+  /-- When nothing was left unread, each root is visited, or left to visit. -/
   rootsIn : w.unread = [] → ∀ m ∈ roots, m ∈ todo ∨ m ∈ w.reached ∨ m ∈ w.toolchain
 
 theorem fileOf_mem {root : Root L} {modules : List (Name × FilePath)} {m : Name} {path : FilePath}
@@ -653,9 +653,8 @@ theorem reason_of_sourceBad (c : WalkCtx T dir treeDir project tree root modules
 abbrev sourceImports (sources : List (Name × Source)) : Nat :=
   (sources.map (·.2.imports.size)).sum
 
-/-- The walk, for every response. The equation on `fuel` says how many names it can still take: so it stops at its bound
-only when the roots and the imports of the files it read are more names than that bound, and otherwise they are at most that
-many. -/
+/-- The walk, for every response. The equation on `fuel` says how many names it can still take: so when nothing is left
+unread, the roots and the imports of the files it read are at most that bound. -/
 theorem walk_spec (c : WalkCtx T dir treeDir project tree root modules reals) (fuel : Nat) (todo : List Name)
     (w : Walk) (t : List (Event L E)) (w' : Walk)
     (h : Runs (walk project tree root modules (reals.map Prod.snd) fuel todo w) t w')

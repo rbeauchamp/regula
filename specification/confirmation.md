@@ -154,13 +154,13 @@ The first statement of the property is that a full verdict's admission is about 
 
 | Consequence | Theorem | Status |
 | --- | --- | --- |
-| At each Lake command and each load for the rules, there is a reading inside the closed language, with no failed answer, on `Evidence` of what the tree holds right then. | `FullRun.at_consumer` | Follows. |
+| When a full run reaches a Lake command or a load for the rules, there is a reading inside the closed language, with no failed answer, on `Evidence` of what it leaves, and at each point of the gate that is what stands. | `FullRun.gate_stands`, `FullRun.at_consumer` | Follows. |
 | Each file Lake compiles holds the text that the reading's file of its module was parsed from, under H3. | `read_what_lake_compiles` | Follows. |
 | Each text standing in the tree is the configuration's, the pinned text, or one a file of the reading was parsed from, so no other file reaches the build. | `Evidence.judged`, `Evidence` | Decided: Lake prefers a `lakefile.lean` in the tree, so a file outside the reading could run code at the build with no language check, whatever name it came under. |
-| A run that writes a text it judged nowhere after the reading has no admission, for every such text. | `uncheckedCopy_fails` | Follows. |
-| A run that copies the text already standing, or writes one text, reads again and judges the later one, loses nothing. | `judgedCopy_stands`, `rewritten_stands` | Follows: the later text is the one judged. |
-| A text at two names with one file is judged under each name's context; two texts at one path are `incomplete`. | `Evidence.two_names`, `Reason.twoTexts`, `twoTexts` | Decided: one read for each name, and a refusal only when the texts differ, keeps a project that a library's `srcDir` gives two names and needs no new refusal of it. |
-| A module's text reaches the tree only for a reading the decision admits, and each is written once. | `Regula.Reader.readFiles`, `writeSources_spec`, `holds_of_leavesAs` | Decided: `FullRun` admits other orders, and the program takes this one because the property then follows from its shape and needs no invariant over a walk that writes. It rests on Lake's load and resolution reading no module's file (H3). |
+| A trace that ends by copying a text other than the pinned one, which it judged nowhere, has no `Evidence` of what it leaves, and no full run reaches a build after it. | `uncheckedCopy_fails`, `uncheckedCopy_build_fails` | Follows. |
+| A copy of the text already standing keeps the evidence, and after two writes what stands is the last. So a program that writes one text, reads again and judges the later one rests on the later one. | `judgedCopy_stands`, `rewritten_stands` | Follows: the later text is the one judged. |
+| Each name's file of the reading was parsed from the one text that stands at a file with two names; two texts at one path are `incomplete`. | `Evidence.two_names`, `Reason.twoTexts`, `twoTexts` | Decided: one read for each name, and a refusal only when the texts differ, keeps a project that a library's `srcDir` gives two names and needs no new refusal of it. |
+| A module's text reaches the tree only for a reading the decision admits. Each source is written once, so a path with two names is written twice with one text. | `Regula.Reader.readFiles`, `writeSources_spec`, `holds_of_leavesAs` | Decided: `FullRun` admits other orders, and the program takes this one because the property then follows from its shape and needs no invariant over a walk that writes. It rests on Lake's load and resolution reading no module's file (H3). |
 | A failed write of an admitted file is `incomplete`. | `readFiles_spec`, `Needed.sourceWrite`, `Needed.sourceParent`, `Reason.moduleNotInTree` | Decided: the build could not consume what was judged. |
 | A failed write counts as written, so a later `written` does not credit the text before it. | `Event.leaves` | Decided: a failed write leaves the file unknown. An admission receives no failed answer anyway. |
 | What Lake and another process do to the tree, and whether a write's success is true, stay out of the record. | [the trusted base](README.md#the-trusted-base) | Decided: the account keeps inconsistent responses and external changes as accepted risk. |
@@ -169,8 +169,8 @@ The first statement of the property is that a full verdict's admission is about 
 
 | State | Fact, and its consumer | How it is closed |
 | --- | --- | --- |
-| A module's file | The text judged, at the build and replay | `Evidence` of `written` (`FullRun.at_consumer`). |
-| `lakefile.toml` | The text Lake's parser read, at the load, the build and the reload | `PreparedLoad` for the first load, `Evidence` of `written` for the rest. |
+| A module's file | The text judged, at the build and replay | `Evidence` of `written` (`FullRun.gate_stands`). |
+| `lakefile.toml` | The text Lake's parser read, at the load, the build and the reload | `PreparedLoad` for the first load, `Evidence` of `written` for the rest (`FullRun.gate_stands`). |
 | `lean-toolchain` | The pinned text, at the same | The same. |
 | Any other file of the tree, such as a `lakefile.lean` | That nothing else is in it | The last clause of `Evidence`. |
 | A directory at a file's path | That a write can store it | `CopyStep` makes only a file's own parent. A file below another file is a project with two such paths, and the failed response is its reason. |
@@ -179,11 +179,11 @@ The first statement of the property is that a full verdict's admission is about 
 | The search path in the reading | A toolchain module's place, and the parser's environment | `ReadingLoaded` sets it once before every consumer. |
 | The search path at the rules | Where the build's modules are, and the import | `RulesPreparation` and `InputPreparation` set it once before every consumer. |
 | The search path in a proof verdict | The same | `PlainPreparation`; a plain run has no other act (`PlainRun`). |
-| The project | What was read of it | The run's acts lie in the tree, apart from it (`Confined`), so `Evidence.mono` keeps what no act of the run can change. Another process changing the project reaches only what the next read gives. |
+| The project | What was read of it | When an act lies below the tree, the two real paths lie apart (`Confined`), and an act at the tree itself rests on `createTempDir`, so `Evidence.mono` keeps what no act of the run can change. Another process changing the project reaches only what the next read gives. |
 
 `Evidence.mono` is kept, with the state fixed: it says what stays true of what was read, and `written` says what stands.
 
-The record grew by about 45 lines and the proofs by `Standing.lean` and `Written.lean`, about 300 lines, while `readSource`, its specification and the walk's preparation lost their write. The reader grew by about 25 lines.
+By `git diff --numstat` against `48431e2c`, before the docstring corrections below: the three record files grew by 63 lines net, `Standing.lean` and `Written.lean` total 379, the proofs of the reader changed mostly where `readSource` and the walk lost their write, and `Reader.lean` grew by 47 lines net. The `Evidence` is a state and a clause longer, and the grammar is unchanged.
 
 The second reading was made by Codex `gpt-6-astra` at `xhigh`, through `codex exec` with no user configuration, memory, hooks or session file, from the account above, the types of `Regula.Effect` and of the reading, and lean-intent's `LeanIntent/Record.lean`, which were in its prompt, because a nested confinement refuses its reads. It read no file. It gave a schema with the trace predicate as a parameter, and said that the types it was given do not define admission, a full build or consumption. So there is no theorem to compare, and these are differences in plain words, labelled unproved.
 
@@ -194,3 +194,5 @@ The second reading was made by Codex `gpt-6-astra` at `xhigh`, through `codex ex
 | It did not ask for one read, for no overwrite, or for no alias. | The same reading: the record asks for none of them, and `twoTexts` is the program's. |
 
 No difference reached the owner's level. The stand-ins for lean-intent's checks are as for the sections above.
+
+Three readers who did not write them read the class of a docstring whose conclusion its statement does not carry, across `Proofs/`, `lean/Regula/ProgramCheck/` and the README sentences citing them: about 730 comments. They found about 80 such sentences, each corrected in this change or, for `FullRun.at_consumer`, by a stronger statement. The worst were of the audit's shape: `treeRelative_no_parent` said that a join could not leave the directory, `below` and `exactBelow` were said to state what their names say, and `main_zero` of the listing named what `main` printed with no such link. The same reading found that `ConstantInfo.value?` gives no value of a theorem or an opaque constant, so the check of effects reads neither. The text now says that, and the check is unchanged: this change's boundary leaves it, and a value of those kinds that mentions an effect stays what it was.

@@ -9,8 +9,9 @@ import RegulaSpecification.Language
 /-!
 # The language decision against its record
 
-`Regula.Language.decision` meets `languageRecord`, and `Regula.Language.gate` meets `fullGateRecord`,
-each over every reading and in both directions. Each theorem is about the definition that the checker
+`Regula.Language.decision` meets `languageRecord`, over every reading and in both directions, and
+`Regula.Language.gate`, at the recording monad of `traced`, meets `fullGateRecord`, for every outcome, build result and
+verdict. Each theorem is about the definition that the checker
 runs. What fills a `Reading` from a real project (`Regula.Reader`) is in `Proofs/Reader.lean`, and the
 specification's trusted base lists what stays assumed.
 -/
@@ -429,8 +430,8 @@ theorem decision_meets : languageRecord.Meets decision := by
     simp [decision, b1, b2, b3, hn (mathlibReached_iff r) m, (covered_iff r).mpr v,
       (filesAdmitted_iff r).mpr o]
 
-/-- The check admits a reading exactly when everything read is in the closed set and nothing is left
-out. This is the theorem the check exists for, over every `Lean.Syntax` that a reading can hold. -/
+/-- The check admits a reading exactly when `Inside` holds: its configuration and files are in the closed set, nothing is left
+out, the checker started outside the project's Lake, and there is no dependency and no Mathlib. This is the theorem the check exists for, over every `Lean.Syntax` that a reading can hold. -/
 theorem decision_admitted_iff (r : Reading) : decision r = .admitted ↔ Inside r :=
   admitted_iff decision_meets r
 
@@ -509,8 +510,8 @@ theorem treeRelative_iff (base path rel : List String) :
     rintro ⟨rfl, -⟩
     exact hp (List.prefix_append _ _)
 
-/-- A `..` is no component of what `treeRelative` gives, so joining that to the project or to the checker's
-tree cannot leave it. -/
+/-- `..`, `.` and `.lake` are no components of what `treeRelative` gives. A component may still hold a separator or be
+absolute, for an argument that no real path is. -/
 theorem treeRelative_no_parent {base path rel : List String} (h : treeRelative base path = some rel) :
     ".." ∉ rel ∧ "." ∉ rel ∧ ".lake" ∉ rel := by
   obtain ⟨-, hc⟩ := (treeRelative_iff base path rel).mp h
@@ -526,12 +527,12 @@ def traced : GateRun := fun o b v =>
   let (report, steps) := run.run []
   (report, steps.reverse)
 
-/-- The gate that the checker runs meets its record. -/
+/-- `gate`, at the recording monad of `traced`, meets its record, for every outcome, build result and verdict. -/
 theorem gate_meets : fullGateRecord.Meets traced := by
   rw [fullGate_meets_iff]
   refine ⟨?_, ?_, ?_, ?_, ?_⟩ <;> intros <;> rfl
 
-/-- O2 before running: the gate's implementation meets its record. -/
+/-- O2 before running: the gate's record has a model. -/
 theorem fullGate_o2Run : O2Run fullGateRecord := o2Run_of_meets gate_meets
 
 /-- The whole gate exits with 0 only for a full verdict's pass, on a reading the check admitted. -/

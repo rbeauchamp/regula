@@ -13,7 +13,7 @@ What the record of a run (`RegulaSpecification.Effects.programRecord`) requires 
 record alone. It reads no program, so it holds of each subject and not only of the one that runs.
 
 `PlainOwed` and `FullOwed` state what it takes for a build to pass, over what the run received: no case of the closed set
-of reasons holds, the build and its replay ended with 0, and the environment that Lean's import gave has `LoadFloor`.
+of reasons holds, `FullOwed` also that no build or replay was rejected, and the environment that Lean's import gave has `LoadFloor`.
 `plain_owed` and `full_owed` state that a run on such responses gives the pass verdict and exit 0.
 `plain_refused_justified` gives a reason or a missing floor; `full_refused_justified` states that a nonzero
 full run cannot meet `FullOwed`. Preparation is supplied by `PlainRun` and `FullRun`, not by assuming
@@ -49,7 +49,7 @@ theorem needed_not_loadRoot {t : List (Event L E)} {dir treeDir sysroot tree} :
 
 /-! ## The events of a phase of a run -/
 
-/-- What a run of the full gate did after it made its tree and before it built or loaded anything. -/
+/-- What a run of the full gate did after it made its tree and before its first Lake command or import for the rules. -/
 def readPhase (t : List (Event L E)) : List (Event L E) :=
   (t.drop 1).takeWhile fun e => !e.isBuild && !e.isImportForRules
 
@@ -69,7 +69,7 @@ theorem readPhase_sublist {tRead rest : List (Event L E)} {x : Event L E}
   obtain ⟨h1, h2⟩ := h e he
   simp [h1, h2]
 
-/-- The reading is a contiguous prefix of its phase; extending the phase inserts no effects inside it. -/
+/-- The reading is a contiguous part of its phase; extending the phase inserts no effects inside it. -/
 theorem readPhase_infix {tRead rest : List (Event L E)} {x : Event L E}
     (h : ∀ e ∈ tRead, e.isBuild = false ∧ e.isImportForRules = false) :
     tRead <:+: readPhase (x :: tRead ++ rest) := by
@@ -288,7 +288,7 @@ structure PlainOwed (t : List (Event L E)) (p : Regula.Closed.Profile) : Prop wh
   floor : ∀ root f roots, PlainRoot t root → BuildRead t root f roots → LoadFloor f roots p
 
 /-- What a run of the full gate receives on a build that it owes a pass: the run has its tree, nothing keeps the project from
-being admitted, the build and its replay ended with 0, nothing that the load of the result needs failed, and each
+being admitted, no build or replay was rejected, nothing that the load of the result needs failed, and each
 environment that the run read of that build has `LoadFloor`. -/
 structure FullOwed (t : List (Event L E)) (dir : FilePath) (p : Regula.Closed.Profile) : Prop where
   /-- The tree. -/
@@ -410,7 +410,7 @@ theorem run_full_owed {w : List String → Prog L E UInt32} (hw : RunMeets w) {t
 
 /-! ## A program that manufactures a reason -/
 
-/-- A program that asks which Lean this is, reads an environment variable that the build does not need, and says that the
+/-- A program that asks which Lean this is, reads the environment variable `name`, and says that the
 proof verdict is incomplete. The audit of 2026-10-31 proved that it met the earlier form of the record. -/
 def manufacturer (name : String) (_ : List String) : Prog L E UInt32 :=
   .ask .leanVersion fun _ =>

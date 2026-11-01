@@ -9,15 +9,15 @@ import RegulaSpecification.Proofs.Owed
 # Exit 0 exactly when a pass is owed
 
 `plain_owed` and `full_owed` state that what `PlainOwed` and `FullOwed` hold of the responses gives exit 0, for every program
-that meets the record. This module states the other direction: a run that exits with 0 received what they hold. So a real
-run with exit 0 meets those premises, by theorem, and they exclude no real run.
+that meets the record. This module states the other direction: a run that exits with 0 received what they hold. So a run with
+exit 0 that gets one answer for each operation and, for the full reading, one parser context for each input meets those premises.
 
 That direction has a hypothesis, which only it needs. The record's reasons read what a trace holds, and one operation can
 stand in a trace twice with two answers: a path read as a module's file and as the toolchain's file, on answers that no Lake
 gives, or a file that another process changed between two reads. Then a run can pass on what it judged, while the other
-answer is a reason. `OneAnswer` is what excludes that, and `OneContext` the same of the parser's context, whose two parts
-hold of the program's table: `importParsers_eq` reads the scoped parsers from the environment it gives, and a file gets its
-context from its header alone (`Regula.Reader.parseFile`).
+answer is a reason. `OneAnswer` is what excludes that, and `OneContext` the same of the parser's context. No theorem discharges `OneContext`; read
+from the code, `importParsers_eq` reads the scoped parsers from the environment it gives, and a file gets its context from its
+header, the run's sources and its toolchain modules (`Regula.Reader.parseFile`).
 -/
 
 namespace RegulaSpecification.Effects

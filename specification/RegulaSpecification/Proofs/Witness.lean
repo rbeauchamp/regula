@@ -8,9 +8,8 @@ import RegulaSpecification.Proofs.Shell
 /-!
 # A project that the reader admits
 
-`admits_a_project` is the record's witness, under hypotheses: for paths that meet `WitnessPaths`, there are answers of Lean,
-Lake and the operating system, for a project of one module `Good` in the closed language, on which the check that runs admits
-the project. `Proofs/OwedModel.lean` carries it to the whole run.
+`admits_a_project` is the record's witness, under hypotheses: for paths that meet `WitnessPaths`, there is a trace on which the
+check that runs admits. The proof's trace is that of a project of one module `Good` in the closed language. `Proofs/OwedModel.lean` carries it to the whole run.
 
 The answers are `answers`, one function of the operation. The tests of a path read `System.FilePath`, whose separator
 depends on `System.Platform.isWindows`, an `opaque` constant, so `WitnessPaths` states what those tests give on the paths of the
@@ -106,7 +105,7 @@ structure WitnessPaths where
   /-- An empty log holds no error. -/
   noErrors : ({} : MessageLog).hasErrors = false
 
-/-- What the workspace of the witness holds: one default library of the module `Good`. -/
+/-- What the workspace of the witness holds: one default target `Good`, which `findLib` treats as a library. -/
 def witnessRoot (w : WitnessPaths) : Root Unit where
   sourceDirs := []
   libraries := []

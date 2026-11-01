@@ -451,7 +451,7 @@ theorem sound_startedOutside (lakeLib project : FilePath) :
       exact fun hn => by cases hn
 
 /-- The theorem that a failed read is never admitted, of the definition that runs: on an admission, no answer that
-the reader asked failed. So a failed or unrecognized read gives `incomplete` or a refusal. -/
+the reader asked failed. So a run in which an answer failed gives no admission. -/
 theorem readProject_no_failed {sysroot : String} {dir treeDir : FilePath} {r : Reading}
     {srcs : List (Name × Source)} {t : List (Event L E)}
     (h : Runs (readProject sysroot dir treeDir : Attempt L E _).run t (.ok (r, srcs)))

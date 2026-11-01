@@ -73,7 +73,7 @@ theorem ReadingPreparation.appendQuiet {t after : List (Event L E)} {dir treeDir
       hp, h1, h2, h3, h4, hc.appendQuiet hq⟩
 
 /-- `readFiles` meets `ReadingLoaded`: only observations, or its root's toolchain path set once, before every lookup, parser
-import and module copy, with no other set after it. The copies come last, each of a source that the walk read. -/
+import and module copy, with no other set after it. Each copy is of a needed name's file, by a text the prefix read. -/
 theorem readFiles_preparation {config : List (FilePath × String)} {prior t : List (Event L E)} {project tree : FilePath}
     {root : Root L}
     {modules : List (Name × FilePath)} {start : Reading} {b : Except String (Reading × List (Name × Source))}

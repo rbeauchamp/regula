@@ -11,8 +11,8 @@ import RegulaSpecification.Proofs.ReaderFiles
 
 `readProject_spec` is the theorem the reader exists for, for every response: a reading the check admits rests on
 `Evidence` of each state of the tree that holds what the plan of the reading says (`Holds`), and the state that the
-reader's own acts leave is one (`holds_of_leavesAs`), so every file Lake would compile for the claim is read and the text
-judged is the text that stands; any other outcome rests on a `Reason`, so a project with no such reason is admitted; and every act lies in the
+reader's own acts leave is one (`holds_of_leavesAs`), so every file `Compiled` names is read and the text judged is the text
+that stands (that `Compiled` is what Lake compiles is the hypothesis `LakeBehaviour`); any other outcome rests on a `Reason`, so a project with no such reason is admitted; and every act lies in the
 tree.
 -/
 
@@ -771,7 +771,7 @@ theorem source_facts {T : List (Event L E)} {dir treeDir project tree : FilePath
   rw [ht]
   exact hsub.subset (List.mem_cons_of_mem _ (List.mem_cons_self ..))
 
-/-- The last stage of the reader. On an admission its acts are the writes of the sources, whose plan with `lakefile.toml`
+/-- The last stage of the reader. On an admission its acts leave what the writes of the sources leave, whose plan with `lakefile.toml`
 and `lean-toolchain` has no two texts at one path. -/
 theorem readFiles_spec {T t : List (Event L E)} {dir treeDir project tree : FilePath} {root : Root L}
     {modules : List (Name × FilePath)} {start : Reading} {sysroot text : String} {log : List String}
@@ -1193,7 +1193,8 @@ theorem stopped_why_not_admitted {tf : Option String} {why : String} :
   · rw [decision_not_closed (by simpa using ht)] at ha
     cases ha
 
-/-- Copying `lakefile.toml` and `lean-toolchain` to the tree, then what follows. -/
+/-- The parse of `lakefile.toml` and, when it is closed, the writes of its text and of the pinned `lean-toolchain`, then what
+follows. -/
 theorem readKeys_spec {T t : List (Event L E)} {dir treeDir project tree : FilePath} {tf : Option String}
     {sysroot text : String} {real : FilePath} {b : Except String (Reading × List (Name × Source))}
     (hI : t <:+: T) (hsys : SysrootIs T sysroot) (hE : Early T dir treeDir project tree tf)
@@ -1557,7 +1558,8 @@ theorem readExact_error {project path : FilePath} {t : List (Event L E)} {why : 
       obtain ⟨rfl, -⟩ := runs_attempt_throw_iff.mp h₂
       exact .inr (.inl ⟨real, rfl, by simpa using hb⟩)
 
-/-- What `toolchainOf` gives: what the file says, through the exact-path test, or none with why. -/
+/-- `toolchainOf` gives the pinned Lean only when the file says it through the exact-path test, and anything else has a reason
+to refuse. -/
 theorem toolchainOf_spec {T t : List (Event L E)} {dir treeDir project : FilePath} {tf : Option String}
     (hT : t.Sublist T) (hproject : (⟨.realPath dir, .ok project⟩ : Event L E) ∈ T)
     (h : Runs (toolchainOf project : Prog L E (Option String)) t tf) :
@@ -1785,7 +1787,7 @@ def ReadDone (T t : List (Event L E)) (dir treeDir : FilePath) (r : Reading) : P
   (decision r = .admitted → ∀ held : List String → Option String, (∀ p, held p = written t p) →
     Evidence T dir treeDir held r) ∧ ∀ o, decision r = o → o ≠ .admitted → Reason T dir treeDir o
 
-/-- The reader, with the lines that report what it read. -/
+/-- The reader, whatever lines it returns. -/
 theorem read_spec {T t : List (Event L E)} {dir treeDir : FilePath} {sysroot : String}
     {b : Except String (Reading × List String)} (hI : t <:+: T) (hsys : SysrootIs T sysroot)
     (h : Runs (read sysroot dir treeDir : Attempt L E _).run t b) :

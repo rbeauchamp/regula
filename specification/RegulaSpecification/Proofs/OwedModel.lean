@@ -11,11 +11,11 @@ import RegulaSpecification.Proofs.OwedExact
 
 The premises of `plain_owed` and `full_owed` are statements about what Lean, Lake and the operating system answered. This module
 shows that they are met by a run of the program the executable interprets, and that what they state of the operations does not
-settle the conclusion by itself: on the answers of the witness (`Proofs/Witness.lean`), for paths that meet `WitnessPaths` and an
-environment with the floor (`EnvModel`), the run receives what `FullOwed` and `PlainOwed` state and exits with 0 (`full_model`,
-`plain_model`); on answers where every operation succeeds and the project holds a `lakefile.lean`, it does not exit with 0
-(`refused_model`). The hypotheses of the two models are what remains: `WitnessPaths` because `System.FilePath` depends on an
-`opaque` constant, and `EnvModel` because `Lean.Environment`'s constructor is private. `plain_exit_zero_owed` and
+settle the conclusion by itself: for paths that meet `WitnessPaths` and an
+environment with the floor (`EnvModel`), there is a run, whose proof takes the answers of the witness (`Proofs/Witness.lean`), that receives what `FullOwed` and `PlainOwed` state and exits with 0 (`full_model`,
+`plain_model`); there is a run in which no answer failed that does not exit with 0, whose proof takes a project with a
+`lakefile.lean` (`refused_model`). The hypotheses of the two models are what remains: `WitnessPaths` because `System.FilePath` depends on an
+`opaque` constant, and for two facts about the pinned text and an empty log, and `EnvModel` because `Lean.Environment`'s constructor is private. `plain_exit_zero_owed` and
 `full_exit_zero_owed` also apply to any run meeting the record with exit 0, under `OneAnswer` and, for
 the full run's reading, `OneContext`. Those hypotheses are needed for the converse, not the owed-pass
 implications. The witness runs meet the strengthened preparation relations through `run_meets`;
@@ -37,7 +37,7 @@ variable {α : Type}
 /-- What an environment of the witness must be: each reading of it that those answers allow has `LoadFloor`. `Lean.Environment`'s
 constructor is private (`Lean/Environment.lean:213`, `:553`), so a proof here cannot build one with a claimed module. A real
 one is what a finished build gives, and `plain_exit_zero_owed` and `full_exit_zero_owed` state that a run that exits with 0
-read one with this floor. -/
+read one with this floor, on one answer for each operation and, for the full reading, one context for each input. -/
 structure EnvModel (w : WitnessPaths) (env : Lean.Environment) (p : Regula.Closed.Profile) : Prop where
   /-- Each reading has the floor. -/
   floor : ∀ f : Regula.Load.Facts, f.env = env → f.toolchainDir = w.toolchainDir → f.rootDir = w.rootLib →
@@ -107,7 +107,7 @@ theorem fullOwed_answers {w : WitnessPaths} {env : Lean.Environment} {p : Regula
   · obtain rfl := hrootOf hg
     exact floor_of_read hm hrulesT hb
 
-/-- For paths that meet `WitnessPaths` and an environment with the floor, a run of the full gate on the answers of the witness
+/-- For paths that meet `WitnessPaths` and an environment with the floor, there is a run of the full gate, whose proof takes the answers of the witness, that
 receives what `FullOwed` states, and exits with 0: a model of the premises of `full_owed`, in which they are met by a run of the
 program that the executable interprets. -/
 theorem full_model (w : WitnessPaths) (env : Lean.Environment) (hm : EnvModel w env .standardLogical) :
@@ -149,7 +149,7 @@ theorem answersRefused_healthy (w : WitnessPaths) (env : Lean.Environment) (m : 
     | exact fun hn => by cases hn
     | exact fun hn => hn rfl
 
-/-- On those answers a run of the full gate receives no failed answer, and it does not exit with 0. -/
+/-- There is a run of the full gate that receives no failed answer, and does not exit with 0. -/
 theorem refused_model (w : WitnessPaths) (env : Lean.Environment) (m : IO.FS.Metadata) :
     ∃ rest c, Runs (Regula.Shell.run ["standard-logical", "full", w.project.toString] : Prog Unit Unit UInt32)
       (⟨.leanVersion, Regula.Closed.pinnedLean⟩ :: rest) c ∧ (∀ e ∈ rest, ¬ e.failed) ∧ c ≠ 0 := by
@@ -192,7 +192,7 @@ theorem refused_model (w : WitnessPaths) (env : Lean.Environment) (m : IO.FS.Met
           simp [hx]
         cases resp_eq (hin habs)
 
-/-- The answers of one function of the operation are one answer for each operation. So the hypothesis of the exact form holds of
+/-- The answers of one function of the operation are one answer for each operation. So `OneAnswer` holds of
 each run on such answers. -/
 theorem oneAnswer_traceWith {L E : Type} (f : (o : Op L E) → Resp o) (p : Prog L E α) : OneAnswer (traceWith f p) := by
   intro e he e' he' _ hop
@@ -302,7 +302,7 @@ theorem run_full_exit_zero_iff {L E : Type} {text dir : String} {p : Regula.Clos
 
 /-! ## A program that refuses on what does not justify it -/
 
-/-- A program that reads what the build needs, is told that it is there, and says that the proof verdict is incomplete. -/
+/-- A program that asks `LEAN_SYSROOT`, ignores the answer, and says that the proof verdict is incomplete. -/
 def misjudge {L E : Type} (_ : List String) : Prog L E UInt32 :=
   .ask .leanVersion fun _ =>
     .ask (.getEnv "LEAN_SYSROOT") fun _ =>

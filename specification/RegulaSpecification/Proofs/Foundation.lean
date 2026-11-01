@@ -23,7 +23,7 @@ namespace Link
 
 variable {i : Regula.Closed.Input} (t : Regula.Closed.Tables i)
 
-/-- A rule that reports each member of a list that passes a test, once. -/
+/-- A rule that reports each member of a list that passes a test. -/
 theorem mem_report {α : Type} {l : List α} {c : α → Bool} {g : α → Regula.Closed.Finding}
     {sub : α → Name} (hg : ∀ a, (g a).subject = sub a) (s : Name) :
     s ∈ (l.filterMap fun a => if c a then some (g a) else none).map (·.subject) ↔

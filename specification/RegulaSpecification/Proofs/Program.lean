@@ -9,8 +9,8 @@ import Regula.Table
 /-!
 # The program against its record, and what the executable runs
 
-The checker's program meets `programRecord` (`run_meets_record`); the record has lean-intent's obligations; a program that
-refuses everything does not meet it; and what the `lint` executable computes is the value of such a run, for any table
+The checker's program meets `programRecord` (`run_meets_record`); the record has lean-intent's obligations; `refuser`, which
+reads nothing and refuses, does not meet it; and what `Prog.interpret` computes is the value of such a run, for any table
 of effects (`executed_meets`). Each row of the one table is a straight line of calls (`table_rows`), so the table makes no
 decision.
 -/
@@ -49,7 +49,7 @@ theorem program_o2 : O2 (programRecord L E) := by
   · exact ⟨"  ", "", by simp⟩
   · exact ⟨goodReading, goodReading_inside⟩
 
-/-- A run that says nothing and ends with 0, whatever it is asked, does not meet the record: a program that does nothing
+/-- A run that says nothing and ends with 0, whatever it is asked, does not meet the record: a program that does nothing and ends with other than 2
 is ruled out. -/
 theorem constant_program_fails (c : UInt32) (hc : c ≠ 2) :
     ¬ RunMeets (fun _ => .done c : List String → Prog L E UInt32) := by
@@ -64,12 +64,12 @@ theorem program_o3 : O3 (programRecord L E) := by
   subst hp
   exact ⟨fun _ => .done 0, constant_program_fails 0 (by decide)⟩
 
-/-- O4: a run is a function of its arguments. -/
+/-- O4: the subject gives a program for each argument list. -/
 theorem program_o4 : O4 (programRecord L E) := o4_function _ rfl
 
-/-- O5: the record leaves the order of independent reads, and the wording of each line before the last, to the program, and
-any two programs that meet it agree on what a run's exit code and last line rest on. It is proved at `.widest`, because
-two programs ask different events, so no relation between their traces is fixed. -/
+/-- O5 at `.widest`, which every record meets, so it adds no agreement between programs. The record leaves the order of independent
+reads, and the wording of each line before the last, to the program, and two programs ask different events, so no relation
+between their traces is fixed. -/
 theorem program_o5 : O5 (programRecord L E) .widest := o5_widest _
 
 /-! ## A reader that refuses everything -/
@@ -145,8 +145,9 @@ theorem refuser_fails (tree : FilePath) :
 
 /-! ## What the executable runs -/
 
-/-- What the `lint` executable computes is the value of a run of the program, from any state of the world and for any
-table: so all that `run_meets` states holds of it. That the compiled program does what its definition says stays with
+/-- What `Prog.interpret` computes is the value of a run of the program, from any state of the world and for any
+table: so all that `run_meets` states holds of it. That `Regula.LintMain.main` is that interpretation is read from the code,
+and that the compiled program does what its definition says stays with
 Lean's compiler, which the trusted base lists. -/
 theorem executed_meets (table : (o : Op L E) → BaseIO (Resp o)) (args : List String) (w : Void IO.RealWorld) :
     Runs (Regula.Shell.run args : Prog L E UInt32)

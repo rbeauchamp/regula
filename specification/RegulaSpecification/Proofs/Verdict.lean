@@ -12,7 +12,7 @@ import RegulaSpecification.Proofs.Records
 verdict on what the admission gives (`run`). `admit_ok_iff` proves that the admission gives an input
 exactly for a reading that has the specification's `Input.WellFormed`. `run_refused` and
 `run_complete` then state the verdict: a refused reading is `incomplete`, and an admitted one is
-`pass` or `fail`, and `pass` exactly when every rule holds of it. `run_meets` states that as the
+`pass` or `fail`, and `pass` exactly when every rule that reads the input holds of it. `run_meets` states that as the
 record `gateRecord` over the
 specification's input.
 
@@ -85,7 +85,7 @@ theorem nil_iff_no_subject (fs : List Regula.Closed.Finding) :
     · intro h
       exact absurd (List.mem_cons_self ..) (h f.subject)
 
-/-- An input has no finding exactly when every rule holds of it. -/
+/-- An input has no finding exactly when every rule that reads the input holds of it. -/
 theorem findings_nil_iff (i : Regula.Closed.Input) :
     i.findings = [] ↔ AllHold (toSpec i) := by
   have hall : i.findings = [] ↔ ∀ r, i.tables.check r = [] := by
@@ -114,7 +114,7 @@ theorem findings_nil_iff (i : Regula.Closed.Input) :
     · simp [Regula.Closed.Tables.check] at hs
     · simp [Regula.Closed.Tables.check] at hs
 
-/-- The report of an input is not `incomplete`, and it is `pass` exactly when every rule holds of
+/-- The report of an input is not `incomplete`, and it is `pass` exactly when every rule that reads the input holds of
 it. No hypothesis is needed: the type of the input carries the closed form. -/
 theorem report_complete (i : Regula.Closed.Input) :
     i.report.verdict ≠ .incomplete ∧
@@ -135,7 +135,7 @@ theorem run_refused {d : Regula.Closed.Draft} (h : ¬ (toSpecDraft d).WellFormed
   obtain ⟨why, hw⟩ := (admit_error_iff d).mpr h
   simp only [run, hw, Regula.Closed.decision, Regula.Closed.Report.verdict]
 
-/-- An admitted reading is not `incomplete`, and it is `pass` exactly when every rule holds of it.
+/-- An admitted reading is not `incomplete`, and it is `pass` exactly when every rule that reads the input holds of it.
 -/
 theorem run_complete {d : Regula.Closed.Draft} (h : (toSpecDraft d).WellFormed) :
     (run d).verdict ≠ .incomplete ∧

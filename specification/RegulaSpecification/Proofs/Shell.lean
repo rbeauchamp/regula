@@ -564,7 +564,7 @@ theorem rules_spec {T t : List (Event L E)} {sysroot : String} {tree : FilePath}
     · exact sound_loadTree _ _ _ _ _ h₁ e he
     · exact details_not_failed hd e he
 
-/-- The actual rule phase issues no explicit mutation, allocation or command request, on success or failure. -/
+/-- The actual rule phase issues no explicit write, directory creation, allocation, removal or command request, on success or failure. -/
 theorem rules_reload {sysroot : String} {tree : FilePath} {p : Regula.Closed.Profile}
     {t : List (Event L E)} {v : Regula.Closed.Verdict}
     (h : Runs (rules (loadTree sysroot tree p) : Prog L E _) t v) : ∀ e ∈ t, ReloadOp e.op := by

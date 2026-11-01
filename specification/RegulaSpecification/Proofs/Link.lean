@@ -13,7 +13,7 @@ The checker runs over `Regula.Closed.Input`, and the specification states each r
 `RegulaSpecification.Input`: two types with the same data, so that the specification is written
 independently of the code. A value of the checker's type also holds the proof of the closed form,
 and `wf_toSpec` carries that proof to the specification's statement of that form. `toSpec` carries
-an input of the checker to the specification's, and each theorem of this directory is stated about
+an input of the checker to the specification's, and each `rg100N_exact` is stated about
 the function that the checker runs on an input `i` and the predicate of the specification at
 `toSpec i`.
 

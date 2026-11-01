@@ -10,8 +10,8 @@ import Regula.DiagnosticsGate
 
 The gate program is the merge gate, and a defect in it that let a broken change pass would be serious. `runSteps_io`,
 `runIn_zero` and `runLocal_zero` prove, of the definitions at `IO`, from any state of the world, that it gives 0 only when it
-copied each file of `checkerFiles` to the checker's directory with the bytes it read, and each step of `localSteps` then
-gave 0, with that directory as the checker and the working directory as the project. `BaseIO` and `IO` are state monads in Lean's own definition (`Init/System/ST.lean`), so
+wrote each file of `checkerFiles` to the checker's directory joined with that file, with the bytes it read, and for each step
+of `localSteps` there are worlds in which it gave 0, with that directory as the checker and the working directory as the project. `BaseIO` and `IO` are state monads in Lean's own definition (`Init/System/ST.lean`), so
 no assumption about the order of effects is needed for this. A defect that only stops the gate visibly, such as a failed
 copy or removal, which `IO` turns into a nonzero exit, is accepted risk.
 -/
@@ -79,7 +79,7 @@ theorem finally_ok {α β : Type} {x : IO α} {f : IO β} {w w' : Void IO.RealWo
       obtain ⟨rfl, rfl⟩ := EST.Out.ok.inj h
       exact ⟨w₁, rfl, b, hf⟩
 
-/-- `runSteps` at `IO`: a run that reports no step asked each step, and each gave 0. -/
+/-- `runSteps` at `IO`: on a run that reports no step, for each step there are worlds in which it gives 0. -/
 theorem runSteps_io (run : Step → IO UInt32) (steps : List Step) (w w' : Void IO.RealWorld)
     (h : runSteps run steps w = .ok none w') :
     ∀ s ∈ steps, ∃ w₁ w₂, run s w₁ = .ok 0 w₂ := by
@@ -103,7 +103,7 @@ theorem runSteps_io (run : Step → IO UInt32) (steps : List Step) (w w' : Void 
         · exact ih w₁ h s hs
       · cases h
 
-/-- `runIn` gives 0 only when each step gave 0. -/
+/-- `runIn` gives 0 only when, for each step, there are worlds in which it gives 0. -/
 theorem runIn_zero (target root : String) (w w' : Void IO.RealWorld)
     (h : runIn target root w = .ok 0 w') :
     ∀ s ∈ localSteps target root, ∃ w₁ w₂, runStep s w₁ = .ok 0 w₂ := by
@@ -125,7 +125,7 @@ theorem runIn_zero (target root : String) (w w' : Void IO.RealWorld)
       subst hn
       exact runSteps_io _ _ _ _ hr
 
-/-- `regularFiles` holds each path that its test found no directory, and no other, in the worlds of its calls. -/
+/-- `regularFiles` holds each path that its test found no directory, and no other, in some worlds. -/
 theorem regularFiles_io (paths : List System.FilePath) (w w' : Void IO.RealWorld) (files : List System.FilePath)
     (h : regularFiles paths w = .ok files w') :
     (∀ p ∈ files, p ∈ paths ∧ ∃ w₁ w₂, (p.isDir : IO Bool) w₁ = .ok false w₂) ∧
@@ -259,7 +259,7 @@ theorem copyAll_io (target : System.FilePath) (files : List System.FilePath) (w 
         exact ⟨bytes, a, b, w₁, h1, h2⟩
       · exact ih w₁ h file hf
 
-/-- `copyChecker` takes the files that `checkerFiles` gives, and for each, the bytes that a read of it gave are what a write below the target took. -/
+/-- `copyChecker` takes the files that `checkerFiles` gives, and for each, the bytes that a read of it gave are what a write to `target / file` took. -/
 theorem copyChecker_io (target : System.FilePath) (w w' : Void IO.RealWorld) (h : copyChecker target w = .ok () w') :
     ∃ files w₁, checkerFiles w = .ok files w₁ ∧
       ∀ file ∈ files, ∃ bytes w₂ w₃ w₄, IO.FS.readBinFile file w₂ = .ok bytes w₃ ∧
@@ -274,8 +274,8 @@ theorem copyChecker_io (target : System.FilePath) (w w' : Void IO.RealWorld) (h 
     exact ⟨files, w₁, rfl, copyAll_io target files w₁ w' h⟩
 
 /-- What the whole gate establishes, at `IO`, from any state of the world: `runLocal` gives 0 only when it made its directory,
-copied to it each file that `checkerFiles` gives with the bytes it read of that file, and then, with that directory as the
-checker and the working directory as the project, each step of `localSteps` gave 0. The copy comes first. That a step then
+wrote to it joined with each file that `checkerFiles` gives the bytes it read of that file, and, with that directory as the
+checker and the working directory as the project, for each step of `localSteps` there are worlds in which it gave 0. That a step
 builds what was written and checks this checkout rests on what `localSteps` names, the file system and Lake, which this does not state. -/
 theorem runLocal_zero (w w' : Void IO.RealWorld) (h : runLocal w = .ok 0 w') :
     ∃ target root w₁ w₂ w₃ w₄, IO.FS.createTempDir w = .ok target w₁ ∧ copyChecker target w₁ = .ok () w₂ ∧
@@ -320,8 +320,7 @@ theorem main_zero (args : List String) (w w' : Void IO.RealWorld) (h : _root_.ma
       have := (EST.Out.ok.inj h).1
       exact absurd this (by decide)
 
-/-- The gate's `localSteps` hold the steps it must run, in this order: the full gate, the build, the checker on its own
-build, and the specification's build, replay and checker. -/
+/-- The arguments of the steps of `localSteps`, in order. Their directories are not stated here. -/
 theorem localSteps_eq (checker root : String) :
     (localSteps checker root).map (·.arguments) =
       [["clean"], ["build", "lint"], ["exe", "lint", "standard-logical", "full", root], ["build", "--wfail"],

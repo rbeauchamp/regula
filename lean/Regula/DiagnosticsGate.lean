@@ -26,7 +26,7 @@ about what they decide.
 
 `runSteps` is the decision the program executes, and its theorems are checked by the kernel each
 time `lean --run` elaborates this file. `specification/RegulaSpecification/Proofs/Gate.lean` proves, at `IO`, that `runLocal`
-gives 0 only when, for each file that `checkerFiles` lists, the bytes that a read of it gave are what a write below
+gives 0 only when, for each file that `checkerFiles` lists, the bytes that a read of it gave are what a write joined to
 its directory took, and then each step gave 0, with that directory as the checker and the working directory as the
 project. That a step then builds what was written and checks this checkout rests on what `localSteps` names, the
 file system and Lake, which that theorem does not state. Which files exist is what `System.FilePath.walkDir` lists, which is Lean's. Starting a step, its exit code and what the step does are
@@ -139,7 +139,8 @@ def checkerFiles : IO (List System.FilePath) := do
   let files ← regularFiles sources.toList
   pure (["lakefile.toml", "lake-manifest.json", "lean-toolchain"].map System.FilePath.mk ++ files)
 
-/-- Copy one file to the same relative path below `target`, with the directories above it. -/
+/-- Write the bytes read of one file to `target / file`, with the directories above it. `/` gives `file` itself for an absolute
+`file`, and `checkerFiles` gives relative paths. -/
 def copyFile (target file : System.FilePath) : IO Unit := do
   let to := target / file
   if let some dir := to.parent then IO.FS.createDirAll dir

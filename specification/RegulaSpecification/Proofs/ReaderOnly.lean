@@ -8,8 +8,8 @@ import RegulaSpecification.Proofs.Reader
 /-!
 # What the reader never asks
 
-The reader asks only reads, the writes that `ReadActs` bounds and Lean's parser: on no response does it build, load a
-build for the rules, or print. So nothing is built before the check, for every response.
+The reader asks only what `ReadOp` admits: on no response does it ask a Lake command, a load of a build for the rules, or a
+print. So the reader requests no build, for every response.
 -/
 
 namespace RegulaSpecification.Effects

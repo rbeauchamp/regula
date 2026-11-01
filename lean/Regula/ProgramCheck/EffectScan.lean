@@ -13,7 +13,7 @@ public import Regula.Reach
 The decision of the check in `Regula.ProgramCheck.Effects`, as pure functions, so that
 `specification/RegulaSpecification/Proofs/EffectScan.lean` proves what it decides: `scan` gives exactly the constants of the
 repository's modules that mention an effect, directly or through another constant of the repository
-(`mem_scan_iff`), and `judge` passes exactly when the interpreter is among them and each of them lies in the closed set of
+(`mem_scan_iff`), and `judge` passes exactly when the interpreter is among them and each of them is `allowed`, in the closed set of
 modules (`judge_ok_iff`). `graphOf` reads the environment through Lean's own `header` and `find?`; that those report what the
 `.olean` files hold is Lean's, as the specification's trusted base lists. `Expr.getUsedConstants` is trusted to list what an
 expression mentions.
@@ -70,12 +70,12 @@ def scan (g : Graph) : List (Name × Name) :=
   let found := Regula.Closed.reach (callers.getD · []) weight g.seeds
   g.own.filter fun x => found.contains x.1
 
-/-- Whether a constant may mention an effect, by the closed set of modules. -/
+/-- Whether a constant may mention an effect: it lies in the closed set of modules, or in `Regula.Effect` below `Prog.interpret`. -/
 def allowed (x : Name × Name) : Bool :=
   effectModules.contains x.2 || (x.2 == `Regula.Effect && (`Regula.Effect.Prog.interpret).isPrefixOf x.1)
 
 /-- What the check says of what the scan found: it fails when it finds no interpreter, so an empty scan is no pass, and on any
-constant outside the closed set of modules. -/
+constant that is not `allowed`. -/
 def judge (found : List (Name × Name)) : Except String Unit :=
   if !found.any (·.1 == `Regula.Effect.Prog.interpret) then
     .error "the scan of effects found no interpreter, so it read nothing"
@@ -84,7 +84,8 @@ def judge (found : List (Name × Name)) : Except String Unit :=
     | [] => .ok ()
     | outside => .error s!"constants outside the closed set of modules mention an effect: {outside}"
 
-/-- What a constant mentions: what its type and any value mention. -/
+/-- What a constant mentions: what its type mentions, and a definition's value. `ConstantInfo.value?` gives no value of a theorem
+or of an opaque constant, so this does not read those. -/
 def mentionsOf (info : ConstantInfo) : List Name :=
   (info.type.getUsedConstants ++ (info.value?.map (·.getUsedConstants)).getD #[]).toList
 

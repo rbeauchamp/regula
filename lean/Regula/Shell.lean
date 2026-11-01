@@ -23,7 +23,8 @@ the input has the closed form and no rule reports a subject, `fail` (exit 1) whe
 It promises nothing about what ran during the build.
 
 A run with the profile, `full` and a directory is the full gate (`Regula.Language.gate`) on the project
-there: the language check, which writes what it judged to a tree of the checker's own once it has admitted it, then, for
+there: the language check, which writes the configuration to a tree of the checker's own and, once it has admitted the
+project, what it judged of each file, then, for
 an admitted project, the build and its replay in that tree and the same rules on it. Only that run can print a full
 verdict, because only there the check came first, and only from a checker that the project's Lake did not start
 (`Regula.Reader.startedOutside`). A project with a dependency or with Mathlib in its imports gets no build from

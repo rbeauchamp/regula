@@ -93,7 +93,7 @@ theorem LeavesAs.append {a b : List (Event L E)} {x y : List (FilePath × String
   intro p held
   rw [leavesFrom_append, writesOf_append, ha, hb]
 
-/-- An event that neither writes nor removes. -/
+/-- An event that requests no write and no removal. What a Lake command does inside itself is not read here. -/
 def Event.keepsFiles (e : Event L E) : Prop :=
   match e.op with
   | .writeFile .. | .removeDirAll _ => False

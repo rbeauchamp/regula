@@ -4,6 +4,7 @@ Released under MIT license as described in the file LICENSE.
 Authors: Regula contributors
 -/
 import RegulaSpecification.Proofs.ReaderOnly
+import RegulaSpecification.Proofs.Standing
 
 /-!
 # Exact segments of preparation
@@ -233,7 +234,7 @@ theorem walk_preparation (project tree : FilePath) (root : Root L) (modules : Li
                  · exact hq e he
                  · exact g1 e he)
 
-/-- `writeSources` copies each source, in order, each step using what the prefix read. -/
+/-- The acts of `writeSources` fit `ModuleCopies`, each step using what the prefix read. -/
 theorem writeSources_preparation {project tree : FilePath} {root : Root L} {modules : List (Name × FilePath)}
     {srcs : List (Name × Source)} {prior t : List (Event L E)} {b : Except String Unit}
     (hs : ∀ x ∈ srcs, Named prior project tree root modules x.1 ∧ FileOfModule root modules x.1 x.2.path ∧
@@ -259,6 +260,26 @@ theorem writeSources_preparation {project tree : FilePath} {root : Root L} {modu
       refine ih (fun y hy => ?_) hlast
       obtain ⟨g1, g2, g3⟩ := hs y (List.mem_cons_of_mem _ hy)
       exact ⟨Named.mono (List.sublist_append_left _ _) g1, g2, SourceText.mono (List.sublist_append_left _ _) g3⟩
+
+/-- The module-copy grammar alone admits the trace of `uncheckedCopy_fails`, for every text, when `path` is a needed name's file with
+its parent in the tree. So what refuses that trace is `Evidence` of what it leaves, and not the grammar. -/
+theorem moduleCopies_admits_uncheckedCopy {project tree path parent : FilePath} {root : Root L} {modules : List (Name × FilePath)}
+    {prior body : List (Event L E)} {m : Name} {rel : List String} (text : String)
+    (hc : ModuleCopies project tree root modules prior body)
+    (hn : Named (prior ++ body) project tree root modules m)
+    (hf : FileOfModule root modules m path)
+    (hr : TreeRelative (parts tree) (parts path) rel)
+    (hp : path.parent = some parent)
+    (hparent : ∃ rel, TreeRelative (parts tree) (parts parent) rel) :
+    ModuleCopies project tree root modules prior (body ++ uncheckedCopy (under project rel) path parent text) := by
+  apply ModuleCopies.append hc
+  apply ModuleCopies.observe (Or.inl (show QuietOp (.readFile (under project rel) : Op L E) from trivial))
+  apply ModuleCopies.copy (Named.mono (List.sublist_append_left _ _) hn) hf
+    (text := text) (complete := true) (rest := [])
+    (step := [⟨.createDirAll parent, .ok ()⟩, ⟨.writeFile path text, .ok ()⟩])
+  · exact ⟨rel, hr, by simp⟩
+  · exact CopyStep.parentWritten ⟨rel, hr⟩ hp hparent
+  · exact ModuleCopies.nil
 
 theorem quiet_parseAll (input) (env : E) (state) (messages) (fuel : Nat) :
     OnlyIn QuietOp (parseAll input env state messages fuel : Prog L E _) := by

@@ -16,7 +16,8 @@ proof verdict. Responses remain arbitrary: these relations constrain the request
 `PlainReason`, `TreeReason` and `BuildRejected` state the reasons of the finished load and build. `programRecord` states
 a whole run, for every response, and it is the contract that
 `Regula.Shell.run` is proved against. `RegulaSpecification.Proofs.Owed` states what follows of every program that meets it:
-a run in which nothing that the build needs has failed, on a project nothing keeps from being admitted, passes.
+a run in which nothing that the build needs has failed, on a project nothing keeps from being admitted, and whose environment has
+`LoadFloor`, passes.
 -/
 
 namespace RegulaSpecification.Effects
@@ -578,7 +579,7 @@ def PlainRun (t : List (Event L E)) (p : Regula.Closed.Profile) (c : UInt32) : P
     EndsWith t (Regula.Closed.decision result).verdict.proofLine ∧
     (∀ e ∈ t, e.acted? = none) ∧ (c = 0 → ∀ e ∈ t, ¬ e.failed) ∧ PlainPreparation t
 
-/-- Every act of a run lies in the tree, and the project and the tree lie apart: either the run acted only on the
+/-- Every act of a run lies in the tree: either the run acted only on the
 tree it was given, or it read their real paths and each act lies at or below the tree's. -/
 def Confined (t : List (Event L E)) (dir tree : FilePath) : Prop :=
   (∀ e ∈ t, ∀ path, e.acted? = some path → path = tree) ∨

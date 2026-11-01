@@ -128,7 +128,7 @@ def tablesIn (xs : Array Lake.Toml.Value) : List Lake.Toml.Table :=
 /-- The key paths of a TOML table: each key whose value is neither a table nor an array that holds one,
 and each key of each table and array of tables under it. A table with no key gives its own key, so an
 empty table, in any form, is not lost. `fuel` bounds the depth; a table deeper than that gives the key
-`too deep`, which no table holds. -/
+`too deep`, which no closed set admits. -/
 def keysOf (fuel : Nat) (pre : Name) (t : Lake.Toml.Table) : List Name :=
   match fuel with
   | 0 => [.str pre "too deep"]
