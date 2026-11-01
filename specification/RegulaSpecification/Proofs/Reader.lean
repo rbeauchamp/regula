@@ -895,8 +895,8 @@ theorem stopped_goal {T : List (Event L E)} {dir treeDir : FilePath} {tf : Optio
     subst ho
     exact hr ht
 
-/-- A successful write has only successful directory creations before its final write. This exact
-trace, rather than a subsequence, preserves preparation across the next operation. -/
+/-- A successful write has only successful directory creations before its final write, stated of the
+exact trace and not of a subsequence. -/
 theorem writeInTree_trace {tree path : FilePath} {text : String} {t : List (Event L E)} {u : Unit}
     (h : Runs (writeInTree tree path text : Attempt L E Unit).run t (.ok u)) :
     ∃ before, t = before ++ [⟨.writeFile path text, .ok ()⟩] ∧

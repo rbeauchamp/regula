@@ -246,7 +246,7 @@ theorem readAs_same {T : List (Event L E)} (h : OneAnswer T) (hc : OneContext T)
   obtain ⟨hcm, hfin⟩ := parsed_unique h h6 h6' (fun e he => h7.subset he) (fun e he => h7'.subset he)
   exact ⟨hh, hcm, by rw [h8, h8', hfin], hsc, rfl⟩
 
-/-- A list of distinct members of another list with distinct keys sums to no more. -/
+/-- A list of distinct members of another list sums to no more. -/
 theorem sum_le_of_subset {α : Type} {g : α → Nat} {a b : List α} (ha : a.Nodup) (h : ∀ x ∈ a, x ∈ b) :
     (a.map g).sum ≤ (b.map g).sum := by
   classical

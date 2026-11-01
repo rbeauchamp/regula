@@ -34,14 +34,14 @@ open RegulaSpecification.Loader
 
 variable {L E : Type}
 
-/-- The prepared response is an event of the trace, after the successful configuration copies. -/
+/-- The prepared response is an event of the trace. -/
 theorem PreparedLoad.event {t : List (Event L E)} {dir treeDir sysroot tree response}
     (h : PreparedLoad t dir treeDir sysroot tree response) :
     (⟨.loadRoot sysroot tree, response⟩ : Event L E) ∈ t := by
   obtain ⟨_, _, _, _, _, _, _, _, _, _, hi, _⟩ := h
   exact hi.subset (by simp)
 
-/-- The general failure constructor cannot cite a load; a load requires `PreparedLoad`. -/
+/-- `Needed` holds of no load of a root. -/
 theorem needed_not_loadRoot {t : List (Event L E)} {dir treeDir sysroot tree} :
     ¬ Needed t dir treeDir (.loadRoot sysroot tree) := by
   intro h

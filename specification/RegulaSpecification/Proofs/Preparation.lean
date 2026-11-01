@@ -10,7 +10,9 @@ import RegulaSpecification.EffectsRecord
 
 These consequences read the contract alone. The exact copy segments determine their first act;
 `ReadingPreparation.first_directory` makes a directory that is the first tree act the TOML copy's parent, and
-`manufacturedCopy_fails` excludes the reported trace for every path, text, error, profile and exit code.
+`manufacturedCopy_fails` excludes the reported trace with no toolchain answer, and `manufacturedCopyAnswered_fails` the
+trace with that answer present, through the copy grammar and `parent_ne_self`, for every path, text, error, profile and
+exit code.
 `BuildProtocol.commands`, `BuildAndRules.no_mutation` and `FullRun.after_removal_saying` constrain the
 later phases. The proofs in `PreparationReader`, `PreparationLoad` and `Shell` establish the ordered
 relations for the actual reader and loaders, composed in `run_meets`, for every response. No result
@@ -21,6 +23,7 @@ namespace RegulaSpecification.Effects
 
 open System (FilePath)
 open Regula.Effect
+open String.Slice.Pattern String.Slice.Pattern.ToBackwardSearcher
 
 variable {L E : Type}
 
@@ -113,8 +116,8 @@ theorem BuildAndRules.no_mutation {sysroot : String} {tree : FilePath} {tBuild t
     obtain ⟨o, r⟩ := e
     cases o <;> first | trivial | exact hr.elim
 
-/-- In every full run, either allocation failed before any other operation, or the only removal is the
-terminal cleanup after the reader, build and reload. This includes nonzero and failed removals. -/
+/-- In every full run, no event removes a directory, or one does, with no removal before it and only
+reporting after it, whatever its response. -/
 theorem FullRun.removal_order {t : List (Event L E)} {dir : FilePath} {p : Regula.Closed.Profile} {c : UInt32}
     (h : FullRun t dir p c) :
     (∀ e ∈ t, NotRemoving e.op) ∨
@@ -326,8 +329,9 @@ def manufacturedCopyTrace (dir tree : FilePath) (text : String) (error : IO.Erro
    ⟨.writeFile (tree / "lakefile.toml") text, .error error⟩, ⟨.removeDirAll tree, .ok ()⟩,
    ⟨.println Regula.Language.Report.incomplete.label, .ok ()⟩]
 
-/-- The previously admitted trace fails the strengthened record, for every path, text and error.
-`ReadingPreparation.first_directory` separately states the copy-order invariant over all traces. -/
+/-- The reported trace, with no answer about the toolchain, fails the record, for every path, text, error, profile and
+exit code. The proof rests on that absent answer. `manufacturedCopyAnswered_fails` excludes the trace with the answer
+present, through the copy grammar. -/
 theorem manufacturedCopy_fails (dir tree : FilePath) (text : String) (error : IO.Error)
     (p : Regula.Closed.Profile) (c : UInt32) :
     ¬ FullRun (manufacturedCopyTrace (L := L) (E := E) dir tree text error) dir p c := by
@@ -338,5 +342,148 @@ theorem manufacturedCopy_fails (dir tree : FilePath) (text : String) (error : IO
     rcases hs with h | h | h | h | h | h | h | h <;> cases congrArg Event.op h
   exact h.no_sysroot_no_copy hn ⟨.createDirAll (tree / "lakefile.toml"), .ok ()⟩
     (by simp [manufacturedCopyTrace])
+
+/-- What the search for the last separator of a path returns lies strictly before where it starts. -/
+theorem searcher_lt {p : Char → Bool} {s : String.Slice} (n : Nat) (c : s.Pos) (hn : c.offset.byteIdx < n) {r : s.Pos}
+    (h : ((⟨⟨c⟩⟩ : Std.Iter (α := DefaultBackwardSearcher p s) (SearchStep s)).findSome?
+      (fun | .matched startPos _ => some startPos | .rejected .. => none)) = some r) : r < c := by
+  induction n generalizing c with
+  | zero => omega
+  | succ n ih =>
+    rw [Std.Iter.findSome?_eq_match_step] at h
+    have hp := (⟨⟨c⟩⟩ : Std.Iter (α := DefaultBackwardSearcher p s) (SearchStep s)).step.property
+    generalize (⟨⟨c⟩⟩ : Std.Iter (α := DefaultBackwardSearcher p s) (SearchStep s)).step.val = st at h hp
+    cases st with
+    | done => cases h
+    | skip it' => exact hp.elim
+    | yield it' out =>
+      cases out with
+      | matched a b =>
+        obtain ⟨hc, pos, h₀, ha, -, -⟩ := hp
+        simp only [Option.some.injEq] at h
+        subst h ha
+        have := StrictBackwardPattern.ne_endPos _ _ h₀
+        exact Std.lt_of_lt_of_le
+          (String.Slice.Pos.ofSliceTo_lt_ofSliceTo_iff.2 ((String.Slice.Pos.lt_endPos_iff _).2 this))
+          String.Slice.Pos.ofSliceTo_le
+      | rejected a b =>
+        obtain ⟨hc, -, -, -, hit⟩ := hp
+        obtain ⟨⟨c'⟩⟩ := it'
+        change c' = c.prev hc at hit
+        subst hit
+        have hlt : c.prev hc < c := String.Slice.Pos.prev_lt
+        have hlt' := hlt
+        rw [String.Slice.Pos.lt_iff, String.Pos.Raw.lt_iff] at hlt'
+        exact Std.lt_trans (ih (c.prev hc) (by omega) h) hlt
+
+/-- The last separator of a text is a position before its end. -/
+theorem lastSep_ne_end (s : String) (x : s.Pos)
+    (h : s.revFind? FilePath.pathSeparators.contains = some x) : x ≠ s.endPos := by
+  unfold String.revFind? at h
+  obtain ⟨y, hy, rfl⟩ := Option.map_eq_some_iff.mp h
+  have hlt := searcher_lt _ _ (Nat.lt_succ_self _) hy
+  intro he
+  have : y = s.toSlice.endPos := by
+    apply String.Slice.Pos.ext
+    have := congrArg String.Pos.offset he
+    simpa using this
+  subst this
+  exact Std.lt_irrefl hlt
+
+/-- A text cut at a position before its end is not that text. -/
+theorem copy_sliceTo_ne (s : String) (x : s.Pos) (hx : x ≠ s.endPos) : (s.sliceTo x).copy ≠ s := by
+  intro h
+  apply hx
+  have := congrArg String.utf8ByteSize h
+  rw [String.Slice.utf8ByteSize_copy, String.utf8ByteSize_sliceTo] at this
+  apply String.Pos.ext
+  apply String.Pos.Raw.ext
+  simpa using this
+
+/-- No path is its own parent, on any platform: the proof reads `FilePath.parent` and takes both answers of
+`isAbsolute`, so it needs no value of the `opaque` `System.Platform.isWindows`. -/
+theorem parent_ne_self (p : FilePath) : p.parent ≠ some p := by
+  have slice : ∀ x : p.toString.Pos, x ≠ p.toString.endPos →
+      some (FilePath.mk (p.toString.sliceTo x).copy) ≠ some p := by
+    intro x hx he
+    exact copy_sliceTo_ne _ x hx (congrArg FilePath.toString (Option.some.inj he))
+  have ext : ∀ o : Option p.toString.Pos, (∀ x, o = some x → x ≠ p.toString.endPos) →
+      (FilePath.mk <$> String.Slice.copy <$> String.sliceTo _ <$> o) ≠ some p := by
+    intro o ho
+    cases o with
+    | none => simp
+    | some x => exact slice x (ho x rfl)
+  unfold FilePath.parent
+  simp only
+  split
+  · split
+    · simp
+    · split
+      · rename_i hend _
+        exact slice _ (fun e => hend (String.Pos.isAtEnd_iff.2 e))
+      · exact ext _ fun x hx => lastSep_ne_end _ x hx
+  · exact ext _ fun x hx => lastSep_ne_end _ x hx
+
+/-- The reported manufactured refusal with the toolchain's answer present, and every other act as reported. -/
+def manufacturedCopyAnsweredTrace (dir tree : FilePath) (sysroot text : String) (error : IO.Error) :
+    List (Event L E) :=
+  [⟨.createTempDir, .ok tree⟩, ⟨.realPath dir, .ok dir⟩, ⟨.realPath tree, .ok tree⟩,
+   ⟨.getEnv "LEAN_SYSROOT", some sysroot⟩,
+   ⟨.readFile (dir / "lakefile.toml"), .ok text⟩, ⟨.createDirAll (tree / "lakefile.toml"), .ok ()⟩,
+   ⟨.writeFile (tree / "lakefile.toml") text, .error error⟩, ⟨.removeDirAll tree, .ok ()⟩,
+   ⟨.println Regula.Language.Report.incomplete.label, .ok ()⟩]
+
+/-- The attack itself fails the record, for every path, text, toolchain, error, profile and exit code, because
+of the copy grammar: the trace's first tree act makes a directory at the destination, `first_directory` says
+that directory is the parent of the destination, and `parent_ne_self` says it is not. No response is absent. -/
+theorem manufacturedCopyAnswered_fails (dir tree : FilePath) (sysroot text : String) (error : IO.Error)
+    (p : Regula.Closed.Profile) (c : UInt32) :
+    ¬ FullRun (manufacturedCopyAnsweredTrace (L := L) (E := E) dir tree sysroot text error) dir p c := by
+  intro h
+  rcases h with ⟨e, rest, heq, -⟩ |
+    ⟨tree', tRead, tGate, response, last, heq, -, -, o, report, -, -, hstop, hgate, -, -, -, -, -, hp⟩
+  · have := (List.cons.inj heq).1
+    cases this
+  · obtain rfl : tree' = tree := by
+      have := (List.cons.inj heq).1
+      cases this
+      rfl
+    have hg : tGate = [] := by
+      by_cases ho : o = .admitted
+      · exfalso
+        obtain ⟨sysroot', tBuild, tRules, -, rfl, hb⟩ := hgate ho
+        obtain ⟨program, lakeLib, first, rest, -, rfl, -⟩ := hb.1
+        have hm : (⟨.lakeInstall sysroot', (program, lakeLib)⟩ : Event L E) ∈
+            manufacturedCopyAnsweredTrace (L := L) (E := E) dir tree' sysroot text error := by
+          rw [heq]; simp
+        simp only [manufacturedCopyAnsweredTrace, List.mem_cons, List.not_mem_nil, or_false] at hm
+        rcases hm with h | h | h | h | h | h | h | h | h <;> cases congrArg Event.op h
+      · exact (hstop ho).1
+    subst tGate
+    have hreal : ∀ t', (⟨.realPath tree', .ok t'⟩ : Event L E) ∈ tRead → t' = tree' := by
+      intro t' hm
+      have hm' : (⟨.realPath tree', .ok t'⟩ : Event L E) ∈
+          manufacturedCopyAnsweredTrace (L := L) (E := E) dir tree' sysroot text error := by
+        rw [heq]; simp [hm]
+      simp only [manufacturedCopyAnsweredTrace, List.mem_cons, List.not_mem_nil, or_false] at hm'
+      rcases hm' with h | h | h | h | h | h | h | h | h
+      · cases congrArg Event.op h
+      · cases h; rfl
+      · cases h; rfl
+      all_goals cases congrArg Event.op h
+    have hacts := congrArg treeActs (List.cons.inj heq).2
+    change [⟨.createDirAll (tree' / "lakefile.toml"), .ok ()⟩, ⟨.writeFile (tree' / "lakefile.toml") text, .error error⟩,
+      ⟨.removeDirAll tree', .ok ()⟩] = treeActs (tRead ++ [] ++ ⟨.removeDirAll tree', response⟩ :: last) at hacts
+    rw [List.append_nil, treeActs_append] at hacts
+    cases hta : treeActs tRead with
+    | nil =>
+      rw [hta] at hacts
+      cases congrArg Event.op (List.cons.inj hacts).1
+    | cons e rest =>
+      rw [hta] at hacts
+      obtain rfl := (List.cons.inj hacts).1
+      obtain ⟨t', hm, hparent⟩ := hp.first_directory hta
+      obtain rfl := hreal t' hm
+      exact parent_ne_self _ hparent
 
 end RegulaSpecification.Effects

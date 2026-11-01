@@ -72,8 +72,8 @@ theorem ReadingPreparation.appendQuiet {t after : List (Event L E)} {dir treeDir
   · exact .inr ⟨project, tree, sysroot, text, before, rest ++ after, by simp [List.append_assoc],
       hp, h1, h2, h3, h4, hc.appendQuiet hq⟩
 
-/-- `readFiles` installs its root's toolchain path once, then keeps it throughout every lookup and
-parser import. Module copies use the earlier reads accumulated by the walk. -/
+/-- `readFiles` meets `ReadingLoaded`: only observations, or its root's toolchain path set once, before every
+module copy, lookup and parser import, with no other set after it. -/
 theorem readFiles_preparation {prior t : List (Event L E)} {project tree : FilePath} {root : Root L}
     {modules : List (Name × FilePath)} {start : Reading} {b : Except String (Reading × List (Name × Source))}
     (hm : DefaultModules prior root root.defaultTargets modules)
@@ -104,7 +104,7 @@ theorem readFiles_preparation {prior t : List (Event L E)} {project tree : FileP
       | error error => obtain ⟨rfl, -⟩ := hlast; exact .nil
       | ok files => obtain ⟨rfl, -⟩ := runs_attempt_pure_iff.mp hlast; exact .nil
 
-/-- The root load is the first context-dependent request after the two configuration copies. -/
+/-- `readRoot` asks at most one load of the root, with only observations before it. -/
 theorem readRoot_preparation {prior t : List (Event L E)} {sysroot : String} {project tree : FilePath}
     {start : Reading} {b : Except String (Reading × List (Name × Source))}
     (h : Runs (readRoot sysroot project tree start : Attempt L E _).run t b) :

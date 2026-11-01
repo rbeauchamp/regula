@@ -250,7 +250,7 @@ theorem copyAll_io (target : System.FilePath) (files : List System.FilePath) (w 
         exact ⟨bytes, a, b, w₁, h1, h2⟩
       · exact ih w₁ h file hf
 
-/-- `copyChecker` copies the files that `checkerFiles` gives, and each of them keeps its bytes. -/
+/-- `copyChecker` takes the files that `checkerFiles` gives, and for each, the bytes that a read of it gave are what a write below the target took. -/
 theorem copyChecker_io (target : System.FilePath) (w w' : Void IO.RealWorld) (h : copyChecker target w = .ok () w') :
     ∃ files w₁, checkerFiles w = .ok files w₁ ∧
       ∀ file ∈ files, ∃ bytes w₂ w₃ w₄, IO.FS.readBinFile file w₂ = .ok bytes w₃ ∧
@@ -266,8 +266,8 @@ theorem copyChecker_io (target : System.FilePath) (w w' : Void IO.RealWorld) (h 
 
 /-- What the whole gate establishes, at `IO`, from any state of the world: `runLocal` gives 0 only when it made its directory,
 copied to it each file that `checkerFiles` gives with the bytes it read of that file, and then, with that directory as the
-checker and the working directory as the project, each step of `localSteps` gave 0. The copy comes first. So the program
-that the full gate's step starts was built from what was read of this checkout, and the project it checks is this checkout. -/
+checker and the working directory as the project, each step of `localSteps` gave 0. The copy comes first. That a step then
+builds what was written and checks this checkout rests on what `localSteps` names, the file system and Lake, which this does not state. -/
 theorem runLocal_zero (w w' : Void IO.RealWorld) (h : runLocal w = .ok 0 w') :
     ∃ target root w₁ w₂ w₃ w₄, IO.FS.createTempDir w = .ok target w₁ ∧ copyChecker target w₁ = .ok () w₂ ∧
       IO.currentDir w₂ = .ok root w₃ ∧ runIn target.toString root.toString w₃ = .ok 0 w₄ ∧

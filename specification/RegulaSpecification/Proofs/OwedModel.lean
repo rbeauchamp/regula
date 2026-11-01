@@ -308,7 +308,7 @@ def misjudge {L E : Type} (_ : List String) : Prog L E UInt32 :=
     .ask (.getEnv "LEAN_SYSROOT") fun _ =>
       .ask (.println (Regula.Closed.Verdict.proofLine .incomplete)) fun _ => .done 2
 
-/-- It fails the record: a response that the build needs and that succeeded justifies nothing. -/
+/-- It fails the record: it says incomplete with only `LEAN_SYSROOT` asked, and that answered. -/
 theorem misjudge_fails {L E : Type} : ¬ RunMeets (misjudge : List String → Prog L E UInt32) := by
   intro hw
   have hr : Runs (misjudge ["standard-logical"] : Prog L E UInt32)
@@ -348,7 +348,7 @@ theorem misjudge_fails {L E : Type} : ¬ RunMeets (misjudge : List String → Pr
     | elsewhere _ _ h => rcases hno h with h | h | h <;> cases h
     | build h _ => exact hplain _ h
 
-/-- A failed read of a path that the build does not name justifies no result of the check. -/
+/-- A trace of one event, a failed real path of a path other than the project and the tree, holds no reason. -/
 theorem unrelated_read_no_reason {L E : Type} {u dir treeDir : FilePath} {e : IO.Error} {o : Outcome}
     (h1 : u ≠ dir) (h2 : u ≠ treeDir) :
     ¬ Reason ([⟨.realPath u, .error e⟩] : List (Event L E)) dir treeDir o := by

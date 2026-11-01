@@ -30,7 +30,7 @@ variable {L E : Type}
 
 /-! ## The check -/
 
-/-- The check retains the reader's exact preparation and only appends reporting. -/
+/-- The check meets `ReadingPreparation`, after any quiet prefix that holds the toolchain's answer. -/
 theorem check_preparation {prior t : List (Event L E)} {sysroot : String} {dir tree : FilePath} {o : Outcome}
     (hq : Quiet prior) (hs : SysrootIs prior sysroot)
     (h : Runs (check sysroot dir tree : Prog L E Outcome) t o) : ReadingPreparation (prior ++ t) dir tree := by
@@ -584,7 +584,7 @@ theorem rules_reload {sysroot : String} {tree : FilePath} {p : Regula.Closed.Pro
 
 /-! ## The gate in its tree -/
 
-/-- Reporting after the rules cannot change the reload's prepared search context. -/
+/-- The rule phase meets `RulesPreparation`. -/
 theorem rules_preparation {sysroot : String} {tree : FilePath} {p : Regula.Closed.Profile}
     {t : List (Event L E)} {v : Regula.Closed.Verdict}
     (h : Runs (rules (loadTree sysroot tree p) : Prog L E _) t v) : RulesPreparation sysroot tree t := by
