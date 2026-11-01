@@ -12,6 +12,7 @@ import RegulaSpecification.Language
 import RegulaSpecification.Effects
 import RegulaSpecification.EffectsRun
 import RegulaSpecification.EffectsRecord
+import RegulaSpecification.Domain
 import RegulaSpecification.Witnesses
 import RegulaSpecification.CasesDeclarations
 import RegulaSpecification.CasesFoundation
