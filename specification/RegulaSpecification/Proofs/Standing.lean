@@ -6,6 +6,7 @@ Authors: Regula contributors
 import RegulaSpecification.Proofs.Preparation
 import RegulaSpecification.Proofs.Owed
 import RegulaSpecification.Proofs.Written
+import RegulaSpecification.Proofs.OwedExact
 
 /-!
 # What a full verdict's admission is about
@@ -263,6 +264,68 @@ theorem FullRun.answered_at_consumer {t : List (Event L E)} {dir : FilePath} {p 
   refine hread path text r' hw ?_
   rw [← hs, hpre]
   exact (hstands mid (e :: rest) hgate _).symm
+
+/-- A text that the acts of `t` leave at a path was written there, under some spelling of it. -/
+theorem written_some_write {t : List (Event L E)} {p : List String} {text : String} (h : written t p = some text) :
+    ∃ path r, (⟨.writeFile path text, r⟩ : Event L E) ∈ t ∧ parts path = p := by
+  have key : ∀ (l : List (Event L E)) (held : Option String), leavesFrom l p held = some text →
+      held = some text ∨ ∃ path r, (⟨.writeFile path text, r⟩ : Event L E) ∈ l ∧ parts path = p := by
+    intro l
+    induction l with
+    | nil => exact fun held h => .inl h
+    | cons x xs ih =>
+      intro held hl
+      have hstep : leavesFrom xs p (x.leaves p held) = some text := hl
+      rcases ih _ hstep with hx | ⟨path, r, hm, hp⟩
+      · obtain ⟨o, resp⟩ := x
+        cases o with
+        | writeFile q body =>
+          simp only [Event.leaves] at hx
+          split at hx
+          · rename_i hq
+            obtain rfl := Option.some.inj hx
+            exact .inr ⟨q, resp, List.mem_cons_self .., hq⟩
+          · exact .inl hx
+        | removeDirAll q =>
+          simp only [Event.leaves] at hx
+          split at hx
+          · cases hx
+          · exact .inl hx
+        | _ => exact .inl hx
+      · exact .inr ⟨path, r, List.mem_cons_of_mem _ hm, hp⟩
+  rcases key t none h with hn | hw
+  · cases hn
+  · exact hw
+
+/-- **What Lake takes as its configuration, at each consumer.** At each Lake command and each load for the rules of a full run, on one
+answer for each operation, the part of the reading after its last act holds two answers of the file system: nothing has the name
+`lakefile.lean` in the tree, and a read through a spelling of `lakefile.toml` there gave the text that Lake's TOML parser read. So the
+name that Lake prefers answered nothing, and the name it falls back to answered the text judged. Under H5 (`LakeSelection`) that is what
+Lake takes, as long as that answer still holds at the consumer: another process is not in this statement. -/
+theorem FullRun.config_at_consumer {t : List (Event L E)} {dir : FilePath} {p : Regula.Closed.Profile} {c : UInt32}
+    (h : FullRun t dir p c) {pre post : List (Event L E)} {e : Event L E} (ht : t = pre ++ e :: post)
+    (he : e.consumesTree = true) (hone : OneAnswer t) :
+    ∃ (real : FilePath) (err : IO.Error) (path : FilePath) (text : String) (table : Lake.Toml.Table),
+      (∃ tree, (⟨.realPath tree, .ok real⟩ : Event L E) ∈ pre) ∧
+      (⟨.symlinkMetadata (real / "lakefile.lean"), .error err⟩ : Event L E) ∈ pre ∧
+      (∃ name code details, err = .noFileOrDirectory name code details) ∧
+      parts path = parts (real / "lakefile.toml") ∧ (⟨.readFile path, .ok text⟩ : Event L E) ∈ pre ∧
+      (⟨.parseToml (mkInputContext text "lakefile.toml"), .ok table⟩ : Event L E) ∈ pre := by
+  obtain ⟨tree, tRead, tGate, resp, last, r, hsplit, ⟨mid, rest, hgate, hpre⟩, -, hev, ⟨real, hreal, hback⟩, -, -, -⟩ :=
+    h.gate_stands ht he
+  obtain ⟨before, suffix, hbs, -, hread, err, herr, hno⟩ := hback
+  obtain ⟨project, evTree, -, hevTree, -, -, -, -, ⟨text, _, table, -, -, -, -, h5, h6, -, -⟩, -⟩ := hev.places
+  have hin {x : Event L E} (hx : x ∈ tRead) : x ∈ pre := by
+    rw [hpre]
+    simp [hx]
+  have hint {x : Event L E} (hx : x ∈ pre) : x ∈ t := by
+    rw [ht]
+    simp [hx]
+  obtain rfl : evTree = real := Except.ok.inj (hone.resp (hint (hin hevTree)) (hint (hin hreal)) rfl)
+  obtain ⟨path, r', hw, hp⟩ := written_some_write h6
+  have hr := hread path text r' hw (by rw [hp]; exact h6)
+  exact ⟨evTree, err, path, text, table, ⟨tree, hin hreal⟩, hin (hbs ▸ List.mem_append_right _ herr), hno, hp,
+    hin (hbs ▸ List.mem_append_right _ hr), hin h5⟩
 
 /-- An act at the end of a reading fails the clause, for each act of the closed type `Op`, once any text stands: the segment that
 holds the read-back has no room for it, so no read after the act is there. -/

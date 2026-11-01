@@ -103,6 +103,17 @@ theorem read_what_lake_compiles {t : List (Event L E)} {dir tree : FilePath} {he
   obtain ⟨-, f, hf, hm, i, md, tx, -, hra, hst⟩ := hc m path (B.h3 m path hb)
   exact ⟨f, hf, hm, i, md, tx, hra, hst⟩
 
+/-- H5: what Lake takes as the configuration of a directory, when its command line loads it. Lake's command line asks for a configuration with
+no extension (`defaultConfigFile`, `Lake/CLI/Main.lean:48`, `Lake/Load/Config.lean:44`), and takes `lakefile.lean` when that name resolves, and
+otherwise `lakefile.toml` when that name resolves (`resolveConfigFile`, `Lake/Load/Package.lean:109-117`). No proof reaches it, because Lake's
+load is Lake's. `Takes` is the file it reads as the configuration, as a name in the tree. -/
+structure LakeSelection (t : List (Event L E)) (real : FilePath) where
+  /-- Lake takes this file as the configuration of the directory `real`. -/
+  Takes : FilePath → Prop
+  /-- H5, read at a run whose file system answered that nothing has the preferred name. -/
+  h5 : ∀ err path, (⟨.symlinkMetadata (real / "lakefile.lean"), .error err⟩ : Event L E) ∈ t →
+    (∃ name code details, err = .noFileOrDirectory name code details) → Takes path → parts path = parts (real / "lakefile.toml")
+
 /-- H4: what successful `IO.FS.realPath` responses in this trace mean. Lean documents that the result contains no
 symbolic links and coincides with POSIX `realpath` (`Init/System/IO.lean:874-881` at v4.35.0). The hypothesis relates
 crossings to those responses, not to arbitrary paths; it says nothing about the filesystem after the observation. -/

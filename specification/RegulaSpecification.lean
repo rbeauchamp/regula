@@ -42,6 +42,9 @@ import RegulaSpecification.Proofs.Shell
 import RegulaSpecification.Proofs.Witness
 import RegulaSpecification.Proofs.Program
 import RegulaSpecification.Proofs.Behaviour
+import RegulaSpecification.Proofs.Domain
+import RegulaSpecification.Proofs.DomainCases
+import RegulaSpecification.Proofs.DomainModel
 import RegulaSpecification.Proofs.OwedModel
 import RegulaSpecification.Proofs.EffectScan
 import RegulaSpecification.Proofs.Gate
