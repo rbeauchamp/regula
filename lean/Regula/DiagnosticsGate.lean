@@ -25,7 +25,8 @@ about what they decide.
 ## Boundaries
 
 `runSteps` is the decision the program executes, and its theorems are checked by the kernel each
-time `lean --run` elaborates this file. Starting a step, its exit code and what the step does are
+time `lean --run` elaborates this file. `specification/RegulaSpecification/Proofs/Gate.lean` proves, at `IO`, that `runIn`
+gives 0 only when each step gave 0. Starting a step, its exit code and what the step does are
 trusted effects of the operating system and of Lake. `lake` is the program that `PATH` selects. Each
 step sees the checkout as the step before it left it: the gate assumes that no other process changes
 the build between its steps. -/

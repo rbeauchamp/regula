@@ -17,8 +17,8 @@ import Lean.Compiler.Old
 # The loader of the closed input
 
 What reads a loaded environment into the closed input (`Regula.Closed.Input`), and refuses, as an
-error that makes the run `incomplete` (RG2001), what it cannot read. `Regula.Workspace` holds the
-part that calls Lake. `Facts.input` is a pure function of the
+error that makes the run `incomplete` (RG2001), what it cannot read. It performs no effect: `Regula.Shell` asks Lean
+for the environment and the places, and `Regula.Workspace` holds the calls of Lake. `Facts.input` is a pure function of the
 environment, and `specification/RegulaSpecification/Proofs/Load.lean` states what it gives in terms
 of the environment. What that leaves assumed about Lean and Lake is in the specification's trusted
 base.
@@ -38,7 +38,7 @@ What it reads, and through what:
 - The place of each module: where `Lean.findOLean` finds its `.olean` on Lake's search path. A
   claimed module lies below the root package's library directory; a constant of the toolchain is one
   whose module lies below the toolchain's library directory. `Facts` carries that its modules are
-  those of the environment's header and what each place decides, and `readModules` constructs both.
+  those of the environment's header and what each place decides, and `Regula.Shell.readModules` constructs both.
 -/
 
 public section

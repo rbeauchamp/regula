@@ -60,6 +60,25 @@ theorem libModules_row : Regula.Load.lakeCalls.libModules = fun lib => EIO.toBas
     return (← lib.getModuleArray).map fun m => (m.name, m.leanFile) := by
   rfl
 
+theorem rootOf_eq (ws : Lake.Workspace) : Regula.Load.rootOf ws =
+    { sourceDirs := ws.root.srcDir :: (ws.root.leanLibs.map (·.srcDir)).toList ++
+        (ws.root.leanExes.map (·.root.lib.srcDir)).toList
+      libraries := (ws.root.leanLibs.map fun lib => (lib.name, lib.config.globs.toList)).toList
+      defaultTargets := ws.root.defaultTargets.toList
+      findLib := ws.root.findLeanLib?
+      findExe := fun target => (ws.root.findLeanExe? target).map fun exe => (exe.root.name, exe.root.leanFile)
+      targets := (ws.root.leanLibs.map (·.name)).toList ++ (ws.root.leanExes.map (·.name)).toList
+      resolve := fun m => (ws.findModule? m).map (·.leanFile)
+      leanPath := ws.augmentedLeanPath
+      toolchain := [ws.lakeEnv.lean.leanLibDir, ws.lakeEnv.lake.libDir]
+      leanLib := ws.lakeEnv.lean.leanLibDir
+      rootLib := ws.root.leanLibDir } := by
+  rfl
+
+theorem messagesOf_eq (log : Lake.Log) :
+    Regula.Load.messagesOf log = (log.entries.map (·.message)).toList := by
+  rfl
+
 theorem lakeEnvironment_eq (sysroot : String) : Regula.Load.lakeEnvironment sysroot = (do
     let lean ← Lake.LeanInstall.get sysroot (collocated := true)
     let env ← Lake.Env.compute (Lake.LakeInstall.ofLean lean) lean (← Lake.findElanInstall?)

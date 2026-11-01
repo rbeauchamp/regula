@@ -208,9 +208,9 @@ theorem buildEvents_lake {program tree : FilePath} {args : List String} {r}
 theorem buildAndReplay_spec {sysroot : String} {tree : FilePath} {t : List (Event L E)} {b : Bool}
     (h : Runs (buildAndReplay sysroot tree : Prog L E Bool) t b) :
     BuildEvents t tree ∧
-      (b = true → ∃ program args,
-        ([⟨.runLake program tree ["build", "--wfail"], .ok 0⟩, ⟨.runLake program tree ("check" :: args), .ok 0⟩] :
-          List (Event L E)).Sublist t) ∧
+      (b = true → ∃ program lakeLib args,
+        ([⟨.lakeInstall sysroot, (program, lakeLib)⟩, ⟨.runLake program tree ["build", "--wfail"], .ok 0⟩,
+          ⟨.runLake program tree ("check" :: args), .ok 0⟩] : List (Event L E)).Sublist t) ∧
       (b = false → ∃ (program cwd : FilePath) (args : List String) (r : Except IO.Error UInt32),
         (⟨.runLake program cwd args, r⟩ : Event L E) ∈ t ∧ r ≠ .ok 0) := by
   unfold buildAndReplay at h
@@ -253,9 +253,9 @@ theorem buildAndReplay_spec {sysroot : String} {tree : FilePath} {t : List (Even
       simpa using this
     · have hr₂ := hc₂.mp he
       subst hr₂
-      refine ⟨program, args, ?_⟩
+      refine ⟨program, lakeLib, args, ?_⟩
       simp only [List.cons_append, List.nil_append, List.append_assoc]
-      refine List.Sublist.cons _ ?_
+      refine List.Sublist.cons_cons _ ?_
       refine List.Sublist.trans ?_ (List.sublist_append_right pre _)
       refine List.Sublist.cons_cons _ ?_
       refine List.Sublist.trans ?_ (List.sublist_append_right post _)
@@ -355,7 +355,7 @@ theorem sayCoverage_spec {r : Except String Regula.Closed.Input} {t : List (Even
 theorem rules_spec {T t : List (Event L E)} {sysroot : String} {tree : FilePath} {p : Regula.Closed.Profile}
     {v : Regula.Closed.Verdict} (hT : t.Sublist T)
     (h : Runs (rules (loadTree sysroot tree p) : Prog L E _) t v) :
-    (∃ result, Loaded T p result ∧ v = (Regula.Closed.decision result).verdict) ∧
+    (∃ result, Loaded (TreeRoot tree) T p result ∧ v = (Regula.Closed.decision result).verdict) ∧
       (∀ l ∈ printed t, IsDetail l) ∧ ∀ e ∈ t, e.acted? = none := by
   unfold rules at h
   obtain ⟨t₁, t₂, result, rfl, h₁, h₂⟩ := runs_seq_iff.mp h
@@ -498,10 +498,10 @@ theorem gateIn_spec {p : Regula.Closed.Profile} {dir tree : FilePath} {t : List 
         obtain ⟨rfl, rfl⟩ := runs_pure_iff.mp h₈
         simp only [List.append_nil] at h₇ ⊢
         obtain ⟨⟨result, r1, rfl⟩, r2, r3⟩ := rules_spec (List.Sublist.refl _) h₇
-        obtain ⟨program, args, hsub⟩ := b2 rfl
+        obtain ⟨program, lakeLib, args, hsub⟩ := b2 rfl
         refine { quiet := hquiet,
                  decided := ⟨.admitted, c1, hnoFail, fun he => absurd rfl he, fun _ =>
-                   ⟨t₅, t₇, rfl, .inl ⟨program, args, result, hsub, r1, rfl⟩⟩⟩,
+                   ⟨t₅, t₇, rfl, .inl ⟨sysroot, program, lakeLib, args, result, hsub, r1, rfl⟩⟩⟩,
                  lines := ⟨hlines, ?_⟩, readActs := hacts, gateActs := ?_ }
         · intro l hl
           rw [printed_append] at hl

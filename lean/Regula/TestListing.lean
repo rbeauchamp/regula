@@ -81,7 +81,8 @@ first loads the workspace itself and fails when Lake cannot load it
 
 Lake's choice of the configuration file, its elaboration of that file and the value of
 `testDriver` that it gives are trusted at the pinned Lean, as `lake test` trusts them. What this
-module proves is about the text that the program prints (`listing_ok_iff`). The pipeline reads each
+module proves is about the text that the program prints (`listing_ok_iff`) and its exit code
+(`printListing_eq_zero_iff`). The pipeline reads each
 line of standard output, with the white space at its ends removed, as one test identifier, and
 skips a blank line. A printed driver is not empty, and its characters are between U+0021 and
 U+007E. None of those is a line break or white space, so the pipeline reads the line as exactly

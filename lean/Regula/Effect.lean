@@ -153,7 +153,7 @@ namespace Prog
 variable {L E α β : Type}
 
 /-- The program `p`, and then what its value selects. -/
-@[expose] def bind : Prog L E α → (α → Prog L E β) → Prog L E β
+def bind : Prog L E α → (α → Prog L E β) → Prog L E β
   | .done a, f => f a
   | .ask o next, f => .ask o fun r => bind (next r) f
 
@@ -162,11 +162,11 @@ instance : Monad (Prog L E) where
   bind := bind
 
 /-- Ask one operation, and end with its response. -/
-@[expose] def call (o : Op L E) : Prog L E (Resp o) :=
+def call (o : Op L E) : Prog L E (Resp o) :=
   .ask o .done
 
 /-- Run a program: perform each operation through `table`, and go on with its response. -/
-@[expose] def interpret (table : (o : Op L E) → BaseIO (Resp o)) : Prog L E α → BaseIO α
+def interpret (table : (o : Op L E) → BaseIO (Resp o)) : Prog L E α → BaseIO α
   | .done a => pure a
   | .ask o next => do
     let r ← table o

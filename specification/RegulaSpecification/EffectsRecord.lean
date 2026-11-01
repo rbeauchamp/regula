@@ -225,11 +225,28 @@ def Event.failedLoad : Event L E → Prop
       ∃ log, r = (Except.ok (none, log) : Except String (Option (Root L) × List String))
   | _ => False
 
+/-- Lake's load of the workspace that Lake dispatched from the current directory: the root that the run read, on the
+search path that Lake gave it, which names that workspace. -/
+def PlainRoot (t : List (Event L E)) (root : Root L) : Prop :=
+  ∃ (sysroot : String) (dir : FilePath) (log : List String) (leanPath : String) (lakeLib program : FilePath),
+    (⟨.loadWorkspace sysroot dir, .ok (some root, log)⟩ : Event L E) ∈ t ∧
+    (⟨.realPath ".", .ok dir⟩ : Event L E) ∈ t ∧
+    (⟨.lakeInstall sysroot, (program, lakeLib)⟩ : Event L E) ∈ t ∧
+    (⟨.getEnv "LEAN_PATH", some leanPath⟩ : Event L E) ∈ t ∧
+    Regula.Load.dispatchedFrom root.rootLib.toString lakeLib.toString
+      ((System.SearchPath.parse leanPath).map toString) = true
+
+/-- Lake's load of the root package in the checker's tree. -/
+def TreeRoot (tree : FilePath) (t : List (Event L E)) (root : Root L) : Prop :=
+  ∃ (sysroot : String) (real : FilePath) (log : List String),
+    (⟨.realPath tree, .ok real⟩ : Event L E) ∈ t ∧
+    (⟨.loadRoot sysroot real, .ok (some root, log)⟩ : Event L E) ∈ t
+
 /-- The load's result is what the proved pure function gives on what Lean and Lake returned, or an error when
-one of them failed. `Regula.Load.Facts.input` is that function. -/
-def Loaded (t : List (Event L E)) (p : Regula.Closed.Profile)
+one of them failed. `Regula.Load.Facts.input` is that function, and `gave` says which of Lake's loads gave the root. -/
+def Loaded (gave : List (Event L E) → Root L → Prop) (t : List (Event L E)) (p : Regula.Closed.Profile)
     (result : Except String Regula.Closed.Input) : Prop :=
-  (∃ root f roots, BuildRead t root f roots ∧ result = f.input roots p) ∨
+  (∃ root f roots, gave t root ∧ BuildRead t root f roots ∧ result = f.input roots p) ∨
     ((∃ e ∈ t, e.failedLoad) ∧ ∃ why, result = .error why) ∨
     -- The current directory is not the workspace Lake dispatched.
     (∃ (root : Root L) (leanPath : String) (lakeLib program : FilePath) (sysroot : String) (log : List String)
@@ -257,7 +274,7 @@ def Refusal (t : List (Event L E)) (c : UInt32) : Prop :=
 /-- A run of the proof verdict: its exit code and last line are the verdict's on what the load gave, and it
 acts on nothing. -/
 def PlainRun (t : List (Event L E)) (p : Regula.Closed.Profile) (c : UInt32) : Prop :=
-  ∃ result, Loaded t p result ∧
+  ∃ result, Loaded PlainRoot t p result ∧
     c = (Regula.Closed.decision result).verdict.exitCode ∧
     EndsWith t (Regula.Closed.decision result).verdict.proofLine ∧
     ∀ e ∈ t, e.acted? = none
@@ -274,10 +291,11 @@ def Confined (t : List (Event L E)) (dir tree : FilePath) : Prop :=
 and no rules. `report` is what they gave. -/
 def BuildAndRules (tBuild tRules : List (Event L E)) (tree : FilePath) (p : Regula.Closed.Profile)
     (report : Report) : Prop :=
-  (∃ (program : FilePath) (args : List String) (result : Except String Regula.Closed.Input),
-    ([⟨.runLake program tree ["build", "--wfail"], .ok 0⟩, ⟨.runLake program tree ("check" :: args), .ok 0⟩] :
-      List (Event L E)).Sublist tBuild ∧
-    Loaded tRules p result ∧ report = .full (Regula.Closed.decision result).verdict) ∨
+  (∃ (sysroot : String) (program lakeLib : FilePath) (args : List String)
+      (result : Except String Regula.Closed.Input),
+    ([⟨.lakeInstall sysroot, (program, lakeLib)⟩, ⟨.runLake program tree ["build", "--wfail"], .ok 0⟩,
+      ⟨.runLake program tree ("check" :: args), .ok 0⟩] : List (Event L E)).Sublist tBuild ∧
+    Loaded (TreeRoot tree) tRules p result ∧ report = .full (Regula.Closed.decision result).verdict) ∨
   (report = .full .fail ∧ (∀ e ∈ tRules, e.isImportForRules = false) ∧
     ∃ (program cwd : FilePath) (args : List String) (r : Except IO.Error UInt32),
       (⟨.runLake program cwd args, r⟩ : Event L E) ∈ tBuild ∧ r ≠ .ok 0)
