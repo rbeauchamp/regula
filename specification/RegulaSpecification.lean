@@ -37,6 +37,7 @@ import RegulaSpecification.Proofs.Shell
 import RegulaSpecification.Proofs.Witness
 import RegulaSpecification.Proofs.Program
 import RegulaSpecification.Proofs.Behaviour
+import RegulaSpecification.Proofs.Gate
 
 /-!
 # The specification of Regula
