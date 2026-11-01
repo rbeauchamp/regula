@@ -10,8 +10,9 @@ import RegulaSpecification.Proofs.ReaderFiles
 # What the reader gives
 
 `readProject_spec` is the theorem the reader exists for, for every response: a reading the check admits rests on
-`Evidence`, so every file Lake would compile for the claim is read and the text judged is the text in the tree;
-any other outcome rests on a `Reason`, so a project with no such reason is admitted; and every act lies in the
+`Evidence` of each state of the tree that holds what the plan of the reading says (`Holds`), and the state that the
+reader's own acts leave is one (`holds_of_leavesAs`), so every file Lake would compile for the claim is read and the text
+judged is the text that stands; any other outcome rests on a `Reason`, so a project with no such reason is admitted; and every act lies in the
 tree.
 -/
 

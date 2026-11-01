@@ -82,7 +82,7 @@ The owner's account of 2026-10-31 says that only Lean, its kernel and Lake's own
 | Consequence | Theorem | Status |
 | --- | --- | --- |
 | A run's exit code and last line are the verdict's alone, on what the proved decisions give for what Lean, Lake and the operating system answered, for every answer. | `run_meets`, `plain_exit_zero`, `full_exit_zero` | Follows. |
-| Every file Lake would compile for the claim is read, and the configuration, and the text judged is the text in the tree. | `Evidence`, `ReadAs`, `read_what_lake_compiles` under H3 | Follows. |
+| Every file Lake would compile for the claim is read, and the configuration, and the text judged is the text that stands in the tree. | `Evidence`, `ReadText`, `written`, `FullRun.at_consumer`, `read_what_lake_compiles` under H3 | Follows. |
 | A failed read is never admitted, and nothing is built unless the check admitted. | `readProject_no_failed`, `only_readProject`, `FullRun` | Follows. |
 | A run writes only in its tree, which lies apart from the project, and asks to remove it on every way out. | `Confined`, `FullRun` | Follows. Refusing a project and a tree that do not lie apart is decided: without it, a project at `/tmp` would hold the tree. |
 | A reader that refuses without a reason does not meet the record, and for paths that meet the hypotheses `WitnessPaths` there are answers on which a project is admitted. | `Reason`, `refuser_fails`, `admits_a_project`, and [the next section](#a-pass-is-owed) | Follows from the account's "a checker that refuses nothing" and its converse. The hypotheses are decided: they rest on observation, the gate's run on real paths, because no reduction of the kernel evaluates `System.FilePath`. |
@@ -145,3 +145,52 @@ The second reading was made by Codex `gpt-6-astra` at `xhigh`, through `codex ex
 ## The form of this record
 
 The file is not signed. Its authority is that of the commit that adds it. The owner's agents passed each answer to the author of this file on its date.
+
+### What the build consumes
+
+An independent audit of main at `48431e2c` judged that this record did not yet meet the owner's account: its contract of a full run let a run read a named file again and copy that new text over the tree after the check had judged an earlier one, and kept the earlier evidence. The audit proved that for every text, and it observed no false verdict of the program. It also found a published comment that said more than its theorem. The owner was asked nothing, and no owner decision came of this: the account says a contract that misses the intent is a bug, and that the property must be proved, or the verdict removed by the owner's own call. It was proved. What follows was decided by the agents on the owner's behalf, derived from that account, and none of it is the owner's confirmation.
+
+The first statement of the property is that a full verdict's admission is about what the build consumes. The agents wrote the record first, on the words of that account, with the reader already known to its author from the audit's report, so the method's premise is weakened that far. They sealed it before reading the second reading.
+
+| Consequence | Theorem | Status |
+| --- | --- | --- |
+| At each Lake command and each load for the rules, there is a reading inside the closed language, with no failed answer, on `Evidence` of what the tree holds right then. | `FullRun.at_consumer` | Follows. |
+| Each file Lake compiles holds the text that the reading's file of its module was parsed from, under H3. | `read_what_lake_compiles` | Follows. |
+| Each text standing in the tree is the configuration's, the pinned text, or one a file of the reading was parsed from, so no other file reaches the build. | `Evidence.judged`, `Evidence` | Decided: Lake prefers a `lakefile.lean` in the tree, so a file outside the reading could run code at the build with no language check, whatever name it came under. |
+| A run that writes a text it judged nowhere after the reading has no admission, for every such text. | `uncheckedCopy_fails` | Follows. |
+| A run that copies the text already standing, or writes one text, reads again and judges the later one, loses nothing. | `judgedCopy_stands`, `rewritten_stands` | Follows: the later text is the one judged. |
+| A text at two names with one file is judged under each name's context; two texts at one path are `incomplete`. | `Evidence.two_names`, `Reason.twoTexts`, `twoTexts` | Decided: one read for each name, and a refusal only when the texts differ, keeps a project that a library's `srcDir` gives two names and needs no new refusal of it. |
+| A module's text reaches the tree only for a reading the decision admits, and each is written once. | `Regula.Reader.readFiles`, `writeSources_spec`, `holds_of_leavesAs` | Decided: `FullRun` admits other orders, and the program takes this one because the property then follows from its shape and needs no invariant over a walk that writes. It rests on Lake's load and resolution reading no module's file (H3). |
+| A failed write of an admitted file is `incomplete`. | `readFiles_spec`, `Needed.sourceWrite`, `Needed.sourceParent`, `Reason.moduleNotInTree` | Decided: the build could not consume what was judged. |
+| A failed write counts as written, so a later `written` does not credit the text before it. | `Event.leaves` | Decided: a failed write leaves the file unknown. An admission receives no failed answer anyway. |
+| What Lake and another process do to the tree, and whether a write's success is true, stay out of the record. | [the trusted base](README.md#the-trusted-base) | Decided: the account keeps inconsistent responses and external changes as accepted risk. |
+
+**The class closed.** A fact a verdict rests on about state the run's own acts can change after the fact was established, over the closed acts of `Op`, in the full run and the plain run. Found by reading `Op` and each relation that reads an event: the acts are `writeFile`, `createDirAll`, `createTempDir`, `removeDirAll`, `setSearchPath` and `runLake`.
+
+| State | Fact, and its consumer | How it is closed |
+| --- | --- | --- |
+| A module's file | The text judged, at the build and replay | `Evidence` of `written` (`FullRun.at_consumer`). |
+| `lakefile.toml` | The text Lake's parser read, at the load, the build and the reload | `PreparedLoad` for the first load, `Evidence` of `written` for the rest. |
+| `lean-toolchain` | The pinned text, at the same | The same. |
+| Any other file of the tree, such as a `lakefile.lean` | That nothing else is in it | The last clause of `Evidence`. |
+| A directory at a file's path | That a write can store it | `CopyStep` makes only a file's own parent. A file below another file is a project with two such paths, and the failed response is its reason. |
+| The whole tree, by `removeDirAll` or `createTempDir` | That it still stands | `FullRun` admits one allocation first and one removal last (`FullRun.removal_order`), and `Event.leaves` reads a removal. |
+| The tree, by `runLake` | The build, at the replay and the reload | `BuildProtocol` asks one build and one replay with only reporting between, and `BuildAndRules.no_mutation` asks no write after. What the two commands do inside is Lake's. |
+| The search path in the reading | A toolchain module's place, and the parser's environment | `ReadingLoaded` sets it once before every consumer. |
+| The search path at the rules | Where the build's modules are, and the import | `RulesPreparation` and `InputPreparation` set it once before every consumer. |
+| The search path in a proof verdict | The same | `PlainPreparation`; a plain run has no other act (`PlainRun`). |
+| The project | What was read of it | The run's acts lie in the tree, apart from it (`Confined`), so `Evidence.mono` keeps what no act of the run can change. Another process changing the project reaches only what the next read gives. |
+
+`Evidence.mono` is kept, with the state fixed: it says what stays true of what was read, and `written` says what stands.
+
+The record grew by about 45 lines and the proofs by `Standing.lean` and `Written.lean`, about 300 lines, while `readSource`, its specification and the walk's preparation lost their write. The reader grew by about 25 lines.
+
+The second reading was made by Codex `gpt-6-astra` at `xhigh`, through `codex exec` with no user configuration, memory, hooks or session file, from the account above, the types of `Regula.Effect` and of the reading, and lean-intent's `LeanIntent/Record.lean`, which were in its prompt, because a nested confinement refuses its reads. It read no file. It gave a schema with the trace predicate as a parameter, and said that the types it was given do not define admission, a full build or consumption. So there is no theorem to compare, and these are differences in plain words, labelled unproved.
+
+| Difference | Settlement |
+| --- | --- |
+| It said that the obligation holds when the build fails too, so a condition on a successful exit would miss a false refusal. | The same reading: `FullRun.at_consumer` holds at each command, whatever its response. |
+| It said that defining consumption as the last successful write is an equivalence the types do not support. | Settled in the same direction: `written` says what the run asked, and that Lake reads what stands is H3 and the trusted base, not a claim of the record. It counts a failed write too, for the reason above. |
+| It did not ask for one read, for no overwrite, or for no alias. | The same reading: the record asks for none of them, and `twoTexts` is the program's. |
+
+No difference reached the owner's level. The stand-ins for lean-intent's checks are as for the sections above.

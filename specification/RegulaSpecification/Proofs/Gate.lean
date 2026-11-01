@@ -198,8 +198,10 @@ theorem checkerFiles_io (w w' : Void IO.RealWorld) (files : List System.FilePath
       subst hw'
       exact ⟨sources, others, w₁, rfl, hr, hf.symm⟩
 
-/-- A copy of one file that succeeds wrote to the same relative path below the target the bytes that its read of that file
-gave. -/
+/-- A copy of one file that succeeds wrote to `target / file` the bytes that its read of `file` gave. This says nothing of where
+`target / file` lies: `/` gives `file` itself for an absolute `file` (`FilePath.join`, `Init/System/FilePath.lean:126-130` at
+v4.35.0), so such a copy writes to the file it read, and a relative `file` with `..` leaves `target`. `join_relative` states `/`
+for a relative `file`, and `checkerFiles_io` states which files the gate passes. -/
 theorem copyFile_io (target file : System.FilePath) (w w' : Void IO.RealWorld) (h : copyFile target file w = .ok () w') :
     ∃ bytes w₁ w₂, IO.FS.readBinFile file w₁ = .ok bytes w₂ ∧
       IO.FS.writeBinFile (target / file) bytes w₂ = .ok () w' := by
@@ -228,6 +230,13 @@ theorem copyFile_io (target file : System.FilePath) (w w' : Void IO.RealWorld) (
     | ok u w₁ =>
       rw [io_bind_ok hm] at h
       exact hrest w₁ h
+
+/-- For a `file` that is not absolute, `target / file` is the text of `target`, a separator and the text of `file`. A `file` with
+`..` still names a path outside `target`, so this is no statement of containment. -/
+theorem join_relative (target file : System.FilePath) (h : file.isAbsolute = false) :
+    target / file = System.FilePath.mk (target.toString ++ System.FilePath.pathSeparator.toString ++ file.toString) := by
+  show System.FilePath.join target file = _
+  simp [System.FilePath.join, h]
 
 /-- A copy of a list of files that succeeds copied each. -/
 theorem copyAll_io (target : System.FilePath) (files : List System.FilePath) (w w' : Void IO.RealWorld)

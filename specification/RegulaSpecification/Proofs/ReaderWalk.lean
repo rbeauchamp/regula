@@ -10,8 +10,8 @@ import RegulaSpecification.Proofs.ReaderParts
 /-!
 # What the reader's walk over the imports gives
 
-For every response: each source it holds was read by the exact-path test, its text written to the same relative
-path of the tree and parsed from that same text; each toolchain module was found below the toolchain's library;
+For every response: the walk writes nothing; each source it holds was read by the exact-path test and parsed from that
+same text; each toolchain module was found below the toolchain's library;
 what it could not read has a `Reason`; and when nothing was left unread, each import of each source was reached.
 -/
 

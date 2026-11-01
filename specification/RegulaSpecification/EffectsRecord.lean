@@ -9,8 +9,9 @@ import RegulaSpecification.EffectsRun
 # The record of a run
 
 `Reason` states relevance to the requested build (`Scene`, `Named`, `Needed`). `FullRun` additionally requires the
-ordered preparation of every copy, load, command and search-path consumer, including failed attempts. Neither relevance
-alone nor the absence of a reason establishes preparation. `PlainRun` requires the same search-path discipline for a
+ordered preparation of every copy, load, command and search-path consumer, including failed attempts, and that an
+admission rests on `Evidence` of the state `written` that the reading leaves, so that it is about the text that stands.
+Neither relevance alone nor the absence of a reason establishes preparation. `PlainRun` requires the same search-path discipline for a
 proof verdict. Responses remain arbitrary: these relations constrain the requests, not the external system's truth.
 `PlainReason`, `TreeReason` and `BuildRejected` state the reasons of the finished load and build. `programRecord` states
 a whole run, for every response, and it is the contract that
@@ -138,7 +139,9 @@ def RulesSearchOp : Op L E → Prop
 
 /-- Module copies in order, with reads free between them. Each step uses a name and text justified by
 the prefix before that step. A failed module step does not prevent the remaining steps. No search-path
-setter, load, command, removal or unrelated copy is a case. -/
+setter, load, command, removal or unrelated copy is a case. This grammar says only which acts may occur: it admits a
+later copy of another text, and it is `Evidence` of what stands afterwards that refuses one the run did not judge
+(`uncheckedCopy_fails`). -/
 inductive ModuleCopies (project tree : FilePath) (root : Root L) (modules : List (Name × FilePath)) :
     List (Event L E) → List (Event L E) → Prop where
   /-- No further module-copy events remain. -/
@@ -191,7 +194,8 @@ inductive ConfigCopies (sysroot : String) (project tree : FilePath) :
 
 /-- The reading phase's complete ordered acts. Configuration text comes from an earlier read of the
 requested project; the second copy is the pinned toolchain text. The remaining copies are precisely
-steps of named module files with earlier source reads. No act is allowed before the first copy. -/
+steps of named module files with earlier source reads. No act is allowed before the first copy. What the
+acts leave standing is `Decided`'s statement, through `written`. -/
 def ReadingPreparation (t : List (Event L E)) (dir treeDir : FilePath) : Prop :=
   Quiet t ∨ ∃ project tree sysroot text before rest,
     t = before ++ rest ∧ Quiet before ∧
@@ -652,8 +656,9 @@ def NotRemoving : Op L E → Prop
 /-- A full run on `dir`: relevance and ordered preparation hold together on the exact reading phase.
 The TOML copy precedes the pinned toolchain copy and configuration load; named module copies use earlier
 source reads. Each copy makes only its own parent before writing, and each search consumer follows its
-load's setter. Failed attempts obey the same order. Build, replay and rules follow only an admission,
-with no later explicit copy or early removal. Cleanup is terminal and every act is confined to the tree.
+load's setter. Failed attempts obey the same order. An admission rests on `Evidence` of the state the reading
+leaves. Build, replay and rules follow only an admission, with no later explicit copy or early removal, so that
+state is what they consume (`FullRun.at_consumer`). Cleanup is terminal and every act is confined to the tree.
 Exit code and last line are the report's alone; exit 0 received no failed answer. All responses remain
 arbitrary, including inconsistent filesystem answers and opaque effects inside trusted calls. -/
 def FullRun (t : List (Event L E)) (dir : FilePath) (p : Regula.Closed.Profile) (c : UInt32) : Prop :=
