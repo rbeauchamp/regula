@@ -38,15 +38,15 @@ It reads, in this order, and stops at the first refusal:
   here, with only the proof verdict left: the checker runs no Lake call on such a project.
 - The root package, through Lake's load of the tree's configuration alone (`Lake.loadWorkspaceRoot`), which
   resolves no dependency and lists no directory: its source directories, its libraries' and executables' names,
-  and each library's `globs`. Each source directory must lie below the tree (`treeRelative`), and each `globs`
-  entry must be a single module, because the tree holds no source yet.
+  its default targets, and each library's `globs`. Each source directory must lie below the tree with closed
+  names (`closedSourceDir`), each `globs` entry must be a single module, because the tree holds no source yet, and
+  each default target must be a library.
 - The modules of the default targets, with the files Lake names for them in the tree.
 - Each module those reach, by its header, through Lean's `parseHeader`. A name outside `closedModuleName` is
-  unread before any path is built from it. A root is the file of its own `Module`, and a root whose name Lake's
-  import resolution gives another file for is unread. An import is the file `Lake.Workspace.findModule?` gives,
+  unread before any path is built from it. A root is the file of its own `Module`, and a root that Lake's
+  import resolution does not give that file is unread. An import is the file `Lake.Workspace.findModule?` gives,
   as Lake's build resolves it (`Lake/Build/Module.lean:37`), or else a module that Lean's search finds on the toolchain's own library, the one
-  directory on the search path, and an import of a default executable's root that no library holds
-  is unread. The same relative path of the project is read if it is, by its real path, exactly itself, so a link
+  directory on the search path. The same relative path of the project is read if it is, by its real path, exactly itself, so a link
   at any depth leaves a file unread, and no name found outside the project is printed.
 - Each file's commands, through Lean's `parseCommand`, with the context that the specification's H1 states: an
   environment of the toolchain modules the file sees, no options, no namespace and no open declaration.
@@ -115,8 +115,8 @@ def requireEnv (name : String) (why : String) : Attempt L E String :=
     | none => pure (.error why)
 
 /-- The file of a module, given the `modules` of the default targets: a root's own, and otherwise the one
-Lake's import resolution gives. `configUnread` and `importedExecutableRoots` leave unread each case where a
-root's own file is not the file of that name that Lake compiles or that an import names. -/
+Lake's import resolution gives. `configUnread` leaves unread each case where a root's own file is not the file of
+that name that an import names. -/
 def fileOf (root : Root L) (modules : List (Name × FilePath)) (m : Name) : Option FilePath :=
   match modules.lookup m with
   | some file => some file
@@ -418,53 +418,52 @@ def toolchainOf (project : FilePath) : Prog L E (Option String) := do
   | .ok text => pure (some text.trimAscii.toString)
   | .error _ => pure none
 
-/-- What the configuration names outside the closed domain of paths, each with its report: a source directory
-that does not lie below the tree (`treeRelative`), and a library with a `globs` entry that is not a single
-module. Each report names what the configuration states, never what it leads to. -/
+/-- Whether a source directory lies below the tree (`treeRelative`) with each component below it closed: ASCII
+letters and digits, `_` and `'`, the characters of a closed module name. So no name in it is one that a volume
+could store in another form by Unicode normalization, and none holds a space. -/
+def closedSourceDir (tree dir : FilePath) : Bool :=
+  match treeRelative (Regula.Load.parts tree) (Regula.Load.parts dir) with
+  | some rel => rel.all closedComponent
+  | none => false
+
+/-- What the configuration names outside the closed domain, each with its report: a source directory that
+`closedSourceDir` refuses, a library with a `globs` entry that is not a single module, and a default target
+that is no library. Each report names what the configuration states, never what it leads to. -/
 def openPathsOf (tree : FilePath) (root : Root L) : List String :=
   let single : Lake.Glob → Bool
     | .one _ => true
     | _ => false
-  let dirs := (root.sourceDirs.filter (!inTree tree ·)).eraseDups.map
-    fun dir => s!"the source directory {dir} does not lie below the project"
+  let dirs := (root.sourceDirs.filter (!closedSourceDir tree ·)).eraseDups.map
+    fun dir => s!"the source directory {dir} is not a path below the project whose names hold only ASCII letters, digits, `_` and `'`"
   let globs := (root.libraries.filter (!·.2.all single)).map fun (lib, _) =>
     s!"the library {lib}: a `globs` entry other than a single module needs a directory listing"
-  dirs ++ globs
+  let targets := (root.defaultTargets.filter fun target => (root.findLib target).isNone).map
+    fun target => s!"the default target {target} is not a library"
+  dirs ++ globs ++ targets
 
 /-- What in the configuration Lake's load gave is unread before any file, given the `modules` of the default
 targets: a library's or an executable's name outside the closed domain, which Lake joins onto an output
-directory (`LeanExe.file`, `Lake/Config/LeanExe.lean:72`), and a root whose name Lake's import resolution
-gives another file for or that two default targets hold with two files, so that the file an importer compiles
-is not the file read. Two paths are two files only when their components differ (`Regula.Load.parts`), so two spellings of
-one directory, such as `.` and `./`, give one file, and the reader reads one of them. So each spelling that a default target holds, and that Lake's
-resolution gives for its name, is also tested against the tree here. Any other import is tested when `readForTree` reads it. -/
+directory (`LeanExe.file`, `Lake/Config/LeanExe.lean:72`), and a root that Lake's import resolution does not give
+its own file, so that the file an importer compiles is not the file read. Two paths are two files only when their
+components differ (`Regula.Load.parts`), so two spellings of one directory give one file. Two entries of one name with
+two files fail this too, because resolution gives a name one file. So each spelling that a default target holds, and that
+Lake's resolution gives for its name, is also tested against the tree here. Any other import is tested when `readForTree`
+reads it. -/
 def configUnread (tree : FilePath) (root : Root L) (modules : List (Name × FilePath)) : List (Name × String) :=
   let names := (root.targets.filter (!closedModuleName ·)).map
     fun n => (n, "this target's name is outside the closed domain")
   let others := modules.filter fun (m, file) =>
     match root.resolve m with
     | some other => Regula.Load.parts other != Regula.Load.parts file
-    | none => false
-  let twice := modules.filter fun (m, file) => modules.any fun (m2, other) =>
-    m2 == m && Regula.Load.parts other != Regula.Load.parts file
+    | none => true
   let named := modules.flatMap fun (m, file) => (m, file) :: (root.resolve m).toList.map (m, ·)
   let outside := named.filter fun (_, path) => !inTree tree path || !parentInTree tree path
-  names ++ others.map (fun (m, file) => (m, s!"a library holds this name with a file other than {file}")) ++
-    twice.map (fun (m, file) => (m, s!"two default targets hold this name, one with the file {file}")) ++
+  names ++ others.map (fun (m, file) => (m, s!"Lake's resolution of an import does not give this name the file {file}")) ++
     outside.map fun (m, path) => (m, s!"its file {path} does not lie below the checker's tree")
 
-/-- The imports in `sources` of a default executable's root, among the `modules` of the default targets, that
-no library holds. The file read for that root is not what such an import names: Lake's import resolution
-covers libraries alone (`Package.findModule?`, `Lake/Config/Module.lean:58-59`), so it finds a module of that
-name elsewhere or none. -/
-def importedExecutableRoots (root : Root L) (modules : List (Name × FilePath))
-    (sources : List (Name × Source)) : List (Name × String) :=
-  let imports := (sources.flatMap fun (_, s) => s.imports.toList.map (·.module)).eraseDups
-  let executable := imports.filter fun m =>
-    (modules.lookup m).isSome && (root.resolve m).isNone
-  executable.map fun m => (m, "an import names this executable's root, and no library holds it")
-
-/-- The modules of one target: those of a library, or the root of an executable, or none. -/
+/-- The modules of one target: those of a library, or the root of an executable, or none. The language check
+has refused a default target that is no library before it asks this (`openPathsOf`), and the proof verdict
+still claims a default executable's root. -/
 def modulesOfTarget (root : Root L) (target : Name) : Attempt L E (List (Name × FilePath)) :=
   match root.findLib target with
   | some lib => do
@@ -495,12 +494,11 @@ def loaded (what : String) : Except String (Option (Root L) × List String) → 
   | .ok (none, log) => .error s!"Lake could not load {what}: {"; ".intercalate log}"
 
 /-- What a walk gives the reading, before any command is parsed. `config` is what the run has asked the tree to hold. -/
-def baseReading (config : List (FilePath × String)) (start : Reading) (root : Root L)
+def baseReading (config : List (FilePath × String)) (start : Reading)
     (modules : List (Name × FilePath)) (w : Walk) : Reading :=
   { start with
     roots := modules.map (·.1), reached := w.reached.reverse,
-    unread := w.unread.reverse ++ importedExecutableRoots root modules w.sources.reverse ++
-      twoTexts (plannedOf config w.sources.reverse) }
+    unread := w.unread.reverse ++ twoTexts (plannedOf config w.sources.reverse) }
 
 /-- The modules that the imports of `modules` reach, each file read, and each file's commands, and, only for a reading the
 decision admits, each text written to its file and each planned file read back. So no module's file is asked to be written until all
@@ -513,7 +511,7 @@ def readFiles (config : List (FilePath × String)) (project tree : FilePath) (ro
     Attempt L E (Reading × List (Name × Source)) := do
   ExceptT.lift (Prog.call (.setSearchPath root.toolchain))
   let w ← ExceptT.lift (walk project tree root modules 1000000 (modules.map (·.1)) {})
-  let base := baseReading config start root modules w
+  let base := baseReading config start modules w
   if !base.readInFull || base.mathlibReached then
     pure (base, [])
   else

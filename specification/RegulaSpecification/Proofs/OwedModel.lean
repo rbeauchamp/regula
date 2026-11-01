@@ -4,7 +4,7 @@ Released under MIT license as described in the file LICENSE.
 Authors: Regula contributors
 -/
 import RegulaSpecification.Proofs.Behaviour
-import RegulaSpecification.Proofs.OwedExact
+import RegulaSpecification.Proofs.Owed
 
 /-!
 # A model of what a pass rests on
@@ -15,10 +15,7 @@ settle the conclusion by itself: for paths that meet `WitnessPaths` and an
 environment with the floor (`EnvModel`), there is a run, whose proof takes the answers of the witness (`Proofs/Witness.lean`), that receives what `FullOwed` and `PlainOwed` state and exits with 0 (`full_model`,
 `plain_model`); there is a run in which no answer failed that does not exit with 0, whose proof takes a project with a
 `lakefile.lean` (`refused_model`). The hypotheses of the two models are what remains: `WitnessPaths` because `System.FilePath` depends on an
-`opaque` constant, and for two facts about the pinned text and an empty log, and `EnvModel` because `Lean.Environment`'s constructor is private. `plain_exit_zero_owed` and
-`full_exit_zero_owed` also apply to any run meeting the record with exit 0, under `OneAnswer` and, for
-the full run's reading, `OneContext`. Those hypotheses are needed for the converse, not the owed-pass
-implications. The witness runs meet the strengthened preparation relations through `run_meets`;
+`opaque` constant, and for two facts about the pinned text and an empty log, and `EnvModel` because `Lean.Environment`'s constructor is private. The witness runs meet the strengthened preparation relations through `run_meets`;
 neither the models nor those relations assert consistency of a filesystem behind the responses.
 -/
 
@@ -36,8 +33,7 @@ variable {α : Type}
 
 /-- What an environment of the witness must be: each reading of it that those answers allow has `BuildAnswer.Floor`. `Lean.Environment`'s
 constructor is private (`Lean/Environment.lean:213`, `:553`), so a proof here cannot build one with a claimed module. A real
-one is what a finished build gives, and `plain_exit_zero_owed` and `full_exit_zero_owed` state that a run that exits with 0
-read one with this floor, on one answer for each operation and, for the full reading, one context for each input. -/
+one is what a finished build gives, and `plain_exit_zero` and `full_exit_zero` state that a run that exits with 0 read one with this floor. -/
 structure EnvModel (w : WitnessPaths) (env : Lean.Environment) (p : Regula.Closed.Profile) : Prop where
   /-- Each reading has the floor. -/
   floor : ∀ a : BuildAnswer, a.env = env → a.toolchainDir = w.toolchainDir → a.rootDir = w.rootLib →
@@ -192,19 +188,6 @@ theorem refused_model (w : WitnessPaths) (env : Lean.Environment) (m : IO.FS.Met
           simp [hx]
         cases resp_eq (hin habs)
 
-/-- The answers of one function of the operation are one answer for each operation. So `OneAnswer` holds of
-each run on such answers. -/
-theorem oneAnswer_traceWith {L E : Type} (f : (o : Op L E) → Resp o) (p : Prog L E α) : OneAnswer (traceWith f p) := by
-  intro e he e' he' _ hop
-  obtain ⟨o, r⟩ := e
-  obtain ⟨o', r'⟩ := e'
-  simp only at hop
-  subst hop
-  have h1 := resp_eq he
-  have h2 := resp_eq he'
-  subst h1 h2
-  rfl
-
 /-- Those answers owe a pass of the proof verdict. -/
 theorem plainOwed_answers {w : WitnessPaths} {env : Lean.Environment} {p : Regula.Closed.Profile} (hm : EnvModel w env p)
     (q : Prog Unit Unit α) : PlainOwed (traceWith (answers w env) q) p := by
@@ -259,37 +242,6 @@ theorem plain_model (w : WitnessPaths) (env : Lean.Environment) (hm : EnvModel w
   subst this
   exact ⟨_, hr, howed⟩
 
-
-/-! ## Exit 0 exactly when a pass is owed -/
-
-/-- Exit 0 from a run of the proof verdict of the program that the executable interprets holds exactly when it received what
-`PlainOwed` states, on one answer for each operation. From `PlainOwed` to exit 0 needs no such hypothesis (`plain_owed`). -/
-theorem run_plain_exit_zero_iff {L E : Type} {text : String} {p : Regula.Closed.Profile}
-    (hp : Regula.Closed.Profile.ofSpelling? text = some p) {t : List (Event L E)} {c : UInt32}
-    (h : Runs (Regula.Shell.run [text] : Prog L E UInt32) (⟨.leanVersion, Regula.Closed.pinnedLean⟩ :: t) c)
-    (hone : OneAnswer (⟨.leanVersion, Regula.Closed.pinnedLean⟩ :: t : List (Event L E))) :
-    c = 0 ↔ PlainOwed (⟨.leanVersion, Regula.Closed.pinnedLean⟩ :: t) p := by
-  have hm := run_meets _ _ _ h
-  simp only [hp] at hm
-  obtain ⟨v, rest', he, hrun, -⟩ := hm
-  cases he
-  have hr := hrun rfl
-  exact ⟨fun h0 => plain_exit_zero_owed (h0 ▸ hr) hone, fun howed => (plain_owed hr howed).1⟩
-
-/-- The same of a run of the full gate, on one answer for each operation of its reading and of its load of the result, and one
-context for each input. From `FullOwed` to exit 0 needs no such hypothesis (`full_owed`). -/
-theorem run_full_exit_zero_iff {L E : Type} {text dir : String} {p : Regula.Closed.Profile}
-    (hp : Regula.Closed.Profile.ofSpelling? text = some p) {t : List (Event L E)} {c : UInt32}
-    (h : Runs (Regula.Shell.run [text, "full", dir] : Prog L E UInt32) (⟨.leanVersion, Regula.Closed.pinnedLean⟩ :: t) c)
-    (h1 : OneAnswer (readPhase t)) (h2 : OneContext (readPhase t)) (h3 : OneAnswer (rulesPhase t)) :
-    c = 0 ↔ FullOwed t (FilePath.mk dir) p := by
-  have hm := run_meets _ _ _ h
-  simp only [hp] at hm
-  obtain ⟨v, rest', he, hrun, -⟩ := hm
-  cases he
-  obtain ⟨rest'', v', he', hf⟩ := hrun rfl
-  cases he'
-  exact ⟨fun h0 => full_exit_zero_owed (h0 ▸ hf) h1 h2 h3, fun howed => (full_owed hf howed).1⟩
 
 /-! ## A program that refuses on what does not justify it -/
 
@@ -387,14 +339,13 @@ theorem unrelated_read_no_reason {L E : Type} {u dir treeDir : FilePath} {e : IO
   | dependency h => exact htm h
   | openDir h => exact htl h
   | openGlob h => exact htl h
+  | notLibrary h => exact htl h
   | noClaim h => exact hsc h
   | targetName h => exact htl h
-  | twoFiles h => exact hsc h
-  | twoRoots h => exact hsc h
+  | rootElsewhere h => exact hsc h
   | treeDiffers h => exact hsc h
   | twoTexts h => exact hsc h
   | moduleName h => exact hsc h
-  | importedRoot h => exact hsc h
   | tooMany h => exact hsc h
   | mathlib h => exact hsc h
   | file h => exact hsc h

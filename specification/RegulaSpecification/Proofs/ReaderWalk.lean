@@ -82,6 +82,20 @@ theorem inTree_iff (tree path : FilePath) :
     inTree tree path = true ↔ ∃ rel, TreeRelative (parts tree) (parts path) rel := by
   simp only [inTree, Option.isSome_iff_exists, treeRelative_iff]
 
+/-- `closedSourceDir` says that a directory lies below the tree, with each component below it in the closed domain. -/
+theorem closedSourceDir_iff (tree dir : FilePath) :
+    closedSourceDir tree dir = true ↔ ∃ rel, TreeRelative (parts tree) (parts dir) rel ∧ ∀ c ∈ rel, ClosedComponent c := by
+  simp only [closedSourceDir]
+  constructor
+  · intro h
+    split at h
+    · rename_i rel hr
+      exact ⟨rel, (treeRelative_iff _ _ _).mp hr, fun c hc => (closedComponent_iff c).mp (List.all_eq_true.mp h c hc)⟩
+    · cases h
+  · rintro ⟨rel, hr, hc⟩
+    rw [(treeRelative_iff _ _ _).mpr hr]
+    exact List.all_eq_true.mpr fun c hm => (closedComponent_iff c).mpr (hc c hm)
+
 /-- Every act of these events lies in the tree. -/
 def ActsIn (tree : FilePath) (t : List (Event L E)) : Prop :=
   ∀ e ∈ t, ∀ p, e.acted? = some p → inTree tree p = true

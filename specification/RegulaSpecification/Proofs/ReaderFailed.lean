@@ -260,7 +260,7 @@ theorem readFiles_no_failed {config : List (FilePath × String)} {project tree :
   obtain ⟨t₅, t₆, r₅, rfl, h₆, h₇⟩ := runs_attempt_bind_iff.mp h₂
   obtain ⟨w, h₈, rfl⟩ := runs_lift_iff.mp h₆
   dsimp only at h₇
-  have hcase : (∀ e ∈ t₆, ¬ e.failed) ∧ r.unread = (baseReading config start root modules w).unread ∧
+  have hcase : (∀ e ∈ t₆, ¬ e.failed) ∧ r.unread = (baseReading config start modules w).unread ∧
       r.toolchainFile = start.toolchainFile := by
     split at h₇
     · obtain ⟨rfl, he⟩ := runs_attempt_pure_iff.mp h₇
@@ -307,7 +307,7 @@ theorem readFiles_no_failed {config : List (FilePath × String)} {project tree :
     have := (admitted_fields ha).2.2.2.1
     rw [hcase.2.1] at this
     simp only [baseReading, List.append_eq_nil_iff, List.reverse_eq_nil_iff] at this
-    exact this.1.1
+    exact this.1
   obtain ⟨-, hwalk⟩ := walk_no_failed _ _ _ _ _ _ _ _ _ h₈ hw
   refine ⟨fun e he => ?_, hcase.2.2⟩
   simp only [List.cons_append, List.nil_append, List.mem_cons, List.mem_append] at he

@@ -128,12 +128,13 @@ structure Evidence (t : List (Event L E)) (dir dirTree : FilePath) (held : List 
       DefaultModules t root root.defaultTargets modules ∧
       r.roots = modules.map (·.1) ∧
       -- What Lake's load names lies in the closed domain.
-      (∀ d ∈ root.sourceDirs, ∃ rel, TreeRelative (parts tree) (parts d) rel) ∧
+      (∀ d ∈ root.sourceDirs, ∃ rel, TreeRelative (parts tree) (parts d) rel ∧ ∀ c ∈ rel, ClosedComponent c) ∧
       (∀ lib ∈ root.libraries, ∀ g ∈ lib.2, ∃ n, g = .one n) ∧
       (∀ n ∈ root.targets, ClosedModuleName n) ∧
-      -- One name, one file: two paths of one name have one list of components, whatever their spelling.
-      (∀ m file other, (m, file) ∈ modules → root.resolve m = some other → parts other = parts file) ∧
-      (∀ m file other, (m, file) ∈ modules → (m, other) ∈ modules → parts other = parts file) ∧
+      -- One name, one file: Lake's resolution gives each module of the claim its own file, whatever the spelling.
+      (∀ m file, (m, file) ∈ modules → ∃ other, root.resolve m = some other ∧ parts other = parts file) ∧
+      -- Each default target is a library.
+      (∀ target ∈ root.defaultTargets, (root.findLib target).isSome = true) ∧
       ∃ (headers : List (Name × Array Import)) (toolchain : List Name),
       -- The imports stay within the reader's bound.
       modules.length + (headers.map (·.2.size)).sum ≤ 1000000 ∧
@@ -149,8 +150,7 @@ structure Evidence (t : List (Event L E)) (dir dirTree : FilePath) (held : List 
         -- Each import is read or is the toolchain's, and its name is in the closed domain.
         ∀ i ∈ imports, (i.module ∈ r.reached ∨
           (root.resolve i.module = none ∧ modules.lookup i.module = none ∧
-            HeldByToolchain t i.module)) ∧ ClosedModuleName i.module ∧ i.module.getRoot ≠ `Mathlib ∧
-          ((modules.lookup i.module).isSome = true → (root.resolve i.module).isSome = true)) ∧
+            HeldByToolchain t i.module)) ∧ ClosedModuleName i.module ∧ i.module.getRoot ≠ `Mathlib) ∧
       -- `held` gives no other path a text, unless a file of the reading lies there and was judged from that text.
       ∀ p text, held p = some text → p = parts (tree / "lakefile.toml") ∨ p = parts (tree / "lean-toolchain") ∨
         ∃ f ∈ r.files, ∃ path imports mods, FileOfModule root modules f.module path ∧ parts path = p ∧

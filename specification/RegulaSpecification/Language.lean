@@ -118,8 +118,8 @@ def FileAdmitted (f : FileRead) : Prop :=
 def ConfigKeyAdmitted (k : Name) : Prop :=
   k ∈ configKeys ∨ ∃ o ∈ options, k = `leanOptions ++ o
 
-/-- The project's own configuration is closed: the pinned toolchain, no `lakefile.lean`, no source directory
-or `globs` entry that `openPaths` names, and each key whose root is not `require` in the closed set. A key
+/-- The project's own configuration is closed: the pinned toolchain, no `lakefile.lean`, nothing
+that `openPaths` names, and each key whose root is not `require` in the closed set. A key
 with the root `require` is not read here: `RequiresDependency` states what it gives. -/
 def ConfigClosed (r : Reading) : Prop :=
   r.toolchainFile = some leanToolchain ∧ r.leanConfig = false ∧ r.openPaths = [] ∧
@@ -582,10 +582,15 @@ theorem refused_config_keys :
       `lean_exe.needs, `lean_exe.moreLeanArgs, `testDriver, `packagesDir],
     k ∉ configKeys ∧ ∀ o ∈ options, k ≠ `leanOptions ++ o := by decide +kernel
 
+/-- A `srcDir` on a target is outside the closed set of keys. The owner named this refusal on 2026-11-01. -/
+theorem refused_target_srcDir :
+    `lean_lib.srcDir ∉ configKeys ∧ `lean_exe.srcDir ∉ configKeys ∧
+      ∀ o ∈ options, `lean_lib.srcDir ≠ `leanOptions ++ o ∧ `lean_exe.srcDir ≠ `leanOptions ++ o := by decide +kernel
+
 /-- No key of the closed set has the root `require`, so a dependency is never read as an admitted key. -/
 theorem configKeys_no_require : ∀ k ∈ configKeys, k.getRoot ≠ `require := by decide +kernel
 
-/-- A source directory or a `globs` entry that `openPaths` names is refused, whatever else the reading
+/-- What `openPaths` names (a source directory, a `globs` entry or a default target) is refused, whatever else the reading
 holds. -/
 theorem open_path_refused {d : Reading → Outcome} (h : languageRecord.Meets d) (r : Reading)
     (hr : r.openPaths ≠ []) : d r = .refused := by
