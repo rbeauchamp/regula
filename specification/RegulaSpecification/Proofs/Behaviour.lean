@@ -111,33 +111,35 @@ load is Lake's. `Takes` is the file it reads as the configuration, as a name in 
 structure LakeSelection (t : List (Event L E)) (real : FilePath) where
   /-- Lake takes this file as the configuration of the directory `real`. -/
   Takes : FilePath → Prop
-  /-- Lake takes some file: its load reads a configuration. -/
+  /-- Lake takes some file: this hypothesis is about a directory whose load reads a configuration. -/
   takesOne : ∃ path, Takes path
   /-- H5, read at a run whose file system answered that nothing has the preferred name. -/
   h5 : ∀ err path, (⟨.symlinkMetadata (real / "lakefile.lean"), .error err⟩ : Event L E) ∈ t →
     (∃ name code details, err = .noFileOrDirectory name code details) → Takes path → parts path = parts (real / "lakefile.toml")
 
-/-- H5 has a model: with the answer that nothing has the preferred name, Lake takes `lakefile.toml`, and with no such answer it can take the preferred name. -/
+/-- H5 has a model: with an answer of an error for the preferred name, Lake takes `lakefile.toml`, and on a trace with no such answer it can take the preferred name. -/
 theorem lakeSelection_model (real : FilePath) (err : IO.Error) :
     (∃ B : LakeSelection (L := L) (E := E) [] real, B.Takes (real / "lakefile.lean")) ∧
       ∃ B : LakeSelection (L := L) (E := E) [⟨.symlinkMetadata (real / "lakefile.lean"), .error err⟩] real, B.Takes (real / "lakefile.toml") :=
   ⟨⟨⟨(· = real / "lakefile.lean"), ⟨_, rfl⟩, fun _ _ h => by cases h⟩, rfl⟩,
     ⟨(parts · = parts (real / "lakefile.toml")), ⟨_, rfl⟩, fun _ _ _ _ h => h⟩, rfl⟩
 
-/-- **Under H5, Lake takes the configuration judged**, at each consumer of a full run, on one answer for each operation: each file that Lake takes in the tree has
-the components of `lakefile.toml` there, and a read through a spelling of it, in the last part of the reading, gave the text that Lake's parser read. That the
-answer still holds when Lake runs is another process's matter, which this leaves unsaid. -/
+/-- **Under H5, Lake takes the configuration judged**, at each consumer of a full run, on one answer for each operation: `real` is the real path of this run's tree, `path`
+has the components of `lakefile.toml` there, a read through `path` in the last part of the reading gave the text that Lake's parser read, and each file that Lake takes in
+`real` has those components. That the answer still holds when Lake runs is another process's matter, which this leaves unsaid. -/
 theorem lake_takes_judged {t pre post : List (Event L E)} {dir : FilePath} {p : Regula.Closed.Profile} {c : UInt32} (h : FullRun t dir p c) {e : Event L E}
     (ht : t = pre ++ e :: post) (he : e.consumesTree = true) (hone : OneAnswer t) :
-    ∃ (real path : FilePath) (text : String) (table : Lake.Toml.Table),
-      (⟨.readFile path, .ok text⟩ : Event L E) ∈ pre ∧ (⟨.parseToml (Lean.Parser.mkInputContext text "lakefile.toml"), .ok table⟩ : Event L E) ∈ pre ∧
+    ∃ (tree real path : FilePath) (before suffix mid : List (Event L E)) (text : String) (table : Lake.Toml.Table),
+      pre = (⟨.createTempDir, .ok tree⟩ :: (before ++ suffix)) ++ mid ∧ Quiet suffix ∧ (⟨.realPath tree, .ok real⟩ : Event L E) ∈ before ++ suffix ∧
+      parts path = parts (real / "lakefile.toml") ∧ (⟨.readFile path, .ok text⟩ : Event L E) ∈ suffix ∧
+      (⟨.parseToml (Lean.Parser.mkInputContext text "lakefile.toml"), .ok table⟩ : Event L E) ∈ before ++ suffix ∧
       ∀ B : LakeSelection pre real, ∀ taken, B.Takes taken → parts taken = parts path := by
-  obtain ⟨tree, real, before, suffix, mid, err, path, text, table, hpre, -, -, -, herr, hno, hp, hr, hpar⟩ := h.config_at_consumer ht he hone
+  obtain ⟨tree, real, before, suffix, mid, err, path, text, table, hpre, hq, -, hreal, herr, hno, hp, hr, hpar⟩ := h.config_at_consumer ht he hone
   have hin {x : Event L E} (hx : x ∈ before ++ suffix) : x ∈ pre := by
     rw [hpre]
     simp only [List.mem_append, List.mem_cons]
     exact .inl (.inr (List.mem_append.mp hx))
-  refine ⟨real, path, text, table, hin (List.mem_append_right _ hr), hin hpar, fun B taken ht' => ?_⟩
+  refine ⟨tree, real, path, before, suffix, mid, text, table, hpre, hq, hreal, hp, hr, hpar, fun B taken ht' => ?_⟩
   rw [hp]
   exact B.h5 err taken (hin (List.mem_append_right _ herr)) hno ht'
 

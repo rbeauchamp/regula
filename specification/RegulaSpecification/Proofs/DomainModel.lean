@@ -19,7 +19,7 @@ answers of a real Lake, whose root lists the library that `witnessRoot` leaves o
 states that `Answers` and the domain do not settle the verdict: on the same reading, a build that fails gives no exit 0.
 
 `twoSpellings_read` is the audit's project at the level of the program: `configUnread` leaves unread no name that two targets hold with two
-spellings of one path.
+spellings of one path, when Lake's resolution gives one of them for that name.
 -/
 
 namespace RegulaSpecification.Effects
@@ -178,7 +178,7 @@ theorem answers_witness {w : WitnessPaths} {env : Lean.Environment} (hw : Witnes
   · intro pr hp rel real hrel hr
     obtain rfl := hreal hp
     obtain rfl := hreal hr
-    rcases hrel with rfl | rfl | ⟨s, hs, rfl⟩
+    rcases hrel with ⟨rfl, -⟩ | ⟨rfl, -⟩ | ⟨s, hs, rfl⟩
     · exact w.toolchainExact
     · exact w.tomlExact
     · obtain rfl := List.mem_singleton.mp hs

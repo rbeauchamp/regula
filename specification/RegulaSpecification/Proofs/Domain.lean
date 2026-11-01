@@ -14,14 +14,14 @@ import RegulaSpecification.Proofs.ReaderFiles
 statement to what a run received.
 
 `Answers p t dir tree` says that the responses of a reading are what the files of the project `p` state: it says what a read,
-Lake's load and Lean's parser answered, and names no reason. Some of its clauses are about the project and some, on the tree, the start and failed answers,
-are the negation of an external answer that a reason cites, so that such a reason is ruled out by `Answers` and not by the domain. `reason_classified` sorts
+Lake's load and Lean's parser answered, and names no reason. Some of its clauses are about the project. Those on the tree, the start and failed answers are about no
+project, and each negates an external answer that a reason cites, so that such a reason is ruled out by `Answers` and not by the domain. `reason_classified` sorts
 each case of `Reason` under a failed or differing answer, a conflict in which one admission could not be about what is consumed, or a clause of the domain that
 the project fails. `reason_excluded` states that no case holds of a project in the domain whose reads answer so. `domain_owed` states the result at the whole
 run, for every program that meets the record, without naming `Reason`.
 
 `Answers` holds what the program observes and what no proof can reach: each clause is about a response in the trace, never about
-every value. So a run in which another process changes a file between two reads, or a parser that answers two ways, is not
+every value. So a run in which another process changes a file between two reads, so that two reads of one file differ, is not
 covered by `domain_owed`: `Answers` fails, which is the accepted risk that the owner's account leaves unsaid. `domain_model`
 states that these premises are met on the witness's answers, which `DomainModel.lean` says more of.
 -/
@@ -44,7 +44,7 @@ root that a response gave. That Lake's load is this function of the text is
 what `Lake/Load/Toml.lean:484-500`, `Lake/Config/Module.lean:58-59` and `Lake/Config/LeanLibConfig.lean:144-146` say at v4.35.0, and
 what no proof reaches, so it is a premise over the response. -/
 structure LakeAgrees (c : Configuration) (imported : Name → Prop) (tree : FilePath) (t : List (Event L E)) (root : Root L) : Prop where
-  /-- Each source directory is the tree joined with what the text's directories name, the package's below a target's. -/
+  /-- Each source directory is the tree joined with what the text's directories name, each target's below the package's. -/
   sourceDirs : ∀ d ∈ root.sourceDirs, ∃ rel ∈ c.sourceParts, parts d = parts tree ++ rel
   /-- Each library's `globs`. -/
   libraries : ∀ x ∈ root.libraries, ∃ lib ∈ c.libraries, x = (lib.name, lib.globs)
@@ -68,8 +68,8 @@ structure LakeAgrees (c : Configuration) (imported : Name → Prop) (tree : File
   /-- A name that an import states, and Lake's resolution gives no file for. -/
   noResolve : ∀ m, imported m → root.resolve m = none → c.resolve m = none
 
-/-- The responses of a reading of the project `p` at `dir`, in the checker's tree at `treeDir`, are what the files of `p` state. Each
-clause reads a response, and no clause names a reason. -/
+/-- The responses of a reading of the project `p` at `dir`, in the checker's tree at `treeDir`, are what the files of `p` state, and the tree and the start are as a
+run needs them. Each clause reads a response, and no clause names a reason. -/
 structure Answers (p : Project) (t : List (Event L E)) (dir treeDir : FilePath) : Prop where
   /-- No answer failed. -/
   answered : ∀ e ∈ t, ¬ e.failed
@@ -78,9 +78,9 @@ structure Answers (p : Project) (t : List (Event L E)) (dir treeDir : FilePath) 
     (⟨.readFile (under project rel), .ok text⟩ : Event L E) ∈ t →
       (rel = ["lean-toolchain"] → p.toolchainFile = some text) ∧ (rel = ["lakefile.toml"] → p.configFile = some text) ∧
         ∀ s ∈ p.sources, s.rel = rel → s.text = text
-  /-- A file of the project crosses no link. -/
+  /-- A file that `p` holds as a plain file is, by its real path, that path. -/
   real : ∀ project, (⟨.realPath dir, .ok project⟩ : Event L E) ∈ t → ∀ rel real,
-    (rel = ["lean-toolchain"] ∨ rel = ["lakefile.toml"] ∨ ∃ s ∈ p.sources, s.rel = rel) →
+    ((rel = ["lean-toolchain"] ∧ p.toolchainFile.isSome = true) ∨ (rel = ["lakefile.toml"] ∧ p.configFile.isSome = true) ∨ ∃ s ∈ p.sources, s.rel = rel) →
     (⟨.realPath (under project rel), .ok real⟩ : Event L E) ∈ t →
       Regula.Load.exactBelow project (under project rel) real = true
   /-- When the name `lakefile.lean` answers, `p` holds it. -/
@@ -89,7 +89,7 @@ structure Answers (p : Project) (t : List (Event L E)) (dir treeDir : FilePath) 
   /-- What Lake's TOML parser gave of a text: the key paths and the nesting that `p` states. -/
   toml : ∀ text table, (⟨.parseToml (mkInputContext text "lakefile.toml"), .ok table⟩ : Event L E) ∈ t →
     (∀ k, KeyPath .anonymous table k → k ∈ p.config.keys) ∧ ∀ n, Deeper n table → n ≤ p.config.nesting
-  /-- This program was started from outside the project. -/
+  /-- This program was started from outside the project, and from its own package's Lake. -/
   start : ∀ project sysroot program lakeLib app real leanPath, (⟨.realPath dir, .ok project⟩ : Event L E) ∈ t →
     SysrootIs t sysroot → (⟨.lakeInstall sysroot, (program, lakeLib)⟩ : Event L E) ∈ t →
     (⟨.appPath, .ok app⟩ : Event L E) ∈ t → (⟨.realPath app, .ok real⟩ : Event L E) ∈ t →
@@ -303,8 +303,8 @@ theorem planned_text (hd : p.InDomain) (ha : Answers p t dir treeDir) {project t
     exact .inr (.inr ⟨s, hsm, hp, (ha.read _ hs.project_real _ _ hread).2.2 s hsm rfl⟩)
 
 /-- **No reason holds of a project in the domain whose reads answer as its files state.** Each case of `Reason` meets a clause of the
-domain or of the answers. A case of `Reason` that no clause meets does not prove here, and a clause of `Answers` that only negates it would hide that:
-`reason_classified` says which are of that kind, the external answers and the conflicts. -/
+domain or of the answers. A case of `Reason` that no clause meets does not prove here. A clause of `Answers` that only negates a case would hide that, and those are
+the external answers and `notApart`, `configNotInTree`, the part of `moduleNotInTree` about a directory above a file, and `configShadowed`. -/
 theorem reason_excluded (hd : p.InDomain) (ha : Answers p t dir treeDir) {o : Outcome} : ¬ Reason t dir treeDir o := by
   intro hr
   have hsources {tree : FilePath} {path : FilePath} {s : SourceFile} (hs : s ∈ p.sources) (hp : parts path = parts tree ++ s.rel) :
@@ -320,7 +320,7 @@ theorem reason_excluded (hd : p.InDomain) (ha : Answers p t dir treeDir) {o : Ou
     exact hne htrim
   | toolchainFailed hp hr => exact ha.answered _ hr ⟨_, rfl⟩
   | toolchainNotExact hp hr hne =>
-    cases (ha.real _ hp ["lean-toolchain"] _ (.inl rfl) hr).symm.trans hne
+    cases (ha.real _ hp ["lean-toolchain"] _ (.inl ⟨rfl, by obtain ⟨t₀, h₀, -⟩ := hd.toolchain; rw [h₀]; rfl⟩) hr).symm.trans hne
   | toolchainNoReal hp hr => exact ha.answered _ hr ⟨_, rfl⟩
   | started hp hs hi hap hre hen hor =>
     obtain ⟨h1, own, h2, h3⟩ := ha.start _ _ _ _ _ _ _ hp hs hi hap hre hen
@@ -330,7 +330,7 @@ theorem reason_excluded (hd : p.InDomain) (ha : Answers p t dir treeDir) {o : Ou
     · rw [hb own h2] at h3
       cases h3
   | tomlNotExact hp hr hne =>
-    cases (ha.real _ hp ["lakefile.toml"] _ (.inr (.inl rfl)) hr).symm.trans hne
+    cases (ha.real _ hp ["lakefile.toml"] _ (.inr (.inl ⟨rfl, hd.plainConfig⟩)) hr).symm.trans hne
   | notApart hp ht hne => exact hne (ha.apart _ _ hp ht)
   | configNotInTree ht hpath hout =>
     obtain ⟨h1, h2, -⟩ := ha.copies _ ht
@@ -543,8 +543,8 @@ inductive Conflict (t : List (Event L E)) (dir treeDir : FilePath) : Prop where
   | shadowed {tree metadata} : (⟨.realPath treeDir, .ok tree⟩ : Event L E) ∈ t →
       (⟨.symlinkMetadata (tree / "lakefile.lean"), .ok metadata⟩ : Event L E) ∈ t → Conflict t dir treeDir
 
-/-- A project outside the published domain, by the clause of `Project.InDomain` that what the run read fails. Each case holds what a response said, and
-the reason a run prints for it says that. -/
+/-- A project outside the published domain, each case named for the clause of `Project.InDomain` that it bears on, and holding what a response said. The line that a run
+prints for such a case is read from the code (`Regula.Reader.findingLines`), and no theorem here states it. -/
 inductive OutsideDomain (t : List (Event L E)) (dir treeDir : FilePath) : Prop where
   /-- `toolchain`: `lean-toolchain` names another Lean. -/
   | toolchain {project text} : (⟨.realPath dir, .ok project⟩ : Event L E) ∈ t →
@@ -575,7 +575,7 @@ inductive OutsideDomain (t : List (Event L E)) (dir treeDir : FilePath) : Prop w
   | noClaim {project tree root} : Scene t dir treeDir project tree root [] → OutsideDomain t dir treeDir
   /-- `targetNames`: a target's name outside the closed domain. -/
   | targetName {tree root n} : TreeLoaded t dir treeDir tree root → n ∈ root.targets → ¬ ClosedModuleName n → OutsideDomain t dir treeDir
-  /-- `sources`: the file of a needed name is not a plain file by exactly its path. -/
+  /-- `claimRead` and `imports`: the file of a needed name is not a plain file by exactly its path, as a source is. -/
   | moduleNotPlain {project tree root modules m path rel real} : Scene t dir treeDir project tree root modules →
       Named t project tree root modules m → FileOfModule root modules m path → TreeRelative (parts tree) (parts path) rel →
       (⟨.realPath (under project rel), .ok real⟩ : Event L E) ∈ t → Regula.Load.exactBelow project (under project rel) real = false →
@@ -603,8 +603,8 @@ inductive OutsideDomain (t : List (Event L E)) (dir treeDir : FilePath) : Prop w
       (∀ x ∈ headers, ∀ i ∈ x.2, i.module ∈ held ∨ (headers.lookup i.module).isSome = true) →
       (∀ n, n ∈ mods ↔ ∃ m ∈ imports, Sees headers held m.module n) → ¬ FileAdmitted f → OutsideDomain t dir treeDir
 
-/-- **Each reason falls under exactly the class its case states**: a failed or differing external answer, a conflict in which one admission could not be
-about what is consumed, or the clause of the domain that the project fails. -/
+/-- **Each reason falls under one of three**: a failed or differing external answer, a conflict in which one admission could not be about what is consumed, or a clause
+of the domain that the project fails. Its proof sends each case of `Reason` to one. -/
 theorem reason_classified {o : Outcome} (h : Reason t dir treeDir o) :
     ExternalAnswer t dir treeDir ∨ Conflict t dir treeDir ∨ OutsideDomain t dir treeDir := by
   cases h with
@@ -668,7 +668,7 @@ theorem Conflict.excluded (h : Conflict t dir treeDir) (hd : p.InDomain) (ha : A
   | importedRoot h1 h2 h3 h4 h5 h6 => exact reason_excluded hd ha (.importedRoot h1 h2 h3 h4 h5 h6)
   | shadowed h1 h2 => exact reason_excluded hd ha (.configShadowed h1 h2)
 
-/-- **A reason that names a clause of the domain is true of the project**: what the run read fails that clause, for any project whose reads answer so. -/
+/-- **A reason of this class holds of no project in the domain**, among those whose reads answer so. -/
 theorem OutsideDomain.excluded (h : OutsideDomain t dir treeDir) (ha : Answers p t dir treeDir) : ¬ p.InDomain := by
   intro hd
   cases h with
@@ -733,8 +733,8 @@ theorem DomainRun.fullOwed {p : Project} {prof : Regula.Closed.Profile} (h : Dom
     exact h.answered e (hrules h1) h2
 
 /-- **A project in the published domain is owed a full pass.** For every program that meets the record and every run of the full gate
-on the pinned Lean: when the project at the directory is in the domain, its reads answer as its files state, no operation failed, the
-Lake commands included, and the rules hold of what the build gave, the run exits with 0 and its last line is the full pass. This
+on the pinned Lean: when the project at the directory is in the domain, its reads answer as `Answers` states, no answer failed as `Event.failed` counts one, the
+Lake commands' included, and the rules hold of what the build gave, the run exits with 0 and its last line is the full pass. This
 statement names no case of `Reason`. What it leaves out is what `Answers` and `answered` state: a failed read and a file that another process changes
 between two reads, which are no fault of the project, and a Lake command that fails, which a proof that does not check also gives, are not owed a pass. -/
 theorem domain_owed {w : List String → Prog L E UInt32} (hw : RunMeets w) {text dir : String} {prof : Regula.Closed.Profile}

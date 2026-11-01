@@ -10,15 +10,15 @@ import RegulaSpecification.Language
 # Which projects a full verdict is owed to
 
 This module states the domain of the full verdict: the projects to which a run of the full gate owes a pass when its
-reads answer consistently, its Lake commands succeed and the rules hold. It says this in the terms of a project's author:
+reads answer as `Answers` says, its Lake commands succeed and the rules hold. It says this in the terms of a project's author:
 what `lakefile.toml` says, what its files hold, and what the closed language admits. It imports neither the program that
 reads a project nor the relation `Reason` that lists a run's refusals, so that it can be compared with them: the
 definition of healthy that once was the absence of every refusal left out a healthy project (a `srcDir` spelled `./`
 beside one spelled `.`).
 
 `RegulaSpecification.Proofs.Domain` relates this statement to the run. It proves that every reason falls under a failed or
-differing answer, a project outside this domain, or a conflict, and that a project in this domain whose reads answer
-consistently is owed a pass.
+differing answer, a clause of this domain that the project fails, or a conflict, and that a project in this domain whose reads answer as `Answers` says,
+whose Lake commands succeed and whose rules hold is owed a pass.
 
 The statement is a design of the owner's delegated agents, derived from the owner's account (`confirmation.md`), and no
 statement of the owner's.
@@ -42,7 +42,7 @@ def splitAtSlash : List Char → List (List Char)
 
 /-- What a directory's spelling names: the components that `/` separates, with each empty one and each `.` left out. So
 `.`, `./`, the empty string and `.//` name no component, and `a/b`, `a//b`, `./a/b/` and `a/./b` name the same two. Two
-spellings with the same components are **one spelling** of one directory. This is about the text alone, and takes no file
+spellings with the same components, both relative or both absolute, are **one spelling** of one directory (`OneSpelling`). This is about the text alone, and takes no file
 system: on POSIX a `.` component and an empty one change nothing, and nothing here follows a link or folds a case. -/
 def components (s : String) : List String :=
   ((splitAtSlash s.toList).map String.ofList).filter fun c => c != "" && c != "."
@@ -199,7 +199,7 @@ structure InDomain : Prop where
   /-- One name, one file: the targets that hold a module name it with one file, up to spelling, because the build makes
   one output for a name and an admission must be about the file that output comes from. -/
   oneFile : ∀ x ∈ c.claim, ∀ y ∈ c.claim, x.1 = y.1 → x.2 = y.2
-  /-- An import of a claimed name reaches that same file. -/
+  /-- An import of a claimed name that Lake's resolution covers reaches that same file. -/
   resolvesToClaim : ∀ x ∈ c.claim, ∀ rel, c.resolve x.1 = some rel → rel = x.2
   /-- Each default target names a target, because Lake's build refuses one that names nothing. -/
   defaultsDeclared : ∀ n ∈ c.defaultTargets, n ∈ c.targetNames
@@ -232,7 +232,7 @@ structure Project where
   configFile : Option String
   /-- What that text says. -/
   config : Configuration
-  /-- Each Lean file that the claim reaches through its imports, each a plain file by exactly its path. -/
+  /-- The Lean files of the project that this statement reads: at least each one that the claim reaches through its imports, each a plain file by exactly its path. -/
   sources : List SourceFile
   /-- The modules of the toolchain's own library that a file of the project imports. -/
   toolchainModules : List Name
@@ -243,7 +243,7 @@ variable (p : Project)
 
 /-- **The domain of the full verdict.** A project is inside it when each of these holds, and a project inside it is owed a pass when the reads
 answer as its files state, the Lake commands succeed and the rules hold (`domain_owed`). This says who is owed a pass, and not what happens to
-anyone else: a reason that rests on the project names the clause it fails (`OutsideDomain`), and a project outside it for which no reason holds goes
+anyone else: a reason that rests on the project is a case of `OutsideDomain`, named for the clause it fails, and a project outside it for which no reason holds goes
 on to Lake's commands, as a default target that names nothing does, which Lake's build refuses. -/
 structure InDomain : Prop where
   /-- `lean-toolchain` is a plain file that names the one Lean this revision reads. -/
@@ -279,7 +279,7 @@ structure InDomain : Prop where
   That its name is no other spelling of `lakefile.lean` on the tree's volume is what the file system answers, and not a
   statement about text: see `Answers.shadow`. -/
   oneRole : ∀ s ∈ p.sources, s.rel ≠ ["lakefile.lean"] ∧ s.rel ≠ ["lakefile.toml"] ∧ s.rel ≠ ["lean-toolchain"]
-  /-- No component of a source's path is empty or starts with `.`, which a relative source directory and a closed module name give. -/
+  /-- No component of a source's path is empty or starts with `.`. -/
   sourcePath : ∀ s ∈ p.sources, ∀ c ∈ s.rel, c ≠ "" ∧ c.front ≠ '.'
   /-- The roots and the imports stay within what the reader follows. -/
   bounded : p.config.claim.length + (p.sources.map (·.imports.size)).sum ≤ 1000000
