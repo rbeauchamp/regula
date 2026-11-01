@@ -2,6 +2,21 @@
 
 This file records what the owner confirmed of Regula's specification, in the owner's words.
 
+## 2026-11-01
+
+The owner added a constraint over all Regula work and confirmed the restatement that follows, which the owner's delegated agent wrote. The agent decided on the owner's behalf that the README states being the most trusted linter as an aim, because the restatement allows no superlative in public until the proofs back it, and that the constraint stays a written rule with no enforcement in code, because a violation is caught at review and is easy to undo. Neither decision is the owner's confirmation.
+
+> Regula is meant to be to Lean linters what seL4 is to kernels: the most trusted one, because its claim is exact and proved. Simplicity is how that becomes achievable, as in LionsOS, where each component does only the minimum its use case needs.
+>
+> - Removal comes first: before adding or repairing anything, ask whether it can be deleted, or its input narrowed, so the need goes away.
+> - Hard proofs are a warning: a proof far harder than the code it covers means the code should get simpler, not only better proved.
+> - Simplicity never replaces proof: RG1001 to RG1006, the two verdicts and "no bugs" all stand.
+> - One use case: one toolchain, one way to run it, a closed input, and a truthful refusal for anything else. Refusing something outside a narrow published contract is not a false refusal.
+> - An seL4-style claim: exactly what is proved, for which inputs, under which listed assumptions, with no superlatives in public until the proofs back them.
+> - The work follows it too: the simplest analysis that answers the question, with no frameworks.
+>
+> The owner's examples: this rules out adding 1,000 lines to keep an unusual folder layout working, adding a mode to avoid a refusal, or keeping a tool in the repository for one analysis. It still allows a long proof of something truly hard, such as the two-way axiom rules.
+
 ## 2026-10-31
 
 - **"Approve with floor"**: the owner's answer to a restatement of the owner's direction of that day, with RG1001 to RG1006 as the floor. Being free of bugs outranks every lint rule and feature, and Regula gives up what it cannot prove.
