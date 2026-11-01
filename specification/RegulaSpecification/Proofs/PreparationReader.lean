@@ -26,14 +26,6 @@ theorem ReadingLoaded.prepend {prior before t : List (Event L E)} {project tree 
   · exact .inr ⟨before ++ pre, rest, modules, by simp [List.append_assoc], hq.append hp,
       by simpa [List.append_assoc] using hm, by simpa [List.append_assoc] using hc⟩
 
-theorem ReadingLoad.prepend {prior before t : List (Event L E)} {sysroot : String} {project tree : FilePath}
-    (hq : Quiet before) (h : ReadingLoad (prior ++ before) sysroot project tree t) :
-    ReadingLoad prior sysroot project tree (before ++ t) := by
-  rcases h with h | ⟨pre, response, rest, rfl, hp, hc⟩
-  · exact .inl (hq.append h)
-  · exact .inr ⟨before ++ pre, response, rest, by simp [List.append_assoc], hq.append hp,
-      by simpa [List.append_assoc] using hc⟩
-
 theorem ReadingLoaded.appendQuiet {prior t after : List (Event L E)} {project tree : FilePath} {root : Root L}
     (h : ReadingLoaded prior project tree root t) (hq : Quiet after) :
     ReadingLoaded prior project tree root (t ++ after) := by

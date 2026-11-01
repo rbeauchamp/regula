@@ -996,10 +996,6 @@ theorem profileOfRun_ok' {version commit text : String} {p : Regula.Closed.Profi
   have hs : supportsLean version commit = true := (supportsLean_iff (version, commit)).mpr hv
   simp [profileOfRun, hs, h]
 
-theorem argsOf_full (a dir : String) : argsOf [a, "full", dir] = ([a], some dir) := rfl
-
-theorem argsOf_one (a : String) : argsOf [a] = ([a], none) := rfl
-
 theorem argsOf_other {args : List String} (h : ∀ a dir, args ≠ [a, "full", dir]) :
     argsOf args = (args, none) := by
   unfold argsOf

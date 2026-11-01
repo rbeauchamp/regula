@@ -42,14 +42,10 @@ def splitAtSlash : List Char → List (List Char)
 
 /-- What a directory's spelling names: the components that `/` separates, with each empty one and each `.` left out. So
 `.`, `./`, the empty string and `.//` name no component, and `a/b`, `a//b`, `./a/b/` and `a/./b` name the same two. Two
-spellings with the same components, both relative or both absolute, are **one spelling** of one directory (`OneSpelling`). This is about the text alone, and takes no file
+spellings with the same components, both relative or both absolute, are one directory. This is about the text alone, and takes no file
 system: on POSIX a `.` component and an empty one change nothing, and nothing here follows a link or folds a case. -/
 def components (s : String) : List String :=
   ((splitAtSlash s.toList).map String.ofList).filter fun c => c != "" && c != "."
-
-/-- Two spellings of one directory: the same components, and both relative or both absolute. -/
-def OneSpelling (a b : String) : Prop :=
-  components a = components b ∧ (a.front = '/' ↔ b.front = '/')
 
 /-- A directory that lies below the project, whatever it holds: its spelling is relative, and no component starts with
 `.`, so none is `..` and none is `.lake`. -/

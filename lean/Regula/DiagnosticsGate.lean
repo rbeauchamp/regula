@@ -27,10 +27,10 @@ about what they decide.
 `runSteps` is the decision the program executes, and its theorems are checked by the kernel each
 time `lean --run` elaborates this file. `specification/RegulaSpecification/Proofs/Gate.lean` proves, at `IO`, that `runLocal`
 gives 0 only when, for each file that `checkerFiles` lists, the bytes that a read of it gave are what a write joined to
-its directory took, and then each step gave 0, with that directory as the checker and the working directory as the
-project. That a step then builds what was written and checks this checkout rests on what `localSteps` names, the
-file system and Lake, which that theorem does not state. Which files exist is what `System.FilePath.walkDir` lists, which is Lean's. Starting a step, its exit code and what the step does are
-trusted effects of the operating system and of Lake. `lake` is the program that `PATH` selects. Each
+its directory took, and then each step spawned its own `lake` command and that child's wait gave 0, with that directory as
+the checker and the working directory as the project. That a step then builds what was written and checks this checkout
+rests on what `localSteps` names, the file system and Lake, which that theorem does not state. Which files exist is what `System.FilePath.walkDir` lists, which is Lean's. What the step does and what its exit code means are
+trusted effects of the operating system and of Lake. `lake` is the program that `PATH` selects, and no theorem says which that is. Each
 step sees the checkout as the step before it left it: the gate assumes that no other process changes
 the build between its steps. -/
 
@@ -111,13 +111,17 @@ def exitOf : Option (Step × UInt32) → UInt32
 theorem exitOf_eq_zero_iff (r : Option (Step × UInt32)) : exitOf r = 0 ↔ r = none := by
   cases r <;> simp [exitOf]
 
+/-- Say which step runs next, before its own output. -/
+def announce (step : Step) : IO Unit := do
+  IO.println s!"local gate: lake {" ".intercalate step.arguments} (in {step.dir})"
+  (← IO.getStdout).flush
+
 /-- Run `step`, with the standard streams of this process, and give its exit code. The inherited
 Lean search paths are removed, so a Lake command resolves modules only through the workspace it runs
 in. Lake's artifact cache is off: a module that Lake restores from that cache replays no warning, so
 `lake build --wfail` would not see it. -/
 def runStep (step : Step) : IO UInt32 := do
-  IO.println s!"local gate: lake {" ".intercalate step.arguments} (in {step.dir})"
-  (← IO.getStdout).flush
+  announce step
   let child ← IO.Process.spawn
     { cmd := "lake", args := step.arguments.toArray, cwd := some (System.FilePath.mk step.dir),
       stdin := .null,

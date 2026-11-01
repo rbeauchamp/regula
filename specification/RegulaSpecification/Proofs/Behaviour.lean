@@ -111,8 +111,6 @@ load is Lake's. `Takes` is the file it reads as the configuration, as a name in 
 structure LakeSelection (t : List (Event L E)) (real : FilePath) where
   /-- Lake takes this file as the configuration of the directory `real`. -/
   Takes : FilePath → Prop
-  /-- Lake takes some file: this hypothesis is about a directory whose load reads a configuration. -/
-  takesOne : ∃ path, Takes path
   /-- H5, read at a run whose file system answered that nothing has the preferred name. -/
   h5 : ∀ err path, (⟨.symlinkMetadata (real / "lakefile.lean"), .error err⟩ : Event L E) ∈ t →
     (∃ name code details, err = .noFileOrDirectory name code details) → Takes path → parts path = parts (real / "lakefile.toml")
@@ -121,8 +119,8 @@ structure LakeSelection (t : List (Event L E)) (real : FilePath) where
 theorem lakeSelection_model (real : FilePath) (err : IO.Error) :
     (∃ B : LakeSelection (L := L) (E := E) [] real, B.Takes (real / "lakefile.lean")) ∧
       ∃ B : LakeSelection (L := L) (E := E) [⟨.symlinkMetadata (real / "lakefile.lean"), .error err⟩] real, B.Takes (real / "lakefile.toml") :=
-  ⟨⟨⟨(· = real / "lakefile.lean"), ⟨_, rfl⟩, fun _ _ h => by cases h⟩, rfl⟩,
-    ⟨(parts · = parts (real / "lakefile.toml")), ⟨_, rfl⟩, fun _ _ _ _ h => h⟩, rfl⟩
+  ⟨⟨⟨(· = real / "lakefile.lean"), fun _ _ h => by cases h⟩, rfl⟩,
+    ⟨(parts · = parts (real / "lakefile.toml")), fun _ _ _ _ h => h⟩, rfl⟩
 
 /-- **Under H5, Lake takes the configuration judged**, at each consumer of a full run, on one answer for each operation: `real` is the real path of this run's tree, `path`
 has the components of `lakefile.toml` there, a read through `path` in the last part of the reading gave the text that Lake's parser read, and each file that Lake takes in

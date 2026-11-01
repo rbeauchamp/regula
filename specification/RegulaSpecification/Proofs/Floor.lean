@@ -116,7 +116,7 @@ def Admits : Regula.Closed.Profile → Name → Prop
   | .choiceFree, n => (n = ``propext ∨ n = ``Quot.sound) ∧ a.InToolchain n
   | .standardLogical, n => (n = ``propext ∨ n = ``Quot.sound ∨ n = ``Classical.choice) ∧ a.InToolchain n
 
-/-- A constant that is the recursion helper of a safe definition of the module `m`, as Lean's compiler makes one. -/
+/-- A constant of the exempted form beside a safe definition of the module `m`, which names no origin. -/
 def Helper (n : Name) (info : ConstantInfo) (m : Name) : Prop :=
   info.isPartial = true ∧ info.isUnsafe = false ∧
     Lean.Compiler.getImplementedBy? a.env n = none ∧ Lean.isExtern a.env n = false ∧
