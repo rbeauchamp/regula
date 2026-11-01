@@ -46,7 +46,7 @@ theorem plain_exit_zero {t : List (Event L E)} {p : Regula.Closed.Profile} (h : 
 commands ended with 0 on the tree; and the rules passed on what the load of that build gave. -/
 theorem full_exit_zero {t : List (Event L E)} {dir : FilePath} {p : Regula.Closed.Profile} (h : FullRun t dir p 0) :
     ∃ (tree : FilePath) (sysroot : String) (tRead tBuild tRules : List (Event L E)) (r : Reading), Inside r ∧
-      Evidence tRead dir tree r ∧ (∀ e ∈ tRead, ¬ e.failed) ∧
+      Evidence tRead dir tree (written tRead) r ∧ (∀ e ∈ tRead, ¬ e.failed) ∧
       (∃ program lakeLib,
         ([⟨.lakeInstall sysroot, (program, lakeLib)⟩, ⟨.runLake program tree ["build", "--wfail"], .ok 0⟩,
           ⟨.runLake program tree replayArguments, .ok 0⟩] : List (Event L E)).Sublist tBuild) ∧
@@ -83,22 +83,25 @@ structure LakeBehaviour (headers : List (Name × Array Import)) (root : Root L)
   /-- H3. -/
   h3 : ∀ m path, Compiles m path → Compiled headers root modules m path
 
-/-- Every file Lake would compile for the claim is read, under H3: for an admitted reading, the file of each module that
-Lake compiles is what the reading holds of it. -/
-theorem read_what_lake_compiles {t : List (Event L E)} {dir tree : FilePath} {r : Reading}
-    (h : Evidence t dir tree r) :
+/-- Every file Lake would compile for the claim is read, under H3, and its state is what was judged: for an admitted reading
+and the state `held` of its `Evidence`, the file of each module that Lake compiles holds the text that the reading's file of
+that module was parsed from. H3 says what Lake compiles. That Lake reads such a file as it stands is the rest of H3, and no
+theorem here examines it. -/
+theorem read_what_lake_compiles {t : List (Event L E)} {dir tree : FilePath} {held : List String → Option String} {r : Reading}
+    (h : Evidence t dir tree held r) :
     ∃ (project real : FilePath) (sysroot : String) (root : Root L) (log : List String)
       (modules : List (Name × FilePath)) (headers : List (Name × Array Import)),
       (⟨.realPath dir, .ok project⟩ : Event L E) ∈ t ∧
       (⟨.loadRoot sysroot real, .ok (some root, log)⟩ : Event L E) ∈ t ∧
       DefaultModules t root root.defaultTargets modules ∧
       ∀ (B : LakeBehaviour headers root modules) m path, B.Compiles m path →
-        ∃ f ∈ r.files, f.module = m ∧ ∃ imports mods, ReadAs t project real f path imports mods := by
-  obtain ⟨project, real, hp, -, -, -, -, -, -, -, -, sysroot, root, log, modules, -, hl, hd, -, -, -, -, -, -, headers, -, -, -,
+        ∃ f ∈ r.files, f.module = m ∧ ∃ imports mods text, ReadText t project real f path imports mods text ∧
+          held (parts path) = some text := by
+  obtain ⟨project, real, hp, -, -, -, -, -, -, -, -, -, sysroot, root, log, modules, -, hl, hd, -, -, -, -, -, -, headers, -, -, -,
     hc, -⟩ := h
   refine ⟨project, real, sysroot, root, log, modules, headers, hp, hl, hd, fun B m path hb => ?_⟩
-  obtain ⟨-, f, hf, hm, i, md, -, hra⟩ := hc m path (B.h3 m path hb)
-  exact ⟨f, hf, hm, i, md, hra⟩
+  obtain ⟨-, f, hf, hm, i, md, tx, -, hra, hst⟩ := hc m path (B.h3 m path hb)
+  exact ⟨f, hf, hm, i, md, tx, hra, hst⟩
 
 /-- H4: what successful `IO.FS.realPath` responses in this trace mean. Lean documents that the result contains no
 symbolic links and coincides with POSIX `realpath` (`Init/System/IO.lean:874-881` at v4.35.0). The hypothesis relates
@@ -135,7 +138,7 @@ theorem read_no_link {t : List (Event L E)} {project tree path : FilePath} {f : 
     (h : ReadAs t project tree f path imports mods) :
     ∃ (rel : List String) (real : FilePath), (⟨.realPath (under project rel), .ok real⟩ : Event L E) ∈ t ∧
       ¬ B.Crosses (under project rel) := by
-  obtain ⟨rel, real, _, _, _, _, _, _, -, hr, -, hsub, -⟩ := h
+  obtain ⟨_, rel, real, _, _, _, _, _, -, hr, -, hsub, -⟩ := h
   have observed := hsub.subset (by simp : (⟨.realPath (under project rel), .ok real⟩ : Event L E) ∈ _)
   exact ⟨rel, real, observed, fun hc => B.h4 _ _ observed hc hr⟩
 

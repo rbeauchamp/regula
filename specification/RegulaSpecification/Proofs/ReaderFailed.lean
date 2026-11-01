@@ -90,12 +90,23 @@ theorem sound_writeInTree (tree path : FilePath) (text : String) :
   · exact sound_throw _
 
 theorem sound_readSource (project tree path : FilePath) : Sound (readSource project tree path : Attempt L E _) := by
-  rw [readSource, copyToTree]
+  rw [readSource, readForTree]
   refine sound_seq ?_ fun text => sound_seq ?_ fun _ => sound_pure _
   · split
     · exact sound_throw _
-    · exact sound_seq (sound_readExact _ _) fun _ => sound_seq (sound_writeInTree _ _ _) fun _ => sound_pure _
+    · split
+      · exact sound_readExact _ _
+      · exact sound_throw _
   · sound_io
+
+theorem sound_writeSources (tree : FilePath) (srcs : List (Name × Source)) :
+    Sound (writeSources tree srcs : Attempt L E _) := by
+  induction srcs with
+  | nil => rw [writeSources]; exact sound_pure _
+  | cons x rest ih =>
+    obtain ⟨m, s⟩ := x
+    rw [writeSources]
+    exact sound_seq (sound_writeInTree _ _ _) fun _ => ih
 
 theorem sound_toolchainOLean (dirs : List FilePath) (m : Name) :
     Sound (toolchainOLean dirs m : Attempt L E _) := by
@@ -236,9 +247,10 @@ theorem stopped_not_admitted {tf : Option String} {l : Bool} {k : List Name} {wh
   have := (admitted_fields h).2.2.2.1
   simp [stopped] at this
 
-theorem readFiles_no_failed {project tree : FilePath} {root : Root L} {modules : List (Name × FilePath)}
+theorem readFiles_no_failed {config : List (FilePath × String)} {project tree : FilePath} {root : Root L}
+    {modules : List (Name × FilePath)}
     {start r : Reading} {srcs : List (Name × Source)} {t : List (Event L E)}
-    (h : Runs (readFiles project tree root modules start : Attempt L E _).run t (.ok (r, srcs)))
+    (h : Runs (readFiles config project tree root modules start : Attempt L E _).run t (.ok (r, srcs)))
     (ha : decision r = .admitted) : (∀ e ∈ t, ¬ e.failed) ∧ r.toolchainFile = start.toolchainFile := by
   rw [readFiles] at h
   obtain ⟨t₁, t₂, r₁, rfl, h₁, h₂⟩ := runs_attempt_bind_iff.mp h
@@ -251,59 +263,52 @@ theorem readFiles_no_failed {project tree : FilePath} {root : Root L} {modules :
     obtain ⟨t₅, t₆, r₅, rfl, h₆, h₇⟩ := runs_attempt_bind_iff.mp h₅
     obtain ⟨w, h₈, rfl⟩ := runs_lift_iff.mp h₆
     dsimp only at h₇
-    have hcase : ∀ e ∈ t₆, ¬ e.failed ∧ True := by
+    have hcase : (∀ e ∈ t₆, ¬ e.failed) ∧ r.unread = (baseReading config start root modules w).unread ∧
+        r.toolchainFile = start.toolchainFile := by
       split at h₇
-      · obtain ⟨rfl, -⟩ := runs_attempt_pure_iff.mp h₇
-        intro e he
+      · obtain ⟨rfl, he⟩ := runs_attempt_pure_iff.mp h₇
         cases he
+        exact ⟨fun e he => (by cases he), rfl, rfl⟩
       · obtain ⟨t₇, t₈, r₇, rfl, h₉, h₁₀⟩ := runs_attempt_bind_iff.mp h₇
         cases r₇ with
         | error x => cases h₁₀.2
         | ok files =>
-          obtain ⟨rfl, -⟩ := runs_attempt_pure_iff.mp h₁₀
-          intro e he
-          simp only [List.append_nil] at he
-          exact ⟨sound_parseFiles _ _ _ _ _ _ h₉ e he, trivial⟩
-    have hw : w.unread = [] := by
-      have hu : r.unread = w.unread.reverse ++ importedExecutableRoots root modules w.sources.reverse := by
-        split at h₇
-        · obtain ⟨-, he⟩ := runs_attempt_pure_iff.mp h₇
-          cases he
-          rfl
-        · obtain ⟨t₇, t₈, r₇, -, -, h₁₀⟩ := runs_attempt_bind_iff.mp h₇
-          cases r₇ with
-          | error x => cases h₁₀.2
-          | ok files =>
-            obtain ⟨-, he⟩ := runs_attempt_pure_iff.mp h₁₀
+          dsimp only at h₁₀
+          split at h₁₀
+          · obtain ⟨t₉, t₁₀, r₉, rfl, h₁₁, h₁₂⟩ := runs_attempt_bind_iff.mp h₁₀
+            cases r₉ with
+            | error x => cases h₁₂.2
+            | ok v =>
+              obtain ⟨rfl, he⟩ := runs_attempt_pure_iff.mp h₁₂
+              cases he
+              refine ⟨fun e he => ?_, rfl, rfl⟩
+              simp only [List.append_nil] at he
+              rcases List.mem_append.mp he with he | he
+              · exact sound_parseFiles _ _ _ _ _ _ h₉ e he
+              · exact sound_writeSources _ _ _ _ h₁₁ e he
+          · obtain ⟨rfl, he⟩ := runs_attempt_pure_iff.mp h₁₀
             cases he
-            rfl
+            refine ⟨fun e he => ?_, rfl, rfl⟩
+            simp only [List.append_nil] at he
+            exact sound_parseFiles _ _ _ _ _ _ h₉ e he
+    have hw : w.unread = [] := by
       have := (admitted_fields ha).2.2.2.1
-      rw [hu] at this
-      simpa using (List.append_eq_nil_iff.mp this).1
+      rw [hcase.2.1] at this
+      simp only [baseReading, List.append_eq_nil_iff, List.reverse_eq_nil_iff] at this
+      exact this.1.1
     obtain ⟨-, hwalk⟩ := walk_no_failed _ _ _ _ _ _ _ _ _ _ h₈ hw
-    have htf : r.toolchainFile = start.toolchainFile := by
-      split at h₇
-      · obtain ⟨-, he⟩ := runs_attempt_pure_iff.mp h₇
-        cases he
-        rfl
-      · obtain ⟨t₇, t₈, r₇, -, -, h₁₀⟩ := runs_attempt_bind_iff.mp h₇
-        cases r₇ with
-        | error x => cases h₁₀.2
-        | ok files =>
-          obtain ⟨-, he⟩ := runs_attempt_pure_iff.mp h₁₀
-          cases he
-          rfl
-    refine ⟨fun e he => ?_, htf⟩
+    refine ⟨fun e he => ?_, hcase.2.2⟩
     simp only [List.cons_append, List.nil_append, List.mem_cons, List.mem_append] at he
     rcases he with rfl | he | he | he
     · exact id
     · exact sound_realPaths _ _ _ h₄ e he
     · exact hwalk e he
-    · exact (hcase e he).1
+    · exact hcase.1 e he
 
-theorem readRoot_no_failed {sysroot : String} {project tree : FilePath} {start r : Reading}
-    {srcs : List (Name × Source)} {t : List (Event L E)}
-    (h : Runs (readRoot sysroot project tree start : Attempt L E _).run t (.ok (r, srcs)))
+
+theorem readRoot_no_failed {config : List (FilePath × String)} {sysroot : String} {project tree : FilePath}
+    {start r : Reading} {srcs : List (Name × Source)} {t : List (Event L E)}
+    (h : Runs (readRoot config sysroot project tree start : Attempt L E _).run t (.ok (r, srcs)))
     (ha : decision r = .admitted) : (∀ e ∈ t, ¬ e.failed) ∧ r.toolchainFile = start.toolchainFile := by
   rw [readRoot] at h
   obtain ⟨t₁, t₂, r₁, rfl, h₁, h₂⟩ := runs_attempt_bind_iff.mp h

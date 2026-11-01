@@ -119,59 +119,15 @@ theorem ModuleCopies.observations {project tree : FilePath} {root : Root L} {mod
   | cons e t ih =>
     exact .observe (h e (by simp)) (ih _ fun x hx => h x (by simp [hx]))
 
-/-- A source read either makes no act, or makes exactly one copy with the source response preceding it.
-The remainder, including a failed header parse, is observational. -/
-theorem readSource_preparation {project tree path : FilePath} {t : List (Event L E)}
-    {b : Except String Source} (h : Runs (readSource project tree path : Attempt L E Source).run t b) :
-    Quiet t ∨ ∃ before text step after complete,
-      t = before ++ step ++ after ∧ Quiet before ∧ SourceText before project tree path text ∧
-      CopyStep tree path text step complete ∧ Quiet after := by
-  rw [readSource] at h
-  obtain ⟨a, after, result, rfl, ha, hb⟩ := runs_attempt_bind_iff.mp h
-  have hafter : Quiet after := by
-    cases result with
-    | error error => obtain ⟨rfl, -⟩ := hb; exact quiet_nil
-    | ok text =>
-      exact (onlyA_seq (onlyA_attempt (only_call (P := QuietOp)
-        (o := .parseHeader (Lean.Parser.mkInputContext text path.toString)) trivial))
-        fun _ => onlyA_pure _) _ _ hb
-  rw [copyToTree] at ha
-  split at ha
-  · obtain ⟨rfl, rfl⟩ := runs_attempt_throw_iff.mp ha
-    exact .inl (by simpa using hafter)
-  · rename_i rel hrel
-    obtain ⟨before, rest, r, rfl, hr, ht⟩ := runs_attempt_bind_iff.mp ha
-    have hbefore : Quiet before := quiet_readExact _ _ _ _ hr
-    cases r with
-    | error error =>
-      obtain ⟨rfl, rfl⟩ := ht
-      exact .inl (by simpa using hbefore.append hafter)
-    | ok text =>
-      obtain ⟨step, tail, r, rfl, hs, hend⟩ := runs_attempt_bind_iff.mp ht
-      have hstep := writeInTree_preparation hs
-      have htail : tail = [] := by
-        cases r with
-        | error error => exact hend.1
-        | ok u => exact (runs_attempt_pure_iff.mp hend).1
-      subst htail
-      obtain ⟨real, he, -⟩ := (readExact_spec hr).1 text rfl
-      refine .inr ⟨before, text, step, after, r.isOk, by simp, hbefore,
-        ⟨rel, (treeRelative_iff _ _ _).mp hrel, ?_⟩, hstep, hafter⟩
-      simp [he, under, joinParts]
-
-/-- The source step may follow earlier named imports; it never obtains its text from a later read. -/
-theorem readSource_module {project tree path : FilePath} {root : Root L} {modules m}
-    {prior t : List (Event L E)} {b : Except String Source}
-    (hn : Named prior project tree root modules m) (hp : FileOfModule root modules m path)
-    (h : Runs (readSource project tree path : Attempt L E Source).run t b) :
-    ModuleCopies project tree root modules prior t := by
-  rcases readSource_preparation h with hq | ⟨before, text, step, after, complete, rfl, hb, hs, hc, ha⟩
-  · exact .observations _ fun e he => .inl (hq e he)
-  · rw [List.append_assoc]
-    apply ModuleCopies.append (.observations _ fun e he => .inl (hb e he))
-    exact .copy (Named.mono (List.sublist_append_left _ _) hn) hp
-      (SourceText.mono (List.sublist_append_right _ _) hs) hc
-      (.observations _ fun e he => .inl (ha e he))
+/-- A source read is only observation. -/
+theorem quiet_readSource (project tree path : FilePath) : OnlyAIn QuietOp (readSource project tree path : Attempt L E _) := by
+  rw [readSource, readForTree]
+  refine onlyA_seq ?_ fun _ => onlyA_seq (onlyA_attempt (only_call trivial)) fun _ => onlyA_pure _
+  split
+  · exact onlyA_throw _
+  · split
+    · exact quiet_readExact _ _
+    · exact onlyA_throw _
 
 theorem observing_toolchainOLean (dirs : List FilePath) (m : Name) :
     OnlyAIn (fun o => QuietOp o ∨ ParserSearchOp o) (toolchainOLean dirs m : Attempt L E _) := by
@@ -182,56 +138,127 @@ theorem observing_toolchainOLean (dirs : List FilePath) (m : Name) :
   · exact onlyA_pure _
   · exact onlyA_throw _
 
-/-- Every step of the walk is a copy of a name already directed by the prefix. Failed steps keep the
-same obligation for the later names; successful headers extend it only after their parse event. -/
+/-- The walk reads and acts on nothing. What it gives is what later copies need: each source's name is needed, by the
+imports that the prefix read, and its text is what the prefix read of its file. -/
 theorem walk_preparation (project tree : FilePath) (root : Root L) (modules : List (Name × FilePath))
     (dirs : List FilePath) (fuel : Nat) (todo : List Name) (w : Walk)
     {prior t : List (Event L E)} {out : Walk}
     (hn : ∀ m ∈ todo, Named prior project tree root modules m)
-    (h : Runs (walk project tree root modules dirs fuel todo w : Prog L E Walk) t out) :
-    ModuleCopies project tree root modules prior t := by
+    (h : Runs (walk project tree root modules dirs fuel todo w : Prog L E Walk) t out)
+    (hw : ∀ x ∈ w.sources, Named prior project tree root modules x.1 ∧ FileOfModule root modules x.1 x.2.path ∧
+      SourceText prior project tree x.2.path x.2.text) :
+    (∀ e ∈ t, QuietOp e.op ∨ ParserSearchOp e.op) ∧
+    ∀ x ∈ out.sources, Named (prior ++ t) project tree root modules x.1 ∧ FileOfModule root modules x.1 x.2.path ∧
+      SourceText (prior ++ t) project tree x.2.path x.2.text := by
+  have mono {a b : List (Event L E)} (hs : a.Sublist b) {x : Name × Source}
+      (hx : Named a project tree root modules x.1 ∧ FileOfModule root modules x.1 x.2.path ∧
+        SourceText a project tree x.2.path x.2.text) :
+      Named b project tree root modules x.1 ∧ FileOfModule root modules x.1 x.2.path ∧
+        SourceText b project tree x.2.path x.2.text :=
+    ⟨Named.mono hs hx.1, hx.2.1, SourceText.mono hs hx.2.2⟩
   induction fuel generalizing todo w prior t out with
   | zero =>
-    cases todo <;> obtain ⟨rfl, -⟩ := runs_pure_iff.mp h <;> exact .nil
+    cases todo <;> obtain ⟨rfl, rfl⟩ := runs_pure_iff.mp h <;>
+      exact ⟨fun e he => (by cases he), fun x hx => mono (List.sublist_append_left _ _) (hw x hx)⟩
   | succ fuel ih =>
     cases todo with
-    | nil => obtain ⟨rfl, -⟩ := runs_pure_iff.mp h; exact .nil
+    | nil =>
+      obtain ⟨rfl, rfl⟩ := runs_pure_iff.mp h
+      exact ⟨fun e he => (by cases he), fun x hx => mono (List.sublist_append_left _ _) (hw x hx)⟩
     | cons m rest =>
       rw [walk] at h
       have hm := hn m (by simp)
       have hr : ∀ n ∈ rest, Named prior project tree root modules n := fun n h => hn n (by simp [h])
       split at h
-      · exact ih rest w hr h
+      · exact ih rest _ hr h hw
       · split at h
-        · exact ih rest _ hr h
+        · exact ih rest _ hr h hw
         · split at h
-          · exact ih rest _ hr h
+          · exact ih rest _ hr h hw
           · cases hf : fileOf root modules m with
             | some path =>
               simp only [hf] at h
               obtain ⟨first, last, response, rfl, hfirst, hlast⟩ := runs_seq_iff.mp h
-              apply ModuleCopies.append (readSource_module hm (fileOf_mem hf) hfirst)
-              have hm' := Named.mono (List.sublist_append_left prior first) hm
+              have hq : ∀ e ∈ first, QuietOp e.op ∨ ParserSearchOp e.op :=
+                fun e he => .inl (quiet_readSource _ _ _ _ _ hfirst e he)
               have hr' : ∀ n ∈ rest, Named (prior ++ first) project tree root modules n :=
                 fun n h => Named.mono (List.sublist_append_left _ _) (hr n h)
+              have hw' : ∀ x ∈ w.sources, Named (prior ++ first) project tree root modules x.1 ∧
+                  FileOfModule root modules x.1 x.2.path ∧ SourceText (prior ++ first) project tree x.2.path x.2.text :=
+                fun x hx => mono (List.sublist_append_left _ _) (hw x hx)
               cases response with
-              | error error => exact ih rest _ hr' hlast
+              | error error =>
+                obtain ⟨g1, g2⟩ := ih rest _ hr' hlast hw'
+                refine ⟨fun e he => ?_, fun x hx => by simpa [List.append_assoc] using g2 x hx⟩
+                rcases List.mem_append.mp he with he | he
+                · exact hq e he
+                · exact g1 e he
               | ok source =>
                 have hs := (readSource_spec hfirst).1 source rfl
+                have hm' := Named.mono (List.sublist_append_left prior first) hm
                 have hh := headerOf_read hf (hs.mono (List.sublist_append_right prior first))
-                refine ih _ _ ?_ hlast
-                intro n hmem
-                rcases List.mem_append.mp hmem with hmem | hmem
-                · obtain ⟨i, hi, rfl⟩ := List.mem_map.mp hmem
-                  exact .imported hm' hh (Array.mem_toList_iff.mp hi)
-                · exact hr' n hmem
+                have hnew : ∀ x ∈ ({ w with reached := m :: w.reached, sources := (m, source) :: w.sources } : Walk).sources,
+                    Named (prior ++ first) project tree root modules x.1 ∧
+                    FileOfModule root modules x.1 x.2.path ∧ SourceText (prior ++ first) project tree x.2.path x.2.text := by
+                  intro x hx
+                  rcases List.mem_cons.mp hx with rfl | hx
+                  · obtain ⟨rel, real, text, hrel, -, -, hpath, ht, -, hsub⟩ := hs
+                    subst hpath
+                    refine ⟨hm', fileOf_mem hf, rel, hrel, ?_⟩
+                    rw [ht]
+                    exact List.mem_append_right _ (hsub.subset (List.mem_cons_of_mem _ (List.mem_cons_self ..)))
+                  · exact hw' x hx
+                obtain ⟨g1, g2⟩ := ih _ _ (fun n hmem => by
+                    rcases List.mem_append.mp hmem with hmem | hmem
+                    · obtain ⟨i, hi, rfl⟩ := List.mem_map.mp hmem
+                      exact .imported hm' hh (Array.mem_toList_iff.mp hi)
+                    · exact hr' n hmem) hlast hnew
+                refine ⟨fun e he => ?_, fun x hx => by simpa [List.append_assoc] using g2 x hx⟩
+                rcases List.mem_append.mp he with he | he
+                · exact hq e he
+                · exact g1 e he
             | none =>
               simp only [hf] at h
               obtain ⟨first, last, response, rfl, hfirst, hlast⟩ := runs_seq_iff.mp h
-              apply ModuleCopies.append (.observations _ (observing_toolchainOLean dirs m _ _ hfirst))
+              have hq := observing_toolchainOLean dirs m _ _ hfirst
               have hr' : ∀ n ∈ rest, Named (prior ++ first) project tree root modules n :=
                 fun n h => Named.mono (List.sublist_append_left _ _) (hr n h)
-              cases response <;> exact ih rest _ hr' hlast
+              have hw' : ∀ x ∈ w.sources, Named (prior ++ first) project tree root modules x.1 ∧
+                  FileOfModule root modules x.1 x.2.path ∧ SourceText (prior ++ first) project tree x.2.path x.2.text :=
+                fun x hx => mono (List.sublist_append_left _ _) (hw x hx)
+              cases response <;>
+                (obtain ⟨g1, g2⟩ := ih rest _ hr' hlast hw'
+                 refine ⟨fun e he => ?_, fun x hx => by simpa [List.append_assoc] using g2 x hx⟩
+                 rcases List.mem_append.mp he with he | he
+                 · exact hq e he
+                 · exact g1 e he)
+
+/-- `writeSources` copies each source, in order, each step using what the prefix read. -/
+theorem writeSources_preparation {project tree : FilePath} {root : Root L} {modules : List (Name × FilePath)}
+    {srcs : List (Name × Source)} {prior t : List (Event L E)} {b : Except String Unit}
+    (hs : ∀ x ∈ srcs, Named prior project tree root modules x.1 ∧ FileOfModule root modules x.1 x.2.path ∧
+      SourceText prior project tree x.2.path x.2.text)
+    (h : Runs (writeSources tree srcs : Attempt L E Unit).run t b) :
+    ModuleCopies project tree root modules prior t := by
+  induction srcs generalizing prior t b with
+  | nil =>
+    rw [writeSources] at h
+    obtain ⟨rfl, -⟩ := runs_attempt_pure_iff.mp h
+    exact .nil
+  | cons x rest ih =>
+    obtain ⟨m, s⟩ := x
+    rw [writeSources] at h
+    obtain ⟨first, last, response, rfl, hfirst, hlast⟩ := runs_attempt_bind_iff.mp h
+    obtain ⟨hn, hf, hst⟩ := hs (m, s) (List.mem_cons_self ..)
+    refine .copy hn hf hst (writeInTree_preparation hfirst) ?_
+    cases response with
+    | error error =>
+      obtain ⟨rfl, -⟩ := hlast
+      exact .nil
+    | ok u =>
+      refine ih (fun y hy => ?_) hlast
+      obtain ⟨g1, g2, g3⟩ := hs y (List.mem_cons_of_mem _ hy)
+      exact ⟨Named.mono (List.sublist_append_left _ _) g1, g2, SourceText.mono (List.sublist_append_left _ _) g3⟩
 
 theorem quiet_parseAll (input) (env : E) (state) (messages) (fuel : Nat) :
     OnlyIn QuietOp (parseAll input env state messages fuel : Prog L E _) := by

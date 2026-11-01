@@ -72,12 +72,13 @@ theorem ReadingPreparation.appendQuiet {t after : List (Event L E)} {dir treeDir
   · exact .inr ⟨project, tree, sysroot, text, before, rest ++ after, by simp [List.append_assoc],
       hp, h1, h2, h3, h4, hc.appendQuiet hq⟩
 
-/-- `readFiles` meets `ReadingLoaded`: only observations, or its root's toolchain path set once, before every
-module copy, lookup and parser import, with no other set after it. -/
-theorem readFiles_preparation {prior t : List (Event L E)} {project tree : FilePath} {root : Root L}
+/-- `readFiles` meets `ReadingLoaded`: only observations, or its root's toolchain path set once, before every lookup, parser
+import and module copy, with no other set after it. The copies come last, each of a source that the walk read. -/
+theorem readFiles_preparation {config : List (FilePath × String)} {prior t : List (Event L E)} {project tree : FilePath}
+    {root : Root L}
     {modules : List (Name × FilePath)} {start : Reading} {b : Except String (Reading × List (Name × Source))}
     (hm : DefaultModules prior root root.defaultTargets modules)
-    (h : Runs (readFiles project tree root modules start : Attempt L E _).run t b) :
+    (h : Runs (readFiles config project tree root modules start : Attempt L E _).run t b) :
     ReadingLoaded prior project tree root t := by
   rw [readFiles] at h
   obtain ⟨a, rest, response, rfl, ha, hr⟩ := runs_attempt_bind_iff.mp h
@@ -93,21 +94,39 @@ theorem readFiles_preparation {prior t : List (Event L E)} {project tree : FileP
   | ok dirs =>
     obtain ⟨walkTrace, parseTrace, response, rfl, hw, hp⟩ := runs_attempt_bind_iff.mp hlast
     obtain ⟨w, hw', rfl⟩ := runs_lift_iff.mp hw
-    apply ModuleCopies.append (walk_preparation project tree root modules dirs _ _ _
-      (fun m h => .root h) hw')
+    obtain ⟨hobs, hsrc⟩ := walk_preparation (prior := prior ++ [] ++ [⟨.setSearchPath root.toolchain, ()⟩] ++ first)
+      project tree root modules dirs _ _ _ (fun m h => .root h) hw' (by simp)
+    apply ModuleCopies.append (.observations _ hobs)
     dsimp only at hp
     split at hp
     · obtain ⟨rfl, -⟩ := runs_attempt_pure_iff.mp hp; exact .nil
-    · obtain ⟨first, last, response, rfl, hfirst, hlast⟩ := runs_attempt_bind_iff.mp hp
-      apply ModuleCopies.append (.observations _ (observing_parseFiles _ _ _ _ _ _ hfirst))
-      cases response with
-      | error error => obtain ⟨rfl, -⟩ := hlast; exact .nil
-      | ok files => obtain ⟨rfl, -⟩ := runs_attempt_pure_iff.mp hlast; exact .nil
+    · obtain ⟨first', last', response', rfl, hfirst', hlast'⟩ := runs_attempt_bind_iff.mp hp
+      apply ModuleCopies.append (.observations _ (observing_parseFiles _ _ _ _ _ _ hfirst'))
+      cases response' with
+      | error error => obtain ⟨rfl, -⟩ := hlast'; exact .nil
+      | ok files =>
+        dsimp only at hlast'
+        split at hlast'
+        · obtain ⟨c1, c2, cr, rfl, hc, htail⟩ := runs_attempt_bind_iff.mp hlast'
+          have hcopies := writeSources_preparation (project := project) (root := root) (modules := modules)
+            (prior := prior ++ [] ++ [⟨.setSearchPath root.toolchain, ()⟩] ++ (first ++ (walkTrace ++ first'))) (fun x hx => by
+              have := hsrc x (List.mem_reverse.mp hx)
+              exact ⟨Named.mono (by simp [List.append_assoc]) this.1, this.2.1,
+                SourceText.mono (by simp [List.append_assoc]) this.2.2⟩) hc
+          have hend : c2 = [] := by
+            cases cr with
+            | error error => exact htail.1
+            | ok u => exact (runs_attempt_pure_iff.mp htail).1
+          subst hend
+          simpa [List.append_assoc] using hcopies
+        · obtain ⟨rfl, -⟩ := runs_attempt_pure_iff.mp hlast'
+          exact .nil
 
 /-- `readRoot` asks at most one load of the root, with only observations before it. -/
-theorem readRoot_preparation {prior t : List (Event L E)} {sysroot : String} {project tree : FilePath}
+theorem readRoot_preparation {config : List (FilePath × String)} {prior t : List (Event L E)} {sysroot : String}
+    {project tree : FilePath}
     {start : Reading} {b : Except String (Reading × List (Name × Source))}
-    (h : Runs (readRoot sysroot project tree start : Attempt L E _).run t b) :
+    (h : Runs (readRoot config sysroot project tree start : Attempt L E _).run t b) :
     ReadingLoad prior sysroot project tree t := by
   rw [readRoot] at h
   obtain ⟨first, rest, result, rfl, hfirst, hrest⟩ := runs_attempt_bind_iff.mp h

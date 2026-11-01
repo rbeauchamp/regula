@@ -403,6 +403,7 @@ theorem unrelated_read_no_reason {L E : Type} {u dir treeDir : FilePath} {e : IO
   | targetName h => exact htl h
   | twoFiles h => exact hsc h
   | twoRoots h => exact hsc h
+  | twoTexts h => exact hsc h
   | moduleName h => exact hsc h
   | importedRoot h => exact hsc h
   | notToolchain h => exact hsc h

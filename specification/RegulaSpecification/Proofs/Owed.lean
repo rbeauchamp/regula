@@ -151,11 +151,23 @@ theorem Named.mono {project tree : FilePath} {root : Root L} {modules m}
   | root hm => exact .root hm
   | imported _ hh hi ih => exact .imported ih (HeaderOf.mono hs hh) hi
 
+theorem ReadText.mono {project tree : FilePath} {f path imports mods text}
+    (h : ReadText T project tree f path imports mods text) : ReadText T' project tree f path imports mods text := by
+  obtain ⟨rel, real, state, messages, final, env, commands, h1, h2, h3, h4, h5, h6, h7, h8⟩ := h
+  exact ⟨rel, real, state, messages, final, env, commands, h1, h2, h3, h4.trans hs, hs.subset h5, h6,
+    h7.trans hs, h8⟩
+
 theorem ReadAs.mono {project tree : FilePath} {f path imports mods}
     (h : ReadAs T project tree f path imports mods) : ReadAs T' project tree f path imports mods := by
-  obtain ⟨rel, real, text, state, messages, final, env, commands, h1, h2, h3, h4, h5, h6, h7, h8⟩ := h
-  exact ⟨rel, real, text, state, messages, final, env, commands, h1, h2, h3, h4.trans hs, hs.subset h5, h6,
-    h7.trans hs, h8⟩
+  obtain ⟨text, h⟩ := h
+  exact ⟨text, ReadText.mono hs h⟩
+
+theorem Planned.mono {project tree : FilePath} {root : Root L} {modules path text}
+    (h : Planned T project tree root modules path text) : Planned T' project tree root modules path text := by
+  cases h with
+  | toml h => exact .toml (hs.subset h)
+  | toolchain => exact .toolchain
+  | source h1 h2 h3 => exact .source (Named.mono hs h1) h2 (SourceText.mono hs h3)
 
 omit hs in
 theorem Needed.mono (hi : T <:+: T') {dir treeDir : FilePath} {o : Op L E}
@@ -227,6 +239,7 @@ theorem Reason.mono (hi : T <:+: T') {dir treeDir : FilePath} {o}
   | targetName h1 h2 h3 => exact .targetName (tl h1) h2 h3
   | twoFiles h1 h2 h3 h4 => exact .twoFiles (sc h1) h2 h3 h4
   | twoRoots h1 h2 h3 h4 => exact .twoRoots (sc h1) h2 h3 h4
+  | twoTexts h1 h2 h3 h4 h5 => exact .twoTexts (sc h1) (Planned.mono hs h2) (Planned.mono hs h3) h4 h5
   | moduleName h1 h2 h3 => exact .moduleName (sc h1) (nm h2) h3
   | importedRoot h1 h2 h3 h4 h5 h6 => exact .importedRoot (sc h1) (nm h2) (hd h3) h4 h5 h6
   | notToolchain h1 h2 h3 h4 h5 h6 h7 h8 =>
@@ -444,5 +457,43 @@ theorem manufacturer_fails {name : String} (h1 : name ≠ "LEAN_SYSROOT") (h2 : 
       rcases hno h with h | h | h <;> first | (cases h; exact h2 rfl) | cases h
     | elsewhere _ _ h => rcases hno h with h | h | h <;> cases h
     | build h _ => exact hplain _ h
+
+theorem StartedOutside.mono {T T' : List (Event L E)} (hs : T.Sublist T') {project lakeLib : FilePath}
+    (h : StartedOutside T project lakeLib) : StartedOutside T' project lakeLib := by
+  obtain ⟨a, b, c, d, h1, h2, h3, h4⟩ := h
+  exact ⟨a, b, c, d, hs.subset h1, hs.subset h2, hs.subset h3, h4⟩
+
+/-- The evidence of a reading stands in a larger trace, of the same state of the tree. What it keeps about the trace is what
+the run read and parsed, and what a run's own act can change after that is its state `held`, which this does not move. -/
+theorem Evidence.mono {T T' : List (Event L E)} (hs : T.Sublist T') {dir treeDir : FilePath}
+    {stands : List String → Option String} {r : Reading}
+    (h : Evidence T dir treeDir stands r) : Evidence T' dir treeDir stands r := by
+  obtain ⟨project, tree, hp, ht, hap, ⟨s1, prog1, lib1, hs1, hl1, hst⟩, ⟨a1, a2, a3, a4, a5, a6, a7⟩,
+    ⟨eabs, habs, hna⟩, ⟨text, real, table, hr1, hr2, hr3, hr4, hr5, hr6, hnd, hkeys⟩, hpin, hc1, hc2, sysroot, root, log,
+    modules, hsys, hload, hdef, hroots, hdirs, hglobs, htargets, hres, htwo, headers, held, hcount, hnodup, hcomp,
+    hheld, hfiles, honly⟩ := h.places
+  have m {e : Event L E} (he : e ∈ T) : e ∈ T' := hs.subset he
+  refine ⟨project, tree, m hp, m ht, hap, ⟨s1, prog1, lib1, m hs1, m hl1, StartedOutside.mono hs hst⟩,
+    ⟨a1, a2, m a3, m a4, a5, a6, a7⟩, ⟨eabs, m habs, hna⟩,
+    ⟨text, real, table, m hr1, hr2, hr3, m hr4, m hr5, hr6, hnd, hkeys⟩, hpin, hc1, hc2, sysroot, root, log, modules,
+    m hsys, m hload, DefaultModules.mono hs hdef, hroots, hdirs, hglobs, htargets, hres, htwo, headers, held, hcount,
+    hnodup, ?_, fun n hn => HeldByToolchain.mono hs (hheld n hn), ?_, ?_⟩
+  · intro n path hc
+    obtain ⟨ho, f, hf, hmod, i, md, tx, hl, hra, hst'⟩ := hcomp n path hc
+    exact ⟨ho, f, hf, hmod, i, md, tx, hl, ReadText.mono hs hra, hst'⟩
+  · intro f hf
+    obtain ⟨path, i, md, tx, h1, h2, hst', h3, h4, h5⟩ := hfiles f hf
+    refine ⟨path, i, md, tx, h1, ReadText.mono hs h2, hst', h3, h4, fun x hx => ?_⟩
+    obtain ⟨y1, y2, y3, y4⟩ := h5 x hx
+    refine ⟨?_, y2, y3, y4⟩
+    rcases y1 with y | ⟨z1, z2, z3⟩
+    · exact .inl y
+    · exact .inr ⟨z1, z2, HeldByToolchain.mono hs z3⟩
+  · intro p v hv
+    rcases honly p v hv with h' | h' | ⟨f, hf, path, i, md, h1, h2, h3⟩
+    · exact .inl h'
+    · exact .inr (.inl h')
+    · exact .inr (.inr ⟨f, hf, path, i, md, h1, h2, ReadText.mono hs h3⟩)
+
 
 end RegulaSpecification.Effects

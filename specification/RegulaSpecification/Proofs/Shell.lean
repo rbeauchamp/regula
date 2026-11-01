@@ -53,7 +53,8 @@ theorem check_preparation {prior t : List (Event L E)} {sysroot : String} {dir t
 
 /-- What `check` decides rests on what the reader read, and it prints only details. -/
 theorem check_spec {T t : List (Event L E)} {sysroot : String} {dir tree : FilePath} {o : Outcome}
-    (hI : t <:+: T) (hsys : SysrootIs T sysroot) (h : Runs (check sysroot dir tree : Prog L E Outcome) t o) :
+    (hI : t <:+: T) (hsys : SysrootIs T sysroot) (hw : ∀ p, written T p = written t p)
+    (h : Runs (check sysroot dir tree : Prog L E Outcome) t o) :
     Decided T dir tree o ∧ ReadActs t dir tree ∧
       (∀ e ∈ t, e.isBuild = false ∧ e.isImportForRules = false) ∧ (∀ l ∈ printed t, IsDetail l) := by
   unfold check at h
@@ -113,7 +114,11 @@ theorem check_spec {T t : List (Event L E)} {sysroot : String} {dir tree : FileP
     have hd : Details (t₃ ++ (t₅ ++ ([] : List (Event L E)))) := by
       simpa using details_append (sayAll_spec h₃) (say_spec h₅)
     obtain ⟨g4, g5⟩ := g1 reading lines rfl
-    refine ⟨⟨fun ha => ⟨reading, (decision_admitted_iff reading).mp ha, g4 ha⟩,
+    have hstands : ∀ p, written T p = written t₁ p := by
+      intro p
+      rw [hw p]
+      exact written_before_no_acts (fun e he => acted_of_saying (hd.1 e he)) p
+    refine ⟨⟨fun ha => ⟨reading, (decision_admitted_iff reading).mp ha, g4 ha _ hstands⟩,
       fun hne => g5 _ rfl hne, .inl ⟨reading, rfl⟩⟩, hacts hd, hrest hd⟩
 
 /-- On an admission, nothing that `check` asked failed. -/
@@ -672,7 +677,8 @@ theorem gateIn_spec {p : Regula.Closed.Profile} {dir tree : FilePath} {t : List 
     obtain ⟨t₃, t₄, o, rfl, h₃, h₄⟩ := runs_seq_iff.mp h₂
     have hT : t₃ <:+: ([⟨.getEnv "LEAN_SYSROOT", some sysroot⟩] ++ t₃) := List.infix_append_right
     have hsys : SysrootIs ([⟨.getEnv "LEAN_SYSROOT", some sysroot⟩] ++ t₃ : List (Event L E)) sysroot := by simp [SysrootIs]
-    obtain ⟨c1, c2, c3, c4⟩ := check_spec hT hsys h₃
+    obtain ⟨c1, c2, c3, c4⟩ := check_spec hT hsys
+      (fun p => written_after_no_acts (fun e he => by obtain rfl := List.mem_singleton.mp he; rfl) p) h₃
     have hprepared := check_preparation
       (prior := [⟨.getEnv "LEAN_SYSROOT", some sysroot⟩])
       (by intro e he; obtain rfl := List.mem_singleton.mp he; trivial) (by simp [SysrootIs]) h₃

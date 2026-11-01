@@ -123,11 +123,22 @@ theorem only_writeInTree (tree path : FilePath) (text : String) :
   · exact onlyA_throw _
 
 theorem only_readSource (project tree path : FilePath) : OnlyA (readSource project tree path : Attempt L E _) := by
-  rw [readSource, copyToTree]
+  rw [readSource, readForTree]
   refine onlyA_seq ?_ fun _ => onlyA_seq (onlyA_attempt (only_call trivial)) fun _ => onlyA_pure _
   split
   · exact onlyA_throw _
-  · exact onlyA_seq (only_readExact _ _) fun _ => onlyA_seq (only_writeInTree _ _ _) fun _ => onlyA_pure _
+  · split
+    · exact only_readExact _ _
+    · exact onlyA_throw _
+
+theorem only_writeSources (tree : FilePath) (srcs : List (Name × Source)) :
+    OnlyA (writeSources tree srcs : Attempt L E _) := by
+  induction srcs with
+  | nil => rw [writeSources]; exact onlyA_pure _
+  | cons x rest ih =>
+    obtain ⟨m, s⟩ := x
+    rw [writeSources]
+    exact onlyA_seq (only_writeInTree _ _ _) fun _ => ih
 
 theorem only_toolchainOLean (dirs : List FilePath) (m : Name) : OnlyA (toolchainOLean dirs m : Attempt L E _) := by
   rw [toolchainOLean]
@@ -276,6 +287,9 @@ theorem only_readProject (sysroot : String) (dir treeDir : FilePath) :
                         dsimp only
                         split
                         · exact onlyA_pure _
-                        · exact onlyA_seq (only_parseFiles _ _ _ _) fun _ => onlyA_pure _
+                        · refine onlyA_seq (only_parseFiles _ _ _ _) fun _ => ?_
+                          split
+                          · exact onlyA_seq (only_writeSources _ _) fun _ => onlyA_pure _
+                          · exact onlyA_pure _
 
 end RegulaSpecification.Effects

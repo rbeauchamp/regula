@@ -22,6 +22,7 @@ import RegulaSpecification.Proofs.Foundation
 import RegulaSpecification.Proofs.Records
 import RegulaSpecification.Proofs.Verdict
 import RegulaSpecification.Proofs.Load
+import RegulaSpecification.Proofs.Written
 import RegulaSpecification.Proofs.Owed
 import RegulaSpecification.Proofs.OwedExact
 import RegulaSpecification.Proofs.Occurrences
@@ -35,6 +36,7 @@ import RegulaSpecification.Proofs.ReaderOnly
 import RegulaSpecification.Proofs.ReaderFailed
 import RegulaSpecification.Proofs.ShellLoad
 import RegulaSpecification.Proofs.ShellParts
+import RegulaSpecification.Proofs.Standing
 import RegulaSpecification.Proofs.Shell
 import RegulaSpecification.Proofs.Witness
 import RegulaSpecification.Proofs.Program
