@@ -171,7 +171,7 @@ The `#eval` printed `2` while `g_one` holds, and `lake check` and `lake lint` bo
 
 ### RG2001: the environment
 
-A run that cannot load the build gives `incomplete`. So does an input that the admission refuses, a constant of a claimed module that the loader refuses (`Facts.unread?`), any argument list other than one profile, and any Lean other than the one this revision reads (`Regula.Shell.supportsLean`). In the full gate, so does a project that [the reader](#what-it-reads-and-how) could not read in full. `gateRecord` in [`RegulaSpecification/Gate.lean`](RegulaSpecification/Gate.lean) states the verdict. **Proved**: `gate_o5`, so the record leaves nothing unsaid about the verdict, and `gate_adequate`.
+A run that cannot load the build gives `incomplete`. So does an input that the admission refuses, a constant of a claimed module that the loader refuses (`Facts.unread?`), any argument list other than one profile, and any Lean other than the one this revision reads (`Regula.Shell.supportsLean`). In the full gate, so does each case of [the closed list](#the-closed-list-of-refusals) with exit 2. `gateRecord` in [`RegulaSpecification/Gate.lean`](RegulaSpecification/Gate.lean) states the verdict. **Proved**: `gate_o5`, so the record leaves nothing unsaid about the verdict, and `gate_adequate`.
 
 **Proved** of `Regula.Closed.Draft.admit`, `Regula.Closed.Input.report` and `Regula.Closed.decision`, the functions that the checker runs, in [`RegulaSpecification/Proofs/Verdict.lean`](RegulaSpecification/Proofs/Verdict.lean):
 
@@ -220,7 +220,7 @@ Regula publishes which runs it refuses, and it proves of each refusal that it is
 
 Each case of the table below, and each of `PlainReason`, `TreeReason` and `BuildRejected`, is a constructor of a closed type, stated over the events of the run. A case that names a build's input is bound to the requested build by `Scene`, `Named` and `Needed`, so an unrelated answer justifies nothing.
 
-**The language check** (`Reason`, in [`EffectsRecord.lean`](RegulaSpecification/EffectsRecord.lean)). Exit 1 and an RG1010 line for what is refused, exit 2 for what could not be read, and exit 3 where only a proof verdict is possible. Nothing is built in any of them.
+**The language check** (`Reason`, in [`EffectsRecord.lean`](RegulaSpecification/EffectsRecord.lean)). Exit 1 and an RG1010 line for what is refused, exit 2 for `incomplete` (RG2001), and exit 3 where only a proof verdict is possible, as each row says. Nothing is built in any of them.
 
 | Case | What the run was answered | Exit |
 | --- | --- | --- |
