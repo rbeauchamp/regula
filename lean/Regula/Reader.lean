@@ -146,7 +146,7 @@ In a `module` file that is each direct import, and through it each `public` impo
 direct imports. The project's own modules are followed by their headers, each once (`seen`), so a project whose
 imports form many paths to one module takes no longer for it. The search stops at a module of the toolchain,
 whose own closure Lean follows. `fuel` bounds the names taken from `todo`, and
-`visibleToolchain_sufficient` proves that the bound the reader gives it suffices. -/
+`mem_visible_iff` proves what it gives with the bound the reader gives it. -/
 def visibleToolchain (headers : Name → Option (Array Import)) (isToolchain : Name → Bool)
     (todo seen : List Name) (fuel : Nat) : List Name :=
   match fuel, todo with
