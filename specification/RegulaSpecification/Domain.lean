@@ -47,9 +47,9 @@ system: on POSIX a `.` component and an empty one change nothing, and nothing he
 def components (s : String) : List String :=
   ((splitAtSlash s.toList).map String.ofList).filter fun c => c != "" && c != "."
 
-/-- Two spellings of one directory. -/
+/-- Two spellings of one directory: the same components, and both relative or both absolute. -/
 def OneSpelling (a b : String) : Prop :=
-  components a = components b
+  components a = components b ∧ (a.front = '/' ↔ b.front = '/')
 
 /-- A directory that lies below the project, whatever it holds: its spelling is relative, and no component starts with
 `.`, so none is `..` and none is `.lake`. -/
@@ -265,6 +265,8 @@ structure InDomain : Prop where
   That its name is no other spelling of `lakefile.lean` on the tree's volume is what the file system answers, and not a
   statement about text: see `Answers.leanConfigAbsent`. -/
   oneRole : ∀ s ∈ p.sources, s.rel ≠ ["lakefile.lean"] ∧ s.rel ≠ ["lakefile.toml"] ∧ s.rel ≠ ["lean-toolchain"]
+  /-- No component of a source's path is empty or starts with `.`, which a relative source directory and a closed module name give. -/
+  sourcePath : ∀ s ∈ p.sources, ∀ c ∈ s.rel, c ≠ "" ∧ c.front ≠ '.'
   /-- The roots and the imports stay within what the reader follows. -/
   bounded : p.config.claim.length + (p.sources.map (·.imports.size)).sum ≤ 1000000
 
