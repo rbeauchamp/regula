@@ -26,9 +26,10 @@ about what they decide.
 
 `runSteps` is the decision the program executes, and its theorems are checked by the kernel each
 time `lean --run` elaborates this file. `specification/RegulaSpecification/Proofs/Gate.lean` proves, at `IO`, that `runLocal`
-gives 0 only when it copied each file that `checkerFiles` lists, read from the checkout and written with the same
-bytes to the copy, and then each step gave 0, with that copy as the checker and the working directory as the
-project. Which files exist is what `System.FilePath.walkDir` lists, which is Lean's. Starting a step, its exit code and what the step does are
+gives 0 only when, for each file that `checkerFiles` lists, the bytes that a read of it gave are what a write below
+its directory took, and then each step gave 0, with that directory as the checker and the working directory as the
+project. That a step then builds what was written and checks this checkout rests on what `localSteps` names, the
+file system and Lake, which that theorem does not state. Which files exist is what `System.FilePath.walkDir` lists, which is Lean's. Starting a step, its exit code and what the step does are
 trusted effects of the operating system and of Lake. `lake` is the program that `PATH` selects. Each
 step sees the checkout as the step before it left it: the gate assumes that no other process changes
 the build between its steps. -/
