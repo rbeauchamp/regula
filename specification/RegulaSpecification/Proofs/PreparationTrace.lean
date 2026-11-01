@@ -20,14 +20,6 @@ open System (FilePath)
 open Regula.Effect Regula.Reader Regula.Language RegulaSpecification.Language
 variable {L E α β : Type}
 
-theorem quiet_nil : Quiet (L := L) (E := E) [] := by simp [Quiet]
-
-theorem Quiet.append {a b : List (Event L E)} (ha : Quiet a) (hb : Quiet b) : Quiet (a ++ b) := by
-  intro e he
-  rcases List.mem_append.mp he with he | he
-  · exact ha e he
-  · exact hb e he
-
 theorem quiet_realPath (path : FilePath) : OnlyAIn QuietOp (realPath path : Attempt L E _) :=
   onlyA_attempt (only_call trivial)
 
@@ -280,6 +272,17 @@ theorem moduleCopies_admits_uncheckedCopy {project tree path parent : FilePath} 
   · exact ⟨rel, hr, by simp⟩
   · exact CopyStep.parentWritten ⟨rel, hr⟩ hp hparent
   · exact ModuleCopies.nil
+
+theorem quiet_readBack (l : List (FilePath × String)) : OnlyAIn QuietOp (readBack l : Attempt L E _) := by
+  induction l with
+  | nil => rw [readBack]; exact onlyA_pure _
+  | cons x rest ih =>
+    obtain ⟨path, text⟩ := x
+    rw [readBack]
+    refine onlyA_seq (onlyA_attempt (only_call trivial)) fun _ => ?_
+    split
+    · exact ih
+    · exact onlyA_throw _
 
 theorem quiet_parseAll (input) (env : E) (state) (messages) (fuel : Nat) :
     OnlyIn QuietOp (parseAll input env state messages fuel : Prog L E _) := by

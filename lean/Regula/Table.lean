@@ -13,10 +13,9 @@ import Lean.Parser.Extension
 /-!
 # The one table of effects
 
-`table` answers each operation of `Regula.Effect.Op` through Lean's primitives or a row of `LakeCalls`, which
-`Regula.Workspace` fills. The write row uses `writePreserving`, whose decisions and preservation contract are proved in
-`specification/RegulaSpecification/Proofs/Filesystem.lean`. The other rows pass on the primitive responses without a
-decision. `table_rows` in `specification/RegulaSpecification/Proofs/Program.lean` states each row.
+`table` answers each operation of `Regula.Effect.Op` by a straight line of calls of Lean or of the operating system's
+function as Lean gives it, or by a row of `LakeCalls`, which `Regula.Workspace` fills. Nothing here tests a result: a row
+passes on what the calls give. `table_rows` in `specification/RegulaSpecification/Proofs/Program.lean` states each row.
 -/
 
 public section
@@ -62,20 +61,6 @@ def importParsers (enable : BaseIO Unit) (modules : List Name) : IO (Environment
     (level := .exported)
   return (env, scopedParsersOf env)
 
-/-- Install text without overwriting an existing file, including through another spelling of its path. Only an
-exclusive fresh handle is written. An existing file is accepted exactly when its read gives the requested text.
-The flush must succeed before the copy can succeed. -/
-def writePreserving (path : FilePath) (text : String) : IO Unit := do
-  match ← (IO.FS.Handle.mk path .writeNew).toBaseIO with
-  | .ok handle =>
-    handle.putStr text
-    handle.flush
-  | .error (.alreadyExists ..) =>
-    let existing ← IO.FS.readFile path
-    if existing = text then pure ()
-    else throw (IO.userError s!"{path}: its destination already holds another text")
-  | .error error => throw error
-
 /-- Each operation, by its row. -/
 def table {L : Type} (enable : BaseIO Unit) (lake : LakeCalls L) : (o : Op L Environment) → BaseIO (Resp o)
   | .leanVersion => pure (Lean.versionString, Lean.githash)
@@ -84,7 +69,7 @@ def table {L : Type} (enable : BaseIO Unit) (lake : LakeCalls L) : (o : Op L Env
   | .realPath path => (IO.FS.realPath path).toBaseIO
   | .readFile path => (IO.FS.readFile path).toBaseIO
   | .symlinkMetadata path => path.symlinkMetadata.toBaseIO
-  | .writeFile path text => (writePreserving path text).toBaseIO
+  | .writeFile path text => (IO.FS.writeFile path text).toBaseIO
   | .createDirAll path => (IO.FS.createDirAll path).toBaseIO
   | .createTempDir => IO.FS.createTempDir.toBaseIO
   | .removeDirAll path => (IO.FS.removeDirAll path).toBaseIO

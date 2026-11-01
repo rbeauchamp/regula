@@ -5,6 +5,7 @@ Authors: Regula contributors
 -/
 import RegulaSpecification.Proofs.Load
 import RegulaSpecification.Proofs.ReaderFiles
+import RegulaSpecification.Proofs.Standing
 
 /-!
 # What the reader gives
@@ -620,6 +621,53 @@ theorem lastStage_goal {T : List (Event L E)} {dir treeDir project tree : FilePa
         exact hclosure z (List.mem_reverse.mp hz) i hi
 
 
+theorem quiet_nil : Quiet (L := L) (E := E) [] := by simp [Quiet]
+
+theorem Quiet.append {a b : List (Event L E)} (ha : Quiet a) (hb : Quiet b) : Quiet (a ++ b) := by
+  intro e he
+  rcases List.mem_append.mp he with he | he
+  · exact ha e he
+  · exact hb e he
+
+theorem Quiet.noActs {t : List (Event L E)} (h : Quiet t) : NoActs t := by
+  intro e he
+  have hq := h e he
+  obtain ⟨o, r⟩ := e
+  cases o <;> first | rfl | exact hq.elim
+
+/-- The two configuration copies, each with a successful answer. -/
+abbrev configWrites (tree : FilePath) (text : String) : List (Event L E) :=
+  [⟨.writeFile (tree / "lakefile.toml") text, .ok ()⟩, ⟨.writeFile (tree / "lean-toolchain") leanToolchain, .ok ()⟩]
+
+/-- What a reading the decision admits did to the tree: its acts leave what the list `writes` leaves, each write it asks is in
+that list, and it ends with a segment that holds no act, with a read of each entry of `plan` that gave its text. -/
+structure AdmittedActs (t : List (Event L E)) (writes plan : List (FilePath × String)) : Prop where
+  /-- What its acts leave. -/
+  leaves : LeavesAs t writes
+  /-- What it writes. -/
+  writesIn : WritesIn t writes
+  /-- What the file system answered after its last act. -/
+  back : ∃ a b, t = a ++ b ∧ Quiet b ∧ ∀ x ∈ plan, (⟨.readFile x.1, .ok x.2⟩ : Event L E) ∈ b
+
+/-- Earlier events that act as a list of writes come before those of the reading. -/
+theorem AdmittedActs.prepend {pre t : List (Event L E)} {k writes plan : List (FilePath × String)}
+    (hl : LeavesAs pre k) (hw : WritesIn pre k) (h : AdmittedActs t writes plan) : AdmittedActs (pre ++ t) (k ++ writes) plan := by
+  obtain ⟨a, b, rfl, hq, hr⟩ := h.back
+  exact ⟨hl.append h.leaves, hw.append h.writesIn, pre ++ a, b, by simp, hq, hr⟩
+
+theorem AdmittedActs.cast {t : List (Event L E)} {w w' plan : List (FilePath × String)} (h : AdmittedActs t w plan) (he : w = w') :
+    AdmittedActs t w' plan :=
+  he ▸ h
+
+/-- What a reading that wrote only its plan and read each of it back gives the record. -/
+theorem AdmittedActs.readBack {t : List (Event L E)} {plan : List (FilePath × String)} (h : AdmittedActs t plan plan) : ReadBack t := by
+  obtain ⟨a, b, he, hq, hr⟩ := h.back
+  exact ⟨a, b, he, hq, fun path text r hw _ => hr (path, text) (h.writesIn path text r hw)⟩
+
+/-- Two events, each in its list of two in order. -/
+theorem pair_sublist {x y : Event L E} {a b : List (Event L E)} (hx : x ∈ a) (hy : y ∈ b) : [x, y].Sublist (a ++ b) :=
+  (List.singleton_sublist.mpr hx).append (List.singleton_sublist.mpr hy)
+
 /-- What `twoTexts` empty says: no two entries of the plan hold two texts at one path. -/
 theorem twoTexts_nil {planned : List (Name × FilePath × String)} (h : twoTexts planned = []) :
     ∀ x ∈ planned, ∀ y ∈ planned, parts x.2.1 = parts y.2.1 → x.2.2 = y.2.2 := by
@@ -706,10 +754,55 @@ theorem writeInTree_leaves {tree path : FilePath} {text : String} {t : List (Eve
   obtain ⟨before, rfl, hb⟩ := writeInTree_trace h
   exact leavesAs_write hb
 
+/-- `readBack` for every response: on success each entry's read gave its text, a failure names an entry and an answer that differs,
+and it asks nothing but reads. -/
+theorem readBack_spec {l : List (FilePath × String)} {t : List (Event L E)} {b : Except String Unit}
+    (h : Runs (readBack l : Attempt L E Unit).run t b) :
+    (b = .ok () → ∀ x ∈ l, (⟨.readFile x.1, .ok x.2⟩ : Event L E) ∈ t) ∧
+    ((∃ e, b = .error e) → ∃ x ∈ l, ∃ r, (⟨.readFile x.1, r⟩ : Event L E) ∈ t ∧ r ≠ .ok x.2) ∧ Quiet t := by
+  induction l generalizing t b with
+  | nil =>
+    rw [readBack] at h
+    obtain ⟨rfl, rfl⟩ := runs_attempt_pure_iff.mp h
+    exact ⟨fun _ x hx => (by cases hx), fun ⟨e, he⟩ => (by cases he), quiet_nil⟩
+  | cons x rest ih =>
+    obtain ⟨path, text⟩ := x
+    rw [readBack] at h
+    obtain ⟨t₁, t₂, r, rfl, h₁, h₂⟩ := runs_attempt_bind_iff.mp h
+    obtain ⟨r', hc, rfl⟩ := runs_attempt_iff.mp h₁
+    obtain rfl := runs_call_iff.mp hc
+    have hno : Quiet (L := L) (E := E) [⟨.readFile path, r'⟩] := by
+      intro e he
+      obtain rfl := List.mem_singleton.mp he
+      trivial
+    cases r' with
+    | error err =>
+      obtain ⟨rfl, rfl⟩ := h₂
+      exact ⟨fun he => (by cases he), fun _ => ⟨(path, text), List.mem_cons_self .., .error err, by simp, fun he => by cases he⟩, by simpa using hno⟩
+    | ok held =>
+      dsimp only [Except.mapError] at h₂
+      split at h₂
+      · rename_i heq
+        have hheld : held = text := by simpa using heq
+        subst hheld
+        obtain ⟨i1, i2, i3⟩ := ih h₂
+        refine ⟨fun hb y hy => ?_, fun he => ?_, hno.append i3⟩
+        · rcases List.mem_cons.mp hy with rfl | hy
+          · simp
+          · exact List.mem_cons_of_mem _ (i1 hb y hy)
+        · obtain ⟨y, hy, r₁, hm, hne⟩ := i2 he
+          exact ⟨y, List.mem_cons_of_mem _ hy, r₁, List.mem_cons_of_mem _ hm, hne⟩
+      · rename_i hne
+        obtain ⟨rfl, rfl⟩ := runs_attempt_throw_iff.mp h₂
+        refine ⟨fun he => (by cases he), fun _ => ⟨(path, text), List.mem_cons_self .., .ok held, by simp, ?_⟩, by simpa using hno⟩
+        intro he
+        exact hne (by simpa using Except.ok.inj he)
+
 /-- `writeSources` for every response: on success it acts as the writes of the sources; a failure names a source and why. -/
 theorem writeSources_spec {tree : FilePath} {srcs : List (Name × Source)} {t : List (Event L E)} {b : Except String Unit}
     (h : Runs (writeSources tree srcs : Attempt L E Unit).run t b) :
-    (b = .ok () → LeavesAs t (srcs.map fun x => (x.2.path, x.2.text))) ∧
+    (b = .ok () → LeavesAs t (srcs.map fun x => (x.2.path, x.2.text)) ∧ WritesIn t (srcs.map fun x => (x.2.path, x.2.text)) ∧
+      ∀ x ∈ srcs, (⟨.writeFile x.2.path x.2.text, .ok ()⟩ : Event L E) ∈ t) ∧
     ((∃ e, b = .error e) → ∃ x ∈ srcs, OutsideTree tree x.2.path ∨ ∃ e ∈ t, Event.failed e ∧
       ((∃ d, x.2.path.parent = some d ∧ e.op = .createDirAll d) ∨ e.op = .writeFile x.2.path x.2.text)) ∧
     ActsIn tree t := by
@@ -717,7 +810,8 @@ theorem writeSources_spec {tree : FilePath} {srcs : List (Name × Source)} {t : 
   | nil =>
     rw [writeSources] at h
     obtain ⟨rfl, rfl⟩ := runs_attempt_pure_iff.mp h
-    exact ⟨fun _ _ _ => rfl, fun ⟨e, he⟩ => (by cases he), actsIn_nil⟩
+    exact ⟨fun _ => ⟨fun _ _ => rfl, fun _ _ _ he => (by cases he), fun x hx => (by cases hx)⟩,
+      fun ⟨e, he⟩ => (by cases he), actsIn_nil⟩
   | cons x rest ih =>
     obtain ⟨m, s⟩ := x
     rw [writeSources] at h
@@ -733,8 +827,13 @@ theorem writeSources_spec {tree : FilePath} {srcs : List (Name × Source)} {t : 
     | ok u =>
       obtain ⟨i1, i2, i3⟩ := ih h₂
       refine ⟨fun hb => ?_, fun he => ?_, actsIn_append w3 i3⟩
-      · have hl := writeInTree_leaves h₁
-        exact hl.append (i1 hb)
+      · obtain ⟨before, hbefore, hdirs⟩ := writeInTree_trace h₁
+        subst hbefore
+        obtain ⟨l1, l2, l3⟩ := i1 hb
+        refine ⟨(leavesAs_write hdirs).append l1, (writesIn_write hdirs).append l2, fun y hy => ?_⟩
+        rcases List.mem_cons.mp hy with rfl | hy
+        · simp
+        · exact List.mem_append_right _ (l3 y hy)
       · obtain ⟨x, hx, hh⟩ := i2 he
         refine ⟨x, List.mem_cons_of_mem _ hx, ?_⟩
         rcases hh with h' | ⟨e, he', hf, hop⟩
@@ -779,6 +878,7 @@ theorem readFiles_spec {T t : List (Event L E)} {dir treeDir project tree : File
     (hp : Prior T dir treeDir project tree text start.configKeys) (hc : start.configClosed = true)
     (hd : start.requiresDependency = false) (hout : start.outside = true)
     (hsys : SysrootIs T sysroot)
+    (hcopies : (configWrites tree text ++ t : List (Event L E)).Sublist T)
     (hload : (⟨.loadRoot sysroot tree, .ok (some root, log)⟩ : Event L E) ∈ T)
     (hprepared : PreparedLoad T dir treeDir sysroot tree (.ok (some root, log)))
     (hmods : DefaultModules T root root.defaultTargets modules)
@@ -787,7 +887,7 @@ theorem readFiles_spec {T t : List (Event L E)} {dir treeDir project tree : File
     (h : Runs (readFiles [(tree / "lakefile.toml", text), (tree / "lean-toolchain", leanToolchain)] project tree root modules
       start : Attempt L E _).run t b) :
     (∀ r srcs, b = .ok (r, srcs) → ReadGoal T dir treeDir (Holds tree text srcs) r ∧
-      (decision r = .admitted → LeavesAs t (srcs.map fun x => (x.2.path, x.2.text)) ∧
+      (decision r = .admitted → AdmittedActs t (srcs.map fun x => (x.2.path, x.2.text)) (planOf tree text srcs) ∧
         twoTexts (plannedOf [(tree / "lakefile.toml", text), (tree / "lean-toolchain", leanToolchain)] srcs) = [])) ∧
       ((∃ e, b = .error e) → Reason T dir treeDir .incomplete) ∧ ActsIn tree t := by
   rw [readFiles] at h
@@ -954,12 +1054,46 @@ theorem readFiles_spec {T t : List (Event L E)} {dir treeDir project tree : File
             · exact .failed (hT₉.subset he) (by rw [hop]; exact .sourceParent hscene h1 h2 hd') hbad
             · exact .failed (hT₉.subset he) (by rw [hop]; exact .sourceWrite hscene h1 h2 h3) hbad
           | ok v =>
-            obtain ⟨rfl, rfl⟩ := runs_attempt_pure_iff.mp h₁₂
-            refine ⟨fun r srcs he => ?_, fun ⟨e, he⟩ => (by cases he), by simpa using actsIn_append hbefore s3⟩
-            cases he
-            refine ⟨hgoal, fun _ => ⟨?_, hconfig ▸ htwo⟩⟩
-            have hl := (leavesAs_nil_of_no_act hnoacts).append (s1 rfl)
-            simpa [List.append_assoc] using hl
+            obtain ⟨t₁₁, t₁₂, r₁₁, rfl, h₁₃, h₁₄⟩ := runs_attempt_bind_iff.mp h₁₂
+            obtain ⟨b1, b2, b3⟩ := readBack_spec h₁₃
+            obtain ⟨w1, w2, w3⟩ := s1 rfl
+            have hT₁₁ : t₁₁.Sublist T := by
+              refine List.Sublist.trans ?_ hT₈
+              exact ((List.sublist_append_left _ _).trans (List.sublist_append_right _ _))
+            have hplan : config ++ w.sources.reverse.map (fun x => (x.2.path, x.2.text)) = planOf tree text w.sources.reverse := by
+              rw [hconfig]
+            rw [hplan] at b1 b2
+            have hactsBack : ActsIn tree t₁₁ := (b3.noActs).actsIn tree
+            cases r₁₁ with
+            | error why =>
+              obtain ⟨rfl, rfl⟩ := h₁₄
+              refine ⟨fun _ _ he => (by cases he), fun _ => ?_, by simpa using actsIn_append hbefore (actsIn_append s3 hactsBack)⟩
+              obtain ⟨x, hx, r', hm, hne⟩ := b2 ⟨why, rfl⟩
+              have hsrc : ∀ z ∈ w.sources.reverse, Named T project tree root modules z.1 ∧
+                  FileOfModule root modules z.1 z.2.path ∧ SourceText T project tree z.2.path z.2.text :=
+                fun z hz => hfacts' z (List.mem_reverse.mp hz)
+              refine .treeDiffers hscene (planned_of_mem htomlRead hsrc hx) ?_ hne
+              rcases List.mem_append.mp hx with hx | hx
+              · refine (pair_sublist ?_ (a := configWrites tree text)
+                  (b := _) (y := ⟨.readFile x.1, r'⟩) ?_).trans hcopies
+                · simp only [List.mem_cons, List.not_mem_nil, or_false] at hx
+                  rcases hx with rfl | rfl <;> simp
+                · simp [hm]
+              · obtain ⟨y, hy, rfl⟩ := List.mem_map.mp hx
+                refine (pair_sublist (w3 y hy) hm).trans ?_
+                refine List.Sublist.trans ?_ hT₈
+                simp
+            | ok v' =>
+              obtain ⟨rfl, rfl⟩ := runs_attempt_pure_iff.mp h₁₄
+              refine ⟨fun r srcs he => ?_, fun ⟨e, he⟩ => (by cases he), by simpa using actsIn_append hbefore (actsIn_append s3 hactsBack)⟩
+              cases he
+              refine ⟨hgoal, fun _ => ⟨?_, hconfig ▸ htwo⟩⟩
+              have hback : AdmittedActs (t₁₁ ++ []) [] (planOf tree text w.sources.reverse) :=
+                { leaves := by simpa using leavesAs_nil_of_no_act b3.noActs
+                  writesIn := by simpa using writesIn_nil_of_no_act b3.noActs
+                  back := ⟨[], t₁₁ ++ [], by simp, by simpa using b3, fun x hx => by simpa using b1 rfl x hx⟩ }
+              have hall := (hback.prepend w1 w2).prepend (leavesAs_nil_of_no_act hnoacts) (writesIn_nil_of_no_act hnoacts)
+              simpa [List.append_assoc] using hall
         · rename_i hnadm
           obtain ⟨rfl, rfl⟩ := runs_attempt_pure_iff.mp h₁₀
           refine ⟨fun r srcs he => ?_, fun ⟨e, he⟩ => (by cases he), by simpa using hbefore⟩
@@ -1007,6 +1141,7 @@ theorem configUnread_reason {T : List (Event L E)} {dir treeDir project tree : F
 theorem readRoot_spec {T t : List (Event L E)} {dir treeDir project tree : FilePath} {start : Reading}
     {sysroot text : String} {b : Except String (Reading × List (Name × Source))} (hT : t.Sublist T)
     (hsys : SysrootIs T sysroot)
+    (hcopies : (configWrites tree text ++ t : List (Event L E)).Sublist T)
     (hp : Prior T dir treeDir project tree text start.configKeys) (hc : start.configClosed = true)
     (hd : start.requiresDependency = false) (hout : start.outside = true)
     (hprepared : ∀ response rest, t = ⟨.loadRoot sysroot tree, response⟩ :: rest →
@@ -1014,7 +1149,7 @@ theorem readRoot_spec {T t : List (Event L E)} {dir treeDir project tree : FileP
     (h : Runs (readRoot [(tree / "lakefile.toml", text), (tree / "lean-toolchain", leanToolchain)] sysroot project tree start :
       Attempt L E _).run t b) :
     (∀ r srcs, b = .ok (r, srcs) → ReadGoal T dir treeDir (Holds tree text srcs) r ∧
-      (decision r = .admitted → LeavesAs t (srcs.map fun x => (x.2.path, x.2.text)) ∧
+      (decision r = .admitted → AdmittedActs t (srcs.map fun x => (x.2.path, x.2.text)) (planOf tree text srcs) ∧
         twoTexts (plannedOf [(tree / "lakefile.toml", text), (tree / "lean-toolchain", leanToolchain)] srcs) = [])) ∧
       ((∃ e, b = .error e) → Reason T dir treeDir .incomplete) ∧ ActsIn tree t := by
   rw [readRoot] at h
@@ -1116,19 +1251,23 @@ theorem readRoot_spec {T t : List (Event L E)} {dir treeDir project tree : FileP
         · rename_i hfails
           have hnil : configUnread root modules = [] := by
             simpa using hfails
-          obtain ⟨f1, f2, f3⟩ := readFiles_spec hT₆ hp hc hd hout hsys hmem₁ hready hmods hopenNil hnil h₆
+          have hcopies₆ : (configWrites tree text ++ t₆ : List (Event L E)).Sublist T := by
+            refine List.Sublist.trans (List.Sublist.append_left ?_ _) hcopies
+            simp
+          obtain ⟨f1, f2, f3⟩ := readFiles_spec hT₆ hp hc hd hout hsys hcopies₆ hmem₁ hready hmods hopenNil hnil h₆
           refine ⟨fun r srcs he => ?_, f2, by simpa using actsIn_append (actsIn_append hact₁ hact₅) f3⟩
           obtain ⟨g1, g2⟩ := f1 r srcs he
           refine ⟨g1, fun ha => ?_⟩
           obtain ⟨l1, l2⟩ := g2 ha
           refine ⟨?_, l2⟩
-          have hl := (leavesAs_nil_of_no_act (t := ([⟨.loadRoot sysroot tree, .ok (some root, log)⟩] ++ []) ++ t₅) ?_).append l1
-          · simpa using hl
-          · intro e he'
+          have hno : ∀ e ∈ ([⟨.loadRoot sysroot tree, .ok (some root, log)⟩] ++ [] ++ t₅ : List (Event L E)), e.acted? = none := by
+            intro e he'
             simp only [List.append_nil, List.mem_append, List.mem_singleton] at he'
             rcases he' with rfl | he'
             · rfl
             · exact defaultModules_no_act h₅ e he'
+          have hl := l1.prepend (leavesAs_nil_of_no_act hno) (writesIn_nil_of_no_act hno)
+          simpa [List.append_assoc] using hl
 
 /-! ## The configuration -/
 
@@ -1206,7 +1345,7 @@ theorem readKeys_spec {T t : List (Event L E)} {dir treeDir project tree : FileP
     (hread : (⟨.readFile (project / "lakefile.toml"), .ok text⟩ : Event L E) ∈ T)
     (h : Runs (readKeys sysroot project tree tf text : Attempt L E _).run t b) :
     (∀ r srcs, b = .ok (r, srcs) → ReadGoal T dir treeDir (Holds tree text srcs) r ∧
-      (decision r = .admitted → Holds tree text srcs (written t))) ∧
+      (decision r = .admitted → Holds tree text srcs (written t) ∧ ReadBack t)) ∧
       ((∃ e, b = .error e) → Reason T dir treeDir .incomplete) ∧ ActsIn tree t := by
   have hT := hI.sublist
   rw [readKeys] at h
@@ -1330,17 +1469,35 @@ theorem readKeys_spec {T t : List (Event L E)} {dir treeDir project tree : FileP
             apply List.IsInfix.trans _ hI
             refine ⟨[⟨.parseToml (mkInputContext text "lakefile.toml"), .ok table⟩] ++ before, rest, ?_⟩
             simp [hb, hm, ht₆, List.append_assoc]
-          obtain ⟨f1, f2, f3⟩ := readRoot_spec hT₆ hsys hp hc hd (by simp [stopped]) hprepared h₇
+          obtain ⟨before, hb, hbd⟩ := writeInTree_trace h₄
+          obtain ⟨between, hm, hmd⟩ := writeInTree_trace h₆
+          have hs₁ : ([⟨.writeFile (tree / "lakefile.toml") text, .ok ()⟩] : List (Event L E)).Sublist t₃ := by
+            rw [hb]; simp
+          have hs₂ : ([⟨.writeFile (tree / "lean-toolchain") leanToolchain, .ok ()⟩] : List (Event L E)).Sublist t₅ := by
+            rw [hm]; simp
+          have hcopies : (configWrites tree text ++ t₆ : List (Event L E)).Sublist T := by
+            refine List.Sublist.trans ?_ hT₂
+            simpa using hs₁.append (hs₂.append (List.Sublist.refl t₆))
+          obtain ⟨f1, f2, f3⟩ := readRoot_spec hT₆ hsys hcopies hp hc hd (by simp [stopped]) hprepared h₇
           refine ⟨fun r srcs he => ?_, f2, by
             simpa using actsIn_append (actsIn_append (actsIn_append hact₁ w3) v3) f3⟩
           obtain ⟨g1, g2⟩ := f1 r srcs he
           refine ⟨g1, fun ha => ?_⟩
           obtain ⟨l1, l2⟩ := g2 ha
-          refine holds_of_leavesAs ?_ l2
-          have hl0 : LeavesAs (L := L) (E := E) [⟨.parseToml (mkInputContext text "lakefile.toml"), .ok table⟩] [] :=
-            leavesAs_nil_of_no_act (fun e he => by obtain rfl := List.mem_singleton.mp he; rfl)
-          have hl := (hl0.append (writeInTree_leaves h₄)).append ((writeInTree_leaves h₆).append l1)
-          simpa [List.append_assoc] using hl
+          have hl₄ : LeavesAs t₃ [(tree / "lakefile.toml", text)] := by rw [hb]; exact leavesAs_write hbd
+          have hw₄ : WritesIn t₃ [(tree / "lakefile.toml", text)] := by rw [hb]; exact writesIn_write hbd
+          have hl₆ : LeavesAs t₅ [(tree / "lean-toolchain", leanToolchain)] := by rw [hm]; exact leavesAs_write hmd
+          have hw₆ : WritesIn t₅ [(tree / "lean-toolchain", leanToolchain)] := by rw [hm]; exact writesIn_write hmd
+          have hnoParse : ∀ e ∈ ([⟨.parseToml (mkInputContext text "lakefile.toml"), .ok table⟩] : List (Event L E)), e.acted? = none :=
+            fun e he => by obtain rfl := List.mem_singleton.mp he; rfl
+          have hA : AdmittedActs ([⟨.parseToml (mkInputContext text "lakefile.toml"), .ok table⟩] ++ (t₃ ++ (t₅ ++ t₆)))
+              (planOf tree text srcs) (planOf tree text srcs) :=
+            ((((l1.prepend hl₆ hw₆).prepend hl₄ hw₄).prepend (leavesAs_nil_of_no_act hnoParse)
+              (writesIn_nil_of_no_act hnoParse)).cast (by simp [planOf]))
+          have hH := holds_of_leavesAs hA.leaves l2
+          have hB := hA.readBack
+          simp only [List.cons_append, List.nil_append] at hH hB ⊢
+          exact ⟨hH, hB⟩
 
 /-- `existsByName` asks one thing, and only an answer of no such name says that it is absent. -/
 theorem existsByName_spec {path : FilePath} {t : List (Event L E)} {b : Except String Bool}
@@ -1374,7 +1531,7 @@ theorem readConfig_spec {T t : List (Event L E)} {dir treeDir project tree : Fil
     (hsys : SysrootIs T sysroot) (hE : Early T dir treeDir project tree tf)
     (h : Runs (readConfig sysroot project tree tf : Attempt L E _).run t b) :
     (∀ r srcs, b = .ok (r, srcs) → ∃ text, ReadGoal T dir treeDir (Holds tree text srcs) r ∧
-      (decision r = .admitted → Holds tree text srcs (written t))) ∧
+      (decision r = .admitted → Holds tree text srcs (written t) ∧ ReadBack t)) ∧
       ((∃ e, b = .error e) → Reason T dir treeDir .incomplete) ∧ ActsIn tree t := by
   have hT := hI.sublist
   rw [readConfig] at h
@@ -1445,7 +1602,9 @@ theorem readConfig_spec {T t : List (Event L E)} {dir treeDir project tree : Fil
           intro x hx
           simp only [List.mem_cons, List.not_mem_nil, or_false] at hx
           rcases hx with rfl | rfl | rfl <;> rfl
-        refine Holds.congr (fun p => ?_) hh
+        have hB := ReadBack.prepend_no_acts hno hh.2
+        simp only [List.cons_append, List.nil_append] at hB ⊢
+        refine ⟨Holds.congr (fun p => ?_) hh.1, hB⟩
         have := written_after_no_acts (b := t₄) hno p
         simpa [List.append_assoc] using this
 
@@ -1616,7 +1775,7 @@ theorem readProject_spec {T t : List (Event L E)} {dir treeDir : FilePath} {sysr
     {b : Except String (Reading × List (Name × Source))} (hI : t <:+: T) (hsys : SysrootIs T sysroot)
     (h : Runs (readProject sysroot dir treeDir : Attempt L E _).run t b) :
     (∀ r srcs, b = .ok (r, srcs) → ∃ tree text, ReadGoal T dir treeDir (Holds tree text srcs) r ∧
-      (decision r = .admitted → Holds tree text srcs (written t))) ∧
+      (decision r = .admitted → Holds tree text srcs (written t) ∧ ReadBack t)) ∧
       ((∃ e, b = .error e) → Reason T dir treeDir .incomplete) ∧ ReadActs t dir treeDir := by
   have hT := hI.sublist
   rw [readProject] at h
@@ -1773,10 +1932,14 @@ theorem readProject_spec {T t : List (Event L E)} {dir treeDir : FilePath} {sysr
                 · rfl
                 · exact o4 x hx
                 · exact u3 x hx
-              refine Holds.congr (fun p => ?_) (g2 ha)
-              rw [← hZ]
-              have := written_after_no_acts (b := t₁₀) hno p
-              simpa [List.append_assoc] using this
+              obtain ⟨hh, hb⟩ := g2 ha
+              have hB := ReadBack.prepend_no_acts hno hb
+              refine ⟨Holds.congr (fun p => ?_) hh, ?_⟩
+              · rw [← hZ]
+                have := written_after_no_acts (b := t₁₀) hno p
+                simpa [List.append_assoc] using this
+              · rw [← hZ]
+                simpa [List.append_assoc] using hB
             · rcases hquiet x hx with h' | h'
               · exact f3 x h' p hp'
               · rw [h'] at hp'
@@ -1784,8 +1947,8 @@ theorem readProject_spec {T t : List (Event L E)} {dir treeDir : FilePath} {sysr
 
 /-- What a whole read rests on, by the events `T`, for a state of the tree that is what `t` leaves. -/
 def ReadDone (T t : List (Event L E)) (dir treeDir : FilePath) (r : Reading) : Prop :=
-  (decision r = .admitted → ∀ held : List String → Option String, (∀ p, held p = written t p) →
-    Evidence T dir treeDir held r) ∧ ∀ o, decision r = o → o ≠ .admitted → Reason T dir treeDir o
+  (decision r = .admitted → (∀ held : List String → Option String, (∀ p, held p = written t p) →
+    Evidence T dir treeDir held r) ∧ ReadBack t) ∧ ∀ o, decision r = o → o ≠ .admitted → Reason T dir treeDir o
 
 /-- The reader, whatever lines it returns. -/
 theorem read_spec {T t : List (Event L E)} {dir treeDir : FilePath} {sysroot : String}
@@ -1810,9 +1973,9 @@ theorem read_spec {T t : List (Event L E)} {dir treeDir : FilePath} {sysroot : S
     refine ⟨fun r' lines he => ?_, fun ⟨e, he⟩ => (by cases he), p3⟩
     cases he
     obtain ⟨tree, text, g1, g2⟩ := p1 r srcs rfl
-    refine ⟨fun ha held hheld => g1.1 ha held ?_, g1.2⟩
+    refine ⟨fun ha => ⟨fun held hheld => g1.1 ha held ?_, (g2 ha).2⟩, g1.2⟩
     have heq : held = written t₁ := funext hheld
     rw [heq]
-    exact g2 ha
+    exact (g2 ha).1
 
 end RegulaSpecification.Effects

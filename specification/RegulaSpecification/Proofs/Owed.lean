@@ -239,6 +239,7 @@ theorem Reason.mono (hi : T <:+: T') {dir treeDir : FilePath} {o}
   | targetName h1 h2 h3 => exact .targetName (tl h1) h2 h3
   | twoFiles h1 h2 h3 h4 => exact .twoFiles (sc h1) h2 h3 h4
   | twoRoots h1 h2 h3 h4 => exact .twoRoots (sc h1) h2 h3 h4
+  | treeDiffers h1 h2 h3 h4 => exact .treeDiffers (sc h1) (Planned.mono hs h2) (h3.trans hs) h4
   | twoTexts h1 h2 h3 h4 h5 => exact .twoTexts (sc h1) (Planned.mono hs h2) (Planned.mono hs h3) h4 h5
   | moduleName h1 h2 h3 => exact .moduleName (sc h1) (nm h2) h3
   | importedRoot h1 h2 h3 h4 h5 h6 => exact .importedRoot (sc h1) (nm h2) (hd h3) h4 h5 h6

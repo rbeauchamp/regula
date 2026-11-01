@@ -4,6 +4,7 @@ Released under MIT license as described in the file LICENSE.
 Authors: Regula contributors
 -/
 import RegulaSpecification.Proofs.Owed
+import RegulaSpecification.Proofs.Preparation
 
 /-!
 # Exit 0 exactly when a pass is owed
@@ -301,7 +302,9 @@ theorem lookup_of_mem_isSome {α β : Type} [BEq α] [LawfulBEq α] {l : List (�
 no failed answer, on one answer for each operation and one context for each input. -/
 theorem no_reason_of_evidence {T : List (Event L E)} {dir treeDir : FilePath} {stands : List String → Option String}
     {r : Reading} {o : Outcome}
-    (hev : Evidence T dir treeDir stands r) (hi : Inside r) (hfail : ∀ e ∈ T, ¬ e.failed) (hone : OneAnswer T)
+    (hev : Evidence T dir treeDir stands r)
+    (hback : ∀ path text r', (⟨.writeFile path text, r'⟩ : Event L E) ∈ T → stands (parts path) = some text →
+      (⟨.readFile path, .ok text⟩ : Event L E) ∈ T) (hi : Inside r) (hfail : ∀ e ∈ T, ¬ e.failed) (hone : OneAnswer T)
     (hctx : OneContext T) : ¬ Reason T dir treeDir o := by
   obtain ⟨project, tree, hp, ht, hap, ⟨s1, prog1, lib1, hs1, hl1, hst⟩, ⟨ttext, treal, htt, htr, hte1, hte2, hpin⟩,
     ⟨eabs, habs, nm, cd, dt, rfl⟩, ⟨text, real, table, hr1, hr2, hr3, hr4, hr5, hr6, hdeep, hkeys⟩, hpin0, hc1, hc2, sysroot, root,
@@ -375,6 +378,22 @@ theorem no_reason_of_evidence {T : List (Event L E)} {dir treeDir : FilePath} {s
     rw [hmod, hl] at hl1
     cases hl1
     exact hall i hi
+  have planned_stands {path text'} (hpl : Planned T project tree root modules path text') :
+      stands (parts path) = some text' := by
+    cases hpl with
+    | toml h => rw [Except.ok.inj (hone.resp h hr4 rfl)]; exact hr6
+    | toolchain => exact hpin0
+    | source hn hf hst =>
+      obtain ⟨-, f, -, -, i0, m0, t0, -, hra, hs0⟩ := hcomp _ _ (hNC hn _ hf)
+      obtain ⟨rel, hrel, hread⟩ := hst
+      obtain ⟨rel', real', st0, ms0, fin0, env0, cmds0, h1, -, -, h4, -⟩ := hra
+      have hrel' : rel = rel' := List.append_cancel_left (hrel.1.symm.trans h1.1)
+      subst hrel'
+      have htx : text' = t0 := Except.ok.inj (hone.resp hread
+        (h4.subset (List.mem_cons_of_mem _ (List.mem_cons_self ..)) :
+          (⟨.readFile (under project rel), .ok t0⟩ : Event L E) ∈ T) rfl)
+      rw [htx]
+      exact hs0
   intro hreason
   cases hreason with
   | failed he _ hf => exact hfail _ he hf
@@ -483,24 +502,13 @@ theorem no_reason_of_evidence {T : List (Event L E)} {dir treeDir : FilePath} {s
     cases hn with
     | root hm => exact hc (hcl _ (hrr _ (hroots ▸ hm)))
     | imported hn₀ hh hi => exact hc (hNI hn₀ hh hi).2.1
+  | treeDiffers hsc hpl hsub hne =>
+    obtain ⟨rfl, rfl, rfl, rfl⟩ := hSc hsc
+    have hread := hback _ _ _ (hsub.subset (List.mem_cons_self ..)) (planned_stands hpl)
+    exact hne (hone.resp (hsub.subset (List.mem_cons_of_mem _ (List.mem_cons_self ..))) hread rfl)
   | twoTexts hsc hp1 hp2 hparts hne =>
     obtain ⟨rfl, rfl, rfl, rfl⟩ := hSc hsc
-    have hstands {path text'} (hpl : Planned T project tree root modules path text') :
-        stands (parts path) = some text' := by
-      cases hpl with
-      | toml h => rw [Except.ok.inj (hone.resp h hr4 rfl)]; exact hr6
-      | toolchain => exact hpin0
-      | source hn hf hst =>
-        obtain ⟨-, f, -, -, i0, m0, t0, -, hra, hs0⟩ := hcomp _ _ (hNC hn _ hf)
-        obtain ⟨rel, hrel, hread⟩ := hst
-        obtain ⟨rel', real', st0, ms0, fin0, env0, cmds0, h1, -, -, h4, -⟩ := hra
-        have hrel' : rel = rel' := List.append_cancel_left (hrel.1.symm.trans h1.1)
-        subst hrel'
-        have htx : text' = t0 := Except.ok.inj (hone.resp hread
-          (h4.subset (List.mem_cons_of_mem _ (List.mem_cons_self ..)) :
-            (⟨.readFile (under project rel), .ok t0⟩ : Event L E) ∈ T) rfl)
-        rw [htx]
-        exact hs0
+    have hstands := @planned_stands
     have h1 := hstands hp1
     rw [hparts, hstands hp2] at h1
     exact hne (Option.some.inj h1).symm
@@ -593,8 +601,21 @@ theorem full_exit_zero_owed {t : List (Event L E)} {dir : FilePath} {p : Regula.
   | proofOnly => cases (hn (by simp)).2
   | incomplete => cases (hn (by simp)).2
   | admitted =>
-    obtain ⟨r', hi, hev⟩ := hdec.1 rfl
+    obtain ⟨r', hi, hev, ⟨bPre, bSuffix, hbsplit, -, hbread⟩⟩ := hdec.1 rfl
     obtain ⟨sysroot, tBuild, tRules, hs, rfl, hb⟩ := ha rfl
+    have hwriteIn : ∀ path text r₁, (⟨.writeFile path text, r₁⟩ : Event L E) ∈ readPhase t →
+        (⟨.writeFile path text, r₁⟩ : Event L E) ∈ tRead := by
+      intro path text r₁ hm
+      have hmt : (⟨.writeFile path text, r₁⟩ : Event L E) ∈ t := readPhase_subset hm
+      rw [htree] at hmt
+      simp only [List.mem_cons, List.mem_append] at hmt
+      rcases hmt with h' | (h' | h') | h' | h'
+      · cases congrArg Event.op h'
+      · exact h'
+      · exact False.elim (BuildAndRules.no_mutation hb ⟨.writeFile path text, r₁⟩ (List.mem_append.mpr h'))
+      · cases congrArg Event.op h'
+      · have := hlast _ h'
+        cases this
     have htree' : ∀ {tree' rest}, t = ⟨.createTempDir, .ok tree'⟩ :: rest → tree = tree' := by
       intro tree' rest he
       rw [htree] at he
@@ -604,7 +625,10 @@ theorem full_exit_zero_owed {t : List (Event L E)} {dir : FilePath} {p : Regula.
     refine ⟨fun e he => healthy _ he ⟨e, rfl⟩, ?_, ?_, ?_, ?_⟩
     · intro tree' rest o' he
       obtain rfl := htree' he
-      exact no_reason_of_evidence (Evidence.mono hread hev) hi (fun e he => healthy e (readPhase_subset he)) h1 h2
+      refine no_reason_of_evidence (Evidence.mono hread hev) (fun path text r₁ hw hst => ?_) hi (fun e he => healthy e (readPhase_subset he)) h1 h2
+      have hin := hwriteIn path text r₁ hw
+      have : (⟨.readFile path, .ok text⟩ : Event L E) ∈ bSuffix := hbread path text r₁ hin hst
+      exact hread.subset (by rw [hbsplit]; exact List.mem_append_right _ this)
     · intro tree' rest s' he _ hrej
       cases hrej with
       | build _ h4 h5 => exact healthy _ h4 h5

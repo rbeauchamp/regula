@@ -24,10 +24,9 @@ project.
 
 **Every Lake call and child process of the gate works in a tree the checker made for this run** (`tree`), and
 none works in the project's directory. Before Lake's load the tree holds the two configuration files. It holds a
-module's text only once the decision has admitted the whole reading. Each source requests installation of the text
-that was parsed. The effect table creates files exclusively and accepts existing destinations only with equal text,
-so another spelling cannot overwrite an earlier source. `runFull_filesystem_at_consumer` connects the admitted reading
-to the filesystem view, under the primitive laws and preservation by the other trusted calls. A
+module's text only once the decision has admitted the whole reading, each source's text is written then, and each
+planned file is read back from the tree by the path it was written at, so what the record credits is what the file
+system answered after the run's last act on the tree (`FullRun.answered_at_consumer` in the specification). A
 name, a link or a file of the project can then select no path outside the tree, whatever Lake derives at this or a
 later version. The project's own directory is read and never written, and its `.lake`, its manifest and every other
 file of it are not read at all.
@@ -53,9 +52,10 @@ It reads, in this order, and stops at the first refusal:
 - Each file's commands, through Lean's `parseCommand`, with the context that the specification's H1 states: an
   environment of the toolchain modules the file sees, no options, no namespace and no open declaration.
 
-Only then, and only for a reading that the decision admits, each file's text goes to the tree (`writeSources`). What
-would hold two texts at one path, by its components, is left unread (`twoTexts`). The table's `writePreserving` also
-refuses different texts at aliased destinations: a failed installation stops the reader before any build.
+Only then, and only for a reading that the decision admits, each file's text goes to the tree (`writeSources`), and each
+planned file is read back (`readBack`). What would hold two texts at one path, by its components, is left unread
+(`twoTexts`), so two names with one file are admitted only when both reads gave that file one text. Two paths with
+different components that the file system takes for one file show up in the read-back, whatever its reason for doing so.
 
 `MathlibReached` is a test of the name's root, on the modules `reached` holds, so a module whose root is
 `Mathlib` is recorded and not read. No `.olean` file of the project or of a dependency is loaded. Only the
@@ -285,13 +285,26 @@ def twoTexts (planned : List (Name × FilePath × String)) : List (Name × Strin
       Regula.Load.exactParts path == Regula.Load.exactParts other && text != text'
   clash.map fun (m, path, _) => (m, s!"its file {path} would hold two texts")
 
-/-- Request installation of each source's text. This is the reader's only module-writing stage; the effect table
-preserves existing destinations and accepts them only with equal text. Stops at the first failure. -/
+/-- Write the text of each source to its file. This is the reader's only write of a module's file. Stops at the first
+failure. -/
 def writeSources (tree : FilePath) : List (Name × Source) → Attempt L E Unit
   | [] => pure ()
   | (_, s) :: rest => do
     writeInTree tree s.path s.text
     writeSources tree rest
+
+/-- Read each file back by the path it was written at, and stop unless it gives the text written. This takes no model of the file
+system: a text that another spelling of a path replaced, or that a write that answered success did not store, is an answer
+that differs. The texts compare as read: `IO.FS.writeFile` puts the string's bytes (`Init/System/IO.lean:1058-1060` at v4.35.0)
+and `IO.FS.readFile` gives the bytes it decodes (`:1229-1233`), so neither touches a line ending. -/
+def readBack : List (FilePath × String) → Attempt L E Unit
+  | [] => pure ()
+  | (path, text) :: rest => do
+    let held ← attempt (Prog.call (.readFile path))
+    if held == text then
+      readBack rest
+    else
+      throw s!"{path} does not hold the text written to it"
 
 /-- Whether the toolchain's library holds the module `m`: Lean finds its `.olean` on the search path, and
 its real path lies below one of `dirs`, the real paths of that library's directories. An error is that it
@@ -503,8 +516,8 @@ def baseReading (config : List (FilePath × String)) (start : Reading) (root : R
       twoTexts (plannedOf config w.sources.reverse) }
 
 /-- The modules that the imports of `modules` reach, each file read, and each file's commands, and, only for a reading the
-decision admits, each text written to its file. So nothing of a module is in the tree until all of it was judged, and
-then only the text that was. Lake's load and resolution read no module's file: `LeanLib.findModule?` tests a name against
+decision admits, each text written to its file and each planned file read back. So nothing of a module is in the tree until all
+of it was judged, then only the text that was, and the file system's answer says so. Lake's load and resolution read no module's file: `LeanLib.findModule?` tests a name against
 the configuration (`Lake/Config/Module.lean:41-42`, `Lake/Config/LeanLibConfig.lean:140`), and a single-module `globs` entry
 lists nothing (`Lake/Config/Glob.lean:53-59`). The search path holds the toolchain's directories alone, because a module is
 the file Lake names or else the toolchain's: no output of the project is on it. -/
@@ -523,6 +536,7 @@ def readFiles (config : List (FilePath × String)) (project tree : FilePath) (ro
     match decision reading with
     | .admitted =>
       writeSources tree w.sources.reverse
+      readBack (config ++ w.sources.reverse.map fun x => (x.2.path, x.2.text))
       pure (reading, w.sources.reverse)
     | _ => pure (reading, w.sources.reverse)
 

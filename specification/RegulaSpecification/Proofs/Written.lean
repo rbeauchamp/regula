@@ -104,6 +104,10 @@ theorem Event.leaves_of_keeps {e : Event L E} (h : e.keepsFiles) (p : List Strin
   obtain ⟨o, r⟩ := e
   cases o <;> first | rfl | exact h.elim
 
+theorem keeps_of_no_acts {e : Event L E} (h : e.acted? = none) : e.keepsFiles := by
+  obtain ⟨o, r⟩ := e
+  cases o <;> first | trivial | cases h
+
 /-- No event of a segment writes or removes. -/
 theorem leavesAs_nil_of_keeps {t : List (Event L E)} (h : ∀ e ∈ t, e.keepsFiles) : LeavesAs t [] := by
   intro p held
@@ -137,6 +141,34 @@ theorem leavesAs_write {before : List (Event L E)} {path : FilePath} {text : Str
       exact ih (fun x hx => h x (List.mem_cons_of_mem _ hx)) held
   rw [hb]
   rfl
+
+/-- Each write that a segment asks is one of a list. -/
+def WritesIn (t : List (Event L E)) (l : List (FilePath × String)) : Prop :=
+  ∀ path text r, (⟨.writeFile path text, r⟩ : Event L E) ∈ t → (path, text) ∈ l
+
+theorem WritesIn.append {a b : List (Event L E)} {x y : List (FilePath × String)} (ha : WritesIn a x) (hb : WritesIn b y) :
+    WritesIn (a ++ b) (x ++ y) := by
+  intro path text r he
+  rcases List.mem_append.mp he with he | he
+  · exact List.mem_append_left _ (ha path text r he)
+  · exact List.mem_append_right _ (hb path text r he)
+
+/-- No event of a segment acts on a file or a directory, so it asks no write. -/
+theorem writesIn_nil_of_no_act {t : List (Event L E)} (h : ∀ e ∈ t, e.acted? = none) : WritesIn t [] := by
+  intro path text r he
+  cases h _ he
+
+/-- A directory made, then one write. -/
+theorem writesIn_write {before : List (Event L E)} {path : FilePath} {text : String} {r : Except IO.Error Unit}
+    (h : ∀ e ∈ before, ∃ d, e = (⟨.createDirAll d, .ok ()⟩ : Event L E)) :
+    WritesIn (before ++ [⟨.writeFile path text, r⟩]) [(path, text)] := by
+  intro p x r' he
+  rcases List.mem_append.mp he with he | he
+  · obtain ⟨d, hd⟩ := h _ he
+    cases congrArg Event.op hd
+  · have hop := congrArg Event.op (List.mem_singleton.mp he)
+    cases hop
+    exact List.mem_singleton.mpr rfl
 
 /-- What a segment leaves from nothing, when it acts as a list of writes. -/
 theorem LeavesAs.written {t : List (Event L E)} {l : List (FilePath × String)} (h : LeavesAs t l) (p : List String) :

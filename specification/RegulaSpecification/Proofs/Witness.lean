@@ -409,6 +409,18 @@ theorem no_reason (w : WitnessPaths) (env : Lean.Environment) (p : Prog Unit Uni
     cases h1
     cases h2
     exact hne rfl
+  | treeDiffers hs hp1 hsub hne =>
+    have hpl : ∀ {project tree root modules path text},
+        Planned (traceWith (answers w env) p) project tree root modules path text → text = leanToolchain := by
+      intro project tree root modules path text hpl
+      cases hpl with
+      | toml h => exact Except.ok.inj (resp_eq h : (Except.ok _ : Except IO.Error String) = .ok _)
+      | toolchain => rfl
+      | source _ _ hst =>
+        obtain ⟨_, _, h⟩ := hst
+        exact Except.ok.inj (resp_eq h : (Except.ok _ : Except IO.Error String) = .ok _)
+    have hr := resp_eq (hsub.subset (List.mem_cons_of_mem _ (List.mem_cons_self ..)))
+    exact hne (by rw [hr, hpl hp1]; rfl)
   | twoTexts hs hp1 hp2 hparts hne =>
     have hpin : ∀ {project tree root modules path text},
         Planned (traceWith (answers w env) p) project tree root modules path text → text = leanToolchain := by
@@ -458,8 +470,7 @@ theorem admits_a_project (w : WitnessPaths) (env : Lean.Environment) :
   have hT : (traceWith (answers w env) (check w.leanPath w.project w.tree)) <:+: (traceWith (answers w env) q) :=
     List.infix_cons List.infix_rfl
   obtain ⟨hd, -⟩ := check_spec hT (List.mem_cons_self ..)
-    (fun p => written_after_no_acts (a := [⟨.getEnv "LEAN_SYSROOT", some w.leanPath⟩])
-      (fun e he => by obtain rfl := List.mem_singleton.mp he; rfl) p) hr
+    ⟨[⟨.getEnv "LEAN_SYSROOT", some w.leanPath⟩], rfl, fun e he => by obtain rfl := List.mem_singleton.mp he; rfl⟩ hr
   cases ho : valueWith (answers w env) (check w.leanPath w.project w.tree : Prog Unit Unit Outcome) with
   | admitted => rw [ho] at hr; exact hr
   | refused => rw [ho] at hd; exact absurd (hd.2.1 (by simp)) (no_reason w env _ _)

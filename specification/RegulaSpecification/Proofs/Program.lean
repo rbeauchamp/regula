@@ -11,8 +11,8 @@ import Regula.Table
 
 The checker's program meets `programRecord` (`run_meets_record`); the record has lean-intent's obligations; `refuser`, which
 reads nothing and refuses, does not meet it; and what `Prog.interpret` computes is the value of such a run, for any table
-of effects (`executed_meets`). `table_rows` names each row of the one table. Its writer's decisions have the separate
-`writePreserving_io` and `writePreserving_correct` proofs; the other rows are straight lines of primitive calls.
+of effects (`executed_meets`). Each row of the one table is a straight line of calls (`table_rows`), so the table makes no
+decision.
 -/
 
 namespace RegulaSpecification.Effects
@@ -137,7 +137,7 @@ theorem refuser_fails (tree : FilePath) :
     cases o with
     | admitted =>
       obtain ⟨r', -, hev⟩ := hdec.1 rfl
-      obtain ⟨project, _, hp', -⟩ := hev.places
+      obtain ⟨project, _, hp', -⟩ := hev.1.places
       cases hp'
     | refused => exact reason_nil (hdec.2.1 (by simp))
     | proofOnly => exact reason_nil (hdec.2.1 (by simp))
@@ -157,8 +157,9 @@ theorem executed_meets (table : (o : Op L E) → BaseIO (Resp o)) (args : List S
 
 /-! ## The one table -/
 
-/-- What each operation calls. The write row calls the separately proved `writePreserving`; every other row is a straight
-line of calls of Lean or of `LakeCalls`, with `spawnLake` and `importParsers`, which their equality theorems state. -/
+/-- What each operation calls. Each row is a straight line of calls of Lean, of the operating system's function as Lean gives
+it, or of a row of `LakeCalls`, with `spawnLake` and `importParsers`, which `spawnLake_eq` and `importParsers_eq` state. No
+row holds a test or a branch on a result. This is the closed form of "so thin that it only calls Lean" for this table. -/
 inductive Row (enable : BaseIO Unit) (lake : LakeCalls L) : (o : Op L Environment) → BaseIO (Resp o) → Prop where
   /-- Lean's own constants. -/
   | leanVersion : Row enable lake .leanVersion (pure (Lean.versionString, Lean.githash))
@@ -172,8 +173,8 @@ inductive Row (enable : BaseIO Unit) (lake : LakeCalls L) : (o : Op L Environmen
   | readFile {p} : Row enable lake (.readFile p) (IO.FS.readFile p).toBaseIO
   /-- `System.FilePath.symlinkMetadata`. -/
   | symlinkMetadata {p} : Row enable lake (.symlinkMetadata p) p.symlinkMetadata.toBaseIO
-  /-- The writer proved to install text without replacing existing contents. -/
-  | writeFile {p text} : Row enable lake (.writeFile p text) (writePreserving p text).toBaseIO
+  /-- `IO.FS.writeFile`. -/
+  | writeFile {p text} : Row enable lake (.writeFile p text) (IO.FS.writeFile p text).toBaseIO
   /-- `IO.FS.createDirAll`. -/
   | createDirAll {p} : Row enable lake (.createDirAll p) (IO.FS.createDirAll p).toBaseIO
   /-- `IO.FS.createTempDir`. -/

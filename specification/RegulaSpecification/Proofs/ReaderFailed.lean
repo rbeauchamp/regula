@@ -108,6 +108,18 @@ theorem sound_writeSources (tree : FilePath) (srcs : List (Name × Source)) :
     rw [writeSources]
     exact sound_seq (sound_writeInTree _ _ _) fun _ => ih
 
+theorem sound_readBack (l : List (FilePath × String)) : Sound (readBack l : Attempt L E _) := by
+  induction l with
+  | nil => rw [readBack]; exact sound_pure _
+  | cons x rest ih =>
+    obtain ⟨path, text⟩ := x
+    rw [readBack]
+    refine sound_seq ?_ fun _ => ?_
+    · sound_io
+    · split
+      · exact ih
+      · exact sound_throw _
+
 theorem sound_toolchainOLean (dirs : List FilePath) (m : Name) :
     Sound (toolchainOLean dirs m : Attempt L E _) := by
   rw [toolchainOLean]
@@ -279,13 +291,18 @@ theorem readFiles_no_failed {config : List (FilePath × String)} {project tree :
             cases r₉ with
             | error x => cases h₁₂.2
             | ok v =>
-              obtain ⟨rfl, he⟩ := runs_attempt_pure_iff.mp h₁₂
-              cases he
-              refine ⟨fun e he => ?_, rfl, rfl⟩
-              simp only [List.append_nil] at he
-              rcases List.mem_append.mp he with he | he
-              · exact sound_parseFiles _ _ _ _ _ _ h₉ e he
-              · exact sound_writeSources _ _ _ _ h₁₁ e he
+              obtain ⟨t₁₁, t₁₂, r₁₁, rfl, h₁₃, h₁₄⟩ := runs_attempt_bind_iff.mp h₁₂
+              cases r₁₁ with
+              | error x => cases h₁₄.2
+              | ok v' =>
+                obtain ⟨rfl, he⟩ := runs_attempt_pure_iff.mp h₁₄
+                cases he
+                refine ⟨fun e he => ?_, rfl, rfl⟩
+                simp only [List.append_nil, List.mem_append] at he
+                rcases he with he | he | he
+                · exact sound_parseFiles _ _ _ _ _ _ h₉ e he
+                · exact sound_writeSources _ _ _ _ h₁₁ e he
+                · exact sound_readBack _ _ _ h₁₃ e he
           · obtain ⟨rfl, he⟩ := runs_attempt_pure_iff.mp h₁₀
             cases he
             refine ⟨fun e he => ?_, rfl, rfl⟩

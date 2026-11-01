@@ -183,7 +183,7 @@ theorem refused_model (w : WitnessPaths) (env : Lean.Environment) (m : IO.FS.Met
       | incomplete => cases (hn (by simp)).2
       | admitted =>
         obtain ⟨r', -, hev⟩ := hdec.1 rfl
-        obtain ⟨_, _, _, _, _, _, _, ⟨e, habs, -⟩, -⟩ := hev.places
+        obtain ⟨_, _, _, _, _, _, _, ⟨e, habs, -⟩, -⟩ := hev.1.places
         have hin : ∀ {x : Event Unit Unit}, x ∈ tRead → x ∈ traceWith (answersRefused w env m)
             (dispatch Regula.Closed.pinnedLean.1 Regula.Closed.pinnedLean.2
               (argsOf ["standard-logical", "full", w.project.toString]).1
@@ -403,6 +403,7 @@ theorem unrelated_read_no_reason {L E : Type} {u dir treeDir : FilePath} {e : IO
   | targetName h => exact htl h
   | twoFiles h => exact hsc h
   | twoRoots h => exact hsc h
+  | treeDiffers h => exact hsc h
   | twoTexts h => exact hsc h
   | moduleName h => exact hsc h
   | importedRoot h => exact hsc h
