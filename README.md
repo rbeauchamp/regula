@@ -109,7 +109,7 @@ The exit code is 0 only for a pass of the full verdict. It is 1 when the check r
 
 The check refuses `run_cmd`, `#eval`, `#guard`, `run_tac`, `by_elab`, `native_decide`, `decide +native`, `macro`, `syntax`, `notation`, `elab`, `initialize`, `@[local macro k]`, `lakefile.lean` and a plugin in `lakefile.toml`. It admits Regula's own core, and library code that uses `simp`, `omega`, `decide +kernel`, `variable` and `deriving DecidableEq`. Those are examples. The rule is a closed table, so anything it does not hold is refused, including whatever a later Lean adds, and a harmless construct that the table does not hold is refused too. The [specification](specification/README.md#the-language-check) gives the table's criterion.
 
-`lake lint` in a project gives only the proof verdict. Asked for a full one, it says that only a proof verdict is possible, because the project has a `require`. A program that the project planted can print any line, so a full verdict is worth what the start from outside gives it: read it only from a checker you built apart from the project.
+`lake lint` in a project gives only the proof verdict. Asked for a full one, it says that only a proof verdict is possible, because the project has a `require`. A program that the project planted can print any line, so a full verdict is worth what the start from its own package gives it: read it only from a checker you built apart from the project.
 
 ## What a pass means
 

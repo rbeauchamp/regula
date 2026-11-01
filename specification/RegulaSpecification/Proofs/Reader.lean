@@ -1641,7 +1641,7 @@ theorem readConfig_spec {T t : List (Event L E)} {dir treeDir project tree : Fil
         have := written_after_no_acts (b := t₄) hno p
         simpa [List.append_assoc] using this
 
-/-! ## The start, and the whole reader -/
+/-! ## The whole reader -/
 
 /-- How `readExact` fails, by its events. -/
 theorem readExact_error {project path : FilePath} {t : List (Event L E)} {why : String}
