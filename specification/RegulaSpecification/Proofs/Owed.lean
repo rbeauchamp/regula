@@ -17,8 +17,8 @@ record alone. It reads no program, so it holds of each subject and not only of t
 `PlainOwed` and `FullOwed` state what it takes for a build to pass, over what the run received: no case of the closed set
 of reasons holds, `FullOwed` also that no build or replay was rejected, and the environment that Lean's import gave has `BuildAnswer.Floor`.
 `plain_owed` and `full_owed` state that a run on such responses gives the pass verdict and exit 0.
-`FullOwed` is the absence of each reason, so it says nothing by itself of who is healthy:
-`RegulaSpecification.Domain` says that, and `domain_owed` relates them. Preparation is supplied by `PlainRun` and `FullRun`, not by assuming
+`FullOwed` is the absence of each reason, so it says nothing by itself of who ought to pass,
+and no statement here says that: a refusal is true of what the run was answered, and a project with no refusal, on which the rules hold, passes. Preparation is supplied by `PlainRun` and `FullRun`, not by assuming
 reasons absent: their exact phase relations constrain every copy, load, command and search consumer,
 including failed attempts. The premises concern responses and content, never a branch of a program.
 No consistency of responses is needed for either implication to a pass.
@@ -226,15 +226,14 @@ theorem Reason.mono (hi : T <:+: T') {dir treeDir : FilePath} {o}
   | dependency h1 h2 h3 => exact .dependency (TomlRead.mono hs h1) h2 h3
   | openDir h1 h2 h3 => exact .openDir (tl h1) h2 h3
   | openGlob h1 h2 h3 h4 => exact .openGlob (tl h1) h2 h3 h4
+  | notLibrary h1 h2 h3 => exact .notLibrary (tl h1) h2 h3
   | noClaim h1 => exact .noClaim (sc h1)
   | targetName h1 h2 h3 => exact .targetName (tl h1) h2 h3
-  | twoFiles h1 h2 h3 h4 => exact .twoFiles (sc h1) h2 h3 h4
-  | twoRoots h1 h2 h3 h4 => exact .twoRoots (sc h1) h2 h3 h4
+  | rootElsewhere h1 h2 h3 => exact .rootElsewhere (sc h1) h2 h3
   | configShadowed h1 h2 => exact .configShadowed (m h1) (m h2)
   | treeDiffers h1 h2 h3 h4 => exact .treeDiffers (sc h1) (Planned.mono hs h2) (h3.trans hs) h4
   | twoTexts h1 h2 h3 h4 h5 => exact .twoTexts (sc h1) (Planned.mono hs h2) (Planned.mono hs h3) h4 h5
   | moduleName h1 h2 h3 => exact .moduleName (sc h1) (nm h2) h3
-  | importedRoot h1 h2 h3 h4 h5 h6 => exact .importedRoot (sc h1) (nm h2) (hd h3) h4 h5 h6
   | tooMany h1 h2 h3 h4 => exact .tooMany (sc h1) h2 (fun x hx => ⟨nm (h3 x hx).1, hd (h3 x hx).2⟩) h4
   | mathlib h1 h2 h3 => exact .mathlib (sc h1) (nm h2) h3
   | file h1 h2 h3 h4 h5 h6 h7 h8 h9 h10 =>
@@ -268,7 +267,7 @@ theorem BuildRead.mono {root : Root L} {f roots} (h : BuildRead T root f roots) 
 
 end Mono
 
-/-! ## What a healthy build owes -/
+/-! ## What a run with no refusal is owed -/
 
 /-- What a run of the proof verdict receives on a build that it owes a pass: no reason in the closed set holds, and each
 environment that the run read of the workspace Lake dispatched has `BuildAnswer.Floor`. -/
@@ -362,7 +361,7 @@ theorem full_owed {t : List (Event L E)} {dir : FilePath} {p : Regula.Closed.Pro
 /-! ## Every subject of the record -/
 
 /-- For every program that meets the record, every run of the proof verdict on the pinned Lean, on responses that owe a pass,
-passes. So a program that refuses a healthy build does not meet the record. -/
+passes. So a program that refuses a run in which no reason holds and each loaded reading has its floor does not meet the record. -/
 theorem run_plain_owed {w : List String → Prog L E UInt32} (hw : RunMeets w) {text : String} {p : Regula.Closed.Profile}
     (hp : text = p.spelling) {rest : List (Event L E)} {c : UInt32}
     (h : Runs (w [text]) (⟨.leanVersion, Regula.Closed.pinnedLean⟩ :: ⟨.getEnv Regula.Shell.fullVariable, none⟩ :: rest) c)
@@ -466,8 +465,8 @@ theorem Evidence.mono {T T' : List (Event L E)} (hs : T.Sublist T') {dir treeDir
   · intro f hf
     obtain ⟨path, i, md, tx, h1, h2, hst', h3, h4, h5⟩ := hfiles f hf
     refine ⟨path, i, md, tx, h1, ReadText.mono hs h2, hst', h3, h4, fun x hx => ?_⟩
-    obtain ⟨y1, y2, y3, y4⟩ := h5 x hx
-    refine ⟨?_, y2, y3, y4⟩
+    obtain ⟨y1, y2, y3⟩ := h5 x hx
+    refine ⟨?_, y2, y3⟩
     rcases y1 with y | ⟨z1, z2, z3⟩
     · exact .inl y
     · exact .inr ⟨z1, z2, HeldByToolchain.mono hs z3⟩

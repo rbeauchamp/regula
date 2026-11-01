@@ -12,7 +12,6 @@ import RegulaSpecification.Language
 import RegulaSpecification.Effects
 import RegulaSpecification.EffectsRun
 import RegulaSpecification.EffectsRecord
-import RegulaSpecification.Domain
 import RegulaSpecification.Witnesses
 import RegulaSpecification.CasesDeclarations
 import RegulaSpecification.CasesFoundation
@@ -27,7 +26,6 @@ import RegulaSpecification.Proofs.Verdict
 import RegulaSpecification.Proofs.Load
 import RegulaSpecification.Proofs.Written
 import RegulaSpecification.Proofs.Owed
-import RegulaSpecification.Proofs.OwedExact
 import RegulaSpecification.Proofs.Occurrences
 import RegulaSpecification.Proofs.Language
 import RegulaSpecification.Proofs.Owner
@@ -45,9 +43,6 @@ import RegulaSpecification.Proofs.Shell
 import RegulaSpecification.Proofs.Witness
 import RegulaSpecification.Proofs.Program
 import RegulaSpecification.Proofs.Behaviour
-import RegulaSpecification.Proofs.Domain
-import RegulaSpecification.Proofs.DomainCases
-import RegulaSpecification.Proofs.DomainModel
 import RegulaSpecification.Proofs.OwedModel
 import RegulaSpecification.Proofs.EffectScan
 import RegulaSpecification.Proofs.Gate

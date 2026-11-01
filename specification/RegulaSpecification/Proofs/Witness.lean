@@ -102,7 +102,7 @@ def witnessRoot (w : WitnessPaths) : Root Unit where
   findLib := fun _ => some ()
   findExe := fun _ => none
   targets := []
-  resolve := fun _ => none
+  resolve := fun _ => some w.file
   leanPath := []
   toolchain := [w.toolchainDir]
   leanLib := w.toolchainDir
@@ -271,6 +271,11 @@ theorem no_reason (w : WitnessPaths) (env : Lean.Environment) (p : Prog Unit Uni
     | imported _ hh hi =>
       rw [hheader hh] at hi
       simp at hi
+  have hfileW : ∀ {path : FilePath}, FileOfModule (witnessRoot w) [(`Good, w.file)] `Good path → path = w.file := by
+    intro path hf
+    rcases hf with hf | hf
+    · exact (Prod.mk.inj (List.mem_singleton.mp hf)).2
+    · exact (Option.some.inj hf).symm
   cases hr with
   | failed he hn hf =>
     rename_i e
@@ -322,23 +327,17 @@ theorem no_reason (w : WitnessPaths) (env : Lean.Environment) (p : Prog Unit Uni
   | moduleNotInTree hs hn hf ho =>
     obtain ⟨rfl, rfl, rfl, rfl⟩ := scene_witness hs
     obtain rfl := hnamed hn
-    rcases hf with hf | hf
-    · have : _ = _ := List.mem_singleton.mp hf
-      cases this
-      exact w.fileInTree ho
-    · cases hf
+    obtain rfl := hfileW hf
+    exact w.fileInTree ho
   | moduleNotExact hs hn hf hrel hr he =>
     obtain ⟨rfl, rfl, rfl, rfl⟩ := scene_witness hs
     obtain rfl := hnamed hn
-    rcases hf with hf | hf
-    · have : _ = _ := List.mem_singleton.mp hf
-      cases this
-      have hrel2 := w.fileRel
-      have hsame : _ = w.rel := List.append_cancel_left (hrel.1.symm.trans hrel2.1)
-      subst hsame
-      rw [hreal hr] at he
-      exact he w.fileExact
-    · cases hf
+    obtain rfl := hfileW hf
+    have hrel2 := w.fileRel
+    have hsame : _ = w.rel := List.append_cancel_left (hrel.1.symm.trans hrel2.1)
+    subst hsame
+    rw [hreal hr] at he
+    exact he w.fileExact
   | leanConfig hp hm => cases resp_eq hm
   | configShadowed hp hm => cases resp_eq hm
   | key hk hp hroot' hna =>
@@ -363,22 +362,20 @@ theorem no_reason (w : WitnessPaths) (env : Lean.Environment) (p : Prog Unit Uni
   | openGlob hl hd hg hn =>
     obtain ⟨-, rfl⟩ := hTL hl
     cases hd
+  | notLibrary hl hd hn =>
+    obtain ⟨-, rfl⟩ := hTL hl
+    cases hn
   | noClaim hs =>
     have := (scene_witness hs).2.2.2
     cases this
   | targetName hl hn hc =>
     obtain ⟨-, rfl⟩ := hTL hl
     cases hn
-  | twoFiles hs hm hres hne =>
-    obtain ⟨-, -, rfl, -⟩ := scene_witness hs
-    cases hres
-  | twoRoots hs hm hm2 hne =>
-    obtain ⟨-, -, -, rfl⟩ := scene_witness hs
+  | rootElsewhere hs hm hne =>
+    obtain ⟨-, -, rfl, rfl⟩ := scene_witness hs
     have h1 : _ = _ := List.mem_singleton.mp hm
-    have h2 : _ = _ := List.mem_singleton.mp hm2
     cases h1
-    cases h2
-    exact hne rfl
+    exact hne _ rfl rfl
   | treeDiffers hs hp1 hsub hne =>
     have hpl : ∀ {project tree root modules path text},
         Planned (traceWith (answers w env) p) project tree root modules path text → text = leanToolchain := by
@@ -406,9 +403,6 @@ theorem no_reason (w : WitnessPaths) (env : Lean.Environment) (p : Prog Unit Uni
     obtain ⟨-, -, -, rfl⟩ := scene_witness hs
     obtain rfl := hnamed hn
     exact hc good_closed_name
-  | importedRoot hs hn hh hi hsome hres =>
-    rw [hheader hh] at hi
-    simp at hi
   | @tooMany _ _ _ _ ms hs hnd hall hb =>
     obtain ⟨-, -, -, rfl⟩ := scene_witness hs
     have hzero : ∀ l : List (Name × Array Lean.Import), (∀ x ∈ l, x.2 = #[]) → (l.map (·.2.size)).sum = 0 := by

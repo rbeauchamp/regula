@@ -6,7 +6,6 @@ Authors: Regula contributors
 import RegulaSpecification.Proofs.Preparation
 import RegulaSpecification.Proofs.Owed
 import RegulaSpecification.Proofs.Written
-import RegulaSpecification.Proofs.OwedExact
 
 /-!
 # What a full verdict's admission is about
@@ -164,22 +163,6 @@ theorem Evidence.judged {T : List (Event L E)} {dir treeDir : FilePath} {held : 
   · exact .inr (.inl (Option.some.inj (hq.symm.trans hpin)))
   · exact .inr (.inr ⟨f, hf, project, tree, path, i, md, h1, h2⟩)
 
-/-- Two names with one file: each name's file of the reading was parsed from one text. -/
-theorem Evidence.two_names {T : List (Event L E)} {dir treeDir : FilePath} {held : List String → Option String} {r : Reading}
-    (h : Evidence T dir treeDir held r) :
-    ∃ (project tree : FilePath) (root : Root L) (modules : List (Name × FilePath)) (headers : List (Name × Array Lean.Import)),
-      ∀ m path m' path', Compiled headers root modules m path → Compiled headers root modules m' path' → parts path = parts path' →
-        ∃ text, (∃ f ∈ r.files, f.module = m ∧ ∃ imports mods, ReadText T project tree f path imports mods text) ∧
-          ∃ f ∈ r.files, f.module = m' ∧ ∃ imports mods, ReadText T project tree f path' imports mods text := by
-  obtain ⟨project, tree, -, -, -, -, -, -, -, -, -, -, root, -, modules, -, -, -, -, -, -, -, -, -, headers, -, -, -, hc, -, -, -⟩ :=
-    h.places
-  refine ⟨project, tree, root, modules, headers, fun m path m' path' h1 h2 hp => ?_⟩
-  obtain ⟨-, f, hf, hm, i, md, t1, -, g1, s1⟩ := hc m path h1
-  obtain ⟨-, f', hf', hm', i', md', t2, -, g2, s2⟩ := hc m' path' h2
-  have : t1 = t2 := Option.some.inj (s1.symm.trans (hp ▸ s2))
-  subst this
-  exact ⟨t1, ⟨f, hf, hm, i, md, g1⟩, f', hf', hm', i', md', g2⟩
-
 /-- The trace of an audit of an earlier revision: after the reading, read a file of the project again, and copy what that read gave
 over the file in the tree. -/
 def uncheckedCopy (source path parent : FilePath) (text : String) : List (Event L E) :=
@@ -297,14 +280,18 @@ theorem written_some_write {t : List (Event L E)} {p : List String} {text : Stri
   · cases hn
   · exact hw
 
+/-- The one answer that `FullRun.config_at_consumer` needs: a real path asked twice got one answer. -/
+def OneRealPath (t : List (Event L E)) : Prop :=
+  ∀ (p a b : FilePath), (⟨.realPath p, .ok a⟩ : Event L E) ∈ t → (⟨.realPath p, .ok b⟩ : Event L E) ∈ t → a = b
+
 /-- **What Lake takes as its configuration, at each consumer.** At each Lake command and each load for the rules of a full run, on one answer for each
-operation, the part `suffix` of the reading holds no act, comes after every act of the reading, and is followed only by events that neither write nor remove,
+real path, the part `suffix` of the reading holds no act, comes after every act of the reading, and is followed only by events that neither write nor remove,
 and it holds two answers of the file system: nothing has the name `lakefile.lean` in the tree, at the real path this run's tree got, and a read through a
 spelling of `lakefile.toml` there gave the text that Lake's TOML parser read. `lake_takes_judged` says what follows under H5. Another process is not in this
 statement. -/
 theorem FullRun.config_at_consumer {t : List (Event L E)} {dir : FilePath} {p : Regula.Closed.Profile} {c : UInt32}
     (h : FullRun t dir p c) {pre post : List (Event L E)} {e : Event L E} (ht : t = pre ++ e :: post)
-    (he : e.consumesTree = true) (hone : OneAnswer t) :
+    (he : e.consumesTree = true) (hone : OneRealPath t) :
     ∃ (tree real : FilePath) (before suffix mid : List (Event L E)) (err : IO.Error) (path : FilePath) (text : String) (table : Lake.Toml.Table),
       pre = (⟨.createTempDir, .ok tree⟩ :: (before ++ suffix)) ++ mid ∧ Quiet suffix ∧ (∀ x ∈ mid, x.keepsFiles) ∧
       (⟨.realPath tree, .ok real⟩ : Event L E) ∈ before ++ suffix ∧
@@ -320,7 +307,7 @@ theorem FullRun.config_at_consumer {t : List (Event L E)} {dir : FilePath} {p : 
     rw [ht, hpre]
     simp only [List.mem_append, List.mem_cons]
     exact .inl (.inl (.inr (List.mem_append.mp hx)))
-  obtain rfl : evTree = real := Except.ok.inj (hone.resp (hint hevTree) (hint hreal) rfl)
+  obtain rfl : evTree = real := hone _ _ _ (hint hevTree) (hint hreal)
   obtain ⟨path, r', hw, hp⟩ := written_some_write h6
   have hr := hread path text r' hw (by rw [hp]; exact h6)
   exact ⟨tree, evTree, before, suffix, mid, err, path, text, table, hpre, hq,

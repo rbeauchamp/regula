@@ -72,7 +72,7 @@ theorem full_exit_zero {t : List (Event L E)} {dir : FilePath} {p : Regula.Close
       · cases hrep
 
 /-- H3: what Lake's build compiles for the default targets. A hypothesis about what a function of Lake does, at v4.35.0:
-the modules of the default targets are those of each default library and the root of each default executable
+the modules of the default targets are those of each default library, and an admitted reading has no other default target
 (`Package.recCollectDefaultModules`, `Lake/Build/Package.lean:45-61`), and each other module is one that an import of what
 it compiles reaches, through `findModule?` (`Module.recFetchInput`, `Lake/Build/Module.lean:30-38`,
 `Lake/Config/Workspace.lean:279-280`), with the file `Module.leanFile`. A module of a default target may also have the file
@@ -122,11 +122,11 @@ theorem lakeSelection_model (real : FilePath) (err : IO.Error) :
   ⟨⟨⟨(· = real / "lakefile.lean"), fun _ _ h => by cases h⟩, rfl⟩,
     ⟨(parts · = parts (real / "lakefile.toml")), fun _ _ _ _ h => h⟩, rfl⟩
 
-/-- **Under H5, Lake takes the configuration judged**, at each consumer of a full run, on one answer for each operation: `real` is the real path of this run's tree, `path`
+/-- **Under H5, Lake takes the configuration judged**, at each consumer of a full run, on one answer for each real path: `real` is the real path of this run's tree, `path`
 has the components of `lakefile.toml` there, a read through `path` in the last part of the reading gave the text that Lake's parser read, and each file that Lake takes in
 `real` has those components. That the answer still holds when Lake runs is another process's matter, which this leaves unsaid. -/
 theorem lake_takes_judged {t pre post : List (Event L E)} {dir : FilePath} {p : Regula.Closed.Profile} {c : UInt32} (h : FullRun t dir p c) {e : Event L E}
-    (ht : t = pre ++ e :: post) (he : e.consumesTree = true) (hone : OneAnswer t) :
+    (ht : t = pre ++ e :: post) (he : e.consumesTree = true) (hone : OneRealPath t) :
     ∃ (tree real path : FilePath) (before suffix mid : List (Event L E)) (text : String) (table : Lake.Toml.Table),
       pre = (⟨.createTempDir, .ok tree⟩ :: (before ++ suffix)) ++ mid ∧ Quiet suffix ∧ (⟨.realPath tree, .ok real⟩ : Event L E) ∈ before ++ suffix ∧
       parts path = parts (real / "lakefile.toml") ∧ (⟨.readFile path, .ok text⟩ : Event L E) ∈ suffix ∧

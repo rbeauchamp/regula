@@ -185,11 +185,11 @@ def derivingClasses : List Name :=
   [`DecidableEq, `BEq, `Repr, `Inhabited, `Hashable, `Ord, `Nonempty]
 
 /-- The keys of a `lakefile.toml` outside `leanOptions`, each as a path of TOML keys. This table reads a key
-and no value: `Reading.openPaths` holds what the reader found of the values of `srcDir` and `globs`. -/
+and no value: `Reading.openPaths` holds what the reader found of the values of `srcDir`, `globs` and `defaultTargets`. -/
 def configKeys : List Name :=
   [`name, `version, `description, `keywords, `license, `licenseFiles, `srcDir, `defaultTargets,
-    `lintDriver, `lintDriverArgs, `lean_lib.name, `lean_lib.roots, `lean_lib.globs, `lean_lib.srcDir,
-    `lean_exe.name, `lean_exe.root, `lean_exe.srcDir, `lean_exe.supportInterpreter]
+    `lintDriver, `lintDriverArgs, `lean_lib.name, `lean_lib.roots, `lean_lib.globs,
+    `lean_exe.name, `lean_exe.root, `lean_exe.supportInterpreter]
 
 /-- What `lean-toolchain` must say: the one Lean this revision reads, which the checker also uses to
 build, whatever a project's own file names. -/
@@ -216,9 +216,10 @@ structure Reading where
   leanConfig : Bool
   /-- The key paths of the project's `lakefile.toml`. -/
   configKeys : List Name
-  /-- What the project's configuration names that is outside the closed domain of paths, each with its
-  report: a source directory that does not lie below the checker's tree (`treeRelative`), and a library with
-  a `globs` entry that is not a single module, which would need a directory listing. -/
+  /-- What the project's configuration names that is outside the closed domain, each with its report: a
+  source directory that does not lie below the checker's tree with closed components (`closedSourceDir`), a
+  library with a `globs` entry that is not a single module, which would need a directory listing, and a default
+  target that is not a library. -/
   openPaths : List String
   /-- The modules of the project's default targets. -/
   roots : List Name

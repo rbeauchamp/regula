@@ -209,32 +209,37 @@ and each spelling of it lies below the tree. -/
 structure ConfigFacts (tree : FilePath) (root : Root L) (modules : List (Name × FilePath)) : Prop where
   /-- Each target's name. -/
   names : ∀ n ∈ root.targets, ClosedModuleName n
-  /-- A root's file and what Lake's resolution gives for its name. -/
-  resolve : ∀ m file other, (m, file) ∈ modules → root.resolve m = some other → parts other = parts file
-  /-- Two entries of one name. -/
-  two : ∀ m file other, (m, file) ∈ modules → (m, other) ∈ modules → parts other = parts file
+  /-- What Lake's resolution gives for a root's name has the components of the root's file. -/
+  found : ∀ m file, (m, file) ∈ modules → ∃ other, root.resolve m = some other ∧ parts other = parts file
   /-- Each spelling, by the tests that the reader's writes ask. -/
   placed : ∀ m file path, (m, file) ∈ modules → (path = file ∨ root.resolve m = some path) →
     inTree tree path = true ∧ parentInTree tree path = true
+
+/-- Two entries of one name have one list of components, because resolution gives a name one file. -/
+theorem ConfigFacts.two {tree : FilePath} {root : Root L} {modules : List (Name × FilePath)}
+    (h : ConfigFacts tree root modules) (m : Name) (file other : FilePath) (hm : (m, file) ∈ modules)
+    (ho : (m, other) ∈ modules) : parts other = parts file := by
+  obtain ⟨g, hg, hp⟩ := h.found m file hm
+  obtain ⟨g', hg', hp'⟩ := h.found m other ho
+  rw [hg] at hg'
+  cases hg'
+  exact hp'.symm.trans hp
 
 /-- What `configUnread` empty says: each default root is its name's one file, also by Lake's import resolution. -/
 theorem configUnread_nil {tree : FilePath} {root : Root L} {modules : List (Name × FilePath)}
     (h : configUnread tree root modules = []) : ConfigFacts tree root modules := by
   simp only [configUnread, List.append_eq_nil_iff, List.map_eq_nil_iff, List.filter_eq_nil_iff] at h
-  obtain ⟨⟨⟨h0, h1⟩, h2⟩, h3⟩ := h
-  refine ⟨fun n hn => ?_, ?_, ?_, ?_⟩
+  obtain ⟨⟨h0, h1⟩, h3⟩ := h
+  refine ⟨fun n hn => ?_, ?_, ?_⟩
   · have := h0 n hn
     exact (closedModuleName_iff n).mp (by simpa using this)
-  · intro m file other hm hr
+  · intro m file hm
     have := h1 (m, file) hm
-    simp only [hr, bne_iff_ne, ne_eq, Decidable.not_not] at this
-    exact this
-  · intro m file other hm ho
-    have := h2 (m, file) hm
-    simp only [List.any_eq_true, Bool.and_eq_true, beq_iff_eq, bne_iff_ne, not_exists, not_and] at this
-    by_cases he : parts other = parts file
-    · exact he
-    · exact absurd he (fun _ => this (m, other) ho rfl he)
+    cases hr : root.resolve m with
+    | none => simp [hr] at this
+    | some other =>
+      simp only [hr, bne_iff_ne, ne_eq, Decidable.not_not] at this
+      exact ⟨other, rfl, this⟩
   · intro m file path hm hp
     have hmem : (m, path) ∈ modules.flatMap (fun x => x :: (root.resolve x.1).toList.map (x.1, ·)) := by
       refine List.mem_flatMap.mpr ⟨(m, file), hm, ?_⟩
@@ -289,8 +294,6 @@ theorem lastStage_evidence {T : List (Event L E)} {dir treeDir project tree : Fi
     (hroots : ∀ m path, (m, path) ∈ modules → m ∈ w.reached)
     (hcount : modules.length + sourceImports w.sources ≤ 1000000)
     (hnodup : ((headersOf w.sources.reverse).map (·.1)).Nodup)
-    (hexec : ∀ x ∈ w.sources, ∀ i ∈ x.2.imports, (modules.lookup i.module).isSome = true →
-      (root.resolve i.module).isSome = true)
     (hcl : ∀ m ∈ w.reached, closedModuleName m = true) (hnm : ∀ m ∈ w.reached, m.getRoot ≠ `Mathlib)
     (hread : ∀ m path, fileOf root modules m = some path → m ∈ w.reached → ¬ OutsideTree tree path ∧
       ∃ f ∈ files, f.module = m ∧ ∃ imports mods text', (headersOf w.sources.reverse).lookup m = some imports ∧
@@ -314,32 +317,38 @@ theorem lastStage_evidence {T : List (Event L E)} {dir treeDir project tree : Fi
     by_cases hroot : d.getRoot = `require
     · exact hnd ⟨d, hdr, hroot⟩
     · exact deepKey_not_admitted hdeep (hc.2.2.2 d hdr hroot)
-  have hdirs : ∀ d ∈ root.sourceDirs, ∃ rel, TreeRelative (parts tree) (parts d) rel := by
+  have hdirs : ∀ d ∈ root.sourceDirs, ∃ rel, TreeRelative (parts tree) (parts d) rel ∧ ∀ c ∈ rel, ClosedComponent c := by
     intro d hd
-    refine (inTree_iff tree d).mp ?_
+    refine (closedSourceDir_iff tree d).mp ?_
     have h0 := hopen
     simp only [openPathsOf, List.append_eq_nil_iff, List.map_eq_nil_iff] at h0
-    cases hin : inTree tree d with
+    cases hin : closedSourceDir tree d with
     | true => rfl
     | false =>
-      have hmem : d ∈ (root.sourceDirs.filter (!inTree tree ·)).eraseDups :=
+      have hmem : d ∈ (root.sourceDirs.filter (!closedSourceDir tree ·)).eraseDups :=
         List.mem_eraseDups.mpr (List.mem_filter.mpr ⟨hd, by simp [hin]⟩)
-      rw [h0.1] at hmem
+      rw [h0.1.1] at hmem
       cases hmem
   have hglobs : ∀ lib ∈ root.libraries, ∀ g ∈ lib.2, ∃ n, g = .one n := by
     intro lib hl g hg
     have h0 := hopen
     simp only [openPathsOf, List.append_eq_nil_iff, List.map_eq_nil_iff, List.filter_eq_nil_iff, Bool.not_eq_true',
       Bool.not_eq_false, List.all_eq_true] at h0
-    have h1 := h0.2 lib hl g hg
+    have h1 := h0.1.2 lib hl g hg
     cases g with
     | one n => exact ⟨n, rfl⟩
     | submodules n => cases h1
     | andSubmodules n => cases h1
+  have htargets : ∀ target ∈ root.defaultTargets, (root.findLib target).isSome = true := by
+    intro target ht
+    have h0 := hopen
+    simp only [openPathsOf, List.append_eq_nil_iff, List.map_eq_nil_iff, List.filter_eq_nil_iff] at h0
+    have h1 := h0.2 target ht
+    simpa [Option.isNone_iff_eq_none, Option.isSome_iff_ne_none] using h1
   refine ⟨project, tree, hp.project_real, hp.tree_real, hp.apart, hp.toolchain, hp.absent,
     ⟨text, real, table, t1, t2, t3, t4, t5, hheld.toml, hnodeep, hkeys⟩, hheld.toolchain, hp.copyToml,
     hp.copyToolchain, sysroot, root, log,
-    modules, hsys, hload, hmods, hrroots, hdirs, hglobs, hfacts.names, hfacts.resolve, hfacts.two, headersOf w.sources.reverse,
+    modules, hsys, hload, hmods, hrroots, hdirs, hglobs, hfacts.names, hfacts.found, htargets, headersOf w.sources.reverse,
     w.toolchain, ?_, hnodup, ?_, fun n hn => (I.held n hn).2.1, ?_, ?_⟩
   · rw [sum_headersOf, List.map_reverse, List.sum_reverse]
     exact hcount
@@ -392,16 +401,15 @@ theorem lastStage_evidence {T : List (Event L E)} {dir treeDir project tree : Fi
     · rw [hfrom.1]
       exact hlookup x hx
     · intro i hi
-      have hsome := hexec x hx i hi
       rcases I.pending hu x hx i hi with h' | h' | h'
       · cases h'
-      · exact ⟨.inl ((hreached _).mpr h'), (closedModuleName_iff _).mp (hcl _ h'), hnm _ h', hsome⟩
+      · exact ⟨.inl ((hreached _).mpr h'), (closedModuleName_iff _).mp (hcl _ h'), hnm _ h'⟩
       · obtain ⟨hnone, hheld, hc', hr', -⟩ := I.held _ h'
         rw [fileOf] at hnone
         split at hnone
         · cases hnone
         · rename_i hl
-          exact ⟨.inr ⟨hnone, hl, hheld⟩, (closedModuleName_iff _).mp hc', hr', hsome⟩
+          exact ⟨.inr ⟨hnone, hl, hheld⟩, (closedModuleName_iff _).mp hc', hr'⟩
   · intro p v hv
     obtain ⟨x, hx, h1, h2⟩ := hheld.2 p v hv
     rcases List.mem_append.mp hx with hx | hx
@@ -429,12 +437,12 @@ theorem lastStage_goal {T : List (Event L E)} {dir treeDir project tree : FilePa
     (hfacts : ConfigFacts tree root modules)
     (I : WalkInv T dir treeDir project tree root modules (modules.map (·.1)) [] w)
     (hu : w.unread = []) (hcount : modules.length + sourceImports w.sources ≤ 1000000)
-    (hf : (baseReading config start root modules w).readInFull = true)
-    (hm : (baseReading config start root modules w).mathlibReached = false)
+    (hf : (baseReading config start modules w).readInFull = true)
+    (hm : (baseReading config start modules w).mathlibReached = false)
     (g1 : ∀ f ∈ files, ∃ x ∈ w.sources.reverse, FileFrom T w.sources.reverse w.toolchain x.1 x.2 f)
     (g2 : ∀ x ∈ w.sources.reverse, ∃ f ∈ files, FileFrom T w.sources.reverse w.toolchain x.1 x.2 f) :
-    ReadGoal T dir treeDir (Holds tree text w.sources.reverse) { baseReading config start root modules w with files } := by
-  obtain ⟨r, hr⟩ : ∃ r : Reading, r = { baseReading config start root modules w with files } := ⟨_, rfl⟩
+    ReadGoal T dir treeDir (Holds tree text w.sources.reverse) { baseReading config start modules w with files } := by
+  obtain ⟨r, hr⟩ : ∃ r : Reading, r = { baseReading config start modules w with files } := ⟨_, rfl⟩
   rw [← hr]
   have hrc : r.configClosed = true := by rw [hr]; exact hc
   have hrd : r.requiresDependency = false := by rw [hr]; exact hd
@@ -463,7 +471,7 @@ theorem lastStage_goal {T : List (Event L E)} {dir treeDir project tree : FilePa
     rcases I.reached m hmr with h' | h' | h'
     · exact h'
     · exfalso
-      have : (baseReading config start root modules w).mathlibReached = true := by
+      have : (baseReading config start modules w).mathlibReached = true := by
         refine List.any_eq_true.mpr ⟨m, by simpa [baseReading] using hmr, by simpa using h'⟩
       rw [hm] at this
       cases this
@@ -515,7 +523,10 @@ theorem lastStage_goal {T : List (Event L E)} {dir treeDir project tree : FilePa
     | some q =>
       obtain ⟨h1, h2⟩ := hfacts.placed n q path' (mem_of_lookup hl) (.inr hres)
       obtain ⟨rel, hrel⟩ := (inTree_iff tree path').mp h1
-      exact ⟨q, by simp [fileOf, hl], (hfacts.resolve n q path' (mem_of_lookup hl) hres).symm, fun _ => not_outside_of hrel h2⟩
+      obtain ⟨g, hg, hgp⟩ := hfacts.found n q (mem_of_lookup hl)
+      rw [hres] at hg
+      cases hg
+      exact ⟨q, by simp [fileOf, hl], hgp.symm, fun _ => not_outside_of hrel h2⟩
     | none => exact ⟨path', by simp [fileOf, hl, hres], rfl, id⟩
   by_cases hmod : modules = []
   · have hcov : r.covered = false := by
@@ -557,22 +568,10 @@ theorem lastStage_goal {T : List (Event L E)} {dir treeDir project tree : FilePa
       have hinside := (decision_admitted_iff r).mp hdec
       have hnodupH : ((headersOf w.sources.reverse).map (·.1)).Nodup := by
         simpa [headersOf, Function.comp_def] using hnodup
-      have hexec : ∀ x ∈ w.sources, ∀ i ∈ x.2.imports, (modules.lookup i.module).isSome = true →
-          (root.resolve i.module).isSome = true := by
-        intro x hx i hi hl
-        have hf0 := hf
-        simp only [Reading.readInFull, baseReading, Bool.and_eq_true, List.isEmpty_iff, List.append_eq_nil_iff,
-          importedExecutableRoots, List.map_eq_nil_iff, List.filter_eq_nil_iff] at hf0
-        have h1 := hf0.1.2 i.module (List.mem_eraseDups.mpr (List.mem_flatMap.mpr
-          ⟨x, List.mem_reverse.mpr hx, List.mem_map.mpr ⟨i, Array.mem_toList_iff.mpr hi, rfl⟩⟩))
-        simp only [hl, Option.isNone_iff_eq_none] at h1
-        cases hres : root.resolve i.module with
-        | none => simp [hres] at h1
-        | some _ => rfl
       have hnm : ∀ m ∈ w.reached, m.getRoot ≠ `Mathlib := fun m hm' hroot =>
         hinside.2.2.2.1 ⟨m, (hreached m).mpr hm', hroot⟩
       exact lastStage_evidence hheld hp hsys hload hmods hopen hreached hrfiles hrroots hrkeys hinside I hu hfacts hroots hcount
-        hnodupH hexec hclosed hnm (hread hheld) hsomeFile hlookup hfileRead hstored
+        hnodupH hclosed hnm (hread hheld) hsomeFile hlookup hfileRead hstored
     · have hfa' : r.filesAdmitted = false := by simpa using hfa
       have hdec := decision_files hrc hrf hrd hrm hcov hfa'
       refine ⟨fun ha => (by rw [hdec] at ha; cases ha), fun o ho hne => ?_⟩
@@ -957,8 +956,8 @@ theorem readFiles_spec {T t : List (Event L E)} {dir treeDir project tree : File
   obtain ⟨config, hconfig⟩ : ∃ c : List (FilePath × String),
       c = [(tree / "lakefile.toml", text), (tree / "lean-toolchain", leanToolchain)] := ⟨_, rfl⟩
   rw [← hconfig] at h₇
-  have hbc : (baseReading config start root modules w).configClosed = true := hc
-  have hbd : (baseReading config start root modules w).requiresDependency = false := hd
+  have hbc : (baseReading config start modules w).configClosed = true := hc
+  have hbd : (baseReading config start modules w).requiresDependency = false := hd
   have hsrcEv : ∀ x ∈ w.sources, ∃ path, fileOf root modules x.1 = some path ∧
       SourceRead T project tree path x.2 := fun x hx => by
     obtain ⟨p, h1, h2, -⟩ := I.sources x hx
@@ -971,8 +970,8 @@ theorem readFiles_spec {T t : List (Event L E)} {dir treeDir project tree : File
     obtain ⟨rfl, rfl⟩ := runs_attempt_pure_iff.mp h₇
     refine ⟨fun r srcs he => ?_, fun ⟨e, he⟩ => (by cases he), by simpa using hacts⟩
     cases he
-    by_cases hf : (baseReading config start root modules w).readInFull = true
-    · have hm : (baseReading config start root modules w).mathlibReached = true := by
+    by_cases hf : (baseReading config start modules w).readInFull = true
+    · have hm : (baseReading config start modules w).mathlibReached = true := by
         simpa [hf] using hcond
       have hdec := decision_mathlib hbc hf hbd hm
       refine ⟨⟨fun ha => (by rw [hdec] at ha; cases ha), fun o ho hne => ?_⟩, fun ha => (by rw [hdec] at ha; cases ha)⟩
@@ -981,50 +980,41 @@ theorem readFiles_spec {T t : List (Event L E)} {dir treeDir project tree : File
       obtain ⟨m, hm', hroot⟩ := List.any_eq_true.mp hm
       have hmr : m ∈ w.reached := by simpa [baseReading] using hm'
       exact .mathlib hscene (I.named m hmr) (by simpa using hroot)
-    · have hf' : (baseReading config start root modules w).readInFull = false := by simpa using hf
+    · have hf' : (baseReading config start modules w).readInFull = false := by simpa using hf
       have hdec := decision_not_full hbc hf'
       refine ⟨⟨fun ha => (by rw [hdec] at ha; cases ha), fun o ho hne => ?_⟩, fun ha => (by rw [hdec] at ha; cases ha)⟩
       rw [hdec] at ho
       subst ho
-      have hne' : w.unread.reverse ++ importedExecutableRoots root modules w.sources.reverse ++
-          twoTexts (plannedOf config w.sources.reverse) ≠ [] := by
+      have hne' : w.unread.reverse ++ twoTexts (plannedOf config w.sources.reverse) ≠ [] := by
         intro hnil
-        have : (baseReading config start root modules w).readInFull = true := by
+        have : (baseReading config start modules w).readInFull = true := by
           simp only [Reading.readInFull, baseReading, hnil, List.isEmpty_nil]
         simp [this] at hf'
       by_cases hu : w.unread = []
-      · by_cases himp : importedExecutableRoots root modules w.sources.reverse = []
-        · have htwo : twoTexts (plannedOf config w.sources.reverse) ≠ [] := by
-            simpa [hu, himp] using hne'
-          obtain ⟨x, hx, y, hy, hxy, hne⟩ := twoTexts_cons htwo
-          have hmem {z} (hz : z ∈ plannedOf config w.sources.reverse) : z.2 ∈ planOf tree text w.sources.reverse := by
-            rw [← plannedOf_map, ← hconfig]
-            exact List.mem_map.mpr ⟨z, hz, rfl⟩
-          have hsrc : ∀ z ∈ w.sources.reverse, Named T project tree root modules z.1 ∧
-              FileOfModule root modules z.1 z.2.path ∧ SourceText T project tree z.2.path z.2.text :=
-            fun z hz => hfacts' z (List.mem_reverse.mp hz)
-          exact .twoTexts hscene (planned_of_mem htomlRead hsrc (hmem hx)) (planned_of_mem htomlRead hsrc (hmem hy)) hxy hne
-        · obtain ⟨x, hx⟩ := List.exists_mem_of_ne_nil _ himp
-          simp only [importedExecutableRoots, List.mem_map, List.mem_filter, List.mem_eraseDups,
-            List.mem_flatMap, Bool.and_eq_true] at hx
-          obtain ⟨m, ⟨⟨y, hy, hmy⟩, hl, hr⟩, -⟩ := hx
-          obtain ⟨i, hi, rfl⟩ := hmy
-          obtain ⟨p, p1, p2, p3⟩ := I.sources y (List.mem_reverse.mp hy)
-          exact .importedRoot hscene (I.named _ p3) (headerOf_read p1 p2) (Array.mem_toList_iff.mp hi) hl (by simpa using hr)
+      · have htwo : twoTexts (plannedOf config w.sources.reverse) ≠ [] := by
+          simpa [hu] using hne'
+        obtain ⟨x, hx, y, hy, hxy, hne⟩ := twoTexts_cons htwo
+        have hmem {z} (hz : z ∈ plannedOf config w.sources.reverse) : z.2 ∈ planOf tree text w.sources.reverse := by
+          rw [← plannedOf_map, ← hconfig]
+          exact List.mem_map.mpr ⟨z, hz, rfl⟩
+        have hsrc : ∀ z ∈ w.sources.reverse, Named T project tree root modules z.1 ∧
+            FileOfModule root modules z.1 z.2.path ∧ SourceText T project tree z.2.path z.2.text :=
+          fun z hz => hfacts' z (List.mem_reverse.mp hz)
+        exact .twoTexts hscene (planned_of_mem htomlRead hsrc (hmem hx)) (planned_of_mem htomlRead hsrc (hmem hy)) hxy hne
       · exact I.unread hu
   · rename_i hcond
-    have hf : (baseReading config start root modules w).readInFull = true := by
-      cases hx : (baseReading config start root modules w).readInFull with
+    have hf : (baseReading config start modules w).readInFull = true := by
+      cases hx : (baseReading config start modules w).readInFull with
       | true => rfl
       | false => exact absurd (by simp [hx]) hcond
-    have hm : (baseReading config start root modules w).mathlibReached = false := by
-      cases hx : (baseReading config start root modules w).mathlibReached with
+    have hm : (baseReading config start modules w).mathlibReached = false := by
+      cases hx : (baseReading config start modules w).mathlibReached with
       | false => rfl
       | true => exact absurd (by simp [hx]) hcond
     have hnil3 := hf
     simp only [Reading.readInFull, baseReading, List.isEmpty_iff,
       List.append_eq_nil_iff, List.reverse_eq_nil_iff] at hnil3
-    have hu : w.unread = [] := hnil3.1.1
+    have hu : w.unread = [] := hnil3.1
     have htwo : twoTexts (plannedOf config w.sources.reverse) = [] := hnil3.2
     obtain ⟨t₇, t₈, r₇, rfl, h₉, h₁₀⟩ := runs_attempt_bind_iff.mp h₇
     have hT₇ : t₇.Sublist T := (List.sublist_append_left _ _).trans hT₆
@@ -1144,9 +1134,10 @@ theorem openPaths_reason {T : List (Event L E)} {dir treeDir tree : FilePath} {r
     (hload : TreeLoaded T dir treeDir tree root) (h : openPathsOf tree root ≠ []) : Reason T dir treeDir .refused := by
   obtain ⟨x, hx⟩ := List.exists_mem_of_ne_nil _ h
   simp only [openPathsOf, List.mem_append, List.mem_map, List.mem_eraseDups, List.mem_filter] at hx
-  rcases hx with ⟨d, ⟨hd, hn⟩, -⟩ | ⟨lib, ⟨hl, hn⟩, -⟩
+  rcases hx with (⟨d, ⟨hd, hn⟩, -⟩ | ⟨lib, ⟨hl, hn⟩, -⟩) | ⟨target, ⟨ht, hn⟩, -⟩
   · refine .openDir hload hd fun rel hr => ?_
-    have := (inTree_iff tree d).mpr ⟨rel, hr⟩
+    refine Classical.byContradiction fun hall => ?_
+    have := (closedSourceDir_iff tree d).mpr ⟨rel, hr, fun c hc => Classical.byContradiction fun hbad => hall ⟨c, hc, hbad⟩⟩
     simp [this] at hn
   · have hne : ∃ g ∈ lib.2, ∀ n, g ≠ .one n := by
       simp only [Bool.not_eq_true', List.all_eq_false] at hn
@@ -1156,24 +1147,65 @@ theorem openPaths_reason {T : List (Event L E)} {dir treeDir tree : FilePath} {r
       simp at hs
     obtain ⟨g, hg, hs⟩ := hne
     exact .openGlob hload hl hg hs
+  · exact .notLibrary hload ht (by simpa [Option.isNone_iff_eq_none] using hn)
+
+/-- A default target that is no library keeps a project from admission: a default executable, such as the one of the `lake new` application
+template, or a name of no target. The owner named this refusal on 2026-11-01. -/
+theorem openPaths_of_notLibrary {tree : FilePath} {root : Root L} {target : Name} (ht : target ∈ root.defaultTargets)
+    (hn : root.findLib target = none) : openPathsOf tree root ≠ [] := by
+  intro h
+  simp only [openPathsOf, List.append_eq_nil_iff, List.map_eq_nil_iff, List.filter_eq_nil_iff] at h
+  have := h.2 target ht
+  simp [hn] at this
+
+/-- A source directory that `closedSourceDir` refuses keeps a project from admission. -/
+theorem openPaths_of_openDir {tree d : FilePath} {root : Root L} (hd : d ∈ root.sourceDirs)
+    (hn : closedSourceDir tree d = false) : openPathsOf tree root ≠ [] := by
+  intro h
+  simp only [openPathsOf, List.append_eq_nil_iff, List.map_eq_nil_iff] at h
+  have hmem : d ∈ (root.sourceDirs.filter (!closedSourceDir tree ·)).eraseDups :=
+    List.mem_eraseDups.mpr (List.mem_filter.mpr ⟨hd, by simp [hn]⟩)
+  rw [h.1.1] at hmem
+  cases hmem
+
+/-- A character outside the closed set, in a component of a source directory below the tree, makes `closedSourceDir` refuse that directory. -/
+theorem closedSourceDir_of_char {tree d : FilePath} {rel : List String} {c : String} {ch : Char}
+    (hr : TreeRelative (parts tree) (parts d) rel) (hc : c ∈ rel) (hch : ch ∈ c.toList) (hbad : ¬ ClosedChar ch) :
+    closedSourceDir tree d = false := by
+  cases h : closedSourceDir tree d with
+  | false => rfl
+  | true =>
+    obtain ⟨rel', hr', hall⟩ := (closedSourceDir_iff tree d).mp h
+    have hsame : rel' = rel := List.append_cancel_left (hr'.1.symm.trans hr.1)
+    subst hsame
+    exact absurd ((hall c hc).2 ch hch) hbad
+
+/-- A space is outside the closed set. The owner named this refusal of a source directory on 2026-11-01. -/
+theorem space_not_closed : ¬ ClosedChar ' ' := by decide
+
+/-- A character outside ASCII is outside the closed set. The owner named this refusal of a source directory on 2026-11-01. -/
+theorem nonAscii_not_closed {c : Char} (h : 127 < c.toNat) : ¬ ClosedChar c := by
+  have hval : 127 < c.val.toNat := h
+  rintro (hc | rfl | rfl)
+  · simp only [Char.isAlphanum, Char.isAlpha, Char.isDigit, Char.isUpper, Char.isLower, Bool.or_eq_true, Bool.and_eq_true,
+      decide_eq_true_eq, UInt32.le_iff_toNat_le] at hc
+    have h1 : ('Z').val.toNat = 90 := by decide
+    have h2 : ('z').val.toNat = 122 := by decide
+    have h3 : ('9').val.toNat = 57 := by decide
+    rcases hc with (⟨-, hc⟩ | ⟨-, hc⟩) | ⟨-, hc⟩ <;> omega
+  · revert h; decide
+  · revert h; decide
 
 theorem configUnread_reason {T : List (Event L E)} {dir treeDir project tree : FilePath} {root : Root L}
     {modules : List (Name × FilePath)} (hscene : Scene T dir treeDir project tree root modules)
     (h : configUnread tree root modules ≠ []) : Reason T dir treeDir .incomplete := by
   obtain ⟨x, hx⟩ := List.exists_mem_of_ne_nil _ h
   simp only [configUnread, List.mem_append, List.mem_map, List.mem_filter] at hx
-  rcases hx with ((⟨n, ⟨hn, hc⟩, -⟩ | ⟨y, ⟨hy, hr⟩, -⟩) | ⟨y, ⟨hy, hr⟩, -⟩) | ⟨y, ⟨hy, hr⟩, -⟩
+  rcases hx with (⟨n, ⟨hn, hc⟩, -⟩ | ⟨y, ⟨hy, hr⟩, -⟩) | ⟨y, ⟨hy, hr⟩, -⟩
   · refine .targetName hscene.loaded hn fun hclosed => ?_
     simp [(closedModuleName_iff n).mpr hclosed] at hc
-  · cases hres : root.resolve y.1 with
-    | none => simp [hres] at hr
-    | some other =>
-      simp only [hres, bne_iff_ne] at hr
-      exact .twoFiles hscene hy hres hr
-  · obtain ⟨o, ho, hb⟩ := List.any_eq_true.mp hr
-    simp only [Bool.and_eq_true, beq_iff_eq, bne_iff_ne] at hb
-    obtain ⟨h1, h2⟩ := hb
-    exact .twoRoots (m := y.1) (file := y.2) (other := o.2) hscene hy (by rw [← h1]; exact ho) h2
+  · refine .rootElsewhere (m := y.1) (file := y.2) hscene hy fun other hres => ?_
+    simpa only [hres, bne_iff_ne] using hr
   · obtain ⟨⟨m, file⟩, hmf, hin⟩ := List.mem_flatMap.mp hy
     have hfile : FileOfModule root modules m y.2 ∧ y.1 = m := by
       rcases List.mem_cons.mp hin with rfl | hin

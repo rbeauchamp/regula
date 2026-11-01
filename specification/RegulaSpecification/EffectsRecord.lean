@@ -17,8 +17,9 @@ proof verdict. Responses remain arbitrary: these relations constrain the request
 a whole run, for every response, and it is the contract that
 `Regula.Shell.run` is proved against. `RegulaSpecification.Proofs.Owed` states what follows of every program that meets it:
 a run in which nothing that the build needs has failed, on a project nothing keeps from being admitted, and whose environment has
-`BuildAnswer.Floor`, passes. Who that is, apart from this list of reasons, is `RegulaSpecification.Domain`, and `RegulaSpecification.Proofs.Domain`
-proves each reason justified against it.
+`BuildAnswer.Floor`, passes. `Reason` is the closed list of refusals that the specification's README publishes: each case is a
+statement of what Lean, Lake or the operating system answered, so a refusal is never untrue of those answers, and it says nothing
+of who else ought to pass.
 -/
 
 namespace RegulaSpecification.Effects
@@ -408,24 +409,27 @@ inductive Reason (t : List (Event L E)) (dir treeDir : FilePath) : Outcome → P
   /-- A dependency in the project's `lakefile.toml`. -/
   | dependency {table k} : TomlRead t dir table → KeyPath .anonymous table k → k.getRoot = `require →
       Reason t dir treeDir .proofOnly
-  /-- A source directory outside the tree. -/
+  /-- A source directory outside the tree, or with a component outside the closed domain below it, such as one with
+  a space or a non-ASCII name. -/
   | openDir {tree root d} : TreeLoaded t dir treeDir tree root → d ∈ root.sourceDirs →
-      (∀ rel, ¬ TreeRelative (parts tree) (parts d) rel) → Reason t dir treeDir .refused
+      (∀ rel, TreeRelative (parts tree) (parts d) rel → ∃ c ∈ rel, ¬ ClosedComponent c) →
+      Reason t dir treeDir .refused
   /-- A `globs` entry that is no single module. -/
   | openGlob {tree root lib g} : TreeLoaded t dir treeDir tree root → lib ∈ root.libraries →
       g ∈ lib.2 → (∀ n, g ≠ .one n) → Reason t dir treeDir .refused
+  /-- A default target that is no library: a default executable, as `lake new` makes for an application, or a name of no target. -/
+  | notLibrary {tree root target} : TreeLoaded t dir treeDir tree root → target ∈ root.defaultTargets →
+      root.findLib target = none → Reason t dir treeDir .refused
   /-- No module is claimed. -/
   | noClaim {project tree root} : Scene t dir treeDir project tree root [] → Reason t dir treeDir .incomplete
   /-- A target's name outside the closed domain. -/
   | targetName {tree root n} : TreeLoaded t dir treeDir tree root → n ∈ root.targets →
       ¬ ClosedModuleName n → Reason t dir treeDir .incomplete
-  /-- A default root whose name Lake's import resolution gives another file for, by components: two spellings of one path are
+  /-- A default root that Lake's import resolution does not give its own file, by components: two spellings of one path are
   one file. -/
-  | twoFiles {project tree root modules m file other} : Scene t dir treeDir project tree root modules →
-      (m, file) ∈ modules → root.resolve m = some other → parts other ≠ parts file → Reason t dir treeDir .incomplete
-  /-- Two default targets that hold one module name with two files, by components: two spellings of one path are one file. -/
-  | twoRoots {project tree root modules m file other} : Scene t dir treeDir project tree root modules →
-      (m, file) ∈ modules → (m, other) ∈ modules → parts other ≠ parts file → Reason t dir treeDir .incomplete
+  | rootElsewhere {project tree root modules m file} : Scene t dir treeDir project tree root modules →
+      (m, file) ∈ modules → (∀ other, root.resolve m = some other → parts other ≠ parts file) →
+      Reason t dir treeDir .incomplete
   /-- Something answers to `lakefile.lean` in the tree, which Lake prefers to the configuration judged: anything that the file system takes for that
   name, such as a file of the plan or a directory above one, has a second role, so no admission could be about what Lake takes as its configuration. -/
   | configShadowed {tree metadata} : (⟨.realPath treeDir, .ok tree⟩ : Event L E) ∈ t →
@@ -446,10 +450,6 @@ inductive Reason (t : List (Event L E)) (dir treeDir : FilePath) : Outcome → P
   /-- A name the build needs outside the closed domain. -/
   | moduleName {project tree root modules m} : Scene t dir treeDir project tree root modules →
       Named t project tree root modules m → ¬ ClosedModuleName m → Reason t dir treeDir .incomplete
-  /-- An import, by a file the build needs, of a default executable's root that no library holds. -/
-  | importedRoot {project tree root modules m imports i} : Scene t dir treeDir project tree root modules →
-      Named t project tree root modules m → HeaderOf t project tree root modules m imports → i ∈ imports →
-      (modules.lookup i.module).isSome = true → root.resolve i.module = none → Reason t dir treeDir .incomplete
   /-- The roots, and the imports of distinct files that the build needs, are more names than the reader follows. -/
   | tooMany {project tree root modules} {ms : List (Name × Array Import)} :
       Scene t dir treeDir project tree root modules → (ms.map (·.1)).Nodup →
