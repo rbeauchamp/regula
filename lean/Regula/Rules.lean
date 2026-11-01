@@ -96,8 +96,8 @@ def helperBaseFits (d : Decl) : Bool :=
         b.implementedBy.isNone && !b.isExtern
   | none => false
 
-/-- `d` has the form of the recursion helper of a safe recursive definition in the same module. -/
-def recursionHelper (d : Decl) : Bool :=
+/-- `d` has the exempted form, beside a safe definition in the same module, which names no origin. -/
+def helperForm (d : Decl) : Bool :=
   d.safety == .partial && d.implementedBy.isNone && !d.isExtern && t.helperBaseFits d
 
 /-- RG1001: a constant of a claimed module is an axiom. -/
@@ -151,10 +151,10 @@ def escapeDetail (d : Decl) : String :=
     | .safe => "has the name of a recursion helper, and is not partial"
 
 /-- RG1006: a constant of a claimed module is unsafe, partial or named as a recursion helper,
-without the form of a recursion helper, or its value mentions a loop construct of Lean. -/
+without the exempted form, or its value mentions a loop construct of Lean. -/
 def rg1006 : List Finding :=
   t.claimed.filterMap fun d =>
-    if ((d.safety != .safe || namedAsHelper d) && !t.recursionHelper d) || mentionsLoop d then
+    if ((d.safety != .safe || namedAsHelper d) && !t.helperForm d) || mentionsLoop d then
       some (finding .escapeHatch d (escapeDetail d))
     else none
 

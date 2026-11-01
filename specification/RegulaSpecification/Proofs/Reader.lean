@@ -787,12 +787,6 @@ theorem writeInTree_trace {tree path : FilePath} {text : String} {t : List (Even
   · obtain ⟨-, he⟩ := runs_attempt_throw_iff.mp h
     cases he
 
-/-- A successful write acts as one write. -/
-theorem writeInTree_leaves {tree path : FilePath} {text : String} {t : List (Event L E)} {u : Unit}
-    (h : Runs (writeInTree tree path text : Attempt L E Unit).run t (.ok u)) : LeavesAs t [(path, text)] := by
-  obtain ⟨before, rfl, hb⟩ := writeInTree_trace h
-  exact leavesAs_write hb
-
 /-- `readBack` for every response: on success each entry's read gave its text, a failure names an entry and an answer that differs,
 and all it asks is quiet. -/
 theorem readBack_spec {l : List (FilePath × String)} {t : List (Event L E)} {b : Except String Unit}

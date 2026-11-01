@@ -230,13 +230,14 @@ theorem spawnLake_eq (program cwd : FilePath) (args : List String) :
           cwd := some cwd, stdin := .null }
       child.wait) := rfl
 
-/-- `importParsers` enables Lean's initializers and imports: two calls, with no test, and it reads the scoped parsers of
-what it imported. -/
+/-- `importParsers` enables Lean's initializers and imports: two calls, with no test, and what it gives as the namespaces that hold a
+scoped parser is what Lean's own state of the parser extension holds, the keys of its `scopedEntries` map, which is what H1 reads. So
+`scopedParsersOf` given another value fails this theorem. -/
 theorem importParsers_eq (enable : BaseIO Unit) (modules : List Name) :
     importParsers enable modules = (do
       enable
       let env ← Lean.importModules (modules.toArray.map ({ module := · })) {} (loadExts := true)
         (level := .exported)
-      return (env, scopedParsersOf env)) := rfl
+      return (env, (Lean.Parser.parserExtension.ext.getState env).scopedEntries.map.toList.map (·.1))) := rfl
 
 end RegulaSpecification.Effects

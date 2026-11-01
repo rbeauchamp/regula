@@ -15,7 +15,7 @@ checker that reports nothing nor the one that reports every candidate meets it. 
 do-nothing checker met, or that refused the compliant case, would fail here.
 
 `base` is one claimed module `Good` under the choice-free profile. `Good.t` is a theorem that uses
-`propext`, and `Good.f` is a safe recursive definition with the recursion helper Lean adds.
+`propext`, and `Good.f` is a safe definition beside a constant of the exempted form.
 -/
 
 namespace RegulaSpecification
@@ -33,11 +33,11 @@ def plain (name module : Name) (kind : Kind) (uses : List Name) : Decl :=
 def toolchain (name : Name) (kind : Kind) : Decl :=
   { plain name `Init.Core kind [] with inToolchain := true }
 
-/-- The recursion helper of `Good.f`. -/
+/-- A constant of the exempted form beside `Good.f`. -/
 def helperDecl : Decl :=
   { plain `Good.f._unsafe_rec `Good .definition [`Good.f._unsafe_rec] with safety := .partial }
 
-/-- `Good.f`, the safe base of the helper. -/
+/-- `Good.f`, the safe definition beside it. -/
 def fDecl : Decl := plain `Good.f `Good .definition []
 
 /-- The constants of `base`. -/

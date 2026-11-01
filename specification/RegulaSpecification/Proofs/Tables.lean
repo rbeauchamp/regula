@@ -22,11 +22,6 @@ namespace Link
 
 variable {i : Regula.Closed.Input}
 
-/-- The specification's names are the checker's. -/
-theorem names_toSpec (i : Regula.Closed.Input) :
-    (toSpec i).decls.map (·.name) = i.decls.map (·.name) := by
-  simp [toSpec, toSpecDraft, decl, Function.comp_def]
-
 /-- A constant of the input is in each index, under its name. -/
 theorem get_of_mem (t : Regula.Closed.Tables i) {d : Regula.Closed.Decl} (hd : d ∈ i.decls) :
     t.index[d.name]? = some d :=
@@ -51,15 +46,6 @@ theorem any_index_iff (t : Regula.Closed.Tables i) (P : Regula.Closed.Decl → B
       rw [hn', h] at this
       simp only [Option.some.injEq] at this
       exact this ▸ hp
-
-/-- A name resolves in the specification's input when a constant of the checker's input has it. -/
-theorem resolves_iff {n : Name} : (toSpec i).Resolves n ↔ ∃ d ∈ i.decls, d.name = n := by
-  constructor
-  · rintro ⟨x, hx, rfl⟩
-    obtain ⟨d, hd, rfl⟩ := mem_decls.mp hx
-    exact ⟨d, hd, rfl⟩
-  · rintro ⟨d, hd, rfl⟩
-    exact ⟨decl d, mem_decls.mpr ⟨d, hd, rfl⟩, rfl⟩
 
 /-- The table of claimed constants, against the specification's claimed modules. -/
 theorem mem_claimed (t : Regula.Closed.Tables i) {d : Regula.Closed.Decl} :

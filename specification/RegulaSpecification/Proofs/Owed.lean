@@ -17,8 +17,7 @@ record alone. It reads no program, so it holds of each subject and not only of t
 `PlainOwed` and `FullOwed` state what it takes for a build to pass, over what the run received: no case of the closed set
 of reasons holds, `FullOwed` also that no build or replay was rejected, and the environment that Lean's import gave has `BuildAnswer.Floor`.
 `plain_owed` and `full_owed` state that a run on such responses gives the pass verdict and exit 0.
-`plain_refused_justified` gives a reason or a missing floor; `full_refused_justified` states that a nonzero
-full run cannot meet `FullOwed`. `FullOwed` is the absence of each reason, so it says nothing by itself of who is healthy:
+`FullOwed` is the absence of each reason, so it says nothing by itself of who is healthy:
 `RegulaSpecification.Domain` says that, and `domain_owed` relates them. Preparation is supplied by `PlainRun` and `FullRun`, not by assuming
 reasons absent: their exact phase relations constrain every copy, load, command and search consumer,
 including failed attempts. The premises concern responses and content, never a branch of a program.
@@ -43,12 +42,6 @@ theorem PreparedLoad.event {t : List (Event L E)} {dir treeDir sysroot tree resp
     (⟨.loadRoot sysroot tree, response⟩ : Event L E) ∈ t := by
   obtain ⟨_, _, _, _, _, _, _, _, _, _, hi, _⟩ := h
   exact hi.subset (by simp)
-
-/-- `Needed` holds of no load of a root. -/
-theorem needed_not_loadRoot {t : List (Event L E)} {dir treeDir sysroot tree} :
-    ¬ Needed t dir treeDir (.loadRoot sysroot tree) := by
-  intro h
-  cases h
 
 /-! ## The events of a phase of a run -/
 
@@ -115,11 +108,6 @@ theorem DefaultModules.mono {root : Root L} {targets modules}
   | lib hl he _ ih => exact .lib hl (hs.subset he) ih
   | exe hl hx _ ih => exact .exe hl hx ih
   | other hl hx _ ih => exact .other hl hx ih
-
-theorem BuildAnswered.mono {root : Root L} {a : BuildAnswer} {roots : List Name}
-    (h : BuildAnswered T root a roots) : BuildAnswered T' root a roots := by
-  obtain ⟨modules, h1, h2, h3, h4, h5, h6, h7⟩ := h
-  exact ⟨modules, DefaultModules.mono hs h1, h2, h3.trans hs, h4, h5, h6, fun x hx => hs.subset (h7 x hx)⟩
 
 theorem HeldByToolchain.mono {n} (h : HeldByToolchain T n) : HeldByToolchain T' n := by
   obtain ⟨o, h1⟩ := h
@@ -370,19 +358,6 @@ theorem full_owed {t : List (Event L E)} {dir : FilePath} {p : Regula.Closed.Pro
       · exact absurd (BuildRejected.mono htb hrej) (owed.built tree _ sysroot htree hsys)
     subst hrep
     exact ⟨hc, hend⟩
-
-/-- A run of the proof verdict that does not pass has a reason in the closed set, or what it read lacks the floor. -/
-theorem plain_refused_justified {t : List (Event L E)} {p : Regula.Closed.Profile} {c : UInt32} (h : PlainRun t p c)
-    (hc : c ≠ 0) :
-    PlainReason t ∨ ∃ root a roots, PlainRoot t root ∧ BuildAnswered t root a roots ∧ ¬ a.Floor roots p := by
-  refine Classical.byContradiction fun hno => hc (plain_owed h ⟨fun hr => hno (.inl hr), fun root a roots h1 h2 => ?_⟩).1
-  exact Classical.byContradiction fun hf => hno (.inr ⟨root, a, roots, h1, h2, hf⟩)
-
-/-- A run of the full gate that does not pass has, on the requested build, no tree, a reason in the closed set, a rejected
-build, a failed load of its result, or what it read of that result lacks the floor. -/
-theorem full_refused_justified {t : List (Event L E)} {dir : FilePath} {p : Regula.Closed.Profile} {c : UInt32}
-    (h : FullRun t dir p c) (hc : c ≠ 0) : ¬ FullOwed t dir p :=
-  fun owed => hc (full_owed h owed).1
 
 /-! ## Every subject of the record -/
 

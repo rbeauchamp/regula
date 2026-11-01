@@ -12,7 +12,8 @@ public import Regula.Verdict
 
 What a Lean file may hold, as data, and the type of what the reader gives the decision. Nothing here
 decides anything: `Regula.Language` is the decision, and `specification/RegulaSpecification/Language.lean`
-states it over these tables, independently of that decision.
+states it over these tables, independently of that decision, and `specification/RegulaSpecification/Proofs/Owner.lean` states the owner's
+examples apart from them, so a table replaced by a constant fails that build.
 
 Each table is closed: a name that it does not hold is refused, so a construct that a later Lean adds is
 refused until someone reads it and adds it. The criterion each entry was read against, at Lean v4.35.0,
