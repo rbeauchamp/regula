@@ -28,8 +28,9 @@ about what they decide.
 time `lean --run` elaborates this file. `specification/RegulaSpecification/Proofs/Gate.lean` proves, at `IO`, that `runLocal`
 gives 0 only when, for each file that `checkerFiles` lists, the bytes that a read of it gave are what a write joined to
 its directory took, and then each step gave 0, with that directory as the checker and the working directory as the
-project. That a step then builds what was written and checks this checkout rests on what `localSteps` names, the
-file system and Lake, which that theorem does not state. Which files exist is what `System.FilePath.walkDir` lists, which is Lean's. Starting a step, its exit code and what the step does are
+project. It also states what each step asks for: `localSteps_eq` and `localSteps_full` the steps, and `runStep_spawns` and
+`stepRequest_eq` the request that `runStep` starts for one. That a step then builds what was written and checks this checkout
+rests on those requests, the file system and Lake, which those theorems do not state. Which files exist is what `System.FilePath.walkDir` lists, which is Lean's. Starting a step, its exit code and what the step does are
 trusted effects of the operating system and of Lake. `lake` is the program that `PATH` selects. Each
 step sees the checkout as the step before it left it: the gate assumes that no other process changes
 the build between its steps. -/
@@ -49,8 +50,8 @@ structure Step where
   arguments : List String
   /-- The directory, relative to the root of the checkout. -/
   dir : String
-  /-- The project of the full gate, for `Regula.Shell.fullVariable`. Every other step has none, and the variable is removed
-  from what it inherits, so that only this step can give a verdict about another directory. -/
+  /-- The project of the full gate, for `Regula.Shell.fullVariable`. Every other step has none, and `stepRequest` removes the
+  variable from what it inherits, so that only this step can give a verdict about another directory. -/
   full : Option String
   deriving DecidableEq, Repr
 
@@ -118,18 +119,26 @@ def exitOf : Option (Step × UInt32) → UInt32
 theorem exitOf_eq_zero_iff (r : Option (Step × UInt32)) : exitOf r = 0 ↔ r = none := by
   cases r <;> simp [exitOf]
 
-/-- Run `step`, with the standard streams of this process, and give its exit code. The inherited
-Lean search paths are removed, so a Lake command resolves modules only through the workspace it runs
-in. Lake's artifact cache is off: a module that Lake restores from that cache replays no warning, so
-`lake build --wfail` would not see it. -/
-def runStep (step : Step) : IO UInt32 := do
+/-- What `runStep` asks the operating system to start for `step`. The inherited Lean search paths are
+removed, so a Lake command resolves modules only through the workspace it runs in. Lake's artifact
+cache is off: a module that Lake restores from that cache replays no warning, so `lake build --wfail`
+would not see it. `fullVariable` is bound to the step's `full`, and `none` removes an inherited value
+(`IO.Process.SpawnArgs.env`). -/
+def stepRequest (step : Step) : IO.Process.SpawnArgs :=
+  { cmd := "lake", args := step.arguments.toArray, cwd := some (System.FilePath.mk step.dir),
+    stdin := .null,
+    env := #[("LEAN_PATH", none), ("LEAN_SRC_PATH", none),
+      ("LAKE_ARTIFACT_CACHE", some "false"), (fullVariable, step.full)] }
+
+/-- Say which step starts, on the standard output. -/
+def announce (step : Step) : IO Unit := do
   IO.println s!"local gate: lake {" ".intercalate step.arguments} (in {step.dir}){(step.full.map (s!", on {·}")).getD ""}"
   (← IO.getStdout).flush
-  let child ← IO.Process.spawn
-    { cmd := "lake", args := step.arguments.toArray, cwd := some (System.FilePath.mk step.dir),
-      stdin := .null,
-      env := #[("LEAN_PATH", none), ("LEAN_SRC_PATH", none),
-        ("LAKE_ARTIFACT_CACHE", some "false"), (fullVariable, step.full)] }
+
+/-- Run `step`, with the standard streams of this process, and give its exit code. -/
+def runStep (step : Step) : IO UInt32 := do
+  announce step
+  let child ← IO.Process.spawn (stepRequest step)
   child.wait
 
 /-- Each path of `paths` that is no directory, in their order. -/

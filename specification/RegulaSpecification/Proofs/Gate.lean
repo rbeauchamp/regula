@@ -13,7 +13,8 @@ The gate program is the merge gate, and a defect in it that let a broken change 
 `runIn_zero` and `runLocal_zero` prove, of the definitions at `IO`, from any state of the world, that it gives 0 only when it
 wrote each file of `checkerFiles` to the checker's directory joined with that file, with the bytes it read, and for each step
 of `localSteps` there are worlds in which it gave 0, with that directory as the checker and the working directory as the project. `BaseIO` and `IO` are state monads in Lean's own definition (`Init/System/ST.lean`), so
-no assumption about the order of effects is needed for this. A defect that only stops the gate visibly, such as a failed
+no assumption about the order of effects is needed for this. `localSteps_eq`, `localSteps_full`, `runStep_spawns` and
+`stepRequest_eq` state what each step asks the operating system to start, and what it does with that request stays trusted. A defect that only stops the gate visibly, such as a failed
 copy or removal, which `IO` turns into a nonzero exit, is accepted risk.
 -/
 
@@ -324,11 +325,44 @@ theorem main_zero (args : List String) (w w' : Void IO.RealWorld) (h : _root_.ma
 /-- The variable that the gate sets is the one that the checker reads. -/
 theorem fullVariable_eq : fullVariable = Regula.Shell.fullVariable := rfl
 
-/-- The arguments of the steps of `localSteps`, in order. Their directories are not stated here. -/
+/-- The steps of `localSteps`, in order, with each one's arguments, directory and project of the full gate. -/
 theorem localSteps_eq (checker root : String) :
-    (localSteps checker root).map (·.arguments) =
-      [["clean"], ["build", "lint"], ["exe", "lint", "standard-logical"], ["build", "--wfail"],
-        ["build", "--wfail", "Regula", "lint"], ["lint"], ["build", "--wfail"],
-        ["check", "--inadvisably-no-sandbox"], ["lint"]] := rfl
+    localSteps checker root =
+      [⟨["clean"], "specification", none⟩,
+        ⟨["build", "lint"], checker, none⟩,
+        ⟨["exe", "lint", "standard-logical"], checker, some root⟩,
+        ⟨["build", "--wfail"], ".", none⟩,
+        ⟨["build", "--wfail", "Regula", "lint"], ".", none⟩,
+        ⟨["lint"], ".", none⟩,
+        ⟨["build", "--wfail"], "specification", none⟩,
+        ⟨["check", "--inadvisably-no-sandbox"], "specification", none⟩,
+        ⟨["lint"], "specification", none⟩] := rfl
+
+/-- Only the step that runs `lake exe lint standard-logical` names a project, and that project is `root`. -/
+theorem localSteps_full (checker root : String) :
+    ∀ s ∈ localSteps checker root,
+      s.full = if s.arguments = ["exe", "lint", "standard-logical"] then some root else none := by
+  simp [localSteps]
+
+/-- What `runStep` does for any `step`, with no premise about how the call ends: it announces the step, starts the process that
+`stepRequest` describes and waits for it. What the operating system and `lake` then do with the request is trusted. -/
+theorem runStep_spawns (step : Step) :
+    runStep step = (do
+      announce step
+      let child ← IO.Process.spawn (stepRequest step)
+      child.wait) :=
+  rfl
+
+/-- The request for a step: `lake` with the step's arguments, in the step's directory, in an environment that removes the Lean
+search paths, turns off Lake's artifact cache and binds `fullVariable` to the step's `full`, so `none` removes a value that the
+gate inherited (`IO.Process.SpawnArgs.env`). -/
+theorem stepRequest_eq (step : Step) :
+    (stepRequest step).cmd = "lake" ∧
+      (stepRequest step).args = step.arguments.toArray ∧
+      (stepRequest step).cwd = some (System.FilePath.mk step.dir) ∧
+      (stepRequest step).env =
+        #[("LEAN_PATH", none), ("LEAN_SRC_PATH", none), ("LAKE_ARTIFACT_CACHE", some "false"),
+          (fullVariable, step.full)] :=
+  ⟨rfl, rfl, rfl, rfl⟩
 
 end RegulaSpecification.GateProgram
