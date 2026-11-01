@@ -10,7 +10,7 @@ import RegulaSpecification.Proofs.Shell
 
 `admits_a_project` is the record's witness, under hypotheses: for paths that meet `WitnessPaths`, there are answers of Lean,
 Lake and the operating system, for a project of one module `Good` in the closed language, on which the check that runs admits
-the project.
+the project. `Proofs/OwedModel.lean` carries it to the whole run.
 
 The answers are `answers`, one function of the operation. The tests of a path read `System.FilePath`, whose separator
 depends on `System.Platform.isWindows`, an `opaque` constant, so `WitnessPaths` states what those tests give on the paths of the
@@ -72,12 +72,15 @@ structure WitnessPaths where
   rel : List String
   /-- The directory of the toolchain's library. -/
   toolchainDir : FilePath
-  /-- An `.olean` of that library. -/
+  /-- The root package's library directory. -/
+  rootLib : FilePath
+  /-- An `.olean`. -/
   olean : FilePath
-  /-- It lies below that library. -/
-  oleanBelow : Regula.Load.below toolchainDir olean = true
   /-- This program lies outside the project. -/
   outside : Regula.Load.below project app = false
+  /-- The current directory is the workspace Lake dispatched, for the proof verdict. -/
+  plainDispatched : Regula.Load.dispatchedFrom rootLib.toString lakeLib.toString
+    ((System.SearchPath.parse leanPath).map toString) = true
   /-- The Lake that started it dispatched from its own package. -/
   dispatched : (app.parent.bind (·.parent)).map (· / "lib" / "lean") |>.any fun lib =>
     Regula.Load.dispatchedFrom lib.toString lakeLib.toString
@@ -115,11 +118,11 @@ def witnessRoot (w : WitnessPaths) : Root Unit where
   leanPath := []
   toolchain := [w.toolchainDir]
   leanLib := w.toolchainDir
-  rootLib := w.tree
+  rootLib := w.rootLib
 
 /-- The answers of the witness: every read gives the pinned text, every parse a file in the closed language with no
-import, and nothing fails. -/
-def answers (w : WitnessPaths) : (o : Op Unit Unit) → Resp o
+import, Lean's import gives `env`, and nothing fails. -/
+def answers (w : WitnessPaths) (env : Lean.Environment) : (o : Op Unit Unit) → Resp o
   | .leanVersion => Regula.Closed.pinnedLean
   | .getEnv _ => some w.leanPath
   | .appPath => .ok w.app
@@ -136,11 +139,11 @@ def answers (w : WitnessPaths) : (o : Op Unit Unit) → Resp o
   | .parseCommand .. => (endOfInput, default, {})
   | .setSearchPath _ => ()
   | .findOLean _ => .ok w.olean
-  | .importForRules _ => .error (.userError "")
+  | .importForRules _ => .ok env
   | .importForParser _ => .ok ((), [])
   | .parseToml _ => .ok Lake.Toml.Table.empty
   | .lakeInstall _ => (w.tree, w.lakeLib)
-  | .loadWorkspace .. => .error ""
+  | .loadWorkspace .. => .ok (some (witnessRoot w), [])
   | .loadRoot .. => .ok (some (witnessRoot w), [])
   | .libModules _ => .ok #[(`Good, w.file)]
   | .runLake .. => .ok 0
@@ -163,17 +166,17 @@ theorem deeper_empty : ¬ Deeper 8 Lake.Toml.Table.empty := by
   cases h <;> (subst ht; simp [Lake.Toml.Table.empty, Lake.Toml.RBDict.empty] at *)
 
 /-- What the reader read of a file, on the answers of the witness, is in the closed language. -/
-theorem good_file {w : WitnessPaths} {p : Prog Unit Unit α} {f : FileRead} {project tree path : FilePath}
+theorem good_file {w : WitnessPaths} {env : Lean.Environment} {p : Prog Unit Unit α} {f : FileRead} {project tree path : FilePath}
     {imports : Array Lean.Import} {mods : List Name}
-    (h : ReadAs (traceWith (answers w) p) project tree f path imports mods) : FileAdmitted f := by
-  obtain ⟨rel, real, text, state, messages, final, env, commands, -, -, -, hsub, hev, hparsed, hcsub, hp⟩ := h
+    (h : ReadAs (traceWith (answers w env) p) project tree f path imports mods) : FileAdmitted f := by
+  obtain ⟨rel, real, text, state, messages, final, penv, commands, -, -, -, hsub, hev, hparsed, hcsub, hp⟩ := h
   have hmem : (⟨.parseHeader (Lean.Parser.mkInputContext text path.toString),
-      .ok (f.header, state, messages, imports)⟩ : Event Unit Unit) ∈ traceWith (answers w) p :=
+      .ok (f.header, state, messages, imports)⟩ : Event Unit Unit) ∈ traceWith (answers w env) p :=
     hsub.subset (by simp)
   have hheader : (Except.ok (f.header, state, messages, imports) :
       Except IO.Error (Syntax × ModuleParserState × MessageLog × Array Lean.Import)) =
       .ok (moduleHeader, default, {}, #[]) := resp_eq hmem
-  have hscoped : (Except.ok (env, f.scopedParsers) : Except IO.Error (Unit × List Name)) = .ok ((), []) :=
+  have hscoped : (Except.ok (penv, f.scopedParsers) : Except IO.Error (Unit × List Name)) = .ok ((), []) :=
     resp_eq hev
   have hheader' := Except.ok.inj hheader
   have hscoped' := Except.ok.inj hscoped
@@ -211,8 +214,8 @@ theorem good_file {w : WitnessPaths} {p : Prog Unit Unit α} {f : FileRead} {pro
     cases ht
 
 /-- What the default targets of the witness give. -/
-theorem good_modules {w : WitnessPaths} {p : Prog Unit Unit α} {modules : List (Name × FilePath)}
-    (h : DefaultModules (traceWith (answers w) p) (witnessRoot w) (witnessRoot w).defaultTargets modules) :
+theorem good_modules {w : WitnessPaths} {env : Lean.Environment} {p : Prog Unit Unit α} {modules : List (Name × FilePath)}
+    (h : DefaultModules (traceWith (answers w env) p) (witnessRoot w) (witnessRoot w).defaultTargets modules) :
     modules = [(`Good, w.file)] := by
   have hd : (witnessRoot w).defaultTargets = [`Good] := rfl
   rw [hd] at h
@@ -226,11 +229,11 @@ theorem good_modules {w : WitnessPaths} {p : Prog Unit Unit α} {modules : List 
   | other hl => cases hl
 
 /-- What a `Scene` of the witness is. -/
-theorem scene_witness {w : WitnessPaths} {p : Prog Unit Unit α} {dir treeDir project tree : FilePath} {root : Root Unit}
+theorem scene_witness {w : WitnessPaths} {env : Lean.Environment} {p : Prog Unit Unit α} {dir treeDir project tree : FilePath} {root : Root Unit}
     {modules : List (Name × FilePath)}
-    (h : Scene (traceWith (answers w) p) dir treeDir project tree root modules) :
+    (h : Scene (traceWith (answers w env) p) dir treeDir project tree root modules) :
     project = dir ∧ tree = treeDir ∧ root = witnessRoot w ∧ modules = [(`Good, w.file)] := by
-  have hreal : ∀ {q real : FilePath}, (⟨.realPath q, .ok real⟩ : Event Unit Unit) ∈ traceWith (answers w) p →
+  have hreal : ∀ {q real : FilePath}, (⟨.realPath q, .ok real⟩ : Event Unit Unit) ∈ traceWith (answers w env) p →
       real = q := fun h => Except.ok.inj (resp_eq h : (Except.ok _ : Except IO.Error FilePath) = .ok _)
   obtain ⟨h1, ⟨h2, s, l, -, h3⟩, h4⟩ := h
   have he : (Except.ok (some root, l) : Except String (Option (Root Unit) × List String)) =
@@ -243,16 +246,16 @@ theorem scene_witness {w : WitnessPaths} {p : Prog Unit Unit α} {dir treeDir pr
   exact ⟨hreal h1, hreal h2, rfl, good_modules h4⟩
 
 /-- No reason keeps the project of the witness from being admitted. -/
-theorem no_reason (w : WitnessPaths) (p : Prog Unit Unit α) (o : Outcome) :
-    ¬ Reason (traceWith (answers w) p) w.project w.tree o := by
+theorem no_reason (w : WitnessPaths) (env : Lean.Environment) (p : Prog Unit Unit α) (o : Outcome) :
+    ¬ Reason (traceWith (answers w env) p) w.project w.tree o := by
   intro hr
-  have hreal : ∀ {q real : FilePath}, (⟨.realPath q, .ok real⟩ : Event Unit Unit) ∈ traceWith (answers w) p →
+  have hreal : ∀ {q real : FilePath}, (⟨.realPath q, .ok real⟩ : Event Unit Unit) ∈ traceWith (answers w env) p →
       real = q := fun h => Except.ok.inj (resp_eq h : (Except.ok _ : Except IO.Error FilePath) = .ok _)
   have htable : ∀ {input} {table : Lake.Toml.Table},
-      (⟨.parseToml input, .ok table⟩ : Event Unit Unit) ∈ traceWith (answers w) p →
+      (⟨.parseToml input, .ok table⟩ : Event Unit Unit) ∈ traceWith (answers w env) p →
       table = Lake.Toml.Table.empty := fun h =>
     Except.ok.inj (resp_eq h : (Except.ok _ : Except Lean.MessageLog Lake.Toml.Table) = .ok _)
-  have hTL : ∀ {tree root}, TreeLoaded (traceWith (answers w) p) w.tree tree root →
+  have hTL : ∀ {tree root}, TreeLoaded (traceWith (answers w env) p) w.tree tree root →
       tree = w.tree ∧ root = witnessRoot w := by
     rintro tree root ⟨h1, s, l, -, h2⟩
     have he : (Except.ok (some root, l) : Except String (Option (Root Unit) × List String)) =
@@ -262,7 +265,7 @@ theorem no_reason (w : WitnessPaths) (p : Prog Unit Unit α) (o : Outcome) :
     exact ⟨hreal h1, this.1⟩
   have hnoImports : ∀ {input header state messages} {imports : Array Lean.Import},
       (⟨.parseHeader input, .ok (header, state, messages, imports)⟩ : Event Unit Unit) ∈
-        traceWith (answers w) p → imports = #[] := fun {input header state messages imports} h => by
+        traceWith (answers w env) p → imports = #[] := fun {input header state messages imports} h => by
     have he : (Except.ok (header, state, messages, imports) :
         Except IO.Error (Syntax × ModuleParserState × MessageLog × Array Lean.Import)) =
         .ok (moduleHeader, default, {}, #[]) := resp_eq h
@@ -270,10 +273,10 @@ theorem no_reason (w : WitnessPaths) (p : Prog Unit Unit α) (o : Outcome) :
     simp only [Prod.mk.injEq] at this
     exact this.2.2.2
   have hheader : ∀ {project tree root modules m} {imports : Array Lean.Import},
-      HeaderOf (traceWith (answers w) p) project tree root modules m imports → imports = #[] := by
+      HeaderOf (traceWith (answers w env) p) project tree root modules m imports → imports = #[] := by
     rintro project tree root modules m imports ⟨_, _, _, _, _, _, _, h⟩
     exact hnoImports h
-  have hnamed : ∀ {project tree root m}, Named (traceWith (answers w) p) project tree root [(`Good, w.file)] m →
+  have hnamed : ∀ {project tree root m}, Named (traceWith (answers w env) p) project tree root [(`Good, w.file)] m →
       m = `Good := by
     intro project tree root m hn
     cases hn with
@@ -433,18 +436,19 @@ theorem no_reason (w : WitnessPaths) (p : Prog Unit Unit α) (o : Outcome) :
     exact hna (good_file ha)
 
 /-- For paths that meet the hypotheses `WitnessPaths`, there are answers on which the check that runs admits a project. -/
-theorem admits_a_project (w : WitnessPaths) :
+theorem admits_a_project (w : WitnessPaths) (env : Lean.Environment) :
     ∃ t, Runs (check w.leanPath w.project w.tree : Prog Unit Unit Outcome) t .admitted := by
   let q : Prog Unit Unit Outcome := .ask (.getEnv "LEAN_SYSROOT") fun _ => check w.leanPath w.project w.tree
-  refine ⟨traceWith (answers w) (check w.leanPath w.project w.tree), ?_⟩
-  have hr := runs_with (answers w) (check w.leanPath w.project w.tree : Prog Unit Unit Outcome)
-  have hT : (traceWith (answers w) (check w.leanPath w.project w.tree)).Sublist (traceWith (answers w) q) :=
+  refine ⟨traceWith (answers w env) (check w.leanPath w.project w.tree), ?_⟩
+  have hr := runs_with (answers w env) (check w.leanPath w.project w.tree : Prog Unit Unit Outcome)
+  have hT : (traceWith (answers w env) (check w.leanPath w.project w.tree)).Sublist (traceWith (answers w env) q) :=
     List.sublist_cons_self _ _
   obtain ⟨hd, -⟩ := check_spec hT (List.mem_cons_self ..) hr
-  cases ho : valueWith (answers w) (check w.leanPath w.project w.tree : Prog Unit Unit Outcome) with
+  cases ho : valueWith (answers w env) (check w.leanPath w.project w.tree : Prog Unit Unit Outcome) with
   | admitted => rw [ho] at hr; exact hr
-  | refused => rw [ho] at hd; exact absurd (hd.2.1 (by simp)) (no_reason w _ _)
-  | proofOnly => rw [ho] at hd; exact absurd (hd.2.1 (by simp)) (no_reason w _ _)
-  | incomplete => rw [ho] at hd; exact absurd (hd.2.1 (by simp)) (no_reason w _ _)
+  | refused => rw [ho] at hd; exact absurd (hd.2.1 (by simp)) (no_reason w env _ _)
+  | proofOnly => rw [ho] at hd; exact absurd (hd.2.1 (by simp)) (no_reason w env _ _)
+  | incomplete => rw [ho] at hd; exact absurd (hd.2.1 (by simp)) (no_reason w env _ _)
+
 
 end RegulaSpecification.Effects

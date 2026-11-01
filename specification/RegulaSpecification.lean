@@ -39,6 +39,8 @@ import RegulaSpecification.Proofs.Shell
 import RegulaSpecification.Proofs.Witness
 import RegulaSpecification.Proofs.Program
 import RegulaSpecification.Proofs.Behaviour
+import RegulaSpecification.Proofs.OwedModel
+import RegulaSpecification.Proofs.EffectScan
 import RegulaSpecification.Proofs.Gate
 
 /-!

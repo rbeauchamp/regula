@@ -39,7 +39,7 @@ globs = ["Regula.Contract", "Regula.Decision"]
 # default target imports this library.
 [[lean_lib]]
 name = "Regula"
-globs = ["Regula.Workspace", "Regula.LintMain", "Regula.DiagnosticsGate", "Regula.TestListing", "Regula.ProgramCheck.TestListing", "Regula.ProgramCheck.Effects"]
+globs = ["Regula.Workspace", "Regula.LintMain", "Regula.DiagnosticsGate", "Regula.TestListing", "Regula.ProgramCheck.TestListing", "Regula.ProgramCheck.EffectScan", "Regula.ProgramCheck.Effects"]
 
 [[lean_exe]]
 name = "lint"

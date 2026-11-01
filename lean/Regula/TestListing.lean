@@ -80,9 +80,13 @@ first loads the workspace itself and fails when Lake cannot load it
 ## Boundaries
 
 Lake's choice of the configuration file, its elaboration of that file and the value of
-`testDriver` that it gives are trusted at the pinned Lean, as `lake test` trusts them. What this
-module proves is about the text that the program prints (`listing_ok_iff`) and its exit code
-(`printListing_eq_zero_iff`). The pipeline reads each
+`testDriver` that it gives are trusted at the pinned Lean, as `lake test` trusts them. The decision
+of the program is one pure function, `outcome`, of what the load gave: what it prints and its exit
+code (`outcome_zero_iff`, `outcome_of_zero`, `outcome_of_nonzero`, with `listing_ok_iff`). `main` is a straight line:
+the load (`readDriver`), the lines of `outcome`, its errors, and its code.
+`Regula.ProgramCheck.TestListing.main_runs` proves of the definition of `main`, at `IO` and from any
+state of the world, that it asks exactly that, and `main_zero` what an exit code of 0 says. That a print
+reaches the stream is the operating system's. The pipeline reads each
 line of standard output, with the white space at its ends removed, as one test identifier, and
 skips a blank line. A printed driver is not empty, and its characters are between U+0021 and
 U+007E. None of those is a line break or white space, so the pipeline reads the line as exactly
@@ -169,55 +173,77 @@ def loadConfig (elanInstall? : Option Lake.ElanInstall) (leanInstall? : Option L
     updateToolchain := true
   }
 
-/-- Print what `listing` gives for the test driver `driver`, and give the exit code: 0 only when it holds lines to print,
-which `printListing_eq_zero_iff` states for any monad. -/
-def printListing {m : Type → Type} [Monad m] (print fail : String → m Unit) (driver : String) : m UInt32 :=
-  match listing driver with
-  | .ok lines => do
-    lines.forM print
-    return 0
-  | .error reason => do
-    fail s!"error: {reason}"
-    return 1
+/-- What the program says and exits with, for what its load gave. -/
+structure Outcome where
+  /-- The lines of standard output. -/
+  lines : List String
+  /-- The lines of standard error. -/
+  errors : List String
+  /-- The exit code. -/
+  code : UInt32
 
-/-- Print the lines of a listing into a list, which states what `printListing` does for a monad of that kind. -/
-theorem printListing_eq_zero_iff (driver : String) :
-    (printListing (m := StateM (List String)) (fun l s => ((), s ++ [l])) (fun _ s => ((), s)) driver
-      []).1 = 0 ↔ ∃ lines', listing driver = .ok lines' := by
-  unfold printListing
-  cases hl : listing driver with
-  | ok ls =>
-    simp only
-    have : ∀ (xs : List String) (s : List String),
-        (xs.forM (m := StateM (List String)) (fun l s => ((), s ++ [l]))
-          >>= fun _ => (pure 0 : StateM (List String) UInt32)) s =
-        (0, ((xs.forM (m := StateM (List String)) (fun l s => ((), s ++ [l]))) s).2) := by
-      intro xs s
-      rfl
-    constructor
-    · intro _
-      exact ⟨ls, rfl⟩
-    · intro _
-      exact congrArg Prod.fst (this ls [])
-  | error reason =>
-    constructor
-    · intro h
-      exact absurd (show (1 : UInt32) = 0 from h) (by decide)
-    · rintro ⟨_, h⟩
-      cases h
+/-- The one decision of the program, on what its load gave: why the load configuration failed, a package that did not load,
+for which Lake has written its messages, or the test driver of the package. -/
+def outcome : Except String (Option String) → Outcome
+  | .error why => { lines := [], errors := [s!"error: {why}"], code := 1 }
+  | .ok none => { lines := [], errors := [], code := 1 }
+  | .ok (some driver) =>
+    match listing driver with
+    | .ok lines => { lines, errors := [], code := 0 }
+    | .error reason => { lines := [], errors := [s!"error: {reason}"], code := 1 }
+
+/-- The exit code is 0 exactly when Lake loaded the package and `listing` holds lines for its driver. -/
+theorem outcome_zero_iff (r : Except String (Option String)) :
+    (outcome r).code = 0 ↔ ∃ driver lines, r = .ok (some driver) ∧ listing driver = .ok lines := by
+  cases r with
+  | error why => simp [outcome]
+  | ok o =>
+    cases o with
+    | none => simp [outcome]
+    | some driver =>
+      simp only [outcome]
+      cases hl : listing driver with
+      | ok lines => simp [hl]
+      | error reason => simp [hl]
+
+/-- On exit code 0, the lines of standard output are what `listing` gives for the driver that Lake reported, and
+nothing is said on standard error. -/
+theorem outcome_of_zero {r : Except String (Option String)} (h : (outcome r).code = 0) :
+    ∃ driver, r = .ok (some driver) ∧ listing driver = .ok (outcome r).lines ∧ (outcome r).errors = [] := by
+  obtain ⟨driver, lines, rfl, hl⟩ := (outcome_zero_iff r).mp h
+  simp [outcome, hl]
+
+/-- On any other exit code, standard output holds nothing, so a failure cannot read as a listing. -/
+theorem outcome_of_nonzero {r : Except String (Option String)} (h : (outcome r).code ≠ 0) :
+    (outcome r).lines = [] := by
+  cases r with
+  | error why => rfl
+  | ok o =>
+    cases o with
+    | none => rfl
+    | some driver =>
+      simp only [outcome] at h ⊢
+      cases hl : listing driver with
+      | ok lines => simp [hl] at h
+      | error reason => rfl
+
+/-- What the load gave: why the load configuration failed, nothing for a package that did not load, or Lake's report of the
+test driver. Each call is Lake's, passing its result on. -/
+def readDriver : IO (Except String (Option String)) := do
+  let installs ← Lake.findInstall?
+  let loaded ← (((loadConfig installs.1 installs.2.1 installs.2.2).adapt toString >>= fun config =>
+    liftM (m := EIO String) ((Lake.loadPackage config).toBaseIO : BaseIO _)) :
+      EIO String (Option Lake.Package)).toBaseIO
+  pure (loaded.map (Option.map (·.testDriver)))
 
 end Regula.TestListing
 
 open Regula.TestListing in
 /-- Print the test driver that Lake reports for the package of the working directory, or nothing
 when it reports none. Exit with status 1 when Lake cannot load the package or the driver cannot be
-printed as one line (`listing`), and with status 0 otherwise. -/
+printed as one line (`listing`), and with status 0 otherwise. A straight line: the one decision is `outcome`. -/
 def main : IO UInt32 := do
-  let (elanInstall?, leanInstall?, lakeInstall?) ← Lake.findInstall?
-  match ← (loadConfig elanInstall? leanInstall? lakeInstall?).toBaseIO with
-  | .error error =>
-      IO.eprintln s!"error: {error}"
-      return 1
-  | .ok config =>
-      let some package ← (Lake.loadPackage config).toBaseIO | return 1
-      printListing IO.println IO.eprintln package.testDriver
+  let result := outcome (← readDriver)
+  result.lines.forM IO.println
+  result.errors.forM IO.eprintln
+  return result.code
