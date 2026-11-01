@@ -284,6 +284,16 @@ theorem quiet_readBack (l : List (FilePath × String)) : OnlyAIn QuietOp (readBa
     · exact ih
     · exact onlyA_throw _
 
+theorem quiet_noOtherConfig (tree : FilePath) : OnlyAIn QuietOp (noOtherConfig tree : Attempt L E _) := by
+  rw [noOtherConfig]
+  refine onlyA_seq ?_ fun present => ?_
+  · rw [existsByName]
+    refine only_seq (only_call trivial) fun r => ?_
+    split <;> exact only_pure _
+  · split
+    · exact onlyA_throw _
+    · exact onlyA_pure _
+
 theorem quiet_parseAll (input) (env : E) (state) (messages) (fuel : Nat) :
     OnlyIn QuietOp (parseAll input env state messages fuel : Prog L E _) := by
   induction fuel generalizing state messages with

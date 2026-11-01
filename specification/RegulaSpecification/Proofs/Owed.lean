@@ -16,7 +16,8 @@ record alone. It reads no program, so it holds of each subject and not only of t
 of reasons holds, `FullOwed` also that no build or replay was rejected, and the environment that Lean's import gave has `LoadFloor`.
 `plain_owed` and `full_owed` state that a run on such responses gives the pass verdict and exit 0.
 `plain_refused_justified` gives a reason or a missing floor; `full_refused_justified` states that a nonzero
-full run cannot meet `FullOwed`. Preparation is supplied by `PlainRun` and `FullRun`, not by assuming
+full run cannot meet `FullOwed`. `FullOwed` is the absence of each reason, so it says nothing by itself of who is healthy:
+`RegulaSpecification.Domain` says that, and `domain_owed` relates them. Preparation is supplied by `PlainRun` and `FullRun`, not by assuming
 reasons absent: their exact phase relations constrain every copy, load, command and search consumer,
 including failed attempts. The premises concern responses and content, never a branch of a program.
 No consistency of responses is needed for either implication to a pass.
@@ -189,6 +190,7 @@ theorem Needed.mono (hi : T <:+: T') {dir treeDir : FilePath} {o : Op L E}
   | copyToolchain h => exact .copyToolchain (m h)
   | library h1 h2 h3 => exact .library (TreeLoaded.mono hi h1) h2 h3
   | toolchainDir h1 h2 => exact .toolchainDir (TreeLoaded.mono hi h1) h2
+  | treeLeanConfig h => exact .treeLeanConfig (m h)
   | search h1 h2 h3 h4 => exact .search (Scene.mono hi h1) (Named.mono hi.sublist h2) h3 h4
   | oleanReal h1 h2 h3 h4 h5 => exact .oleanReal (Scene.mono hi h1) (Named.mono hi.sublist h2) h3 h4 (m h5)
   | sourceReal h1 h2 h3 h4 => exact .sourceReal (Scene.mono hi h1) (Named.mono hi.sublist h2) h3 h4
@@ -239,6 +241,7 @@ theorem Reason.mono (hi : T <:+: T') {dir treeDir : FilePath} {o}
   | targetName h1 h2 h3 => exact .targetName (tl h1) h2 h3
   | twoFiles h1 h2 h3 h4 => exact .twoFiles (sc h1) h2 h3 h4
   | twoRoots h1 h2 h3 h4 => exact .twoRoots (sc h1) h2 h3 h4
+  | configShadowed h1 h2 => exact .configShadowed (m h1) (m h2)
   | treeDiffers h1 h2 h3 h4 => exact .treeDiffers (sc h1) (Planned.mono hs h2) (h3.trans hs) h4
   | twoTexts h1 h2 h3 h4 h5 => exact .twoTexts (sc h1) (Planned.mono hs h2) (Planned.mono hs h3) h4 h5
   | moduleName h1 h2 h3 => exact .moduleName (sc h1) (nm h2) h3

@@ -295,14 +295,24 @@ theorem readFiles_no_failed {config : List (FilePath × String)} {project tree :
               cases r₁₁ with
               | error x => cases h₁₄.2
               | ok v' =>
-                obtain ⟨rfl, he⟩ := runs_attempt_pure_iff.mp h₁₄
-                cases he
-                refine ⟨fun e he => ?_, rfl, rfl⟩
-                simp only [List.append_nil, List.mem_append] at he
-                rcases he with he | he | he
-                · exact sound_parseFiles _ _ _ _ _ _ h₉ e he
-                · exact sound_writeSources _ _ _ _ h₁₁ e he
-                · exact sound_readBack _ _ _ h₁₃ e he
+                obtain ⟨t₂₁, t₂₂, r₂₁, rfl, h₂₁, h₂₂⟩ := runs_attempt_bind_iff.mp h₁₄
+                obtain ⟨r₂, rfl, n1, -⟩ := noOtherConfig_spec h₂₁
+                cases r₂₁ with
+                | error x => cases h₂₂.2
+                | ok u =>
+                  obtain ⟨rfl, he⟩ := runs_attempt_pure_iff.mp h₂₂
+                  cases he
+                  refine ⟨fun e he => ?_, rfl, rfl⟩
+                  simp only [List.append_nil, List.mem_append] at he
+                  rcases he with he | he | he | he
+                  · exact sound_parseFiles _ _ _ _ _ _ h₉ e he
+                  · exact sound_writeSources _ _ _ _ h₁₁ e he
+                  · exact sound_readBack _ _ _ h₁₃ e he
+                  · obtain ⟨err, rfl, name, code, details, rfl⟩ := n1 rfl
+                    obtain rfl := List.mem_singleton.mp he
+                    rintro ⟨x, hx, hne⟩
+                    cases hx
+                    exact hne _ _ _ rfl
           · obtain ⟨rfl, he⟩ := runs_attempt_pure_iff.mp h₁₀
             cases he
             refine ⟨fun e he => ?_, rfl, rfl⟩

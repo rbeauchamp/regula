@@ -119,12 +119,11 @@ theorem readFiles_preparation {config : List (FilePath × String)} {prior t : Li
             | ok u =>
               obtain ⟨d1, d2, dr, rfl, hd, hrest⟩ := runs_attempt_bind_iff.mp htail
               have hdq : Quiet d1 := quiet_readBack _ _ _ hd
-              have hd2 : d2 = [] := by
+              have hd2 : Quiet d2 := by
                 cases dr with
-                | error error => exact hrest.1
-                | ok v => exact (runs_attempt_pure_iff.mp hrest).1
-              subst hd2
-              simpa using hdq
+                | error error => obtain ⟨rfl, -⟩ := hrest; exact quiet_nil
+                | ok v => exact (onlyA_seq (quiet_noOtherConfig tree) fun _ => onlyA_pure _) _ _ hrest
+              exact hdq.append hd2
           refine ModuleCopies.append (by simpa [List.append_assoc] using hcopies) (.observations _ fun e he => .inl (hquiet e he))
         · obtain ⟨rfl, -⟩ := runs_attempt_pure_iff.mp hlast'
           exact .nil

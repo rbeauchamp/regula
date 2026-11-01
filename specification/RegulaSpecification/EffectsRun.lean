@@ -146,8 +146,9 @@ structure Evidence (t : List (Event L E)) (dir dirTree : FilePath) (held : List 
       (∀ d ∈ root.sourceDirs, ∃ rel, TreeRelative (parts tree) (parts d) rel) ∧
       (∀ lib ∈ root.libraries, ∀ g ∈ lib.2, ∃ n, g = .one n) ∧
       (∀ n ∈ root.targets, ClosedModuleName n) ∧
-      (∀ m file other, (m, file) ∈ modules → root.resolve m = some other → other = file) ∧
-      (∀ m file other, (m, file) ∈ modules → (m, other) ∈ modules → other = file) ∧
+      -- One name, one file: two paths of one name have one list of components, whatever their spelling.
+      (∀ m file other, (m, file) ∈ modules → root.resolve m = some other → parts other = parts file) ∧
+      (∀ m file other, (m, file) ∈ modules → (m, other) ∈ modules → parts other = parts file) ∧
       ∃ (headers : List (Name × Array Import)) (toolchain : List Name),
       -- The imports stay within the reader's bound.
       modules.length + (headers.map (·.2.size)).sum ≤ 1000000 ∧

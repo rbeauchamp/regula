@@ -4,13 +4,14 @@ Released under MIT license as described in the file LICENSE.
 Authors: Regula contributors
 -/
 import RegulaSpecification.Proofs.Program
+import RegulaSpecification.Proofs.Standing
 
 /-!
 # What a pass means, and what it rests on
 
 The theorems about a run read only what the run received. What those answers mean is what Lean, Lake and the operating
 system do, and each such statement is a hypothesis of the theorem that needs it, re-read at each upgrade of Lean:
-`LakeBehaviour` (H3) and `RealPathBehaviour` (H4) here, and `RegulaSpecification.Language.LeanBehaviour` (H1 and H2).
+`LakeBehaviour` (H3), `RealPathBehaviour` (H4) and `LakeSelection` (H5) here, and `RegulaSpecification.Language.LeanBehaviour` (H1 and H2).
 -/
 
 namespace RegulaSpecification.Effects
@@ -61,7 +62,7 @@ theorem full_exit_zero {t : List (Event L E)} {dir : FilePath} {p : Regula.Close
     | proofOnly => cases (hn (by simp)).2
     | incomplete => cases (hn (by simp)).2
     | admitted =>
-      obtain ⟨r', hi, hev, -⟩ := hdec.1 rfl
+      obtain ⟨r', -, hi, hev, -⟩ := hdec.1 rfl
       obtain ⟨sysroot, tBuild, tRules, -, -, hb⟩ := ha rfl
       rcases hb.2.2.1 with ⟨program, lakeLib, result, -, hsub, hl, hrep⟩ | ⟨hrep, -⟩
       · have hv : (Regula.Closed.decision result).verdict = .pass := (Report.full.inj hrep).symm
@@ -74,8 +75,8 @@ theorem full_exit_zero {t : List (Event L E)} {dir : FilePath} {p : Regula.Close
 the modules of the default targets are those of each default library and the root of each default executable
 (`Package.recCollectDefaultModules`, `Lake/Build/Package.lean:45-61`), and each other module is one that an import of what
 it compiles reaches, through `findModule?` (`Module.recFetchInput`, `Lake/Build/Module.lean:30-38`,
-`Lake/Config/Workspace.lean:279-280`), with the file `Module.leanFile`. No proof reaches it, because Lake's build is
-Lake's. -/
+`Lake/Config/Workspace.lean:279-280`), with the file `Module.leanFile`. A module of a default target may also have the file
+that `findModule?` gives for its name (`Compiled.resolved`). No proof reaches it, because Lake's build is Lake's. -/
 structure LakeBehaviour (headers : List (Name × Array Import)) (root : Root L)
     (modules : List (Name × FilePath)) where
   /-- Lake's build compiles this file for this module. -/
@@ -102,6 +103,46 @@ theorem read_what_lake_compiles {t : List (Event L E)} {dir tree : FilePath} {he
   refine ⟨project, real, sysroot, root, log, modules, headers, hp, hl, hd, fun B m path hb => ?_⟩
   obtain ⟨-, f, hf, hm, i, md, tx, -, hra, hst⟩ := hc m path (B.h3 m path hb)
   exact ⟨f, hf, hm, i, md, tx, hra, hst⟩
+
+/-- H5: what Lake takes as the configuration of a directory, when its command line loads it. Lake's command line asks for a configuration with
+no extension (`defaultConfigFile`, `Lake/CLI/Main.lean:48`, `Lake/Load/Config.lean:44`), and takes `lakefile.lean` when that name resolves, and
+otherwise `lakefile.toml` when that name resolves (`resolveConfigFile`, `Lake/Load/Package.lean:109-117`). No proof reaches it, because Lake's
+load is Lake's. `Takes` is the file it reads as the configuration, as a name in the tree. -/
+structure LakeSelection (t : List (Event L E)) (real : FilePath) where
+  /-- Lake takes this file as the configuration of the directory `real`. -/
+  Takes : FilePath → Prop
+  /-- Lake takes some file: this hypothesis is about a directory whose load reads a configuration. -/
+  takesOne : ∃ path, Takes path
+  /-- H5, read at a run whose file system answered that nothing has the preferred name. -/
+  h5 : ∀ err path, (⟨.symlinkMetadata (real / "lakefile.lean"), .error err⟩ : Event L E) ∈ t →
+    (∃ name code details, err = .noFileOrDirectory name code details) → Takes path → parts path = parts (real / "lakefile.toml")
+
+/-- H5 has a model: with an answer of an error for the preferred name, Lake takes `lakefile.toml`, and on a trace with no such answer it can take the preferred name. -/
+theorem lakeSelection_model (real : FilePath) (err : IO.Error) :
+    (∃ B : LakeSelection (L := L) (E := E) [] real, B.Takes (real / "lakefile.lean")) ∧
+      ∃ B : LakeSelection (L := L) (E := E) [⟨.symlinkMetadata (real / "lakefile.lean"), .error err⟩] real, B.Takes (real / "lakefile.toml") :=
+  ⟨⟨⟨(· = real / "lakefile.lean"), ⟨_, rfl⟩, fun _ _ h => by cases h⟩, rfl⟩,
+    ⟨(parts · = parts (real / "lakefile.toml")), ⟨_, rfl⟩, fun _ _ _ _ h => h⟩, rfl⟩
+
+/-- **Under H5, Lake takes the configuration judged**, at each consumer of a full run, on one answer for each operation: `real` is the real path of this run's tree, `path`
+has the components of `lakefile.toml` there, a read through `path` in the last part of the reading gave the text that Lake's parser read, and each file that Lake takes in
+`real` has those components. That the answer still holds when Lake runs is another process's matter, which this leaves unsaid. -/
+theorem lake_takes_judged {t pre post : List (Event L E)} {dir : FilePath} {p : Regula.Closed.Profile} {c : UInt32} (h : FullRun t dir p c) {e : Event L E}
+    (ht : t = pre ++ e :: post) (he : e.consumesTree = true) (hone : OneAnswer t) :
+    ∃ (tree real path : FilePath) (before suffix mid : List (Event L E)) (text : String) (table : Lake.Toml.Table),
+      pre = (⟨.createTempDir, .ok tree⟩ :: (before ++ suffix)) ++ mid ∧ Quiet suffix ∧ (⟨.realPath tree, .ok real⟩ : Event L E) ∈ before ++ suffix ∧
+      parts path = parts (real / "lakefile.toml") ∧ (⟨.readFile path, .ok text⟩ : Event L E) ∈ suffix ∧
+      (⟨.parseToml (Lean.Parser.mkInputContext text "lakefile.toml"), .ok table⟩ : Event L E) ∈ before ++ suffix ∧
+      ∀ B : LakeSelection pre real, ∀ taken, B.Takes taken → parts taken = parts path := by
+  obtain ⟨tree, real, before, suffix, mid, err, path, text, table, hpre, hq, -, hreal, herr, hno, hp, hr, hpar⟩ := h.config_at_consumer ht he hone
+  have hin {x : Event L E} (hx : x ∈ before ++ suffix) : x ∈ pre := by
+    rw [hpre]
+    simp only [List.mem_append, List.mem_cons]
+    exact .inl (.inr (List.mem_append.mp hx))
+  refine ⟨tree, real, path, before, suffix, mid, text, table, hpre, hq, hreal, hp, hr, hpar, fun B taken ht' => ?_⟩
+  rw [hp]
+  exact B.h5 err taken (hin (List.mem_append_right _ herr)) hno ht'
+
 
 /-- H4: what successful `IO.FS.realPath` responses in this trace mean. Lean documents that the result contains no
 symbolic links and coincides with POSIX `realpath` (`Init/System/IO.lean:874-881` at v4.35.0). The hypothesis relates

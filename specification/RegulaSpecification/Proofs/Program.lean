@@ -136,8 +136,8 @@ theorem refuser_fails (tree : FilePath) :
     subst hnil
     cases o with
     | admitted =>
-      obtain ⟨r', -, hev⟩ := hdec.1 rfl
-      obtain ⟨project, _, hp', -⟩ := hev.1.places
+      obtain ⟨r', -, -, hev, -⟩ := hdec.1 rfl
+      obtain ⟨project, _, hp', -⟩ := hev.places
       cases hp'
     | refused => exact reason_nil (hdec.2.1 (by simp))
     | proofOnly => exact reason_nil (hdec.2.1 (by simp))

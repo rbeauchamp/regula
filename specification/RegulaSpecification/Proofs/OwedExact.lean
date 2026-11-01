@@ -233,9 +233,9 @@ theorem readAs_same {T : List (Event L E)} (h : OneAnswer T) (hc : OneContext T)
     (h4'.subset (by simp) : (⟨.readFile (under project rel), .ok text'⟩ : Event L E) ∈ T) rfl)
   subst htext
   have hhead : (f.header, state, messages, i) = (f₀.header, state', messages', i₀) := Except.ok.inj (h.resp
-    (h4.subset (by simp) : (⟨.parseHeader (mkInputContext text path.toString), .ok (f.header, state, messages, i)⟩ :
+    (h4.subset (by simp) : (⟨.parseHeader (mkInputContext text (Regula.Load.inputName path)), .ok (f.header, state, messages, i)⟩ :
       Event L E) ∈ T)
-    (h4'.subset (by simp) : (⟨.parseHeader (mkInputContext text path.toString),
+    (h4'.subset (by simp) : (⟨.parseHeader (mkInputContext text (Regula.Load.inputName path)),
       .ok (f₀.header, state', messages', i₀)⟩ : Event L E) ∈ T) rfl)
   simp only [Prod.mk.injEq] at hhead
   obtain ⟨hh, rfl, rfl, rfl⟩ := hhead
@@ -305,7 +305,9 @@ theorem no_reason_of_evidence {T : List (Event L E)} {dir treeDir : FilePath} {s
     (hev : Evidence T dir treeDir stands r)
     (hback : ∀ path text r', (⟨.writeFile path text, r'⟩ : Event L E) ∈ T → stands (parts path) = some text →
       (⟨.readFile path, .ok text⟩ : Event L E) ∈ T) (hi : Inside r) (hfail : ∀ e ∈ T, ¬ e.failed) (hone : OneAnswer T)
-    (hctx : OneContext T) : ¬ Reason T dir treeDir o := by
+    (hctx : OneContext T)
+    (hshadow : ∀ tree', (⟨.realPath treeDir, .ok tree'⟩ : Event L E) ∈ T →
+      ∃ err, (⟨.symlinkMetadata (tree' / "lakefile.lean"), .error err⟩ : Event L E) ∈ T) : ¬ Reason T dir treeDir o := by
   obtain ⟨project, tree, hp, ht, hap, ⟨s1, prog1, lib1, hs1, hl1, hst⟩, ⟨ttext, treal, htt, htr, hte1, hte2, hpin⟩,
     ⟨eabs, habs, nm, cd, dt, rfl⟩, ⟨text, real, table, hr1, hr2, hr3, hr4, hr5, hr6, hdeep, hkeys⟩, hpin0, hc1, hc2, sysroot, root,
     log, modules, hsys, hload, hdef, hroots, hdirs, hglobs, htargets, hres, htwo, headers, held, hcount, hnodup, hcomp,
@@ -330,7 +332,7 @@ theorem no_reason_of_evidence {T : List (Event L E)} {dir treeDir : FilePath} {s
     exact ⟨hP h.project_real, rfl, rfl, defaultModules_unique hone hdef h.default⟩
   have hHead {m path text' header state messages} {imports : Array Import}
       (hc : Compiled headers root modules m path) (hst' : SourceText T project tree path text')
-      (he : (⟨.parseHeader (mkInputContext text' path.toString), .ok (header, state, messages, imports)⟩ : Event L E) ∈ T) :
+      (he : (⟨.parseHeader (mkInputContext text' (Regula.Load.inputName path)), .ok (header, state, messages, imports)⟩ : Event L E) ∈ T) :
       headers.lookup m = some imports := by
     obtain ⟨-, f, -, -, i0, m0, text0, hl0, hra, -⟩ := hcomp m path hc
     obtain ⟨rel, hrel, hread⟩ := hst'
@@ -341,7 +343,7 @@ theorem no_reason_of_evidence {T : List (Event L E)} {dir treeDir : FilePath} {s
       (h4.subset (by simp) : (⟨.readFile (under project rel), .ok text0⟩ : Event L E) ∈ T) rfl)
     subst htx
     have hh : (header, state, messages, imports) = (f.header, st0, ms0, i0) := Except.ok.inj (hone.resp he
-      (h4.subset (by simp) : (⟨.parseHeader (mkInputContext text' path.toString), .ok (f.header, st0, ms0, i0)⟩ :
+      (h4.subset (by simp) : (⟨.parseHeader (mkInputContext text' (Regula.Load.inputName path)), .ok (f.header, st0, ms0, i0)⟩ :
         Event L E) ∈ T) rfl)
     simp only [Prod.mk.injEq] at hh
     rw [hl0, hh.2.2.2]
@@ -356,8 +358,7 @@ theorem no_reason_of_evidence {T : List (Event L E)} {dir treeDir : FilePath} {s
       obtain rfl : k = m' := hk
       rcases hf with hf | hf
       · exact .root hf
-      · rw [hres _ _ _ hx hf]
-        exact .root hx
+      · exact .resolved hx hf
     | @imported m₀ imports i hn₀ hh hi ih =>
       intro path hf
       rcases hf with hf | hf
@@ -497,6 +498,9 @@ theorem no_reason_of_evidence {T : List (Event L E)} {dir treeDir : FilePath} {s
   | twoRoots hsc h1 h2 h3 =>
     obtain ⟨rfl, rfl, rfl, rfl⟩ := hSc hsc
     exact h3 (htwo _ _ _ h1 h2)
+  | configShadowed h1 h2 =>
+    obtain ⟨err, herr⟩ := hshadow _ h1
+    cases hone.resp h2 herr rfl
   | moduleName hsc hn hc =>
     obtain ⟨rfl, rfl, rfl, rfl⟩ := hSc hsc
     cases hn with
@@ -601,7 +605,7 @@ theorem full_exit_zero_owed {t : List (Event L E)} {dir : FilePath} {p : Regula.
   | proofOnly => cases (hn (by simp)).2
   | incomplete => cases (hn (by simp)).2
   | admitted =>
-    obtain ⟨r', hi, hev, ⟨bPre, bSuffix, hbsplit, -, hbread⟩⟩ := hdec.1 rfl
+    obtain ⟨r', realTree, hi, hev, hrealTree, ⟨bPre, bSuffix, hbsplit, -, hbread, errAbs, herrAbs, -⟩⟩ := hdec.1 rfl
     obtain ⟨sysroot, tBuild, tRules, hs, rfl, hb⟩ := ha rfl
     have hwriteIn : ∀ path text r₁, (⟨.writeFile path text, r₁⟩ : Event L E) ∈ readPhase t →
         (⟨.writeFile path text, r₁⟩ : Event L E) ∈ tRead := by
@@ -626,6 +630,9 @@ theorem full_exit_zero_owed {t : List (Event L E)} {dir : FilePath} {p : Regula.
     · intro tree' rest o' he
       obtain rfl := htree' he
       refine no_reason_of_evidence (Evidence.mono hread hev) (fun path text r₁ hw hst => ?_) hi (fun e he => healthy e (readPhase_subset he)) h1 h2
+        (fun tree'' hm => by
+          obtain rfl : tree'' = realTree := Except.ok.inj (h1.resp hm (hread.subset hrealTree) rfl)
+          exact ⟨errAbs, hread.subset (by rw [hbsplit]; exact List.mem_append_right _ herrAbs)⟩)
       have hin := hwriteIn path text r₁ hw
       have : (⟨.readFile path, .ok text⟩ : Event L E) ∈ bSuffix := hbread path text r₁ hin hst
       exact hread.subset (by rw [hbsplit]; exact List.mem_append_right _ this)

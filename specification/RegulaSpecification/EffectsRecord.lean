@@ -17,7 +17,8 @@ proof verdict. Responses remain arbitrary: these relations constrain the request
 a whole run, for every response, and it is the contract that
 `Regula.Shell.run` is proved against. `RegulaSpecification.Proofs.Owed` states what follows of every program that meets it:
 a run in which nothing that the build needs has failed, on a project nothing keeps from being admitted, and whose environment has
-`LoadFloor`, passes.
+`LoadFloor`, passes. Who that is, apart from this list of reasons, is `RegulaSpecification.Domain`, and `RegulaSpecification.Proofs.Domain`
+proves each reason justified against it.
 -/
 
 namespace RegulaSpecification.Effects
@@ -78,7 +79,7 @@ def SourceText (t : List (Event L E)) (project tree path : FilePath) (text : Str
 def HeaderOf (t : List (Event L E)) (project tree : FilePath) (root : Root L) (modules : List (Name × FilePath))
     (m : Name) (imports : Array Import) : Prop :=
   ∃ path text header state messages, FileOfModule root modules m path ∧ SourceText t project tree path text ∧
-    (⟨.parseHeader (mkInputContext text path.toString), .ok (header, state, messages, imports)⟩ : Event L E) ∈ t
+    (⟨.parseHeader (mkInputContext text (Regula.Load.inputName path)), .ok (header, state, messages, imports)⟩ : Event L E) ∈ t
 
 /-- A name the build needs: a module of a default target, or what the file of a name it needs imports. A header that the
 run parsed of anything else names nothing. -/
@@ -110,11 +111,19 @@ write of `t` whose text stands by `written`, that segment holds a read through t
 statement of `written` alone is a model of the file system, in which different components name different files and a write that
 answered success stored its text. This clause needs neither. A read through another path string with the same components does not
 discharge this clause, and `written` still treats such strings as one place. It asks for a read that matches, and does not exclude
-another read that differs: that the program stops at one is `Regula.Reader.readBack`'s, and inconsistent answers stay accepted. -/
-def ReadBack (t : List (Event L E)) : Prop :=
+another read that differs: that the program stops at one is `Regula.Reader.readBack`'s, and inconsistent answers stay accepted.
+
+That segment also holds the file system's answer that nothing has the name `lakefile.lean` in the tree `tree`. Lake prefers that
+name to `lakefile.toml` when it looks for a configuration with no extension, which is what its command line does
+(`resolveConfigFile`, `Lake/Load/Package.lean:109-117`, `defaultConfigFile`, `Lake/CLI/Main.lean:48`). So a module's file that the
+file system takes for that name, by case folding or anything else, has a second role, as the configuration. Which file the name
+reaches is the file system's to say, so the clause asks it through that name and models no folding. -/
+def ReadBack (t : List (Event L E)) (tree : FilePath) : Prop :=
   ∃ pre suffix, t = pre ++ suffix ∧ Quiet suffix ∧
-    ∀ path text r, (⟨.writeFile path text, r⟩ : Event L E) ∈ t → written t (parts path) = some text →
-      (⟨.readFile path, .ok text⟩ : Event L E) ∈ suffix
+    (∀ path text r, (⟨.writeFile path text, r⟩ : Event L E) ∈ t → written t (parts path) = some text →
+      (⟨.readFile path, .ok text⟩ : Event L E) ∈ suffix) ∧
+    ∃ e, (⟨.symlinkMetadata (tree / "lakefile.lean"), .error e⟩ : Event L E) ∈ suffix ∧
+      ∃ name code details, e = .noFileOrDirectory name code details
 
 /-- Whether an attempted copy completed, as its write response states. -/
 def copyComplete : Except IO.Error Unit → Bool
@@ -291,6 +300,9 @@ inductive Needed (t : List (Event L E)) (dir treeDir : FilePath) : Op L E → Pr
   /-- A directory of the toolchain's library. -/
   | toolchainDir {tree root d} : TreeLoaded t dir treeDir tree root → d ∈ root.toolchain →
       Needed t dir treeDir (.realPath d)
+  /-- Whether anything has the name that Lake prefers as its configuration, in the tree. -/
+  | treeLeanConfig {tree} : (⟨.realPath treeDir, .ok tree⟩ : Event L E) ∈ t →
+      Needed t dir treeDir (.symlinkMetadata (tree / "lakefile.lean"))
   /-- Where Lean finds a name the build needs that no file of the project holds. -/
   | search {project tree root modules m} : Scene t dir treeDir project tree root modules →
       Named t project tree root modules m → modules.lookup m = none → root.resolve m = none →
@@ -319,7 +331,7 @@ inductive Needed (t : List (Event L E)) (dir treeDir : FilePath) : Op L E → Pr
   | sourceHeader {project tree root modules m path text} : Scene t dir treeDir project tree root modules →
       Named t project tree root modules m → FileOfModule root modules m path →
       SourceText t project tree path text →
-      Needed t dir treeDir (.parseHeader (mkInputContext text path.toString))
+      Needed t dir treeDir (.parseHeader (mkInputContext text (Regula.Load.inputName path)))
   /-- The import for Lean's parser, of names the build needs that the toolchain holds. -/
   | parser {project tree root modules mods} : Scene t dir treeDir project tree root modules →
       (∀ n ∈ mods, Named t project tree root modules n ∧ HeldByToolchain t root n) →
@@ -381,7 +393,7 @@ inductive Reason (t : List (Event L E)) (dir treeDir : FilePath) : Outcome → P
           Regula.Load.dispatchedFrom own.toString lakeLib.toString
             ((System.SearchPath.parse leanPath).map toString) = false) →
       Reason t dir treeDir .incomplete
-  /-- `lakefile.toml` crossed a link, or lies outside the project. -/
+  /-- `lakefile.toml` is not, by its real path, that path: it crossed a link, the name is stored in another case, or it lies outside the project. -/
   | tomlNotExact {project real} : (⟨.realPath dir, .ok project⟩ : Event L E) ∈ t →
       (⟨.realPath (project / "lakefile.toml"), .ok real⟩ : Event L E) ∈ t →
       Regula.Load.exactBelow project (project / "lakefile.toml") real = false →
@@ -399,7 +411,8 @@ inductive Reason (t : List (Event L E)) (dir treeDir : FilePath) : Outcome → P
   | moduleNotInTree {project tree root modules m path} : Scene t dir treeDir project tree root modules →
       Named t project tree root modules m → FileOfModule root modules m path → OutsideTree tree path →
       Reason t dir treeDir .incomplete
-  /-- The project's file of a name the build needs crossed a link, or lies outside the project. -/
+  /-- The project's file of a name the build needs is not, by its real path, the path Lake named: it crossed a link, a name on the way is stored in
+  another case on a volume that folds case, or it lies outside the project. -/
   | moduleNotExact {project tree root modules m path rel real} : Scene t dir treeDir project tree root modules →
       Named t project tree root modules m → FileOfModule root modules m path →
       TreeRelative (parts tree) (parts path) rel →
@@ -431,12 +444,17 @@ inductive Reason (t : List (Event L E)) (dir treeDir : FilePath) : Outcome → P
   /-- A target's name outside the closed domain. -/
   | targetName {tree root n} : TreeLoaded t dir treeDir tree root → n ∈ root.targets →
       ¬ ClosedModuleName n → Reason t dir treeDir .incomplete
-  /-- A default root whose name Lake's import resolution gives another file for. -/
+  /-- A default root whose name Lake's import resolution gives another file for, by components: two spellings of one path are
+  one file. -/
   | twoFiles {project tree root modules m file other} : Scene t dir treeDir project tree root modules →
-      (m, file) ∈ modules → root.resolve m = some other → other ≠ file → Reason t dir treeDir .incomplete
-  /-- Two default targets that hold one module name with two files. -/
+      (m, file) ∈ modules → root.resolve m = some other → parts other ≠ parts file → Reason t dir treeDir .incomplete
+  /-- Two default targets that hold one module name with two files, by components: two spellings of one path are one file. -/
   | twoRoots {project tree root modules m file other} : Scene t dir treeDir project tree root modules →
-      (m, file) ∈ modules → (m, other) ∈ modules → other ≠ file → Reason t dir treeDir .incomplete
+      (m, file) ∈ modules → (m, other) ∈ modules → parts other ≠ parts file → Reason t dir treeDir .incomplete
+  /-- Something answers to `lakefile.lean` in the tree, which Lake prefers to the configuration judged: anything that the file system takes for that
+  name, such as a file of the plan or a directory above one, has a second role, so no admission could be about what Lake takes as its configuration. -/
+  | configShadowed {tree metadata} : (⟨.realPath treeDir, .ok tree⟩ : Event L E) ∈ t →
+      (⟨.symlinkMetadata (tree / "lakefile.lean"), .ok metadata⟩ : Event L E) ∈ t → Reason t dir treeDir .incomplete
   /-- A planned file written with its text answers otherwise, by the same path, after that write: another read gave another text,
   or the read failed. A file that another spelling of a path replaced with another text shows up here. The order keeps a run from citing a read it
   asked before it wrote, and `Planned` from citing a text it read from nowhere. -/
@@ -487,10 +505,11 @@ inductive Reason (t : List (Event L E)) (dir treeDir : FilePath) : Outcome → P
 
 /-- The outcome `o` of the language check is what its reading gives. An admitted project rests on `Evidence` of the state
 `written t` that the whole reading leaves, so an admission is about the text that stands and not about one that a later
-write replaced, and on `ReadBack`, so each text credited is what the file system answered after the reading's last act. Any
-other outcome rests on a `Reason`. -/
+write replaced, and on `ReadBack`, so each text credited is what the file system answered after the reading's last act, and
+nothing answers to the name that Lake prefers to the configuration judged. Any other outcome rests on a `Reason`. -/
 def Decided (t : List (Event L E)) (dir tree : FilePath) (o : Outcome) : Prop :=
-  (o = .admitted → ∃ r, Inside r ∧ Evidence t dir tree (written t) r ∧ ReadBack t) ∧ (o ≠ .admitted → Reason t dir tree o) ∧
+  (o = .admitted → ∃ r real, Inside r ∧ Evidence t dir tree (written t) r ∧ (⟨.realPath tree, .ok real⟩ : Event L E) ∈ t ∧ ReadBack t real) ∧
+    (o ≠ .admitted → Reason t dir tree o) ∧
     ((∃ r, o = decision r) ∨ o = .incomplete)
 
 /-- What a finished build gave the rules, by this run's responses. `root` is the workspace that Lake's load

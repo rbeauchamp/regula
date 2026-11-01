@@ -6,6 +6,7 @@ Authors: Regula contributors
 import RegulaSpecification.Proofs.Preparation
 import RegulaSpecification.Proofs.Owed
 import RegulaSpecification.Proofs.Written
+import RegulaSpecification.Proofs.OwedExact
 
 /-!
 # What a full verdict's admission is about
@@ -86,7 +87,8 @@ theorem FullRun.gate_stands {t : List (Event L E)} {dir : FilePath} {p : Regula.
     ∃ (tree : FilePath) (tRead tGate : List (Event L E)) (resp : Except IO.Error Unit) (last : List (Event L E)) (r : Reading),
       t = (⟨.createTempDir, .ok tree⟩ :: tRead) ++ (tGate ++ ⟨.removeDirAll tree, resp⟩ :: last) ∧
       (∃ mid rest, tGate = mid ++ e :: rest ∧ pre = (⟨.createTempDir, .ok tree⟩ :: tRead) ++ mid) ∧
-      Inside r ∧ Evidence tRead dir tree (written tRead) r ∧ ReadBack tRead ∧ (∀ x ∈ tRead, ¬ x.failed) ∧
+      Inside r ∧ Evidence tRead dir tree (written tRead) r ∧ (∃ real, (⟨.realPath tree, .ok real⟩ : Event L E) ∈ tRead ∧ ReadBack tRead real) ∧
+      (∀ x ∈ tRead, ¬ x.failed) ∧
       (∀ x ∈ tGate, x.keepsFiles) ∧
       ∀ u v, tGate = u ++ v → ∀ q, written ((⟨.createTempDir, .ok tree⟩ :: tRead) ++ u) q = written tRead q := by
   have hsay {x : Event L E} (hs : x.isOnlySaying = true) : x.consumesTree = false := by
@@ -117,11 +119,11 @@ theorem FullRun.gate_stands {t : List (Event L E)} {dir : FilePath} {p : Regula.
     obtain ⟨tail, htail⟩ := split_before hrest hnotLast
     by_cases ho : o = .admitted
     · subst ho
-      obtain ⟨r, hi, hev, hback⟩ := hdec.1 rfl
+      obtain ⟨r, real, hi, hev, hreal, hback⟩ := hdec.1 rfl
       obtain ⟨sysroot, tBuild, tRules, -, hgate, hb⟩ := hadm rfl
       subst hgate
       have hkeep : ∀ x ∈ tBuild ++ tRules, x.keepsFiles := fun x hx => keeps_of_no_mutation (hb.no_mutation x hx)
-      refine ⟨tree, tRead, tBuild ++ tRules, resp, last, r, by simp [List.append_assoc], ⟨mid, tail, htail, hpre⟩, hi, hev, hback, hnf rfl,
+      refine ⟨tree, tRead, tBuild ++ tRules, resp, last, r, by simp [List.append_assoc], ⟨mid, tail, htail, hpre⟩, hi, hev, ⟨real, hreal, hback⟩, hnf rfl,
         hkeep, fun u v hu q => ?_⟩
       have hku : ∀ x ∈ u, x.keepsFiles := fun x hx => hkeep x (by rw [hu]; exact List.mem_append_left _ hx)
       rw [written_append, leavesAs_nil_of_keeps hku]
@@ -241,7 +243,8 @@ theorem uncheckedCopy_build_fails {T post : List (Event L E)} {dir source path p
     · exact hnotFile name x hm
 
 /-- At each Lake command and each load for the rules of a full run, each text that stands by a write of the reading is the answer that
-the file system gave for that write's path after the reading's last act. Between that answer and this request the run asks no
+the file system gave for that write's path after the reading's last act, and that same segment holds its answer that nothing has the name
+`lakefile.lean` in the tree, which Lake prefers to the configuration judged. Between that answer and this request the run asks no
 write and no removal, and the events of the reading after it hold no act at all. So no theorem here needs that different components
 name different files, or that a write that answered success stored its text. -/
 theorem FullRun.answered_at_consumer {t : List (Event L E)} {dir : FilePath} {p : Regula.Closed.Profile} {c : UInt32}
@@ -249,22 +252,86 @@ theorem FullRun.answered_at_consumer {t : List (Event L E)} {dir : FilePath} {p 
     (he : e.consumesTree = true) :
     ∃ (tree : FilePath) (before suffix mid : List (Event L E)),
       pre = (⟨.createTempDir, .ok tree⟩ :: (before ++ suffix)) ++ mid ∧ Quiet suffix ∧ (∀ x ∈ mid, x.keepsFiles) ∧
-      ∀ path text r, (⟨.writeFile path text, r⟩ : Event L E) ∈ before ++ suffix → written pre (parts path) = some text →
-        (⟨.readFile path, .ok text⟩ : Event L E) ∈ suffix := by
-  obtain ⟨tree, tRead, tGate, -, -, r, -, ⟨mid, rest, hgate, hpre⟩, -, -, hback, -, hkeep, hstands⟩ := h.gate_stands ht he
-  obtain ⟨before, suffix, rfl, hq, hread⟩ := hback
-  refine ⟨tree, before, suffix, mid, hpre, hq, fun x hx => hkeep x (by rw [hgate]; exact List.mem_append_left _ hx), ?_⟩
+      (∀ path text r, (⟨.writeFile path text, r⟩ : Event L E) ∈ before ++ suffix → written pre (parts path) = some text →
+        (⟨.readFile path, .ok text⟩ : Event L E) ∈ suffix) ∧
+      ∃ real err, (⟨.realPath tree, .ok real⟩ : Event L E) ∈ before ++ suffix ∧
+        (⟨.symlinkMetadata (real / "lakefile.lean"), .error err⟩ : Event L E) ∈ suffix ∧
+        ∃ name code details, err = .noFileOrDirectory name code details := by
+  obtain ⟨tree, tRead, tGate, -, -, r, -, ⟨mid, rest, hgate, hpre⟩, -, -, ⟨real, hreal, hback⟩, -, hkeep, hstands⟩ := h.gate_stands ht he
+  obtain ⟨before, suffix, rfl, hq, hread, err, herr, hno⟩ := hback
+  refine ⟨tree, before, suffix, mid, hpre, hq, fun x hx => hkeep x (by rw [hgate]; exact List.mem_append_left _ hx), ?_, real, err, hreal, herr, hno⟩
   intro path text r' hw hs
   refine hread path text r' hw ?_
   rw [← hs, hpre]
   exact (hstands mid (e :: rest) hgate _).symm
 
+/-- A text that the acts of `t` leave at a path was written there, under some spelling of it. -/
+theorem written_some_write {t : List (Event L E)} {p : List String} {text : String} (h : written t p = some text) :
+    ∃ path r, (⟨.writeFile path text, r⟩ : Event L E) ∈ t ∧ parts path = p := by
+  have key : ∀ (l : List (Event L E)) (held : Option String), leavesFrom l p held = some text →
+      held = some text ∨ ∃ path r, (⟨.writeFile path text, r⟩ : Event L E) ∈ l ∧ parts path = p := by
+    intro l
+    induction l with
+    | nil => exact fun held h => .inl h
+    | cons x xs ih =>
+      intro held hl
+      have hstep : leavesFrom xs p (x.leaves p held) = some text := hl
+      rcases ih _ hstep with hx | ⟨path, r, hm, hp⟩
+      · obtain ⟨o, resp⟩ := x
+        cases o with
+        | writeFile q body =>
+          simp only [Event.leaves] at hx
+          split at hx
+          · rename_i hq
+            obtain rfl := Option.some.inj hx
+            exact .inr ⟨q, resp, List.mem_cons_self .., hq⟩
+          · exact .inl hx
+        | removeDirAll q =>
+          simp only [Event.leaves] at hx
+          split at hx
+          · cases hx
+          · exact .inl hx
+        | _ => exact .inl hx
+      · exact .inr ⟨path, r, List.mem_cons_of_mem _ hm, hp⟩
+  rcases key t none h with hn | hw
+  · cases hn
+  · exact hw
+
+/-- **What Lake takes as its configuration, at each consumer.** At each Lake command and each load for the rules of a full run, on one answer for each
+operation, the part `suffix` of the reading holds no act, comes after every act of the reading, and is followed only by events that neither write nor remove,
+and it holds two answers of the file system: nothing has the name `lakefile.lean` in the tree, at the real path this run's tree got, and a read through a
+spelling of `lakefile.toml` there gave the text that Lake's TOML parser read. `lake_takes_judged` says what follows under H5. Another process is not in this
+statement. -/
+theorem FullRun.config_at_consumer {t : List (Event L E)} {dir : FilePath} {p : Regula.Closed.Profile} {c : UInt32}
+    (h : FullRun t dir p c) {pre post : List (Event L E)} {e : Event L E} (ht : t = pre ++ e :: post)
+    (he : e.consumesTree = true) (hone : OneAnswer t) :
+    ∃ (tree real : FilePath) (before suffix mid : List (Event L E)) (err : IO.Error) (path : FilePath) (text : String) (table : Lake.Toml.Table),
+      pre = (⟨.createTempDir, .ok tree⟩ :: (before ++ suffix)) ++ mid ∧ Quiet suffix ∧ (∀ x ∈ mid, x.keepsFiles) ∧
+      (⟨.realPath tree, .ok real⟩ : Event L E) ∈ before ++ suffix ∧
+      (⟨.symlinkMetadata (real / "lakefile.lean"), .error err⟩ : Event L E) ∈ suffix ∧
+      (∃ name code details, err = .noFileOrDirectory name code details) ∧
+      parts path = parts (real / "lakefile.toml") ∧ (⟨.readFile path, .ok text⟩ : Event L E) ∈ suffix ∧
+      (⟨.parseToml (mkInputContext text "lakefile.toml"), .ok table⟩ : Event L E) ∈ before ++ suffix := by
+  obtain ⟨tree, tRead, tGate, resp, last, r, hsplit, ⟨mid, rest, hgate, hpre⟩, -, hev, ⟨real, hreal, hback⟩, -, hkeep, -⟩ :=
+    h.gate_stands ht he
+  obtain ⟨before, suffix, rfl, hq, hread, err, herr, hno⟩ := hback
+  obtain ⟨project, evTree, -, hevTree, -, -, -, -, ⟨text, _, table, -, -, -, -, h5, h6, -, -⟩, -⟩ := hev.places
+  have hint {x : Event L E} (hx : x ∈ before ++ suffix) : x ∈ t := by
+    rw [ht, hpre]
+    simp only [List.mem_append, List.mem_cons]
+    exact .inl (.inl (.inr (List.mem_append.mp hx)))
+  obtain rfl : evTree = real := Except.ok.inj (hone.resp (hint hevTree) (hint hreal) rfl)
+  obtain ⟨path, r', hw, hp⟩ := written_some_write h6
+  have hr := hread path text r' hw (by rw [hp]; exact h6)
+  exact ⟨tree, evTree, before, suffix, mid, err, path, text, table, hpre, hq,
+    fun x hx => hkeep x (by rw [hgate]; exact List.mem_append_left _ hx), hreal, herr, hno, hp, hr, h5⟩
+
 /-- An act at the end of a reading fails the clause, for each act of the closed type `Op`, once any text stands: the segment that
 holds the read-back has no room for it, so no read after the act is there. -/
 theorem act_after_readBack_fails {T : List (Event L E)} {e : Event L E} (hact : ¬ QuietOp e.op) {path : FilePath} {text : String}
     {r : Except IO.Error Unit} (hw : (⟨.writeFile path text, r⟩ : Event L E) ∈ T ++ [e])
-    (hs : written (T ++ [e]) (parts path) = some text) : ¬ ReadBack (T ++ [e]) := by
-  rintro ⟨pre, suffix, hsplit, hq, hread⟩
+    (hs : written (T ++ [e]) (parts path) = some text) {tree : FilePath} : ¬ ReadBack (T ++ [e]) tree := by
+  rintro ⟨pre, suffix, hsplit, hq, hread, -⟩
   have hnil : suffix = [] := by
     rcases List.eq_nil_or_concat suffix with h | ⟨xs, x, rfl⟩
     · exact h
@@ -278,10 +345,10 @@ theorem act_after_readBack_fails {T : List (Event L E)} {e : Event L E} (hact : 
   cases hread path text r hw hs
 
 /-- The neighbour of `act_after_readBack_fails`: reads and reports after the read-back keep the clause. -/
-theorem ReadBack.append_quiet {t after : List (Event L E)} (h : ReadBack t) (hq : Quiet after)
-    (hk : ∀ x ∈ after, x.keepsFiles) : ReadBack (t ++ after) := by
-  obtain ⟨pre, suffix, rfl, hs, hread⟩ := h
-  refine ⟨pre, suffix ++ after, by simp, ?_, ?_⟩
+theorem ReadBack.append_quiet {t after : List (Event L E)} {tree : FilePath} (h : ReadBack t tree) (hq : Quiet after)
+    (hk : ∀ x ∈ after, x.keepsFiles) : ReadBack (t ++ after) tree := by
+  obtain ⟨pre, suffix, rfl, hs, hread, err, herr, hno⟩ := h
+  refine ⟨pre, suffix ++ after, by simp, ?_, ?_, err, List.mem_append_left _ herr, hno⟩
   · intro e he
     rcases List.mem_append.mp he with he | he
     · exact hs e he
@@ -299,9 +366,10 @@ theorem ReadBack.append_quiet {t after : List (Event L E)} (h : ReadBack t) (hq 
     exact List.mem_append_left _ (hread path text r hin (by rw [← hsame]; simpa [List.append_assoc] using hst))
 
 /-- Events before a reading that hold no act keep the clause. -/
-theorem ReadBack.prepend_no_acts {a t : List (Event L E)} (ha : ∀ e ∈ a, e.acted? = none) (h : ReadBack t) : ReadBack (a ++ t) := by
-  obtain ⟨pre, suffix, rfl, hs, hread⟩ := h
-  refine ⟨a ++ pre, suffix, by simp, hs, ?_⟩
+theorem ReadBack.prepend_no_acts {a t : List (Event L E)} {tree : FilePath} (ha : ∀ e ∈ a, e.acted? = none) (h : ReadBack t tree) :
+    ReadBack (a ++ t) tree := by
+  obtain ⟨pre, suffix, rfl, hs, hread, err, herr, hno⟩ := h
+  refine ⟨a ++ pre, suffix, by simp, hs, ?_, err, herr, hno⟩
   intro path text r hw hst
   have hin : (⟨.writeFile path text, r⟩ : Event L E) ∈ pre ++ suffix := by
     rcases List.mem_append.mp hw with hw | hw

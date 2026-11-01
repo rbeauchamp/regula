@@ -251,32 +251,60 @@ theorem keyPaths_in {r : Reading} {table : Lake.Toml.Table} (hi : Inside r)
     · exact hnd ⟨d, hdr, hroot⟩
     · exact deepKey_not_admitted hdeep (hc.2.2.2 d hdr hroot)
 
+/-- A reading depends on a path by its components alone, the name of its parser input included. -/
+theorem ReadText.respell {t : List (Event L E)} {project tree : FilePath} {f : FileRead} {path path' : FilePath}
+    {imports : Array Lean.Import} {mods : List Name} {text : String} (hp : parts path = parts path')
+    (h : ReadText t project tree f path imports mods text) : ReadText t project tree f path' imports mods text := by
+  have hn : Regula.Load.inputName path = Regula.Load.inputName path' := congrArg ("/".intercalate ·) hp
+  obtain ⟨rel, real, s, m, fin, env, cmds, h1, h2, h3, h4, h5, h6, h7, h8⟩ := h
+  rw [hp] at h1
+  rw [hn] at h4 h6
+  exact ⟨rel, real, s, m, fin, env, cmds, h1, h2, h3, h4, h5, h6, h7, h8⟩
+
+/-- What `configUnread` empty says, as a statement of its own: each target's name is closed, each module has one file by components,
+and each spelling of it lies below the tree. -/
+structure ConfigFacts (tree : FilePath) (root : Root L) (modules : List (Name × FilePath)) : Prop where
+  /-- Each target's name. -/
+  names : ∀ n ∈ root.targets, ClosedModuleName n
+  /-- A root's file and what Lake's resolution gives for its name. -/
+  resolve : ∀ m file other, (m, file) ∈ modules → root.resolve m = some other → parts other = parts file
+  /-- Two entries of one name. -/
+  two : ∀ m file other, (m, file) ∈ modules → (m, other) ∈ modules → parts other = parts file
+  /-- Each spelling, by the tests that the reader's writes ask. -/
+  placed : ∀ m file path, (m, file) ∈ modules → (path = file ∨ root.resolve m = some path) →
+    inTree tree path = true ∧ parentInTree tree path = true
+
 /-- What `configUnread` empty says: each default root is its name's one file, also by Lake's import resolution. -/
-theorem configUnread_nil {root : Root L} {modules : List (Name × FilePath)}
-    (h : configUnread root modules = []) :
-    (∀ n ∈ root.targets, ClosedModuleName n) ∧
-    (∀ m file other, (m, file) ∈ modules → root.resolve m = some other → other = file) ∧
-      (∀ m file other, (m, file) ∈ modules → (m, other) ∈ modules → other = file) := by
+theorem configUnread_nil {tree : FilePath} {root : Root L} {modules : List (Name × FilePath)}
+    (h : configUnread tree root modules = []) : ConfigFacts tree root modules := by
   simp only [configUnread, List.append_eq_nil_iff, List.map_eq_nil_iff, List.filter_eq_nil_iff] at h
-  obtain ⟨⟨h0, h1⟩, h2⟩ := h
-  refine ⟨fun n hn => ?_, ?_, ?_⟩
+  obtain ⟨⟨⟨h0, h1⟩, h2⟩, h3⟩ := h
+  refine ⟨fun n hn => ?_, ?_, ?_, ?_⟩
   · have := h0 n hn
     exact (closedModuleName_iff n).mp (by simpa using this)
   · intro m file other hm hr
     have := h1 (m, file) hm
-    simp only [hr, bne_eq_false_iff_eq, Bool.not_eq_true] at this
+    simp only [hr, bne_iff_ne, ne_eq, Decidable.not_not] at this
     exact this
   · intro m file other hm ho
     have := h2 (m, file) hm
     simp only [List.any_eq_true, Bool.and_eq_true, beq_iff_eq, bne_iff_ne, not_exists, not_and] at this
-    by_cases he : other = file
+    by_cases he : parts other = parts file
     · exact he
     · exact absurd he (fun _ => this (m, other) ho rfl he)
+  · intro m file path hm hp
+    have hmem : (m, path) ∈ modules.flatMap (fun x => x :: (root.resolve x.1).toList.map (x.1, ·)) := by
+      refine List.mem_flatMap.mpr ⟨(m, file), hm, ?_⟩
+      rcases hp with rfl | hr
+      · exact List.mem_cons_self ..
+      · simp [hr]
+    have := h3 _ hmem
+    simpa [Bool.or_eq_false_iff] using this
 
 /-- A module of the default targets has its own file, when no name has two. -/
 theorem fileOf_of_mem {root : Root L} {modules : List (Name × FilePath)} {m : Name} {path : FilePath}
-    (ht : ∀ m file other, (m, file) ∈ modules → (m, other) ∈ modules → other = file)
-    (hm : (m, path) ∈ modules) : fileOf root modules m = some path := by
+    (ht : ∀ m file other, (m, file) ∈ modules → (m, other) ∈ modules → parts other = parts file)
+    (hm : (m, path) ∈ modules) : ∃ q, fileOf root modules m = some q ∧ parts q = parts path := by
   have hl : ∃ file, modules.lookup m = some file := by
     cases hl : modules.lookup m with
     | some file => exact ⟨file, rfl⟩
@@ -297,9 +325,7 @@ theorem fileOf_of_mem {root : Root L} {modules : List (Name × FilePath)} {m : N
             exact hk rfl
           · exact ih hm' hl
   obtain ⟨file, hl⟩ := hl
-  have := ht m file path (mem_of_lookup hl) hm
-  subst this
-  simp [fileOf, hl]
+  exact ⟨file, by simp [fileOf, hl], (ht m file path (mem_of_lookup hl) hm).symm⟩
 
 /-- The evidence of an admitted reading, from what the walk and the parse established. -/
 theorem lastStage_evidence {T : List (Event L E)} {dir treeDir project tree : FilePath} {root : Root L}
@@ -316,9 +342,7 @@ theorem lastStage_evidence {T : List (Event L E)} {dir treeDir project tree : Fi
     (hrroots : r.roots = modules.map (·.1)) (hrkeys : r.configKeys = start.configKeys)
     (hinside : Inside r)
     (I : WalkInv T dir treeDir project tree root modules reals (modules.map (·.1)) [] w) (hu : w.unread = [])
-    (hfacts : (∀ n ∈ root.targets, ClosedModuleName n) ∧
-      (∀ m file other, (m, file) ∈ modules → root.resolve m = some other → other = file) ∧
-      (∀ m file other, (m, file) ∈ modules → (m, other) ∈ modules → other = file))
+    (hfacts : ConfigFacts tree root modules)
     (hroots : ∀ m path, (m, path) ∈ modules → m ∈ w.reached)
     (hcount : modules.length + sourceImports w.sources ≤ 1000000)
     (hnodup : ((headersOf w.sources.reverse).map (·.1)).Nodup)
@@ -328,7 +352,8 @@ theorem lastStage_evidence {T : List (Event L E)} {dir treeDir project tree : Fi
     (hread : ∀ m path, fileOf root modules m = some path → m ∈ w.reached → ¬ OutsideTree tree path ∧
       ∃ f ∈ files, f.module = m ∧ ∃ imports mods text', (headersOf w.sources.reverse).lookup m = some imports ∧
         ReadText T project tree f path imports mods text' ∧ held (parts path) = some text')
-    (hsomeFile : ∀ n path', root.resolve n = some path' → fileOf root modules n = some path')
+    (hsomeFile : ∀ n path', root.resolve n = some path' → ∃ q, fileOf root modules n = some q ∧ parts q = parts path' ∧
+      (¬ OutsideTree tree q → ¬ OutsideTree tree path'))
     (hlookup : ∀ x ∈ w.sources, (headersOf w.sources.reverse).lookup x.1 = some x.2.imports)
     (hfileRead : ∀ f ∈ files, ∃ x ∈ w.sources, ∃ path,
       fileOf root modules x.1 = some path ∧ SourceRead T project tree path x.2 ∧
@@ -371,14 +396,31 @@ theorem lastStage_evidence {T : List (Event L E)} {dir treeDir project tree : Fi
   refine ⟨project, tree, hp.project_real, hp.tree_real, hp.apart, hp.started, hp.toolchain, hp.absent,
     ⟨text, real, table, t1, t2, t3, t4, t5, hheld.toml, hnodeep, hkeys⟩, hheld.toolchain, hp.copyToml,
     hp.copyToolchain, sysroot, root, log,
-    modules, hsys, hload, hmods, hrroots, hdirs, hglobs, hfacts.1, hfacts.2.1, hfacts.2.2, headersOf w.sources.reverse,
+    modules, hsys, hload, hmods, hrroots, hdirs, hglobs, hfacts.names, hfacts.resolve, hfacts.two, headersOf w.sources.reverse,
     w.toolchain, ?_, hnodup, ?_, fun n hn => (I.held n hn).2.1, ?_, ?_⟩
   · rw [sum_headersOf, List.map_reverse, List.sum_reverse]
     exact hcount
-  · intro m path hc
+  · have hrespell : ∀ {m : Name} {q path : FilePath}, parts q = parts path → ¬ OutsideTree tree path →
+        (¬ OutsideTree tree q ∧ ∃ f ∈ files, f.module = m ∧ ∃ imports mods text', (headersOf w.sources.reverse).lookup m = some imports ∧
+          ReadText T project tree f q imports mods text' ∧ held (parts q) = some text') →
+        (¬ OutsideTree tree path ∧ ∃ f ∈ files, f.module = m ∧ ∃ imports mods text', (headersOf w.sources.reverse).lookup m = some imports ∧
+          ReadText T project tree f path imports mods text' ∧ held (parts path) = some text') :=
+      fun hp hout ⟨_, f, hf, hm, i, md, tx, hl, hrt, hs⟩ => ⟨hout, f, hf, hm, i, md, tx, hl, ReadText.respell hp hrt, hp ▸ hs⟩
+    have hplaced : ∀ {m : Name} {file path : FilePath}, (m, file) ∈ modules → (path = file ∨ root.resolve m = some path) →
+        ¬ OutsideTree tree path := by
+      intro m file path hm hp
+      obtain ⟨h1, h2⟩ := hfacts.placed m file path hm hp
+      obtain ⟨rel, hrel⟩ := (inTree_iff tree path).mp h1
+      exact not_outside_of hrel h2
+    intro m path hc
     rw [hrfiles]
     induction hc with
-    | root hm => exact hread _ _ (fileOf_of_mem hfacts.2.2 hm) (hroots _ _ hm)
+    | root hm =>
+      obtain ⟨q, hq, hp⟩ := fileOf_of_mem hfacts.two hm
+      exact hrespell hp (hplaced hm (.inl rfl)) (hread _ _ hq (hroots _ _ hm))
+    | resolved hm hres =>
+      obtain ⟨q, hq, hp, hout⟩ := hsomeFile _ _ hres
+      exact hrespell hp (hout (hread _ _ hq (hroots _ _ hm)).1) (hread _ _ hq (hroots _ _ hm))
     | @imported m path imports n path' _ hl hn hres _ =>
       obtain ⟨i, hi, rfl⟩ := hn
       have hmem := mem_of_lookup hl
@@ -388,9 +430,11 @@ theorem lastStage_evidence {T : List (Event L E)} {dir treeDir project tree : Fi
       have hxs := List.mem_reverse.mp hx
       rcases I.pending hu x hxs i hi with h' | h' | h'
       · cases h'
-      · exact hread _ _ (hsomeFile _ _ hres) h'
-      · have := (I.held _ h').1
-        rw [hsomeFile _ _ hres] at this
+      · obtain ⟨q, hq, hp, hout⟩ := hsomeFile _ _ hres
+        exact hrespell hp (hout (hread _ _ hq h').1) (hread _ _ hq h')
+      · obtain ⟨q, hq, -⟩ := hsomeFile _ _ hres
+        have := (I.held _ h').1
+        rw [hq] at this
         cases this
   · intro f hf
     rw [hrfiles] at hf
@@ -439,9 +483,7 @@ theorem lastStage_goal {T : List (Event L E)} {dir treeDir project tree : FilePa
     (hprepared : PreparedLoad T dir treeDir sysroot tree (.ok (some root, log)))
     (hmods : DefaultModules T root root.defaultTargets modules)
     (hopen : openPathsOf tree root = [])
-    (hfacts : (∀ n ∈ root.targets, ClosedModuleName n) ∧
-      (∀ m file other, (m, file) ∈ modules → root.resolve m = some other → other = file) ∧
-      (∀ m file other, (m, file) ∈ modules → (m, other) ∈ modules → other = file))
+    (hfacts : ConfigFacts tree root modules)
     (I : WalkInv T dir treeDir project tree root modules reals (modules.map (·.1)) [] w)
     (hu : w.unread = []) (hcount : modules.length + sourceImports w.sources ≤ 1000000)
     (hf : (baseReading config start root modules w).readInFull = true)
@@ -470,7 +512,8 @@ theorem lastStage_goal {T : List (Event L E)} {dir treeDir project tree : FilePa
     · cases h'
     · exact h'
     · have := (I.held m h').1
-      rw [fileOf_of_mem hfacts.2.2 hmp] at this
+      obtain ⟨q, hq, -⟩ := fileOf_of_mem hfacts.two hmp
+      rw [hq] at this
       cases this
   have hsource : ∀ m ∈ w.reached, ∃ s, (m, s) ∈ w.sources := by
     intro m hmr
@@ -522,13 +565,15 @@ theorem lastStage_goal {T : List (Event L E)} {dir treeDir project tree : FilePa
     intro x hx
     obtain ⟨p, h1, hpath, -, f, hf', hmod, imports, mods, -, hrt⟩ := hread0 x.1 x.2 hx
     exact ⟨f, hf', p, imports, mods, by rw [hmod]; exact fileOf_mem h1, by rw [hpath], hrt⟩
-  have hsomeFile : ∀ n path', root.resolve n = some path' → fileOf root modules n = some path' := by
+  have hsomeFile : ∀ n path', root.resolve n = some path' → ∃ q, fileOf root modules n = some q ∧ parts q = parts path' ∧
+      (¬ OutsideTree tree q → ¬ OutsideTree tree path') := by
     intro n path' hres
-    rw [fileOf]
-    split
-    · rename_i q hl
-      rw [hfacts.2.1 n q path' (mem_of_lookup hl) hres]
-    · exact hres
+    cases hl : modules.lookup n with
+    | some q =>
+      obtain ⟨h1, h2⟩ := hfacts.placed n q path' (mem_of_lookup hl) (.inr hres)
+      obtain ⟨rel, hrel⟩ := (inTree_iff tree path').mp h1
+      exact ⟨q, by simp [fileOf, hl], (hfacts.resolve n q path' (mem_of_lookup hl) hres).symm, fun _ => not_outside_of hrel h2⟩
+    | none => exact ⟨path', by simp [fileOf, hl, hres], rfl, id⟩
   by_cases hmod : modules = []
   · have hcov : r.covered = false := by
       simp [Reading.covered, hrroots, hmod]
@@ -639,30 +684,81 @@ theorem Quiet.noActs {t : List (Event L E)} (h : Quiet t) : NoActs t := by
 abbrev configWrites (tree : FilePath) (text : String) : List (Event L E) :=
   [⟨.writeFile (tree / "lakefile.toml") text, .ok ()⟩, ⟨.writeFile (tree / "lean-toolchain") leanToolchain, .ok ()⟩]
 
+/-- `existsByName` asks one thing, and only an answer of no such name says that it is absent. -/
+theorem existsByName_spec {path : FilePath} {t : List (Event L E)} {b : Except String Bool}
+    (h : Runs (existsByName path : Attempt L E Bool).run t b) :
+    ∃ r, t = [⟨.symlinkMetadata path, r⟩] ∧
+      (b = .ok true → ∃ metadata, r = .ok metadata) ∧
+      (b = .ok false → ∃ e, r = .error e ∧ ∃ name code details, e = .noFileOrDirectory name code details) ∧
+      ((∃ e, b = .error e) → Event.failed (⟨.symlinkMetadata path, r⟩ : Event L E)) := by
+  rw [existsByName] at h
+  obtain ⟨t₃, t₄, r₃, rfl, h₃, h₄⟩ := runs_bind_iff.mp h
+  obtain rfl := runs_call_iff.mp h₃
+  refine ⟨r₃, ?_⟩
+  cases r₃ with
+  | ok metadata =>
+    obtain ⟨rfl, rfl⟩ := runs_pure_iff.mp h₄
+    exact ⟨rfl, fun _ => ⟨metadata, rfl⟩, fun he => (by cases he), fun ⟨e, he⟩ => (by cases he)⟩
+  | error e =>
+    cases e with
+    | noFileOrDirectory name code details =>
+      obtain ⟨rfl, rfl⟩ := runs_pure_iff.mp h₄
+      exact ⟨rfl, fun he => (by cases he), fun _ => ⟨_, rfl, name, code, details, rfl⟩,
+        fun ⟨e, he⟩ => (by cases he)⟩
+    | _ =>
+      obtain ⟨rfl, rfl⟩ := runs_pure_iff.mp h₄
+      exact ⟨rfl, fun he => (by cases he), fun he => (by cases he),
+        fun _ => ⟨_, rfl, fun _ _ _ he => (by cases he)⟩⟩
+
+/-- `noOtherConfig` asks one thing: on success nothing answers to the name, and on a failure something does or the question failed. -/
+theorem noOtherConfig_spec {tree : FilePath} {t : List (Event L E)} {b : Except String Unit}
+    (h : Runs (noOtherConfig tree : Attempt L E Unit).run t b) :
+    ∃ r, t = [⟨.symlinkMetadata (tree / "lakefile.lean"), r⟩] ∧
+      (b = .ok () → ∃ e, r = .error e ∧ ∃ name code details, e = .noFileOrDirectory name code details) ∧
+      ((∃ e, b = .error e) → (∃ metadata, r = .ok metadata) ∨
+        Event.failed (⟨.symlinkMetadata (tree / "lakefile.lean"), r⟩ : Event L E)) := by
+  rw [noOtherConfig] at h
+  obtain ⟨t₁, t₂, r₁, rfl, h₁, h₂⟩ := runs_attempt_bind_iff.mp h
+  obtain ⟨r, rfl, n1, n2, n3⟩ := existsByName_spec h₁
+  cases r₁ with
+  | error why =>
+    obtain ⟨rfl, rfl⟩ := h₂
+    exact ⟨r, rfl, fun he => (by cases he), fun _ => .inr (n3 ⟨why, rfl⟩)⟩
+  | ok v =>
+    cases v with
+    | true =>
+      obtain ⟨rfl, hb⟩ := runs_pure_iff.mp h₂
+      subst hb
+      exact ⟨r, rfl, fun he => (by cases he), fun _ => .inl (n1 rfl)⟩
+    | false =>
+      obtain ⟨rfl, rfl⟩ := runs_attempt_pure_iff.mp h₂
+      exact ⟨r, rfl, fun _ => n2 rfl, fun ⟨_, he⟩ => (by cases he)⟩
+
 /-- What a reading the decision admits did to the tree: its acts leave what the list `writes` leaves, each write it asks is in
 that list, and it ends with a segment that holds no act, with a read of each entry of `plan` that gave its text. -/
-structure AdmittedActs (t : List (Event L E)) (writes plan : List (FilePath × String)) : Prop where
+structure AdmittedActs (tree : FilePath) (t : List (Event L E)) (writes plan : List (FilePath × String)) : Prop where
   /-- What its acts leave. -/
   leaves : LeavesAs t writes
   /-- What it writes. -/
   writesIn : WritesIn t writes
   /-- What the file system answered after its last act. -/
-  back : ∃ a b, t = a ++ b ∧ Quiet b ∧ ∀ x ∈ plan, (⟨.readFile x.1, .ok x.2⟩ : Event L E) ∈ b
+  back : ∃ a b, t = a ++ b ∧ Quiet b ∧ (∀ x ∈ plan, (⟨.readFile x.1, .ok x.2⟩ : Event L E) ∈ b) ∧
+    ∃ e, (⟨.symlinkMetadata (tree / "lakefile.lean"), .error e⟩ : Event L E) ∈ b ∧ ∃ name code details, e = .noFileOrDirectory name code details
 
 /-- Earlier events that act as a list of writes come before those of the reading. -/
-theorem AdmittedActs.prepend {pre t : List (Event L E)} {k writes plan : List (FilePath × String)}
-    (hl : LeavesAs pre k) (hw : WritesIn pre k) (h : AdmittedActs t writes plan) : AdmittedActs (pre ++ t) (k ++ writes) plan := by
-  obtain ⟨a, b, rfl, hq, hr⟩ := h.back
-  exact ⟨hl.append h.leaves, hw.append h.writesIn, pre ++ a, b, by simp, hq, hr⟩
+theorem AdmittedActs.prepend {tree : FilePath} {pre t : List (Event L E)} {k writes plan : List (FilePath × String)}
+    (hl : LeavesAs pre k) (hw : WritesIn pre k) (h : AdmittedActs tree t writes plan) : AdmittedActs tree (pre ++ t) (k ++ writes) plan := by
+  obtain ⟨a, b, rfl, hq, hr, habs⟩ := h.back
+  exact ⟨hl.append h.leaves, hw.append h.writesIn, pre ++ a, b, by simp, hq, hr, habs⟩
 
-theorem AdmittedActs.cast {t : List (Event L E)} {w w' plan : List (FilePath × String)} (h : AdmittedActs t w plan) (he : w = w') :
-    AdmittedActs t w' plan :=
+theorem AdmittedActs.cast {tree : FilePath} {t : List (Event L E)} {w w' plan : List (FilePath × String)} (h : AdmittedActs tree t w plan) (he : w = w') :
+    AdmittedActs tree t w' plan :=
   he ▸ h
 
 /-- What a reading that wrote only its plan and read each of it back gives the record. -/
-theorem AdmittedActs.readBack {t : List (Event L E)} {plan : List (FilePath × String)} (h : AdmittedActs t plan plan) : ReadBack t := by
-  obtain ⟨a, b, he, hq, hr⟩ := h.back
-  exact ⟨a, b, he, hq, fun path text r hw _ => hr (path, text) (h.writesIn path text r hw)⟩
+theorem AdmittedActs.readBack {tree : FilePath} {t : List (Event L E)} {plan : List (FilePath × String)} (h : AdmittedActs tree t plan plan) : ReadBack t tree := by
+  obtain ⟨a, b, he, hq, hr, habs⟩ := h.back
+  exact ⟨a, b, he, hq, (fun path text r hw _ => hr (path, text) (h.writesIn path text r hw)), habs⟩
 
 /-- Two events, each in its list of two in order. -/
 theorem pair_sublist {x y : Event L E} {a b : List (Event L E)} (hx : x ∈ a) (hy : y ∈ b) : [x, y].Sublist (a ++ b) :=
@@ -883,11 +979,11 @@ theorem readFiles_spec {T t : List (Event L E)} {dir treeDir project tree : File
     (hprepared : PreparedLoad T dir treeDir sysroot tree (.ok (some root, log)))
     (hmods : DefaultModules T root root.defaultTargets modules)
     (hopen : openPathsOf tree root = [])
-    (hunread : configUnread root modules = [])
+    (hunread : configUnread tree root modules = [])
     (h : Runs (readFiles [(tree / "lakefile.toml", text), (tree / "lean-toolchain", leanToolchain)] project tree root modules
       start : Attempt L E _).run t b) :
     (∀ r srcs, b = .ok (r, srcs) → ReadGoal T dir treeDir (Holds tree text srcs) r ∧
-      (decision r = .admitted → AdmittedActs t (srcs.map fun x => (x.2.path, x.2.text)) (planOf tree text srcs) ∧
+      (decision r = .admitted → AdmittedActs tree t (srcs.map fun x => (x.2.path, x.2.text)) (planOf tree text srcs) ∧
         twoTexts (plannedOf [(tree / "lakefile.toml", text), (tree / "lean-toolchain", leanToolchain)] srcs) = [])) ∧
       ((∃ e, b = .error e) → Reason T dir treeDir .incomplete) ∧ ActsIn tree t := by
   rw [readFiles] at h
@@ -1084,14 +1180,38 @@ theorem readFiles_spec {T t : List (Event L E)} {dir treeDir project tree : File
                 refine List.Sublist.trans ?_ hT₈
                 simp
             | ok v' =>
-              obtain ⟨rfl, rfl⟩ := runs_attempt_pure_iff.mp h₁₄
-              refine ⟨fun r srcs he => ?_, fun ⟨e, he⟩ => (by cases he), by simpa using actsIn_append hbefore (actsIn_append s3 hactsBack)⟩
+              obtain ⟨t₂₁, t₂₂, r₂₁, rfl, h₂₁, h₂₂⟩ := runs_attempt_bind_iff.mp h₁₄
+              obtain ⟨r₂, rfl, n1, n2⟩ := noOtherConfig_spec h₂₁
+              have hq₂ : Quiet ([⟨.symlinkMetadata (tree / "lakefile.lean"), r₂⟩] : List (Event L E)) := by
+                intro e he
+                obtain rfl := List.mem_singleton.mp he
+                trivial
+              have hactsAbs : ActsIn tree ([⟨.symlinkMetadata (tree / "lakefile.lean"), r₂⟩] : List (Event L E)) :=
+                (hq₂.noActs).actsIn tree
+              have hactsAll := actsIn_append hactsBack hactsAbs
+              cases r₂₁ with
+              | error why =>
+                obtain ⟨rfl, rfl⟩ := h₂₂
+                refine ⟨fun _ _ he => (by cases he), fun _ => ?_, by simpa [List.append_assoc] using actsIn_append hbefore (actsIn_append s3 hactsAll)⟩
+                have hmem : (⟨.symlinkMetadata (tree / "lakefile.lean"), r₂⟩ : Event L E) ∈ T :=
+                  List.Sublist.subset (List.Sublist.trans (by simp) hT₈) (List.mem_singleton.mpr rfl)
+                rcases n2 ⟨why, rfl⟩ with ⟨md, rfl⟩ | hbad
+                · exact .configShadowed hp.tree_real hmem
+                · exact .failed hmem (.treeLeanConfig hp.tree_real) hbad
+              | ok v'' =>
+              obtain ⟨rfl, rfl⟩ := runs_attempt_pure_iff.mp h₂₂
+              refine ⟨fun r srcs he => ?_, fun ⟨e, he⟩ => (by cases he), by simpa [List.append_assoc] using actsIn_append hbefore (actsIn_append s3 hactsAll)⟩
               cases he
               refine ⟨hgoal, fun _ => ⟨?_, hconfig ▸ htwo⟩⟩
-              have hback : AdmittedActs (t₁₁ ++ []) [] (planOf tree text w.sources.reverse) :=
-                { leaves := by simpa using leavesAs_nil_of_no_act b3.noActs
-                  writesIn := by simpa using writesIn_nil_of_no_act b3.noActs
-                  back := ⟨[], t₁₁ ++ [], by simp, by simpa using b3, fun x hx => by simpa using b1 rfl x hx⟩ }
+              have hbq : Quiet (t₁₁ ++ [⟨.symlinkMetadata (tree / "lakefile.lean"), r₂⟩] ++ ([] : List (Event L E))) := by
+                simpa using Quiet.append b3 hq₂
+              have hback : AdmittedActs tree (t₁₁ ++ [⟨.symlinkMetadata (tree / "lakefile.lean"), r₂⟩] ++ ([] : List (Event L E))) [] (planOf tree text w.sources.reverse) :=
+                { leaves := by simpa using leavesAs_nil_of_no_act hbq.noActs
+                  writesIn := by simpa using writesIn_nil_of_no_act hbq.noActs
+                  back := by
+                    obtain ⟨e, rfl, hn⟩ := n1 rfl
+                    exact ⟨[], t₁₁ ++ [⟨.symlinkMetadata (tree / "lakefile.lean"), .error e⟩] ++ [], by simp, by simpa using hbq,
+                      fun x hx => by simp [b1 rfl x hx], e, by simp, hn⟩ }
               have hall := (hback.prepend w1 w2).prepend (leavesAs_nil_of_no_act hnoacts) (writesIn_nil_of_no_act hnoacts)
               simpa [List.append_assoc] using hall
         · rename_i hnadm
@@ -1121,10 +1241,10 @@ theorem openPaths_reason {T : List (Event L E)} {dir treeDir tree : FilePath} {r
 
 theorem configUnread_reason {T : List (Event L E)} {dir treeDir project tree : FilePath} {root : Root L}
     {modules : List (Name × FilePath)} (hscene : Scene T dir treeDir project tree root modules)
-    (h : configUnread root modules ≠ []) : Reason T dir treeDir .incomplete := by
+    (h : configUnread tree root modules ≠ []) : Reason T dir treeDir .incomplete := by
   obtain ⟨x, hx⟩ := List.exists_mem_of_ne_nil _ h
   simp only [configUnread, List.mem_append, List.mem_map, List.mem_filter] at hx
-  rcases hx with (⟨n, ⟨hn, hc⟩, -⟩ | ⟨y, ⟨hy, hr⟩, -⟩) | ⟨y, ⟨hy, hr⟩, -⟩
+  rcases hx with ((⟨n, ⟨hn, hc⟩, -⟩ | ⟨y, ⟨hy, hr⟩, -⟩) | ⟨y, ⟨hy, hr⟩, -⟩) | ⟨y, ⟨hy, hr⟩, -⟩
   · refine .targetName hscene.loaded hn fun hclosed => ?_
     simp [(closedModuleName_iff n).mpr hclosed] at hc
   · cases hres : root.resolve y.1 with
@@ -1136,6 +1256,24 @@ theorem configUnread_reason {T : List (Event L E)} {dir treeDir project tree : F
     simp only [Bool.and_eq_true, beq_iff_eq, bne_iff_ne] at hb
     obtain ⟨h1, h2⟩ := hb
     exact .twoRoots (m := y.1) (file := y.2) (other := o.2) hscene hy (by rw [← h1]; exact ho) h2
+  · obtain ⟨⟨m, file⟩, hmf, hin⟩ := List.mem_flatMap.mp hy
+    have hfile : FileOfModule root modules m y.2 ∧ y.1 = m := by
+      rcases List.mem_cons.mp hin with rfl | hin
+      · exact ⟨.inl hmf, rfl⟩
+      · obtain ⟨o, ho, rfl⟩ := List.mem_map.mp hin
+        have : root.resolve m = some o := by simpa [Option.mem_toList] using ho
+        exact ⟨.inr this, rfl⟩
+    have hout : OutsideTree tree y.2 := by
+      simp only [Bool.or_eq_true, Bool.not_eq_true'] at hr
+      rcases hr with hn | hn
+      · exact .inl fun rel hrel => by rw [(inTree_iff tree y.2).mpr ⟨rel, hrel⟩] at hn; cases hn
+      · cases hd : y.2.parent with
+        | none => rw [parentInTree, hd] at hn; cases hn
+        | some d =>
+          rw [parentInTree, hd] at hn
+          dsimp only at hn
+          exact .inr ⟨d, hd, fun rel hrel => by rw [(inTree_iff tree d).mpr ⟨rel, hrel⟩] at hn; cases hn⟩
+    exact .moduleNotInTree hscene (.root (List.mem_map.mpr ⟨(m, file), hmf, rfl⟩)) hfile.1 hout
 
 /-- What a stage that has the root package gives. -/
 theorem readRoot_spec {T t : List (Event L E)} {dir treeDir project tree : FilePath} {start : Reading}
@@ -1149,7 +1287,7 @@ theorem readRoot_spec {T t : List (Event L E)} {dir treeDir project tree : FileP
     (h : Runs (readRoot [(tree / "lakefile.toml", text), (tree / "lean-toolchain", leanToolchain)] sysroot project tree start :
       Attempt L E _).run t b) :
     (∀ r srcs, b = .ok (r, srcs) → ReadGoal T dir treeDir (Holds tree text srcs) r ∧
-      (decision r = .admitted → AdmittedActs t (srcs.map fun x => (x.2.path, x.2.text)) (planOf tree text srcs) ∧
+      (decision r = .admitted → AdmittedActs tree t (srcs.map fun x => (x.2.path, x.2.text)) (planOf tree text srcs) ∧
         twoTexts (plannedOf [(tree / "lakefile.toml", text), (tree / "lean-toolchain", leanToolchain)] srcs) = [])) ∧
       ((∃ e, b = .error e) → Reason T dir treeDir .incomplete) ∧ ActsIn tree t := by
   rw [readRoot] at h
@@ -1238,18 +1376,18 @@ theorem readRoot_spec {T t : List (Event L E)} {dir treeDir project tree : FileP
           refine ⟨fun r srcs he => ?_, fun ⟨e, he⟩ => (by cases he),
             by simpa using actsIn_append hact₁ hact₅⟩
           cases he
-          have hne : configUnread root modules ≠ [] := by
+          have hne : configUnread tree root modules ≠ [] := by
             intro hnil
             simp [hnil] at hfails
-          have hfull : ({ start with roots := modules.map (·.1), unread := configUnread root modules } : Reading).readInFull = false := by
+          have hfull : ({ start with roots := modules.map (·.1), unread := configUnread tree root modules } : Reading).readInFull = false := by
             simp [Reading.readInFull, hne]
-          have hdec := decision_not_full (r := { start with roots := modules.map (·.1), unread := configUnread root modules }) hc hfull
+          have hdec := decision_not_full (r := { start with roots := modules.map (·.1), unread := configUnread tree root modules }) hc hfull
           refine ⟨⟨fun ha => (by rw [hdec] at ha; cases ha), fun o ho hne' => ?_⟩, fun ha => (by rw [hdec] at ha; cases ha)⟩
           rw [hdec] at ho
           subst ho
           exact configUnread_reason ⟨hp.project_real, hTL, hmods⟩ hne
         · rename_i hfails
-          have hnil : configUnread root modules = [] := by
+          have hnil : configUnread tree root modules = [] := by
             simpa using hfails
           have hcopies₆ : (configWrites tree text ++ t₆ : List (Event L E)).Sublist T := by
             refine List.Sublist.trans (List.Sublist.append_left ?_ _) hcopies
@@ -1345,7 +1483,7 @@ theorem readKeys_spec {T t : List (Event L E)} {dir treeDir project tree : FileP
     (hread : (⟨.readFile (project / "lakefile.toml"), .ok text⟩ : Event L E) ∈ T)
     (h : Runs (readKeys sysroot project tree tf text : Attempt L E _).run t b) :
     (∀ r srcs, b = .ok (r, srcs) → ReadGoal T dir treeDir (Holds tree text srcs) r ∧
-      (decision r = .admitted → Holds tree text srcs (written t) ∧ ReadBack t)) ∧
+      (decision r = .admitted → Holds tree text srcs (written t) ∧ ReadBack t tree)) ∧
       ((∃ e, b = .error e) → Reason T dir treeDir .incomplete) ∧ ActsIn tree t := by
   have hT := hI.sublist
   rw [readKeys] at h
@@ -1490,7 +1628,7 @@ theorem readKeys_spec {T t : List (Event L E)} {dir treeDir project tree : FileP
           have hw₆ : WritesIn t₅ [(tree / "lean-toolchain", leanToolchain)] := by rw [hm]; exact writesIn_write hmd
           have hnoParse : ∀ e ∈ ([⟨.parseToml (mkInputContext text "lakefile.toml"), .ok table⟩] : List (Event L E)), e.acted? = none :=
             fun e he => by obtain rfl := List.mem_singleton.mp he; rfl
-          have hA : AdmittedActs ([⟨.parseToml (mkInputContext text "lakefile.toml"), .ok table⟩] ++ (t₃ ++ (t₅ ++ t₆)))
+          have hA : AdmittedActs tree ([⟨.parseToml (mkInputContext text "lakefile.toml"), .ok table⟩] ++ (t₃ ++ (t₅ ++ t₆)))
               (planOf tree text srcs) (planOf tree text srcs) :=
             ((((l1.prepend hl₆ hw₆).prepend hl₄ hw₄).prepend (leavesAs_nil_of_no_act hnoParse)
               (writesIn_nil_of_no_act hnoParse)).cast (by simp [planOf]))
@@ -1499,39 +1637,13 @@ theorem readKeys_spec {T t : List (Event L E)} {dir treeDir project tree : FileP
           simp only [List.cons_append, List.nil_append] at hH hB ⊢
           exact ⟨hH, hB⟩
 
-/-- `existsByName` asks one thing, and only an answer of no such name says that it is absent. -/
-theorem existsByName_spec {path : FilePath} {t : List (Event L E)} {b : Except String Bool}
-    (h : Runs (existsByName path : Attempt L E Bool).run t b) :
-    ∃ r, t = [⟨.symlinkMetadata path, r⟩] ∧
-      (b = .ok true → ∃ metadata, r = .ok metadata) ∧
-      (b = .ok false → ∃ e, r = .error e ∧ ∃ name code details, e = .noFileOrDirectory name code details) ∧
-      ((∃ e, b = .error e) → Event.failed (⟨.symlinkMetadata path, r⟩ : Event L E)) := by
-  rw [existsByName] at h
-  obtain ⟨t₃, t₄, r₃, rfl, h₃, h₄⟩ := runs_bind_iff.mp h
-  obtain rfl := runs_call_iff.mp h₃
-  refine ⟨r₃, ?_⟩
-  cases r₃ with
-  | ok metadata =>
-    obtain ⟨rfl, rfl⟩ := runs_pure_iff.mp h₄
-    exact ⟨rfl, fun _ => ⟨metadata, rfl⟩, fun he => (by cases he), fun ⟨e, he⟩ => (by cases he)⟩
-  | error e =>
-    cases e with
-    | noFileOrDirectory name code details =>
-      obtain ⟨rfl, rfl⟩ := runs_pure_iff.mp h₄
-      exact ⟨rfl, fun he => (by cases he), fun _ => ⟨_, rfl, name, code, details, rfl⟩,
-        fun ⟨e, he⟩ => (by cases he)⟩
-    | _ =>
-      obtain ⟨rfl, rfl⟩ := runs_pure_iff.mp h₄
-      exact ⟨rfl, fun he => (by cases he), fun he => (by cases he),
-        fun _ => ⟨_, rfl, fun _ _ _ he => (by cases he)⟩⟩
-
 /-- `lakefile.lean` by its name, `lakefile.toml`, and what follows. -/
 theorem readConfig_spec {T t : List (Event L E)} {dir treeDir project tree : FilePath} {tf : Option String}
     {sysroot : String} {b : Except String (Reading × List (Name × Source))} (hI : t <:+: T)
     (hsys : SysrootIs T sysroot) (hE : Early T dir treeDir project tree tf)
     (h : Runs (readConfig sysroot project tree tf : Attempt L E _).run t b) :
     (∀ r srcs, b = .ok (r, srcs) → ∃ text, ReadGoal T dir treeDir (Holds tree text srcs) r ∧
-      (decision r = .admitted → Holds tree text srcs (written t) ∧ ReadBack t)) ∧
+      (decision r = .admitted → Holds tree text srcs (written t) ∧ ReadBack t tree)) ∧
       ((∃ e, b = .error e) → Reason T dir treeDir .incomplete) ∧ ActsIn tree t := by
   have hT := hI.sublist
   rw [readConfig] at h
@@ -1775,7 +1887,7 @@ theorem readProject_spec {T t : List (Event L E)} {dir treeDir : FilePath} {sysr
     {b : Except String (Reading × List (Name × Source))} (hI : t <:+: T) (hsys : SysrootIs T sysroot)
     (h : Runs (readProject sysroot dir treeDir : Attempt L E _).run t b) :
     (∀ r srcs, b = .ok (r, srcs) → ∃ tree text, ReadGoal T dir treeDir (Holds tree text srcs) r ∧
-      (decision r = .admitted → Holds tree text srcs (written t) ∧ ReadBack t)) ∧
+      (decision r = .admitted → Holds tree text srcs (written t) ∧ (⟨.realPath treeDir, .ok tree⟩ : Event L E) ∈ t ∧ ReadBack t tree)) ∧
       ((∃ e, b = .error e) → Reason T dir treeDir .incomplete) ∧ ReadActs t dir treeDir := by
   have hT := hI.sublist
   rw [readProject] at h
@@ -1948,7 +2060,7 @@ theorem readProject_spec {T t : List (Event L E)} {dir treeDir : FilePath} {sysr
 /-- What a whole read rests on, by the events `T`, for a state of the tree that is what `t` leaves. -/
 def ReadDone (T t : List (Event L E)) (dir treeDir : FilePath) (r : Reading) : Prop :=
   (decision r = .admitted → (∀ held : List String → Option String, (∀ p, held p = written t p) →
-    Evidence T dir treeDir held r) ∧ ReadBack t) ∧ ∀ o, decision r = o → o ≠ .admitted → Reason T dir treeDir o
+    Evidence T dir treeDir held r) ∧ ∃ real, (⟨.realPath treeDir, .ok real⟩ : Event L E) ∈ t ∧ ReadBack t real) ∧ ∀ o, decision r = o → o ≠ .admitted → Reason T dir treeDir o
 
 /-- The reader, whatever lines it returns. -/
 theorem read_spec {T t : List (Event L E)} {dir treeDir : FilePath} {sysroot : String}
@@ -1973,7 +2085,7 @@ theorem read_spec {T t : List (Event L E)} {dir treeDir : FilePath} {sysroot : S
     refine ⟨fun r' lines he => ?_, fun ⟨e, he⟩ => (by cases he), p3⟩
     cases he
     obtain ⟨tree, text, g1, g2⟩ := p1 r srcs rfl
-    refine ⟨fun ha => ⟨fun held hheld => g1.1 ha held ?_, (g2 ha).2⟩, g1.2⟩
+    refine ⟨fun ha => ⟨fun held hheld => g1.1 ha held ?_, tree, (g2 ha).2⟩, g1.2⟩
     have heq : held = written t₁ := funext hheld
     rw [heq]
     exact (g2 ha).1
