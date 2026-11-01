@@ -1194,7 +1194,7 @@ theorem readFiles_spec {T t : List (Event L E)} {dir treeDir project tree : File
                 obtain ⟨rfl, rfl⟩ := h₂₂
                 refine ⟨fun _ _ he => (by cases he), fun _ => ?_, by simpa [List.append_assoc] using actsIn_append hbefore (actsIn_append s3 hactsAll)⟩
                 have hmem : (⟨.symlinkMetadata (tree / "lakefile.lean"), r₂⟩ : Event L E) ∈ T :=
-                  List.Sublist.subset (List.Sublist.trans (by simp [List.append_assoc]) hT₈) (List.mem_singleton.mpr rfl)
+                  List.Sublist.subset (List.Sublist.trans (by simp) hT₈) (List.mem_singleton.mpr rfl)
                 rcases n2 ⟨why, rfl⟩ with ⟨md, rfl⟩ | hbad
                 · exact .configShadowed hp.tree_real hmem
                 · exact .failed hmem (.treeLeanConfig hp.tree_real) hbad

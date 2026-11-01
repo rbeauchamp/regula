@@ -191,6 +191,8 @@ structure InDomain : Prop where
   oneFile : ∀ x ∈ c.claim, ∀ y ∈ c.claim, x.1 = y.1 → x.2 = y.2
   /-- An import of a claimed name reaches that same file. -/
   resolvesToClaim : ∀ x ∈ c.claim, ∀ rel, c.resolve x.1 = some rel → rel = x.2
+  /-- Each default target names a target, because Lake's build refuses one that names nothing. -/
+  defaultsDeclared : ∀ n ∈ c.defaultTargets, n ∈ c.targetNames
 
 end Configuration
 

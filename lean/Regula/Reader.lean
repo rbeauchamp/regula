@@ -53,7 +53,8 @@ It reads, in this order, and stops at the first refusal:
   environment of the toolchain modules the file sees, no options, no namespace and no open declaration.
 
 Only then, and only for a reading that the decision admits, each file's text goes to the tree (`writeSources`), and each
-planned file is read back (`readBack`). What would hold two texts at one path, by its components, is left unread
+planned file is read back (`readBack`). Then the file system is asked through the name Lake prefers to the configuration judged (`noOtherConfig`), so a file
+of the plan that the volume takes for `lakefile.lean` is left unread. What would hold two texts at one path, by its components, is left unread
 (`twoTexts`), so two names with one file are admitted only when both reads gave that file one text. Two paths with
 different components that the file system takes for one file, with different texts, show up in the read-back, whatever its
 reason for doing so.

@@ -16,7 +16,8 @@ record alone. It reads no program, so it holds of each subject and not only of t
 of reasons holds, `FullOwed` also that no build or replay was rejected, and the environment that Lean's import gave has `LoadFloor`.
 `plain_owed` and `full_owed` state that a run on such responses gives the pass verdict and exit 0.
 `plain_refused_justified` gives a reason or a missing floor; `full_refused_justified` states that a nonzero
-full run cannot meet `FullOwed`. Preparation is supplied by `PlainRun` and `FullRun`, not by assuming
+full run cannot meet `FullOwed`. `FullOwed` is the absence of each reason, so it says nothing by itself of who is healthy:
+`RegulaSpecification.Domain` says that, and `domain_owed` relates them. Preparation is supplied by `PlainRun` and `FullRun`, not by assuming
 reasons absent: their exact phase relations constrain every copy, load, command and search consumer,
 including failed attempts. The premises concern responses and content, never a branch of a program.
 No consistency of responses is needed for either implication to a pass.

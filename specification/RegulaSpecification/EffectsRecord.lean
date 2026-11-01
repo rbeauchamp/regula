@@ -17,7 +17,8 @@ proof verdict. Responses remain arbitrary: these relations constrain the request
 a whole run, for every response, and it is the contract that
 `Regula.Shell.run` is proved against. `RegulaSpecification.Proofs.Owed` states what follows of every program that meets it:
 a run in which nothing that the build needs has failed, on a project nothing keeps from being admitted, and whose environment has
-`LoadFloor`, passes.
+`LoadFloor`, passes. Who that is, apart from this list of reasons, is `RegulaSpecification.Domain`, and `RegulaSpecification.Proofs.Domain`
+proves each reason justified against it.
 -/
 
 namespace RegulaSpecification.Effects

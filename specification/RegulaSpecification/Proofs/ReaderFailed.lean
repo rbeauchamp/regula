@@ -303,7 +303,7 @@ theorem readFiles_no_failed {config : List (FilePath × String)} {project tree :
                   obtain ⟨rfl, he⟩ := runs_attempt_pure_iff.mp h₂₂
                   cases he
                   refine ⟨fun e he => ?_, rfl, rfl⟩
-                  simp only [List.append_nil, List.mem_append, List.cons_append, List.nil_append] at he
+                  simp only [List.append_nil, List.mem_append] at he
                   rcases he with he | he | he | he
                   · exact sound_parseFiles _ _ _ _ _ _ h₉ e he
                   · exact sound_writeSources _ _ _ _ h₁₁ e he

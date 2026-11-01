@@ -49,16 +49,16 @@ def check : Bool :=
     c.sourceDirs.all relativeCheck && c.libraries.all (·.globs.all isOne) && c.targetNames.all closedModuleName &&
     decide c.targetNames.Nodup && !c.claim.isEmpty &&
     c.claim.all (fun x => c.claim.all fun y => x.1 != y.1 || x.2 == y.2) &&
-    c.claim.all fun x => (c.resolve x.1).all (· == x.2)
+    c.claim.all (fun x => (c.resolve x.1).all (· == x.2)) && c.defaultTargets.all (c.targetNames.contains ·)
 
 /-- The function decides the statement. -/
 theorem check_iff : c.check = true ↔ c.InDomain := by
   simp only [check, Bool.and_eq_true, List.all_eq_true, decide_eq_true_eq, Bool.not_eq_true', List.isEmpty_eq_false_iff,
-    bne_iff_ne, Bool.or_eq_true, beq_iff_eq, Option.all_eq_true, Option.mem_def]
+    bne_iff_ne, Bool.or_eq_true, beq_iff_eq, Option.all_eq_true, List.contains_iff_mem]
   constructor
-  · rintro ⟨⟨⟨⟨⟨⟨⟨⟨⟨h1, h2⟩, h3⟩, h4⟩, h5⟩, h6⟩, h7⟩, h8⟩, h9⟩, h10⟩
+  · rintro ⟨⟨⟨⟨⟨⟨⟨⟨⟨⟨h1, h2⟩, h3⟩, h4⟩, h5⟩, h6⟩, h7⟩, h8⟩, h9⟩, h10⟩, h11⟩
     refine ⟨fun k hk => (configKeyAdmitted_iff k).mp (h1 k hk), h2, h3, fun s hs => (relativeCheck_iff s).mp (h4 s hs),
-      fun lib hl g hg => (isOne_iff g).mp (h5 lib hl g hg), fun n hn => (closedModuleName_iff n).mp (h6 n hn), h7, h8, ?_, ?_⟩
+      fun lib hl g hg => (isOne_iff g).mp (h5 lib hl g hg), fun n hn => (closedModuleName_iff n).mp (h6 n hn), h7, h8, ?_, ?_, h11⟩
     · intro x hx y hy he
       rcases h9 x hx y hy with hne | heq
       · exact absurd he hne
@@ -66,9 +66,9 @@ theorem check_iff : c.check = true ↔ c.InDomain := by
     · intro x hx rel hr
       exact (h10 x hx rel hr).symm ▸ rfl
   · intro h
-    refine ⟨⟨⟨⟨⟨⟨⟨⟨⟨fun k hk => (configKeyAdmitted_iff k).mpr (h.keys k hk), h.noDependency⟩, h.shallow⟩,
+    refine ⟨⟨⟨⟨⟨⟨⟨⟨⟨⟨fun k hk => (configKeyAdmitted_iff k).mpr (h.keys k hk), h.noDependency⟩, h.shallow⟩,
       fun s hs => (relativeCheck_iff s).mpr (h.sourceDirs s hs)⟩, fun lib hl g hg => (isOne_iff g).mpr (h.globs lib hl g hg)⟩,
-      fun n hn => (closedModuleName_iff n).mpr (h.targetNames n hn)⟩, h.distinctTargets⟩, h.claimsSomething⟩, ?_⟩, ?_⟩
+      fun n hn => (closedModuleName_iff n).mpr (h.targetNames n hn)⟩, h.distinctTargets⟩, h.claimsSomething⟩, ?_⟩, ?_⟩, h.defaultsDeclared⟩
     · intro x hx y hy
       by_cases he : x.1 = y.1
       · exact .inr (h.oneFile x hx y hy he)
@@ -146,7 +146,7 @@ theorem inDomain_respell (hf : ∀ s, OneSpelling s (f s)) (h : c.InDomain) : (c
     intro s hs
     obtain ⟨h1, h2⟩ := hf s
     refine ⟨fun hx => hs.1 (h2.mpr hx), fun x hx => hs.2 x (h1 ▸ hx)⟩
-  refine ⟨h.keys, h.noDependency, h.shallow, ?_, ?_, ?_, ?_, ?_, ?_, ?_⟩
+  refine ⟨h.keys, h.noDependency, h.shallow, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_⟩
   · intro s hs
     simp only [sourceDirs, mapDirs, List.map_map, List.mem_cons, List.mem_append, List.mem_map, Function.comp_def] at hs
     rcases hs with (rfl | ⟨lib, hl, rfl⟩) | ⟨exe, hx, rfl⟩
@@ -169,6 +169,8 @@ theorem inDomain_respell (hf : ∀ s, OneSpelling s (f s)) (h : c.InDomain) : (c
     intro x hx rel hr
     rw [mapDirs_resolve hf] at hr
     exact h.resolvesToClaim x hx rel hr
+  · rw [hnames]
+    exact h.defaultsDeclared
 
 end Configuration
 
@@ -244,6 +246,7 @@ theorem libraryAndExecutableTwoFiles_out : ¬ (config "." [lib `L "a" `Main] [�
 theorem wildcardGlob_out : ¬ (config "." [⟨`L, ".", [`Data], [.andSubmodules `Data]⟩] [] [`L]).InDomain := outside (by decide +kernel)
 theorem noDefaultTarget_out : ¬ (config "." [lib `L "." `Demo] [] []).InDomain := outside (by decide +kernel)
 theorem defaultNamesNothingAlone_out : ¬ (config "." [lib `L "." `Demo] [] [`Other]).InDomain := outside (by decide +kernel)
+theorem defaultNamesNothing_out : ¬ (config "." [lib `L "." `Demo] [] [`L, `Other]).InDomain := outside (by decide +kernel)
 theorem targetNameReused_out : ¬ (config "." [lib `same "." `Demo] [⟨`same, ".", `Main⟩] [`same]).InDomain := outside (by decide +kernel)
 theorem targetNameOpen_out : ¬ (config "." [lib (.str .anonymous "a-b") "." `Demo] [] [.str .anonymous "a-b"]).InDomain :=
   outside (by decide +kernel)
