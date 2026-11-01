@@ -52,7 +52,7 @@ theorem full_exit_zero {t : List (Event L E)} {dir : FilePath} {p : Regula.Close
           ⟨.runLake program tree replayArguments, .ok 0⟩] : List (Event L E)).Sublist tBuild) ∧
       ∃ (root : Root L) (f : Regula.Load.Facts) (roots : List Name),
         TreeRoot sysroot tree tRules root ∧ BuildRead tRules root f roots ∧ EnvForm f ∧ EnvFloor f p := by
-  rcases h with ⟨e, -, hc, -⟩ | ⟨tree, tRead, tGate, r, last, -, -, -, o, report, hdec, hnf, hn, ha, hc, -⟩
+  rcases h with ⟨e, rest, -, hc, -⟩ | ⟨tree, tRead, tGate, r, last, -, -, -, o, report, hdec, hnf, hn, ha, hc, -⟩
   · exact absurd hc (by decide)
   · have hrep : report = .full .pass := (Report.exitCode_eq_zero_iff report).mp hc.symm
     subst hrep
@@ -63,7 +63,7 @@ theorem full_exit_zero {t : List (Event L E)} {dir : FilePath} {p : Regula.Close
     | admitted =>
       obtain ⟨r', hi, hev⟩ := hdec.1 rfl
       obtain ⟨sysroot, tBuild, tRules, -, -, hb⟩ := ha rfl
-      rcases hb with ⟨program, lakeLib, result, -, hsub, hl, hrep⟩ | ⟨hrep, -⟩
+      rcases hb.2.2 with ⟨program, lakeLib, result, -, hsub, hl, hrep⟩ | ⟨hrep, -⟩
       · have hv : (Regula.Closed.decision result).verdict = .pass := (Report.full.inj hrep).symm
         obtain ⟨root, f, roots, hg, hbr, h1, h2, -⟩ := loaded_pass hl hv
         exact ⟨tree, sysroot, tRead, tBuild, tRules, r', hi, hev, hnf rfl, ⟨program, lakeLib, hsub⟩, root, f,

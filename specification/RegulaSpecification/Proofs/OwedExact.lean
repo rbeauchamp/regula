@@ -585,7 +585,7 @@ and of its load of the result, and one context for each input. -/
 theorem full_exit_zero_owed {t : List (Event L E)} {dir : FilePath} {p : Regula.Closed.Profile} (h : FullRun t dir p 0)
     (h1 : OneAnswer (readPhase t)) (h2 : OneContext (readPhase t)) (h3 : OneAnswer (rulesPhase t)) :
     FullOwed t dir p := by
-  rcases h with ⟨e, -, hc, -⟩ | ⟨tree, tRead, tGate, r, last, ht, hq, hlast, o, report, hdec, -, hn, ha, hc, -, -, hok⟩
+  rcases h with ⟨e, rest, -, hc, -⟩ | ⟨tree, tRead, tGate, r, last, ht, hq, hlast, o, report, hdec, -, hn, ha, hc, -, -, hok, -⟩
   · exact absurd hc (by decide)
   have healthy := hok rfl
   have hrep : report = .full .pass := (Report.exitCode_eq_zero_iff report).mp hc.symm
@@ -630,7 +630,7 @@ theorem full_exit_zero_owed {t : List (Event L E)} {dir : FilePath} {p : Regula.
     · intro tree' rest s' root' f' roots' he hs' hg' hb'
       obtain rfl := htree' he
       obtain rfl := Option.some.inj (h1.resp hs' (hread.subset hs) rfl)
-      rcases hb with ⟨program, lakeLib, result, hnb, -, hl, hrep⟩ | ⟨hrep, -⟩
+      rcases hb.2.2 with ⟨program, lakeLib, result, hnb, -, hl, hrep⟩ | ⟨hrep, -⟩
       · have hrules : tRules.Sublist (rulesPhase t) := by
           have hpost : ∀ e ∈ (⟨.removeDirAll tree, r⟩ :: last : List (Event L E)), e.isBuild = false := by
             intro e he

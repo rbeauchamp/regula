@@ -170,7 +170,7 @@ theorem refused_model (w : WitnessPaths) (env : Lean.Environment) (m : IO.FS.Met
     cases he
     obtain ⟨rest'', v', he', hf⟩ := hrun rfl
     cases he'
-    rcases hf with ⟨e, -, hc, -⟩ | ⟨tree, tRead, tGate, r, last, ht, -, -, o, report, hdec, -, hn, -, hc, -⟩
+    rcases hf with ⟨e, rest, -, hc, -⟩ | ⟨tree, tRead, tGate, r, last, ht, -, -, o, report, hdec, -, hn, -, hc, -⟩
     · exact absurd hc (by decide)
     · have hrep : report = .full .pass := (Report.exitCode_eq_zero_iff report).mp hc.symm
       subst hrep

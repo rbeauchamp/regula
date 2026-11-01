@@ -114,9 +114,8 @@ theorem refuser_fails (tree : FilePath) :
   cases he
   obtain ⟨rest', v', he', hfull⟩ := hp rfl
   cases he'
-  rcases hfull with ⟨e, hmem, -⟩ | ⟨tree', tRead, tGate, r, last, hlist, -, -, o, report, hdec, -⟩
-  · simp only [List.mem_cons, List.not_mem_nil, or_false] at hmem
-    rcases hmem with h' | h' | h' <;> cases h'
+  rcases hfull with ⟨e, rest, hlist, -⟩ | ⟨tree', tRead, tGate, r, last, hlist, -, -, o, report, hdec, -⟩
+  · cases hlist
   · have hnil : tRead = [] := by
       cases tRead with
       | nil => rfl

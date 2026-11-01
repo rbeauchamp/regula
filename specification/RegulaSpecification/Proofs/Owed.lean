@@ -308,8 +308,8 @@ theorem plain_owed {t : List (Event L E)} {p : Regula.Closed.Profile} {c : UInt3
 /-- A run of the full gate that receives what `FullOwed` states passes: exit 0 and the last line of the pass. -/
 theorem full_owed {t : List (Event L E)} {dir : FilePath} {p : Regula.Closed.Profile} {c : UInt32} (h : FullRun t dir p c)
     (owed : FullOwed t dir p) : c = 0 ∧ EndsWith t fullPass := by
-  rcases h with ⟨e, he, -⟩ | ⟨tree, tRead, tGate, r, last, ht, hq, hlast, o, report, hdec, -, hn, ha, hc, hend, -⟩
-  · exact absurd he (owed.tree e)
+  rcases h with ⟨e, rest, ht, -⟩ | ⟨tree, tRead, tGate, r, last, ht, hq, hlast, o, report, hdec, -, hn, ha, hc, hend, -⟩
+  · exact (owed.tree e (by rw [ht]; exact List.mem_cons_self ..)).elim
   · have htree : t = ⟨.createTempDir, .ok tree⟩ :: (tRead ++ tGate ++ ⟨.removeDirAll tree, r⟩ :: last) := by
       rw [ht]; simp
     have hread : tRead.Sublist (readPhase t) := by
@@ -332,7 +332,7 @@ theorem full_owed {t : List (Event L E)} {dir : FilePath} {p : Regula.Closed.Pro
       exact ((List.sublist_append_left _ _).trans (List.sublist_append_right _ _)).trans
         (List.sublist_cons_self _ _)
     have hrep : report = .full .pass := by
-      rcases hb with ⟨program, lakeLib, result, hnb, -, hl, rfl⟩ | ⟨-, -, hrej⟩
+      rcases hb.2.2 with ⟨program, lakeLib, result, hnb, -, hl, rfl⟩ | ⟨-, -, hrej⟩
       · have hrules : tRules.Sublist (rulesPhase t) := by
           have hpost : ∀ e ∈ (⟨.removeDirAll tree, r⟩ :: last : List (Event L E)), e.isBuild = false := by
             intro e he

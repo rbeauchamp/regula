@@ -109,7 +109,7 @@ An independent audit of main at `f63d7596` judged that this record did not yet m
 
 | Consequence | Theorem | Status |
 | --- | --- | --- |
-| A refusal, a failure or an incomplete result rests on what a response said about an operation or an input that the requested build needs. A failed or unexpected answer to anything else justifies nothing. | `Reason`, `Needed`, `PlainReason`, `TreeReason`, `BuildRejected`, `manufacturer_fails`, `misjudge_fails`, `unrelated_read_no_reason` | Follows. |
+| A refusal, a failure or an incomplete result rests on what a response said about an operation or an input that the requested build needs. A failed or unexpected answer to anything else justifies nothing. | `Reason`, `Needed`, `PlainReason`, `TreeReason`, `BuildRejected`, `manufacturer_fails`, `misjudge_fails`, `unrelated_read_no_reason`; preparation and preservation remain incomplete, as [the repair record](refusal-preparation.md) explains. | Follows as a requirement; the listed results do not yet prove its full extent. |
 | A run in which no reason holds, whose build and replay ended with 0, and whose environment has `LoadFloor`, gives the pass verdict and exit 0, for every program that meets the record. | `plain_owed`, `full_owed`, `run_plain_owed`, `run_full_owed` | Follows. |
 | The loader and the rules pass exactly on `LoadFloor`, which names no field of the input. | `pass_iff_floor` | Follows. It holds with no hypothesis. |
 | A run that exits with 0 received no failed answer. | `PlainRun`, `FullRun`, by the program's `sound_loadPlain`, `sound_loadTree`, `readProject_no_failed` | Decided: it makes a pass read as what it says. A failed print or removal is no failed answer, because no verdict rests on it. |

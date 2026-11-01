@@ -425,6 +425,33 @@ def Confined (t : List (Event L E)) (dir tree : FilePath) : Prop :=
 def replayArguments : List String :=
   if System.Platform.isOSX then ["check", "--inadvisably-no-sandbox"] else ["check"]
 
+/-- One requested Lake command, with only reporting before and after its occurrence. No explicit
+filesystem mutation or extra command request can be inserted around it in this segment. -/
+def LakeInvocation (program tree : FilePath) (args : List String) (response : Except IO.Error UInt32)
+    (t : List (Event L E)) : Prop :=
+  ∃ pre post, t = pre ++ ⟨.runLake program tree args, response⟩ :: post ∧
+    (∀ e ∈ pre, e.isOnlySaying = true) ∧ ∀ e ∈ post, e.isOnlySaying = true
+
+/-- The complete build phase: obtain this toolchain's Lake, build once, and replay once exactly when the
+build succeeded. No unlisted effect fits between those operations. This constrains Regula's requests,
+not the filesystem effects of the trusted Lake commands. -/
+def BuildProtocol (sysroot : String) (tree : FilePath) (t : List (Event L E)) : Prop :=
+  ∃ program lakeLib first rest response,
+    t = ⟨.lakeInstall sysroot, (program, lakeLib)⟩ :: (first ++ rest) ∧
+    LakeInvocation program tree ["build", "--wfail"] response first ∧
+    ((response ≠ .ok 0 ∧ rest = []) ∨
+      (response = .ok 0 ∧ ∃ replay, LakeInvocation program tree replayArguments replay rest))
+
+/-- The reload and rule phase issues no explicit write, directory creation, allocation, removal or
+command request. Effects internal to trusted calls and search-path preparation are separate obligations.
+The cases are the closed effect type, rather than a list of remembered call sites. -/
+def ReloadOp : Op L E → Prop
+  | .leanVersion | .getEnv _ | .appPath | .realPath _ | .readFile _ | .symlinkMetadata _
+  | .println _ | .flush | .parseHeader _ | .parseCommand .. | .setSearchPath _ | .findOLean _
+  | .importForRules _ | .importForParser _ | .parseToml _ | .lakeInstall _ | .loadWorkspace ..
+  | .loadRoot .. | .libModules _ => True
+  | .writeFile .. | .createDirAll _ | .createTempDir | .removeDirAll _ | .runLake .. => False
+
 /-- The build or its replay in the tree `tree` ended with other than 0, with the Lake that lies beside the run's toolchain:
 each is an operation that the requested build needs, and what the response says of it justifies a failure. -/
 inductive BuildRejected (sysroot : String) (tree : FilePath) (t : List (Event L E)) : Prop where
@@ -442,21 +469,28 @@ inductive BuildRejected (sysroot : String) (tree : FilePath) (t : List (Event L 
 and no rules. `report` is what they gave. -/
 def BuildAndRules (sysroot : String) (tBuild tRules : List (Event L E)) (tree : FilePath) (p : Regula.Closed.Profile)
     (report : Report) : Prop :=
-  (∃ (program lakeLib : FilePath) (result : Except String Regula.Closed.Input),
+  BuildProtocol sysroot tree tBuild ∧ (∀ e ∈ tRules, ReloadOp e.op) ∧
+  ((∃ (program lakeLib : FilePath) (result : Except String Regula.Closed.Input),
     (∀ e ∈ tRules, e.isBuild = false) ∧
     ([⟨.lakeInstall sysroot, (program, lakeLib)⟩, ⟨.runLake program tree ["build", "--wfail"], .ok 0⟩,
       ⟨.runLake program tree replayArguments, .ok 0⟩] : List (Event L E)).Sublist tBuild ∧
     Loaded (TreeRoot sysroot tree) (TreeReason sysroot tree) tRules p result ∧
     report = .full (Regula.Closed.decision result).verdict) ∨
-  (report = .full .fail ∧ (∀ e ∈ tRules, e.isImportForRules = false) ∧ BuildRejected sysroot tree tBuild)
+  (report = .full .fail ∧ (∀ e ∈ tRules, e.isImportForRules = false) ∧ BuildRejected sysroot tree tBuild))
+
+/-- An operation does not remove a directory. This excludes removal even when it reports an error:
+an unsuccessful external removal may already have removed some files. -/
+def NotRemoving : Op L E → Prop
+  | .removeDirAll _ => False
+  | _ => True
 
 /-- A run of the full gate on the project at `dir`. The check comes first, and nothing is built or loaded unless it
 admitted the project. The tree is removed on every way out, and every act lies in the tree. Exit code and last line
 are the report's alone. A run that exits with 0 received no failed answer. -/
 def FullRun (t : List (Event L E)) (dir : FilePath) (p : Regula.Closed.Profile) (c : UInt32) : Prop :=
   -- No temporary directory.
-  (∃ e, (⟨.createTempDir, .error e⟩ : Event L E) ∈ t ∧ c = Report.incomplete.exitCode ∧
-    EndsWith t Report.incomplete.label ∧ ∀ e ∈ t, e.acted? = none) ∨
+  (∃ e rest, t = ⟨.createTempDir, .error e⟩ :: rest ∧ c = Report.incomplete.exitCode ∧
+    EndsWith t Report.incomplete.label ∧ ∀ e ∈ rest, e.isOnlySaying = true) ∨
   ∃ (tree : FilePath) (tRead tGate : List (Event L E)) (r : Except IO.Error Unit) (last : List (Event L E)),
     t = ⟨.createTempDir, .ok tree⟩ :: tRead ++ tGate ++ ⟨.removeDirAll tree, r⟩ :: last ∧
     (∀ e ∈ tRead, e.isBuild = false ∧ e.isImportForRules = false) ∧ (∀ e ∈ last, e.isOnlySaying = true) ∧
@@ -470,7 +504,7 @@ def FullRun (t : List (Event L E)) (dir : FilePath) (p : Regula.Closed.Profile) 
       (o = .admitted → ∃ sysroot tBuild tRules, SysrootIs tRead sysroot ∧ tGate = tBuild ++ tRules ∧
         BuildAndRules sysroot tBuild tRules tree p report) ∧
       c = report.exitCode ∧ EndsWith t report.label ∧ Confined t dir tree ∧
-      (c = 0 → ∀ e ∈ t, ¬ e.failed)
+      (c = 0 → ∀ e ∈ t, ¬ e.failed) ∧ (∀ e ∈ tRead, NotRemoving e.op)
 
 /-- On the one Lean that this revision reads, what the run states; on any other, a refusal. The run asks first which
 Lean it is. -/
