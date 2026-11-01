@@ -669,7 +669,7 @@ source reads. Each copy makes only its own parent before writing, and each searc
 load's setter. Failed attempts obey the same order. An admission rests on `Evidence` of the state the reading
 leaves. Build, replay and rules follow only an admission, with no later explicit copy or early removal, so no
 request of theirs changes that state (`FullRun.at_consumer`). Cleanup is terminal and every act is confined to the tree.
-Exit code and last line are the report's alone; exit 0 received no failed answer. All responses remain
+The exit code is the report's alone, and so is the last line but for the directory that a pass names at its end; exit 0 received no failed answer. All responses remain
 arbitrary, including inconsistent filesystem answers and opaque effects inside trusted calls. -/
 def FullRun (t : List (Event L E)) (dir : FilePath) (p : Regula.Closed.Profile) (c : UInt32) : Prop :=
   -- No temporary directory.

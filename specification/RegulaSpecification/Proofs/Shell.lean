@@ -969,7 +969,7 @@ theorem refusal_of {v} {why : String} {rest : List (Event L E)} {c : UInt32}
     · rfl
     · exact hsay e he'
 
-/-- Arguments of neither form the shell reads are refused, whatever the Lean. -/
+/-- Any argument list other than one word is refused, whatever the Lean. -/
 theorem profileOfRun_other {version commit : String} {a : List String} (h : ∀ text, a ≠ [text]) :
     ∃ why, profileOfRun version commit a = .error why := by
   unfold profileOfRun

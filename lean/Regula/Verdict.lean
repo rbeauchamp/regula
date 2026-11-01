@@ -56,7 +56,8 @@ theorem Verdict.label_injective : Function.Injective Verdict.label := by
   intro a b h
   cases a <;> cases b <;> first | rfl | exact absurd h (by decide)
 
-/-- The last line of a run with the proof verdict `v`: a function of the verdict alone. -/
+/-- The words that state the proof verdict `v`: a function of the verdict alone. They are the last line of a run that does not
+pass, and `Verdict.proofLineOn` adds what a pass audited. -/
 def Verdict.proofLine : Verdict → String
   | .pass => "regula: proof verdict: pass, which says nothing about what ran during the build"
   | .fail => "regula: proof verdict: fail"

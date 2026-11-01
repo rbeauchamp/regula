@@ -235,8 +235,9 @@ theorem exitCode_eq_zero_iff (r : Report) : r.exitCode = 0 ↔ r = .full .pass :
       | exact ⟨fun _ => rfl, fun _ => rfl⟩
       | exact ⟨fun h => absurd h (by decide), fun h => by cases h⟩
 
-/-- The last line of a run of the full gate. Each verdict names itself, and a pass of the full verdict
-names the hypotheses it rests on. -/
+/-- The words that state the report of a run of the full gate. Each verdict names itself, and a pass of the full verdict
+names the hypotheses it rests on. They are the last line of a run that does not pass, and `Report.labelOn` adds what a pass
+audited. -/
 def label : Report → String
   | .full .pass => "regula: full verdict: pass, under the hypotheses H1 to H5 and the trusted base of its specification, at Lean 4.35.0"
   | .full v => s!"regula: full verdict: {v.label}"
