@@ -112,12 +112,16 @@ def copyComplete : Except IO.Error Unit → Bool
 makes no act. A failed directory creation ends the step; otherwise the write immediately follows its own
 successful parent creation, or has no parent. -/
 inductive CopyStep (tree path : FilePath) (text : String) : List (Event L E) → Bool → Prop where
+  /-- An out-of-tree path or parent produces no act. -/
   | outside : OutsideTree tree path → CopyStep tree path text [] false
+  /-- A path with no parent is written directly. -/
   | noParent {r} : (∃ rel, TreeRelative (parts tree) (parts path) rel) → path.parent = none →
       CopyStep tree path text [⟨.writeFile path text, r⟩] (copyComplete r)
+  /-- A failed parent creation ends this attempt before any write. -/
   | parentFailed {parent error} : (∃ rel, TreeRelative (parts tree) (parts path) rel) →
       path.parent = some parent → (∃ rel, TreeRelative (parts tree) (parts parent) rel) →
       CopyStep tree path text [⟨.createDirAll parent, .error error⟩] false
+  /-- Successful parent creation is followed by the write, with either response. -/
   | parentWritten {parent r} : (∃ rel, TreeRelative (parts tree) (parts path) rel) →
       path.parent = some parent → (∃ rel, TreeRelative (parts tree) (parts parent) rel) →
       CopyStep tree path text [⟨.createDirAll parent, .ok ()⟩, ⟨.writeFile path text, r⟩] (copyComplete r)
@@ -137,10 +141,13 @@ the prefix before that step. A failed module step does not prevent the remaining
 setter, load, command, removal or unrelated copy is a case. -/
 inductive ModuleCopies (project tree : FilePath) (root : Root L) (modules : List (Name × FilePath)) :
     List (Event L E) → List (Event L E) → Prop where
+  /-- No further module-copy events remain. -/
   | nil {prior} : ModuleCopies project tree root modules prior []
+  /-- An observation or parser search extends the prefix for subsequent steps. -/
   | observe {prior e rest} : (QuietOp e.op ∨ ParserSearchOp e.op) →
       ModuleCopies project tree root modules (prior ++ [e]) rest →
       ModuleCopies project tree root modules prior (e :: rest)
+  /-- Copy a needed module's file using text read in the preceding prefix. -/
   | copy {prior m path text step rest complete} : Named prior project tree root modules m →
       FileOfModule root modules m path → SourceText prior project tree path text →
       CopyStep tree path text step complete → ModuleCopies project tree root modules (prior ++ step) rest →
@@ -170,10 +177,14 @@ def ReadingLoad (prior : List (Event L E)) (sysroot : String) (project tree : Fi
 steps may the prepared configuration be loaded. `prior` is the exact earlier prefix. -/
 inductive ConfigCopies (sysroot : String) (project tree : FilePath) :
     List (FilePath × String) → List (Event L E) → List (Event L E) → Prop where
+  /-- Completed configuration copies permit the prepared load phase. -/
   | done {prior t} : ReadingLoad prior sysroot project tree t → ConfigCopies sysroot project tree [] prior t
+  /-- A reading that stops here performs only observations and reporting. -/
   | stopped {copies prior t} : Quiet t → ConfigCopies sysroot project tree copies prior t
+  /-- A failed configuration-copy step permits no further acts. -/
   | failed {path text copies prior before step rest} : Quiet before → CopyStep tree path text step false →
       Quiet rest → ConfigCopies sysroot project tree ((path, text) :: copies) prior (before ++ step ++ rest)
+  /-- A completed copy advances to the remaining configuration steps. -/
   | next {path text copies prior before step rest} : Quiet before → CopyStep tree path text step true →
       ConfigCopies sysroot project tree copies (prior ++ before ++ step) rest →
       ConfigCopies sysroot project tree ((path, text) :: copies) prior (before ++ step ++ rest)
