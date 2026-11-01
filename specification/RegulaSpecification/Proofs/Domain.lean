@@ -14,15 +14,16 @@ import RegulaSpecification.Proofs.ReaderFiles
 statement to what a run received.
 
 `Answers p t dir tree` says that the responses of a reading are what the files of the project `p` state: it says what a read,
-Lake's load and Lean's parser answered, and names no reason. `reason_excluded` is the theorem that decides who gets a full
-pass: no case of `Reason` holds of a project in the domain whose reads answer so. `reason_classified` sorts each case under a
-failed or differing answer, a project outside the domain, or a conflict in which one admission could not be about what is
-consumed. `domain_owed` states the result at the whole run, for every program that meets the record, without naming `Reason`.
+Lake's load and Lean's parser answered, and names no reason. Some of its clauses are about the project and some, on the tree, the start and failed answers,
+are the negation of an external answer that a reason cites, so that such a reason is ruled out by `Answers` and not by the domain. `reason_classified` sorts
+each case of `Reason` under a failed or differing answer, a conflict in which one admission could not be about what is consumed, or a clause of the domain that
+the project fails. `reason_excluded` states that no case holds of a project in the domain whose reads answer so. `domain_owed` states the result at the whole
+run, for every program that meets the record, without naming `Reason`.
 
 `Answers` holds what the program observes and what no proof can reach: each clause is about a response in the trace, never about
 every value. So a run in which another process changes a file between two reads, or a parser that answers two ways, is not
 covered by `domain_owed`: `Answers` fails, which is the accepted risk that the owner's account leaves unsaid. `domain_model`
-states that these premises are met by a run.
+states that these premises are met on the witness's answers, which `DomainModel.lean` says more of.
 -/
 
 namespace RegulaSpecification.Effects
@@ -39,12 +40,12 @@ open RegulaSpecification.Loader
 variable {L E : Type}
 
 /-- What Lake's load gave of the tree `tree` is what the configuration `c` states, by the file each name selects. It reads the
-root that a response gave, for the names a default target or an import states. That Lake's load is this function of the text is
+root that a response gave. That Lake's load is this function of the text is
 what `Lake/Load/Toml.lean:484-500`, `Lake/Config/Module.lean:58-59` and `Lake/Config/LeanLibConfig.lean:144-146` say at v4.35.0, and
 what no proof reaches, so it is a premise over the response. -/
 structure LakeAgrees (c : Configuration) (imported : Name → Prop) (tree : FilePath) (t : List (Event L E)) (root : Root L) : Prop where
-  /-- Each source directory is the tree joined with one the text states. -/
-  sourceDirs : ∀ d ∈ root.sourceDirs, ∃ s ∈ c.sourceDirs, parts d = parts tree ++ RegulaSpecification.Domain.components s
+  /-- Each source directory is the tree joined with what the text's directories name, the package's below a target's. -/
+  sourceDirs : ∀ d ∈ root.sourceDirs, ∃ rel ∈ c.sourceParts, parts d = parts tree ++ rel
   /-- Each library's `globs`. -/
   libraries : ∀ x ∈ root.libraries, ∃ lib ∈ c.libraries, x = (lib.name, lib.globs)
   /-- The default targets. -/
@@ -82,7 +83,7 @@ structure Answers (p : Project) (t : List (Event L E)) (dir treeDir : FilePath) 
     (rel = ["lean-toolchain"] ∨ rel = ["lakefile.toml"] ∨ ∃ s ∈ p.sources, s.rel = rel) →
     (⟨.realPath (under project rel), .ok real⟩ : Event L E) ∈ t →
       Regula.Load.exactBelow project (under project rel) real = true
-  /-- The name `lakefile.lean` answers when `p` holds it. -/
+  /-- When the name `lakefile.lean` answers, `p` holds it. -/
   leanConfig : ∀ project, (⟨.realPath dir, .ok project⟩ : Event L E) ∈ t → ∀ metadata,
     (⟨.symlinkMetadata (project / "lakefile.lean"), .ok metadata⟩ : Event L E) ∈ t → p.leanConfig = true
   /-- What Lake's TOML parser gave of a text: the key paths and the nesting that `p` states. -/
@@ -302,8 +303,8 @@ theorem planned_text (hd : p.InDomain) (ha : Answers p t dir treeDir) {project t
     exact .inr (.inr ⟨s, hsm, hp, (ha.read _ hs.project_real _ _ hread).2.2 s hsm rfl⟩)
 
 /-- **No reason holds of a project in the domain whose reads answer as its files state.** Each case of `Reason` meets a clause of the
-domain or of the answers, so each refusal that the record allows is explained by the published statement, and a case that a healthy
-project could meet would not prove here. -/
+domain or of the answers. A case of `Reason` that no clause meets does not prove here, and a clause of `Answers` that only negates it would hide that:
+`reason_classified` says which are of that kind, the external answers and the conflicts. -/
 theorem reason_excluded (hd : p.InDomain) (ha : Answers p t dir treeDir) {o : Outcome} : ¬ Reason t dir treeDir o := by
   intro hr
   have hsources {tree : FilePath} {path : FilePath} {s : SourceFile} (hs : s ∈ p.sources) (hp : parts path = parts tree ++ s.rel) :
@@ -370,11 +371,22 @@ theorem reason_excluded (hd : p.InDomain) (ha : Answers p t dir treeDir) {o : Ou
     exact hd.config.noDependency _ ((ha.toml _ _ h3).1 _ hk) hroot
   | openDir hl hdir hno =>
     obtain ⟨hreal, sy, log, -, hload, -⟩ := hl
-    obtain ⟨s, hsm, hp⟩ := (ha.lake _ sy _ log hreal hload).sourceDirs _ hdir
+    obtain ⟨rel, hrm, hp⟩ := (ha.lake _ sy _ log hreal hload).sourceDirs _ hdir
+    have hone {s : String} (hs : s ∈ p.config.sourceDirs) {c : String} (hc : c ∈ RegulaSpecification.Domain.components s) : c ≠ "" ∧ c.front ≠ '.' := by
+      obtain ⟨-, hc2⟩ := List.mem_filter.mp hc
+      simp only [Bool.and_eq_true, bne_iff_ne] at hc2
+      exact ⟨hc2.1, (hd.config.sourceDirs s hs).2 c hc⟩
+    have hpkg : p.config.srcDir ∈ p.config.sourceDirs := by simp [Configuration.sourceDirs]
     refine hno _ ⟨hp, fun c hc => ?_⟩
-    obtain ⟨-, hc2⟩ := List.mem_filter.mp hc
-    simp only [Bool.and_eq_true, bne_iff_ne] at hc2
-    exact ⟨hc2.1, (hd.config.sourceDirs s hsm).2 c hc⟩
+    simp only [Configuration.sourceParts, List.mem_cons, List.mem_append, List.mem_map] at hrm
+    rcases hrm with (rfl | ⟨lib, hl, rfl⟩) | ⟨exe, hx, rfl⟩
+    · exact hone hpkg hc
+    · rcases List.mem_append.mp hc with hc | hc
+      · exact hone hpkg hc
+      · exact hone (by simp only [Configuration.sourceDirs, List.mem_cons, List.mem_append, List.mem_map]; exact .inl (.inr ⟨lib, hl, rfl⟩)) hc
+    · rcases List.mem_append.mp hc with hc | hc
+      · exact hone hpkg hc
+      · exact hone (by simp only [Configuration.sourceDirs, List.mem_cons, List.mem_append, List.mem_map]; exact .inr ⟨exe, hx, rfl⟩) hc
   | openGlob hl hlib hg hne =>
     obtain ⟨hreal, sy, log, -, hload, -⟩ := hl
     obtain ⟨lib, hlm, rfl⟩ := (ha.lake _ sy _ log hreal hload).libraries _ hlib
@@ -489,8 +501,10 @@ answers about this program say that it was not started from outside the project.
 inductive ExternalAnswer (t : List (Event L E)) (dir treeDir : FilePath) : Prop where
   /-- An answer failed. -/
   | failed {e : Event L E} : e ∈ t → e.failed → ExternalAnswer t dir treeDir
-  /-- A file written answered otherwise. -/
-  | differs {path text r} : ([⟨.writeFile path text, .ok ()⟩, ⟨.readFile path, r⟩] : List (Event L E)).Sublist t → r ≠ .ok text →
+  /-- A planned file answered otherwise than what was written to it. -/
+  | differs {project tree root modules path text r} : Scene t dir treeDir project tree root modules →
+      Planned t project tree root modules path text →
+      ([⟨.writeFile path text, .ok ()⟩, ⟨.readFile path, r⟩] : List (Event L E)).Sublist t → r ≠ .ok text →
       ExternalAnswer t dir treeDir
   /-- The answers about this program's place and the Lake that started it. -/
   | start {project sysroot program lakeLib app real leanPath} : (⟨.realPath dir, .ok project⟩ : Event L E) ∈ t → SysrootIs t sysroot →
@@ -502,56 +516,179 @@ inductive ExternalAnswer (t : List (Event L E)) (dir treeDir : FilePath) : Prop 
       ExternalAnswer t dir treeDir
 
 /-- A conflict in which one admission could not be about what is consumed: writing to the tree would write to the project, a file
-would be written outside the tree, one name has two files, one path has two texts, an import names a file other than the one read
-for that name, or a file of the plan is what Lake would take as its configuration. -/
+that would be written lies outside the tree, one name has two files, one path has two texts, an import names a file other than the
+one read for that name, or something in the tree is what Lake would take as its configuration. -/
 inductive Conflict (t : List (Event L E)) (dir treeDir : FilePath) : Prop where
   /-- The project and the tree do not lie apart. -/
   | notApart {project tree} : (⟨.realPath dir, .ok project⟩ : Event L E) ∈ t → (⟨.realPath treeDir, .ok tree⟩ : Event L E) ∈ t →
       ¬ Apart project tree → Conflict t dir treeDir
-  /-- A file that would be written lies outside the tree. -/
-  | outsideTree {tree path} : (⟨.realPath treeDir, .ok tree⟩ : Event L E) ∈ t → OutsideTree tree path → Conflict t dir treeDir
-  /-- One name, two files. -/
+  /-- A copy of the configuration would lie outside the tree. -/
+  | configOutside {tree path} : (⟨.realPath treeDir, .ok tree⟩ : Event L E) ∈ t →
+      (path = tree / "lakefile.toml" ∨ path = tree / "lean-toolchain") → OutsideTree tree path → Conflict t dir treeDir
+  /-- A needed file would lie outside the tree. -/
+  | moduleOutside {project tree root modules m path} : Scene t dir treeDir project tree root modules →
+      Named t project tree root modules m → FileOfModule root modules m path → OutsideTree tree path → Conflict t dir treeDir
+  /-- One name, two files, by components. -/
   | twoFiles {project tree root modules m file other} : Scene t dir treeDir project tree root modules →
       (m, file) ∈ modules → (root.resolve m = some other ∨ (m, other) ∈ modules) → parts other ≠ parts file → Conflict t dir treeDir
   /-- One path, two texts. -/
   | twoTexts {project tree root modules path text path' text'} : Scene t dir treeDir project tree root modules →
       Planned t project tree root modules path text → Planned t project tree root modules path' text' →
       parts path = parts path' → text ≠ text' → Conflict t dir treeDir
-  /-- An import names a default executable's root that no library holds, so not the file read for that name. -/
-  | importedRoot {project tree root modules i} : Scene t dir treeDir project tree root modules →
-      (modules.lookup i).isSome = true → root.resolve i = none → Conflict t dir treeDir
-  /-- A file of the plan is what Lake would take as its configuration. -/
+  /-- An import, by a file the build needs, names a default executable's root that no library holds, so not the file read for that name. -/
+  | importedRoot {project tree root modules m imports i} : Scene t dir treeDir project tree root modules →
+      Named t project tree root modules m → HeaderOf t project tree root modules m imports → i ∈ imports →
+      (modules.lookup i.module).isSome = true → root.resolve i.module = none → Conflict t dir treeDir
+  /-- Something in the tree answers to the name that Lake prefers as its configuration. -/
   | shadowed {tree metadata} : (⟨.realPath treeDir, .ok tree⟩ : Event L E) ∈ t →
       (⟨.symlinkMetadata (tree / "lakefile.lean"), .ok metadata⟩ : Event L E) ∈ t → Conflict t dir treeDir
 
-/-- The project is outside the published domain: no project in the domain gives these answers. -/
-def OutsideDomain (t : List (Event L E)) (dir treeDir : FilePath) : Prop :=
-  ∀ p : Project, Answers p t dir treeDir → ¬ p.InDomain
+/-- A project outside the published domain, by the clause of `Project.InDomain` that what the run read fails. Each case holds what a response said, and
+the reason a run prints for it says that. -/
+inductive OutsideDomain (t : List (Event L E)) (dir treeDir : FilePath) : Prop where
+  /-- `toolchain`: `lean-toolchain` names another Lean. -/
+  | toolchain {project text} : (⟨.realPath dir, .ok project⟩ : Event L E) ∈ t →
+      (⟨.readFile (project / "lean-toolchain"), .ok text⟩ : Event L E) ∈ t → text.trimAscii.toString ≠ leanToolchain → OutsideDomain t dir treeDir
+  /-- `toolchain`: `lean-toolchain` is not a plain file by exactly that name. -/
+  | toolchainNotPlain {project real} : (⟨.realPath dir, .ok project⟩ : Event L E) ∈ t →
+      (⟨.realPath (project / "lean-toolchain"), .ok real⟩ : Event L E) ∈ t →
+      Regula.Load.exactBelow project (project / "lean-toolchain") real = false → OutsideDomain t dir treeDir
+  /-- `plainConfig`: `lakefile.toml` is not a plain file by exactly that name. -/
+  | tomlNotPlain {project real} : (⟨.realPath dir, .ok project⟩ : Event L E) ∈ t →
+      (⟨.realPath (project / "lakefile.toml"), .ok real⟩ : Event L E) ∈ t →
+      Regula.Load.exactBelow project (project / "lakefile.toml") real = false → OutsideDomain t dir treeDir
+  /-- `noLeanConfig`: something has the name `lakefile.lean`. -/
+  | leanConfig {project metadata} : (⟨.realPath dir, .ok project⟩ : Event L E) ∈ t →
+      (⟨.symlinkMetadata (project / "lakefile.lean"), .ok metadata⟩ : Event L E) ∈ t → OutsideDomain t dir treeDir
+  /-- `keys`: a key outside the closed set. -/
+  | key {table k} : TomlRead t dir table → KeyPath .anonymous table k → k.getRoot ≠ `require → ¬ ConfigKeyAdmitted k → OutsideDomain t dir treeDir
+  /-- `shallow`: a key deeper than the reader follows. -/
+  | deep {table} : TomlRead t dir table → Deeper 8 table → OutsideDomain t dir treeDir
+  /-- `noDependency`: a `require`. -/
+  | dependency {table k} : TomlRead t dir table → KeyPath .anonymous table k → k.getRoot = `require → OutsideDomain t dir treeDir
+  /-- `sourceDirs`: a source directory that does not lie below the tree. -/
+  | openDir {tree root d} : TreeLoaded t dir treeDir tree root → d ∈ root.sourceDirs →
+      (∀ rel, ¬ TreeRelative (parts tree) (parts d) rel) → OutsideDomain t dir treeDir
+  /-- `globs`: a `globs` entry that is no single module. -/
+  | openGlob {tree root lib g} : TreeLoaded t dir treeDir tree root → lib ∈ root.libraries → g ∈ lib.2 → (∀ n, g ≠ .one n) → OutsideDomain t dir treeDir
+  /-- `claimsSomething`: no module is claimed. -/
+  | noClaim {project tree root} : Scene t dir treeDir project tree root [] → OutsideDomain t dir treeDir
+  /-- `targetNames`: a target's name outside the closed domain. -/
+  | targetName {tree root n} : TreeLoaded t dir treeDir tree root → n ∈ root.targets → ¬ ClosedModuleName n → OutsideDomain t dir treeDir
+  /-- `sources`: the file of a needed name is not a plain file by exactly its path. -/
+  | moduleNotPlain {project tree root modules m path rel real} : Scene t dir treeDir project tree root modules →
+      Named t project tree root modules m → FileOfModule root modules m path → TreeRelative (parts tree) (parts path) rel →
+      (⟨.realPath (under project rel), .ok real⟩ : Event L E) ∈ t → Regula.Load.exactBelow project (under project rel) real = false →
+      OutsideDomain t dir treeDir
+  /-- `moduleNames`: a needed name outside the closed domain. -/
+  | moduleName {project tree root modules m} : Scene t dir treeDir project tree root modules → Named t project tree root modules m →
+      ¬ ClosedModuleName m → OutsideDomain t dir treeDir
+  /-- `imports`: a needed name that no file of the project holds, and that does not lie below the toolchain's library. -/
+  | notToolchain {project tree root modules m olean real} {reals : List (FilePath × FilePath)} : Scene t dir treeDir project tree root modules →
+      Named t project tree root modules m → modules.lookup m = none → root.resolve m = none → (⟨.findOLean m, .ok olean⟩ : Event L E) ∈ t →
+      (⟨.realPath olean, .ok real⟩ : Event L E) ∈ t → reals.map Prod.fst = root.toolchain →
+      (∀ x ∈ reals, (⟨.realPath x.1, .ok x.2⟩ : Event L E) ∈ t ∧ Regula.Load.below x.2 real = false) → OutsideDomain t dir treeDir
+  /-- `bounded`: more names than the reader follows. -/
+  | tooMany {project tree root modules} {ms : List (Name × Array Import)} : Scene t dir treeDir project tree root modules → (ms.map (·.1)).Nodup →
+      (∀ x ∈ ms, Named t project tree root modules x.1 ∧ HeaderOf t project tree root modules x.1 x.2) →
+      1000000 < modules.length + (ms.map (·.2.size)).sum → OutsideDomain t dir treeDir
+  /-- `noMathlib`: Mathlib is in what the build needs. -/
+  | mathlib {project tree root modules m} : Scene t dir treeDir project tree root modules → Named t project tree root modules m →
+      m.getRoot = `Mathlib → OutsideDomain t dir treeDir
+  /-- `language`: a needed file is not in the closed language. -/
+  | file {project tree root modules f path imports mods} {headers : List (Name × Array Import)} {held : List Name} :
+      Scene t dir treeDir project tree root modules → Named t project tree root modules f.module → FileOfModule root modules f.module path →
+      ReadAs t project tree f path imports mods → (∀ x ∈ headers, HeaderOf t project tree root modules x.1 x.2) →
+      (∀ n ∈ held, Named t project tree root modules n ∧ HeldByToolchain t root n) → (∀ i ∈ imports, i.module ∈ held ∨ (headers.lookup i.module).isSome = true) →
+      (∀ x ∈ headers, ∀ i ∈ x.2, i.module ∈ held ∨ (headers.lookup i.module).isSome = true) →
+      (∀ n, n ∈ mods ↔ ∃ m ∈ imports, Sees headers held m.module n) → ¬ FileAdmitted f → OutsideDomain t dir treeDir
 
-/-- **Each reason falls under one of three**: a failed or differing external answer, the project outside the published domain, or a
-conflict in which one admission could not be about what is consumed. The first and third are stated apart from the domain, and the
-second by it, through `reason_excluded`, whose proof fails on a new case of `Reason` that a project in the domain could meet. -/
+/-- **Each reason falls under exactly the class its case states**: a failed or differing external answer, a conflict in which one admission could not be
+about what is consumed, or the clause of the domain that the project fails. -/
 theorem reason_classified {o : Outcome} (h : Reason t dir treeDir o) :
     ExternalAnswer t dir treeDir ∨ Conflict t dir treeDir ∨ OutsideDomain t dir treeDir := by
-  have houtside : OutsideDomain t dir treeDir := fun p ha hd => reason_excluded hd ha h
   cases h with
   | failed he _ hf => exact .inl (.failed he hf)
   | load hp hf => exact .inl (.failed hp.event hf)
   | toolchainFailed _ hr => exact .inl (.failed hr ⟨_, rfl⟩)
   | toolchainNoReal _ hr => exact .inl (.failed hr ⟨_, rfl⟩)
   | started h1 h2 h3 h4 h5 h6 h7 => exact .inl (.start h1 h2 h3 h4 h5 h6 h7)
-  | treeDiffers _ _ hsub hne => exact .inl (.differs hsub hne)
+  | treeDiffers hs hp hsub hne => exact .inl (.differs hs hp hsub hne)
   | notApart hp ht hne => exact .inr (.inl (.notApart hp ht hne))
-  | configNotInTree ht _ hout => exact .inr (.inl (.outsideTree ht hout))
-  | moduleNotInTree hs _ _ hout =>
-    obtain ⟨hreal, -⟩ := hs.loaded
-    exact .inr (.inl (.outsideTree hreal hout))
+  | configNotInTree ht hp hout => exact .inr (.inl (.configOutside ht hp hout))
+  | moduleNotInTree hs hn hf hout => exact .inr (.inl (.moduleOutside hs hn hf hout))
   | twoFiles hs hm hr hne => exact .inr (.inl (.twoFiles hs hm (.inl hr) hne))
   | twoRoots hs hm hm' hne => exact .inr (.inl (.twoFiles hs hm (.inr hm') hne))
   | twoTexts hs h1 h2 hp hne => exact .inr (.inl (.twoTexts hs h1 h2 hp hne))
-  | importedRoot hs _ _ _ hl hr => exact .inr (.inl (.importedRoot hs hl hr))
+  | importedRoot hs hn hh hi hl hr => exact .inr (.inl (.importedRoot hs hn hh hi hl hr))
   | configShadowed ht hm => exact .inr (.inl (.shadowed ht hm))
-  | _ => exact .inr (.inr houtside)
+  | toolchain h1 h2 h3 => exact .inr (.inr (.toolchain h1 h2 h3))
+  | toolchainNotExact h1 h2 h3 => exact .inr (.inr (.toolchainNotPlain h1 h2 h3))
+  | tomlNotExact h1 h2 h3 => exact .inr (.inr (.tomlNotPlain h1 h2 h3))
+  | moduleNotExact h1 h2 h3 h4 h5 h6 => exact .inr (.inr (.moduleNotPlain h1 h2 h3 h4 h5 h6))
+  | leanConfig h1 h2 => exact .inr (.inr (.leanConfig h1 h2))
+  | key h1 h2 h3 h4 => exact .inr (.inr (.key h1 h2 h3 h4))
+  | deep h1 h2 => exact .inr (.inr (.deep h1 h2))
+  | deepDependency h1 h2 => exact .inr (.inr (.deep h1 h2))
+  | dependency h1 h2 h3 => exact .inr (.inr (.dependency h1 h2 h3))
+  | openDir h1 h2 h3 => exact .inr (.inr (.openDir h1 h2 h3))
+  | openGlob h1 h2 h3 h4 => exact .inr (.inr (.openGlob h1 h2 h3 h4))
+  | noClaim h1 => exact .inr (.inr (.noClaim h1))
+  | targetName h1 h2 h3 => exact .inr (.inr (.targetName h1 h2 h3))
+  | moduleName h1 h2 h3 => exact .inr (.inr (.moduleName h1 h2 h3))
+  | notToolchain h1 h2 h3 h4 h5 h6 h7 h8 => exact .inr (.inr (.notToolchain h1 h2 h3 h4 h5 h6 h7 h8))
+  | tooMany h1 h2 h3 h4 => exact .inr (.inr (.tooMany h1 h2 h3 h4))
+  | mathlib h1 h2 h3 => exact .inr (.inr (.mathlib h1 h2 h3))
+  | file h1 h2 h3 h4 h5 h6 h7 h8 h9 h10 => exact .inr (.inr (.file h1 h2 h3 h4 h5 h6 h7 h8 h9 h10))
+
+/-- A failed or differing answer is no answer of the kind `Answers` states, for any project. -/
+theorem ExternalAnswer.not_answers (h : ExternalAnswer t dir treeDir) (ha : Answers p t dir treeDir) : False := by
+  cases h with
+  | failed he hf => exact ha.answered _ he hf
+  | differs hs hp hsub hne => exact hne (ha.writes _ _ _ _ _ _ _ hs hp hsub)
+  | start h1 h2 h3 h4 h5 h6 h7 =>
+    obtain ⟨b1, own, b2, b3⟩ := ha.start _ _ _ _ _ _ _ h1 h2 h3 h4 h5 h6
+    rcases h7 with hb | hb
+    · rw [b1] at hb
+      cases hb
+    · rw [hb own b2] at b3
+      cases b3
+
+/-- A conflict is a reason, so no project in the domain whose reads answer as its files state has one. -/
+theorem Conflict.excluded (h : Conflict t dir treeDir) (hd : p.InDomain) (ha : Answers p t dir treeDir) : False := by
+  cases h with
+  | notApart h1 h2 h3 => exact reason_excluded hd ha (.notApart h1 h2 h3)
+  | configOutside h1 h2 h3 => exact reason_excluded hd ha (.configNotInTree h1 h2 h3)
+  | moduleOutside h1 h2 h3 h4 => exact reason_excluded hd ha (.moduleNotInTree h1 h2 h3 h4)
+  | twoFiles h1 h2 h3 h4 =>
+    rcases h3 with h3 | h3
+    · exact reason_excluded hd ha (.twoFiles h1 h2 h3 h4)
+    · exact reason_excluded hd ha (.twoRoots h1 h2 h3 h4)
+  | twoTexts h1 h2 h3 h4 h5 => exact reason_excluded hd ha (.twoTexts h1 h2 h3 h4 h5)
+  | importedRoot h1 h2 h3 h4 h5 h6 => exact reason_excluded hd ha (.importedRoot h1 h2 h3 h4 h5 h6)
+  | shadowed h1 h2 => exact reason_excluded hd ha (.configShadowed h1 h2)
+
+/-- **A reason that names a clause of the domain is true of the project**: what the run read fails that clause, for any project whose reads answer so. -/
+theorem OutsideDomain.excluded (h : OutsideDomain t dir treeDir) (ha : Answers p t dir treeDir) : ¬ p.InDomain := by
+  intro hd
+  cases h with
+  | toolchain h1 h2 h3 => exact reason_excluded hd ha (.toolchain h1 h2 h3)
+  | toolchainNotPlain h1 h2 h3 => exact reason_excluded hd ha (.toolchainNotExact h1 h2 h3)
+  | tomlNotPlain h1 h2 h3 => exact reason_excluded hd ha (.tomlNotExact h1 h2 h3)
+  | leanConfig h1 h2 => exact reason_excluded hd ha (.leanConfig h1 h2)
+  | key h1 h2 h3 h4 => exact reason_excluded hd ha (.key h1 h2 h3 h4)
+  | deep h1 h2 => exact reason_excluded hd ha (.deep h1 h2)
+  | dependency h1 h2 h3 => exact reason_excluded hd ha (.dependency h1 h2 h3)
+  | openDir h1 h2 h3 => exact reason_excluded hd ha (.openDir h1 h2 h3)
+  | openGlob h1 h2 h3 h4 => exact reason_excluded hd ha (.openGlob h1 h2 h3 h4)
+  | noClaim h1 => exact reason_excluded hd ha (.noClaim h1)
+  | targetName h1 h2 h3 => exact reason_excluded hd ha (.targetName h1 h2 h3)
+  | moduleNotPlain h1 h2 h3 h4 h5 h6 => exact reason_excluded hd ha (.moduleNotExact h1 h2 h3 h4 h5 h6)
+  | moduleName h1 h2 h3 => exact reason_excluded hd ha (.moduleName h1 h2 h3)
+  | notToolchain h1 h2 h3 h4 h5 h6 h7 h8 => exact reason_excluded hd ha (.notToolchain h1 h2 h3 h4 h5 h6 h7 h8)
+  | tooMany h1 h2 h3 h4 => exact reason_excluded hd ha (.tooMany h1 h2 h3 h4)
+  | mathlib h1 h2 h3 => exact reason_excluded hd ha (.mathlib h1 h2 h3)
+  | file h1 h2 h3 h4 h5 h6 h7 h8 h9 h10 => exact reason_excluded hd ha (.file h1 h2 h3 h4 h5 h6 h7 h8 h9 h10)
 
 /-- A rejected build is a failed answer, of Lean's own commands. -/
 theorem buildRejected_external {sysroot : String} {tree : FilePath} (h : BuildRejected sysroot tree t) : ∃ e ∈ t, e.failed := by
@@ -598,8 +735,8 @@ theorem DomainRun.fullOwed {p : Project} {prof : Regula.Closed.Profile} (h : Dom
 /-- **A project in the published domain is owed a full pass.** For every program that meets the record and every run of the full gate
 on the pinned Lean: when the project at the directory is in the domain, its reads answer as its files state, no operation failed, the
 Lake commands included, and the rules hold of what the build gave, the run exits with 0 and its last line is the full pass. This
-statement names no case of `Reason`. What it leaves out is what `Answers` and `answered` state: a failed read, a file that another process
-changes between two reads, and a Lake command that fails are no fault of the project, and they are not owed a pass. -/
+statement names no case of `Reason`. What it leaves out is what `Answers` and `answered` state: a failed read and a file that another process changes
+between two reads, which are no fault of the project, and a Lake command that fails, which a proof that does not check also gives, are not owed a pass. -/
 theorem domain_owed {w : List String → Prog L E UInt32} (hw : RunMeets w) {text dir : String} {prof : Regula.Closed.Profile}
     (hp : Regula.Closed.Profile.ofSpelling? text = some prof) {rest : List (Event L E)} {c : UInt32}
     (h : Runs (w [text, "full", dir]) (⟨.leanVersion, Regula.Closed.pinnedLean⟩ :: rest) c) {project : Project}

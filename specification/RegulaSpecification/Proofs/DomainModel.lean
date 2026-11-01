@@ -12,7 +12,8 @@ import RegulaSpecification.Proofs.OwedModel
 
 `domain_model` states that the program the executable interprets, on the answers of the witness (`RegulaSpecification.Effects.answers`), meets
 `DomainRun` for a project of one module, and exits with 0. Like `full_model`, it is conditional on `WitnessPaths` and `EnvModel`, for the reason
-they state, and on `WitnessDomain`, which says what the paths of that witness are. So `Answers` and `InDomain` hold together, and neither is empty.
+they state, and on `WitnessDomain`, which says what the paths of that witness are. So `Answers` and `InDomain` hold together on those answers. They are no
+answers of a real Lake, whose root lists the library that `witnessRoot` leaves out: a real run's `Answers` rests on what the specification measures of `LakeAgrees`.
 
 `answers_admit_outside` states that `Answers` does not imply the domain: the same answers fit a project that is outside it. `build_fails_model`
 states that `Answers` and the domain do not settle the verdict: on the same reading, a build that fails gives no exit 0.
@@ -59,7 +60,7 @@ theorem Answers.of_infix {L E : Type} {p : Project} {T T' : List (Event L E)} {d
 
 /-- The configuration of the witness: one library `Good`. -/
 def witnessConfig : Configuration :=
-  ⟨[], 0, ".", [⟨`Good, ".", [`Good], [.one `Good]⟩], [], [`Good]⟩
+  ⟨[`name], 0, ".", [⟨`Good, ".", [`Good], [.one `Good]⟩], [], [`Good]⟩
 
 /-- The project of the witness: every read gives the pinned text, and one module, `Good`, whose file imports nothing. -/
 def witnessProject : Project where
@@ -317,9 +318,8 @@ theorem domain_model (w : WitnessPaths) (env : Lean.Environment) (hm : EnvModel 
   obtain rfl := htree he
   exact Answers.of_infix hreadT (answers_witness hw q)
 
-/-- **`Answers` does not imply the domain.** The answers of the witness also fit a project with another toolchain's name that no read asks for
-the opposite of: its `lakefile.lean` is what `p` holds, and no response says otherwise, so the premise of `domain_owed` that excludes it is the
-domain itself. -/
+/-- **`Answers` does not imply the domain.** The answers of the witness also fit a project that states a `lakefile.lean`, since no response on them says
+otherwise, and that project is outside the domain. So the premise of `domain_owed` that excludes it is the domain itself. -/
 theorem answers_admit_outside {w : WitnessPaths} {env : Lean.Environment} (hw : WitnessDomain w) (q : Prog Unit Unit α) :
     Answers ({ witnessProject with leanConfig := true } : Project) (traceWith (answers w env) q) w.project w.tree ∧
       ¬ ({ witnessProject with leanConfig := true } : Project).InDomain := by

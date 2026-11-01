@@ -107,6 +107,12 @@ def sourceDirs : List String :=
 def targetNames : List Name :=
   c.libraries.map (·.name) ++ c.executables.map (·.name)
 
+/-- The directories those name below the project: the package's, and each target's below it, as Lake joins them (`Package.srcDir`,
+`LeanLib.srcDir`, `Lake/Config/Package.lean:356-357`, `Lake/Config/LeanLib.lean:34-35`). -/
+def sourceParts : List (List String) :=
+  components c.srcDir :: c.libraries.map (components c.srcDir ++ components ·.srcDir) ++
+    c.executables.map (components c.srcDir ++ components ·.srcDir)
+
 end Configuration
 
 /-- The directories that a name's components give. -/
@@ -168,9 +174,11 @@ def claim : List (Name × List String) :=
 
 /-- A configuration inside the domain. Each clause is what a project's author can check by reading `lakefile.toml`. -/
 structure InDomain : Prop where
-  /-- Each key is one of the closed set of keys, so no key can run a plugin, pass an argument to Lean or move Lake's
-  output. -/
+  /-- Each key is one of the closed set of keys, so no key can run a plugin, add an argument to Lean beyond an option of the closed
+  `options` under `leanOptions`, or move Lake's output. -/
   keys : ∀ k ∈ c.keys, ConfigKeyAdmitted k
+  /-- The package has a `name`, without which Lake's load refuses the text (`loadTomlConfig`, `Lake/Load/Toml.lean:488`). -/
+  named : `name ∈ c.keys
   /-- No `require`: nothing of a dependency is read, so a project with one can have only the proof verdict. -/
   noDependency : ∀ k ∈ c.keys, k.getRoot ≠ `require
   /-- No key lies deeper than the reader follows. -/
@@ -184,6 +192,8 @@ structure InDomain : Prop where
   targetNames : ∀ n ∈ c.targetNames, ClosedModuleName n
   /-- No two targets share a name, which Lake's load refuses (`decodeTargetDecls`, `Lake/Load/Toml.lean:451`). -/
   distinctTargets : c.targetNames.Nodup
+  /-- No two executables share a root, which Lake's load refuses (`decodeTargetDecls`, `Lake/Load/Toml.lean:465-468`). -/
+  distinctRoots : (c.executables.map (·.root)).Nodup
   /-- The claim holds a module: a pass that claims nothing says nothing. -/
   claimsSomething : c.claim ≠ []
   /-- One name, one file: the targets that hold a module name it with one file, up to spelling, because the build makes
@@ -198,7 +208,8 @@ end Configuration
 
 /-! ## What the project's files hold -/
 
-/-- A Lean file of the project, as a read gave it. -/
+/-- A Lean file of the project, as a read gave it. Its name is spelled as the file system stores it, with no link on the way: another case of a
+name on a volume that folds case gets another real path, and is no such file. -/
 structure SourceFile where
   /-- The module whose file this is. -/
   module : Name
@@ -213,15 +224,15 @@ structure SourceFile where
 
 /-- A project, as its author's files state it. -/
 structure Project where
-  /-- The text of `lean-toolchain`, if the project holds it as a plain file: no link on the way. -/
+  /-- The text of `lean-toolchain`, if the project holds it as a plain file: by exactly that name, with no link on the way. -/
   toolchainFile : Option String
   /-- Whether anything has the name `lakefile.lean`, a link with no target included. -/
   leanConfig : Bool
-  /-- The text of `lakefile.toml`, if the project holds it as a plain file: no link on the way. -/
+  /-- The text of `lakefile.toml`, if the project holds it as a plain file: by exactly that name, with no link on the way. -/
   configFile : Option String
   /-- What that text says. -/
   config : Configuration
-  /-- Each Lean file that the claim reaches through its imports, which is a plain file: no link on the way. -/
+  /-- Each Lean file that the claim reaches through its imports, each a plain file by exactly its path. -/
   sources : List SourceFile
   /-- The modules of the toolchain's own library that a file of the project imports. -/
   toolchainModules : List Name
@@ -230,9 +241,10 @@ namespace Project
 
 variable (p : Project)
 
-/-- **The domain of the full verdict.** A project is inside it when each of these holds. A project outside it is refused
-by a reason that says which, and a project inside it is owed a pass when the reads answer as its files state, the Lake
-commands succeed and the rules hold (`domain_owed`). -/
+/-- **The domain of the full verdict.** A project is inside it when each of these holds, and a project inside it is owed a pass when the reads
+answer as its files state, the Lake commands succeed and the rules hold (`domain_owed`). This says who is owed a pass, and not what happens to
+anyone else: a reason that rests on the project names the clause it fails (`OutsideDomain`), and a project outside it for which no reason holds goes
+on to Lake's commands, as a default target that names nothing does, which Lake's build refuses. -/
 structure InDomain : Prop where
   /-- `lean-toolchain` is a plain file that names the one Lean this revision reads. -/
   toolchain : ∃ text, p.toolchainFile = some text ∧ text.trimAscii.toString = leanToolchain
@@ -265,7 +277,7 @@ structure InDomain : Prop where
   oneText : ∀ s ∈ p.sources, ∀ s' ∈ p.sources, s.rel = s'.rel → s.text = s'.text
   /-- A source has one role: no module's file is one of the files Lake takes as configuration or that names the toolchain.
   That its name is no other spelling of `lakefile.lean` on the tree's volume is what the file system answers, and not a
-  statement about text: see `Answers.leanConfigAbsent`. -/
+  statement about text: see `Answers.shadow`. -/
   oneRole : ∀ s ∈ p.sources, s.rel ≠ ["lakefile.lean"] ∧ s.rel ≠ ["lakefile.toml"] ∧ s.rel ≠ ["lean-toolchain"]
   /-- No component of a source's path is empty or starts with `.`, which a relative source directory and a closed module name give. -/
   sourcePath : ∀ s ∈ p.sources, ∀ c ∈ s.rel, c ≠ "" ∧ c.front ≠ '.'

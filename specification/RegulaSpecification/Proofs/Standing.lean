@@ -297,35 +297,34 @@ theorem written_some_write {t : List (Event L E)} {p : List String} {text : Stri
   · cases hn
   · exact hw
 
-/-- **What Lake takes as its configuration, at each consumer.** At each Lake command and each load for the rules of a full run, on one
-answer for each operation, the part of the reading after its last act holds two answers of the file system: nothing has the name
-`lakefile.lean` in the tree, and a read through a spelling of `lakefile.toml` there gave the text that Lake's TOML parser read. So the
-name that Lake prefers answered nothing, and the name it falls back to answered the text judged. Under H5 (`LakeSelection`) that is what
-Lake takes, as long as that answer still holds at the consumer: another process is not in this statement. -/
+/-- **What Lake takes as its configuration, at each consumer.** At each Lake command and each load for the rules of a full run, on one answer for each
+operation, the part `suffix` of the reading holds no act, comes after every act of the reading, and is followed only by events that neither write nor remove,
+and it holds two answers of the file system: nothing has the name `lakefile.lean` in the tree, at the real path this run's tree got, and a read through a
+spelling of `lakefile.toml` there gave the text that Lake's TOML parser read. `lake_takes_judged` says what follows under H5. Another process is not in this
+statement. -/
 theorem FullRun.config_at_consumer {t : List (Event L E)} {dir : FilePath} {p : Regula.Closed.Profile} {c : UInt32}
     (h : FullRun t dir p c) {pre post : List (Event L E)} {e : Event L E} (ht : t = pre ++ e :: post)
     (he : e.consumesTree = true) (hone : OneAnswer t) :
-    ∃ (real : FilePath) (err : IO.Error) (path : FilePath) (text : String) (table : Lake.Toml.Table),
-      (∃ tree, (⟨.realPath tree, .ok real⟩ : Event L E) ∈ pre) ∧
-      (⟨.symlinkMetadata (real / "lakefile.lean"), .error err⟩ : Event L E) ∈ pre ∧
+    ∃ (tree real : FilePath) (before suffix mid : List (Event L E)) (err : IO.Error) (path : FilePath) (text : String) (table : Lake.Toml.Table),
+      pre = (⟨.createTempDir, .ok tree⟩ :: (before ++ suffix)) ++ mid ∧ Quiet suffix ∧ (∀ x ∈ mid, x.keepsFiles) ∧
+      (⟨.realPath tree, .ok real⟩ : Event L E) ∈ before ++ suffix ∧
+      (⟨.symlinkMetadata (real / "lakefile.lean"), .error err⟩ : Event L E) ∈ suffix ∧
       (∃ name code details, err = .noFileOrDirectory name code details) ∧
-      parts path = parts (real / "lakefile.toml") ∧ (⟨.readFile path, .ok text⟩ : Event L E) ∈ pre ∧
-      (⟨.parseToml (mkInputContext text "lakefile.toml"), .ok table⟩ : Event L E) ∈ pre := by
-  obtain ⟨tree, tRead, tGate, resp, last, r, hsplit, ⟨mid, rest, hgate, hpre⟩, -, hev, ⟨real, hreal, hback⟩, -, -, -⟩ :=
+      parts path = parts (real / "lakefile.toml") ∧ (⟨.readFile path, .ok text⟩ : Event L E) ∈ suffix ∧
+      (⟨.parseToml (mkInputContext text "lakefile.toml"), .ok table⟩ : Event L E) ∈ before ++ suffix := by
+  obtain ⟨tree, tRead, tGate, resp, last, r, hsplit, ⟨mid, rest, hgate, hpre⟩, -, hev, ⟨real, hreal, hback⟩, -, hkeep, -⟩ :=
     h.gate_stands ht he
-  obtain ⟨before, suffix, hbs, -, hread, err, herr, hno⟩ := hback
+  obtain ⟨before, suffix, rfl, hq, hread, err, herr, hno⟩ := hback
   obtain ⟨project, evTree, -, hevTree, -, -, -, -, ⟨text, _, table, -, -, -, -, h5, h6, -, -⟩, -⟩ := hev.places
-  have hin {x : Event L E} (hx : x ∈ tRead) : x ∈ pre := by
-    rw [hpre]
-    simp [hx]
-  have hint {x : Event L E} (hx : x ∈ pre) : x ∈ t := by
-    rw [ht]
-    simp [hx]
-  obtain rfl : evTree = real := Except.ok.inj (hone.resp (hint (hin hevTree)) (hint (hin hreal)) rfl)
+  have hint {x : Event L E} (hx : x ∈ before ++ suffix) : x ∈ t := by
+    rw [ht, hpre]
+    simp only [List.mem_append, List.mem_cons]
+    exact .inl (.inl (.inr (List.mem_append.mp hx)))
+  obtain rfl : evTree = real := Except.ok.inj (hone.resp (hint hevTree) (hint hreal) rfl)
   obtain ⟨path, r', hw, hp⟩ := written_some_write h6
   have hr := hread path text r' hw (by rw [hp]; exact h6)
-  exact ⟨evTree, err, path, text, table, ⟨tree, hin hreal⟩, hin (hbs ▸ List.mem_append_right _ herr), hno, hp,
-    hin (hbs ▸ List.mem_append_right _ hr), hin h5⟩
+  exact ⟨tree, evTree, before, suffix, mid, err, path, text, table, hpre, hq,
+    fun x hx => hkeep x (by rw [hgate]; exact List.mem_append_left _ hx), hreal, herr, hno, hp, hr, h5⟩
 
 /-- An act at the end of a reading fails the clause, for each act of the closed type `Op`, once any text stands: the segment that
 holds the read-back has no room for it, so no read after the act is there. -/

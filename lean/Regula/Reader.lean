@@ -460,8 +460,8 @@ targets: a library's or an executable's name outside the closed domain, which La
 directory (`LeanExe.file`, `Lake/Config/LeanExe.lean:72`), and a root whose name Lake's import resolution
 gives another file for or that two default targets hold with two files, so that the file an importer compiles
 is not the file read. Two paths are two files only when their components differ (`Regula.Load.exactParts`), so two spellings of
-one directory, such as `.` and `./`, give one file, and the reader reads one of them. So each spelling that a target or an import
-names is also tested against the tree here. -/
+one directory, such as `.` and `./`, give one file, and the reader reads one of them. So each spelling that a default target holds, and that Lake's
+resolution gives for its name, is also tested against the tree here. Any other import is tested when `readForTree` reads it. -/
 def configUnread (tree : FilePath) (root : Root L) (modules : List (Name × FilePath)) : List (Name × String) :=
   let names := (root.targets.filter (!closedModuleName ·)).map
     fun n => (n, "this target's name is outside the closed domain")

@@ -393,7 +393,7 @@ inductive Reason (t : List (Event L E)) (dir treeDir : FilePath) : Outcome → P
           Regula.Load.dispatchedFrom own.toString lakeLib.toString
             ((System.SearchPath.parse leanPath).map toString) = false) →
       Reason t dir treeDir .incomplete
-  /-- `lakefile.toml` crossed a link, or lies outside the project. -/
+  /-- `lakefile.toml` is not, by its real path, that path: it crossed a link, the name is stored in another case, or it lies outside the project. -/
   | tomlNotExact {project real} : (⟨.realPath dir, .ok project⟩ : Event L E) ∈ t →
       (⟨.realPath (project / "lakefile.toml"), .ok real⟩ : Event L E) ∈ t →
       Regula.Load.exactBelow project (project / "lakefile.toml") real = false →
@@ -411,7 +411,8 @@ inductive Reason (t : List (Event L E)) (dir treeDir : FilePath) : Outcome → P
   | moduleNotInTree {project tree root modules m path} : Scene t dir treeDir project tree root modules →
       Named t project tree root modules m → FileOfModule root modules m path → OutsideTree tree path →
       Reason t dir treeDir .incomplete
-  /-- The project's file of a name the build needs crossed a link, or lies outside the project. -/
+  /-- The project's file of a name the build needs is not, by its real path, the path Lake named: it crossed a link, a name on the way is stored in
+  another case on a volume that folds case, or it lies outside the project. -/
   | moduleNotExact {project tree root modules m path rel real} : Scene t dir treeDir project tree root modules →
       Named t project tree root modules m → FileOfModule root modules m path →
       TreeRelative (parts tree) (parts path) rel →
@@ -450,8 +451,8 @@ inductive Reason (t : List (Event L E)) (dir treeDir : FilePath) : Outcome → P
   /-- Two default targets that hold one module name with two files, by components: two spellings of one path are one file. -/
   | twoRoots {project tree root modules m file other} : Scene t dir treeDir project tree root modules →
       (m, file) ∈ modules → (m, other) ∈ modules → parts other ≠ parts file → Reason t dir treeDir .incomplete
-  /-- Something answers to `lakefile.lean` in the tree, which Lake prefers to the configuration judged: a file of the plan that
-  the file system takes for that name has a second role, so no admission could be about what Lake takes as its configuration. -/
+  /-- Something answers to `lakefile.lean` in the tree, which Lake prefers to the configuration judged: anything that the file system takes for that
+  name, such as a file of the plan or a directory above one, has a second role, so no admission could be about what Lake takes as its configuration. -/
   | configShadowed {tree metadata} : (⟨.realPath treeDir, .ok tree⟩ : Event L E) ∈ t →
       (⟨.symlinkMetadata (tree / "lakefile.lean"), .ok metadata⟩ : Event L E) ∈ t → Reason t dir treeDir .incomplete
   /-- A planned file written with its text answers otherwise, by the same path, after that write: another read gave another text,
