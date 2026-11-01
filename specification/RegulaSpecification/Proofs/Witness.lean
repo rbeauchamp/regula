@@ -8,14 +8,14 @@ import RegulaSpecification.Proofs.Shell
 /-!
 # A project that the reader admits
 
-`admits_a_project` shows that the record is no empty promise and that the reader refuses not everything: there are
-answers of Lean, Lake and the operating system, for a project of one module `Good` in the closed language, on which the
-check that runs admits the project and the gate builds it.
+`admits_a_project` is the record's witness, under hypotheses: for paths that meet `WitnessPaths`, there are answers of Lean,
+Lake and the operating system, for a project of one module `Good` in the closed language, on which the check that runs admits
+the project.
 
 The answers are `answers`, one function of the operation. The tests of a path read `System.FilePath`, whose separator
-depends on `System.Platform.isWindows`, which the kernel cannot evaluate, so `WitnessPaths` states what those tests give
-on the paths of the project as hypotheses. **Observed**: the gate's run on Regula's own checkout takes the same branches
-on real paths, and its run ends with `full verdict: pass`.
+depends on `System.Platform.isWindows`, an `opaque` constant, so `WitnessPaths` states what those tests give on the paths of the
+project as hypotheses, and no theorem discharges them. **Observed**: the gate's run on Regula's own checkout takes the same
+branches on real paths, and its run ends with `full verdict: pass`.
 -/
 
 namespace RegulaSpecification.Effects
@@ -437,8 +437,7 @@ theorem no_reason (w : WitnessPaths) (p : Prog Unit Unit α) (o : Outcome) :
   | file hp ht ha hna =>
     exact hna (good_file ha)
 
-/-- There are answers on which the check that runs admits a project: the record is not empty, and the reader refuses
-not everything. -/
+/-- For paths that meet the hypotheses `WitnessPaths`, there are answers on which the check that runs admits a project. -/
 theorem admits_a_project (w : WitnessPaths) (sysroot : String) :
     ∃ t, Runs (check sysroot w.project w.tree : Prog Unit Unit Outcome) t .admitted := by
   refine ⟨traceWith (answers w) (check sysroot w.project w.tree),

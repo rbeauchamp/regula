@@ -13,9 +13,9 @@ import Lean.Parser.Extension
 /-!
 # The one table of effects
 
-`table` answers each operation of `Regula.Effect.Op` by one call of Lean or of the operating system's function
-as Lean gives it, or by a row of `LakeCalls`, which `Regula.Workspace` fills. Nothing here decides anything: a row
-passes on what the call gives. `specification/RegulaSpecification/Proofs/Table.lean` states each row.
+`table` answers each operation of `Regula.Effect.Op` by a straight line of calls of Lean or of the operating system's
+function as Lean gives it, or by a row of `LakeCalls`, which `Regula.Workspace` fills. Nothing here tests a result: a row
+passes on what the calls give. `specification/RegulaSpecification/Proofs/Table.lean` states each row.
 -/
 
 public section
@@ -61,7 +61,7 @@ def importParsers (enable : BaseIO Unit) (modules : List Name) : IO (Environment
     (level := .exported)
   return (env, scopedParsersOf env)
 
-/-- Each operation, by one call. -/
+/-- Each operation, by its row. -/
 def table {L : Type} (enable : BaseIO Unit) (lake : LakeCalls L) : (o : Op L Environment) → BaseIO (Resp o)
   | .leanVersion => pure (Lean.versionString, Lean.githash)
   | .getEnv name => IO.getEnv name

@@ -11,7 +11,7 @@ import Regula.Table
 
 The checker's program meets `programRecord` (`run_meets_record`); the record has lean-intent's obligations; a program that
 refuses everything does not meet it; and what the `lint` executable computes is the value of such a run, for any table
-of effects (`executed_meets`). Each row of the one table is one call of Lean (`table_rows`), so the table makes no
+of effects (`executed_meets`). Each row of the one table is a straight line of calls (`table_rows`), so the table makes no
 decision.
 -/
 
@@ -146,9 +146,9 @@ theorem executed_meets (table : (o : Op L E) → BaseIO (Resp o)) (args : List S
 
 /-! ## The one table -/
 
-/-- What each operation calls. Each row is one call of Lean or of the operating system's function as Lean gives it,
-one call of a row of `LakeCalls`, or `spawnLake` and `importParsers`, which `spawnLake_eq` and `importParsers_eq` state. No
-row holds a test or a branch. This is the closed form of "so thin that it only calls Lean" for this table. -/
+/-- What each operation calls. Each row is a straight line of calls of Lean, of the operating system's function as Lean gives
+it, or of a row of `LakeCalls`, with `spawnLake` and `importParsers`, which `spawnLake_eq` and `importParsers_eq` state. No
+row holds a test or a branch on a result. This is the closed form of "so thin that it only calls Lean" for this table. -/
 inductive Row (enable : BaseIO Unit) (lake : LakeCalls L) : (o : Op L Environment) → BaseIO (Resp o) → Prop where
   /-- Lean's own constants. -/
   | leanVersion : Row enable lake .leanVersion (pure (Lean.versionString, Lean.githash))
