@@ -226,9 +226,9 @@ def HeldByToolchain (t : List (Event L E)) (root : Root L) (n : Name) : Prop :=
     dir ∈ root.toolchain ∧ (⟨.realPath dir, .ok dirReal⟩ : Event L E) ∈ t ∧
     Regula.Load.below dirReal real = true
 
-/-- What Lake compiles for the claim: the modules of the default targets with their files, and each module
-that the imports of what it compiles reach and that Lake's resolution of an import gives a file for. `headers`
-gives the imports of each module. That this is what Lake's build does is the hypothesis `LakeBehaviour`. -/
+/-- What Lake compiles for the claim: the modules of the default targets with their files, each module
+that the imports of what it compiles reach and that Lake's resolution of an import gives a file for, and the file
+that resolution gives for the name of a module of a default target. `headers` gives the imports of each module. That this is what Lake's build does is the hypothesis `LakeBehaviour`. -/
 inductive Compiled (headers : List (Name × Array Import)) (root : Root L)
     (modules : List (Name × FilePath)) : Name → FilePath → Prop where
   /-- A module of a default target. -/

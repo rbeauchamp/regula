@@ -11,7 +11,7 @@ import RegulaSpecification.Proofs.Standing
 
 The theorems about a run read only what the run received. What those answers mean is what Lean, Lake and the operating
 system do, and each such statement is a hypothesis of the theorem that needs it, re-read at each upgrade of Lean:
-`LakeBehaviour` (H3) and `RealPathBehaviour` (H4) here, and `RegulaSpecification.Language.LeanBehaviour` (H1 and H2).
+`LakeBehaviour` (H3), `RealPathBehaviour` (H4) and `LakeSelection` (H5) here, and `RegulaSpecification.Language.LeanBehaviour` (H1 and H2).
 -/
 
 namespace RegulaSpecification.Effects
@@ -75,8 +75,8 @@ theorem full_exit_zero {t : List (Event L E)} {dir : FilePath} {p : Regula.Close
 the modules of the default targets are those of each default library and the root of each default executable
 (`Package.recCollectDefaultModules`, `Lake/Build/Package.lean:45-61`), and each other module is one that an import of what
 it compiles reaches, through `findModule?` (`Module.recFetchInput`, `Lake/Build/Module.lean:30-38`,
-`Lake/Config/Workspace.lean:279-280`), with the file `Module.leanFile`. No proof reaches it, because Lake's build is
-Lake's. -/
+`Lake/Config/Workspace.lean:279-280`), with the file `Module.leanFile`. A module of a default target may also have the file
+that `findModule?` gives for its name (`Compiled.resolved`). No proof reaches it, because Lake's build is Lake's. -/
 structure LakeBehaviour (headers : List (Name × Array Import)) (root : Root L)
     (modules : List (Name × FilePath)) where
   /-- Lake's build compiles this file for this module. -/
