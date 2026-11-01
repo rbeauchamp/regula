@@ -16,7 +16,7 @@ public import Regula.Decision
 
 /-! # Where the effects of the repository's code lie
 
-The closed form of "so thin that it only calls Lean" is stated in the specification's section "The trusted base". This
+The closed form of "so thin that it only calls Lean" is stated in the specification's section "So thin that it only calls Lean". This
 module shows it where the specification's package cannot, because a constant that calls Lake's load depends on axioms
 that no profile admits, and `lake check` of that package would refuse them:
 
@@ -26,7 +26,7 @@ that no profile admits, and `lake check` of that package would refuse them:
   at the level where bodies are held, those that the executable and the library that gives no verdict reach: a constant whose type or value mentions an effect, directly or through another
   constant of the repository, lies in a closed set of modules, and the build fails on any other. So a decision that gains
   an effect in `Regula.Reader`, `Regula.Shell` or `Regula.Load` fails the gate. The check fails too when it finds no
-  effect, so an empty scan is no pass.
+  interpreter, so an empty scan is no pass.
 -/
 
 public section

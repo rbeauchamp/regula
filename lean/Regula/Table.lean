@@ -15,7 +15,7 @@ import Lean.Parser.Extension
 
 `table` answers each operation of `Regula.Effect.Op` by a straight line of calls of Lean or of the operating system's
 function as Lean gives it, or by a row of `LakeCalls`, which `Regula.Workspace` fills. Nothing here tests a result: a row
-passes on what the calls give. `specification/RegulaSpecification/Proofs/Table.lean` states each row.
+passes on what the calls give. `table_rows` in `specification/RegulaSpecification/Proofs/Program.lean` states each row.
 -/
 
 public section
