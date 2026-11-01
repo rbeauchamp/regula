@@ -24,8 +24,10 @@ project.
 
 **Every Lake call and child process of the gate works in a tree the checker made for this run** (`tree`), and
 none works in the project's directory. Before Lake's load the tree holds the two configuration files. It holds a
-module's text only once the decision has admitted the whole reading, and each file is written once, with the text
-that was parsed, so what the build consumes is what was judged (`FullRun.at_consumer` in the specification). A
+module's text only once the decision has admitted the whole reading. Each source requests installation of the text
+that was parsed. The effect table creates files exclusively and accepts existing destinations only with equal text,
+so another spelling cannot overwrite an earlier source. `runFull_filesystem_at_consumer` connects the admitted reading
+to the filesystem view, under the primitive laws and preservation by the other trusted calls. A
 name, a link or a file of the project can then select no path outside the tree, whatever Lake derives at this or a
 later version. The project's own directory is read and never written, and its `.lake`, its manifest and every other
 file of it are not read at all.
@@ -52,8 +54,8 @@ It reads, in this order, and stops at the first refusal:
   environment of the toolchain modules the file sees, no options, no namespace and no open declaration.
 
 Only then, and only for a reading that the decision admits, each file's text goes to the tree (`writeSources`). What
-would hold two texts at one path, by its components, is left unread (`twoTexts`), so two names with one file are
-admitted only when both reads gave that file one text.
+would hold two texts at one path, by its components, is left unread (`twoTexts`). The table's `writePreserving` also
+refuses different texts at aliased destinations: a failed installation stops the reader before any build.
 
 `MathlibReached` is a test of the name's root, on the modules `reached` holds, so a module whose root is
 `Mathlib` is recorded and not read. No `.olean` file of the project or of a dependency is loaded. Only the
@@ -283,8 +285,8 @@ def twoTexts (planned : List (Name × FilePath × String)) : List (Name × Strin
       Regula.Load.exactParts path == Regula.Load.exactParts other && text != text'
   clash.map fun (m, path, _) => (m, s!"its file {path} would hold two texts")
 
-/-- Write the text of each source to its file. This is the only write of a module's file, so what the tree holds is what
-was judged. Stops at the first failure. -/
+/-- Request installation of each source's text. This is the reader's only module-writing stage; the effect table
+preserves existing destinations and accepts them only with equal text. Stops at the first failure. -/
 def writeSources (tree : FilePath) : List (Name × Source) → Attempt L E Unit
   | [] => pure ()
   | (_, s) :: rest => do

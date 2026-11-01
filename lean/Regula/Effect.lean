@@ -77,7 +77,7 @@ inductive Op (L E : Type) where
   | readFile (path : FilePath)
   /-- What the file system holds of this name, following no link. -/
   | symlinkMetadata (path : FilePath)
-  /-- Write the text of a file. -/
+  /-- Install the text of a file, preserving an existing file only when its text agrees. -/
   | writeFile (path : FilePath) (text : String)
   /-- Make a directory and its parents. -/
   | createDirAll (path : FilePath)
