@@ -16,7 +16,10 @@ environment with the floor (`EnvModel`), the run receives what `FullOwed` and `P
 `plain_model`); on answers where every operation succeeds and the project holds a `lakefile.lean`, it does not exit with 0
 (`refused_model`). The hypotheses of the two models are what remains: `WitnessPaths` because `System.FilePath` depends on an
 `opaque` constant, and `EnvModel` because `Lean.Environment`'s constructor is private. `plain_exit_zero_owed` and
-`full_exit_zero_owed` reach a real run instead: a run with exit 0 received what those premises state.
+`full_exit_zero_owed` also apply to any run meeting the record with exit 0, under `OneAnswer` and, for
+the full run's reading, `OneContext`. Those hypotheses are needed for the converse, not the owed-pass
+implications. The witness runs meet the strengthened preparation relations through `run_meets`;
+neither the models nor those relations assert consistency of a filesystem behind the responses.
 -/
 
 namespace RegulaSpecification.Effects

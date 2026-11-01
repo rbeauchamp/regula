@@ -127,7 +127,7 @@ theorem buildRead_unique {T : List (Event L E)} (h : OneAnswer T) {root : Root L
 /-- A run of the proof verdict that exits with 0 received what `PlainOwed` states, on one answer for each operation. -/
 theorem plain_exit_zero_owed {t : List (Event L E)} {p : Regula.Closed.Profile} (h : PlainRun t p 0)
     (hone : OneAnswer t) : PlainOwed t p := by
-  obtain ⟨result, hl, hc, -, -, hok⟩ := h
+  obtain ⟨result, hl, hc, -, -, hok, -⟩ := h
   have healthy := hok rfl
   have hv : (Regula.Closed.decision result).verdict = .pass :=
     (Regula.Closed.Verdict.exitCode_eq_zero_iff _).mp hc.symm
@@ -630,7 +630,7 @@ theorem full_exit_zero_owed {t : List (Event L E)} {dir : FilePath} {p : Regula.
     · intro tree' rest s' root' f' roots' he hs' hg' hb'
       obtain rfl := htree' he
       obtain rfl := Option.some.inj (h1.resp hs' (hread.subset hs) rfl)
-      rcases hb.2.2 with ⟨program, lakeLib, result, hnb, -, hl, hrep⟩ | ⟨hrep, -⟩
+      rcases hb.2.2.1 with ⟨program, lakeLib, result, hnb, -, hl, hrep⟩ | ⟨hrep, -⟩
       · have hrules : tRules.Sublist (rulesPhase t) := by
           have hpost : ∀ e ∈ (⟨.removeDirAll tree, r⟩ :: last : List (Event L E)), e.isBuild = false := by
             intro e he

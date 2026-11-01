@@ -14,9 +14,12 @@ record alone. It reads no program, so it holds of each subject and not only of t
 
 `PlainOwed` and `FullOwed` state what it takes for a build to pass, over what the run received: no case of the closed set
 of reasons holds, the build and its replay ended with 0, and the environment that Lean's import gave has `LoadFloor`.
-`plain_owed` and `full_owed` state that a run on such responses gives the pass verdict and exit 0. So a run that refuses or
-reports incomplete has a reason in that closed set, or the environment lacks that floor (`plain_refused_justified`,
-`full_refused_justified`). No premise reads a branch of a program: each is about what a response holds.
+`plain_owed` and `full_owed` state that a run on such responses gives the pass verdict and exit 0.
+`plain_refused_justified` gives a reason or a missing floor; `full_refused_justified` states that a nonzero
+full run cannot meet `FullOwed`. Preparation is supplied by `PlainRun` and `FullRun`, not by assuming
+reasons absent: their exact phase relations constrain every copy, load, command and search consumer,
+including failed attempts. The premises concern responses and content, never a branch of a program.
+No consistency of responses is needed for either implication to a pass.
 -/
 
 namespace RegulaSpecification.Effects
@@ -332,7 +335,7 @@ theorem full_owed {t : List (Event L E)} {dir : FilePath} {p : Regula.Closed.Pro
       exact ((List.sublist_append_left _ _).trans (List.sublist_append_right _ _)).trans
         (List.sublist_cons_self _ _)
     have hrep : report = .full .pass := by
-      rcases hb.2.2 with ⟨program, lakeLib, result, hnb, -, hl, rfl⟩ | ⟨-, -, hrej⟩
+      rcases hb.2.2.1 with ⟨program, lakeLib, result, hnb, -, hl, rfl⟩ | ⟨-, -, hrej⟩
       · have hrules : tRules.Sublist (rulesPhase t) := by
           have hpost : ∀ e ∈ (⟨.removeDirAll tree, r⟩ :: last : List (Event L E)), e.isBuild = false := by
             intro e he
