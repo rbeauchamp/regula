@@ -17,8 +17,8 @@ consumer, and `Evidence.judged` that each text standing was judged. `uncheckedCo
 trace of an audit of an earlier revision fail the record, for every text other than the pinned one that neither Lake's nor Lean's
 parser was given, and `judgedCopy_stands` is its neighbour: the same copy of a text that stands keeps the evidence.
 `rewritten_stands` gives what stands after two writes. `FullRun.answered_at_consumer` states that each text standing by a write of the
-reading is what the file system answered for that write's path after the reading's last act, and `act_after_readBack_fails` that an
-act after that answer fails the clause, for each act of `Op`.
+reading is what the file system answered for that write's path after the reading's last act, and `act_after_readBack_fails` that a
+reading that ends with an act, once a written text stands, fails the clause, for each act of `Op`.
 -/
 
 namespace RegulaSpecification.Effects
@@ -131,7 +131,7 @@ theorem FullRun.gate_stands {t : List (Event L E)} {dir : FilePath} {p : Regula.
 
 /-- At each Lake command and each load for the rules of a full run, the events before it are the tree's allocation, a reading and
 events that neither write nor remove, and the reading is inside the closed language with no failed answer, on `Evidence` of what
-stands right then. So what the admission judged is what that request consumes. -/
+stands right then. So what the admission judged is what stands by the run's requests at that request. -/
 theorem FullRun.at_consumer {t : List (Event L E)} {dir : FilePath} {p : Regula.Closed.Profile} {c : UInt32}
     (h : FullRun t dir p c) {pre post : List (Event L E)} {e : Event L E} (ht : t = pre ++ e :: post)
     (he : e.consumesTree = true) :

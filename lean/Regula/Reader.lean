@@ -23,10 +23,10 @@ without the project. `startedOutside` refuses any other start, such as `lake lin
 project.
 
 **Every Lake call and child process of the gate works in a tree the checker made for this run** (`tree`), and
-none works in the project's directory. Before Lake's load the tree holds the two configuration files. It holds a
-module's text only once the decision has admitted the whole reading, each source's text is written then, and each
-planned file is read back from the tree by the path it was written at, so what the record credits is what the file
-system answered after the run's last act on the tree (`FullRun.answered_at_consumer` in the specification). A
+none works in the project's directory. Before Lake's load the checker asks only that the two configuration files be
+written there. It asks for a module's text only once the decision has admitted the whole reading, and each planned
+file is then read back from the tree by the path it was written at, so each text the record credits is what the file
+system answered after the reading's last act on the tree (`FullRun.answered_at_consumer` in the specification). A
 name, a link or a file of the project can then select no path outside the tree, whatever Lake derives at this or a
 later version. The project's own directory is read and never written, and its `.lake`, its manifest and every other
 file of it are not read at all.
@@ -55,7 +55,8 @@ It reads, in this order, and stops at the first refusal:
 Only then, and only for a reading that the decision admits, each file's text goes to the tree (`writeSources`), and each
 planned file is read back (`readBack`). What would hold two texts at one path, by its components, is left unread
 (`twoTexts`), so two names with one file are admitted only when both reads gave that file one text. Two paths with
-different components that the file system takes for one file show up in the read-back, whatever its reason for doing so.
+different components that the file system takes for one file, with different texts, show up in the read-back, whatever its
+reason for doing so.
 
 `MathlibReached` is a test of the name's root, on the modules `reached` holds, so a module whose root is
 `Mathlib` is recorded and not read. No `.olean` file of the project or of a dependency is loaded. Only the
@@ -507,7 +508,7 @@ def realPaths : List FilePath → Attempt L E (List FilePath)
     let reals ← realPaths rest
     pure (real :: reals)
 
-/-- What a walk gives the reading, before any command is parsed. `config` is what the tree already holds. -/
+/-- What a walk gives the reading, before any command is parsed. `config` is what the run has asked the tree to hold. -/
 def baseReading (config : List (FilePath × String)) (start : Reading) (root : Root L)
     (modules : List (Name × FilePath)) (w : Walk) : Reading :=
   { start with
@@ -516,8 +517,8 @@ def baseReading (config : List (FilePath × String)) (start : Reading) (root : R
       twoTexts (plannedOf config w.sources.reverse) }
 
 /-- The modules that the imports of `modules` reach, each file read, and each file's commands, and, only for a reading the
-decision admits, each text written to its file and each planned file read back. So nothing of a module is in the tree until all
-of it was judged, then only the text that was, and the file system's answer says so. Lake's load and resolution read no module's file: `LeanLib.findModule?` tests a name against
+decision admits, each text written to its file and each planned file read back. So no module's file is asked to be written until all
+of it was judged, then only the text that was, and each planned path's answer gives that text. Lake's load and resolution read no module's file: `LeanLib.findModule?` tests a name against
 the configuration (`Lake/Config/Module.lean:41-42`, `Lake/Config/LeanLibConfig.lean:140`), and a single-module `globs` entry
 lists nothing (`Lake/Config/Glob.lean:53-59`). The search path holds the toolchain's directories alone, because a module is
 the file Lake names or else the toolchain's: no output of the project is on it. -/

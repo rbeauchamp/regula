@@ -105,11 +105,12 @@ def QuietOp : Op L E → Prop
 /-- Every event of a segment is an observation or report independent of the prepared contexts. -/
 def Quiet (t : List (Event L E)) : Prop := ∀ e ∈ t, QuietOp e.op
 
-/-- What the file system answered after the run's last act on the tree: `t` ends with a segment that holds no act, and for each
+/-- What the file system answered after the last act of `t`, which in `Decided` is the reading: `t` ends with a segment that holds no act, and for each
 write of `t` whose text stands by `written`, that segment holds a read through the path it was written at that gave that text. A
 statement of `written` alone is a model of the file system, in which different components name different files and a write that
 answered success stored its text. This clause needs neither. A read through another path string with the same components does not
-count, so nothing here says that such strings name one file. -/
+discharge this clause, and `written` still treats such strings as one place. It asks for a read that matches, and does not exclude
+another read that differs: that the program stops at one is `Regula.Reader.readBack`'s, and inconsistent answers stay accepted. -/
 def ReadBack (t : List (Event L E)) : Prop :=
   ∃ pre suffix, t = pre ++ suffix ∧ Quiet suffix ∧
     ∀ path text r, (⟨.writeFile path text, r⟩ : Event L E) ∈ t → written t (parts path) = some text →
@@ -437,7 +438,7 @@ inductive Reason (t : List (Event L E)) (dir treeDir : FilePath) : Outcome → P
   | twoRoots {project tree root modules m file other} : Scene t dir treeDir project tree root modules →
       (m, file) ∈ modules → (m, other) ∈ modules → other ≠ file → Reason t dir treeDir .incomplete
   /-- A planned file written with its text answers otherwise, by the same path, after that write: another read gave another text,
-  or the read failed. A file that another spelling of a path replaced shows up here. The order keeps a run from citing a read it
+  or the read failed. A file that another spelling of a path replaced with another text shows up here. The order keeps a run from citing a read it
   asked before it wrote, and `Planned` from citing a text it read from nowhere. -/
   | treeDiffers {project tree root modules path text r} : Scene t dir treeDir project tree root modules →
       Planned t project tree root modules path text →
@@ -676,8 +677,8 @@ def NotRemoving : Op L E → Prop
 The TOML copy precedes the pinned toolchain copy and configuration load; named module copies use earlier
 source reads. Each copy makes only its own parent before writing, and each search consumer follows its
 load's setter. Failed attempts obey the same order. An admission rests on `Evidence` of the state the reading
-leaves. Build, replay and rules follow only an admission, with no later explicit copy or early removal, so that
-state is what they consume (`FullRun.at_consumer`). Cleanup is terminal and every act is confined to the tree.
+leaves. Build, replay and rules follow only an admission, with no later explicit copy or early removal, so no
+request of theirs changes that state (`FullRun.at_consumer`). Cleanup is terminal and every act is confined to the tree.
 Exit code and last line are the report's alone; exit 0 received no failed answer. All responses remain
 arbitrary, including inconsistent filesystem answers and opaque effects inside trusted calls. -/
 def FullRun (t : List (Event L E)) (dir : FilePath) (p : Regula.Closed.Profile) (c : UInt32) : Prop :=

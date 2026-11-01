@@ -755,7 +755,7 @@ theorem writeInTree_leaves {tree path : FilePath} {text : String} {t : List (Eve
   exact leavesAs_write hb
 
 /-- `readBack` for every response: on success each entry's read gave its text, a failure names an entry and an answer that differs,
-and it asks nothing but reads. -/
+and all it asks is quiet. -/
 theorem readBack_spec {l : List (FilePath × String)} {t : List (Event L E)} {b : Except String Unit}
     (h : Runs (readBack l : Attempt L E Unit).run t b) :
     (b = .ok () → ∀ x ∈ l, (⟨.readFile x.1, .ok x.2⟩ : Event L E) ∈ t) ∧
