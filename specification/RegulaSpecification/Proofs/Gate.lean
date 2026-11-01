@@ -4,6 +4,7 @@ Released under MIT license as described in the file LICENSE.
 Authors: Regula contributors
 -/
 import Regula.DiagnosticsGate
+import Regula.Shell
 
 /-!
 # The local gate, at `IO`
@@ -12,7 +13,7 @@ The gate program is the merge gate, and a defect in it that let a broken change 
 `runIn_zero` and `runLocal_zero` prove, of the definitions at `IO`, from any state of the world, that it gives 0 only when it
 wrote each file of `checkerFiles` to the checker's directory joined with that file, with the bytes it read, and for each step
 of `localSteps` there are worlds in which it spawned that step's own `lake` command and that child's wait gave 0 (`StepRan`, `runStep_ran`), with that directory as the checker and the working directory as the project. `BaseIO` and `IO` are state monads in Lean's own definition (`Init/System/ST.lean`), so
-no assumption about the order of effects is needed for this. A defect that only stops the gate visibly, such as a failed
+no assumption about the order of effects is needed for this. `localSteps_eq`, `localSteps_full`, `stepRequest` and `runStep_spawns` state what each step asks the operating system to start, and what it does with that request stays trusted. A defect that only stops the gate visibly, such as a failed
 copy or removal, which `IO` turns into a nonzero exit, is accepted risk.
 -/
 
@@ -104,13 +105,14 @@ theorem runSteps_io (run : Step → IO UInt32) (steps : List Step) (w w' : Void 
       · cases h
 
 /-- The one process that a step names, stated apart from `runStep`: the program that `PATH` selects under the name `lake`, with the
-step's arguments, in the step's directory, with no standard input, no inherited Lean search path, and Lake's artifact cache off. -/
+step's arguments, in the step's directory, with no standard input, no inherited Lean search path, Lake's artifact cache off, and `REGULA_FULL`
+bound to the step's project, where `none` removes an inherited value (`IO.Process.SpawnArgs.env`, which is Lean's). -/
 def stepRequest (step : Step) : IO.Process.SpawnArgs where
   cmd := "lake"
   args := step.arguments.toArray
   cwd := some (System.FilePath.mk step.dir)
   stdin := .null
-  env := #[("LEAN_PATH", none), ("LEAN_SRC_PATH", none), ("LAKE_ARTIFACT_CACHE", some "false")]
+  env := #[("LEAN_PATH", none), ("LEAN_SRC_PATH", none), ("LAKE_ARTIFACT_CACHE", some "false"), ("REGULA_FULL", step.full)]
 
 /-- What a result of a step is: from `w` the step announced itself, spawned exactly its request, and `code` is what the wait of that child gave.
 This says nothing of which program `PATH` selects, or of what Lake's exit code means, which are the operating system's and Lake's. -/
@@ -359,11 +361,35 @@ theorem main_zero (args : List String) (w w' : Void IO.RealWorld) (h : _root_.ma
       have := (EST.Out.ok.inj h).1
       exact absurd this (by decide)
 
-/-- The arguments of the steps of `localSteps`, in order. Their directories are not stated here. -/
+/-- The variable that the gate sets is the one that the checker reads. -/
+theorem fullVariable_eq : fullVariable = Regula.Shell.fullVariable := rfl
+
+/-- The steps of `localSteps`, in order, with each one's arguments, directory and project of the full gate. -/
 theorem localSteps_eq (checker root : String) :
-    (localSteps checker root).map (·.arguments) =
-      [["clean"], ["build", "lint"], ["exe", "lint", "standard-logical", "full", root], ["build", "--wfail"],
-        ["build", "--wfail", "Regula", "lint"], ["lint"], ["build", "--wfail"],
-        ["check", "--inadvisably-no-sandbox"], ["lint"]] := rfl
+    localSteps checker root =
+      [⟨["clean"], "specification", none⟩,
+        ⟨["build", "lint"], checker, none⟩,
+        ⟨["exe", "lint", "standard-logical"], checker, some root⟩,
+        ⟨["build", "--wfail"], ".", none⟩,
+        ⟨["build", "--wfail", "Regula", "lint"], ".", none⟩,
+        ⟨["lint"], ".", none⟩,
+        ⟨["build", "--wfail"], "specification", none⟩,
+        ⟨["check", "--inadvisably-no-sandbox"], "specification", none⟩,
+        ⟨["lint"], "specification", none⟩] := rfl
+
+/-- Only the step that runs `lake exe lint standard-logical` names a project, and that project is `root`. -/
+theorem localSteps_full (checker root : String) :
+    ∀ s ∈ localSteps checker root,
+      s.full = if s.arguments = ["exe", "lint", "standard-logical"] then some root else none := by
+  simp [localSteps]
+
+/-- What `runStep` does for any `step`, with no premise about how the call ends: it announces the step, starts the process that
+`stepRequest` describes and waits for it. What the operating system and `lake` then do with the request is trusted. -/
+theorem runStep_spawns (step : Step) :
+    runStep step = (do
+      announce step
+      let child ← IO.Process.spawn (stepRequest step)
+      child.wait) :=
+  rfl
 
 end RegulaSpecification.GateProgram

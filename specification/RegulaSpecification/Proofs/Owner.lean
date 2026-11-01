@@ -10,7 +10,7 @@ import RegulaSpecification.Proofs.Language
 
 The owner's restatement (`confirmation.md`) names what the language check refuses and admits, and that a run's output says which
 verdict it gave. Each statement here holds its expected value as a literal, and none reads a table or a function under proof for it:
-each is about `decision`, or about the text of `Report.label` and `Verdict.proofLine`, the definitions that run. So a table or a
+each is about `decision`, or about the text of `Report.labelOn` and `Verdict.proofLineOn`, the definitions that run, and of `Report.label` and `Verdict.proofLine`, from which they are made. So a table or a
 sentence replaced by a constant fails this module's build. A theorem whose expected value came from the table could show only that the
 table agrees with itself.
 
@@ -208,7 +208,7 @@ theorem refuses_another_toolchain :
 /-! ## What the output says -/
 
 open Regula.Closed in
-/-- The last line of each proof verdict, word for word. -/
+/-- The sentence of each proof verdict, word for word. `pass_lines_name_subject` states what a run prints, which on a pass adds what it audited. -/
 theorem proof_verdict_lines :
     Verdict.proofLine .pass = "regula: proof verdict: pass, which says nothing about what ran during the build" ∧
     Verdict.proofLine .fail = "regula: proof verdict: fail" ∧
@@ -216,7 +216,7 @@ theorem proof_verdict_lines :
   decide +kernel
 
 open Regula.Closed in
-/-- The last line of each report of the full gate, word for word. -/
+/-- The sentence of each report of the full gate, word for word. `pass_lines_name_subject` states what a run prints, which on a pass adds what it audited. -/
 theorem full_gate_lines :
     Report.label (.full .pass) =
       "regula: full verdict: pass, under the hypotheses H1 to H5 and the trusted base of its specification, at Lean 4.35.0" ∧
@@ -240,5 +240,22 @@ theorem verdicts_named :
   · cases v <;> decide +kernel
   · cases v <;> decide +kernel
   · decide +kernel
+
+open Regula.Closed in
+/-- What the run prints: a pass ends with what it audited, on one physical line (`detailText`), and every other line is the one above, whatever
+the path. So a path does not change the words of the verdict. -/
+theorem pass_lines_name_subject (s : String) :
+    Verdict.proofLineOn s .pass =
+      "regula: proof verdict: pass, which says nothing about what ran during the build" ++ ", on " ++ detailText s ∧
+    Verdict.proofLineOn s .fail = Verdict.proofLine .fail ∧
+    Verdict.proofLineOn s .incomplete = Verdict.proofLine .incomplete ∧
+    Report.labelOn s (.full .pass) =
+      "regula: full verdict: pass, under the hypotheses H1 to H5 and the trusted base of its specification, at Lean 4.35.0" ++ ", on " ++ detailText s ∧
+    Report.labelOn s (.full .fail) = Report.label (.full .fail) ∧
+    Report.labelOn s (.full .incomplete) = Report.label (.full .incomplete) ∧
+    Report.labelOn s .proofOnly = Report.label .proofOnly ∧
+    Report.labelOn s .refused = Report.label .refused ∧
+    Report.labelOn s .incomplete = Report.label .incomplete :=
+  ⟨rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl⟩
 
 end RegulaSpecification.Owner

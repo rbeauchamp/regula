@@ -17,7 +17,7 @@ What fills `Regula.Language.Reading` from a project before anything of it is com
 closed operations of `Regula.Effect`. It performs nothing: `specification/RegulaSpecification/Proofs/Reader.lean`
 states what the program does for every response, and `Regula.LintMain` runs it.
 
-The full gate is `lake exe lint PROFILE full DIR`, started from a checkout of Regula itself. So the Lake
+The full gate is `REGULA_FULL=DIR lake exe lint PROFILE`, started from a checkout of Regula itself. So the Lake
 that starts it loads Regula's configuration and none of the project's, and the checker's program was built
 without the project. That start is a precondition of the full verdict, and the check does not test it: a start from a project's Lake is outside the contract.
 
@@ -85,15 +85,10 @@ def attempt {α : Type} (step : Prog L E (Except IO.Error α)) : Attempt L E α 
     | .ok a => pure (.ok a)
     | .error e => pure (.error (toString e))
 
-/-- Diagnostic text on one physical line: display LF and CR as escapes, preserving other characters. -/
-def detailText (text : String) : String :=
-  String.ofList (text.toList.flatMap fun c =>
-    if c == '\n' then ['\\', 'n'] else if c == '\r' then ['\\', 'r'] else [c])
-
 /-- Print one physical line that is no verdict. Two spaces start it, even when the diagnostic contains
 line separators, and a failed print changes nothing the run decides. -/
 def say (text : String) : Prog L E Unit := do
-  let _ ← Prog.call (.println ("  " ++ detailText text))
+  let _ ← Prog.call (.println ("  " ++ Regula.Closed.detailText text))
   pure ()
 
 /-- Print each line. -/

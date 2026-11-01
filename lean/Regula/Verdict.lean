@@ -56,10 +56,22 @@ theorem Verdict.label_injective : Function.Injective Verdict.label := by
   intro a b h
   cases a <;> cases b <;> first | rfl | exact absurd h (by decide)
 
-/-- The last line of a run with the proof verdict `v`: a function of the verdict alone. -/
+/-- The words that state the proof verdict `v`: a function of the verdict alone. They are the last line of a run that does not
+pass, and `Verdict.proofLineOn` adds what a pass audited. -/
 def Verdict.proofLine : Verdict → String
   | .pass => "regula: proof verdict: pass, which says nothing about what ran during the build"
   | .fail => "regula: proof verdict: fail"
   | .incomplete => "regula: proof verdict: incomplete (RG2001)"
+
+/-- Diagnostic text on one physical line: display LF and CR as escapes, preserving other characters. -/
+def detailText (text : String) : String :=
+  String.ofList (text.toList.flatMap fun c =>
+    if c == '\n' then ['\\', 'n'] else if c == '\r' then ['\\', 'r'] else [c])
+
+/-- The last line of a run with the proof verdict `v` on the workspace at `subject`: a pass says what it audited, on one
+physical line and at the end of the line, so that no path can change the words that state the verdict. -/
+def Verdict.proofLineOn (subject : String) : Verdict → String
+  | .pass => Verdict.pass.proofLine ++ ", on " ++ detailText subject
+  | v => v.proofLine
 
 end Regula.Closed

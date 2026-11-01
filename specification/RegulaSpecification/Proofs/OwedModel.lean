@@ -104,25 +104,32 @@ theorem fullOwed_answers {w : WitnessPaths} {env : Lean.Environment} {p : Regula
   · obtain rfl := hrootOf hg
     exact floor_of_read hm hrulesT hb
 
+/-- The full gate on `dir` as a whole run, on the answers `f` after the two that select it. -/
+theorem runs_full {L E : Type} (f : (o : Op L E) → Resp o) (dir : String) :
+    Runs (Regula.Shell.run ["standard-logical"] : Prog L E UInt32)
+      (⟨.leanVersion, Regula.Closed.pinnedLean⟩ :: ⟨.getEnv fullVariable, some dir⟩ ::
+        traceWith f (runFull .standardLogical (FilePath.mk dir)))
+      (valueWith f (runFull .standardLogical (FilePath.mk dir))) :=
+  .ask _ _ _ (.ask _ _ _ (runs_with f _))
+
+/-- The proof verdict as a whole run, on the answers `f` after the two that select it. -/
+theorem runs_plain {L E : Type} (f : (o : Op L E) → Resp o) :
+    Runs (Regula.Shell.run ["standard-logical"] : Prog L E UInt32)
+      (⟨.leanVersion, Regula.Closed.pinnedLean⟩ :: ⟨.getEnv fullVariable, none⟩ :: traceWith f (runPlain .standardLogical))
+      (valueWith f (runPlain .standardLogical)) :=
+  .ask _ _ _ (.ask _ _ _ (runs_with f _))
+
 /-- For paths that meet `WitnessPaths` and an environment with the floor, there is a run of the full gate, whose proof takes the answers of the witness, that
 receives what `FullOwed` states, and exits with 0: a model of the premises of `full_owed`, in which they are met by a run of the
 program that the executable interprets. -/
 theorem full_model (w : WitnessPaths) (env : Lean.Environment) (hm : EnvModel w env .standardLogical) :
-    ∃ rest, Runs (Regula.Shell.run ["standard-logical", "full", w.project.toString] : Prog Unit Unit UInt32)
-      (⟨.leanVersion, Regula.Closed.pinnedLean⟩ :: rest) 0 ∧
+    ∃ rest, Runs (Regula.Shell.run ["standard-logical"] : Prog Unit Unit UInt32)
+      (⟨.leanVersion, Regula.Closed.pinnedLean⟩ :: ⟨.getEnv fullVariable, some w.project.toString⟩ :: rest) 0 ∧
       FullOwed rest (FilePath.mk w.project.toString) .standardLogical := by
-  have hr := runs_with (answers w env) (Regula.Shell.run ["standard-logical", "full", w.project.toString] :
-    Prog Unit Unit UInt32)
+  have hr := runs_full (answers w env) w.project.toString
   generalize hc : valueWith (answers w env) _ = c at hr
-  have hshape : traceWith (answers w env) (Regula.Shell.run ["standard-logical", "full", w.project.toString] :
-      Prog Unit Unit UInt32) = ⟨.leanVersion, Regula.Closed.pinnedLean⟩ ::
-        traceWith (answers w env) (dispatch Regula.Closed.pinnedLean.1 Regula.Closed.pinnedLean.2
-          (argsOf ["standard-logical", "full", w.project.toString]).1
-          (argsOf ["standard-logical", "full", w.project.toString]).2) := rfl
-  rw [hshape] at hr
-  have howed : FullOwed (traceWith (answers w env) (dispatch Regula.Closed.pinnedLean.1 Regula.Closed.pinnedLean.2
-      (argsOf ["standard-logical", "full", w.project.toString]).1
-      (argsOf ["standard-logical", "full", w.project.toString]).2)) (FilePath.mk w.project.toString) .standardLogical :=
+  have howed : FullOwed (traceWith (answers w env) (runFull .standardLogical (FilePath.mk w.project.toString)))
+      (FilePath.mk w.project.toString) .standardLogical :=
     fullOwed_answers hm _
   have := (run_full_owed (p := .standardLogical) run_meets (by rfl) hr howed).1
   subst this
@@ -147,16 +154,10 @@ theorem answersRefused_healthy (w : WitnessPaths) (env : Lean.Environment) (m : 
 
 /-- There is a run of the full gate that receives no failed answer, and does not exit with 0. -/
 theorem refused_model (w : WitnessPaths) (env : Lean.Environment) (m : IO.FS.Metadata) :
-    ∃ rest c, Runs (Regula.Shell.run ["standard-logical", "full", w.project.toString] : Prog Unit Unit UInt32)
-      (⟨.leanVersion, Regula.Closed.pinnedLean⟩ :: rest) c ∧ (∀ e ∈ rest, ¬ e.failed) ∧ c ≠ 0 := by
-  have hr := runs_with (answersRefused w env m) (Regula.Shell.run ["standard-logical", "full", w.project.toString] :
-    Prog Unit Unit UInt32)
-  have hshape : traceWith (answersRefused w env m) (Regula.Shell.run ["standard-logical", "full", w.project.toString] :
-      Prog Unit Unit UInt32) = ⟨.leanVersion, Regula.Closed.pinnedLean⟩ ::
-        traceWith (answersRefused w env m) (dispatch Regula.Closed.pinnedLean.1 Regula.Closed.pinnedLean.2
-          (argsOf ["standard-logical", "full", w.project.toString]).1
-          (argsOf ["standard-logical", "full", w.project.toString]).2) := rfl
-  rw [hshape] at hr
+    ∃ rest c, Runs (Regula.Shell.run ["standard-logical"] : Prog Unit Unit UInt32)
+      (⟨.leanVersion, Regula.Closed.pinnedLean⟩ :: ⟨.getEnv fullVariable, some w.project.toString⟩ :: rest) c ∧
+      (∀ e ∈ rest, ¬ e.failed) ∧ c ≠ 0 := by
+  have hr := runs_full (answersRefused w env m) w.project.toString
   refine ⟨_, _, hr, fun e he => ?_, fun h0 => ?_⟩
   · have := traceWith_answers he
     rw [this]
@@ -167,8 +168,9 @@ theorem refused_model (w : WitnessPaths) (env : Lean.Environment) (m : IO.FS.Met
     simp only [hsp] at hm
     obtain ⟨v, rest', he, hrun, -⟩ := hm
     cases he
-    obtain ⟨rest'', v', he', hf⟩ := hrun rfl
+    obtain ⟨v', r', rest'', he', hf⟩ := hrun rfl
     cases he'
+    simp only at hf
     rcases hf with ⟨e, rest, -, hc, -⟩ | ⟨tree, tRead, tGate, r, last, ht, -, -, o, report, hdec, -, hn, -, hc, -⟩
     · exact absurd hc (by decide)
     · have hrep : report = .full .pass := (Report.exitCode_eq_zero_iff report).mp hc.symm
@@ -181,9 +183,7 @@ theorem refused_model (w : WitnessPaths) (env : Lean.Environment) (m : IO.FS.Met
         obtain ⟨r', -, -, hev, -⟩ := hdec.1 rfl
         obtain ⟨_, _, _, _, _, _, ⟨e, habs, -⟩, -⟩ := hev.places
         have hin : ∀ {x : Event Unit Unit}, x ∈ tRead → x ∈ traceWith (answersRefused w env m)
-            (dispatch Regula.Closed.pinnedLean.1 Regula.Closed.pinnedLean.2
-              (argsOf ["standard-logical", "full", w.project.toString]).1
-              (argsOf ["standard-logical", "full", w.project.toString]).2) := fun hx => by
+            (runFull .standardLogical (FilePath.mk w.project.toString)) := fun hx => by
           rw [ht]
           simp [hx]
         cases resp_eq (hin habs)
@@ -228,16 +228,11 @@ theorem plainOwed_answers {w : WitnessPaths} {env : Lean.Environment} {p : Regul
 /-- The same for a run of the proof verdict. -/
 theorem plain_model (w : WitnessPaths) (env : Lean.Environment) (hm : EnvModel w env .standardLogical) :
     ∃ rest, Runs (Regula.Shell.run ["standard-logical"] : Prog Unit Unit UInt32)
-      (⟨.leanVersion, Regula.Closed.pinnedLean⟩ :: rest) 0 ∧
+      (⟨.leanVersion, Regula.Closed.pinnedLean⟩ :: ⟨.getEnv fullVariable, none⟩ :: rest) 0 ∧
       PlainOwed (⟨.leanVersion, Regula.Closed.pinnedLean⟩ :: rest) .standardLogical := by
-  have hr := runs_with (answers w env) (Regula.Shell.run ["standard-logical"] : Prog Unit Unit UInt32)
+  have hr := runs_plain (answers w env)
   generalize hc : valueWith (answers w env) _ = c at hr
-  have howed := plainOwed_answers hm (Regula.Shell.run ["standard-logical"] : Prog Unit Unit UInt32)
-  have hshape : traceWith (answers w env) (Regula.Shell.run ["standard-logical"] : Prog Unit Unit UInt32) =
-      ⟨.leanVersion, Regula.Closed.pinnedLean⟩ :: traceWith (answers w env)
-        (dispatch Regula.Closed.pinnedLean.1 Regula.Closed.pinnedLean.2 (argsOf ["standard-logical"]).1
-          (argsOf ["standard-logical"]).2) := rfl
-  rw [hshape] at hr howed
+  have howed := plainOwed_answers hm (.ask .leanVersion fun _ => runPlain .standardLogical : Prog Unit Unit UInt32)
   have := (run_plain_owed (p := .standardLogical) run_meets (by rfl) hr howed).1
   subst this
   exact ⟨_, hr, howed⟩
@@ -248,22 +243,25 @@ theorem plain_model (w : WitnessPaths) (env : Lean.Environment) (hm : EnvModel w
 /-- A program that asks `LEAN_SYSROOT`, ignores the answer, and says that the proof verdict is incomplete. -/
 def misjudge {L E : Type} (_ : List String) : Prog L E UInt32 :=
   .ask .leanVersion fun _ =>
-    .ask (.getEnv "LEAN_SYSROOT") fun _ =>
-      .ask (.println (Regula.Closed.Verdict.proofLine .incomplete)) fun _ => .done 2
+    .ask (.getEnv Regula.Shell.fullVariable) fun _ =>
+      .ask (.getEnv "LEAN_SYSROOT") fun _ =>
+        .ask (.println (Regula.Closed.Verdict.proofLine .incomplete)) fun _ => .done 2
 
 /-- It fails the record: it says incomplete with only `LEAN_SYSROOT` asked, and that answered. -/
 theorem misjudge_fails {L E : Type} : ¬ RunMeets (misjudge : List String → Prog L E UInt32) := by
   intro hw
   have hr : Runs (misjudge ["standard-logical"] : Prog L E UInt32)
-      [⟨.leanVersion, Regula.Closed.pinnedLean⟩, ⟨.getEnv "LEAN_SYSROOT", some ""⟩,
+      [⟨.leanVersion, Regula.Closed.pinnedLean⟩, ⟨.getEnv Regula.Shell.fullVariable, none⟩, ⟨.getEnv "LEAN_SYSROOT", some ""⟩,
         ⟨.println (Regula.Closed.Verdict.proofLine .incomplete), .ok ()⟩] 2 :=
-    .ask _ _ _ (.ask _ _ _ (.ask _ _ _ (.done _)))
+    .ask _ _ _ (.ask _ _ _ (.ask _ _ _ (.ask _ _ _ (.done _))))
   have hm := hw _ _ _ hr
   have hsp : Regula.Closed.Profile.ofSpelling? "standard-logical" = some .standardLogical := rfl
   simp only [hsp] at hm
   obtain ⟨v, rest, he, hrun, -⟩ := hm
   cases he
-  obtain ⟨result, hl, -⟩ := hrun rfl
+  obtain ⟨v', r, rest, he', hf⟩ := hrun rfl
+  cases he'
+  obtain ⟨result, subject, hl, -⟩ := hf
   have hno : ∀ {o : Op L E} {r : Resp o},
       (⟨o, r⟩ : Event L E) ∈ ([⟨.leanVersion, Regula.Closed.pinnedLean⟩, ⟨.getEnv "LEAN_SYSROOT", some ""⟩,
         ⟨.println (Regula.Closed.Verdict.proofLine .incomplete), .ok ()⟩] : List (Event L E)) →
