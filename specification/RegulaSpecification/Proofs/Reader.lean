@@ -640,7 +640,7 @@ theorem configUnread_reason {T : List (Event L E)} {dir treeDir tree : FilePath}
 theorem readRoot_spec {T t : List (Event L E)} {dir treeDir project tree : FilePath} {start : Reading}
     {sysroot : String} {b : Except String (Reading × List (Name × Source))} (hT : t.Sublist T)
     (hp : Prior T dir treeDir project tree start.configKeys) (hc : start.configClosed = true)
-    (hd : start.requiresDependency = false) (hout : start.outside = true) (hun : start.unread = [])
+    (hd : start.requiresDependency = false) (hout : start.outside = true)
     (h : Runs (readRoot sysroot project tree start : Attempt L E _).run t b) :
     (∀ r srcs, b = .ok (r, srcs) → ReadGoal T dir treeDir r) ∧
       ((∃ e, b = .error e) → Reason T dir treeDir .incomplete) ∧ ActsIn tree t := by
@@ -910,7 +910,7 @@ theorem readKeys_spec {T t : List (Event L E)} {dir treeDir project tree : FileP
             { project_real := hE.project_real, tree_real := hE.tree_real, apart := hE.apart,
               started := hE.started, toolchain := hE.toolchain hto, absent := habs,
               toml := ⟨text, real, table, hreal, hexact.1, hexact.2, hread, hmem, hwritten, rfl⟩ }
-          obtain ⟨f1, f2, f3⟩ := readRoot_spec hT₆ hp hc hd (by simp [stopped]) (by simp [stopped]) h₇
+          obtain ⟨f1, f2, f3⟩ := readRoot_spec hT₆ hp hc hd (by simp [stopped]) h₇
           exact ⟨f1, f2, by
             simpa using actsIn_append (actsIn_append (actsIn_append hact₁ w3) v3) f3⟩
 
@@ -1207,13 +1207,13 @@ theorem readProject_spec {T t : List (Event L E)} {dir treeDir : FilePath} {sysr
       have hsub₇ : t₇.Sublist T := by
         refine List.Sublist.trans ?_ hT
         rw [← hZ]
-        simp only [List.append_nil, List.cons_append, List.nil_append]
+        simp only [List.cons_append, List.nil_append]
         exact ((List.sublist_append_left _ _).trans (List.sublist_cons_self _ _)).trans
           ((List.sublist_cons_self _ _).trans (List.sublist_cons_self _ _))
       have hsub₈ : t₈.Sublist T := by
         refine List.Sublist.trans ?_ hT
         rw [← hZ]
-        simp only [List.append_nil, List.cons_append, List.nil_append]
+        simp only [List.cons_append, List.nil_append]
         exact ((List.sublist_append_right _ _).trans (List.sublist_cons_self _ _)).trans
           ((List.sublist_cons_self _ _).trans (List.sublist_cons_self _ _))
       have hprojectZ : (⟨.realPath dir, .ok project⟩ : Event L E) ∈ Z := by simp [← hZ]
@@ -1244,7 +1244,7 @@ theorem readProject_spec {T t : List (Event L E)} {dir treeDir : FilePath} {sysr
         have hquiet : ∀ x ∈ Z, x ∈ t₁₀ ∨ x.acted? = none := by
           intro x hx
           rw [← hZ] at hx
-          simp only [List.append_nil, List.cons_append, List.nil_append, List.mem_cons,
+          simp only [List.cons_append, List.nil_append, List.mem_cons,
             List.mem_append] at hx
           rcases hx with rfl | rfl | rfl | hx | hx | hx
           · exact .inr rfl
@@ -1289,7 +1289,7 @@ theorem readProject_spec {T t : List (Event L E)} {dir treeDir : FilePath} {sysr
           have houtside : outside = true := by simpa using hout
           subst houtside
           have hstart := o1 rfl
-          rw [if_neg (by simp)] at h₁₃
+          rw [ite_eq_right (by simp)] at h₁₃
           split at h₁₃
           · rename_i hnotApart
             obtain ⟨rfl, rfl⟩ := runs_attempt_pure_iff.mp h₁₃

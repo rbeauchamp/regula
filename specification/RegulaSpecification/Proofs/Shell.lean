@@ -238,7 +238,7 @@ theorem buildAndReplay_spec {sysroot : String} {tree : FilePath} {t : List (Even
   | true =>
     have hr : r = .ok 0 := hc.mp rfl
     subst hr
-    rw [if_pos rfl] at h₄
+    rw [ite_eq_left rfl] at h₄
     have hsecond : ∃ args, (if System.Platform.isOSX then ["check", "--inadvisably-no-sandbox"] else ["check"]) =
         "check" :: args := by
       split
@@ -493,7 +493,7 @@ theorem gateIn_spec {p : Regula.Closed.Profile} {dir tree : FilePath} {t : List 
                 lines := ⟨hlines, by simpa using b1.2.1⟩, readActs := hacts,
                 gateActs := by simpa using b1.2.2 }
       | true =>
-        rw [if_pos rfl] at h₆
+        rw [ite_eq_left rfl] at h₆
         obtain ⟨t₇, t₈, v, rfl, h₇, h₈⟩ := runs_seq_iff.mp h₆
         obtain ⟨rfl, rfl⟩ := runs_pure_iff.mp h₈
         simp only [List.append_nil] at h₇ ⊢
@@ -664,7 +664,7 @@ theorem profileOfRun_lean {version commit : String} {a : List String}
     cases hx : supportsLean version commit with
     | false => rfl
     | true => exact absurd ((supportsLean_iff (version, commit)).mp hx) h
-  exact ⟨_, by unfold profileOfRun; rw [if_pos (by simp [hs])]⟩
+  exact ⟨_, by unfold profileOfRun; rw [ite_eq_left (by simp [hs])]⟩
 
 /-- A text that is no profile is refused, whatever the Lean. -/
 theorem profileOfRun_text {version commit text : String}

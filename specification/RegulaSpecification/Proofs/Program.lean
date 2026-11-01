@@ -150,35 +150,59 @@ theorem executed_meets (table : (o : Op L E) → BaseIO (Resp o)) (args : List S
 one call of a row of `LakeCalls`, or `spawnLake` and `importParsers`, which `spawnLake_eq` and `importParsers_eq` state. No
 row holds a test or a branch. This is the closed form of "so thin that it only calls Lean" for this table. -/
 inductive Row (enable : BaseIO Unit) (lake : LakeCalls L) : (o : Op L Environment) → BaseIO (Resp o) → Prop where
+  /-- Lean's own constants. -/
   | leanVersion : Row enable lake .leanVersion (pure (Lean.versionString, Lean.githash))
+  /-- `IO.getEnv`. -/
   | getEnv {name} : Row enable lake (.getEnv name) (IO.getEnv name)
+  /-- `IO.appPath`. -/
   | appPath : Row enable lake .appPath IO.appPath.toBaseIO
+  /-- `IO.FS.realPath`. -/
   | realPath {p} : Row enable lake (.realPath p) (IO.FS.realPath p).toBaseIO
+  /-- `IO.FS.readFile`. -/
   | readFile {p} : Row enable lake (.readFile p) (IO.FS.readFile p).toBaseIO
+  /-- `System.FilePath.symlinkMetadata`. -/
   | symlinkMetadata {p} : Row enable lake (.symlinkMetadata p) p.symlinkMetadata.toBaseIO
+  /-- `IO.FS.writeFile`. -/
   | writeFile {p text} : Row enable lake (.writeFile p text) (IO.FS.writeFile p text).toBaseIO
+  /-- `IO.FS.createDirAll`. -/
   | createDirAll {p} : Row enable lake (.createDirAll p) (IO.FS.createDirAll p).toBaseIO
+  /-- `IO.FS.createTempDir`. -/
   | createTempDir : Row enable lake .createTempDir IO.FS.createTempDir.toBaseIO
+  /-- `IO.FS.removeDirAll`. -/
   | removeDirAll {p} : Row enable lake (.removeDirAll p) (IO.FS.removeDirAll p).toBaseIO
+  /-- `IO.println`. -/
   | println {text} : Row enable lake (.println text) (IO.println text).toBaseIO
+  /-- The flush of standard output. -/
   | flush : Row enable lake .flush (do (← IO.getStdout).flush : IO Unit).toBaseIO
+  /-- `Lean.Parser.parseHeader`, and what its header imports. -/
   | parseHeader {input} : Row enable lake (.parseHeader input)
       (do
         let (header, state, messages) ← Lean.Parser.parseHeader input
         return (header.raw, state, messages, Lean.Elab.HeaderSyntax.imports header) :
         IO (Lean.Syntax × Lean.Parser.ModuleParserState × Lean.MessageLog × Array Lean.Import)).toBaseIO
+  /-- `Lean.Parser.parseCommand`. -/
   | parseCommand {input env state messages} : Row enable lake (.parseCommand input env state messages)
       (pure (Lean.Parser.parseCommand input { env, options := {} } state messages))
+  /-- The set of `Lean.searchPathRef`. -/
   | setSearchPath {p} : Row enable lake (.setSearchPath p) (Lean.searchPathRef.set p)
+  /-- `Lean.findOLean`. -/
   | findOLean {m} : Row enable lake (.findOLean m) (Lean.findOLean m).toBaseIO
+  /-- `Lean.importModules`, for the rules. -/
   | importForRules {ms} : Row enable lake (.importForRules ms)
       (Lean.importModules (ms.map ({ module := · })) {} (loadExts := false) (level := .private)).toBaseIO
+  /-- `Lean.importModules`, for the parser. -/
   | importForParser {ms} : Row enable lake (.importForParser ms) (importParsers enable ms).toBaseIO
+  /-- Lake's row. -/
   | parseToml {input} : Row enable lake (.parseToml input) (lake.parseToml input)
+  /-- Lake's row. -/
   | lakeInstall {s} : Row enable lake (.lakeInstall s) (lake.lakeInstall s)
+  /-- Lake's row. -/
   | loadWorkspace {s d} : Row enable lake (.loadWorkspace s d) (lake.loadWorkspace s d)
+  /-- Lake's row. -/
   | loadRoot {s d} : Row enable lake (.loadRoot s d) (lake.loadRoot s d)
+  /-- Lake's row. -/
   | libModules {l} : Row enable lake (.libModules l) (lake.libModules l)
+  /-- `spawnLake`. -/
   | runLake {program cwd args} : Row enable lake (.runLake program cwd args)
       (spawnLake program cwd args).toBaseIO
 

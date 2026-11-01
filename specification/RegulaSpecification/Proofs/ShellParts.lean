@@ -224,7 +224,7 @@ theorem loadPlain_spec {T t : List (Event L E)} {p : Regula.Closed.Profile}
               · exact .inl ⟨root, f, roots, hb, he⟩
               · exact .inr (.inl hf)
             · intro x hx
-              simp only [List.cons_append, List.nil_append, List.append_nil, List.mem_cons, or_assoc] at hx
+              simp only [List.cons_append, List.nil_append, List.append_nil, List.mem_cons] at hx
               rcases hx with rfl | rfl | rfl | rfl | rfl | hx
               · rfl
               · rfl
@@ -278,7 +278,7 @@ theorem loadTree_spec {T t : List (Event L E)} {sysroot : String} {tree : FilePa
       · rcases o1 with ⟨f, roots, hb, he⟩ | hf
         · exact .inl ⟨root, f, roots, hb, he⟩
         · exact .inr (.inl hf)
-      · simp only [List.cons_append, List.nil_append, List.append_nil, List.mem_cons, or_assoc] at hx
+      · simp only [List.cons_append, List.nil_append, List.append_nil, List.mem_cons] at hx
         rcases hx with rfl | rfl | hx
         · rfl
         · rfl

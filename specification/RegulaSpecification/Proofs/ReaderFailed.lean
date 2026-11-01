@@ -294,7 +294,7 @@ theorem readFiles_no_failed {project tree : FilePath} {root : Root L} {modules :
           cases he
           rfl
     refine ⟨fun e he => ?_, htf⟩
-    simp only [List.cons_append, List.nil_append, List.append_assoc, List.mem_cons, List.mem_append] at he
+    simp only [List.cons_append, List.nil_append, List.mem_cons, List.mem_append] at he
     rcases he with rfl | he | he | he
     · exact id
     · exact sound_realPaths _ _ _ h₄ e he
