@@ -3,6 +3,7 @@ Copyright (c) 2026 Regula contributors. All rights reserved.
 Released under MIT license as described in the file LICENSE.
 Authors: Regula contributors
 -/
+import Lean.Data.Name
 import LeanIntent.Record
 import LeanIntent.Obligations
 import LeanIntent.Progress
@@ -62,14 +63,14 @@ def TargetOf (as : Array Syntax) (n : Name) : Prop :=
 
 /-- The components of a target of `namespace` or `open`, with any leading `_root_` removed. -/
 def targetComponents (n : Name) : List Name :=
-  (components n).dropWhile (· = `_root_)
+  n.components.dropWhile (· = `_root_)
 
 /-- From some namespace, a command with the target `n` can activate the namespace `N`: Lean tries the
 target under each enclosing and open namespace, and `namespace A.B` enters `A` first. So some non-empty
 start of the target is an end of `N`, by whole components. -/
 def CanActivate (N n : Name) : Prop :=
   ∃ i, 0 < i ∧ i ≤ (targetComponents n).length ∧
-    (targetComponents n).take i <:+ components N
+    (targetComponents n).take i <:+ N.components
 
 /-- What one node may be: its kind is in the closed set, and each kind that names something Lean reads
 as code or as parser state names only what its own table holds. -/
@@ -124,10 +125,10 @@ def ConfigClosed (r : Reading) : Prop :=
   r.toolchainFile = some leanToolchain ∧ r.leanConfig = false ∧ r.openPaths = [] ∧
     ∀ k ∈ r.configKeys, k.getRoot ≠ `require → ConfigKeyAdmitted k
 
-/-- The checker started outside the project's Lake, and everything was read. What lies under the project's
+/-- Everything was read. What lies under the project's
 `.lake` is nothing the gate uses: each child process works in a tree the checker made, from what it read. -/
 def ReadInFull (r : Reading) : Prop :=
-  r.outside = true ∧ r.unread = []
+  r.unread = []
 
 /-- `rel` is what `path` holds below `base`, and no component of it starts with `.`, so that joining `rel`
 to either the project or the checker's tree stays below it, whatever a project named. -/
@@ -186,7 +187,7 @@ def languageRecord : IntentRecord (Reading → Outcome) where
   props := [
     ⟨"another toolchain, a lakefile.lean, a source directory or a globs entry outside the closed domain, or a Lake key outside the closed set is refused",
       fun d => ∀ r, ¬ ConfigClosed r → d r = .refused⟩,
-    ⟨"a checker the project's Lake started or a failure to read is incomplete",
+    ⟨"a failure to read is incomplete",
       fun d => ∀ r, ConfigClosed r → ¬ ReadInFull r → d r = .incomplete⟩,
     ⟨"a project with a dependency has only the proof verdict",
       fun d => ∀ r, ConfigClosed r → ReadInFull r → RequiresDependency r → d r = .proofOnly⟩,
@@ -295,7 +296,7 @@ def goodFile : FileRead :=
 
 /-- A project of one such file. -/
 def goodReading : Reading :=
-  { outside := true, toolchainFile := some leanToolchain, leanConfig := false,
+  { toolchainFile := some leanToolchain, leanConfig := false,
     configKeys := [`name], openPaths := [], roots := [`Good], reached := [`Good],
     files := [goodFile], unread := [] }
 
@@ -377,7 +378,7 @@ theorem no_dependency_of_goodKeys {r : Reading} (hk : r.configKeys = [`name]) :
   exact absurd hr (by decide)
 
 theorem goodReading_inside : Inside goodReading := by
-  refine ⟨closed_of_goodKeys rfl rfl rfl rfl, ⟨rfl, rfl⟩, no_dependency_of_goodKeys rfl, ?_, ?_, ?_⟩
+  refine ⟨closed_of_goodKeys rfl rfl rfl rfl, rfl, no_dependency_of_goodKeys rfl, ?_, ?_, ?_⟩
   · rintro ⟨m, hm, hr⟩
     have : m = `Good := by simpa [goodReading] using hm
     subst this
@@ -399,8 +400,8 @@ theorem goodReading_inside : Inside goodReading := by
 /-- `goodReading` with a `lakefile.lean`. -/
 def leanConfigReading : Reading := { goodReading with leanConfig := true }
 
-/-- `goodReading` from a checker that the project's Lake started. -/
-def insideReading : Reading := { goodReading with outside := false }
+/-- `goodReading` with a module left unread. -/
+def unreadReading : Reading := { goodReading with unread := [(`Good, "unread")] }
 
 /-- `goodReading` with a dependency. -/
 def requireReading : Reading := { goodReading with configKeys := [`name, `require.name] }
@@ -447,7 +448,7 @@ theorem language_o2Run : O2Run languageRecord := o2Run_of_meets modelDecision_me
 
 theorem good_closed : ConfigClosed goodReading := closed_of_goodKeys rfl rfl rfl rfl
 
-theorem good_full : ReadInFull goodReading := ⟨rfl, rfl⟩
+theorem good_full : ReadInFull goodReading := rfl
 
 theorem good_no_dependency : ¬ RequiresDependency goodReading := goodReading_inside.2.2.1
 
@@ -521,16 +522,16 @@ theorem language_o3 : O3 languageRecord := by
   rcases hp with rfl | rfl | rfl | rfl | rfl | rfl | rfl
   · exact ⟨fun _ => .admitted, fun h => absurd (h leanConfigReading leanConfig_not_closed) (by decide)⟩
   · exact ⟨fun _ => .admitted, fun h => absurd
-      (h insideReading (c rfl rfl rfl rfl) fun hf => by simpa [insideReading] using hf.1) (by decide)⟩
+      (h unreadReading (c rfl rfl rfl rfl) fun hf => by simp [unreadReading, ReadInFull] at hf) (by decide)⟩
   · exact ⟨fun _ => .admitted, fun h => absurd
-      (h requireReading require_closed ⟨rfl, rfl⟩ require_requires) (by decide)⟩
+      (h requireReading require_closed rfl require_requires) (by decide)⟩
   · exact ⟨fun _ => .admitted, fun h => absurd
-      (h mathlibReading (c rfl rfl rfl rfl) ⟨rfl, rfl⟩ (n rfl) mathlib_reached) (by decide)⟩
+      (h mathlibReading (c rfl rfl rfl rfl) rfl (n rfl) mathlib_reached) (by decide)⟩
   · exact ⟨fun _ => .admitted, fun h => absurd
-      (h noClaimReading (c rfl rfl rfl rfl) ⟨rfl, rfl⟩ (n rfl)
+      (h noClaimReading (c rfl rfl rfl rfl) rfl (n rfl)
         (not_mathlib_of_reached (by simp [noClaimReading])) noClaim_not_covered) (by decide)⟩
   · exact ⟨fun _ => .admitted, fun h => absurd
-      (h badFileReading (c rfl rfl rfl rfl) ⟨rfl, rfl⟩ (n rfl)
+      (h badFileReading (c rfl rfl rfl rfl) rfl (n rfl)
         (not_mathlib_of_reached (by simp [badFileReading, goodReading])) badFile_covered
         badFile_refused) (by decide)⟩
   · exact ⟨fun _ => .refused, fun h => absurd
@@ -600,14 +601,6 @@ theorem refused_config_keys :
 
 /-- No key of the closed set has the root `require`, so a dependency is never read as an admitted key. -/
 theorem configKeys_no_require : ∀ k ∈ configKeys, k.getRoot ≠ `require := by decide +kernel
-
-/-- A reading from a checker that the project's Lake started is never admitted, whatever else it holds.
-A decision that meets the record gives such a reading no full verdict. -/
-theorem started_inside_not_admitted {d : Reading → Outcome} (h : languageRecord.Meets d) (r : Reading)
-    (hr : r.outside = false) : d r ≠ .admitted := by
-  intro ha
-  have := ((admitted_iff h r).mp ha).2.1.1
-  simp [hr] at this
 
 /-- A source directory or a `globs` entry that `openPaths` names is refused, whatever else the reading
 holds. -/

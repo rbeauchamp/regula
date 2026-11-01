@@ -96,13 +96,27 @@ def Event.isOnlySaying : Event L E → Bool
   | ⟨.flush, _⟩ => true
   | _ => false
 
-/-- A path by its components, with `.` removed. -/
+/-- A path by its components: what Lean's `FilePath.normalize` and `FilePath.components` give, with each empty one and each `.` removed. A
+`..` stays. This reads the text of a path, and no file system. -/
 abbrev parts (p : FilePath) : List String :=
-  Regula.Load.exactParts p
+  p.normalize.components.filter fun c => c != "" && c != "."
+
+/-- The name that the run gives Lean's parser for the file at a path: its components, joined. It labels messages and selects nothing. -/
+abbrev inputNameOf (p : FilePath) : String :=
+  "/".intercalate (parts p)
 
 /-- `path` lies at or below `dir`, by components. -/
 def AtOrBelow (dir path : FilePath) : Prop :=
   parts dir <+: parts path
+
+/-- `path` lies below `dir`, by components, and is not `dir`. -/
+abbrev StrictlyBelow (dir path : FilePath) : Prop :=
+  parts dir <+: parts path ∧ parts dir ≠ parts path
+
+/-- `real`, the real path that the operating system answered for `path`, has the components of `path`, and `path` lies at or below `dir`. So
+`path` crossed no link, by that answer, and holds no `..`. -/
+abbrev ExactlyBelow (dir path real : FilePath) : Prop :=
+  parts real = parts path ∧ AtOrBelow dir path
 
 /-- The path of the components `rel` below `dir`. -/
 def under (dir : FilePath) (rel : List String) : FilePath :=
@@ -119,7 +133,7 @@ def Event.leaves (e : Event L E) (p : List String) (held : Option String) : Opti
   match e.op with
   | .writeFile q text => if parts q = p then some text else held
   | .removeDirAll q => if (parts q).isPrefixOf p then none else held
-  | .leanVersion | .getEnv _ | .appPath | .realPath _ | .readFile _ | .symlinkMetadata _
+  | .leanVersion | .getEnv _ | .realPath _ | .readFile _ | .symlinkMetadata _
   | .createDirAll _ | .createTempDir | .println _ | .flush | .parseHeader _ | .parseCommand ..
   | .setSearchPath _ | .findOLean _ | .importForRules _ | .importForParser _ | .parseToml _
   | .lakeInstall _ | .loadWorkspace .. | .loadRoot .. | .libModules _ | .runLake .. => held
@@ -139,7 +153,7 @@ either, because no verdict rests on it. Whether a failure justifies a result is 
 state, which bind it to the requested build. -/
 def Event.failed : Event L E → Prop
   | ⟨.getEnv _, r⟩ => r = (none : Option String)
-  | ⟨.appPath, r⟩ | ⟨.realPath _, r⟩ | ⟨.findOLean _, r⟩ | ⟨.createTempDir, r⟩ =>
+  | ⟨.realPath _, r⟩ | ⟨.findOLean _, r⟩ | ⟨.createTempDir, r⟩ =>
     ∃ e, r = (Except.error e : Except IO.Error FilePath)
   | ⟨.readFile _, r⟩ => ∃ e, r = (Except.error e : Except IO.Error String)
   | ⟨.writeFile .., r⟩ | ⟨.createDirAll _, r⟩ => ∃ e, r = (Except.error e : Except IO.Error Unit)
@@ -188,10 +202,10 @@ def ReadText (t : List (Event L E)) (project tree : FilePath) (f : FileRead) (pa
     TreeRelative (parts tree) (parts path) rel ∧
     parts real = parts (under project rel) ∧ parts project <+: parts (under project rel) ∧
     ([⟨.realPath (under project rel), .ok real⟩, ⟨.readFile (under project rel), .ok text⟩,
-      ⟨.parseHeader (mkInputContext text (Regula.Load.inputName path)), .ok (f.header, state, messages, imports)⟩] :
+      ⟨.parseHeader (mkInputContext text (inputNameOf path)), .ok (f.header, state, messages, imports)⟩] :
         List (Event L E)).Sublist t ∧
     (⟨.importForParser mods, .ok (env, f.scopedParsers)⟩ : Event L E) ∈ t ∧
-    Parsed (mkInputContext text (Regula.Load.inputName path)) env ((mkInputContext text (Regula.Load.inputName path)).inputString.utf8ByteSize + 1)
+    Parsed (mkInputContext text (inputNameOf path)) env ((mkInputContext text (inputNameOf path)).inputString.utf8ByteSize + 1)
       state messages f.commands final commands ∧
     commands.Sublist t ∧
     f.parsed = !final.hasErrors
@@ -218,13 +232,9 @@ inductive DefaultModules (t : List (Event L E)) (root : Root L) :
   | other {target targets modules} : root.findLib target = none → root.findExe target = none →
       DefaultModules t root targets modules → DefaultModules t root (target :: targets) modules
 
-/-- `n` is the toolchain's own module by this run's responses: Lean's search found its `.olean`, whose real
-path lies below the real path of a directory of the toolchain's library. -/
-def HeldByToolchain (t : List (Event L E)) (root : Root L) (n : Name) : Prop :=
-  ∃ olean real dir dirReal,
-    ([⟨.findOLean n, .ok olean⟩, ⟨.realPath olean, .ok real⟩] : List (Event L E)).Sublist t ∧
-    dir ∈ root.toolchain ∧ (⟨.realPath dir, .ok dirReal⟩ : Event L E) ∈ t ∧
-    Regula.Load.below dirReal real = true
+/-- `n` is the toolchain's own module by this run's responses: Lean's search, on the search path that `ReadingLoaded` has the run set to the toolchain's library, found its `.olean`. -/
+def HeldByToolchain (t : List (Event L E)) (n : Name) : Prop :=
+  ∃ olean, (⟨.findOLean n, .ok olean⟩ : Event L E) ∈ t
 
 /-- What Lake compiles for the claim: the modules of the default targets with their files, each module
 that the imports of what it compiles reach and that Lake's resolution of an import gives a file for, and the file

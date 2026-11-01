@@ -98,7 +98,7 @@ theorem read_what_lake_compiles {t : List (Event L E)} {dir tree : FilePath} {he
       ∀ (B : LakeBehaviour headers root modules) m path, B.Compiles m path →
         ∃ f ∈ r.files, f.module = m ∧ ∃ imports mods text, ReadText t project real f path imports mods text ∧
           held (parts path) = some text := by
-  obtain ⟨project, real, hp, -, -, -, -, -, -, -, -, -, sysroot, root, log, modules, -, hl, hd, -, -, -, -, -, -, headers, -, -, -,
+  obtain ⟨project, real, hp, -, -, -, -, -, -, -, -, sysroot, root, log, modules, -, hl, hd, -, -, -, -, -, -, headers, -, -, -,
     hc, -⟩ := h
   refine ⟨project, real, sysroot, root, log, modules, headers, hp, hl, hd, fun B m path hb => ?_⟩
   obtain ⟨-, f, hf, hm, i, md, tx, -, hra, hst⟩ := hc m path (B.h3 m path hb)

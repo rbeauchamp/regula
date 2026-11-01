@@ -165,8 +165,6 @@ inductive Row (enable : BaseIO Unit) (lake : LakeCalls L) : (o : Op L Environmen
   | leanVersion : Row enable lake .leanVersion (pure (Lean.versionString, Lean.githash))
   /-- `IO.getEnv`. -/
   | getEnv {name} : Row enable lake (.getEnv name) (IO.getEnv name)
-  /-- `IO.appPath`. -/
-  | appPath : Row enable lake .appPath IO.appPath.toBaseIO
   /-- `IO.FS.realPath`. -/
   | realPath {p} : Row enable lake (.realPath p) (IO.FS.realPath p).toBaseIO
   /-- `IO.FS.readFile`. -/
@@ -222,12 +220,12 @@ theorem table_rows (enable : BaseIO Unit) (lake : LakeCalls L) (o : Op L Environ
     Row enable lake o (table enable lake o) := by
   cases o <;> constructor
 
-/-- `spawnLake` starts the command and waits for it: two calls, with no test. -/
+/-- `spawnLake` starts the command, through `env -i` with these two variables and no other, and waits for it: two calls, with no test. -/
 theorem spawnLake_eq (program cwd : FilePath) (args : List String) :
     spawnLake program cwd args = (do
       let child ← IO.Process.spawn
-        { cmd := program.toString, args := args.toArray, cwd := some cwd, stdin := .null,
-          env := #[("LEAN_PATH", none), ("LEAN_SRC_PATH", none), ("LAKE_ARTIFACT_CACHE", some "false")] }
+        { cmd := "/usr/bin/env", args := #["-i", "PATH=/usr/bin:/bin", "LAKE_ARTIFACT_CACHE=false", program.toString] ++ args.toArray,
+          cwd := some cwd, stdin := .null }
       child.wait) := rfl
 
 /-- `importParsers` enables Lean's initializers and imports: two calls, with no test, and it reads the scoped parsers of

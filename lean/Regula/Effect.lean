@@ -69,8 +69,6 @@ inductive Op (L E : Type) where
   | leanVersion
   /-- An environment variable. -/
   | getEnv (name : String)
-  /-- The path of this program. -/
-  | appPath
   /-- The real path of a path. -/
   | realPath (path : FilePath)
   /-- The text of a file. -/
@@ -118,7 +116,6 @@ inductive Op (L E : Type) where
 @[expose] def Resp {L E : Type} : Op L E → Type
   | .leanVersion => String × String
   | .getEnv _ => Option String
-  | .appPath => Except IO.Error FilePath
   | .realPath _ => Except IO.Error FilePath
   | .readFile _ => Except IO.Error String
   | .symlinkMetadata _ => Except IO.Error IO.FS.Metadata

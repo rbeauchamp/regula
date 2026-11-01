@@ -163,16 +163,13 @@ theorem only_noOtherConfig (tree : FilePath) : OnlyA (noOtherConfig tree : Attem
     · exact onlyA_throw _
     · exact onlyA_pure _
 
-theorem only_toolchainOLean (dirs : List FilePath) (m : Name) : OnlyA (toolchainOLean dirs m : Attempt L E _) := by
+theorem only_toolchainOLean (m : Name) : OnlyA (toolchainOLean m : Attempt L E _) := by
   rw [toolchainOLean]
-  refine onlyA_seq (onlyA_attempt (only_call trivial)) fun _ => onlyA_seq (only_realPath _) fun _ => ?_
-  split
-  · exact onlyA_pure _
-  · exact onlyA_throw _
+  exact onlyA_seq (onlyA_attempt (only_call trivial)) fun _ => onlyA_pure _
 
 theorem only_walk (project tree : FilePath) (root : Root L) (modules : List (Name × FilePath))
-    (dirs : List FilePath) (fuel : Nat) (todo : List Name) (w : Walk) :
-    Only (walk project tree root modules dirs fuel todo w : Prog L E Walk) := by
+    (fuel : Nat) (todo : List Name) (w : Walk) :
+    Only (walk project tree root modules fuel todo w : Prog L E Walk) := by
   induction fuel generalizing todo w with
   | zero =>
     cases todo with
@@ -194,7 +191,7 @@ theorem only_walk (project tree : FilePath) (root : Root L) (modules : List (Nam
               cases r with
               | ok s => exact ih _ _
               | error e => exact ih _ _
-            · refine only_seq (only_toolchainOLean _ _) fun r => ?_
+            · refine only_seq (only_toolchainOLean _) fun r => ?_
               cases r with
               | ok s => exact ih _ _
               | error e => exact ih _ _
@@ -239,80 +236,61 @@ theorem only_defaultModules (root : Root L) (targets : List Name) :
     · exact onlyA_seq (onlyA_attempt (only_call trivial)) fun _ => onlyA_pure _
     · split <;> exact onlyA_pure _
 
-theorem only_realPaths (paths : List FilePath) : OnlyA (realPaths paths : Attempt L E _) := by
-  induction paths with
-  | nil => rw [realPaths]; exact onlyA_pure _
-  | cons p ps ih =>
-    rw [realPaths]
-    exact onlyA_seq (only_realPath _) fun _ => onlyA_seq ih fun _ => onlyA_pure _
-
 theorem only_readProject (sysroot : String) (dir treeDir : FilePath) :
     OnlyA (read sysroot dir treeDir : Attempt L E _) := by
   unfold Regula.Reader.read
   refine onlyA_seq ?_ fun _ => onlyA_pure _
   rw [readProject]
   refine onlyA_seq (only_realPath _) fun project => onlyA_seq (only_realPath _) fun tree =>
-    onlyA_seq (onlyA_lift (only_call trivial)) fun x => ?_
-  obtain ⟨program, lakeLib⟩ := x
-  dsimp only
-  refine onlyA_seq ?_ fun _ => onlyA_seq (onlyA_lift ?_) fun tf => ?_
-  · rw [startedOutside]
-    refine onlyA_seq (onlyA_attempt (only_call trivial)) fun _ => onlyA_seq (only_realPath _) fun _ =>
-      onlyA_seq ?_ fun _ => onlyA_pure _
-    rw [requireEnv]
-    refine only_seq (only_call trivial) fun r => ?_
-    cases r <;> exact only_pure _
+    onlyA_seq (onlyA_lift ?_) fun tf => ?_
   · rw [toolchainOf]
     refine only_seq (only_readExact _ _) fun r => ?_
     cases r <;> exact only_pure _
   · split
     · exact onlyA_pure _
-    · split
-      · exact onlyA_pure _
-      · rw [readConfig]
-        refine onlyA_seq ?_ fun present => ?_
-        · rw [existsByName]
-          refine only_seq (only_call trivial) fun r => ?_
+    · rw [readConfig]
+      refine onlyA_seq ?_ fun present => ?_
+      · rw [existsByName]
+        refine only_seq (only_call trivial) fun r => ?_
+        cases r with
+        | ok _ => exact only_pure _
+        | error e =>
+          cases e <;> exact only_pure _
+      · split
+        · exact onlyA_pure _
+        · refine onlyA_seq (onlyA_lift (only_readExact _ _)) fun r => ?_
           cases r with
-          | ok _ => exact only_pure _
-          | error e =>
-            cases e <;> exact only_pure _
-        · split
-          · exact onlyA_pure _
-          · refine onlyA_seq (onlyA_lift (only_readExact _ _)) fun r => ?_
+          | error e => exact onlyA_pure _
+          | ok text =>
+            dsimp only
+            rw [readKeys]
+            refine onlyA_seq (onlyA_lift (only_call trivial)) fun r => ?_
             cases r with
             | error e => exact onlyA_pure _
-            | ok text =>
+            | ok table =>
               dsimp only
-              rw [readKeys]
-              refine onlyA_seq (onlyA_lift (only_call trivial)) fun r => ?_
-              cases r with
-              | error e => exact onlyA_pure _
-              | ok table =>
-                dsimp only
-                split
-                · exact onlyA_pure _
-                · refine onlyA_seq (only_writeInTree _ _ _) fun _ => onlyA_seq (only_writeInTree _ _ _) fun _ => ?_
-                  rw [readRoot]
-                  refine onlyA_seq ?_ fun root => ?_
-                  · refine only_seq (only_call trivial) fun _ => only_pure _
-                  · dsimp only
+              split
+              · exact onlyA_pure _
+              · refine onlyA_seq (only_writeInTree _ _ _) fun _ => onlyA_seq (only_writeInTree _ _ _) fun _ => ?_
+                rw [readRoot]
+                refine onlyA_seq ?_ fun root => ?_
+                · refine only_seq (only_call trivial) fun _ => only_pure _
+                · dsimp only
+                  split
+                  · exact onlyA_pure _
+                  · refine onlyA_seq (only_defaultModules _ _) fun modules => ?_
+                    try dsimp only
                     split
                     · exact onlyA_pure _
-                    · refine onlyA_seq (only_defaultModules _ _) fun modules => ?_
-                      try dsimp only
+                    · rw [readFiles]
+                      refine onlyA_seq (onlyA_lift (only_call trivial)) fun _ =>
+                        onlyA_seq (onlyA_lift (only_walk _ _ _ _ _ _ _)) fun w => ?_
+                      dsimp only
                       split
                       · exact onlyA_pure _
-                      · rw [readFiles]
-                        refine onlyA_seq (onlyA_lift (only_call trivial)) fun _ =>
-                          onlyA_seq (only_realPaths _) fun _ =>
-                            onlyA_seq (onlyA_lift (only_walk _ _ _ _ _ _ _ _)) fun w => ?_
-                        dsimp only
+                      · refine onlyA_seq (only_parseFiles _ _ _ _) fun _ => ?_
                         split
+                        · exact onlyA_seq (only_writeSources _ _) fun _ => onlyA_seq (only_readBack _) fun _ => onlyA_seq (only_noOtherConfig _) fun _ => onlyA_pure _
                         · exact onlyA_pure _
-                        · refine onlyA_seq (only_parseFiles _ _ _ _) fun _ => ?_
-                          split
-                          · exact onlyA_seq (only_writeSources _ _) fun _ => onlyA_seq (only_readBack _) fun _ => onlyA_seq (only_noOtherConfig _) fun _ => onlyA_pure _
-                          · exact onlyA_pure _
 
 end RegulaSpecification.Effects

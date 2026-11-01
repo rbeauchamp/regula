@@ -120,21 +120,10 @@ theorem sound_readBack (l : List (FilePath × String)) : Sound (readBack l : Att
       · exact ih
       · exact sound_throw _
 
-theorem sound_toolchainOLean (dirs : List FilePath) (m : Name) :
-    Sound (toolchainOLean dirs m : Attempt L E _) := by
+theorem sound_toolchainOLean (m : Name) : Sound (toolchainOLean m : Attempt L E _) := by
   rw [toolchainOLean]
-  refine sound_seq ?_ fun _ => sound_seq (sound_realPath _) fun _ => ?_
-  · sound_io
-  · split
-    · exact sound_pure _
-    · exact sound_throw _
-
-theorem sound_realPaths (paths : List FilePath) : Sound (realPaths paths : Attempt L E _) := by
-  induction paths with
-  | nil => rw [realPaths]; exact sound_pure _
-  | cons p ps ih =>
-    rw [realPaths]
-    exact sound_seq (sound_realPath _) fun _ => sound_seq ih fun _ => sound_pure _
+  refine sound_seq ?_ fun _ => sound_pure _
+  sound_io
 
 theorem sound_defaultModules (root : Root L) (targets : List Name) :
     Sound (defaultModules root targets : Attempt L E _) := by
@@ -187,8 +176,8 @@ theorem sound_parseFiles (sources : List (Name × Source)) (toolchain : List Nam
 
 /-- What a walk that left nothing unread asked did not fail, and it started with nothing unread. -/
 theorem walk_no_failed (project tree : FilePath) (root : Root L) (modules : List (Name × FilePath))
-    (dirs : List FilePath) (fuel : Nat) (todo : List Name) (w w' : Walk) (t : List (Event L E))
-    (h : Runs (walk project tree root modules dirs fuel todo w) t w') (hu : w'.unread = []) :
+    (fuel : Nat) (todo : List Name) (w w' : Walk) (t : List (Event L E))
+    (h : Runs (walk project tree root modules fuel todo w) t w') (hu : w'.unread = []) :
     w.unread = [] ∧ ∀ e ∈ t, ¬ e.failed := by
   induction fuel generalizing todo w t with
   | zero =>
@@ -235,7 +224,7 @@ theorem walk_no_failed (project tree : FilePath) (root : Root L) (modules : List
                 obtain ⟨h1, h2⟩ := ih _ _ _ h₂
                 refine ⟨h1, fun e he => ?_⟩
                 rcases List.mem_append.mp he with he | he
-                · exact sound_toolchainOLean _ _ _ _ h₁ e he
+                · exact sound_toolchainOLean _ _ _ h₁ e he
                 · exact h2 e he
               | error x =>
                 have := (ih _ _ _ h₂).1
@@ -248,9 +237,9 @@ open RegulaSpecification.Language
 /-- What an admitted reading holds of its own fields. -/
 theorem admitted_fields {r : Reading} (h : decision r = .admitted) :
     r.toolchainFile = some leanToolchain ∧ r.leanConfig = false ∧ r.openPaths = [] ∧ r.unread = [] ∧
-      r.outside = true ∧ ¬ MathlibReached r ∧ ¬ RequiresDependency r := by
-  obtain ⟨⟨h1, h2, h3, -⟩, ⟨h5, h6⟩, h7, h8, -⟩ := (decision_admitted_iff r).mp h
-  exact ⟨h1, h2, h3, h6, h5, h8, h7⟩
+      ¬ MathlibReached r ∧ ¬ RequiresDependency r := by
+  obtain ⟨⟨h1, h2, h3, -⟩, h6, h7, h8, -⟩ := (decision_admitted_iff r).mp h
+  exact ⟨h1, h2, h3, h6, h8, h7⟩
 
 /-- A reading that stopped with a reason is not admitted. -/
 theorem stopped_not_admitted {tf : Option String} {l : Bool} {k : List Name} {why : String} :
@@ -268,69 +257,64 @@ theorem readFiles_no_failed {config : List (FilePath × String)} {project tree :
   obtain ⟨t₁, t₂, r₁, rfl, h₁, h₂⟩ := runs_attempt_bind_iff.mp h
   obtain ⟨u, h₃, rfl⟩ := runs_lift_iff.mp h₁
   obtain rfl := runs_call_iff.mp h₃
-  obtain ⟨t₃, t₄, r₃, rfl, h₄, h₅⟩ := runs_attempt_bind_iff.mp h₂
-  cases r₃ with
-  | error w => cases h₅.2
-  | ok dirs =>
-    obtain ⟨t₅, t₆, r₅, rfl, h₆, h₇⟩ := runs_attempt_bind_iff.mp h₅
-    obtain ⟨w, h₈, rfl⟩ := runs_lift_iff.mp h₆
-    dsimp only at h₇
-    have hcase : (∀ e ∈ t₆, ¬ e.failed) ∧ r.unread = (baseReading config start root modules w).unread ∧
-        r.toolchainFile = start.toolchainFile := by
-      split at h₇
-      · obtain ⟨rfl, he⟩ := runs_attempt_pure_iff.mp h₇
-        cases he
-        exact ⟨fun e he => (by cases he), rfl, rfl⟩
-      · obtain ⟨t₇, t₈, r₇, rfl, h₉, h₁₀⟩ := runs_attempt_bind_iff.mp h₇
-        cases r₇ with
-        | error x => cases h₁₀.2
-        | ok files =>
-          dsimp only at h₁₀
-          split at h₁₀
-          · obtain ⟨t₉, t₁₀, r₉, rfl, h₁₁, h₁₂⟩ := runs_attempt_bind_iff.mp h₁₀
-            cases r₉ with
-            | error x => cases h₁₂.2
-            | ok v =>
-              obtain ⟨t₁₁, t₁₂, r₁₁, rfl, h₁₃, h₁₄⟩ := runs_attempt_bind_iff.mp h₁₂
-              cases r₁₁ with
-              | error x => cases h₁₄.2
-              | ok v' =>
-                obtain ⟨t₂₁, t₂₂, r₂₁, rfl, h₂₁, h₂₂⟩ := runs_attempt_bind_iff.mp h₁₄
-                obtain ⟨r₂, rfl, n1, -⟩ := noOtherConfig_spec h₂₁
-                cases r₂₁ with
-                | error x => cases h₂₂.2
-                | ok u =>
-                  obtain ⟨rfl, he⟩ := runs_attempt_pure_iff.mp h₂₂
-                  cases he
-                  refine ⟨fun e he => ?_, rfl, rfl⟩
-                  simp only [List.append_nil, List.mem_append] at he
-                  rcases he with he | he | he | he
-                  · exact sound_parseFiles _ _ _ _ _ _ h₉ e he
-                  · exact sound_writeSources _ _ _ _ h₁₁ e he
-                  · exact sound_readBack _ _ _ h₁₃ e he
-                  · obtain ⟨err, rfl, name, code, details, rfl⟩ := n1 rfl
-                    obtain rfl := List.mem_singleton.mp he
-                    rintro ⟨x, hx, hne⟩
-                    cases hx
-                    exact hne _ _ _ rfl
-          · obtain ⟨rfl, he⟩ := runs_attempt_pure_iff.mp h₁₀
-            cases he
-            refine ⟨fun e he => ?_, rfl, rfl⟩
-            simp only [List.append_nil] at he
-            exact sound_parseFiles _ _ _ _ _ _ h₉ e he
-    have hw : w.unread = [] := by
-      have := (admitted_fields ha).2.2.2.1
-      rw [hcase.2.1] at this
-      simp only [baseReading, List.append_eq_nil_iff, List.reverse_eq_nil_iff] at this
-      exact this.1.1
-    obtain ⟨-, hwalk⟩ := walk_no_failed _ _ _ _ _ _ _ _ _ _ h₈ hw
-    refine ⟨fun e he => ?_, hcase.2.2⟩
-    simp only [List.cons_append, List.nil_append, List.mem_cons, List.mem_append] at he
-    rcases he with rfl | he | he | he
-    · exact id
-    · exact sound_realPaths _ _ _ h₄ e he
-    · exact hwalk e he
-    · exact hcase.1 e he
+  obtain ⟨t₅, t₆, r₅, rfl, h₆, h₇⟩ := runs_attempt_bind_iff.mp h₂
+  obtain ⟨w, h₈, rfl⟩ := runs_lift_iff.mp h₆
+  dsimp only at h₇
+  have hcase : (∀ e ∈ t₆, ¬ e.failed) ∧ r.unread = (baseReading config start root modules w).unread ∧
+      r.toolchainFile = start.toolchainFile := by
+    split at h₇
+    · obtain ⟨rfl, he⟩ := runs_attempt_pure_iff.mp h₇
+      cases he
+      exact ⟨fun e he => (by cases he), rfl, rfl⟩
+    · obtain ⟨t₇, t₈, r₇, rfl, h₉, h₁₀⟩ := runs_attempt_bind_iff.mp h₇
+      cases r₇ with
+      | error x => cases h₁₀.2
+      | ok files =>
+        dsimp only at h₁₀
+        split at h₁₀
+        · obtain ⟨t₉, t₁₀, r₉, rfl, h₁₁, h₁₂⟩ := runs_attempt_bind_iff.mp h₁₀
+          cases r₉ with
+          | error x => cases h₁₂.2
+          | ok v =>
+            obtain ⟨t₁₁, t₁₂, r₁₁, rfl, h₁₃, h₁₄⟩ := runs_attempt_bind_iff.mp h₁₂
+            cases r₁₁ with
+            | error x => cases h₁₄.2
+            | ok v' =>
+              obtain ⟨t₂₁, t₂₂, r₂₁, rfl, h₂₁, h₂₂⟩ := runs_attempt_bind_iff.mp h₁₄
+              obtain ⟨r₂, rfl, n1, -⟩ := noOtherConfig_spec h₂₁
+              cases r₂₁ with
+              | error x => cases h₂₂.2
+              | ok u =>
+                obtain ⟨rfl, he⟩ := runs_attempt_pure_iff.mp h₂₂
+                cases he
+                refine ⟨fun e he => ?_, rfl, rfl⟩
+                simp only [List.append_nil, List.mem_append] at he
+                rcases he with he | he | he | he
+                · exact sound_parseFiles _ _ _ _ _ _ h₉ e he
+                · exact sound_writeSources _ _ _ _ h₁₁ e he
+                · exact sound_readBack _ _ _ h₁₃ e he
+                · obtain ⟨err, rfl, name, code, details, rfl⟩ := n1 rfl
+                  obtain rfl := List.mem_singleton.mp he
+                  rintro ⟨x, hx, hne⟩
+                  cases hx
+                  exact hne _ _ _ rfl
+        · obtain ⟨rfl, he⟩ := runs_attempt_pure_iff.mp h₁₀
+          cases he
+          refine ⟨fun e he => ?_, rfl, rfl⟩
+          simp only [List.append_nil] at he
+          exact sound_parseFiles _ _ _ _ _ _ h₉ e he
+  have hw : w.unread = [] := by
+    have := (admitted_fields ha).2.2.2.1
+    rw [hcase.2.1] at this
+    simp only [baseReading, List.append_eq_nil_iff, List.reverse_eq_nil_iff] at this
+    exact this.1.1
+  obtain ⟨-, hwalk⟩ := walk_no_failed _ _ _ _ _ _ _ _ _ h₈ hw
+  refine ⟨fun e he => ?_, hcase.2.2⟩
+  simp only [List.cons_append, List.nil_append, List.mem_cons, List.mem_append] at he
+  rcases he with rfl | he | he
+  · exact id
+  · exact hwalk e he
+  · exact hcase.1 e he
 
 
 theorem readRoot_no_failed {config : List (FilePath × String)} {sysroot : String} {project tree : FilePath}
@@ -460,23 +444,6 @@ theorem readConfig_no_failed {sysroot : String} {project tree : FilePath} {tf : 
         · exact sound_readExact _ _ _ _ h₅ e he
         · exact f1 e he
 
-theorem sound_startedOutside (lakeLib project : FilePath) :
-    Sound (startedOutside lakeLib project : Attempt L E _) := by
-  unfold startedOutside
-  refine sound_seq ?_ fun _ => sound_seq (sound_realPath _) fun _ => sound_seq ?_ fun _ => sound_pure _
-  · sound_io
-  · rw [requireEnv]
-    intro t a h e he
-    obtain ⟨t₁, t₂, r, rfl, h₁, h₂⟩ := runs_bind_iff.mp h
-    obtain rfl := runs_call_iff.mp h₁
-    cases r with
-    | none => cases (runs_pure_iff.mp h₂).2
-    | some v =>
-      obtain ⟨rfl, -⟩ := runs_pure_iff.mp h₂
-      simp only [List.append_nil, List.mem_singleton] at he
-      subst he
-      exact fun hn => by cases hn
-
 /-- The theorem that a failed read is never admitted, of the definition that runs: on an admission, no answer that
 the reader asked failed. So a run in which an answer failed gives no admission. -/
 theorem readProject_no_failed {sysroot : String} {dir treeDir : FilePath} {r : Reading}
@@ -492,55 +459,38 @@ theorem readProject_no_failed {sysroot : String} {dir treeDir : FilePath} {r : R
     cases r₃ with
     | error w => cases h₄.2
     | ok tree =>
-      obtain ⟨t₅, t₆, r₅, rfl, h₅, h₆⟩ := runs_attempt_bind_iff.mp h₄
-      obtain ⟨x, h₇, rfl⟩ := runs_lift_iff.mp h₅
-      obtain rfl := runs_call_iff.mp h₇
-      obtain ⟨program, lakeLib⟩ := x
-      dsimp only at h₆
-      obtain ⟨t₇, t₈, r₇, rfl, h₈, h₉⟩ := runs_attempt_bind_iff.mp h₆
-      cases r₇ with
-      | error w => cases h₉.2
-      | ok outside =>
-        have hstart := sound_startedOutside lakeLib project _ _ h₈
-        obtain ⟨t₉, t₁₀, r₉, rfl, h₁₀, h₁₁⟩ := runs_attempt_bind_iff.mp h₉
-        obtain ⟨tf, h₁₂, rfl⟩ := runs_lift_iff.mp h₁₀
-        dsimp only at h₁₁
-        rw [toolchainOf] at h₁₂
-        obtain ⟨t₁₁, t₁₂, r₁₁, rfl, h₁₃, h₁₄⟩ := runs_seq_iff.mp h₁₂
-        have hreal₁ := sound_realPath (L := L) (E := E) dir _ _ h₁
-        have hreal₂ := sound_realPath (L := L) (E := E) treeDir _ _ h₃
-        have hrest : (∀ e ∈ t₁₀, ¬ e.failed) ∧ r.toolchainFile = tf := by
-          split at h₁₁
-          · obtain ⟨-, he⟩ := runs_attempt_pure_iff.mp h₁₁
-            cases he
-            have := (admitted_fields ha).2.2.2.2.1
-            simp at this
-          · split at h₁₁
-            · obtain ⟨-, he⟩ := runs_attempt_pure_iff.mp h₁₁
-              cases he
-              exact absurd ha stopped_not_admitted
-            · exact readConfig_no_failed h₁₁ ha
-        obtain ⟨f1, f2⟩ := hrest
-        have htc : ∀ e ∈ t₁₁, ¬ e.failed := by
-          cases r₁₁ with
-          | ok text => exact sound_readExact _ _ _ _ h₁₃
-          | error why =>
-            obtain ⟨-, rfl⟩ := runs_pure_iff.mp h₁₄
-            have := (admitted_fields ha).1
-            rw [f2] at this
-            cases this
-        obtain ⟨rfl, -⟩ : t₁₂ = [] ∧ True := by
-          cases r₁₁ with
-          | ok text => exact ⟨(runs_pure_iff.mp h₁₄).1, trivial⟩
-          | error why => exact ⟨(runs_pure_iff.mp h₁₄).1, trivial⟩
-        intro e he
-        simp only [List.cons_append, List.nil_append, List.append_nil, List.mem_cons, List.mem_append] at he
-        rcases he with he | he | rfl | he | he | he
-        · exact hreal₁ e he
-        · exact hreal₂ e he
-        · exact id
-        · exact hstart e he
-        · exact htc e he
-        · exact f1 e he
+      obtain ⟨t₉, t₁₀, r₉, rfl, h₁₀, h₁₁⟩ := runs_attempt_bind_iff.mp h₄
+      obtain ⟨tf, h₁₂, rfl⟩ := runs_lift_iff.mp h₁₀
+      dsimp only at h₁₁
+      rw [toolchainOf] at h₁₂
+      obtain ⟨t₁₁, t₁₂, r₁₁, rfl, h₁₃, h₁₄⟩ := runs_seq_iff.mp h₁₂
+      have hreal₁ := sound_realPath (L := L) (E := E) dir _ _ h₁
+      have hreal₂ := sound_realPath (L := L) (E := E) treeDir _ _ h₃
+      have hrest : (∀ e ∈ t₁₀, ¬ e.failed) ∧ r.toolchainFile = tf := by
+        split at h₁₁
+        · obtain ⟨-, he⟩ := runs_attempt_pure_iff.mp h₁₁
+          cases he
+          exact absurd ha stopped_not_admitted
+        · exact readConfig_no_failed h₁₁ ha
+      obtain ⟨f1, f2⟩ := hrest
+      have htc : ∀ e ∈ t₁₁, ¬ e.failed := by
+        cases r₁₁ with
+        | ok text => exact sound_readExact _ _ _ _ h₁₃
+        | error why =>
+          obtain ⟨-, rfl⟩ := runs_pure_iff.mp h₁₄
+          have := (admitted_fields ha).1
+          rw [f2] at this
+          cases this
+      obtain ⟨rfl, -⟩ : t₁₂ = [] ∧ True := by
+        cases r₁₁ with
+        | ok text => exact ⟨(runs_pure_iff.mp h₁₄).1, trivial⟩
+        | error why => exact ⟨(runs_pure_iff.mp h₁₄).1, trivial⟩
+      intro e he
+      simp only [List.append_nil, List.mem_append] at he
+      rcases he with he | he | he | he
+      · exact hreal₁ e he
+      · exact hreal₂ e he
+      · exact htc e he
+      · exact f1 e he
 
 end RegulaSpecification.Effects

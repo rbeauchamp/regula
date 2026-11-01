@@ -5,6 +5,8 @@ Authors: Regula contributors
 -/
 import RegulaSpecification.EffectsRecord
 import RegulaSpecification.Proofs.Load
+import RegulaSpecification.Proofs.Paths
+import RegulaSpecification.Proofs.Floor
 
 /-!
 # A pass is owed
@@ -13,7 +15,7 @@ What the record of a run (`RegulaSpecification.Effects.programRecord`) requires 
 record alone. It reads no program, so it holds of each subject and not only of the one that runs.
 
 `PlainOwed` and `FullOwed` state what it takes for a build to pass, over what the run received: no case of the closed set
-of reasons holds, `FullOwed` also that no build or replay was rejected, and the environment that Lean's import gave has `LoadFloor`.
+of reasons holds, `FullOwed` also that no build or replay was rejected, and the environment that Lean's import gave has `BuildAnswer.Floor`.
 `plain_owed` and `full_owed` state that a run on such responses gives the pass verdict and exit 0.
 `plain_refused_justified` gives a reason or a missing floor; `full_refused_justified` states that a nonzero
 full run cannot meet `FullOwed`. `FullOwed` is the absence of each reason, so it says nothing by itself of who is healthy:
@@ -114,9 +116,14 @@ theorem DefaultModules.mono {root : Root L} {targets modules}
   | exe hl hx _ ih => exact .exe hl hx ih
   | other hl hx _ ih => exact .other hl hx ih
 
-theorem HeldByToolchain.mono {root : Root L} {n} (h : HeldByToolchain T root n) : HeldByToolchain T' root n := by
-  obtain ⟨o, r, d, dr, h1, h2, h3, h4⟩ := h
-  exact ⟨o, r, d, dr, h1.trans hs, h2, hs.subset h3, h4⟩
+theorem BuildAnswered.mono {root : Root L} {a : BuildAnswer} {roots : List Name}
+    (h : BuildAnswered T root a roots) : BuildAnswered T' root a roots := by
+  obtain ⟨modules, h1, h2, h3, h4, h5, h6, h7⟩ := h
+  exact ⟨modules, DefaultModules.mono hs h1, h2, h3.trans hs, h4, h5, h6, fun x hx => hs.subset (h7 x hx)⟩
+
+theorem HeldByToolchain.mono {n} (h : HeldByToolchain T n) : HeldByToolchain T' n := by
+  obtain ⟨o, h1⟩ := h
+  exact ⟨o, hs.subset h1⟩
 
 omit hs in
 theorem PreparedLoad.mono (hi : T <:+: T') {dir treeDir sysroot tree response}
@@ -176,11 +183,8 @@ theorem Needed.mono (hi : T <:+: T') {dir treeDir : FilePath} {o : Op L E}
   have m {e : Event L E} (he : e ∈ T) : e ∈ T' := hi.subset he
   cases h with
   | sysroot => exact .sysroot
-  | searchPath => exact .searchPath
   | project => exact .project
   | tree => exact .tree
-  | app => exact .app
-  | appReal h => exact .appReal (m h)
   | leanConfig h => exact .leanConfig (m h)
   | tomlReal h => exact .tomlReal (m h)
   | tomlRead h => exact .tomlRead (m h)
@@ -189,10 +193,8 @@ theorem Needed.mono (hi : T <:+: T') {dir treeDir : FilePath} {o : Op L E}
   | copyToml h1 h2 h3 => exact .copyToml (m h1) (m h2) (m h3)
   | copyToolchain h => exact .copyToolchain (m h)
   | library h1 h2 h3 => exact .library (TreeLoaded.mono hi h1) h2 h3
-  | toolchainDir h1 h2 => exact .toolchainDir (TreeLoaded.mono hi h1) h2
   | treeLeanConfig h => exact .treeLeanConfig (m h)
   | search h1 h2 h3 h4 => exact .search (Scene.mono hi h1) (Named.mono hi.sublist h2) h3 h4
-  | oleanReal h1 h2 h3 h4 h5 => exact .oleanReal (Scene.mono hi h1) (Named.mono hi.sublist h2) h3 h4 (m h5)
   | sourceReal h1 h2 h3 h4 => exact .sourceReal (Scene.mono hi h1) (Named.mono hi.sublist h2) h3 h4
   | sourceRead h1 h2 h3 h4 => exact .sourceRead (Scene.mono hi h1) (Named.mono hi.sublist h2) h3 h4
   | sourceParent h1 h2 h3 h4 => exact .sourceParent (Scene.mono hi h1) (Named.mono hi.sublist h2) h3 h4
@@ -224,7 +226,6 @@ theorem Reason.mono (hi : T <:+: T') {dir treeDir : FilePath} {o}
   | toolchainFailed h1 h2 => exact .toolchainFailed (m h1) (m h2)
   | toolchainNotExact h1 h2 h3 => exact .toolchainNotExact (m h1) (m h2) h3
   | toolchainNoReal h1 h2 => exact .toolchainNoReal (m h1) (m h2)
-  | started h1 h2 h3 h4 h5 h6 h7 => exact .started (m h1) (m h2) (m h3) (m h4) (m h5) (m h6) h7
   | tomlNotExact h1 h2 h3 => exact .tomlNotExact (m h1) (m h2) h3
   | notApart h1 h2 h3 => exact .notApart (m h1) (m h2) h3
   | configNotInTree h1 h2 h3 => exact .configNotInTree (m h1) h2 h3
@@ -246,8 +247,6 @@ theorem Reason.mono (hi : T <:+: T') {dir treeDir : FilePath} {o}
   | twoTexts h1 h2 h3 h4 h5 => exact .twoTexts (sc h1) (Planned.mono hs h2) (Planned.mono hs h3) h4 h5
   | moduleName h1 h2 h3 => exact .moduleName (sc h1) (nm h2) h3
   | importedRoot h1 h2 h3 h4 h5 h6 => exact .importedRoot (sc h1) (nm h2) (hd h3) h4 h5 h6
-  | notToolchain h1 h2 h3 h4 h5 h6 h7 h8 =>
-    exact .notToolchain (sc h1) (nm h2) h3 h4 (m h5) (m h6) h7 fun x hx => ⟨m (h8 x hx).1, (h8 x hx).2⟩
   | tooMany h1 h2 h3 h4 => exact .tooMany (sc h1) h2 (fun x hx => ⟨nm (h3 x hx).1, hd (h3 x hx).2⟩) h4
   | mathlib h1 h2 h3 => exact .mathlib (sc h1) (nm h2) h3
   | file h1 h2 h3 h4 h5 h6 h7 h8 h9 h10 =>
@@ -284,16 +283,16 @@ end Mono
 /-! ## What a healthy build owes -/
 
 /-- What a run of the proof verdict receives on a build that it owes a pass: no reason in the closed set holds, and each
-environment that the run read of the workspace Lake dispatched has `LoadFloor`. -/
+environment that the run read of the workspace Lake dispatched has `BuildAnswer.Floor`. -/
 structure PlainOwed (t : List (Event L E)) (p : Regula.Closed.Profile) : Prop where
   /-- Nothing that the load needs failed, and the current directory is the workspace Lake dispatched. -/
   noReason : ¬ PlainReason t
   /-- What Lean's import gave has the floor. -/
-  floor : ∀ root f roots, PlainRoot t root → BuildRead t root f roots → LoadFloor f roots p
+  floor : ∀ root a roots, PlainRoot t root → BuildAnswered t root a roots → a.Floor roots p
 
 /-- What a run of the full gate receives on a build that it owes a pass: the run has its tree, nothing keeps the project from
 being admitted, no build or replay was rejected, nothing that the load of the result needs failed, and each
-environment that the run read of that build has `LoadFloor`. -/
+build that the run read has `BuildAnswer.Floor`. -/
 structure FullOwed (t : List (Event L E)) (dir : FilePath) (p : Regula.Closed.Profile) : Prop where
   /-- The tree. -/
   tree : ∀ e, (⟨.createTempDir, .error e⟩ : Event L E) ∉ t
@@ -306,8 +305,8 @@ structure FullOwed (t : List (Event L E)) (dir : FilePath) (p : Regula.Closed.Pr
   loaded : ∀ tree rest sysroot, t = ⟨.createTempDir, .ok tree⟩ :: rest → SysrootIs (readPhase t) sysroot →
     ¬ TreeReason sysroot tree (rulesPhase t)
   /-- What Lean's import gave has the floor. -/
-  floor : ∀ tree rest sysroot root f roots, t = ⟨.createTempDir, .ok tree⟩ :: rest → SysrootIs (readPhase t) sysroot →
-    TreeRoot sysroot tree (rulesPhase t) root → BuildRead (rulesPhase t) root f roots → LoadFloor f roots p
+  floor : ∀ tree rest sysroot root a roots, t = ⟨.createTempDir, .ok tree⟩ :: rest → SysrootIs (readPhase t) sysroot →
+    TreeRoot sysroot tree (rulesPhase t) root → BuildAnswered (rulesPhase t) root a roots → a.Floor roots p
 
 /-- The last line of a pass of the proof verdict. -/
 abbrev plainPass : String := Regula.Closed.Verdict.proofLine .pass
@@ -320,7 +319,7 @@ theorem plain_owed {t : List (Event L E)} {p : Regula.Closed.Profile} {c : UInt3
     (owed : PlainOwed t p) : c = 0 ∧ EndsWith t plainPass := by
   obtain ⟨result, hl, hc, he, -⟩ := h
   rcases hl with ⟨root, f, roots, hg, hb, rfl⟩ | ⟨hw, -⟩
-  · have hv := pass_iff_floor.mpr (owed.floor root f roots hg hb)
+  · have hv := (pass_iff_answer f roots p).mpr (owed.floor root _ roots hg hb.answered)
     rw [hv] at hc he
     exact ⟨hc, he⟩
   · exact absurd hw owed.noReason
@@ -364,8 +363,8 @@ theorem full_owed {t : List (Event L E)} {dir : FilePath} {p : Regula.Closed.Pro
           have := rulesPhase_sublist (pre := ⟨.createTempDir, .ok tree⟩ :: tRead ++ tBuild) hnb hpost
           simpa [ht, List.append_assoc] using this
         rcases hl with ⟨root, f, roots, hg, hbr, rfl⟩ | ⟨hw, -⟩
-        · rw [pass_iff_floor.mpr (owed.floor tree _ sysroot root f roots htree hsys
-            (TreeRoot.mono hrules hg) (BuildRead.mono hrules hbr))]
+        · rw [(pass_iff_answer f roots p).mpr (owed.floor tree _ sysroot root _ roots htree hsys
+            (TreeRoot.mono hrules hg) (BuildRead.mono hrules hbr).answered)]
         · exact absurd (TreeReason.mono hrules hw) (owed.loaded tree _ sysroot htree hsys)
       · exact absurd (BuildRejected.mono htb hrej) (owed.built tree _ sysroot htree hsys)
     subst hrep
@@ -374,9 +373,9 @@ theorem full_owed {t : List (Event L E)} {dir : FilePath} {p : Regula.Closed.Pro
 /-- A run of the proof verdict that does not pass has a reason in the closed set, or what it read lacks the floor. -/
 theorem plain_refused_justified {t : List (Event L E)} {p : Regula.Closed.Profile} {c : UInt32} (h : PlainRun t p c)
     (hc : c ≠ 0) :
-    PlainReason t ∨ ∃ root f roots, PlainRoot t root ∧ BuildRead t root f roots ∧ ¬ LoadFloor f roots p := by
-  refine Classical.byContradiction fun hno => hc (plain_owed h ⟨fun hr => hno (.inl hr), fun root f roots h1 h2 => ?_⟩).1
-  exact Classical.byContradiction fun hf => hno (.inr ⟨root, f, roots, h1, h2, hf⟩)
+    PlainReason t ∨ ∃ root a roots, PlainRoot t root ∧ BuildAnswered t root a roots ∧ ¬ a.Floor roots p := by
+  refine Classical.byContradiction fun hno => hc (plain_owed h ⟨fun hr => hno (.inl hr), fun root a roots h1 h2 => ?_⟩).1
+  exact Classical.byContradiction fun hf => hno (.inr ⟨root, a, roots, h1, h2, hf⟩)
 
 /-- A run of the full gate that does not pass has, on the requested build, no tree, a reason in the closed set, a rejected
 build, a failed load of its result, or what it read of that result lacks the floor. -/
@@ -389,23 +388,25 @@ theorem full_refused_justified {t : List (Event L E)} {dir : FilePath} {p : Regu
 /-- For every program that meets the record, every run of the proof verdict on the pinned Lean, on responses that owe a pass,
 passes. So a program that refuses a healthy build does not meet the record. -/
 theorem run_plain_owed {w : List String → Prog L E UInt32} (hw : RunMeets w) {text : String} {p : Regula.Closed.Profile}
-    (hp : Regula.Closed.Profile.ofSpelling? text = some p) {rest : List (Event L E)} {c : UInt32}
+    (hp : text = p.spelling) {rest : List (Event L E)} {c : UInt32}
     (h : Runs (w [text]) (⟨.leanVersion, Regula.Closed.pinnedLean⟩ :: rest) c)
     (owed : PlainOwed (⟨.leanVersion, Regula.Closed.pinnedLean⟩ :: rest) p) :
     c = 0 ∧ EndsWith (⟨.leanVersion, Regula.Closed.pinnedLean⟩ :: rest) plainPass := by
+  have hsp : Regula.Closed.Profile.ofSpelling? text = some p := Regula.Closed.Profile.ofSpelling?_eq_some.mpr hp.symm
   have hm := hw _ _ _ h
-  simp only [hp] at hm
+  simp only [hsp] at hm
   obtain ⟨v, rest', he, hrun, -⟩ := hm
   cases he
   exact plain_owed (hrun rfl) owed
 
 /-- The same of every run of the full gate. -/
 theorem run_full_owed {w : List String → Prog L E UInt32} (hw : RunMeets w) {text dir : String}
-    {p : Regula.Closed.Profile} (hp : Regula.Closed.Profile.ofSpelling? text = some p) {rest : List (Event L E)}
+    {p : Regula.Closed.Profile} (hp : text = p.spelling) {rest : List (Event L E)}
     {c : UInt32} (h : Runs (w [text, "full", dir]) (⟨.leanVersion, Regula.Closed.pinnedLean⟩ :: rest) c)
     (owed : FullOwed rest (FilePath.mk dir) p) : c = 0 ∧ EndsWith rest fullPass := by
+  have hsp : Regula.Closed.Profile.ofSpelling? text = some p := Regula.Closed.Profile.ofSpelling?_eq_some.mpr hp.symm
   have hm := hw _ _ _ h
-  simp only [hp] at hm
+  simp only [hsp] at hm
   obtain ⟨v, rest', he, hrun, -⟩ := hm
   cases he
   obtain ⟨rest'', v', he', hf⟩ := hrun rfl
@@ -448,7 +449,7 @@ theorem manufacturer_fails {name : String} (h1 : name ≠ "LEAN_SYSROOT") (h2 : 
     · exact .inr (.inr (congrArg Event.op hm))
   have hplain : ∀ root, ¬ PlainRoot ([⟨.leanVersion, Regula.Closed.pinnedLean⟩, ⟨.getEnv name, none⟩,
       ⟨.println (Regula.Closed.Verdict.proofLine .incomplete), .ok ()⟩] : List (Event L E)) root := by
-    rintro root ⟨s, d, l, lp, ll, prog, -, hload, -⟩
+    rintro root ⟨s, d, l, lp, -, hload, -⟩
     rcases hno hload with h | h | h <;> cases h
   rcases hl with ⟨root, f, roots, hg, -⟩ | ⟨hw', -⟩
   · exact hplain root hg
@@ -462,22 +463,17 @@ theorem manufacturer_fails {name : String} (h1 : name ≠ "LEAN_SYSROOT") (h2 : 
     | elsewhere _ _ h => rcases hno h with h | h | h <;> cases h
     | build h _ => exact hplain _ h
 
-theorem StartedOutside.mono {T T' : List (Event L E)} (hs : T.Sublist T') {project lakeLib : FilePath}
-    (h : StartedOutside T project lakeLib) : StartedOutside T' project lakeLib := by
-  obtain ⟨a, b, c, d, h1, h2, h3, h4⟩ := h
-  exact ⟨a, b, c, d, hs.subset h1, hs.subset h2, hs.subset h3, h4⟩
-
 /-- The evidence of a reading stands in a larger trace, of the same state of the tree. What it keeps about the trace is what
 the run read and parsed, and what a run's own act can change after that is its state `held`, which this does not move. -/
 theorem Evidence.mono {T T' : List (Event L E)} (hs : T.Sublist T') {dir treeDir : FilePath}
     {stands : List String → Option String} {r : Reading}
     (h : Evidence T dir treeDir stands r) : Evidence T' dir treeDir stands r := by
-  obtain ⟨project, tree, hp, ht, hap, ⟨s1, prog1, lib1, hs1, hl1, hst⟩, ⟨a1, a2, a3, a4, a5, a6, a7⟩,
+  obtain ⟨project, tree, hp, ht, hap, ⟨a1, a2, a3, a4, a5, a6, a7⟩,
     ⟨eabs, habs, hna⟩, ⟨text, real, table, hr1, hr2, hr3, hr4, hr5, hr6, hnd, hkeys⟩, hpin, hc1, hc2, sysroot, root, log,
     modules, hsys, hload, hdef, hroots, hdirs, hglobs, htargets, hres, htwo, headers, held, hcount, hnodup, hcomp,
     hheld, hfiles, honly⟩ := h.places
   have m {e : Event L E} (he : e ∈ T) : e ∈ T' := hs.subset he
-  refine ⟨project, tree, m hp, m ht, hap, ⟨s1, prog1, lib1, m hs1, m hl1, StartedOutside.mono hs hst⟩,
+  refine ⟨project, tree, m hp, m ht, hap, 
     ⟨a1, a2, m a3, m a4, a5, a6, a7⟩, ⟨eabs, m habs, hna⟩,
     ⟨text, real, table, m hr1, hr2, hr3, m hr4, m hr5, hr6, hnd, hkeys⟩, hpin, hc1, hc2, sysroot, root, log, modules,
     m hsys, m hload, DefaultModules.mono hs hdef, hroots, hdirs, hglobs, htargets, hres, htwo, headers, held, hcount,

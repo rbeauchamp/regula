@@ -11,7 +11,7 @@ import RegulaSpecification.Proofs.ReaderParts
 # What the reader's walk over the imports gives
 
 For every response: the walk writes nothing; each source it holds was read by the exact-path test and parsed from that
-same text; each toolchain module was found below the toolchain's library;
+same text; each toolchain module was found by Lean's search;
 what it could not read has a `Reason`; and when nothing was left unread, each import of each source was reached or is the toolchain's.
 -/
 
@@ -210,7 +210,7 @@ def SourceRead (T : List (Event L E)) (project tree path : FilePath) (s : Source
     TreeRelative (parts tree) (parts path) rel ∧ ¬ OutsideTree tree path ∧
     Regula.Load.exactBelow project (joinParts project rel) real = true ∧
     s.path = path ∧ s.text = text ∧
-    s.input = mkInputContext text (Regula.Load.inputName path) ∧
+    s.input = mkInputContext text (inputNameOf path) ∧
     ([⟨.realPath (joinParts project rel), .ok real⟩, ⟨.readFile (joinParts project rel), .ok text⟩,
       ⟨.parseHeader s.input, .ok (s.header, s.state, s.messages, s.imports)⟩] :
         List (Event L E)).Sublist T
@@ -224,7 +224,7 @@ theorem SourceRead.mono {T T' : List (Event L E)} {project tree path : FilePath}
 def SourceOp (T : List (Event L E)) (project tree path : FilePath) (o : Op L E) : Prop :=
   (∃ rel, TreeRelative (parts tree) (parts path) rel ∧
     (o = .realPath (under project rel) ∨ o = .readFile (under project rel))) ∨
-  ∃ text, SourceText T project tree path text ∧ o = .parseHeader (mkInputContext text (Regula.Load.inputName path))
+  ∃ text, SourceText T project tree path text ∧ o = .parseHeader (mkInputContext text (inputNameOf path))
 
 /-- Why a source could not be read. -/
 def SourceBad (t : List (Event L E)) (project tree path : FilePath) : Prop :=
@@ -251,7 +251,7 @@ theorem readSource_spec {project tree path : FilePath} {t : List (Event L E)} {b
   rw [readSource] at h
   obtain ⟨t₁, t₂, r, rfl, h₁, h₂⟩ := runs_attempt_bind_iff.mp h
   rw [readForTree] at h₁
-  cases htr : treeRelative (Regula.Load.exactParts tree) (Regula.Load.exactParts path) with
+  cases htr : treeRelative (Regula.Load.parts tree) (Regula.Load.parts path) with
   | none =>
     simp only [htr] at h₁
     obtain ⟨rfl, rfl⟩ := runs_attempt_throw_iff.mp h₁
@@ -280,17 +280,17 @@ theorem readSource_spec {project tree path : FilePath} {t : List (Event L E)} {b
         obtain rfl := runs_call_iff.mp h₉
         have hact : NoActs (L := L) (E := E) ([⟨.realPath (joinParts project rel), .ok real⟩,
             ⟨.readFile (joinParts project rel), .ok text⟩] ++
-              [⟨.parseHeader (mkInputContext text (Regula.Load.inputName path)), r₉⟩]) := by
+              [⟨.parseHeader (mkInputContext text (inputNameOf path)), r₉⟩]) := by
           refine hread.append ?_
           intro e he
-          have : e = ⟨.parseHeader (mkInputContext text (Regula.Load.inputName path)), r₉⟩ := by simpa using he
+          have : e = ⟨.parseHeader (mkInputContext text (inputNameOf path)), r₉⟩ := by simpa using he
           subst this
           rfl
         cases r₉ with
         | error e =>
           obtain ⟨rfl, rfl⟩ := h₈
           exact ⟨fun _ he => (by cases he), fun _ => .inr (.inl
-            ⟨⟨.parseHeader (mkInputContext text (Regula.Load.inputName path)), .error e⟩, by simp, ⟨e, rfl⟩,
+            ⟨⟨.parseHeader (mkInputContext text (inputNameOf path)), .error e⟩, by simp, ⟨e, rfl⟩,
               .inr ⟨text, ⟨rel, hrel, by simp [under, joinParts]⟩, rfl⟩⟩),
             by simpa using hact⟩
         | ok parsed =>
@@ -311,15 +311,11 @@ theorem readSource_spec {project tree path : FilePath} {t : List (Event L E)} {b
 
 /-! ## The toolchain's modules -/
 
-/-- `toolchainOLean` passes only on an `.olean` below one of `dirs`. -/
-theorem toolchainOLean_spec {dirs : List FilePath} {m : Name} {t : List (Event L E)}
-    {b : Except String Unit} (h : Runs (toolchainOLean dirs m : Attempt L E Unit).run t b) :
-    (b = .ok () → ∃ olean real d, t = [⟨.findOLean m, .ok olean⟩, ⟨.realPath olean, .ok real⟩] ∧
-      d ∈ dirs ∧ Regula.Load.below d real = true) ∧
-    ((∃ e, b = .error e) → (∃ e ∈ t, Event.failed e ∧ (e.op = .findOLean m ∨
-        ∃ olean, (⟨.findOLean m, .ok olean⟩ : Event L E) ∈ t ∧ e.op = .realPath olean)) ∨
-      ∃ olean real, t = [⟨.findOLean m, .ok olean⟩, ⟨.realPath olean, .ok real⟩] ∧
-        ∀ d ∈ dirs, Regula.Load.below d real = false) ∧
+/-- `toolchainOLean` passes exactly on what Lean's search found, and asks nothing else. -/
+theorem toolchainOLean_spec {m : Name} {t : List (Event L E)} {b : Except String Unit}
+    (h : Runs (toolchainOLean m : Attempt L E Unit).run t b) :
+    (b = .ok () → ∃ olean, t = [⟨.findOLean m, .ok olean⟩]) ∧
+    ((∃ e, b = .error e) → ∃ x, t = [⟨.findOLean m, .error x⟩]) ∧
     (∀ e ∈ t, e.acted? = none) := by
   rw [toolchainOLean] at h
   obtain ⟨t₁, t₂, r, rfl, h₁, h₂⟩ := runs_attempt_bind_iff.mp h
@@ -328,66 +324,35 @@ theorem toolchainOLean_spec {dirs : List FilePath} {m : Name} {t : List (Event L
   cases r' with
   | error e =>
     obtain ⟨rfl, rfl⟩ := h₂
-    refine ⟨fun he => (by cases he), fun _ => .inl ⟨⟨.findOLean m, .error e⟩, by simp, ⟨e, rfl⟩, .inl rfl⟩, ?_⟩
-    intro x hx
+    refine ⟨fun he => (by cases he), fun _ => ⟨e, rfl⟩, fun x hx => ?_⟩
     have : x = ⟨.findOLean m, .error e⟩ := by simpa using hx
     subst this
     rfl
   | ok olean =>
-    obtain ⟨t₃, t₄, r₃, rfl, h₄, h₅⟩ := runs_attempt_bind_iff.mp h₂
-    obtain ⟨r₄, h₆, rfl⟩ := runs_attempt_iff.mp h₄
-    obtain rfl := runs_call_iff.mp h₆
-    cases r₄ with
-    | error e =>
-      obtain ⟨rfl, rfl⟩ := h₅
-      refine ⟨fun he => (by cases he), fun _ => .inl ⟨⟨.realPath olean, .error e⟩, by simp, ⟨e, rfl⟩, .inr ⟨olean, by simp, rfl⟩⟩, ?_⟩
-      intro x hx
-      simp only [List.cons_append, List.nil_append, List.append_nil, List.mem_cons, List.not_mem_nil,
-        or_false] at hx
-      rcases hx with rfl | rfl <;> rfl
-    | ok real =>
-      have hacts : ∀ x ∈ ([⟨.findOLean m, .ok olean⟩, ⟨.realPath olean, .ok real⟩] : List (Event L E)),
-          x.acted? = none := by
-        intro x hx
-        simp only [List.mem_cons, List.not_mem_nil, or_false] at hx
-        rcases hx with rfl | rfl <;> rfl
-      dsimp only [Except.mapError] at h₅
-      split at h₅
-      · rename_i hany
-        obtain ⟨rfl, rfl⟩ := runs_attempt_pure_iff.mp h₅
-        obtain ⟨d, hd, hb⟩ := List.any_eq_true.mp hany
-        exact ⟨fun _ => ⟨olean, real, d, rfl, hd, hb⟩, fun ⟨e, he⟩ => (by cases he), by simpa using hacts⟩
-      · rename_i hany
-        obtain ⟨rfl, rfl⟩ := runs_attempt_throw_iff.mp h₅
-        refine ⟨fun he => (by cases he), fun _ => .inr ⟨olean, real, rfl, fun d hd => ?_⟩,
-          by simpa using hacts⟩
-        cases hb : Regula.Load.below d real with
-        | false => rfl
-        | true => exact absurd (List.any_eq_true.mpr ⟨d, hd, hb⟩) hany
+    obtain ⟨rfl, rfl⟩ := runs_attempt_pure_iff.mp h₂
+    refine ⟨fun _ => ⟨olean, rfl⟩, fun ⟨e, he⟩ => (by cases he), fun x hx => ?_⟩
+    have : x = ⟨.findOLean m, .ok olean⟩ := by simpa using hx
+    subst this
+    rfl
 
 /-! ## The walk -/
 
 /-- What the walk reads against: the events `T` of the whole read, in which the project and the tree have real
-paths, Lake's load gave `root` and the default targets gave `modules`, and each directory of the toolchain's library
-has its real path in `reals`. -/
+paths, Lake's load gave `root` and the default targets gave `modules`. -/
 structure WalkCtx (T : List (Event L E)) (dir treeDir project tree : FilePath) (root : Root L)
-    (modules : List (Name × FilePath)) (reals : List (FilePath × FilePath)) : Prop where
+    (modules : List (Name × FilePath)) : Prop where
   /-- The requested build. -/
   scene : Scene T dir treeDir project tree root modules
-  /-- The directories of the toolchain's library. -/
-  dirs_map : reals.map Prod.fst = root.toolchain
-  /-- Their real paths. -/
-  dirs_real : ∀ x ∈ reals, (⟨.realPath x.1, .ok x.2⟩ : Event L E) ∈ T
 
 /-- What the walk has established of the state `w` with the names `todo` left to visit. -/
 structure WalkInv (T : List (Event L E)) (dir treeDir project tree : FilePath) (root : Root L)
-    (modules : List (Name × FilePath)) (reals : List (FilePath × FilePath)) (roots todo : List Name)
+    (modules : List (Name × FilePath)) (roots todo : List Name)
     (w : Walk) : Prop where
   /-- Each source was read. -/
   sources : ∀ x ∈ w.sources, ∃ path, fileOf root modules x.1 = some path ∧
     SourceRead T project tree path x.2 ∧ x.1 ∈ w.reached
   /-- Each toolchain module was found there. -/
-  held : ∀ n ∈ w.toolchain, fileOf root modules n = none ∧ HeldByToolchain T root n ∧
+  held : ∀ n ∈ w.toolchain, fileOf root modules n = none ∧ HeldByToolchain T n ∧
     closedModuleName n = true ∧ n.getRoot ≠ `Mathlib ∧ Named T project tree root modules n
   /-- No module has two sources. -/
   nodup : (w.sources.map (·.1)).Nodup
@@ -433,7 +398,7 @@ theorem fileOf_mem {root : Root L} {modules : List (Name × FilePath)} {m : Name
 section Invariant
 
 variable {T : List (Event L E)} {dir treeDir project tree : FilePath} {root : Root L}
-  {modules : List (Name × FilePath)} {reals : List (FilePath × FilePath)} {roots : List Name}
+  {modules : List (Name × FilePath)} {roots : List Name}
 
 /-- What a source read says of the file of its module. -/
 theorem headerOf_read {m : Name} {s : Source} {path : FilePath} (hf : fileOf root modules m = some path)
@@ -445,9 +410,9 @@ theorem headerOf_read {m : Name} {s : Source} {path : FilePath} (hf : fileOf roo
     exact hsub.subset (by simp)
 
 theorem WalkInv.pop {m : Name} {rest : List Name} {w : Walk}
-    (h : WalkInv T dir treeDir project tree root modules reals roots (m :: rest) w)
+    (h : WalkInv T dir treeDir project tree root modules roots (m :: rest) w)
     (hm : m ∈ w.reached ∨ m ∈ w.toolchain) :
-    WalkInv T dir treeDir project tree root modules reals roots rest w where
+    WalkInv T dir treeDir project tree root modules roots rest w where
   sources := h.sources
   held := h.held
   nodup := h.nodup
@@ -472,9 +437,9 @@ theorem WalkInv.pop {m : Name} {rest : List Name} {w : Walk}
     · exact .inr h'
 
 theorem WalkInv.leave {m : Name} {rest : List Name} {w : Walk} (why : String)
-    (h : WalkInv T dir treeDir project tree root modules reals roots (m :: rest) w)
+    (h : WalkInv T dir treeDir project tree root modules roots (m :: rest) w)
     (hr : Reason T dir treeDir .incomplete) :
-    WalkInv T dir treeDir project tree root modules reals roots rest (w.leaveUnread m why) where
+    WalkInv T dir treeDir project tree root modules roots rest (w.leaveUnread m why) where
   sources := fun x hx => by
     obtain ⟨path, h1, h2, h3⟩ := h.sources x hx
     exact ⟨path, h1, h2, List.mem_cons_of_mem _ h3⟩
@@ -494,9 +459,9 @@ theorem WalkInv.leave {m : Name} {rest : List Name} {w : Walk} (why : String)
 /-- A name that is left unread for the reasons of a stop in the walk: the whole state is then done, whatever was
 left to visit. -/
 theorem WalkInv.stop {m : Name} {rest : List Name} {w : Walk} (why : String)
-    (h : WalkInv T dir treeDir project tree root modules reals roots (m :: rest) w)
+    (h : WalkInv T dir treeDir project tree root modules roots (m :: rest) w)
     (hr : Reason T dir treeDir .incomplete) :
-    WalkInv T dir treeDir project tree root modules reals roots [] (w.leaveUnread m why) :=
+    WalkInv T dir treeDir project tree root modules roots [] (w.leaveUnread m why) :=
   have hl := h.leave why hr
   { sources := hl.sources, held := hl.held, nodup := hl.nodup, reached := hl.reached, closed := hl.closed,
     named := hl.named, todoNamed := fun _ hn => (by cases hn), unread := hl.unread,
@@ -504,9 +469,9 @@ theorem WalkInv.stop {m : Name} {rest : List Name} {w : Walk} (why : String)
     rootsIn := fun hu => by simp [Walk.leaveUnread] at hu }
 
 theorem WalkInv.mathlib {m : Name} {rest : List Name} {w : Walk}
-    (h : WalkInv T dir treeDir project tree root modules reals roots (m :: rest) w)
+    (h : WalkInv T dir treeDir project tree root modules roots (m :: rest) w)
     (hroot : m.getRoot = `Mathlib) (hc : closedModuleName m = true) :
-    WalkInv T dir treeDir project tree root modules reals roots rest { w with reached := m :: w.reached } where
+    WalkInv T dir treeDir project tree root modules roots rest { w with reached := m :: w.reached } where
   sources := fun x hx => by
     obtain ⟨path, h1, h2, h3⟩ := h.sources x hx
     exact ⟨path, h1, h2, List.mem_cons_of_mem _ h3⟩
@@ -544,10 +509,10 @@ theorem WalkInv.mathlib {m : Name} {rest : List Name} {w : Walk}
     · exact .inr (.inr h')
 
 theorem WalkInv.read {m : Name} {rest : List Name} {w : Walk} {s : Source} {path : FilePath}
-    (h : WalkInv T dir treeDir project tree root modules reals roots (m :: rest) w)
+    (h : WalkInv T dir treeDir project tree root modules roots (m :: rest) w)
     (hm : m ∉ w.reached) (hf : fileOf root modules m = some path) (hs : SourceRead T project tree path s)
     (hc : closedModuleName m = true) :
-    WalkInv T dir treeDir project tree root modules reals roots (s.imports.toList.map (·.module) ++ rest)
+    WalkInv T dir treeDir project tree root modules roots (s.imports.toList.map (·.module) ++ rest)
       { w with reached := m :: w.reached, sources := (m, s) :: w.sources } where
   sources := fun x hx => by
     rcases List.mem_cons.mp hx with rfl | hx
@@ -602,10 +567,10 @@ theorem WalkInv.read {m : Name} {rest : List Name} {w : Walk} {s : Source} {path
     · exact .inr (.inr h')
 
 theorem WalkInv.toolchain {m : Name} {rest : List Name} {w : Walk}
-    (h : WalkInv T dir treeDir project tree root modules reals roots (m :: rest) w)
-    (hf : fileOf root modules m = none) (hh : HeldByToolchain T root m) (hc : closedModuleName m = true)
+    (h : WalkInv T dir treeDir project tree root modules roots (m :: rest) w)
+    (hf : fileOf root modules m = none) (hh : HeldByToolchain T m) (hc : closedModuleName m = true)
     (hr : m.getRoot ≠ `Mathlib) :
-    WalkInv T dir treeDir project tree root modules reals roots rest
+    WalkInv T dir treeDir project tree root modules roots rest
       { w with toolchain := m :: w.toolchain } where
   sources := h.sources
   held := fun n hn => by
@@ -636,7 +601,7 @@ theorem WalkInv.toolchain {m : Name} {rest : List Name} {w : Walk}
     · exact .inr (.inr (List.mem_cons_of_mem _ h'))
 
 /-- From what a source's reading could not do, a `Reason`. -/
-theorem reason_of_sourceBad (c : WalkCtx T dir treeDir project tree root modules reals) {m : Name} {path : FilePath}
+theorem reason_of_sourceBad (c : WalkCtx T dir treeDir project tree root modules) {m : Name} {path : FilePath}
     {t : List (Event L E)} (hn : Named T project tree root modules m) (hf : fileOf root modules m = some path)
     (ht : t.Sublist T) (h : SourceBad t project tree path) : Reason T dir treeDir .incomplete := by
   have hfm := fileOf_mem hf
@@ -647,7 +612,7 @@ theorem reason_of_sourceBad (c : WalkCtx T dir treeDir project tree root modules
     · rw [hop]; exact .sourceReal c.scene hn hfm hrel
     · rw [hop]; exact .sourceRead c.scene hn hfm hrel
     · rw [hop]; exact .sourceHeader c.scene hn hfm (SourceText.mono ht hst)
-  · exact .moduleNotExact c.scene hn hfm hr (ht.subset he) hb
+  · exact .moduleNotExact c.scene hn hfm hr (ht.subset he) ((exactBelow_eq_false_iff _ _ _).mp hb)
 
 /-- How many imports the sources state. -/
 abbrev sourceImports (sources : List (Name × Source)) : Nat :=
@@ -655,14 +620,14 @@ abbrev sourceImports (sources : List (Name × Source)) : Nat :=
 
 /-- The walk, for every response. The equation on `fuel` says how many names it can still take: so when nothing is left
 unread, the roots and the imports of the files it read are at most that bound. -/
-theorem walk_spec (c : WalkCtx T dir treeDir project tree root modules reals) (fuel : Nat) (todo : List Name)
+theorem walk_spec (c : WalkCtx T dir treeDir project tree root modules) (fuel : Nat) (todo : List Name)
     (w : Walk) (t : List (Event L E)) (w' : Walk)
-    (h : Runs (walk project tree root modules (reals.map Prod.snd) fuel todo w) t w')
+    (h : Runs (walk project tree root modules fuel todo w) t w')
     (hT : t.Sublist T)
     (hroots : roots.length = modules.length)
     (hb : fuel + roots.length + sourceImports w.sources = 1000000 + todo.length)
-    (hi : WalkInv T dir treeDir project tree root modules reals roots todo w) :
-    WalkInv T dir treeDir project tree root modules reals roots [] w' ∧ NoActs t ∧
+    (hi : WalkInv T dir treeDir project tree root modules roots todo w) :
+    WalkInv T dir treeDir project tree root modules roots [] w' ∧ NoActs t ∧
       (w'.unread = [] → modules.length + sourceImports w'.sources ≤ 1000000) := by
   induction fuel generalizing todo w t with
   | zero =>
@@ -750,30 +715,18 @@ theorem walk_spec (c : WalkCtx T dir treeDir project tree root modules reals) (f
                   exact ⟨hl, hfile⟩
               cases r with
               | ok u =>
-                obtain ⟨olean, real, d, ht, hd, hbelow⟩ := o1 rfl
+                obtain ⟨olean, ht⟩ := o1 rfl
                 subst ht
-                obtain ⟨x, hx, hxd⟩ := List.mem_map.mp hd
-                have hheld : HeldByToolchain T root m := by
-                  refine ⟨olean, real, x.1, d, hT₁, ?_, ?_, hbelow⟩
-                  · rw [← c.dirs_map]
-                    exact List.mem_map.mpr ⟨x, hx, rfl⟩
-                  · rw [← hxd]
-                    exact c.dirs_real x hx
+                have hheld : HeldByToolchain T m := ⟨olean, hT₁.subset (by simp)⟩
                 obtain ⟨hinv, hact, hcount⟩ := ih rest _ t₂ h₂ hT'
                   (by simpa using (by omega))
                   (hi.toolchain hfile hheld hname (by simpa using hroot))
                 exact ⟨hinv, hact₁.append hact, hcount⟩
               | error e =>
-                have hreason : Reason T dir treeDir .incomplete := by
-                  rcases o2 ⟨e, rfl⟩ with ⟨x, hx, hbad, hop⟩ | ⟨olean, real, ht, hnot⟩
-                  · refine .failed (hT₁.subset hx) ?_ hbad
-                    rcases hop with hop | ⟨olean, hol, hop⟩
-                    · rw [hop]; exact .search c.scene hnamed hnone.1 hnone.2
-                    · rw [hop]; exact .oleanReal c.scene hnamed hnone.1 hnone.2 (hT₁.subset hol)
-                  · subst ht
-                    refine .notToolchain (m := m) (olean := olean) (real := real) c.scene hnamed hnone.1 hnone.2
-                      (hT₁.subset (by simp)) (hT₁.subset (by simp)) c.dirs_map fun x hx =>
-                        ⟨c.dirs_real x hx, hnot _ (List.mem_map.mpr ⟨x, hx, rfl⟩)⟩
+                obtain ⟨x, ht⟩ := o2 ⟨e, rfl⟩
+                subst ht
+                have hreason : Reason T dir treeDir .incomplete :=
+                  .failed (e := ⟨.findOLean m, .error x⟩) (hT₁.subset (by simp)) (.search c.scene hnamed hnone.1 hnone.2) ⟨x, rfl⟩
                 obtain ⟨hinv, hact, hcount⟩ := ih rest _ t₂ h₂ hT'
                   (by simpa [Walk.leaveUnread] using (by omega))
                   (hi.leave _ hreason)

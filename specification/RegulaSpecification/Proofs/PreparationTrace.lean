@@ -41,12 +41,6 @@ theorem quiet_defaultModules (root : Root L) (targets : List Name) :
     · exact onlyA_seq (onlyA_attempt (only_call trivial)) fun _ => onlyA_pure _
     · split <;> exact onlyA_pure _
 
-theorem quiet_realPaths (paths : List FilePath) : OnlyAIn QuietOp (realPaths paths : Attempt L E _) := by
-  induction paths with
-  | nil => exact onlyA_pure _
-  | cons path paths ih =>
-    exact onlyA_seq (quiet_realPath _) fun _ => onlyA_seq ih fun _ => onlyA_pure _
-
 /-- The attempted copy's exact acts, regardless of success. -/
 theorem writeInTree_preparation {tree path : FilePath} {text : String} {t : List (Event L E)}
     {b : Except String Unit} (h : Runs (writeInTree tree path text : Attempt L E Unit).run t b) :
@@ -122,22 +116,18 @@ theorem quiet_readSource (project tree path : FilePath) : OnlyAIn QuietOp (readS
     · exact quiet_readExact _ _
     · exact onlyA_throw _
 
-theorem observing_toolchainOLean (dirs : List FilePath) (m : Name) :
-    OnlyAIn (fun o => QuietOp o ∨ ParserSearchOp o) (toolchainOLean dirs m : Attempt L E _) := by
+theorem observing_toolchainOLean (m : Name) :
+    OnlyAIn (fun o => QuietOp o ∨ ParserSearchOp o) (toolchainOLean m : Attempt L E _) := by
   rw [toolchainOLean]
-  refine onlyA_seq (onlyA_attempt (only_call (.inr trivial))) fun olean => ?_
-  refine onlyA_seq ((quiet_realPath olean).mono fun _ h => .inl h) fun real => ?_
-  split
-  · exact onlyA_pure _
-  · exact onlyA_throw _
+  exact onlyA_seq (onlyA_attempt (only_call (.inr trivial))) fun _ => onlyA_pure _
 
 /-- The walk reads and acts on nothing. What it gives is what later copies need: each source's name is needed, by the
 imports that the prefix read, and its text is what the prefix read of its file. -/
 theorem walk_preparation (project tree : FilePath) (root : Root L) (modules : List (Name × FilePath))
-    (dirs : List FilePath) (fuel : Nat) (todo : List Name) (w : Walk)
+    (fuel : Nat) (todo : List Name) (w : Walk)
     {prior t : List (Event L E)} {out : Walk}
     (hn : ∀ m ∈ todo, Named prior project tree root modules m)
-    (h : Runs (walk project tree root modules dirs fuel todo w : Prog L E Walk) t out)
+    (h : Runs (walk project tree root modules fuel todo w : Prog L E Walk) t out)
     (hw : ∀ x ∈ w.sources, Named prior project tree root modules x.1 ∧ FileOfModule root modules x.1 x.2.path ∧
       SourceText prior project tree x.2.path x.2.text) :
     (∀ e ∈ t, QuietOp e.op ∨ ParserSearchOp e.op) ∧
@@ -213,7 +203,7 @@ theorem walk_preparation (project tree : FilePath) (root : Root L) (modules : Li
             | none =>
               simp only [hf] at h
               obtain ⟨first, last, response, rfl, hfirst, hlast⟩ := runs_seq_iff.mp h
-              have hq := observing_toolchainOLean dirs m _ _ hfirst
+              have hq := observing_toolchainOLean m _ _ hfirst
               have hr' : ∀ n ∈ rest, Named (prior ++ first) project tree root modules n :=
                 fun n h => Named.mono (List.sublist_append_left _ _) (hr n h)
               have hw' : ∀ x ∈ w.sources, Named (prior ++ first) project tree root modules x.1 ∧

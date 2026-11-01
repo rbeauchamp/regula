@@ -18,6 +18,8 @@ import RegulaSpecification.CasesDeclarations
 import RegulaSpecification.CasesFoundation
 import RegulaSpecification.CasesGate
 import RegulaSpecification.Proofs.Link
+import RegulaSpecification.Proofs.Paths
+import RegulaSpecification.Proofs.Floor
 import RegulaSpecification.Proofs.Tables
 import RegulaSpecification.Proofs.Foundation
 import RegulaSpecification.Proofs.Records
@@ -43,6 +45,7 @@ import RegulaSpecification.Proofs.Witness
 import RegulaSpecification.Proofs.Program
 import RegulaSpecification.Proofs.Behaviour
 import RegulaSpecification.Proofs.Domain
+import RegulaSpecification.Proofs.Premises
 import RegulaSpecification.Proofs.DomainCases
 import RegulaSpecification.Proofs.DomainModel
 import RegulaSpecification.Proofs.OwedModel

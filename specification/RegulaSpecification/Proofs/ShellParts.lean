@@ -240,25 +240,16 @@ theorem loadPlain_spec {T t : List (Event L E)} {p : Regula.Closed.Profile}
       | ok root =>
         rw [hl] at h₇
         obtain ⟨log, rfl⟩ := l1 root hl
-        obtain ⟨t₉, t₁₀, r₁₀, rfl, h₁₀, h₁₁⟩ := runs_attempt_bind_iff.mp h₇
-        obtain ⟨x, h₁₂, rfl⟩ := runs_lift_iff.mp h₁₀
-        obtain rfl := runs_call_iff.mp h₁₂
-        obtain ⟨program, lakeLib⟩ := x
-        dsimp only at h₁₁
-        have hT₁₀ : t₁₀.Sublist T := (List.sublist_append_right _ _).trans hT₆
-        have hmemLake : (⟨.lakeInstall sysroot, (program, lakeLib)⟩ : Event L E) ∈ T :=
-          hT₆.subset (by simp)
-        obtain ⟨t₁₁, t₁₂, r₁₂, rfl, h₁₃, h₁₄⟩ := runs_attempt_bind_iff.mp h₁₁
+        obtain ⟨t₁₁, t₁₂, r₁₂, rfl, h₁₃, h₁₄⟩ := runs_attempt_bind_iff.mp h₇
         obtain ⟨e₂, rfl, w1, w2⟩ := requireEnv_spec h₁₃
-        have hmemEnv : (⟨.getEnv "LEAN_PATH", e₂⟩ : Event L E) ∈ T := hT₁₀.subset (by simp)
-        have hT₁₂ : t₁₂.Sublist T := (List.sublist_append_right _ _).trans hT₁₀
+        have hmemEnv : (⟨.getEnv "LEAN_PATH", e₂⟩ : Event L E) ∈ T := hT₆.subset (by simp)
+        have hT₁₂ : t₁₂.Sublist T := (List.sublist_append_right _ _).trans hT₆
         have hq : ∀ x ∈ ([⟨.getEnv "LEAN_SYSROOT", some sysroot⟩, ⟨.realPath ".", .ok dir⟩,
-            ⟨.loadWorkspace sysroot dir, .ok (some root, log)⟩,
-            ⟨.lakeInstall sysroot, (program, lakeLib)⟩, ⟨.getEnv "LEAN_PATH", e₂⟩] : List (Event L E)),
+            ⟨.loadWorkspace sysroot dir, .ok (some root, log)⟩, ⟨.getEnv "LEAN_PATH", e₂⟩] : List (Event L E)),
             x.acted? = none := by
           intro x hx
           simp only [List.mem_cons, List.not_mem_nil, or_false] at hx
-          rcases hx with rfl | rfl | rfl | rfl | rfl <;> rfl
+          rcases hx with rfl | rfl | rfl | rfl <;> rfl
         cases r₁₂ with
         | error why =>
           obtain ⟨rfl, rfl⟩ := h₁₄
@@ -273,15 +264,14 @@ theorem loadPlain_spec {T t : List (Event L E)} {p : Regula.Closed.Profile}
           · rename_i hdis
             obtain ⟨o1, o2⟩ := inputOf_spec hT₁₂ h₁₄
             refine ⟨?_, ?_⟩
-            · have hroot : PlainRoot T root := ⟨sysroot, dir, log, received, lakeLib, program, hmem₁, hmemLoad,
-                hT₂.subset (by simp), hmemLake, hmemEnv, by simpa using hdis⟩
+            · have hroot : PlainRoot T root := ⟨sysroot, dir, log, received, hmem₁, hmemLoad,
+                hT₂.subset (by simp), hmemEnv, (dispatchedFrom_eq_true_iff _ _).mp (by simpa using hdis)⟩
               rcases o1 with ⟨f, roots, hb, he⟩ | ⟨hf, hw⟩
               · exact .inl ⟨root, f, roots, hroot, hb, he⟩
               · exact .inr ⟨.build hroot hf, hw⟩
             · intro x hx
               simp only [List.cons_append, List.nil_append, List.append_nil, List.mem_cons] at hx
-              rcases hx with rfl | rfl | rfl | rfl | rfl | hx
-              · rfl
+              rcases hx with rfl | rfl | rfl | rfl | hx
               · rfl
               · rfl
               · rfl
@@ -289,7 +279,7 @@ theorem loadPlain_spec {T t : List (Event L E)} {p : Regula.Closed.Profile}
               · exact o2 x hx
           · rename_i hd
             obtain ⟨rfl, rfl⟩ := runs_attempt_throw_iff.mp h₁₄
-            exact ⟨.inr ⟨.elsewhere hmem₁ (hT₂.subset (by simp)) hmemLoad hmemLake hmemEnv (by simpa using hd), _, rfl⟩,
+            exact ⟨.inr ⟨.elsewhere hmem₁ (hT₂.subset (by simp)) hmemLoad hmemEnv ((dispatchedFrom_eq_false_iff _ _).mp (by simpa using hd)), _, rfl⟩,
               by simpa using hq⟩
 
 /-- `loadTree`: the load of the build in the checker's tree. -/

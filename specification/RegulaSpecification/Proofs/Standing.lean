@@ -155,7 +155,7 @@ theorem Evidence.judged {T : List (Event L E)} {dir treeDir : FilePath} {held : 
     (h : Evidence T dir treeDir held r) {q : List String} {text : String} (hq : held q = some text) :
     (∃ table, (⟨.parseToml (mkInputContext text "lakefile.toml"), .ok table⟩ : Event L E) ∈ T) ∨ text = leanToolchain ∨
       ∃ f ∈ r.files, ∃ project tree path imports mods, parts path = q ∧ ReadText T project tree f path imports mods text := by
-  obtain ⟨project, tree, -, -, -, -, -, -, ⟨t0, -, table, -, -, -, -, h5, h6, -, -⟩, hpin, -, -, -, root, -, modules, -, -, -, -, -, -,
+  obtain ⟨project, tree, -, -, -, -, -, ⟨t0, -, table, -, -, -, -, h5, h6, -, -⟩, hpin, -, -, -, root, -, modules, -, -, -, -, -, -,
     -, -, -, headers, -, -, -, -, -, -, honly⟩ := h.places
   rcases honly q text hq with rfl | rfl | ⟨f, hf, path, i, md, -, h1, h2⟩
   · have : t0 = text := Option.some.inj (h6.symm.trans hq)
@@ -171,7 +171,7 @@ theorem Evidence.two_names {T : List (Event L E)} {dir treeDir : FilePath} {held
       ∀ m path m' path', Compiled headers root modules m path → Compiled headers root modules m' path' → parts path = parts path' →
         ∃ text, (∃ f ∈ r.files, f.module = m ∧ ∃ imports mods, ReadText T project tree f path imports mods text) ∧
           ∃ f ∈ r.files, f.module = m' ∧ ∃ imports mods, ReadText T project tree f path' imports mods text := by
-  obtain ⟨project, tree, -, -, -, -, -, -, -, -, -, -, -, root, -, modules, -, -, -, -, -, -, -, -, -, headers, -, -, -, hc, -, -, -⟩ :=
+  obtain ⟨project, tree, -, -, -, -, -, -, -, -, -, -, root, -, modules, -, -, -, -, -, -, -, -, -, headers, -, -, -, hc, -, -, -⟩ :=
     h.places
   refine ⟨project, tree, root, modules, headers, fun m path m' path' h1 h2 hp => ?_⟩
   obtain ⟨-, f, hf, hm, i, md, t1, -, g1, s1⟩ := hc m path h1
@@ -315,7 +315,7 @@ theorem FullRun.config_at_consumer {t : List (Event L E)} {dir : FilePath} {p : 
   obtain ⟨tree, tRead, tGate, resp, last, r, hsplit, ⟨mid, rest, hgate, hpre⟩, -, hev, ⟨real, hreal, hback⟩, -, hkeep, -⟩ :=
     h.gate_stands ht he
   obtain ⟨before, suffix, rfl, hq, hread, err, herr, hno⟩ := hback
-  obtain ⟨project, evTree, -, hevTree, -, -, -, -, ⟨text, _, table, -, -, -, -, h5, h6, -, -⟩, -⟩ := hev.places
+  obtain ⟨project, evTree, -, hevTree, -, -, -, ⟨text, _, table, -, -, -, -, h5, h6, -, -⟩, -⟩ := hev.places
   have hint {x : Event L E} (hx : x ∈ before ++ suffix) : x ∈ t := by
     rw [ht, hpre]
     simp only [List.mem_append, List.mem_cons]

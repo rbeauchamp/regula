@@ -194,12 +194,6 @@ def configKeys : List Name :=
 build, whatever a project's own file names. -/
 def leanToolchain : String := "leanprover/lean4:v4.35.0"
 
-/-- The components of a name, in order, each as a name of one component. -/
-def components : Name → List Name
-  | .anonymous => []
-  | .str p s => components p ++ [.str .anonymous s]
-  | .num p n => components p ++ [.num .anonymous n]
-
 /-- One Lean file as the reader got it from Lean's parser. -/
 structure FileRead where
   /-- Its module, as Lake names it. -/
@@ -215,9 +209,6 @@ structure FileRead where
 
 /-- What the reader read of one project, before anything of it is compiled. -/
 structure Reading where
-  /-- Whether this checker was started from outside the project's Lake: its program lies outside the
-  project, and the Lake that started it was the Lake of the checker's own package. -/
-  outside : Bool
   /-- What the project's `lean-toolchain` says, trimmed, or none if it has none. -/
   toolchainFile : Option String
   /-- Whether the project has a `lakefile.lean`, which Lake prefers and runs. -/

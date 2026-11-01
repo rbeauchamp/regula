@@ -423,10 +423,7 @@ theorem only_loadPlain (p : Regula.Closed.Profile) : OnlyAIn LoadOp (loadPlain p
   unfold loadPlain
   refine onlyA_seq (only_requireEnv _ _) fun sysroot => onlyA_seq (onlyA_attempt (only_call trivial)) fun dir =>
     onlyA_seq (only_seq (only_call trivial) fun _ => only_pure _) fun root =>
-      onlyA_seq (onlyA_lift (only_call trivial)) fun x => ?_
-  obtain ⟨program, lakeLib⟩ := x
-  dsimp only
-  refine onlyA_seq (only_requireEnv _ _) fun received => ?_
+      onlyA_seq (only_requireEnv _ _) fun received => ?_
   try dsimp only
   split
   · exact only_inputOf _ _
@@ -529,17 +526,10 @@ theorem sound_loadTree (sysroot : String) (tree : FilePath) (p : Regula.Closed.P
 theorem sound_loadPlain (p : Regula.Closed.Profile) : Sound (loadPlain p : Attempt L E _) := by
   unfold loadPlain
   refine sound_seq (sound_requireEnv _ _) fun sysroot => sound_seq (sound_realPath _) fun dir =>
-    sound_seq (sound_loadWorkspace _ _ _) fun root => sound_seq (sound_call_lift ?_) fun x => ?_
-  · intro t a h e he
-    obtain rfl := runs_call_iff.mp h
-    have : e = _ := List.mem_singleton.mp he
-    subst this
-    exact id
-  · obtain ⟨program, lakeLib⟩ := x
-    refine sound_seq (sound_requireEnv _ _) fun received => ?_
-    split
-    · exact sound_inputOf _ _
-    · exact sound_throw _
+    sound_seq (sound_loadWorkspace _ _ _) fun root => sound_seq (sound_requireEnv _ _) fun received => ?_
+  split
+  · exact sound_inputOf _ _
+  · exact sound_throw _
 
 /-- The rules on the finished build: their verdict is the decision's on what the load gave. -/
 theorem rules_spec {T t : List (Event L E)} {sysroot : String} {tree : FilePath} {p : Regula.Closed.Profile}

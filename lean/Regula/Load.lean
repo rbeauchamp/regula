@@ -49,27 +49,24 @@ open Lean (ConstantInfo Environment Name findOLean isExtern)
 open System (FilePath)
 open Regula.Closed
 
-/-- The components of a path, as Lean normalizes it. -/
-def parts (p : FilePath) : List String :=
-  p.normalize.components.filter (!·.isEmpty)
+/-- The components of a path, as Lean normalizes and splits it, with each empty one and each `.` removed. A `..` stays. So two
+spellings of one path by text have one list, and two paths that one link joins have two. -/
+abbrev parts (p : FilePath) : List String :=
+  p.normalize.components.filter fun c => c != "" && c != "."
 
 /-- Whether `path` lies below the directory `dir`, by their components. -/
 def below (dir path : FilePath) : Bool :=
   (parts dir).isPrefixOf (parts path) && parts dir != parts path
 
-/-- The components of a path with each `.` removed. A `..` stays. -/
-def exactParts (p : FilePath) : List String :=
-  (parts p).filter (· != ".")
-
 /-- The name a file's parser input carries, a function of its components alone, so that two spellings of one path give Lean's parser
 one input. It labels messages and selects nothing: the checker reads no message's text, and `Lean.Syntax` holds positions and no name. -/
-def inputName (p : FilePath) : String :=
-  "/".intercalate (exactParts p)
+abbrev inputName (p : FilePath) : String :=
+  "/".intercalate (parts p)
 
 /-- Whether `real`, which is the real path of `path`, is `path` itself at or below the directory `dir`, by
-their components with `.` removed. So `path` crosses no link and holds no `..`. -/
+their components. So `path` crosses no link and holds no `..`. -/
 def exactBelow (dir path real : FilePath) : Bool :=
-  exactParts real == exactParts path && (exactParts dir).isPrefixOf (exactParts path)
+  parts real == parts path && (parts dir).isPrefixOf (parts path)
 
 /-- The kind of a constant: its `ConstantInfo` constructor. -/
 def kindOf : ConstantInfo → Kind
@@ -340,34 +337,11 @@ def Facts.input (f : Facts) (roots : List Name) (profile : Profile) : Except Str
             has a recursion helper's name"
         | none => .ok i
 
-/-- Whether `root` is the last workspace library directory before Lake's library in the received
-search path. Lake v4.35.0 `Package.lint` runs the driver without changing its directory
-(`Lake/CLI/Actions.lean`), and `Workspace.augmentedLeanPath` supplies workspace libraries, then the
-collocated Lake library, then inherited entries. The root package is first in Lake's package array,
-so `Workspace.leanPath` puts its library last.
-
-Assumes: Lake supplies that composition; its library is not a workspace library; and distinct
-packages do not configure a shared library directory. Under those assumptions the theorem below
-identifies the dispatching root, whatever search path the caller inherited. -/
-def dispatchedFrom (root lakeLib : String) (leanPath : List String) : Bool :=
-  decide ((leanPath.takeWhile (· ≠ lakeLib)).getLast? = some root) &&
-    decide (lakeLib ∈ leanPath)
-
-/-- For every search path of Lake's composition, the dispatch check accepts exactly the last
-workspace library directory. Inherited entries cannot make a different root pass. -/
-theorem dispatchedFrom_iff {root lakeLib : String} {dispatching inherited : List String}
-    (h : lakeLib ∉ dispatching) :
-    dispatchedFrom root lakeLib (dispatching ++ lakeLib :: inherited) = true ↔
-      dispatching.getLast? = some root := by
-  have hall : ∀ a ∈ dispatching, decide (a ≠ lakeLib) = true := by
-    intro a ha
-    simp only [ne_eq, decide_eq_true_eq]
-    exact fun hal => h (hal ▸ ha)
-  have htake : (dispatching ++ lakeLib :: inherited).takeWhile (fun a => decide (a ≠ lakeLib)) =
-      dispatching := by
-    rw [List.takeWhile_append_of_pos hall]
-    simp
-  simp only [dispatchedFrom, htake, Bool.and_eq_true, decide_eq_true_eq]
-  simp
+/-- Whether `loaded`, the search path of the workspace that a load of the current directory gave, starts the search path that Lake gave this
+program. Lake gives a program the workspace's libraries, then its own, then what it inherited (`Workspace.augmentedLeanPath`,
+`Lake/Config/Workspace.lean:391-392`), so a load of another workspace gives another start. A path that holds the search path's separator is cut in `received`, and the test
+then fails. -/
+def dispatchedFrom (loaded received : List String) : Bool :=
+  loaded.isPrefixOf received
 
 end Regula.Load

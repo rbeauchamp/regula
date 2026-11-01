@@ -34,26 +34,27 @@ open RegulaSpecification.Loader
 
 variable {α : Type}
 
-/-- What an environment of the witness must be: each reading of it that those answers allow has `LoadFloor`. `Lean.Environment`'s
+/-- What an environment of the witness must be: each reading of it that those answers allow has `BuildAnswer.Floor`. `Lean.Environment`'s
 constructor is private (`Lean/Environment.lean:213`, `:553`), so a proof here cannot build one with a claimed module. A real
 one is what a finished build gives, and `plain_exit_zero_owed` and `full_exit_zero_owed` state that a run that exits with 0
 read one with this floor, on one answer for each operation and, for the full reading, one context for each input. -/
 structure EnvModel (w : WitnessPaths) (env : Lean.Environment) (p : Regula.Closed.Profile) : Prop where
   /-- Each reading has the floor. -/
-  floor : ∀ f : Regula.Load.Facts, f.env = env → f.toolchainDir = w.toolchainDir → f.rootDir = w.rootLib →
-    (∀ m ∈ f.modules, m.olean = w.olean) → RegulaSpecification.Loader.LoadFloor f [`Good] p
+  floor : ∀ a : BuildAnswer, a.env = env → a.toolchainDir = w.toolchainDir → a.rootDir = w.rootLib →
+    a.places.map (·.1) = env.header.moduleNames.toList → (∀ x ∈ a.places, x.2 = w.olean) → a.Floor [`Good] p
 
 theorem floor_of_read {w : WitnessPaths} {env : Lean.Environment} {p : Regula.Closed.Profile} (hm : EnvModel w env p)
     {q : Prog Unit Unit α} {T : List (Event Unit Unit)} (hT : T.Sublist (traceWith (answers w env) q))
-    {f : Regula.Load.Facts} {roots : List Name} (h : BuildRead T (witnessRoot w) f roots) :
-    RegulaSpecification.Loader.LoadFloor f roots p := by
-  obtain ⟨modules, hd, rfl, hs, ht, hr, hol⟩ := h
+    {a : BuildAnswer} {roots : List Name} (h : BuildAnswered T (witnessRoot w) a roots) :
+    a.Floor roots p := by
+  obtain ⟨modules, hd, rfl, hs, ht, hr, hn, hol⟩ := h
   have hmods := good_modules (DefaultModules.mono hT hd)
   subst hmods
-  have henv : (Except.ok f.env : Except IO.Error Lean.Environment) = .ok env :=
+  have henv : (Except.ok a.env : Except IO.Error Lean.Environment) = .ok env :=
     resp_eq (hT.subset (hs.subset (List.mem_cons_of_mem _ (List.mem_singleton.mpr rfl))))
-  exact hm.floor f (Except.ok.inj henv) ht hr fun m hmm =>
-    Except.ok.inj (resp_eq (hT.subset (hol m hmm)) : (Except.ok _ : Except IO.Error FilePath) = .ok _)
+  have he := Except.ok.inj henv
+  exact hm.floor a he ht hr (by rw [hn, he]) fun x hx =>
+    Except.ok.inj (resp_eq (hT.subset (hol x hx)) : (Except.ok _ : Except IO.Error FilePath) = .ok _)
 
 /-- Those answers owe a pass of the full gate. -/
 theorem fullOwed_answers {w : WitnessPaths} {env : Lean.Environment} {p : Regula.Closed.Profile} (hm : EnvModel w env p)
@@ -85,7 +86,7 @@ theorem fullOwed_answers {w : WitnessPaths} {env : Lean.Environment} {p : Regula
     | «import» _ h => cases resp_eq (hrulesT.subset h)
     | search _ _ _ h => cases resp_eq (hrulesT.subset h)
   refine ⟨fun e he => ?_, fun tree rest o he => ?_, fun tree rest s he _ hr => ?_, fun tree rest s he _ hr => ?_,
-    fun tree rest s root f roots he _ hg hb => ?_⟩
+    fun tree rest s root a roots he _ hg hb => ?_⟩
   · cases resp_eq he
   · obtain rfl := htree he
     exact fun hr => no_reason w env q o (Reason.mono hreadT hr)
@@ -123,12 +124,11 @@ theorem full_model (w : WitnessPaths) (env : Lean.Environment) (hm : EnvModel w 
           (argsOf ["standard-logical", "full", w.project.toString]).1
           (argsOf ["standard-logical", "full", w.project.toString]).2) := rfl
   rw [hshape] at hr
-  have hsp : Regula.Closed.Profile.ofSpelling? "standard-logical" = some .standardLogical := rfl
   have howed : FullOwed (traceWith (answers w env) (dispatch Regula.Closed.pinnedLean.1 Regula.Closed.pinnedLean.2
       (argsOf ["standard-logical", "full", w.project.toString]).1
       (argsOf ["standard-logical", "full", w.project.toString]).2)) (FilePath.mk w.project.toString) .standardLogical :=
     fullOwed_answers hm _
-  have := (run_full_owed run_meets hsp hr howed).1
+  have := (run_full_owed (p := .standardLogical) run_meets (by rfl) hr howed).1
   subst this
   exact ⟨_, hr, howed⟩
 
@@ -183,7 +183,7 @@ theorem refused_model (w : WitnessPaths) (env : Lean.Environment) (m : IO.FS.Met
       | incomplete => cases (hn (by simp)).2
       | admitted =>
         obtain ⟨r', -, -, hev, -⟩ := hdec.1 rfl
-        obtain ⟨_, _, _, _, _, _, _, ⟨e, habs, -⟩, -⟩ := hev.places
+        obtain ⟨_, _, _, _, _, _, ⟨e, habs, -⟩, -⟩ := hev.places
         have hin : ∀ {x : Event Unit Unit}, x ∈ tRead → x ∈ traceWith (answersRefused w env m)
             (dispatch Regula.Closed.pinnedLean.1 Regula.Closed.pinnedLean.2
               (argsOf ["standard-logical", "full", w.project.toString]).1
@@ -209,13 +209,13 @@ theorem oneAnswer_traceWith {L E : Type} (f : (o : Op L E) → Resp o) (p : Prog
 theorem plainOwed_answers {w : WitnessPaths} {env : Lean.Environment} {p : Regula.Closed.Profile} (hm : EnvModel w env p)
     (q : Prog Unit Unit α) : PlainOwed (traceWith (answers w env) q) p := by
   have hroot : ∀ {root}, PlainRoot (traceWith (answers w env) q) root → root = witnessRoot w := by
-    rintro root ⟨_, _, log, _, _, _, -, h, -⟩
+    rintro root ⟨_, _, log, _, -, h, -⟩
     have he : (Except.ok (some root, log) : Except String (Option (Root Unit) × List String)) =
         .ok (some (witnessRoot w), []) := resp_eq h
     have := Except.ok.inj he
     simp only [Prod.mk.injEq, Option.some.injEq] at this
     exact this.1
-  refine ⟨fun hr => ?_, fun root f roots hg hb => ?_⟩
+  refine ⟨fun hr => ?_, fun root a roots hg hb => ?_⟩
   · cases hr with
     | noSysroot h => cases resp_eq h
     | noDirectory h => cases resp_eq h
@@ -227,21 +227,13 @@ theorem plainOwed_answers {w : WitnessPaths} {env : Lean.Environment} {p : Regul
       · rw [hx] at hv
         cases hv
     | noSearchPath h => cases resp_eq h
-    | @elsewhere s d root log lp prog ll _ _ h1 h2 h3 hn =>
+    | @elsewhere s d root log lp _ _ h1 h3 hn =>
       have he : (Except.ok (some root, log) : Except String (Option (Root Unit) × List String)) =
           .ok (some (witnessRoot w), []) := resp_eq h1
       have hx := Except.ok.inj he
       simp only [Prod.mk.injEq, Option.some.injEq] at hx
       obtain ⟨rfl, -⟩ := hx
-      have hi : (prog, ll) = (w.tree, w.lakeLib) := resp_eq h2
-      simp only [Prod.mk.injEq] at hi
-      obtain ⟨-, rfl⟩ := hi
-      have hl : some lp = some w.leanPath := resp_eq h3
-      cases hl
-      have hd := w.plainDispatched
-      change Regula.Load.dispatchedFrom w.rootLib.toString _ _ = false at hn
-      rw [hd] at hn
-      cases hn
+      exact hn ⟨_, rfl⟩
     | build _ hf =>
       cases hf with
       | library _ _ h => cases resp_eq h
@@ -263,8 +255,7 @@ theorem plain_model (w : WitnessPaths) (env : Lean.Environment) (hm : EnvModel w
         (dispatch Regula.Closed.pinnedLean.1 Regula.Closed.pinnedLean.2 (argsOf ["standard-logical"]).1
           (argsOf ["standard-logical"]).2) := rfl
   rw [hshape] at hr howed
-  have hsp : Regula.Closed.Profile.ofSpelling? "standard-logical" = some .standardLogical := rfl
-  have := (run_plain_owed run_meets hsp hr howed).1
+  have := (run_plain_owed (p := .standardLogical) run_meets (by rfl) hr howed).1
   subst this
   exact ⟨_, hr, howed⟩
 
@@ -333,7 +324,7 @@ theorem misjudge_fails {L E : Type} : ¬ RunMeets (misjudge : List String → Pr
     · exact .inr (.inr (congrArg Event.op hm))
   have hplain : ∀ root, ¬ PlainRoot ([⟨.leanVersion, Regula.Closed.pinnedLean⟩, ⟨.getEnv "LEAN_SYSROOT", some ""⟩,
       ⟨.println (Regula.Closed.Verdict.proofLine .incomplete), .ok ()⟩] : List (Event L E)) root := by
-    rintro root ⟨s, d, l, lp, ll, prog, -, hload, -⟩
+    rintro root ⟨s, d, l, lp, -, hload, -⟩
     rcases hno hload with h | h | h <;> cases h
   rcases hl with ⟨root, f, roots, hg, -⟩ | ⟨hw', -⟩
   · exact hplain root hg
@@ -376,17 +367,13 @@ theorem unrelated_read_no_reason {L E : Type} {u dir treeDir : FilePath} {e : IO
     cases hn with
     | project => exact h1 rfl
     | tree => exact h2 rfl
-    | appReal h => cases hne h
     | tomlReal h => exact hok h
-    | toolchainDir h => exact htl h
-    | oleanReal h => exact hsc h
     | sourceReal h => exact hsc h
   | load hp _ => cases hne hp.event
   | toolchain h => exact hok h
   | toolchainFailed h => exact hok h
   | toolchainNotExact h => exact hok h
   | toolchainNoReal h => exact hok h
-  | started h => exact hok h
   | tomlNotExact h => exact hok h
   | notApart h => exact hok h
   | configNotInTree h => exact hok h
@@ -408,7 +395,6 @@ theorem unrelated_read_no_reason {L E : Type} {u dir treeDir : FilePath} {e : IO
   | twoTexts h => exact hsc h
   | moduleName h => exact hsc h
   | importedRoot h => exact hsc h
-  | notToolchain h => exact hsc h
   | tooMany h => exact hsc h
   | mathlib h => exact hsc h
   | file h => exact hsc h

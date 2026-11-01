@@ -17,7 +17,7 @@ proof verdict. Responses remain arbitrary: these relations constrain the request
 a whole run, for every response, and it is the contract that
 `Regula.Shell.run` is proved against. `RegulaSpecification.Proofs.Owed` states what follows of every program that meets it:
 a run in which nothing that the build needs has failed, on a project nothing keeps from being admitted, and whose environment has
-`LoadFloor`, passes. Who that is, apart from this list of reasons, is `RegulaSpecification.Domain`, and `RegulaSpecification.Proofs.Domain`
+`BuildAnswer.Floor`, passes. Who that is, apart from this list of reasons, is `RegulaSpecification.Domain`, and `RegulaSpecification.Proofs.Domain`
 proves each reason justified against it.
 -/
 
@@ -79,7 +79,7 @@ def SourceText (t : List (Event L E)) (project tree path : FilePath) (text : Str
 def HeaderOf (t : List (Event L E)) (project tree : FilePath) (root : Root L) (modules : List (Name × FilePath))
     (m : Name) (imports : Array Import) : Prop :=
   ∃ path text header state messages, FileOfModule root modules m path ∧ SourceText t project tree path text ∧
-    (⟨.parseHeader (mkInputContext text (Regula.Load.inputName path)), .ok (header, state, messages, imports)⟩ : Event L E) ∈ t
+    (⟨.parseHeader (mkInputContext text (inputNameOf path)), .ok (header, state, messages, imports)⟩ : Event L E) ∈ t
 
 /-- A name the build needs: a module of a default target, or what the file of a name it needs imports. A header that the
 run parsed of anything else names nothing. -/
@@ -96,7 +96,7 @@ inductive Named (t : List (Event L E)) (project tree : FilePath) (root : Root L)
 /-- Observations and reporting that neither change the tree or search path nor consume either context.
 The closed operation type makes a new operation a new specification obligation. -/
 def QuietOp : Op L E → Prop
-  | .leanVersion | .getEnv _ | .appPath | .realPath _ | .readFile _ | .symlinkMetadata _
+  | .leanVersion | .getEnv _ | .realPath _ | .readFile _ | .symlinkMetadata _
   | .println _ | .flush | .parseHeader _ | .parseCommand .. | .parseToml _ | .lakeInstall _
   | .libModules _ => True
   | .writeFile .. | .createDirAll _ | .createTempDir | .removeDirAll _ | .runLake ..
@@ -259,16 +259,10 @@ Configuration loads use `PreparedLoad` separately. An operation outside these ca
 inductive Needed (t : List (Event L E)) (dir treeDir : FilePath) : Op L E → Prop where
   /-- The toolchain. -/
   | sysroot : Needed t dir treeDir (.getEnv "LEAN_SYSROOT")
-  /-- What Lake gave as the search path, which says who started the run. -/
-  | searchPath : Needed t dir treeDir (.getEnv "LEAN_PATH")
   /-- The project. -/
   | project : Needed t dir treeDir (.realPath dir)
   /-- The checker's tree. -/
   | tree : Needed t dir treeDir (.realPath treeDir)
-  /-- This program, to tell the start from outside. -/
-  | app : Needed t dir treeDir .appPath
-  /-- Its real path. -/
-  | appReal {app} : (⟨.appPath, .ok app⟩ : Event L E) ∈ t → Needed t dir treeDir (.realPath app)
   /-- Whether `lakefile.lean` exists. -/
   | leanConfig {project} : (⟨.realPath dir, .ok project⟩ : Event L E) ∈ t →
       Needed t dir treeDir (.symlinkMetadata (project / "lakefile.lean"))
@@ -297,9 +291,6 @@ inductive Needed (t : List (Event L E)) (dir treeDir : FilePath) : Op L E → Pr
   /-- The modules of a default library. -/
   | library {tree root target lib} : TreeLoaded t dir treeDir tree root → target ∈ root.defaultTargets →
       root.findLib target = some lib → Needed t dir treeDir (.libModules lib)
-  /-- A directory of the toolchain's library. -/
-  | toolchainDir {tree root d} : TreeLoaded t dir treeDir tree root → d ∈ root.toolchain →
-      Needed t dir treeDir (.realPath d)
   /-- Whether anything has the name that Lake prefers as its configuration, in the tree. -/
   | treeLeanConfig {tree} : (⟨.realPath treeDir, .ok tree⟩ : Event L E) ∈ t →
       Needed t dir treeDir (.symlinkMetadata (tree / "lakefile.lean"))
@@ -307,10 +298,6 @@ inductive Needed (t : List (Event L E)) (dir treeDir : FilePath) : Op L E → Pr
   | search {project tree root modules m} : Scene t dir treeDir project tree root modules →
       Named t project tree root modules m → modules.lookup m = none → root.resolve m = none →
       Needed t dir treeDir (.findOLean m)
-  /-- The real path of what Lean found. -/
-  | oleanReal {project tree root modules m olean} : Scene t dir treeDir project tree root modules →
-      Named t project tree root modules m → modules.lookup m = none → root.resolve m = none →
-      (⟨.findOLean m, .ok olean⟩ : Event L E) ∈ t → Needed t dir treeDir (.realPath olean)
   /-- The real path of the project's file of a name the build needs. -/
   | sourceReal {project tree root modules m path rel} : Scene t dir treeDir project tree root modules →
       Named t project tree root modules m → FileOfModule root modules m path →
@@ -331,10 +318,10 @@ inductive Needed (t : List (Event L E)) (dir treeDir : FilePath) : Op L E → Pr
   | sourceHeader {project tree root modules m path text} : Scene t dir treeDir project tree root modules →
       Named t project tree root modules m → FileOfModule root modules m path →
       SourceText t project tree path text →
-      Needed t dir treeDir (.parseHeader (mkInputContext text (Regula.Load.inputName path)))
+      Needed t dir treeDir (.parseHeader (mkInputContext text (inputNameOf path)))
   /-- The import for Lean's parser, of names the build needs that the toolchain holds. -/
   | parser {project tree root modules mods} : Scene t dir treeDir project tree root modules →
-      (∀ n ∈ mods, Named t project tree root modules n ∧ HeldByToolchain t root n) →
+      (∀ n ∈ mods, Named t project tree root modules n ∧ HeldByToolchain t n) →
       Needed t dir treeDir (.importForParser mods)
 
 /-- What the text of `lakefile.toml` of the project at `dir` gave Lake's parser. -/
@@ -376,27 +363,15 @@ inductive Reason (t : List (Event L E)) (dir treeDir : FilePath) : Outcome → P
   /-- The toolchain's file failed the exact-path test. -/
   | toolchainNotExact {project real} : (⟨.realPath dir, .ok project⟩ : Event L E) ∈ t →
       (⟨.realPath (project / "lean-toolchain"), .ok real⟩ : Event L E) ∈ t →
-      Regula.Load.exactBelow project (project / "lean-toolchain") real = false →
+      ¬ ExactlyBelow project (project / "lean-toolchain") real →
       Reason t dir treeDir .refused
   /-- The toolchain's real path failed. -/
   | toolchainNoReal {project e} : (⟨.realPath dir, .ok project⟩ : Event L E) ∈ t →
       (⟨.realPath (project / "lean-toolchain"), .error e⟩ : Event L E) ∈ t → Reason t dir treeDir .refused
-  /-- This program was not started from outside the project, by the responses that say where it lies and which
-  Lake started it. -/
-  | started {project sysroot program lakeLib app real leanPath} :
-      (⟨.realPath dir, .ok project⟩ : Event L E) ∈ t → SysrootIs t sysroot →
-      (⟨.lakeInstall sysroot, (program, lakeLib)⟩ : Event L E) ∈ t →
-      (⟨.appPath, .ok app⟩ : Event L E) ∈ t → (⟨.realPath app, .ok real⟩ : Event L E) ∈ t →
-      (⟨.getEnv "LEAN_PATH", some leanPath⟩ : Event L E) ∈ t →
-      (Regula.Load.below project real = true ∨
-        ∀ own, (real.parent.bind (·.parent)).map (· / "lib" / "lean") = some own →
-          Regula.Load.dispatchedFrom own.toString lakeLib.toString
-            ((System.SearchPath.parse leanPath).map toString) = false) →
-      Reason t dir treeDir .incomplete
   /-- `lakefile.toml` is not, by its real path, that path: it crossed a link, the name is stored in another case, or it lies outside the project. -/
   | tomlNotExact {project real} : (⟨.realPath dir, .ok project⟩ : Event L E) ∈ t →
       (⟨.realPath (project / "lakefile.toml"), .ok real⟩ : Event L E) ∈ t →
-      Regula.Load.exactBelow project (project / "lakefile.toml") real = false →
+      ¬ ExactlyBelow project (project / "lakefile.toml") real →
       Reason t dir treeDir .incomplete
   /-- The project and the checker's tree do not lie apart. -/
   | notApart {project tree} : (⟨.realPath dir, .ok project⟩ : Event L E) ∈ t →
@@ -417,7 +392,7 @@ inductive Reason (t : List (Event L E)) (dir treeDir : FilePath) : Outcome → P
       Named t project tree root modules m → FileOfModule root modules m path →
       TreeRelative (parts tree) (parts path) rel →
       (⟨.realPath (under project rel), .ok real⟩ : Event L E) ∈ t →
-      Regula.Load.exactBelow project (under project rel) real = false →
+      ¬ ExactlyBelow project (under project rel) real →
       Reason t dir treeDir .incomplete
   /-- A `lakefile.lean` exists. -/
   | leanConfig {project metadata} : (⟨.realPath dir, .ok project⟩ : Event L E) ∈ t →
@@ -475,14 +450,6 @@ inductive Reason (t : List (Event L E)) (dir treeDir : FilePath) : Outcome → P
   | importedRoot {project tree root modules m imports i} : Scene t dir treeDir project tree root modules →
       Named t project tree root modules m → HeaderOf t project tree root modules m imports → i ∈ imports →
       (modules.lookup i.module).isSome = true → root.resolve i.module = none → Reason t dir treeDir .incomplete
-  /-- A name the build needs that no file of the project holds, whose `.olean` does not lie below the toolchain's library. -/
-  | notToolchain {project tree root modules m olean real} {reals : List (FilePath × FilePath)} :
-      Scene t dir treeDir project tree root modules → Named t project tree root modules m →
-      modules.lookup m = none → root.resolve m = none →
-      (⟨.findOLean m, .ok olean⟩ : Event L E) ∈ t → (⟨.realPath olean, .ok real⟩ : Event L E) ∈ t →
-      reals.map Prod.fst = root.toolchain →
-      (∀ x ∈ reals, (⟨.realPath x.1, .ok x.2⟩ : Event L E) ∈ t ∧ Regula.Load.below x.2 real = false) →
-      Reason t dir treeDir .incomplete
   /-- The roots, and the imports of distinct files that the build needs, are more names than the reader follows. -/
   | tooMany {project tree root modules} {ms : List (Name × Array Import)} :
       Scene t dir treeDir project tree root modules → (ms.map (·.1)).Nodup →
@@ -497,7 +464,7 @@ inductive Reason (t : List (Event L E)) (dir treeDir : FilePath) : Outcome → P
       Scene t dir treeDir project tree root modules → Named t project tree root modules f.module →
       FileOfModule root modules f.module path → ReadAs t project tree f path imports mods →
       (∀ x ∈ headers, HeaderOf t project tree root modules x.1 x.2) →
-      (∀ n ∈ held, Named t project tree root modules n ∧ HeldByToolchain t root n) →
+      (∀ n ∈ held, Named t project tree root modules n ∧ HeldByToolchain t n) →
       (∀ i ∈ imports, i.module ∈ held ∨ (headers.lookup i.module).isSome = true) →
       (∀ x ∈ headers, ∀ i ∈ x.2, i.module ∈ held ∨ (headers.lookup i.module).isSome = true) →
       (∀ n, n ∈ mods ↔ ∃ m ∈ imports, Sees headers held m.module n) →
@@ -522,17 +489,20 @@ def BuildRead (t : List (Event L E)) (root : Root L) (f : Regula.Load.Facts) (ro
     f.toolchainDir = root.leanLib ∧ f.rootDir = root.rootLib ∧
     ∀ m ∈ f.modules, (⟨.findOLean m.name, .ok m.olean⟩ : Event L E) ∈ t
 
+/-- The search path `received` that Lake gave this program starts with `root`'s, which Lake's load of the current directory gave. Lake gives a program the libraries of
+the workspace it dispatched, then its own, then what it inherited (`Workspace.augmentedLeanPath`, `Lake/Config/Workspace.lean:391-392`). -/
+def LakeDispatched (received : String) (root : Root L) : Prop :=
+  ∃ inherited, (System.SearchPath.parse received).map toString = root.leanPath.map toString ++ inherited
+
 /-- Lake's load of the workspace that Lake dispatched from the current directory, on the run's toolchain: the root that the
 run read, on the search path that Lake gave it, which names that workspace. -/
 def PlainRoot (t : List (Event L E)) (root : Root L) : Prop :=
-  ∃ (sysroot : String) (dir : FilePath) (log : List String) (leanPath : String) (lakeLib program : FilePath),
+  ∃ (sysroot : String) (dir : FilePath) (log : List String) (received : String),
     SysrootIs t sysroot ∧
     (⟨.loadWorkspace sysroot dir, .ok (some root, log)⟩ : Event L E) ∈ t ∧
     (⟨.realPath ".", .ok dir⟩ : Event L E) ∈ t ∧
-    (⟨.lakeInstall sysroot, (program, lakeLib)⟩ : Event L E) ∈ t ∧
-    (⟨.getEnv "LEAN_PATH", some leanPath⟩ : Event L E) ∈ t ∧
-    Regula.Load.dispatchedFrom root.rootLib.toString lakeLib.toString
-      ((System.SearchPath.parse leanPath).map toString) = true
+    (⟨.getEnv "LEAN_PATH", some received⟩ : Event L E) ∈ t ∧
+    LakeDispatched received root
 
 /-- Lake's load of the root package in the checker's tree, on the run's toolchain `sysroot`. -/
 def TreeRoot (sysroot : String) (tree : FilePath) (t : List (Event L E)) (root : Root L) : Prop :=
@@ -567,14 +537,12 @@ inductive PlainReason (t : List (Event L E)) : Prop where
       PlainReason t
   /-- `LEAN_PATH` is not set, so the workspace that Lake dispatched is not known. -/
   | noSearchPath : (⟨.getEnv "LEAN_PATH", none⟩ : Event L E) ∈ t → PlainReason t
-  /-- The current directory is not the workspace Lake dispatched. -/
-  | elsewhere {sysroot dir root log leanPath program lakeLib} : SysrootIs t sysroot →
+  /-- Lake's search path does not start with that of the workspace in the current directory. -/
+  | elsewhere {sysroot dir root log received} : SysrootIs t sysroot →
       (⟨.realPath ".", .ok dir⟩ : Event L E) ∈ t →
       (⟨.loadWorkspace sysroot dir, .ok (some root, log)⟩ : Event L E) ∈ t →
-      (⟨.lakeInstall sysroot, (program, lakeLib)⟩ : Event L E) ∈ t →
-      (⟨.getEnv "LEAN_PATH", some leanPath⟩ : Event L E) ∈ t →
-      Regula.Load.dispatchedFrom root.rootLib.toString lakeLib.toString
-        ((System.SearchPath.parse leanPath).map toString) = false → PlainReason t
+      (⟨.getEnv "LEAN_PATH", some received⟩ : Event L E) ∈ t →
+      ¬ LakeDispatched received root → PlainReason t
   /-- The load of the finished build of that workspace failed. -/
   | build {root} : PlainRoot t root → BuildFailed t root → PlainReason t
 
@@ -651,7 +619,7 @@ command request. `RulesPreparation` additionally orders its load and search-path
 remain outside the trace.
 The cases are the closed effect type, rather than a list of remembered call sites. -/
 def ReloadOp : Op L E → Prop
-  | .leanVersion | .getEnv _ | .appPath | .realPath _ | .readFile _ | .symlinkMetadata _
+  | .leanVersion | .getEnv _ | .realPath _ | .readFile _ | .symlinkMetadata _
   | .println _ | .flush | .parseHeader _ | .parseCommand .. | .setSearchPath _ | .findOLean _
   | .importForRules _ | .importForParser _ | .parseToml _ | .lakeInstall _ | .loadWorkspace ..
   | .loadRoot .. | .libModules _ => True
