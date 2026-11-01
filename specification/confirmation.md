@@ -15,7 +15,7 @@ The owner added a constraint over all Regula work and confirmed the restatement 
 > - An seL4-style claim: exactly what is proved, for which inputs, under which listed assumptions, with no superlatives in public until the proofs back them.
 > - The work follows it too: the simplest analysis that answers the question, with no frameworks.
 >
-> The owner's examples: this rules out adding 1,000 lines to keep an unusual folder layout working, adding a mode to avoid a refusal, or keeping a tool in the repository for one analysis. It still allows a long proof of something truly hard, such as the two-way axiom rules.
+> For example, this rules out adding 1,000 lines to keep an unusual folder layout working, adding a mode to avoid a refusal, or keeping a tool in the repository for one analysis. It still allows a long proof of something truly hard, such as the two-way axiom rules.
 
 ## 2026-10-31
 
