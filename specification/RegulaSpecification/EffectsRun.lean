@@ -97,11 +97,12 @@ and so is the configuration. It also states what makes a project one that nothin
 that each path Lake's load names lies in the closed domain, each name too, and that the imports stay within the reader's
 bound.
 
-`held` is what the tree holds where the build consumes it, by the components of a path. So the statement that the text
-judged is the text in the tree is about that state, and not about a write that some event once made: `Evidence` with
-`held` fixed keeps under more events, and `Decided` gives it `written t`, the state that the run's whole reading leaves.
-Each file Lake would compile holds the text its commands were parsed from, the configuration holds the text Lake's parser
-read, `lean-toolchain` holds the pinned text, and the tree holds no other text. -/
+`held` says what stands at each place where the build consumes a text, by the components of a path. So the statement that
+the text judged is what stands is about that state, and not about a write that some event once made: `Evidence` with
+`held` fixed keeps under more events, and `Decided` gives it `written t`, a fold of the run's own requests over its whole
+reading, which observes no file (`ReadBack` is the observation). `held` gives each file Lake would compile the text its
+commands were parsed from, the configuration the text Lake's parser read, `lean-toolchain` the pinned text, and no other
+path a text. -/
 structure Evidence (t : List (Event L E)) (dir dirTree : FilePath) (held : List String → Option String)
     (r : Reading) : Prop where
   /-- The project and the tree have real paths, and neither lies in the other. -/
@@ -120,7 +121,7 @@ structure Evidence (t : List (Event L E)) (dir dirTree : FilePath) (held : List 
     -- `lakefile.lean` is absent, by the name.
     (∃ e, (⟨.symlinkMetadata (project / "lakefile.lean"), .error e⟩ : Event L E) ∈ t ∧
       ∃ name code details, e = .noFileOrDirectory name code details) ∧
-    -- `lakefile.toml`: the text read is the text Lake's parser read and the text the tree holds, and each of
+    -- `lakefile.toml`: the text read is the text Lake's parser read and the text `held` gives it, and each of
     -- its key paths is in the reading.
     (∃ text real table,
       (⟨.realPath (project / "lakefile.toml"), .ok real⟩ : Event L E) ∈ t ∧
@@ -131,11 +132,11 @@ structure Evidence (t : List (Event L E)) (dir dirTree : FilePath) (held : List 
       held (parts (tree / "lakefile.toml")) = some text ∧
       ¬ Deeper 8 table ∧
       ∀ n, KeyPath .anonymous table n → n ∈ r.configKeys) ∧
-    -- The tree holds the pinned text as its `lean-toolchain`.
+    -- `held` gives `lean-toolchain` the pinned text.
     held (parts (tree / "lean-toolchain")) = some leanToolchain ∧
     -- The tree's copies lie below it.
     ¬ OutsideTree tree (tree / "lakefile.toml") ∧ ¬ OutsideTree tree (tree / "lean-toolchain") ∧
-    -- Each file Lake compiles for the claim is read, as `ReadAs` states, and each file read is one of them.
+    -- Each file Lake compiles for the claim is read, as `ReadText` states, and each file read is one of them.
     ∃ sysroot root log modules,
       (⟨.getEnv "LEAN_SYSROOT", some sysroot⟩ : Event L E) ∈ t ∧
       (⟨.loadRoot sysroot tree, .ok (some root, log)⟩ : Event L E) ∈ t ∧
@@ -164,7 +165,7 @@ structure Evidence (t : List (Event L E)) (dir dirTree : FilePath) (held : List 
           (root.resolve i.module = none ∧ modules.lookup i.module = none ∧
             HeldByToolchain t root i.module)) ∧ ClosedModuleName i.module ∧ i.module.getRoot ≠ `Mathlib ∧
           ((modules.lookup i.module).isSome = true → (root.resolve i.module).isSome = true)) ∧
-      -- The tree holds no other text: what stands at any other path is a text that a file of the reading was judged from.
+      -- `held` gives no other path a text, unless a file of the reading lies there and was judged from that text.
       ∀ p text, held p = some text → p = parts (tree / "lakefile.toml") ∨ p = parts (tree / "lean-toolchain") ∨
         ∃ f ∈ r.files, ∃ path imports mods, FileOfModule root modules f.module path ∧ parts path = p ∧
           ReadText t project tree f path imports mods text

@@ -142,11 +142,7 @@ The second reading was made by Codex `gpt-6-astra` at `xhigh`, through `codex ex
 
 - **"Confirm all"**: the owner's answer to the plain-word consequences of an earlier, larger specification, which the commit `ea69f22f` holds at `specification/README.md`. The answers of 2026-10-31 replace each consequence of it that concerns what this cut removes.
 
-## The form of this record
-
-The file is not signed. Its authority is that of the commit that adds it. The owner's agents passed each answer to the author of this file on its date.
-
-### What the build consumes
+## What the build consumes
 
 An independent audit of main at `48431e2c` judged that this record did not yet meet the owner's account: its contract of a full run let a run read a named file again and copy that new text over the tree after the check had judged an earlier one, and kept the earlier evidence. The audit proved that for every text, and it observed no false verdict of the program. It also found a published comment that said more than its theorem. The owner was asked nothing, and no owner decision came of this: the account says a contract that misses the intent is a bug, and that the property must be proved, or the verdict removed by the owner's own call. It was proved. What follows was decided by the agents on the owner's behalf, derived from that account, and none of it is the owner's confirmation.
 
@@ -197,7 +193,7 @@ The first statement of the property is that a full verdict's admission is about 
 
 `Evidence.mono` is kept, with the state fixed: it says what stays true of what was read, and `written` says what stands.
 
-By `git diff --numstat` against `48431e2c`, before the docstring corrections below: the three record files grew by 63 lines net, `Standing.lean` and `Written.lean` total 379, the proofs of the reader changed mostly where `readSource` and the walk lost their write, and `Reader.lean` grew by 47 lines net. The `Evidence` is a state and a clause longer, and the grammar is unchanged.
+By `git diff --numstat` against `48431e2c`, with the read-back and the docstring corrections below: the three record files grew by 84 lines net, `Standing.lean` and `Written.lean` total 543, the proofs of the reader changed mostly where `readSource` and the walk lost their write and where the read-back came in, and `Reader.lean` grew by 64 lines net. `Evidence` is a state and two clauses longer, `Decided` adds `ReadBack`, and the copy grammar's rules are unchanged.
 
 The second reading was made by Codex `gpt-6-astra` at `xhigh`, through `codex exec` with no user configuration, memory, hooks or session file, from the account above, the types of `Regula.Effect` and of the reading, and lean-intent's `LeanIntent/Record.lean`, which were in its prompt, because a nested confinement refuses its reads. It read no file. It gave a schema with the trace predicate as a parameter, and said that the types it was given do not define admission, a full build or consumption. So there is no theorem to compare, and these are differences in plain words, labelled unproved.
 
@@ -210,3 +206,7 @@ The second reading was made by Codex `gpt-6-astra` at `xhigh`, through `codex ex
 No difference reached the owner's level. The stand-ins for lean-intent's checks are as for the sections above.
 
 Three readers who did not write them read the class of a docstring whose conclusion its statement does not carry, across `Proofs/`, `lean/Regula/ProgramCheck/` and the README sentences citing them: about 730 comments. They found about 80 such sentences, each corrected in this change or, for `FullRun.at_consumer`, by a stronger statement. The worst were of the audit's shape: `treeRelative_no_parent` said that a join could not leave the directory, `below` and `exactBelow` were said to state what their names say, and `main_zero` of the listing named what `main` printed with no such link. The same reading found that `ConstantInfo.value?` gives no value of a theorem or an opaque constant, so the check of effects reads neither. The text now says that, and the check is unchanged: this change's boundary leaves it, and a value of those kinds that mentions an effect stays what it was.
+
+## The form of this record
+
+The file is not signed. Its authority is that of the commit that adds it. The owner's agents passed each answer to the author of this file on its date.
