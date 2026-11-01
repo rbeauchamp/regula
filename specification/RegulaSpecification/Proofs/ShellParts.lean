@@ -30,6 +30,33 @@ def Details (t : List (Event L E)) : Prop :=
 theorem printed_append (a b : List (Event L E)) : printed (a ++ b) = printed a ++ printed b := by
   simp [printed]
 
+/-- Splitting the actual requested character stream gives exactly `printed`, followed by the empty tail
+after the final LF. This includes embedded separators, empty messages and consecutive print calls. -/
+theorem serialized_split (t : List (Event L E)) :
+    (serialized t).splitOn '\n' = (printed t).map String.toList ++ [[]] := by
+  unfold serialized printed
+  generalize t.filterMap Event.line? = texts
+  induction texts with
+  | nil => simp
+  | cons text rest ih =>
+    simp only [List.flatMap_cons, String.toList_push, List.append_assoc, List.singleton_append] at ih ⊢
+    rw [List.splitOn_append_cons_self]
+    simpa [List.map_flatMap, Function.comp_def, List.map_map, List.append_assoc] using
+      congrArg ((text.toList.splitOn '\n') ++ ·) ih
+
+/-- No LF or CR survives diagnostic serialization, for every input string. -/
+theorem detailText_no_break (s : String) :
+    '\n' ∉ (detailText s).toList ∧ '\r' ∉ (detailText s).toList := by
+  simp only [detailText, String.toList_ofList, List.mem_flatMap]
+  constructor <;> rintro ⟨c, _, hc⟩ <;>
+    split at hc <;> (try split at hc) <;> simp_all <;> subst c <;> contradiction
+
+/-- A diagnostic's requested physical lines consist of its one prefixed line. -/
+theorem detailText_lines (s : String) :
+    (("  " ++ detailText s).toList.splitOn '\n').map String.ofList = ["  " ++ detailText s] := by
+  rw [List.splitOn_eq_singleton (by simpa using (detailText_no_break s).1)]
+  simp only [List.map_singleton, String.ofList_toList]
+
 theorem details_nil : Details (L := L) (E := E) [] := by
   simp [Details, printed]
 
@@ -57,8 +84,11 @@ theorem say_spec {s : String} {t : List (Event L E)} {u : Unit} (h : Runs (say s
   · simp only [List.append_nil, List.mem_singleton] at he
     subst he
     rfl
-  · have : l = "  " ++ s := by simpa [printed, Event.line?] using hl
-    exact ⟨s, this⟩
+  · have hl' : l ∈ (("  " ++ detailText s).toList.splitOn '\n').map String.ofList := by
+      simpa only [printed, Event.line?, List.append_nil, List.filterMap_cons, List.filterMap_nil,
+        List.flatMap_cons, List.flatMap_nil, List.nil_append] using hl
+    rw [detailText_lines] at hl'
+    exact ⟨detailText s, List.mem_singleton.mp hl'⟩
 
 theorem sayAll_spec {ls : List String} {t : List (Event L E)} {u : Unit}
     (h : Runs (sayAll ls : Prog L E Unit) t u) : Details t := by
@@ -84,8 +114,30 @@ theorem finish_spec {text : String} {code c : UInt32} {t : List (Event L E)}
 
 /-- A list with a last line after `pre` ends with that line, when `pre` holds only details. -/
 theorem endsWith_of {pre : List (Event L E)} {line : String} {r : Resp (Op.println line : Op L E)}
-    (h : ∀ l ∈ printed pre, IsDetail l) : EndsWith (pre ++ [⟨.println line, r⟩]) line :=
-  ⟨pre, r, rfl, h⟩
+    (hn : '\n' ∉ line.toList) (h : ∀ l ∈ printed pre, IsDetail l) :
+    EndsWith (pre ++ [⟨.println line, r⟩]) line :=
+  ⟨pre, r, rfl, hn, h⟩
+
+/-- Every proof-verdict label is one physical line. -/
+theorem proofLine_no_break (v : Regula.Closed.Verdict) : '\n' ∉ v.proofLine.toList := by
+  cases v <;> decide
+
+set_option maxRecDepth 4096 in
+/-- Every full-gate label is one physical line. -/
+theorem reportLabel_no_break (r : Report) : '\n' ∉ r.label.toList := by
+  cases r with
+  | full v => cases v <;> decide
+  | refused | incomplete | proofOnly => decide
+
+/-- The serialized output ends in the one verdict line; every preceding physical line is a detail.
+The final empty chunk is the position after `println`'s terminating LF, not another output line. -/
+theorem endsWith_serialized {t : List (Event L E)} {line : String} (h : EndsWith t line) :
+    ∃ pre : List String, (serialized t).splitOn '\n' = pre.map String.toList ++ [line.toList, []] ∧
+      ∀ l ∈ pre, IsDetail l := by
+  obtain ⟨pre, r, rfl, hn, hd⟩ := h
+  refine ⟨printed pre, ?_, hd⟩
+  rw [serialized_split, printed_append]
+  simp [printed, Event.line?, List.splitOn_eq_singleton hn, List.append_assoc]
 
 theorem finishProof_spec {report : Regula.Closed.Report} {c : UInt32} {t : List (Event L E)}
     (h : Runs (finishProof report : Prog L E UInt32) t c) :
@@ -94,7 +146,7 @@ theorem finishProof_spec {report : Regula.Closed.Report} {c : UInt32} {t : List 
   obtain ⟨t₁, t₂, u, rfl, h₁, h₂⟩ := runs_seq_iff.mp h
   have hd := sayAll_spec h₁
   obtain ⟨hc, r, rfl⟩ := finish_spec h₂
-  refine ⟨hc, endsWith_of hd.2, fun e he => ?_⟩
+  refine ⟨hc, endsWith_of (proofLine_no_break _) hd.2, fun e he => ?_⟩
   rcases List.mem_append.mp he with he | he
   · exact hd.1 e he
   · have : e = _ := List.mem_singleton.mp he

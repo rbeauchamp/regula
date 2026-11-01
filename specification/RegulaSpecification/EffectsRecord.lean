@@ -262,10 +262,10 @@ def Loaded (gave : List (Event L E) → Root L → Prop) (t : List (Event L E)) 
 def IsDetail (l : String) : Prop :=
   ∃ s, l = "  " ++ s
 
-/-- The last event of a run printed this line, and each line before it starts with two spaces, so no line
-before the last can be read as a verdict and a run that stops anywhere before the end has printed none. -/
+/-- The last event requests one physical line, and every physical line requested by earlier `println`
+calls starts with two spaces. No earlier requested line can be read as the final verdict. -/
 def EndsWith (t : List (Event L E)) (line : String) : Prop :=
-  ∃ pre r, t = pre ++ [⟨.println line, r⟩] ∧ ∀ l ∈ printed pre, IsDetail l
+  ∃ pre r, t = pre ++ [⟨.println line, r⟩] ∧ '\n' ∉ line.toList ∧ ∀ l ∈ printed pre, IsDetail l
 
 /-- A run with a Lean or arguments that the checker does not read: only says so. -/
 def Refusal (t : List (Event L E)) (c : UInt32) : Prop :=

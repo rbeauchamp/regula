@@ -98,21 +98,43 @@ theorem read_what_lake_compiles {t : List (Event L E)} {dir tree : FilePath} {r 
   exact ⟨project, real, sysroot, root, log, modules, headers, hp, hl, hd,
     fun B m path hb => hc m path (B.h3 m path hb)⟩
 
-/-- H4: what `IO.FS.realPath` gives. A hypothesis about the operating system's function as Lean gives it: it coincides with
-POSIX `realpath` (`Init/System/IO.lean:876-879` at v4.35.0), so the real path of a path that crosses a link differs from it. -/
-structure RealPathBehaviour where
-  /-- The path crosses a link at some depth. -/
+/-- H4: what successful `IO.FS.realPath` responses in this trace mean. Lean documents that the result contains no
+symbolic links and coincides with POSIX `realpath` (`Init/System/IO.lean:874-881` at v4.35.0). The hypothesis relates
+crossings to those responses, not to arbitrary paths; it says nothing about the filesystem after the observation. -/
+structure RealPathBehaviour (t : List (Event L E)) where
+  /-- The path crosses a link at the real-path observations in this trace. -/
   Crosses : FilePath → Prop
-  /-- H4. -/
-  h4 : ∀ path real, Crosses path → parts real ≠ parts path
+  /-- H4, only for a successful response actually received. -/
+  h4 : ∀ path real, (⟨.realPath path, .ok real⟩ : Event L E) ∈ t →
+    Crosses path → parts real ≠ parts path
+
+/-- H4 is realizable with a crossing and an unchanged path: for any two different component lists, a trace can
+resolve the first path to the second and leave the second unchanged. This is a model of the hypothesis, not a claim
+that the filesystem is in that state. -/
+theorem realPathBehaviour_crossing (link target : FilePath) (hne : parts target ≠ parts link) :
+    ∃ B : RealPathBehaviour (L := L) (E := E)
+      [⟨.realPath link, .ok target⟩, ⟨.realPath target, .ok target⟩],
+      B.Crosses link ∧ ¬ B.Crosses target := by
+  have hpaths : target ≠ link := fun h => hne (congrArg parts h)
+  refine ⟨⟨(· = link), ?_⟩, rfl, hpaths⟩
+  intro path real hm hc
+  subst path
+  simp only [List.mem_cons, List.not_mem_nil, or_false] at hm
+  rcases hm with h | h
+  · cases h
+    exact hne
+  · have he := congrArg Event.op h
+    have : link = target := by cases he; rfl
+    exact (hpaths this.symm).elim
 
 /-- Under H4, the file of a reading crossed no link, for the real path that the run received. -/
 theorem read_no_link {t : List (Event L E)} {project tree path : FilePath} {f : FileRead}
-    {imports : Array Import} {mods : List Name} (B : RealPathBehaviour)
+    {imports : Array Import} {mods : List Name} (B : RealPathBehaviour t)
     (h : ReadAs t project tree f path imports mods) :
     ∃ (rel : List String) (real : FilePath), (⟨.realPath (under project rel), .ok real⟩ : Event L E) ∈ t ∧
       ¬ B.Crosses (under project rel) := by
   obtain ⟨rel, real, _, _, _, _, _, _, -, hr, -, hsub, -⟩ := h
-  exact ⟨rel, real, hsub.subset (by simp), fun hc => B.h4 _ _ hc hr⟩
+  have observed := hsub.subset (by simp : (⟨.realPath (under project rel), .ok real⟩ : Event L E) ∈ _)
+  exact ⟨rel, real, observed, fun hc => B.h4 _ _ observed hc hr⟩
 
 end RegulaSpecification.Effects

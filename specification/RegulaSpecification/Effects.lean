@@ -54,15 +54,21 @@ inductive Runs {α : Type} : Prog L E α → List (Event L E) → α → Prop wh
 
 /-! ## Reading a run -/
 
-/-- The text of a line that an event printed. -/
+/-- The text passed to `println`, which can contain line separators. -/
 def Event.line? : Event L E → Option String
   | ⟨.println text, _⟩ => some text
   | _ => none
 
-/-- The lines that a run printed, in order. Whether a print succeeded does not matter here: this is what the
-run asked to print. -/
+/-- The physical lines requested by the run's `println` calls, in order, splitting each argument at LF.
+`IO.println` appends LF (`Init/System/IO.lean:1276-1277` at v4.35.0), so each call ends its last line.
+This is requested output, independent of print success, and excludes output from child processes. -/
 def printed (t : List (Event L E)) : List String :=
-  t.filterMap Event.line?
+  (t.filterMap Event.line?).flatMap fun text => (text.toList.splitOn '\n').map String.ofList
+
+/-- The characters requested by the run's `println` calls, including each terminating LF. Lean's output
+operation writes their UTF-8 encoding; buffering, failures and external writers are outside this trace. -/
+def serialized (t : List (Event L E)) : List Char :=
+  (t.filterMap Event.line?).flatMap fun text => (text.push '\n').toList
 
 /-- The events of a run that change a file or a directory, or that run a command, each with the directory
 they act in or on. -/

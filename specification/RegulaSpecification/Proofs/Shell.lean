@@ -44,11 +44,13 @@ theorem check_spec {T t : List (Event L E)} {sysroot : String} {dir tree : FileP
     obtain ⟨o', r'⟩ := e
     cases o' <;> first | exact ⟨rfl, rfl⟩ | exact this.elim
   have hprinted₁ : printed t₁ = [] := by
-    simp only [printed, List.filterMap_eq_nil_iff]
-    intro e he
-    have := honly e he
-    obtain ⟨o', r'⟩ := e
-    cases o' <;> first | rfl | exact this.elim
+    have hn : t₁.filterMap Event.line? = [] := by
+      rw [List.filterMap_eq_nil_iff]
+      intro e he
+      have := honly e he
+      obtain ⟨o', r'⟩ := e
+      cases o' <;> first | rfl | exact this.elim
+    simp [printed, hn]
   have hacts : ∀ {t' : List (Event L E)}, Details t' → ReadActs (t₁ ++ t') dir tree := by
     intro t' hd
     rcases g3 with g3 | ⟨project, real, hp, hr, ha, hin⟩
@@ -334,11 +336,13 @@ theorem only_loadPlain (p : Regula.Closed.Profile) : OnlyAIn LoadOp (loadPlain p
 /-- Events of the loads print no line. -/
 theorem printed_of_load {α : Type} {x : Attempt L E α} (hx : OnlyAIn LoadOp x) {t : List (Event L E)}
     {b : Except String α} (h : Runs x.run t b) : printed t = [] := by
-  simp only [printed, List.filterMap_eq_nil_iff]
-  intro e he
-  have := hx _ _ h e he
-  obtain ⟨o', r'⟩ := e
-  cases o' <;> first | rfl | exact this.elim
+  have hn : t.filterMap Event.line? = [] := by
+    rw [List.filterMap_eq_nil_iff]
+    intro e he
+    have := hx _ _ h e he
+    obtain ⟨o', r'⟩ := e
+    cases o' <;> first | rfl | exact this.elim
+  simp [printed, hn]
 
 theorem sayCoverage_spec {r : Except String Regula.Closed.Input} {t : List (Event L E)} {u : Unit}
     (h : Runs (sayCoverage r : Prog L E Unit) t u) : Details t := by
@@ -557,7 +561,7 @@ theorem runFull_spec {p : Regula.Closed.Profile} {dir : FilePath} {t : List (Eve
     obtain ⟨hc, r', rfl⟩ := finish_spec h₄
     have hd := say_spec h₃
     refine .inl ⟨e, by simp, hc, ?_, fun x hx => ?_⟩
-    · refine ⟨[⟨.createTempDir, .error e⟩] ++ t₃, r', by simp, fun l hl => ?_⟩
+    · refine ⟨[⟨.createTempDir, .error e⟩] ++ t₃, r', by simp, reportLabel_no_break _, fun l hl => ?_⟩
       rw [printed_append] at hl
       exact hd.2 l (by simpa [printed, Event.line?] using hl)
     · simp only [List.cons_append, List.nil_append, List.mem_cons, List.mem_append, List.not_mem_nil,
@@ -593,10 +597,11 @@ theorem runFull_spec {p : Regula.Closed.Profile} {dir : FilePath} {t : List (Eve
         rfl
     refine .inr ⟨tree, tRead, tGate, r₅, last ++ [⟨.println report.label, r'⟩], by simp, G.quiet, o, report, hdec, hnf,
       hn, ha, hc, ?_, hsaying⟩
-    refine ⟨⟨.createTempDir, .ok tree⟩ :: tRead ++ tGate ++ ⟨.removeDirAll tree, r₅⟩ :: last, r', by simp, ?_⟩
+    refine ⟨⟨.createTempDir, .ok tree⟩ :: tRead ++ tGate ++ ⟨.removeDirAll tree, r₅⟩ :: last,
+      r', by simp, reportLabel_no_break _, ?_⟩
     intro l hl
     simp only [List.cons_append, printed, List.filterMap_cons, List.filterMap_append, Event.line?,
-      List.mem_append] at hl
+      List.flatMap_append, List.mem_append] at hl
     rcases hl with (hl | hl) | hl
     · exact G.lines.1 l hl
     · exact G.lines.2 l hl
@@ -613,8 +618,8 @@ theorem runPlain_spec {p : Regula.Closed.Profile} {t : List (Event L E)} {c : UI
   obtain ⟨l1, l2⟩ := loadPlain_spec hsub h₁
   have hd := sayCoverage_spec h₃
   refine ⟨result, l1, hc, ?_, fun e he => ?_⟩
-  · obtain ⟨pre, r, rfl, hp⟩ := hend
-    refine ⟨⟨.leanVersion, v⟩ :: (t₁ ++ (t₃ ++ pre)), r, by simp, fun l hl => ?_⟩
+  · obtain ⟨pre, r, rfl, hn, hp⟩ := hend
+    refine ⟨⟨.leanVersion, v⟩ :: (t₁ ++ (t₃ ++ pre)), r, by simp, hn, fun l hl => ?_⟩
     have hl' : l ∈ printed (t₁ ++ (t₃ ++ pre)) := hl
     rw [printed_append, printed_append, printed_of_load (only_loadPlain _) h₁] at hl'
     simp only [List.nil_append, List.mem_append] at hl'
@@ -639,8 +644,8 @@ theorem supportsLean_iff (v : String × String) :
 theorem refusal_of {v} {why : String} {rest : List (Event L E)} {c : UInt32}
     (h : Runs (finishProof (.incomplete why) : Prog L E UInt32) rest c) :
     Refusal (⟨.leanVersion, v⟩ :: rest) c := by
-  obtain ⟨hc, ⟨pre, r, he, hp⟩, hsay⟩ := finishProof_spec h
-  refine ⟨hc, ⟨⟨.leanVersion, v⟩ :: pre, r, by rw [he]; rfl, fun l hl => ?_⟩, fun e he' => ?_⟩
+  obtain ⟨hc, ⟨pre, r, he, hn, hp⟩, hsay⟩ := finishProof_spec h
+  refine ⟨hc, ⟨⟨.leanVersion, v⟩ :: pre, r, by rw [he]; rfl, hn, fun l hl => ?_⟩, fun e he' => ?_⟩
   · exact hp l (by simpa [printed, Event.line?] using hl)
   · rcases List.mem_cons.mp he' with rfl | he'
     · rfl

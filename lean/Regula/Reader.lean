@@ -76,10 +76,15 @@ def attempt {α : Type} (step : Prog L E (Except IO.Error α)) : Attempt L E α 
     | .ok a => pure (.ok a)
     | .error e => pure (.error (toString e))
 
-/-- Print a line that is no verdict. Two spaces start it, so that no such line can be read as a verdict's, and
-a failed print changes nothing the run decides. -/
+/-- Diagnostic text on one physical line: display LF and CR as escapes, preserving other characters. -/
+def detailText (text : String) : String :=
+  String.ofList (text.toList.flatMap fun c =>
+    if c == '\n' then ['\\', 'n'] else if c == '\r' then ['\\', 'r'] else [c])
+
+/-- Print one physical line that is no verdict. Two spaces start it, even when the diagnostic contains
+line separators, and a failed print changes nothing the run decides. -/
 def say (text : String) : Prog L E Unit := do
-  let _ ← Prog.call (.println ("  " ++ text))
+  let _ ← Prog.call (.println ("  " ++ detailText text))
   pure ()
 
 /-- Print each line. -/

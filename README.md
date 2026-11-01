@@ -68,7 +68,7 @@ theorem twice (n : Nat) : 2 * n = n + n := (double n).symm
 regula: proof verdict: fail
 ```
 
-The exit code of `lake lint` is 0 for `pass`, 1 for `fail` and 2 for `incomplete`. The last line is the verdict, and each line before it starts with two spaces, so no line before the last can be read as one.
+The exit code of `lake lint` is 0 for `pass`, 1 for `fail` and 2 for `incomplete`. The last line is the verdict. Regula starts each diagnostic line with two spaces and displays embedded newline and carriage-return characters as `\n` and `\r`, so diagnostic text cannot insert a verdict line. The full gate also displays Lake's own build output.
 
 ## The full gate
 
