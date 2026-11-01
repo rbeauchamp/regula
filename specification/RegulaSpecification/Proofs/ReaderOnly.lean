@@ -151,6 +151,18 @@ theorem only_readBack (l : List (FilePath × String)) : OnlyA (readBack l : Atte
     · exact ih
     · exact onlyA_throw _
 
+theorem only_noOtherConfig (tree : FilePath) : OnlyA (noOtherConfig tree : Attempt L E _) := by
+  rw [noOtherConfig]
+  refine onlyA_seq ?_ fun present => ?_
+  · rw [existsByName]
+    refine only_seq (only_call trivial) fun r => ?_
+    cases r with
+    | ok _ => exact only_pure _
+    | error e => cases e <;> exact only_pure _
+  · split
+    · exact onlyA_throw _
+    · exact onlyA_pure _
+
 theorem only_toolchainOLean (dirs : List FilePath) (m : Name) : OnlyA (toolchainOLean dirs m : Attempt L E _) := by
   rw [toolchainOLean]
   refine onlyA_seq (onlyA_attempt (only_call trivial)) fun _ => onlyA_seq (only_realPath _) fun _ => ?_
@@ -300,7 +312,7 @@ theorem only_readProject (sysroot : String) (dir treeDir : FilePath) :
                         · exact onlyA_pure _
                         · refine onlyA_seq (only_parseFiles _ _ _ _) fun _ => ?_
                           split
-                          · exact onlyA_seq (only_writeSources _ _) fun _ => onlyA_seq (only_readBack _) fun _ => onlyA_pure _
+                          · exact onlyA_seq (only_writeSources _ _) fun _ => onlyA_seq (only_readBack _) fun _ => onlyA_seq (only_noOtherConfig _) fun _ => onlyA_pure _
                           · exact onlyA_pure _
 
 end RegulaSpecification.Effects

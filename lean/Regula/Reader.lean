@@ -270,7 +270,7 @@ def readForTree (project tree path : FilePath) : Attempt L E String :=
 (`Lean/Elab/Frontend.lean:287`, `Lean/Shell.lean:519`). -/
 def readSource (project tree path : FilePath) : Attempt L E Source := do
   let text ← readForTree project tree path
-  let input := mkInputContext text path.toString
+  let input := mkInputContext text (Regula.Load.inputName path)
   let (header, state, messages, imports) ← attempt (Prog.call (.parseHeader input))
   pure { path, text, input, header, state, messages, imports }
 
@@ -371,6 +371,17 @@ def existsByName (path : FilePath) : Attempt L E Bool :=
     | .error (.noFileOrDirectory ..) => pure (.ok false)
     | .error e => pure (.error (toString e))
 
+/-- Stop unless nothing answers to `lakefile.lean` in the tree. Lake's command line looks for a configuration with no extension, and
+prefers that name to `lakefile.toml` whenever it resolves (`resolveConfigFile`, `Lake/Load/Package.lean:109-117`), so a file of the tree
+that the file system takes for it would be what Lake runs, and not the configuration judged. This asks the file system through the name
+Lake uses, after the reader's last act on the tree, so it holds on every volume and models no case folding. -/
+def noOtherConfig (tree : FilePath) : Attempt L E Unit := do
+  if ← existsByName (tree / "lakefile.lean") then
+    throw "the file system takes a file of this project for `lakefile.lean` in the checker's tree, and Lake would take it as its \
+      configuration in place of the `lakefile.toml` read: rename the file"
+  else
+    pure ()
+
 /-- What the imports of Lean's parser gave so far, by the set of modules: each set is imported once. -/
 abbrev ParserCache (E : Type) : Type := List (List Name × (E × List Name))
 
@@ -447,17 +458,23 @@ def openPathsOf (tree : FilePath) (root : Root L) : List String :=
 targets: a library's or an executable's name outside the closed domain, which Lake joins onto an output
 directory (`LeanExe.file`, `Lake/Config/LeanExe.lean:72`), and a root whose name Lake's import resolution
 gives another file for or that two default targets hold with two files, so that the file an importer compiles
-is not the file read. -/
-def configUnread (root : Root L) (modules : List (Name × FilePath)) : List (Name × String) :=
+is not the file read. Two paths are two files only when their components differ (`Regula.Load.exactParts`), so two spellings of
+one directory, such as `.` and `./`, give one file, and the reader reads one of them. So each spelling that a target or an import
+names is also tested against the tree here. -/
+def configUnread (tree : FilePath) (root : Root L) (modules : List (Name × FilePath)) : List (Name × String) :=
   let names := (root.targets.filter (!closedModuleName ·)).map
     fun n => (n, "this target's name is outside the closed domain")
   let others := modules.filter fun (m, file) =>
     match root.resolve m with
-    | some other => other != file
+    | some other => Regula.Load.exactParts other != Regula.Load.exactParts file
     | none => false
-  let twice := modules.filter fun (m, file) => modules.any fun (m2, other) => m2 == m && other != file
+  let twice := modules.filter fun (m, file) => modules.any fun (m2, other) =>
+    m2 == m && Regula.Load.exactParts other != Regula.Load.exactParts file
+  let named := modules.flatMap fun (m, file) => (m, file) :: (root.resolve m).toList.map (m, ·)
+  let outside := named.filter fun (_, path) => !inTree tree path || !parentInTree tree path
   names ++ others.map (fun (m, file) => (m, s!"a library holds this name with a file other than {file}")) ++
-    twice.map fun (m, file) => (m, s!"two default targets hold this name, one with the file {file}")
+    twice.map (fun (m, file) => (m, s!"two default targets hold this name, one with the file {file}")) ++
+    outside.map fun (m, path) => (m, s!"its file {path} does not lie below the checker's tree")
 
 /-- The imports in `sources` of a default executable's root, among the `modules` of the default targets, that
 no library holds. The file read for that root is not what such an import names: Lake's import resolution
@@ -538,6 +555,7 @@ def readFiles (config : List (FilePath × String)) (project tree : FilePath) (ro
     | .admitted =>
       writeSources tree w.sources.reverse
       readBack (config ++ w.sources.reverse.map fun x => (x.2.path, x.2.text))
+      noOtherConfig tree
       pure (reading, w.sources.reverse)
     | _ => pure (reading, w.sources.reverse)
 
@@ -551,7 +569,7 @@ def readRoot (config : List (FilePath × String)) (sysroot : String) (project tr
     pure ({ start with openPaths }, [])
   else
     let modules ← defaultModules root root.defaultTargets
-    let failures := configUnread root modules
+    let failures := configUnread tree root modules
     if !failures.isEmpty then
       pure ({ start with roots := modules.map (·.1), unread := failures }, [])
     else

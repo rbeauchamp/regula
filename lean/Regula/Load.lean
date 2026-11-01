@@ -61,6 +61,11 @@ def below (dir path : FilePath) : Bool :=
 def exactParts (p : FilePath) : List String :=
   (parts p).filter (· != ".")
 
+/-- The name a file's parser input carries, a function of its components alone, so that two spellings of one path give Lean's parser
+one input. It labels messages and selects nothing: the checker reads no message's text, and `Lean.Syntax` holds positions and no name. -/
+def inputName (p : FilePath) : String :=
+  "/".intercalate (exactParts p)
+
 /-- Whether `real`, which is the real path of `path`, is `path` itself at or below the directory `dir`, by
 their components with `.` removed. So `path` crosses no link and holds no `..`. -/
 def exactBelow (dir path real : FilePath) : Bool :=

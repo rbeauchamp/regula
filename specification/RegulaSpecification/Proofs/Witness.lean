@@ -169,7 +169,7 @@ theorem good_file {w : WitnessPaths} {env : Lean.Environment} {p : Prog Unit Uni
     {imports : Array Lean.Import} {mods : List Name}
     (h : ReadAs (traceWith (answers w env) p) project tree f path imports mods) : FileAdmitted f := by
   obtain ⟨text, rel, real, state, messages, final, penv, commands, -, -, -, hsub, hev, hparsed, hcsub, hp⟩ := h
-  have hmem : (⟨.parseHeader (Lean.Parser.mkInputContext text path.toString),
+  have hmem : (⟨.parseHeader (Lean.Parser.mkInputContext text (Regula.Load.inputName path)),
       .ok (f.header, state, messages, imports)⟩ : Event Unit Unit) ∈ traceWith (answers w env) p :=
     hsub.subset (by simp)
   have hheader : (Except.ok (f.header, state, messages, imports) :
@@ -183,7 +183,7 @@ theorem good_file {w : WitnessPaths} {env : Lean.Environment} {p : Prog Unit Uni
   obtain ⟨h1, rfl, rfl, rfl⟩ := hheader'
   obtain ⟨-, h2⟩ := hscoped'
   have hterm : Lean.Parser.isTerminalCommand endOfInput = true := by decide
-  generalize hfuel : (Lean.Parser.mkInputContext text path.toString).inputString.utf8ByteSize + 1 = fuel at hparsed
+  generalize hfuel : (Lean.Parser.mkInputContext text (Regula.Load.inputName path)).inputString.utf8ByteSize + 1 = fuel at hparsed
   generalize hcmds : f.commands = cmds at hparsed
   generalize hst : (default : ModuleParserState) = st at hparsed
   generalize hmsg : ({} : MessageLog) = ms at hparsed
@@ -371,6 +371,7 @@ theorem no_reason (w : WitnessPaths) (env : Lean.Environment) (p : Prog Unit Uni
       cases he
     · cases hf
   | leanConfig hp hm => cases resp_eq hm
+  | configShadowed hp hm => cases resp_eq hm
   | key hk hp hroot' hna =>
     obtain ⟨_, _, _, _, h⟩ := hk
     rw [htable h] at hp

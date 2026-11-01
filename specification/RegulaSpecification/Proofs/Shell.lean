@@ -120,13 +120,17 @@ theorem check_spec {T t : List (Event L E)} {sysroot : String} {dir tree : FileP
       intro p
       rw [hpreT, written_after_no_acts hpreNo p]
       exact written_before_no_acts hsay p
-    have hback : decision reading = .admitted → ReadBack T := by
+    have hback : decision reading = .admitted → ∃ real, (⟨.realPath tree, .ok real⟩ : Event L E) ∈ T ∧ ReadBack T real := by
       intro ha
-      rw [hpreT]
-      refine ReadBack.prepend_no_acts hpreNo (ReadBack.append_quiet (g4 ha).2 (quiet_of_saying hd.1) ?_)
-      intro e he
-      exact keeps_of_no_acts (hsay e he)
-    refine ⟨⟨fun ha => ⟨reading, (decision_admitted_iff reading).mp ha, (g4 ha).1 _ hstands, hback ha⟩,
+      obtain ⟨real, hm, hb⟩ := (g4 ha).2
+      refine ⟨real, ?_, ?_⟩
+      · rw [hpreT]
+        simp [hm]
+      · rw [hpreT]
+        refine ReadBack.prepend_no_acts hpreNo (ReadBack.append_quiet hb (quiet_of_saying hd.1) ?_)
+        intro e he
+        exact keeps_of_no_acts (hsay e he)
+    refine ⟨⟨fun ha => ⟨reading, (hback ha).choose, (decision_admitted_iff reading).mp ha, (g4 ha).1 _ hstands, (hback ha).choose_spec.1, (hback ha).choose_spec.2⟩,
       fun hne => g5 _ rfl hne, .inl ⟨reading, rfl⟩⟩, hacts hd, hrest hd⟩
 
 /-- On an admission, nothing that `check` asked failed. -/

@@ -210,7 +210,7 @@ def SourceRead (T : List (Event L E)) (project tree path : FilePath) (s : Source
     TreeRelative (parts tree) (parts path) rel ∧ ¬ OutsideTree tree path ∧
     Regula.Load.exactBelow project (joinParts project rel) real = true ∧
     s.path = path ∧ s.text = text ∧
-    s.input = mkInputContext text path.toString ∧
+    s.input = mkInputContext text (Regula.Load.inputName path) ∧
     ([⟨.realPath (joinParts project rel), .ok real⟩, ⟨.readFile (joinParts project rel), .ok text⟩,
       ⟨.parseHeader s.input, .ok (s.header, s.state, s.messages, s.imports)⟩] :
         List (Event L E)).Sublist T
@@ -224,7 +224,7 @@ theorem SourceRead.mono {T T' : List (Event L E)} {project tree path : FilePath}
 def SourceOp (T : List (Event L E)) (project tree path : FilePath) (o : Op L E) : Prop :=
   (∃ rel, TreeRelative (parts tree) (parts path) rel ∧
     (o = .realPath (under project rel) ∨ o = .readFile (under project rel))) ∨
-  ∃ text, SourceText T project tree path text ∧ o = .parseHeader (mkInputContext text path.toString)
+  ∃ text, SourceText T project tree path text ∧ o = .parseHeader (mkInputContext text (Regula.Load.inputName path))
 
 /-- Why a source could not be read. -/
 def SourceBad (t : List (Event L E)) (project tree path : FilePath) : Prop :=
@@ -280,17 +280,17 @@ theorem readSource_spec {project tree path : FilePath} {t : List (Event L E)} {b
         obtain rfl := runs_call_iff.mp h₉
         have hact : NoActs (L := L) (E := E) ([⟨.realPath (joinParts project rel), .ok real⟩,
             ⟨.readFile (joinParts project rel), .ok text⟩] ++
-              [⟨.parseHeader (mkInputContext text path.toString), r₉⟩]) := by
+              [⟨.parseHeader (mkInputContext text (Regula.Load.inputName path)), r₉⟩]) := by
           refine hread.append ?_
           intro e he
-          have : e = ⟨.parseHeader (mkInputContext text path.toString), r₉⟩ := by simpa using he
+          have : e = ⟨.parseHeader (mkInputContext text (Regula.Load.inputName path)), r₉⟩ := by simpa using he
           subst this
           rfl
         cases r₉ with
         | error e =>
           obtain ⟨rfl, rfl⟩ := h₈
           exact ⟨fun _ he => (by cases he), fun _ => .inr (.inl
-            ⟨⟨.parseHeader (mkInputContext text path.toString), .error e⟩, by simp, ⟨e, rfl⟩,
+            ⟨⟨.parseHeader (mkInputContext text (Regula.Load.inputName path)), .error e⟩, by simp, ⟨e, rfl⟩,
               .inr ⟨text, ⟨rel, hrel, by simp [under, joinParts]⟩, rfl⟩⟩),
             by simpa using hact⟩
         | ok parsed =>
