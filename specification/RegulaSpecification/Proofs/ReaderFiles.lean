@@ -109,7 +109,7 @@ theorem mem_visible_held {headers : Name → Option (Array Import)} {isToolchain
         · exact ih h
         · exact ih h
 
-/-- `environmentFor` gives what an import gave for exactly those modules, each set once. -/
+/-- `environmentFor` gives what an import gave for exactly those modules. -/
 theorem environmentFor_spec {T t : List (Event L E)} {cache : ParserCache E} {mods : List Name}
     {b : Except String ((E × List Name) × ParserCache E)} (hT : t.Sublist T)
     (hc : ∀ x ∈ cache, (⟨.importForParser x.1, .ok x.2⟩ : Event L E) ∈ T)

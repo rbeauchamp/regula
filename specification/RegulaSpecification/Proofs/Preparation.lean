@@ -196,7 +196,7 @@ theorem FullRun.no_remove_before_command {t : List (Event L E)} {dir : FilePath}
   obtain ⟨op, r⟩ := e
   cases op <;> first | rfl | cases hs
 
-/-- The requests that act on the tree, retaining order and responses. -/
+/-- The requests that change a file or a directory or run a command, retaining order and responses. -/
 def treeActs (t : List (Event L E)) : List (Event L E) := t.filter fun e => e.acted?.isSome
 
 theorem treeActs_append (a b : List (Event L E)) : treeActs (a ++ b) = treeActs a ++ treeActs b :=

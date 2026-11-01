@@ -8,13 +8,13 @@ import RegulaSpecification.Proofs.Load
 /-!
 # Two facts about Lean, as hypotheses
 
-Each theorem here states what a pass gives with a fact about Lean as its hypothesis, so its
+Each theorem here has a fact about Lean as a hypothesis, so its
 statement names what it rests on (`pass_occurs`, `claimedConstants_complete`).
 
 `Expr.getUsedConstants` runs an `opaque` function that `@[implemented_by]` replaces
 (`Lean/Util/FoldConsts.lean`), so no proof can read its body. `pass_iff` is therefore stated over
-what that function gives. The theorems below state the same floor over the constants that occur in
-an expression, a statement that reads no Lean function, with the fact about Lean as their one
+what that function gives. `pass_occurs` states the RG1005 and loop parts of the floor over the constants that occur in
+an expression, `OccursIn`, which reads no Lean function, with the fact about Lean as a
 hypothesis. `UsedConstantsComplete` is that fact, so a reader sees it in the theorem's statement.
 -/
 
@@ -137,9 +137,9 @@ theorem pass_occurs (hused : UsedConstantsComplete)
   exact ⟨fun l hl ho => h7 l hl (valueMentions_of_occurs hused ho),
     fun a hr hax => h8 a (envReaches_of_occurs hused hr) hax⟩
 
-/-- Each constant of each claimed module is one that `Facts.claimedConstants` lists, and so one that
+/-- Each pair of `constNames.zip constants` of each claimed module is one that `Facts.claimedConstants` lists, and so one that
 `pass_held` reaches, when the header holds data for each of its modules. Lean builds `moduleData`
-and `modules` from one array (`Lean/Environment.lean:2313-2317` and `2367-2370`), so this is the
+and `modules` from one array (`Lean/Environment.lean:2313-2317` and `2369-2371`), so this is the
 fact about Lean, as the hypothesis `hsize`. -/
 theorem claimedConstants_complete (hsize : f.env.header.moduleData.size = f.modules.size) {k : Nat}
     {lm : Regula.Load.LoadedModule} (hk : f.modules[k]? = some lm) (hc : lm.claimed = true) :

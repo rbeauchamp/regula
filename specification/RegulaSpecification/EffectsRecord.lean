@@ -9,13 +9,15 @@ import RegulaSpecification.EffectsRun
 # The record of a run
 
 `Reason` states relevance to the requested build (`Scene`, `Named`, `Needed`). `FullRun` additionally requires the
-ordered preparation of every copy, load, command and search-path consumer, including failed attempts. Neither relevance
-alone nor the absence of a reason establishes preparation. `PlainRun` requires the same search-path discipline for a
+ordered preparation of every copy, load, command and search-path consumer, including failed attempts, and that an
+admission rests on `Evidence` of the state `written` that the reading leaves, so that it is about the text that stands.
+Neither relevance alone nor the absence of a reason establishes preparation. `PlainRun` requires the same search-path discipline for a
 proof verdict. Responses remain arbitrary: these relations constrain the requests, not the external system's truth.
 `PlainReason`, `TreeReason` and `BuildRejected` state the reasons of the finished load and build. `programRecord` states
 a whole run, for every response, and it is the contract that
 `Regula.Shell.run` is proved against. `RegulaSpecification.Proofs.Owed` states what follows of every program that meets it:
-a run in which nothing that the build needs has failed, on a project nothing keeps from being admitted, passes.
+a run in which nothing that the build needs has failed, on a project nothing keeps from being admitted, and whose environment has
+`LoadFloor`, passes.
 -/
 
 namespace RegulaSpecification.Effects
@@ -103,6 +105,17 @@ def QuietOp : Op L E → Prop
 /-- Every event of a segment is an observation or report independent of the prepared contexts. -/
 def Quiet (t : List (Event L E)) : Prop := ∀ e ∈ t, QuietOp e.op
 
+/-- What the file system answered after the last act of `t`, which in `Decided` is the reading: `t` ends with a segment that holds no act, and for each
+write of `t` whose text stands by `written`, that segment holds a read through the path it was written at that gave that text. A
+statement of `written` alone is a model of the file system, in which different components name different files and a write that
+answered success stored its text. This clause needs neither. A read through another path string with the same components does not
+discharge this clause, and `written` still treats such strings as one place. It asks for a read that matches, and does not exclude
+another read that differs: that the program stops at one is `Regula.Reader.readBack`'s, and inconsistent answers stay accepted. -/
+def ReadBack (t : List (Event L E)) : Prop :=
+  ∃ pre suffix, t = pre ++ suffix ∧ Quiet suffix ∧
+    ∀ path text r, (⟨.writeFile path text, r⟩ : Event L E) ∈ t → written t (parts path) = some text →
+      (⟨.readFile path, .ok text⟩ : Event L E) ∈ suffix
+
 /-- Whether an attempted copy completed, as its write response states. -/
 def copyComplete : Except IO.Error Unit → Bool
   | .ok _ => true
@@ -138,7 +151,9 @@ def RulesSearchOp : Op L E → Prop
 
 /-- Module copies in order, with reads free between them. Each step uses a name and text justified by
 the prefix before that step. A failed module step does not prevent the remaining steps. No search-path
-setter, load, command, removal or unrelated copy is a case. -/
+setter, load, command, removal or unrelated copy is a case. This grammar says only which acts may occur: it admits a
+later copy of another text, and it is `Evidence` of what stands afterwards that refuses one the run did not judge
+(`uncheckedCopy_fails`). -/
 inductive ModuleCopies (project tree : FilePath) (root : Root L) (modules : List (Name × FilePath)) :
     List (Event L E) → List (Event L E) → Prop where
   /-- No further module-copy events remain. -/
@@ -191,7 +206,8 @@ inductive ConfigCopies (sysroot : String) (project tree : FilePath) :
 
 /-- The reading phase's complete ordered acts. Configuration text comes from an earlier read of the
 requested project; the second copy is the pinned toolchain text. The remaining copies are precisely
-steps of named module files with earlier source reads. No act is allowed before the first copy. -/
+steps of named module files with earlier source reads. No act is allowed before the first copy. What the
+acts leave standing is `Decided`'s statement, through `written`. -/
 def ReadingPreparation (t : List (Event L E)) (dir treeDir : FilePath) : Prop :=
   Quiet t ∨ ∃ project tree sysroot text before rest,
     t = before ++ rest ∧ Quiet before ∧
@@ -315,6 +331,19 @@ def TomlRead (t : List (Event L E)) (dir : FilePath) (table : Lake.Toml.Table) :
     (⟨.readFile (project / "lakefile.toml"), .ok text⟩ : Event L E) ∈ t ∧
     (⟨.parseToml (mkInputContext text "lakefile.toml"), .ok table⟩ : Event L E) ∈ t
 
+/-- A text that an admission would have the tree hold at `path`, by what the run read: the configuration's, the pinned
+`lean-toolchain`, or a needed name's file. -/
+inductive Planned (t : List (Event L E)) (project tree : FilePath) (root : Root L)
+    (modules : List (Name × FilePath)) : FilePath → String → Prop where
+  /-- The text read of `lakefile.toml`. -/
+  | toml {text} : (⟨.readFile (project / "lakefile.toml"), .ok text⟩ : Event L E) ∈ t →
+      Planned t project tree root modules (tree / "lakefile.toml") text
+  /-- The pinned text. -/
+  | toolchain : Planned t project tree root modules (tree / "lean-toolchain") leanToolchain
+  /-- The text read of a needed name's file. -/
+  | source {m path text} : Named t project tree root modules m → FileOfModule root modules m path →
+      SourceText t project tree path text → Planned t project tree root modules path text
+
 /-- What may keep the requested project from admission, with the outcome each response justifies.
 `Needed` supplies relevance; `FullRun` separately requires preparation at every occurrence in this same
 reading phase. Thus a `Reason` by itself is not a complete refusal contract. Successful and failed copy,
@@ -408,6 +437,19 @@ inductive Reason (t : List (Event L E)) (dir treeDir : FilePath) : Outcome → P
   /-- Two default targets that hold one module name with two files. -/
   | twoRoots {project tree root modules m file other} : Scene t dir treeDir project tree root modules →
       (m, file) ∈ modules → (m, other) ∈ modules → other ≠ file → Reason t dir treeDir .incomplete
+  /-- A planned file written with its text answers otherwise, by the same path, after that write: another read gave another text,
+  or the read failed. A file that another spelling of a path replaced with another text shows up here. The order keeps a run from citing a read it
+  asked before it wrote, and `Planned` from citing a text it read from nowhere. -/
+  | treeDiffers {project tree root modules path text r} : Scene t dir treeDir project tree root modules →
+      Planned t project tree root modules path text →
+      ([⟨.writeFile path text, .ok ()⟩, ⟨.readFile path, r⟩] : List (Event L E)).Sublist t → r ≠ .ok text →
+      Reason t dir treeDir .incomplete
+  /-- What an admission would have the tree hold is two texts at one path: another read gave a needed file another text, or
+  a needed file lies at the path of the configuration or of `lean-toolchain` with another text. The tree can hold one, so no
+  admission could be about what the build consumes under each name. -/
+  | twoTexts {project tree root modules path text path' text'} : Scene t dir treeDir project tree root modules →
+      Planned t project tree root modules path text → Planned t project tree root modules path' text' →
+      parts path = parts path' → text ≠ text' → Reason t dir treeDir .incomplete
   /-- A name the build needs outside the closed domain. -/
   | moduleName {project tree root modules m} : Scene t dir treeDir project tree root modules →
       Named t project tree root modules m → ¬ ClosedModuleName m → Reason t dir treeDir .incomplete
@@ -443,10 +485,12 @@ inductive Reason (t : List (Event L E)) (dir treeDir : FilePath) : Outcome → P
       (∀ n, n ∈ mods ↔ ∃ m ∈ imports, Sees headers held m.module n) →
       ¬ FileAdmitted f → Reason t dir treeDir .refused
 
-/-- The outcome `o` of the language check is what its reading gives. An admitted project rests on `Evidence`, and any
-other outcome on a `Reason`. -/
+/-- The outcome `o` of the language check is what its reading gives. An admitted project rests on `Evidence` of the state
+`written t` that the whole reading leaves, so an admission is about the text that stands and not about one that a later
+write replaced, and on `ReadBack`, so each text credited is what the file system answered after the reading's last act. Any
+other outcome rests on a `Reason`. -/
 def Decided (t : List (Event L E)) (dir tree : FilePath) (o : Outcome) : Prop :=
-  (o = .admitted → ∃ r, Inside r ∧ Evidence t dir tree r) ∧ (o ≠ .admitted → Reason t dir tree o) ∧
+  (o = .admitted → ∃ r, Inside r ∧ Evidence t dir tree (written t) r ∧ ReadBack t) ∧ (o ≠ .admitted → Reason t dir tree o) ∧
     ((∃ r, o = decision r) ∨ o = .incomplete)
 
 /-- What a finished build gave the rules, by this run's responses. `root` is the workspace that Lake's load
@@ -554,7 +598,7 @@ def PlainRun (t : List (Event L E)) (p : Regula.Closed.Profile) (c : UInt32) : P
     EndsWith t (Regula.Closed.decision result).verdict.proofLine ∧
     (∀ e ∈ t, e.acted? = none) ∧ (c = 0 → ∀ e ∈ t, ¬ e.failed) ∧ PlainPreparation t
 
-/-- Every act of a run lies in the tree, and the project and the tree lie apart: either the run acted only on the
+/-- Every act of a run lies in the tree: either the run acted only on the
 tree it was given, or it read their real paths and each act lies at or below the tree's. -/
 def Confined (t : List (Event L E)) (dir tree : FilePath) : Prop :=
   (∀ e ∈ t, ∀ path, e.acted? = some path → path = tree) ∨
@@ -632,8 +676,9 @@ def NotRemoving : Op L E → Prop
 /-- A full run on `dir`: relevance and ordered preparation hold together on the exact reading phase.
 The TOML copy precedes the pinned toolchain copy and configuration load; named module copies use earlier
 source reads. Each copy makes only its own parent before writing, and each search consumer follows its
-load's setter. Failed attempts obey the same order. Build, replay and rules follow only an admission,
-with no later explicit copy or early removal. Cleanup is terminal and every act is confined to the tree.
+load's setter. Failed attempts obey the same order. An admission rests on `Evidence` of the state the reading
+leaves. Build, replay and rules follow only an admission, with no later explicit copy or early removal, so no
+request of theirs changes that state (`FullRun.at_consumer`). Cleanup is terminal and every act is confined to the tree.
 Exit code and last line are the report's alone; exit 0 received no failed answer. All responses remain
 arbitrary, including inconsistent filesystem answers and opaque effects inside trusted calls. -/
 def FullRun (t : List (Event L E)) (dir : FilePath) (p : Regula.Closed.Profile) (c : UInt32) : Prop :=

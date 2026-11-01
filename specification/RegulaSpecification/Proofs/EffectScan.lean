@@ -9,8 +9,8 @@ import RegulaSpecification.Proofs.Foundation
 /-!
 # What the check of effects decides
 
-`Regula.ProgramCheck.Effects` runs `scan` and `judge` of `Regula.ProgramCheck.EffectScan` on the environment of the repository's
-modules, and fails the gate's build on what `judge` refuses. `mem_scan_iff` and `judge_ok_iff` state what they decide, for
+`Regula.ProgramCheck.Effects` runs `scan` and `judge` of `Regula.ProgramCheck.EffectScan` on the import closure of the executable and the two library roots,
+and fails the gate's build on what `judge` refuses. `mem_scan_iff` and `judge_ok_iff` state what they decide, for
 every graph, of the definitions that the check runs. `mem_own_iff` states what `graphOf` selects from the environment.
 `check_ok_iff` puts them together. What `Environment.find?` and the header hold, and what `Expr.getUsedConstants` lists, stays
 Lean's.
@@ -152,7 +152,7 @@ theorem mem_own_iff (env : Environment) (n m : Name) :
     exact ⟨(m, data), ⟨hz, hroot⟩, n, hn, rfl, rfl⟩
 
 /-- The decision of the check on an environment: it passes exactly when the interpreter mentions an effect and each constant of
-the repository's modules that mentions one lies in the closed set of modules. -/
+`own` that mentions one is `allowed`. -/
 theorem check_ok_iff (env : Environment) :
     judge (scan (graphOf env)) = .ok () ↔
       (∃ m, (`Regula.Effect.Prog.interpret, m) ∈ (graphOf env).own ∧

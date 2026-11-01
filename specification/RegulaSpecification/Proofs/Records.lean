@@ -131,13 +131,12 @@ theorem rg1006_cases :
         rg1006Checker ⟨Witnesses.w1006.admitted, Witnesses.w1006.admitted_wf⟩ :=
   cases_of_meets Witnesses.w1006 rg1006_meets
 
-/-- The function that the checker runs reports a claimed constant whose value mentions a loop
-construct. -/
+/-- The function that the checker runs reports the witness of `withLoop`, whose value mentions a loop construct. -/
 theorem rg1006_checker_refuses_loop {l : Name} (hl : l ∈ loopConstructs) :
     `Good.l ∈ rg1006Checker ⟨Witnesses.withLoop hl, Witnesses.wf_withLoop hl⟩ :=
   ((meets_iff _).mp rg1006_meets _ _).mpr (Witnesses.rg1006_refuses_loop hl)
 
-/-- The function that the checker runs reports a plain definition with the name of a helper. -/
+/-- The function that the checker runs reports the witness of `withForged`, a plain definition with the name of a helper. -/
 theorem rg1006_checker_refuses_forged_name :
     `Good.g._unsafe_rec ∈ rg1006Checker ⟨Witnesses.withForged, Witnesses.wf_withForged⟩ :=
   ((meets_iff _).mp rg1006_meets _ _).mpr Witnesses.rg1006_refuses_forged_name

@@ -156,7 +156,7 @@ def traceFrom (table : (o : Op L E) → BaseIO (Resp o)) :
 
 /-- From any world, `interpret` gives the value of a run whose events are the operations the program asks,
 each with the table's answer at the world the run has reached. So what is proved of `Runs` holds of what the
-executable computes, for every table. -/
+definition of `interpret` gives, for every table. -/
 theorem interpret_runs (table : (o : Op L E) → BaseIO (Resp o)) (p : Prog L E α) (w : Void IO.RealWorld) :
     Runs p (traceFrom table p w) (Prog.interpret table p w).val := by
   induction p generalizing w with

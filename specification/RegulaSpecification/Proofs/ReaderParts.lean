@@ -91,7 +91,7 @@ theorem keysOf_sound (fuel : Nat) (pre : Name) (t : Lake.Toml.Table) (k : Name)
       subst hk'
       exact .inl (.leaf hm (by simp) (by simp))
 
-/-- What the reader adds for a table deeper than it follows: a key whose last component no table holds. -/
+/-- What the reader adds for a table deeper than it follows: a key whose last component is `too deep`. -/
 def IsDeepKey (k : Name) : Prop :=
   ∃ pre, k = .str pre "too deep"
 
@@ -209,7 +209,7 @@ theorem keysOf_complete {pre : Name} {t : Lake.Toml.Table} {n : Name} (h : KeyPa
       · exact .inl (hin h')
       · exact .inr ⟨d, hin hd, hdeep⟩
 
-/-- The key that says a table is too deep is in no closed set, so an admitted reading holds none. -/
+/-- The key that says a table is too deep is in no closed set. -/
 theorem deepKey_not_admitted {k : Name} (h : IsDeepKey k) : ¬ ConfigKeyAdmitted k := by
   obtain ⟨pre, rfl⟩ := h
   have hlast : ∀ q : Name, (Name.str q "too deep").getString! = "too deep" := fun _ => rfl
@@ -396,7 +396,7 @@ theorem visible_sound (hs : List (Name × Array Import)) (held : List Name) (fue
           · exact ⟨n, List.mem_cons_of_mem _ hn, hs'⟩
 
 /-- The search gives exactly what `Sees` states from its first names, with the bound the reader gives it. So the
-parser's environment is that of the modules the rule of Lean's import shows the file. -/
+import asked for the parser names exactly the modules that `Sees` states, and that `Sees` is Lean's rule is H1. -/
 theorem mem_visible_iff (hs : List (Name × Array Import)) (held direct : List Name) (fuel : Nat)
     (hf : direct.length + (hs.map (·.2.size)).sum ≤ fuel) (x : Name) :
     x ∈ visibleToolchain (fun n => hs.lookup n) held.contains direct [] fuel ↔

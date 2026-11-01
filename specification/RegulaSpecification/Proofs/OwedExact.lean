@@ -4,20 +4,21 @@ Released under MIT license as described in the file LICENSE.
 Authors: Regula contributors
 -/
 import RegulaSpecification.Proofs.Owed
+import RegulaSpecification.Proofs.Preparation
 
 /-!
 # Exit 0 exactly when a pass is owed
 
 `plain_owed` and `full_owed` state that what `PlainOwed` and `FullOwed` hold of the responses gives exit 0, for every program
-that meets the record. This module states the other direction: a run that exits with 0 received what they hold. So a real
-run with exit 0 meets those premises, by theorem, and they exclude no real run.
+that meets the record. This module states the other direction: a run that exits with 0 received what they hold. So a run with
+exit 0 that gets one answer for each operation and, for the full reading, one parser context for each input meets those premises.
 
 That direction has a hypothesis, which only it needs. The record's reasons read what a trace holds, and one operation can
 stand in a trace twice with two answers: a path read as a module's file and as the toolchain's file, on answers that no Lake
 gives, or a file that another process changed between two reads. Then a run can pass on what it judged, while the other
-answer is a reason. `OneAnswer` is what excludes that, and `OneContext` the same of the parser's context, whose two parts
-hold of the program's table: `importParsers_eq` reads the scoped parsers from the environment it gives, and a file gets its
-context from its header alone (`Regula.Reader.parseFile`).
+answer is a reason. `OneAnswer` is what excludes that, and `OneContext` the same of the parser's context. No theorem discharges `OneContext`; read
+from the code, `importParsers_eq` reads the scoped parsers from the environment it gives, and a file gets its context from its
+header, the run's sources and its toolchain modules (`Regula.Reader.parseFile`).
 -/
 
 namespace RegulaSpecification.Effects
@@ -224,8 +225,8 @@ theorem readAs_same {T : List (Event L E)} (h : OneAnswer T) (hc : OneContext T)
     {f f₀ : FileRead} {i i₀ m m₀} (ha : ReadAs T project tree f path i m) (hb : ReadAs T project tree f₀ path i₀ m₀) :
     f.header = f₀.header ∧ f.commands = f₀.commands ∧ f.parsed = f₀.parsed ∧ f.scopedParsers = f₀.scopedParsers ∧
       i = i₀ := by
-  obtain ⟨rel, real, text, state, messages, final, env, commands, h1, -, -, h4, h5, h6, h7, h8⟩ := ha
-  obtain ⟨rel', real', text', state', messages', final', env', commands', h1', -, -, h4', h5', h6', h7', h8'⟩ := hb
+  obtain ⟨text, rel, real, state, messages, final, env, commands, h1, -, -, h4, h5, h6, h7, h8⟩ := ha
+  obtain ⟨text', rel', real', state', messages', final', env', commands', h1', -, -, h4', h5', h6', h7', h8'⟩ := hb
   have hrel : rel = rel' := List.append_cancel_left (h1.1.symm.trans h1'.1)
   subst hrel
   have htext := Except.ok.inj (h.resp (h4.subset (by simp) : (⟨.readFile (under project rel), .ok text⟩ : Event L E) ∈ T)
@@ -297,45 +298,18 @@ theorem lookup_of_mem_isSome {α β : Type} [BEq α] [LawfulBEq α] {l : List (�
         exact absurd rfl hk
       · exact ih he
 
-theorem StartedOutside.mono {T T' : List (Event L E)} (hs : T.Sublist T') {project lakeLib : FilePath}
-    (h : StartedOutside T project lakeLib) : StartedOutside T' project lakeLib := by
-  obtain ⟨a, b, c, d, h1, h2, h3, h4⟩ := h
-  exact ⟨a, b, c, d, hs.subset h1, hs.subset h2, hs.subset h3, h4⟩
-
-/-- The evidence of a reading stands in a larger trace. -/
-theorem Evidence.mono {T T' : List (Event L E)} (hs : T.Sublist T') {dir treeDir : FilePath} {r : Reading}
-    (h : Evidence T dir treeDir r) : Evidence T' dir treeDir r := by
-  obtain ⟨project, tree, hp, ht, hap, ⟨s1, prog1, lib1, hs1, hl1, hst⟩, ⟨a1, a2, a3, a4, a5, a6, a7⟩,
-    ⟨eabs, habs, hna⟩, ⟨text, real, table, hr1, hr2, hr3, hr4, hr5, hr6, hnd, hkeys⟩, hc1, hc2, sysroot, root, log,
-    modules, hsys, hload, hdef, hroots, hdirs, hglobs, htargets, hres, htwo, headers, held, hcount, hnodup, hcomp,
-    hheld, hfiles⟩ := h.places
-  have m {e : Event L E} (he : e ∈ T) : e ∈ T' := hs.subset he
-  refine ⟨project, tree, m hp, m ht, hap, ⟨s1, prog1, lib1, m hs1, m hl1, StartedOutside.mono hs hst⟩,
-    ⟨a1, a2, m a3, m a4, a5, a6, a7⟩, ⟨eabs, m habs, hna⟩,
-    ⟨text, real, table, m hr1, hr2, hr3, m hr4, m hr5, m hr6, hnd, hkeys⟩, hc1, hc2, sysroot, root, log, modules,
-    m hsys, m hload, DefaultModules.mono hs hdef, hroots, hdirs, hglobs, htargets, hres, htwo, headers, held, hcount,
-    hnodup, ?_, fun n hn => HeldByToolchain.mono hs (hheld n hn), ?_⟩
-  · intro n path hc
-    obtain ⟨ho, f, hf, hmod, i, md, hl, hra⟩ := hcomp n path hc
-    exact ⟨ho, f, hf, hmod, i, md, hl, ReadAs.mono hs hra⟩
-  · intro f hf
-    obtain ⟨path, i, md, h1, h2, h3, h4, h5⟩ := hfiles f hf
-    refine ⟨path, i, md, h1, ReadAs.mono hs h2, h3, h4, fun x hx => ?_⟩
-    obtain ⟨y1, y2, y3, y4⟩ := h5 x hx
-    refine ⟨?_, y2, y3, y4⟩
-    rcases y1 with y | ⟨z1, z2, z3⟩
-    · exact .inl y
-    · exact .inr ⟨z1, z2, HeldByToolchain.mono hs z3⟩
-
 /-- No reason in the closed set holds of a run whose reading rests on `Evidence`, is inside the closed language and received
 no failed answer, on one answer for each operation and one context for each input. -/
-theorem no_reason_of_evidence {T : List (Event L E)} {dir treeDir : FilePath} {r : Reading} {o : Outcome}
-    (hev : Evidence T dir treeDir r) (hi : Inside r) (hfail : ∀ e ∈ T, ¬ e.failed) (hone : OneAnswer T)
+theorem no_reason_of_evidence {T : List (Event L E)} {dir treeDir : FilePath} {stands : List String → Option String}
+    {r : Reading} {o : Outcome}
+    (hev : Evidence T dir treeDir stands r)
+    (hback : ∀ path text r', (⟨.writeFile path text, r'⟩ : Event L E) ∈ T → stands (parts path) = some text →
+      (⟨.readFile path, .ok text⟩ : Event L E) ∈ T) (hi : Inside r) (hfail : ∀ e ∈ T, ¬ e.failed) (hone : OneAnswer T)
     (hctx : OneContext T) : ¬ Reason T dir treeDir o := by
   obtain ⟨project, tree, hp, ht, hap, ⟨s1, prog1, lib1, hs1, hl1, hst⟩, ⟨ttext, treal, htt, htr, hte1, hte2, hpin⟩,
-    ⟨eabs, habs, nm, cd, dt, rfl⟩, ⟨text, real, table, hr1, hr2, hr3, hr4, hr5, hr6, hdeep, hkeys⟩, hc1, hc2, sysroot, root,
+    ⟨eabs, habs, nm, cd, dt, rfl⟩, ⟨text, real, table, hr1, hr2, hr3, hr4, hr5, hr6, hdeep, hkeys⟩, hpin0, hc1, hc2, sysroot, root,
     log, modules, hsys, hload, hdef, hroots, hdirs, hglobs, htargets, hres, htwo, headers, held, hcount, hnodup, hcomp,
-    hheld, hfiles⟩ := hev.places
+    hheld, hfiles, honly⟩ := hev.places
   obtain ⟨hclosed, -, hnodep, hnomath, ⟨hne, hrr, hcl, hcovf⟩, hfa⟩ := hi
   have hP {p' : FilePath} (h : (⟨.realPath dir, .ok p'⟩ : Event L E) ∈ T) : project = p' :=
     Except.ok.inj (hone.resp hp h rfl)
@@ -358,9 +332,9 @@ theorem no_reason_of_evidence {T : List (Event L E)} {dir treeDir : FilePath} {r
       (hc : Compiled headers root modules m path) (hst' : SourceText T project tree path text')
       (he : (⟨.parseHeader (mkInputContext text' path.toString), .ok (header, state, messages, imports)⟩ : Event L E) ∈ T) :
       headers.lookup m = some imports := by
-    obtain ⟨-, f, -, -, i0, m0, hl0, hra⟩ := hcomp m path hc
+    obtain ⟨-, f, -, -, i0, m0, text0, hl0, hra, -⟩ := hcomp m path hc
     obtain ⟨rel, hrel, hread⟩ := hst'
-    obtain ⟨rel', real', text0, st0, ms0, fin0, env0, cmds0, h1, -, -, h4, -⟩ := hra
+    obtain ⟨rel', real', st0, ms0, fin0, env0, cmds0, h1, -, -, h4, -⟩ := hra
     have hrel' : rel = rel' := List.append_cancel_left (hrel.1.symm.trans h1.1)
     subst hrel'
     have htx : text' = text0 := Except.ok.inj (hone.resp hread
@@ -399,11 +373,27 @@ theorem no_reason_of_evidence {T : List (Event L E)} {dir treeDir : FilePath} {r
     obtain ⟨p₀, text₀, a, b, c, hf₀, hst₀, he₀⟩ := hh
     have hc₀ := hNC hn p₀ hf₀
     have hl := hHead hc₀ hst₀ he₀
-    obtain ⟨-, f, hf, hmod, -, -, -, -⟩ := hcomp m p₀ hc₀
-    obtain ⟨-, i1, -, -, -, hl1, -, hall⟩ := hfiles f hf
+    obtain ⟨-, f, hf, hmod, -, -, -, -, -, -⟩ := hcomp m p₀ hc₀
+    obtain ⟨-, i1, -, -, -, -, -, hl1, -, hall⟩ := hfiles f hf
     rw [hmod, hl] at hl1
     cases hl1
     exact hall i hi
+  have planned_stands {path text'} (hpl : Planned T project tree root modules path text') :
+      stands (parts path) = some text' := by
+    cases hpl with
+    | toml h => rw [Except.ok.inj (hone.resp h hr4 rfl)]; exact hr6
+    | toolchain => exact hpin0
+    | source hn hf hst =>
+      obtain ⟨-, f, -, -, i0, m0, t0, -, hra, hs0⟩ := hcomp _ _ (hNC hn _ hf)
+      obtain ⟨rel, hrel, hread⟩ := hst
+      obtain ⟨rel', real', st0, ms0, fin0, env0, cmds0, h1, -, -, h4, -⟩ := hra
+      have hrel' : rel = rel' := List.append_cancel_left (hrel.1.symm.trans h1.1)
+      subst hrel'
+      have htx : text' = t0 := Except.ok.inj (hone.resp hread
+        (h4.subset (List.mem_cons_of_mem _ (List.mem_cons_self ..)) :
+          (⟨.readFile (under project rel), .ok t0⟩ : Event L E) ∈ T) rfl)
+      rw [htx]
+      exact hs0
   intro hreason
   cases hreason with
   | failed he _ hf => exact hfail _ he hf
@@ -454,8 +444,8 @@ theorem no_reason_of_evidence {T : List (Event L E)} {dir treeDir : FilePath} {r
     exact (hcomp _ _ (hNC hn _ hf)).1 ho
   | moduleNotExact hsc hn hf hrel hreal hb =>
     obtain ⟨rfl, rfl, rfl, rfl⟩ := hSc hsc
-    obtain ⟨-, f, -, -, i0, m0, -, hra⟩ := hcomp _ _ (hNC hn _ hf)
-    obtain ⟨rel', real', text0, st0, ms0, fin0, env0, cmds0, h1, h2, h3, h4, -⟩ := hra
+    obtain ⟨-, f, -, -, i0, m0, text0, -, hra, -⟩ := hcomp _ _ (hNC hn _ hf)
+    obtain ⟨rel', real', st0, ms0, fin0, env0, cmds0, h1, h2, h3, h4, -⟩ := hra
     have hrel' := List.append_cancel_left (hrel.1.symm.trans h1.1)
     subst hrel'
     rw [Except.ok.inj (hone.resp hreal (h4.subset (List.mem_cons_self ..)) rfl), (exactBelow_iff _ _ _).mpr ⟨h2, h3⟩] at hb
@@ -512,6 +502,16 @@ theorem no_reason_of_evidence {T : List (Event L E)} {dir treeDir : FilePath} {r
     cases hn with
     | root hm => exact hc (hcl _ (hrr _ (hroots ▸ hm)))
     | imported hn₀ hh hi => exact hc (hNI hn₀ hh hi).2.1
+  | treeDiffers hsc hpl hsub hne =>
+    obtain ⟨rfl, rfl, rfl, rfl⟩ := hSc hsc
+    have hread := hback _ _ _ (hsub.subset (List.mem_cons_self ..)) (planned_stands hpl)
+    exact hne (hone.resp (hsub.subset (List.mem_cons_of_mem _ (List.mem_cons_self ..))) hread rfl)
+  | twoTexts hsc hp1 hp2 hparts hne =>
+    obtain ⟨rfl, rfl, rfl, rfl⟩ := hSc hsc
+    have hstands := @planned_stands
+    have h1 := hstands hp1
+    rw [hparts, hstands hp2] at h1
+    exact hne (Option.some.inj h1).symm
   | importedRoot hsc hn hh hi h1 h2 =>
     obtain ⟨rfl, rfl, rfl, rfl⟩ := hSc hsc
     have := (hNI hn hh hi).2.2.2 h1
@@ -533,7 +533,7 @@ theorem no_reason_of_evidence {T : List (Event L E)} {dir treeDir : FilePath} {r
     | imported hn₀ hh hi =>
       rcases (hNI hn₀ hh hi).1 with hreach | ⟨-, -, hheldBy⟩
       · obtain ⟨f, hf, hmod⟩ := hcovf _ hreach
-        obtain ⟨p1, -, -, hfm, -⟩ := hfiles f hf
+        obtain ⟨p1, -, -, -, hfm, -⟩ := hfiles f hf
         rw [hmod] at hfm
         exact hnoFile p1 hfm
       · obtain ⟨olean, real', d, dr, hsub, hd, hdr, hb⟩ := hheldBy
@@ -562,8 +562,8 @@ theorem no_reason_of_evidence {T : List (Event L E)} {dir treeDir : FilePath} {r
     | imported hn₀ hh hi => exact (hNI hn₀ hh hi).2.2.1 hroot
   | file hsc hn hf hra _ _ _ _ _ hna =>
     obtain ⟨rfl, rfl, rfl, rfl⟩ := hSc hsc
-    obtain ⟨-, f₀, hf₀, -, _, _, -, hra₀⟩ := hcomp _ _ (hNC hn _ hf)
-    obtain ⟨hh, hcm, hpa, hsp, -⟩ := readAs_same hone hctx hra hra₀
+    obtain ⟨-, f₀, hf₀, -, _, _, t0, -, hra₀, -⟩ := hcomp _ _ (hNC hn _ hf)
+    obtain ⟨hh, hcm, hpa, hsp, -⟩ := readAs_same hone hctx hra ⟨t0, hra₀⟩
     obtain ⟨a1, a2, a3, a4, a5⟩ := hfa f₀ hf₀
     refine hna ⟨hpa.trans a1, hh ▸ a2, hcm ▸ a3, ?_, fun c hc => ?_⟩
     · rw [hh, hsp]
@@ -601,8 +601,21 @@ theorem full_exit_zero_owed {t : List (Event L E)} {dir : FilePath} {p : Regula.
   | proofOnly => cases (hn (by simp)).2
   | incomplete => cases (hn (by simp)).2
   | admitted =>
-    obtain ⟨r', hi, hev⟩ := hdec.1 rfl
+    obtain ⟨r', hi, hev, ⟨bPre, bSuffix, hbsplit, -, hbread⟩⟩ := hdec.1 rfl
     obtain ⟨sysroot, tBuild, tRules, hs, rfl, hb⟩ := ha rfl
+    have hwriteIn : ∀ path text r₁, (⟨.writeFile path text, r₁⟩ : Event L E) ∈ readPhase t →
+        (⟨.writeFile path text, r₁⟩ : Event L E) ∈ tRead := by
+      intro path text r₁ hm
+      have hmt : (⟨.writeFile path text, r₁⟩ : Event L E) ∈ t := readPhase_subset hm
+      rw [htree] at hmt
+      simp only [List.mem_cons, List.mem_append] at hmt
+      rcases hmt with h' | (h' | h') | h' | h'
+      · cases congrArg Event.op h'
+      · exact h'
+      · exact False.elim (BuildAndRules.no_mutation hb ⟨.writeFile path text, r₁⟩ (List.mem_append.mpr h'))
+      · cases congrArg Event.op h'
+      · have := hlast _ h'
+        cases this
     have htree' : ∀ {tree' rest}, t = ⟨.createTempDir, .ok tree'⟩ :: rest → tree = tree' := by
       intro tree' rest he
       rw [htree] at he
@@ -612,7 +625,10 @@ theorem full_exit_zero_owed {t : List (Event L E)} {dir : FilePath} {p : Regula.
     refine ⟨fun e he => healthy _ he ⟨e, rfl⟩, ?_, ?_, ?_, ?_⟩
     · intro tree' rest o' he
       obtain rfl := htree' he
-      exact no_reason_of_evidence (Evidence.mono hread hev) hi (fun e he => healthy e (readPhase_subset he)) h1 h2
+      refine no_reason_of_evidence (Evidence.mono hread hev) (fun path text r₁ hw hst => ?_) hi (fun e he => healthy e (readPhase_subset he)) h1 h2
+      have hin := hwriteIn path text r₁ hw
+      have : (⟨.readFile path, .ok text⟩ : Event L E) ∈ bSuffix := hbread path text r₁ hin hst
+      exact hread.subset (by rw [hbsplit]; exact List.mem_append_right _ this)
     · intro tree' rest s' he _ hrej
       cases hrej with
       | build _ h4 h5 => exact healthy _ h4 h5

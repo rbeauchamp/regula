@@ -13,7 +13,7 @@ What the record of a run (`RegulaSpecification.Effects.programRecord`) requires 
 record alone. It reads no program, so it holds of each subject and not only of the one that runs.
 
 `PlainOwed` and `FullOwed` state what it takes for a build to pass, over what the run received: no case of the closed set
-of reasons holds, the build and its replay ended with 0, and the environment that Lean's import gave has `LoadFloor`.
+of reasons holds, `FullOwed` also that no build or replay was rejected, and the environment that Lean's import gave has `LoadFloor`.
 `plain_owed` and `full_owed` state that a run on such responses gives the pass verdict and exit 0.
 `plain_refused_justified` gives a reason or a missing floor; `full_refused_justified` states that a nonzero
 full run cannot meet `FullOwed`. Preparation is supplied by `PlainRun` and `FullRun`, not by assuming
@@ -49,7 +49,7 @@ theorem needed_not_loadRoot {t : List (Event L E)} {dir treeDir sysroot tree} :
 
 /-! ## The events of a phase of a run -/
 
-/-- What a run of the full gate did after it made its tree and before it built or loaded anything. -/
+/-- What a run of the full gate did after it made its tree and before its first Lake command or import for the rules. -/
 def readPhase (t : List (Event L E)) : List (Event L E) :=
   (t.drop 1).takeWhile fun e => !e.isBuild && !e.isImportForRules
 
@@ -69,7 +69,7 @@ theorem readPhase_sublist {tRead rest : List (Event L E)} {x : Event L E}
   obtain ⟨h1, h2⟩ := h e he
   simp [h1, h2]
 
-/-- The reading is a contiguous prefix of its phase; extending the phase inserts no effects inside it. -/
+/-- The reading is a contiguous part of its phase; extending the phase inserts no effects inside it. -/
 theorem readPhase_infix {tRead rest : List (Event L E)} {x : Event L E}
     (h : ∀ e ∈ tRead, e.isBuild = false ∧ e.isImportForRules = false) :
     tRead <:+: readPhase (x :: tRead ++ rest) := by
@@ -151,11 +151,23 @@ theorem Named.mono {project tree : FilePath} {root : Root L} {modules m}
   | root hm => exact .root hm
   | imported _ hh hi ih => exact .imported ih (HeaderOf.mono hs hh) hi
 
+theorem ReadText.mono {project tree : FilePath} {f path imports mods text}
+    (h : ReadText T project tree f path imports mods text) : ReadText T' project tree f path imports mods text := by
+  obtain ⟨rel, real, state, messages, final, env, commands, h1, h2, h3, h4, h5, h6, h7, h8⟩ := h
+  exact ⟨rel, real, state, messages, final, env, commands, h1, h2, h3, h4.trans hs, hs.subset h5, h6,
+    h7.trans hs, h8⟩
+
 theorem ReadAs.mono {project tree : FilePath} {f path imports mods}
     (h : ReadAs T project tree f path imports mods) : ReadAs T' project tree f path imports mods := by
-  obtain ⟨rel, real, text, state, messages, final, env, commands, h1, h2, h3, h4, h5, h6, h7, h8⟩ := h
-  exact ⟨rel, real, text, state, messages, final, env, commands, h1, h2, h3, h4.trans hs, hs.subset h5, h6,
-    h7.trans hs, h8⟩
+  obtain ⟨text, h⟩ := h
+  exact ⟨text, ReadText.mono hs h⟩
+
+theorem Planned.mono {project tree : FilePath} {root : Root L} {modules path text}
+    (h : Planned T project tree root modules path text) : Planned T' project tree root modules path text := by
+  cases h with
+  | toml h => exact .toml (hs.subset h)
+  | toolchain => exact .toolchain
+  | source h1 h2 h3 => exact .source (Named.mono hs h1) h2 (SourceText.mono hs h3)
 
 omit hs in
 theorem Needed.mono (hi : T <:+: T') {dir treeDir : FilePath} {o : Op L E}
@@ -227,6 +239,8 @@ theorem Reason.mono (hi : T <:+: T') {dir treeDir : FilePath} {o}
   | targetName h1 h2 h3 => exact .targetName (tl h1) h2 h3
   | twoFiles h1 h2 h3 h4 => exact .twoFiles (sc h1) h2 h3 h4
   | twoRoots h1 h2 h3 h4 => exact .twoRoots (sc h1) h2 h3 h4
+  | treeDiffers h1 h2 h3 h4 => exact .treeDiffers (sc h1) (Planned.mono hs h2) (h3.trans hs) h4
+  | twoTexts h1 h2 h3 h4 h5 => exact .twoTexts (sc h1) (Planned.mono hs h2) (Planned.mono hs h3) h4 h5
   | moduleName h1 h2 h3 => exact .moduleName (sc h1) (nm h2) h3
   | importedRoot h1 h2 h3 h4 h5 h6 => exact .importedRoot (sc h1) (nm h2) (hd h3) h4 h5 h6
   | notToolchain h1 h2 h3 h4 h5 h6 h7 h8 =>
@@ -275,7 +289,7 @@ structure PlainOwed (t : List (Event L E)) (p : Regula.Closed.Profile) : Prop wh
   floor : ∀ root f roots, PlainRoot t root → BuildRead t root f roots → LoadFloor f roots p
 
 /-- What a run of the full gate receives on a build that it owes a pass: the run has its tree, nothing keeps the project from
-being admitted, the build and its replay ended with 0, nothing that the load of the result needs failed, and each
+being admitted, no build or replay was rejected, nothing that the load of the result needs failed, and each
 environment that the run read of that build has `LoadFloor`. -/
 structure FullOwed (t : List (Event L E)) (dir : FilePath) (p : Regula.Closed.Profile) : Prop where
   /-- The tree. -/
@@ -397,7 +411,7 @@ theorem run_full_owed {w : List String → Prog L E UInt32} (hw : RunMeets w) {t
 
 /-! ## A program that manufactures a reason -/
 
-/-- A program that asks which Lean this is, reads an environment variable that the build does not need, and says that the
+/-- A program that asks which Lean this is, reads the environment variable `name`, and says that the
 proof verdict is incomplete. The audit of 2026-10-31 proved that it met the earlier form of the record. -/
 def manufacturer (name : String) (_ : List String) : Prog L E UInt32 :=
   .ask .leanVersion fun _ =>
@@ -444,5 +458,43 @@ theorem manufacturer_fails {name : String} (h1 : name ≠ "LEAN_SYSROOT") (h2 : 
       rcases hno h with h | h | h <;> first | (cases h; exact h2 rfl) | cases h
     | elsewhere _ _ h => rcases hno h with h | h | h <;> cases h
     | build h _ => exact hplain _ h
+
+theorem StartedOutside.mono {T T' : List (Event L E)} (hs : T.Sublist T') {project lakeLib : FilePath}
+    (h : StartedOutside T project lakeLib) : StartedOutside T' project lakeLib := by
+  obtain ⟨a, b, c, d, h1, h2, h3, h4⟩ := h
+  exact ⟨a, b, c, d, hs.subset h1, hs.subset h2, hs.subset h3, h4⟩
+
+/-- The evidence of a reading stands in a larger trace, of the same state of the tree. What it keeps about the trace is what
+the run read and parsed, and what a run's own act can change after that is its state `held`, which this does not move. -/
+theorem Evidence.mono {T T' : List (Event L E)} (hs : T.Sublist T') {dir treeDir : FilePath}
+    {stands : List String → Option String} {r : Reading}
+    (h : Evidence T dir treeDir stands r) : Evidence T' dir treeDir stands r := by
+  obtain ⟨project, tree, hp, ht, hap, ⟨s1, prog1, lib1, hs1, hl1, hst⟩, ⟨a1, a2, a3, a4, a5, a6, a7⟩,
+    ⟨eabs, habs, hna⟩, ⟨text, real, table, hr1, hr2, hr3, hr4, hr5, hr6, hnd, hkeys⟩, hpin, hc1, hc2, sysroot, root, log,
+    modules, hsys, hload, hdef, hroots, hdirs, hglobs, htargets, hres, htwo, headers, held, hcount, hnodup, hcomp,
+    hheld, hfiles, honly⟩ := h.places
+  have m {e : Event L E} (he : e ∈ T) : e ∈ T' := hs.subset he
+  refine ⟨project, tree, m hp, m ht, hap, ⟨s1, prog1, lib1, m hs1, m hl1, StartedOutside.mono hs hst⟩,
+    ⟨a1, a2, m a3, m a4, a5, a6, a7⟩, ⟨eabs, m habs, hna⟩,
+    ⟨text, real, table, m hr1, hr2, hr3, m hr4, m hr5, hr6, hnd, hkeys⟩, hpin, hc1, hc2, sysroot, root, log, modules,
+    m hsys, m hload, DefaultModules.mono hs hdef, hroots, hdirs, hglobs, htargets, hres, htwo, headers, held, hcount,
+    hnodup, ?_, fun n hn => HeldByToolchain.mono hs (hheld n hn), ?_, ?_⟩
+  · intro n path hc
+    obtain ⟨ho, f, hf, hmod, i, md, tx, hl, hra, hst'⟩ := hcomp n path hc
+    exact ⟨ho, f, hf, hmod, i, md, tx, hl, ReadText.mono hs hra, hst'⟩
+  · intro f hf
+    obtain ⟨path, i, md, tx, h1, h2, hst', h3, h4, h5⟩ := hfiles f hf
+    refine ⟨path, i, md, tx, h1, ReadText.mono hs h2, hst', h3, h4, fun x hx => ?_⟩
+    obtain ⟨y1, y2, y3, y4⟩ := h5 x hx
+    refine ⟨?_, y2, y3, y4⟩
+    rcases y1 with y | ⟨z1, z2, z3⟩
+    · exact .inl y
+    · exact .inr ⟨z1, z2, HeldByToolchain.mono hs z3⟩
+  · intro p v hv
+    rcases honly p v hv with h' | h' | ⟨f, hf, path, i, md, h1, h2, h3⟩
+    · exact .inl h'
+    · exact .inr (.inl h')
+    · exact .inr (.inr ⟨f, hf, path, i, md, h1, h2, ReadText.mono hs h3⟩)
+
 
 end RegulaSpecification.Effects

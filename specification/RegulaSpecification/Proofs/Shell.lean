@@ -53,7 +53,8 @@ theorem check_preparation {prior t : List (Event L E)} {sysroot : String} {dir t
 
 /-- What `check` decides rests on what the reader read, and it prints only details. -/
 theorem check_spec {T t : List (Event L E)} {sysroot : String} {dir tree : FilePath} {o : Outcome}
-    (hI : t <:+: T) (hsys : SysrootIs T sysroot) (h : Runs (check sysroot dir tree : Prog L E Outcome) t o) :
+    (hI : t <:+: T) (hsys : SysrootIs T sysroot) (hpre : ∃ pre, T = pre ++ t ∧ ∀ e ∈ pre, e.acted? = none)
+    (h : Runs (check sysroot dir tree : Prog L E Outcome) t o) :
     Decided T dir tree o ∧ ReadActs t dir tree ∧
       (∀ e ∈ t, e.isBuild = false ∧ e.isImportForRules = false) ∧ (∀ l ∈ printed t, IsDetail l) := by
   unfold check at h
@@ -113,7 +114,19 @@ theorem check_spec {T t : List (Event L E)} {sysroot : String} {dir tree : FileP
     have hd : Details (t₃ ++ (t₅ ++ ([] : List (Event L E)))) := by
       simpa using details_append (sayAll_spec h₃) (say_spec h₅)
     obtain ⟨g4, g5⟩ := g1 reading lines rfl
-    refine ⟨⟨fun ha => ⟨reading, (decision_admitted_iff reading).mp ha, g4 ha⟩,
+    obtain ⟨pre, hpreT, hpreNo⟩ := hpre
+    have hsay : ∀ e ∈ t₃ ++ (t₅ ++ ([] : List (Event L E))), e.acted? = none := fun e he => acted_of_saying (hd.1 e he)
+    have hstands : ∀ p, written T p = written t₁ p := by
+      intro p
+      rw [hpreT, written_after_no_acts hpreNo p]
+      exact written_before_no_acts hsay p
+    have hback : decision reading = .admitted → ReadBack T := by
+      intro ha
+      rw [hpreT]
+      refine ReadBack.prepend_no_acts hpreNo (ReadBack.append_quiet (g4 ha).2 (quiet_of_saying hd.1) ?_)
+      intro e he
+      exact keeps_of_no_acts (hsay e he)
+    refine ⟨⟨fun ha => ⟨reading, (decision_admitted_iff reading).mp ha, (g4 ha).1 _ hstands, hback ha⟩,
       fun hne => g5 _ rfl hne, .inl ⟨reading, rfl⟩⟩, hacts hd, hrest hd⟩
 
 /-- On an admission, nothing that `check` asked failed. -/
@@ -559,7 +572,7 @@ theorem rules_spec {T t : List (Event L E)} {sysroot : String} {tree : FilePath}
     · exact sound_loadTree _ _ _ _ _ h₁ e he
     · exact details_not_failed hd e he
 
-/-- The actual rule phase issues no explicit mutation, allocation or command request, on success or failure. -/
+/-- The actual rule phase issues no explicit write, directory creation, allocation, removal or command request, on success or failure. -/
 theorem rules_reload {sysroot : String} {tree : FilePath} {p : Regula.Closed.Profile}
     {t : List (Event L E)} {v : Regula.Closed.Verdict}
     (h : Runs (rules (loadTree sysroot tree p) : Prog L E _) t v) : ∀ e ∈ t, ReloadOp e.op := by
@@ -672,7 +685,8 @@ theorem gateIn_spec {p : Regula.Closed.Profile} {dir tree : FilePath} {t : List 
     obtain ⟨t₃, t₄, o, rfl, h₃, h₄⟩ := runs_seq_iff.mp h₂
     have hT : t₃ <:+: ([⟨.getEnv "LEAN_SYSROOT", some sysroot⟩] ++ t₃) := List.infix_append_right
     have hsys : SysrootIs ([⟨.getEnv "LEAN_SYSROOT", some sysroot⟩] ++ t₃ : List (Event L E)) sysroot := by simp [SysrootIs]
-    obtain ⟨c1, c2, c3, c4⟩ := check_spec hT hsys h₃
+    obtain ⟨c1, c2, c3, c4⟩ := check_spec hT hsys
+      ⟨[⟨.getEnv "LEAN_SYSROOT", some sysroot⟩], rfl, fun e he => by obtain rfl := List.mem_singleton.mp he; rfl⟩ h₃
     have hprepared := check_preparation
       (prior := [⟨.getEnv "LEAN_SYSROOT", some sysroot⟩])
       (by intro e he; obtain rfl := List.mem_singleton.mp he; trivial) (by simp [SysrootIs]) h₃

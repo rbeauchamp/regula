@@ -114,8 +114,8 @@ theorem main_runs (w w' : Void IO.RealWorld) (c : UInt32) (h : main w = .ok c w'
         subst hw
         exact ⟨r, w₁, w₂, rfl, hl, he, hc.symm⟩
 
-/-- Exit 0 from `main`, at `IO`: the load gave Lake's report of a test driver, the lines that `main` asked to print are what
-`listing` gives for that driver, and for each line there are states of the world in which `IO.println` of it succeeds. -/
+/-- Exit 0 from `main`, at `IO`: the load gave Lake's report of a test driver, `listing` gives lines for that driver, and for
+each line there are states of the world in which `IO.println` of it succeeds. -/
 theorem main_zero (w w' : Void IO.RealWorld) (h : main w = .ok 0 w') :
     ∃ driver lines w₁, readDriver w = .ok (.ok (some driver)) w₁ ∧ listing driver = .ok lines ∧
       ∀ l ∈ lines, ∃ a b, IO.println l a = .ok () b := by

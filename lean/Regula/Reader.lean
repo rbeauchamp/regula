@@ -23,10 +23,13 @@ without the project. `startedOutside` refuses any other start, such as `lake lin
 project.
 
 **Every Lake call and child process of the gate works in a tree the checker made for this run** (`tree`), and
-none works in the project's directory. The tree holds only what the checker read itself, and it writes the
-same text it parsed, so what is compiled is what was read. A name, a link or a file of the project can then
-select no path outside the tree, whatever Lake derives at this or a later version. The project's own directory
-is read and never written, and its `.lake`, its manifest and every other file of it are not read at all.
+none works in the project's directory. Before Lake's load the checker asks only that the two configuration files be
+written there. It asks for a module's text only once the decision has admitted the whole reading, and each planned
+file is then read back from the tree by the path it was written at, so each text the record credits is what the file
+system answered after the reading's last act on the tree (`FullRun.answered_at_consumer` in the specification). A
+name, a link or a file of the project can then select no path outside the tree, whatever Lake derives at this or a
+later version. The project's own directory is read and never written, and its `.lake`, its manifest and every other
+file of it are not read at all.
 
 It reads, in this order, and stops at the first refusal:
 
@@ -48,6 +51,12 @@ It reads, in this order, and stops at the first refusal:
   at any depth leaves a file unread, and no name found outside the project is printed.
 - Each file's commands, through Lean's `parseCommand`, with the context that the specification's H1 states: an
   environment of the toolchain modules the file sees, no options, no namespace and no open declaration.
+
+Only then, and only for a reading that the decision admits, each file's text goes to the tree (`writeSources`), and each
+planned file is read back (`readBack`). What would hold two texts at one path, by its components, is left unread
+(`twoTexts`), so two names with one file are admitted only when both reads gave that file one text. Two paths with
+different components that the file system takes for one file, with different texts, show up in the read-back, whatever its
+reason for doing so.
 
 `MathlibReached` is a test of the name's root, on the modules `reached` holds, so a module whose root is
 `Mathlib` is recorded and not read. No `.olean` file of the project or of a dependency is loaded. Only the
@@ -122,7 +131,7 @@ def tablesIn (xs : Array Lake.Toml.Value) : List Lake.Toml.Table :=
 /-- The key paths of a TOML table: each key whose value is neither a table nor an array that holds one,
 and each key of each table and array of tables under it. A table with no key gives its own key, so an
 empty table, in any form, is not lost. `fuel` bounds the depth; a table deeper than that gives the key
-`too deep`, which no table holds. -/
+`too deep`, which no closed set admits. -/
 def keysOf (fuel : Nat) (pre : Name) (t : Lake.Toml.Table) : List Name :=
   match fuel with
   | 0 => [.str pre "too deep"]
@@ -183,6 +192,10 @@ def parseAll (input : InputContext) (env : E) (state : ModuleParserState) (messa
 
 /-- A file's text and header. -/
 structure Source where
+  /-- The file of the tree that this text goes to, if the project is admitted. -/
+  path : FilePath
+  /-- The text the read gave, as it stands in the project. -/
+  text : String
   /-- The parser's input. -/
   input : InputContext
   /-- The tree of the header. -/
@@ -236,24 +249,63 @@ def writeInTree (tree path : FilePath) (text : String) : Attempt L E Unit :=
   else
     throw s!"{path} does not lie below the checker's tree"
 
-/-- Read the file of the project that lies at the same relative path as `path` in the tree, and write the
-same text to `path`. Refuses a `path` that `treeRelative` refuses, before any path of the project is built
-from it. -/
-def copyToTree (project tree path : FilePath) : Attempt L E String := do
+/-- Whether the directory above a path, if it has one, lies at or below the checker's tree. -/
+def parentInTree (tree path : FilePath) : Bool :=
+  match path.parent with
+  | none => true
+  | some dir => inTree tree dir
+
+/-- Read the file of the project that lies at the same relative path as `path` in the tree. Refuses a `path`
+that `treeRelative` refuses, before any path of the project is built from it. It writes nothing. -/
+def readForTree (project tree path : FilePath) : Attempt L E String :=
   match treeRelative (Regula.Load.exactParts tree) (Regula.Load.exactParts path) with
   | none => throw s!"{path} does not lie below the checker's tree"
   | some rel =>
-    let text ← readExact project (joinParts project rel)
-    writeInTree tree path text
-    pure text
+    if parentInTree tree path then
+      readExact project (joinParts project rel)
+    else
+      throw s!"the directory above {path} does not lie below the checker's tree"
 
 /-- Read one module's file through Lean's own header parser, as the frontend does
-(`Lean/Elab/Frontend.lean:287`, `Lean/Shell.lean:519`), and copy that text to the tree. -/
+(`Lean/Elab/Frontend.lean:287`, `Lean/Shell.lean:519`). -/
 def readSource (project tree path : FilePath) : Attempt L E Source := do
-  let text ← copyToTree project tree path
+  let text ← readForTree project tree path
   let input := mkInputContext text path.toString
   let (header, state, messages, imports) ← attempt (Prog.call (.parseHeader input))
-  pure { input, header, state, messages, imports }
+  pure { path, text, input, header, state, messages, imports }
+
+/-- What an admission would have the tree hold: each file of `config`, and each source's file, each with its text and a
+name for a report. -/
+def plannedOf (config : List (FilePath × String)) (sources : List (Name × Source)) : List (Name × FilePath × String) :=
+  config.map (fun (path, text) => (`config, path, text)) ++ sources.map fun (m, s) => (m, s.path, s.text)
+
+/-- What would hold two texts at one path, by its components. The tree can hold one, so such a name is left unread. -/
+def twoTexts (planned : List (Name × FilePath × String)) : List (Name × String) :=
+  let clash := planned.filter fun (_, path, text) =>
+    planned.any fun (_, other, text') =>
+      Regula.Load.exactParts path == Regula.Load.exactParts other && text != text'
+  clash.map fun (m, path, _) => (m, s!"its file {path} would hold two texts")
+
+/-- Write the text of each source to its file. This is the reader's only write of a module's file. Stops at the first
+failure. -/
+def writeSources (tree : FilePath) : List (Name × Source) → Attempt L E Unit
+  | [] => pure ()
+  | (_, s) :: rest => do
+    writeInTree tree s.path s.text
+    writeSources tree rest
+
+/-- Read each file back by the path it was written at, and stop unless it gives the text written. This takes no model of the file
+system: a text that another spelling of a path replaced, or that a write that answered success did not store, is an answer
+that differs. The texts compare as read: `IO.FS.writeFile` puts the string's bytes (`Init/System/IO.lean:1058-1060` at v4.35.0)
+and `IO.FS.readFile` gives the bytes it decodes (`:1229-1233`), so neither touches a line ending. -/
+def readBack : List (FilePath × String) → Attempt L E Unit
+  | [] => pure ()
+  | (path, text) :: rest => do
+    let held ← attempt (Prog.call (.readFile path))
+    if held == text then
+      readBack rest
+    else
+      throw s!"{path} does not hold the text written to it"
 
 /-- Whether the toolchain's library holds the module `m`: Lean finds its `.olean` on the search path, and
 its real path lies below one of `dirs`, the real paths of that library's directories. An error is that it
@@ -456,29 +508,41 @@ def realPaths : List FilePath → Attempt L E (List FilePath)
     let reals ← realPaths rest
     pure (real :: reals)
 
-/-- What a walk gives the reading, before any command is parsed. -/
-def baseReading (start : Reading) (root : Root L) (modules : List (Name × FilePath)) (w : Walk) : Reading :=
+/-- What a walk gives the reading, before any command is parsed. `config` is what the run has asked the tree to hold. -/
+def baseReading (config : List (FilePath × String)) (start : Reading) (root : Root L)
+    (modules : List (Name × FilePath)) (w : Walk) : Reading :=
   { start with
     roots := modules.map (·.1), reached := w.reached.reverse,
-    unread := w.unread.reverse ++ importedExecutableRoots root modules w.sources.reverse }
+    unread := w.unread.reverse ++ importedExecutableRoots root modules w.sources.reverse ++
+      twoTexts (plannedOf config w.sources.reverse) }
 
-/-- The modules that the imports of `modules` reach, each file read, and each file's commands. The search path
-holds the toolchain's directories alone, because a module is the file Lake names or else the toolchain's: no
-output of the project is on it. -/
-def readFiles (project tree : FilePath) (root : Root L) (modules : List (Name × FilePath)) (start : Reading) :
+/-- The modules that the imports of `modules` reach, each file read, and each file's commands, and, only for a reading the
+decision admits, each text written to its file and each planned file read back. So no module's file is asked to be written until all
+of it was judged, then only the text that was, and each planned path's answer gives that text. Lake's load and resolution read no module's file: `LeanLib.findModule?` tests a name against
+the configuration (`Lake/Config/Module.lean:41-42`, `Lake/Config/LeanLibConfig.lean:140`), and a single-module `globs` entry
+lists nothing (`Lake/Config/Glob.lean:53-59`). The search path holds the toolchain's directories alone, because a module is
+the file Lake names or else the toolchain's: no output of the project is on it. -/
+def readFiles (config : List (FilePath × String)) (project tree : FilePath) (root : Root L)
+    (modules : List (Name × FilePath)) (start : Reading) :
     Attempt L E (Reading × List (Name × Source)) := do
   ExceptT.lift (Prog.call (.setSearchPath root.toolchain))
   let dirs ← realPaths root.toolchain
   let w ← ExceptT.lift (walk project tree root modules dirs 1000000 (modules.map (·.1)) {})
-  let base := baseReading start root modules w
+  let base := baseReading config start root modules w
   if !base.readInFull || base.mathlibReached then
     pure (base, [])
   else
     let files ← parseFiles w.sources.reverse w.toolchain [] w.sources.reverse
-    pure ({ base with files }, w.sources.reverse)
+    let reading := { base with files }
+    match decision reading with
+    | .admitted =>
+      writeSources tree w.sources.reverse
+      readBack (config ++ w.sources.reverse.map fun x => (x.2.path, x.2.text))
+      pure (reading, w.sources.reverse)
+    | _ => pure (reading, w.sources.reverse)
 
 /-- The root package through Lake's load of the tree's configuration, the paths it names, and what follows. -/
-def readRoot (sysroot : String) (project tree : FilePath) (start : Reading) :
+def readRoot (config : List (FilePath × String)) (sysroot : String) (project tree : FilePath) (start : Reading) :
     Attempt L E (Reading × List (Name × Source)) := do
   let root ← ExceptT.mk (Prog.bind (Prog.call (.loadRoot sysroot tree)) fun r =>
     pure (loaded "the configuration" r))
@@ -491,7 +555,7 @@ def readRoot (sysroot : String) (project tree : FilePath) (start : Reading) :
     if !failures.isEmpty then
       pure ({ start with roots := modules.map (·.1), unread := failures }, [])
     else
-      readFiles project tree root modules start
+      readFiles config project tree root modules start
 
 /-- What a configuration's text says, its copy in the tree, and what follows. -/
 def readKeys (sysroot : String) (project tree : FilePath) (toolchainFile : Option String) (text : String) :
@@ -507,7 +571,7 @@ def readKeys (sysroot : String) (project tree : FilePath) (toolchainFile : Optio
     else
       writeInTree tree (tree / "lakefile.toml") text
       writeInTree tree (tree / "lean-toolchain") leanToolchain
-      readRoot sysroot project tree start
+      readRoot [(tree / "lakefile.toml", text), (tree / "lean-toolchain", leanToolchain)] sysroot project tree start
 
 /-- `lakefile.lean` by its name, `lakefile.toml`, and what follows. -/
 def readConfig (sysroot : String) (project tree : FilePath) (toolchainFile : Option String) :

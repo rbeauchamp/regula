@@ -108,6 +108,28 @@ def AtOrBelow (dir path : FilePath) : Prop :=
 def under (dir : FilePath) (rel : List String) : FilePath :=
   rel.foldl (fun d p => d.join (FilePath.mk p)) dir
 
+/-! ## What the run's own acts leave in the tree -/
+
+/-- What this event leaves at the path with the components `p`, given what stood there. A write there puts its text,
+whatever its response, because a failed write leaves the file unknown and the text before it no longer stands. A
+removal of that path or of a directory above it takes the text away. No other operation is a statement about a file's
+text, and the match over the closed type `Op` makes a new operation a new decision. What a trusted call does inside
+itself, such as a Lake command, is no event of this function. -/
+def Event.leaves (e : Event L E) (p : List String) (held : Option String) : Option String :=
+  match e.op with
+  | .writeFile q text => if parts q = p then some text else held
+  | .removeDirAll q => if (parts q).isPrefixOf p then none else held
+  | .leanVersion | .getEnv _ | .appPath | .realPath _ | .readFile _ | .symlinkMetadata _
+  | .createDirAll _ | .createTempDir | .println _ | .flush | .parseHeader _ | .parseCommand ..
+  | .setSearchPath _ | .findOLean _ | .importForRules _ | .importForParser _ | .parseToml _
+  | .lakeInstall _ | .loadWorkspace .. | .loadRoot .. | .libModules _ | .runLake .. => held
+
+/-- What the acts of `t` leave at the path with the components `p`, from a tree that held nothing there: the text of its
+last write, unless a later removal took it away. This is a function of the run's requests alone, and neither an
+observation of the file system nor a claim about another process. -/
+def written (t : List (Event L E)) (p : List String) : Option String :=
+  t.foldl (fun held e => e.leaves p held) none
+
 /-! ## What a read is -/
 
 /-- A failed answer. An environment variable that is not set, an error of an operation that can fail, a load of Lake that
@@ -154,20 +176,18 @@ inductive Parsed (input : InputContext) (env : E) :
       Parsed input env (fuel + 1) state messages (stx :: rest) final
         (⟨.parseCommand input env state messages, (stx, state', messages')⟩ :: events)
 
-/-- `f` is what the run read of one file: the project's file `under project rel` passed the exact-path test
-on its real path, its text is what `readFile` returned, that same text was written to `path`, the same
-relative path in the tree, and Lean's parser gave the header and commands of `f` from that same text, in an
-environment that an import gave together with the scoped parsers `f` states. `imports` is what that header
-states, and `mods` is what the import was asked to load. So the text the decision judged is the text placed
-in the tree. -/
-def ReadAs (t : List (Event L E)) (project tree : FilePath) (f : FileRead) (path : FilePath)
-    (imports : Array Import) (mods : List Name) : Prop :=
-  ∃ (rel : List String) (real : FilePath) (text : String) (state : ModuleParserState)
+/-- `f` is what the run judged of the text `text` of one file: the project's file `under project rel` passed the
+exact-path test on its real path, `text` is what `readFile` returned, and Lean's parser gave the header and
+commands of `f` from that same text, in an environment that an import gave together with the scoped parsers `f`
+states. `imports` is what that header states, and `mods` is what the import was asked to load. This says what was
+read and parsed, and nothing of what the tree holds: `Evidence` says that, through what it is given as held. -/
+def ReadText (t : List (Event L E)) (project tree : FilePath) (f : FileRead) (path : FilePath)
+    (imports : Array Import) (mods : List Name) (text : String) : Prop :=
+  ∃ (rel : List String) (real : FilePath) (state : ModuleParserState)
     (messages final : MessageLog) (env : E) (commands : List (Event L E)),
     TreeRelative (parts tree) (parts path) rel ∧
     parts real = parts (under project rel) ∧ parts project <+: parts (under project rel) ∧
     ([⟨.realPath (under project rel), .ok real⟩, ⟨.readFile (under project rel), .ok text⟩,
-      ⟨.writeFile path text, .ok ()⟩,
       ⟨.parseHeader (mkInputContext text path.toString), .ok (f.header, state, messages, imports)⟩] :
         List (Event L E)).Sublist t ∧
     (⟨.importForParser mods, .ok (env, f.scopedParsers)⟩ : Event L E) ∈ t ∧
@@ -175,6 +195,11 @@ def ReadAs (t : List (Event L E)) (project tree : FilePath) (f : FileRead) (path
       state messages f.commands final commands ∧
     commands.Sublist t ∧
     f.parsed = !final.hasErrors
+
+/-- `f` is what the run judged of some text of one file. -/
+def ReadAs (t : List (Event L E)) (project tree : FilePath) (f : FileRead) (path : FilePath)
+    (imports : Array Import) (mods : List Name) : Prop :=
+  ∃ text, ReadText t project tree f path imports mods text
 
 /-- `modules` are the modules of the default targets of `root`, as this run's responses list them: each module
 of a default library, and the root of each default executable, in the order of the targets. -/

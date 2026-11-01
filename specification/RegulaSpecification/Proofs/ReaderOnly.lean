@@ -8,8 +8,8 @@ import RegulaSpecification.Proofs.Reader
 /-!
 # What the reader never asks
 
-The reader asks only reads, the writes that `ReadActs` bounds and Lean's parser: on no response does it build, load a
-build for the rules, or print. So nothing is built before the check, for every response.
+The reader asks only what `ReadOp` admits: on no response does it ask a Lake command, a load of a build for the rules, or a
+print. So the reader requests no build, for every response.
 -/
 
 namespace RegulaSpecification.Effects
@@ -123,11 +123,33 @@ theorem only_writeInTree (tree path : FilePath) (text : String) :
   · exact onlyA_throw _
 
 theorem only_readSource (project tree path : FilePath) : OnlyA (readSource project tree path : Attempt L E _) := by
-  rw [readSource, copyToTree]
+  rw [readSource, readForTree]
   refine onlyA_seq ?_ fun _ => onlyA_seq (onlyA_attempt (only_call trivial)) fun _ => onlyA_pure _
   split
   · exact onlyA_throw _
-  · exact onlyA_seq (only_readExact _ _) fun _ => onlyA_seq (only_writeInTree _ _ _) fun _ => onlyA_pure _
+  · split
+    · exact only_readExact _ _
+    · exact onlyA_throw _
+
+theorem only_writeSources (tree : FilePath) (srcs : List (Name × Source)) :
+    OnlyA (writeSources tree srcs : Attempt L E _) := by
+  induction srcs with
+  | nil => rw [writeSources]; exact onlyA_pure _
+  | cons x rest ih =>
+    obtain ⟨m, s⟩ := x
+    rw [writeSources]
+    exact onlyA_seq (only_writeInTree _ _ _) fun _ => ih
+
+theorem only_readBack (l : List (FilePath × String)) : OnlyA (readBack l : Attempt L E _) := by
+  induction l with
+  | nil => rw [readBack]; exact onlyA_pure _
+  | cons x rest ih =>
+    obtain ⟨path, text⟩ := x
+    rw [readBack]
+    refine onlyA_seq (onlyA_attempt (only_call trivial)) fun _ => ?_
+    split
+    · exact ih
+    · exact onlyA_throw _
 
 theorem only_toolchainOLean (dirs : List FilePath) (m : Name) : OnlyA (toolchainOLean dirs m : Attempt L E _) := by
   rw [toolchainOLean]
@@ -276,6 +298,9 @@ theorem only_readProject (sysroot : String) (dir treeDir : FilePath) :
                         dsimp only
                         split
                         · exact onlyA_pure _
-                        · exact onlyA_seq (only_parseFiles _ _ _ _) fun _ => onlyA_pure _
+                        · refine onlyA_seq (only_parseFiles _ _ _ _) fun _ => ?_
+                          split
+                          · exact onlyA_seq (only_writeSources _ _) fun _ => onlyA_seq (only_readBack _) fun _ => onlyA_pure _
+                          · exact onlyA_pure _
 
 end RegulaSpecification.Effects

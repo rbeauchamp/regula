@@ -7,7 +7,7 @@ import RegulaSpecification.Proofs.ReaderOnly
 import RegulaSpecification.Proofs.ShellLoad
 
 /-!
-# The parts of a run: what it prints, the check, the build, the rules
+# The parts of a run: what it prints, and the loads of a finished build
 
 For every response, about the definitions in `Regula.Shell`.
 -/
@@ -112,7 +112,7 @@ theorem finish_spec {text : String} {code c : UInt32} {t : List (Event L E)}
   obtain ⟨rfl, rfl⟩ := runs_pure_iff.mp h₂
   exact ⟨rfl, r, rfl⟩
 
-/-- A list with a last line after `pre` ends with that line, when `pre` holds only details. -/
+/-- A list with a last line after `pre` ends with that line, when `pre` holds only details and `line` holds no LF. -/
 theorem endsWith_of {pre : List (Event L E)} {line : String} {r : Resp (Op.println line : Op L E)}
     (hn : '\n' ∉ line.toList) (h : ∀ l ∈ printed pre, IsDetail l) :
     EndsWith (pre ++ [⟨.println line, r⟩]) line :=

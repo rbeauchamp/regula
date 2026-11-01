@@ -95,8 +95,16 @@ inductive Sees (headers : List (Name × Array Import)) (held : List Name) : Name
 reading states, the events of the run that gave it. So every file Lake would compile for the claim is read,
 and so is the configuration. It also states what makes a project one that nothing keeps from being admitted (`Reason`):
 that each path Lake's load names lies in the closed domain, each name too, and that the imports stay within the reader's
-bound. -/
-structure Evidence (t : List (Event L E)) (dir dirTree : FilePath) (r : Reading) : Prop where
+bound.
+
+`held` says what stands at each place where the build consumes a text, by the components of a path. So the statement that
+the text judged is what stands is about that state, and not about a write that some event once made: `Evidence` with
+`held` fixed keeps under more events, and `Decided` gives it `written t`, a fold of the run's own requests over its whole
+reading, which observes no file (`ReadBack` is the observation). `held` gives each file Lake would compile the text its
+commands were parsed from, the configuration the text Lake's parser read, `lean-toolchain` the pinned text, and no other
+path a text. -/
+structure Evidence (t : List (Event L E)) (dir dirTree : FilePath) (held : List String → Option String)
+    (r : Reading) : Prop where
   /-- The project and the tree have real paths, and neither lies in the other. -/
   places : ∃ project tree, (⟨.realPath dir, .ok project⟩ : Event L E) ∈ t ∧
     (⟨.realPath dirTree, .ok tree⟩ : Event L E) ∈ t ∧ Apart project tree ∧
@@ -113,7 +121,7 @@ structure Evidence (t : List (Event L E)) (dir dirTree : FilePath) (r : Reading)
     -- `lakefile.lean` is absent, by the name.
     (∃ e, (⟨.symlinkMetadata (project / "lakefile.lean"), .error e⟩ : Event L E) ∈ t ∧
       ∃ name code details, e = .noFileOrDirectory name code details) ∧
-    -- `lakefile.toml`: the text read is the text Lake's parser read and the text in the tree, and each of
+    -- `lakefile.toml`: the text read is the text Lake's parser read and the text `held` gives it, and each of
     -- its key paths is in the reading.
     (∃ text real table,
       (⟨.realPath (project / "lakefile.toml"), .ok real⟩ : Event L E) ∈ t ∧
@@ -121,12 +129,14 @@ structure Evidence (t : List (Event L E)) (dir dirTree : FilePath) (r : Reading)
       parts project <+: parts (project / "lakefile.toml") ∧
       (⟨.readFile (project / "lakefile.toml"), .ok text⟩ : Event L E) ∈ t ∧
       (⟨.parseToml (mkInputContext text "lakefile.toml"), .ok table⟩ : Event L E) ∈ t ∧
-      (⟨.writeFile (tree / "lakefile.toml") text, .ok ()⟩ : Event L E) ∈ t ∧
+      held (parts (tree / "lakefile.toml")) = some text ∧
       ¬ Deeper 8 table ∧
       ∀ n, KeyPath .anonymous table n → n ∈ r.configKeys) ∧
+    -- `held` gives `lean-toolchain` the pinned text.
+    held (parts (tree / "lean-toolchain")) = some leanToolchain ∧
     -- The tree's copies lie below it.
     ¬ OutsideTree tree (tree / "lakefile.toml") ∧ ¬ OutsideTree tree (tree / "lean-toolchain") ∧
-    -- Each file Lake compiles for the claim is read, as `ReadAs` states, and each file read is one of them.
+    -- Each file Lake compiles for the claim is read, as `ReadText` states, and each file read is one of them.
     ∃ sysroot root log modules,
       (⟨.getEnv "LEAN_SYSROOT", some sysroot⟩ : Event L E) ∈ t ∧
       (⟨.loadRoot sysroot tree, .ok (some root, log)⟩ : Event L E) ∈ t ∧
@@ -138,21 +148,25 @@ structure Evidence (t : List (Event L E)) (dir dirTree : FilePath) (r : Reading)
       (∀ n ∈ root.targets, ClosedModuleName n) ∧
       (∀ m file other, (m, file) ∈ modules → root.resolve m = some other → other = file) ∧
       (∀ m file other, (m, file) ∈ modules → (m, other) ∈ modules → other = file) ∧
-      ∃ (headers : List (Name × Array Import)) (held : List Name),
+      ∃ (headers : List (Name × Array Import)) (toolchain : List Name),
       -- The imports stay within the reader's bound.
       modules.length + (headers.map (·.2.size)).sum ≤ 1000000 ∧
       (headers.map (·.1)).Nodup ∧
       (∀ m path, Compiled headers root modules m path → ¬ OutsideTree tree path ∧
-        ∃ f ∈ r.files, f.module = m ∧ ∃ imports mods, headers.lookup m = some imports ∧
-          ReadAs t project tree f path imports mods) ∧
-      (∀ n ∈ held, HeldByToolchain t root n) ∧
-      (∀ f ∈ r.files, ∃ path imports mods, FileOfModule root modules f.module path ∧
-        ReadAs t project tree f path imports mods ∧
+        ∃ f ∈ r.files, f.module = m ∧ ∃ imports mods text, headers.lookup m = some imports ∧
+          ReadText t project tree f path imports mods text ∧ held (parts path) = some text) ∧
+      (∀ n ∈ toolchain, HeldByToolchain t root n) ∧
+      (∀ f ∈ r.files, ∃ path imports mods text, FileOfModule root modules f.module path ∧
+        ReadText t project tree f path imports mods text ∧ held (parts path) = some text ∧
         headers.lookup f.module = some imports ∧
-        (∀ n, n ∈ mods ↔ ∃ m ∈ imports, Sees headers held m.module n) ∧
+        (∀ n, n ∈ mods ↔ ∃ m ∈ imports, Sees headers toolchain m.module n) ∧
         -- Each import is read or is the toolchain's, and its name is in the closed domain.
         ∀ i ∈ imports, (i.module ∈ r.reached ∨
           (root.resolve i.module = none ∧ modules.lookup i.module = none ∧
             HeldByToolchain t root i.module)) ∧ ClosedModuleName i.module ∧ i.module.getRoot ≠ `Mathlib ∧
-          ((modules.lookup i.module).isSome = true → (root.resolve i.module).isSome = true))
+          ((modules.lookup i.module).isSome = true → (root.resolve i.module).isSome = true)) ∧
+      -- `held` gives no other path a text, unless a file of the reading lies there and was judged from that text.
+      ∀ p text, held p = some text → p = parts (tree / "lakefile.toml") ∨ p = parts (tree / "lean-toolchain") ∨
+        ∃ f ∈ r.files, ∃ path imports mods, FileOfModule root modules f.module path ∧ parts path = p ∧
+          ReadText t project tree f path imports mods text
 
