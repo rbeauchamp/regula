@@ -544,4 +544,4 @@ These stay assumed. Each is a statement about a system or a step that no proof o
 
 The rules and the kernel replay read only the constants of the build. So under a proof verdict, the code of a claimed module can make a claim about a compiled program false, and it can hide a warning. Under the statements above, it cannot make an unsound proof of a claimed module pass all three commands, because `lake check` replays each constant in scope from its export and refuses each axiom beyond the three.
 
-This shrinks what must be trusted about Regula's own code to the rows above. What it does not shrink: Lean's and Lake's functions themselves, H1 to H5, the compiler's order of effects, and the operating system. Under a proof verdict, as before, the code of a claimed module runs during its build.
+This shrinks what must be trusted about Regula's own code to the rows above. What it does not shrink: Lean's and Lake's functions themselves, H1 to H6, the compiler's order of effects, and the operating system. Under a proof verdict, as before, the code of a claimed module runs during its build.

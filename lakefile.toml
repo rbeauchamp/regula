@@ -1,7 +1,7 @@
 # Regula: a checker for Lean projects that refuses proof holes, project axioms, native proofs, axioms
-# outside a stated profile, `unsafe` or `partial` declarations and helper names other than Lean's recursion
-# helper, and values that mention Lean's loop constructs, and that can refuse, before anything is compiled,
-# a project outside a closed set of allowed constructs. It needs nothing beyond the Lean toolchain.
+# outside a stated profile, `unsafe` or `partial` declarations and recursion helper names without the form
+# that RG1006 exempts, and values that mention Lean's loop constructs, and that can refuse, before anything is
+# compiled, a project outside a closed set of allowed constructs. It needs nothing beyond the Lean toolchain.
 name = "regula"
 version = "0.11.1"
 description = "A checker of Lean builds: proof holes, project axioms, native proofs, axioms outside a profile, unsafe and partial declarations, Lean's loop constructs, and a closed language checked before anything is compiled."
