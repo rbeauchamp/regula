@@ -208,7 +208,7 @@ theorem refuses_another_toolchain :
 /-! ## What the output says -/
 
 open Regula.Closed in
-/-- The last line of each proof verdict, word for word. -/
+/-- The sentence of each proof verdict, word for word. `pass_lines_name_subject` states what a run prints, which on a pass adds what it audited. -/
 theorem proof_verdict_lines :
     Verdict.proofLine .pass = "regula: proof verdict: pass, which says nothing about what ran during the build" ∧
     Verdict.proofLine .fail = "regula: proof verdict: fail" ∧
@@ -216,7 +216,7 @@ theorem proof_verdict_lines :
   decide +kernel
 
 open Regula.Closed in
-/-- The last line of each report of the full gate, word for word. -/
+/-- The sentence of each report of the full gate, word for word. `pass_lines_name_subject` states what a run prints, which on a pass adds what it audited. -/
 theorem full_gate_lines :
     Report.label (.full .pass) =
       "regula: full verdict: pass, under the hypotheses H1 to H5 and the trusted base of its specification, at Lean 4.35.0" ∧
