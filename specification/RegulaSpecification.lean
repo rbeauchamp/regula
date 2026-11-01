@@ -22,6 +22,8 @@ import RegulaSpecification.Proofs.Foundation
 import RegulaSpecification.Proofs.Records
 import RegulaSpecification.Proofs.Verdict
 import RegulaSpecification.Proofs.Load
+import RegulaSpecification.Proofs.Owed
+import RegulaSpecification.Proofs.OwedExact
 import RegulaSpecification.Proofs.Occurrences
 import RegulaSpecification.Proofs.Language
 import RegulaSpecification.Proofs.Effects

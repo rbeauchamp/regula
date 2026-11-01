@@ -189,7 +189,7 @@ theorem loaded_spec {what : String} {r : Except String (Option (Root L) × List 
 /-- `loadPlain`: the load of the workspace that Lake dispatched. -/
 theorem loadPlain_spec {T t : List (Event L E)} {p : Regula.Closed.Profile}
     {b : Except String Regula.Closed.Input} (hT : t.Sublist T)
-    (h : Runs (loadPlain p : Attempt L E _).run t b) : Loaded PlainRoot T p b ∧ ∀ e ∈ t, e.acted? = none := by
+    (h : Runs (loadPlain p : Attempt L E _).run t b) : Loaded PlainRoot PlainReason T p b ∧ ∀ e ∈ t, e.acted? = none := by
   unfold loadPlain at h
   obtain ⟨t₁, t₂, r₁, rfl, h₁, h₂⟩ := runs_attempt_bind_iff.mp h
   obtain ⟨e₁, rfl, v1, v2⟩ := requireEnv_spec h₁
@@ -206,7 +206,7 @@ theorem loadPlain_spec {T t : List (Event L E)} {p : Regula.Closed.Profile}
     obtain ⟨rfl, rfl⟩ := h₂
     have he : e₁ = none := v2 ⟨why, rfl⟩
     subst he
-    exact ⟨.inr (.inl ⟨⟨_, hmem₁, rfl⟩, why, rfl⟩), by simpa using hq₁⟩
+    exact ⟨.inr ⟨.noSysroot hmem₁, why, rfl⟩, by simpa using hq₁⟩
   | ok sysroot =>
     have he : e₁ = some sysroot := v1 sysroot rfl
     subst he
@@ -217,7 +217,7 @@ theorem loadPlain_spec {T t : List (Event L E)} {p : Regula.Closed.Profile}
     cases r₅ with
     | error e =>
       obtain ⟨rfl, rfl⟩ := h₄
-      refine ⟨.inr (.inl ⟨⟨⟨.realPath ".", .error e⟩, hT₂.subset (by simp), ⟨e, rfl⟩⟩, _, rfl⟩), fun x hx => ?_⟩
+      refine ⟨.inr ⟨.noDirectory (e := e) (hT₂.subset (by simp)), _, rfl⟩, fun x hx => ?_⟩
       simp only [List.cons_append, List.nil_append, List.append_nil, List.mem_cons, List.not_mem_nil,
         or_false] at hx
       rcases hx with rfl | rfl <;> rfl
@@ -233,7 +233,7 @@ theorem loadPlain_spec {T t : List (Event L E)} {p : Regula.Closed.Profile}
       | error why =>
         rw [hl] at h₇
         obtain ⟨rfl, rfl⟩ := h₇
-        refine ⟨.inr (.inl ⟨⟨_, hmemLoad, l2 why hl⟩, why, rfl⟩), fun x hx => ?_⟩
+        refine ⟨.inr ⟨.load hmem₁ (hT₂.subset (by simp)) hmemLoad (l2 why hl), why, rfl⟩, fun x hx => ?_⟩
         simp only [List.cons_append, List.nil_append, List.append_nil, List.mem_cons, List.not_mem_nil,
           or_false] at hx
         rcases hx with rfl | rfl | rfl <;> rfl
@@ -264,7 +264,7 @@ theorem loadPlain_spec {T t : List (Event L E)} {p : Regula.Closed.Profile}
           obtain ⟨rfl, rfl⟩ := h₁₄
           have he : e₂ = none := w2 ⟨why, rfl⟩
           subst he
-          exact ⟨.inr (.inl ⟨⟨_, hmemEnv, rfl⟩, why, rfl⟩), by simpa using hq⟩
+          exact ⟨.inr ⟨.noSearchPath hmemEnv, why, rfl⟩, by simpa using hq⟩
         | ok received =>
           have he : e₂ = some received := w1 received rfl
           subst he
@@ -273,10 +273,11 @@ theorem loadPlain_spec {T t : List (Event L E)} {p : Regula.Closed.Profile}
           · rename_i hdis
             obtain ⟨o1, o2⟩ := inputOf_spec hT₁₂ h₁₄
             refine ⟨?_, ?_⟩
-            · rcases o1 with ⟨f, roots, hb, he⟩ | hf
-              · exact .inl ⟨root, f, roots, ⟨sysroot, dir, log, received, lakeLib, program, hmemLoad,
-                  hT₂.subset (by simp), hmemLake, hmemEnv, by simpa using hdis⟩, hb, he⟩
-              · exact .inr (.inl hf)
+            · have hroot : PlainRoot T root := ⟨sysroot, dir, log, received, lakeLib, program, hmem₁, hmemLoad,
+                hT₂.subset (by simp), hmemLake, hmemEnv, by simpa using hdis⟩
+              rcases o1 with ⟨f, roots, hb, he⟩ | ⟨hf, hw⟩
+              · exact .inl ⟨root, f, roots, hroot, hb, he⟩
+              · exact .inr ⟨.build hroot hf, hw⟩
             · intro x hx
               simp only [List.cons_append, List.nil_append, List.append_nil, List.mem_cons] at hx
               rcases hx with rfl | rfl | rfl | rfl | rfl | hx
@@ -288,14 +289,14 @@ theorem loadPlain_spec {T t : List (Event L E)} {p : Regula.Closed.Profile}
               · exact o2 x hx
           · rename_i hd
             obtain ⟨rfl, rfl⟩ := runs_attempt_throw_iff.mp h₁₄
-            exact ⟨.inr (.inr ⟨root, received, lakeLib, program, sysroot, log, dir, hmemLoad, hmemLake, hmemEnv,
-              by simpa using hd, _, rfl⟩), by simpa using hq⟩
+            exact ⟨.inr ⟨.elsewhere hmem₁ (hT₂.subset (by simp)) hmemLoad hmemLake hmemEnv (by simpa using hd), _, rfl⟩,
+              by simpa using hq⟩
 
 /-- `loadTree`: the load of the build in the checker's tree. -/
 theorem loadTree_spec {T t : List (Event L E)} {sysroot : String} {tree : FilePath}
     {p : Regula.Closed.Profile} {b : Except String Regula.Closed.Input} (hT : t.Sublist T)
     (h : Runs (loadTree sysroot tree p : Attempt L E _).run t b) :
-    Loaded (TreeRoot tree) T p b ∧ ∀ e ∈ t, e.acted? = none := by
+    Loaded (TreeRoot sysroot tree) (TreeReason sysroot tree) T p b ∧ ∀ e ∈ t, e.acted? = none := by
   unfold loadTree at h
   obtain ⟨t₃, t₄, r₃, rfl, h₃, h₄⟩ := runs_attempt_bind_iff.mp h
   obtain ⟨r₅, h₅, rfl⟩ := runs_attempt_iff.mp h₃
@@ -304,7 +305,7 @@ theorem loadTree_spec {T t : List (Event L E)} {sysroot : String} {tree : FilePa
   cases r₅ with
   | error e =>
     obtain ⟨rfl, rfl⟩ := h₄
-    refine ⟨.inr (.inl ⟨⟨⟨.realPath tree, .error e⟩, hT.subset (by simp), ⟨e, rfl⟩⟩, _, rfl⟩), fun x hx => ?_⟩
+    refine ⟨.inr ⟨.noTree (e := e) (hT.subset (by simp)), _, rfl⟩, fun x hx => ?_⟩
     simp only [List.append_nil, List.mem_singleton] at hx
     subst hx
     rfl
@@ -320,7 +321,7 @@ theorem loadTree_spec {T t : List (Event L E)} {sysroot : String} {tree : FilePa
     | error why =>
       rw [hl] at h₇
       obtain ⟨rfl, rfl⟩ := h₇
-      refine ⟨.inr (.inl ⟨⟨_, hmemLoad, l2 why hl⟩, why, rfl⟩), fun x hx => ?_⟩
+      refine ⟨.inr ⟨.load (hT.subset (by simp)) hmemLoad (l2 why hl), why, rfl⟩, fun x hx => ?_⟩
       simp only [List.cons_append, List.nil_append, List.append_nil, List.mem_cons, List.not_mem_nil,
         or_false] at hx
       rcases hx with rfl | rfl <;> rfl
@@ -329,9 +330,10 @@ theorem loadTree_spec {T t : List (Event L E)} {sysroot : String} {tree : FilePa
       obtain ⟨log, rfl⟩ := l1 root hl
       obtain ⟨o1, o2⟩ := inputOf_spec hT₆ h₇
       refine ⟨?_, fun x hx => ?_⟩
-      · rcases o1 with ⟨f, roots, hb, he⟩ | hf
-        · exact .inl ⟨root, f, roots, ⟨sysroot, dir, log, hT.subset (by simp), hmemLoad⟩, hb, he⟩
-        · exact .inr (.inl hf)
+      · have hroot : TreeRoot sysroot tree T root := ⟨dir, log, hT.subset (by simp), hmemLoad⟩
+        rcases o1 with ⟨f, roots, hb, he⟩ | ⟨hf, hw⟩
+        · exact .inl ⟨root, f, roots, hroot, hb, he⟩
+        · exact .inr ⟨.build hroot hf, hw⟩
       · simp only [List.cons_append, List.nil_append, List.append_nil, List.mem_cons] at hx
         rcases hx with rfl | rfl | hx
         · rfl

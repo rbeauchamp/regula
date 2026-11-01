@@ -24,7 +24,7 @@ variable {L E α β : Type}
 
 /-- On every response, a success means that nothing failed on the way. -/
 def Sound (x : Attempt L E α) : Prop :=
-  ∀ t a, Runs x.run t (.ok a) → ∀ e ∈ t, ¬ e.failedRead
+  ∀ t a, Runs x.run t (.ok a) → ∀ e ∈ t, ¬ e.failed
 
 theorem sound_pure (a : α) : Sound (pure a : Attempt L E α) := by
   intro t b h e he
@@ -128,7 +128,7 @@ theorem sound_defaultModules (root : Root L) (targets : List Name) :
 
 /-- The events of a parse are no failures. -/
 theorem parsed_not_failed {input env fuel state messages commands final} {t : List (Event L E)}
-    (h : Parsed input env fuel state messages commands final t) : ∀ e ∈ t, ¬ e.failedRead := by
+    (h : Parsed input env fuel state messages commands final t) : ∀ e ∈ t, ¬ e.failed := by
   induction h with
   | stop => intro e he; cases he
   | last _ =>
@@ -166,7 +166,7 @@ theorem sound_parseFiles (sources : List (Name × Source)) (toolchain : List Nam
 theorem walk_no_failed (project tree : FilePath) (root : Root L) (modules : List (Name × FilePath))
     (dirs : List FilePath) (fuel : Nat) (todo : List Name) (w w' : Walk) (t : List (Event L E))
     (h : Runs (walk project tree root modules dirs fuel todo w) t w') (hu : w'.unread = []) :
-    w.unread = [] ∧ ∀ e ∈ t, ¬ e.failedRead := by
+    w.unread = [] ∧ ∀ e ∈ t, ¬ e.failed := by
   induction fuel generalizing todo w t with
   | zero =>
     cases todo with
@@ -239,7 +239,7 @@ theorem stopped_not_admitted {tf : Option String} {l : Bool} {k : List Name} {wh
 theorem readFiles_no_failed {project tree : FilePath} {root : Root L} {modules : List (Name × FilePath)}
     {start r : Reading} {srcs : List (Name × Source)} {t : List (Event L E)}
     (h : Runs (readFiles project tree root modules start : Attempt L E _).run t (.ok (r, srcs)))
-    (ha : decision r = .admitted) : (∀ e ∈ t, ¬ e.failedRead) ∧ r.toolchainFile = start.toolchainFile := by
+    (ha : decision r = .admitted) : (∀ e ∈ t, ¬ e.failed) ∧ r.toolchainFile = start.toolchainFile := by
   rw [readFiles] at h
   obtain ⟨t₁, t₂, r₁, rfl, h₁, h₂⟩ := runs_attempt_bind_iff.mp h
   obtain ⟨u, h₃, rfl⟩ := runs_lift_iff.mp h₁
@@ -251,7 +251,7 @@ theorem readFiles_no_failed {project tree : FilePath} {root : Root L} {modules :
     obtain ⟨t₅, t₆, r₅, rfl, h₆, h₇⟩ := runs_attempt_bind_iff.mp h₅
     obtain ⟨w, h₈, rfl⟩ := runs_lift_iff.mp h₆
     dsimp only at h₇
-    have hcase : ∀ e ∈ t₆, ¬ e.failedRead ∧ True := by
+    have hcase : ∀ e ∈ t₆, ¬ e.failed ∧ True := by
       split at h₇
       · obtain ⟨rfl, -⟩ := runs_attempt_pure_iff.mp h₇
         intro e he
@@ -304,7 +304,7 @@ theorem readFiles_no_failed {project tree : FilePath} {root : Root L} {modules :
 theorem readRoot_no_failed {sysroot : String} {project tree : FilePath} {start r : Reading}
     {srcs : List (Name × Source)} {t : List (Event L E)}
     (h : Runs (readRoot sysroot project tree start : Attempt L E _).run t (.ok (r, srcs)))
-    (ha : decision r = .admitted) : (∀ e ∈ t, ¬ e.failedRead) ∧ r.toolchainFile = start.toolchainFile := by
+    (ha : decision r = .admitted) : (∀ e ∈ t, ¬ e.failed) ∧ r.toolchainFile = start.toolchainFile := by
   rw [readRoot] at h
   obtain ⟨t₁, t₂, r₁, rfl, h₁, h₂⟩ := runs_attempt_bind_iff.mp h
   obtain ⟨t₃, t₄, r₃, rfl, h₃, h₄⟩ := runs_bind_iff.mp h₁
@@ -316,7 +316,7 @@ theorem readRoot_no_failed {sysroot : String} {project tree : FilePath} {start r
     cases h₂.2
   | ok root =>
     rw [hl] at h₂
-    have hev : ¬ Event.failedRead (⟨.loadRoot sysroot tree, r₃⟩ : Event L E) := by
+    have hev : ¬ Event.failed (⟨.loadRoot sysroot tree, r₃⟩ : Event L E) := by
       rintro (⟨e, rfl⟩ | ⟨log, rfl⟩) <;> cases hl
     dsimp only at h₂
     split at h₂
@@ -349,7 +349,7 @@ theorem readRoot_no_failed {sysroot : String} {project tree : FilePath} {start r
 theorem readKeys_no_failed {sysroot : String} {project tree : FilePath} {tf : Option String} {text : String}
     {r : Reading} {srcs : List (Name × Source)} {t : List (Event L E)}
     (h : Runs (readKeys sysroot project tree tf text : Attempt L E _).run t (.ok (r, srcs)))
-    (ha : decision r = .admitted) : (∀ e ∈ t, ¬ e.failedRead) ∧ r.toolchainFile = tf := by
+    (ha : decision r = .admitted) : (∀ e ∈ t, ¬ e.failed) ∧ r.toolchainFile = tf := by
   rw [readKeys] at h
   obtain ⟨t₁, t₂, r₁, rfl, h₁, h₂⟩ := runs_attempt_bind_iff.mp h
   obtain ⟨r₂, h₃, rfl⟩ := runs_lift_iff.mp h₁
@@ -392,7 +392,7 @@ theorem readKeys_no_failed {sysroot : String} {project tree : FilePath} {tf : Op
 theorem readConfig_no_failed {sysroot : String} {project tree : FilePath} {tf : Option String} {r : Reading}
     {srcs : List (Name × Source)} {t : List (Event L E)}
     (h : Runs (readConfig sysroot project tree tf : Attempt L E _).run t (.ok (r, srcs)))
-    (ha : decision r = .admitted) : (∀ e ∈ t, ¬ e.failedRead) ∧ r.toolchainFile = tf := by
+    (ha : decision r = .admitted) : (∀ e ∈ t, ¬ e.failed) ∧ r.toolchainFile = tf := by
   rw [readConfig] at h
   obtain ⟨t₁, t₂, r₁, rfl, h₁, h₂⟩ := runs_attempt_bind_iff.mp h
   obtain ⟨r₃, rfl, e1, e2, e3⟩ := existsByName_spec h₁
@@ -407,7 +407,7 @@ theorem readConfig_no_failed {sysroot : String} {project tree : FilePath} {tf : 
       simp [stopped] at this
     | false =>
       obtain ⟨x, rfl, name, code, details, rfl⟩ := e2 rfl
-      have hev : ¬ Event.failedRead (⟨.symlinkMetadata (project / "lakefile.lean"),
+      have hev : ¬ Event.failed (⟨.symlinkMetadata (project / "lakefile.lean"),
           .error (.noFileOrDirectory name code details)⟩ : Event L E) := by
         rintro ⟨x, hx, hne⟩
         cases hx
@@ -443,14 +443,14 @@ theorem sound_startedOutside (lakeLib project : FilePath) :
       obtain ⟨rfl, -⟩ := runs_pure_iff.mp h₂
       simp only [List.append_nil, List.mem_singleton] at he
       subst he
-      exact id
+      exact fun hn => by cases hn
 
 /-- The theorem that a failed read is never admitted, of the definition that runs: on an admission, no answer that
 the reader asked failed. So a failed or unrecognized read gives `incomplete` or a refusal. -/
 theorem readProject_no_failed {sysroot : String} {dir treeDir : FilePath} {r : Reading}
     {srcs : List (Name × Source)} {t : List (Event L E)}
     (h : Runs (readProject sysroot dir treeDir : Attempt L E _).run t (.ok (r, srcs)))
-    (ha : decision r = .admitted) : ∀ e ∈ t, ¬ e.failedRead := by
+    (ha : decision r = .admitted) : ∀ e ∈ t, ¬ e.failed := by
   rw [readProject] at h
   obtain ⟨t₁, t₂, r₁, rfl, h₁, h₂⟩ := runs_attempt_bind_iff.mp h
   cases r₁ with
@@ -477,7 +477,7 @@ theorem readProject_no_failed {sysroot : String} {dir treeDir : FilePath} {r : R
         obtain ⟨t₁₁, t₁₂, r₁₁, rfl, h₁₃, h₁₄⟩ := runs_seq_iff.mp h₁₂
         have hreal₁ := sound_realPath (L := L) (E := E) dir _ _ h₁
         have hreal₂ := sound_realPath (L := L) (E := E) treeDir _ _ h₃
-        have hrest : (∀ e ∈ t₁₀, ¬ e.failedRead) ∧ r.toolchainFile = tf := by
+        have hrest : (∀ e ∈ t₁₀, ¬ e.failed) ∧ r.toolchainFile = tf := by
           split at h₁₁
           · obtain ⟨-, he⟩ := runs_attempt_pure_iff.mp h₁₁
             cases he
@@ -489,7 +489,7 @@ theorem readProject_no_failed {sysroot : String} {dir treeDir : FilePath} {r : R
               exact absurd ha stopped_not_admitted
             · exact readConfig_no_failed h₁₁ ha
         obtain ⟨f1, f2⟩ := hrest
-        have htc : ∀ e ∈ t₁₁, ¬ e.failedRead := by
+        have htc : ∀ e ∈ t₁₁, ¬ e.failed := by
           cases r₁₁ with
           | ok text => exact sound_readExact _ _ _ _ h₁₃
           | error why =>

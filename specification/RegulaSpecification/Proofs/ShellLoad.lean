@@ -28,7 +28,7 @@ theorem readModules_spec {toolchainDir rootDir : FilePath} (names : List Name) {
       ∀ m ∈ ms, m = Regula.Load.LoadedModule.ofPlace toolchainDir rootDir m.name m.olean }}
     (h : Runs (readModules toolchainDir rootDir names : Attempt L E _).run t b) :
     (∀ ms, b = .ok ms → ∀ m ∈ ms.1, (⟨.findOLean m.name, .ok m.olean⟩ : Event L E) ∈ t) ∧
-      ((∃ e, b = .error e) → ∃ e ∈ t, Event.failedLoad e) ∧ ∀ e ∈ t, e.acted? = none := by
+      ((∃ e, b = .error e) → ∃ m ∈ names, ∃ e, (⟨.findOLean m, .error e⟩ : Event L E) ∈ t) ∧ ∀ e ∈ t, e.acted? = none := by
   induction names generalizing t with
   | nil =>
     rw [readModules] at h
@@ -42,7 +42,7 @@ theorem readModules_spec {toolchainDir rootDir : FilePath} (names : List Name) {
     cases r' with
     | error e =>
       obtain ⟨rfl, rfl⟩ := h₂
-      refine ⟨fun _ he => (by cases he), fun _ => ⟨⟨.findOLean n, .error e⟩, by simp, ⟨e, rfl⟩⟩, fun x hx => ?_⟩
+      refine ⟨fun _ he => (by cases he), fun _ => ⟨n, List.mem_cons_self .., e, by simp⟩, fun x hx => ?_⟩
       simp only [List.append_nil, List.mem_singleton] at hx
       subst hx
       rfl
@@ -59,8 +59,8 @@ theorem readModules_spec {toolchainDir rootDir : FilePath} (names : List Name) {
       cases r₃ with
       | error why =>
         obtain ⟨rfl, rfl⟩ := h₅
-        obtain ⟨e', he', hf⟩ := i2 ⟨why, rfl⟩
-        exact ⟨fun _ he => (by cases he), fun _ => ⟨e', by simp [he'], hf⟩, by simpa using hact⟩
+        obtain ⟨m, hm, e', he'⟩ := i2 ⟨why, rfl⟩
+        exact ⟨fun _ he => (by cases he), fun _ => ⟨m, List.mem_cons_of_mem _ hm, e', by simp [he']⟩, by simpa using hact⟩
       | ok ms =>
         obtain ⟨ms, hn, hp⟩ := ms
         obtain ⟨rfl, rfl⟩ := runs_attempt_pure_iff.mp h₅
@@ -77,15 +77,16 @@ theorem factsOf_spec {env : Environment} {toolchainDir rootDir : FilePath} {t : 
     (h : Runs (factsOf env toolchainDir rootDir : Attempt L E _).run t b) :
     (∀ f, b = .ok f → f.env = env ∧ f.toolchainDir = toolchainDir ∧ f.rootDir = rootDir ∧
       ∀ m ∈ f.modules, (⟨.findOLean m.name, .ok m.olean⟩ : Event L E) ∈ t) ∧
-      ((∃ e, b = .error e) → ∃ e ∈ t, Event.failedLoad e) ∧ ∀ e ∈ t, e.acted? = none := by
+      ((∃ e, b = .error e) → ∃ m ∈ env.header.moduleNames, ∃ e, (⟨.findOLean m, .error e⟩ : Event L E) ∈ t) ∧
+      ∀ e ∈ t, e.acted? = none := by
   rw [factsOf] at h
   obtain ⟨t₁, t₂, r, rfl, h₁, h₂⟩ := runs_attempt_bind_iff.mp h
   obtain ⟨m1, m2, m3⟩ := readModules_spec _ h₁
   cases r with
   | error why =>
     obtain ⟨rfl, rfl⟩ := h₂
-    obtain ⟨e', he', hf⟩ := m2 ⟨why, rfl⟩
-    exact ⟨fun _ he => (by cases he), fun _ => ⟨e', by simpa using he', hf⟩, by simpa using m3⟩
+    obtain ⟨m, hm, e', he'⟩ := m2 ⟨why, rfl⟩
+    exact ⟨fun _ he => (by cases he), fun _ => ⟨m, Array.mem_toList_iff.mp hm, e', by simpa using he'⟩, by simpa using m3⟩
   | ok ms =>
     obtain ⟨ms, hn, hp⟩ := ms
     obtain ⟨rfl, rfl⟩ := runs_attempt_pure_iff.mp h₂
@@ -99,7 +100,7 @@ theorem factsOf_spec {env : Environment} {toolchainDir rootDir : FilePath} {t : 
 theorem inputOf_spec {T t : List (Event L E)} {root : Root L} {p : Regula.Closed.Profile} {b : Except String Regula.Closed.Input}
     (hT : t.Sublist T) (h : Runs (inputOf root p : Attempt L E Regula.Closed.Input).run t b) :
     ((∃ f roots, BuildRead T root f roots ∧ b = f.input roots p) ∨
-      ((∃ e ∈ T, Event.failedLoad e) ∧ ∃ why, b = .error why)) ∧ ∀ e ∈ t, e.acted? = none := by
+      (BuildFailed T root ∧ ∃ why, b = .error why)) ∧ ∀ e ∈ t, e.acted? = none := by
   rw [inputOf] at h
   obtain ⟨t₁, t₂, r, rfl, h₁, h₂⟩ := runs_attempt_bind_iff.mp h
   have hT₁ : t₁.Sublist T := (List.sublist_append_left _ _).trans hT
@@ -109,8 +110,8 @@ theorem inputOf_spec {T t : List (Event L E)} {root : Root L} {p : Regula.Closed
   cases r with
   | error why =>
     obtain ⟨rfl, rfl⟩ := h₂
-    obtain ⟨lib, x, hx⟩ := m2 ⟨why, rfl⟩
-    exact ⟨.inr ⟨⟨_, hT₁.subset hx, ⟨x, rfl⟩⟩, why, rfl⟩, by simpa using mact⟩
+    obtain ⟨tg, lib, x, hg, hl, hx⟩ := m2 ⟨why, rfl⟩
+    exact ⟨.inr ⟨.library hg hl (hT₁.subset hx), why, rfl⟩, by simpa using mact⟩
   | ok modules =>
     dsimp only at h₂
     obtain ⟨t₃, t₄, r₃, rfl, h₃, h₄⟩ := runs_attempt_bind_iff.mp h₂
@@ -122,8 +123,8 @@ theorem inputOf_spec {T t : List (Event L E)} {root : Root L} {p : Regula.Closed
     cases r₆ with
     | error e =>
       obtain ⟨rfl, rfl⟩ := h₇
-      refine ⟨.inr ⟨⟨⟨.importForRules (modules.map (·.1)).toArray, .error e⟩,
-        hT₂.subset (by simp), ⟨e, rfl⟩⟩, _, rfl⟩, fun x hx => ?_⟩
+      refine ⟨.inr ⟨.import (m1 modules rfl) (hT₂.subset (by simp) :
+        (⟨.importForRules (modules.map (·.1)).toArray, .error e⟩ : Event L E) ∈ T), _, rfl⟩, fun x hx => ?_⟩
       simp only [List.append_nil, List.cons_append, List.nil_append, List.mem_append, List.mem_cons,
         List.not_mem_nil, or_false] at hx
       rcases hx with hx | rfl | rfl
@@ -145,10 +146,11 @@ theorem inputOf_spec {T t : List (Event L E)} {root : Root L} {p : Regula.Closed
       cases r₇ with
       | error why =>
         obtain ⟨rfl, rfl⟩ := h₁₀
-        obtain ⟨e', he', hf⟩ := f2 ⟨why, rfl⟩
-        refine ⟨.inr ⟨⟨e', ?_, hf⟩, why, rfl⟩, by simpa using hquiet⟩
-        refine hT₂.subset ?_
-        simp [he']
+        obtain ⟨m, hm, e', he'⟩ := f2 ⟨why, rfl⟩
+        have hf : (⟨.findOLean m, .error e'⟩ : Event L E) ∈ T := hT₂.subset (by simp [he'])
+        exact ⟨.inr ⟨.search (m1 modules rfl) (hT₂.subset (by simp) :
+          (⟨.importForRules (modules.map (·.1)).toArray, .ok env⟩ : Event L E) ∈ T) hm hf, why, rfl⟩,
+          by simpa using hquiet⟩
       | ok f =>
         have hres : t₈ = [] := (runs_done_iff.mp h₁₀).1
         have hb : b = f.input (modules.map (·.1)) p := (runs_done_iff.mp h₁₀).2

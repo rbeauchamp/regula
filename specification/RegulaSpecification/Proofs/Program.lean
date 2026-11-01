@@ -76,7 +76,13 @@ theorem program_o5 : O5 (programRecord L E) .widest := o5_widest _
 
 theorem reason_nil {dir tree : FilePath} {o : Outcome} : ¬ Reason ([] : List (Event L E)) dir tree o := by
   intro h
-  cases h <;> simp_all
+  have hs {a b c d : FilePath} {r : Root L} {q : List (Name × FilePath)} :
+      ¬ Scene ([] : List (Event L E)) a b c d r q := fun x => by simpa using x.project_real
+  have ht {a b : FilePath} {r : Root L} : ¬ TreeLoaded ([] : List (Event L E)) a b r := fun x => by simpa using x.1
+  have hm {a : FilePath} {x : Lake.Toml.Table} : ¬ TomlRead ([] : List (Event L E)) a x := by
+    rintro ⟨_, _, h, -⟩
+    simp at h
+  cases h <;> first | exact hs (by assumption) | exact ht (by assumption) | exact hm (by assumption) | simp_all
 
 /-- A program that says it refused, and read nothing. -/
 def refuser (_ : List String) : Prog L E UInt32 :=
@@ -103,7 +109,7 @@ theorem refuser_fails (tree : FilePath) :
   cases he
   obtain ⟨rest', v', he', hfull⟩ := hp rfl
   cases he'
-  rcases hfull with ⟨e, hmem, -⟩ | ⟨tree', tRead, tGate, r, last, hlist, -, o, report, hdec, -, -, -, -, -, -⟩
+  rcases hfull with ⟨e, hmem, -⟩ | ⟨tree', tRead, tGate, r, last, hlist, -, -, o, report, hdec, -⟩
   · simp only [List.mem_cons, List.not_mem_nil, or_false] at hmem
     rcases hmem with h' | h' | h' <;> cases h'
   · have hnil : tRead = [] := by

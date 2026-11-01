@@ -225,24 +225,41 @@ theorem good_modules {w : WitnessPaths} {p : Prog Unit Unit α} {modules : List 
   | exe hl => cases hl
   | other hl => cases hl
 
+/-- What a `Scene` of the witness is. -/
+theorem scene_witness {w : WitnessPaths} {p : Prog Unit Unit α} {dir treeDir project tree : FilePath} {root : Root Unit}
+    {modules : List (Name × FilePath)}
+    (h : Scene (traceWith (answers w) p) dir treeDir project tree root modules) :
+    project = dir ∧ tree = treeDir ∧ root = witnessRoot w ∧ modules = [(`Good, w.file)] := by
+  have hreal : ∀ {q real : FilePath}, (⟨.realPath q, .ok real⟩ : Event Unit Unit) ∈ traceWith (answers w) p →
+      real = q := fun h => Except.ok.inj (resp_eq h : (Except.ok _ : Except IO.Error FilePath) = .ok _)
+  obtain ⟨h1, ⟨h2, s, l, -, h3⟩, h4⟩ := h
+  have he : (Except.ok (some root, l) : Except String (Option (Root Unit) × List String)) =
+      .ok (some (witnessRoot w), []) := resp_eq h3
+  have hr : root = witnessRoot w := by
+    have := Except.ok.inj he
+    simp only [Prod.mk.injEq, Option.some.injEq] at this
+    exact this.1
+  subst hr
+  exact ⟨hreal h1, hreal h2, rfl, good_modules h4⟩
+
 /-- No reason keeps the project of the witness from being admitted. -/
 theorem no_reason (w : WitnessPaths) (p : Prog Unit Unit α) (o : Outcome) :
     ¬ Reason (traceWith (answers w) p) w.project w.tree o := by
   intro hr
   have hreal : ∀ {q real : FilePath}, (⟨.realPath q, .ok real⟩ : Event Unit Unit) ∈ traceWith (answers w) p →
       real = q := fun h => Except.ok.inj (resp_eq h : (Except.ok _ : Except IO.Error FilePath) = .ok _)
-  have hroot : ∀ {sysroot : String} {dir : FilePath} {root : Root Unit} {log : List String},
-      (⟨.loadRoot sysroot dir, .ok (some root, log)⟩ : Event Unit Unit) ∈ traceWith (answers w) p →
-      root = witnessRoot w := fun h => by
-    have he : (Except.ok (some _, _) : Except String (Option (Root Unit) × List String)) =
-        .ok (some (witnessRoot w), []) := resp_eq h
-    have := Except.ok.inj he
-    simp only [Prod.mk.injEq, Option.some.injEq] at this
-    exact this.1
   have htable : ∀ {input} {table : Lake.Toml.Table},
       (⟨.parseToml input, .ok table⟩ : Event Unit Unit) ∈ traceWith (answers w) p →
       table = Lake.Toml.Table.empty := fun h =>
     Except.ok.inj (resp_eq h : (Except.ok _ : Except Lean.MessageLog Lake.Toml.Table) = .ok _)
+  have hTL : ∀ {tree root}, TreeLoaded (traceWith (answers w) p) w.tree tree root →
+      tree = w.tree ∧ root = witnessRoot w := by
+    rintro tree root ⟨h1, s, l, -, h2⟩
+    have he : (Except.ok (some root, l) : Except String (Option (Root Unit) × List String)) =
+        .ok (some (witnessRoot w), []) := resp_eq h2
+    have := Except.ok.inj he
+    simp only [Prod.mk.injEq, Option.some.injEq] at this
+    exact ⟨hreal h1, this.1⟩
   have hnoImports : ∀ {input header state messages} {imports : Array Lean.Import},
       (⟨.parseHeader input, .ok (header, state, messages, imports)⟩ : Event Unit Unit) ∈
         traceWith (answers w) p → imports = #[] := fun {input header state messages imports} h => by
@@ -252,22 +269,27 @@ theorem no_reason (w : WitnessPaths) (p : Prog Unit Unit α) (o : Outcome) :
     have := Except.ok.inj he
     simp only [Prod.mk.injEq] at this
     exact this.2.2.2
-  have hnamed : ∀ {modules : List (Name × FilePath)} {m : Name},
-      modules = [(`Good, w.file)] → Named (traceWith (answers w) p) modules m → m = `Good := by
-    intro modules m hm hn
-    rcases hn with hn | ⟨input, header, state, messages, imports, hev, i, hi, -⟩
-    · subst hm
-      simpa using hn
-    · rw [hnoImports hev] at hi
+  have hheader : ∀ {project tree root modules m} {imports : Array Lean.Import},
+      HeaderOf (traceWith (answers w) p) project tree root modules m imports → imports = #[] := by
+    rintro project tree root modules m imports ⟨_, _, _, _, _, _, _, h⟩
+    exact hnoImports h
+  have hnamed : ∀ {project tree root m}, Named (traceWith (answers w) p) project tree root [(`Good, w.file)] m →
+      m = `Good := by
+    intro project tree root m hn
+    cases hn with
+    | root hm => simpa using hm
+    | imported _ hh hi =>
+      rw [hheader hh] at hi
       simp at hi
   cases hr with
-  | failed he hf =>
+  | failed he hn hf =>
     rename_i e
     obtain ⟨op, r⟩ := e
     have hrr := resp_eq he
     subst hrr
     cases op <;> first
       | exact hf.elim
+      | (cases hn; done)
       | (obtain ⟨e, he, hne⟩ := hf
          cases (he : Except.error _ = Except.error e)
          exact hne _ _ _ rfl
@@ -278,10 +300,8 @@ theorem no_reason (w : WitnessPaths) (p : Prog Unit Unit α) (o : Outcome) :
          · cases (he : (Except.ok (some (witnessRoot w), []) :
              Except String (Option (Root Unit) × List String)) = .ok (none, l))
          done)
-      | (simp [Event.failedRead, answers] at hf
+      | (simp [Event.failed, answers] at hf
          done)
-  | noSysroot he => cases resp_eq he
-  | noSearchPath he => cases resp_eq he
   | toolchain hp ht hne =>
     have := Except.ok.inj (resp_eq ht : (Except.ok _ : Except IO.Error String) = .ok _)
     subst this
@@ -292,8 +312,7 @@ theorem no_reason (w : WitnessPaths) (p : Prog Unit Unit α) (o : Outcome) :
     rw [hreal hr, w.toolchainExact] at he
     cases he
   | toolchainNoReal hp ht => cases resp_eq ht
-  | started hp hl ha hr henv hcase =>
-    rename_i project sysroot program lakeLib app real leanPath
+  | @started project sysroot program lakeLib app real leanPath hp _ hl ha hr henv hcase =>
     obtain rfl := hreal hp
     have hla : (program, lakeLib) = (w.tree, w.lakeLib) := resp_eq hl
     cases hla
@@ -325,126 +344,104 @@ theorem no_reason (w : WitnessPaths) (p : Prog Unit Unit α) (o : Outcome) :
     rcases hp with rfl | rfl
     · exact w.tomlInTree ho
     · exact w.toolchainInTree ho
-  | moduleNotInTree ht hl hd hp ho =>
-    obtain rfl := hreal ht
-    obtain rfl := hroot hl
-    rw [good_modules hd] at hp
-    rcases hp with hp | hp
-    · have : _ = _ := List.mem_singleton.mp hp
+  | moduleNotInTree hs hn hf ho =>
+    obtain ⟨rfl, rfl, rfl, rfl⟩ := scene_witness hs
+    obtain rfl := hnamed hn
+    rcases hf with hf | hf
+    · have : _ = _ := List.mem_singleton.mp hf
       cases this
       exact w.fileInTree ho
-    · cases hp
-  | moduleNotExact hp ht hl hd hm hrel hr he =>
-    obtain rfl := hreal hp
-    obtain rfl := hreal ht
-    obtain rfl := hroot hl
-    rw [good_modules hd] at hm
-    rcases hm with hm | hm
-    · have : _ = _ := List.mem_singleton.mp hm
+    · cases hf
+  | moduleNotExact hs hn hf hrel hr he =>
+    obtain ⟨rfl, rfl, rfl, rfl⟩ := scene_witness hs
+    obtain rfl := hnamed hn
+    rcases hf with hf | hf
+    · have : _ = _ := List.mem_singleton.mp hf
       cases this
       have hrel2 := w.fileRel
       have hsame : _ = w.rel := List.append_cancel_left (hrel.1.symm.trans hrel2.1)
       subst hsame
       rw [hreal hr, w.fileExact] at he
       cases he
-    · cases hm
+    · cases hf
   | leanConfig hp hm => cases resp_eq hm
-  | key hp hk hroot' hna =>
-    rw [htable hp] at hk
-    exact keyPath_empty hk
-  | deep hp hd =>
-    rw [htable hp] at hd
+  | key hk hp hroot' hna =>
+    obtain ⟨_, _, _, _, h⟩ := hk
+    rw [htable h] at hp
+    exact keyPath_empty hp
+  | deep hk hd =>
+    obtain ⟨_, _, _, _, h⟩ := hk
+    rw [htable h] at hd
     exact deeper_empty hd
-  | deepDependency hp hd =>
-    rw [htable hp] at hd
+  | deepDependency hk hd =>
+    obtain ⟨_, _, _, _, h⟩ := hk
+    rw [htable h] at hd
     exact deeper_empty hd
-  | dependency hp hk hroot' =>
-    rw [htable hp] at hk
-    exact keyPath_empty hk
+  | dependency hk hp hroot' =>
+    obtain ⟨_, _, _, _, h⟩ := hk
+    rw [htable h] at hp
+    exact keyPath_empty hp
   | openDir hl hd hn =>
-    obtain rfl := hroot hl
+    obtain ⟨-, rfl⟩ := hTL hl
     cases hd
   | openGlob hl hd hg hn =>
-    obtain rfl := hroot hl
+    obtain ⟨-, rfl⟩ := hTL hl
     cases hd
-  | noClaim hl hd =>
-    obtain rfl := hroot hl
-    have := good_modules hd
+  | noClaim hs =>
+    have := (scene_witness hs).2.2.2
     cases this
   | targetName hl hn hc =>
-    obtain rfl := hroot hl
+    obtain ⟨-, rfl⟩ := hTL hl
     cases hn
-  | twoFiles hl hd hm hres hne =>
-    obtain rfl := hroot hl
+  | twoFiles hs hm hres hne =>
+    obtain ⟨-, -, rfl, -⟩ := scene_witness hs
     cases hres
-  | twoRoots hl hd hm hm2 hne =>
-    obtain rfl := hroot hl
-    rw [good_modules hd] at hm hm2
+  | twoRoots hs hm hm2 hne =>
+    obtain ⟨-, -, -, rfl⟩ := scene_witness hs
     have h1 : _ = _ := List.mem_singleton.mp hm
     have h2 : _ = _ := List.mem_singleton.mp hm2
     cases h1
     cases h2
     exact hne rfl
-  | moduleName hl hd hn hc =>
-    obtain rfl := hroot hl
-    have hg := hnamed (good_modules hd) hn
-    subst hg
+  | moduleName hs hn hc =>
+    obtain ⟨-, -, -, rfl⟩ := scene_witness hs
+    obtain rfl := hnamed hn
     exact hc good_closed_name
-  | importedRoot hl hd he hi hsome hres =>
-    rw [hnoImports he] at hi
+  | importedRoot hs hn hh hi hsome hres =>
+    rw [hheader hh] at hi
     simp at hi
-  | notToolchain hl hf hr hmap hall =>
-    rename_i m olean real sysroot tree root log reals
-    obtain rfl := hroot hl
-    have ho := Except.ok.inj (resp_eq hf : (Except.ok _ : Except IO.Error FilePath) = .ok _)
-    subst ho
-    obtain rfl := hreal hr
-    have hmap' : reals.map Prod.fst = [w.toolchainDir] := hmap
-    cases reals with
-    | nil => cases hmap'
-    | cons x xs =>
-      have h1 : x.1 = w.toolchainDir := by
-        simp only [List.map_cons, List.cons.injEq] at hmap'
-        exact hmap'.1
-      obtain ⟨hev, hb⟩ := hall x (List.mem_cons_self ..)
-      have := hreal hev
-      rw [this, h1, w.oleanBelow] at hb
-      cases hb
-  | tooMany hl hd hb =>
-    obtain rfl := hroot hl
-    rw [good_modules hd] at hb
-    have hall : ∀ e ∈ traceWith (answers w) p, Event.importsStated e = 0 := by
-      intro e he
-      obtain ⟨op, r⟩ := e
-      have hrr := resp_eq he
-      subst hrr
-      cases op <;> rfl
-    have hsum : ∀ l : List (Event Unit Unit), (∀ e ∈ l, Event.importsStated e = 0) → importCount l = 0 := by
+  | notToolchain hs hn hl hr hf hreal' hmap hall =>
+    obtain ⟨-, -, -, rfl⟩ := scene_witness hs
+    obtain rfl := hnamed hn
+    simp at hl
+  | @tooMany _ _ _ _ ms hs hnd hall hb =>
+    obtain ⟨-, -, -, rfl⟩ := scene_witness hs
+    have hzero : ∀ l : List (Name × Array Lean.Import), (∀ x ∈ l, x.2 = #[]) → (l.map (·.2.size)).sum = 0 := by
       intro l hl
       induction l with
       | nil => rfl
       | cons x xs ih =>
-        simp only [importCount, List.map_cons, List.sum_cons] at ih ⊢
-        rw [hl x (List.mem_cons_self ..), ih fun e he => hl e (List.mem_cons_of_mem _ he)]
-    have hzero := hsum _ hall
-    rw [hzero] at hb
+        simp only [List.map_cons, List.sum_cons, hl x (List.mem_cons_self ..)]
+        simpa using ih fun y hy => hl y (List.mem_cons_of_mem _ hy)
+    rw [hzero ms fun x hx => hheader (hall x hx).2] at hb
     simp at hb
-  | mathlib hl hd hn hroot' =>
-    obtain rfl := hroot hl
-    have hg := hnamed (good_modules hd) hn
-    subst hg
+  | mathlib hs hn hroot' =>
+    obtain ⟨-, -, -, rfl⟩ := scene_witness hs
+    obtain rfl := hnamed hn
     exact absurd hroot' (by decide)
-  | file hp ht ha hna =>
+  | file hs _ _ ha _ _ _ _ _ hna =>
     exact hna (good_file ha)
 
 /-- For paths that meet the hypotheses `WitnessPaths`, there are answers on which the check that runs admits a project. -/
-theorem admits_a_project (w : WitnessPaths) (sysroot : String) :
-    ∃ t, Runs (check sysroot w.project w.tree : Prog Unit Unit Outcome) t .admitted := by
-  refine ⟨traceWith (answers w) (check sysroot w.project w.tree),
-    ?_⟩
-  have hr := runs_with (answers w) (check sysroot w.project w.tree : Prog Unit Unit Outcome)
-  obtain ⟨hd, -⟩ := check_spec (List.Sublist.refl _) hr
-  cases ho : valueWith (answers w) (check sysroot w.project w.tree : Prog Unit Unit Outcome) with
+theorem admits_a_project (w : WitnessPaths) :
+    ∃ t, Runs (check w.leanPath w.project w.tree : Prog Unit Unit Outcome) t .admitted := by
+  let q : Prog Unit Unit Outcome := .ask (.getEnv "LEAN_SYSROOT") fun _ => check w.leanPath w.project w.tree
+  refine ⟨traceWith (answers w) (check w.leanPath w.project w.tree), ?_⟩
+  have hr := runs_with (answers w) (check w.leanPath w.project w.tree : Prog Unit Unit Outcome)
+  have hT : (traceWith (answers w) (check w.leanPath w.project w.tree)).Sublist (traceWith (answers w) q) :=
+    List.sublist_cons_self _ _
+  obtain ⟨hd, -⟩ := check_spec hT (List.mem_cons_self ..) hr
+  cases ho : valueWith (answers w) (check w.leanPath w.project w.tree : Prog Unit Unit Outcome) with
   | admitted => rw [ho] at hr; exact hr
   | refused => rw [ho] at hd; exact absurd (hd.2.1 (by simp)) (no_reason w _ _)
   | proofOnly => rw [ho] at hd; exact absurd (hd.2.1 (by simp)) (no_reason w _ _)
