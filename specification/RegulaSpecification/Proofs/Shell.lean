@@ -426,7 +426,7 @@ theorem only_loadPlain (p : Regula.Closed.Profile) : OnlyAIn LoadOp (loadPlain p
       onlyA_seq (only_requireEnv _ _) fun received => ?_
   try dsimp only
   split
-  · exact only_inputOf _ _
+  · exact onlyA_seq (only_inputOf _ _) fun _ => onlyA_pure _
   · exact onlyA_throw _
 
 /-- Events of the loads print no line. -/
@@ -528,7 +528,7 @@ theorem sound_loadPlain (p : Regula.Closed.Profile) : Sound (loadPlain p : Attem
   refine sound_seq (sound_requireEnv _ _) fun sysroot => sound_seq (sound_realPath _) fun dir =>
     sound_seq (sound_loadWorkspace _ _ _) fun root => sound_seq (sound_requireEnv _ _) fun received => ?_
   split
-  · exact sound_inputOf _ _
+  · exact sound_seq (sound_inputOf _ _) fun _ => sound_pure _
   · exact sound_throw _
 
 /-- The rules on the finished build: their verdict is the decision's on what the load gave. -/
@@ -833,7 +833,8 @@ theorem runFull_spec {p : Regula.Closed.Profile} {dir : FilePath} {t : List (Eve
   cases r with
   | error e =>
     obtain ⟨t₃, t₄, u, rfl, h₃, h₄⟩ := runs_seq_iff.mp h₂
-    obtain ⟨hc, r', rfl⟩ := finish_spec h₄
+    have h₄' : Runs (finish Report.incomplete.label Report.incomplete.exitCode : Prog L E UInt32) t₄ c := h₄
+    obtain ⟨hc, r', rfl⟩ := finish_spec h₄'
     have hd := say_spec h₃
     refine .inl ⟨e, t₃ ++ [⟨.println Report.incomplete.label, r'⟩], by simp, hc, ?_, fun x hx => ?_⟩
     · refine ⟨[⟨.createTempDir, .error e⟩] ++ t₃, r', by simp, reportLabel_no_break _, fun l hl => ?_⟩
@@ -850,7 +851,7 @@ theorem runFull_spec {p : Regula.Closed.Profile} {dir : FilePath} {t : List (Eve
     obtain ⟨t₅, t₆, r₅, rfl, h₅, h₆⟩ := runs_seq_iff.mp h₄
     obtain rfl := runs_call_iff.mp h₅
     -- The removal, a line if it failed, and the last line.
-    have hlast : ∃ last r', t₆ = last ++ [⟨.println report.label, r'⟩] ∧ Details last ∧ c = report.exitCode := by
+    have hlast : ∃ last r', t₆ = last ++ [⟨.println (report.labelOn dir.toString), r'⟩] ∧ Details last ∧ c = report.exitCode := by
       cases r₅ with
       | ok u =>
         obtain ⟨hc, r', rfl⟩ := finish_spec h₆
@@ -862,27 +863,27 @@ theorem runFull_spec {p : Regula.Closed.Profile} {dir : FilePath} {t : List (Eve
     obtain ⟨last, r', rfl, hd, hc⟩ := hlast
     obtain ⟨o, hdec, hnf, hn, ha⟩ := G.decided
     have hsaying : Confined (⟨.createTempDir, .ok tree⟩ :: tRead ++ tGate ++
-        ⟨.removeDirAll tree, r₅⟩ :: (last ++ [⟨.println report.label, r'⟩])) dir tree := by
+        ⟨.removeDirAll tree, r₅⟩ :: (last ++ [⟨.println (report.labelOn dir.toString), r'⟩])) dir tree := by
       refine confined_of G.readActs G.gateActs fun e he => ?_
       rcases List.mem_append.mp he with he | he
       · exact hd.1 e he
       · have : e = _ := List.mem_singleton.mp he
         subst this
         rfl
-    have hlastSaying : ∀ e ∈ last ++ [⟨.println report.label, r'⟩], e.isOnlySaying = true := by
+    have hlastSaying : ∀ e ∈ last ++ [⟨.println (report.labelOn dir.toString), r'⟩], e.isOnlySaying = true := by
       intro e he
       rcases List.mem_append.mp he with he | he
       · exact hd.1 e he
       · have : e = _ := List.mem_singleton.mp he
         subst this
         rfl
-    refine .inr ⟨tree, tRead, tGate, r₅, last ++ [⟨.println report.label, r'⟩], by simp, G.quiet, hlastSaying, o, report,
+    refine .inr ⟨tree, tRead, tGate, r₅, last ++ [⟨.println (report.labelOn dir.toString), r'⟩], by simp, G.quiet, hlastSaying, o, report,
       hdec, hnf, hn, ha, hc, ?_, hsaying, ?_, G.readKeeps, G.readPrepared⟩
     rotate_left
     · intro hzero e he
       have hrep : report = .full .pass := (Report.exitCode_eq_zero_iff report).mp (hc.symm.trans hzero)
       have he' : e = ⟨.createTempDir, .ok tree⟩ ∨ e ∈ tRead ++ tGate ∨ e = ⟨.removeDirAll tree, r₅⟩ ∨
-          e ∈ last ++ [⟨.println report.label, r'⟩] := by
+          e ∈ last ++ [⟨.println (report.labelOn dir.toString), r'⟩] := by
         simpa [List.mem_append, or_assoc] using he
       rcases he' with rfl | he | rfl | he
       · rintro ⟨x, hx⟩
@@ -891,7 +892,7 @@ theorem runFull_spec {p : Regula.Closed.Profile} {dir : FilePath} {t : List (Eve
       · exact id
       · exact not_failed_of_saying (hlastSaying e he)
     refine ⟨⟨.createTempDir, .ok tree⟩ :: tRead ++ tGate ++ ⟨.removeDirAll tree, r₅⟩ :: last,
-      r', by simp, reportLabel_no_break _, ?_⟩
+      r', by simp, reportLabelOn_no_break _ _, ?_⟩
     intro l hl
     simp only [List.cons_append, printed, List.filterMap_cons, List.filterMap_append, Event.line?,
       List.flatMap_append, List.mem_append] at hl
@@ -905,14 +906,14 @@ theorem runPlain_spec {p : Regula.Closed.Profile} {t : List (Event L E)} {c : UI
   unfold runPlain at h
   obtain ⟨t₁, t₂, result, rfl, h₁, h₂⟩ := runs_seq_iff.mp h
   obtain ⟨t₃, t₄, u, rfl, h₃, h₄⟩ := runs_seq_iff.mp h₂
-  obtain ⟨hc, hend, hsay⟩ := finishProof_spec h₄
+  obtain ⟨hc, hend, hsay⟩ := finishPlain_spec h₄
   have hsub : t₁.Sublist (⟨.leanVersion, v⟩ :: (t₁ ++ (t₃ ++ t₄))) :=
     (List.sublist_append_left _ _).trans (List.sublist_cons_self _ _)
-  obtain ⟨l1, l2⟩ := loadPlain_spec hsub h₁
+  obtain ⟨l1, ls, l2⟩ := loadPlain_spec hsub h₁
   have hd := sayCoverage_spec h₃
   have hprep := loadPlain_preparation (prior := [⟨.leanVersion, v⟩])
     (by intro e he; obtain rfl := List.mem_singleton.mp he; trivial) h₁
-  refine ⟨result, l1, hc, ?_, fun e he => ?_, (fun hzero e he => ?_), ?_⟩
+  refine ⟨result.map (·.2), subjectOf result, l1, hc, ?_, ?_, fun e he => ?_, (fun hzero e he => ?_), ?_⟩
   · obtain ⟨pre, r, rfl, hn, hp⟩ := hend
     refine ⟨⟨.leanVersion, v⟩ :: (t₁ ++ (t₃ ++ pre)), r, by simp, hn, fun l hl => ?_⟩
     have hl' : l ∈ printed (t₁ ++ (t₃ ++ pre)) := hl
@@ -921,6 +922,11 @@ theorem runPlain_spec {p : Regula.Closed.Profile} {t : List (Event L E)} {c : UI
     rcases hl' with hl' | hl'
     · exact hd.2 l hl'
     · exact hp l hl'
+  · intro hv
+    obtain ⟨i, hi, -⟩ := RegulaSpecification.Loader.decision_pass hv
+    cases result with
+    | error why => cases hi
+    | ok x => exact ls x.1 x.2 rfl
   · rcases List.mem_cons.mp he with rfl | he
     · rfl
     rcases List.mem_append.mp he with he | he
@@ -928,9 +934,14 @@ theorem runPlain_spec {p : Regula.Closed.Profile} {t : List (Event L E)} {c : UI
     · rcases List.mem_append.mp he with he | he
       · exact acted_of_saying (hd.1 e he)
       · exact acted_of_saying (hsay e he)
-  · have hv : (Regula.Closed.decision result).verdict = .pass :=
+  · have hv : (Regula.Closed.decision (result.map (·.2))).verdict = .pass :=
       (Regula.Closed.Verdict.exitCode_eq_zero_iff _).mp (hc.symm.trans hzero)
-    obtain ⟨i, rfl, -⟩ := RegulaSpecification.Loader.decision_pass hv
+    obtain ⟨i, hi, -⟩ := RegulaSpecification.Loader.decision_pass hv
+    have hok : ∃ x, result = .ok x := by
+      cases result with
+      | error why => cases hi
+      | ok x => exact ⟨x, rfl⟩
+    obtain ⟨x, rfl⟩ := hok
     rcases List.mem_cons.mp he with rfl | he
     · exact id
     rcases List.mem_append.mp he with he | he
@@ -996,17 +1007,6 @@ theorem profileOfRun_ok' {version commit text : String} {p : Regula.Closed.Profi
   have hs : supportsLean version commit = true := (supportsLean_iff (version, commit)).mpr hv
   simp [profileOfRun, hs, h]
 
-theorem argsOf_full (a dir : String) : argsOf [a, "full", dir] = ([a], some dir) := rfl
-
-theorem argsOf_one (a : String) : argsOf [a] = ([a], none) := rfl
-
-theorem argsOf_other {args : List String} (h : ∀ a dir, args ≠ [a, "full", dir]) :
-    argsOf args = (args, none) := by
-  unfold argsOf
-  split
-  · exact absurd rfl (h _ _)
-  · rfl
-
 /-- The theorem of the shell: for every argument list and every response, a run of the program that the `lint`
 executable interprets does what the record states. -/
 theorem run_meets : RunMeets (Regula.Shell.run : List String → Prog L E UInt32) := by
@@ -1016,79 +1016,91 @@ theorem run_meets : RunMeets (Regula.Shell.run : List String → Prog L E UInt32
   obtain rfl := runs_call_iff.mp h₁
   obtain ⟨version, commit⟩ := v
   simp only [List.cons_append, List.nil_append]
-  have h₃ : Runs (dispatch version commit (argsOf args).1 (argsOf args).2 : Prog L E UInt32) t₂ c := h₂
-  have hrefuse : ∀ {a : List String} {project : Option String} {why : String},
-      profileOfRun version commit a = .error why →
-      Runs (dispatch version commit a project : Prog L E UInt32) t₂ c →
+  have h₃ : Runs (dispatch version commit args : Prog L E UInt32) t₂ c := h₂
+  have hrefuse : ∀ {a : List String} {why : String}, profileOfRun version commit a = .error why →
+      Runs (dispatch version commit a : Prog L E UInt32) t₂ c →
       Refusal (⟨.leanVersion, (version, commit)⟩ :: t₂) c := by
-    intro a project why he hr
+    intro a why he hr
     unfold dispatch at hr
     rw [he] at hr
     exact refusal_of hr
-  have hother : ∀ a : List String, (∀ x dir, a ≠ [x, "full", dir]) → (∀ text, a ≠ [text]) →
-      argsOf a = (a, none) ∧ ∃ why, profileOfRun version commit a = .error why :=
-    fun a h₁ h₂ => ⟨argsOf_other h₁, profileOfRun_other h₂⟩
-  rcases args with _ | ⟨a, _ | ⟨b, _ | ⟨d, _ | ⟨e, more⟩⟩⟩⟩
-  · obtain ⟨he, why, hw⟩ := hother [] (by simp) (by simp)
-    rw [he] at h₃
-    exact hrefuse hw h₃
-  · have h₄ : Runs (dispatch version commit [a] none : Prog L E UInt32) t₂ c := h₃
-    cases hp : Regula.Closed.Profile.ofSpelling? a with
+  match args, h₃ with
+  | [text], h₃ =>
+    cases hp : Regula.Closed.Profile.ofSpelling? text with
     | none =>
       obtain ⟨why, hw⟩ := profileOfRun_text (version := version) (commit := commit) hp
       simp only [hp]
-      exact hrefuse hw h₄
+      exact hrefuse hw h₃
     | some p =>
       simp only [hp]
       refine ⟨(version, commit), t₂, rfl, fun hv => ?_, fun hv => ?_⟩
-      · unfold dispatch at h₄
-        rw [profileOfRun_ok' hv hp] at h₄
-        exact runPlain_spec h₄
-      · obtain ⟨why, hw⟩ := profileOfRun_lean (a := [a]) hv
-        exact hrefuse hw h₄
-  · obtain ⟨he, why, hw⟩ := hother [a, b] (by simp) (by simp)
-    rw [he] at h₃
-    have hr := hrefuse hw h₃
-    split
-    · rename_i heq
-      simp at heq
-    · rename_i heq
-      simp at heq
-    · exact hr
-  · by_cases hb : b = "full"
-    · subst hb
-      have h₄ : Runs (dispatch version commit [a] (some d) : Prog L E UInt32) t₂ c := h₃
-      cases hp : Regula.Closed.Profile.ofSpelling? a with
-      | none =>
-        obtain ⟨why, hw⟩ := profileOfRun_text (version := version) (commit := commit) hp
-        simp only [hp]
-        exact hrefuse hw h₄
-      | some p =>
-        simp only [hp]
-        refine ⟨(version, commit), t₂, rfl, fun hv => ?_, fun hv => ?_⟩
-        · unfold dispatch at h₄
-          rw [profileOfRun_ok' hv hp] at h₄
-          exact ⟨t₂, (version, commit), rfl, runFull_spec h₄⟩
-        · obtain ⟨why, hw⟩ := profileOfRun_lean (a := [a]) hv
-          exact hrefuse hw h₄
-    · obtain ⟨he, why, hw⟩ := hother [a, b, d] (by simp [hb]) (by simp)
-      rw [he] at h₃
-      have hr := hrefuse hw h₃
-      split
-      · rename_i heq
-        simp at heq
-      · rename_i heq
-        simp at heq
-        exact absurd heq.2.1 hb
-      · exact hr
-  · obtain ⟨he, why, hw⟩ := hother (a :: b :: d :: e :: more) (by simp) (by simp)
-    rw [he] at h₃
-    have hr := hrefuse hw h₃
-    split
-    · rename_i heq
-      simp at heq
-    · rename_i heq
-      simp at heq
-    · exact hr
+      · unfold dispatch at h₃
+        rw [profileOfRun_ok' hv hp] at h₃
+        obtain ⟨t₄, t₅, r, rfl, h₄, h₅⟩ := runs_bind_iff.mp h₃
+        obtain rfl := runs_call_iff.mp h₄
+        refine ⟨(version, commit), r, t₅, rfl, ?_⟩
+        cases r with
+        | none => exact runPlain_spec h₅
+        | some dir => exact runFull_spec h₅
+      · obtain ⟨why, hw⟩ := profileOfRun_lean (a := [text]) hv
+        exact hrefuse hw h₃
+  | [], h₃ =>
+    obtain ⟨why, hw⟩ := profileOfRun_other (version := version) (commit := commit) (a := []) (by simp)
+    exact hrefuse hw h₃
+  | a :: b :: more, h₃ =>
+    obtain ⟨why, hw⟩ := profileOfRun_other (version := version) (commit := commit) (a := a :: b :: more) (by simp)
+    exact hrefuse hw h₃
+
+/-- **No argument selects what is audited.** For every argument list and every response, a run is a refusal, or it asked
+`fullVariable`: unset, it is the proof verdict; set, it is the full gate on the directory that the answer names. The
+arguments appear in none of it but as the profile. So what a project's `lintDriverArgs` hold selects no directory. -/
+theorem run_subject {args : List String} {t : List (Event L E)} {c : UInt32}
+    (h : Runs (Regula.Shell.run args : Prog L E UInt32) t c) :
+    Refusal t c ∨ ∃ p v rest,
+      (t = ⟨.leanVersion, v⟩ :: ⟨.getEnv fullVariable, none⟩ :: rest ∧ PlainRun (⟨.leanVersion, v⟩ :: rest) p c) ∨
+      ∃ dir, t = ⟨.leanVersion, v⟩ :: ⟨.getEnv fullVariable, some dir⟩ :: rest ∧ FullRun rest (FilePath.mk dir) p c := by
+  have hm := run_meets (L := L) (E := E) _ _ _ h
+  match args, hm with
+  | [text], hm =>
+    simp only at hm
+    cases hp : Regula.Closed.Profile.ofSpelling? text with
+    | none =>
+      rw [hp] at hm
+      exact .inl hm
+    | some p =>
+      rw [hp] at hm
+      obtain ⟨v, rest, ht, hrun, href⟩ := hm
+      by_cases hv : v = Regula.Closed.pinnedLean
+      · obtain ⟨v', r, rest', he, hf⟩ := hrun hv
+        refine .inr ⟨p, v', rest', ?_⟩
+        cases r with
+        | none => exact .inl ⟨he, hf⟩
+        | some dir => exact .inr ⟨dir, he, hf⟩
+      · exact .inl (href hv)
+  | [], hm => exact .inl hm
+  | _ :: _ :: _, hm => exact .inl hm
+
+/-- Any argument list other than one word is a refusal: a directory in `lintDriverArgs`, a relative path, `.` and a list
+shorter or longer than the grammar all are. -/
+theorem run_other {args : List String} (ha : ∀ text, args ≠ [text]) {t : List (Event L E)} {c : UInt32}
+    (h : Runs (Regula.Shell.run args : Prog L E UInt32) t c) : Refusal t c := by
+  have hm := run_meets (L := L) (E := E) _ _ _ h
+  match args, ha, hm with
+  | [text], ha, _ => exact absurd rfl (ha text)
+  | [], _, hm => exact hm
+  | _ :: _ :: _, _, hm => exact hm
+
+/-- **A pass of the proof verdict is about the directory it names.** That is the current directory's real path, the workspace
+was loaded from it, and Lake's search path starts with that workspace's (`PlainRoot`, whose read this states). -/
+theorem plainRun_pass {t : List (Event L E)} {p : Regula.Closed.Profile} (h : PlainRun t p 0) :
+    ∃ subject : FilePath, EndsWith t (Regula.Closed.Verdict.pass.proofLineOn subject.toString) ∧
+      (⟨.realPath ".", .ok subject⟩ : Event L E) ∈ t ∧
+      ∃ sysroot root log, (⟨.loadWorkspace sysroot subject, .ok (some root, log)⟩ : Event L E) ∈ t ∧ PlainRoot t root := by
+  obtain ⟨result, subject, -, hc, he, hs, -⟩ := h
+  have hv : (Regula.Closed.decision result).verdict = .pass :=
+    (Regula.Closed.Verdict.exitCode_eq_zero_iff _).mp hc.symm
+  rw [hv] at he
+  obtain ⟨hr, sysroot, root, log, hl, hroot⟩ := hs hv
+  exact ⟨subject, he, hr, sysroot, root, log, hl, hroot⟩
 
 end RegulaSpecification.Effects

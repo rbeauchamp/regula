@@ -40,7 +40,7 @@ and the floor. -/
 theorem plain_exit_zero {t : List (Event L E)} {p : Regula.Closed.Profile} (h : PlainRun t p 0) :
     ∃ (root : Root L) (f : Regula.Load.Facts) (roots : List Name), PlainRoot t root ∧ BuildRead t root f roots ∧
       EnvForm f ∧ EnvFloor f p ∧ (∀ r ∈ roots, r ∈ f.claimed) := by
-  obtain ⟨result, hl, hc, -, -⟩ := h
+  obtain ⟨result, -, hl, hc, -⟩ := h
   exact loaded_pass hl ((Regula.Closed.Verdict.exitCode_eq_zero_iff _).mp hc.symm)
 
 /-- Exit 0 from the full gate: a reading inside the closed language, on `Evidence`, with no read that failed; both Lake

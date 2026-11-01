@@ -247,6 +247,12 @@ def label : Report → String
   | .refused => "regula: refused before compiling (RG1010), so no build ran and no verdict is given"
   | .incomplete => "regula: incomplete (RG2001): the check could not read the project, so no build ran"
 
+/-- The last line of a run of the full gate on the project at `subject`: a pass says what it audited, on one physical line and
+at the end of the line, so that no path can change the words that state the verdict. -/
+def labelOn (subject : String) : Report → String
+  | .full .pass => (Report.full .pass).label ++ ", on " ++ Regula.Closed.detailText subject
+  | r => r.label
+
 end Report
 
 end Regula.Language

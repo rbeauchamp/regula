@@ -165,7 +165,7 @@ theorem answered_unique {T : List (Event L E)} (h : OneAnswer T) {root : Root L}
 /-- A run of the proof verdict that exits with 0 received what `PlainOwed` states, on one answer for each operation. -/
 theorem plain_exit_zero_owed {t : List (Event L E)} {p : Regula.Closed.Profile} (h : PlainRun t p 0)
     (hone : OneAnswer t) : PlainOwed t p := by
-  obtain ⟨result, hl, hc, -, -, hok, -⟩ := h
+  obtain ⟨result, -, hl, hc, -, -, -, hok, -⟩ := h
   have healthy := hok rfl
   have hv : (Regula.Closed.decision result).verdict = .pass :=
     (Regula.Closed.Verdict.exitCode_eq_zero_iff _).mp hc.symm

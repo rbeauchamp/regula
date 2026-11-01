@@ -4,6 +4,7 @@ Released under MIT license as described in the file LICENSE.
 Authors: Regula contributors
 -/
 import Regula.DiagnosticsGate
+import Regula.Shell
 
 /-!
 # The local gate, at `IO`
@@ -320,10 +321,13 @@ theorem main_zero (args : List String) (w w' : Void IO.RealWorld) (h : _root_.ma
       have := (EST.Out.ok.inj h).1
       exact absurd this (by decide)
 
+/-- The variable that the gate sets is the one that the checker reads. -/
+theorem fullVariable_eq : fullVariable = Regula.Shell.fullVariable := rfl
+
 /-- The arguments of the steps of `localSteps`, in order. Their directories are not stated here. -/
 theorem localSteps_eq (checker root : String) :
     (localSteps checker root).map (·.arguments) =
-      [["clean"], ["build", "lint"], ["exe", "lint", "standard-logical", "full", root], ["build", "--wfail"],
+      [["clean"], ["build", "lint"], ["exe", "lint", "standard-logical"], ["build", "--wfail"],
         ["build", "--wfail", "Regula", "lint"], ["lint"], ["build", "--wfail"],
         ["check", "--inadvisably-no-sandbox"], ["lint"]] := rfl
 

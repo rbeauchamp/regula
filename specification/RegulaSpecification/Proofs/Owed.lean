@@ -309,24 +309,25 @@ structure FullOwed (t : List (Event L E)) (dir : FilePath) (p : Regula.Closed.Pr
     TreeRoot sysroot tree (rulesPhase t) root → BuildAnswered (rulesPhase t) root a roots → a.Floor roots p
 
 /-- The last line of a pass of the proof verdict. -/
-abbrev plainPass : String := Regula.Closed.Verdict.proofLine .pass
+abbrev plainPass (subject : FilePath) : String :=
+  Regula.Closed.Verdict.pass.proofLineOn subject.toString
 
 /-- The last line of a pass of the full verdict. -/
-abbrev fullPass : String := (Report.full .pass).label
+abbrev fullPass (dir : FilePath) : String := (Report.full .pass).labelOn dir.toString
 
 /-- A run of the proof verdict that receives what `PlainOwed` states passes: exit 0 and the last line of the pass. -/
 theorem plain_owed {t : List (Event L E)} {p : Regula.Closed.Profile} {c : UInt32} (h : PlainRun t p c)
-    (owed : PlainOwed t p) : c = 0 ∧ EndsWith t plainPass := by
-  obtain ⟨result, hl, hc, he, -⟩ := h
+    (owed : PlainOwed t p) : c = 0 ∧ ∃ subject, EndsWith t (plainPass subject) := by
+  obtain ⟨result, subject, hl, hc, he, -⟩ := h
   rcases hl with ⟨root, f, roots, hg, hb, rfl⟩ | ⟨hw, -⟩
   · have hv := (pass_iff_answer f roots p).mpr (owed.floor root _ roots hg hb.answered)
     rw [hv] at hc he
-    exact ⟨hc, he⟩
+    exact ⟨hc, subject, he⟩
   · exact absurd hw owed.noReason
 
 /-- A run of the full gate that receives what `FullOwed` states passes: exit 0 and the last line of the pass. -/
 theorem full_owed {t : List (Event L E)} {dir : FilePath} {p : Regula.Closed.Profile} {c : UInt32} (h : FullRun t dir p c)
-    (owed : FullOwed t dir p) : c = 0 ∧ EndsWith t fullPass := by
+    (owed : FullOwed t dir p) : c = 0 ∧ EndsWith t (fullPass dir) := by
   rcases h with ⟨e, rest, ht, -⟩ | ⟨tree, tRead, tGate, r, last, ht, hq, hlast, o, report, hdec, -, hn, ha, hc, hend, -⟩
   · exact (owed.tree e (by rw [ht]; exact List.mem_cons_self ..)).elim
   · have htree : t = ⟨.createTempDir, .ok tree⟩ :: (tRead ++ tGate ++ ⟨.removeDirAll tree, r⟩ :: last) := by
@@ -389,38 +390,42 @@ theorem full_refused_justified {t : List (Event L E)} {dir : FilePath} {p : Regu
 passes. So a program that refuses a healthy build does not meet the record. -/
 theorem run_plain_owed {w : List String → Prog L E UInt32} (hw : RunMeets w) {text : String} {p : Regula.Closed.Profile}
     (hp : text = p.spelling) {rest : List (Event L E)} {c : UInt32}
-    (h : Runs (w [text]) (⟨.leanVersion, Regula.Closed.pinnedLean⟩ :: rest) c)
+    (h : Runs (w [text]) (⟨.leanVersion, Regula.Closed.pinnedLean⟩ :: ⟨.getEnv Regula.Shell.fullVariable, none⟩ :: rest) c)
     (owed : PlainOwed (⟨.leanVersion, Regula.Closed.pinnedLean⟩ :: rest) p) :
-    c = 0 ∧ EndsWith (⟨.leanVersion, Regula.Closed.pinnedLean⟩ :: rest) plainPass := by
+    c = 0 ∧ ∃ subject, EndsWith (⟨.leanVersion, Regula.Closed.pinnedLean⟩ :: rest) (plainPass subject) := by
   have hsp : Regula.Closed.Profile.ofSpelling? text = some p := Regula.Closed.Profile.ofSpelling?_eq_some.mpr hp.symm
   have hm := hw _ _ _ h
   simp only [hsp] at hm
   obtain ⟨v, rest', he, hrun, -⟩ := hm
   cases he
-  exact plain_owed (hrun rfl) owed
+  obtain ⟨v', r, rest'', he', hf⟩ := hrun rfl
+  cases he'
+  exact plain_owed hf owed
 
 /-- The same of every run of the full gate. -/
 theorem run_full_owed {w : List String → Prog L E UInt32} (hw : RunMeets w) {text dir : String}
     {p : Regula.Closed.Profile} (hp : text = p.spelling) {rest : List (Event L E)}
-    {c : UInt32} (h : Runs (w [text, "full", dir]) (⟨.leanVersion, Regula.Closed.pinnedLean⟩ :: rest) c)
-    (owed : FullOwed rest (FilePath.mk dir) p) : c = 0 ∧ EndsWith rest fullPass := by
+    {c : UInt32}
+    (h : Runs (w [text]) (⟨.leanVersion, Regula.Closed.pinnedLean⟩ :: ⟨.getEnv Regula.Shell.fullVariable, some dir⟩ :: rest) c)
+    (owed : FullOwed rest (FilePath.mk dir) p) : c = 0 ∧ EndsWith rest (fullPass (FilePath.mk dir)) := by
   have hsp : Regula.Closed.Profile.ofSpelling? text = some p := Regula.Closed.Profile.ofSpelling?_eq_some.mpr hp.symm
   have hm := hw _ _ _ h
   simp only [hsp] at hm
   obtain ⟨v, rest', he, hrun, -⟩ := hm
   cases he
-  obtain ⟨rest'', v', he', hf⟩ := hrun rfl
+  obtain ⟨v', r, rest'', he', hf⟩ := hrun rfl
   cases he'
   exact full_owed hf owed
 
 /-! ## A program that manufactures a reason -/
 
-/-- A program that asks which Lean this is, reads the environment variable `name`, and says that the
+/-- A program that asks which Lean this is and which run is asked for, reads the environment variable `name`, and says that the
 proof verdict is incomplete. The audit of 2026-10-31 proved that it met the earlier form of the record. -/
 def manufacturer (name : String) (_ : List String) : Prog L E UInt32 :=
   .ask .leanVersion fun _ =>
-    .ask (.getEnv name) fun _ =>
-      .ask (.println (Regula.Closed.Verdict.proofLine .incomplete)) fun _ => .done 2
+    .ask (.getEnv Regula.Shell.fullVariable) fun _ =>
+      .ask (.getEnv name) fun _ =>
+        .ask (.println (Regula.Closed.Verdict.proofLine .incomplete)) fun _ => .done 2
 
 /-- A reason that reads an unrelated variable: no case of the closed set holds of it, so that program fails the record, for
 every name but the two that the load needs. -/
@@ -428,15 +433,17 @@ theorem manufacturer_fails {name : String} (h1 : name ≠ "LEAN_SYSROOT") (h2 : 
     ¬ RunMeets (manufacturer name : List String → Prog L E UInt32) := by
   intro hw
   have hr : Runs (manufacturer name ["standard-logical"] : Prog L E UInt32)
-      [⟨.leanVersion, Regula.Closed.pinnedLean⟩, ⟨.getEnv name, none⟩,
+      [⟨.leanVersion, Regula.Closed.pinnedLean⟩, ⟨.getEnv Regula.Shell.fullVariable, none⟩, ⟨.getEnv name, none⟩,
         ⟨.println (Regula.Closed.Verdict.proofLine .incomplete), .ok ()⟩] 2 :=
-    .ask _ _ _ (.ask _ _ _ (.ask _ _ _ (.done _)))
+    .ask _ _ _ (.ask _ _ _ (.ask _ _ _ (.ask _ _ _ (.done _))))
   have hm := hw _ _ _ hr
   have hsp : Regula.Closed.Profile.ofSpelling? "standard-logical" = some .standardLogical := rfl
   simp only [hsp] at hm
   obtain ⟨v, rest, he, hrun, -⟩ := hm
   cases he
-  obtain ⟨result, hl, -⟩ := hrun rfl
+  obtain ⟨v', r, rest, he', hf⟩ := hrun rfl
+  cases he'
+  obtain ⟨result, subject, hl, -⟩ := hf
   have hno : ∀ {o : Op L E} {r : Resp o},
       (⟨o, r⟩ : Event L E) ∈ ([⟨.leanVersion, Regula.Closed.pinnedLean⟩, ⟨.getEnv name, none⟩,
         ⟨.println (Regula.Closed.Verdict.proofLine .incomplete), .ok ()⟩] : List (Event L E)) →
