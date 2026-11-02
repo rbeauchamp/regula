@@ -20,7 +20,8 @@ The list is complete by construction for three classes, each closed by the compi
 - **Premises.** `RegulaSpecification.Meaning.Meaning` states once each theorem that says what a verdict means, and each premise
   of those statements about Lean, Lake or the operating system is the formal statement of an entry (`Assumption.formal`).
   A premise added to one of those theorems, or to a lemma that one uses, either is proved there or changes that theorem's
-  statement, which then differs from `Meaning`, and `RegulaSpecification.Meaning.meaning` fails.
+  statement, which then differs from `Meaning`, and `RegulaSpecification.Meaning.meaning` fails. A premise written into
+  `Meaning` itself changes the contract, which review judges, and no check classifies it.
 
 Each entry records the Lean release at which its sources were read (`Assumption.readAt`). `readAt_pinned` proves each equal
 to `Regula.Closed.pinnedLean`, the one release the checker reads, and the command at the end of this file fails the build of

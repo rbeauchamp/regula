@@ -12,11 +12,13 @@ Each premise of a field about Lean, Lake or the operating system is the formal s
 `Assumptions.Assumption` (`Assumption.formal`): `LeanBehaviour`, `LakeBehaviour`, `RealPathBehaviour`, `OneRealPath`,
 `LakeSelection`, `SafeMentionsSafe`, `UsedConstantsComplete` and `ModuleDataComplete`. Every other premise states what the
 run asked and received, or what the loader gave. So a premise added to one of these theorems, or to a lemma that one of them
-uses, is either proved there or changes that theorem's statement, which then differs from its field, and `meaning` fails
-until the field and the list say it.
+uses, is either proved there or changes that theorem's statement, which then differs from its field, and `meaning` fails.
 
-This covers the statements of these theorems. A definition that a field uses, such as `FullRun`, means what its own
-definition says, and the published text cites no other theorem as stating what a verdict means.
+This covers the statements of these theorems. `Meaning` itself is the one definition of what a verdict means: a premise
+written into one of its fields changes the contract, which review judges, and no check classifies it, because whether a
+proposition is about Lean, Lake or the operating system depends on what it means and not on its form. A definition that a
+field uses, such as `FullRun`, means what its own definition says, and the published text cites no other theorem as
+stating what a verdict means.
 -/
 
 namespace RegulaSpecification.Meaning
