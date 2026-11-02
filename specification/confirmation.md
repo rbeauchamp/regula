@@ -2,6 +2,21 @@
 
 This file records what the owner confirmed of Regula's specification, in the owner's words.
 
+## 2026-11-02: the list of assumptions
+
+The owner adopted three practices of seL4 for all work on Regula. In substance: every behaviour of Lake, Lean or the operating system that a verdict relies on is on one short, exhaustive list of named assumptions with its pinned source, or is outside the contract, and the build fails when a new reliance has neither; the claim holds only for named configurations, which are the pinned toolchain, the one published way to run and the platforms on which the assumptions were observed, and anything else is outside the contract, said so, and not a defect; and an audit runs only once the claim has stopped moving. Asked whether the list may name behaviours of the operating system, as seL4 names hardware, the owner answered "Yes, a short list": a few such entries, each tied to the platforms on which it was observed, with Lean, its kernel and Lake trusted as before. This revision carries out the first two practices.
+
+**Follows** means that the owner's words settle it. **Decided** means that the owner's delegated agents decided it on the owner's behalf, and it is no confirmation of the owner's.
+
+| Consequence | Where | Status |
+| --- | --- | --- |
+| One list of assumptions, each entry named once with its owner, its pinned sources and the release at which they were read, in place of the labelled prose list and the scattered marks. | [The trusted base](README.md#the-trusted-base), `Assumption` | Follows. |
+| A new operation of the checker, a new mode of the program and a new premise about Lean, Lake or the operating system of a theorem that states what a verdict means each fail the build until the list holds it. | `Assumption.ofOp`, `Route`, `run_route`, `Meaning`, `meaning` | Follows. That the theorems which state what a verdict means are those that `Meaning` restates, and that the program's modes stand for the published routes, are decided. |
+| A change of the pinned toolchain fails the build until each entry is read again. | `readAt_pinned` and the check at the end of `Assumptions.lean` | Follows. |
+| The named configurations: Lean `v4.35.0`; `lake lint` from the project's own directory with no option of Lake's for the proof verdict, and `REGULA_FULL=DIR lake exe lint PROFILE` from a checkout of Regula built apart from the project for the full verdict; macOS 27.2 on Apple silicon. | [The named configurations](README.md#the-named-configurations) | The toolchain and the proof verdict's way follow. The full verdict's way is decided: the owner's words name one way to run, and the owner's account keeps the full verdict, whose published start this is. The platform is decided from where the entries were observed, so Linux, on which nothing was measured, is outside the contract. |
+| No verdict, rule, refusal or proved statement changes, and no proof is replaced by an assumption; a reliance already proved over every answer stays proved and is not listed. | The diff of this revision | Decided by the owner's delegated agent, because a shorter list bought by giving up a proof would trade assurance the owner already has. |
+| The entries of the operating system are `h4`, `files` and `processes`, and `platform` is Lean's, tied to the platform too. | `Assumption.owner`, `Assumption.platforms` | Decided: each behaviour of the system that a response's meaning needs is in one of them. |
+
 ## 2026-11-02
 
 An audit of `eac81908` observed a false pass. With the working directory in a project `Q` that holds one theorem, `lake -d P lint` of a project `P` that holds a project axiom and a `partial def`, and that sets its `leanLibDir` to `Q`'s, exited 0 with a pass about `Q`. The owner's delegated agent found from Lake's source, and measured, that Lake gives a program it starts nothing that names the project chosen with `lake -d` or `lake -f` and that a project cannot set. When `P` sets `buildDir` and `srcDir` to `Q`'s, the two runs have one working directory, one argument list and, byte for byte, one environment, so no check of those three can tell them apart.

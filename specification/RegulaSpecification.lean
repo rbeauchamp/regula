@@ -40,6 +40,8 @@ import RegulaSpecification.Proofs.Behaviour
 import RegulaSpecification.Proofs.OwedModel
 import RegulaSpecification.Proofs.EffectScan
 import RegulaSpecification.Proofs.Gate
+import RegulaSpecification.Assumptions
+import RegulaSpecification.Meaning
 
 /-!
 # The specification of Regula

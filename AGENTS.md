@@ -47,7 +47,7 @@
 
 - Revise the specification from the intent first, independently of the code, then the code. Change the specification, the proofs and the checker together when they encode the same claim. After moving a path or changing a command, search the whole repository for the old form before review.
 - Keep documentation, docstrings, diagnostics and checker output no stronger than the exact Lean property established. Before review, check each new sentence that cites a theorem or check against its actual statement, hypotheses, and caller; name what it leaves uncovered. No text claims that Regula is free of bugs.
-- Respect the trusted base that `specification/README.md` lists, and change that list when a change changes it.
+- Respect the list of assumptions, `Assumption` in `specification/RegulaSpecification/Assumptions.lean`, which `specification/README.md` describes under "The trusted base", and change that list when a change changes it.
 
 No package of this repository requires Mathlib. Use `lake build` for the Lean development loop. The specification is a package of its own: `lake build` in `specification/`, from a shell whose working directory is that directory.
 
