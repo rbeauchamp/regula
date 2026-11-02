@@ -33,8 +33,8 @@
 # which keeps 8 GiB in reserve). Measure the gate before the bound is lowered.
 #
 # Tests are not evidence. Regula establishes the claims of a change by types, constructions,
-# contracts, machine-checked proofs and derivation. The pipeline's reviewer, test and
-# fix agents learn that rule only from this file, so it declares `test.tests_as_evidence` with
+# contracts, machine-checked proofs and derivation, as CONTRIBUTING.md states. The pipeline tells
+# its reviewer, test and fix agents that rule only through this file, so it declares `test.tests_as_evidence` with
 # `policy: forbid`. With it, each agent of the pipeline that could write, ask for or review a test
 # is told not to use a test as evidence, and missing evidence is reported as a missing proof,
 # contract or derivation, or as an open claim. A change whose listing of tests prints an identifier
