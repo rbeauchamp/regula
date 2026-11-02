@@ -219,7 +219,7 @@ The first statement of the property is that a full verdict's admission is about 
 | The tree, by `runLake` | The build, at the replay and the reload | `BuildProtocol` asks one build and one replay with only reporting between, and `BuildAndRules.no_mutation` asks no write after. What the two commands do inside is Lake's. |
 | The search path in the reading | A toolchain module's place, and the parser's environment | No state: each lookup and import of `ReadingLoaded` names the toolchain's library. |
 | The search path at the rules | Where the build's modules are, and the import | No state: each lookup and import of `RulesPreparation` and `InputPreparation` names the loaded root's search path. |
-| The search path in a proof verdict | The same | `PlainPreparation`; a plain run has no other act (`PlainRun`). |
+| The search path in a proof verdict | The same | No state: each lookup and import of `PlainPreparation` names the loaded root's search path, and a plain run has no other act (`PlainRun`). |
 | The project | What was read of it | When an act lies below the tree, the two real paths lie apart (`Confined`), and an act at the tree itself rests on `createTempDir`, so `Evidence.mono` keeps what no act of the run can change. Another process changing the project reaches only what the next read gives. |
 
 **The second class closed.** An assumption of the record about what the file system does with the run's own writes, over the closed acts of `Op` on the tree. The plain run writes no tree and is outside it.

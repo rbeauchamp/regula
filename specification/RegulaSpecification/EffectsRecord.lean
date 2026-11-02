@@ -104,7 +104,7 @@ def QuietOp : Op L E → Prop
   | .findOLean .. | .importForRules .. | .importForParser ..
   | .loadRoot .. | .loadWorkspace .. => False
 
-/-- Every event of a segment is an observation or report independent of the prepared contexts. -/
+/-- Every event of a segment is an observation or a report, as `QuietOp` states. -/
 def Quiet (t : List (Event L E)) : Prop := ∀ e ∈ t, QuietOp e.op
 
 /-- What the file system answered after the last act of `t`, which in `Decided` is the reading: `t` ends with a segment that holds no act, and for each
@@ -215,7 +215,7 @@ inductive ConfigCopies (sysroot : String) (project tree : FilePath) :
 
 /-- The reading phase's complete ordered acts. Configuration text comes from an earlier read of the
 requested project, which lies apart from the tree; the second copy is the pinned toolchain text. The remaining copies are precisely
-steps of named module files with earlier source reads. No act is allowed before the first copy, so every act of a reading lies in the tree (`ReadingPreparation.confined`). What the
+steps of named module files with earlier source reads. No act is allowed before the first copy, so every act of a reading lies in the tree (`ReadingPreparation.readActs`). What the
 acts leave standing is `Decided`'s statement, through `written`. -/
 def ReadingPreparation (t : List (Event L E)) (dir treeDir : FilePath) : Prop :=
   Quiet t ∨ ∃ project tree sysroot text before rest,
@@ -226,7 +226,7 @@ def ReadingPreparation (t : List (Event L E)) (dir treeDir : FilePath) : Prop :=
     ConfigCopies sysroot project tree [(tree / "lakefile.toml", text), (tree / "lean-toolchain", leanToolchain)]
       before rest
 
-/-- Each lookup and each rules import names the loaded build's search path, and nothing else that consumes a context or acts follows the load. -/
+/-- Each lookup and each rules import names the loaded build's search path, and every other event only observes or reports. -/
 def InputPreparation (root : Root L) (t : List (Event L E)) : Prop :=
   ∀ e ∈ t, QuietOp e.op ∨ RulesSearchOp root e.op
 

@@ -19,7 +19,7 @@ of reasons holds, `FullOwed` also that no build or replay was rejected, and the 
 `plain_owed` and `full_owed` state that a run on such responses gives the pass verdict and exit 0.
 `FullOwed` is the absence of each reason, so it says nothing by itself of who ought to pass,
 and no statement here says that: a refusal is true of what the run was answered, and a project with no refusal, on which the rules hold, passes. Preparation is supplied by `PlainRun` and `FullRun`, not by assuming
-reasons absent: their exact phase relations constrain every copy, load, command and search consumer,
+reasons absent: their exact phase relations constrain every copy, load, command, lookup and import,
 including failed attempts. The premises concern responses and content, never a branch of a program.
 No consistency of responses is needed for either implication to a pass.
 -/

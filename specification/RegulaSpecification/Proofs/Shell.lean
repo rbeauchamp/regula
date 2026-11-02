@@ -401,7 +401,7 @@ structure GateEvents (tRead tGate : List (Event L E)) (dir tree : FilePath) (p :
   healthy : report = .full .pass → ∀ e ∈ tRead ++ tGate, ¬ e.failed
   /-- Each line is a detail. -/
   lines : (∀ l ∈ printed tRead, IsDetail l) ∧ ∀ l ∈ printed tGate, IsDetail l
-  /-- The reading's ordered acts and the context of every search consumer. -/
+  /-- The reading's ordered acts and the search path that each lookup and import names. -/
   readPrepared : ReadingPreparation tRead dir tree
   /-- The gate's acts. -/
   gateActs : ∀ e ∈ tGate, ∀ path, e.acted? = some path → path = tree
