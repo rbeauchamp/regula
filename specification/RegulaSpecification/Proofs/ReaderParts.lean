@@ -5,6 +5,7 @@ Authors: Regula contributors
 -/
 import RegulaSpecification.Proofs.Effects
 import RegulaSpecification.Proofs.Language
+import RegulaSpecification.Proofs.Preparation
 
 /-!
 # What the parts of the reader give
@@ -24,6 +25,32 @@ open Regula.Reader
 open RegulaSpecification.Language
 
 variable {L E : Type}
+
+/-- No answer of these events failed. -/
+def Clean (t : List (Event L E)) : Prop :=
+  ∀ e ∈ t, ¬ e.failed
+
+theorem clean_nil : Clean (L := L) (E := E) [] := by
+  intro e he
+  cases he
+
+theorem clean_one {e : Event L E} (h : ¬ e.failed) : Clean [e] := by
+  intro x hx
+  obtain rfl := List.mem_singleton.mp hx
+  exact h
+
+/-- No event of a literal list of events with successful answers failed. -/
+macro "clean_events" : tactic =>
+  `(tactic| (
+    intro x hx
+    simp only [List.cons_append, List.nil_append, List.append_nil, List.mem_cons, List.not_mem_nil, or_false] at hx
+    (repeat' rcases hx with rfl | hx) <;> subst_vars <;> (rintro ⟨y, hy⟩; cases hy)))
+
+theorem Clean.append {a b : List (Event L E)} (ha : Clean a) (hb : Clean b) : Clean (a ++ b) := by
+  intro e he
+  rcases List.mem_append.mp he with he | he
+  · exact ha e he
+  · exact hb e he
 
 /-! ## Key paths -/
 
@@ -118,14 +145,24 @@ theorem keysOf_deep {fuel : Nat} {pre : Name} {t : Lake.Toml.Table} (h : Deeper 
     simp only [hne, Bool.false_eq_true, ite_false, List.mem_flatMap]
     exact ⟨sub, hsub, by simpa [he] using hd⟩
 
+/-- A table that a key path goes under holds a key. -/
+theorem KeyPath.nonempty {pre : Name} {t : Lake.Toml.Table} {n : Name} (h : KeyPath pre t n) : t.items.isEmpty = false := by
+  cases he : t.items.isEmpty with
+  | false => rfl
+  | true =>
+    have hnil : t.items = #[] := Array.isEmpty_iff.mp he
+    cases h <;> simp_all
+
 /-- Each key path is listed, or the reader's list holds the key that says the table is too deep. -/
 theorem keysOf_complete {pre : Name} {t : Lake.Toml.Table} {n : Name} (h : KeyPath pre t n) :
     ∀ fuel, n ∈ keysOf fuel pre t ∨ ∃ k ∈ keysOf fuel pre t, IsDeepKey k := by
+  have zero : ∀ {pre : Name} {t : Lake.Toml.Table}, ∃ k ∈ keysOf 0 pre t, IsDeepKey k :=
+    fun {pre} _ => ⟨.str pre "too deep", by simp [keysOf], pre, rfl⟩
   induction h with
   | @leaf pre k v t hm hv ha =>
     intro fuel
     cases fuel with
-    | zero => exact .inr ⟨.str pre "too deep", by simp [keysOf], pre, rfl⟩
+    | zero => exact .inr zero
     | succ fuel =>
       left
       simp only [keysOf, List.mem_flatMap, Array.mem_toList_iff]
@@ -143,7 +180,7 @@ theorem keysOf_complete {pre : Name} {t : Lake.Toml.Table} {n : Name} (h : KeyPa
   | @empty pre k r sub t hm he =>
     intro fuel
     cases fuel with
-    | zero => exact .inr ⟨.str pre "too deep", by simp [keysOf], pre, rfl⟩
+    | zero => exact .inr zero
     | succ fuel =>
       left
       simp only [keysOf, List.mem_flatMap, Array.mem_toList_iff]
@@ -151,26 +188,16 @@ theorem keysOf_complete {pre : Name} {t : Lake.Toml.Table} {n : Name} (h : KeyPa
   | @under pre k r sub t n hm hn ih =>
     intro fuel
     cases fuel with
-    | zero => exact .inr ⟨.str pre "too deep", by simp [keysOf], pre, rfl⟩
+    | zero => exact .inr zero
     | succ fuel =>
-      have hne : sub.items.isEmpty = false := by
-        cases he : sub.items.isEmpty with
-        | false => rfl
-        | true =>
-          exfalso
-          have hnil : sub.items = #[] := Array.isEmpty_iff.mp he
-          clear ih
-          cases hn <;> simp_all
       have hin {x : Name} (hx : x ∈ keysOf fuel (pre ++ k) sub) : x ∈ keysOf (fuel + 1) pre t := by
         simp only [keysOf, List.mem_flatMap, Array.mem_toList_iff]
-        exact ⟨(k, .table r sub), hm, by simpa [hne] using hx⟩
-      rcases ih fuel with h' | ⟨d, hd, hdeep⟩
-      · exact .inl (hin h')
-      · exact .inr ⟨d, hin hd, hdeep⟩
+        exact ⟨(k, .table r sub), hm, by simpa [hn.nonempty] using hx⟩
+      exact (ih fuel).imp hin fun ⟨d, hd, hdeep⟩ => ⟨d, hin hd, hdeep⟩
   | @emptyIn pre k r xs r' sub t hm hx he =>
     intro fuel
     cases fuel with
-    | zero => exact .inr ⟨.str pre "too deep", by simp [keysOf], pre, rfl⟩
+    | zero => exact .inr zero
     | succ fuel =>
       left
       simp only [keysOf, List.mem_flatMap, Array.mem_toList_iff]
@@ -184,16 +211,8 @@ theorem keysOf_complete {pre : Name} {t : Lake.Toml.Table} {n : Name} (h : KeyPa
   | @underIn pre k r xs r' sub t n hm hx hn ih =>
     intro fuel
     cases fuel with
-    | zero => exact .inr ⟨.str pre "too deep", by simp [keysOf], pre, rfl⟩
+    | zero => exact .inr zero
     | succ fuel =>
-      have hne : sub.items.isEmpty = false := by
-        cases he : sub.items.isEmpty with
-        | false => rfl
-        | true =>
-          exfalso
-          have hnil : sub.items = #[] := Array.isEmpty_iff.mp he
-          clear ih
-          cases hn <;> simp_all
       have hsub : sub ∈ tablesIn xs := mem_tablesIn.mpr ⟨_, hx⟩
       have hin {x : Name} (hx' : x ∈ keysOf fuel (pre ++ k) sub) : x ∈ keysOf (fuel + 1) pre t := by
         simp only [keysOf, List.mem_flatMap, Array.mem_toList_iff]
@@ -204,10 +223,8 @@ theorem keysOf_complete {pre : Name} {t : Lake.Toml.Table} {n : Name} (h : KeyPa
           rw [List.isEmpty_iff.mp hempty] at hsub
           cases hsub
         · simp only [List.mem_flatMap]
-          exact ⟨sub, hsub, by simpa [hne] using hx'⟩
-      rcases ih fuel with h' | ⟨d, hd, hdeep⟩
-      · exact .inl (hin h')
-      · exact .inr ⟨d, hin hd, hdeep⟩
+          exact ⟨sub, hsub, by simpa [hn.nonempty] using hx'⟩
+      exact (ih fuel).imp hin fun ⟨d, hd, hdeep⟩ => ⟨d, hin hd, hdeep⟩
 
 /-- The key that says a table is too deep is in no closed set. -/
 theorem deepKey_not_admitted {k : Name} (h : IsDeepKey k) : ¬ ConfigKeyAdmitted k := by
@@ -451,27 +468,27 @@ theorem parseAll_parsed (input : InputContext) (env : E) (state : ModuleParserSt
 
 /-! ## The modules of the default targets -/
 
-/-- `defaultModules` gives what `DefaultModules` states of its events, or an answer of Lake failed. -/
+/-- `defaultModules` gives what `DefaultModules` states of its events, or an answer of Lake failed, and it only observes. -/
 theorem defaultModules_spec (root : Root L) (targets : List Name) {t T : List (Event L E)}
     {b : Except String (List (Name × FilePath))} (hT : ∀ e ∈ t, e ∈ T)
     (h : Runs (defaultModules root targets : Attempt L E _).run t b) :
-    (∀ ms, b = .ok ms → DefaultModules T root targets ms) ∧
+    (∀ ms, b = .ok ms → DefaultModules T root targets ms ∧ Clean t) ∧
       ((∃ e, b = .error e) → ∃ target lib x, target ∈ targets ∧ root.findLib target = some lib ∧
-        (⟨.libModules lib, .error x⟩ : Event L E) ∈ t) := by
+        (⟨.libModules lib, .error x⟩ : Event L E) ∈ t) ∧ Quiet t := by
   induction targets generalizing t b with
   | nil =>
     rw [defaultModules] at h
     obtain ⟨rfl, rfl⟩ := runs_attempt_pure_iff.mp h
-    exact ⟨fun ms he => by cases he; exact .nil, fun ⟨e, he⟩ => by cases he⟩
+    exact ⟨fun ms he => by cases he; exact ⟨.nil, clean_nil⟩, fun ⟨e, he⟩ => (by cases he), quiet_nil⟩
   | cons target targets ih =>
     rw [defaultModules] at h
     obtain ⟨t₁, t₂, r, rfl, h₁, h₂⟩ := runs_attempt_bind_iff.mp h
     have hT₁ : ∀ e ∈ t₁, e ∈ T := fun e he => hT e (List.mem_append_left _ he)
     have hT₂ : ∀ e ∈ t₂, e ∈ T := fun e he => hT e (List.mem_append_right _ he)
-    have here : (∀ a, r = .ok a → ∀ ms, DefaultModules T root targets ms →
+    have here : (∀ a, r = .ok a → Clean t₁ ∧ ∀ ms, DefaultModules T root targets ms →
         DefaultModules T root (target :: targets) (a ++ ms)) ∧
         ((∃ e, r = .error e) → ∃ lib x, root.findLib target = some lib ∧
-          (⟨.libModules lib, .error x⟩ : Event L E) ∈ t₁) := by
+          (⟨.libModules lib, .error x⟩ : Event L E) ∈ t₁) ∧ Quiet t₁ := by
       rw [modulesOfTarget] at h₁
       cases hl : root.findLib target with
       | some lib =>
@@ -482,105 +499,48 @@ theorem defaultModules_spec (root : Root L) (targets : List Name) {t T : List (E
         cases r'' with
         | ok listed =>
           obtain ⟨rfl, rfl⟩ := runs_attempt_pure_iff.mp h₄
-          refine ⟨fun a he ms hms => ?_, fun ⟨e, he⟩ => by cases he⟩
+          refine ⟨fun a he => ?_, fun ⟨e, he⟩ => (by cases he), by simpa using quiet_one (o := Op.libModules lib) (r := .ok listed) trivial⟩
           cases he
-          exact .lib hl (hT₁ _ (by simp)) hms
+          exact ⟨by simpa using clean_one (e := ⟨.libModules lib, .ok listed⟩) (by rintro ⟨x, hx⟩; cases hx), fun ms hms => .lib hl (hT₁ _ (by simp)) hms⟩
         | error e =>
           obtain ⟨rfl, rfl⟩ := h₄
-          exact ⟨fun a he => (by cases he), fun _ => ⟨lib, e, rfl, by simp⟩⟩
+          exact ⟨fun a he => (by cases he), fun _ => ⟨lib, e, rfl, by simp⟩, by simpa using quiet_one (o := Op.libModules lib) (r := .error e) trivial⟩
       | none =>
         simp only [hl] at h₁
         cases he : root.findExe target with
         | some m =>
           simp only [he] at h₁
           obtain ⟨rfl, rfl⟩ := runs_attempt_pure_iff.mp h₁
-          refine ⟨fun a ha ms hms => ?_, fun ⟨e, h'⟩ => by cases h'⟩
+          refine ⟨fun a ha => ?_, fun ⟨e, h'⟩ => (by cases h'), quiet_nil⟩
           cases ha
-          exact .exe hl he hms
+          exact ⟨clean_nil, fun ms hms => .exe hl he hms⟩
         | none =>
           simp only [he] at h₁
           obtain ⟨rfl, rfl⟩ := runs_attempt_pure_iff.mp h₁
-          refine ⟨fun a ha ms hms => ?_, fun ⟨e, h'⟩ => by cases h'⟩
+          refine ⟨fun a ha => ?_, fun ⟨e, h'⟩ => (by cases h'), quiet_nil⟩
           cases ha
-          exact .other hl he hms
+          exact ⟨clean_nil, fun ms hms => .other hl he hms⟩
     cases r with
     | error e =>
       obtain ⟨rfl, rfl⟩ := h₂
-      refine ⟨fun ms he => (by cases he), fun _ => ?_⟩
-      obtain ⟨lib, x, hl, hx⟩ := here.2 ⟨e, rfl⟩
+      refine ⟨fun ms he => (by cases he), fun _ => ?_, by simpa using here.2.2⟩
+      obtain ⟨lib, x, hl, hx⟩ := here.2.1 ⟨e, rfl⟩
       exact ⟨target, lib, x, List.mem_cons_self .., hl, by simpa using hx⟩
     | ok a =>
       obtain ⟨t₃, t₄, r', rfl, h₃, h₄⟩ := runs_attempt_bind_iff.mp h₂
-      obtain ⟨i1, i2⟩ := ih (fun e he => hT₂ e (List.mem_append_left _ he)) h₃
+      obtain ⟨i1, i2, i3⟩ := ih (fun e he => hT₂ e (List.mem_append_left _ he)) h₃
       cases r' with
       | error e =>
         obtain ⟨rfl, rfl⟩ := h₄
-        refine ⟨fun ms he => (by cases he), fun _ => ?_⟩
+        refine ⟨fun ms he => (by cases he), fun _ => ?_, by simpa using here.2.2.append i3⟩
         obtain ⟨tg, lib, x, hg, hl, hx⟩ := i2 ⟨e, rfl⟩
         exact ⟨tg, lib, x, List.mem_cons_of_mem _ hg, hl, by simp [hx]⟩
       | ok rest =>
         obtain ⟨rfl, rfl⟩ := runs_attempt_pure_iff.mp h₄
-        refine ⟨fun ms he => ?_, fun ⟨e, he⟩ => by cases he⟩
+        refine ⟨fun ms he => ?_, fun ⟨e, he⟩ => (by cases he), by simpa using here.2.2.append i3⟩
         cases he
-        exact here.1 a rfl rest (i1 rest rfl)
-
-/-- `defaultModules` acts on nothing. -/
-theorem defaultModules_no_act {root : Root L} {targets : List Name} {t : List (Event L E)}
-    {b : Except String (List (Name × FilePath))}
-    (h : Runs (defaultModules root targets : Attempt L E _).run t b) : ∀ e ∈ t, e.acted? = none := by
-  induction targets generalizing t b with
-  | nil =>
-    rw [defaultModules] at h
-    obtain ⟨rfl, rfl⟩ := runs_attempt_pure_iff.mp h
-    intro e he
-    cases he
-  | cons target targets ih =>
-    rw [defaultModules] at h
-    obtain ⟨t₁, t₂, r, rfl, h₁, h₂⟩ := runs_attempt_bind_iff.mp h
-    have hhere : ∀ e ∈ t₁, e.acted? = none := by
-      rw [modulesOfTarget] at h₁
-      split at h₁
-      · obtain ⟨t₃, t₄, r', rfl, h₃, h₄⟩ := runs_attempt_bind_iff.mp h₁
-        obtain ⟨r'', h₅, rfl⟩ := runs_attempt_iff.mp h₃
-        obtain rfl := runs_call_iff.mp h₅
-        cases r'' with
-        | ok a =>
-          obtain ⟨rfl, rfl⟩ := runs_attempt_pure_iff.mp h₄
-          intro e he
-          simp only [List.append_nil, List.mem_singleton] at he
-          subst he
-          rfl
-        | error x =>
-          obtain ⟨rfl, rfl⟩ := h₄
-          intro e he
-          simp only [List.append_nil, List.mem_singleton] at he
-          subst he
-          rfl
-      · split at h₁ <;>
-          · obtain ⟨rfl, rfl⟩ := runs_attempt_pure_iff.mp h₁
-            intro e he
-            cases he
-    cases r with
-    | error x =>
-      obtain ⟨rfl, rfl⟩ := h₂
-      simpa using hhere
-    | ok a =>
-      obtain ⟨t₃, t₄, r', rfl, h₃, h₄⟩ := runs_attempt_bind_iff.mp h₂
-      have hrest := ih h₃
-      cases r' with
-      | error x =>
-        obtain ⟨rfl, rfl⟩ := h₄
-        intro e he
-        simp only [List.append_nil, List.mem_append] at he
-        rcases he with he | he
-        · exact hhere e he
-        · exact hrest e he
-      | ok rest =>
-        obtain ⟨rfl, rfl⟩ := runs_attempt_pure_iff.mp h₄
-        intro e he
-        simp only [List.append_nil, List.mem_append] at he
-        rcases he with he | he
-        · exact hhere e he
-        · exact hrest e he
+        obtain ⟨c1, c2⟩ := here.1 a rfl
+        obtain ⟨d1, d2⟩ := i1 rest rfl
+        exact ⟨c2 rest d1, by simpa using c1.append d2⟩
 
 end RegulaSpecification.Effects

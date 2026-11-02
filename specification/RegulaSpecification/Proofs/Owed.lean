@@ -19,7 +19,7 @@ of reasons holds, `FullOwed` also that no build or replay was rejected, and the 
 `plain_owed` and `full_owed` state that a run on such responses gives the pass verdict and exit 0.
 `FullOwed` is the absence of each reason, so it says nothing by itself of who ought to pass,
 and no statement here says that: a refusal is true of what the run was answered, and a project with no refusal, on which the rules hold, passes. Preparation is supplied by `PlainRun` and `FullRun`, not by assuming
-reasons absent: their exact phase relations constrain every copy, load, command and search consumer,
+reasons absent: their exact phase relations constrain every copy, load, command, lookup and import,
 including failed attempts. The premises concern responses and content, never a branch of a program.
 No consistency of responses is needed for either implication to a pass.
 -/
@@ -109,7 +109,7 @@ theorem DefaultModules.mono {root : Root L} {targets modules}
   | exe hl hx _ ih => exact .exe hl hx ih
   | other hl hx _ ih => exact .other hl hx ih
 
-theorem HeldByToolchain.mono {n} (h : HeldByToolchain T n) : HeldByToolchain T' n := by
+theorem HeldByToolchain.mono {root : Root L} {n} (h : HeldByToolchain T root n) : HeldByToolchain T' root n := by
   obtain ⟨o, h1⟩ := h
   exact ⟨o, hs.subset h1⟩
 
@@ -147,14 +147,14 @@ theorem Named.mono {project tree : FilePath} {root : Root L} {modules m}
   | root hm => exact .root hm
   | imported _ hh hi ih => exact .imported ih (HeaderOf.mono hs hh) hi
 
-theorem ReadText.mono {project tree : FilePath} {f path imports mods text}
-    (h : ReadText T project tree f path imports mods text) : ReadText T' project tree f path imports mods text := by
+theorem ReadText.mono {root : Root L} {project tree : FilePath} {f path imports mods text}
+    (h : ReadText T root project tree f path imports mods text) : ReadText T' root project tree f path imports mods text := by
   obtain ⟨rel, real, state, messages, final, env, commands, h1, h2, h3, h4, h5, h6, h7, h8⟩ := h
   exact ⟨rel, real, state, messages, final, env, commands, h1, h2, h3, h4.trans hs, hs.subset h5, h6,
     h7.trans hs, h8⟩
 
-theorem ReadAs.mono {project tree : FilePath} {f path imports mods}
-    (h : ReadAs T project tree f path imports mods) : ReadAs T' project tree f path imports mods := by
+theorem ReadAs.mono {root : Root L} {project tree : FilePath} {f path imports mods}
+    (h : ReadAs T root project tree f path imports mods) : ReadAs T' root project tree f path imports mods := by
   obtain ⟨text, h⟩ := h
   exact ⟨text, ReadText.mono hs h⟩
 
@@ -263,7 +263,7 @@ theorem BuildRejected.mono {sysroot tree} (h : BuildRejected sysroot tree T) : B
 
 theorem BuildRead.mono {root : Root L} {f roots} (h : BuildRead T root f roots) : BuildRead T' root f roots := by
   obtain ⟨q, h1, h2, h3, h4, h5, h6⟩ := h
-  exact ⟨q, DefaultModules.mono hs h1, h2, h3.trans hs, h4, h5, fun x hx => hs.subset (h6 x hx)⟩
+  exact ⟨q, DefaultModules.mono hs h1, h2, hs.subset h3, h4, h5, fun x hx => hs.subset (h6 x hx)⟩
 
 end Mono
 

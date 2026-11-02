@@ -47,7 +47,7 @@ theorem floor_of_read {w : WitnessPaths} {env : Lean.Environment} {p : Regula.Cl
   have hmods := good_modules (DefaultModules.mono hT hd)
   subst hmods
   have henv : (Except.ok a.env : Except IO.Error Lean.Environment) = .ok env :=
-    resp_eq (hT.subset (hs.subset (List.mem_cons_of_mem _ (List.mem_singleton.mpr rfl))))
+    resp_eq (hT.subset hs)
   have he := Except.ok.inj henv
   exact hm.floor a he ht hr (by rw [hn, he]) fun x hx =>
     Except.ok.inj (resp_eq (hT.subset (hol x hx)) : (Except.ok _ : Except IO.Error FilePath) = .ok _)

@@ -96,7 +96,7 @@ theorem read_what_lake_compiles {t : List (Event L E)} {dir tree : FilePath} {he
       (⟨.loadRoot sysroot real, .ok (some root, log)⟩ : Event L E) ∈ t ∧
       DefaultModules t root root.defaultTargets modules ∧
       ∀ (B : LakeBehaviour headers root modules) m path, B.Compiles m path →
-        ∃ f ∈ r.files, f.module = m ∧ ∃ imports mods text, ReadText t project real f path imports mods text ∧
+        ∃ f ∈ r.files, f.module = m ∧ ∃ imports mods text, ReadText t root project real f path imports mods text ∧
           held (parts path) = some text := by
   obtain ⟨project, real, hp, -, -, -, -, -, -, -, -, sysroot, root, log, modules, -, hl, hd, -, -, -, -, -, -, headers, -, -, -,
     hc, -⟩ := h
@@ -172,9 +172,9 @@ theorem realPathBehaviour_crossing (link target : FilePath) (hne : parts target 
     exact (hpaths this.symm).elim
 
 /-- Under H4, the file of a reading crossed no link, for the real path that the run received. -/
-theorem read_no_link {t : List (Event L E)} {project tree path : FilePath} {f : FileRead}
+theorem read_no_link {t : List (Event L E)} {root : Root L} {project tree path : FilePath} {f : FileRead}
     {imports : Array Import} {mods : List Name} (B : RealPathBehaviour t)
-    (h : ReadAs t project tree f path imports mods) :
+    (h : ReadAs t root project tree f path imports mods) :
     ∃ (rel : List String) (real : FilePath), (⟨.realPath (under project rel), .ok real⟩ : Event L E) ∈ t ∧
       ¬ B.Crosses (under project rel) := by
   obtain ⟨_, rel, real, _, _, _, _, _, -, hr, -, hsub, -⟩ := h

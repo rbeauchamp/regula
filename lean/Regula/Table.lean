@@ -14,7 +14,7 @@ import Lean.Parser.Extension
 # The one table of effects
 
 `table` answers each operation of `Regula.Effect.Op` by a straight line of calls of Lean or of the operating system's
-function as Lean gives it, or by a row of `LakeCalls`, which `Regula.Workspace` fills. Nothing here tests a result: a row
+function as Lean gives it, or by a row of `LakeCalls`, which `Regula.Workspace` fills. A lookup or an import takes its search path as an argument, and its row sets `Lean.searchPathRef` to it first, because `Lean.findOLean` and `Lean.importModules` read that reference and take no path (`Lean/Util/Path.lean:117-118`, `Lean/Environment.lean:2079-2080` at v4.35.0). Nothing here tests a result: a row
 passes on what the calls give. `table_rows` in `specification/RegulaSpecification/Proofs/Program.lean` states each row.
 -/
 
@@ -83,12 +83,13 @@ def table {L : Type} (enable : BaseIO Unit) (lake : LakeCalls L) : (o : Op L Env
         IO (Syntax × ModuleParserState × MessageLog × Array Import)).toBaseIO
   | .parseCommand input env state messages =>
     pure (Lean.Parser.parseCommand input { env, options := {} } state messages)
-  | .setSearchPath path => Lean.searchPathRef.set path
-  | .findOLean module => (Lean.findOLean module).toBaseIO
-  | .importForRules modules =>
-    (Lean.importModules (modules.map ({ module := · })) {} (loadExts := false)
-      (level := .private)).toBaseIO
-  | .importForParser modules => (importParsers enable modules).toBaseIO
+  | .findOLean path module => (do Lean.searchPathRef.set path; Lean.findOLean module : IO FilePath).toBaseIO
+  | .importForRules path modules =>
+    (do
+      Lean.searchPathRef.set path
+      Lean.importModules (modules.map ({ module := · })) {} (loadExts := false) (level := .private) : IO Environment).toBaseIO
+  | .importForParser path modules =>
+    (do Lean.searchPathRef.set path; importParsers enable modules : IO (Environment × List Name)).toBaseIO
   | .parseToml input => lake.parseToml input
   | .lakeInstall sysroot => lake.lakeInstall sysroot
   | .loadWorkspace sysroot dir => lake.loadWorkspace sysroot dir

@@ -194,15 +194,17 @@ inductive Row (enable : BaseIO Unit) (lake : LakeCalls L) : (o : Op L Environmen
   /-- `Lean.Parser.parseCommand`. -/
   | parseCommand {input env state messages} : Row enable lake (.parseCommand input env state messages)
       (pure (Lean.Parser.parseCommand input { env, options := {} } state messages))
-  /-- The set of `Lean.searchPathRef`. -/
-  | setSearchPath {p} : Row enable lake (.setSearchPath p) (Lean.searchPathRef.set p)
-  /-- `Lean.findOLean`. -/
-  | findOLean {m} : Row enable lake (.findOLean m) (Lean.findOLean m).toBaseIO
-  /-- `Lean.importModules`, for the rules. -/
-  | importForRules {ms} : Row enable lake (.importForRules ms)
-      (Lean.importModules (ms.map ({ module := · })) {} (loadExts := false) (level := .private)).toBaseIO
-  /-- `Lean.importModules`, for the parser. -/
-  | importForParser {ms} : Row enable lake (.importForParser ms) (importParsers enable ms).toBaseIO
+  /-- `Lean.findOLean`, with `Lean.searchPathRef` set to the path it names first, because that function reads it and takes no path. -/
+  | findOLean {p m} : Row enable lake (.findOLean p m)
+      (do Lean.searchPathRef.set p; Lean.findOLean m : IO FilePath).toBaseIO
+  /-- `Lean.importModules`, for the rules, with `Lean.searchPathRef` set to the path it names first. -/
+  | importForRules {p ms} : Row enable lake (.importForRules p ms)
+      (do
+        Lean.searchPathRef.set p
+        Lean.importModules (ms.map ({ module := · })) {} (loadExts := false) (level := .private) : IO Environment).toBaseIO
+  /-- `Lean.importModules`, for the parser, with `Lean.searchPathRef` set to the path it names first. -/
+  | importForParser {p ms} : Row enable lake (.importForParser p ms)
+      (do Lean.searchPathRef.set p; importParsers enable ms : IO (Environment × List Name)).toBaseIO
   /-- Lake's row. -/
   | parseToml {input} : Row enable lake (.parseToml input) (lake.parseToml input)
   /-- Lake's row. -/

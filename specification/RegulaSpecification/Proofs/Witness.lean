@@ -124,10 +124,9 @@ def answers (w : WitnessPaths) (env : Lean.Environment) : (o : Op Unit Unit) →
   | .flush => .ok ()
   | .parseHeader _ => .ok (moduleHeader, default, {}, #[])
   | .parseCommand .. => (endOfInput, default, {})
-  | .setSearchPath _ => ()
-  | .findOLean _ => .ok w.olean
-  | .importForRules _ => .ok env
-  | .importForParser _ => .ok ((), [])
+  | .findOLean .. => .ok w.olean
+  | .importForRules .. => .ok env
+  | .importForParser .. => .ok ((), [])
   | .parseToml _ => .ok Lake.Toml.Table.empty
   | .lakeInstall _ => (w.tree, w.lakeLib)
   | .loadWorkspace .. => .ok (some (witnessRoot w), [])
@@ -153,9 +152,9 @@ theorem deeper_empty : ¬ Deeper 8 Lake.Toml.Table.empty := by
   cases h <;> (subst ht; simp [Lake.Toml.Table.empty, Lake.Toml.RBDict.empty] at *)
 
 /-- What the reader read of a file, on the answers of the witness, is in the closed language. -/
-theorem good_file {w : WitnessPaths} {env : Lean.Environment} {p : Prog Unit Unit α} {f : FileRead} {project tree path : FilePath}
+theorem good_file {w : WitnessPaths} {env : Lean.Environment} {p : Prog Unit Unit α} {f : FileRead} {root : Root Unit} {project tree path : FilePath}
     {imports : Array Lean.Import} {mods : List Name}
-    (h : ReadAs (traceWith (answers w env) p) project tree f path imports mods) : FileAdmitted f := by
+    (h : ReadAs (traceWith (answers w env) p) root project tree f path imports mods) : FileAdmitted f := by
   obtain ⟨text, rel, real, state, messages, final, penv, commands, -, -, -, hsub, hev, hparsed, hcsub, hp⟩ := h
   have hmem : (⟨.parseHeader (Lean.Parser.mkInputContext text (inputNameOf path)),
       .ok (f.header, state, messages, imports)⟩ : Event Unit Unit) ∈ traceWith (answers w env) p :=
@@ -427,10 +426,8 @@ theorem admits_a_project (w : WitnessPaths) (env : Lean.Environment) :
   let q : Prog Unit Unit Outcome := .ask (.getEnv "LEAN_SYSROOT") fun _ => check w.leanPath w.project w.tree
   refine ⟨traceWith (answers w env) (check w.leanPath w.project w.tree), ?_⟩
   have hr := runs_with (answers w env) (check w.leanPath w.project w.tree : Prog Unit Unit Outcome)
-  have hT : (traceWith (answers w env) (check w.leanPath w.project w.tree)) <:+: (traceWith (answers w env) q) :=
-    List.infix_cons List.infix_rfl
-  obtain ⟨hd, -⟩ := check_spec hT (List.mem_cons_self ..)
-    ⟨[⟨.getEnv "LEAN_SYSROOT", some w.leanPath⟩], rfl, fun e he => by obtain rfl := List.mem_singleton.mp he; rfl⟩ hr
+  obtain ⟨hd', -⟩ := check_spec (prior := [⟨.getEnv "LEAN_SYSROOT", some w.leanPath⟩]) (quiet_one trivial) (by simp [SysrootIs]) hr
+  have hd : Decided (traceWith (answers w env) q) w.project w.tree _ := hd'
   cases ho : valueWith (answers w env) (check w.leanPath w.project w.tree : Prog Unit Unit Outcome) with
   | admitted => rw [ho] at hr; exact hr
   | refused => rw [ho] at hd; exact absurd (hd.2.1 (by simp)) (no_reason w env _ _)
