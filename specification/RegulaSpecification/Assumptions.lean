@@ -28,8 +28,8 @@ to `Regula.Closed.pinnedLean`, the one release the checker reads, and the comman
 this package under any other Lean. So a change of the pinned toolchain fails the build until each entry is read again and
 its record changed.
 
-A source is a path below the root of the tag `v4.35.0` of Lean with its lines, a program of the toolchain, or a page of the
-platform's own documentation (`Source`).
+A source is a path below the root of the tag `v4.35.0` of Lean with its lines, the source directory there of a component that
+the owner's account trusts whole, or a page of the platform's own documentation (`Source`).
 -/
 
 namespace RegulaSpecification.Assumptions
@@ -56,8 +56,9 @@ inductive Platform where
 inductive Source where
   /-- Lines of a file of Lean's repository at the tag of the pinned release, by its path from the repository's root. -/
   | file (path : String) (lines : String)
-  /-- A program of the pinned toolchain. -/
-  | program (name : String)
+  /-- The source directory, in Lean's repository at the tag of the pinned release and by its path from the repository's
+  root, of a component that the owner's account trusts whole. -/
+  | component (dir : String)
   /-- A page of the platform's own documentation, as installed on the platform. -/
   | manual (page : String)
   deriving DecidableEq, Repr
@@ -143,15 +144,6 @@ inductive Assumption where
 
 namespace Assumption
 
-/-- Each entry, in the order of the type. -/
-def all : List Assumption :=
-  [kernel, h6, compiler, h1, h2, usedConstants, leanImport, leanVersion, platform, lakeLoad, h3, h5, lakeCommands,
-    lakeStart, h4, files, processes]
-
-/-- `all` holds every entry. -/
-theorem mem_all (a : Assumption) : a ∈ all := by
-  cases a <;> decide
-
 /-- Who holds each entry. -/
 def owner : Assumption → Owner
   | kernel | h6 | compiler | h1 | h2 | usedConstants | leanImport | leanVersion | platform => .lean
@@ -175,21 +167,28 @@ def ModuleDataComplete (f : Regula.Load.Facts) : Prop :=
 
 /-- The pinned sources of each entry. -/
 def sources : Assumption → List Source
-  | kernel => [.program "bin/lean", .program "bin/leanchecker"]
+  | kernel => [.component "src/kernel/"]
   | h6 => [.file "src/kernel/type_checker.cpp" "110-117", .file "src/kernel/type_checker.h" "127-128",
       .file "src/kernel/environment.cpp" "156, 181, 196, 215"]
-  | compiler => [.program "bin/lean", .program "bin/leanc", .file "src/Init/System/IO.lean" "39"]
+  | compiler => [.component "src/Lean/Compiler/", .component "src/runtime/", .file "src/Init/System/IO.lean" "39"]
   | h1 => [.file "src/Lean/Language/Lean.lean" "595-601", .file "src/Lean/Parser/Extension.lean" "607-612, 765",
       .file "src/Lean/Parser/Module.lean" "124, 135, 146", .file "src/Lean/Elab/Open.lean" "83, 89, 101",
       .file "src/Lean/Elab/BuiltinCommand.lean" "60", .file "src/Lean/Environment.lean" "2108-2190",
       .file "src/Lean/Elab/Frontend.lean" "287", .file "src/Lean/Shell.lean" "519", .file "src/Lean/Language/Lean.lean" "451"]
-  | h2 => [.file "src/Lean/Elab/BuiltinEvalCommand.lean" "each evaluation site", .file "src/Lean/Elab/BuiltinNotation.lean" "588, 594",
+  | h2 => [.file "src/Lean/Elab/BuiltinEvalCommand.lean" "194, 200, 225, 226",
+      .file "src/Lean/Elab/BuiltinNotation.lean" "588, 594",
       .file "src/Lean/Elab/BuiltinTerm.lean" "432", .file "src/Lean/Elab/Tactic/BuiltinTactic.lean" "683",
-      .file "src/Lean/Elab/Tactic/Guard.lean" "163", .file "src/Lean/Meta/Native.lean" "each evaluation site",
-      .file "src/Lean/Elab/Tactic/Config.lean" "151", .file "src/Lean/Elab/ConfigEval/" "each evaluation site",
+      .file "src/Lean/Elab/Tactic/Guard.lean" "163", .file "src/Lean/Meta/Native.lean" "57, 67",
+      .file "src/Lean/Elab/Tactic/Config.lean" "151", .file "src/Lean/Elab/ConfigEval.lean" "54",
+      .file "src/Lean/Elab/ConfigEval/Basic.lean" "24, 27, 42, 48, 53", .file "src/Lean/Elab/ConfigEval/Commands.lean" "42",
+      .file "src/Lean/Elab/ConfigEval/DeriveEvalExpr.lean" "48, 61, 68, 109, 113, 125",
+      .file "src/Lean/Elab/ConfigEval/DeriveEvalTerm.lean" "101, 117, 124",
+      .file "src/Lean/Elab/ConfigEval/Instances.lean"
+        "118, 122, 126, 130, 134, 138, 142, 146, 150, 154, 251, 255, 259, 263, 267, 271, 275, 279, 283",
+      .file "src/Lean/Elab/ConfigEval/Types.lean" "40, 46, 66, 73",
       .file "src/Lean/Elab/Tactic/Try.lean" "1033", .file "src/Lean/Elab/Util.lean" "108",
       .file "src/Lean/KeyedDeclsAttribute.lean" "125, 166", .file "src/Lean/Meta/Tactic/Simp/Simproc.lean" "130",
-      .file "src/Lean/Attributes.lean" "450", .file "src/Lean/Elab/DocString.lean" "each evaluation site",
+      .file "src/Lean/Attributes.lean" "450", .file "src/Lean/Elab/DocString.lean" "1193, 1200, 1250, 1273, 1292, 1310",
       .file "src/Lean/Linter/MissingDocs.lean" "43", .file "src/Lean/Linter/UnusedVariables.lean" "143",
       .file "src/Lean/Compiler/LCNF/Simp/ConstantFold.lean" "648", .file "src/Lean/Compiler/LCNF/PassManager.lean" "217",
       .file "src/Lean/Compiler/IR/Meta.lean" "56-59", .file "src/Lean/Environment.lean" "2537"]
