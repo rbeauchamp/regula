@@ -16,9 +16,10 @@ record alone. It reads no program, so it holds of each subject that meets the re
 
 `FullOwed` is the absence of each reason, so it says nothing by itself of who ought to pass, and no statement here says
 that: a refusal is true of what the run was answered, and a project with no refusal, on which the rules hold, passes.
-Preparation comes from `PlainRun` and `FullRun`, whose phase relations constrain every copy, load, command, lookup and
-import, failed attempts included, and no reason is assumed absent. The premises concern responses and content, never a
-branch of a program, and neither implication to a pass needs consistent responses.
+Preparation comes from `PlainRun` and `FullRun`, not from assuming reasons absent: their phase relations constrain every
+copy, load, command, lookup and import, failed attempts included. The pass theorems separately require the absence-of-reason
+hypotheses in `PlainOwed` and `FullOwed`. The premises concern responses and content, never a branch of a program, and neither
+implication to a pass needs consistent responses.
 -/
 
 namespace RegulaSpecification.Effects
