@@ -128,7 +128,7 @@ theorem SourceRead.mono {T T' : List (Event L E)} {project tree path : FilePath}
   obtain ⟨rel, real, text, h0, h1, h2, h3, h4, h5, h6⟩ := h
   exact ⟨rel, real, text, h0, h1, h2, h3, h4, h5, h6.trans hs⟩
 
-/-- An operation of the reading of a source at `path`, by what the run has been told of it. -/
+/-- An operation of the reading of a source at {name}`path`, by what the run has been told of it. -/
 def SourceOp (T : List (Event L E)) (project tree path : FilePath) (o : Op L E) : Prop :=
   (∃ rel, TreeRelative (parts tree) (parts path) rel ∧
     (o = .realPath (under project rel) ∨ o = .readFile (under project rel))) ∨
@@ -221,7 +221,7 @@ theorem toolchainOLean_spec {path : List FilePath} {m : Name} {t : List (Event L
     obtain ⟨rfl, rfl⟩ := runs_attempt_pure_iff.mp h₂
     exact ⟨fun _ => ⟨olean, rfl⟩, fun ⟨e, he⟩ => (by cases he)⟩
 
-/-- Each event only observes, or is a lookup or a parser's import on the toolchain's library of `root`. -/
+/-- Each event only observes, or is a lookup or a parser's import on the toolchain's library of {name}`root`. -/
 def Observes (root : Root L) (t : List (Event L E)) : Prop :=
   ∀ e ∈ t, QuietOp e.op ∨ ParserSearchOp root e.op
 
@@ -245,7 +245,7 @@ theorem Observes.noActs {root : Root L} {t : List (Event L E)} (h : Observes roo
 def Due (roots : List Name) (w : Walk) (n : Name) : Prop :=
   n ∈ roots ∨ ∃ x ∈ w.sources, ∃ i ∈ x.2.imports, i.module = n
 
-/-- What the walk has established of the state `w` with the names `todo` left to visit. -/
+/-- What the walk has established of the state {name}`w` with the names {name}`todo` left to visit. -/
 structure WalkInv (T : List (Event L E)) (dir treeDir project tree : FilePath) (root : Root L)
     (modules : List (Name × FilePath)) (roots todo : List Name)
     (w : Walk) : Prop where

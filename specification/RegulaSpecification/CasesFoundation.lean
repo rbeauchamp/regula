@@ -91,7 +91,7 @@ theorem rg1004_adequate : O2 rg1004 ∧ O2Run rg1004 ∧ O3 rg1004 ∧ O4 rg1004
 
 theorem rg1004_noisy : ¬ rg1004.Meets w1004.candidates := noisy_fails w1004 t_mem_support
 
-/-- A theorem that uses `Classical.choice`, which the profile of `base` does not admit. -/
+/-- A theorem that uses {name}`Classical.choice`, which the profile of {name}`base` does not admit. -/
 def choice : List Decl :=
   [toolchain ``Classical.choice .axiom, plain `Good.c `Good .theorem [``Classical.choice]]
 
@@ -177,7 +177,7 @@ theorem rg1006_noisy : ¬ rg1006.Meets w1006.candidates :=
 /-- A plain safe definition with the name of a helper of `Good.g`. -/
 def forgedDecl : Decl := plain `Good.g._unsafe_rec `Good .definition []
 
-/-- `base`, with `Good.g` and a plain definition with the name of its helper. -/
+/-- {name}`base`, with `Good.g` and a plain definition with the name of its helper. -/
 def withForged : Input := withDecls [plain `Good.g `Good .definition [], forgedDecl]
   (by simp [base, baseDecls, plain, toolchain, helperDecl, fDecl, forgedDecl])
 
@@ -191,10 +191,10 @@ theorem wf_withForged : withForged.WellFormed :=
   wf_withDecls _ _
     (uses_resolve (by simp [plain, forgedDecl]))
 
-/-- A safe definition of a claimed module whose value mentions the construct `l`. -/
+/-- A safe definition of a claimed module whose value mentions the construct {name}`l`. -/
 def loopUser (l : Name) : Decl := { plain `Good.l `Good .definition [l] with valueUses := [l] }
 
-/-- `base`, with a definition whose value mentions the construct `l`, and with `l`. -/
+/-- {name}`base`, with a definition whose value mentions the construct {name}`l`, and with {name}`l`. -/
 def withLoop {l : Name} (hl : l ∈ loopConstructs) : Input :=
   withDecls [toolchain l .definition, loopUser l] (by
     simp only [loopConstructs, List.mem_cons, List.not_mem_nil, or_false] at hl

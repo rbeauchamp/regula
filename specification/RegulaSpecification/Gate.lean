@@ -4,7 +4,7 @@ import RegulaSpecification.Safety
 # The verdict of a run, and RG2001
 
 Regula's verdict is a closed type with three values. A build that Lean could not load, or an input that the
-admission refuses, is `incomplete` (RG2001), never read as absent; a claim of no module is refused too.
+admission refuses, is {lit}`incomplete` (RG2001), never read as absent; a claim of no module is refused too.
 -/
 
 namespace RegulaSpecification
@@ -26,7 +26,7 @@ inductive Verdict where
   | incomplete
   deriving DecidableEq, Repr
 
-/-- The intent record of the verdict. `none` is a build Lean could not load. -/
+/-- The intent record of the verdict. {name}`none` is a build Lean could not load. -/
 def gateRecord : IntentRecord (Option Input → Verdict) where
   shape := .function (Option Input) (fun _ => Verdict)
   dom := []

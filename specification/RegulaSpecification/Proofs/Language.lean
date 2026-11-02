@@ -4,8 +4,8 @@ import RegulaSpecification.Language
 /-!
 # The language decision against its record
 
-Each theorem is about the definition that the checker runs. What fills a `Reading` from a real project
-(`Regula.Reader`) is in `Proofs/Reader.lean`, and the specification's trusted base lists what stays assumed.
+Each theorem is about the definition that the checker runs. What fills a {name (full := Regula.Language.Reading)}`Reading` from a real project
+(`Regula.Reader`) is in {lit}`Proofs/Reader.lean`, and the specification's trusted base lists what stays assumed.
 -/
 
 namespace RegulaSpecification.Language
@@ -475,7 +475,7 @@ theorem treeRelative_iff (base path rel : List String) :
     rintro ⟨rfl, -⟩
     exact hp (List.prefix_append _ _)
 
-/-- `..`, `.` and `.lake` are no components of what `treeRelative` gives. A component may still hold a separator or be
+/-- `..`, {lit}`.` and {lit}`.lake` are no components of what {name}`treeRelative` gives. A component may still hold a separator or be
 absolute, for an argument that no real path is. -/
 theorem treeRelative_no_parent {base path rel : List String} (h : treeRelative base path = some rel) :
     ".." ∉ rel ∧ "." ∉ rel ∧ ".lake" ∉ rel := by

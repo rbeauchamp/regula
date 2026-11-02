@@ -18,7 +18,7 @@ def ReadOp : Op L E → Prop
   | .runLake .. | .importForRules .. | .println _ | .flush | .createTempDir | .removeDirAll _ | .leanVersion => False
   | _ => True
 
-/-- On every response, a program asks only operations of `P`. -/
+/-- On every response, a program asks only operations of {name}`P`. -/
 def OnlyIn (P : Op L E → Prop) (p : Prog L E α) : Prop :=
   ∀ t a, Runs p t a → ∀ e ∈ t, P e.op
 
@@ -48,7 +48,7 @@ theorem only_seq {p : Prog L E α} {f : α → Prog L E β} (hp : OnlyIn P p) (h
   · exact hp _ _ h₁ e he
   · exact hf a _ _ h₂ e he
 
-/-- An attempt's program asks only operations of `P`. -/
+/-- An attempt's program asks only operations of {name}`P`. -/
 def OnlyAIn (P : Op L E → Prop) (x : Attempt L E α) : Prop :=
   OnlyIn P x.run
 

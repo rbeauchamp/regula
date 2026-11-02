@@ -5,14 +5,14 @@ import RegulaSpecification.Proofs.Language
 
 The owner's restatement (`confirmation.md`) names what the language check refuses and admits, and that a run's output says which
 verdict it gave. Each statement here holds its expected value as a literal, and none reads a table or a function under proof for it:
-each is about `decision`, or about the text of `Report.labelOn` and `Verdict.proofLineOn`, the definitions that run, and of `Report.label` and `Verdict.proofLine`, from which they are made. So a table or a
+each is about {name (full := Regula.Language.decision)}`decision`, or about the text of {name (full := Regula.Language.Report.labelOn)}`Report.labelOn` and {name (full := Regula.Closed.Verdict.proofLineOn)}`Verdict.proofLineOn`, the definitions that run, and of {name (full := Regula.Language.Report.label)}`Report.label` and {name (full := Regula.Closed.Verdict.proofLine)}`Verdict.proofLine`, from which they are made. So a table or a
 sentence replaced by a constant fails this module's build. A theorem whose expected value came from the table could show only that the
 table agrees with itself.
 
 An example is stated over the parser's node kinds or the decision's input. The kinds and the shapes of the trees below are what Lean's
-own `parseCommand` and `parseHeader` gave for the owner's examples at v4.35.0 (`README.md`, "What was measured"). That those trees are what
+own {lit}`parseCommand` and {lit}`parseHeader` gave for the owner's examples at v4.35.0 (`README.md`, "What was measured"). That those trees are what
 the parser gives for a project's real text is H1, which these theorems do not reach. Admitting Regula's own core cannot be stated this way:
-it is the gate's run of the full gate on this checkout, an observation, and `core_configuration_admitted` states only the configuration's part.
+it is the gate's run of the full gate on this checkout, an observation, and {lit}`core_configuration_admitted` states only the configuration's part.
 -/
 
 namespace RegulaSpecification.Owner
@@ -21,7 +21,7 @@ open Lean (Name Syntax)
 open Regula.Language
 open RegulaSpecification.Language
 
-/-- `s` is at a position that the check reads of some file of the reading. -/
+/-- {name}`s` is at a position that the check reads of some file of the reading. -/
 def Holds (r : Reading) (s : Syntax) : Prop :=
   ∃ f ∈ r.files, ∃ t, (t = f.header ∨ t ∈ f.commands) ∧ Occurs s t
 
@@ -35,7 +35,7 @@ def Reached (r : Reading) : Prop :=
   ConfigClosed r ∧ ReadInFull r ∧ ¬ RequiresDependency r ∧ ¬ MathlibReached r ∧ Covered r
 
 /-- What refusing a construct is: the reading is never admitted, and once everything before the files is in order the outcome is
-`.refused`. Earlier in the decision it can be another refusal to admit, such as `.proofOnly` for a project with a dependency. -/
+{lean (type := "Regula.Language.Outcome")}`.refused`. Earlier in the decision it can be another refusal to admit, such as {lean (type := "Regula.Language.Outcome")}`.proofOnly` for a project with a dependency. -/
 def Refuses (r : Reading) : Prop :=
   decision r ≠ .admitted ∧ (Reached r → decision r = .refused)
 
@@ -49,8 +49,8 @@ theorem refuses_of_position {r : Reading} {f : FileRead} {s t : Syntax} (hf : f 
   · exact absurd (h6 r c g k m v o) hne
   · exact h5 r c g k m v o
 
-/-- The kinds that Lean's parser gives for `run_cmd`, `#eval`, `#guard`, `run_tac`, `by_elab`, `native_decide`, `macro`, `syntax`,
-`notation`, `elab`, `initialize` and the `macro` of `@[local macro k]`, in that order. -/
+/-- The kinds that Lean's parser gives for {lit}`run_cmd`, `#eval`, {lit}`#guard`, {tactic}`run_tac`, {lit}`by_elab`, {tactic}`native_decide`, `macro`, `syntax`,
+`notation`, `elab`, `initialize` and the `macro` of {attr}`@[local macro k]`, in that order. -/
 def namedKinds : List Name :=
   [`Lean.runCmd, `Lean.Parser.Command.eval, `Lean.Parser.Command.guardCmd, `Lean.Parser.Tactic.runTac,
     `Lean.byElab, `Lean.Parser.Tactic.nativeDecide, `Lean.Parser.Command.macro, `Lean.Parser.Command.syntax,
@@ -119,8 +119,8 @@ private abbrev byExample (tac : Syntax) : Syntax :=
 private abbrev plusItem (item : Name) : Syntax :=
   n `Lean.Parser.Tactic.optConfig [n `null [n `Lean.Parser.Tactic.configItem [n `Lean.Parser.Tactic.posConfigItem [a "+", i item]]]]
 
-/-- The library code that the owner's words name, and the one attribute of the form `@[name]` that Regula's core uses: `by simp`, `by omega`,
-`by decide +kernel`, `variable (n : Nat)`, `inductive T where | a deriving DecidableEq` and `@[expose] def f : Nat := 1`. -/
+/-- The library code that the owner's words name, and the one attribute of the form {lit}`@[name]` that Regula's core uses: {lit}`by simp`, {lit}`by omega`,
+{lit}`by decide +kernel`, {lit}`variable (n : Nat)`, {lit}`inductive T where | a deriving DecidableEq` and {lit}`@[expose] def f : Nat := 1`. -/
 def libraryCode : List Syntax :=
   [byExample (n `Lean.Parser.Tactic.simp [a "simp", n `Lean.Parser.Tactic.optConfig [e], e, e, e, e]),
     byExample (n `Lean.Parser.Tactic.omega [a "omega", n `Lean.Parser.Tactic.optConfig [e]]),
@@ -145,7 +145,7 @@ def coreKeys : List Name :=
     `leanOptions.warningAsError, `leanOptions.autoImplicit, `leanOptions.relaxedAutoImplicit, `leanOptions.linter.missingDocs,
     `lean_lib.name, `lean_lib.globs, `lean_exe.name, `lean_exe.root, `lean_exe.supportInterpreter]
 
-/-- A project of one `module` file that holds `commands`, with the pinned toolchain and the key paths `keys`. -/
+/-- A project of one {lit}`module` file that holds {name}`commands`, with the pinned toolchain and the key paths {name}`keys`. -/
 def readingOf (keys : List Name) (commands : List Syntax) : Reading where
   toolchainFile := some "leanprover/lean4:v4.35.0"
   leanConfig := false

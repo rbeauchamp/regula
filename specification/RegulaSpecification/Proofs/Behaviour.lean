@@ -6,7 +6,7 @@ import RegulaSpecification.Proofs.Standing
 
 The theorems about a run read only what the run received. What those answers mean is what Lean, Lake and the operating
 system do, and each such statement is a hypothesis of the theorem that needs it, re-read at each upgrade of Lean:
-`LakeBehaviour` (H3), `RealPathBehaviour` (H4) and `LakeSelection` (H5) here, and `RegulaSpecification.Language.LeanBehaviour` (H1 and H2).
+{lit}`LakeBehaviour` (H3), {lit}`RealPathBehaviour` (H4) and {lit}`LakeSelection` (H5) here, and {name}`RegulaSpecification.Language.LeanBehaviour` (H1 and H2).
 -/
 
 namespace RegulaSpecification.Effects
@@ -63,10 +63,10 @@ theorem full_exit_zero {t : List (Event L E)} {dir : FilePath} {p : Regula.Close
 
 /-- H3: what Lake's build compiles for the default targets. A hypothesis about what a function of Lake does, at v4.35.0:
 the modules of the default targets are those of each default library, and an admitted reading has no other default target
-(`Package.recCollectDefaultModules`, `Lake/Build/Package.lean:45-61`), and each other module is one that an import of what
-it compiles reaches, through `findModule?` (`Module.recFetchInput`, `Lake/Build/Module.lean:30-38`,
-`Lake/Config/Workspace.lean:279-280`), with the file `Module.leanFile`. A module of a default target may also have the file
-that `findModule?` gives for its name (`Compiled.resolved`). No proof reaches it, because Lake's build is Lake's. -/
+(`Package.recCollectDefaultModules`, {lit}`Lake/Build/Package.lean:45-61`), and each other module is one that an import of what
+it compiles reaches, through {lit}`findModule?` (`Module.recFetchInput`, {lit}`Lake/Build/Module.lean:30-38`,
+{lit}`Lake/Config/Workspace.lean:279-280`), with the file `Module.leanFile`. A module of a default target may also have the file
+that {lit}`findModule?` gives for its name ({name}`Compiled.resolved`). No proof reaches it, because Lake's build is Lake's. -/
 structure LakeBehaviour (headers : List (Name × Array Import)) (root : Root L)
     (modules : List (Name × FilePath)) where
   /-- Lake's build compiles this file for this module. -/
@@ -93,11 +93,11 @@ theorem read_what_lake_compiles {t : List (Event L E)} {dir tree : FilePath} {he
   exact ⟨f, hf, hm, i, md, tx, hra, hst⟩
 
 /-- H5: what Lake takes as the configuration of a directory, when its command line loads it. Lake's command line asks for a configuration with
-no extension (`defaultConfigFile`, `Lake/CLI/Main.lean:48`, `Lake/Load/Config.lean:44`), and takes `lakefile.lean` when that name resolves, and
-otherwise `lakefile.toml` when that name resolves (`resolveConfigFile`, `Lake/Load/Package.lean:109-117`). No proof reaches it, because Lake's
-load is Lake's. `Takes` is the file it reads as the configuration, as a name in the tree. -/
+no extension ({lit}`defaultConfigFile`, {lit}`Lake/CLI/Main.lean:48`, {lit}`Lake/Load/Config.lean:44`), and takes `lakefile.lean` when that name resolves, and
+otherwise `lakefile.toml` when that name resolves ({lit}`resolveConfigFile`, {lit}`Lake/Load/Package.lean:109-117`). No proof reaches it, because Lake's
+load is Lake's. {lit}`Takes` is the file it reads as the configuration, as a name in the tree. -/
 structure LakeSelection (t : List (Event L E)) (real : FilePath) where
-  /-- Lake takes this file as the configuration of the directory `real`. -/
+  /-- Lake takes this file as the configuration of the directory {name}`real`. -/
   Takes : FilePath → Prop
   /-- H5, read at a run whose file system answered that nothing has the preferred name. -/
   h5 : ∀ err path, (⟨.symlinkMetadata (real / "lakefile.lean"), .error err⟩ : Event L E) ∈ t →
@@ -110,9 +110,9 @@ theorem lakeSelection_model (real : FilePath) (err : IO.Error) :
     ⟨(parts · = parts (real / "lakefile.toml")), fun _ _ _ _ h => h⟩, rfl⟩
 
 /-- Under H5, Lake takes the configuration judged, at each consumer of a full run, on one answer for each real
-path: `real` is the real path of this run's tree, `path` has the components of `lakefile.toml` there, a read
-through `path` in the last part of the reading gave the text that Lake's parser read, and each file that
-Lake takes in `real` has those components. That the answer still holds when Lake runs is another process's
+path: {lit}`real` is the real path of this run's tree, {lit}`path` has the components of `lakefile.toml` there, a read
+through {lit}`path` in the last part of the reading gave the text that Lake's parser read, and each file that
+Lake takes in {lit}`real` has those components. That the answer still holds when Lake runs is another process's
 matter, which this leaves unsaid. -/
 theorem lake_takes_judged {t pre post : List (Event L E)} {dir : FilePath} {p : Regula.Closed.Profile} {c : UInt32} (h : FullRun t dir p c) {e : Event L E}
     (ht : t = pre ++ e :: post) (he : e.consumesTree = true) (hone : OneRealPath t) :
@@ -131,8 +131,8 @@ theorem lake_takes_judged {t pre post : List (Event L E)} {dir : FilePath} {p : 
   exact B.h5 err taken (hin (List.mem_append_right _ herr)) hno ht'
 
 
-/-- H4: what successful `IO.FS.realPath` responses in this trace mean. Lean documents that the result contains
-no symbolic links and coincides with POSIX `realpath` (`Init/System/IO.lean:874-881` at v4.35.0). The
+/-- H4: what successful {name}`IO.FS.realPath` responses in this trace mean. Lean documents that the result contains
+no symbolic links and coincides with POSIX {lit}`realpath` ({lit}`Init/System/IO.lean:874-881` at v4.35.0). The
 hypothesis relates crossings to those responses alone, and says nothing about the filesystem after the
 observation. -/
 structure RealPathBehaviour (t : List (Event L E)) where

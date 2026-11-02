@@ -4,13 +4,13 @@ import RegulaSpecification.Proofs.Load
 # Two facts about Lean, as hypotheses
 
 Each theorem here has a fact about Lean as a hypothesis, so its
-statement names what it rests on (`pass_occurs`, `claimedConstants_complete`).
+statement names what it rests on ({lit}`pass_occurs`, {lit}`claimedConstants_complete`).
 
-`Expr.getUsedConstants` runs an `opaque` function that `@[implemented_by]` replaces
-(`Lean/Util/FoldConsts.lean`), so no proof can read its body. `pass_iff` is therefore stated over
-what that function gives. `pass_occurs` states the RG1005 and loop parts of the floor over the constants that occur in
-an expression, `OccursIn`, which reads no Lean function, with the fact about Lean as a
-hypothesis. `UsedConstantsComplete` is that fact, so a reader sees it in the theorem's statement.
+{name (full := Lean.Expr.getUsedConstants)}`Expr.getUsedConstants` runs an `opaque` function that {attr}`@[implemented_by]` replaces
+({lit}`Lean/Util/FoldConsts.lean`), so no proof can read its body. {name (full := RegulaSpecification.Loader.pass_iff)}`pass_iff` is therefore stated over
+what that function gives. {lit}`pass_occurs` states the RG1005 and loop parts of the floor over the constants that occur in
+an expression, {lit}`OccursIn`, which reads no Lean function, with the fact about Lean as a
+hypothesis. {lit}`UsedConstantsComplete` is that fact, so a reader sees it in the theorem's statement.
 -/
 
 namespace RegulaSpecification
@@ -22,10 +22,10 @@ namespace Loader
 
 variable {f : Regula.Load.Facts} {roots : List Name} {p : Regula.Closed.Profile}
 
-/-- The constant `c` occurs in `e`: as a constant, or as the structure of a projection, the
-positions at which `Expr.foldConsts` visits one (`Lean/Util/FoldConsts.lean:36-42`). -/
+/-- The constant {name}`c` occurs in {lit}`e`: as a constant, or as the structure of a projection, the
+positions at which {name (full := Lean.Expr.foldConsts)}`Expr.foldConsts` visits one ({lit}`Lean/Util/FoldConsts.lean:36-42`). -/
 inductive OccursIn (c : Name) : Lean.Expr → Prop
-  /-- `c` itself. -/
+  /-- {name}`c` itself. -/
   | const (ls : List Lean.Level) : OccursIn c (.const c ls)
   /-- The structure of a projection. -/
   | projType (i : Nat) (b : Lean.Expr) : OccursIn c (.proj c i b)
@@ -47,23 +47,23 @@ inductive OccursIn (c : Name) : Lean.Expr → Prop
   /-- In the body of a binder. -/
   | forallBody (n : Name) (d : Lean.Expr) {b : Lean.Expr} (bi : Lean.BinderInfo) :
       OccursIn c b → OccursIn c (.forallE n d b bi)
-  /-- In the type of a `let`. -/
+  /-- In the type of a {lit}`let`. -/
   | letType (n : Name) {t : Lean.Expr} (v b : Lean.Expr) (nd : Bool) :
       OccursIn c t → OccursIn c (.letE n t v b nd)
-  /-- In the value of a `let`. -/
+  /-- In the value of a {lit}`let`. -/
   | letValue (n : Name) (t : Lean.Expr) {v : Lean.Expr} (b : Lean.Expr) (nd : Bool) :
       OccursIn c v → OccursIn c (.letE n t v b nd)
-  /-- In the body of a `let`. -/
+  /-- In the body of a {lit}`let`. -/
   | letBody (n : Name) (t v : Lean.Expr) {b : Lean.Expr} (nd : Bool) :
       OccursIn c b → OccursIn c (.letE n t v b nd)
   /-- Below metadata. -/
   | mdata (m : Lean.MData) {b : Lean.Expr} : OccursIn c b → OccursIn c (.mdata m b)
 
-/-- The fact about Lean that a floor over occurrences rests on: `Expr.getUsedConstants` lists each
+/-- The fact about Lean that a floor over occurrences rests on: {name (full := Lean.Expr.getUsedConstants)}`Expr.getUsedConstants` lists each
 constant that occurs in an expression. -/
 def UsedConstantsComplete : Prop := ∀ c e, OccursIn c e → c ∈ e.getUsedConstants
 
-/-- A constant occurs in the fields of a `ConstantInfo` that `Mentions` reads. -/
+/-- A constant occurs in the fields of a {name}`ConstantInfo` that {name}`Mentions` reads. -/
 def InfoOccurs : ConstantInfo → Name → Prop
   | .axiomInfo v, u => OccursIn u v.type
   | .defnInfo v, u => OccursIn u v.type ∨ OccursIn u v.value
@@ -74,14 +74,14 @@ def InfoOccurs : ConstantInfo → Name → Prop
   | .recInfo v, u => OccursIn u v.type
   | .inductInfo v, u => OccursIn u v.type ∨ u ∈ v.ctors
 
-/-- A constant occurs in the value of a `ConstantInfo`. -/
+/-- A constant occurs in the value of a {name}`ConstantInfo`. -/
 def ValueOccurs : ConstantInfo → Name → Prop
   | .defnInfo v, u => OccursIn u v.value
   | .thmInfo v, u => OccursIn u v.value
   | .opaqueInfo v, u => OccursIn u v.value
   | .axiomInfo _, _ | .quotInfo _, _ | .inductInfo _, _ | .ctorInfo _, _ | .recInfo _, _ => False
 
-/-- `c` reaches `e` through the constants that occur in what the names of the environment state. -/
+/-- {lit}`c` reaches {lit}`e` through the constants that occur in what the names of the environment state. -/
 inductive OccursReaches (f : Regula.Load.Facts) : Name → Name → Prop
   /-- A constant reaches itself. -/
   | refl (c : Name) : OccursReaches f c c
@@ -126,10 +126,10 @@ theorem pass_occurs (hused : UsedConstantsComplete)
   exact ⟨fun l hl ho => h7 l hl (valueMentions_of_occurs hused ho),
     fun a hr hax => h8 a (envReaches_of_occurs hused hr) hax⟩
 
-/-- Each pair of `constNames.zip constants` of each claimed module is one that `Facts.claimedConstants` lists, and so one that
-`pass_held` reaches, when the header holds data for each of its modules. Lean builds `moduleData`
-and `modules` from one array (`Lean/Environment.lean:2313-2317` and `2369-2371`), so this is the
-fact about Lean, as the hypothesis `hsize`. -/
+/-- Each pair of {lit}`constNames.zip constants` of each claimed module is one that {name (full := Regula.Load.Facts.claimedConstants)}`Facts.claimedConstants` lists, and so one that
+{name}`pass_held` reaches, when the header holds data for each of its modules. Lean builds {name (full := Lean.EnvironmentHeader.moduleData)}`moduleData`
+and {name (full := Lean.EnvironmentHeader.modules)}`modules` from one array ({lit}`Lean/Environment.lean:2313-2317` and {lit}`2369-2371`), so this is the
+fact about Lean, as the hypothesis {name}`hsize`. -/
 theorem claimedConstants_complete (hsize : f.env.header.moduleData.size = f.modules.size) {k : Nat}
     {lm : Regula.Load.LoadedModule} (hk : f.modules[k]? = some lm) (hc : lm.claimed = true) :
     ∃ data, f.env.header.moduleData[k]? = some data ∧

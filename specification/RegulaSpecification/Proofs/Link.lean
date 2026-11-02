@@ -4,15 +4,15 @@ import RegulaSpecification.CasesGate
 /-!
 # The link from the implementation's input to the specification's
 
-The checker runs over `Regula.Closed.Input`, and the specification states each rule over
-`RegulaSpecification.Input`: two types with the same data, so that the specification is written
-independently of the code. `toSpec` carries an input of the checker to the specification's, and each
-`rg100N_exact` is stated about the function that the checker runs on an input `i` and the predicate of the
-specification at `toSpec i`.
+The checker runs over {name}`Regula.Closed.Input`, and the specification states each rule over
+{name}`RegulaSpecification.Input`: two types with the same data, so that the specification is written
+independently of the code. {lit}`toSpec` carries an input of the checker to the specification's, and each
+{lit}`rg100N_exact` is stated about the function that the checker runs on an input {lit}`i` and the predicate of the
+specification at {lit}`toSpec i`.
 
-`ofSpec` goes the other way, so that the admission of the checker is a function of the specification's
-input, and `ofAdmitted` carries a well-formed input, so that a function of the checker is a checker of the
-specification's input (`Checker`) and can meet a rule's intent record.
+{lit}`ofSpec` goes the other way, so that the admission of the checker is a function of the specification's
+input, and {lit}`ofAdmitted` carries a well-formed input, so that a function of the checker is a checker of the
+specification's input ({name (full := RegulaSpecification.Checker)}`Checker`) and can meet a rule's intent record.
 -/
 
 namespace RegulaSpecification

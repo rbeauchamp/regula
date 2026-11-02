@@ -3,7 +3,7 @@ import RegulaSpecification.Proofs.Foundation
 /-!
 # Each rule function meets its intent record
 
-`rgN_cases` applies the rule's witnesses (`Witnessed`) to the function itself: it reports the case that the
+{lit}`rgN_cases` applies the rule's witnesses ({name (full := RegulaSpecification.Witnessed)}`Witnessed`) to the function itself: it reports the case that the
 rule must refuse, and it does not report the case that the rule must admit. So a function that reports
 nothing, or everything, cannot be the one that runs.
 -/

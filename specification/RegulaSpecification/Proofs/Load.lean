@@ -5,23 +5,23 @@ import RegulaSpecification.Proofs.Verdict
 /-!
 # The loader, against the environment
 
-`Regula.Load.Facts.input` is the pure function that fills the closed input from a loaded environment, and
-`Regula.Closed.Input.report` the verdict that the checker gives on that input. `pass_iff` relates the two to
-the environment: for every environment and `Facts` on which the loader gives an input, a pass is exactly
-`EnvForm` and `EnvFloor`, two statements that mention no field of the input. Each constant is read from
+{name}`Regula.Load.Facts.input` is the pure function that fills the closed input from a loaded environment, and
+{name}`Regula.Closed.Input.report` the verdict that the checker gives on that input. {lit}`pass_iff` relates the two to
+the environment: for every environment and {name (full := Regula.Load.Facts)}`Facts` on which the loader gives an input, a pass is exactly
+{lit}`EnvForm` and {lit}`EnvFloor`, two statements that mention no field of the input. Each constant is read from
 `Environment.constants.map₁` by name. What a name mentions, and whether it names an axiom, is read from
-the fields of that `ConstantInfo` and of each constant of the name that any loaded module's own data states
-(`EnvMentions`, `EnvAxiom`, `mem_usesIn`), and `mem_stated` anchors those in `header.moduleData`. So an
+the fields of that {name (full := Lean.ConstantInfo)}`ConstantInfo` and of each constant of the name that any loaded module's own data states
+({lit}`EnvMentions`, {lit}`EnvAxiom`, {lit}`mem_usesIn`), and {lit}`mem_stated` anchors those in `header.moduleData`. So an
 axiom or a chain of mentions that Lean's import drops still counts. On a pass, each axiom reached that way
-from a constant of a claimed module is one that the profile admits (`EnvFloor`). `pass_held` states a pass
-of each constant that `Facts.claimedConstants` lists, as that module's own `.olean` states it, also when
+from a constant of a claimed module is one that the profile admits ({lit}`EnvFloor`). {lit}`pass_held` states a pass
+of each constant that {name (full := Regula.Load.Facts.claimedConstants)}`Facts.claimedConstants` lists, as that module's own {lit}`.olean` states it, also when
 Lean's import replaced it.
 
 So a loader that dropped a constant, a field or a mention would fail these proofs in the gate's build of
-this package. What they leave assumed is Lean's and Lake's behaviour: that `map₁` holds the constants that
-`Lean.importModules` keeps and `header.moduleData` what each `.olean` states, what each query of the
-environment returns, that `Expr.getUsedConstants` lists each constant of an expression, that `findOLean`
-finds each `.olean`, and that Lake names the modules of the default targets and the two library directories.
+this package. What they leave assumed is Lean's and Lake's behaviour: that {name (full := Lean.SMap.map₁)}`map₁` holds the constants that
+{name}`Lean.importModules` keeps and `header.moduleData` what each {lit}`.olean` states, what each query of the
+environment returns, that {name (full := Lean.Expr.getUsedConstants)}`Expr.getUsedConstants` lists each constant of an expression, that {name (full := Lean.findOLean)}`findOLean`
+finds each {lit}`.olean`, and that Lake names the modules of the default targets and the two library directories.
 The specification's trusted base lists them.
 -/
 
@@ -35,7 +35,7 @@ namespace Loader
 variable {f : Regula.Load.Facts} {roots : List Name} {p : Regula.Closed.Profile}
   {i : Regula.Closed.Input}
 
-/-- What a constant mentions, read from the fields of its `ConstantInfo`: the type and value of a
+/-- What a constant mentions, read from the fields of its {name}`ConstantInfo`: the type and value of a
 definition, theorem or opaque constant, the type of an axiom, constructor or recursor, the type and
 constructors of an inductive type, and nothing of a quotient. -/
 def Mentions : ConstantInfo → Name → Prop
@@ -169,22 +169,22 @@ theorem mem_stated {n : Name} {v : ConstantInfo} :
   simp only [Array.foldl_toList, Array.mem_toList_iff] at h
   simpa [Regula.Load.Facts.stated] using h
 
-/-- A constant is an axiom, by the constructor of its `ConstantInfo`. -/
+/-- A constant is an axiom, by the constructor of its {name}`ConstantInfo`. -/
 def AxiomInfo (k : ConstantInfo) : Prop := ∃ w, k = .axiomInfo w
 
-/-- What the name `c` mentions in the environment: what the constant that the environment keeps
+/-- What the name {name}`c` mentions in the environment: what the constant that the environment keeps
 mentions, and what each constant of that name that a loaded module's own data states mentions. -/
 def EnvMentions (f : Regula.Load.Facts) (c u : Name) : Prop :=
   ∃ k, f.env.constants.map₁[c]? = some k ∧
     (Mentions k u ∨ ∃ v ∈ f.stated.getD c [], Mentions v u)
 
-/-- The name `a` names an axiom in the environment: the constant that the environment keeps is one,
+/-- The name {name}`a` names an axiom in the environment: the constant that the environment keeps is one,
 or a constant of that name that a loaded module's own data states is one. -/
 def EnvAxiom (f : Regula.Load.Facts) (a : Name) : Prop :=
   ∃ k, f.env.constants.map₁[a]? = some k ∧
     (AxiomInfo k ∨ ∃ v ∈ f.stated.getD a [], AxiomInfo v)
 
-/-- `c` reaches `e` through what the names of the environment mention. -/
+/-- {lit}`c` reaches {lit}`e` through what the names of the environment mention. -/
 inductive EnvReaches (f : Regula.Load.Facts) : Name → Name → Prop
   /-- A constant reaches itself. -/
   | refl (c : Name) : EnvReaches f c c
@@ -199,11 +199,11 @@ structure EnvForm (f : Regula.Load.Facts) : Prop where
   /-- At least one module is claimed. -/
   claims : f.claimed ≠ []
 
-/-- The constant `a` is one of the toolchain's: the module that holds it lies in its library. -/
+/-- The constant {name}`a` is one of the toolchain's: the module that holds it lies in its library. -/
 def EnvToolchain (f : Regula.Load.Facts) (a : Name) : Prop :=
   ∃ m, f.info? a = some m ∧ m.inToolchain = true
 
-/-- Profile `p` admits the axiom `a` of the environment: one of Lean's three, the toolchain's own
+/-- Profile {name}`p` admits the axiom {lit}`a` of the environment: one of Lean's three, the toolchain's own
 constant of that name, and in the profile's set. -/
 def EnvAdmits (f : Regula.Load.Facts) : Regula.Closed.Profile → Name → Prop
   | .kernelOnly, _ => False
@@ -212,7 +212,7 @@ def EnvAdmits (f : Regula.Load.Facts) : Regula.Closed.Profile → Name → Prop
     (a = ``propext ∨ a = ``Quot.sound ∨ a = ``Classical.choice) ∧ EnvToolchain f a
 
 /-- The form of a recursion helper: a partial, safe-flagged constant `b._unsafe_rec` with no
-`@[implemented_by]` and not `@[extern]`, beside a safe, total definition `b` of its module of which
+{attr}`@[implemented_by]` and not {attr}`@[extern]`, beside a safe, total definition {lit}`b` of its module of which
 the same two hold, and of whose name no loaded module states an axiom. -/
 def EnvHelper (f : Regula.Load.Facts) (n : Name) (info : ConstantInfo) (m : Name) : Prop :=
   info.isPartial = true ∧ info.isUnsafe = false ∧
@@ -228,9 +228,9 @@ environment: no loaded module states an axiom of its name (RG1001). When it is u
 has a recursion helper's name, it has the form of a recursion helper (RG1006), and its value
 mentions no loop construct of Lean (RG1006). Each axiom that it reaches, through what any loaded
 module's own
-data states, is one that the profile admits (RG1005), which also excludes `sorryAx` (RG1002), a
-native proof's axiom (RG1004) and every other axiom (RG1003): `rg1005_of_hole`,
-`rg1005_of_compiler`, `rg1005_of_unknown`. -/
+data states, is one that the profile admits (RG1005), which also excludes {name}`sorryAx` (RG1002), a
+native proof's axiom (RG1004) and every other axiom (RG1003): {name}`rg1005_of_hole`,
+{name}`rg1005_of_compiler`, {name}`rg1005_of_unknown`. -/
 def EnvFloor (f : Regula.Load.Facts) (p : Regula.Closed.Profile) : Prop :=
   ∀ n info m, f.env.constants.map₁[n]? = some info → f.moduleOf? n = some m → m ∈ f.claimed →
     ¬ EnvAxiom f n ∧
@@ -330,7 +330,7 @@ structure Loaded (f : Regula.Load.Facts) (roots : List Name) (p : Regula.Closed.
   profile : i.profile = p
   /-- The claimed modules are those of the facts. -/
   modules : i.modules = f.claimed
-  /-- Each module of `roots` is claimed. -/
+  /-- Each module of {name}`roots` is claimed. -/
   roots : ∀ r ∈ roots, r ∈ f.claimed
   /-- Each constant of the input is a constant of the environment, with the fields it gives. -/
   sound : ∀ d ∈ i.decls, ∃ info m, f.env.constants.map₁[d.name]? = some info ∧
@@ -852,7 +852,7 @@ theorem profileOf_eq_some {text : String} {q : Regula.Closed.Profile}
   subst hs
   cases q <;> simp [Regula.Closed.Profile.spelling]
 
-/-- `below` is a test on components: the directory's are a proper prefix of the path's. It does not resolve `..`, and it does not
+/-- {name (full := Regula.Load.below)}`below` is a test on components: the directory's are a proper prefix of the path's. It does not resolve `..`, and it does not
 tell an absolute path from a relative one. -/
 theorem below_iff (dir path : System.FilePath) :
     Regula.Load.below dir path = true ↔
@@ -860,7 +860,7 @@ theorem below_iff (dir path : System.FilePath) :
         Regula.Load.parts dir ≠ Regula.Load.parts path := by
   simp [Regula.Load.below, List.isPrefixOf_iff_prefix]
 
-/-- `exactBelow` is a test on the components of the three paths: the real path's are the path's, and the directory's are a prefix of them,
+/-- {name (full := Regula.Load.exactBelow)}`exactBelow` is a test on the components of the three paths: the real path's are the path's, and the directory's are a prefix of them,
 so at or below. It does not tell an absolute path from a relative one. -/
 theorem exactBelow_iff (dir path real : System.FilePath) :
     Regula.Load.exactBelow dir path real = true ↔
@@ -868,8 +868,8 @@ theorem exactBelow_iff (dir path real : System.FilePath) :
         Regula.Load.parts dir <+: Regula.Load.parts path := by
   simp [Regula.Load.exactBelow, List.isPrefixOf_iff_prefix]
 
-/-- A path with a `..` passes `exactBelow` against no real path that has none, so a `..` needs no test of
-its own. That `IO.FS.realPath` gives a path with no `..` is the operating system's. -/
+/-- A path with a `..` passes {name (full := Regula.Load.exactBelow)}`exactBelow` against no real path that has none, so a `..` needs no test of
+its own. That {name}`IO.FS.realPath` gives a path with no `..` is the operating system's. -/
 theorem exactBelow_no_parent (dir path real : System.FilePath)
     (h : Regula.Load.exactBelow dir path real = true) (hr : ".." ∉ Regula.Load.parts real) :
     ".." ∉ Regula.Load.parts path := by
@@ -877,10 +877,10 @@ theorem exactBelow_no_parent (dir path real : System.FilePath)
   rw [((exactBelow_iff dir path real).mp h).1] at hr
   exact hr hp
 
-/-- What the loader asks of each constant of a claimed module's own `.olean` that the environment does not show to the rules
-(`Facts.shown`), in the terms of the environment: a safe theorem with no recursion helper's name, whose value mentions no
+/-- What the loader asks of each constant of a claimed module's own {lit}`.olean` that the environment does not show to the rules
+({name (full := Regula.Load.Facts.shown)}`Facts.shown`), in the terms of the environment: a safe theorem with no recursion helper's name, whose value mentions no
 loop construct, and each constant it mentions is held and reaches only axioms that the profile admits. Lean's import
-replaces such a constant (`Facts.stated`), so no rule reads it as a subject. -/
+replaces such a constant ({name (full := Regula.Load.Facts.stated)}`Facts.stated`), so no rule reads it as a subject. -/
 def EnvUnshown (f : Regula.Load.Facts) (p : Regula.Closed.Profile) : Prop :=
   ∀ x ∈ f.claimedConstants, f.shown x = false →
     Regula.Load.kindOf x.2.2 = .theorem ∧ Regula.Load.safetyOf x.2.2 = .safe ∧
@@ -888,11 +888,11 @@ def EnvUnshown (f : Regula.Load.Facts) (p : Regula.Closed.Profile) : Prop :=
     ∀ u, Mentions x.2.2 u → (∃ k, f.env.constants.map₁[u]? = some k) ∧
       ∀ a, EnvReaches f u a → EnvAxiom f a → EnvAdmits f p a
 
-/-- What a build must be for the loader and the rules to pass it, in the terms of the `Facts` and the roots:
-each module of `roots` is claimed, each constant has a module, and the environment has `EnvForm`, `EnvFloor` and
-`EnvUnshown`. -/
+/-- What a build must be for the loader and the rules to pass it, in the terms of the {name (full := Regula.Load.Facts)}`Facts` and the roots:
+each module of {name}`roots` is claimed, each constant has a module, and the environment has {name}`EnvForm`, {name}`EnvFloor` and
+{name}`EnvUnshown`. -/
 structure LoadFloor (f : Regula.Load.Facts) (roots : List Name) (p : Regula.Closed.Profile) : Prop where
-  /-- Each module of `roots` is claimed. -/
+  /-- Each module of {name}`roots` is claimed. -/
   roots : ∀ r ∈ roots, r ∈ f.claimed
   /-- Each constant has a module. -/
   placed : ∀ n info, f.env.constants.map₁[n]? = some info → ∃ m, f.info? n = some m

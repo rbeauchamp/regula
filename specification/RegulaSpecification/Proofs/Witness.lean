@@ -3,14 +3,14 @@ import RegulaSpecification.Proofs.Shell
 /-!
 # A project that the reader admits
 
-`admits_a_project` is the record's witness, under hypotheses: for paths that meet `WitnessPaths`, there is a
-trace on which the check that runs admits. The proof's trace is that of a project of one module `Good` in
+{lit}`admits_a_project` is the record's witness, under hypotheses: for paths that meet {lit}`WitnessPaths`, there is a
+trace on which the check that runs admits. The proof's trace is that of a project of one module {lit}`Good` in
 the closed language.
 
-The tests of a path read `System.FilePath`, whose separator depends on `System.Platform.isWindows`, an
-`opaque` constant, so `WitnessPaths` states what those tests give on the paths of the project as hypotheses,
+The tests of a path read {name}`System.FilePath`, whose separator depends on {name}`System.Platform.isWindows`, an
+`opaque` constant, so {lit}`WitnessPaths` states what those tests give on the paths of the project as hypotheses,
 and no theorem discharges them. Observed: the gate's run on Regula's own checkout takes the same branches on
-real paths, and its run ends with `full verdict: pass`.
+real paths, and its run ends with {lit}`full verdict: pass`.
 -/
 
 namespace RegulaSpecification.Effects
@@ -24,7 +24,7 @@ open Regula.Reader
 open Regula.Shell
 open RegulaSpecification.Language
 
-/-- The events of a program, for the answers `f`, one function of the operation. -/
+/-- The events of a program, for the answers {name}`f`, one function of the operation. -/
 def traceWith {L E α : Type} (f : (o : Op L E) → Resp o) : Prog L E α → List (Event L E)
   | .done _ => []
   | .ask o next => ⟨o, f o⟩ :: traceWith f (next (f o))
@@ -59,7 +59,7 @@ structure WitnessPaths where
   leanPath : String
   /-- The library directory of Lake. -/
   lakeLib : FilePath
-  /-- The file that Lake names for the module `Good`. -/
+  /-- The file that Lake names for the module {lit}`Good`. -/
   file : FilePath
   /-- Its components below the tree. -/
   rel : List String
@@ -67,11 +67,11 @@ structure WitnessPaths where
   toolchainDir : FilePath
   /-- The root package's library directory. -/
   rootLib : FilePath
-  /-- An `.olean`. -/
+  /-- An {lit}`.olean`. -/
   olean : FilePath
   /-- The project and the tree lie apart. -/
   apart : apart project tree = true
-  /-- `lean-toolchain` lies at itself below the project. -/
+  /-- {lit}`lean-toolchain` lies at itself below the project. -/
   toolchainExact : ExactlyBelow project (project / "lean-toolchain") (project / "lean-toolchain")
   /-- `lakefile.toml` lies at itself below the project. -/
   tomlExact : ExactlyBelow project (project / "lakefile.toml") (project / "lakefile.toml")
@@ -79,7 +79,7 @@ structure WitnessPaths where
   tomlInTree : ¬ OutsideTree tree (tree / "lakefile.toml")
   /-- The tree's copies lie below it. -/
   toolchainInTree : ¬ OutsideTree tree (tree / "lean-toolchain")
-  /-- The module's file lies below the tree, at `rel`. -/
+  /-- The module's file lies below the tree, at {lit}`rel`. -/
   fileRel : TreeRelative (parts tree) (parts file) rel
   /-- Its directory too. -/
   fileInTree : ¬ OutsideTree tree file
@@ -90,7 +90,7 @@ structure WitnessPaths where
   /-- An empty log holds no error. -/
   noErrors : ({} : MessageLog).hasErrors = false
 
-/-- What the workspace of the witness holds: one default target `Good`, which `findLib` treats as a library. -/
+/-- What the workspace of the witness holds: one default target {lit}`Good`, which {name (full := Regula.Effect.Root.findLib)}`findLib` treats as a library. -/
 def witnessRoot (w : WitnessPaths) : Root Unit where
   sourceDirs := []
   libraries := []
@@ -105,7 +105,7 @@ def witnessRoot (w : WitnessPaths) : Root Unit where
   rootLib := w.rootLib
 
 /-- The answers of the witness: every read gives the pinned text, every parse a file in the closed language with no
-import, Lean's import gives `env`, and nothing fails. -/
+import, Lean's import gives {name}`env`, and nothing fails. -/
 def answers (w : WitnessPaths) (env : Lean.Environment) : (o : Op Unit Unit) → Resp o
   | .leanVersion => Regula.Closed.pinnedLean
   | .getEnv _ => some w.leanPath

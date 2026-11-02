@@ -138,7 +138,7 @@ def verdict : Regula.Closed.Verdict → Verdict
   | .fail => .fail
   | .incomplete => .incomplete
 
-/-- The checker's verdict over the specification's input, with `none` for a build that the shell
+/-- The checker's verdict over the specification's input, with {name}`none` for a build that the shell
 cannot load. -/
 def runChecker : Option Input → Verdict
   | none => .incomplete

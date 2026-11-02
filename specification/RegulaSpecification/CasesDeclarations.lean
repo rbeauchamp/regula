@@ -35,7 +35,7 @@ theorem name_mem {i : Input} {c : Name} {P : Decl → Prop} (h : ∃ d ∈ i.dec
   obtain ⟨d, hd, rfl, -⟩ := h
   exact List.mem_map_of_mem hd
 
-/-- The theorem `Good.t` of `base`. -/
+/-- The theorem `Good.t` of {name}`base`. -/
 def tDecl : Decl := plain `Good.t `Good .theorem [``propext]
 
 theorem t_mem : tDecl ∈ base.decls := by simp [tDecl, base, baseDecls]
@@ -77,7 +77,7 @@ theorem rg1001_adequate : O2 rg1001 ∧ O2Run rg1001 ∧ O3 rg1001 ∧ O4 rg1001
 
 theorem rg1001_noisy : ¬ rg1001.Meets w1001.candidates := noisy_fails w1001 t_mem_support
 
-/-- A theorem that uses `sorryAx`. -/
+/-- A theorem that uses {name}`sorryAx`. -/
 def hole : List Decl :=
   [toolchain ``sorryAx .axiom, plain `Good.h `Good .theorem [``sorryAx]]
 

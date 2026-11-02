@@ -6,12 +6,12 @@ import RegulaSpecification.Proofs.Floor
 /-!
 # A pass is owed
 
-What the record of a run (`RegulaSpecification.Effects.programRecord`) requires of every program that meets
+What the record of a run ({name}`RegulaSpecification.Effects.programRecord`) requires of every program that meets
 it, by the record alone. It reads no program, so it holds of each subject and not only of the one that runs.
 
-`FullOwed` is the absence of each reason, so it says nothing by itself of who ought to pass, and no
+{lit}`FullOwed` is the absence of each reason, so it says nothing by itself of who ought to pass, and no
 statement here says that: a refusal is true of what the run was answered, and a project with no refusal, on
-which the rules hold, passes. Preparation is supplied by `PlainRun` and `FullRun`, not by assuming reasons
+which the rules hold, passes. Preparation is supplied by {name (full := RegulaSpecification.Effects.PlainRun)}`PlainRun` and {name (full := RegulaSpecification.Effects.FullRun)}`FullRun`, not by assuming reasons
 absent: their exact phase relations constrain every copy, load, command, lookup and import, including failed
 attempts. The premises concern responses and content, never a branch of a program. No consistency of
 responses is needed for either implication to a pass.
@@ -255,7 +255,7 @@ theorem BuildRead.mono {root : Root L} {f roots} (h : BuildRead T root f roots) 
 end Mono
 
 /-- What a run of the proof verdict receives on a build that it owes a pass: no reason in the closed set holds, and each
-environment that the run read of the workspace in the current directory has `BuildAnswer.Floor`. -/
+environment that the run read of the workspace in the current directory has {name}`BuildAnswer.Floor`. -/
 structure PlainOwed (t : List (Event L E)) (p : Regula.Closed.Profile) : Prop where
   /-- Nothing that the load needs failed, and the search path starts with that of the workspace in the current directory. -/
   noReason : ¬ PlainReason t
@@ -264,7 +264,7 @@ structure PlainOwed (t : List (Event L E)) (p : Regula.Closed.Profile) : Prop wh
 
 /-- What a run of the full gate receives on a build that it owes a pass: the run has its tree, nothing keeps the project from
 being admitted, no build or replay was rejected, nothing that the load of the result needs failed, and each
-build that the run read has `BuildAnswer.Floor`. -/
+build that the run read has {name}`BuildAnswer.Floor`. -/
 structure FullOwed (t : List (Event L E)) (dir : FilePath) (p : Regula.Closed.Profile) : Prop where
   /-- The tree. -/
   tree : ∀ e, (⟨.createTempDir, .error e⟩ : Event L E) ∉ t
@@ -369,7 +369,7 @@ theorem run_full_owed {w : List String → Prog L E UInt32} (hw : RunMeets w) {t
   cases he'
   exact full_owed hf owed
 
-/-- A program that asks which Lean this is and which run is asked for, reads the environment variable `name`,
+/-- A program that asks which Lean this is and which run is asked for, reads the environment variable {Lean.Doc.name}`name`,
 and says that the proof verdict is incomplete. -/
 def manufacturer (name : String) (_ : List String) : Prog L E UInt32 :=
   .ask .leanVersion fun _ =>

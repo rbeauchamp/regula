@@ -11,7 +11,7 @@ open Regula.Effect
 
 variable {L E : Type}
 
-/-- What the acts of `t` leave at the path with the components `p`, from `held`. -/
+/-- What the acts of {name}`t` leave at the path with the components {name}`p`, from {name}`held`. -/
 def leavesFrom (t : List (Event L E)) (p : List String) (held : Option String) : Option String :=
   t.foldl (fun held e => e.leaves p held) held
 
@@ -25,7 +25,7 @@ theorem written_append (a b : List (Event L E)) (p : List String) :
     written (a ++ b) p = leavesFrom b p (written a p) :=
   leavesFrom_append a b p none
 
-/-- What a list of writes leaves at the path with the components `p`, from `held`. -/
+/-- What a list of writes leaves at the path with the components {name}`p`, from {name}`held`. -/
 def writesOf (l : List (FilePath × String)) (p : List String) (held : Option String) : Option String :=
   l.foldl (fun held x => if parts x.1 = p then some x.2 else held) held
 
@@ -71,7 +71,7 @@ theorem writesOf_mem {l : List (FilePath × String)} {p : List String} {v : Stri
       · exact .inl he
       · exact .inr ⟨x, List.mem_cons_of_mem _ hx, h1, h2⟩
 
-/-- The segment `t` acts on files exactly as the list `l` of writes does. -/
+/-- The segment {name}`t` acts on files exactly as the list {name}`l` of writes does. -/
 def LeavesAs (t : List (Event L E)) (l : List (FilePath × String)) : Prop :=
   ∀ p held, leavesFrom t p held = writesOf l p held
 

@@ -2,14 +2,14 @@ import Regula.DiagnosticsGate
 import Regula.Shell
 
 /-!
-# The local gate, at `IO`
+# The local gate, at {name}`IO`
 
-The gate program is the merge gate, and a defect in it that let a broken change pass would be serious. `runSteps_io`,
-`runIn_zero` and `runLocal_zero` prove, of the definitions at `IO`, from any state of the world, that it gives 0 only when it
-wrote each file of `checkerFiles` to the checker's directory joined with that file, with the bytes it read, and for each step
-of `localSteps` there are worlds in which it spawned that step's own `lake` command and that child's wait gave 0 (`StepRan`, `runStep_ran`), with that directory as the checker and the working directory as the project. `BaseIO` and `IO` are state monads in Lean's own definition (`Init/System/ST.lean`), so
-no assumption about the order of effects is needed for this. `localSteps_eq`, `localSteps_full`, `stepRequest` and `runStep_spawns` state what each step asks the operating system to start, and what it does with that request stays trusted. A defect that only stops the gate visibly, such as a failed
-copy or removal, which `IO` turns into a nonzero exit, is accepted risk.
+The gate program is the merge gate, and a defect in it that let a broken change pass would be serious. {lit}`runSteps_io`,
+{lit}`runIn_zero` and {lit}`runLocal_zero` prove, of the definitions at {name}`IO`, from any state of the world, that it gives 0 only when it
+wrote each file of {name (full := Regula.DiagnosticsGate.checkerFiles)}`checkerFiles` to the checker's directory joined with that file, with the bytes it read, and for each step
+of {name (full := Regula.DiagnosticsGate.localSteps)}`localSteps` there are worlds in which it spawned that step's own {lit}`lake` command and that child's wait gave 0 ({lit}`StepRan`, {lit}`runStep_ran`), with that directory as the checker and the working directory as the project. {name}`BaseIO` and {name}`IO` are state monads in Lean's own definition ({lit}`Init/System/ST.lean`), so
+no assumption about the order of effects is needed for this. {lit}`localSteps_eq`, {lit}`localSteps_full`, {lit}`stepRequest` and {lit}`runStep_spawns` state what each step asks the operating system to start, and what it does with that request stays trusted. A defect that only stops the gate visibly, such as a failed
+copy or removal, which {name}`IO` turns into a nonzero exit, is accepted risk.
 -/
 
 namespace RegulaSpecification.GateProgram
@@ -95,9 +95,9 @@ theorem runSteps_io (run : Step → IO UInt32) (steps : List Step) (w w' : Void 
         · exact ih w₁ h s hs
       · cases h
 
-/-- The one process that a step names, stated apart from `runStep`: the program that `PATH` selects under the name `lake`, with the
-step's arguments, in the step's directory, with no standard input, no inherited Lean search path, Lake's artifact cache off, and `REGULA_FULL`
-bound to the step's project, where `none` removes an inherited value (`IO.Process.SpawnArgs.env`, which is Lean's). -/
+/-- The one process that a step names, stated apart from {name}`runStep`: the program that {lit}`PATH` selects under the name {lit}`lake`, with the
+step's arguments, in the step's directory, with no standard input, no inherited Lean search path, Lake's artifact cache off, and {lit}`REGULA_FULL`
+bound to the step's project, where {name}`none` removes an inherited value ({name}`IO.Process.SpawnArgs.env`, which is Lean's). -/
 def stepRequest (step : Step) : IO.Process.SpawnArgs where
   cmd := "lake"
   args := step.arguments.toArray
@@ -105,8 +105,8 @@ def stepRequest (step : Step) : IO.Process.SpawnArgs where
   stdin := .null
   env := #[("LEAN_PATH", none), ("LEAN_SRC_PATH", none), ("LAKE_ARTIFACT_CACHE", some "false"), ("REGULA_FULL", step.full)]
 
-/-- What a result of a step is: from `w` the step announced itself, spawned exactly its request, and `code` is what the wait of that child gave.
-This says nothing of which program `PATH` selects, or of what Lake's exit code means, which are the operating system's and Lake's. -/
+/-- What a result of a step is: from {name}`w` the step announced itself, spawned exactly its request, and {name}`code` is what the wait of that child gave.
+This says nothing of which program {lit}`PATH` selects, or of what Lake's exit code means, which are the operating system's and Lake's. -/
 def StepRan (step : Step) (code : UInt32) (w w' : Void IO.RealWorld) : Prop :=
   ∃ w₁ w₂, ∃ child : IO.Process.Child (stepRequest step).toStdioConfig,
     announce step w = .ok () w₁ ∧ IO.Process.spawn (stepRequest step) w₁ = .ok child w₂ ∧ child.wait w₂ = .ok code w'
@@ -223,9 +223,9 @@ theorem checkerFiles_io (w w' : Void IO.RealWorld) (files : List System.FilePath
       subst hw'
       exact ⟨sources, others, w₁, rfl, hr, hf.symm⟩
 
-/-- This says nothing of where `target / file` lies: `/` gives `file` itself for an absolute `file`
-(`FilePath.join`, `Init/System/FilePath.lean:126-130` at v4.35.0), so such a copy writes to the file it
-read, and a relative `file` with `..` can leave `target`. -/
+/-- This says nothing of where {lean}`target / file` lies: {lit}`/` gives {name}`file` itself for an absolute {name}`file`
+({name (full := System.FilePath.join)}`FilePath.join`, {lit}`Init/System/FilePath.lean:126-130` at v4.35.0), so such a copy writes to the file it
+read, and a relative {name}`file` with `..` can leave {name}`target`. -/
 theorem copyFile_io (target file : System.FilePath) (w w' : Void IO.RealWorld) (h : copyFile target file w = .ok () w') :
     ∃ bytes w₁ w₂, IO.FS.readBinFile file w₁ = .ok bytes w₂ ∧
       IO.FS.writeBinFile (target / file) bytes w₂ = .ok () w' := by
@@ -255,7 +255,7 @@ theorem copyFile_io (target file : System.FilePath) (w w' : Void IO.RealWorld) (
       rw [io_bind_ok hm] at h
       exact hrest w₁ h
 
-/-- A `file` with `..` can name a path outside `target`, so this is no statement of containment. -/
+/-- A {name}`file` with `..` can name a path outside {name}`target`, so this is no statement of containment. -/
 theorem join_relative (target file : System.FilePath) (h : file.isAbsolute = false) :
     target / file = System.FilePath.mk (target.toString ++ System.FilePath.pathSeparator.toString ++ file.toString) := by
   show System.FilePath.join target file = _
@@ -294,8 +294,8 @@ theorem copyChecker_io (target : System.FilePath) (w w' : Void IO.RealWorld) (h 
     rw [io_bind_ok hc] at h
     exact ⟨files, w₁, rfl, copyAll_io target files w₁ w' h⟩
 
-/-- That a step builds what was written and checks this checkout rests on what `localSteps` names, the file
-system and Lake, which this does not state, and so do which program `PATH` selects and what Lake's exit code
+/-- That a step builds what was written and checks this checkout rests on what {name}`localSteps` names, the file
+system and Lake, which this does not state, and so do which program {lit}`PATH` selects and what Lake's exit code
 means. -/
 theorem runLocal_zero (w w' : Void IO.RealWorld) (h : runLocal w = .ok 0 w') :
     ∃ target root w₁ w₂ w₃ w₄, IO.FS.createTempDir w = .ok target w₁ ∧ copyChecker target w₁ = .ok () w₂ ∧
@@ -358,8 +358,8 @@ theorem localSteps_full (checker root : String) :
       s.full = if s.arguments = ["exe", "lint", "standard-logical"] then some root else none := by
   simp [localSteps]
 
-/-- What `runStep` does for any `step`, with no premise about how the call ends: it announces the step, starts the process that
-`stepRequest` describes and waits for it. What the operating system and `lake` then do with the request is trusted. -/
+/-- What {name}`runStep` does for any {name}`step`, with no premise about how the call ends: it announces the step, starts the process that
+{name}`stepRequest` describes and waits for it. What the operating system and {lit}`lake` then do with the request is trusted. -/
 theorem runStep_spawns (step : Step) :
     runStep step = (do
       announce step

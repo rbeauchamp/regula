@@ -5,11 +5,11 @@ import RegulaSpecification.Proofs.Load
 /-!
 # What the rules ask of a build, by what Lean answered
 
-`RegulaSpecification.Loader.LoadFloor` says what a build must be for the loader and the rules to pass it, in the terms of
-`Regula.Load.Facts`, the checker's own reading of what Lean answered. As a premise of an owed pass it would apply the checker's
-functions to an answer. `BuildAnswer` holds only the answers: what Lean's import gave, where Lean's search found each `.olean`, and the
+{name}`RegulaSpecification.Loader.LoadFloor` says what a build must be for the loader and the rules to pass it, in the terms of
+{name}`Regula.Load.Facts`, the checker's own reading of what Lean answered. As a premise of an owed pass it would apply the checker's
+functions to an answer. {lit}`BuildAnswer` holds only the answers: what Lean's import gave, where Lean's search found each {lit}`.olean`, and the
 two library directories that Lake's load named. `BuildAnswer.Floor` states the same requirement over them, through Lean's own fields and
-functions and the components of a path. `loadFloor_iff` relates the two in both directions, so `pass_iff_answer` states the checker's
+functions and the components of a path. {lit}`loadFloor_iff` relates the two in both directions, so {lit}`pass_iff_answer` states the checker's
 decision against a property that names none of its functions.
 -/
 
@@ -23,7 +23,7 @@ open RegulaSpecification.Loader
 variable {L E : Type}
 
 /-- What a finished build answered: what Lean's import gave, the toolchain's and the root package's library directories as Lake's load
-named them, and each module of the import's header with where Lean found its `.olean`, in the header's order. -/
+named them, and each module of the import's header with where Lean found its {lit}`.olean`, in the header's order. -/
 structure BuildAnswer where
   /-- What Lean's import gave. -/
   env : Lean.Environment
@@ -31,11 +31,11 @@ structure BuildAnswer where
   toolchainDir : FilePath
   /-- The root package's library directory. -/
   rootDir : FilePath
-  /-- Each module, with where Lean found its `.olean`. -/
+  /-- Each module, with where Lean found its {lit}`.olean`. -/
   places : List (Name × FilePath)
 
-/-- What a run received of a finished build: `a` is what the answers of `t` state, for the workspace `root`, whose default targets give
-the modules `roots`. -/
+/-- What a run received of a finished build: {name}`a` is what the answers of {name}`t` state, for the workspace {name}`root`, whose default targets give
+the modules {name}`roots`. -/
 def BuildAnswered (t : List (Event L E)) (root : Root L) (a : BuildAnswer) (roots : List Name) : Prop :=
   ∃ modules,
     DefaultModules t root root.defaultTargets modules ∧ roots = modules.map (·.1) ∧
@@ -45,7 +45,7 @@ def BuildAnswered (t : List (Event L E)) (root : Root L) (a : BuildAnswer) (root
     ∀ x ∈ a.places, (⟨.findOLean root.leanPath x.1, .ok x.2⟩ : Event L E) ∈ t
 
 /-- What the rules read of a constant by its names: those that its type and value mention, each once in the order of their first
-occurrence, the fields that `Lean.collectAxioms` walks. -/
+occurrence, the fields that {name}`Lean.collectAxioms` walks. -/
 def namesOf : ConstantInfo → List Name
   | .axiomInfo v => v.type.getUsedConstants.toList.eraseDups
   | .defnInfo v => (v.type.getUsedConstants.toList ++ v.value.getUsedConstants.toList).eraseDups
@@ -72,11 +72,11 @@ namespace BuildAnswer
 
 variable (a : BuildAnswer)
 
-/-- The module that holds a constant, by Lean's index, with where its `.olean` lies. -/
+/-- The module that holds a constant, by Lean's index, with where its {lit}`.olean` lies. -/
 def place? (n : Name) : Option (Name × FilePath) :=
   (a.env.getModuleIdxFor? n).bind fun idx => a.places[idx.toNat]?
 
-/-- A module whose `.olean` lies below the root package's library directory is claimed. -/
+/-- A module whose {lit}`.olean` lies below the root package's library directory is claimed. -/
 def Claimed (m : Name) : Prop :=
   ∃ olean, (m, olean) ∈ a.places ∧ StrictlyBelow a.rootDir olean
 
@@ -110,7 +110,7 @@ def Admits : Regula.Closed.Profile → Name → Prop
   | .choiceFree, n => (n = ``propext ∨ n = ``Quot.sound) ∧ a.InToolchain n
   | .standardLogical, n => (n = ``propext ∨ n = ``Quot.sound ∨ n = ``Classical.choice) ∧ a.InToolchain n
 
-/-- A constant of the exempted form beside a safe definition of the module `m`, which names no origin. -/
+/-- A constant of the exempted form beside a safe definition of the module {name}`m`, which names no origin. -/
 def Helper (n : Name) (info : ConstantInfo) (m : Name) : Prop :=
   info.isPartial = true ∧ info.isUnsafe = false ∧
     Lean.Compiler.getImplementedBy? a.env n = none ∧ Lean.isExtern a.env n = false ∧
@@ -120,7 +120,7 @@ def Helper (n : Name) (info : ConstantInfo) (m : Name) : Prop :=
       (ConstantInfo.defnInfo v).isPartial = false ∧
       Lean.Compiler.getImplementedBy? a.env b = none ∧ Lean.isExtern a.env b = false
 
-/-- A constant that a claimed module's own `.olean` holds. -/
+/-- A constant that a claimed module's own {lit}`.olean` holds. -/
 def Own (m n : Name) (info : ConstantInfo) : Prop :=
   ∃ (k : Nat) (olean : FilePath) (data : Lean.ModuleData), a.places[k]? = some (m, olean) ∧ StrictlyBelow a.rootDir olean ∧
     a.env.header.moduleData[k]? = some data ∧ (n, info) ∈ data.constNames.zip data.constants
