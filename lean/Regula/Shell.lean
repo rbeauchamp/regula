@@ -30,8 +30,10 @@ verdict, because only there the check came first. Starting the checker from its 
 it: it says that only a proof verdict is possible and exits with 3.
 
 The arguments select no directory, because a project's Lake configuration sets them (`lintDriverArgs`), and `lakefile.toml`
-has no key that sets a variable. So a project's `lake lint` gives a proof verdict about that project or a refusal, unless whoever ran it set the
-variable, whose value then says what they asked about.
+has no key that sets a variable. So `lake lint` with no option of Lake's, from a project's directory, gives a proof verdict about the workspace there or a refusal,
+unless whoever ran it set the variable, whose value then says what they asked about. Lake starts a program in its own working directory and gives it nothing that
+says which workspace it selected and that a project cannot set, so `lake -d` and `lake -f` are outside the contract: the run audits the workspace in the current
+directory, and a pass names that directory.
 
 Each line but the last starts with two spaces (`Regula.Reader.say`). The exit code is a function of the verdict alone, and
 so is the last line (`Regula.Closed.Verdict.proofLineOn`, `Regula.Language.Report.labelOn`), but for the path that a pass
@@ -125,8 +127,8 @@ def inputOf (root : Root L) (profile : Profile) : Attempt L E Input := do
   let f ← factsOf env root.leanPath root.leanLib root.rootLib
   ExceptT.mk (pure (f.input roots profile))
 
-/-- The closed input of the finished build of the workspace that Lake dispatched from the current directory, with that
-directory.
+/-- The closed input of the finished build of the workspace in the current directory, with that directory. The search path's test
+refuses a run whose search path does not start with that workspace's, and it says no more of what Lake selected (`Regula.Load.startsSearchPath`).
 -/
 def loadPlain (profile : Profile) : Attempt L E (FilePath × Input) := do
   let sysroot ← requireEnv "LEAN_SYSROOT"
@@ -136,9 +138,9 @@ def loadPlain (profile : Profile) : Attempt L E (FilePath × Input) := do
   let root ← ExceptT.mk (Prog.bind (Prog.call (.loadWorkspace sysroot dir)) fun r =>
     pure (loaded "the workspace" r))
   let received ← requireEnv "LEAN_PATH"
-    "LEAN_PATH is not set, so the workspace that Lake dispatched is not known: run the checker with \
+    "LEAN_PATH is not set, so this run did not get Lake's search path: run the checker with \
       `lake lint` or `lake exe lint`, which set it"
-  if Regula.Load.dispatchedFrom (root.leanPath.map toString) ((System.SearchPath.parse received).map toString) then
+  if Regula.Load.startsSearchPath (root.leanPath.map toString) ((System.SearchPath.parse received).map toString) then
     let input ← inputOf root profile
     pure (dir, input)
   else
@@ -248,7 +250,7 @@ def subjectOf : Except String (FilePath × Input) → FilePath
   | .ok x => x.1
   | .error _ => "."
 
-/-- A run of the proof verdict on the workspace that Lake dispatched. -/
+/-- A run of the proof verdict on the workspace in the current directory. -/
 def runPlain (profile : Profile) : Prog L E UInt32 := do
   let result ← (loadPlain profile).run
   let input := result.map (·.2)
