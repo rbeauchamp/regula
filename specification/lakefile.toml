@@ -32,6 +32,9 @@ linter.missingDocs = true
 # The doc and module comments of this package are in the Verso format, whose roles Lean checks while it
 # builds. The root package keeps Markdown, because its own language check refuses `doc.verso`. Module
 # comments follow `doc.verso` while `doc.verso.module` is unset, and TOML cannot hold both keys.
+# A code mention carries a checking role when Lean can resolve it at the comment. One that Lean cannot
+# resolve there stays unchecked literal text: a declaration later in the same file, a name outside what
+# the file imports, a term whose variables are out of scope, or a Lean declaration that no longer exists.
 doc.verso = true
 
 [[lean_lib]]
