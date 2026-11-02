@@ -6,24 +6,24 @@ import RegulaSpecification.Foundation
 RG1006 refuses three things in a claimed module: a constant that is unsafe or partial, a constant that has
 the name of a recursion helper, and a constant whose value mentions a loop construct of Lean. A `while`
 needs no `partial` of the module that uses it: it compiles through a private `partial` of Lean's library
-(`Init/While.lean`), so the flags alone do not show it. A constant with a helper's name needs no flag
-either: the compiler reads `f._unsafe_rec` in place of `f` by its name alone (`getDeclInfo?`,
-`Lean/Compiler/LCNF/ToDecl.lean:25-27`).
+({lit}`Init/While.lean`), so the flags alone do not show it. A constant with a helper's name needs no flag
+either: the compiler reads `f._unsafe_rec` in place of {lit}`f` by its name alone ({lit}`getDeclInfo?`,
+{lit}`Lean/Compiler/LCNF/ToDecl.lean:25-27`).
 
 The one constant of these the rule admits has the exempted form: `f._unsafe_rec`, partial and not unsafe,
-with neither `@[implemented_by]` nor `@[extern]`, beside a safe, total definition `f` of its module. It is
+with neither {attr}`@[implemented_by]` nor {attr}`@[extern]`, beside a safe, total definition {lit}`f` of its module. It is
 the form of what Lean's elaborator adds for a safe recursive definition, which is why it is exempted, and it
 is a form and nothing else. The input holds nothing of who produced a constant, so one of this form that a
 module's own code adds during the build is admitted too, and no rule reads what it computes.
-`helperForm_unreached` states why it cannot change what the proof verdict claims, under H6.
+{lit}`helperForm_unreached` states why it cannot change what the proof verdict claims, under H6.
 -/
 
 namespace RegulaSpecification
 
 open Lean (Name)
 
-/-- The constants through which Lean's `while`, `repeat` and `repeat ... until` run: the one value
-of the type `Lean.Loop` that they iterate over, and the loop itself (`Init/While.lean` at v4.35.0).
+/-- The constants through which Lean's `while`, {lit}`repeat` and `repeat ... until` run: the one value
+of the type {name}`Lean.Loop` that they iterate over, and the loop itself ({lit}`Init/While.lean` at v4.35.0).
 -/
 def loopConstructs : List Name := [``Lean.Loop.mk, ``repeatM]
 
@@ -31,8 +31,8 @@ namespace Input
 
 variable (i : Input)
 
-/-- `d` has the exempted form, which names no origin: a partial, safe-flagged definition named `f._unsafe_rec` beside a safe, total definition `f`, neither with an
-`@[implemented_by]` or `@[extern]`. The base of a `partial def` is an opaque constant, so its helper
+/-- {name}`d` has the exempted form, which names no origin: a partial, safe-flagged definition named `f._unsafe_rec` beside a safe, total definition {lit}`f`, neither with an
+{attr}`@[implemented_by]` or {attr}`@[extern]`. The base of a `partial def` is an opaque constant, so its helper
 has not this form. -/
 def HelperForm (d : Decl) : Prop :=
   d.safety = .partial ∧ d.implementedBy = none ∧ d.isExtern = false ∧
@@ -42,11 +42,11 @@ def HelperForm (d : Decl) : Prop :=
 
 end Input
 
-/-- The name of `d` is one that the compiler reads as a recursion helper: `b._unsafe_rec`, for some
-name `b`. Nothing here depends on the constant's kind or flags. -/
+/-- The name of {name}`d` is one that the compiler reads as a recursion helper: `b._unsafe_rec`, for some
+name {lit}`b`. Nothing here depends on the constant's kind or flags. -/
 def HelperNamed (d : Decl) : Prop := ∃ b : Name, d.name = Name.str b "_unsafe_rec"
 
-/-- The value of `d` directly mentions a loop construct. -/
+/-- The value of {name}`d` directly mentions a loop construct. -/
 def MentionsLoop (d : Decl) : Prop := ∃ l ∈ loopConstructs, l ∈ d.valueUses
 
 /-- RG1006: a claimed module holds a constant that is unsafe, partial or named as a recursion
@@ -57,9 +57,9 @@ def Violates1006 (i : Input) (c : Name) : Prop :=
     (((d.safety ≠ .safe ∨ HelperNamed d) ∧ ¬ i.HelperForm d) ∨ MentionsLoop d)
 
 /-- H6, a hypothesis about Lean's kernel at v4.35.0, never an axiom: a safe constant mentions only safe constants. The kernel checks each
-theorem, opaque constant, axiom and safe definition at the safety `safe` (`src/kernel/environment.cpp:156`, `:181`, `:196`, `:215`, with
-`src/kernel/type_checker.h:127-128`), and refuses there a mention of an unsafe or a partial constant (`src/kernel/type_checker.cpp:110-117`).
-`lake check` replays the build in that kernel, so it holds of the build that a proof verdict reads. -/
+theorem, opaque constant, axiom and safe definition at the safety {lit}`safe` ({lit}`src/kernel/environment.cpp:156`, `:181`, `:196`, `:215`, with
+{lit}`src/kernel/type_checker.h:127-128`), and refuses there a mention of an unsafe or a partial constant ({lit}`src/kernel/type_checker.cpp:110-117`).
+{lit}`lake check` replays the build in that kernel, so it holds of the build that a proof verdict reads. -/
 def SafeMentionsSafe (i : Input) : Prop :=
   ∀ d ∈ i.decls, d.safety = .safe → ∀ u ∈ d.uses, ∀ q ∈ i.decls, q.name = u → q.safety = .safe
 

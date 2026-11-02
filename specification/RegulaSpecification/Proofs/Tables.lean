@@ -3,9 +3,9 @@ import RegulaSpecification.Proofs.Link
 /-!
 # What the rules' tables hold
 
-A value of `Regula.Closed.Tables i` carries what each of its tables holds of the input `i`. These
+A value of {lit}`Regula.Closed.Tables i` carries what each of its tables holds of the input {lit}`i`. These
 theorems state that in terms of the specification's input: the constants by name, the constants of
-claimed modules and the axiom set of each constant. Each holds of every value of `Tables i`, so no
+claimed modules and the axiom set of each constant. Each holds of every value of {lit}`Tables i`, so no
 theorem about a rule has a hypothesis about the tables it reads.
 -/
 

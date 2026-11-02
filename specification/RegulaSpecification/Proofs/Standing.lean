@@ -272,7 +272,7 @@ theorem written_some_write {t : List (Event L E)} {p : List String} {text : Stri
 def OneRealPath (t : List (Event L E)) : Prop :=
   ∀ (p a b : FilePath), (⟨.realPath p, .ok a⟩ : Event L E) ∈ t → (⟨.realPath p, .ok b⟩ : Event L E) ∈ t → a = b
 
-/-- `lake_takes_judged` says what follows under H5. Another process is not in this statement. -/
+/-- {lit}`lake_takes_judged` says what follows under H5. Another process is not in this statement. -/
 theorem FullRun.config_at_consumer {t : List (Event L E)} {dir : FilePath} {p : Regula.Closed.Profile} {c : UInt32}
     (h : FullRun t dir p c) {pre post : List (Event L E)} {e : Event L E} (ht : t = pre ++ e :: post)
     (he : e.consumesTree = true) (hone : OneRealPath t) :

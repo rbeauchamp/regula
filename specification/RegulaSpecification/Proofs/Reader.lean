@@ -5,13 +5,13 @@ import RegulaSpecification.Proofs.Standing
 /-!
 # What the reader gives
 
-`readProject_spec` is the theorem about the reader, for every response: a reading the check admits rests on
-`Evidence` of each state of the tree that holds what the plan of the reading says (`Holds`), and the state
-that the reader's own acts leave is one (`holds_of_leavesAs`), so every file `Compiled` names is read and
-the text judged is the text that stands (that `Compiled` is what Lake compiles is the hypothesis
-`LakeBehaviour`); any other outcome rests on a `Reason`, so a project with no such reason is admitted; an
-admission received no failed answer; and its acts meet the grammar `ReadingPreparation`, which places every
-act in the tree (`ReadingPreparation.readActs`).
+{lit}`readProject_spec` is the theorem about the reader, for every response: a reading the check admits rests on
+{name (full := RegulaSpecification.Effects.Evidence)}`Evidence` of each state of the tree that holds what the plan of the reading says ({lit}`Holds`), and the state
+that the reader's own acts leave is one ({lit}`holds_of_leavesAs`), so every file {name (full := RegulaSpecification.Effects.Compiled)}`Compiled` names is read and
+the text judged is the text that stands (that {name (full := RegulaSpecification.Effects.Compiled)}`Compiled` is what Lake compiles is the hypothesis
+{lit}`LakeBehaviour`); any other outcome rests on a {name (full := RegulaSpecification.Effects.Reason)}`Reason`, so a project with no such reason is admitted; an
+admission received no failed answer; and its acts meet the grammar {name (full := RegulaSpecification.Effects.ReadingPreparation)}`ReadingPreparation`, which places every
+act in the tree ({name (full := RegulaSpecification.Effects.ReadingPreparation.readActs)}`ReadingPreparation.readActs`).
 -/
 
 namespace RegulaSpecification.Effects
@@ -109,12 +109,12 @@ theorem mem_mods_iff (sources : List (Name × Source)) (toolchain : List Name) (
   · rintro ⟨i, hi, hs⟩
     exact ⟨i.module, List.mem_map.mpr ⟨i, Array.mem_toList_iff.mpr hi, rfl⟩, hs⟩
 
-/-- What an admission has the tree hold: the configuration, the pinned `lean-toolchain`, and each source's text at its file,
+/-- What an admission has the tree hold: the configuration, the pinned {lit}`lean-toolchain`, and each source's text at its file,
 in the order the run writes them. -/
 abbrev planOf (tree : FilePath) (text : String) (srcs : List (Name × Source)) : List (FilePath × String) :=
   [(tree / "lakefile.toml", text), (tree / "lean-toolchain", leanToolchain)] ++ srcs.map fun x => (x.2.path, x.2.text)
 
-/-- `held` holds what the plan says at each of its paths, and nothing else. -/
+/-- {name}`held` holds what the plan says at each of its paths, and nothing else. -/
 def Holds (tree : FilePath) (text : String) (srcs : List (Name × Source)) (held : List String → Option String) : Prop :=
   (∀ x ∈ planOf tree text srcs, held (parts x.1) = some x.2) ∧
     ∀ p v, held p = some v → ∃ x ∈ planOf tree text srcs, parts x.1 = p ∧ x.2 = v
@@ -134,13 +134,13 @@ theorem Holds.toolchain {tree : FilePath} {text : String} {srcs : List (Name × 
   h.1 (tree / "lean-toolchain", leanToolchain)
     (List.mem_append_left _ (List.mem_cons_of_mem _ (List.mem_cons_self ..)))
 
-/-- What the reader's result must rest on, by the events `T`, for each state of the tree that `H` admits. -/
+/-- What the reader's result must rest on, by the events {name}`T`, for each state of the tree that {name}`H` admits. -/
 def ReadGoal (T : List (Event L E)) (dir treeDir : FilePath) (H : (List String → Option String) → Prop)
     (r : Reading) : Prop :=
   (decision r = .admitted → ∀ held, H held → Evidence T dir treeDir held r) ∧
     ∀ o, decision r = o → o ≠ .admitted → Reason T dir treeDir o
 
-/-- What the stages before Lake's load established, by the events `T`: `text` is the text of `lakefile.toml`. -/
+/-- What the stages before Lake's load established, by the events {name}`T`: {name}`text` is the text of `lakefile.toml`. -/
 structure Prior (T : List (Event L E)) (dir treeDir project tree : FilePath) (text : String) (keys : List Name) : Prop where
   /-- The project's real path. -/
   project_real : (⟨.realPath dir, .ok project⟩ : Event L E) ∈ T
@@ -148,7 +148,7 @@ structure Prior (T : List (Event L E)) (dir treeDir project tree : FilePath) (te
   tree_real : (⟨.realPath treeDir, .ok tree⟩ : Event L E) ∈ T
   /-- They lie apart. -/
   apart : Apart project tree
-  /-- `lean-toolchain`. -/
+  /-- {lit}`lean-toolchain`. -/
   toolchain : ∃ text real, (⟨.readFile (project / "lean-toolchain"), .ok text⟩ : Event L E) ∈ T ∧
     (⟨.realPath (project / "lean-toolchain"), .ok real⟩ : Event L E) ∈ T ∧
     parts real = parts (project / "lean-toolchain") ∧
@@ -167,7 +167,7 @@ structure Prior (T : List (Event L E)) (dir treeDir project tree : FilePath) (te
     keys = keysOf 8 .anonymous table
   /-- The tree's copy of `lakefile.toml` lies below it. -/
   copyToml : ¬ OutsideTree tree (tree / "lakefile.toml")
-  /-- The tree's `lean-toolchain` too. -/
+  /-- The tree's {lit}`lean-toolchain` too. -/
   copyToolchain : ¬ OutsideTree tree (tree / "lean-toolchain")
 
 theorem keyPaths_in {r : Reading} {table : Lake.Toml.Table} (hi : Inside r)
@@ -192,7 +192,7 @@ theorem ReadText.respell {t : List (Event L E)} {root : Root L} {project tree : 
   rw [hn] at h4 h6
   exact ⟨rel, real, s, m, fin, env, cmds, h1, h2, h3, h4, h5, h6, h7, h8⟩
 
-/-- What `configUnread` empty says, as a statement of its own: each target's name is closed, each module has one file by components,
+/-- What {name}`configUnread` empty says, as a statement of its own: each target's name is closed, each module has one file by components,
 and each spelling of it lies below the tree. -/
 structure ConfigFacts (tree : FilePath) (root : Root L) (modules : List (Name × FilePath)) : Prop where
   /-- Each target's name. -/
@@ -643,8 +643,8 @@ theorem noOtherConfig_spec {tree : FilePath} {t : List (Event L E)} {b : Except 
       obtain ⟨rfl, rfl⟩ := runs_attempt_pure_iff.mp h₂
       exact ⟨r, rfl, fun _ => n2 rfl, fun ⟨_, he⟩ => (by cases he)⟩
 
-/-- What a reading the decision admits did to the tree: its acts leave what the list `writes` leaves, each write it asks is in
-that list, and it ends with a segment that holds no act, with a read of each entry of `plan` that gave its text. -/
+/-- What a reading the decision admits did to the tree: its acts leave what the list {name}`writes` leaves, each write it asks is in
+that list, and it ends with a segment that holds no act, with a read of each entry of {name}`plan` that gave its text. -/
 structure AdmittedActs (tree : FilePath) (t : List (Event L E)) (writes plan : List (FilePath × String)) : Prop where
   /-- What its acts leave. -/
   leaves : LeavesAs t writes
@@ -1065,7 +1065,7 @@ theorem openPaths_reason {T : List (Event L E)} {dir treeDir tree : FilePath} {r
     exact .openGlob hload hl hg hs
   · exact .notLibrary hload ht (by simpa [Option.isNone_iff_eq_none] using hn)
 
-/-- A default target that is no library keeps a project from admission: a default executable, such as the one of the `lake new` application
+/-- A default target that is no library keeps a project from admission: a default executable, such as the one of the {lit}`lake new` application
 template, or a name of no target. The owner named this refusal on 2026-11-01. -/
 theorem openPaths_of_notLibrary {tree : FilePath} {root : Root L} {target : Name} (ht : target ∈ root.defaultTargets)
     (hn : root.findLib target = none) : openPathsOf tree root ≠ [] := by
@@ -1268,7 +1268,7 @@ theorem readRoot_spec {T prior t : List (Event L E)} {dir treeDir project tree :
               clean_one (by rintro (⟨x, hx⟩ | ⟨x, hx⟩) <;> cases hx)
             simpa [List.append_assoc] using hload.append (hclean₅.append l3)
 
-/-- What the stages before the configuration established, by the events `T`. -/
+/-- What the stages before the configuration established, by the events {name}`T`. -/
 structure Early (T : List (Event L E)) (dir treeDir project tree : FilePath) (tf : Option String) : Prop where
   /-- The project's real path. -/
   project_real : (⟨.realPath dir, .ok project⟩ : Event L E) ∈ T
@@ -1276,7 +1276,7 @@ structure Early (T : List (Event L E)) (dir treeDir project tree : FilePath) (tf
   tree_real : (⟨.realPath treeDir, .ok tree⟩ : Event L E) ∈ T
   /-- They lie apart. -/
   apart : Apart project tree
-  /-- What `lean-toolchain` said, when it is the pinned Lean. -/
+  /-- What {lit}`lean-toolchain` said, when it is the pinned Lean. -/
   toolchain : tf = some leanToolchain → ∃ text real,
     (⟨.readFile (project / "lean-toolchain"), .ok text⟩ : Event L E) ∈ T ∧
     (⟨.realPath (project / "lean-toolchain"), .ok real⟩ : Event L E) ∈ T ∧
@@ -1732,7 +1732,7 @@ theorem readProject_no_failed {sysroot : String} {dir treeDir : FilePath} {r : R
   obtain ⟨tree, text, -, g⟩ := p1 r srcs rfl
   exact (g ha).2.2.2
 
-/-- What a whole read rests on, by the events `T`, for a state of the tree that is what `t` leaves. An admission received no failed answer. -/
+/-- What a whole read rests on, by the events {name}`T`, for a state of the tree that is what {name}`t` leaves. An admission received no failed answer. -/
 def ReadDone (T t : List (Event L E)) (dir treeDir : FilePath) (r : Reading) : Prop :=
   (decision r = .admitted → (∀ held : List String → Option String, (∀ p, held p = written t p) →
     Evidence T dir treeDir held r) ∧ (∃ real, (⟨.realPath treeDir, .ok real⟩ : Event L E) ∈ t ∧ ReadBack t real) ∧ Clean t) ∧

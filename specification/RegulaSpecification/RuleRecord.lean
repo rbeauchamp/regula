@@ -7,15 +7,15 @@ import RegulaSpecification.Input
 # The intent record of a rule
 
 Each rule is a pure function from the well-formed closed input to the list of constants it reports. A rule's
-function takes the proof of the form with the input (`Checker`), so it has no case for an input the
-admission refuses. Its intent record (`LeanIntent.IntentRecord`) has that function as its subject and one
-property: the function reports a subject exactly when the subject violates the rule (`ruleRecord`). The
+function takes the proof of the form with the input ({lit}`Checker`), so it has no case for an input the
+admission refuses. Its intent record ({name}`LeanIntent.IntentRecord`) has that function as its subject and one
+property: the function reports a subject exactly when the subject violates the rule ({lit}`ruleRecord`). The
 rule's meaning is therefore all in its violation predicate, which each rule module defines and documents.
 
 The theorems below discharge lean-intent's obligations for such a record from two witnesses that each rule
-supplies (`Witnessed`): a well-formed input on which a subject violates the rule, and a well-formed input
+supplies ({lit}`Witnessed`): a well-formed input on which a subject violates the rule, and a well-formed input
 with a subject that does not. They give O2 at confirmation and before running, O3, O4, and O5 with the
-freedom `SameReports`, which is what the record leaves unsaid: the order and repetition of reported
+freedom {lit}`SameReports`, which is what the record leaves unsaid: the order and repetition of reported
 subjects.
 -/
 
@@ -45,7 +45,7 @@ def reportsExactly (rule : String) (V : α → S → Prop) : Clause (Checker α 
   ⟨rule ++ ": reports exactly the violations of each well-formed input",
     fun f => ∀ i s, s ∈ f i ↔ V i.1 s⟩
 
-/-- The intent record of a rule whose violations `V` states. Its vocabulary is the admission and
+/-- The intent record of a rule whose violations {name}`V` states. Its vocabulary is the admission and
 the violation predicate. -/
 def ruleRecord (rule : String) (V : α → S → Prop) : IntentRecord (Checker α S) where
   shape := .function (Admitted α) (fun _ => List S)
@@ -58,8 +58,8 @@ def ruleRecord (rule : String) (V : α → S → Prop) : IntentRecord (Checker �
 def SameReports (f g : Checker α S) : Prop :=
   ∀ i s, s ∈ f i ↔ s ∈ g i
 
-/-- The witnesses a rule's record needs: a well-formed input on which `bad` violates the rule, a
-well-formed input on which `fine` does not, and a finite list of the candidates of each input. -/
+/-- The witnesses a rule's record needs: a well-formed input on which {lit}`bad` violates the rule, a
+well-formed input on which {lit}`fine` does not, and a finite list of the candidates of each input. -/
 structure Witnessed (V : α → S → Prop) where
   /-- The candidates of an input: every subject that can violate the rule there. -/
   support : α → List S

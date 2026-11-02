@@ -6,9 +6,9 @@ import Regula.Table
 # Runs of a program, and what the interpreter does
 
 The rules that take a statement about a run of a program to statements about its parts, and the link from a
-program to its execution: `interpret_runs` proves that `Regula.Effect.Prog.interpret`, at `BaseIO` and from any
-state of the world, gives a run in the sense of `Runs`, each of whose responses is the table's answer at the world
-the run has reached. `BaseIO` is a state monad in Lean's own definition (`Init/System/ST.lean`), so this is a
+program to its execution: {lit}`interpret_runs` proves that {name}`Regula.Effect.Prog.interpret`, at {name}`BaseIO` and from any
+state of the world, gives a run in the sense of {name (full := RegulaSpecification.Effects.Runs)}`Runs`, each of whose responses is the table's answer at the world
+the run has reached. {name}`BaseIO` is a state monad in Lean's own definition ({lit}`Init/System/ST.lean`), so this is a
 theorem about the definition and no assumption about how effects are ordered; that the compiler keeps that order
 stays with the compiler, which the trusted base lists.
 -/
@@ -124,7 +124,7 @@ theorem runs_attempt_iff {step : Prog L E (Except IO.Error α)} {t : List (Event
     refine ⟨t, [], r, by simp, h, ?_⟩
     cases r <;> exact .done _
 
-/-- The events that the interpreter records, from the world `w`, for the program `p`. -/
+/-- The events that the interpreter records, from the world {lit}`w`, for the program {lit}`p`. -/
 def traceFrom (table : (o : Op L E) → BaseIO (Resp o)) :
     Prog L E α → Void IO.RealWorld → List (Event L E)
   | .done _, _ => []

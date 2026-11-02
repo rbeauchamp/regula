@@ -4,8 +4,8 @@ import RegulaSpecification.Gate
 # The cases each rule must admit and must refuse
 
 For each rule, a small well-formed project that the rule must refuse, and a subject of a compliant project
-(`base`) that it must admit. With them `adequate` discharges lean-intent's obligations for the rule's
-record, and `silent_fails` and `noisy_fails` prove that neither the checker that reports nothing nor the one
+({lit}`base`) that it must admit. With them {name (full := RegulaSpecification.adequate)}`adequate` discharges lean-intent's obligations for the rule's
+record, and {name (full := RegulaSpecification.silent_fails)}`silent_fails` and {name (full := RegulaSpecification.noisy_fails)}`noisy_fails` prove that neither the checker that reports nothing nor the one
 that reports every candidate meets it. A statement that a do-nothing checker met, or that refused the
 compliant case, would fail here.
 -/
@@ -32,7 +32,7 @@ def helperDecl : Decl :=
 /-- `Good.f`, the safe definition beside it. -/
 def fDecl : Decl := plain `Good.f `Good .definition []
 
-/-- The constants of `base`. -/
+/-- The constants of {lit}`base`. -/
 def baseDecls : List Decl :=
   [toolchain ``propext .axiom, plain `Good.t `Good .theorem [``propext], fDecl, helperDecl]
 
@@ -43,7 +43,7 @@ def base : Input where
   decls := baseDecls
   unique := by decide
 
-/-- `base` with the constants `extra` added, whose names stay distinct. -/
+/-- {name}`base` with the constants {name}`extra` added, whose names stay distinct. -/
 def withDecls (extra : List Decl) (hn : ((base.decls ++ extra).map (·.name)).Nodup) : Input :=
   { base with decls := base.decls ++ extra, unique := hn }
 

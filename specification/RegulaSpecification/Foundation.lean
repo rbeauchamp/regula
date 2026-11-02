@@ -4,8 +4,8 @@ import RegulaSpecification.RuleRecord
 # The foundation profile: RG1001 to RG1005
 
 Each rule reads the constants of the loaded environment and their transitive axiom sets
-(`Input.AxiomOf`), which the rules compute from the constants of the input (`Link.axiomSet_iff`).
-The five rules refine one refusal: `rg1005_of_hole`, `rg1005_of_unknown` and `rg1005_of_compiler`
+({name (full := RegulaSpecification.Input.AxiomOf)}`Input.AxiomOf`), which the rules compute from the constants of the input (`Link.axiomSet_iff`).
+The five rules refine one refusal: {lit}`rg1005_of_hole`, {lit}`rg1005_of_unknown` and {lit}`rg1005_of_compiler`
 prove that each axiom RG1002 to RG1004 name also violates RG1005 for every profile, so a wrong
 choice among them changes the reported rule, never the verdict. RG1001 alone reports an axiom
 that nothing uses.
@@ -20,13 +20,13 @@ def logicalAxioms : List Name := [``propext, ``Quot.sound, ``Classical.choice]
 
 /-- The axioms of the toolchain by which Lean's kernel trusts the compiler. Lean v4.35.0 declares
 none: `Lean.ofReduceBool`, `Lean.ofReduceNat` and `Lean.trustCompiler`, which v4.34.1 declared
-(`Init/Core.lean:2338`, `2396` and `2409` there), are gone. A native proof still adds an axiom of
-its own (`NativeProofAxiom`). -/
+({lit}`Init/Core.lean:2338`, {lit}`2396` and {lit}`2409` there), are gone. A native proof still adds an axiom of
+its own ({lit}`NativeProofAxiom`). -/
 def compilerAxioms : List Name := []
 
-/-- `a` has the name form of the axiom that a native proof (`native_decide`, `decide +native`,
-`bv_decide`) adds at Lean v4.34.1 and v4.35.0: `<declaration>._native.<tactic>.<suffix>`
-(`Lean/Meta/Native.lean:45` and `75-82` at v4.35.0). -/
+/-- {name}`a` has the name form of the axiom that a native proof ({tactic}`native_decide`, {tactic}`decide +native`,
+{tactic}`bv_decide`) adds at Lean v4.34.1 and v4.35.0: `<declaration>._native.<tactic>.<suffix>`
+({lit}`Lean/Meta/Native.lean:45` and {lit}`75-82` at v4.35.0). -/
 def NativeProofAxiom (a : Name) : Prop :=
   ∃ p tactic suffix, a = Name.str (Name.str (Name.str p "_native") tactic) suffix
 
@@ -34,11 +34,11 @@ namespace Input
 
 variable (i : Input)
 
-/-- `a` is one of the three logical axioms and is the toolchain's own constant of that name. -/
+/-- {name}`a` is one of the three logical axioms and is the toolchain's own constant of that name. -/
 def Known (a : Name) : Prop :=
   a ∈ logicalAxioms ∧ ∃ d ∈ i.decls, d.name = a ∧ d.inToolchain = true
 
-/-- Profile `p` admits axiom `a`: a known axiom in the profile's set. -/
+/-- Profile {lit}`p` admits axiom {lit}`a`: a known axiom in the profile's set. -/
 def Admits : Profile → Name → Prop
   | .kernelOnly, _ => False
   | .choiceFree, a => i.Known a ∧ (a = ``propext ∨ a = ``Quot.sound)
@@ -50,7 +50,7 @@ end Input
 def Violates1001 (i : Input) (c : Name) : Prop :=
   ∃ d ∈ i.decls, d.name = c ∧ i.ClaimedModule d.module ∧ d.kind = .axiom
 
-/-- RG1002: a constant of a claimed module depends on `sorryAx`. -/
+/-- RG1002: a constant of a claimed module depends on {name}`sorryAx`. -/
 def Violates1002 (i : Input) (c : Name) : Prop :=
   i.ClaimedName c ∧ i.AxiomOf c ``sorryAx
 

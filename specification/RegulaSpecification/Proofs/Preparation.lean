@@ -315,7 +315,7 @@ theorem BuildProtocol.operations {sysroot : String} {tree : FilePath} {t : List 
         · exact .inr (.inr (.inr hl))
 
 /-- What may not occur among the module copies or the rules' reading: a load, a Lake command, a removal or an allocation.
-Stated apart from `QuietOp`, `ParserSearchOp` and `RulesSearchOp`, so that a phase's list of allowed operations that came to hold one of these
+Stated apart from {name}`QuietOp`, {name}`ParserSearchOp` and {name}`RulesSearchOp`, so that a phase's list of allowed operations that came to hold one of these
 fails `ModuleCopies.not_barred` or `InputPreparation.not_barred`. -/
 def Barred : Op L E → Prop
   | .loadRoot .. | .loadWorkspace .. | .runLake .. | .removeDirAll _ | .createTempDir => True
@@ -634,8 +634,8 @@ theorem copy_sliceTo_ne (s : String) (x : s.Pos) (hx : x ≠ s.endPos) : (s.slic
   apply String.Pos.Raw.ext
   simpa using this
 
-/-- No path is its own parent, on any platform: the proof reads `FilePath.parent` and takes both answers of
-`isAbsolute`, so it needs no value of the `opaque` `System.Platform.isWindows`. -/
+/-- No path is its own parent, on any platform: the proof reads {name}`FilePath.parent` and takes both answers of
+{name (full := System.FilePath.isAbsolute)}`isAbsolute`, so it needs no value of the `opaque` {name}`System.Platform.isWindows`. -/
 theorem parent_ne_self (p : FilePath) : p.parent ≠ some p := by
   have slice : ∀ x : p.toString.Pos, x ≠ p.toString.endPos →
       some (FilePath.mk (p.toString.sliceTo x).copy) ≠ some p := by

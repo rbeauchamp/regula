@@ -4,13 +4,13 @@ import RegulaSpecification.Proofs.Owed
 /-!
 # A model of what a pass rests on
 
-The premises of `plain_owed` and `full_owed` are statements about what Lean, Lake and the operating system answered. This module
+The premises of {name (full := RegulaSpecification.Effects.plain_owed)}`plain_owed` and {name (full := RegulaSpecification.Effects.full_owed)}`full_owed` are statements about what Lean, Lake and the operating system answered. This module
 shows that they are met by a run of the program the executable interprets, and that what they state of the operations does not
-settle the conclusion by itself: for paths that meet `WitnessPaths` and an
-environment with the floor (`EnvModel`), there is a run, whose proof takes the answers of the witness (`Proofs/Witness.lean`), that receives what `FullOwed` and `PlainOwed` state and exits with 0 (`full_model`,
-`plain_model`); there is a run in which no answer failed that does not exit with 0, whose proof takes a project with a
-`lakefile.lean` (`refused_model`). The hypotheses of the two models are what remains: `WitnessPaths` because `System.FilePath` depends on an
-`opaque` constant, and for two facts about the pinned text and an empty log, and `EnvModel` because `Lean.Environment`'s constructor is private. The witness runs meet the strengthened preparation relations through `run_meets`;
+settle the conclusion by itself: for paths that meet {name (full := RegulaSpecification.Effects.WitnessPaths)}`WitnessPaths` and an
+environment with the floor ({lit}`EnvModel`), there is a run, whose proof takes the answers of the witness ({lit}`Proofs/Witness.lean`), that receives what {name (full := RegulaSpecification.Effects.FullOwed)}`FullOwed` and {name (full := RegulaSpecification.Effects.PlainOwed)}`PlainOwed` state and exits with 0 ({lit}`full_model`,
+{lit}`plain_model`); there is a run in which no answer failed that does not exit with 0, whose proof takes a project with a
+`lakefile.lean` ({lit}`refused_model`). The hypotheses of the two models are what remains: {name (full := RegulaSpecification.Effects.WitnessPaths)}`WitnessPaths` because {name}`System.FilePath` depends on an
+`opaque` constant, and for two facts about the pinned text and an empty log, and {lit}`EnvModel` because {name}`Lean.Environment`'s constructor is private. The witness runs meet the strengthened preparation relations through {name (full := RegulaSpecification.Effects.run_meets)}`run_meets`;
 neither the models nor those relations assert consistency of a filesystem behind the responses.
 -/
 
@@ -26,9 +26,9 @@ open RegulaSpecification.Loader
 
 variable {α : Type}
 
-/-- What an environment of the witness must be: each reading of it that those answers allow has `BuildAnswer.Floor`. `Lean.Environment`'s
-constructor is private (`Lean/Environment.lean:213`, `:553`), so a proof here cannot build one with a claimed module. A real
-one is what a finished build gives, and `plain_exit_zero` and `full_exit_zero` state that a run that exits with 0 read one with this floor. -/
+/-- What an environment of the witness must be: each reading of it that those answers allow has {name}`BuildAnswer.Floor`. {name}`Lean.Environment`'s
+constructor is private ({lit}`Lean/Environment.lean:213`, `:553`), so a proof here cannot build one with a claimed module. A real
+one is what a finished build gives, and {name}`plain_exit_zero` and {name}`full_exit_zero` state that a run that exits with 0 read one with this floor. -/
 structure EnvModel (w : WitnessPaths) (env : Lean.Environment) (p : Regula.Closed.Profile) : Prop where
   /-- Each reading has the floor. -/
   floor : ∀ a : BuildAnswer, a.env = env → a.toolchainDir = w.toolchainDir → a.rootDir = w.rootLib →
@@ -125,7 +125,7 @@ theorem full_model (w : WitnessPaths) (env : Lean.Environment) (hm : EnvModel w 
   exact ⟨_, hr, howed⟩
 
 /-- A project with a `lakefile.lean`: every operation that the run asks succeeds, and the run does not pass, on these answers. So
-that each operation succeeded does not by itself settle that a run passes: `FullOwed` also asks what the project holds. -/
+that each operation succeeded does not by itself settle that a run passes: {name}`FullOwed` also asks what the project holds. -/
 def answersRefused (w : WitnessPaths) (env : Lean.Environment) (m : IO.FS.Metadata) : (o : Op Unit Unit) → Resp o
   | .symlinkMetadata _ => .ok m
   | o => answers w env o
@@ -223,7 +223,7 @@ theorem plain_model (w : WitnessPaths) (env : Lean.Environment) (hm : EnvModel w
   exact ⟨_, hr, howed⟩
 
 
-/-- A program that asks `LEAN_SYSROOT`, ignores the answer, and says that the proof verdict is incomplete. -/
+/-- A program that asks {lit}`LEAN_SYSROOT`, ignores the answer, and says that the proof verdict is incomplete. -/
 def misjudge {L E : Type} (_ : List String) : Prog L E UInt32 :=
   .ask .leanVersion fun _ =>
     .ask (.getEnv Regula.Shell.fullVariable) fun _ =>

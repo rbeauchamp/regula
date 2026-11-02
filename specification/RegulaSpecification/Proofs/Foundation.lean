@@ -3,7 +3,7 @@ import RegulaSpecification.Proofs.Tables
 /-!
 # RG1001 to RG1006, against their statements
 
-`Regula.Closed.Tables.rg1001` to `rg1006` are the functions that the checker runs.
+{name}`Regula.Closed.Tables.rg1001` to {name (full := Regula.Closed.Tables.rg1006)}`rg1006` are the functions that the checker runs.
 -/
 
 namespace RegulaSpecification
@@ -172,7 +172,7 @@ theorem rg1005_exact (s : Name) :
     | false => rfl
     | true => exact absurd ((admits_iff t i.profile a).mp hb) hn
 
-/-- The compiler's own test of a helper's name holds exactly of the form that `HelperNamed`
+/-- The compiler's own test of a helper's name holds exactly of the form that {name}`HelperNamed`
 states. The checker runs this test, so a toolchain whose test differs fails this proof. -/
 theorem isUnsafeRecName_eq (n b : Name) :
     Lean.Compiler.isUnsafeRecName? n = some b ↔ n = Name.str b "_unsafe_rec" := by
@@ -187,8 +187,8 @@ theorem isUnsafeRecName_eq (n b : Name) :
   · rintro rfl
     simp [Lean.Compiler.isUnsafeRecName?]
 
-/-- The name under which the compiler looks up the helper of `b` (`mkUnsafeRecName`, which
-`getDeclInfo?` reads) is one that `HelperNamed` covers. -/
+/-- The name under which the compiler looks up the helper of {name}`b` ({name (full := Lean.Compiler.mkUnsafeRecName)}`mkUnsafeRecName`, which
+{lit}`getDeclInfo?` reads) is one that {name}`HelperNamed` covers. -/
 theorem mkUnsafeRecName_eq (b : Name) :
     Lean.Compiler.mkUnsafeRecName b = Name.str b "_unsafe_rec" := rfl
 

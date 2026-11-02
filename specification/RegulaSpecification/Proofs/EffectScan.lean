@@ -4,9 +4,9 @@ import RegulaSpecification.Proofs.Foundation
 /-!
 # What the check of effects decides
 
-`Regula.ProgramCheck.Effects` runs `scan` and `judge` of `Regula.ProgramCheck.EffectScan` on the import
-closure of the executable and the two library roots, and fails the gate's build on what `judge` refuses.
-What `Environment.find?` and the header hold, and what `Expr.getUsedConstants` lists, stays Lean's.
+`Regula.ProgramCheck.Effects` runs {name (full := Regula.ProgramCheck.EffectScan.scan)}`scan` and {name (full := Regula.ProgramCheck.EffectScan.judge)}`judge` of {module}`Regula.ProgramCheck.EffectScan` on the import
+closure of the executable and the two library roots, and fails the gate's build on what {name (full := Regula.ProgramCheck.EffectScan.judge)}`judge` refuses.
+What {name (full := Lean.Environment.find?)}`Environment.find?` and the header hold, and what {name (full := Lean.Expr.getUsedConstants)}`Expr.getUsedConstants` lists, stays Lean's.
 -/
 
 namespace RegulaSpecification.EffectScan

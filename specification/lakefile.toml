@@ -29,6 +29,10 @@ path = ".."
 autoImplicit = false
 relaxedAutoImplicit = false
 linter.missingDocs = true
+# The doc and module comments of this package are in the Verso format, whose roles Lean checks while it
+# builds. The root package keeps Markdown, because its own language check refuses `doc.verso`. Module
+# comments follow `doc.verso` while `doc.verso.module` is unset, and TOML cannot hold both keys.
+doc.verso = true
 
 [[lean_lib]]
 name = "RegulaSpecification"

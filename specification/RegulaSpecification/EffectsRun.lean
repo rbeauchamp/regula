@@ -3,7 +3,7 @@ import RegulaSpecification.Effects
 /-!
 # What the reader must have done, and what a whole run must do
 
-`Reason` is the closed set of what may keep a project from being admitted: a refusal or a failure to read
+{lit}`Reason` is the closed set of what may keep a project from being admitted: a refusal or a failure to read
 that has no such reason is no behaviour of the checker, so a reader that refuses everything is ruled out
 too.
 -/
@@ -39,7 +39,7 @@ inductive KeyPath : Name → Lake.Toml.Table → Name → Prop where
   | underIn {pre k r xs r' sub t n} : (k, Lake.Toml.Value.array r xs) ∈ t.items →
       Lake.Toml.Value.table r' sub ∈ xs → KeyPath (pre ++ k) sub n → KeyPath pre t n
 
-/-- A table with a chain of more than `n` nested tables, which the reader does not follow. -/
+/-- A table with a chain of more than {lit}`n` nested tables, which the reader does not follow. -/
 inductive Deeper : Nat → Lake.Toml.Table → Prop where
   /-- Any table is deeper than nothing. -/
   | zero {t} : Deeper 0 t
@@ -50,7 +50,7 @@ inductive Deeper : Nat → Lake.Toml.Table → Prop where
   | array {n k r xs r' sub t} : (k, Lake.Toml.Value.array r xs) ∈ t.items →
       Lake.Toml.Value.table r' sub ∈ xs → sub.items.isEmpty = false → Deeper n sub → Deeper (n + 1) t
 
-/-- A path, or the directory above it, does not lie below the tree by `TreeRelative`. -/
+/-- A path, or the directory above it, does not lie below the tree by {name}`TreeRelative`. -/
 def OutsideTree (tree path : FilePath) : Prop :=
   (∀ rel, ¬ TreeRelative (parts tree) (parts path) rel) ∨
     ∃ d, path.parent = some d ∧ ∀ rel, ¬ TreeRelative (parts tree) (parts d) rel
@@ -63,10 +63,10 @@ def FileOfModule (root : Root L) (modules : List (Name × FilePath)) (m : Name) 
 def Apart (a b : FilePath) : Prop :=
   ¬ (parts a <+: parts b) ∧ ¬ (parts b <+: parts a)
 
-/-- `Sees headers held m n`: an import of `m` lets a file see the toolchain's module `n`, by the rule of
-`importModulesCore` for a `module` file (`Lean/Environment.lean:2108-2190` at v4.35.0): a module of the
+/-- {lit}`Sees headers held m n`: an import of {lit}`m` lets a file see the toolchain's module {lit}`n`, by the rule of
+{name (full := Lean.importModulesCore)}`importModulesCore` for a {lit}`module` file ({lit}`Lean/Environment.lean:2108-2190` at v4.35.0): a module of the
 toolchain's own closes it there, whose own closure Lean follows, and a project's module passes on each of its
-`public` imports, as `headers` gives them. -/
+`public` imports, as {name}`headers` gives them. -/
 inductive Sees (headers : List (Name × Array Import)) (held : List Name) : Name → Name → Prop where
   /-- The toolchain's own module. -/
   | self {n} : n ∈ held → Sees headers held n n
@@ -74,13 +74,13 @@ inductive Sees (headers : List (Name × Array Import)) (held : List Name) : Name
   | through {m imports i n} : m ∉ held → headers.lookup m = some imports → i ∈ imports →
       i.isExported = true → Sees headers held i.module n → Sees headers held m n
 
-/-- What a reading of the project at `dir`, in the checker's tree `dirTree`, rests on: for each thing that the
+/-- What a reading of the project at {name}`dir`, in the checker's tree {name}`dirTree`, rests on: for each thing that the
 reading states, the events of the run that gave it.
 
-`held` says what stands at each place where the build consumes a text, by the components of a path. So the
+{name}`held` says what stands at each place where the build consumes a text, by the components of a path. So the
 statement that the text judged is what stands is about that state, and not about a write that some event
-once made: `Evidence` with `held` fixed keeps under more events, and `Decided` gives it `written t`, a fold
-of the run's own requests over its whole reading, which observes no file (`ReadBack` is the observation). -/
+once made: {name}`Evidence` with {name}`held` fixed keeps under more events, and {lit}`Decided` gives it {lean}`written t`, a fold
+of the run's own requests over its whole reading, which observes no file ({lit}`ReadBack` is the observation). -/
 structure Evidence (t : List (Event L E)) (dir dirTree : FilePath) (held : List String → Option String)
     (r : Reading) : Prop where
   /-- The project and the tree have real paths, and neither lies in the other. -/
