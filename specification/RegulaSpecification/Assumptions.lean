@@ -7,29 +7,29 @@ import RegulaSpecification.Safety
 # The assumptions
 
 The one list of what a verdict of Regula relies on and no proof here discharges: each behaviour of Lean, Lake or the
-operating system, named once, with its pinned source. `Assumption` is the list. Anything else of Lean, Lake or the operating system
+operating system, named once, with its pinned source. {lit}`Assumption` is the list. Anything else of Lean, Lake or the operating system
 that a verdict could depend on is outside the contract, as `README.md` in this directory says under "The trusted base".
 
 The list is complete by construction for three classes, each closed by the compiler or the kernel:
 
-- **Operations.** `Assumption.ofOp` gives the entries that each operation of `Regula.Effect.Op` relies on, by a `match`
+- **Operations.** `Assumption.ofOp` gives the entries that each operation of {name}`Regula.Effect.Op` relies on, by a {lit}`match`
   over the closed type, so a new operation fails this build until it has its entries.
-- **Routes.** `Route` names each published way to start the checker, and `Route.relies` gives its entries.
-  `RegulaSpecification.Meaning.run_route` proves that every run of `Regula.Shell.run` is a refusal or a run of a `Route`, so a
+- **Routes.** {lit}`Route` names each published way to start the checker, and `Route.relies` gives its entries.
+  `RegulaSpecification.Meaning.run_route` proves that every run of {name}`Regula.Shell.run` is a refusal or a run of a {lit}`Route`, so a
   new mode of the program fails the build until it is a route with its entries.
 - **Premises.** `RegulaSpecification.Meaning.Meaning` states once each theorem that says what a verdict means, and each premise
   of those statements about Lean, Lake or the operating system is the formal statement of an entry (`Assumption.formal`).
   A premise added to one of those theorems, or to a lemma that one uses, either is proved there or changes that theorem's
-  statement, which then differs from `Meaning`, and `RegulaSpecification.Meaning.meaning` fails. A premise written into
-  `Meaning` itself changes the contract, which review judges, and no check classifies it.
+  statement, which then differs from {lit}`Meaning`, and `RegulaSpecification.Meaning.meaning` fails. A premise written into
+  {lit}`Meaning` itself changes the contract, which review judges, and no check classifies it.
 
-Each entry records the Lean release at which its sources were read (`Assumption.readAt`). `readAt_pinned` proves each equal
-to `Regula.Closed.pinnedLean`, the one release the checker reads, and the command at the end of this file fails the build of
+Each entry records the Lean release at which its sources were read (`Assumption.readAt`). {lit}`readAt_pinned` proves each equal
+to {name}`Regula.Closed.pinnedLean`, the one release the checker reads, and the command at the end of this file fails the build of
 this package under any other Lean. So a change of the pinned toolchain fails the build until each entry is read again and
 its record changed.
 
 A source is a path below the root of the tag `v4.35.0` of Lean with its lines, the source directory there of a component that
-the owner's account trusts whole, or a page of the platform's own documentation (`Source`).
+the owner's account trusts whole, or a page of the platform's own documentation ({lit}`Source`).
 -/
 
 namespace RegulaSpecification.Assumptions
@@ -68,79 +68,79 @@ relies on, stated in its docstring. -/
 inductive Assumption where
   /-- Lean's kernel accepts a constant only when it type-checks, at the safety of the constant. -/
   | kernel
-  /-- H6: the kernel refuses a safe constant that mentions an unsafe or a partial one (`SafeMentionsSafe`), and checking a
-  constant runs no compiled code. So it holds of the input that a proof verdict reads of a build that `lake check` replayed. -/
+  /-- H6: the kernel refuses a safe constant that mentions an unsafe or a partial one ({name}`SafeMentionsSafe`), and checking a
+  constant runs no compiled code. So it holds of the input that a proof verdict reads of a build that {lit}`lake check` replayed. -/
   | h6
-  /-- Lean's compiler and runtime run the checker as its definitions say: `Prog.interpret` asks each operation once, in
-  order, through `Regula.Effect.table`, each function with `@[extern]` or `@[implemented_by]` computes what its definition
-  or its documentation says, and the exit code is the value that `main` returns. -/
+  /-- Lean's compiler and runtime run the checker as its definitions say: {name (full := Regula.Effect.Prog.interpret)}`Prog.interpret` asks each operation once, in
+  order, through {name}`Regula.Effect.table`, each function with {attr}`@[extern]` or {attr}`@[implemented_by]` computes what its definition
+  or its documentation says, and the exit code is the value that {lit}`main` returns. -/
   | compiler
   /-- H1: the trees that the check read of a file of an admitted reading are the trees that Lean's frontend elaborates
-  (`LeanBehaviour.h1`). The parser reads of the elaborator's state only scoped parser entries and tokens, namespace and open
-  declarations, and the options `internal.parseQuotWithCurrentStage`, `doc.verso` and `doc.verso.module`; none of these
-  options is in the admitted `options`, so an admitted file is parsed with each of them unset, as the reader parses it. -/
+  ({name (full := RegulaSpecification.Language.LeanBehaviour.h1)}`LeanBehaviour.h1`). The parser reads of the elaborator's state only scoped parser entries and tokens, namespace and open
+  declarations, and the options {option}`internal.parseQuotWithCurrentStage`, {option}`doc.verso` and {option}`doc.verso.module`; none of these
+  options is in the admitted {name (full := Regula.Language.options)}`options`, so an admitted file is parsed with each of them unset, as the reader parses it. -/
   | h1
   /-- H2: elaborating trees that the closed set admits runs no code that the project wrote and installs nothing that replaces
-  what the compiler runs for a definition (`LeanBehaviour.h2`). -/
+  what the compiler runs for a definition ({name (full := RegulaSpecification.Language.LeanBehaviour.h2)}`LeanBehaviour.h2`). -/
   | h2
-  /-- `Expr.getUsedConstants` lists each constant that occurs in an expression (`UsedConstantsComplete`). Its body is an
-  `opaque` that `@[implemented_by]` replaces. -/
+  /-- {name (full := Lean.Expr.getUsedConstants)}`Expr.getUsedConstants` lists each constant that occurs in an expression ({name (full := RegulaSpecification.Loader.UsedConstantsComplete)}`UsedConstantsComplete`). Its body is an
+  `opaque` that {attr}`@[implemented_by]` replaces. -/
   | usedConstants
-  /-- What Lean's import and search give. `Lean.importModules` with `loadExts := false` at the level `.private` loads the
-  `.olean` files of the build, runs no initializer, and gives each constant of a `module` file with its body;
+  /-- What Lean's import and search give. {name}`Lean.importModules` with {lit}`loadExts := false` at the level {lean (type := "Lean.OLeanLevel")}`.private` loads the
+  {lit}`.olean` files of the build, runs no initializer, and gives each constant of a {lit}`module` file with its body;
   `Environment.constants.map₁` holds the constants that the import keeps; `header.moduleData` holds each module's own
-  constants as its `.olean` states them, built from the same array as `header.moduleNames` (`ModuleDataComplete`); and
-  `find?`, `getModuleIdxFor?`, `getImplementedBy?` and `isExtern` report what their names say. Lean refuses an `.olean` of
-  another release. `Lean.findOLean` finds the `.olean` of a module on the search path that its row sets, and finds the
-  toolchain's library only below the toolchain's `lib/lean`. The import for the parser, with `loadExts := true` at the level
-  `.exported`, runs the toolchain's initializers and gives its parser extension's state. -/
+  constants as its {lit}`.olean` states them, built from the same array as `header.moduleNames` ({lit}`ModuleDataComplete`); and
+  {name (full := Lean.Environment.find?)}`find?`, {name (full := Lean.Environment.getModuleIdxFor?)}`getModuleIdxFor?`, {name (full := Lean.Compiler.getImplementedBy?)}`getImplementedBy?` and {name (full := Lean.isExtern)}`isExtern` report what their names say. Lean refuses an {lit}`.olean` of
+  another release. {name}`Lean.findOLean` finds the {lit}`.olean` of a module on the search path that its row sets, and finds the
+  toolchain's library only below the toolchain's {lit}`lib/lean`. The import for the parser, with {lit}`loadExts := true` at the level
+  {lean (type := "Lean.OLeanLevel")}`.exported`, runs the toolchain's initializers and gives its parser extension's state. -/
   | leanImport
-  /-- `Lean.versionString` and `Lean.githash` are the release and the commit of the Lean that compiled the checker. -/
+  /-- {name}`Lean.versionString` and {name}`Lean.githash` are the release and the commit of the Lean that compiled the checker. -/
   | leanVersion
-  /-- On the named platforms Lean's runtime gives `System.Platform.isWindows = false` and `isOSX = true`, so the functions of
-  `System.FilePath` read a path as POSIX does, and the full gate replays with `lake check --inadvisably-no-sandbox`. -/
+  /-- On the named platforms Lean's runtime gives {lean}`System.Platform.isWindows = false` and {lit}`isOSX = true`, so the functions of
+  {name}`System.FilePath` read a path as POSIX does, and the full gate replays with {lit}`lake check --inadvisably-no-sandbox`. -/
   | platform
   /-- What Lake's loads give, and what `Regula.Load.rootOf` selects of them: `Lake.loadWorkspace` of a directory with Lake's
-  default configuration name, and `Lake.loadWorkspaceRoot` with `relConfigFile := "lakefile.toml"`, which loads that file
-  alone, with no dependency and no preference for `lakefile.lean`; the source directories, libraries with their `globs`,
-  default targets, the libraries and executables of a name, the targets' names, the file of an import (`findModule?`), the
+  default configuration name, and `Lake.loadWorkspaceRoot` with {lit}`relConfigFile := "lakefile.toml"`, which loads that file
+  alone, with no dependency and no preference for `lakefile.lean`; the source directories, libraries with their {lit}`globs`,
+  default targets, the libraries and executables of a name, the targets' names, the file of an import ({lit}`findModule?`), the
   workspace's search path, and the toolchain's and the root package's library directories; the modules of a library of
-  single modules, for which `Glob.one` lists no directory; Lake's TOML parser; the Lake beside the Lean of a system root;
+  single modules, for which {name (full := Lake.Glob.one)}`Glob.one` lists no directory; Lake's TOML parser; the Lake beside the Lean of a system root;
   and a Lake environment with no inherited search path. -/
   | lakeLoad
-  /-- H3: what `lake build` compiles for the default targets of an admitted reading is what `Compiled` states, and Lake
-  reads each such file, and the tree's configuration, as it stands when it runs (`LakeBehaviour`). Neither Lake's load nor
-  `findModule?` reads a module's file, so the reader can load before it writes one. -/
+  /-- H3: what {lit}`lake build` compiles for the default targets of an admitted reading is what {name (full := RegulaSpecification.Effects.Compiled)}`Compiled` states, and Lake
+  reads each such file, and the tree's configuration, as it stands when it runs ({name (full := RegulaSpecification.Effects.LakeBehaviour)}`LakeBehaviour`). Neither Lake's load nor
+  {lit}`findModule?` reads a module's file, so the reader can load before it writes one. -/
   | h3
   /-- H5: Lake's command line takes `lakefile.lean` as the configuration of a directory when that name resolves, and
-  otherwise `lakefile.toml` (`LakeSelection`). -/
+  otherwise `lakefile.toml` ({name (full := RegulaSpecification.Effects.LakeSelection)}`LakeSelection`). -/
   | h5
-  /-- `lake build --wfail` builds the default targets and fails on a warning, and `lake check` builds them, exports them,
-  replays the export in Lean's kernel in a process that loads no `.olean` of the project, and refuses each axiom other than
-  `propext`, `Quot.sound` and `Classical.choice` that a constant of the export mentions. Each works in the directory it is
-  started in, reads and writes no file of a project whose path it is not given, and with `LAKE_ARTIFACT_CACHE=false` restores nothing without
+  /-- {lit}`lake build --wfail` builds the default targets and fails on a warning, and {lit}`lake check` builds them, exports them,
+  replays the export in Lean's kernel in a process that loads no {lit}`.olean` of the project, and refuses each axiom other than
+  {name}`propext`, {name}`Quot.sound` and {name}`Classical.choice` that a constant of the export mentions. Each works in the directory it is
+  started in, reads and writes no file of a project whose path it is not given, and with {lit}`LAKE_ARTIFACT_CACHE=false` restores nothing without
   compiling it. -/
   | lakeCommands
-  /-- How Lake starts the checker. `lake lint` builds the executable that `lintDriver` names and starts it with
-  `lintDriverArgs` as its arguments, and `lake exe lint` starts the same program through the same call: in Lake's working
-  directory, with the environment that Lake inherited and `Workspace.augmentedEnvVars` over it, which sets `LEAN_SYSROOT` and
-  `LEAN_PATH`, with the workspace's libraries first, and holds no `REGULA_FULL`. `lakefile.toml` has no key that sets a
-  variable. With no option of Lake's, Lake loads the workspace in `.` with the configuration `lakefile`. -/
+  /-- How Lake starts the checker. {lit}`lake lint` builds the executable that {lit}`lintDriver` names and starts it with
+  {lit}`lintDriverArgs` as its arguments, and {lit}`lake exe lint` starts the same program through the same call: in Lake's working
+  directory, with the environment that Lake inherited and `Workspace.augmentedEnvVars` over it, which sets {lit}`LEAN_SYSROOT` and
+  {lit}`LEAN_PATH`, with the workspace's libraries first, and holds no {lit}`REGULA_FULL`. `lakefile.toml` has no key that sets a
+  variable. With no option of Lake's, Lake loads the workspace in {lit}`.` with the configuration {lit}`lakefile`. -/
   | lakeStart
-  /-- H4: `IO.FS.realPath` answers as `realpath(3)`. A path that crosses a link, or names a component in another case than
-  the volume stores it, gets other components (`RealPathBehaviour`); an absolute path with no `.`, `..` or empty component
+  /-- H4: {name}`IO.FS.realPath` answers as {lit}`realpath(3)`. A path that crosses a link, or names a component in another case than
+  the volume stores it, gets other components ({name (full := RegulaSpecification.Effects.RealPathBehaviour)}`RealPathBehaviour`); an absolute path with no {lit}`.`, `..` or empty component
   that crosses neither keeps its components; and a path asked twice in one run, with no other process changing the file
-  system, gets one answer (`OneRealPath`). -/
+  system, gets one answer ({name (full := RegulaSpecification.Effects.OneRealPath)}`OneRealPath`). -/
   | h4
-  /-- The file system. `IO.FS.readFile` gives the bytes that a name holds, decoded as UTF-8, and fails on anything else;
-  `symlinkMetadata` reports what a name holds, following no link; `writeFile` and `createDirAll` act at the path given;
-  `createTempDir` makes a new, empty directory that only this user can use, or answers with an error; `removeDirAll` follows
-  no link. Two path strings with the same components, as `Regula.Load.parts` reads them, name one place, so a read and a
+  /-- The file system. {name}`IO.FS.readFile` gives the bytes that a name holds, decoded as UTF-8, and fails on anything else;
+  {name (full := System.FilePath.symlinkMetadata)}`symlinkMetadata` reports what a name holds, following no link; {name (full := IO.FS.writeFile)}`writeFile` and {name (full := IO.FS.createDirAll)}`createDirAll` act at the path given;
+  {name (full := IO.FS.createTempDir)}`createTempDir` makes a new, empty directory that only this user can use, or answers with an error; {name (full := IO.FS.removeDirAll)}`removeDirAll` follows
+  no link. Two path strings with the same components, as {name}`Regula.Load.parts` reads them, name one place, so a read and a
   Lake command through one path name one file. -/
   | files
-  /-- Processes. `IO.getEnv` gives a variable as the process inherited it; `IO.println` and a flush write to standard
-  output; `IO.Process.spawn` starts `/usr/bin/env` in the directory given, with standard input null, and waiting for the child gives
-  its exit code; `env -i` starts the program with the variables given and no other; `/usr/bin:/bin` holds the programs
+  /-- Processes. {name}`IO.getEnv` gives a variable as the process inherited it; {name}`IO.println` and a flush write to standard
+  output; {name}`IO.Process.spawn` starts `/usr/bin/env` in the directory given, with standard input null, and waiting for the child gives
+  its exit code; {lit}`env -i` starts the program with the variables given and no other; `/usr/bin:/bin` holds the programs
   that Lake asks for by name; and the dynamic loader loads no library that a project placed below its own directory. -/
   | processes
   deriving DecidableEq, Repr
@@ -156,8 +156,8 @@ inductive Unreached where
   /-- Reached only through a command, an attribute, a syntax or a file that the language check refuses, which the detail
   names. -/
   | refused
-  /-- Reached only from a Verso doc comment, which needs the option `doc.verso` or `doc.verso.module`, and neither is in the
-  admitted `options`. -/
+  /-- Reached only from a Verso doc comment, which needs the option {option}`doc.verso` or {option}`doc.verso.module`, and neither is in the
+  admitted {name (full := Regula.Language.options)}`options`. -/
   | verso
   /-- Code of the language server or the infoview, which a build does not run. -/
   | server
@@ -198,9 +198,9 @@ def platforms : Assumption → List Platform
 theorem os_on_platform (a : Assumption) (h : a.owner = .os) : a.platforms ≠ [] := by
   cases a <;> simp_all [owner, platforms]
 
-/-- What `leanImport` states of the facts of a load: the header of the environment holds the data of each of its modules.
-Lean builds both arrays from one (`Lean/Environment.lean:2313-2317`, `2367-2370`). It is the premise of
-`Loader.claimedConstants_complete`, by another name. -/
+/-- What {name}`leanImport` states of the facts of a load: the header of the environment holds the data of each of its modules.
+Lean builds both arrays from one ({lit}`Lean/Environment.lean:2313-2317`, {lit}`2367-2370`). It is the premise of
+{name}`Loader.claimedConstants_complete`, by another name. -/
 def ModuleDataComplete (f : Regula.Load.Facts) : Prop :=
   f.env.header.moduleData.size = f.modules.size
 
@@ -264,15 +264,15 @@ def sources : Assumption → List Source
 theorem sources_ne_nil (a : Assumption) : a.sources ≠ [] := by
   cases a <;> nofun
 
-/-- What `h1` says of the options that the parser reads in doc comments: neither is one that a file or the Lake configuration
+/-- What {name}`h1` says of the options that the parser reads in doc comments: neither is one that a file or the Lake configuration
 may set, so each admitted file is parsed with both unset. -/
 theorem verso_options_not_admitted :
     `doc.verso ∉ Regula.Language.options ∧ `doc.verso.module ∉ Regula.Language.options := by
   decide
 
 /-- The files that an entry's stated search matches and that it does not cite, each with why no admitted input reaches it.
-Only `h2` states a search: the whole words `evalConst`, `evalConstCheck`, `evalExpr`, `evalTerm` and `evalDecl` over the
-sources of Lean's repository at the tag `v4.35.0`. At that tag it matches 61 files. `h2`'s sources cite the 26 whose sites
+Only {name}`h2` states a search: the whole words {lit}`evalConst`, {lit}`evalConstCheck`, {lit}`evalExpr`, {lit}`evalTerm` and {lit}`evalDecl` over the
+sources of Lean's repository at the tag `v4.35.0`. At that tag it matches 61 files. {name}`h2`'s sources cite the 26 whose sites
 are reached only through what the tables refuse, each with every line the search matches, and this list names the other 35.
 That the two together are those 61 files is **measured**, by running the search at the tag and comparing, and no theorem
 states it; it is read again at each upgrade with the entry. -/
@@ -331,7 +331,7 @@ def excluded : Assumption → List Exclusion
         "`lakefile.lean`, of which the full gate's tree holds none (`Reason.configShadowed`)"⟩]
   | _ => []
 
-/-- The declarations of this package that state an entry formally, as a premise of a theorem of `Meaning`. An entry with
+/-- The declarations of this package that state an entry formally, as a premise of a theorem of {lit}`Meaning`. An entry with
 none is relied on through the meaning of a response, which no theorem here can state. -/
 def formal : Assumption → List Name
   | h1 | h2 => [``Language.LeanBehaviour]
@@ -363,13 +363,13 @@ def readAt : Assumption → String × String
   | files => ("4.35.0", "eb6cafb7290e8bd5f2937522d8d804f58f02bafc")
   | processes => ("4.35.0", "eb6cafb7290e8bd5f2937522d8d804f58f02bafc")
 
-/-- Each entry was read at the one release that the checker reads, so a change of `Regula.Closed.pinnedLean` fails this
+/-- Each entry was read at the one release that the checker reads, so a change of {name}`Regula.Closed.pinnedLean` fails this
 proof at each entry until that entry's sources are read again and its record changed. -/
 theorem readAt_pinned (a : Assumption) : a.readAt = Regula.Closed.pinnedLean := by
   cases a <;> rfl
 
-/-- What each operation of the checker relies on: the meaning of its response. A `match` over the closed type
-`Regula.Effect.Op`, so an operation added there fails this definition until it is given its entries. -/
+/-- What each operation of the checker relies on: the meaning of its response. A {lit}`match` over the closed type
+{name}`Regula.Effect.Op`, so an operation added there fails this definition until it is given its entries. -/
 def ofOp {L E : Type} : Regula.Effect.Op L E → List Assumption
   | .leanVersion => [leanVersion]
   | .getEnv _ => [processes, lakeStart]
@@ -403,11 +403,11 @@ end Assumption
 /-- The published ways to start the checker. Each names how Lake starts it and which verdict it gives; every other start is
 outside the contract. -/
 inductive Route where
-  /-- `lake lint` from the project's own directory, with no option of Lake's and `REGULA_FULL` unset: the proof verdict
+  /-- {lit}`lake lint` from the project's own directory, with no option of Lake's and {lit}`REGULA_FULL` unset: the proof verdict
   about the workspace in that directory. -/
   | proof
-  /-- `REGULA_FULL=DIR lake exe lint PROFILE` from the directory of a checkout of Regula built apart from the project, with
-  no option of Lake's: the full gate on the project at `DIR`. -/
+  /-- {lit}`REGULA_FULL=DIR lake exe lint PROFILE` from the directory of a checkout of Regula built apart from the project, with
+  no option of Lake's: the full gate on the project at {lit}`DIR`. -/
   | full
   deriving DecidableEq, Repr
 
@@ -416,7 +416,7 @@ namespace Route
 open Assumption
 
 /-- What each route relies on beyond its operations. Both rest on how Lake starts the checker, on the compiler and on the
-platform; a pass of the proof verdict also rests on the operator's `lake build --wfail` and `lake check` of the same build,
+platform; a pass of the proof verdict also rests on the operator's {lit}`lake build --wfail` and {lit}`lake check` of the same build,
 and on what the kernel's replay establishes. -/
 def relies : Route → List Assumption
   | proof => [lakeStart, compiler, platform, lakeCommands, kernel, h6]
@@ -428,7 +428,7 @@ theorem relies_ne_nil (r : Route) : r.relies ≠ [] := by
 
 end Route
 
-/-- No entry is idle: each is relied on by an operation, a route or a premise of `Meaning`. -/
+/-- No entry is idle: each is relied on by an operation, a route or a premise of {lit}`Meaning`. -/
 theorem each_relied_on (a : Assumption) :
     (∃ o : Regula.Effect.Op Unit Unit, a ∈ Assumption.ofOp o) ∨ (∃ r : Route, a ∈ r.relies) ∨ a.formal ≠ [] := by
   cases a
