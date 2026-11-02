@@ -148,7 +148,7 @@ theorem refuser_fails (tree : FilePath) :
 /-! ## What the executable runs -/
 
 /-- What `Prog.interpret` computes is the value of a run of the program, from any state of the world and for any
-table: so all that `run_meets` states holds of it. That `Regula.LintMain.main` is that interpretation is read from the code,
+table: so all that `run_meets` states holds of it. That `main` of `Regula.LintMain` is that interpretation is read from the code,
 and that the compiled program does what its definition says stays with
 Lean's compiler, which the trusted base lists. -/
 theorem executed_meets (table : (o : Op L E) → BaseIO (Resp o)) (args : List String) (w : Void IO.RealWorld) :
